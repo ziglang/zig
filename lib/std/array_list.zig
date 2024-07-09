@@ -170,7 +170,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// operations.
         /// Invalidates pre-existing pointers to elements at and after `index`.
         /// Invalidates all pre-existing element pointers if capacity must be
-        /// increased to accomodate the new elements.
+        /// increased to accommodate the new elements.
         /// Asserts that the index is in bounds or equal to the length.
         pub fn addManyAt(self: *Self, index: usize, count: usize) Allocator.Error![]T {
             const new_len = try addOrOom(self.items.len, count);
@@ -227,7 +227,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// This operation is O(N).
         /// Invalidates pre-existing pointers to elements at and after `index`.
         /// Invalidates all pre-existing element pointers if capacity must be
-        /// increased to accomodate the new elements.
+        /// increased to accommodate the new elements.
         /// Asserts that the index is in bounds or equal to the length.
         pub fn insertSlice(
             self: *Self,
@@ -740,7 +740,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// operations.
         /// Invalidates pre-existing pointers to elements at and after `index`.
         /// Invalidates all pre-existing element pointers if capacity must be
-        /// increased to accomodate the new elements.
+        /// increased to accommodate the new elements.
         /// Asserts that the index is in bounds or equal to the length.
         pub fn addManyAt(
             self: *Self,
@@ -776,7 +776,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// This operation is O(N).
         /// Invalidates pre-existing pointers to elements at and after `index`.
         /// Invalidates all pre-existing element pointers if capacity must be
-        /// increased to accomodate the new elements.
+        /// increased to accommodate the new elements.
         /// Asserts that the index is in bounds or equal to the length.
         pub fn insertSlice(
             self: *Self,

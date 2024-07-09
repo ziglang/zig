@@ -823,14 +823,14 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.zcmp)] = .{
         .llvm_name = "zcmp",
-        .description = "'Zcmp' (sequenced instuctions for code-size reduction)",
+        .description = "'Zcmp' (sequenced instructions for code-size reduction)",
         .dependencies = featureSet(&[_]Feature{
             .zca,
         }),
     };
     result[@intFromEnum(Feature.zcmt)] = .{
         .llvm_name = "zcmt",
-        .description = "'Zcmt' (table jump instuctions for code-size reduction)",
+        .description = "'Zcmt' (table jump instructions for code-size reduction)",
         .dependencies = featureSet(&[_]Feature{
             .zca,
             .zicsr,

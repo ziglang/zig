@@ -570,7 +570,7 @@ pub fn futex_wake(uaddr: *const i32, futex_op: u32, val: i32) usize {
 /// Returns the array index of one of the woken futexes.
 /// No further information is provided: any number of other futexes may also
 /// have been woken by the same event, and if more than one futex was woken,
-/// the retrned index may refer to any one of them.
+/// the returned index may refer to any one of them.
 /// (It is not necessaryily the futex with the smallest index, nor the one
 /// most recently woken, nor...)
 pub fn futex2_waitv(
@@ -648,7 +648,7 @@ pub fn futex2_wake(
 pub fn futex2_requeue(
     /// Array describing the source and destination futex.
     waiters: [*]futex_waitv,
-    /// Unsed.
+    /// Unused.
     flags: u32,
     /// Number of futexes to wake.
     nr_wake: i32,
@@ -6009,7 +6009,7 @@ else
         /// values of this resource limit.
         NICE,
 
-        /// Maximum realtime priority allowed for non-priviledged
+        /// Maximum realtime priority allowed for non-privileged
         /// processes.
         RTPRIO,
 
@@ -7228,7 +7228,7 @@ pub const futex_waitv = extern struct {
     uaddr: u64,
     /// Flags for this waiter.
     flags: u32,
-    /// Reserved memeber to preserve alignment.
+    /// Reserved member to preserve alignment.
     /// Should be 0.
     __reserved: u32,
 };

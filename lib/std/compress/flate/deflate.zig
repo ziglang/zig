@@ -183,7 +183,7 @@ fn Deflate(comptime container: Container, comptime WriterType: type, comptime Bl
                         // Write match from previous position.
                         step = try self.addMatch(m) - 1; // we already advanced 1 from previous position
                     } else {
-                        // No match at previous postition.
+                        // No match at previous position.
                         // Write previous literal if any, and remember this literal.
                         try self.addPrevLiteral();
                         self.prev_literal = literal;
@@ -268,9 +268,9 @@ fn Deflate(comptime container: Container, comptime WriterType: type, comptime Bl
         fn flushTokens(self: *Self, flush_opt: FlushOption) !void {
             // Pass tokens to the token writer
             try self.block_writer.write(self.tokens.tokens(), flush_opt == .final, self.win.tokensBuffer());
-            // Stored block ensures byte aligment.
+            // Stored block ensures byte alignment.
             // It has 3 bits (final, block_type) and then padding until byte boundary.
-            // After that everyting is aligned to the boundary in the stored block.
+            // After that everything is aligned to the boundary in the stored block.
             // Empty stored block is Ob000 + (0-7) bits of padding + 0x00 0x00 0xFF 0xFF.
             // Last 4 bytes are byte aligned.
             if (flush_opt == .flush) {
@@ -572,7 +572,7 @@ test "tokenization" {
     }
 }
 
-// Tests that tokens writen are equal to expected token list.
+// Tests that tokens written are equal to expected token list.
 const TestTokenWriter = struct {
     const Self = @This();
 
@@ -655,7 +655,7 @@ test "file tokenization" {
             const TokenWriter = TokenDecoder(@TypeOf(writer));
             var cmp = try Deflate(.raw, WriterType, TokenWriter).init(writer, .{ .level = level });
 
-            // Stream uncompressed `orignal` data to the compressor. It will
+            // Stream uncompressed `original` data to the compressor. It will
             // produce tokens list and pass that list to the TokenDecoder. This
             // TokenDecoder uses CircularBuffer from inflate to convert list of
             // tokens back to the uncompressed stream.

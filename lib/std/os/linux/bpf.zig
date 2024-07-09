@@ -140,7 +140,7 @@ pub const F_STRICT_ALIGNMENT = 0x1;
 
 /// If BPF_F_ANY_ALIGNMENT is used in BPF_PROF_LOAD command, the verifier will
 /// allow any alignment whatsoever. On platforms with strict alignment
-/// requirements for loads ands stores (such as sparc and mips) the verifier
+/// requirements for loads and stores (such as sparc and mips) the verifier
 /// validates that all loads and stores provably follow this requirement. This
 /// flag turns that checking and enforcement off.
 ///

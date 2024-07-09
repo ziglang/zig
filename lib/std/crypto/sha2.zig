@@ -1,6 +1,6 @@
 //! Secure Hashing Algorithm 2 (SHA2)
 //!
-//! Published by the National Institue of Standards and Technology (NIST) [1] [2].
+//! Published by the National Institute of Standards and Technology (NIST) [1] [2].
 //!
 //! Truncation mitigates length-extension attacks but increases vulnerability to collision
 //! attacks. Collision attacks remain impractical for all types defined here.

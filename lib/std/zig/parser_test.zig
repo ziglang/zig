@@ -4540,7 +4540,7 @@ test "zig fmt: decimal float literals with underscore separators" {
     );
 }
 
-test "zig fmt: hexadeciaml float literals with underscore separators" {
+test "zig fmt: hexadecimal float literals with underscore separators" {
     try testTransform(
         \\pub fn main() void {
         \\    const a: f64 = (0x10.0p-0+(0x10.0p+0))+0x10_00.00_00p-8+0x00_00.00_10p+16;
@@ -5003,7 +5003,7 @@ test "zig fmt: space after top level doc comment" {
 
 test "zig fmt: remove trailing whitespace after container doc comment" {
     try testTransform(
-        \\//! top level doc comment 
+        \\//! top level doc comment
         \\
     ,
         \\//! top level doc comment
@@ -5013,7 +5013,7 @@ test "zig fmt: remove trailing whitespace after container doc comment" {
 
 test "zig fmt: remove trailing whitespace after doc comment" {
     try testTransform(
-        \\/// doc comment 
+        \\/// doc comment
         \\a = 0,
         \\
     ,
@@ -6218,8 +6218,8 @@ test "recovery: eof in c pointer" {
 
 test "matching whitespace on minus op" {
     try testError(
-        \\ _ = 2 -1, 
-        \\ _ = 2- 1, 
+        \\ _ = 2 -1,
+        \\ _ = 2- 1,
         \\ _ = 2-
         \\     2,
         \\ _ = 2
@@ -6236,7 +6236,7 @@ test "matching whitespace on minus op" {
         \\ _ = -1,
         \\ _ = 2 - -1,
         \\ _ = 2 - 1,
-        \\ _ = 2-1, 
+        \\ _ = 2-1,
         \\ _ = 2 -
         \\1,
         \\ _ = 2
@@ -6247,8 +6247,8 @@ test "matching whitespace on minus op" {
 test "ampersand" {
     try testError(
         \\ _ = bar && foo,
-        \\ _ = bar&&foo, 
-        \\ _ = bar& & foo, 
+        \\ _ = bar&&foo,
+        \\ _ = bar& & foo,
         \\ _ = bar& &foo,
     , &.{
         .invalid_ampersand_ampersand,
@@ -6258,9 +6258,9 @@ test "ampersand" {
     });
 
     try testError(
-        \\ _ = bar & &foo, 
-        \\ _ = bar & &&foo, 
-        \\ _ = &&foo, 
+        \\ _ = bar & &foo,
+        \\ _ = bar & &&foo,
+        \\ _ = &&foo,
     , &.{});
 }
 

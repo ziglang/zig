@@ -1044,7 +1044,7 @@ fn detectAbiAndDynamicLinker(
             defer if (is_elf_file == false) file.close();
 
             // Shortest working interpreter path is "#!/i" (4)
-            // (interpreter is "/i", assuming all pathes are absolute, like in above comment).
+            // (interpreter is "/i", assuming all paths are absolute, like in above comment).
             // ELF magic number length is also 4.
             //
             // If file is shorter than that, it is definitely not ELF file

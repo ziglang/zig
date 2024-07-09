@@ -887,7 +887,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.nv)] = .{
         .llvm_name = "nv",
-        .description = "Enable v8.4-A Nested Virtualization Enchancement (FEAT_NV, FEAT_NV2)",
+        .description = "Enable v8.4-A Nested Virtualization Enhancement (FEAT_NV, FEAT_NV2)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.outline_atomics)] = .{
