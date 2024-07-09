@@ -2783,20 +2783,22 @@ pub const LoadedStructType = struct {
     }
 
     pub fn setInitsWip(s: LoadedStructType, ip: *InternPool) bool {
-        switch (s.layout) {
-            .@"packed" => {
-                const flag = &s.packedFlagsPtr(ip).field_inits_wip;
-                if (flag.*) return true;
-                flag.* = true;
-                return false;
-            },
-            .auto, .@"extern" => {
-                const flag = &s.flagsPtr(ip).field_inits_wip;
-                if (flag.*) return true;
-                flag.* = true;
-                return false;
-            },
-        }
+        return switch (s.layout) {
+            .@"packed" => @as(Tag.TypeStructPacked.Flags, @bitCast(@atomicRmw(
+                u32,
+                @as(*u32, @ptrCast(s.packedFlagsPtr(ip))),
+                .Or,
+                @bitCast(Tag.TypeStructPacked.Flags{ .field_inits_wip = true }),
+                .acq_rel,
+            ))).field_inits_wip,
+            .auto, .@"extern" => @as(Tag.TypeStruct.Flags, @bitCast(@atomicRmw(
+                u32,
+                @as(*u32, @ptrCast(s.flagsPtr(ip))),
+                .Or,
+                @bitCast(Tag.TypeStruct.Flags{ .field_inits_wip = true }),
+                .acq_rel,
+            ))).field_inits_wip,
+        };
     }
 
     pub fn clearInitsWip(s: LoadedStructType, ip: *InternPool) void {
@@ -2962,6 +2964,7 @@ pub const LoadedStructType = struct {
 pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
     const unwrapped_index = index.unwrap(ip);
     const extra_list = unwrapped_index.getExtra(ip);
+    const extra_items = extra_list.view().items(.@"0");
     const item = unwrapped_index.getItem(ip);
     switch (item.tag) {
         .type_struct => {
@@ -2982,10 +2985,12 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .names_map = .none,
                 .captures = CaptureValue.Slice.empty,
             };
-            const extra = extraDataTrail(extra_list, Tag.TypeStruct, item.data);
-            const fields_len = extra.data.fields_len;
-            var extra_index = extra.end;
-            const captures_len = if (extra.data.flags.any_captures) c: {
+            const decl: DeclIndex = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "decl").?]);
+            const zir_index: TrackedInst.Index = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "zir_index").?]);
+            const fields_len = extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "fields_len").?];
+            const flags: Tag.TypeStruct.Flags = @bitCast(@atomicLoad(u32, &extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "flags").?], .monotonic));
+            var extra_index = item.data + @as(u32, @typeInfo(Tag.TypeStruct).Struct.fields.len);
+            const captures_len = if (flags.any_captures) c: {
                 const len = extra_list.view().items(.@"0")[extra_index];
                 extra_index += 1;
                 break :c len;
@@ -2996,7 +3001,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .len = captures_len,
             };
             extra_index += captures_len;
-            if (extra.data.flags.is_reified) {
+            if (flags.is_reified) {
                 extra_index += 2; // PackedU64
             }
             const field_types: Index.Slice = .{
@@ -3005,7 +3010,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .len = fields_len,
             };
             extra_index += fields_len;
-            const names_map: OptionalMapIndex, const names = if (!extra.data.flags.is_tuple) n: {
+            const names_map: OptionalMapIndex, const names = if (!flags.is_tuple) n: {
                 const names_map: OptionalMapIndex = @enumFromInt(extra_list.view().items(.@"0")[extra_index]);
                 extra_index += 1;
                 const names: NullTerminatedString.Slice = .{
@@ -3016,7 +3021,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 extra_index += fields_len;
                 break :n .{ names_map, names };
             } else .{ .none, NullTerminatedString.Slice.empty };
-            const inits: Index.Slice = if (extra.data.flags.any_default_inits) i: {
+            const inits: Index.Slice = if (flags.any_default_inits) i: {
                 const inits: Index.Slice = .{
                     .tid = unwrapped_index.tid,
                     .start = extra_index,
@@ -3025,12 +3030,12 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 extra_index += fields_len;
                 break :i inits;
             } else Index.Slice.empty;
-            const namespace: OptionalNamespaceIndex = if (extra.data.flags.has_namespace) n: {
+            const namespace: OptionalNamespaceIndex = if (flags.has_namespace) n: {
                 const n: NamespaceIndex = @enumFromInt(extra_list.view().items(.@"0")[extra_index]);
                 extra_index += 1;
                 break :n n.toOptional();
             } else .none;
-            const aligns: Alignment.Slice = if (extra.data.flags.any_aligned_fields) a: {
+            const aligns: Alignment.Slice = if (flags.any_aligned_fields) a: {
                 const a: Alignment.Slice = .{
                     .tid = unwrapped_index.tid,
                     .start = extra_index,
@@ -3039,7 +3044,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 extra_index += std.math.divCeil(u32, fields_len, 4) catch unreachable;
                 break :a a;
             } else Alignment.Slice.empty;
-            const comptime_bits: LoadedStructType.ComptimeBits = if (extra.data.flags.any_comptime_fields) c: {
+            const comptime_bits: LoadedStructType.ComptimeBits = if (flags.any_comptime_fields) c: {
                 const len = std.math.divCeil(u32, fields_len, 32) catch unreachable;
                 const c: LoadedStructType.ComptimeBits = .{
                     .tid = unwrapped_index.tid,
@@ -3049,7 +3054,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 extra_index += len;
                 break :c c;
             } else LoadedStructType.ComptimeBits.empty;
-            const runtime_order: LoadedStructType.RuntimeOrder.Slice = if (!extra.data.flags.is_extern) ro: {
+            const runtime_order: LoadedStructType.RuntimeOrder.Slice = if (!flags.is_extern) ro: {
                 const ro: LoadedStructType.RuntimeOrder.Slice = .{
                     .tid = unwrapped_index.tid,
                     .start = extra_index,
@@ -3070,10 +3075,10 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
             return .{
                 .tid = unwrapped_index.tid,
                 .extra_index = item.data,
-                .decl = extra.data.decl.toOptional(),
+                .decl = decl.toOptional(),
                 .namespace = namespace,
-                .zir_index = extra.data.zir_index.toOptional(),
-                .layout = if (extra.data.flags.is_extern) .@"extern" else .auto,
+                .zir_index = zir_index.toOptional(),
+                .layout = if (flags.is_extern) .@"extern" else .auto,
                 .field_names = names,
                 .field_types = field_types,
                 .field_inits = inits,
@@ -3086,11 +3091,15 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
             };
         },
         .type_struct_packed, .type_struct_packed_inits => {
-            const extra = extraDataTrail(extra_list, Tag.TypeStructPacked, item.data);
+            const decl: DeclIndex = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "decl").?]);
+            const zir_index: TrackedInst.Index = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "zir_index").?]);
+            const fields_len = extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "fields_len").?];
+            const namespace: OptionalNamespaceIndex = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "namespace").?]);
+            const names_map: MapIndex = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "names_map").?]);
+            const flags: Tag.TypeStructPacked.Flags = @bitCast(@atomicLoad(u32, &extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "flags").?], .monotonic));
+            var extra_index = item.data + @as(u32, @typeInfo(Tag.TypeStructPacked).Struct.fields.len);
             const has_inits = item.tag == .type_struct_packed_inits;
-            const fields_len = extra.data.fields_len;
-            var extra_index = extra.end;
-            const captures_len = if (extra.data.flags.any_captures) c: {
+            const captures_len = if (flags.any_captures) c: {
                 const len = extra_list.view().items(.@"0")[extra_index];
                 extra_index += 1;
                 break :c len;
@@ -3101,7 +3110,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .len = captures_len,
             };
             extra_index += captures_len;
-            if (extra.data.flags.is_reified) {
+            if (flags.is_reified) {
                 extra_index += 2; // PackedU64
             }
             const field_types: Index.Slice = .{
@@ -3128,9 +3137,9 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
             return .{
                 .tid = unwrapped_index.tid,
                 .extra_index = item.data,
-                .decl = extra.data.decl.toOptional(),
-                .namespace = extra.data.namespace,
-                .zir_index = extra.data.zir_index.toOptional(),
+                .decl = decl.toOptional(),
+                .namespace = namespace,
+                .zir_index = zir_index.toOptional(),
                 .layout = .@"packed",
                 .field_names = field_names,
                 .field_types = field_types,
@@ -3139,7 +3148,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .runtime_order = LoadedStructType.RuntimeOrder.Slice.empty,
                 .comptime_bits = LoadedStructType.ComptimeBits.empty,
                 .offsets = LoadedStructType.Offsets.empty,
-                .names_map = extra.data.names_map.toOptional(),
+                .names_map = names_map.toOptional(),
                 .captures = captures,
             };
         },
@@ -4476,11 +4485,11 @@ pub const Tag = enum(u8) {
         flags: Flags,
 
         pub const Flags = packed struct(u32) {
-            any_captures: bool,
+            any_captures: bool = false,
             /// Dependency loop detection when resolving field inits.
-            field_inits_wip: bool,
-            inits_resolved: bool,
-            is_reified: bool,
+            field_inits_wip: bool = false,
+            inits_resolved: bool = false,
+            is_reified: bool = false,
             _: u28 = 0,
         };
     };
@@ -4526,36 +4535,36 @@ pub const Tag = enum(u8) {
         size: u32,
 
         pub const Flags = packed struct(u32) {
-            any_captures: bool,
-            is_extern: bool,
-            known_non_opv: bool,
-            requires_comptime: RequiresComptime,
-            is_tuple: bool,
-            assumed_runtime_bits: bool,
-            assumed_pointer_aligned: bool,
-            has_namespace: bool,
-            any_comptime_fields: bool,
-            any_default_inits: bool,
-            any_aligned_fields: bool,
+            any_captures: bool = false,
+            is_extern: bool = false,
+            known_non_opv: bool = false,
+            requires_comptime: RequiresComptime = @enumFromInt(0),
+            is_tuple: bool = false,
+            assumed_runtime_bits: bool = false,
+            assumed_pointer_aligned: bool = false,
+            has_namespace: bool = false,
+            any_comptime_fields: bool = false,
+            any_default_inits: bool = false,
+            any_aligned_fields: bool = false,
             /// `.none` until layout_resolved
-            alignment: Alignment,
+            alignment: Alignment = @enumFromInt(0),
             /// Dependency loop detection when resolving struct alignment.
-            alignment_wip: bool,
+            alignment_wip: bool = false,
             /// Dependency loop detection when resolving field types.
-            field_types_wip: bool,
+            field_types_wip: bool = false,
             /// Dependency loop detection when resolving struct layout.
-            layout_wip: bool,
+            layout_wip: bool = false,
             /// Indicates whether `size`, `alignment`, runtime field order, and
             /// field offets are populated.
-            layout_resolved: bool,
+            layout_resolved: bool = false,
             /// Dependency loop detection when resolving field inits.
-            field_inits_wip: bool,
+            field_inits_wip: bool = false,
             /// Indicates whether `field_inits` has been resolved.
-            inits_resolved: bool,
-            // The types and all its fields have had their layout resolved. Even through pointer,
+            inits_resolved: bool = false,
+            // The types and all its fields have had their layout resolved. Even through pointer = false,
             // which `layout_resolved` does not ensure.
-            fully_resolved: bool,
-            is_reified: bool,
+            fully_resolved: bool = false,
+            is_reified: bool = false,
             _: u6 = 0,
         };
     };
@@ -5400,40 +5409,46 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
         .type_struct => .{ .struct_type = ns: {
             if (data == 0) break :ns .empty_struct;
             const extra_list = unwrapped_index.getExtra(ip);
-            const extra = extraDataTrail(extra_list, Tag.TypeStruct, data);
-            if (extra.data.flags.is_reified) {
-                assert(!extra.data.flags.any_captures);
+            const extra_items = extra_list.view().items(.@"0");
+            const zir_index: TrackedInst.Index = @enumFromInt(extra_items[data + std.meta.fieldIndex(Tag.TypeStruct, "zir_index").?]);
+            const flags: Tag.TypeStruct.Flags = @bitCast(@atomicLoad(u32, &extra_items[data + std.meta.fieldIndex(Tag.TypeStruct, "flags").?], .monotonic));
+            const end_extra_index = data + @as(u32, @typeInfo(Tag.TypeStruct).Struct.fields.len);
+            if (flags.is_reified) {
+                assert(!flags.any_captures);
                 break :ns .{ .reified = .{
-                    .zir_index = extra.data.zir_index,
-                    .type_hash = extraData(extra_list, PackedU64, extra.end).get(),
+                    .zir_index = zir_index,
+                    .type_hash = extraData(extra_list, PackedU64, end_extra_index).get(),
                 } };
             }
             break :ns .{ .declared = .{
-                .zir_index = extra.data.zir_index,
-                .captures = .{ .owned = if (extra.data.flags.any_captures) .{
+                .zir_index = zir_index,
+                .captures = .{ .owned = if (flags.any_captures) .{
                     .tid = unwrapped_index.tid,
-                    .start = extra.end + 1,
-                    .len = extra_list.view().items(.@"0")[extra.end],
+                    .start = end_extra_index + 1,
+                    .len = extra_list.view().items(.@"0")[end_extra_index],
                 } else CaptureValue.Slice.empty },
             } };
         } },
 
         .type_struct_packed, .type_struct_packed_inits => .{ .struct_type = ns: {
             const extra_list = unwrapped_index.getExtra(ip);
-            const extra = extraDataTrail(extra_list, Tag.TypeStructPacked, data);
-            if (extra.data.flags.is_reified) {
-                assert(!extra.data.flags.any_captures);
+            const extra_items = extra_list.view().items(.@"0");
+            const zir_index: TrackedInst.Index = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "zir_index").?]);
+            const flags: Tag.TypeStructPacked.Flags = @bitCast(@atomicLoad(u32, &extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "flags").?], .monotonic));
+            const end_extra_index = data + @as(u32, @typeInfo(Tag.TypeStructPacked).Struct.fields.len);
+            if (flags.is_reified) {
+                assert(!flags.any_captures);
                 break :ns .{ .reified = .{
-                    .zir_index = extra.data.zir_index,
-                    .type_hash = extraData(extra_list, PackedU64, extra.end).get(),
+                    .zir_index = zir_index,
+                    .type_hash = extraData(extra_list, PackedU64, end_extra_index).get(),
                 } };
             }
             break :ns .{ .declared = .{
-                .zir_index = extra.data.zir_index,
-                .captures = .{ .owned = if (extra.data.flags.any_captures) .{
+                .zir_index = zir_index,
+                .captures = .{ .owned = if (flags.any_captures) .{
                     .tid = unwrapped_index.tid,
-                    .start = extra.end + 1,
-                    .len = extra_list.view().items(.@"0")[extra.end],
+                    .start = end_extra_index + 1,
+                    .len = extra_items[end_extra_index],
                 } else CaptureValue.Slice.empty },
             } };
         } },
