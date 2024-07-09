@@ -13824,10 +13824,10 @@ fn lowerAstErrors(astgen: *AstGen) !void {
     var notes: std.ArrayListUnmanaged(u32) = .{};
     defer notes.deinit(gpa);
 
-    if (token_tags[parse_err.token + @intFromBool(parse_err.token_is_prev)] == .invalid) {
-        const tok = parse_err.token + @intFromBool(parse_err.token_is_prev);
-        const bad_off: u32 = @intCast(tree.tokenSlice(parse_err.token + @intFromBool(parse_err.token_is_prev)).len);
-        const byte_abs = token_starts[parse_err.token + @intFromBool(parse_err.token_is_prev)] + bad_off;
+    const tok = parse_err.token + @intFromBool(parse_err.token_is_prev);
+    if (token_tags[tok] == .invalid) {
+        const bad_off: u32 = @intCast(tree.tokenSlice(tok).len);
+        const byte_abs = token_starts[tok] + bad_off;
         try notes.append(gpa, try astgen.errNoteTokOff(tok, bad_off, "invalid byte: '{'}'", .{
             std.zig.fmtEscapes(tree.source[byte_abs..][0..1]),
         }));
