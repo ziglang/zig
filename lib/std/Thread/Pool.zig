@@ -223,7 +223,7 @@ pub fn spawn(pool: *Pool, comptime func: anytype, args: anytype) !void {
         pool: *Pool,
         run_node: RunQueue.Node = .{ .data = .{ .runFn = runFn } },
 
-        fn runFn(runnable: *Runnable) void {
+        fn runFn(runnable: *Runnable, _: ?usize) void {
             const run_node: *RunQueue.Node = @fieldParentPtr("data", runnable);
             const closure: *@This() = @alignCast(@fieldParentPtr("run_node", run_node));
             @call(.auto, func, closure.arguments);
