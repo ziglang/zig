@@ -3415,6 +3415,24 @@ pub fn setregid(rgid: gid_t, egid: gid_t) SetIdError!void {
     }
 }
 
+pub const SetPgidError = error{
+    ProcessAlreadyExec,
+    InvalidProcessGroupId,
+    PermissionDenied,
+    ProcessNotFound,
+} || UnexpectedError;
+
+pub fn setpgid(pid: pid_t, pgid: pid_t) SetPgidError!void {
+    switch (errno(system.setpgid(pid, pgid))) {
+        .SUCCESS => return,
+        .ACCES => return error.ProcessAlreadyExec,
+        .INVAL => return error.InvalidProcessGroupId,
+        .PERM => return error.PermissionDenied,
+        .SRCH => return error.ProcessNotFound,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
 /// Test whether a file descriptor refers to a terminal.
 pub fn isatty(handle: fd_t) bool {
     if (native_os == .windows) {
