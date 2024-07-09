@@ -3437,22 +3437,26 @@ inline fn reverseVector(comptime N: usize, comptime T: type, a: []T) [N]T {
 
 /// In-place order reversal of a slice
 pub fn reverse(comptime T: type, items: []T) void {
-    if (@sizeOf(T) == 0) return;
     var i: usize = 0;
     const end = items.len / 2;
+    if (backend_supports_vectors and
+        !@inComptime() and
+        @bitSizeOf(T) > 0 and
+        std.math.isPowerOfTwo(@bitSizeOf(T)))
+    {
+        if (std.simd.suggestVectorLength(T)) |simd_size| {
+            if (simd_size <= end) {
+                const simd_end = end - (simd_size - 1);
+                while (i < simd_end) : (i += simd_size) {
+                    const left_slice = items[i .. i + simd_size];
+                    const right_slice = items[items.len - i - simd_size .. items.len - i];
 
-    if (std.simd.suggestVectorLength(T)) |simd_size| {
-        if (simd_size <= end) {
-            const simd_end = end - (simd_size - 1);
-            while (i < simd_end) : (i += simd_size) {
-                const left_slice = items[i .. i + simd_size];
-                const right_slice = items[items.len - i - simd_size .. items.len - i];
+                    const left_shuffled: [simd_size]T = reverseVector(simd_size, T, left_slice);
+                    const right_shuffled: [simd_size]T = reverseVector(simd_size, T, right_slice);
 
-                const left_shuffled: [simd_size]T = reverseVector(simd_size, T, left_slice);
-                const right_shuffled: [simd_size]T = reverseVector(simd_size, T, right_slice);
-
-                @memcpy(right_slice, &left_shuffled);
-                @memcpy(left_slice, &right_shuffled);
+                    @memcpy(right_slice, &left_shuffled);
+                    @memcpy(left_slice, &right_shuffled);
+                }
             }
         }
     }
@@ -3477,6 +3481,16 @@ test reverse {
         var arr = [_][]const u8{ "a", "b", "c", "d" };
         reverse([]const u8, arr[0..]);
         try testing.expectEqualSlices([]const u8, &arr, &[_][]const u8{ "d", "c", "b", "a" });
+    }
+    {
+        const MyType = union(enum) {
+            a: [3]u8,
+            b: u24,
+            c,
+        };
+        var arr = [_]MyType{ .{ .a = .{0, 0, 0} }, .{ .b = 0 }, .c };
+        reverse(MyType, arr[0..]);
+        try testing.expectEqualSlices(MyType, &arr, &([_]MyType{ .c, .{ .b = 0 }, .{ .a = .{0, 0, 0} } }));
     }
 }
 
