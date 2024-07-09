@@ -107,7 +107,7 @@ pub fn addCheckFile(translate_c: *TranslateC, expected_matches: []const []const 
 /// If the value is omitted, it is set to 1.
 /// `name` and `value` need not live longer than the function call.
 pub fn defineCMacro(translate_c: *TranslateC, name: []const u8, value: ?[]const u8) void {
-    const macro = std.Build.constructranslate_cMacro(translate_c.step.owner.allocator, name, value);
+    const macro = translate_c.step.owner.fmt("{s}={s}", .{ name, value orelse "1" });
     translate_c.c_macros.append(macro) catch @panic("OOM");
 }
 
