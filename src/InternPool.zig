@@ -5914,27 +5914,32 @@ fn extraFuncDecl(tid: Zcu.PerThread.Id, extra: Local.Extra, extra_index: u32) Ke
 }
 
 fn extraFuncInstance(ip: *const InternPool, tid: Zcu.PerThread.Id, extra: Local.Extra, extra_index: u32) Key.Func {
-    const P = Tag.FuncInstance;
-    const fi = extraDataTrail(extra, P, extra_index);
-    const func_decl = ip.funcDeclInfo(fi.data.generic_owner);
+    const extra_items = extra.view().items(.@"0");
+    const analysis_extra_index = extra_index + std.meta.fieldIndex(Tag.FuncInstance, "analysis").?;
+    const analysis: FuncAnalysis = @bitCast(@atomicLoad(u32, &extra_items[analysis_extra_index], .monotonic));
+    const owner_decl: DeclIndex = @enumFromInt(extra_items[extra_index + std.meta.fieldIndex(Tag.FuncInstance, "owner_decl").?]);
+    const ty: Index = @enumFromInt(extra_items[extra_index + std.meta.fieldIndex(Tag.FuncInstance, "ty").?]);
+    const generic_owner: Index = @enumFromInt(extra_items[extra_index + std.meta.fieldIndex(Tag.FuncInstance, "generic_owner").?]);
+    const func_decl = ip.funcDeclInfo(generic_owner);
+    const end_extra_index = extra_index + @as(u32, @typeInfo(Tag.FuncInstance).Struct.fields.len);
     return .{
         .tid = tid,
-        .ty = fi.data.ty,
-        .uncoerced_ty = fi.data.ty,
-        .analysis_extra_index = extra_index + std.meta.fieldIndex(P, "analysis").?,
+        .ty = ty,
+        .uncoerced_ty = ty,
+        .analysis_extra_index = analysis_extra_index,
         .zir_body_inst_extra_index = func_decl.zir_body_inst_extra_index,
-        .resolved_error_set_extra_index = if (fi.data.analysis.inferred_error_set) fi.end else 0,
-        .branch_quota_extra_index = extra_index + std.meta.fieldIndex(P, "branch_quota").?,
-        .owner_decl = fi.data.owner_decl,
+        .resolved_error_set_extra_index = if (analysis.inferred_error_set) end_extra_index else 0,
+        .branch_quota_extra_index = extra_index + std.meta.fieldIndex(Tag.FuncInstance, "branch_quota").?,
+        .owner_decl = owner_decl,
         .zir_body_inst = func_decl.zir_body_inst,
         .lbrace_line = func_decl.lbrace_line,
         .rbrace_line = func_decl.rbrace_line,
         .lbrace_column = func_decl.lbrace_column,
         .rbrace_column = func_decl.rbrace_column,
-        .generic_owner = fi.data.generic_owner,
+        .generic_owner = generic_owner,
         .comptime_args = .{
             .tid = tid,
-            .start = fi.end + @intFromBool(fi.data.analysis.inferred_error_set),
+            .start = end_extra_index + @intFromBool(analysis.inferred_error_set),
             .len = ip.funcTypeParamsLen(func_decl.ty),
         },
     };
