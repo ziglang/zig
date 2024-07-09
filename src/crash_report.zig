@@ -8,10 +8,11 @@ const windows = std.os.windows;
 const posix = std.posix;
 const native_os = builtin.os.tag;
 
-const Module = @import("Module.zig");
+const Zcu = @import("Zcu.zig");
 const Sema = @import("Sema.zig");
+const InternPool = @import("InternPool.zig");
 const Zir = std.zig.Zir;
-const Decl = Module.Decl;
+const Decl = Zcu.Decl;
 
 /// To use these crash report diagnostics, publish this panic in your main file
 /// and add `pub const enable_segfault_handler = false;` to your `std_options`.
@@ -75,19 +76,20 @@ fn dumpStatusReport() !void {
 
     const stderr = io.getStdErr().writer();
     const block: *Sema.Block = anal.block;
-    const mod = anal.sema.mod;
-    const block_src_decl = mod.declPtr(block.src_decl);
+    const zcu = anal.sema.pt.zcu;
+
+    const file, const src_base_node = Zcu.LazySrcLoc.resolveBaseNode(block.src_base_inst, zcu);
 
     try stderr.writeAll("Analyzing ");
-    try writeFullyQualifiedDeclWithFile(mod, block_src_decl, stderr);
+    try writeFilePath(file, stderr);
     try stderr.writeAll("\n");
 
     print_zir.renderInstructionContext(
         allocator,
         anal.body,
         anal.body_index,
-        mod.namespacePtr(block.namespace).file_scope,
-        block_src_decl.src_node,
+        file,
+        src_base_node,
         6, // indent
         stderr,
     ) catch |err| switch (err) {
@@ -95,21 +97,21 @@ fn dumpStatusReport() !void {
         else => |e| return e,
     };
     try stderr.writeAll("    For full context, use the command\n      zig ast-check -t ");
-    try writeFilePath(mod.namespacePtr(block.namespace).file_scope, stderr);
+    try writeFilePath(file, stderr);
     try stderr.writeAll("\n\n");
 
     var parent = anal.parent;
     while (parent) |curr| {
         fba.reset();
         try stderr.writeAll("  in ");
-        const curr_block_src_decl = mod.declPtr(curr.block.src_decl);
-        try writeFullyQualifiedDeclWithFile(mod, curr_block_src_decl, stderr);
+        const cur_block_file, const cur_block_src_base_node = Zcu.LazySrcLoc.resolveBaseNode(curr.block.src_base_inst, zcu);
+        try writeFilePath(cur_block_file, stderr);
         try stderr.writeAll("\n    > ");
         print_zir.renderSingleInstruction(
             allocator,
             curr.body[curr.body_index],
-            mod.namespacePtr(curr.block.namespace).file_scope,
-            curr_block_src_decl.src_node,
+            cur_block_file,
+            cur_block_src_base_node,
             6, // indent
             stderr,
         ) catch |err| switch (err) {
@@ -126,7 +128,7 @@ fn dumpStatusReport() !void {
 
 var crash_heap: [16 * 4096]u8 = undefined;
 
-fn writeFilePath(file: *Module.File, writer: anytype) !void {
+fn writeFilePath(file: *Zcu.File, writer: anytype) !void {
     if (file.mod.root.root_dir.path) |path| {
         try writer.writeAll(path);
         try writer.writeAll(std.fs.path.sep_str);
@@ -136,12 +138,6 @@ fn writeFilePath(file: *Module.File, writer: anytype) !void {
         try writer.writeAll(std.fs.path.sep_str);
     }
     try writer.writeAll(file.sub_file_path);
-}
-
-fn writeFullyQualifiedDeclWithFile(mod: *Module, decl: *Decl, writer: anytype) !void {
-    try writeFilePath(decl.getFileScope(mod), writer);
-    try writer.writeAll(": ");
-    try decl.renderFullyQualifiedDebugName(mod, writer);
 }
 
 pub fn compilerPanic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, maybe_ret_addr: ?usize) noreturn {

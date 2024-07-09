@@ -175,6 +175,15 @@ pub extern "kernel32" fn FillConsoleOutputCharacterW(hConsoleOutput: HANDLE, cCh
 pub extern "kernel32" fn FillConsoleOutputAttribute(hConsoleOutput: HANDLE, wAttribute: WORD, nLength: DWORD, dwWriteCoord: COORD, lpNumberOfAttrsWritten: *DWORD) callconv(WINAPI) BOOL;
 pub extern "kernel32" fn SetConsoleCursorPosition(hConsoleOutput: HANDLE, dwCursorPosition: COORD) callconv(WINAPI) BOOL;
 
+pub extern "kernel32" fn WriteConsoleW(hConsoleOutput: HANDLE, lpBuffer: [*]const u16, nNumberOfCharsToWrite: DWORD, lpNumberOfCharsWritten: ?*DWORD, lpReserved: ?LPVOID) callconv(WINAPI) BOOL;
+pub extern "kernel32" fn ReadConsoleOutputCharacterW(
+    hConsoleOutput: windows.HANDLE,
+    lpCharacter: [*]u16,
+    nLength: windows.DWORD,
+    dwReadCoord: windows.COORD,
+    lpNumberOfCharsRead: *windows.DWORD,
+) callconv(windows.WINAPI) windows.BOOL;
+
 pub extern "kernel32" fn GetCurrentDirectoryW(nBufferLength: DWORD, lpBuffer: ?[*]WCHAR) callconv(WINAPI) DWORD;
 
 pub extern "kernel32" fn GetCurrentThread() callconv(WINAPI) HANDLE;

@@ -18,6 +18,7 @@ export fn baz() void {
 //
 // :6:5: error: found compile log statement
 // :12:5: note: also here
+// :6:5: note: also here
 //
 // Compile Log Output:
 // @as(*const [5:0]u8, "begin")

@@ -2762,11 +2762,11 @@ pub const FixedBufferReader = struct {
     }
 
     fn readUleb128(fbr: *FixedBufferReader, comptime T: type) Error!T {
-        return std.leb.readULEB128(T, fbr);
+        return std.leb.readUleb128(T, fbr);
     }
 
     fn readIleb128(fbr: *FixedBufferReader, comptime T: type) Error!T {
-        return std.leb.readILEB128(T, fbr);
+        return std.leb.readIleb128(T, fbr);
     }
 
     fn readAddress(fbr: *FixedBufferReader, format: Format) Error!u64 {

@@ -15,4 +15,4 @@ export fn entry() void {
 // target=native
 //
 // :6:9: error: enum tag value 60 already taken
-// :4:5: note: other occurrence here
+// :4:9: note: other occurrence here

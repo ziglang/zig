@@ -445,8 +445,11 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     }
                 }
                 // free retained metadata for small allocations
-                var empty_it = self.empty_buckets.inorderIterator();
-                while (empty_it.next()) |node| {
+                while (self.empty_buckets.getMin()) |node| {
+                    // remove the node from the tree before destroying it
+                    var entry = self.empty_buckets.getEntryForExisting(node);
+                    entry.set(null);
+
                     var bucket = node.key;
                     if (config.never_unmap) {
                         // free page that was intentionally leaked by never_unmap
@@ -1454,4 +1457,20 @@ test "bug 9995 fix, large allocs count requested size not backing size" {
     try std.testing.expect(gpa.total_requested_bytes == 1);
     buf = try allocator.realloc(buf, 2);
     try std.testing.expect(gpa.total_requested_bytes == 2);
+}
+
+test "retain metadata and never unmap" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{
+        .safety = true,
+        .never_unmap = true,
+        .retain_metadata = true,
+    }){};
+    defer std.debug.assert(gpa.deinit() == .ok);
+    const allocator = gpa.allocator();
+
+    const alloc = try allocator.alloc(u8, 8);
+    allocator.free(alloc);
+
+    const alloc2 = try allocator.alloc(u8, 8);
+    allocator.free(alloc2);
 }

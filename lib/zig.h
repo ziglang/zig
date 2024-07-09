@@ -207,16 +207,16 @@ typedef char bool;
     __asm(zig_mangle_c(name) " = " zig_mangle_c(symbol))
 #endif
 
+#define zig_mangled_tentative zig_mangled
+#define zig_mangled_final zig_mangled
 #if _MSC_VER
-#define zig_mangled_tentative(mangled, unmangled)
-#define zig_mangled_final(mangled, unmangled) ; \
+#define zig_mangled(mangled, unmangled) ; \
     zig_export(#mangled, unmangled)
 #define zig_mangled_export(mangled, unmangled, symbol) \
     zig_export(unmangled, #mangled) \
     zig_export(symbol, unmangled)
 #else /* _MSC_VER */
-#define zig_mangled_tentative(mangled, unmangled) __asm(zig_mangle_c(unmangled))
-#define zig_mangled_final(mangled, unmangled) zig_mangled_tentative(mangled, unmangled)
+#define zig_mangled(mangled, unmangled) __asm(zig_mangle_c(unmangled))
 #define zig_mangled_export(mangled, unmangled, symbol) \
     zig_mangled_final(mangled, unmangled) \
     zig_export(symbol, unmangled)
@@ -3089,7 +3089,7 @@ typedef _Float32 zig_f32;
 #undef zig_has_f32
 #define zig_has_f32 0
 #define zig_repr_f32 u32
-ypedef uint32_t zig_f32;
+typedef uint32_t zig_f32;
 #define zig_make_f32(fp, repr) repr
 #undef zig_make_special_f32
 #define zig_make_special_f32(sign, name, arg, repr) repr

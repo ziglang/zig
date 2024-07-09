@@ -12,7 +12,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const log = std.log.scoped(.link);
 
-const Module = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
 const InternPool = @import("../InternPool.zig");
 const Compilation = @import("../Compilation.zig");
 const link = @import("../link.zig");
@@ -82,35 +82,35 @@ pub fn deinit(self: *NvPtx) void {
     self.llvm_object.deinit();
 }
 
-pub fn updateFunc(self: *NvPtx, module: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
-    try self.llvm_object.updateFunc(module, func_index, air, liveness);
+pub fn updateFunc(self: *NvPtx, pt: Zcu.PerThread, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
+    try self.llvm_object.updateFunc(pt, func_index, air, liveness);
 }
 
-pub fn updateDecl(self: *NvPtx, module: *Module, decl_index: InternPool.DeclIndex) !void {
-    return self.llvm_object.updateDecl(module, decl_index);
+pub fn updateDecl(self: *NvPtx, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
+    return self.llvm_object.updateDecl(pt, decl_index);
 }
 
 pub fn updateExports(
     self: *NvPtx,
-    module: *Module,
-    exported: Module.Exported,
-    exports: []const *Module.Export,
+    pt: Zcu.PerThread,
+    exported: Zcu.Exported,
+    export_indices: []const u32,
 ) !void {
     if (build_options.skip_non_native and builtin.object_format != .nvptx)
         @panic("Attempted to compile for object format that was disabled by build configuration");
 
-    return self.llvm_object.updateExports(module, exported, exports);
+    return self.llvm_object.updateExports(pt, exported, export_indices);
 }
 
 pub fn freeDecl(self: *NvPtx, decl_index: InternPool.DeclIndex) void {
     return self.llvm_object.freeDecl(decl_index);
 }
 
-pub fn flush(self: *NvPtx, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
-    return self.flushModule(arena, prog_node);
+pub fn flush(self: *NvPtx, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
+    return self.flushModule(arena, tid, prog_node);
 }
 
-pub fn flushModule(self: *NvPtx, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(self: *NvPtx, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
     if (build_options.skip_non_native)
         @panic("Attempted to compile for architecture that was disabled by build configuration");
 
@@ -119,5 +119,6 @@ pub fn flushModule(self: *NvPtx, arena: Allocator, prog_node: *std.Progress.Node
     _ = arena;
     _ = self;
     _ = prog_node;
+    _ = tid;
     @panic("TODO: rewrite the NvPtx.flushModule function");
 }

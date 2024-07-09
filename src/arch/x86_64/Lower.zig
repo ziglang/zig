@@ -8,7 +8,7 @@ allocator: Allocator,
 mir: Mir,
 cc: std.builtin.CallingConvention,
 err_msg: ?*ErrorMsg = null,
-src_loc: Module.SrcLoc,
+src_loc: Zcu.LazySrcLoc,
 result_insts_len: u8 = undefined,
 result_relocs_len: u8 = undefined,
 result_insts: [
@@ -657,14 +657,14 @@ const std = @import("std");
 
 const Air = @import("../../Air.zig");
 const Allocator = std.mem.Allocator;
-const ErrorMsg = Module.ErrorMsg;
+const ErrorMsg = Zcu.ErrorMsg;
 const Immediate = bits.Immediate;
 const Instruction = encoder.Instruction;
 const Lower = @This();
 const Memory = Instruction.Memory;
 const Mir = @import("Mir.zig");
 const Mnemonic = Instruction.Mnemonic;
-const Module = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");
 const Operand = Instruction.Operand;
 const Prefix = Instruction.Prefix;
 const Register = bits.Register;

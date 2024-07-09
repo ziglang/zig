@@ -44,7 +44,7 @@ pub const Class = enum {
     }
 };
 
-pub fn classifyWindows(ty: Type, zcu: *Zcu) Class {
+pub fn classifyWindows(ty: Type, pt: Zcu.PerThread) Class {
     // https://docs.microsoft.com/en-gb/cpp/build/x64-calling-convention?view=vs-2017
     // "There's a strict one-to-one correspondence between a function call's arguments
     // and the registers used for those arguments. Any argument that doesn't fit in 8
@@ -53,7 +53,7 @@ pub fn classifyWindows(ty: Type, zcu: *Zcu) Class {
     // "All floating point operations are done using the 16 XMM registers."
     // "Structs and unions of size 8, 16, 32, or 64 bits, and __m64 types, are passed
     // as if they were integers of the same size."
-    switch (ty.zigTypeTag(zcu)) {
+    switch (ty.zigTypeTag(pt.zcu)) {
         .Pointer,
         .Int,
         .Bool,
@@ -68,12 +68,12 @@ pub fn classifyWindows(ty: Type, zcu: *Zcu) Class {
         .ErrorUnion,
         .AnyFrame,
         .Frame,
-        => switch (ty.abiSize(zcu)) {
+        => switch (ty.abiSize(pt)) {
             0 => unreachable,
             1, 2, 4, 8 => return .integer,
-            else => switch (ty.zigTypeTag(zcu)) {
+            else => switch (ty.zigTypeTag(pt.zcu)) {
                 .Int => return .win_i128,
-                .Struct, .Union => if (ty.containerLayout(zcu) == .@"packed") {
+                .Struct, .Union => if (ty.containerLayout(pt.zcu) == .@"packed") {
                     return .win_i128;
                 } else {
                     return .memory;
@@ -100,14 +100,14 @@ pub const Context = enum { ret, arg, field, other };
 
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
-pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8]Class {
+pub fn classifySystemV(ty: Type, pt: Zcu.PerThread, target: std.Target, ctx: Context) [8]Class {
     const memory_class = [_]Class{
         .memory, .none, .none, .none,
         .none,   .none, .none, .none,
     };
     var result = [1]Class{.none} ** 8;
-    switch (ty.zigTypeTag(zcu)) {
-        .Pointer => switch (ty.ptrSize(zcu)) {
+    switch (ty.zigTypeTag(pt.zcu)) {
+        .Pointer => switch (ty.ptrSize(pt.zcu)) {
             .Slice => {
                 result[0] = .integer;
                 result[1] = .integer;
@@ -119,7 +119,7 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8
             },
         },
         .Int, .Enum, .ErrorSet => {
-            const bits = ty.intInfo(zcu).bits;
+            const bits = ty.intInfo(pt.zcu).bits;
             if (bits <= 64) {
                 result[0] = .integer;
                 return result;
@@ -185,8 +185,8 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8
             else => unreachable,
         },
         .Vector => {
-            const elem_ty = ty.childType(zcu);
-            const bits = elem_ty.bitSize(zcu) * ty.arrayLen(zcu);
+            const elem_ty = ty.childType(pt.zcu);
+            const bits = elem_ty.bitSize(pt) * ty.arrayLen(pt.zcu);
             if (elem_ty.toIntern() == .bool_type) {
                 if (bits <= 32) return .{
                     .integer, .none, .none, .none,
@@ -250,7 +250,7 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8
             return memory_class;
         },
         .Optional => {
-            if (ty.isPtrLikeOptional(zcu)) {
+            if (ty.isPtrLikeOptional(pt.zcu)) {
                 result[0] = .integer;
                 return result;
             }
@@ -261,8 +261,8 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8
             // it contains unaligned fields, it has class MEMORY"
             // "If the size of the aggregate exceeds a single eightbyte, each is classified
             // separately.".
-            const ty_size = ty.abiSize(zcu);
-            switch (ty.containerLayout(zcu)) {
+            const ty_size = ty.abiSize(pt);
+            switch (ty.containerLayout(pt.zcu)) {
                 .auto, .@"extern" => {},
                 .@"packed" => {
                     assert(ty_size <= 16);
@@ -274,10 +274,10 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8
             if (ty_size > 64)
                 return memory_class;
 
-            _ = if (zcu.typeToStruct(ty)) |loaded_struct|
-                classifySystemVStruct(&result, 0, loaded_struct, zcu, target)
-            else if (zcu.typeToUnion(ty)) |loaded_union|
-                classifySystemVUnion(&result, 0, loaded_union, zcu, target)
+            _ = if (pt.zcu.typeToStruct(ty)) |loaded_struct|
+                classifySystemVStruct(&result, 0, loaded_struct, pt, target)
+            else if (pt.zcu.typeToUnion(ty)) |loaded_union|
+                classifySystemVUnion(&result, 0, loaded_union, pt, target)
             else
                 unreachable;
 
@@ -306,7 +306,7 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8
             return result;
         },
         .Array => {
-            const ty_size = ty.abiSize(zcu);
+            const ty_size = ty.abiSize(pt);
             if (ty_size <= 8) {
                 result[0] = .integer;
                 return result;
@@ -326,10 +326,10 @@ fn classifySystemVStruct(
     result: *[8]Class,
     starting_byte_offset: u64,
     loaded_struct: InternPool.LoadedStructType,
-    zcu: *Zcu,
+    pt: Zcu.PerThread,
     target: std.Target,
 ) u64 {
-    const ip = &zcu.intern_pool;
+    const ip = &pt.zcu.intern_pool;
     var byte_offset = starting_byte_offset;
     var field_it = loaded_struct.iterateRuntimeOrder(ip);
     while (field_it.next()) |field_index| {
@@ -338,29 +338,29 @@ fn classifySystemVStruct(
         byte_offset = std.mem.alignForward(
             u64,
             byte_offset,
-            field_align.toByteUnits() orelse field_ty.abiAlignment(zcu).toByteUnits().?,
+            field_align.toByteUnits() orelse field_ty.abiAlignment(pt).toByteUnits().?,
         );
-        if (zcu.typeToStruct(field_ty)) |field_loaded_struct| {
+        if (pt.zcu.typeToStruct(field_ty)) |field_loaded_struct| {
             switch (field_loaded_struct.layout) {
                 .auto, .@"extern" => {
-                    byte_offset = classifySystemVStruct(result, byte_offset, field_loaded_struct, zcu, target);
+                    byte_offset = classifySystemVStruct(result, byte_offset, field_loaded_struct, pt, target);
                     continue;
                 },
                 .@"packed" => {},
             }
-        } else if (zcu.typeToUnion(field_ty)) |field_loaded_union| {
+        } else if (pt.zcu.typeToUnion(field_ty)) |field_loaded_union| {
             switch (field_loaded_union.getLayout(ip)) {
                 .auto, .@"extern" => {
-                    byte_offset = classifySystemVUnion(result, byte_offset, field_loaded_union, zcu, target);
+                    byte_offset = classifySystemVUnion(result, byte_offset, field_loaded_union, pt, target);
                     continue;
                 },
                 .@"packed" => {},
             }
         }
-        const field_classes = std.mem.sliceTo(&classifySystemV(field_ty, zcu, target, .field), .none);
+        const field_classes = std.mem.sliceTo(&classifySystemV(field_ty, pt, target, .field), .none);
         for (result[@intCast(byte_offset / 8)..][0..field_classes.len], field_classes) |*result_class, field_class|
             result_class.* = result_class.combineSystemV(field_class);
-        byte_offset += field_ty.abiSize(zcu);
+        byte_offset += field_ty.abiSize(pt);
     }
     const final_byte_offset = starting_byte_offset + loaded_struct.size(ip).*;
     std.debug.assert(final_byte_offset == std.mem.alignForward(
@@ -375,30 +375,30 @@ fn classifySystemVUnion(
     result: *[8]Class,
     starting_byte_offset: u64,
     loaded_union: InternPool.LoadedUnionType,
-    zcu: *Zcu,
+    pt: Zcu.PerThread,
     target: std.Target,
 ) u64 {
-    const ip = &zcu.intern_pool;
+    const ip = &pt.zcu.intern_pool;
     for (0..loaded_union.field_types.len) |field_index| {
         const field_ty = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
-        if (zcu.typeToStruct(field_ty)) |field_loaded_struct| {
+        if (pt.zcu.typeToStruct(field_ty)) |field_loaded_struct| {
             switch (field_loaded_struct.layout) {
                 .auto, .@"extern" => {
-                    _ = classifySystemVStruct(result, starting_byte_offset, field_loaded_struct, zcu, target);
+                    _ = classifySystemVStruct(result, starting_byte_offset, field_loaded_struct, pt, target);
                     continue;
                 },
                 .@"packed" => {},
             }
-        } else if (zcu.typeToUnion(field_ty)) |field_loaded_union| {
+        } else if (pt.zcu.typeToUnion(field_ty)) |field_loaded_union| {
             switch (field_loaded_union.getLayout(ip)) {
                 .auto, .@"extern" => {
-                    _ = classifySystemVUnion(result, starting_byte_offset, field_loaded_union, zcu, target);
+                    _ = classifySystemVUnion(result, starting_byte_offset, field_loaded_union, pt, target);
                     continue;
                 },
                 .@"packed" => {},
             }
         }
-        const field_classes = std.mem.sliceTo(&classifySystemV(field_ty, zcu, target, .field), .none);
+        const field_classes = std.mem.sliceTo(&classifySystemV(field_ty, pt, target, .field), .none);
         for (result[@intCast(starting_byte_offset / 8)..][0..field_classes.len], field_classes) |*result_class, field_class|
             result_class.* = result_class.combineSystemV(field_class);
     }
@@ -537,6 +537,6 @@ const testing = std.testing;
 const InternPool = @import("../../InternPool.zig");
 const Register = @import("bits.zig").Register;
 const RegisterManagerFn = @import("../../register_manager.zig").RegisterManager;
-const Type = @import("../../type.zig").Type;
+const Type = @import("../../Type.zig");
 const Value = @import("../../Value.zig");
-const Zcu = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");

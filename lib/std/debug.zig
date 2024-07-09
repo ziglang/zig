@@ -77,19 +77,28 @@ const PdbOrDwarf = union(enum) {
     }
 };
 
-var stderr_mutex = std.Thread.Mutex{};
+/// Allows the caller to freely write to stderr until `unlockStdErr` is called.
+///
+/// During the lock, any `std.Progress` information is cleared from the terminal.
+pub fn lockStdErr() void {
+    std.Progress.lockStdErr();
+}
+
+pub fn unlockStdErr() void {
+    std.Progress.unlockStdErr();
+}
 
 /// Print to stderr, unbuffered, and silently returning on failure. Intended
 /// for use in "printf debugging." Use `std.log` functions for proper logging.
 pub fn print(comptime fmt: []const u8, args: anytype) void {
-    stderr_mutex.lock();
-    defer stderr_mutex.unlock();
+    lockStdErr();
+    defer unlockStdErr();
     const stderr = io.getStdErr().writer();
     nosuspend stderr.print(fmt, args) catch return;
 }
 
 pub fn getStderrMutex() *std.Thread.Mutex {
-    return &stderr_mutex;
+    @compileError("deprecated. call std.debug.lockStdErr() and std.debug.unlockStdErr() instead which will integrate properly with std.Progress");
 }
 
 /// TODO multithreaded awareness
@@ -107,8 +116,8 @@ pub fn getSelfDebugInfo() !*DebugInfo {
 /// Tries to print a hexadecimal view of the bytes, unbuffered, and ignores any error returned.
 /// Obtains the stderr mutex while dumping.
 pub fn dump_hex(bytes: []const u8) void {
-    stderr_mutex.lock();
-    defer stderr_mutex.unlock();
+    lockStdErr();
+    defer unlockStdErr();
     dump_hex_fallible(bytes) catch {};
 }
 
@@ -228,8 +237,8 @@ pub fn relocateContext(context: *ThreadContext) void {
     };
 }
 
-pub const have_getcontext = @hasDecl(posix.system, "getcontext") and
-    native_os != .openbsd and native_os != .haiku and
+pub const have_getcontext = native_os != .openbsd and native_os != .haiku and
+    !builtin.target.isAndroid() and
     (native_os != .linux or switch (builtin.cpu.arch) {
     .x86,
     .x86_64,
@@ -389,18 +398,28 @@ pub fn dumpStackTrace(stack_trace: std.builtin.StackTrace) void {
     }
 }
 
-/// This function invokes undefined behavior when `ok` is `false`.
+/// Invokes detectable illegal behavior when `ok` is `false`.
+///
 /// In Debug and ReleaseSafe modes, calls to this function are always
 /// generated, and the `unreachable` statement triggers a panic.
-/// In ReleaseFast and ReleaseSmall modes, calls to this function are
-/// optimized away, and in fact the optimizer is able to use the assertion
-/// in its heuristics.
-/// Inside a test block, it is best to use the `std.testing` module rather
-/// than this function, because this function may not detect a test failure
-/// in ReleaseFast and ReleaseSmall mode. Outside of a test block, this assert
+///
+/// In ReleaseFast and ReleaseSmall modes, calls to this function are optimized
+/// away, and in fact the optimizer is able to use the assertion in its
+/// heuristics.
+///
+/// Inside a test block, it is best to use the `std.testing` module rather than
+/// this function, because this function may not detect a test failure in
+/// ReleaseFast and ReleaseSmall mode. Outside of a test block, this assert
 /// function is the correct function to use.
 pub fn assert(ok: bool) void {
     if (!ok) unreachable; // assertion failure
+}
+
+/// Invokes detectable illegal behavior when the provided slice is not mapped
+/// or lacks read permissions.
+pub fn assertReadable(slice: []const volatile u8) void {
+    if (!runtime_safety) return;
+    for (slice) |*byte| _ = byte.*;
 }
 
 pub fn panic(comptime format: []const u8, args: anytype) noreturn {
@@ -438,9 +457,6 @@ pub fn panicExtra(
 /// The counter is incremented/decremented atomically.
 var panicking = std.atomic.Value(u8).init(0);
 
-// Locked to avoid interleaving panic messages from multiple threads.
-var panic_mutex = std.Thread.Mutex{};
-
 /// Counts how many times the panic handler is invoked by this thread.
 /// This is used to catch and handle panics triggered by the panic handler.
 threadlocal var panic_stage: usize = 0;
@@ -465,8 +481,8 @@ pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize
 
             // Make sure to release the mutex when done
             {
-                panic_mutex.lock();
-                defer panic_mutex.unlock();
+                lockStdErr();
+                defer unlockStdErr();
 
                 const stderr = io.getStdErr().writer();
                 if (builtin.single_threaded) {
@@ -1292,7 +1308,7 @@ pub fn readElfDebugInfo(
                     if (readElfDebugInfo(allocator, path, null, separate_debug_crc, &sections, mapped_mem)) |debug_info| return debug_info else |_| {}
                 }
 
-                var cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+                var cwd_buf: [fs.max_path_bytes]u8 = undefined;
                 const cwd_path = posix.realpath(".", &cwd_buf) catch break :blk;
 
                 // <global debug directory>/<absolute folder of current binary>/<gnu_debuglink>
@@ -1517,7 +1533,7 @@ test printLineFromFileAnyOs {
     var test_dir = std.testing.tmpDir(.{});
     defer test_dir.cleanup();
     // Relies on testing.tmpDir internals which is not ideal, but LineInfo requires paths.
-    const test_dir_path = try join(allocator, &.{ "zig-cache", "tmp", test_dir.sub_path[0..] });
+    const test_dir_path = try join(allocator, &.{ ".zig-cache", "tmp", test_dir.sub_path[0..] });
     defer allocator.free(test_dir_path);
 
     // Cases
@@ -2595,8 +2611,8 @@ fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopa
             _ = panicking.fetchAdd(1, .seq_cst);
 
             {
-                panic_mutex.lock();
-                defer panic_mutex.unlock();
+                lockStdErr();
+                defer unlockStdErr();
 
                 dumpSegfaultInfoPosix(sig, code, addr, ctx_ptr);
             }
@@ -2671,8 +2687,8 @@ fn handleSegfaultWindowsExtra(
                 _ = panicking.fetchAdd(1, .seq_cst);
 
                 {
-                    panic_mutex.lock();
-                    defer panic_mutex.unlock();
+                    lockStdErr();
+                    defer unlockStdErr();
 
                     dumpSegfaultInfoWindows(info, msg, label);
                 }
@@ -2750,12 +2766,18 @@ pub const Trace = ConfigurableTrace(2, 4, builtin.mode == .Debug);
 
 pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize, comptime is_enabled: bool) type {
     return struct {
-        addrs: [actual_size][stack_frame_count]usize = undefined,
-        notes: [actual_size][]const u8 = undefined,
-        index: Index = 0,
+        addrs: [actual_size][stack_frame_count]usize,
+        notes: [actual_size][]const u8,
+        index: Index,
 
         const actual_size = if (enabled) size else 0;
         const Index = if (enabled) usize else u0;
+
+        pub const init: @This() = .{
+            .addrs = undefined,
+            .notes = undefined,
+            .index = 0,
+        };
 
         pub const enabled = is_enabled;
 

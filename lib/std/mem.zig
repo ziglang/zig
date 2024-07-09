@@ -224,7 +224,7 @@ pub fn zeroes(comptime T: type) T {
         .ComptimeInt, .Int, .ComptimeFloat, .Float => {
             return @as(T, 0);
         },
-        .Enum, .EnumLiteral => {
+        .Enum => {
             return @as(T, @enumFromInt(0));
         },
         .Void => {
@@ -291,6 +291,7 @@ pub fn zeroes(comptime T: type) T {
             }
             @compileError("Can't set a " ++ @typeName(T) ++ " to zero.");
         },
+        .EnumLiteral,
         .ErrorUnion,
         .ErrorSet,
         .Fn,
@@ -2083,8 +2084,7 @@ test byteSwapAllFields {
     }, k);
 }
 
-/// Deprecated: use `tokenizeAny`, `tokenizeSequence`, or `tokenizeScalar`
-pub const tokenize = tokenizeAny;
+pub const tokenize = @compileError("deprecated; use tokenizeAny, tokenizeSequence, or tokenizeScalar");
 
 /// Returns an iterator that iterates over the slices of `buffer` that are not
 /// any of the items in `delimiters`.
@@ -2284,8 +2284,7 @@ test "tokenize (reset)" {
     }
 }
 
-/// Deprecated: use `splitSequence`, `splitAny`, or `splitScalar`
-pub const split = splitSequence;
+pub const split = @compileError("deprecated; use splitSequence, splitAny, or splitScalar");
 
 /// Returns an iterator that iterates over the slices of `buffer` that
 /// are separated by the byte sequence in `delimiter`.
@@ -2486,8 +2485,7 @@ test "split (reset)" {
     }
 }
 
-/// Deprecated: use `splitBackwardsSequence`, `splitBackwardsAny`, or `splitBackwardsScalar`
-pub const splitBackwards = splitBackwardsSequence;
+pub const splitBackwards = @compileError("deprecated; use splitBackwardsSequence, splitBackwardsAny, or splitBackwardsScalar");
 
 /// Returns an iterator that iterates backwards over the slices of `buffer` that
 /// are separated by the sequence in `delimiter`.

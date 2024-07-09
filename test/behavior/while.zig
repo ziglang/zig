@@ -258,7 +258,6 @@ fn returnWithImplicitCastFromWhileLoopTest() anyerror!void {
 
 test "while on error union with else result follow else prong" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const result = while (returnError()) |value| {
         break value;
@@ -268,7 +267,6 @@ test "while on error union with else result follow else prong" {
 
 test "while on error union with else result follow break prong" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const result = while (returnSuccess(10)) |value| {
         break value;
@@ -315,7 +313,6 @@ test "while error 2 break statements and an else" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn entry(opt_t: anyerror!bool, f: bool) !void {
@@ -382,7 +379,6 @@ test "while loop with comptime true condition needs no else block to return valu
 test "int returned from switch in while" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var x: u32 = 3;
     const val: usize = while (true) switch (x) {

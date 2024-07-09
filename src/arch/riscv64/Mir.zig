@@ -20,89 +20,118 @@ pub const Inst = struct {
     pub const Index = u32;
 
     pub const Tag = enum(u16) {
-        /// Add immediate. Uses i_type payload.
-        addi,
 
-        /// Add immediate and produce a sign-extended result.
-        ///
-        /// Uses i-type payload.
+        // base extension
+        addi,
         addiw,
 
         jalr,
         lui,
-        mv,
 
         @"and",
+        andi,
+
         xor,
+        @"or",
 
         ebreak,
         ecall,
         unimp,
 
-        /// OR instruction. Uses r_type payload.
-        @"or",
-
-        /// Addition
         add,
-        /// Subtraction
+        addw,
         sub,
-        /// Multiply, uses r_type. Needs the M extension.
-        mul,
-
-        /// Absolute Value, uses i_type payload.
-        abs,
+        subw,
 
         sltu,
         slt,
 
-        /// Immediate Logical Right Shift, uses i_type payload
-        srli,
-        /// Immediate Logical Left Shift, uses i_type payload
         slli,
-        /// Immediate Arithmetic Right Shift, uses i_type payload.
+        srli,
         srai,
-        /// Register Logical Left Shift, uses r_type payload
-        sllw,
-        /// Register Logical Right Shit, uses r_type payload
-        srlw,
 
-        /// Jumps, but stores the address of the instruction following the
-        /// jump in `rd`.
-        ///
-        /// Uses j_type payload.
+        slliw,
+        srliw,
+        sraiw,
+
+        sll,
+        srl,
+        sra,
+
+        sllw,
+        srlw,
+        sraw,
+
         jal,
 
-        /// Immediate AND, uses i_type payload
-        andi,
-
-        /// Branch if equal, Uses b_type
         beq,
-        /// Branch if not equal, Uses b_type
         bne,
 
-        /// Boolean NOT, Uses rr payload
-        not,
-
-        /// Generates a NO-OP, uses nop payload
         nop,
 
-        /// Load double (64 bits), uses i_type payload
         ld,
-        /// Load word (32 bits), uses i_type payload
         lw,
-        /// Load half (16 bits), uses i_type payload
         lh,
-        /// Load byte (8 bits), uses i_type payload
         lb,
 
-        /// Store double (64 bits), uses s_type payload
         sd,
-        /// Store word (32 bits), uses s_type payload
         sw,
-        /// Store half (16 bits), uses s_type payload
         sh,
-        /// Store byte (8 bits), uses s_type payload
         sb,
+
+        // M extension
+        mul,
+        mulw,
+
+        div,
+        divu,
+        divw,
+        divuw,
+
+        rem,
+        remu,
+        remw,
+        remuw,
+
+        // F extension (32-bit float)
+        fadds,
+        fsubs,
+        fmuls,
+        fdivs,
+
+        fabss,
+
+        fmins,
+        fmaxs,
+
+        fsqrts,
+
+        flw,
+        fsw,
+
+        feqs,
+        flts,
+        fles,
+
+        // D extension (64-bit float)
+        faddd,
+        fsubd,
+        fmuld,
+        fdivd,
+
+        fabsd,
+
+        fmind,
+        fmaxd,
+
+        fsqrtd,
+
+        fld,
+        fsd,
+
+        feqd,
+        fltd,
+        fled,
 
         /// A pseudo-instruction. Used for anything that isn't 1:1 with an
         /// assembly instruction.
@@ -192,6 +221,12 @@ pub const Inst = struct {
             rs: Register,
         },
 
+        fabs: struct {
+            rd: Register,
+            rs: Register,
+            bits: u16,
+        },
+
         compare: struct {
             rd: Register,
             rs1: Register,
@@ -204,6 +239,12 @@ pub const Inst = struct {
                 lt,
                 lte,
             },
+            ty: Type,
+        },
+
+        reloc: struct {
+            atom_index: u32,
+            sym_index: u32,
         },
     };
 
@@ -217,10 +258,7 @@ pub const Inst = struct {
 
         /// Two registers + immediate, uses the i_type payload.
         rri,
-        /// Two registers + Two Immediates
-        rrii,
-
-        /// Two registers + another instruction.
+        //extern_fn_reloc/ Two registers + another instruction.
         rr_inst,
 
         /// Register + Memory
@@ -268,6 +306,9 @@ pub const Inst = struct {
         /// Jumps. Uses `inst` payload.
         pseudo_j,
 
+        /// Floating point absolute value.
+        pseudo_fabs,
+
         /// Dead inst, ignored by the emitter.
         pseudo_dead,
 
@@ -286,6 +327,9 @@ pub const Inst = struct {
 
         pseudo_compare,
         pseudo_not,
+
+        /// Generates an auipc + jalr pair, with a R_RISCV_CALL_PLT reloc
+        pseudo_extern_fn_reloc,
     };
 
     // Make sure we don't accidentally make instructions bigger than expected.
@@ -387,6 +431,8 @@ pub const RegisterList = struct {
 const Mir = @This();
 const std = @import("std");
 const builtin = @import("builtin");
+const Type = @import("../../Type.zig");
+
 const assert = std.debug.assert;
 
 const bits = @import("bits.zig");

@@ -682,9 +682,8 @@ const ModuleBuilder = struct {
     }
 };
 
-pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: *std.Progress.Node) !void {
-    var sub_node = progress.start("Lower invocation globals", 6);
-    sub_node.activate();
+pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: std.Progress.Node) !void {
+    const sub_node = progress.start("Lower invocation globals", 6);
     defer sub_node.end();
 
     var arena = std.heap.ArenaAllocator.init(parser.a);
