@@ -224,15 +224,8 @@ pub fn createEmpty(
 
     // Append null file
     try self.files.append(gpa, .null);
-    // Atom at index 0 is reserved as null atom
-    try self.atoms.append(gpa, .{});
-    try self.atoms_extra.append(gpa, 0);
     // Append empty string to string tables
-    try self.strings.buffer.append(gpa, 0);
     try self.strtab.append(gpa, 0);
-    // Append null symbols
-    try self.symbols.append(gpa, .{});
-    try self.symbols_extra.append(gpa, 0);
 
     if (opt_zcu) |zcu| {
         if (!use_llvm) {
@@ -301,10 +294,7 @@ pub fn deinit(self: *MachO) void {
     }
     self.sections.deinit(gpa);
 
-    self.symbols.deinit(gpa);
-    self.symbols_extra.deinit(gpa);
-    self.symbols_free_list.deinit(gpa);
-    self.globals.deinit(gpa);
+    self.resolver.deinit(gpa);
     {
         var it = self.undefs.iterator();
         while (it.next()) |entry| {
@@ -312,10 +302,7 @@ pub fn deinit(self: *MachO) void {
         }
         self.undefs.deinit(gpa);
     }
-    self.undefined_symbols.deinit(gpa);
-    self.boundary_symbols.deinit(gpa);
 
-    self.strings.deinit(gpa);
     self.symtab.deinit(gpa);
     self.strtab.deinit(gpa);
     self.got.deinit(gpa);
@@ -330,11 +317,6 @@ pub fn deinit(self: *MachO) void {
     self.export_trie.deinit(gpa);
     self.unwind_info.deinit(gpa);
 
-    self.atoms.deinit(gpa);
-    self.atoms_extra.deinit(gpa);
-    for (self.thunks.items) |*thunk| {
-        thunk.deinit(gpa);
-    }
     self.thunks.deinit(gpa);
 }
 
@@ -513,17 +495,14 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
         const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
         self.files.set(index, .{ .internal = .{ .index = index } });
         self.internal_object = index;
+        const object = self.getInternalObject().?;
+        try object.init(gpa);
+        try object.initSymbols(self);
     }
 
-    try self.addUndefinedGlobals();
     try self.resolveSymbols();
-    try self.parseDebugInfo();
-    try self.resolveSyntheticSymbols();
-
-    try self.convertTentativeDefinitions();
-    try self.createObjcSections();
+    try self.convertTentativeDefsAndResolveSpecialSymbols();
     try self.dedupLiterals();
-    try self.claimUnresolved();
 
     if (self.base.gc_sections) {
         try dead_strip.gcAtoms(self);
@@ -545,6 +524,8 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
         const dylib = self.getFile(index).?.dylib;
         dylib.ordinal = @intCast(ord);
     }
+
+    try self.claimUnresolved();
 
     self.scanRelocs() catch |err| switch (err) {
         error.HasUndefinedSymbols => return error.FlushFailure,
@@ -1307,35 +1288,6 @@ fn parseDependentDylibs(self: *MachO) !void {
     if (has_errors) return error.MissingLibraryDependencies;
 }
 
-pub fn addUndefinedGlobals(self: *MachO) !void {
-    const gpa = self.base.comp.gpa;
-
-    try self.undefined_symbols.ensureUnusedCapacity(gpa, self.base.comp.force_undefined_symbols.keys().len);
-    for (self.base.comp.force_undefined_symbols.keys()) |name| {
-        const off = try self.strings.insert(gpa, name);
-        const gop = try self.getOrCreateGlobal(off);
-        self.undefined_symbols.appendAssumeCapacity(gop.index);
-    }
-
-    if (!self.base.isDynLib() and self.entry_name != null) {
-        const off = try self.strings.insert(gpa, self.entry_name.?);
-        const gop = try self.getOrCreateGlobal(off);
-        self.entry_index = gop.index;
-    }
-
-    {
-        const off = try self.strings.insert(gpa, "dyld_stub_binder");
-        const gop = try self.getOrCreateGlobal(off);
-        self.dyld_stub_binder_index = gop.index;
-    }
-
-    {
-        const off = try self.strings.insert(gpa, "_objc_msgSend");
-        const gop = try self.getOrCreateGlobal(off);
-        self.objc_msg_send_index = gop.index;
-    }
-}
-
 /// When resolving symbols, we approach the problem similarly to `mold`.
 /// 1. Resolve symbols across all objects (including those preemptively extracted archives).
 /// 2. Resolve symbols across all shared objects.
@@ -1348,18 +1300,17 @@ pub fn resolveSymbols(self: *MachO) !void {
     defer tracy.end();
 
     // Resolve symbols in the ZigObject. For now, we assume that it's always live.
-    if (self.getZigObject()) |zo| zo.asFile().resolveSymbols(self);
+    if (self.getZigObject()) |zo| try zo.asFile().resolveSymbols(self);
     // Resolve symbols on the set of all objects and shared objects (even if some are unneeded).
-    for (self.objects.items) |index| self.getFile(index).?.resolveSymbols(self);
-    for (self.dylibs.items) |index| self.getFile(index).?.resolveSymbols(self);
+    for (self.objects.items) |index| try self.getFile(index).?.resolveSymbols(self);
+    for (self.dylibs.items) |index| try self.getFile(index).?.resolveSymbols(self);
+    if (self.getInternalObject()) |obj| try obj.resolveSymbols(self);
 
     // Mark live objects.
     self.markLive();
 
     // Reset state of all globals after marking live objects.
-    if (self.getZigObject()) |zo| zo.asFile().resetGlobals(self);
-    for (self.objects.items) |index| self.getFile(index).?.resetGlobals(self);
-    for (self.dylibs.items) |index| self.getFile(index).?.resetGlobals(self);
+    self.resolver.reset();
 
     // Prune dead objects.
     var i: usize = 0;
@@ -1373,37 +1324,26 @@ pub fn resolveSymbols(self: *MachO) !void {
     }
 
     // Re-resolve the symbols.
-    if (self.getZigObject()) |zo| zo.resolveSymbols(self);
-    for (self.objects.items) |index| self.getFile(index).?.resolveSymbols(self);
-    for (self.dylibs.items) |index| self.getFile(index).?.resolveSymbols(self);
+    if (self.getZigObject()) |zo| try zo.resolveSymbols(self);
+    for (self.objects.items) |index| try self.getFile(index).?.resolveSymbols(self);
+    for (self.dylibs.items) |index| try self.getFile(index).?.resolveSymbols(self);
+    if (self.getInternalObject()) |obj| try obj.resolveSymbols(self);
+
+    // Merge symbol visibility
+    if (self.getZigObject()) |zo| zo.mergeSymbolVisibility(self);
+    for (self.objects.items) |index| self.getFile(index).?.object.mergeSymbolVisibility(self);
 }
 
 fn markLive(self: *MachO) void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    for (self.undefined_symbols.items) |index| {
-        if (self.getSymbol(index).getFile(self)) |file| {
-            if (file == .object) file.object.alive = true;
-        }
-    }
-    if (self.entry_index) |index| {
-        const sym = self.getSymbol(index);
-        if (sym.getFile(self)) |file| {
-            if (file == .object) file.object.alive = true;
-        }
-    }
     if (self.getZigObject()) |zo| zo.markLive(self);
     for (self.objects.items) |index| {
         const object = self.getFile(index).?.object;
         if (object.alive) object.markLive(self);
     }
-}
-
-pub fn parseDebugInfo(self: *MachO) !void {
-    for (self.objects.items) |index| {
-        try self.getFile(index).?.object.parseDebugInfo(self);
-    }
+    if (self.getInternalObject()) |obj| obj.markLive(self);
 }
 
 fn resolveSyntheticSymbols(self: *MachO) !void {
@@ -1453,9 +1393,13 @@ fn resolveSyntheticSymbols(self: *MachO) !void {
     }
 }
 
-fn convertTentativeDefinitions(self: *MachO) !void {
+fn convertTentativeDefsAndResolveSpecialSymbols(self: *MachO) !void {
     for (self.objects.items) |index| {
         try self.getFile(index).?.object.convertTentativeDefinitions(self);
+    }
+    if (self.getInternalObject()) |obj| {
+        try obj.resolveBoundarySymbols(self);
+        try obj.resolveObjcMsgSendSymbols(self);
     }
 }
 
@@ -1494,6 +1438,9 @@ fn createObjcSections(self: *MachO) !void {
 }
 
 pub fn dedupLiterals(self: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const gpa = self.base.comp.gpa;
     var lp: LiteralPool = .{};
     defer lp.deinit(gpa);
