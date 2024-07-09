@@ -68,6 +68,7 @@ weak_bind: WeakBind = .{},
 lazy_bind: LazyBind = .{},
 export_trie: ExportTrie = .{},
 unwind_info: UnwindInfo = .{},
+data_in_code: DataInCode = .{},
 
 /// Tracked loadable segments during incremental linking.
 zig_text_seg_index: ?u8 = null,
@@ -316,6 +317,7 @@ pub fn deinit(self: *MachO) void {
     self.lazy_bind.deinit(gpa);
     self.export_trie.deinit(gpa);
     self.unwind_info.deinit(gpa);
+    self.data_in_code.deinit(gpa);
 
     self.thunks.deinit(gpa);
 }
@@ -4524,6 +4526,7 @@ const Bind = bind.Bind;
 const Cache = std.Build.Cache;
 const CodeSignature = @import("MachO/CodeSignature.zig");
 const Compilation = @import("../Compilation.zig");
+const DataInCode = synthetic.DataInCode;
 pub const DebugSymbols = @import("MachO/DebugSymbols.zig");
 const Dylib = @import("MachO/Dylib.zig");
 const ExportTrie = @import("MachO/dyld_info/Trie.zig");
