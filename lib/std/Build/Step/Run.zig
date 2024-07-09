@@ -20,8 +20,11 @@ argv: std.ArrayListUnmanaged(Arg),
 /// Use `setCwd` to set the initial current working directory
 cwd: ?Build.LazyPath,
 
-/// Override this field to modify the environment, or use setEnvironmentVariable
+/// Override this field to modify the environment, or use `setEnvironmentVariable`
 env_map: ?*EnvMap,
+
+/// Use `addLazyEnvVar` instead of modyfing this directly
+lazy_env_map: std.ArrayListUnmanaged(LazyEnvVar),
 
 /// When `true` prevents `ZIG_PROGRESS` environment variable from being passed
 /// to the child process, which otherwise would be used for the child to send
@@ -145,6 +148,11 @@ pub const Output = struct {
     basename: []const u8,
 };
 
+pub const LazyEnvVar = struct {
+    key: []const u8,
+    value: std.Build.LazyPath,
+};
+
 pub fn create(owner: *std.Build, name: []const u8) *Run {
     const run = owner.allocator.create(Run) catch @panic("OOM");
     run.* = .{
@@ -157,6 +165,7 @@ pub fn create(owner: *std.Build, name: []const u8) *Run {
         .argv = .{},
         .cwd = null,
         .env_map = null,
+        .lazy_env_map = .{},
         .disable_zig_progress = false,
         .stdio = .infer_from_args,
         .stdin = .none,
@@ -434,6 +443,13 @@ fn getEnvMapInternal(run: *Run) *EnvMap {
     };
 }
 
+pub fn addLazyEnvVar(run: *Run, key: []const u8, lp: std.Build.LazyPath) void {
+    const b = run.step.owner;
+
+    run.lazy_env_map.append(b.allocator, .{ .key = key, .value = lp }) catch @panic("OOM");
+    lp.addStepDependencies(&run.step);
+}
+
 pub fn setEnvironmentVariable(run: *Run, key: []const u8, value: []const u8) void {
     const b = run.step.owner;
     const env_map = run.getEnvMap();
@@ -591,6 +607,12 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
 
     var man = b.graph.cache.obtain();
     defer man.deinit();
+
+    for (run.lazy_env_map.items) |lazy_env_var| {
+        const path = lazy_env_var.value.getPath2(b, step);
+        run.setEnvironmentVariable(lazy_env_var.key, path);
+        man.hash.addBytes(path);
+    }
 
     for (run.argv.items) |arg| {
         switch (arg) {
