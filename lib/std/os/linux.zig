@@ -698,12 +698,42 @@ pub fn inotify_rm_watch(fd: i32, wd: i32) usize {
     return syscall2(.inotify_rm_watch, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, wd))));
 }
 
-pub fn fanotify_init(flags: u32, event_f_flags: u32) usize {
-    return syscall2(.fanotify_init, flags, event_f_flags);
+pub fn fanotify_init(flags: fanotify.InitFlags, event_f_flags: u32) usize {
+    return syscall2(.fanotify_init, @as(u32, @bitCast(flags)), event_f_flags);
 }
 
-pub fn fanotify_mark(fd: i32, flags: u32, mask: u64, dirfd: i32, pathname: ?[*:0]const u8) usize {
-    return syscall5(.fanotify_mark, @as(usize, @bitCast(@as(isize, fd))), flags, mask, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(pathname));
+pub fn fanotify_mark(
+    fd: fd_t,
+    flags: fanotify.MarkFlags,
+    mask: fanotify.MarkMask,
+    dirfd: fd_t,
+    pathname: ?[*:0]const u8,
+) usize {
+    return syscall5(
+        .fanotify_mark,
+        @bitCast(@as(isize, fd)),
+        @as(u32, @bitCast(flags)),
+        @bitCast(mask),
+        @bitCast(@as(isize, dirfd)),
+        @intFromPtr(pathname),
+    );
+}
+
+pub fn name_to_handle_at(
+    dirfd: fd_t,
+    pathname: [*:0]const u8,
+    handle: *std.os.linux.file_handle,
+    mount_id: *i32,
+    flags: u32,
+) usize {
+    return syscall5(
+        .name_to_handle_at,
+        @as(u32, @bitCast(dirfd)),
+        @intFromPtr(pathname),
+        @intFromPtr(handle),
+        @intFromPtr(mount_id),
+        flags,
+    );
 }
 
 pub fn readlink(noalias path: [*:0]const u8, noalias buf_ptr: [*]u8, buf_len: usize) usize {
@@ -4135,57 +4165,155 @@ pub const IN = struct {
     pub const ONESHOT = 0x80000000;
 };
 
-pub const FAN = struct {
-    pub const ACCESS = 0x00000001;
-    pub const MODIFY = 0x00000002;
-    pub const CLOSE_WRITE = 0x00000008;
-    pub const CLOSE_NOWRITE = 0x00000010;
-    pub const OPEN = 0x00000020;
-    pub const Q_OVERFLOW = 0x00004000;
-    pub const OPEN_PERM = 0x00010000;
-    pub const ACCESS_PERM = 0x00020000;
-    pub const ONDIR = 0x40000000;
-    pub const EVENT_ON_CHILD = 0x08000000;
-    pub const CLOSE = CLOSE_WRITE | CLOSE_NOWRITE;
-    pub const CLOEXEC = 0x00000001;
-    pub const NONBLOCK = 0x00000002;
-    pub const CLASS_NOTIF = 0x00000000;
-    pub const CLASS_CONTENT = 0x00000004;
-    pub const CLASS_PRE_CONTENT = 0x00000008;
-    pub const ALL_CLASS_BITS = CLASS_NOTIF | CLASS_CONTENT | CLASS_PRE_CONTENT;
-    pub const UNLIMITED_QUEUE = 0x00000010;
-    pub const UNLIMITED_MARKS = 0x00000020;
-    pub const ALL_INIT_FLAGS = CLOEXEC | NONBLOCK | ALL_CLASS_BITS | UNLIMITED_QUEUE | UNLIMITED_MARKS;
-    pub const MARK_ADD = 0x00000001;
-    pub const MARK_REMOVE = 0x00000002;
-    pub const MARK_DONT_FOLLOW = 0x00000004;
-    pub const MARK_ONLYDIR = 0x00000008;
-    pub const MARK_MOUNT = 0x00000010;
-    pub const MARK_IGNORED_MASK = 0x00000020;
-    pub const MARK_IGNORED_SURV_MODIFY = 0x00000040;
-    pub const MARK_FLUSH = 0x00000080;
-    pub const ALL_MARK_FLAGS = MARK_ADD | MARK_REMOVE | MARK_DONT_FOLLOW | MARK_ONLYDIR | MARK_MOUNT | MARK_IGNORED_MASK | MARK_IGNORED_SURV_MODIFY | MARK_FLUSH;
-    pub const ALL_EVENTS = ACCESS | MODIFY | CLOSE | OPEN;
-    pub const ALL_PERM_EVENTS = OPEN_PERM | ACCESS_PERM;
-    pub const ALL_OUTGOING_EVENTS = ALL_EVENTS | ALL_PERM_EVENTS | Q_OVERFLOW;
-    pub const ALLOW = 0x01;
-    pub const DENY = 0x02;
+pub const fanotify = struct {
+    pub const InitFlags = packed struct(u32) {
+        CLOEXEC: bool = false,
+        NONBLOCK: bool = false,
+        CLASS: enum(u2) {
+            NOTIF = 0,
+            CONTENT = 1,
+            PRE_CONTENT = 2,
+        } = .NOTIF,
+        UNLIMITED_QUEUE: bool = false,
+        UNLIMITED_MARKS: bool = false,
+        ENABLE_AUDIT: bool = false,
+        REPORT_PIDFD: bool = false,
+        REPORT_TID: bool = false,
+        REPORT_FID: bool = false,
+        REPORT_DIR_FID: bool = false,
+        REPORT_NAME: bool = false,
+        REPORT_TARGET_FID: bool = false,
+        _: u19 = 0,
+    };
+
+    pub const MarkFlags = packed struct(u32) {
+        ADD: bool = false,
+        REMOVE: bool = false,
+        DONT_FOLLOW: bool = false,
+        ONLYDIR: bool = false,
+        MOUNT: bool = false,
+        /// Mutually exclusive with `IGNORE`
+        IGNORED_MASK: bool = false,
+        IGNORED_SURV_MODIFY: bool = false,
+        FLUSH: bool = false,
+        FILESYSTEM: bool = false,
+        EVICTABLE: bool = false,
+        /// Mutually exclusive with `IGNORED_MASK`
+        IGNORE: bool = false,
+        _: u21 = 0,
+    };
+
+    pub const MarkMask = packed struct(u64) {
+        /// File was accessed
+        ACCESS: bool = false,
+        /// File was modified
+        MODIFY: bool = false,
+        /// Metadata changed
+        ATTRIB: bool = false,
+        /// Writtable file closed
+        CLOSE_WRITE: bool = false,
+        /// Unwrittable file closed
+        CLOSE_NOWRITE: bool = false,
+        /// File was opened
+        OPEN: bool = false,
+        /// File was moved from X
+        MOVED_FROM: bool = false,
+        /// File was moved to Y
+        MOVED_TO: bool = false,
+
+        /// Subfile was created
+        CREATE: bool = false,
+        /// Subfile was deleted
+        DELETE: bool = false,
+        /// Self was deleted
+        DELETE_SELF: bool = false,
+        /// Self was moved
+        MOVE_SELF: bool = false,
+        /// File was opened for exec
+        OPEN_EXEC: bool = false,
+        reserved13: u1 = 0,
+        /// Event queued overflowed
+        Q_OVERFLOW: bool = false,
+        /// Filesystem error
+        FS_ERROR: bool = false,
+
+        /// File open in perm check
+        OPEN_PERM: bool = false,
+        /// File accessed in perm check
+        ACCESS_PERM: bool = false,
+        /// File open/exec in perm check
+        OPEN_EXEC_PERM: bool = false,
+        reserved19: u8 = 0,
+        /// Interested in child events
+        EVENT_ON_CHILD: bool = false,
+        /// File was renamed
+        RENAME: bool = false,
+        reserved30: u1 = 0,
+        /// Event occurred against dir
+        ONDIR: bool = false,
+        reserved31: u33 = 0,
+    };
+
+    pub const event_metadata = extern struct {
+        event_len: u32,
+        vers: u8,
+        reserved: u8,
+        metadata_len: u16,
+        mask: u64 align(8),
+        fd: i32,
+        pid: i32,
+
+        pub const VERSION = 3;
+    };
+
+    pub const response = extern struct {
+        fd: i32,
+        response: u32,
+    };
+
+    /// Unique file identifier info record.
+    ///
+    /// This structure is used for records of types `EVENT_INFO_TYPE.FID`.
+    /// `EVENT_INFO_TYPE.DFID` and `EVENT_INFO_TYPE.DFID_NAME`.
+    ///
+    /// For `EVENT_INFO_TYPE.DFID_NAME` there is additionally a null terminated
+    /// name immediately after the file handle.
+    pub const event_info_fid = extern struct {
+        hdr: event_info_header,
+        fsid: kernel_fsid_t,
+        /// Following is an opaque struct file_handle that can be passed as
+        /// an argument to open_by_handle_at(2).
+        handle: [0]u8,
+    };
+
+    /// Variable length info record following event metadata.
+    pub const event_info_header = extern struct {
+        info_type: EVENT_INFO_TYPE,
+        pad: u8,
+        len: u16,
+    };
+
+    pub const EVENT_INFO_TYPE = enum(u8) {
+        FID = 1,
+        DFID_NAME = 2,
+        DFID = 3,
+        PIDFD = 4,
+        ERROR = 5,
+        OLD_DFID_NAME = 10,
+        OLD_DFID = 11,
+        NEW_DFID_NAME = 12,
+        NEW_DFID = 13,
+    };
 };
 
-pub const fanotify_event_metadata = extern struct {
-    event_len: u32,
-    vers: u8,
-    reserved: u8,
-    metadata_len: u16,
-    mask: u64 align(8),
-    fd: i32,
-    pid: i32,
+pub const file_handle = extern struct {
+    handle_bytes: u32,
+    handle_type: i32,
+    f_handle: [0]u8,
 };
 
-pub const fanotify_response = extern struct {
-    fd: i32,
-    response: u32,
-};
+pub const kernel_fsid_t = fsid_t;
+pub const fsid_t = [2]i32;
 
 pub const S = struct {
     pub const IFMT = 0o170000;
