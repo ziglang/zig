@@ -4,7 +4,7 @@ records: std.ArrayListUnmanaged(Record.Ref) = .{},
 
 /// List of all personalities referenced by either unwind info entries
 /// or __eh_frame entries.
-personalities: [max_personalities]Symbol.Index = undefined,
+personalities: [max_personalities]MachO.Ref = undefined,
 personalities_count: u2 = 0,
 
 /// List of common encodings sorted in descending order with the most common first.
@@ -42,14 +42,17 @@ fn canFold(macho_file: *MachO, lhs_ref: Record.Ref, rhs_ref: Record.Ref) bool {
 }
 
 pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const gpa = macho_file.base.comp.gpa;
 
     log.debug("generating unwind info", .{});
 
     // Collect all unwind records
     for (macho_file.sections.items(.atoms)) |atoms| {
-        for (atoms.items) |atom_index| {
-            const atom = macho_file.getAtom(atom_index) orelse continue;
+        for (atoms.items) |ref| {
+            const atom = ref.getAtom(macho_file) orelse continue;
             if (!atom.flags.alive) continue;
             const recs = atom.getUnwindRecords(macho_file);
             const file = atom.getFile(macho_file);
@@ -73,11 +76,15 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
             }
             const cie = fde.getCie(macho_file);
             if (cie.getPersonality(macho_file)) |_| {
-                const personality_index = try info.getOrPutPersonalityFunction(cie.personality.?.index); // TODO handle error
+                const object = cie.getObject(macho_file);
+                const sym_ref = object.getSymbolRef(cie.personality.?.index, macho_file);
+                const personality_index = try info.getOrPutPersonalityFunction(sym_ref); // TODO handle error
                 rec.enc.setPersonalityIndex(personality_index + 1);
             }
         } else if (rec.getPersonality(macho_file)) |_| {
-            const personality_index = try info.getOrPutPersonalityFunction(rec.personality.?); // TODO handle error
+            const object = rec.getObject(macho_file);
+            const sym_ref = object.getSymbolRef(rec.personality.?, macho_file);
+            const personality_index = try info.getOrPutPersonalityFunction(sym_ref); // TODO handle error
             rec.enc.setPersonalityIndex(personality_index + 1);
         }
     }
@@ -257,6 +264,9 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
 }
 
 pub fn calcSize(info: UnwindInfo) usize {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     var total_size: usize = 0;
     total_size += @sizeOf(macho.unwind_info_section_header);
     total_size +=
@@ -293,8 +303,8 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, buffer: []u8) !void {
 
     try writer.writeAll(mem.sliceAsBytes(info.common_encodings[0..info.common_encodings_count]));
 
-    for (info.personalities[0..info.personalities_count]) |sym_index| {
-        const sym = macho_file.getSymbol(sym_index);
+    for (info.personalities[0..info.personalities_count]) |ref| {
+        const sym = ref.getSymbol(macho_file).?;
         try writer.writeInt(u32, @intCast(sym.getGotAddress(macho_file) - seg.vmaddr), .little);
     }
 
@@ -342,13 +352,13 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, buffer: []u8) !void {
     @memset(buffer[stream.pos..], 0);
 }
 
-fn getOrPutPersonalityFunction(info: *UnwindInfo, sym_index: Symbol.Index) error{TooManyPersonalities}!u2 {
+fn getOrPutPersonalityFunction(info: *UnwindInfo, ref: MachO.Ref) error{TooManyPersonalities}!u2 {
     comptime var index: u2 = 0;
     inline while (index < max_personalities) : (index += 1) {
-        if (info.personalities[index] == sym_index) {
+        if (info.personalities[index].eql(ref)) {
             return index;
         } else if (index == info.personalities_count) {
-            info.personalities[index] = sym_index;
+            info.personalities[index] = ref;
             info.personalities_count += 1;
             return index;
         }
@@ -472,7 +482,8 @@ pub const Record = struct {
 
     pub fn getPersonality(rec: Record, macho_file: *MachO) ?*Symbol {
         const personality = rec.personality orelse return null;
-        return macho_file.getSymbol(personality);
+        const object = rec.getObject(macho_file);
+        return object.getSymbolRef(personality, macho_file).getSymbol(macho_file);
     }
 
     pub fn getFde(rec: Record, macho_file: *MachO) ?Fde {

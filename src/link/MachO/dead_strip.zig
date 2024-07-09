@@ -17,16 +17,16 @@ pub fn gcAtoms(macho_file: *MachO) !void {
 fn collectRoots(roots: *std.ArrayList(*Atom), objects: []const File.Index, macho_file: *MachO) !void {
     for (objects) |index| {
         const object = macho_file.getFile(index).?;
-        for (object.getSymbols()) |sym_index| {
-            const sym = macho_file.getSymbol(sym_index);
-            const file = sym.getFile(macho_file) orelse continue;
+        for (object.getSymbols(), 0..) |*sym, i| {
+            const ref = object.getSymbolRef(@intCast(i), macho_file);
+            const file = ref.getFile(macho_file) orelse continue;
             if (file.getIndex() != index) continue;
             if (sym.flags.no_dead_strip or (macho_file.base.isDynLib() and sym.visibility == .global))
                 try markSymbol(sym, roots, macho_file);
         }
 
         for (object.getAtoms()) |atom_index| {
-            const atom = macho_file.getAtom(atom_index).?;
+            const atom = object.getAtom(atom_index) orelse continue;
             const isec = atom.getInputSection(macho_file);
             switch (isec.type()) {
                 macho.S_MOD_INIT_FUNC_POINTERS,
@@ -51,19 +51,27 @@ fn collectRoots(roots: *std.ArrayList(*Atom), objects: []const File.Index, macho
         }
     }
 
-    for (macho_file.undefined_symbols.items) |sym_index| {
-        const sym = macho_file.getSymbol(sym_index);
-        try markSymbol(sym, roots, macho_file);
-    }
+    if (macho_file.getInternalObject()) |obj| {
+        for (obj.force_undefined.items) |sym_index| {
+            const ref = obj.getSymbolRef(sym_index, macho_file);
+            if (ref.getFile(macho_file) != null) {
+                const sym = ref.getSymbol(macho_file).?;
+                try markSymbol(sym, roots, macho_file);
+            }
+        }
 
-    for (&[_]?Symbol.Index{
-        macho_file.entry_index,
-        macho_file.dyld_stub_binder_index,
-        macho_file.objc_msg_send_index,
-    }) |index| {
-        if (index) |idx| {
-            const sym = macho_file.getSymbol(idx);
-            try markSymbol(sym, roots, macho_file);
+        for (&[_]?Symbol.Index{
+            obj.entry_index,
+            obj.dyld_stub_binder_index,
+            obj.objc_msg_send_index,
+        }) |index| {
+            if (index) |idx| {
+                const ref = obj.getSymbolRef(idx, macho_file);
+                if (ref.getFile(macho_file) != null) {
+                    const sym = ref.getSymbol(macho_file).?;
+                    try markSymbol(sym, roots, macho_file);
+                }
+            }
         }
     }
 }
@@ -89,8 +97,9 @@ fn mark(roots: []*Atom, objects: []const File.Index, macho_file: *MachO) void {
         loop = false;
 
         for (objects) |index| {
-            for (macho_file.getFile(index).?.getAtoms()) |atom_index| {
-                const atom = macho_file.getAtom(atom_index).?;
+            const file = macho_file.getFile(index).?;
+            for (file.getAtoms()) |atom_index| {
+                const atom = file.getAtom(atom_index) orelse continue;
                 const isec = atom.getInputSection(macho_file);
                 if (isec.isDontDeadStripIfReferencesLive() and
                     !(mem.eql(u8, isec.sectName(), "__eh_frame") or
@@ -120,8 +129,11 @@ fn markLive(atom: *Atom, macho_file: *MachO) void {
 
     for (atom.getRelocs(macho_file)) |rel| {
         const target_atom = switch (rel.tag) {
-            .local => rel.getTargetAtom(macho_file),
-            .@"extern" => rel.getTargetSymbol(macho_file).getAtom(macho_file),
+            .local => rel.getTargetAtom(atom.*, macho_file),
+            .@"extern" => blk: {
+                const ref = rel.getTargetSymbolRef(atom.*, macho_file);
+                break :blk if (ref.getSymbol(macho_file)) |sym| sym.getAtom(macho_file) else null;
+            },
         };
         if (target_atom) |ta| {
             if (markAtom(ta)) markLive(ta, macho_file);
@@ -151,8 +163,11 @@ fn markLive(atom: *Atom, macho_file: *MachO) void {
 fn refersLive(atom: *Atom, macho_file: *MachO) bool {
     for (atom.getRelocs(macho_file)) |rel| {
         const target_atom = switch (rel.tag) {
-            .local => rel.getTargetAtom(macho_file),
-            .@"extern" => rel.getTargetSymbol(macho_file).getAtom(macho_file),
+            .local => rel.getTargetAtom(atom.*, macho_file),
+            .@"extern" => blk: {
+                const ref = rel.getTargetSymbolRef(atom.*, macho_file);
+                break :blk if (ref.getSymbol(macho_file)) |sym| sym.getAtom(macho_file) else null;
+            },
         };
         if (target_atom) |ta| {
             if (ta.flags.alive) return true;
@@ -163,8 +178,9 @@ fn refersLive(atom: *Atom, macho_file: *MachO) bool {
 
 fn prune(objects: []const File.Index, macho_file: *MachO) void {
     for (objects) |index| {
-        for (macho_file.getFile(index).?.getAtoms()) |atom_index| {
-            const atom = macho_file.getAtom(atom_index).?;
+        const file = macho_file.getFile(index).?;
+        for (file.getAtoms()) |atom_index| {
+            const atom = file.getAtom(atom_index) orelse continue;
             if (atom.flags.alive and !atom.flags.visited) {
                 atom.flags.alive = false;
                 atom.markUnwindRecordsDead(macho_file);
