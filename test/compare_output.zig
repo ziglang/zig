@@ -442,7 +442,7 @@ pub fn addCases(cases: *tests.CompareOutputContext) void {
         \\
         \\pub const std_options = .{
         \\    .log_level = .debug,
-        \\    
+        \\
         \\    .log_scope_levels = &.{
         \\        .{ .scope = .a, .level = .warn },
         \\        .{ .scope = .c, .level = .err },

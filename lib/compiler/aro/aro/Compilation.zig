@@ -534,8 +534,8 @@ pub fn generateBuiltinMacros(comp: *Compilation, system_defines_mode: SystemDefi
 
     if (system_defines_mode == .include_system_defines) {
         try buf.appendSlice(
-            \\#define __VERSION__ "Aro 
-        ++ @import("../backend.zig").version_str ++ "\"\n" ++
+            \\#define __VERSION__ "Aro
+        ++ " " ++ @import("../backend.zig").version_str ++ "\"\n" ++
             \\#define __Aro__
             \\
         );

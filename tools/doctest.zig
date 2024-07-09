@@ -1468,10 +1468,10 @@ test "printShell" {
         try testing.expectEqualSlices(u8, expected, buffer.items);
     }
     {
-        // intentional space after "--build-option1 \"
         const shell_out =
             \\$ zig build test.zig \
-            \\ --build-option1 \ 
+            \\ --build-option1 \
+        ++ " \n" ++
             \\ --build-option2
             \\$ ./test
         ;
