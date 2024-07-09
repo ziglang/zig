@@ -32,106 +32,15 @@ pub const File = union(enum) {
 
     pub fn resolveSymbols(file: File, macho_file: *MachO) void {
         switch (file) {
-            .internal => unreachable,
             inline else => |x| x.resolveSymbols(macho_file),
         }
     }
 
-    pub fn resetGlobals(file: File, macho_file: *MachO) void {
+    pub fn scanRelocs(file: File, macho_file: *MachO) !void {
         switch (file) {
-            .internal => unreachable,
-            inline else => |x| x.resetGlobals(macho_file),
-        }
-    }
-
-    pub fn claimUnresolved(file: File, macho_file: *MachO) error{OutOfMemory}!void {
-        assert(file == .object or file == .zig_object);
-
-        for (file.getSymbols(), 0..) |sym_index, i| {
-            const nlist_idx = @as(Symbol.Index, @intCast(i));
-            const nlist = switch (file) {
-                .object => |x| x.symtab.items(.nlist)[nlist_idx],
-                .zig_object => |x| x.symtab.items(.nlist)[nlist_idx],
-                else => unreachable,
-            };
-            if (!nlist.ext()) continue;
-            if (!nlist.undf()) continue;
-
-            const sym = macho_file.getSymbol(sym_index);
-            if (sym.getFile(macho_file) != null) continue;
-
-            const is_import = switch (macho_file.undefined_treatment) {
-                .@"error" => false,
-                .warn, .suppress => nlist.weakRef(),
-                .dynamic_lookup => true,
-            };
-            if (is_import) {
-                sym.value = 0;
-                sym.atom = 0;
-                sym.nlist_idx = 0;
-                sym.file = macho_file.internal_object.?;
-                sym.flags.weak = false;
-                sym.flags.weak_ref = nlist.weakRef();
-                sym.flags.import = is_import;
-                sym.visibility = .global;
-                try macho_file.getInternalObject().?.symbols.append(macho_file.base.comp.gpa, sym_index);
-            }
-        }
-    }
-
-    pub fn claimUnresolvedRelocatable(file: File, macho_file: *MachO) void {
-        assert(file == .object or file == .zig_object);
-
-        for (file.getSymbols(), 0..) |sym_index, i| {
-            const nlist_idx = @as(Symbol.Index, @intCast(i));
-            const nlist = switch (file) {
-                .object => |x| x.symtab.items(.nlist)[nlist_idx],
-                .zig_object => |x| x.symtab.items(.nlist)[nlist_idx],
-                else => unreachable,
-            };
-            if (!nlist.ext()) continue;
-            if (!nlist.undf()) continue;
-
-            const sym = macho_file.getSymbol(sym_index);
-            if (sym.getFile(macho_file) != null) continue;
-
-            sym.value = 0;
-            sym.atom = 0;
-            sym.nlist_idx = nlist_idx;
-            sym.file = file.getIndex();
-            sym.flags.weak_ref = nlist.weakRef();
-            sym.flags.import = true;
-            sym.visibility = .global;
-        }
-    }
-
-    pub fn markImportsExports(file: File, macho_file: *MachO) void {
-        assert(file == .object or file == .zig_object);
-
-        for (file.getSymbols()) |sym_index| {
-            const sym = macho_file.getSymbol(sym_index);
-            const other_file = sym.getFile(macho_file) orelse continue;
-            if (sym.visibility != .global) continue;
-            if (other_file == .dylib and !sym.flags.abs) {
-                sym.flags.import = true;
-                continue;
-            }
-            if (other_file.getIndex() == file.getIndex()) {
-                sym.flags.@"export" = true;
-            }
-        }
-    }
-
-    pub fn markExportsRelocatable(file: File, macho_file: *MachO) void {
-        assert(file == .object or file == .zig_object);
-
-        for (file.getSymbols()) |sym_index| {
-            const sym = macho_file.getSymbol(sym_index);
-            const other_file = sym.getFile(macho_file) orelse continue;
-            if (sym.visibility != .global) continue;
-            if (other_file.getIndex() == file.getIndex()) {
-                sym.flags.@"export" = true;
-            }
+            .dylib => unreachable,
+            .internal => |x| x.scanRelocs(macho_file),
+            inline else => |x| x.scanRelocs(macho_file),
         }
     }
 
@@ -162,16 +71,134 @@ pub const File = union(enum) {
         return base + (file.getIndex() << 24);
     }
 
-    pub fn getSymbols(file: File) []const Symbol.Index {
+    pub fn getAtom(file: File, atom_index: Atom.Index) ?*Atom {
         return switch (file) {
-            inline else => |x| x.symbols.items,
+            .dylib => unreachable,
+            inline else => |x| x.getAtom(atom_index),
         };
     }
 
     pub fn getAtoms(file: File) []const Atom.Index {
         return switch (file) {
             .dylib => unreachable,
-            inline else => |x| x.atoms.items,
+            inline else => |x| x.getAtoms(),
+        };
+    }
+
+    pub fn addAtomExtra(file: File, allocator: Allocator, extra: Atom.Extra) !u32 {
+        return switch (file) {
+            .dylib => unreachable,
+            inline else => |x| x.addAtomExtra(allocator, extra),
+        };
+    }
+
+    pub fn getAtomExtra(file: File, index: u32) Atom.Extra {
+        return switch (file) {
+            .dylib => unreachable,
+            inline else => |x| x.getAtomExtra(index),
+        };
+    }
+
+    pub fn setAtomExtra(file: File, index: u32, extra: Atom.Extra) void {
+        return switch (file) {
+            .dylib => unreachable,
+            inline else => |x| x.setAtomExtra(index, extra),
+        };
+    }
+
+    pub fn getSymbols(file: File) []Symbol {
+        return switch (file) {
+            inline else => |x| x.symbols.items,
+        };
+    }
+
+    pub fn getSymbolRef(file: File, sym_index: Symbol.Index, macho_file: *MachO) MachO.Ref {
+        return switch (file) {
+            inline else => |x| x.getSymbolRef(sym_index, macho_file),
+        };
+    }
+
+    pub fn markImportsExports(file: File, macho_file: *MachO) void {
+        const nsyms = switch (file) {
+            .dylib => unreachable,
+            inline else => |x| x.symbols.items.len,
+        };
+        for (0..nsyms) |i| {
+            const ref = file.getSymbolRef(@intCast(i), macho_file);
+            if (ref.getFile(macho_file) == null) continue;
+            const sym = ref.getSymbol(macho_file).?;
+            if (sym.visibility != .global) continue;
+            if (sym.getFile(macho_file).? == .dylib and !sym.flags.abs) {
+                sym.flags.import = true;
+                continue;
+            }
+            if (file.getIndex() == ref.file) {
+                sym.flags.@"export" = true;
+            }
+        }
+    }
+
+    pub fn createSymbolIndirection(file: File, macho_file: *MachO) !void {
+        const nsyms = switch (file) {
+            inline else => |x| x.symbols.items.len,
+        };
+        for (0..nsyms) |i| {
+            const ref = file.getSymbolRef(@intCast(i), macho_file);
+            if (ref.getFile(macho_file) == null) continue;
+            if (ref.file != file.getIndex()) continue;
+            const sym = ref.getSymbol(macho_file).?;
+            if (sym.getSectionFlags().got) {
+                log.debug("'{s}' needs GOT", .{sym.getName(macho_file)});
+                try macho_file.got.addSymbol(ref, macho_file);
+            }
+            if (sym.getSectionFlags().stubs) {
+                log.debug("'{s}' needs STUBS", .{sym.getName(macho_file)});
+                try macho_file.stubs.addSymbol(ref, macho_file);
+            }
+            if (sym.getSectionFlags().tlv_ptr) {
+                log.debug("'{s}' needs TLV pointer", .{sym.getName(macho_file)});
+                try macho_file.tlv_ptr.addSymbol(ref, macho_file);
+            }
+            if (sym.getSectionFlags().objc_stubs) {
+                log.debug("'{s}' needs OBJC STUBS", .{sym.getName(macho_file)});
+                try macho_file.objc_stubs.addSymbol(ref, macho_file);
+            }
+        }
+    }
+
+    pub fn initOutputSections(file: File, macho_file: *MachO) !void {
+        const tracy = trace(@src());
+        defer tracy.end();
+        for (file.getAtoms()) |atom_index| {
+            const atom = file.getAtom(atom_index) orelse continue;
+            if (!atom.alive.load(.seq_cst)) continue;
+            atom.out_n_sect = try Atom.initOutputSection(atom.getInputSection(macho_file), macho_file);
+        }
+    }
+
+    pub fn dedupLiterals(file: File, lp: MachO.LiteralPool, macho_file: *MachO) void {
+        return switch (file) {
+            .dylib => unreachable,
+            inline else => |x| x.dedupLiterals(lp, macho_file),
+        };
+    }
+
+    pub fn writeAtoms(file: File, macho_file: *MachO) !void {
+        return switch (file) {
+            .dylib => unreachable,
+            inline else => |x| x.writeAtoms(macho_file),
+        };
+    }
+
+    pub fn calcSymtabSize(file: File, macho_file: *MachO) !void {
+        return switch (file) {
+            inline else => |x| x.calcSymtabSize(macho_file),
+        };
+    }
+
+    pub fn writeSymtab(file: File, macho_file: *MachO, ctx: anytype) !void {
+        return switch (file) {
+            inline else => |x| x.writeSymtab(macho_file, ctx),
         };
     }
 
@@ -198,18 +225,6 @@ pub const File = union(enum) {
         };
     }
 
-    pub fn calcSymtabSize(file: File, macho_file: *MachO) !void {
-        return switch (file) {
-            inline else => |x| x.calcSymtabSize(macho_file),
-        };
-    }
-
-    pub fn writeSymtab(file: File, macho_file: *MachO, ctx: anytype) !void {
-        return switch (file) {
-            inline else => |x| x.writeSymtab(macho_file, ctx),
-        };
-    }
-
     pub const Index = u32;
 
     pub const Entry = union(enum) {
@@ -225,8 +240,10 @@ pub const File = union(enum) {
 };
 
 const assert = std.debug.assert;
+const log = std.log.scoped(.link);
 const macho = std.macho;
 const std = @import("std");
+const trace = @import("../../tracy.zig").trace;
 
 const Allocator = std.mem.Allocator;
 const Archive = @import("Archive.zig");
