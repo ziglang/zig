@@ -20,10 +20,6 @@ tid_shift_32: if (single_threaded) u0 else std.math.Log2Int(u32) = if (single_th
 /// These are not serialized; it is computed upon deserialization.
 maps: std.ArrayListUnmanaged(FieldMap) = .{},
 
-/// An index into `tracked_insts` gives a reference to a single ZIR instruction which
-/// persists across incremental updates.
-tracked_insts: std.AutoArrayHashMapUnmanaged(TrackedInst, void) = .{},
-
 /// Dependencies on the source code hash associated with a ZIR instruction.
 /// * For a `declaration`, this is the entire declaration body.
 /// * For a `struct_decl`, `union_decl`, etc, this is the source of the fields (but not declarations).
@@ -76,12 +72,15 @@ pub const TrackedInst = extern struct {
     }
     pub const Index = enum(u32) {
         _,
-        pub fn resolveFull(i: TrackedInst.Index, ip: *const InternPool) TrackedInst {
-            return ip.tracked_insts.keys()[@intFromEnum(i)];
+        pub fn resolveFull(tracked_inst_index: TrackedInst.Index, ip: *const InternPool) TrackedInst {
+            const tracked_inst_unwrapped = tracked_inst_index.unwrap(ip);
+            const tracked_insts = ip.getLocalShared(tracked_inst_unwrapped.tid).tracked_insts.acquire();
+            return tracked_insts.view().items(.@"0")[tracked_inst_unwrapped.index];
         }
         pub fn resolve(i: TrackedInst.Index, ip: *const InternPool) Zir.Inst.Index {
             return i.resolveFull(ip).inst;
         }
+
         pub fn toOptional(i: TrackedInst.Index) Optional {
             return @enumFromInt(@intFromEnum(i));
         }
@@ -95,21 +94,124 @@ pub const TrackedInst = extern struct {
                 };
             }
         };
+
+        pub const Unwrapped = struct {
+            tid: Zcu.PerThread.Id,
+            index: u32,
+
+            pub fn wrap(unwrapped: Unwrapped, ip: *const InternPool) TrackedInst.Index {
+                assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
+                assert(unwrapped.index <= ip.getIndexMask(u32));
+                return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_32 |
+                    unwrapped.index);
+            }
+        };
+        pub fn unwrap(tracked_inst_index: TrackedInst.Index, ip: *const InternPool) Unwrapped {
+            return .{
+                .tid = @enumFromInt(@intFromEnum(tracked_inst_index) >> ip.tid_shift_32 & ip.getTidMask()),
+                .index = @intFromEnum(tracked_inst_index) & ip.getIndexMask(u32),
+            };
+        }
     };
 };
 
 pub fn trackZir(
     ip: *InternPool,
     gpa: Allocator,
-    file: FileIndex,
-    inst: Zir.Inst.Index,
+    tid: Zcu.PerThread.Id,
+    key: TrackedInst,
 ) Allocator.Error!TrackedInst.Index {
-    const key: TrackedInst = .{
-        .file = file,
-        .inst = inst,
-    };
-    const gop = try ip.tracked_insts.getOrPut(gpa, key);
-    return @enumFromInt(gop.index);
+    const full_hash = Hash.hash(0, std.mem.asBytes(&key));
+    const hash: u32 = @truncate(full_hash >> 32);
+    const shard = &ip.shards[@intCast(full_hash & (ip.shards.len - 1))];
+    var map = shard.shared.tracked_inst_map.acquire();
+    const Map = @TypeOf(map);
+    var map_mask = map.header().mask();
+    var map_index = hash;
+    while (true) : (map_index += 1) {
+        map_index &= map_mask;
+        const entry = &map.entries[map_index];
+        const index = entry.acquire().unwrap() orelse break;
+        if (entry.hash != hash) continue;
+        if (std.meta.eql(index.resolveFull(ip), key)) return index;
+    }
+    shard.mutate.tracked_inst_map.mutex.lock();
+    defer shard.mutate.tracked_inst_map.mutex.unlock();
+    if (map.entries != shard.shared.tracked_inst_map.entries) {
+        shard.mutate.tracked_inst_map.len += 1;
+        map = shard.shared.tracked_inst_map;
+        map_mask = map.header().mask();
+        map_index = hash;
+    }
+    while (true) : (map_index += 1) {
+        map_index &= map_mask;
+        const entry = &map.entries[map_index];
+        const index = entry.acquire().unwrap() orelse break;
+        if (entry.hash != hash) continue;
+        if (std.meta.eql(index.resolveFull(ip), key)) return index;
+    }
+    defer shard.mutate.tracked_inst_map.len += 1;
+    const local = ip.getLocal(tid);
+    local.mutate.tracked_insts.mutex.lock();
+    defer local.mutate.tracked_insts.mutex.unlock();
+    const list = local.getMutableTrackedInsts(gpa);
+    try list.ensureUnusedCapacity(1);
+    const map_header = map.header().*;
+    if (shard.mutate.tracked_inst_map.len < map_header.capacity * 3 / 5) {
+        const entry = &map.entries[map_index];
+        entry.hash = hash;
+        const index = (TrackedInst.Index.Unwrapped{
+            .tid = tid,
+            .index = list.mutate.len,
+        }).wrap(ip);
+        list.appendAssumeCapacity(.{key});
+        entry.release(index.toOptional());
+        return index;
+    }
+    const arena_state = &local.mutate.arena;
+    var arena = arena_state.promote(gpa);
+    defer arena_state.* = arena.state;
+    const new_map_capacity = map_header.capacity * 2;
+    const new_map_buf = try arena.allocator().alignedAlloc(
+        u8,
+        Map.alignment,
+        Map.entries_offset + new_map_capacity * @sizeOf(Map.Entry),
+    );
+    const new_map: Map = .{ .entries = @ptrCast(new_map_buf[Map.entries_offset..].ptr) };
+    new_map.header().* = .{ .capacity = new_map_capacity };
+    @memset(new_map.entries[0..new_map_capacity], .{ .value = .none, .hash = undefined });
+    const new_map_mask = new_map.header().mask();
+    map_index = 0;
+    while (map_index < map_header.capacity) : (map_index += 1) {
+        const entry = &map.entries[map_index];
+        const index = entry.value.unwrap() orelse continue;
+        const item_hash = entry.hash;
+        var new_map_index = item_hash;
+        while (true) : (new_map_index += 1) {
+            new_map_index &= new_map_mask;
+            const new_entry = &new_map.entries[new_map_index];
+            if (new_entry.value != .none) continue;
+            new_entry.* = .{
+                .value = index.toOptional(),
+                .hash = item_hash,
+            };
+            break;
+        }
+    }
+    map = new_map;
+    map_index = hash;
+    while (true) : (map_index += 1) {
+        map_index &= new_map_mask;
+        if (map.entries[map_index].value == .none) break;
+    }
+    const index = (TrackedInst.Index.Unwrapped{
+        .tid = tid,
+        .index = list.mutate.len,
+    }).wrap(ip);
+    list.appendAssumeCapacity(.{key});
+    map.entries[map_index] = .{ .value = index.toOptional(), .hash = hash };
+    shard.shared.tracked_inst_map.release(new_map);
+    return index;
 }
 
 /// Analysis Unit. Represents a single entity which undergoes semantic analysis.
@@ -324,6 +426,7 @@ const Local = struct {
         extra: ListMutate,
         limbs: ListMutate,
         strings: ListMutate,
+        tracked_insts: MutexListMutate,
         files: ListMutate,
 
         decls: BucketListMutate,
@@ -335,6 +438,7 @@ const Local = struct {
         extra: Extra,
         limbs: Limbs,
         strings: Strings,
+        tracked_insts: TrackedInsts,
         files: List(File),
 
         decls: Decls,
@@ -356,6 +460,7 @@ const Local = struct {
         else => @compileError("unsupported host"),
     };
     const Strings = List(struct { u8 });
+    const TrackedInsts = List(struct { TrackedInst });
 
     const decls_bucket_width = 8;
     const decls_bucket_mask = (1 << decls_bucket_width) - 1;
@@ -372,6 +477,16 @@ const Local = struct {
 
         const empty: ListMutate = .{
             .len = 0,
+        };
+    };
+
+    const MutexListMutate = struct {
+        mutex: std.Thread.Mutex,
+        list: ListMutate,
+
+        const empty: MutexListMutate = .{
+            .mutex = .{},
+            .list = ListMutate.empty,
         };
     };
 
@@ -396,7 +511,7 @@ const Local = struct {
 
             const ListSelf = @This();
             const Mutable = struct {
-                gpa: std.mem.Allocator,
+                gpa: Allocator,
                 arena: *std.heap.ArenaAllocator.State,
                 mutate: *ListMutate,
                 list: *ListSelf,
@@ -564,7 +679,7 @@ const Local = struct {
                     mutable.list.release(new_list);
                 }
 
-                fn view(mutable: Mutable) View {
+                pub fn view(mutable: Mutable) View {
                     const capacity = mutable.list.header().capacity;
                     assert(capacity > 0); // optimizes `MultiArrayList.Slice.items`
                     return .{
@@ -614,7 +729,7 @@ const Local = struct {
         };
     }
 
-    pub fn getMutableItems(local: *Local, gpa: std.mem.Allocator) List(Item).Mutable {
+    pub fn getMutableItems(local: *Local, gpa: Allocator) List(Item).Mutable {
         return .{
             .gpa = gpa,
             .arena = &local.mutate.arena,
@@ -623,7 +738,7 @@ const Local = struct {
         };
     }
 
-    pub fn getMutableExtra(local: *Local, gpa: std.mem.Allocator) Extra.Mutable {
+    pub fn getMutableExtra(local: *Local, gpa: Allocator) Extra.Mutable {
         return .{
             .gpa = gpa,
             .arena = &local.mutate.arena,
@@ -636,7 +751,7 @@ const Local = struct {
     /// On 64-bit systems, this array is used for big integers and associated metadata.
     /// Use the helper methods instead of accessing this directly in order to not
     /// violate the above mechanism.
-    pub fn getMutableLimbs(local: *Local, gpa: std.mem.Allocator) Limbs.Mutable {
+    pub fn getMutableLimbs(local: *Local, gpa: Allocator) Limbs.Mutable {
         return switch (@sizeOf(Limb)) {
             @sizeOf(u32) => local.getMutableExtra(gpa),
             @sizeOf(u64) => .{
@@ -654,12 +769,23 @@ const Local = struct {
     /// is referencing the data here whether they want to store both index and length,
     /// thus allowing null bytes, or store only index, and use null-termination. The
     /// `strings` array is agnostic to either usage.
-    pub fn getMutableStrings(local: *Local, gpa: std.mem.Allocator) Strings.Mutable {
+    pub fn getMutableStrings(local: *Local, gpa: Allocator) Strings.Mutable {
         return .{
             .gpa = gpa,
             .arena = &local.mutate.arena,
             .mutate = &local.mutate.strings,
             .list = &local.shared.strings,
+        };
+    }
+
+    /// An index into `tracked_insts` gives a reference to a single ZIR instruction which
+    /// persists across incremental updates.
+    pub fn getMutableTrackedInsts(local: *Local, gpa: Allocator) TrackedInsts.Mutable {
+        return .{
+            .gpa = gpa,
+            .arena = &local.mutate.arena,
+            .mutate = &local.mutate.tracked_insts.list,
+            .list = &local.shared.tracked_insts,
         };
     }
 
@@ -672,7 +798,7 @@ const Local = struct {
     /// `InternPool.TrackedInst`.
     ///
     /// Value is the `Decl` of the struct that represents this `File`.
-    pub fn getMutableFiles(local: *Local, gpa: std.mem.Allocator) List(File).Mutable {
+    pub fn getMutableFiles(local: *Local, gpa: Allocator) List(File).Mutable {
         return .{
             .gpa = gpa,
             .arena = &local.mutate.arena,
@@ -691,7 +817,7 @@ const Local = struct {
     ///    serialization trivial.
     ///  * It provides a unique integer to be used for anonymous symbol names, avoiding
     ///    multi-threaded contention on an atomic counter.
-    pub fn getMutableDecls(local: *Local, gpa: std.mem.Allocator) Decls.Mutable {
+    pub fn getMutableDecls(local: *Local, gpa: Allocator) Decls.Mutable {
         return .{
             .gpa = gpa,
             .arena = &local.mutate.arena,
@@ -701,7 +827,7 @@ const Local = struct {
     }
 
     /// Same pattern as with `getMutableDecls`.
-    pub fn getMutableNamespaces(local: *Local, gpa: std.mem.Allocator) Namespaces.Mutable {
+    pub fn getMutableNamespaces(local: *Local, gpa: Allocator) Namespaces.Mutable {
         return .{
             .gpa = gpa,
             .arena = &local.mutate.arena,
@@ -723,11 +849,13 @@ const Shard = struct {
     shared: struct {
         map: Map(Index),
         string_map: Map(OptionalNullTerminatedString),
+        tracked_inst_map: Map(TrackedInst.Index.Optional),
     } align(std.atomic.cache_line),
     mutate: struct {
         // TODO: measure cost of sharing unrelated mutate state
         map: Mutate align(std.atomic.cache_line),
         string_map: Mutate align(std.atomic.cache_line),
+        tracked_inst_map: Mutate align(std.atomic.cache_line),
     },
 
     const Mutate = struct {
@@ -5240,6 +5368,7 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
             .extra = Local.Extra.empty,
             .limbs = Local.Limbs.empty,
             .strings = Local.Strings.empty,
+            .tracked_insts = Local.TrackedInsts.empty,
             .files = Local.List(File).empty,
 
             .decls = Local.Decls.empty,
@@ -5252,6 +5381,7 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
             .extra = Local.ListMutate.empty,
             .limbs = Local.ListMutate.empty,
             .strings = Local.ListMutate.empty,
+            .tracked_insts = Local.MutexListMutate.empty,
             .files = Local.ListMutate.empty,
 
             .decls = Local.BucketListMutate.empty,
@@ -5267,10 +5397,12 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
         .shared = .{
             .map = Shard.Map(Index).empty,
             .string_map = Shard.Map(OptionalNullTerminatedString).empty,
+            .tracked_inst_map = Shard.Map(TrackedInst.Index.Optional).empty,
         },
         .mutate = .{
             .map = Shard.Mutate.empty,
             .string_map = Shard.Mutate.empty,
+            .tracked_inst_map = Shard.Mutate.empty,
         },
     });
 
@@ -5310,8 +5442,6 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
 pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     for (ip.maps.items) |*map| map.deinit(gpa);
     ip.maps.deinit(gpa);
-
-    ip.tracked_insts.deinit(gpa);
 
     ip.src_hash_deps.deinit(gpa);
     ip.decl_val_deps.deinit(gpa);
@@ -9887,7 +10017,7 @@ pub fn getOrPutTrailingString(
     }
     const key: []const u8 = strings.view().items(.@"0")[start..];
     const value: embedded_nulls.StringType() =
-        @enumFromInt(@as(u32, @intFromEnum(tid)) << ip.tid_shift_32 | start);
+        @enumFromInt(@intFromEnum((String.Unwrapped{ .tid = tid, .index = start }).wrap(ip)));
     const has_embedded_null = std.mem.indexOfScalar(u8, key, 0) != null;
     switch (embedded_nulls) {
         .no_embedded_nulls => assert(!has_embedded_null),

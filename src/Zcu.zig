@@ -1018,6 +1018,14 @@ pub const ErrorMsg = struct {
     }
 };
 
+pub const AstGenSrc = union(enum) {
+    root,
+    import: struct {
+        importing_file: Zcu.File.Index,
+        import_tok: std.zig.Ast.TokenIndex,
+    },
+};
+
 /// Canonical reference to a position within a source file.
 pub const SrcLoc = struct {
     file_scope: *File,
@@ -3184,41 +3192,6 @@ pub fn handleUpdateExports(
             zcu.failed_exports.putAssumeCapacityNoClobber(export_idx, msg);
         },
     };
-}
-
-pub fn reportRetryableFileError(
-    zcu: *Zcu,
-    file_index: File.Index,
-    comptime format: []const u8,
-    args: anytype,
-) error{OutOfMemory}!void {
-    const gpa = zcu.gpa;
-    const ip = &zcu.intern_pool;
-
-    const file = zcu.fileByIndex(file_index);
-    file.status = .retryable_failure;
-
-    const err_msg = try ErrorMsg.create(
-        gpa,
-        .{
-            .base_node_inst = try ip.trackZir(gpa, file_index, .main_struct_inst),
-            .offset = .entire_file,
-        },
-        format,
-        args,
-    );
-    errdefer err_msg.destroy(gpa);
-
-    zcu.comp.mutex.lock();
-    defer zcu.comp.mutex.unlock();
-
-    const gop = try zcu.failed_files.getOrPut(gpa, file);
-    if (gop.found_existing) {
-        if (gop.value_ptr.*) |old_err_msg| {
-            old_err_msg.destroy(gpa);
-        }
-    }
-    gop.value_ptr.* = err_msg;
 }
 
 pub fn addGlobalAssembly(mod: *Module, decl_index: Decl.Index, source: []const u8) !void {

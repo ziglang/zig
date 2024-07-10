@@ -835,12 +835,11 @@ pub const Block = struct {
     }
 
     fn trackZir(block: *Block, inst: Zir.Inst.Index) Allocator.Error!InternPool.TrackedInst.Index {
-        const sema = block.sema;
-        const gpa = sema.gpa;
-        const zcu = sema.pt.zcu;
-        const ip = &zcu.intern_pool;
-        const file_index = block.getFileScopeIndex(zcu);
-        return ip.trackZir(gpa, file_index, inst);
+        const pt = block.sema.pt;
+        return pt.zcu.intern_pool.trackZir(pt.zcu.gpa, pt.tid, .{
+            .file = block.getFileScopeIndex(pt.zcu),
+            .inst = inst,
+        });
     }
 };
 

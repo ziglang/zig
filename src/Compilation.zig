@@ -2675,7 +2675,10 @@ fn reportMultiModuleErrors(pt: Zcu.PerThread) !void {
                     .import => |import| try Zcu.ErrorMsg.init(
                         gpa,
                         .{
-                            .base_node_inst = try ip.trackZir(gpa, import.file, .main_struct_inst),
+                            .base_node_inst = try ip.trackZir(gpa, pt.tid, .{
+                                .file = import.file,
+                                .inst = .main_struct_inst,
+                            }),
                             .offset = .{ .token_abs = import.token },
                         },
                         "imported from module {s}",
@@ -2684,7 +2687,10 @@ fn reportMultiModuleErrors(pt: Zcu.PerThread) !void {
                     .root => |pkg| try Zcu.ErrorMsg.init(
                         gpa,
                         .{
-                            .base_node_inst = try ip.trackZir(gpa, file_index, .main_struct_inst),
+                            .base_node_inst = try ip.trackZir(gpa, pt.tid, .{
+                                .file = file_index,
+                                .inst = .main_struct_inst,
+                            }),
                             .offset = .entire_file,
                         },
                         "root of module {s}",
@@ -2698,7 +2704,10 @@ fn reportMultiModuleErrors(pt: Zcu.PerThread) !void {
                 notes[num_notes] = try Zcu.ErrorMsg.init(
                     gpa,
                     .{
-                        .base_node_inst = try ip.trackZir(gpa, file_index, .main_struct_inst),
+                        .base_node_inst = try ip.trackZir(gpa, pt.tid, .{
+                            .file = file_index,
+                            .inst = .main_struct_inst,
+                        }),
                         .offset = .entire_file,
                     },
                     "{} more references omitted",
@@ -2710,7 +2719,10 @@ fn reportMultiModuleErrors(pt: Zcu.PerThread) !void {
             const err = try Zcu.ErrorMsg.create(
                 gpa,
                 .{
-                    .base_node_inst = try ip.trackZir(gpa, file_index, .main_struct_inst),
+                    .base_node_inst = try ip.trackZir(gpa, pt.tid, .{
+                        .file = file_index,
+                        .inst = .main_struct_inst,
+                    }),
                     .offset = .entire_file,
                 },
                 "file exists in multiple modules",
@@ -2776,7 +2788,7 @@ const Header = extern struct {
         //extra_len: u32,
         //limbs_len: u32,
         //string_bytes_len: u32,
-        tracked_insts_len: u32,
+        //tracked_insts_len: u32,
         src_hash_deps_len: u32,
         decl_val_deps_len: u32,
         namespace_deps_len: u32,
@@ -2805,7 +2817,7 @@ pub fn saveState(comp: *Compilation) !void {
                 //.extra_len = @intCast(ip.extra.items.len),
                 //.limbs_len = @intCast(ip.limbs.items.len),
                 //.string_bytes_len = @intCast(ip.string_bytes.items.len),
-                .tracked_insts_len = @intCast(ip.tracked_insts.count()),
+                //.tracked_insts_len = @intCast(ip.tracked_insts.count()),
                 .src_hash_deps_len = @intCast(ip.src_hash_deps.count()),
                 .decl_val_deps_len = @intCast(ip.decl_val_deps.count()),
                 .namespace_deps_len = @intCast(ip.namespace_deps.count()),
@@ -2822,7 +2834,7 @@ pub fn saveState(comp: *Compilation) !void {
         //addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.items.items(.data)));
         //addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.items.items(.tag)));
         //addBuf(&bufs_list, &bufs_len, ip.string_bytes.items);
-        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.tracked_insts.keys()));
+        //addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.tracked_insts.keys()));
 
         addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.src_hash_deps.keys()));
         addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.src_hash_deps.values()));
@@ -4134,14 +4146,6 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
     };
 }
 
-const AstGenSrc = union(enum) {
-    root,
-    import: struct {
-        importing_file: Zcu.File.Index,
-        import_tok: std.zig.Ast.TokenIndex,
-    },
-};
-
 fn workerAstGenFile(
     tid: usize,
     comp: *Compilation,
@@ -4151,7 +4155,7 @@ fn workerAstGenFile(
     root_decl: Zcu.Decl.OptionalIndex,
     prog_node: std.Progress.Node,
     wg: *WaitGroup,
-    src: AstGenSrc,
+    src: Zcu.AstGenSrc,
 ) void {
     const child_prog_node = prog_node.start(file.sub_file_path, 0);
     defer child_prog_node.end();
@@ -4161,7 +4165,7 @@ fn workerAstGenFile(
         error.AnalysisFail => return,
         else => {
             file.status = .retryable_failure;
-            comp.reportRetryableAstGenError(src, file_index, err) catch |oom| switch (oom) {
+            pt.reportRetryableAstGenError(src, file_index, err) catch |oom| switch (oom) {
                 // Swallowing this error is OK because it's implied to be OOM when
                 // there is a missing `failed_files` error message.
                 error.OutOfMemory => {},
@@ -4207,7 +4211,7 @@ fn workerAstGenFile(
                 log.debug("AstGen of {s} has import '{s}'; queuing AstGen of {s}", .{
                     file.sub_file_path, import_path, import_result.file.sub_file_path,
                 });
-                const sub_src: AstGenSrc = .{ .import = .{
+                const sub_src: Zcu.AstGenSrc = .{ .import = .{
                     .importing_file = file_index,
                     .import_tok = item.data.token,
                 } };
@@ -4557,41 +4561,6 @@ fn reportRetryableWin32ResourceError(
         comp.mutex.lock();
         defer comp.mutex.unlock();
         try comp.failed_win32_resources.putNoClobber(comp.gpa, win32_resource, finished_bundle);
-    }
-}
-
-fn reportRetryableAstGenError(
-    comp: *Compilation,
-    src: AstGenSrc,
-    file_index: Zcu.File.Index,
-    err: anyerror,
-) error{OutOfMemory}!void {
-    const zcu = comp.module.?;
-    const gpa = zcu.gpa;
-
-    const file = zcu.fileByIndex(file_index);
-    file.status = .retryable_failure;
-
-    const src_loc: Zcu.LazySrcLoc = switch (src) {
-        .root => .{
-            .base_node_inst = try zcu.intern_pool.trackZir(gpa, file_index, .main_struct_inst),
-            .offset = .entire_file,
-        },
-        .import => |info| .{
-            .base_node_inst = try zcu.intern_pool.trackZir(gpa, info.importing_file, .main_struct_inst),
-            .offset = .{ .token_abs = info.import_tok },
-        },
-    };
-
-    const err_msg = try Zcu.ErrorMsg.create(gpa, src_loc, "unable to load '{}{s}': {s}", .{
-        file.mod.root, file.sub_file_path, @errorName(err),
-    });
-    errdefer err_msg.destroy(gpa);
-
-    {
-        comp.mutex.lock();
-        defer comp.mutex.unlock();
-        try zcu.failed_files.putNoClobber(gpa, file, err_msg);
     }
 }
 
