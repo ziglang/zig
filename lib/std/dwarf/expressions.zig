@@ -15,7 +15,7 @@ pub const ExpressionContext = struct {
     /// The dwarf format of the section this expression is in
     format: dwarf.Format = .@"32",
 
-    /// If specified, any addresses will pass through this function before being acccessed
+    /// If specified, any addresses will pass through this function before being accessed
     isValidMemory: ?*const fn (address: usize) bool = null,
 
     /// The compilation unit this expression relates to, if any
@@ -42,14 +42,14 @@ pub const ExpressionOptions = struct {
     /// The address size of the target architecture
     addr_size: u8 = @sizeOf(usize),
 
-    /// Endianess of the target architecture
+    /// Endianness of the target architecture
     endian: std.builtin.Endian = builtin.target.cpu.arch.endian(),
 
     /// Restrict the stack machine to a subset of opcodes used in call frame instructions
     call_frame_context: bool = false,
 };
 
-// Explcitly defined to support executing sub-expressions
+// Explicitly defined to support executing sub-expressions
 pub const ExpressionError = error{
     UnimplementedExpressionCall,
     UnimplementedOpcode,

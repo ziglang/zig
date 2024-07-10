@@ -493,7 +493,7 @@ pub fn fchown(fd: fd_t, owner: ?uid_t, group: ?gid_t) FChownError!void {
         switch (errno(res)) {
             .SUCCESS => return,
             .INTR => continue,
-            .BADF => unreachable, // Can be reached if the fd refers to a directory opened without `OpenDirOptions{ .iterate = true }`
+            .BADF => unreachable, // Can be reached if the fd refers to a directory opened without `Dir.OpenOptions{ .iterate = true }`
 
             .FAULT => unreachable,
             .INVAL => unreachable,
@@ -3474,7 +3474,7 @@ pub const SocketError = error{
 pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t {
     if (native_os == .windows) {
         // NOTE: windows translates the SOCK.NONBLOCK/SOCK.CLOEXEC flags into
-        // windows-analagous operations
+        // windows-analogous operations
         const filtered_sock_type = socket_type & ~@as(u32, SOCK.NONBLOCK | SOCK.CLOEXEC);
         const flags: u32 = if ((socket_type & SOCK.CLOEXEC) != 0)
             windows.ws2_32.WSA_FLAG_NO_HANDLE_INHERIT

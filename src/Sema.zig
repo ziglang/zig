@@ -2830,7 +2830,7 @@ fn zirStructDecl(
         inst,
     );
     mod.declPtr(new_decl_index).owns_tv = true;
-    errdefer mod.abortAnonDecl(new_decl_index);
+    errdefer pt.abortAnonDecl(new_decl_index);
 
     if (pt.zcu.comp.debug_incremental) {
         try ip.addDependency(
@@ -2841,12 +2841,12 @@ fn zirStructDecl(
     }
 
     // TODO: if AstGen tells us `@This` was not used in the fields, we can elide the namespace.
-    const new_namespace_index: InternPool.OptionalNamespaceIndex = if (true or decls_len > 0) (try mod.createNamespace(.{
+    const new_namespace_index: InternPool.OptionalNamespaceIndex = if (true or decls_len > 0) (try pt.createNamespace(.{
         .parent = block.namespace.toOptional(),
         .decl_index = new_decl_index,
         .file_scope = block.getFileScopeIndex(mod),
     })).toOptional() else .none;
-    errdefer if (new_namespace_index.unwrap()) |ns| mod.destroyNamespace(ns);
+    errdefer if (new_namespace_index.unwrap()) |ns| pt.destroyNamespace(ns);
 
     if (new_namespace_index.unwrap()) |ns| {
         const decls = sema.code.bodySlice(extra_index, decls_len);
@@ -2872,8 +2872,8 @@ fn createAnonymousDeclTypeNamed(
     const ip = &zcu.intern_pool;
     const gpa = sema.gpa;
     const namespace = block.namespace;
-    const new_decl_index = try zcu.allocateNewDecl(namespace);
-    errdefer zcu.destroyDecl(new_decl_index);
+    const new_decl_index = try pt.allocateNewDecl(namespace);
+    errdefer pt.destroyDecl(new_decl_index);
 
     switch (name_strategy) {
         .anon => {}, // handled after switch
@@ -3068,7 +3068,7 @@ fn zirEnumDecl(
     );
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
-    errdefer if (!done) mod.abortAnonDecl(new_decl_index);
+    errdefer if (!done) pt.abortAnonDecl(new_decl_index);
 
     if (pt.zcu.comp.debug_incremental) {
         try mod.intern_pool.addDependency(
@@ -3079,12 +3079,12 @@ fn zirEnumDecl(
     }
 
     // TODO: if AstGen tells us `@This` was not used in the fields, we can elide the namespace.
-    const new_namespace_index: InternPool.OptionalNamespaceIndex = if (true or decls_len > 0) (try mod.createNamespace(.{
+    const new_namespace_index: InternPool.OptionalNamespaceIndex = if (true or decls_len > 0) (try pt.createNamespace(.{
         .parent = block.namespace.toOptional(),
         .decl_index = new_decl_index,
         .file_scope = block.getFileScopeIndex(mod),
     })).toOptional() else .none;
-    errdefer if (!done) if (new_namespace_index.unwrap()) |ns| mod.destroyNamespace(ns);
+    errdefer if (!done) if (new_namespace_index.unwrap()) |ns| pt.destroyNamespace(ns);
 
     if (new_namespace_index.unwrap()) |ns| {
         try pt.scanNamespace(ns, decls, new_decl);
@@ -3335,7 +3335,7 @@ fn zirUnionDecl(
         inst,
     );
     mod.declPtr(new_decl_index).owns_tv = true;
-    errdefer mod.abortAnonDecl(new_decl_index);
+    errdefer pt.abortAnonDecl(new_decl_index);
 
     if (pt.zcu.comp.debug_incremental) {
         try mod.intern_pool.addDependency(
@@ -3346,12 +3346,12 @@ fn zirUnionDecl(
     }
 
     // TODO: if AstGen tells us `@This` was not used in the fields, we can elide the namespace.
-    const new_namespace_index: InternPool.OptionalNamespaceIndex = if (true or decls_len > 0) (try mod.createNamespace(.{
+    const new_namespace_index: InternPool.OptionalNamespaceIndex = if (true or decls_len > 0) (try pt.createNamespace(.{
         .parent = block.namespace.toOptional(),
         .decl_index = new_decl_index,
         .file_scope = block.getFileScopeIndex(mod),
     })).toOptional() else .none;
-    errdefer if (new_namespace_index.unwrap()) |ns| mod.destroyNamespace(ns);
+    errdefer if (new_namespace_index.unwrap()) |ns| pt.destroyNamespace(ns);
 
     if (new_namespace_index.unwrap()) |ns| {
         const decls = sema.code.bodySlice(extra_index, decls_len);
@@ -3425,7 +3425,7 @@ fn zirOpaqueDecl(
         inst,
     );
     mod.declPtr(new_decl_index).owns_tv = true;
-    errdefer mod.abortAnonDecl(new_decl_index);
+    errdefer pt.abortAnonDecl(new_decl_index);
 
     if (pt.zcu.comp.debug_incremental) {
         try ip.addDependency(
@@ -3435,12 +3435,12 @@ fn zirOpaqueDecl(
         );
     }
 
-    const new_namespace_index: InternPool.OptionalNamespaceIndex = if (decls_len > 0) (try mod.createNamespace(.{
+    const new_namespace_index: InternPool.OptionalNamespaceIndex = if (decls_len > 0) (try pt.createNamespace(.{
         .parent = block.namespace.toOptional(),
         .decl_index = new_decl_index,
         .file_scope = block.getFileScopeIndex(mod),
     })).toOptional() else .none;
-    errdefer if (new_namespace_index.unwrap()) |ns| mod.destroyNamespace(ns);
+    errdefer if (new_namespace_index.unwrap()) |ns| pt.destroyNamespace(ns);
 
     if (new_namespace_index.unwrap()) |ns| {
         const decls = sema.code.bodySlice(extra_index, decls_len);
@@ -21716,7 +21716,7 @@ fn zirReify(
                 inst,
             );
             mod.declPtr(new_decl_index).owns_tv = true;
-            errdefer mod.abortAnonDecl(new_decl_index);
+            errdefer pt.abortAnonDecl(new_decl_index);
 
             try pt.finalizeAnonDecl(new_decl_index);
 
@@ -21916,7 +21916,7 @@ fn reifyEnum(
         inst,
     );
     mod.declPtr(new_decl_index).owns_tv = true;
-    errdefer mod.abortAnonDecl(new_decl_index);
+    errdefer pt.abortAnonDecl(new_decl_index);
 
     wip_ty.prepare(ip, new_decl_index, .none);
     wip_ty.setTagTy(ip, tag_ty.toIntern());
@@ -22063,7 +22063,7 @@ fn reifyUnion(
         inst,
     );
     mod.declPtr(new_decl_index).owns_tv = true;
-    errdefer mod.abortAnonDecl(new_decl_index);
+    errdefer pt.abortAnonDecl(new_decl_index);
 
     const field_types = try sema.arena.alloc(InternPool.Index, fields_len);
     const field_aligns = if (any_aligns) try sema.arena.alloc(InternPool.Alignment, fields_len) else undefined;
@@ -22322,7 +22322,7 @@ fn reifyStruct(
         inst,
     );
     mod.declPtr(new_decl_index).owns_tv = true;
-    errdefer mod.abortAnonDecl(new_decl_index);
+    errdefer pt.abortAnonDecl(new_decl_index);
 
     const struct_type = ip.loadStructType(wip_ty.index);
 
@@ -26497,8 +26497,8 @@ fn zirBuiltinExtern(
     }
     const ptr_info = ty.ptrInfo(mod);
 
-    const new_decl_index = try mod.allocateNewDecl(sema.owner_decl.src_namespace);
-    errdefer mod.destroyDecl(new_decl_index);
+    const new_decl_index = try pt.allocateNewDecl(sema.owner_decl.src_namespace);
+    errdefer pt.destroyDecl(new_decl_index);
     const new_decl = mod.declPtr(new_decl_index);
     try mod.initNewAnonDecl(
         new_decl_index,
@@ -36733,8 +36733,8 @@ fn generateUnionTagTypeNumbered(
     const gpa = sema.gpa;
     const ip = &mod.intern_pool;
 
-    const new_decl_index = try mod.allocateNewDecl(block.namespace);
-    errdefer mod.destroyDecl(new_decl_index);
+    const new_decl_index = try pt.allocateNewDecl(block.namespace);
+    errdefer pt.destroyDecl(new_decl_index);
     const fqn = try union_owner_decl.fullyQualifiedName(pt);
     const name = try ip.getOrPutStringFmt(
         gpa,
@@ -36748,7 +36748,7 @@ fn generateUnionTagTypeNumbered(
         Value.@"unreachable",
         name,
     );
-    errdefer mod.abortAnonDecl(new_decl_index);
+    errdefer pt.abortAnonDecl(new_decl_index);
 
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
@@ -36785,8 +36785,8 @@ fn generateUnionTagTypeSimple(
 
     const new_decl_index = new_decl_index: {
         const fqn = try union_owner_decl.fullyQualifiedName(pt);
-        const new_decl_index = try mod.allocateNewDecl(block.namespace);
-        errdefer mod.destroyDecl(new_decl_index);
+        const new_decl_index = try pt.allocateNewDecl(block.namespace);
+        errdefer pt.destroyDecl(new_decl_index);
         const name = try ip.getOrPutStringFmt(
             gpa,
             pt.tid,
@@ -36802,7 +36802,7 @@ fn generateUnionTagTypeSimple(
         mod.declPtr(new_decl_index).name_fully_qualified = true;
         break :new_decl_index new_decl_index;
     };
-    errdefer mod.abortAnonDecl(new_decl_index);
+    errdefer pt.abortAnonDecl(new_decl_index);
 
     const enum_ty = try ip.getGeneratedTagEnumType(gpa, pt.tid, .{
         .decl = new_decl_index,
