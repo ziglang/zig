@@ -365,6 +365,7 @@ pub const VirtualMachine = struct {
             self: Column,
             context: *dwarf.UnwindContext,
             expression_context: dwarf.expressions.ExpressionContext,
+            ma: *debug.StackIterator.MemoryAccessor,
             out: []u8,
         ) !void {
             switch (self.rule) {
@@ -385,7 +386,7 @@ pub const VirtualMachine = struct {
                 .offset => |offset| {
                     if (context.cfa) |cfa| {
                         const addr = try applyOffset(cfa, offset);
-                        if (expression_context.isValidMemory) |isValidMemory| if (!isValidMemory(addr)) return error.InvalidAddress;
+                        if (ma.load(usize, addr) == null) return error.InvalidAddress;
                         const ptr: *const usize = @ptrFromInt(addr);
                         mem.writeInt(usize, out[0..@sizeOf(usize)], ptr.*, native_endian);
                     } else return error.InvalidCFA;
@@ -408,7 +409,7 @@ pub const VirtualMachine = struct {
                         break :blk v.generic;
                     } else return error.NoExpressionValue;
 
-                    if (!context.isValidMemory(addr)) return error.InvalidExpressionAddress;
+                    if (ma.load(usize, addr) == null) return error.InvalidExpressionAddress;
                     const ptr: *usize = @ptrFromInt(addr);
                     mem.writeInt(usize, out[0..@sizeOf(usize)], ptr.*, native_endian);
                 },

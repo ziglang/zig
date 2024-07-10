@@ -610,7 +610,7 @@ pub const StackIterator = struct {
             var iterator = init(first_address, null);
             iterator.unwind_state = .{
                 .debug_info = debug_info,
-                .dwarf_context = try DW.UnwindContext.init(debug_info.allocator, context, &isValidMemory),
+                .dwarf_context = try DW.UnwindContext.init(debug_info.allocator, context),
             };
 
             return iterator;
@@ -793,7 +793,7 @@ pub const StackIterator = struct {
                 // __unwind_info is a requirement for unwinding on Darwin. It may fall back to DWARF, but unwinding
                 // via DWARF before attempting to use the compact unwind info will produce incorrect results.
                 if (module.unwind_info) |unwind_info| {
-                    if (DW.unwindFrameMachO(&unwind_state.dwarf_context, unwind_info, module.eh_frame, module.base_address)) |return_address| {
+                    if (DW.unwindFrameMachO(&unwind_state.dwarf_context, &it.ma, unwind_info, module.eh_frame, module.base_address)) |return_address| {
                         return return_address;
                     } else |err| {
                         if (err != error.RequiresDWARFUnwind) return err;
@@ -804,7 +804,7 @@ pub const StackIterator = struct {
         }
 
         if (try module.getDwarfInfoForAddress(unwind_state.debug_info.allocator, unwind_state.dwarf_context.pc)) |di| {
-            return di.unwindFrame(&unwind_state.dwarf_context, null);
+            return di.unwindFrame(&unwind_state.dwarf_context, &it.ma, null);
         } else return error.MissingDebugInfo;
     }
 
