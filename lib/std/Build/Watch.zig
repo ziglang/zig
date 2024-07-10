@@ -135,6 +135,12 @@ pub fn markDirtySteps(w: *Watch, gpa: Allocator) !bool {
             meta = @ptrCast(@as([*]u8, @ptrCast(meta)) + meta[0].event_len);
         }) {
             assert(meta[0].vers == M.VERSION);
+            if (meta[0].mask.Q_OVERFLOW) {
+                any_dirty = true;
+                std.log.warn("file system watch queue overflowed; falling back to fstat", .{});
+                markAllFilesDirty(w, gpa);
+                return true;
+            }
             const fid: *align(1) fanotify.event_info_fid = @ptrCast(meta + 1);
             switch (fid.hdr.info_type) {
                 .DFID_NAME => {
@@ -170,4 +176,14 @@ pub fn markFailedStepsDirty(gpa: Allocator, all_steps: []const *Step) void {
         .success => step.result_cached = true,
         else => continue,
     };
+}
+
+fn markAllFilesDirty(w: *Watch, gpa: Allocator) void {
+    for (w.handle_table.values()) |reaction_set| {
+        for (reaction_set.values()) |step_set| {
+            for (step_set.keys()) |step| {
+                step.recursiveReset(gpa);
+            }
+        }
+    }
 }
