@@ -682,9 +682,12 @@ fn runStepNames(
     }
 
     const ttyconf = run.ttyconf;
-    const stderr = run.stderr;
 
     if (run.summary != .none) {
+        std.debug.lockStdErr();
+        defer std.debug.unlockStdErr();
+        const stderr = run.stderr;
+
         const total_count = success_count + failure_count + pending_count + skipped_count;
         ttyconf.setColor(stderr, .cyan) catch {};
         stderr.writeAll("Build Summary:") catch {};
