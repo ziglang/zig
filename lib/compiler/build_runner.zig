@@ -8,6 +8,7 @@ const process = std.process;
 const ArrayList = std.ArrayList;
 const File = std.fs.File;
 const Step = std.Build.Step;
+const Watch = std.Build.Watch;
 const Allocator = std.mem.Allocator;
 
 pub const root = @import("@build");
@@ -400,34 +401,26 @@ pub fn main() !void {
         };
         if (!watch) return cleanExit();
 
-        // Clear all file handles.
-        for (w.handle_table.keys(), w.handle_table.values()) |lfh, *step_set| {
-            lfh.destroy(gpa);
-            step_set.clearAndFree(gpa);
-        }
-        w.handle_table.clearRetainingCapacity();
-
         // Add missing marks and note persisted ones.
         for (run.step_stack.keys()) |step| {
             for (step.inputs.table.keys(), step.inputs.table.values()) |path, *files| {
-                {
+                const reaction_set = rs: {
                     const gop = try w.dir_table.getOrPut(gpa, path);
-                    gop.value_ptr.* = w.generation;
                     if (!gop.found_existing) {
                         try std.posix.fanotify_mark(w.fan_fd, .{
                             .ADD = true,
                             .ONLYDIR = true,
                         }, Watch.fan_mask, path.root_dir.handle.fd, path.subPathOpt());
+
+                        const dir_handle = try Watch.getDirHandle(gpa, path);
+                        try w.handle_table.putNoClobber(gpa, dir_handle, .{});
                     }
-                }
+                    break :rs &w.handle_table.values()[gop.index];
+                };
                 for (files.items) |basename| {
-                    const file_handle = try Watch.getFileHandle(gpa, path, basename);
-                    std.debug.print("watching file_handle '{}{s}' = {}\n", .{
-                        path, basename, std.fmt.fmtSliceHexLower(file_handle.slice()),
-                    });
-                    const gop = try w.handle_table.getOrPut(gpa, file_handle);
+                    const gop = try reaction_set.getOrPut(gpa, basename);
                     if (!gop.found_existing) gop.value_ptr.* = .{};
-                    try gop.value_ptr.put(gpa, step, {});
+                    try gop.value_ptr.put(gpa, step, w.generation);
                 }
             }
         }
@@ -435,11 +428,31 @@ pub fn main() !void {
         {
             // Remove marks for files that are no longer inputs.
             var i: usize = 0;
-            while (i < w.dir_table.entries.len) {
-                const generations = w.dir_table.values();
-                if (generations[i] == w.generation) {
-                    i += 1;
-                    continue;
+            while (i < w.handle_table.entries.len) {
+                {
+                    const reaction_set = &w.handle_table.values()[i];
+                    var step_set_i: usize = 0;
+                    while (step_set_i < reaction_set.entries.len) {
+                        const step_set = &reaction_set.values()[step_set_i];
+                        var dirent_i: usize = 0;
+                        while (dirent_i < step_set.entries.len) {
+                            const generations = step_set.values();
+                            if (generations[dirent_i] == w.generation) {
+                                dirent_i += 1;
+                                continue;
+                            }
+                            step_set.swapRemoveAt(dirent_i);
+                        }
+                        if (step_set.entries.len > 0) {
+                            step_set_i += 1;
+                            continue;
+                        }
+                        reaction_set.swapRemoveAt(step_set_i);
+                    }
+                    if (reaction_set.entries.len > 0) {
+                        i += 1;
+                        continue;
+                    }
                 }
 
                 const path = w.dir_table.keys()[i];
@@ -450,6 +463,7 @@ pub fn main() !void {
                 }, Watch.fan_mask, path.root_dir.handle.fd, path.subPathOpt());
 
                 w.dir_table.swapRemoveAt(i);
+                w.handle_table.swapRemoveAt(i);
             }
             w.generation +%= 1;
         }
@@ -459,7 +473,7 @@ pub fn main() !void {
         // if any more events come in. After the debounce interval has passed,
         // trigger a rebuild on all steps with modified inputs, as well as their
         // recursive dependants.
-        const debounce_interval_ms = 10;
+        const debounce_interval_ms = 50;
         var poll_fds: [1]std.posix.pollfd = .{
             .{
                 .fd = w.fan_fd,
@@ -517,46 +531,48 @@ fn markDirtySteps(w: *Watch) !bool {
                     const file_name = mem.span(file_name_z);
                     std.debug.print("DFID_NAME file_handle = {any}, found: '{s}'\n", .{ file_handle.*, file_name });
                     const lfh: Watch.LinuxFileHandle = .{ .handle = file_handle };
-                    if (w.handle_table.get(lfh)) |step_set| {
-                        for (step_set.keys()) |step| {
-                            std.debug.print("DFID_NAME marking step '{s}' dirty\n", .{step.name});
-                            step.state = .precheck_done;
-                            any_dirty = true;
+                    if (w.handle_table.getPtr(lfh)) |reaction_set| {
+                        if (reaction_set.getPtr(file_name)) |step_set| {
+                            for (step_set.keys()) |step| {
+                                std.debug.print("DFID_NAME marking step '{s}' dirty\n", .{step.name});
+                                step.state = .precheck_done;
+                                any_dirty = true;
+                            }
                         }
                     } else {
-                        std.debug.print("DFID_NAME changed file did not match any steps: '{}'\n", .{
+                        std.debug.print("DFID_NAME changed file did not match any directories: '{}'\n", .{
                             std.fmt.fmtSliceHexLower(lfh.slice()),
                         });
                     }
                 },
-                .FID => {
-                    const file_handle: *align(1) std.os.linux.file_handle = @ptrCast(&fid.handle);
-                    const lfh: Watch.LinuxFileHandle = .{ .handle = file_handle };
-                    if (w.handle_table.get(lfh)) |step_set| {
-                        for (step_set.keys()) |step| {
-                            std.debug.print("FID marking step '{s}' dirty\n", .{step.name});
-                            step.state = .precheck_done;
-                            any_dirty = true;
-                        }
-                    } else {
-                        std.debug.print("FID changed file did not match any steps: '{}'\n", .{
-                            std.fmt.fmtSliceHexLower(lfh.slice()),
-                        });
-                    }
-                },
-                .DFID => {
-                    const file_handle: *align(1) std.os.linux.file_handle = @ptrCast(&fid.handle);
-                    const lfh: Watch.LinuxFileHandle = .{ .handle = file_handle };
-                    if (w.handle_table.get(lfh)) |step_set| {
-                        for (step_set.keys()) |step| {
-                            std.debug.print("DFID marking step '{s}' dirty\n", .{step.name});
-                            step.state = .precheck_done;
-                            any_dirty = true;
-                        }
-                    } else {
-                        std.debug.print("DFID changed file did not match any steps\n", .{});
-                    }
-                },
+                //.FID => {
+                //    const file_handle: *align(1) std.os.linux.file_handle = @ptrCast(&fid.handle);
+                //    const lfh: Watch.LinuxFileHandle = .{ .handle = file_handle };
+                //    if (w.handle_table.get(lfh)) |step_set| {
+                //        for (step_set.keys()) |step| {
+                //            std.debug.print("FID marking step '{s}' dirty\n", .{step.name});
+                //            step.state = .precheck_done;
+                //            any_dirty = true;
+                //        }
+                //    } else {
+                //        std.debug.print("FID changed file did not match any steps: '{}'\n", .{
+                //            std.fmt.fmtSliceHexLower(lfh.slice()),
+                //        });
+                //    }
+                //},
+                //.DFID => {
+                //    const file_handle: *align(1) std.os.linux.file_handle = @ptrCast(&fid.handle);
+                //    const lfh: Watch.LinuxFileHandle = .{ .handle = file_handle };
+                //    if (w.handle_table.get(lfh)) |step_set| {
+                //        for (step_set.keys()) |step| {
+                //            std.debug.print("DFID marking step '{s}' dirty\n", .{step.name});
+                //            step.state = .precheck_done;
+                //            any_dirty = true;
+                //        }
+                //    } else {
+                //        std.debug.print("DFID changed file did not match any steps\n", .{});
+                //    }
+                //},
                 else => |t| {
                     std.debug.panic("TODO: received event type '{s}'", .{@tagName(t)});
                 },
@@ -564,98 +580,6 @@ fn markDirtySteps(w: *Watch) !bool {
         }
     }
 }
-
-const Watch = struct {
-    dir_table: DirTable,
-    handle_table: HandleTable,
-    fan_fd: std.posix.fd_t,
-    generation: u8,
-
-    const fan_mask: std.os.linux.fanotify.MarkMask = .{
-        .CLOSE_WRITE = true,
-        .DELETE = true,
-        .MOVED_FROM = true,
-        .MOVED_TO = true,
-        .EVENT_ON_CHILD = true,
-    };
-
-    const init: Watch = .{
-        .dir_table = .{},
-        .handle_table = .{},
-        .fan_fd = -1,
-        .generation = 0,
-    };
-
-    /// Key is the directory to watch which contains one or more files we are
-    /// interested in noticing changes to.
-    ///
-    /// Value is generation.
-    const DirTable = std.ArrayHashMapUnmanaged(Cache.Path, u8, Cache.Path.TableAdapter, false);
-
-    const HandleTable = std.ArrayHashMapUnmanaged(LinuxFileHandle, StepSet, LinuxFileHandle.Adapter, false);
-    const StepSet = std.AutoArrayHashMapUnmanaged(*Step, void);
-
-    const Hash = std.hash.Wyhash;
-    const Cache = std.Build.Cache;
-
-    const LinuxFileHandle = struct {
-        handle: *align(1) std.os.linux.file_handle,
-
-        fn clone(lfh: LinuxFileHandle, gpa: Allocator) Allocator.Error!LinuxFileHandle {
-            const bytes = lfh.slice();
-            const new_ptr = try gpa.alignedAlloc(
-                u8,
-                @alignOf(std.os.linux.file_handle),
-                @sizeOf(std.os.linux.file_handle) + bytes.len,
-            );
-            const new_header: *std.os.linux.file_handle = @ptrCast(new_ptr);
-            new_header.* = lfh.handle.*;
-            const new: LinuxFileHandle = .{ .handle = new_header };
-            @memcpy(new.slice(), lfh.slice());
-            return new;
-        }
-
-        fn destroy(lfh: LinuxFileHandle, gpa: Allocator) void {
-            const ptr: [*]u8 = @ptrCast(lfh.handle);
-            const allocated_slice = ptr[0 .. @sizeOf(std.os.linux.file_handle) + lfh.handle.handle_bytes];
-            return gpa.free(allocated_slice);
-        }
-
-        fn slice(lfh: LinuxFileHandle) []u8 {
-            const ptr: [*]u8 = &lfh.handle.f_handle;
-            return ptr[0..lfh.handle.handle_bytes];
-        }
-
-        const Adapter = struct {
-            pub fn hash(self: Adapter, a: LinuxFileHandle) u32 {
-                _ = self;
-                const unsigned_type: u32 = @bitCast(a.handle.handle_type);
-                return @truncate(Hash.hash(unsigned_type, a.slice()));
-            }
-            pub fn eql(self: Adapter, a: LinuxFileHandle, b: LinuxFileHandle, b_index: usize) bool {
-                _ = self;
-                _ = b_index;
-                return a.handle.handle_type == b.handle.handle_type and mem.eql(u8, a.slice(), b.slice());
-            }
-        };
-    };
-
-    fn getFileHandle(gpa: Allocator, path: std.Build.Cache.Path, basename: []const u8) !LinuxFileHandle {
-        var file_handle_buffer: [@sizeOf(std.os.linux.file_handle) + 128]u8 align(@alignOf(std.os.linux.file_handle)) = undefined;
-        var mount_id: i32 = undefined;
-        var buf: [std.fs.max_path_bytes]u8 = undefined;
-        const joined_path = if (path.sub_path.len == 0) basename else path: {
-            break :path std.fmt.bufPrint(&buf, "{s}" ++ std.fs.path.sep_str ++ "{s}", .{
-                path.sub_path, basename,
-            }) catch return error.NameTooLong;
-        };
-        const stack_ptr: *std.os.linux.file_handle = @ptrCast(&file_handle_buffer);
-        stack_ptr.handle_bytes = file_handle_buffer.len - @sizeOf(std.os.linux.file_handle);
-        try std.posix.name_to_handle_at(path.root_dir.handle.fd, joined_path, stack_ptr, &mount_id, 0);
-        const stack_lfh: LinuxFileHandle = .{ .handle = stack_ptr };
-        return stack_lfh.clone(gpa);
-    }
-};
 
 const Run = struct {
     max_rss: u64,
