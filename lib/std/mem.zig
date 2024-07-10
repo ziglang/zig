@@ -3470,17 +3470,22 @@ test reverse {
     {
         var arr = [_]i32{ 5, 3, 1, 2, 4 };
         reverse(i32, arr[0..]);
-        try testing.expectEqualSlices(i32, &arr, &[_]i32{ 4, 2, 1, 3, 5 });
+        try testing.expectEqualSlices(i32, &arr, &.{ 4, 2, 1, 3, 5 });
+    }
+    {
+        var arr = [_]u0{};
+        reverse(u0, arr[0..]);
+        try testing.expectEqualSlices(u0, &arr, &.{});
     }
     {
         var arr = [_]i64{ 19, 17, 15, 13, 11, 9, 7, 5, 3, 1, 2, 4, 6, 8, 10, 12, 14, 16, 18 };
         reverse(i64, arr[0..]);
-        try testing.expectEqualSlices(i64, &arr, &[_]i64{ 18, 16, 14, 12, 10, 8, 6, 4, 2, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19 });
+        try testing.expectEqualSlices(i64, &arr, &.{ 18, 16, 14, 12, 10, 8, 6, 4, 2, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19 });
     }
     {
         var arr = [_][]const u8{ "a", "b", "c", "d" };
         reverse([]const u8, arr[0..]);
-        try testing.expectEqualSlices([]const u8, &arr, &[_][]const u8{ "d", "c", "b", "a" });
+        try testing.expectEqualSlices([]const u8, &arr, &.{ "d", "c", "b", "a" });
     }
     {
         const MyType = union(enum) {
@@ -3493,7 +3498,6 @@ test reverse {
         try testing.expectEqualSlices(MyType, &arr, &([_]MyType{ .c, .{ .b = 0 }, .{ .a = .{ 0, 0, 0 } } }));
     }
 }
-
 fn ReverseIterator(comptime T: type) type {
     const Pointer = blk: {
         switch (@typeInfo(T)) {
