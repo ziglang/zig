@@ -173,6 +173,10 @@ pub fn subPathOpt(self: Path) ?[]const u8 {
     return if (self.sub_path.len == 0) null else self.sub_path;
 }
 
+pub fn subPathOrDot(self: Path) []const u8 {
+    return if (self.sub_path.len == 0) "." else self.sub_path;
+}
+
 /// Useful to make `Path` a key in `std.ArrayHashMap`.
 pub const TableAdapter = struct {
     pub const Hash = std.hash.Wyhash;

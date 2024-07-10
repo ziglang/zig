@@ -419,7 +419,7 @@ pub fn main() !void {
                         std.posix.fanotify_mark(w.fan_fd, .{
                             .ADD = true,
                             .ONLYDIR = true,
-                        }, Watch.fan_mask, path.root_dir.handle.fd, path.subPathOpt()) catch |err| {
+                        }, Watch.fan_mask, path.root_dir.handle.fd, path.subPathOrDot()) catch |err| {
                             fatal("unable to watch {}: {s}", .{ path, @errorName(err) });
                         };
 
@@ -471,7 +471,7 @@ pub fn main() !void {
                 try std.posix.fanotify_mark(w.fan_fd, .{
                     .REMOVE = true,
                     .ONLYDIR = true,
-                }, Watch.fan_mask, path.root_dir.handle.fd, path.subPathOpt());
+                }, Watch.fan_mask, path.root_dir.handle.fd, path.subPathOrDot());
 
                 w.dir_table.swapRemoveAt(i);
                 w.handle_table.swapRemoveAt(i);
