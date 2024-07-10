@@ -4261,7 +4261,7 @@ pub const fanotify = struct {
         vers: u8,
         reserved: u8,
         metadata_len: u16,
-        mask: u64 align(8),
+        mask: MarkMask align(8),
         fd: i32,
         pid: i32,
 
