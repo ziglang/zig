@@ -29733,7 +29733,7 @@ fn coerceExtra(
     }
 
     const msg = msg: {
-        const msg = try sema.errMsg(inst_src, "expected type '{}', found '{}'", .{ dest_ty.fmt(pt), inst_ty.fmt(pt) });
+        const msg = try sema.errMsg(inst_src, "expected type '{}', found '{}'", .{ dest_ty.fmtCoerceFail(pt, in_memory_result), inst_ty.fmtCoerceFail(pt, in_memory_result) });
         errdefer msg.destroy(sema.gpa);
 
         // E!T to T
@@ -29788,7 +29788,7 @@ fn coerceInMemory(
     return Air.internedToRef((try sema.pt.getCoerced(val, dst_ty)).toIntern());
 }
 
-const InMemoryCoercionResult = union(enum) {
+pub const InMemoryCoercionResult = union(enum) {
     ok,
     no_match: Pair,
     int_not_coercible: Int,
@@ -29828,7 +29828,7 @@ const InMemoryCoercionResult = union(enum) {
         wanted: Type,
     };
 
-    const PairAndChild = struct {
+    pub const PairAndChild = struct {
         child: *InMemoryCoercionResult,
         actual: Type,
         wanted: Type,

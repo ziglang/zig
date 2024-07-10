@@ -143,9 +143,18 @@ pub fn fmt(ty: Type, pt: Zcu.PerThread) Formatter {
     } };
 }
 
+pub fn fmtCoerceFail(ty: Type, pt: Zcu.PerThread, fail: Sema.InMemoryCoercionResult) Formatter {
+    return .{ .data = .{
+        .ty = ty,
+        .pt = pt,
+        .fail = fail,
+    } };
+}
+
 const FormatContext = struct {
     ty: Type,
     pt: Zcu.PerThread,
+    fail: Sema.InMemoryCoercionResult = .ok,
 };
 
 fn format2(
@@ -156,7 +165,7 @@ fn format2(
 ) !void {
     comptime assert(unused_format_string.len == 0);
     _ = options;
-    return print(ctx.ty, writer, ctx.pt);
+    return printEliding(ctx.ty, writer, ctx.pt, ctx.fail);
 }
 
 pub fn fmtDebug(ty: Type) std.fmt.Formatter(dump) {
@@ -176,11 +185,138 @@ pub fn dump(
     return writer.print("{any}", .{start_type.ip_index});
 }
 
+
+const CoercionResult = Sema.InMemoryCoercionResult;
+// This result will not be fixed up.
+const shallow_fail = CoercionResult{.no_match = .{
+    .actual = .{.ip_index = .void_value},
+    .wanted = .{.ip_index = .void_value},
+}};
+
 /// Prints a name suitable for `@typeName`.
 /// TODO: take an `opt_sema` to pass to `fmtValue` when printing sentinels.
 pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error!void {
+    return printEliding(ty, writer, pt, .ok);
+}
+
+/// Reconstruct whether we need to recurse to show the mismatch on a
+/// no_match result.
+fn fixupNoMatch(ty: Type, ip: *const InternPool, original: *CoercionResult) CoercionResult {
+    if (original.* != .no_match) return original.*;
+    const mismatch = original.no_match;
+
+    const other_ty = if (ty.eql(mismatch.actual, undefined))
+        mismatch.wanted
+    else if (ty.eql(mismatch.wanted, undefined))
+        mismatch.actual
+    else
+        return original.*;
+
+    const self = ip.indexToKey(ty.toIntern());
+    const other = ip.indexToKey(other_ty.toIntern());
+
+    if (@as(std.meta.Tag(InternPool.Key), self) != other)
+        return shallow_fail;
+
+    // If type kinds match, we may or may not need to recurse to show the mismatch.
+    const child_buf = &original.no_match;
+    const wrapped_child = CoercionResult.PairAndChild{
+        .child = original,
+        .actual = undefined,
+        .wanted = undefined,
+    };
+    const meta = std.meta;
+    switch (self) {
+        .ptr_type => |x| {
+            const y = other.ptr_type;
+            if (x.sentinel != y.sentinel) return shallow_fail;
+            if (!meta.eql(x.flags, y.flags)) return shallow_fail;
+            if (!meta.eql(x.packed_offset, y.packed_offset)) return shallow_fail;
+            child_buf.actual = Type.fromInterned(x.child);
+            child_buf.wanted = Type.fromInterned(y.child);
+            return .{.ptr_child = wrapped_child};
+        },
+        .error_union_type => |x| {
+            const y = other.error_union_type;
+
+            if (x.payload_type != y.payload_type) {
+                child_buf.actual = Type.fromInterned(x.payload_type);
+                child_buf.wanted = Type.fromInterned(y.payload_type);
+                return .{.error_union_payload = wrapped_child};
+            } else {
+                return .{.missing_error = &.{}};
+            }
+        },
+        .array_type => |x| {
+            const y = other.array_type;
+            if (x.len != y.len or x.sentinel != y.sentinel) return shallow_fail;
+            child_buf.actual = Type.fromInterned(x.child);
+            child_buf.wanted = Type.fromInterned(y.child);
+            return .{.array_elem = wrapped_child};
+        },
+        .vector_type => |x| {
+            const y = other.vector_type;
+            if (x.len != y.len) return shallow_fail;
+            child_buf.actual = Type.fromInterned(x.child);
+            child_buf.wanted = Type.fromInterned(y.child);
+            return .{.vector_elem = wrapped_child};
+        },
+        .opt_type => |x| {
+            const y = other.opt_type;
+            child_buf.actual = Type.fromInterned(x);
+            child_buf.wanted = Type.fromInterned(y);
+            return .{.optional_child = wrapped_child};
+        },
+        .func_type => |x| {
+            const y = other.func_type;
+            if (x.return_type != y.return_type) {
+                child_buf.actual = Type.fromInterned(x.return_type);
+                child_buf.wanted = Type.fromInterned(y.return_type);
+                return .{.fn_return_type = wrapped_child};
+            }
+            const x_params = x.param_types.get(ip);
+            const y_params = y.param_types.get(ip);
+            if (x_params.len != y_params.len)
+                return .{.fn_param_count = undefined};
+            if (x.cc != y.cc)
+                return .{.fn_cc = undefined};
+            if (x.comptime_bits != y.comptime_bits)
+                return .{.fn_param_comptime = undefined};
+            if (x.noalias_bits != y.noalias_bits)
+                return .{.fn_param_noalias = undefined};
+            if (x.is_var_args != y.is_var_args)
+                return .{.fn_var_args = undefined};
+            if (x.is_generic != y.is_generic)
+                return .{.fn_generic = undefined};
+            if (x.is_noinline != y.is_noinline or x.cc_is_generic != y.cc_is_generic or x.section_is_generic != y.section_is_generic or x.addrspace_is_generic != y.addrspace_is_generic)
+                return .{.fn_return_type = undefined};
+
+            for (x_params, y_params, 0..) |x_param, y_param, i| {
+                if (x_param == y_param) continue;
+                child_buf.actual = Type.fromInterned(x_param);
+                child_buf.wanted = Type.fromInterned(y_param);
+                return .{.fn_param = .{
+                    .child = original,
+                    .actual = undefined,
+                    .wanted = undefined,
+                    .index = i,
+                }};
+            }
+            unreachable;
+
+        },
+        else => return shallow_fail,
+    }
+}
+
+pub fn printEliding(ty: Type, writer: anytype, pt: Zcu.PerThread, incoming_result: CoercionResult) @TypeOf(writer).Error!void {
+    const elision = "…";
     const mod = pt.zcu;
     const ip = &mod.intern_pool;
+
+    var inner_coercion = incoming_result;
+    const coercion_result = fixupNoMatch(ty, ip, &inner_coercion);
+
     switch (ip.indexToKey(ty.toIntern())) {
         .int_type => |int_type| {
             const sign_char: u8 = switch (int_type.signedness) {
@@ -231,39 +367,85 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
             if (info.flags.is_volatile) try writer.writeAll("volatile ");
             if (info.flags.is_allowzero and info.flags.size != .C) try writer.writeAll("allowzero ");
 
-            try print(Type.fromInterned(info.child), writer, pt);
+            switch (coercion_result) {
+                .ptr_child => |c| inner_coercion = c.child.*,
+                .double_ptr_to_anyopaque => inner_coercion = shallow_fail,
+                .no_match,
+                .ptr_addrspace,
+                .ptr_sentinel,
+                .ptr_size,
+                .ptr_qualifiers,
+                .ptr_allowzero,
+                .ptr_bit_range,
+                .ptr_alignment => return writer.writeAll(elision),
+                else => {},
+            }
+            try printEliding(Type.fromInterned(info.child), writer, pt, inner_coercion);
             return;
         },
         .array_type => |array_type| {
             if (array_type.sentinel == .none) {
                 try writer.print("[{d}]", .{array_type.len});
-                try print(Type.fromInterned(array_type.child), writer, pt);
             } else {
                 try writer.print("[{d}:{}]", .{
                     array_type.len,
                     Value.fromInterned(array_type.sentinel).fmtValue(pt, null),
                 });
-                try print(Type.fromInterned(array_type.child), writer, pt);
             }
+
+            switch (coercion_result) {
+                .array_elem => |c| inner_coercion = c.child.*,
+                .no_match,
+                .array_len,
+                .array_sentinel => return writer.writeAll(elision),
+                else => {},
+            }
+            try printEliding(Type.fromInterned(array_type.child), writer, pt, inner_coercion);
             return;
         },
         .vector_type => |vector_type| {
             try writer.print("@Vector({d}, ", .{vector_type.len});
-            try print(Type.fromInterned(vector_type.child), writer, pt);
+
+            switch (coercion_result) {
+                .vector_elem => |c| inner_coercion = c.child.*,
+                .no_match,
+                .vector_len => return writer.writeAll(elision ++ ")"),
+                else => {},
+            }
+            try printEliding(Type.fromInterned(vector_type.child), writer, pt, inner_coercion);
             try writer.writeAll(")");
             return;
         },
         .opt_type => |child| {
             try writer.writeByte('?');
-            return print(Type.fromInterned(child), writer, pt);
+            // TODO When does optional_shape occur?
+
+            switch (coercion_result) {
+                .optional_child => |c| inner_coercion = c.child.*,
+                .no_match => return writer.writeAll(elision),
+                else => {},
+            }
+            return printEliding(Type.fromInterned(child), writer, pt, inner_coercion);
         },
         .error_union_type => |error_union_type| {
-            try print(Type.fromInterned(error_union_type.error_set_type), writer, pt);
+            switch (coercion_result) {
+                .error_union_payload => |c| inner_coercion = c.child.*,
+                .no_match => return writer.writeAll("!" ++ elision),
+                .missing_error => {
+                    try printEliding(Type.fromInterned(error_union_type.error_set_type), writer, pt, inner_coercion);
+                    try writer.writeAll("!" ++ elision);
+                    return;
+                },
+                else => {
+                    try printEliding(Type.fromInterned(error_union_type.error_set_type), writer, pt, inner_coercion);
+                },
+            }
+
             try writer.writeByte('!');
             if (error_union_type.payload_type == .generic_poison_type) {
                 try writer.writeAll("anytype");
             } else {
-                try print(Type.fromInterned(error_union_type.payload_type), writer, pt);
+                try printEliding(Type.fromInterned(error_union_type.payload_type), writer, pt, inner_coercion);
             }
             return;
         },
@@ -276,9 +458,13 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
         .error_set_type => |error_set_type| {
             const names = error_set_type.names;
             try writer.writeAll("error{");
-            for (names.get(ip), 0..) |name, i| {
-                if (i != 0) try writer.writeByte(',');
-                try writer.print("{}", .{name.fmt(ip)});
+            if (coercion_result == .no_match) {
+                try writer.writeAll(elision);
+            } else {
+                for (names.get(ip), 0..) |name, i| {
+                    if (i != 0) try writer.writeByte(',');
+                    try writer.print("{}", .{name.fmt(ip)});
+                }
             }
             try writer.writeAll("}");
         },
@@ -346,7 +532,12 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
             if (anon_struct.types.len == 0) {
                 return writer.writeAll("@TypeOf(.{})");
             }
+
+            if (coercion_result == .no_match)
+                return writer.writeAll("struct{" ++ elision ++ "}");
+
             try writer.writeAll("struct{");
+
             for (anon_struct.types.get(ip), anon_struct.values.get(ip), 0..) |field_ty, val, i| {
                 if (i != 0) try writer.writeAll(", ");
                 if (val != .none) {
@@ -356,7 +547,8 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
                     try writer.print("{}: ", .{anon_struct.names.get(ip)[i].fmt(&mod.intern_pool)});
                 }
 
-                try print(Type.fromInterned(field_ty), writer, pt);
+                // TODO Elide fields where possible.
+                try printEliding(Type.fromInterned(field_ty), writer, pt, .ok);
 
                 if (val != .none) {
                     try writer.print(" = {}", .{Value.fromInterned(val).fmtValue(pt, null)});
@@ -364,7 +556,6 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
             }
             try writer.writeAll("}");
         },
-
         .union_type => {
             const decl = mod.declPtr(ip.loadUnionType(ty.toIntern()).decl);
             try decl.renderFullyQualifiedName(mod, writer);
@@ -383,20 +574,37 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
             }
             try writer.writeAll("fn (");
             const param_types = fn_info.param_types.get(&mod.intern_pool);
-            for (param_types, 0..) |param_ty, i| {
-                if (i != 0) try writer.writeAll(", ");
-                if (std.math.cast(u5, i)) |index| {
-                    if (fn_info.paramIsComptime(index)) {
-                        try writer.writeAll("comptime ");
+            switch (coercion_result ) {
+                .no_match,
+                .fn_var_args,
+                .fn_return_type => {
+                    if (param_types.len > 0)
+                        try writer.writeAll(elision);
+                },
+                .fn_param => |param| {
+                    for (0..param.index) |i| {
+                        if (i == 0)
+                            try writer.writeAll(elision)
+                        else
+                            try writer.writeAll(", " ++ elision);
                     }
-                    if (fn_info.paramIsNoalias(index)) {
-                        try writer.writeAll("noalias ");
+
+                    try printParamChild(writer, fn_info, param_types, param.index, pt, param.child.*);
+
+                    if (param.index + 1 < param_types.len)
+                        try writer.writeAll(", " ++ elision);
+                },
+                else => {
+                    switch (inner_coercion) {
+                        .fn_param_noalias,
+                        .fn_param_comptime,
+                        .fn_generic,
+                        .fn_param_count => inner_coercion = shallow_fail,
+                        else => {},
                     }
-                }
-                if (param_ty == .generic_poison_type) {
-                    try writer.writeAll("anytype");
-                } else {
-                    try print(Type.fromInterned(param_ty), writer, pt);
+
+                    for (0..param_types.len) |i|
+                        try printParamChild(writer, fn_info, param_types, i, pt, inner_coercion);
                 }
             }
             if (fn_info.is_var_args) {
@@ -405,22 +613,27 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
                 }
                 try writer.writeAll("...");
             }
+
             try writer.writeAll(") ");
-            if (fn_info.cc != .Unspecified) {
+            if (fn_info.cc != .Unspecified and (coercion_result == .fn_cc or coercion_result == .ok)) {
                 try writer.writeAll("callconv(.");
                 try writer.writeAll(@tagName(fn_info.cc));
                 try writer.writeAll(") ");
             }
             if (fn_info.return_type == .generic_poison_type) {
                 try writer.writeAll("anytype");
+            } else if (coercion_result == .fn_return_type) {
+                try printEliding(Type.fromInterned(fn_info.return_type), writer, pt, coercion_result.fn_return_type.child.*);
+            } else if (coercion_result == .ok) {
+                try printEliding(Type.fromInterned(fn_info.return_type), writer, pt, inner_coercion);
             } else {
-                try print(Type.fromInterned(fn_info.return_type), writer, pt);
+                try writer.writeAll(elision);
             }
         },
         .anyframe_type => |child| {
             if (child == .none) return writer.writeAll("anyframe");
             try writer.writeAll("anyframe->");
-            return print(Type.fromInterned(child), writer, pt);
+            return printEliding(Type.fromInterned(child), writer, pt, inner_coercion);
         },
 
         // values, not types
@@ -444,6 +657,31 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
         // memoization, not types
         .memoized_call,
         => unreachable,
+    }
+}
+
+fn printParamChild(
+    writer: anytype,
+    fn_info: InternPool.Key.FuncType,
+    param_types: []InternPool.Index,
+    i: usize,
+    pt: Zcu.PerThread,
+    inner_coercion: Sema.InMemoryCoercionResult,
+) !void {
+    if (i != 0) try writer.writeAll(", ");
+    if (std.math.cast(u5, i)) |index| {
+        if (fn_info.paramIsComptime(index)) {
+            try writer.writeAll("comptime ");
+        }
+        if (fn_info.paramIsNoalias(index)) {
+            try writer.writeAll("noalias ");
+        }
+    }
+    const param_ty = param_types[i];
+    if (param_ty == .generic_poison_type) {
+        try writer.writeAll("anytype");
+    } else {
+        try printEliding(Type.fromInterned(param_ty), writer, pt, inner_coercion);
     }
 }
 
