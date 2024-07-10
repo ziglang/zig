@@ -63,8 +63,8 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
     const arena = b.allocator;
     const dest_prefix = b.getInstallPath(install_dir.options.install_dir, install_dir.options.install_subdir);
     const src_dir_path = install_dir.options.source_dir.getPath3(b, step);
-    try step.addDirectoryWatchInput(install_dir.options.source_dir);
-    var src_dir = src_dir_path.root_dir.handle.openDir(src_dir_path.subPathOpt() orelse ".", .{ .iterate = true }) catch |err| {
+    const need_derived_inputs = try step.addDirectoryWatchInput(install_dir.options.source_dir);
+    var src_dir = src_dir_path.root_dir.handle.openDir(src_dir_path.subPathOrDot(), .{ .iterate = true }) catch |err| {
         return step.fail("unable to open source directory '{}': {s}", .{
             src_dir_path, @errorName(err),
         });
@@ -96,8 +96,7 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
 
         switch (entry.kind) {
             .directory => {
-                const subdir_path = try src_dir_path.join(arena, entry.path);
-                try step.addDirectoryWatchInputFromPath(subdir_path);
+                if (need_derived_inputs) try step.addDirectoryWatchInputFromPath(src_sub_path);
                 try cwd.makePath(dest_path);
                 // TODO: set result_cached=false if the directory did not already exist.
             },

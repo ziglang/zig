@@ -634,7 +634,11 @@ pub fn addWatchInput(step: *Step, lazy_file: Build.LazyPath) Allocator.Error!voi
 /// Any changes inside the directory will trigger invalidation.
 ///
 /// See also `addDirectoryWatchInputFromPath` which takes a `Build.Cache.Path` instead.
-pub fn addDirectoryWatchInput(step: *Step, lazy_directory: Build.LazyPath) Allocator.Error!void {
+///
+/// Paths derived from this directory should also be manually added via
+/// `addDirectoryWatchInputFromPath` if and only if this function returns
+/// `true`.
+pub fn addDirectoryWatchInput(step: *Step, lazy_directory: Build.LazyPath) Allocator.Error!bool {
     switch (lazy_directory) {
         .src_path => |src_path| try addDirectoryWatchInputFromBuilder(step, src_path.owner, src_path.sub_path),
         .dependency => |d| try addDirectoryWatchInputFromBuilder(step, d.dependency.builder, d.sub_path),
@@ -648,13 +652,19 @@ pub fn addDirectoryWatchInput(step: *Step, lazy_directory: Build.LazyPath) Alloc
             });
         },
         // Nothing to watch because this dependency edge is modeled instead via `dependants`.
-        .generated => {},
+        .generated => return false,
     }
+    return true;
 }
 
 /// Any changes inside the directory will trigger invalidation.
 ///
 /// See also `addDirectoryWatchInput` which takes a `Build.LazyPath` instead.
+///
+/// This function should only be called when it has been verified that the
+/// dependency on `path` is not already accounted for by a `Step` dependency.
+/// In other words, before calling this function, first check that the
+/// `Build.LazyPath` which this `path` is derived from is not `generated`.
 pub fn addDirectoryWatchInputFromPath(step: *Step, path: Build.Cache.Path) !void {
     return addWatchInputFromPath(step, path, ".");
 }

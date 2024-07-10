@@ -40,6 +40,22 @@ pub const Directory = struct {
                 .include_extensions = if (opts.include_extensions) |incs| b.dupeStrings(incs) else null,
             };
         }
+
+        pub fn pathIncluded(opts: Options, path: []const u8) bool {
+            for (opts.exclude_extensions) |ext| {
+                if (std.mem.endsWith(u8, path, ext))
+                    return false;
+            }
+            if (opts.include_extensions) |incs| {
+                for (incs) |inc| {
+                    if (std.mem.endsWith(u8, path, inc))
+                        return true;
+                } else {
+                    return false;
+                }
+            }
+            return true;
+        }
     };
 };
 
@@ -158,7 +174,10 @@ fn maybeUpdateName(write_file: *WriteFile) void {
 fn make(step: *Step, prog_node: std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
+    const arena = b.allocator;
+    const gpa = arena;
     const write_file: *WriteFile = @fieldParentPtr("step", step);
+    step.clearWatchInputs();
 
     // The cache is used here not really as a way to speed things up - because writing
     // the data to a file would probably be very fast - but as a way to find a canonical
@@ -173,29 +192,67 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
     // Random bytes to make WriteFile unique. Refresh this with
     // new random bytes when WriteFile implementation is modified
     // in a non-backwards-compatible way.
-    man.hash.add(@as(u32, 0xd767ee59));
+    man.hash.add(@as(u32, 0xc2a287d0));
 
     for (write_file.files.items) |file| {
         man.hash.addBytes(file.sub_path);
+
         switch (file.contents) {
             .bytes => |bytes| {
                 man.hash.addBytes(bytes);
             },
-            .copy => |file_source| {
-                _ = try man.addFile(file_source.getPath2(b, step), null);
+            .copy => |lazy_path| {
+                const path = lazy_path.getPath3(b, step);
+                _ = try man.addFilePath(path, null);
+                try step.addWatchInput(lazy_path);
             },
         }
     }
-    for (write_file.directories.items) |dir| {
-        man.hash.addBytes(dir.source.getPath2(b, step));
+
+    const open_dir_cache = try arena.alloc(fs.Dir, write_file.directories.items.len);
+    var open_dirs_count: usize = 0;
+    defer closeDirs(open_dir_cache[0..open_dirs_count]);
+
+    for (write_file.directories.items, open_dir_cache) |dir, *open_dir_cache_elem| {
         man.hash.addBytes(dir.sub_path);
         for (dir.options.exclude_extensions) |ext| man.hash.addBytes(ext);
         if (dir.options.include_extensions) |incs| for (incs) |inc| man.hash.addBytes(inc);
+
+        const need_derived_inputs = try step.addDirectoryWatchInput(dir.source);
+        const src_dir_path = dir.source.getPath3(b, step);
+
+        var src_dir = src_dir_path.root_dir.handle.openDir(src_dir_path.subPathOrDot(), .{ .iterate = true }) catch |err| {
+            return step.fail("unable to open source directory '{}': {s}", .{
+                src_dir_path, @errorName(err),
+            });
+        };
+        open_dir_cache_elem.* = src_dir;
+        open_dirs_count += 1;
+
+        var it = try src_dir.walk(gpa);
+        defer it.deinit();
+        while (try it.next()) |entry| {
+            if (!dir.options.pathIncluded(entry.path)) continue;
+
+            switch (entry.kind) {
+                .directory => {
+                    if (need_derived_inputs) {
+                        const entry_path = try src_dir_path.join(arena, entry.path);
+                        try step.addDirectoryWatchInputFromPath(entry_path);
+                    }
+                },
+                .file => {
+                    const entry_path = try src_dir_path.join(arena, entry.path);
+                    _ = try man.addFilePath(entry_path, null);
+                },
+                else => continue,
+            }
+        }
     }
 
     if (try step.cacheHit(&man)) {
         const digest = man.final();
-        write_file.generated_directory.path = try b.cache_root.join(b.allocator, &.{ "o", &digest });
+        write_file.generated_directory.path = try b.cache_root.join(arena, &.{ "o", &digest });
         step.result_cached = true;
         return;
     }
@@ -203,7 +260,7 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
     const digest = man.final();
     const cache_path = "o" ++ fs.path.sep_str ++ digest;
 
-    write_file.generated_directory.path = try b.cache_root.join(b.allocator, &.{ "o", &digest });
+    write_file.generated_directory.path = try b.cache_root.join(arena, &.{ "o", &digest });
 
     var cache_dir = b.cache_root.handle.makeOpenPath(cache_path, .{}) catch |err| {
         return step.fail("unable to make path '{}{s}': {s}", .{
@@ -256,8 +313,9 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
             },
         }
     }
-    for (write_file.directories.items) |dir| {
-        const full_src_dir_path = dir.source.getPath2(b, step);
+
+    for (write_file.directories.items, open_dir_cache) |dir, already_open_dir| {
+        const src_dir_path = dir.source.getPath3(b, step);
         const dest_dirname = dir.sub_path;
 
         if (dest_dirname.len != 0) {
@@ -268,44 +326,25 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
             };
         }
 
-        var src_dir = b.build_root.handle.openDir(full_src_dir_path, .{ .iterate = true }) catch |err| {
-            return step.fail("unable to open source directory '{s}': {s}", .{
-                full_src_dir_path, @errorName(err),
-            });
-        };
-        defer src_dir.close();
+        var it = try already_open_dir.walk(gpa);
+        defer it.deinit();
+        while (try it.next()) |entry| {
+            if (!dir.options.pathIncluded(entry.path)) continue;
 
-        var it = try src_dir.walk(b.allocator);
-        next_entry: while (try it.next()) |entry| {
-            for (dir.options.exclude_extensions) |ext| {
-                if (std.mem.endsWith(u8, entry.path, ext)) continue :next_entry;
-            }
-            if (dir.options.include_extensions) |incs| {
-                for (incs) |inc| {
-                    if (std.mem.endsWith(u8, entry.path, inc)) break;
-                } else {
-                    continue :next_entry;
-                }
-            }
-            const full_src_entry_path = b.pathJoin(&.{ full_src_dir_path, entry.path });
+            const src_entry_path = try src_dir_path.join(arena, entry.path);
             const dest_path = b.pathJoin(&.{ dest_dirname, entry.path });
             switch (entry.kind) {
                 .directory => try cache_dir.makePath(dest_path),
                 .file => {
                     const prev_status = fs.Dir.updateFile(
-                        cwd,
-                        full_src_entry_path,
+                        src_entry_path.root_dir.handle,
+                        src_entry_path.sub_path,
                         cache_dir,
                         dest_path,
                         .{},
                     ) catch |err| {
-                        return step.fail("unable to update file from '{s}' to '{}{s}{c}{s}': {s}", .{
-                            full_src_entry_path,
-                            b.cache_root,
-                            cache_path,
-                            fs.path.sep,
-                            dest_path,
-                            @errorName(err),
+                        return step.fail("unable to update file from '{}' to '{}{s}{c}{s}': {s}", .{
+                            src_entry_path, b.cache_root, cache_path, fs.path.sep, dest_path, @errorName(err),
                         });
                     };
                     _ = prev_status;
@@ -316,4 +355,8 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
     }
 
     try step.writeManifest(&man);
+}
+
+fn closeDirs(dirs: []fs.Dir) void {
+    for (dirs) |*d| d.close();
 }
