@@ -11679,6 +11679,7 @@ fn strLitNodeAsString(astgen: *AstGen, node: Ast.Node.Index) !IndexSlice {
         const slice = tree.tokenSlice(tok_i);
         const carriage_return_ending: usize = if (slice[slice.len - 2] == '\r') 2 else 1;
         const line_bytes = slice[2 .. slice.len - carriage_return_ending];
+        try astgen.strLitNodeCheckTrailingWhitespace(tok_i, line_bytes);
         try string_bytes.appendSlice(gpa, line_bytes);
         tok_i += 1;
     }
@@ -11687,6 +11688,7 @@ fn strLitNodeAsString(astgen: *AstGen, node: Ast.Node.Index) !IndexSlice {
         const slice = tree.tokenSlice(tok_i);
         const carriage_return_ending: usize = if (slice[slice.len - 2] == '\r') 2 else 1;
         const line_bytes = slice[2 .. slice.len - carriage_return_ending];
+        try astgen.strLitNodeCheckTrailingWhitespace(tok_i, line_bytes);
         try string_bytes.ensureUnusedCapacity(gpa, line_bytes.len + 1);
         string_bytes.appendAssumeCapacity('\n');
         string_bytes.appendSliceAssumeCapacity(line_bytes);
@@ -11697,6 +11699,20 @@ fn strLitNodeAsString(astgen: *AstGen, node: Ast.Node.Index) !IndexSlice {
         .index = @enumFromInt(str_index),
         .len = @intCast(len),
     };
+}
+
+fn strLitNodeCheckTrailingWhitespace(
+    astgen: *AstGen,
+    tok: Ast.TokenIndex,
+    line_bytes: []const u8,
+) !void {
+    if (line_bytes.len == 0) return;
+    switch (line_bytes[line_bytes.len - 1]) {
+        '\t', ' ' => {},
+        '\r', '\n' => unreachable,
+        else => return,
+    }
+    return astgen.failTok(tok, "multiline string cannot contain trailing whitespace", .{});
 }
 
 fn testNameString(astgen: *AstGen, str_lit_token: Ast.TokenIndex) !Zir.NullTerminatedString {
