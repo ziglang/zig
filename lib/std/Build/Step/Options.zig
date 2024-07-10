@@ -424,6 +424,9 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
             item.path.getPath2(b, step),
         );
     }
+    if (!step.inputs.populated()) for (options.args.items) |item| {
+        try step.addWatchInput(item.path);
+    };
 
     const basename = "options.zig";
 

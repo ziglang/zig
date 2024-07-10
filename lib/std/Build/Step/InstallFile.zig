@@ -39,9 +39,7 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
     const install_file: *InstallFile = @fieldParentPtr("step", step);
-
-    // Inputs never change when re-running `make`.
-    if (!step.inputs.populated()) step.addWatchInput(install_file.source);
+    try step.singleUnchangingWatchInput(install_file.source);
 
     const full_src_path = install_file.source.getPath2(b, step);
     const full_dest_path = b.getInstallPath(install_file.dir, install_file.dest_rel_path);

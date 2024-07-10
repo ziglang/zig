@@ -1052,7 +1052,7 @@ pub fn addWriteFiles(b: *Build) *Step.WriteFile {
     return Step.WriteFile.create(b);
 }
 
-pub fn addRemoveDirTree(b: *Build, dir_path: []const u8) *Step.RemoveDir {
+pub fn addRemoveDirTree(b: *Build, dir_path: LazyPath) *Step.RemoveDir {
     return Step.RemoveDir.create(b, dir_path);
 }
 

@@ -555,6 +555,7 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
     const b = step.owner;
     const gpa = b.allocator;
     const check_object: *CheckObject = @fieldParentPtr("step", step);
+    try step.singleUnchangingWatchInput(check_object.source);
 
     const src_path = check_object.source.getPath2(b, step);
     const contents = fs.cwd().readFileAllocOptions(

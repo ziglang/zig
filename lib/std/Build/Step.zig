@@ -598,14 +598,17 @@ pub fn writeManifest(s: *Step, man: *Build.Cache.Manifest) !void {
     }
 }
 
-fn oom(err: anytype) noreturn {
-    switch (err) {
-        error.OutOfMemory => @panic("out of memory"),
-    }
+/// For steps that have a single input that never changes when re-running `make`.
+pub fn singleUnchangingWatchInput(step: *Step, lazy_path: Build.LazyPath) Allocator.Error!void {
+    if (!step.inputs.populated()) try step.addWatchInput(lazy_path);
 }
 
-pub fn addWatchInput(step: *Step, lazy_path: Build.LazyPath) void {
-    errdefer |err| oom(err);
+pub fn clearWatchInputs(step: *Step) void {
+    const gpa = step.owner.allocator;
+    step.inputs.clear(gpa);
+}
+
+pub fn addWatchInput(step: *Step, lazy_path: Build.LazyPath) Allocator.Error!void {
     switch (lazy_path) {
         .src_path => |src_path| try addWatchInputFromBuilder(step, src_path.owner, src_path.sub_path),
         .dependency => |d| try addWatchInputFromBuilder(step, d.dependency.builder, d.sub_path),

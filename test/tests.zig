@@ -771,7 +771,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         run_run.expectStdErrEqual("All your codebase are belong to us.\n");
         run_run.step.dependOn(&init_exe.step);
 
-        const cleanup = b.addRemoveDirTree(tmp_path);
+        const cleanup = b.addRemoveDirTree(.{ .cwd_relative = tmp_path });
         cleanup.step.dependOn(&run_test.step);
         cleanup.step.dependOn(&run_run.step);
         cleanup.step.dependOn(&run_bad.step);
@@ -816,7 +816,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         });
         checkfile.setName("check godbolt.org CLI usage generating valid asm");
 
-        const cleanup = b.addRemoveDirTree(tmp_path);
+        const cleanup = b.addRemoveDirTree(.{ .cwd_relative = tmp_path });
         cleanup.step.dependOn(&checkfile.step);
 
         step.dependOn(&cleanup.step);
@@ -902,7 +902,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         });
         check6.step.dependOn(&run6.step);
 
-        const cleanup = b.addRemoveDirTree(tmp_path);
+        const cleanup = b.addRemoveDirTree(.{ .cwd_relative = tmp_path });
         cleanup.step.dependOn(&check6.step);
 
         step.dependOn(&cleanup.step);

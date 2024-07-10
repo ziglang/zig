@@ -93,6 +93,7 @@ pub fn getOutputSeparatedDebug(objcopy: *const ObjCopy) ?std.Build.LazyPath {
 fn make(step: *Step, prog_node: std.Progress.Node) !void {
     const b = step.owner;
     const objcopy: *ObjCopy = @fieldParentPtr("step", step);
+    try step.singleUnchangingWatchInput(objcopy.input_file);
 
     var man = b.graph.cache.obtain();
     defer man.deinit();
