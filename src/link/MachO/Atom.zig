@@ -423,7 +423,6 @@ pub fn addReloc(self: *Atom, macho_file: *MachO, reloc: Relocation) !void {
     const gpa = macho_file.base.comp.gpa;
     const file = self.getFile(macho_file);
     assert(file == .zig_object);
-    assert(self.flags.relocs);
     var extra = self.getExtra(macho_file).?;
     const rels = &file.zig_object.relocs.items[extra.rel_index];
     try rels.append(gpa, reloc);
@@ -432,7 +431,6 @@ pub fn addReloc(self: *Atom, macho_file: *MachO, reloc: Relocation) !void {
 }
 
 pub fn freeRelocs(self: *Atom, macho_file: *MachO) void {
-    if (!self.flags.relocs) return;
     self.getFile(macho_file).zig_object.freeAtomRelocs(self.*, macho_file);
     var extra = self.getExtra(macho_file).?;
     extra.rel_count = 0;

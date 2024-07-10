@@ -290,8 +290,10 @@ pub fn deinit(self: *MachO) void {
     self.dylibs.deinit(gpa);
 
     self.segments.deinit(gpa);
-    for (self.sections.items(.atoms)) |*list| {
-        list.deinit(gpa);
+    for (self.sections.items(.atoms), self.sections.items(.out), self.sections.items(.thunks)) |*atoms, *out, *thnks| {
+        atoms.deinit(gpa);
+        out.deinit(gpa);
+        thnks.deinit(gpa);
     }
     self.sections.deinit(gpa);
 
@@ -561,8 +563,8 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     if (self.getZigObject()) |zo| {
         var has_resolve_error = false;
 
-        for (zo.atoms.items) |atom_index| {
-            const atom = self.getAtom(atom_index) orelse continue;
+        for (zo.getAtoms()) |atom_index| {
+            const atom = zo.getAtom(atom_index) orelse continue;
             if (!atom.flags.alive) continue;
             const sect = &self.sections.items(.header)[atom.out_n_sect];
             if (sect.isZerofill()) continue;
@@ -573,7 +575,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
             const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
             const code = try gpa.alloc(u8, atom_size);
             defer gpa.free(code);
-            atom.getData(self, code) catch |err| switch (err) {
+            zo.getAtomData(self, atom.*, code) catch |err| switch (err) {
                 error.InputOutput => {
                     try self.reportUnexpectedError("fetching code for '{s}' failed", .{
                         atom.getName(self),
@@ -1524,7 +1526,7 @@ fn scanRelocs(self: *MachO) !void {
         try self.getFile(index).?.object.scanRelocs(self);
     }
     if (self.getInternalObject()) |obj| {
-        try obj.scanRelocs(self);
+        obj.scanRelocs(self);
     }
 
     try self.reportUndefs();
@@ -2394,7 +2396,7 @@ fn writeSectionsAndUpdateLinkeditSizes(self: *MachO) !void {
         self.objc_stubs_sect_index,
     }) |maybe_sect_id| {
         if (maybe_sect_id) |sect_id| {
-            const out = &slice.items(.out)[sect_id];
+            const out = slice.items(.out)[sect_id].items;
             try self.writeSyntheticSection(sect_id, out);
         }
     }
@@ -3970,9 +3972,11 @@ pub const base_tag: link.File.Tag = link.File.Tag.macho;
 const Section = struct {
     header: macho.section_64,
     segment_id: u8,
-    atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
+    atoms: std.ArrayListUnmanaged(Ref) = .{},
     free_list: std.ArrayListUnmanaged(Atom.Index) = .{},
     last_atom_index: Atom.Index = 0,
+    thunks: std.ArrayListUnmanaged(Thunk.Index) = .{},
+    out: std.ArrayListUnmanaged(u8) = .{},
 };
 
 pub const LiteralPool = struct {
@@ -4018,7 +4022,7 @@ pub const LiteralPool = struct {
         return .{
             .found_existing = gop.found_existing,
             .index = @intCast(gop.index),
-            .atom = &lp.values.items[gop.index],
+            .ref = &lp.values.items[gop.index],
         };
     }
 

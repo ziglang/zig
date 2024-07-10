@@ -6,9 +6,15 @@ index: File.Index,
 symtab: std.MultiArrayList(Nlist) = .{},
 strtab: StringTable = .{},
 
-symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
-atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
-globals_lookup: std.AutoHashMapUnmanaged(u32, Symbol.Index) = .{},
+symbols: std.ArrayListUnmanaged(Symbol) = .{},
+symbols_extra: std.ArrayListUnmanaged(u32) = .{},
+globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .{},
+/// Maps string index (so name) into nlist index for the global symbol defined within this
+/// module.
+globals_lookup: std.AutoHashMapUnmanaged(u32, u32) = .{},
+atoms: std.ArrayListUnmanaged(Atom) = .{},
+atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .{},
+atoms_extra: std.ArrayListUnmanaged(u32) = .{},
 
 /// Table of tracked LazySymbols.
 lazy_syms: LazySymbolTable = .{},
@@ -58,10 +64,13 @@ debug_info_header_dirty: bool = false,
 debug_line_header_dirty: bool = false,
 
 pub fn init(self: *ZigObject, macho_file: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const comp = macho_file.base.comp;
     const gpa = comp.gpa;
 
-    try self.atoms.append(gpa, 0); // null input section
+    try self.atoms.append(gpa, .{ .extra = try self.addAtomExtra(gpa, .{}) }); // null input section
     try self.strtab.buffer.append(gpa, 0);
 
     switch (comp.config.debug_format) {
@@ -84,8 +93,12 @@ pub fn deinit(self: *ZigObject, allocator: Allocator) void {
     self.symtab.deinit(allocator);
     self.strtab.deinit(allocator);
     self.symbols.deinit(allocator);
-    self.atoms.deinit(allocator);
+    self.symbols_extra.deinit(allocator);
+    self.globals.deinit(allocator);
     self.globals_lookup.deinit(allocator);
+    self.atoms.deinit(allocator);
+    self.atoms_indexes.deinit(allocator);
+    self.atoms_extra.deinit(allocator);
 
     {
         var it = self.decls.iterator();
@@ -139,32 +152,21 @@ fn addNlist(self: *ZigObject, allocator: Allocator) !Symbol.Index {
     return index;
 }
 
-pub fn addAtom(self: *ZigObject, macho_file: *MachO) !Symbol.Index {
-    const gpa = macho_file.base.comp.gpa;
-    const atom_index = try macho_file.addAtom();
-    const symbol_index = try macho_file.addSymbol();
-    const nlist_index = try self.addNlist(gpa);
-
-    try self.atoms.append(gpa, atom_index);
-    try self.symbols.append(gpa, symbol_index);
-
-    const atom = macho_file.getAtom(atom_index).?;
-    atom.file = self.index;
-    atom.atom_index = atom_index;
-
-    const symbol = macho_file.getSymbol(symbol_index);
-    symbol.file = self.index;
-    symbol.atom = atom_index;
-
+pub fn createAtomForDecl(self: *ZigObject, allocator: Allocator, macho_file: *MachO) !Symbol.Index {
+    const atom_index = try self.addAtom(allocator);
+    const symbol_index = try self.addSymbol(allocator);
+    const nlist_index = try self.addNlist(allocator);
     self.symtab.items(.atom)[nlist_index] = atom_index;
+    try self.atoms_indexes.append(allocator, atom_index);
+    const symbol = &self.symbols.items[symbol_index];
+    symbol.atom_ref = .{ .index = atom_index, .file = self.index };
     symbol.nlist_idx = nlist_index;
-
+    symbol.extra = try self.addSymbolExtra(allocator, .{});
     const relocs_index = @as(u32, @intCast(self.relocs.items.len));
-    const relocs = try self.relocs.addOne(gpa);
+    const relocs = try self.relocs.addOne(allocator);
     relocs.* = .{};
-    try atom.addExtra(.{ .rel_index = relocs_index, .rel_count = 0 }, macho_file);
-    atom.flags.relocs = true;
-
+    const atom = self.getAtom(atom_index).?;
+    atom.addExtra(.{ .rel_index = relocs_index, .rel_count = 0 }, macho_file);
     return symbol_index;
 }
 
@@ -191,89 +193,51 @@ pub fn getAtomData(self: ZigObject, macho_file: *MachO, atom: Atom, buffer: []u8
 }
 
 pub fn getAtomRelocs(self: *ZigObject, atom: Atom, macho_file: *MachO) []const Relocation {
-    if (!atom.flags.relocs) return &[0]Relocation{};
-    const extra = atom.getExtra(macho_file).?;
+    const extra = atom.getExtra(macho_file);
     const relocs = self.relocs.items[extra.rel_index];
     return relocs.items[0..extra.rel_count];
 }
 
 pub fn freeAtomRelocs(self: *ZigObject, atom: Atom, macho_file: *MachO) void {
-    if (atom.flags.relocs) {
-        const extra = atom.getExtra(macho_file).?;
-        self.relocs.items[extra.rel_index].clearRetainingCapacity();
-    }
+    const extra = atom.getExtra(macho_file);
+    self.relocs.items[extra.rel_index].clearRetainingCapacity();
 }
 
-pub fn resolveSymbols(self: *ZigObject, macho_file: *MachO) void {
+pub fn resolveSymbols(self: *ZigObject, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    for (self.symbols.items, 0..) |index, i| {
-        const nlist_idx = @as(Symbol.Index, @intCast(i));
-        const nlist = self.symtab.items(.nlist)[nlist_idx];
-        const atom_index = self.symtab.items(.atom)[nlist_idx];
+    const gpa = macho_file.base.comp.gpa;
 
+    for (self.symtab.items(.nlist), self.symtab.items(.atom), self.globals.items, 0..) |nlist, atom_index, *global, i| {
         if (!nlist.ext()) continue;
-        if (nlist.undf() and !nlist.tentative()) continue;
         if (nlist.sect()) {
-            const atom = macho_file.getAtom(atom_index).?;
+            const atom = self.getAtom(atom_index).?;
             if (!atom.flags.alive) continue;
         }
 
-        const symbol = macho_file.getSymbol(index);
+        const gop = try macho_file.resolver.getOrPut(gpa, .{
+            .index = @intCast(i),
+            .file = self.index,
+        }, macho_file);
+        if (!gop.found_existing) {
+            gop.ref.* = .{ .index = 0, .file = 0 };
+        }
+        global.* = gop.index;
+
+        if (nlist.undf() and !nlist.tentative()) continue;
+        if (gop.ref.getFile(macho_file) == null) {
+            gop.ref.* = .{ .index = @intCast(i), .file = self.index };
+            continue;
+        }
+
         if (self.asFile().getSymbolRank(.{
             .archive = false,
             .weak = nlist.weakDef(),
             .tentative = nlist.tentative(),
-        }) < symbol.getSymbolRank(macho_file)) {
-            const value = if (nlist.sect()) blk: {
-                const atom = macho_file.getAtom(atom_index).?;
-                break :blk nlist.n_value - atom.getInputAddress(macho_file);
-            } else nlist.n_value;
-            const out_n_sect = if (nlist.sect()) macho_file.getAtom(atom_index).?.out_n_sect else 0;
-            symbol.value = value;
-            symbol.atom = atom_index;
-            symbol.out_n_sect = out_n_sect;
-            symbol.nlist_idx = nlist_idx;
-            symbol.file = self.index;
-            symbol.flags.weak = nlist.weakDef();
-            symbol.flags.abs = nlist.abs();
-            symbol.flags.tentative = nlist.tentative();
-            symbol.flags.weak_ref = false;
-            symbol.flags.dyn_ref = nlist.n_desc & macho.REFERENCED_DYNAMICALLY != 0;
-            symbol.flags.no_dead_strip = symbol.flags.no_dead_strip or nlist.noDeadStrip();
-            // TODO: symbol.flags.interposable = macho_file.base.isDynLib() and macho_file.options.namespace == .flat and !nlist.pext();
-            symbol.flags.interposable = false;
-
-            if (nlist.sect() and
-                macho_file.sections.items(.header)[nlist.n_sect - 1].type() == macho.S_THREAD_LOCAL_VARIABLES)
-            {
-                symbol.flags.tlv = true;
-            }
+        }) < gop.ref.getSymbol(macho_file).?.getSymbolRank(macho_file)) {
+            gop.ref.* = .{ .index = @intCast(i), .file = self.index };
         }
-
-        // Regardless of who the winner is, we still merge symbol visibility here.
-        if (nlist.pext() or (nlist.weakDef() and nlist.weakRef())) {
-            if (symbol.visibility != .global) {
-                symbol.visibility = .hidden;
-            }
-        } else {
-            symbol.visibility = .global;
-        }
-    }
-}
-
-pub fn resetGlobals(self: *ZigObject, macho_file: *MachO) void {
-    for (self.symbols.items, 0..) |sym_index, nlist_idx| {
-        if (!self.symtab.items(.nlist)[nlist_idx].ext()) continue;
-        const sym = macho_file.getSymbol(sym_index);
-        const name = sym.name;
-        const global = sym.flags.global;
-        const weak_ref = sym.flags.weak_ref;
-        sym.* = .{};
-        sym.name = name;
-        sym.flags.global = global;
-        sym.flags.weak_ref = weak_ref;
     }
 }
 
@@ -281,12 +245,13 @@ pub fn markLive(self: *ZigObject, macho_file: *MachO) void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    for (self.symbols.items, 0..) |index, nlist_idx| {
-        const nlist = self.symtab.items(.nlist)[nlist_idx];
+    for (0..self.symbols.items.len) |i| {
+        const nlist = self.symtab.items(.nlist)[i];
         if (!nlist.ext()) continue;
 
-        const sym = macho_file.getSymbol(index);
-        const file = sym.getFile(macho_file) orelse continue;
+        const ref = self.getSymbolRef(@intCast(i), macho_file);
+        const file = ref.getFile(macho_file) orelse continue;
+        const sym = ref.getSymbol(macho_file).?;
         const should_keep = nlist.undf() or (nlist.tentative() and !sym.flags.tentative);
         if (should_keep and file == .object and !file.object.alive) {
             file.object.alive = true;
@@ -295,23 +260,40 @@ pub fn markLive(self: *ZigObject, macho_file: *MachO) void {
     }
 }
 
-pub fn checkDuplicates(self: *ZigObject, dupes: anytype, macho_file: *MachO) !void {
-    for (self.symbols.items, 0..) |index, nlist_idx| {
-        const sym = macho_file.getSymbol(index);
-        if (sym.visibility != .global) continue;
-        const file = sym.getFile(macho_file) orelse continue;
-        if (file.getIndex() == self.index) continue;
+pub fn mergeSymbolVisibility(self: *ZigObject, macho_file: *MachO) void {
+    const tracy = trace(@src());
+    defer tracy.end();
 
-        const nlist = self.symtab.items(.nlist)[nlist_idx];
-        if (!nlist.undf() and !nlist.tentative() and !(nlist.weakDef() or nlist.pext())) {
-            const gop = try dupes.getOrPut(index);
-            if (!gop.found_existing) {
-                gop.value_ptr.* = .{};
-            }
-            try gop.value_ptr.append(macho_file.base.comp.gpa, self.index);
+    for (self.symbols.items, 0..) |sym, i| {
+        const ref = self.getSymbolRef(@intCast(i), macho_file);
+        const global = ref.getSymbol(macho_file) orelse continue;
+        if (global.visibility != .global) {
+            global.visibility = sym.visibility;
+        }
+        if (sym.flags.weak_ref) {
+            global.flags.weak_ref = true;
         }
     }
 }
+
+// TODO
+// pub fn checkDuplicates(self: *ZigObject, dupes: anytype, macho_file: *MachO) !void {
+//     for (self.symbols.items, 0..) |index, nlist_idx| {
+//         const sym = macho_file.getSymbol(index);
+//         if (sym.visibility != .global) continue;
+//         const file = sym.getFile(macho_file) orelse continue;
+//         if (file.getIndex() == self.index) continue;
+
+//         const nlist = self.symtab.items(.nlist)[nlist_idx];
+//         if (!nlist.undf() and !nlist.tentative() and !(nlist.weakDef() or nlist.pext())) {
+//             const gop = try dupes.getOrPut(index);
+//             if (!gop.found_existing) {
+//                 gop.value_ptr.* = .{};
+//             }
+//             try gop.value_ptr.append(macho_file.base.comp.gpa, self.index);
+//         }
+//     }
+// }
 
 pub fn resolveLiterals(self: *ZigObject, lp: *MachO.LiteralPool, macho_file: *MachO) !void {
     _ = self;
@@ -362,8 +344,8 @@ pub fn writeAr(self: ZigObject, ar_format: Archive.Format, writer: anytype) !voi
 }
 
 pub fn scanRelocs(self: *ZigObject, macho_file: *MachO) !void {
-    for (self.atoms.items) |atom_index| {
-        const atom = macho_file.getAtom(atom_index) orelse continue;
+    for (self.getAtoms()) |atom_index| {
+        const atom = self.getAtom(atom_index) orelse continue;
         if (!atom.flags.alive) continue;
         const sect = atom.getInputSection(macho_file);
         if (sect.isZerofill()) continue;
@@ -371,46 +353,49 @@ pub fn scanRelocs(self: *ZigObject, macho_file: *MachO) !void {
     }
 }
 
-pub fn calcSymtabSize(self: *ZigObject, macho_file: *MachO) !void {
+pub fn calcSymtabSize(self: *ZigObject, macho_file: *MachO) void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    for (self.symbols.items) |sym_index| {
-        const sym = macho_file.getSymbol(sym_index);
-        const file = sym.getFile(macho_file) orelse continue;
+    for (self.symbols.items, 0..) |*sym, i| {
+        const ref = self.getSymbolRef(@intCast(i), macho_file);
+        const file = ref.getFile(macho_file) orelse continue;
         if (file.getIndex() != self.index) continue;
         if (sym.getAtom(macho_file)) |atom| if (!atom.flags.alive) continue;
         sym.flags.output_symtab = true;
         if (sym.isLocal()) {
-            try sym.addExtra(.{ .symtab = self.output_symtab_ctx.nlocals }, macho_file);
+            sym.addExtra(.{ .symtab = self.output_symtab_ctx.nlocals }, macho_file);
             self.output_symtab_ctx.nlocals += 1;
         } else if (sym.flags.@"export") {
-            try sym.addExtra(.{ .symtab = self.output_symtab_ctx.nexports }, macho_file);
+            sym.addExtra(.{ .symtab = self.output_symtab_ctx.nexports }, macho_file);
             self.output_symtab_ctx.nexports += 1;
         } else {
             assert(sym.flags.import);
-            try sym.addExtra(.{ .symtab = self.output_symtab_ctx.nimports }, macho_file);
+            sym.addExtra(.{ .symtab = self.output_symtab_ctx.nimports }, macho_file);
             self.output_symtab_ctx.nimports += 1;
         }
         self.output_symtab_ctx.strsize += @as(u32, @intCast(sym.getName(macho_file).len + 1));
     }
 }
 
-pub fn writeSymtab(self: ZigObject, macho_file: *MachO, ctx: anytype) void {
+pub fn writeSymtab(self: ZigObject, macho_file: *MachO) void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    for (self.symbols.items) |sym_index| {
-        const sym = macho_file.getSymbol(sym_index);
-        const file = sym.getFile(macho_file) orelse continue;
+    var n_strx = self.output_symtab_ctx.stroff;
+    for (self.symbols.items, 0..) |sym, i| {
+        const ref = self.getSymbolRef(@intCast(i), macho_file);
+        const file = ref.getFile(macho_file) orelse continue;
         if (file.getIndex() != self.index) continue;
         const idx = sym.getOutputSymtabIndex(macho_file) orelse continue;
-        const n_strx = @as(u32, @intCast(ctx.strtab.items.len));
-        ctx.strtab.appendSliceAssumeCapacity(sym.getName(macho_file));
-        ctx.strtab.appendAssumeCapacity(0);
-        const out_sym = &ctx.symtab.items[idx];
+        const out_sym = &macho_file.symtab.items[idx];
         out_sym.n_strx = n_strx;
         sym.setOutputSym(macho_file, out_sym);
+        const name = sym.getName(macho_file);
+        @memcpy(macho_file.strtab.items[n_strx..][0..name.len], name);
+        n_strx += @intCast(name.len);
+        macho_file.strtab.items[n_strx] = 0;
+        n_strx += 1;
     }
 }
 
@@ -523,9 +508,9 @@ pub fn getDeclVAddr(
     reloc_info: link.File.RelocInfo,
 ) !u64 {
     const sym_index = try self.getOrCreateMetadataForDecl(macho_file, decl_index);
-    const sym = macho_file.getSymbol(sym_index);
+    const sym = self.symbols.items[sym_index];
     const vaddr = sym.getAddress(.{}, macho_file);
-    const parent_atom = macho_file.getSymbol(reloc_info.parent_atom_index).getAtom(macho_file).?;
+    const parent_atom = self.symbols.items[reloc_info.parent_atom_index].getAtom(macho_file).?;
     try parent_atom.addReloc(macho_file, .{
         .tag = .@"extern",
         .offset = @intCast(reloc_info.offset),
@@ -549,9 +534,9 @@ pub fn getAnonDeclVAddr(
     reloc_info: link.File.RelocInfo,
 ) !u64 {
     const sym_index = self.anon_decls.get(decl_val).?.symbol_index;
-    const sym = macho_file.getSymbol(sym_index);
+    const sym = self.symbols.items[sym_index];
     const vaddr = sym.getAddress(.{}, macho_file);
-    const parent_atom = macho_file.getSymbol(reloc_info.parent_atom_index).getAtom(macho_file).?;
+    const parent_atom = self.symbols.items[reloc_info.parent_atom_index].getAtom(macho_file).?;
     try parent_atom.addReloc(macho_file, .{
         .tag = .@"extern",
         .offset = @intCast(reloc_info.offset),
@@ -584,7 +569,7 @@ pub fn lowerAnonDecl(
         else => explicit_alignment,
     };
     if (self.anon_decls.get(decl_val)) |metadata| {
-        const existing_alignment = macho_file.getSymbol(metadata.symbol_index).getAtom(macho_file).?.alignment;
+        const existing_alignment = self.symbols.items[metadata.symbol_index].getAtom(macho_file).?.alignment;
         if (decl_alignment.order(existing_alignment).compare(.lte))
             return .ok;
     }
@@ -628,13 +613,10 @@ fn freeUnnamedConsts(self: *ZigObject, macho_file: *MachO, decl_index: InternPoo
 }
 
 fn freeDeclMetadata(self: *ZigObject, macho_file: *MachO, sym_index: Symbol.Index) void {
-    _ = self;
-    const gpa = macho_file.base.comp.gpa;
-    const sym = macho_file.getSymbol(sym_index);
+    const sym = self.symbols.items[sym_index];
     sym.getAtom(macho_file).?.free(macho_file);
     log.debug("adding %{d} to local symbols free list", .{sym_index});
-    macho_file.symbols_free_list.append(gpa, sym_index) catch {};
-    macho_file.symbols.items[sym_index] = .{};
+    // TODO redo this
     // TODO free GOT entry here
 }
 
@@ -675,7 +657,7 @@ pub fn updateFunc(
 
     const sym_index = try self.getOrCreateMetadataForDecl(macho_file, decl_index);
     self.freeUnnamedConsts(macho_file, decl_index);
-    macho_file.getSymbol(sym_index).getAtom(macho_file).?.freeRelocs(macho_file);
+    self.symbols.items[sym_index].getAtom(macho_file).?.freeRelocs(macho_file);
 
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
@@ -708,7 +690,7 @@ pub fn updateFunc(
     try self.updateDeclCode(macho_file, pt, decl_index, sym_index, sect_index, code);
 
     if (decl_state) |*ds| {
-        const sym = macho_file.getSymbol(sym_index);
+        const sym = self.symbols.items[sym_index];
         try self.dwarf.?.commitDeclState(
             pt,
             decl_index,
@@ -743,13 +725,13 @@ pub fn updateDecl(
         const name = decl.name.toSlice(&mod.intern_pool);
         const lib_name = variable.lib_name.toSlice(&mod.intern_pool);
         const index = try self.getGlobalSymbol(macho_file, name, lib_name);
-        const actual_index = self.symbols.items[index];
-        macho_file.getSymbol(actual_index).flags.needs_got = true;
+        const sym = &self.symbols.items[index];
+        sym.flags.needs_got = true;
         return;
     }
 
     const sym_index = try self.getOrCreateMetadataForDecl(macho_file, decl_index);
-    macho_file.getSymbol(sym_index).getAtom(macho_file).?.freeRelocs(macho_file);
+    self.symbols.items[sym_index].getAtom(macho_file).?.freeRelocs(macho_file);
 
     const gpa = macho_file.base.comp.gpa;
     var code_buffer = std.ArrayList(u8).init(gpa);
@@ -784,7 +766,7 @@ pub fn updateDecl(
     }
 
     if (decl_state) |*ds| {
-        const sym = macho_file.getSymbol(sym_index);
+        const sym = self.symbols.items[sym_index];
         try self.dwarf.?.commitDeclState(
             pt,
             decl_index,
@@ -816,7 +798,7 @@ fn updateDeclCode(
     const required_alignment = decl.getAlignment(pt);
 
     const sect = &macho_file.sections.items(.header)[sect_index];
-    const sym = macho_file.getSymbol(sym_index);
+    const sym = &self.symbols.items[sym_index];
     const nlist = &self.symtab.items(.nlist)[sym.nlist_idx];
     const atom = sym.getAtom(macho_file).?;
 
@@ -850,13 +832,13 @@ fn updateDeclCode(
                 if (!macho_file.base.isRelocatable()) {
                     log.debug("  (updating offset table entry)", .{});
                     assert(sym.flags.has_zig_got);
-                    const extra = sym.getExtra(macho_file).?;
+                    const extra = sym.getExtra(macho_file);
                     try macho_file.zig_got.writeOne(macho_file, extra.zig_got);
                 }
             }
         } else if (code.len < old_size) {
             atom.shrink(macho_file);
-        } else if (macho_file.getAtom(atom.next_index) == null) {
+        } else if (self.getAtom(atom.next_index) == null) {
             const needed_size = atom.value + code.len;
             sect.size = needed_size;
         }
@@ -922,8 +904,8 @@ fn createTlvInitializer(
     const sym_name = try std.fmt.allocPrint(gpa, "{s}$tlv$init", .{name});
     defer gpa.free(sym_name);
 
-    const sym_index = try self.addAtom(macho_file);
-    const sym = macho_file.getSymbol(sym_index);
+    const sym_index = try self.createAtomForDecl(gpa, macho_file);
+    const sym = &self.symbols.items[sym_index];
     const nlist = &self.symtab.items(.nlist)[sym.nlist_idx];
     const atom = sym.getAtom(macho_file).?;
 
@@ -945,7 +927,6 @@ fn createTlvInitializer(
 
     const slice = macho_file.sections.slice();
     const header = slice.items(.header)[sect_index];
-    const atoms = &slice.items(.atoms)[sect_index];
 
     const gop = try self.tlv_initializers.getOrPut(gpa, atom.atom_index);
     assert(!gop.found_existing); // TODO incremental updates
@@ -955,8 +936,6 @@ fn createTlvInitializer(
     if (!header.isZerofill()) {
         gop.value_ptr.data = try gpa.dupe(u8, code);
     }
-
-    try atoms.append(gpa, atom.atom_index);
 
     return sym_index;
 }
@@ -970,7 +949,7 @@ fn createTlvDescriptor(
 ) !void {
     const gpa = macho_file.base.comp.gpa;
 
-    const sym = macho_file.getSymbol(sym_index);
+    const sym = &self.symbols.items[sym_index];
     const nlist = &self.symtab.items(.nlist)[sym.nlist_idx];
     const atom = sym.getAtom(macho_file).?;
     const alignment = Atom.Alignment.fromNonzeroByteUnits(@alignOf(u64));
@@ -1000,7 +979,7 @@ fn createTlvDescriptor(
     try atom.addReloc(macho_file, .{
         .tag = .@"extern",
         .offset = 0,
-        .target = self.symbols.items[tlv_bootstrap_index],
+        .target = tlv_bootstrap_index,
         .addend = 0,
         .type = .unsigned,
         .meta = .{
@@ -1020,11 +999,14 @@ fn createTlvDescriptor(
             .pcrel = false,
             .has_subtractor = false,
             .length = 3,
-            .symbolnum = @intCast(macho_file.getSymbol(init_sym_index).nlist_idx),
+            .symbolnum = @intCast(init_sym_index),
         },
     });
 
-    try macho_file.sections.items(.atoms)[sect_index].append(gpa, atom.atom_index);
+    try macho_file.sections.items(.atoms)[sect_index].append(gpa, .{
+        .index = atom.atom_index,
+        .file = self.index,
+    });
 }
 
 fn getDeclOutputSection(
@@ -1115,7 +1097,7 @@ pub fn lowerUnnamedConst(
             return error.CodegenFail;
         },
     };
-    const sym = macho_file.getSymbol(sym_index);
+    const sym = self.symbols.items[sym_index];
     try unnamed_consts.append(gpa, sym.atom);
     return sym_index;
 }
@@ -1140,7 +1122,7 @@ fn lowerConst(
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
-    const sym_index = try self.addAtom(macho_file);
+    const sym_index = try self.createAtomForDecl(gpa, macho_file);
 
     const res = try codegen.generateSymbol(&macho_file.base, pt, src_loc, val, &code_buffer, .{
         .none = {},
@@ -1152,7 +1134,7 @@ fn lowerConst(
         .fail => |em| return .{ .fail = em },
     };
 
-    const sym = macho_file.getSymbol(sym_index);
+    const sym = &self.symbols.items[sym_index];
     const name_str_index = try self.strtab.insert(gpa, name);
     sym.name = name_str_index;
     sym.out_n_sect = output_section_index;
@@ -1218,7 +1200,7 @@ pub fn updateExports(
         },
     };
     const sym_index = metadata.symbol_index;
-    const nlist_idx = macho_file.getSymbol(sym_index).nlist_idx;
+    const nlist_idx = self.symbols.items[sym_index].nlist_idx;
     const nlist = self.symtab.items(.nlist)[nlist_idx];
 
     for (export_indices) |export_idx| {
@@ -1322,7 +1304,7 @@ fn updateLazySymbol(
         .code => macho_file.zig_text_sect_index.?,
         .const_data => macho_file.zig_const_sect_index.?,
     };
-    const sym = macho_file.getSymbol(symbol_index);
+    const sym = &self.symbols.items[symbol_index];
     sym.name = name_str_index;
     sym.out_n_sect = output_section_index;
 
@@ -1382,12 +1364,12 @@ pub fn deleteExport(
     const nlist = &self.symtab.items(.nlist)[nlist_index.*];
     self.symtab.items(.size)[nlist_index.*] = 0;
     _ = self.globals_lookup.remove(nlist.n_strx);
-    const sym_index = macho_file.globals.get(nlist.n_strx).?;
-    const sym = macho_file.getSymbol(sym_index);
-    if (sym.file == self.index) {
-        _ = macho_file.globals.swapRemove(nlist.n_strx);
-        sym.* = .{};
-    }
+    // TODO actually remove the export
+    // const sym_index = macho_file.globals.get(nlist.n_strx).?;
+    // const sym = &self.symbols.items[sym_index];
+    // if (sym.file == self.index) {
+    //     sym.* = .{};
+    // }
     nlist.* = MachO.null_sym;
 }
 
@@ -1404,9 +1386,11 @@ pub fn getGlobalSymbol(self: *ZigObject, macho_file: *MachO, name: []const u8, l
         nlist.n_strx = off;
         nlist.n_type = macho.N_EXT;
         lookup_gop.value_ptr.* = nlist_index;
-        const global_name_off = try macho_file.strings.insert(gpa, sym_name);
-        const gop = try macho_file.getOrCreateGlobal(global_name_off);
-        try self.symbols.append(gpa, gop.index);
+        _ = try macho_file.resolver.getOrPut(gpa, .{
+            .index = nlist_index,
+            .file = self.index,
+        }, macho_file);
+        try self.globals.append(gpa, nlist_index);
     }
     return lookup_gop.value_ptr.*;
 }
@@ -1420,10 +1404,10 @@ pub fn getOrCreateMetadataForDecl(
     const gop = try self.decls.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
         const any_non_single_threaded = macho_file.base.comp.config.any_non_single_threaded;
-        const sym_index = try self.addAtom(macho_file);
+        const sym_index = try self.createAtomForDecl(gpa, macho_file);
         const mod = macho_file.base.comp.module.?;
         const decl = mod.declPtr(decl_index);
-        const sym = macho_file.getSymbol(sym_index);
+        const sym = &self.symbols.items[sym_index];
         if (decl.getOwnedVariable(mod)) |variable| {
             if (variable.is_threadlocal and any_non_single_threaded) {
                 sym.flags.tlv = true;
@@ -1463,8 +1447,8 @@ pub fn getOrCreateMetadataForLazySymbol(
     };
     switch (metadata.state.*) {
         .unused => {
-            const symbol_index = try self.addAtom(macho_file);
-            const sym = macho_file.getSymbol(symbol_index);
+            const symbol_index = try self.createAtomForDecl(gpa, macho_file);
+            const sym = &self.symbols.items[symbol_index];
             sym.flags.needs_zig_got = true;
             metadata.symbol_index.* = symbol_index;
         },
@@ -1476,6 +1460,130 @@ pub fn getOrCreateMetadataForLazySymbol(
     // anyerror needs to be deferred until flushModule
     if (lazy_sym.getDecl(mod) != .none) try self.updateLazySymbol(macho_file, pt, lazy_sym, symbol_index);
     return symbol_index;
+}
+
+fn addAtom(self: *ZigObject, allocator: Allocator) !Atom.Index {
+    const atom_index: Atom.Index = @intCast(self.atoms.items.len);
+    const atom = try self.atoms.addOne(allocator);
+    atom.* = .{
+        .file = self.index,
+        .atom_index = atom_index,
+        .extra = try self.addAtomExtra(allocator, .{}),
+    };
+    return atom_index;
+}
+
+pub fn getAtom(self: *ZigObject, atom_index: Atom.Index) ?*Atom {
+    if (atom_index == 0) return null;
+    assert(atom_index < self.atoms.items.len);
+    return &self.atoms.items[atom_index];
+}
+
+pub fn getAtoms(self: *ZigObject) []const Atom.Index {
+    return self.atoms_indexes.items;
+}
+
+fn addAtomExtra(self: *ZigObject, allocator: Allocator, extra: Atom.Extra) !u32 {
+    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    try self.atoms_extra.ensureUnusedCapacity(allocator, fields.len);
+    return self.addAtomExtraAssumeCapacity(extra);
+}
+
+fn addAtomExtraAssumeCapacity(self: *ZigObject, extra: Atom.Extra) u32 {
+    const index = @as(u32, @intCast(self.atoms_extra.items.len));
+    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    inline for (fields) |field| {
+        self.atoms_extra.appendAssumeCapacity(switch (field.type) {
+            u32 => @field(extra, field.name),
+            else => @compileError("bad field type"),
+        });
+    }
+    return index;
+}
+
+pub fn getAtomExtra(self: ZigObject, index: u32) Atom.Extra {
+    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    var i: usize = index;
+    var result: Atom.Extra = undefined;
+    inline for (fields) |field| {
+        @field(result, field.name) = switch (field.type) {
+            u32 => self.atoms_extra.items[i],
+            else => @compileError("bad field type"),
+        };
+        i += 1;
+    }
+    return result;
+}
+
+pub fn setAtomExtra(self: *ZigObject, index: u32, extra: Atom.Extra) void {
+    assert(index > 0);
+    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    inline for (fields, 0..) |field, i| {
+        self.atoms_extra.items[index + i] = switch (field.type) {
+            u32 => @field(extra, field.name),
+            else => @compileError("bad field type"),
+        };
+    }
+}
+
+fn addSymbol(self: *ZigObject, allocator: Allocator) !Symbol.Index {
+    try self.symbols.ensureUnusedCapacity(allocator, 1);
+    return self.addSymbolAssumeCapacity();
+}
+
+fn addSymbolAssumeCapacity(self: *ZigObject) Symbol.Index {
+    const index: Symbol.Index = @intCast(self.symbols.items.len);
+    const symbol = self.symbols.addOneAssumeCapacity();
+    symbol.* = .{ .file = self.index };
+    return index;
+}
+
+pub fn getSymbolRef(self: ZigObject, index: Symbol.Index, macho_file: *MachO) MachO.Ref {
+    const global_index = self.globals.items[index];
+    if (macho_file.resolver.get(global_index)) |ref| return ref;
+    return .{ .index = index, .file = self.index };
+}
+
+pub fn addSymbolExtra(self: *ZigObject, allocator: Allocator, extra: Symbol.Extra) !u32 {
+    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    try self.symbols_extra.ensureUnusedCapacity(allocator, fields.len);
+    return self.addSymbolExtraAssumeCapacity(extra);
+}
+
+fn addSymbolExtraAssumeCapacity(self: *ZigObject, extra: Symbol.Extra) u32 {
+    const index = @as(u32, @intCast(self.symbols_extra.items.len));
+    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    inline for (fields) |field| {
+        self.symbols_extra.appendAssumeCapacity(switch (field.type) {
+            u32 => @field(extra, field.name),
+            else => @compileError("bad field type"),
+        });
+    }
+    return index;
+}
+
+pub fn getSymbolExtra(self: ZigObject, index: u32) Symbol.Extra {
+    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    var i: usize = index;
+    var result: Symbol.Extra = undefined;
+    inline for (fields) |field| {
+        @field(result, field.name) = switch (field.type) {
+            u32 => self.symbols_extra.items[i],
+            else => @compileError("bad field type"),
+        };
+        i += 1;
+    }
+    return result;
+}
+
+pub fn setSymbolExtra(self: *ZigObject, index: u32, extra: Symbol.Extra) void {
+    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    inline for (fields, 0..) |field, i| {
+        self.symbols_extra.items[index + i] = switch (field.type) {
+            u32 => @field(extra, field.name),
+            else => @compileError("bad field type"),
+        };
+    }
 }
 
 pub fn asFile(self: *ZigObject) File {
@@ -1503,9 +1611,16 @@ fn formatSymtab(
     _ = unused_fmt_string;
     _ = options;
     try writer.writeAll("  symbols\n");
-    for (ctx.self.symbols.items) |index| {
-        const sym = ctx.macho_file.getSymbol(index);
-        try writer.print("    {}\n", .{sym.fmt(ctx.macho_file)});
+    const self = ctx.self;
+    const macho_file = ctx.macho_file;
+    for (self.symbols.items, 0) |sym, i| {
+        const ref = self.getSymbolRef(@intCast(i), macho_file);
+        if (ref.getFile(macho_file) == null) {
+            // TODO any better way of handling this?
+            try writer.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
+        } else {
+            try writer.print("    {}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
+        }
     }
 }
 
@@ -1524,10 +1639,12 @@ fn formatAtoms(
 ) !void {
     _ = unused_fmt_string;
     _ = options;
+    const self = ctx.self;
+    const macho_file = ctx.macho_file;
     try writer.writeAll("  atoms\n");
-    for (ctx.self.atoms.items) |atom_index| {
-        const atom = ctx.macho_file.getAtom(atom_index) orelse continue;
-        try writer.print("    {}\n", .{atom.fmt(ctx.macho_file)});
+    for (self.getAtoms()) |atom_index| {
+        const atom = self.getAtom(atom_index) orelse continue;
+        try writer.print("    {}\n", .{atom.fmt(macho_file)});
     }
 }
 
