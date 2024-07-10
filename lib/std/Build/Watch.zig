@@ -19,6 +19,7 @@ pub const fan_mask: std.os.linux.fanotify.MarkMask = .{
     .MOVED_FROM = true,
     .MOVED_TO = true,
     .MOVE_SELF = true,
+    .ONDIR = true,
 };
 
 pub const init: Watch = .{
