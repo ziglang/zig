@@ -99,6 +99,7 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
                 const subdir_path = try src_dir_path.join(arena, entry.path);
                 try step.addDirectoryWatchInputFromPath(subdir_path);
                 try cwd.makePath(dest_path);
+                // TODO: set result_cached=false if the directory did not already exist.
             },
             .file => {
                 for (install_dir.options.blank_extensions) |ext| {
