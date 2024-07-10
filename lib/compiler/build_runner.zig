@@ -468,10 +468,13 @@ pub fn main() !void {
 
                 const path = w.dir_table.keys()[i];
 
-                try std.posix.fanotify_mark(w.fan_fd, .{
+                std.posix.fanotify_mark(w.fan_fd, .{
                     .REMOVE = true,
                     .ONLYDIR = true,
-                }, Watch.fan_mask, path.root_dir.handle.fd, path.subPathOrDot());
+                }, Watch.fan_mask, path.root_dir.handle.fd, path.subPathOrDot()) catch |err| switch (err) {
+                    error.FileNotFound => {}, // Expected, harmless.
+                    else => |e| std.log.warn("unable to unwatch '{}': {s}", .{ path, @errorName(e) }),
+                };
 
                 w.dir_table.swapRemoveAt(i);
                 w.handle_table.swapRemoveAt(i);
