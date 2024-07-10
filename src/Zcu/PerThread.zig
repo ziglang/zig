@@ -1386,15 +1386,16 @@ pub fn importPkg(pt: Zcu.PerThread, mod: *Module) !Zcu.ImportFileResult {
     }
 
     const ip = &zcu.intern_pool;
-    try ip.files.ensureUnusedCapacity(gpa, 1);
-
     if (mod.builtin_file) |builtin_file| {
-        const file_index = try ip.createFile(gpa, pt.tid, builtin_file);
+        const path_digest = Zcu.computePathDigest(zcu, mod, builtin_file.sub_file_path);
+        const file_index = try ip.createFile(gpa, pt.tid, .{
+            .bin_digest = path_digest,
+            .file = builtin_file,
+            .root_decl = .none,
+        });
         keep_resolved_path = true; // It's now owned by import_table.
         gop.value_ptr.* = file_index;
         try builtin_file.addReference(zcu, .{ .root = mod });
-        const path_digest = Zcu.computePathDigest(zcu, mod, builtin_file.sub_file_path);
-        ip.files.putAssumeCapacityNoClobber(path_digest, .none);
         return .{
             .file = builtin_file,
             .file_index = file_index,
@@ -1409,7 +1410,12 @@ pub fn importPkg(pt: Zcu.PerThread, mod: *Module) !Zcu.ImportFileResult {
     const new_file = try gpa.create(Zcu.File);
     errdefer gpa.destroy(new_file);
 
-    const new_file_index = try ip.createFile(gpa, pt.tid, new_file);
+    const path_digest = zcu.computePathDigest(mod, sub_file_path);
+    const new_file_index = try ip.createFile(gpa, pt.tid, .{
+        .bin_digest = path_digest,
+        .file = new_file,
+        .root_decl = .none,
+    });
     keep_resolved_path = true; // It's now owned by import_table.
     gop.value_ptr.* = new_file_index;
     new_file.* = .{
@@ -1425,10 +1431,7 @@ pub fn importPkg(pt: Zcu.PerThread, mod: *Module) !Zcu.ImportFileResult {
         .mod = mod,
     };
 
-    const path_digest = zcu.computePathDigest(mod, sub_file_path);
-
     try new_file.addReference(zcu, .{ .root = mod });
-    ip.files.putAssumeCapacityNoClobber(path_digest, .none);
     return .{
         .file = new_file,
         .file_index = new_file_index,
@@ -1489,8 +1492,6 @@ pub fn importFile(
 
     const ip = &zcu.intern_pool;
 
-    try ip.files.ensureUnusedCapacity(gpa, 1);
-
     const new_file = try gpa.create(Zcu.File);
     errdefer gpa.destroy(new_file);
 
@@ -1515,7 +1516,12 @@ pub fn importFile(
         resolved_root_path, resolved_path, sub_file_path, import_string,
     });
 
-    const new_file_index = try ip.createFile(gpa, pt.tid, new_file);
+    const path_digest = zcu.computePathDigest(mod, sub_file_path);
+    const new_file_index = try ip.createFile(gpa, pt.tid, .{
+        .bin_digest = path_digest,
+        .file = new_file,
+        .root_decl = .none,
+    });
     keep_resolved_path = true; // It's now owned by import_table.
     gop.value_ptr.* = new_file_index;
     new_file.* = .{
@@ -1531,8 +1537,6 @@ pub fn importFile(
         .mod = mod,
     };
 
-    const path_digest = zcu.computePathDigest(mod, sub_file_path);
-    ip.files.putAssumeCapacityNoClobber(path_digest, .none);
     return .{
         .file = new_file,
         .file_index = new_file_index,

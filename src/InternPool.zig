@@ -59,17 +59,6 @@ dep_entries: std.ArrayListUnmanaged(DepEntry) = .{},
 /// garbage collection pass.
 free_dep_entries: std.ArrayListUnmanaged(DepEntry.Index) = .{},
 
-/// Elements are ordered identically to the `import_table` field of `Zcu`.
-///
-/// Unlike `import_table`, this data is serialized as part of incremental
-/// compilation state.
-///
-/// Key is the hash of the path to this file, used to store
-/// `InternPool.TrackedInst`.
-///
-/// Value is the `Decl` of the struct that represents this `File`.
-files: std.AutoArrayHashMapUnmanaged(Cache.BinDigest, OptionalDeclIndex) = .{},
-
 /// Whether a multi-threaded intern pool is useful.
 /// Currently `false` until the intern pool is actually accessed
 /// from multiple threads to reduce the cost of this data structure.
@@ -346,7 +335,7 @@ const Local = struct {
         extra: Extra,
         limbs: Limbs,
         strings: Strings,
-        files: Files,
+        files: List(File),
 
         decls: Decls,
         namespaces: Namespaces,
@@ -367,7 +356,6 @@ const Local = struct {
         else => @compileError("unsupported host"),
     };
     const Strings = List(struct { u8 });
-    const Files = List(struct { *Zcu.File });
 
     const decls_bucket_width = 8;
     const decls_bucket_mask = (1 << decls_bucket_width) - 1;
@@ -600,7 +588,7 @@ const Local = struct {
             const View = std.MultiArrayList(Elem);
 
             /// Must be called when accessing from another thread.
-            fn acquire(list: *const ListSelf) ListSelf {
+            pub fn acquire(list: *const ListSelf) ListSelf {
                 return .{ .bytes = @atomicLoad([*]align(@alignOf(Elem)) u8, &list.bytes, .acquire) };
             }
             fn release(list: *ListSelf, new_list: ListSelf) void {
@@ -614,7 +602,7 @@ const Local = struct {
                 return @ptrFromInt(@intFromPtr(list.bytes) - bytes_offset);
             }
 
-            fn view(list: ListSelf) View {
+            pub fn view(list: ListSelf) View {
                 const capacity = list.header().capacity;
                 assert(capacity > 0); // optimizes `MultiArrayList.Slice.items`
                 return .{
@@ -675,7 +663,16 @@ const Local = struct {
         };
     }
 
-    pub fn getMutableFiles(local: *Local, gpa: std.mem.Allocator) Files.Mutable {
+    /// Elements are ordered identically to the `import_table` field of `Zcu`.
+    ///
+    /// Unlike `import_table`, this data is serialized as part of incremental
+    /// compilation state.
+    ///
+    /// Key is the hash of the path to this file, used to store
+    /// `InternPool.TrackedInst`.
+    ///
+    /// Value is the `Decl` of the struct that represents this `File`.
+    pub fn getMutableFiles(local: *Local, gpa: std.mem.Allocator) List(File).Mutable {
         return .{
             .gpa = gpa,
             .arena = &local.mutate.arena,
@@ -957,12 +954,18 @@ pub const FileIndex = enum(u32) {
                 unwrapped.index);
         }
     };
-    fn unwrap(file_index: FileIndex, ip: *const InternPool) Unwrapped {
+    pub fn unwrap(file_index: FileIndex, ip: *const InternPool) Unwrapped {
         return .{
             .tid = @enumFromInt(@intFromEnum(file_index) >> ip.tid_shift_32 & ip.getTidMask()),
             .index = @intFromEnum(file_index) & ip.getIndexMask(u32),
         };
     }
+};
+
+const File = struct {
+    bin_digest: Cache.BinDigest,
+    file: *Zcu.File,
+    root_decl: OptionalDeclIndex,
 };
 
 /// An index into `strings`.
@@ -5237,7 +5240,7 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
             .extra = Local.Extra.empty,
             .limbs = Local.Limbs.empty,
             .strings = Local.Strings.empty,
-            .files = Local.Files.empty,
+            .files = Local.List(File).empty,
 
             .decls = Local.Decls.empty,
             .namespaces = Local.Namespaces.empty,
@@ -5320,8 +5323,6 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
 
     ip.dep_entries.deinit(gpa);
     ip.free_dep_entries.deinit(gpa);
-
-    ip.files.deinit(gpa);
 
     gpa.free(ip.shards);
     for (ip.locals) |*local| {
@@ -9790,21 +9791,21 @@ pub fn destroyNamespace(
 pub fn filePtr(ip: *InternPool, file_index: FileIndex) *Zcu.File {
     const file_index_unwrapped = file_index.unwrap(ip);
     const files = ip.getLocalShared(file_index_unwrapped.tid).files.acquire();
-    return files.view().items(.@"0")[file_index_unwrapped.index];
+    return files.view().items(.file)[file_index_unwrapped.index];
 }
 
 pub fn createFile(
     ip: *InternPool,
     gpa: Allocator,
     tid: Zcu.PerThread.Id,
-    file: *Zcu.File,
+    file: File,
 ) Allocator.Error!FileIndex {
     const files = ip.getLocal(tid).getMutableFiles(gpa);
     const file_index_unwrapped: FileIndex.Unwrapped = .{
         .tid = tid,
         .index = files.mutate.len,
     };
-    try files.append(.{file});
+    try files.append(file);
     return file_index_unwrapped.wrap(ip);
 }
 

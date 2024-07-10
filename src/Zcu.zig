@@ -2406,8 +2406,7 @@ pub fn deinit(zcu: *Zcu) void {
     for (zcu.import_table.keys()) |key| {
         gpa.free(key);
     }
-    for (0..zcu.import_table.entries.len) |file_index_usize| {
-        const file_index: File.Index = @enumFromInt(file_index_usize);
+    for (zcu.import_table.values()) |file_index| {
         pt.destroyFile(file_index);
     }
     zcu.import_table.deinit(gpa);
@@ -3537,23 +3536,28 @@ pub fn resolveReferences(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, Resolved
     return result;
 }
 
-pub fn fileByIndex(zcu: *Zcu, i: File.Index) *File {
-    const ip = &zcu.intern_pool;
-    return ip.filePtr(i);
+pub fn fileByIndex(zcu: *Zcu, file_index: File.Index) *File {
+    return zcu.intern_pool.filePtr(file_index);
 }
 
 /// Returns the `Decl` of the struct that represents this `File`.
-pub fn fileRootDecl(zcu: *const Zcu, i: File.Index) Decl.OptionalIndex {
+pub fn fileRootDecl(zcu: *const Zcu, file_index: File.Index) Decl.OptionalIndex {
     const ip = &zcu.intern_pool;
-    return ip.files.values()[@intFromEnum(i)];
+    const file_index_unwrapped = file_index.unwrap(ip);
+    const files = ip.getLocalShared(file_index_unwrapped.tid).files.acquire();
+    return files.view().items(.root_decl)[file_index_unwrapped.index];
 }
 
-pub fn setFileRootDecl(zcu: *Zcu, i: File.Index, root_decl: Decl.OptionalIndex) void {
+pub fn setFileRootDecl(zcu: *Zcu, file_index: File.Index, root_decl: Decl.OptionalIndex) void {
     const ip = &zcu.intern_pool;
-    ip.files.values()[@intFromEnum(i)] = root_decl;
+    const file_index_unwrapped = file_index.unwrap(ip);
+    const files = ip.getLocalShared(file_index_unwrapped.tid).files.acquire();
+    files.view().items(.root_decl)[file_index_unwrapped.index] = root_decl;
 }
 
-pub fn filePathDigest(zcu: *const Zcu, i: File.Index) Cache.BinDigest {
+pub fn filePathDigest(zcu: *const Zcu, file_index: File.Index) Cache.BinDigest {
     const ip = &zcu.intern_pool;
-    return ip.files.keys()[@intFromEnum(i)];
+    const file_index_unwrapped = file_index.unwrap(ip);
+    const files = ip.getLocalShared(file_index_unwrapped.tid).files.acquire();
+    return files.view().items(.bin_digest)[file_index_unwrapped.index];
 }

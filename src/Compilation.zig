@@ -2784,7 +2784,7 @@ const Header = extern struct {
         first_dependency_len: u32,
         dep_entries_len: u32,
         free_dep_entries_len: u32,
-        files_len: u32,
+        //files_len: u32,
     },
 };
 
@@ -2813,7 +2813,7 @@ pub fn saveState(comp: *Compilation) !void {
                 .first_dependency_len = @intCast(ip.first_dependency.count()),
                 .dep_entries_len = @intCast(ip.dep_entries.items.len),
                 .free_dep_entries_len = @intCast(ip.free_dep_entries.items.len),
-                .files_len = @intCast(ip.files.entries.len),
+                //.files_len = @intCast(ip.files.entries.len),
             },
         };
         addBuf(&bufs_list, &bufs_len, mem.asBytes(&header));
@@ -2838,8 +2838,8 @@ pub fn saveState(comp: *Compilation) !void {
         addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.dep_entries.items));
         addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.free_dep_entries.items));
 
-        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.files.keys()));
-        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.files.values()));
+        //addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.files.keys()));
+        //addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.files.values()));
 
         // TODO: compilation errors
         // TODO: namespaces
