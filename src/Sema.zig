@@ -6056,7 +6056,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
         else => |e| return e,
     };
 
-    const result = zcu.importPkg(c_import_mod) catch |err|
+    const result = pt.importPkg(c_import_mod) catch |err|
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
 
     const path_digest = zcu.filePathDigest(result.file_index);
@@ -13950,7 +13950,7 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const operand_src = block.tokenOffset(inst_data.src_tok);
     const operand = inst_data.get(sema.code);
 
-    const result = zcu.importFile(block.getFileScope(zcu), operand) catch |err| switch (err) {
+    const result = pt.importFile(block.getFileScope(zcu), operand) catch |err| switch (err) {
         error.ImportOutsideModulePath => {
             return sema.fail(block, operand_src, "import of file outside module path: '{s}'", .{operand});
         },

@@ -1,6 +1,5 @@
 //! All interned objects have both a value and a type.
-//! This data structure is self-contained, with the following exceptions:
-//! * Module.Namespace has a pointer to Module.File
+//! This data structure is self-contained.
 
 /// One item per thread, indexed by `tid`, which is dense and unique per thread.
 locals: []Local = &.{},
@@ -78,10 +77,6 @@ const want_multi_threaded = false;
 
 /// Whether a single-threaded intern pool impl is in use.
 pub const single_threaded = builtin.single_threaded or !want_multi_threaded;
-
-pub const FileIndex = enum(u32) {
-    _,
-};
 
 pub const TrackedInst = extern struct {
     file: FileIndex,
@@ -340,6 +335,7 @@ const Local = struct {
         extra: ListMutate,
         limbs: ListMutate,
         strings: ListMutate,
+        files: ListMutate,
 
         decls: BucketListMutate,
         namespaces: BucketListMutate,
@@ -350,6 +346,7 @@ const Local = struct {
         extra: Extra,
         limbs: Limbs,
         strings: Strings,
+        files: Files,
 
         decls: Decls,
         namespaces: Namespaces,
@@ -370,16 +367,17 @@ const Local = struct {
         else => @compileError("unsupported host"),
     };
     const Strings = List(struct { u8 });
+    const Files = List(struct { *Zcu.File });
 
     const decls_bucket_width = 8;
     const decls_bucket_mask = (1 << decls_bucket_width) - 1;
     const decl_next_free_field = "src_namespace";
-    const Decls = List(struct { *[1 << decls_bucket_width]Module.Decl });
+    const Decls = List(struct { *[1 << decls_bucket_width]Zcu.Decl });
 
     const namespaces_bucket_width = 8;
     const namespaces_bucket_mask = (1 << namespaces_bucket_width) - 1;
     const namespace_next_free_field = "decl_index";
-    const Namespaces = List(struct { *[1 << namespaces_bucket_width]Module.Namespace });
+    const Namespaces = List(struct { *[1 << namespaces_bucket_width]Zcu.Namespace });
 
     const ListMutate = struct {
         len: u32,
@@ -677,6 +675,15 @@ const Local = struct {
         };
     }
 
+    pub fn getMutableFiles(local: *Local, gpa: std.mem.Allocator) Files.Mutable {
+        return .{
+            .gpa = gpa,
+            .arena = &local.mutate.arena,
+            .mutate = &local.mutate.files,
+            .list = &local.shared.files,
+        };
+    }
+
     /// Rather than allocating Decl objects with an Allocator, we instead allocate
     /// them with this BucketList. This provides four advantages:
     ///  * Stable memory so that one thread can access a Decl object while another
@@ -812,8 +819,6 @@ const Hash = std.hash.Wyhash;
 
 const InternPool = @This();
 const Zcu = @import("Zcu.zig");
-/// Deprecated.
-const Module = Zcu;
 const Zir = std.zig.Zir;
 
 /// An index into `maps` which might be `none`.
@@ -935,6 +940,28 @@ pub const OptionalNamespaceIndex = enum(u32) {
     pub fn unwrap(oi: OptionalNamespaceIndex) ?NamespaceIndex {
         if (oi == .none) return null;
         return @enumFromInt(@intFromEnum(oi));
+    }
+};
+
+pub const FileIndex = enum(u32) {
+    _,
+
+    const Unwrapped = struct {
+        tid: Zcu.PerThread.Id,
+        index: u32,
+
+        fn wrap(unwrapped: Unwrapped, ip: *const InternPool) FileIndex {
+            assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
+            assert(unwrapped.index <= ip.getIndexMask(u32));
+            return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_32 |
+                unwrapped.index);
+        }
+    };
+    fn unwrap(file_index: FileIndex, ip: *const InternPool) Unwrapped {
+        return .{
+            .tid = @enumFromInt(@intFromEnum(file_index) >> ip.tid_shift_32 & ip.getTidMask()),
+            .index = @intFromEnum(file_index) & ip.getIndexMask(u32),
+        };
     }
 };
 
@@ -4608,12 +4635,12 @@ pub const FuncAnalysis = packed struct(u32) {
         /// inline, which means no runtime version of the function will be generated.
         inline_only,
         in_progress,
-        /// There will be a corresponding ErrorMsg in Module.failed_decls
+        /// There will be a corresponding ErrorMsg in Zcu.failed_decls
         sema_failure,
         /// This function might be OK but it depends on another Decl which did not
         /// successfully complete semantic analysis.
         dependency_failure,
-        /// There will be a corresponding ErrorMsg in Module.failed_decls.
+        /// There will be a corresponding ErrorMsg in Zcu.failed_decls.
         /// Indicates that semantic analysis succeeded, but code generation for
         /// this function failed.
         codegen_failure,
@@ -5210,6 +5237,7 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
             .extra = Local.Extra.empty,
             .limbs = Local.Limbs.empty,
             .strings = Local.Strings.empty,
+            .files = Local.Files.empty,
 
             .decls = Local.Decls.empty,
             .namespaces = Local.Namespaces.empty,
@@ -5221,6 +5249,7 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
             .extra = Local.ListMutate.empty,
             .limbs = Local.ListMutate.empty,
             .strings = Local.ListMutate.empty,
+            .files = Local.ListMutate.empty,
 
             .decls = Local.BucketListMutate.empty,
             .namespaces = Local.BucketListMutate.empty,
@@ -9213,7 +9242,7 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
     const items_size = (1 + 4) * items_len;
     const extra_size = 4 * extra_len;
     const limbs_size = 8 * limbs_len;
-    const decls_size = @sizeOf(Module.Decl) * decls_len;
+    const decls_size = @sizeOf(Zcu.Decl) * decls_len;
 
     // TODO: map overhead size is not taken into account
     const total_size = @sizeOf(InternPool) + items_size + extra_size + limbs_size + decls_size;
@@ -9640,29 +9669,22 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
     try bw.flush();
 }
 
-pub fn declPtr(ip: *InternPool, decl_index: DeclIndex) *Module.Decl {
+pub fn declPtr(ip: *InternPool, decl_index: DeclIndex) *Zcu.Decl {
     return @constCast(ip.declPtrConst(decl_index));
 }
 
-pub fn declPtrConst(ip: *const InternPool, decl_index: DeclIndex) *const Module.Decl {
+pub fn declPtrConst(ip: *const InternPool, decl_index: DeclIndex) *const Zcu.Decl {
     const unwrapped_decl_index = decl_index.unwrap(ip);
     const decls = ip.getLocalShared(unwrapped_decl_index.tid).decls.acquire();
     const decls_bucket = decls.view().items(.@"0")[unwrapped_decl_index.bucket_index];
     return &decls_bucket[unwrapped_decl_index.index];
 }
 
-pub fn namespacePtr(ip: *InternPool, namespace_index: NamespaceIndex) *Module.Namespace {
-    const unwrapped_namespace_index = namespace_index.unwrap(ip);
-    const namespaces = ip.getLocalShared(unwrapped_namespace_index.tid).namespaces.acquire();
-    const namespaces_bucket = namespaces.view().items(.@"0")[unwrapped_namespace_index.bucket_index];
-    return &namespaces_bucket[unwrapped_namespace_index.index];
-}
-
 pub fn createDecl(
     ip: *InternPool,
     gpa: Allocator,
     tid: Zcu.PerThread.Id,
-    initialization: Module.Decl,
+    initialization: Zcu.Decl,
 ) Allocator.Error!DeclIndex {
     const local = ip.getLocal(tid);
     const free_list_next = local.mutate.decls.free_list;
@@ -9679,7 +9701,7 @@ pub fn createDecl(
         var arena = decls.arena.promote(decls.gpa);
         defer decls.arena.* = arena.state;
         decls.appendAssumeCapacity(.{try arena.allocator().create(
-            [1 << Local.decls_bucket_width]Module.Decl,
+            [1 << Local.decls_bucket_width]Zcu.Decl,
         )});
     }
     const unwrapped_decl_index: DeclIndex.Unwrapped = .{
@@ -9702,11 +9724,18 @@ pub fn destroyDecl(ip: *InternPool, tid: Zcu.PerThread.Id, decl_index: DeclIndex
     local.mutate.decls.free_list = @intFromEnum(decl_index);
 }
 
+pub fn namespacePtr(ip: *InternPool, namespace_index: NamespaceIndex) *Zcu.Namespace {
+    const unwrapped_namespace_index = namespace_index.unwrap(ip);
+    const namespaces = ip.getLocalShared(unwrapped_namespace_index.tid).namespaces.acquire();
+    const namespaces_bucket = namespaces.view().items(.@"0")[unwrapped_namespace_index.bucket_index];
+    return &namespaces_bucket[unwrapped_namespace_index.index];
+}
+
 pub fn createNamespace(
     ip: *InternPool,
     gpa: Allocator,
     tid: Zcu.PerThread.Id,
-    initialization: Module.Namespace,
+    initialization: Zcu.Namespace,
 ) Allocator.Error!NamespaceIndex {
     const local = ip.getLocal(tid);
     const free_list_next = local.mutate.namespaces.free_list;
@@ -9724,7 +9753,7 @@ pub fn createNamespace(
         var arena = namespaces.arena.promote(namespaces.gpa);
         defer namespaces.arena.* = arena.state;
         namespaces.appendAssumeCapacity(.{try arena.allocator().create(
-            [1 << Local.namespaces_bucket_width]Module.Namespace,
+            [1 << Local.namespaces_bucket_width]Zcu.Namespace,
         )});
     }
     const unwrapped_namespace_index: NamespaceIndex.Unwrapped = .{
@@ -9754,6 +9783,27 @@ pub fn destroyNamespace(
     @field(namespace, Local.namespace_next_free_field) =
         @enumFromInt(local.mutate.namespaces.free_list);
     local.mutate.namespaces.free_list = @intFromEnum(namespace_index);
+}
+
+pub fn filePtr(ip: *InternPool, file_index: FileIndex) *Zcu.File {
+    const file_index_unwrapped = file_index.unwrap(ip);
+    const files = ip.getLocalShared(file_index_unwrapped.tid).files.acquire();
+    return files.view().items(.@"0")[file_index_unwrapped.index];
+}
+
+pub fn createFile(
+    ip: *InternPool,
+    gpa: Allocator,
+    tid: Zcu.PerThread.Id,
+    file: *Zcu.File,
+) Allocator.Error!FileIndex {
+    const files = ip.getLocal(tid).getMutableFiles(gpa);
+    const file_index_unwrapped: FileIndex.Unwrapped = .{
+        .tid = tid,
+        .index = files.mutate.len,
+    };
+    try files.append(.{file});
+    return file_index_unwrapped.wrap(ip);
 }
 
 const EmbeddedNulls = enum {

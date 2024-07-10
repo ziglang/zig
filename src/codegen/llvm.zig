@@ -2811,7 +2811,7 @@ pub const Object = struct {
         const zcu = pt.zcu;
 
         const std_mod = zcu.std_mod;
-        const std_file_imported = zcu.importPkg(std_mod) catch unreachable;
+        const std_file_imported = pt.importPkg(std_mod) catch unreachable;
 
         const builtin_str = try zcu.intern_pool.getOrPutString(zcu.gpa, pt.tid, "builtin", .no_embedded_nulls);
         const std_file_root_decl = zcu.fileRootDecl(std_file_imported.file_index);

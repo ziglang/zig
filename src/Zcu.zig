@@ -102,7 +102,7 @@ multi_exports: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
 /// `Compilation.update` of the process for a given `Compilation`.
 ///
 /// Indexes correspond 1:1 to `files`.
-import_table: std.StringArrayHashMapUnmanaged(*File) = .{},
+import_table: std.StringArrayHashMapUnmanaged(File.Index) = .{},
 
 /// The set of all the files which have been loaded with `@embedFile` in the Module.
 /// We keep track of this in order to iterate over it and check which files have been
@@ -892,7 +892,7 @@ pub const File = struct {
     }
 
     /// Add a reference to this file during AstGen.
-    pub fn addReference(file: *File, zcu: Zcu, ref: File.Reference) !void {
+    pub fn addReference(file: *File, zcu: *Zcu, ref: File.Reference) !void {
         // Don't add the same module root twice. Note that since we always add module roots at the
         // front of the references array (see below), this loop is actually O(1) on valid code.
         if (ref == .root) {
@@ -924,7 +924,7 @@ pub const File = struct {
 
     /// Mark this file and every file referenced by it as multi_pkg and report an
     /// astgen_failure error for them. AstGen must have completed in its entirety.
-    pub fn recursiveMarkMultiPkg(file: *File, mod: *Module) void {
+    pub fn recursiveMarkMultiPkg(file: *File, pt: Zcu.PerThread) void {
         file.multi_pkg = true;
         file.status = .astgen_failure;
 
@@ -944,9 +944,9 @@ pub const File = struct {
             const import_path = file.zir.nullTerminatedString(item.data.name);
             if (mem.eql(u8, import_path, "builtin")) continue;
 
-            const res = mod.importFile(file, import_path) catch continue;
+            const res = pt.importFile(file, import_path) catch continue;
             if (!res.is_pkg and !res.file.multi_pkg) {
-                res.file.recursiveMarkMultiPkg(mod);
+                res.file.recursiveMarkMultiPkg(pt);
             }
         }
     }
@@ -3002,183 +3002,7 @@ pub const ImportFileResult = struct {
     is_pkg: bool,
 };
 
-pub fn importPkg(zcu: *Zcu, mod: *Package.Module) !ImportFileResult {
-    const gpa = zcu.gpa;
-
-    // The resolved path is used as the key in the import table, to detect if
-    // an import refers to the same as another, despite different relative paths
-    // or differently mapped package names.
-    const resolved_path = try std.fs.path.resolve(gpa, &.{
-        mod.root.root_dir.path orelse ".",
-        mod.root.sub_path,
-        mod.root_src_path,
-    });
-    var keep_resolved_path = false;
-    defer if (!keep_resolved_path) gpa.free(resolved_path);
-
-    const gop = try zcu.import_table.getOrPut(gpa, resolved_path);
-    errdefer _ = zcu.import_table.pop();
-    if (gop.found_existing) {
-        try gop.value_ptr.*.addReference(zcu.*, .{ .root = mod });
-        return .{
-            .file = gop.value_ptr.*,
-            .file_index = @enumFromInt(gop.index),
-            .is_new = false,
-            .is_pkg = true,
-        };
-    }
-
-    const ip = &zcu.intern_pool;
-
-    try ip.files.ensureUnusedCapacity(gpa, 1);
-
-    if (mod.builtin_file) |builtin_file| {
-        keep_resolved_path = true; // It's now owned by import_table.
-        gop.value_ptr.* = builtin_file;
-        try builtin_file.addReference(zcu.*, .{ .root = mod });
-        const path_digest = computePathDigest(zcu, mod, builtin_file.sub_file_path);
-        ip.files.putAssumeCapacityNoClobber(path_digest, .none);
-        return .{
-            .file = builtin_file,
-            .file_index = @enumFromInt(ip.files.entries.len - 1),
-            .is_new = false,
-            .is_pkg = true,
-        };
-    }
-
-    const sub_file_path = try gpa.dupe(u8, mod.root_src_path);
-    errdefer gpa.free(sub_file_path);
-
-    const new_file = try gpa.create(File);
-    errdefer gpa.destroy(new_file);
-
-    keep_resolved_path = true; // It's now owned by import_table.
-    gop.value_ptr.* = new_file;
-    new_file.* = .{
-        .sub_file_path = sub_file_path,
-        .source = undefined,
-        .source_loaded = false,
-        .tree_loaded = false,
-        .zir_loaded = false,
-        .stat = undefined,
-        .tree = undefined,
-        .zir = undefined,
-        .status = .never_loaded,
-        .mod = mod,
-    };
-
-    const path_digest = computePathDigest(zcu, mod, sub_file_path);
-
-    try new_file.addReference(zcu.*, .{ .root = mod });
-    ip.files.putAssumeCapacityNoClobber(path_digest, .none);
-    return .{
-        .file = new_file,
-        .file_index = @enumFromInt(ip.files.entries.len - 1),
-        .is_new = true,
-        .is_pkg = true,
-    };
-}
-
-/// Called from a worker thread during AstGen.
-/// Also called from Sema during semantic analysis.
-pub fn importFile(
-    zcu: *Zcu,
-    cur_file: *File,
-    import_string: []const u8,
-) !ImportFileResult {
-    const mod = cur_file.mod;
-
-    if (std.mem.eql(u8, import_string, "std")) {
-        return zcu.importPkg(zcu.std_mod);
-    }
-    if (std.mem.eql(u8, import_string, "root")) {
-        return zcu.importPkg(zcu.root_mod);
-    }
-    if (mod.deps.get(import_string)) |pkg| {
-        return zcu.importPkg(pkg);
-    }
-    if (!mem.endsWith(u8, import_string, ".zig")) {
-        return error.ModuleNotFound;
-    }
-    const gpa = zcu.gpa;
-
-    // The resolved path is used as the key in the import table, to detect if
-    // an import refers to the same as another, despite different relative paths
-    // or differently mapped package names.
-    const resolved_path = try std.fs.path.resolve(gpa, &.{
-        mod.root.root_dir.path orelse ".",
-        mod.root.sub_path,
-        cur_file.sub_file_path,
-        "..",
-        import_string,
-    });
-
-    var keep_resolved_path = false;
-    defer if (!keep_resolved_path) gpa.free(resolved_path);
-
-    const gop = try zcu.import_table.getOrPut(gpa, resolved_path);
-    errdefer _ = zcu.import_table.pop();
-    if (gop.found_existing) return .{
-        .file = gop.value_ptr.*,
-        .file_index = @enumFromInt(gop.index),
-        .is_new = false,
-        .is_pkg = false,
-    };
-
-    const ip = &zcu.intern_pool;
-
-    try ip.files.ensureUnusedCapacity(gpa, 1);
-
-    const new_file = try gpa.create(File);
-    errdefer gpa.destroy(new_file);
-
-    const resolved_root_path = try std.fs.path.resolve(gpa, &.{
-        mod.root.root_dir.path orelse ".",
-        mod.root.sub_path,
-    });
-    defer gpa.free(resolved_root_path);
-
-    const sub_file_path = p: {
-        const relative = try std.fs.path.relative(gpa, resolved_root_path, resolved_path);
-        errdefer gpa.free(relative);
-
-        if (!isUpDir(relative) and !std.fs.path.isAbsolute(relative)) {
-            break :p relative;
-        }
-        return error.ImportOutsideModulePath;
-    };
-    errdefer gpa.free(sub_file_path);
-
-    log.debug("new importFile. resolved_root_path={s}, resolved_path={s}, sub_file_path={s}, import_string={s}", .{
-        resolved_root_path, resolved_path, sub_file_path, import_string,
-    });
-
-    keep_resolved_path = true; // It's now owned by import_table.
-    gop.value_ptr.* = new_file;
-    new_file.* = .{
-        .sub_file_path = sub_file_path,
-        .source = undefined,
-        .source_loaded = false,
-        .tree_loaded = false,
-        .zir_loaded = false,
-        .stat = undefined,
-        .tree = undefined,
-        .zir = undefined,
-        .status = .never_loaded,
-        .mod = mod,
-    };
-
-    const path_digest = computePathDigest(zcu, mod, sub_file_path);
-    ip.files.putAssumeCapacityNoClobber(path_digest, .none);
-    return .{
-        .file = new_file,
-        .file_index = @enumFromInt(ip.files.entries.len - 1),
-        .is_new = true,
-        .is_pkg = false,
-    };
-}
-
-fn computePathDigest(zcu: *Zcu, mod: *Package.Module, sub_file_path: []const u8) Cache.BinDigest {
+pub fn computePathDigest(zcu: *Zcu, mod: *Package.Module, sub_file_path: []const u8) Cache.BinDigest {
     const want_local_cache = mod == zcu.main_mod;
     var path_hash: Cache.HashHelper = .{};
     path_hash.addBytes(build_options.version);
@@ -3710,8 +3534,9 @@ pub fn resolveReferences(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, Resolved
     return result;
 }
 
-pub fn fileByIndex(zcu: *const Zcu, i: File.Index) *File {
-    return zcu.import_table.values()[@intFromEnum(i)];
+pub fn fileByIndex(zcu: *Zcu, i: File.Index) *File {
+    const ip = &zcu.intern_pool;
+    return ip.filePtr(i);
 }
 
 /// Returns the `Decl` of the struct that represents this `File`.

@@ -3451,7 +3451,7 @@ pub fn typeDeclInst(ty: Type, zcu: *const Zcu) ?InternPool.TrackedInst.Index {
     };
 }
 
-pub fn typeDeclSrcLine(ty: Type, zcu: *const Zcu) ?u32 {
+pub fn typeDeclSrcLine(ty: Type, zcu: *Zcu) ?u32 {
     const ip = &zcu.intern_pool;
     const tracked = switch (ip.indexToKey(ty.toIntern())) {
         .struct_type, .union_type, .opaque_type, .enum_type => |info| switch (info) {

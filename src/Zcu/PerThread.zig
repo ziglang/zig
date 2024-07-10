@@ -817,7 +817,7 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: Ai
 
 /// https://github.com/ziglang/zig/issues/14307
 pub fn semaPkg(pt: Zcu.PerThread, pkg: *Module) !void {
-    const import_file_result = try pt.zcu.importPkg(pkg);
+    const import_file_result = try pt.importPkg(pkg);
     const root_decl_index = pt.zcu.fileRootDecl(import_file_result.file_index);
     if (root_decl_index == .none) {
         return pt.semaFile(import_file_result.file_index);
@@ -1081,7 +1081,7 @@ fn semaDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) !Zcu.SemaDeclResult {
         const std_mod = zcu.std_mod;
         if (decl.getFileScope(zcu).mod != std_mod) break :ip_index .none;
         // We're in the std module.
-        const std_file_imported = try zcu.importPkg(std_mod);
+        const std_file_imported = try pt.importPkg(std_mod);
         const std_file_root_decl_index = zcu.fileRootDecl(std_file_imported.file_index);
         const std_decl = zcu.declPtr(std_file_root_decl_index.unwrap().?);
         const std_namespace = std_decl.getInnerNamespace(zcu).?;
@@ -1356,6 +1356,191 @@ pub fn semaAnonOwnerDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) !Zcu.Sem
     };
 }
 
+pub fn importPkg(pt: Zcu.PerThread, mod: *Module) !Zcu.ImportFileResult {
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+
+    // The resolved path is used as the key in the import table, to detect if
+    // an import refers to the same as another, despite different relative paths
+    // or differently mapped package names.
+    const resolved_path = try std.fs.path.resolve(gpa, &.{
+        mod.root.root_dir.path orelse ".",
+        mod.root.sub_path,
+        mod.root_src_path,
+    });
+    var keep_resolved_path = false;
+    defer if (!keep_resolved_path) gpa.free(resolved_path);
+
+    const gop = try zcu.import_table.getOrPut(gpa, resolved_path);
+    errdefer _ = zcu.import_table.pop();
+    if (gop.found_existing) {
+        const file_index = gop.value_ptr.*;
+        const file = zcu.fileByIndex(file_index);
+        try file.addReference(zcu, .{ .root = mod });
+        return .{
+            .file = file,
+            .file_index = file_index,
+            .is_new = false,
+            .is_pkg = true,
+        };
+    }
+
+    const ip = &zcu.intern_pool;
+    try ip.files.ensureUnusedCapacity(gpa, 1);
+
+    if (mod.builtin_file) |builtin_file| {
+        const file_index = try ip.createFile(gpa, pt.tid, builtin_file);
+        keep_resolved_path = true; // It's now owned by import_table.
+        gop.value_ptr.* = file_index;
+        try builtin_file.addReference(zcu, .{ .root = mod });
+        const path_digest = Zcu.computePathDigest(zcu, mod, builtin_file.sub_file_path);
+        ip.files.putAssumeCapacityNoClobber(path_digest, .none);
+        return .{
+            .file = builtin_file,
+            .file_index = file_index,
+            .is_new = false,
+            .is_pkg = true,
+        };
+    }
+
+    const sub_file_path = try gpa.dupe(u8, mod.root_src_path);
+    errdefer gpa.free(sub_file_path);
+
+    const new_file = try gpa.create(Zcu.File);
+    errdefer gpa.destroy(new_file);
+
+    const new_file_index = try ip.createFile(gpa, pt.tid, new_file);
+    keep_resolved_path = true; // It's now owned by import_table.
+    gop.value_ptr.* = new_file_index;
+    new_file.* = .{
+        .sub_file_path = sub_file_path,
+        .source = undefined,
+        .source_loaded = false,
+        .tree_loaded = false,
+        .zir_loaded = false,
+        .stat = undefined,
+        .tree = undefined,
+        .zir = undefined,
+        .status = .never_loaded,
+        .mod = mod,
+    };
+
+    const path_digest = zcu.computePathDigest(mod, sub_file_path);
+
+    try new_file.addReference(zcu, .{ .root = mod });
+    ip.files.putAssumeCapacityNoClobber(path_digest, .none);
+    return .{
+        .file = new_file,
+        .file_index = new_file_index,
+        .is_new = true,
+        .is_pkg = true,
+    };
+}
+
+/// Called from a worker thread during AstGen.
+/// Also called from Sema during semantic analysis.
+pub fn importFile(
+    pt: Zcu.PerThread,
+    cur_file: *Zcu.File,
+    import_string: []const u8,
+) !Zcu.ImportFileResult {
+    const zcu = pt.zcu;
+    const mod = cur_file.mod;
+
+    if (std.mem.eql(u8, import_string, "std")) {
+        return pt.importPkg(zcu.std_mod);
+    }
+    if (std.mem.eql(u8, import_string, "root")) {
+        return pt.importPkg(zcu.root_mod);
+    }
+    if (mod.deps.get(import_string)) |pkg| {
+        return pt.importPkg(pkg);
+    }
+    if (!std.mem.endsWith(u8, import_string, ".zig")) {
+        return error.ModuleNotFound;
+    }
+    const gpa = zcu.gpa;
+
+    // The resolved path is used as the key in the import table, to detect if
+    // an import refers to the same as another, despite different relative paths
+    // or differently mapped package names.
+    const resolved_path = try std.fs.path.resolve(gpa, &.{
+        mod.root.root_dir.path orelse ".",
+        mod.root.sub_path,
+        cur_file.sub_file_path,
+        "..",
+        import_string,
+    });
+
+    var keep_resolved_path = false;
+    defer if (!keep_resolved_path) gpa.free(resolved_path);
+
+    const gop = try zcu.import_table.getOrPut(gpa, resolved_path);
+    errdefer _ = zcu.import_table.pop();
+    if (gop.found_existing) {
+        const file_index = gop.value_ptr.*;
+        return .{
+            .file = zcu.fileByIndex(file_index),
+            .file_index = file_index,
+            .is_new = false,
+            .is_pkg = false,
+        };
+    }
+
+    const ip = &zcu.intern_pool;
+
+    try ip.files.ensureUnusedCapacity(gpa, 1);
+
+    const new_file = try gpa.create(Zcu.File);
+    errdefer gpa.destroy(new_file);
+
+    const resolved_root_path = try std.fs.path.resolve(gpa, &.{
+        mod.root.root_dir.path orelse ".",
+        mod.root.sub_path,
+    });
+    defer gpa.free(resolved_root_path);
+
+    const sub_file_path = p: {
+        const relative = try std.fs.path.relative(gpa, resolved_root_path, resolved_path);
+        errdefer gpa.free(relative);
+
+        if (!isUpDir(relative) and !std.fs.path.isAbsolute(relative)) {
+            break :p relative;
+        }
+        return error.ImportOutsideModulePath;
+    };
+    errdefer gpa.free(sub_file_path);
+
+    log.debug("new importFile. resolved_root_path={s}, resolved_path={s}, sub_file_path={s}, import_string={s}", .{
+        resolved_root_path, resolved_path, sub_file_path, import_string,
+    });
+
+    const new_file_index = try ip.createFile(gpa, pt.tid, new_file);
+    keep_resolved_path = true; // It's now owned by import_table.
+    gop.value_ptr.* = new_file_index;
+    new_file.* = .{
+        .sub_file_path = sub_file_path,
+        .source = undefined,
+        .source_loaded = false,
+        .tree_loaded = false,
+        .zir_loaded = false,
+        .stat = undefined,
+        .tree = undefined,
+        .zir = undefined,
+        .status = .never_loaded,
+        .mod = mod,
+    };
+
+    const path_digest = zcu.computePathDigest(mod, sub_file_path);
+    ip.files.putAssumeCapacityNoClobber(path_digest, .none);
+    return .{
+        .file = new_file,
+        .file_index = new_file_index,
+        .is_new = true,
+        .is_pkg = false,
+    };
+}
+
 pub fn embedFile(
     pt: Zcu.PerThread,
     cur_file: *Zcu.File,
@@ -1427,20 +1612,6 @@ pub fn embedFile(
     defer gpa.free(sub_file_path);
 
     return pt.newEmbedFile(cur_file.mod, sub_file_path, resolved_path, gop.value_ptr, src_loc);
-}
-
-/// Cancel the creation of an anon decl and delete any references to it.
-/// If other decls depend on this decl, they must be aborted first.
-pub fn abortAnonDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) void {
-    assert(!pt.zcu.declIsRoot(decl_index));
-    pt.destroyDecl(decl_index);
-}
-
-/// Finalize the creation of an anon decl.
-pub fn finalizeAnonDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) Allocator.Error!void {
-    if (pt.zcu.declPtr(decl_index).typeOf(pt.zcu).isFnOrHasRuntimeBits(pt)) {
-        try pt.zcu.comp.work_queue.writeItem(.{ .codegen_decl = decl_index });
-    }
 }
 
 /// https://github.com/ziglang/zig/issues/14307
@@ -1791,6 +1962,20 @@ const ScanDeclIter = struct {
         }
     }
 };
+
+/// Cancel the creation of an anon decl and delete any references to it.
+/// If other decls depend on this decl, they must be aborted first.
+pub fn abortAnonDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) void {
+    assert(!pt.zcu.declIsRoot(decl_index));
+    pt.destroyDecl(decl_index);
+}
+
+/// Finalize the creation of an anon decl.
+pub fn finalizeAnonDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) Allocator.Error!void {
+    if (pt.zcu.declPtr(decl_index).typeOf(pt.zcu).isFnOrHasRuntimeBits(pt)) {
+        try pt.zcu.comp.work_queue.writeItem(.{ .codegen_decl = decl_index });
+    }
+}
 
 pub fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index, arena: Allocator) Zcu.SemaError!Air {
     const tracy = trace(@src());
@@ -2255,7 +2440,7 @@ pub fn populateTestFunctions(
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
     const builtin_mod = zcu.root_mod.getBuiltinDependency();
-    const builtin_file_index = (zcu.importPkg(builtin_mod) catch unreachable).file_index;
+    const builtin_file_index = (pt.importPkg(builtin_mod) catch unreachable).file_index;
     const root_decl_index = zcu.fileRootDecl(builtin_file_index);
     const root_decl = zcu.declPtr(root_decl_index.unwrap().?);
     const builtin_namespace = zcu.namespacePtr(root_decl.src_namespace);
@@ -2923,7 +3108,7 @@ pub fn getBuiltinDecl(pt: Zcu.PerThread, name: []const u8) Allocator.Error!Inter
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
-    const std_file_imported = zcu.importPkg(zcu.std_mod) catch @panic("failed to import lib/std.zig");
+    const std_file_imported = pt.importPkg(zcu.std_mod) catch @panic("failed to import lib/std.zig");
     const std_file_root_decl = zcu.fileRootDecl(std_file_imported.file_index).unwrap().?;
     const std_namespace = zcu.declPtr(std_file_root_decl).getOwnedInnerNamespace(zcu).?;
     const builtin_str = try ip.getOrPutString(gpa, pt.tid, "builtin", .no_embedded_nulls);

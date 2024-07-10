@@ -2119,12 +2119,14 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
     }
 
     if (comp.module) |zcu| {
+        const pt: Zcu.PerThread = .{ .zcu = zcu, .tid = .main };
+
         zcu.compile_log_text.shrinkAndFree(gpa, 0);
 
         // Make sure std.zig is inside the import_table. We unconditionally need
         // it for start.zig.
         const std_mod = zcu.std_mod;
-        _ = try zcu.importPkg(std_mod);
+        _ = try pt.importPkg(std_mod);
 
         // Normally we rely on importing std to in turn import the root source file
         // in the start code, but when using the stage1 backend that won't happen,
@@ -2133,20 +2135,19 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         // Likewise, in the case of `zig test`, the test runner is the root source file,
         // and so there is nothing to import the main file.
         if (comp.config.is_test) {
-            _ = try zcu.importPkg(zcu.main_mod);
+            _ = try pt.importPkg(zcu.main_mod);
         }
 
         if (zcu.root_mod.deps.get("compiler_rt")) |compiler_rt_mod| {
-            _ = try zcu.importPkg(compiler_rt_mod);
+            _ = try pt.importPkg(compiler_rt_mod);
         }
 
         // Put a work item in for every known source file to detect if
         // it changed, and, if so, re-compute ZIR and then queue the job
         // to update it.
         try comp.astgen_work_queue.ensureUnusedCapacity(zcu.import_table.count());
-        for (zcu.import_table.values(), 0..) |file, file_index_usize| {
-            const file_index: Zcu.File.Index = @enumFromInt(file_index_usize);
-            if (file.mod.isBuiltin()) continue;
+        for (zcu.import_table.values()) |file_index| {
+            if (zcu.fileByIndex(file_index).mod.isBuiltin()) continue;
             comp.astgen_work_queue.writeItemAssumeCapacity(file_index);
         }
 
@@ -2641,7 +2642,8 @@ fn resolveEmitLoc(
     return slice.ptr;
 }
 
-fn reportMultiModuleErrors(zcu: *Zcu) !void {
+fn reportMultiModuleErrors(pt: Zcu.PerThread) !void {
+    const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
     // Some cases can give you a whole bunch of multi-module errors, which it's not helpful to
@@ -2651,13 +2653,12 @@ fn reportMultiModuleErrors(zcu: *Zcu) !void {
     // Attach the "some omitted" note to the final error message
     var last_err: ?*Zcu.ErrorMsg = null;
 
-    for (zcu.import_table.values(), 0..) |file, file_index_usize| {
+    for (zcu.import_table.values()) |file_index| {
+        const file = zcu.fileByIndex(file_index);
         if (!file.multi_pkg) continue;
 
         num_errors += 1;
         if (num_errors > max_errors) continue;
-
-        const file_index: Zcu.File.Index = @enumFromInt(file_index_usize);
 
         const err = err_blk: {
             // Like with errors, let's cap the number of notes to prevent a huge error spew.
@@ -2749,8 +2750,9 @@ fn reportMultiModuleErrors(zcu: *Zcu) !void {
     // to add this flag after reporting the errors however, as otherwise
     // we'd get an error for every single downstream file, which wouldn't be
     // very useful.
-    for (zcu.import_table.values()) |file| {
-        if (file.multi_pkg) file.recursiveMarkMultiPkg(zcu);
+    for (zcu.import_table.values()) |file_index| {
+        const file = zcu.fileByIndex(file_index);
+        if (file.multi_pkg) file.recursiveMarkMultiPkg(pt);
     }
 }
 
@@ -3443,11 +3445,12 @@ fn performAllTheWorkInner(
         }
     }
 
-    if (comp.module) |mod| {
-        try reportMultiModuleErrors(mod);
-        try mod.flushRetryableFailures();
-        mod.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
-        mod.codegen_prog_node = main_progress_node.start("Code Generation", 0);
+    if (comp.module) |zcu| {
+        const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = .main };
+        try reportMultiModuleErrors(pt);
+        try zcu.flushRetryableFailures();
+        zcu.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
+        zcu.codegen_prog_node = main_progress_node.start("Code Generation", 0);
     }
 
     if (!InternPool.single_threaded) comp.thread_pool.spawnWgId(&comp.work_queue_wait_group, codegenThread, .{comp});
@@ -4189,9 +4192,9 @@ fn workerAstGenFile(
                 comp.mutex.lock();
                 defer comp.mutex.unlock();
 
-                const res = pt.zcu.importFile(file, import_path) catch continue;
+                const res = pt.importFile(file, import_path) catch continue;
                 if (!res.is_pkg) {
-                    res.file.addReference(pt.zcu.*, .{ .import = .{
+                    res.file.addReference(pt.zcu, .{ .import = .{
                         .file = file_index,
                         .token = item.data.token,
                     } }) catch continue;
