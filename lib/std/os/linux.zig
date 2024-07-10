@@ -2946,6 +2946,8 @@ pub const AT = struct {
 
     /// Apply to the entire subtree
     pub const RECURSIVE = 0x8000;
+
+    pub const HANDLE_FID = REMOVEDIR;
 };
 
 pub const FALLOC = struct {
