@@ -59,12 +59,14 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
     const install_dir: *InstallDir = @fieldParentPtr("step", step);
+    step.clearWatchInputs();
     const arena = b.allocator;
     const dest_prefix = b.getInstallPath(install_dir.options.install_dir, install_dir.options.install_subdir);
-    const src_dir_path = install_dir.options.source_dir.getPath2(b, step);
-    var src_dir = b.build_root.handle.openDir(src_dir_path, .{ .iterate = true }) catch |err| {
-        return step.fail("unable to open source directory '{}{s}': {s}", .{
-            b.build_root, src_dir_path, @errorName(err),
+    const src_dir_path = install_dir.options.source_dir.getPath3(b, step);
+    try step.addDirectoryWatchInput(install_dir.options.source_dir);
+    var src_dir = src_dir_path.root_dir.handle.openDir(src_dir_path.subPathOpt() orelse ".", .{ .iterate = true }) catch |err| {
+        return step.fail("unable to open source directory '{}': {s}", .{
+            src_dir_path, @errorName(err),
         });
     };
     defer src_dir.close();
@@ -88,12 +90,16 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
         }
 
         // relative to src build root
-        const src_sub_path = b.pathJoin(&.{ src_dir_path, entry.path });
+        const src_sub_path = try src_dir_path.join(arena, entry.path);
         const dest_path = b.pathJoin(&.{ dest_prefix, entry.path });
         const cwd = fs.cwd();
 
         switch (entry.kind) {
-            .directory => try cwd.makePath(dest_path),
+            .directory => {
+                const subdir_path = try src_dir_path.join(arena, entry.path);
+                try step.addDirectoryWatchInputFromPath(subdir_path);
+                try cwd.makePath(dest_path);
+            },
             .file => {
                 for (install_dir.options.blank_extensions) |ext| {
                     if (mem.endsWith(u8, entry.path, ext)) {
@@ -103,14 +109,14 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
                 }
 
                 const prev_status = fs.Dir.updateFile(
-                    b.build_root.handle,
-                    src_sub_path,
+                    src_sub_path.root_dir.handle,
+                    src_sub_path.sub_path,
                     cwd,
                     dest_path,
                     .{},
                 ) catch |err| {
-                    return step.fail("unable to update file from '{}{s}' to '{s}': {s}", .{
-                        b.build_root, src_sub_path, dest_path, @errorName(err),
+                    return step.fail("unable to update file from '{}' to '{s}': {s}", .{
+                        src_sub_path, dest_path, @errorName(err),
                     });
                 };
                 all_cached = all_cached and prev_status == .fresh;

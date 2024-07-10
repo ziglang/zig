@@ -160,6 +160,7 @@ pub const Inputs = struct {
     };
 
     pub const Table = std.ArrayHashMapUnmanaged(Build.Cache.Path, Files, Build.Cache.Path.TableAdapter, false);
+    /// The special file name "." means any changes inside the directory.
     pub const Files = std.ArrayListUnmanaged([]const u8);
 
     pub fn populated(inputs: *Inputs) bool {
@@ -611,8 +612,9 @@ pub fn clearWatchInputs(step: *Step) void {
     step.inputs.clear(gpa);
 }
 
-pub fn addWatchInput(step: *Step, lazy_path: Build.LazyPath) Allocator.Error!void {
-    switch (lazy_path) {
+/// Places a *file* dependency on the path.
+pub fn addWatchInput(step: *Step, lazy_file: Build.LazyPath) Allocator.Error!void {
+    switch (lazy_file) {
         .src_path => |src_path| try addWatchInputFromBuilder(step, src_path.owner, src_path.sub_path),
         .dependency => |d| try addWatchInputFromBuilder(step, d.dependency.builder, d.sub_path),
         .cwd_relative => |path_string| {
@@ -629,11 +631,46 @@ pub fn addWatchInput(step: *Step, lazy_path: Build.LazyPath) Allocator.Error!voi
     }
 }
 
+/// Any changes inside the directory will trigger invalidation.
+///
+/// See also `addDirectoryWatchInputFromPath` which takes a `Build.Cache.Path` instead.
+pub fn addDirectoryWatchInput(step: *Step, lazy_directory: Build.LazyPath) Allocator.Error!void {
+    switch (lazy_directory) {
+        .src_path => |src_path| try addDirectoryWatchInputFromBuilder(step, src_path.owner, src_path.sub_path),
+        .dependency => |d| try addDirectoryWatchInputFromBuilder(step, d.dependency.builder, d.sub_path),
+        .cwd_relative => |path_string| {
+            try addDirectoryWatchInputFromPath(step, .{
+                .root_dir = .{
+                    .path = null,
+                    .handle = std.fs.cwd(),
+                },
+                .sub_path = path_string,
+            });
+        },
+        // Nothing to watch because this dependency edge is modeled instead via `dependants`.
+        .generated => {},
+    }
+}
+
+/// Any changes inside the directory will trigger invalidation.
+///
+/// See also `addDirectoryWatchInput` which takes a `Build.LazyPath` instead.
+pub fn addDirectoryWatchInputFromPath(step: *Step, path: Build.Cache.Path) !void {
+    return addWatchInputFromPath(step, path, ".");
+}
+
 fn addWatchInputFromBuilder(step: *Step, builder: *Build, sub_path: []const u8) !void {
     return addWatchInputFromPath(step, .{
         .root_dir = builder.build_root,
         .sub_path = std.fs.path.dirname(sub_path) orelse "",
     }, std.fs.path.basename(sub_path));
+}
+
+fn addDirectoryWatchInputFromBuilder(step: *Step, builder: *Build, sub_path: []const u8) !void {
+    return addDirectoryWatchInputFromPath(step, .{
+        .root_dir = builder.build_root,
+        .sub_path = sub_path,
+    });
 }
 
 fn addWatchInputFromPath(step: *Step, path: Build.Cache.Path, basename: []const u8) !void {

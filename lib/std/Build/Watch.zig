@@ -12,10 +12,13 @@ generation: Generation,
 
 pub const fan_mask: std.os.linux.fanotify.MarkMask = .{
     .CLOSE_WRITE = true,
+    .CREATE = true,
     .DELETE = true,
+    .DELETE_SELF = true,
+    .EVENT_ON_CHILD = true,
     .MOVED_FROM = true,
     .MOVED_TO = true,
-    .EVENT_ON_CHILD = true,
+    .MOVE_SELF = true,
 };
 
 pub const init: Watch = .{
@@ -32,6 +35,7 @@ pub const init: Watch = .{
 const DirTable = std.ArrayHashMapUnmanaged(Cache.Path, void, Cache.Path.TableAdapter, false);
 
 const HandleTable = std.ArrayHashMapUnmanaged(LinuxFileHandle, ReactionSet, LinuxFileHandle.Adapter, false);
+/// Special key of "." means any changes in this directory trigger the steps.
 const ReactionSet = std.StringArrayHashMapUnmanaged(StepSet);
 const StepSet = std.AutoArrayHashMapUnmanaged(*Step, Generation);
 
@@ -149,14 +153,10 @@ pub fn markDirtySteps(w: *Watch, gpa: Allocator) !bool {
                     const file_name = std.mem.span(file_name_z);
                     const lfh: Watch.LinuxFileHandle = .{ .handle = file_handle };
                     if (w.handle_table.getPtr(lfh)) |reaction_set| {
-                        if (reaction_set.getPtr(file_name)) |step_set| {
-                            for (step_set.keys()) |step| {
-                                if (step.state != .precheck_done) {
-                                    step.recursiveReset(gpa);
-                                    any_dirty = true;
-                                }
-                            }
-                        }
+                        if (reaction_set.getPtr(".")) |glob_set|
+                            any_dirty = markStepSetDirty(gpa, glob_set, any_dirty);
+                        if (reaction_set.getPtr(file_name)) |step_set|
+                            any_dirty = markStepSetDirty(gpa, step_set, any_dirty);
                     }
                 },
                 else => |t| std.log.warn("unexpected fanotify event '{s}'", .{@tagName(t)}),
@@ -186,4 +186,15 @@ fn markAllFilesDirty(w: *Watch, gpa: Allocator) void {
             }
         }
     }
+}
+
+fn markStepSetDirty(gpa: Allocator, step_set: *StepSet, any_dirty: bool) bool {
+    var this_any_dirty = false;
+    for (step_set.keys()) |step| {
+        if (step.state != .precheck_done) {
+            step.recursiveReset(gpa);
+            this_any_dirty = true;
+        }
+    }
+    return any_dirty or this_any_dirty;
 }
