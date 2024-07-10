@@ -496,41 +496,44 @@ fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.C) c_int {
 // General error message for a malformed return type
 const bad_main_ret = "expected return type of main to be 'void', '!void', 'noreturn', 'u8', or '!u8'";
 
+inline fn handleMainError(err: anytype) u8 {
+    std.log.err("{s}", .{@errorName(err)});
+
+    if (@errorReturnTrace()) |trace| {
+        std.debug.dumpStackTrace(trace.*);
+    }
+
+    return 1;
+}
+
 pub inline fn callMain() u8 {
-    switch (@typeInfo(@typeInfo(@TypeOf(root.main)).Fn.return_type.?)) {
-        .NoReturn => {
-            root.main();
-        },
-        .Void => {
+    const main_info = @typeInfo(@TypeOf(root.main)).Fn;
+    const ReturnType = main_info.return_type.?;
+
+    // We could return from this switch with a bunch of labeled blocks but that is ugly
+    switch (ReturnType) {
+        void => {
             root.main();
             return 0;
         },
-        .Int => |info| {
-            if (info.bits != 8 or info.signedness == .signed) {
-                @compileError(bad_main_ret);
-            }
+        noreturn, u8 => {
             return root.main();
         },
-        .ErrorUnion => {
-            const result = root.main() catch |err| {
-                std.log.err("{s}", .{@errorName(err)});
-                if (@errorReturnTrace()) |trace| {
-                    std.debug.dumpStackTrace(trace.*);
-                }
-                return 1;
-            };
-            switch (@typeInfo(@TypeOf(result))) {
-                .Void => return 0,
-                .Int => |info| {
-                    if (info.bits != 8 or info.signedness == .signed) {
-                        @compileError(bad_main_ret);
-                    }
-                    return result;
+        else => {
+            const return_info = @typeInfo(ReturnType);
+            if (comptime std.meta.activeTag(return_info) != .ErrorUnion) @compileError(bad_main_ret);
+
+            switch (return_info.ErrorUnion.payload) {
+                void => {
+                    root.main() catch |err| return handleMainError(err);
+                    return 0;
+                },
+                u8 => {
+                    return root.main() catch |err| handleMainError(err);
                 },
                 else => @compileError(bad_main_ret),
             }
         },
-        else => @compileError(bad_main_ret),
     }
 }
 
