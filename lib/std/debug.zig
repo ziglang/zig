@@ -570,6 +570,7 @@ pub const StackIterator = struct {
     first_address: ?usize,
     // Last known value of the frame pointer register.
     fp: usize,
+    ma: MemoryAccessor = MemoryAccessor.init,
 
     // When DebugInfo and a register context is available, this iterator can unwind
     // stacks with frames that don't use a frame pointer (ie. -fomit-frame-pointer),
@@ -616,16 +617,16 @@ pub const StackIterator = struct {
         }
     }
 
-    pub fn deinit(self: *StackIterator) void {
-        if (have_ucontext and self.unwind_state != null) self.unwind_state.?.dwarf_context.deinit();
+    pub fn deinit(it: *StackIterator) void {
+        if (have_ucontext and it.unwind_state != null) it.unwind_state.?.dwarf_context.deinit();
     }
 
-    pub fn getLastError(self: *StackIterator) ?struct {
+    pub fn getLastError(it: *StackIterator) ?struct {
         err: UnwindError,
         address: usize,
     } {
         if (!have_ucontext) return null;
-        if (self.unwind_state) |*unwind_state| {
+        if (it.unwind_state) |*unwind_state| {
             if (unwind_state.last_error) |err| {
                 unwind_state.last_error = null;
                 return .{
@@ -662,14 +663,14 @@ pub const StackIterator = struct {
     else
         @sizeOf(usize);
 
-    pub fn next(self: *StackIterator) ?usize {
-        var address = self.next_internal() orelse return null;
+    pub fn next(it: *StackIterator) ?usize {
+        var address = it.next_internal() orelse return null;
 
-        if (self.first_address) |first_address| {
+        if (it.first_address) |first_address| {
             while (address != first_address) {
-                address = self.next_internal() orelse return null;
+                address = it.next_internal() orelse return null;
             }
-            self.first_address = null;
+            it.first_address = null;
         }
 
         return address;
@@ -718,8 +719,74 @@ pub const StackIterator = struct {
         }
     }
 
-    fn next_unwind(self: *StackIterator) !usize {
-        const unwind_state = &self.unwind_state.?;
+    pub const MemoryAccessor = struct {
+        var cached_pid: posix.pid_t = -1;
+
+        mem: switch (native_os) {
+            .linux => File,
+            else => void,
+        },
+
+        pub const init: MemoryAccessor = .{
+            .mem = switch (native_os) {
+                .linux => .{ .handle = -1 },
+                else => {},
+            },
+        };
+
+        fn read(ma: *MemoryAccessor, address: usize, buf: []u8) bool {
+            switch (native_os) {
+                .linux => while (true) switch (ma.mem.handle) {
+                    -2 => break,
+                    -1 => {
+                        const linux = std.os.linux;
+                        const pid = switch (@atomicLoad(posix.pid_t, &cached_pid, .monotonic)) {
+                            -1 => pid: {
+                                const pid = linux.getpid();
+                                @atomicStore(posix.pid_t, &cached_pid, pid, .monotonic);
+                                break :pid pid;
+                            },
+                            else => |pid| pid,
+                        };
+                        const bytes_read = linux.process_vm_readv(
+                            pid,
+                            &.{.{ .base = buf.ptr, .len = buf.len }},
+                            &.{.{ .base = @ptrFromInt(address), .len = buf.len }},
+                            0,
+                        );
+                        switch (linux.E.init(bytes_read)) {
+                            .SUCCESS => return bytes_read == buf.len,
+                            .FAULT => return false,
+                            .INVAL, .PERM, .SRCH => unreachable, // own pid is always valid
+                            .NOMEM, .NOSYS => {},
+                            else => unreachable, // unexpected
+                        }
+                        var path_buf: [
+                            std.fmt.count("/proc/{d}/mem", .{math.minInt(posix.pid_t)})
+                        ]u8 = undefined;
+                        const path = std.fmt.bufPrint(&path_buf, "/proc/{d}/mem", .{pid}) catch
+                            unreachable;
+                        ma.mem = std.fs.openFileAbsolute(path, .{}) catch {
+                            ma.mem.handle = -2;
+                            break;
+                        };
+                    },
+                    else => return (ma.mem.pread(buf, address) catch return false) == buf.len,
+                },
+                else => {},
+            }
+            if (!isValidMemory(address)) return false;
+            @memcpy(buf, @as([*]const u8, @ptrFromInt(address)));
+            return true;
+        }
+        pub fn load(ma: *MemoryAccessor, comptime Type: type, address: usize) ?Type {
+            var result: Type = undefined;
+            return if (ma.read(address, std.mem.asBytes(&result))) result else null;
+        }
+    };
+
+    fn next_unwind(it: *StackIterator) !usize {
+        const unwind_state = &it.unwind_state.?;
         const module = try unwind_state.debug_info.getModuleForAddress(unwind_state.dwarf_context.pc);
         switch (native_os) {
             .macos, .ios, .watchos, .tvos, .visionos => {
@@ -741,13 +808,13 @@ pub const StackIterator = struct {
         } else return error.MissingDebugInfo;
     }
 
-    fn next_internal(self: *StackIterator) ?usize {
+    fn next_internal(it: *StackIterator) ?usize {
         if (have_ucontext) {
-            if (self.unwind_state) |*unwind_state| {
+            if (it.unwind_state) |*unwind_state| {
                 if (!unwind_state.failed) {
                     if (unwind_state.dwarf_context.pc == 0) return null;
-                    defer self.fp = unwind_state.dwarf_context.getFp() catch 0;
-                    if (self.next_unwind()) |return_address| {
+                    defer it.fp = unwind_state.dwarf_context.getFp() catch 0;
+                    if (it.next_unwind()) |return_address| {
                         return return_address;
                     } else |err| {
                         unwind_state.last_error = err;
@@ -763,29 +830,24 @@ pub const StackIterator = struct {
 
         const fp = if (comptime native_arch.isSPARC())
             // On SPARC the offset is positive. (!)
-            math.add(usize, self.fp, fp_offset) catch return null
+            math.add(usize, it.fp, fp_offset) catch return null
         else
-            math.sub(usize, self.fp, fp_offset) catch return null;
+            math.sub(usize, it.fp, fp_offset) catch return null;
 
         // Sanity check.
-        if (fp == 0 or !mem.isAligned(fp, @alignOf(usize)) or !isValidMemory(fp))
+        if (fp == 0 or !mem.isAligned(fp, @alignOf(usize))) return null;
+        const new_fp = math.add(usize, it.ma.load(usize, fp) orelse return null, fp_bias) catch
             return null;
-
-        const new_fp = math.add(usize, @as(*const usize, @ptrFromInt(fp)).*, fp_bias) catch return null;
 
         // Sanity check: the stack grows down thus all the parent frames must be
         // be at addresses that are greater (or equal) than the previous one.
         // A zero frame pointer often signals this is the last frame, that case
         // is gracefully handled by the next call to next_internal.
-        if (new_fp != 0 and new_fp < self.fp)
+        if (new_fp != 0 and new_fp < it.fp) return null;
+        const new_pc = it.ma.load(usize, math.add(usize, fp, pc_offset) catch return null) orelse
             return null;
 
-        const new_pc = @as(
-            *const usize,
-            @ptrFromInt(math.add(usize, fp, pc_offset) catch return null),
-        ).*;
-
-        self.fp = new_fp;
+        it.fp = new_fp;
 
         return new_pc;
     }

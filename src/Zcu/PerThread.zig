@@ -2194,6 +2194,25 @@ fn processExportsInner(
             gop.value_ptr.* = export_idx;
         }
     }
+
+    switch (exported) {
+        .decl_index => |idx| if (failed: {
+            const decl = zcu.declPtr(idx);
+            if (decl.analysis != .complete) break :failed true;
+            // Check if has owned function
+            if (!decl.owns_tv) break :failed false;
+            if (decl.typeOf(zcu).zigTypeTag(zcu) != .Fn) break :failed false;
+            // Check if owned function failed
+            const a = zcu.funcInfo(decl.val.toIntern()).analysis(&zcu.intern_pool);
+            break :failed a.state != .success;
+        }) {
+            // This `Decl` is failed, so was never sent to codegen.
+            // TODO: we should probably tell the backend to delete any old exports of this `Decl`?
+            return;
+        },
+        .value => {},
+    }
+
     if (zcu.comp.bin_file) |lf| {
         try zcu.handleUpdateExports(export_indices, lf.updateExports(pt, exported, export_indices));
     } else if (zcu.llvm_object) |llvm_object| {
