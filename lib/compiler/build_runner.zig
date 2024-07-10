@@ -416,10 +416,12 @@ pub fn main() !void {
                 const reaction_set = rs: {
                     const gop = try w.dir_table.getOrPut(gpa, path);
                     if (!gop.found_existing) {
-                        try std.posix.fanotify_mark(w.fan_fd, .{
+                        std.posix.fanotify_mark(w.fan_fd, .{
                             .ADD = true,
                             .ONLYDIR = true,
-                        }, Watch.fan_mask, path.root_dir.handle.fd, path.subPathOpt());
+                        }, Watch.fan_mask, path.root_dir.handle.fd, path.subPathOpt()) catch |err| {
+                            fatal("unable to watch {}: {s}", .{ path, @errorName(err) });
+                        };
 
                         const dir_handle = try Watch.getDirHandle(gpa, path);
                         try w.handle_table.putNoClobber(gpa, dir_handle, .{});
@@ -489,7 +491,7 @@ pub fn main() !void {
                 .revents = undefined,
             },
         };
-        var caption_buf: [40]u8 = undefined;
+        var caption_buf: [std.Progress.Node.max_name_len]u8 = undefined;
         const caption = std.fmt.bufPrint(&caption_buf, "Watching {d} Directories", .{
             w.dir_table.entries.len,
         }) catch &caption_buf;
