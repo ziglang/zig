@@ -1123,6 +1123,7 @@ const required_features = [_]Target.riscv.Feature{
     .a,
     .zicsr,
     .v,
+    .zbb,
 };
 
 fn gen(func: *Func) !void {
@@ -2385,20 +2386,24 @@ fn genBinOp(
         .mul,
         .mul_wrap,
         .rem,
+        .div_trunc,
         => {
-            if (!math.isPowerOfTwo(bit_size))
-                return func.fail(
-                    "TODO: genBinOp {s} non-pow 2, found {}",
-                    .{ @tagName(tag), bit_size },
-                );
-
             switch (tag) {
                 .rem,
+                .div_trunc,
                 => {
-                    try func.truncateRegister(lhs_ty, lhs_reg);
-                    try func.truncateRegister(rhs_ty, rhs_reg);
+                    if (!math.isPowerOfTwo(bit_size)) {
+                        try func.truncateRegister(lhs_ty, lhs_reg);
+                        try func.truncateRegister(rhs_ty, rhs_reg);
+                    }
                 },
-                else => {},
+                else => {
+                    if (!math.isPowerOfTwo(bit_size))
+                        return func.fail(
+                            "TODO: genBinOp verify {s} non-pow 2, found {}",
+                            .{ @tagName(tag), bit_size },
+                        );
+                },
             }
 
             switch (lhs_ty.zigTypeTag(zcu)) {
@@ -2420,8 +2425,12 @@ fn genBinOp(
                             else => unreachable,
                         },
                         .rem => switch (bit_size) {
-                            64 => if (is_unsigned) .remu else .rem,
-                            else => if (is_unsigned) .remuw else .remu,
+                            8, 16, 32 => if (is_unsigned) .remuw else .remw,
+                            else => if (is_unsigned) .remu else .rem,
+                        },
+                        .div_trunc => switch (bit_size) {
+                            8, 16, 32 => if (is_unsigned) .divuw else .divw,
+                            else => if (is_unsigned) .divu else .div,
                         },
                         else => unreachable,
                     };
@@ -2455,7 +2464,7 @@ fn genBinOp(
                             64 => .fmuld,
                             else => unreachable,
                         },
-                        else => unreachable,
+                        else => return func.fail("TODO: genBinOp {s} Float", .{@tagName(tag)}),
                     };
 
                     _ = try func.addInst(.{
@@ -2585,46 +2594,6 @@ fn genBinOp(
                 .bool_or,
                 => try func.truncateRegister(Type.bool, dst_reg),
                 else => {},
-            }
-        },
-
-        .div_trunc,
-        => {
-            if (!math.isPowerOfTwo(bit_size))
-                return func.fail(
-                    "TODO: genBinOp {s} non-pow 2, found {}",
-                    .{ @tagName(tag), bit_size },
-                );
-
-            const mir_tag: Mir.Inst.Tag = switch (tag) {
-                .div_trunc => switch (bit_size) {
-                    8, 16, 32 => if (is_unsigned) .divuw else .divw,
-                    64 => if (is_unsigned) .divu else .div,
-                    else => unreachable,
-                },
-                else => unreachable,
-            };
-
-            _ = try func.addInst(.{
-                .tag = mir_tag,
-                .ops = .rrr,
-                .data = .{
-                    .r_type = .{
-                        .rd = dst_reg,
-                        .rs1 = lhs_reg,
-                        .rs2 = rhs_reg,
-                    },
-                },
-            });
-
-            if (!is_unsigned) {
-                // truncate when the instruction is larger than the bit size.
-                switch (bit_size) {
-                    8, 16 => try func.truncateRegister(lhs_ty, dst_reg),
-                    32 => {}, // divw affects the first 32-bits
-                    64 => {}, // div affects the entire register
-                    else => unreachable,
-                }
             }
         },
 
@@ -3740,7 +3709,59 @@ fn airGetUnionTag(func: *Func, inst: Air.Inst.Index) !void {
 
 fn airClz(func: *Func, inst: Air.Inst.Index) !void {
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement airClz for {}", .{func.target.cpu.arch});
+    const operand = try func.resolveInst(ty_op.operand);
+    const ty = func.typeOf(ty_op.operand);
+
+    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
+        const src_reg, const src_lock = try func.promoteReg(ty, operand);
+        defer if (src_lock) |lock| func.register_manager.unlockReg(lock);
+
+        const dst_reg: Register = if (func.reuseOperand(
+            inst,
+            ty_op.operand,
+            0,
+            operand,
+        ) and operand == .register)
+            operand.register
+        else
+            (try func.allocRegOrMem(func.typeOfIndex(inst), inst, true)).register;
+
+        const bit_size = ty.bitSize(func.pt);
+        if (!math.isPowerOfTwo(bit_size)) try func.truncateRegister(ty, src_reg);
+
+        if (bit_size > 64) {
+            return func.fail("TODO: airClz > 64 bits, found {d}", .{bit_size});
+        }
+
+        _ = try func.addInst(.{
+            .tag = switch (bit_size) {
+                32 => .clzw,
+                else => .clz,
+            },
+            .ops = .rrr,
+            .data = .{
+                .r_type = .{
+                    .rs2 = .zero, // rs2 is 0 filled in the spec
+                    .rs1 = src_reg,
+                    .rd = dst_reg,
+                },
+            },
+        });
+
+        if (!(bit_size == 32 or bit_size == 64)) {
+            _ = try func.addInst(.{
+                .tag = .addi,
+                .ops = .rri,
+                .data = .{ .i_type = .{
+                    .rd = dst_reg,
+                    .rs1 = dst_reg,
+                    .imm12 = Immediate.s(-@as(i12, @intCast(64 - bit_size % 64))),
+                } },
+            });
+        }
+
+        break :result .{ .register = dst_reg };
+    };
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 

@@ -135,6 +135,7 @@ const Enc = struct {
     };
 };
 
+// TODO: this is basically a copy of the MIR table, we should be able to de-dupe them somehow.
 pub const Mnemonic = enum {
     // base mnemonics
 
@@ -324,6 +325,10 @@ pub const Mnemonic = enum {
 
     // TODO: Q extension
 
+    // Zbb Extension
+    clz,
+    clzw,
+
     pub fn encoding(mnem: Mnemonic) Enc {
         return switch (mnem) {
             // zig fmt: off
@@ -368,6 +373,7 @@ pub const Mnemonic = enum {
             .srli    => .{ .opcode = .OP_IMM, .data = .{ .sh = .{ .typ = 0b000000, .funct3 = 0b101, .has_5 = true } } },
             .srai    => .{ .opcode = .OP_IMM, .data = .{ .sh = .{ .typ = 0b010000, .funct3 = 0b101, .has_5 = true } } },
 
+            .clz     => .{ .opcode = .OP_IMM, .data = .{ .ff = .{ .funct3 = 0b001, .funct7 = 0b0110000 } } },
 
             // OP_IMM_32
 
@@ -375,6 +381,7 @@ pub const Mnemonic = enum {
             .srliw   => .{ .opcode = .OP_IMM_32, .data = .{ .sh = .{ .typ = 0b000000, .funct3 = 0b101, .has_5 = false } } },
             .sraiw   => .{ .opcode = .OP_IMM_32, .data = .{ .sh = .{ .typ = 0b010000, .funct3 = 0b101, .has_5 = false } } },
 
+            .clzw     => .{ .opcode = .OP_IMM_32, .data = .{ .ff = .{ .funct3 = 0b001, .funct7 = 0b0110000 } } },
 
             // OP_32
 
@@ -722,6 +729,9 @@ pub const InstEnc = enum {
             .vadcvv,
             .vmvvx,
             .vslidedownvx,
+
+            .clz,
+            .clzw,
             => .R,
 
             .ecall,

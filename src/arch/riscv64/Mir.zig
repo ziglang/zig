@@ -149,6 +149,10 @@ pub const Inst = struct {
         vfmulvv,
         vslidedownvx,
 
+        // Zbb Extension Instructions
+        clz,
+        clzw,
+
         /// A pseudo-instruction. Used for anything that isn't 1:1 with an
         /// assembly instruction.
         pseudo,
