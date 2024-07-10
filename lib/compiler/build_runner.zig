@@ -500,52 +500,15 @@ pub fn main() !void {
             const events_len = try std.posix.poll(&poll_fds, timeout);
             if (events_len == 0) {
                 debouncing_node.end();
+                Watch.markFailedStepsDirty(gpa, run.step_stack.keys());
                 continue :rebuild;
             }
-            if (try markDirtySteps(&w)) {
+            if (try w.markDirtySteps(gpa)) {
                 if (!debouncing) {
                     debouncing = true;
                     debouncing_node.end();
                     debouncing_node = main_progress_node.start("Debouncing (Change Detected)", 0);
                 }
-            }
-        }
-    }
-}
-
-fn markDirtySteps(w: *Watch) !bool {
-    const fanotify = std.os.linux.fanotify;
-    const M = fanotify.event_metadata;
-    var events_buf: [256 + 4096]u8 = undefined;
-    var any_dirty = false;
-    while (true) {
-        var len = std.posix.read(w.fan_fd, &events_buf) catch |err| switch (err) {
-            error.WouldBlock => return any_dirty,
-            else => |e| return e,
-        };
-        var meta: [*]align(1) M = @ptrCast(&events_buf);
-        while (len >= @sizeOf(M) and meta[0].event_len >= @sizeOf(M) and meta[0].event_len <= len) : ({
-            len -= meta[0].event_len;
-            meta = @ptrCast(@as([*]u8, @ptrCast(meta)) + meta[0].event_len);
-        }) {
-            assert(meta[0].vers == M.VERSION);
-            const fid: *align(1) fanotify.event_info_fid = @ptrCast(meta + 1);
-            switch (fid.hdr.info_type) {
-                .DFID_NAME => {
-                    const file_handle: *align(1) std.os.linux.file_handle = @ptrCast(&fid.handle);
-                    const file_name_z: [*:0]u8 = @ptrCast((&file_handle.f_handle).ptr + file_handle.handle_bytes);
-                    const file_name = mem.span(file_name_z);
-                    const lfh: Watch.LinuxFileHandle = .{ .handle = file_handle };
-                    if (w.handle_table.getPtr(lfh)) |reaction_set| {
-                        if (reaction_set.getPtr(file_name)) |step_set| {
-                            for (step_set.keys()) |step| {
-                                step.state = .precheck_done;
-                                any_dirty = true;
-                            }
-                        }
-                    }
-                },
-                else => |t| std.log.warn("unexpected fanotify event '{s}'", .{@tagName(t)}),
             }
         }
     }
@@ -1319,7 +1282,7 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  --skip-oom-steps             Instead of failing, skip steps that would exceed --maxrss
         \\  --fetch                      Exit after fetching dependency tree
         \\  --watch                      Continuously rebuild when source files are modified
-        \\  --debounce <ms>              Delay before rebuilding after watched file detection
+        \\  --debounce <ms>              Delay before rebuilding after changed file detected
         \\
         \\Project-Specific Options:
         \\

@@ -637,6 +637,31 @@ fn addWatchInputFromPath(step: *Step, path: Build.Cache.Path, basename: []const 
     try gop.value_ptr.append(gpa, basename);
 }
 
+fn reset(step: *Step, gpa: Allocator) void {
+    assert(step.state == .precheck_done);
+
+    step.result_error_msgs.clearRetainingCapacity();
+    step.result_stderr = "";
+    step.result_cached = false;
+    step.result_duration_ns = null;
+    step.result_peak_rss = 0;
+    step.test_results = .{};
+
+    step.result_error_bundle.deinit(gpa);
+    step.result_error_bundle = std.zig.ErrorBundle.empty;
+}
+
+/// Implementation detail of file watching. Prepares the step for being re-evaluated.
+pub fn recursiveReset(step: *Step, gpa: Allocator) void {
+    assert(step.state != .precheck_done);
+    step.state = .precheck_done;
+    step.reset(gpa);
+    for (step.dependants.items) |dep| {
+        if (dep.state == .precheck_done) continue;
+        dep.recursiveReset(gpa);
+    }
+}
+
 test {
     _ = CheckFile;
     _ = CheckObject;

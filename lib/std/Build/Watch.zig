@@ -2,6 +2,7 @@ const std = @import("../std.zig");
 const Watch = @This();
 const Step = std.Build.Step;
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 
 dir_table: DirTable,
 /// Keyed differently but indexes correspond 1:1 with `dir_table`.
@@ -116,4 +117,57 @@ pub fn getDirHandle(gpa: Allocator, path: std.Build.Cache.Path) !LinuxFileHandle
     try std.posix.name_to_handle_at(path.root_dir.handle.fd, adjusted_path, stack_ptr, &mount_id, std.os.linux.AT.HANDLE_FID);
     const stack_lfh: LinuxFileHandle = .{ .handle = stack_ptr };
     return stack_lfh.clone(gpa);
+}
+
+pub fn markDirtySteps(w: *Watch, gpa: Allocator) !bool {
+    const fanotify = std.os.linux.fanotify;
+    const M = fanotify.event_metadata;
+    var events_buf: [256 + 4096]u8 = undefined;
+    var any_dirty = false;
+    while (true) {
+        var len = std.posix.read(w.fan_fd, &events_buf) catch |err| switch (err) {
+            error.WouldBlock => return any_dirty,
+            else => |e| return e,
+        };
+        var meta: [*]align(1) M = @ptrCast(&events_buf);
+        while (len >= @sizeOf(M) and meta[0].event_len >= @sizeOf(M) and meta[0].event_len <= len) : ({
+            len -= meta[0].event_len;
+            meta = @ptrCast(@as([*]u8, @ptrCast(meta)) + meta[0].event_len);
+        }) {
+            assert(meta[0].vers == M.VERSION);
+            const fid: *align(1) fanotify.event_info_fid = @ptrCast(meta + 1);
+            switch (fid.hdr.info_type) {
+                .DFID_NAME => {
+                    const file_handle: *align(1) std.os.linux.file_handle = @ptrCast(&fid.handle);
+                    const file_name_z: [*:0]u8 = @ptrCast((&file_handle.f_handle).ptr + file_handle.handle_bytes);
+                    const file_name = std.mem.span(file_name_z);
+                    const lfh: Watch.LinuxFileHandle = .{ .handle = file_handle };
+                    if (w.handle_table.getPtr(lfh)) |reaction_set| {
+                        if (reaction_set.getPtr(file_name)) |step_set| {
+                            for (step_set.keys()) |step| {
+                                if (step.state != .precheck_done) {
+                                    step.recursiveReset(gpa);
+                                    any_dirty = true;
+                                }
+                            }
+                        }
+                    }
+                },
+                else => |t| std.log.warn("unexpected fanotify event '{s}'", .{@tagName(t)}),
+            }
+        }
+    }
+}
+
+pub fn markFailedStepsDirty(gpa: Allocator, all_steps: []const *Step) void {
+    for (all_steps) |step| switch (step.state) {
+        .dependency_failure, .failure, .skipped => step.recursiveReset(gpa),
+        else => continue,
+    };
+    // Now that all dirty steps have been found, the remaining steps that
+    // succeeded from last run shall be marked "cached".
+    for (all_steps) |step| switch (step.state) {
+        .success => step.result_cached = true,
+        else => continue,
+    };
 }
