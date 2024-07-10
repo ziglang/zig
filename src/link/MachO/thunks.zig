@@ -37,7 +37,7 @@ pub fn createThunks(sect_id: u8, macho_file: *MachO) !void {
 
         // Scan relocs in the group and create trampolines for any unreachable callsite
         try scanRelocs(thunk_index, gpa, atoms[start..i], macho_file);
-        thunk.value = try advance(header, thunk.size(), .@"4");
+        thunk.value = advance(header, thunk.size(), .@"4");
 
         log.debug("thunk({d}) : {}", .{ thunk_index, thunk.fmt(macho_file) });
     }
@@ -99,8 +99,8 @@ pub const Thunk = struct {
         return header.addr + thunk.value;
     }
 
-    pub fn getTargetAddress(thunk: Thunk, sym_index: Symbol.Index, macho_file: *MachO) u64 {
-        return thunk.getAddress(macho_file) + thunk.symbols.getIndex(sym_index).? * trampoline_size;
+    pub fn getTargetAddress(thunk: Thunk, ref: MachO.Ref, macho_file: *MachO) u64 {
+        return thunk.getAddress(macho_file) + thunk.symbols.getIndex(ref).? * trampoline_size;
     }
 
     pub fn write(thunk: Thunk, macho_file: *MachO, writer: anytype) !void {

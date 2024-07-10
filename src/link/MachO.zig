@@ -529,7 +529,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
         dylib.ordinal = @intCast(ord);
     }
 
-    try self.claimUnresolved();
+    self.claimUnresolved();
 
     self.scanRelocs() catch |err| switch (err) {
         error.HasUndefinedSymbols => return error.FlushFailure,
@@ -603,7 +603,12 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
 
         if (has_resolve_error) return error.FlushFailure;
     }
-    try self.writeSectionsAndUpdateLinkeditSizes();
+    self.writeSectionsAndUpdateLinkeditSizes() catch |err| {
+        switch (err) {
+            error.ResolveFailed => return error.FlushFailure,
+            else => |e| return e,
+        }
+    };
 
     try self.writeSectionsToFile();
     try self.allocateLinkeditSegment();
@@ -1450,12 +1455,12 @@ pub fn dedupLiterals(self: *MachO) !void {
     }
 }
 
-fn claimUnresolved(self: *MachO) error{OutOfMemory}!void {
+fn claimUnresolved(self: *MachO) void {
     if (self.getZigObject()) |zo| {
-        try zo.asFile().claimUnresolved(self);
+        zo.claimUnresolved(self);
     }
     for (self.objects.items) |index| {
-        try self.getFile(index).?.claimUnresolved(self);
+        self.getFile(index).?.object.claimUnresolved(self);
     }
 }
 
@@ -2402,7 +2407,7 @@ fn writeSectionsAndUpdateLinkeditSizes(self: *MachO) !void {
     }
 
     if (self.la_symbol_ptr_sect_index) |_| {
-        try self.updatelazyBindSize();
+        try self.updateLazyBindSize();
     }
 
     try self.rebase.updateSize(self);
@@ -2412,16 +2417,16 @@ fn writeSectionsAndUpdateLinkeditSizes(self: *MachO) !void {
     try self.data_in_code.updateSize(self);
 
     if (self.getZigObject()) |zo| {
-        zo.asFile().writeSymtab(self);
+        zo.asFile().writeSymtab(self, self);
     }
     for (self.objects.items) |index| {
-        self.getFile(index).?.writeSymtab(self);
+        self.getFile(index).?.writeSymtab(self, self);
     }
     for (self.dylibs.items) |index| {
-        self.getFile(index).?.writeSymtab(self);
+        self.getFile(index).?.writeSymtab(self, self);
     }
     if (self.getInternalObject()) |obj| {
-        obj.asFile().writeSymtab(self);
+        obj.asFile().writeSymtab(self, self);
     }
 }
 
@@ -2484,7 +2489,7 @@ fn writeSectionsToFile(self: *MachO) !void {
 
     const slice = self.sections.slice();
     for (slice.items(.header), slice.items(.out)) |header, out| {
-        try self.base.file.pwriteAll(out.items, header.offset);
+        try self.base.file.?.pwriteAll(out.items, header.offset);
     }
 }
 
@@ -2501,7 +2506,7 @@ fn writeDyldInfo(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.allocator;
+    const gpa = self.base.comp.gpa;
     const base_off = self.getLinkeditSegment().fileoff;
     const cmd = self.dyld_info_cmd;
     var needed_size: u32 = 0;
@@ -2527,14 +2532,14 @@ fn writeDyldInfo(self: *MachO) !void {
     try self.lazy_bind.write(writer);
     try stream.seekTo(cmd.export_off - base_off);
     try self.export_trie.write(writer);
-    try self.base.file.pwriteAll(buffer, cmd.rebase_off);
+    try self.base.file.?.pwriteAll(buffer, cmd.rebase_off);
 }
 
 pub fn writeDataInCode(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
     const cmd = self.data_in_code_cmd;
-    try self.base.file.pwriteAll(mem.sliceAsBytes(self.data_in_code.entries.items), cmd.dataoff);
+    try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.data_in_code.entries.items), cmd.dataoff);
 }
 
 fn writeIndsymtab(self: *MachO) !void {
@@ -2546,15 +2551,15 @@ fn writeIndsymtab(self: *MachO) !void {
     var buffer = try std.ArrayList(u8).initCapacity(gpa, needed_size);
     defer buffer.deinit();
     try self.indsymtab.write(self, buffer.writer());
-    try self.base.file.pwriteAll(buffer.items, cmd.indirectsymoff);
+    try self.base.file.?.pwriteAll(buffer.items, cmd.indirectsymoff);
 }
 
 pub fn writeSymtabToFile(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
     const cmd = self.symtab_cmd;
-    try self.base.file.pwriteAll(mem.sliceAsBytes(self.symtab.items), cmd.symoff);
-    try self.base.file.pwriteAll(self.strtab.items, cmd.stroff);
+    try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.symtab.items), cmd.symoff);
+    try self.base.file.?.pwriteAll(self.strtab.items, cmd.stroff);
 }
 
 fn writeUnwindInfo(self: *MachO) !void {
@@ -2687,18 +2692,20 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
     try load_commands.writeDylinkerLC(writer);
     ncmds += 1;
 
-    if (self.entry_index) |global_index| {
-        const sym = self.getSymbol(global_index);
-        const seg = self.getTextSegment();
-        const entryoff: u32 = if (sym.getFile(self) == null)
-            0
-        else
-            @as(u32, @intCast(sym.getAddress(.{ .stubs = true }, self) - seg.vmaddr));
-        try writer.writeStruct(macho.entry_point_command{
-            .entryoff = entryoff,
-            .stacksize = self.base.stack_size,
-        });
-        ncmds += 1;
+    if (self.getInternalObject()) |obj| {
+        if (obj.getEntryRef(self)) |ref| {
+            const sym = ref.getSymbol(self).?;
+            const seg = self.getTextSegment();
+            const entryoff: u32 = if (sym.getFile(self) == null)
+                0
+            else
+                @as(u32, @intCast(sym.getAddress(.{ .stubs = true }, self) - seg.vmaddr));
+            try writer.writeStruct(macho.entry_point_command{
+                .entryoff = entryoff,
+                .stacksize = self.base.stack_size,
+            });
+            ncmds += 1;
+        }
     }
 
     if (self.base.isDynLib()) {

@@ -16,7 +16,7 @@ objc_selrefs: [@sizeOf(u64)]u8 = [_]u8{0} ** @sizeOf(u64),
 force_undefined: std.ArrayListUnmanaged(Symbol.Index) = .{},
 entry_index: ?Symbol.Index = null,
 dyld_stub_binder_index: ?Symbol.Index = null,
-dyld_private: ?Symbol.Index = null,
+dyld_private_index: ?Symbol.Index = null,
 objc_msg_send_index: ?Symbol.Index = null,
 mh_execute_header_index: ?Symbol.Index = null,
 mh_dylib_header_index: ?Symbol.Index = null,
@@ -206,7 +206,7 @@ pub fn resolveBoundarySymbols(self: *InternalObject, macho_file: *MachO) !void {
         const nlist_idx: u32 = @intCast(self.symtab.items.len);
         const nlist = self.symtab.addOneAssumeCapacity();
         nlist.* = .{
-            .n_strx = name_off.pos,
+            .n_strx = name_off,
             .n_type = macho.N_SECT,
             .n_sect = 0,
             .n_desc = 0,
@@ -273,7 +273,7 @@ fn addObjcMethnameSection(self: *InternalObject, methname: []const u8, macho_fil
     const nlist_idx: u32 = @intCast(self.symtab.items.len);
     const nlist = try self.symtab.addOne(gpa);
     nlist.* = .{
-        .n_strx = name_str.pos,
+        .n_strx = name_str,
         .n_type = macho.N_SECT,
         .n_sect = @intCast(n_sect + 1),
         .n_desc = 0,
@@ -286,12 +286,12 @@ fn addObjcMethnameSection(self: *InternalObject, methname: []const u8, macho_fil
 }
 
 fn addObjcSelrefsSection(self: *InternalObject, methname_sym_index: Symbol.Index, macho_file: *MachO) !Symbol.Index {
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
     const atom_index = try self.addAtom(gpa);
     try self.atoms_indexes.append(gpa, atom_index);
     const atom = self.getAtom(atom_index).?;
     atom.size = @sizeOf(u64);
-    atom.alignment = 3;
+    atom.alignment = .@"8";
 
     const n_sect = try self.addSection(gpa, "__DATA", "__objc_selrefs");
     const sect = &self.sections.items(.header)[n_sect];
@@ -389,7 +389,7 @@ pub fn resolveObjcMsgSendSymbols(self: *InternalObject, macho_file: *MachO) !voi
         };
         sym.nlist_idx = nlist_idx;
         sym.extra = try self.addSymbolExtra(gpa, .{ .objc_selrefs = selrefs_index });
-        sym.setSectionFlags(.{ .objc_stubs = true });
+        sym.flags.objc_stubs = true;
 
         const idx = ref.getFile(macho_file).?.object.globals.items[ref.index];
         try self.globals.append(gpa, idx);
@@ -417,7 +417,7 @@ pub fn resolveLiterals(self: *InternalObject, lp: *MachO.LiteralPool, macho_file
         const target = rel.getTargetSymbol(atom.*, macho_file).getAtom(macho_file).?;
         try buffer.ensureUnusedCapacity(target.size);
         buffer.resize(target.size) catch unreachable;
-        @memcpy(buffer.items, self.getSectionData(target.n_sect));
+        @memcpy(buffer.items, try self.getSectionData(target.n_sect));
         const res = try lp.insert(gpa, header.type(), buffer.items);
         buffer.clearRetainingCapacity();
         if (!res.found_existing) {
@@ -425,7 +425,7 @@ pub fn resolveLiterals(self: *InternalObject, lp: *MachO.LiteralPool, macho_file
         } else {
             const lp_sym = lp.getSymbol(res.index, macho_file);
             const lp_atom = lp_sym.getAtom(macho_file).?;
-            lp_atom.alignment = @max(lp_atom.alignment, atom.alignment);
+            lp_atom.alignment = lp_atom.alignment.max(atom.alignment);
             atom.flags.alive = false;
         }
         atom.addExtra(.{ .literal_pool_index = res.index }, macho_file);
@@ -438,7 +438,7 @@ pub fn dedupLiterals(self: *InternalObject, lp: MachO.LiteralPool, macho_file: *
 
     for (self.getAtoms()) |atom_index| {
         const atom = self.getAtom(atom_index) orelse continue;
-        if (!atom.alive.load(.seq_cst)) continue;
+        if (!atom.flags.alive) continue;
 
         const relocs = blk: {
             const extra = atom.getExtra(macho_file);
@@ -463,7 +463,7 @@ pub fn dedupLiterals(self: *InternalObject, lp: MachO.LiteralPool, macho_file: *
     }
 
     for (self.symbols.items) |*sym| {
-        if (!sym.getSectionFlags().objc_stubs) continue;
+        if (!sym.flags.objc_stubs) continue;
         const extra = sym.getExtra(macho_file);
         const file = sym.getFile(macho_file).?;
         if (file.getIndex() != self.index) continue;
@@ -495,14 +495,14 @@ pub fn scanRelocs(self: *InternalObject, macho_file: *MachO) void {
     if (self.getDyldStubBinderRef(macho_file)) |ref| {
         if (ref.getFile(macho_file) != null) {
             const sym = ref.getSymbol(macho_file).?;
-            sym.flags.got = true;
+            sym.flags.needs_got = true;
         }
     }
     if (self.getObjcMsgSendRef(macho_file)) |ref| {
         if (ref.getFile(macho_file) != null) {
             const sym = ref.getSymbol(macho_file).?;
             // TODO is it always needed, or only if we are synthesising fast stubs
-            sym.flags.got = true;
+            sym.flags.needs_got = true;
         }
     }
 }
@@ -569,30 +569,30 @@ pub fn writeAtoms(self: *InternalObject, macho_file: *MachO) !void {
 
     for (self.getAtoms()) |atom_index| {
         const atom = self.getAtom(atom_index) orelse continue;
-        if (!atom.alive.load(.seq_cst)) continue;
+        if (!atom.flags.alive) continue;
         const sect = atom.getInputSection(macho_file);
         if (sect.isZerofill()) continue;
         const off = atom.value;
         const buffer = macho_file.sections.items(.out)[atom.out_n_sect].items[off..][0..atom.size];
-        @memcpy(buffer, self.getSectionData(atom.n_sect));
+        @memcpy(buffer, try self.getSectionData(atom.n_sect));
         try atom.resolveRelocs(macho_file, buffer);
     }
 }
 
-pub fn writeSymtab(self: InternalObject, macho_file: *MachO) void {
+pub fn writeSymtab(self: InternalObject, macho_file: *MachO, ctx: anytype) void {
     var n_strx = self.output_symtab_ctx.stroff;
     for (self.symbols.items, 0..) |sym, i| {
         const ref = self.getSymbolRef(@intCast(i), macho_file);
         const file = ref.getFile(macho_file) orelse continue;
         if (file.getIndex() != self.index) continue;
         const idx = sym.getOutputSymtabIndex(macho_file) orelse continue;
-        const out_sym = &macho_file.symtab.items[idx];
+        const out_sym = &ctx.symtab.items[idx];
         out_sym.n_strx = n_strx;
         sym.setOutputSym(macho_file, out_sym);
         const name = sym.getName(macho_file);
-        @memcpy(macho_file.strtab.items[n_strx..][0..name.len], name);
+        @memcpy(ctx.strtab.items[n_strx..][0..name.len], name);
         n_strx += @intCast(name.len);
-        macho_file.strtab.items[n_strx] = 0;
+        ctx.strtab.items[n_strx] = 0;
         n_strx += 1;
     }
 }
@@ -640,7 +640,7 @@ pub fn asFile(self: *InternalObject) File {
 }
 
 pub fn getAtomRelocs(self: *const InternalObject, atom: Atom, macho_file: *MachO) []const Relocation {
-    const extra = atom.getExtra(macho_file).?;
+    const extra = atom.getExtra(macho_file);
     const relocs = self.sections.items(.relocs)[atom.n_sect];
     return relocs.items[extra.rel_index..][0..extra.rel_count];
 }

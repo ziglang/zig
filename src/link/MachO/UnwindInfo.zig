@@ -473,11 +473,11 @@ pub const Record = struct {
     }
 
     pub fn getAtom(rec: Record, macho_file: *MachO) *Atom {
-        return macho_file.getAtom(rec.atom).?;
+        return rec.getObject(macho_file).getAtom(rec.atom).?;
     }
 
     pub fn getLsdaAtom(rec: Record, macho_file: *MachO) ?*Atom {
-        return macho_file.getAtom(rec.lsda);
+        return rec.getObject(macho_file).getAtom(rec.lsda);
     }
 
     pub fn getPersonality(rec: Record, macho_file: *MachO) ?*Symbol {

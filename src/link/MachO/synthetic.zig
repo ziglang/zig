@@ -23,7 +23,7 @@ pub const ZigGotSection = struct {
         const index = try zig_got.allocateEntry(gpa);
         const entry = &zig_got.entries.items[index];
         entry.* = sym_index;
-        const symbol = zo.getSymbol(sym_index);
+        const symbol = &zo.symbols.items[sym_index];
         assert(symbol.flags.needs_zig_got);
         symbol.flags.has_zig_got = true;
         symbol.addExtra(.{ .zig_got = index }, macho_file);
@@ -56,7 +56,7 @@ pub const ZigGotSection = struct {
         const zo = macho_file.getZigObject().?;
         const off = zig_got.entryOffset(index, macho_file);
         const entry = zig_got.entries.items[index];
-        const value = zo.getSymbol(entry).getAddress(.{ .stubs = false }, macho_file);
+        const value = zo.symbols.items[entry].getAddress(.{ .stubs = false }, macho_file);
 
         var buf: [8]u8 = undefined;
         std.mem.writeInt(u64, &buf, value, .little);
@@ -66,7 +66,7 @@ pub const ZigGotSection = struct {
     pub fn writeAll(zig_got: ZigGotSection, macho_file: *MachO, writer: anytype) !void {
         const zo = macho_file.getZigObject().?;
         for (zig_got.entries.items) |entry| {
-            const symbol = zo.getSymbol(entry);
+            const symbol = zo.symbols.items[entry];
             const value = symbol.address(.{ .stubs = false }, macho_file);
             try writer.writeInt(u64, value, .little);
         }
@@ -94,7 +94,7 @@ pub const ZigGotSection = struct {
         const zo = macho_file.getZigObject().?;
         try writer.writeAll("__zig_got\n");
         for (zig_got.entries.items, 0..) |entry, index| {
-            const symbol = zo.getSymbol(entry);
+            const symbol = zo.symbols.items[entry];
             try writer.print("  {d}@0x{x} => {d}@0x{x} ({s})\n", .{
                 index,
                 zig_got.entryAddress(@intCast(index), macho_file),
@@ -694,7 +694,7 @@ pub const DataInCode = struct {
                     dices[next_dice].offset < end_off) : (next_dice += 1)
                 {}
 
-                if (atom.alive.load(.seq_cst)) for (dices[start_dice..next_dice]) |d| {
+                if (atom.flags.alive) for (dices[start_dice..next_dice]) |d| {
                     dice.entries.appendAssumeCapacity(.{
                         .offset = @intCast(atom.getAddress(macho_file) + d.offset - start_off - base_address),
                         .length = d.length,

@@ -213,7 +213,8 @@ pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
 /// File offset relocation happens transparently, so it is not included in
 /// this calculation.
 pub fn capacity(self: Atom, macho_file: *MachO) u64 {
-    const next_addr = if (macho_file.getAtom(self.next_index)) |next|
+    const zo = macho_file.getZigObject().?;
+    const next_addr = if (zo.getAtom(self.next_index)) |next|
         next.getAddress(macho_file)
     else
         std.math.maxInt(u32);
@@ -222,7 +223,8 @@ pub fn capacity(self: Atom, macho_file: *MachO) u64 {
 
 pub fn freeListEligible(self: Atom, macho_file: *MachO) bool {
     // No need to keep a free list node for the last block.
-    const next = macho_file.getAtom(self.next_index) orelse return false;
+    const zo = macho_file.getZigObject().?;
+    const next = zo.getAtom(self.next_index) orelse return false;
     const cap = next.getAddress(macho_file) - self.getAddress(macho_file);
     const ideal_cap = MachO.padToIdeal(self.size);
     if (cap <= ideal_cap) return false;
@@ -231,6 +233,7 @@ pub fn freeListEligible(self: Atom, macho_file: *MachO) bool {
 }
 
 pub fn allocate(self: *Atom, macho_file: *MachO) !void {
+    const zo = macho_file.getZigObject().?;
     const sect = &macho_file.sections.items(.header)[self.out_n_sect];
     const free_list = &macho_file.sections.items(.free_list)[self.out_n_sect];
     const last_atom_index = &macho_file.sections.items(.last_atom_index)[self.out_n_sect];
@@ -250,7 +253,7 @@ pub fn allocate(self: *Atom, macho_file: *MachO) !void {
         var i: usize = free_list.items.len;
         while (i < free_list.items.len) {
             const big_atom_index = free_list.items[i];
-            const big_atom = macho_file.getAtom(big_atom_index).?;
+            const big_atom = zo.getAtom(big_atom_index).?;
             // We now have a pointer to a live atom that has too much capacity.
             // Is it enough that we could fit this new atom?
             const cap = big_atom.capacity(macho_file);
@@ -282,7 +285,7 @@ pub fn allocate(self: *Atom, macho_file: *MachO) !void {
                 free_list_removal = i;
             }
             break :blk new_start_vaddr;
-        } else if (macho_file.getAtom(last_atom_index.*)) |last| {
+        } else if (zo.getAtom(last_atom_index.*)) |last| {
             const ideal_capacity = MachO.padToIdeal(last.size);
             const ideal_capacity_end_vaddr = last.value + ideal_capacity;
             const new_start_vaddr = self.alignment.forward(ideal_capacity_end_vaddr);
@@ -302,7 +305,7 @@ pub fn allocate(self: *Atom, macho_file: *MachO) !void {
     });
 
     const expand_section = if (atom_placement) |placement_index|
-        macho_file.getAtom(placement_index).?.next_index == 0
+        zo.getAtom(placement_index).?.next_index == 0
     else
         true;
     if (expand_section) {
@@ -327,15 +330,15 @@ pub fn allocate(self: *Atom, macho_file: *MachO) !void {
     // This function can also reallocate an atom.
     // In this case we need to "unplug" it from its previous location before
     // plugging it in to its new location.
-    if (macho_file.getAtom(self.prev_index)) |prev| {
+    if (zo.getAtom(self.prev_index)) |prev| {
         prev.next_index = self.next_index;
     }
-    if (macho_file.getAtom(self.next_index)) |next| {
+    if (zo.getAtom(self.next_index)) |next| {
         next.prev_index = self.prev_index;
     }
 
     if (atom_placement) |big_atom_index| {
-        const big_atom = macho_file.getAtom(big_atom_index).?;
+        const big_atom = zo.getAtom(big_atom_index).?;
         self.prev_index = big_atom_index;
         self.next_index = big_atom.next_index;
         big_atom.next_index = self.atom_index;
@@ -365,6 +368,7 @@ pub fn free(self: *Atom, macho_file: *MachO) void {
 
     const comp = macho_file.base.comp;
     const gpa = comp.gpa;
+    const zo = macho_file.getZigObject().?;
     const free_list = &macho_file.sections.items(.free_list)[self.out_n_sect];
     const last_atom_index = &macho_file.sections.items(.last_atom_index)[self.out_n_sect];
     var already_have_free_list_node = false;
@@ -383,9 +387,9 @@ pub fn free(self: *Atom, macho_file: *MachO) void {
         }
     }
 
-    if (macho_file.getAtom(last_atom_index.*)) |last_atom| {
+    if (zo.getAtom(last_atom_index.*)) |last_atom| {
         if (last_atom.atom_index == self.atom_index) {
-            if (macho_file.getAtom(self.prev_index)) |_| {
+            if (zo.getAtom(self.prev_index)) |_| {
                 // TODO shrink the section size here
                 last_atom_index.* = self.prev_index;
             } else {
@@ -394,7 +398,7 @@ pub fn free(self: *Atom, macho_file: *MachO) void {
         }
     }
 
-    if (macho_file.getAtom(self.prev_index)) |prev| {
+    if (zo.getAtom(self.prev_index)) |prev| {
         prev.next_index = self.next_index;
         if (!already_have_free_list_node and prev.*.freeListEligible(macho_file)) {
             // The free list is heuristics, it doesn't have to be perfect, so we can
@@ -405,7 +409,7 @@ pub fn free(self: *Atom, macho_file: *MachO) void {
         self.prev_index = 0;
     }
 
-    if (macho_file.getAtom(self.next_index)) |next| {
+    if (zo.getAtom(self.next_index)) |next| {
         next.prev_index = self.prev_index;
     } else {
         self.next_index = 0;
@@ -423,7 +427,7 @@ pub fn addReloc(self: *Atom, macho_file: *MachO, reloc: Relocation) !void {
     const gpa = macho_file.base.comp.gpa;
     const file = self.getFile(macho_file);
     assert(file == .zig_object);
-    var extra = self.getExtra(macho_file).?;
+    var extra = self.getExtra(macho_file);
     const rels = &file.zig_object.relocs.items[extra.rel_index];
     try rels.append(gpa, reloc);
     extra.rel_count += 1;
@@ -432,7 +436,7 @@ pub fn addReloc(self: *Atom, macho_file: *MachO, reloc: Relocation) !void {
 
 pub fn freeRelocs(self: *Atom, macho_file: *MachO) void {
     self.getFile(macho_file).zig_object.freeAtomRelocs(self.*, macho_file);
-    var extra = self.getExtra(macho_file).?;
+    var extra = self.getExtra(macho_file);
     extra.rel_count = 0;
     self.setExtra(extra, macho_file);
 }
@@ -630,7 +634,7 @@ fn resolveRelocInner(
     const TLS = @as(i64, @intCast(macho_file.getTlsAddress()));
     const SUB = if (subtractor) |sub| @as(i64, @intCast(sub.getTargetAddress(self, macho_file))) else 0;
     // Address of the __got_zig table entry if any.
-    const ZIG_GOT = @as(i64, @intCast(rel.getZigGotTargetAddress(self, macho_file)));
+    const ZIG_GOT = @as(i64, @intCast(rel.getZigGotTargetAddress(macho_file)));
 
     const divExact = struct {
         fn divExact(atom: Atom, r: Relocation, num: u12, den: u12, ctx: *MachO) !u12 {

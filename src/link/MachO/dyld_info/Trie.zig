@@ -94,33 +94,31 @@ pub fn updateSize(self: *Trie, macho_file: *MachO) !void {
     const gpa = macho_file.base.comp.gpa;
 
     try self.init(gpa);
-    // TODO
-    // try self.nodes.ensureUnusedCapacity(gpa, macho_file.resolver.values.items.len * 2);
-    // try self.edges.ensureUnusedCapacity(gpa, macho_file.resolver.values.items.len * 2);
+    try self.nodes.ensureUnusedCapacity(gpa, macho_file.resolver.values.items.len * 2);
+    try self.edges.ensureUnusedCapacity(gpa, macho_file.resolver.values.items.len * 2);
 
     const seg = macho_file.getTextSegment();
-    for (macho_file.objects.items) |index| {
-        for (macho_file.getFile(index).?.getSymbols()) |ref| {
-            const sym = macho_file.getSymbol(ref);
-            if (!sym.flags.@"export") continue;
-            if (sym.getAtom(macho_file)) |atom| if (!atom.flags.alive) continue;
-            var flags: u64 = if (sym.flags.abs)
-                macho.EXPORT_SYMBOL_FLAGS_KIND_ABSOLUTE
-            else if (sym.flags.tlv)
-                macho.EXPORT_SYMBOL_FLAGS_KIND_THREAD_LOCAL
-            else
-                macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR;
-            if (sym.flags.weak) {
-                flags |= macho.EXPORT_SYMBOL_FLAGS_WEAK_DEFINITION;
-                macho_file.weak_defines = true;
-                macho_file.binds_to_weak = true;
-            }
-            try self.put(gpa, .{
-                .name = sym.getName(macho_file),
-                .vmaddr_offset = sym.getAddress(.{ .stubs = false }, macho_file) - seg.vmaddr,
-                .export_flags = flags,
-            });
+    for (macho_file.resolver.values.items) |ref| {
+        if (ref.getFile(macho_file) == null) continue;
+        const sym = ref.getSymbol(macho_file).?;
+        if (!sym.flags.@"export") continue;
+        if (sym.getAtom(macho_file)) |atom| if (!atom.flags.alive) continue;
+        var flags: u64 = if (sym.flags.abs)
+            macho.EXPORT_SYMBOL_FLAGS_KIND_ABSOLUTE
+        else if (sym.flags.tlv)
+            macho.EXPORT_SYMBOL_FLAGS_KIND_THREAD_LOCAL
+        else
+            macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR;
+        if (sym.flags.weak) {
+            flags |= macho.EXPORT_SYMBOL_FLAGS_WEAK_DEFINITION;
+            macho_file.weak_defines = true;
+            macho_file.binds_to_weak = true;
         }
+        try self.put(gpa, .{
+            .name = sym.getName(macho_file),
+            .vmaddr_offset = sym.getAddress(.{ .stubs = false }, macho_file) - seg.vmaddr,
+            .export_flags = flags,
+        });
     }
 
     try self.finalize(gpa);

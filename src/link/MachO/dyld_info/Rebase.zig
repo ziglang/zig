@@ -34,7 +34,7 @@ pub fn updateSize(rebase: *Rebase, macho_file: *MachO) !void {
     for (objects.items) |index| {
         const file = macho_file.getFile(index).?;
         for (file.getAtoms()) |atom_index| {
-            const atom = macho_file.getAtom(atom_index) orelse continue;
+            const atom = file.getAtom(atom_index) orelse continue;
             if (!atom.flags.alive) continue;
             if (atom.getInputSection(macho_file).isZerofill()) continue;
             const atom_addr = atom.getAddress(macho_file);
@@ -43,7 +43,7 @@ pub fn updateSize(rebase: *Rebase, macho_file: *MachO) !void {
             for (atom.getRelocs(macho_file)) |rel| {
                 if (rel.type != .unsigned or rel.meta.length != 3) continue;
                 if (rel.tag == .@"extern") {
-                    const sym = rel.getTargetSymbol(macho_file);
+                    const sym = rel.getTargetSymbol(atom.*, macho_file);
                     if (sym.isTlvInit(macho_file)) continue;
                     if (sym.flags.import) continue;
                 }
@@ -72,7 +72,7 @@ pub fn updateSize(rebase: *Rebase, macho_file: *MachO) !void {
         const seg_id = macho_file.sections.items(.segment_id)[sid];
         const seg = macho_file.segments.items[seg_id];
         for (macho_file.got.symbols.items, 0..) |ref, idx| {
-            const sym = macho_file.getSymbol(ref);
+            const sym = ref.getSymbol(macho_file).?;
             const addr = macho_file.got.getAddress(@intCast(idx), macho_file);
             if (!sym.flags.import) {
                 try rebase.entries.append(gpa, .{
@@ -88,7 +88,7 @@ pub fn updateSize(rebase: *Rebase, macho_file: *MachO) !void {
         const seg_id = macho_file.sections.items(.segment_id)[sid];
         const seg = macho_file.segments.items[seg_id];
         for (macho_file.stubs.symbols.items, 0..) |ref, idx| {
-            const sym = macho_file.getSymbol(ref);
+            const sym = ref.getSymbol(macho_file).?;
             const addr = sect.addr + idx * @sizeOf(u64);
             const rebase_entry = Rebase.Entry{
                 .offset = addr - seg.vmaddr,
@@ -104,7 +104,7 @@ pub fn updateSize(rebase: *Rebase, macho_file: *MachO) !void {
         const seg_id = macho_file.sections.items(.segment_id)[sid];
         const seg = macho_file.segments.items[seg_id];
         for (macho_file.tlv_ptr.symbols.items, 0..) |ref, idx| {
-            const sym = macho_file.getSymbol(ref);
+            const sym = ref.getSymbol(macho_file).?;
             const addr = macho_file.tlv_ptr.getAddress(@intCast(idx), macho_file);
             if (!sym.flags.import) {
                 try rebase.entries.append(gpa, .{

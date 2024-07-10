@@ -6,7 +6,7 @@ strtab: std.ArrayListUnmanaged(u8) = .{},
 id: ?Id = null,
 ordinal: u16 = 0,
 
-symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
+symbols: std.ArrayListUnmanaged(Symbol) = .{},
 symbols_extra: std.ArrayListUnmanaged(u32) = .{},
 globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .{},
 dependents: std.ArrayListUnmanaged(Id) = .{},
@@ -516,7 +516,7 @@ pub fn initSymbols(self: *Dylib, macho_file: *MachO) !void {
     }
 }
 
-pub fn resolveSymbols(self: *Dylib, macho_file: *MachO) void {
+pub fn resolveSymbols(self: *Dylib, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -584,7 +584,7 @@ pub fn calcSymtabSize(self: *Dylib, macho_file: *MachO) void {
     }
 }
 
-pub fn writeSymtab(self: Dylib, macho_file: *MachO) void {
+pub fn writeSymtab(self: Dylib, macho_file: *MachO, ctx: anytype) void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -594,13 +594,13 @@ pub fn writeSymtab(self: Dylib, macho_file: *MachO) void {
         const file = ref.getFile(macho_file) orelse continue;
         if (file.getIndex() != self.index) continue;
         const idx = sym.getOutputSymtabIndex(macho_file) orelse continue;
-        const out_sym = &macho_file.symtab.items[idx];
+        const out_sym = &ctx.symtab.items[idx];
         out_sym.n_strx = n_strx;
         sym.setOutputSym(macho_file, out_sym);
         const name = sym.getName(macho_file);
-        @memcpy(macho_file.strtab.items[n_strx..][0..name.len], name);
+        @memcpy(ctx.strtab.items[n_strx..][0..name.len], name);
         n_strx += @intCast(name.len);
-        macho_file.strtab.items[n_strx] = 0;
+        ctx.strtab.items[n_strx] = 0;
         n_strx += 1;
     }
 }
@@ -718,10 +718,16 @@ fn formatSymtab(
     _ = unused_fmt_string;
     _ = options;
     const dylib = ctx.dylib;
+    const macho_file = ctx.macho_file;
     try writer.writeAll("  globals\n");
-    for (dylib.symbols.items) |index| {
-        const global = ctx.macho_file.getSymbol(index);
-        try writer.print("    {}\n", .{global.fmt(ctx.macho_file)});
+    for (dylib.symbols.items, 0..) |sym, i| {
+        const ref = dylib.getSymbolRef(@intCast(i), macho_file);
+        if (ref.getFile(macho_file) == null) {
+            // TODO any better way of handling this?
+            try writer.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
+        } else {
+            try writer.print("    {}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
+        }
     }
 }
 

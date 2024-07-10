@@ -150,7 +150,7 @@ pub fn getObjcSelrefsAddress(symbol: Symbol, macho_file: *MachO) u64 {
     const file = symbol.getFile(macho_file).?;
     return switch (file) {
         .dylib, .zig_object => unreachable,
-        .object, .internal => |x| x.symbols.items[extra.objc_selrefs].getAddress(.{}, macho_file),
+        inline else => |x| x.symbols.items[extra.objc_selrefs].getAddress(.{}, macho_file),
     };
 }
 
@@ -186,7 +186,7 @@ pub fn getOutputSymtabIndex(symbol: Symbol, macho_file: *MachO) ?u32 {
     const symtab_ctx = switch (file) {
         inline else => |x| x.output_symtab_ctx,
     };
-    var idx = symbol.getExtra(macho_file).?.symtab;
+    var idx = symbol.getExtra(macho_file).symtab;
     if (symbol.isLocal()) {
         idx += symtab_ctx.ilocal;
     } else if (symbol.flags.@"export") {

@@ -162,7 +162,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     };
                     const zo = macho_file.getZigObject().?;
                     const atom = zo.symbols.items[data.atom_index].getAtom(macho_file).?;
-                    const sym = zo.symbols.items[data.sym_index];
+                    const sym = &zo.symbols.items[data.sym_index];
                     if (sym.flags.needs_zig_got and !is_obj_or_static_lib) {
                         _ = try sym.getOrCreateZigGotEntry(data.sym_index, macho_file);
                     }

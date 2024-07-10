@@ -30,10 +30,10 @@ pub const File = union(enum) {
         }
     }
 
-    pub fn resolveSymbols(file: File, macho_file: *MachO) void {
-        switch (file) {
+    pub fn resolveSymbols(file: File, macho_file: *MachO) !void {
+        return switch (file) {
             inline else => |x| x.resolveSymbols(macho_file),
-        }
+        };
     }
 
     pub fn scanRelocs(file: File, macho_file: *MachO) !void {
@@ -147,19 +147,19 @@ pub const File = union(enum) {
             if (ref.getFile(macho_file) == null) continue;
             if (ref.file != file.getIndex()) continue;
             const sym = ref.getSymbol(macho_file).?;
-            if (sym.getSectionFlags().got) {
+            if (sym.flags.needs_got) {
                 log.debug("'{s}' needs GOT", .{sym.getName(macho_file)});
                 try macho_file.got.addSymbol(ref, macho_file);
             }
-            if (sym.getSectionFlags().stubs) {
+            if (sym.flags.stubs) {
                 log.debug("'{s}' needs STUBS", .{sym.getName(macho_file)});
                 try macho_file.stubs.addSymbol(ref, macho_file);
             }
-            if (sym.getSectionFlags().tlv_ptr) {
+            if (sym.flags.tlv_ptr) {
                 log.debug("'{s}' needs TLV pointer", .{sym.getName(macho_file)});
                 try macho_file.tlv_ptr.addSymbol(ref, macho_file);
             }
-            if (sym.getSectionFlags().objc_stubs) {
+            if (sym.flags.objc_stubs) {
                 log.debug("'{s}' needs OBJC STUBS", .{sym.getName(macho_file)});
                 try macho_file.objc_stubs.addSymbol(ref, macho_file);
             }
@@ -171,7 +171,7 @@ pub const File = union(enum) {
         defer tracy.end();
         for (file.getAtoms()) |atom_index| {
             const atom = file.getAtom(atom_index) orelse continue;
-            if (!atom.alive.load(.seq_cst)) continue;
+            if (!atom.flags.alive) continue;
             atom.out_n_sect = try Atom.initOutputSection(atom.getInputSection(macho_file), macho_file);
         }
     }
@@ -185,18 +185,18 @@ pub const File = union(enum) {
 
     pub fn writeAtoms(file: File, macho_file: *MachO) !void {
         return switch (file) {
-            .dylib => unreachable,
+            .dylib, .zig_object => unreachable,
             inline else => |x| x.writeAtoms(macho_file),
         };
     }
 
-    pub fn calcSymtabSize(file: File, macho_file: *MachO) !void {
+    pub fn calcSymtabSize(file: File, macho_file: *MachO) void {
         return switch (file) {
             inline else => |x| x.calcSymtabSize(macho_file),
         };
     }
 
-    pub fn writeSymtab(file: File, macho_file: *MachO, ctx: anytype) !void {
+    pub fn writeSymtab(file: File, macho_file: *MachO, ctx: anytype) void {
         return switch (file) {
             inline else => |x| x.writeSymtab(macho_file, ctx),
         };

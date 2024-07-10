@@ -343,6 +343,36 @@ pub fn writeAr(self: ZigObject, ar_format: Archive.Format, writer: anytype) !voi
     try writer.writeAll(self.data.items);
 }
 
+pub fn claimUnresolved(self: *ZigObject, macho_file: *MachO) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    for (self.symbols.items, 0..) |*sym, i| {
+        const nlist = self.symtab.items(.nlist)[i];
+        if (!nlist.ext()) continue;
+        if (!nlist.undf()) continue;
+
+        if (self.getSymbolRef(@intCast(i), macho_file).getFile(macho_file) != null) continue;
+
+        const is_import = switch (macho_file.undefined_treatment) {
+            .@"error" => false,
+            .warn, .suppress => nlist.weakRef(),
+            .dynamic_lookup => true,
+        };
+        if (is_import) {
+            sym.value = 0;
+            sym.atom_ref = .{ .index = 0, .file = 0 };
+            sym.flags.weak = false;
+            sym.flags.weak_ref = nlist.weakRef();
+            sym.flags.import = is_import;
+            sym.visibility = .global;
+
+            const idx = self.globals.items[i];
+            macho_file.resolver.values.items[idx - 1] = .{ .index = @intCast(i), .file = self.index };
+        }
+    }
+}
+
 pub fn scanRelocs(self: *ZigObject, macho_file: *MachO) !void {
     for (self.getAtoms()) |atom_index| {
         const atom = self.getAtom(atom_index) orelse continue;
@@ -378,7 +408,7 @@ pub fn calcSymtabSize(self: *ZigObject, macho_file: *MachO) void {
     }
 }
 
-pub fn writeSymtab(self: ZigObject, macho_file: *MachO) void {
+pub fn writeSymtab(self: ZigObject, macho_file: *MachO, ctx: anytype) void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -388,13 +418,13 @@ pub fn writeSymtab(self: ZigObject, macho_file: *MachO) void {
         const file = ref.getFile(macho_file) orelse continue;
         if (file.getIndex() != self.index) continue;
         const idx = sym.getOutputSymtabIndex(macho_file) orelse continue;
-        const out_sym = &macho_file.symtab.items[idx];
+        const out_sym = &ctx.symtab.items[idx];
         out_sym.n_strx = n_strx;
         sym.setOutputSym(macho_file, out_sym);
         const name = sym.getName(macho_file);
-        @memcpy(macho_file.strtab.items[n_strx..][0..name.len], name);
+        @memcpy(ctx.strtab.items[n_strx..][0..name.len], name);
         n_strx += @intCast(name.len);
-        macho_file.strtab.items[n_strx] = 0;
+        ctx.strtab.items[n_strx] = 0;
         n_strx += 1;
     }
 }
@@ -1098,7 +1128,7 @@ pub fn lowerUnnamedConst(
         },
     };
     const sym = self.symbols.items[sym_index];
-    try unnamed_consts.append(gpa, sym.atom);
+    try unnamed_consts.append(gpa, sym.atom_ref.index);
     return sym_index;
 }
 
