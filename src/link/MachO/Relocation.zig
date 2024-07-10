@@ -41,7 +41,7 @@ pub fn getGotTargetAddress(rel: Relocation, atom: Atom, macho_file: *MachO) u64 
 }
 
 pub fn getZigGotTargetAddress(rel: Relocation, macho_file: *MachO) u64 {
-    const zo = macho_file.getZigObject().?;
+    const zo = macho_file.getZigObject() orelse return 0;
     return switch (rel.tag) {
         .local => 0,
         .@"extern" => {

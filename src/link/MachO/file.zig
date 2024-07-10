@@ -205,6 +205,8 @@ pub const File = union(enum) {
     pub fn updateArSymtab(file: File, ar_symtab: *Archive.ArSymtab, macho_file: *MachO) error{OutOfMemory}!void {
         return switch (file) {
             .dylib, .internal => unreachable,
+            // TODO
+            .zig_object => unreachable,
             inline else => |x| x.updateArSymtab(ar_symtab, macho_file),
         };
     }
@@ -212,7 +214,9 @@ pub const File = union(enum) {
     pub fn updateArSize(file: File, macho_file: *MachO) !void {
         return switch (file) {
             .dylib, .internal => unreachable,
-            .zig_object => |x| x.updateArSize(),
+            // TODO
+            .zig_object => unreachable,
+            // .zig_object => |x| x.updateArSize(),
             .object => |x| x.updateArSize(macho_file),
         };
     }
@@ -220,7 +224,9 @@ pub const File = union(enum) {
     pub fn writeAr(file: File, ar_format: Archive.Format, macho_file: *MachO, writer: anytype) !void {
         return switch (file) {
             .dylib, .internal => unreachable,
-            .zig_object => |x| x.writeAr(ar_format, writer),
+            // TODO
+            .zig_object => unreachable,
+            // .zig_object => |x| x.writeAr(ar_format, writer),
             .object => |x| x.writeAr(ar_format, macho_file, writer),
         };
     }

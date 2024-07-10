@@ -127,55 +127,56 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
 
     if (comp.link_errors.items.len > 0) return error.FlushFailure;
 
-    // First, we flush relocatable object file generated with our backends.
-    if (macho_file.getZigObject()) |zo| {
-        zo.resolveSymbols(macho_file);
-        zo.asFile().markExportsRelocatable(macho_file);
-        zo.asFile().claimUnresolvedRelocatable(macho_file);
-        try macho_file.sortSections();
-        try macho_file.addAtomsToSections();
-        try calcSectionSizes(macho_file);
-        try createSegment(macho_file);
-        try allocateSections(macho_file);
-        allocateSegment(macho_file);
+    // TODO re-enable
+    // // First, we flush relocatable object file generated with our backends.
+    // if (macho_file.getZigObject()) |zo| {
+    //     zo.resolveSymbols(macho_file);
+    //     zo.asFile().markExportsRelocatable(macho_file);
+    //     zo.asFile().claimUnresolvedRelocatable(macho_file);
+    //     try macho_file.sortSections();
+    //     try macho_file.addAtomsToSections();
+    //     try calcSectionSizes(macho_file);
+    //     try createSegment(macho_file);
+    //     try allocateSections(macho_file);
+    //     allocateSegment(macho_file);
 
-        var off = off: {
-            const seg = macho_file.segments.items[0];
-            const off = math.cast(u32, seg.fileoff + seg.filesize) orelse return error.Overflow;
-            break :off mem.alignForward(u32, off, @alignOf(macho.relocation_info));
-        };
-        off = allocateSectionsRelocs(macho_file, off);
+    //     var off = off: {
+    //         const seg = macho_file.segments.items[0];
+    //         const off = math.cast(u32, seg.fileoff + seg.filesize) orelse return error.Overflow;
+    //         break :off mem.alignForward(u32, off, @alignOf(macho.relocation_info));
+    //     };
+    //     off = allocateSectionsRelocs(macho_file, off);
 
-        if (build_options.enable_logging) {
-            state_log.debug("{}", .{macho_file.dumpState()});
-        }
+    //     if (build_options.enable_logging) {
+    //         state_log.debug("{}", .{macho_file.dumpState()});
+    //     }
 
-        try macho_file.calcSymtabSize();
-        try writeAtoms(macho_file);
+    //     try macho_file.calcSymtabSize();
+    //     try writeAtoms(macho_file);
 
-        off = mem.alignForward(u32, off, @alignOf(u64));
-        off = try macho_file.writeDataInCode(0, off);
-        off = mem.alignForward(u32, off, @alignOf(u64));
-        off = try macho_file.writeSymtab(off);
-        off = mem.alignForward(u32, off, @alignOf(u64));
-        off = try macho_file.writeStrtab(off);
+    //     off = mem.alignForward(u32, off, @alignOf(u64));
+    //     off = try macho_file.writeDataInCode(0, off);
+    //     off = mem.alignForward(u32, off, @alignOf(u64));
+    //     off = try macho_file.writeSymtab(off);
+    //     off = mem.alignForward(u32, off, @alignOf(u64));
+    //     off = try macho_file.writeStrtab(off);
 
-        // In order to please Apple ld (and possibly other MachO linkers in the wild),
-        // we will now sanitize segment names of Zig-specific segments.
-        sanitizeZigSections(macho_file);
+    //     // In order to please Apple ld (and possibly other MachO linkers in the wild),
+    //     // we will now sanitize segment names of Zig-specific segments.
+    //     sanitizeZigSections(macho_file);
 
-        const ncmds, const sizeofcmds = try writeLoadCommands(macho_file);
-        try writeHeader(macho_file, ncmds, sizeofcmds);
+    //     const ncmds, const sizeofcmds = try writeLoadCommands(macho_file);
+    //     try writeHeader(macho_file, ncmds, sizeofcmds);
 
-        // TODO we can avoid reading in the file contents we just wrote if we give the linker
-        // ability to write directly to a buffer.
-        try zo.readFileContents(off, macho_file);
-    }
+    //     // TODO we can avoid reading in the file contents we just wrote if we give the linker
+    //     // ability to write directly to a buffer.
+    //     try zo.readFileContents(off, macho_file);
+    // }
 
     var files = std.ArrayList(File.Index).init(gpa);
     defer files.deinit();
     try files.ensureTotalCapacityPrecise(macho_file.objects.items.len + 1);
-    if (macho_file.getZigObject()) |zo| files.appendAssumeCapacity(zo.index);
+    // if (macho_file.getZigObject()) |zo| files.appendAssumeCapacity(zo.index);
     for (macho_file.objects.items) |index| files.appendAssumeCapacity(index);
 
     const format: Archive.Format = .p32;

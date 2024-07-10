@@ -77,6 +77,8 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    log.debug("parsing {}", .{self.fmtPath()});
+
     const gpa = macho_file.base.comp.gpa;
     const handle = macho_file.getFileHandle(self.file_handle);
     const cpu_arch = macho_file.getTarget().cpu.arch;
