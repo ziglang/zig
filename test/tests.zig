@@ -882,7 +882,7 @@ pub fn addCliTests(b: *std.Build) *Step {
 
         const unformatted_code_utf16 = "\xff\xfe \x00 \x00 \x00 \x00/\x00/\x00 \x00n\x00o\x00 \x00r\x00e\x00a\x00s\x00o\x00n\x00";
         const fmt6_path = std.fs.path.join(b.allocator, &.{ tmp_path, "fmt6.zig" }) catch @panic("OOM");
-        const write6 = b.addWriteFiles();
+        const write6 = b.addUpdateSourceFiles();
         write6.addBytesToSource(unformatted_code_utf16, fmt6_path);
         write6.step.dependOn(&run5.step);
 

@@ -102,6 +102,7 @@ pub const Id = enum {
     fmt,
     translate_c,
     write_file,
+    update_source_files,
     run,
     check_file,
     check_object,
@@ -122,6 +123,7 @@ pub const Id = enum {
             .fmt => Fmt,
             .translate_c => TranslateC,
             .write_file => WriteFile,
+            .update_source_files => UpdateSourceFiles,
             .run => Run,
             .check_file => CheckFile,
             .check_object => CheckObject,
@@ -148,6 +150,7 @@ pub const RemoveDir = @import("Step/RemoveDir.zig");
 pub const Run = @import("Step/Run.zig");
 pub const TranslateC = @import("Step/TranslateC.zig");
 pub const WriteFile = @import("Step/WriteFile.zig");
+pub const UpdateSourceFiles = @import("Step/UpdateSourceFiles.zig");
 
 pub const Inputs = struct {
     table: Table,
@@ -680,4 +683,5 @@ test {
     _ = Run;
     _ = TranslateC;
     _ = WriteFile;
+    _ = UpdateSourceFiles;
 }

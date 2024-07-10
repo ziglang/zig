@@ -1,13 +1,6 @@
-//! WriteFile is primarily used to create a directory in an appropriate
-//! location inside the local cache which has a set of files that have either
-//! been generated during the build, or are copied from the source package.
-//!
-//! However, this step has an additional capability of writing data to paths
-//! relative to the package root, effectively mutating the package's source
-//! files. Be careful with the latter functionality; it should not be used
-//! during the normal build process, but as a utility run by a developer with
-//! intention to update source files, which will then be committed to version
-//! control.
+//! WriteFile is used to create a directory in an appropriate location inside
+//! the local cache which has a set of files that have either been generated
+//! during the build, or are copied from the source package.
 const std = @import("std");
 const Step = std.Build.Step;
 const fs = std.fs;
@@ -19,8 +12,6 @@ step: Step,
 // The elements here are pointers because we need stable pointers for the GeneratedFile field.
 files: std.ArrayListUnmanaged(File),
 directories: std.ArrayListUnmanaged(Directory),
-
-output_source_files: std.ArrayListUnmanaged(OutputSourceFile),
 generated_directory: std.Build.GeneratedFile,
 
 pub const base_id: Step.Id = .write_file;
@@ -52,11 +43,6 @@ pub const Directory = struct {
     };
 };
 
-pub const OutputSourceFile = struct {
-    contents: Contents,
-    sub_path: []const u8,
-};
-
 pub const Contents = union(enum) {
     bytes: []const u8,
     copy: std.Build.LazyPath,
@@ -73,7 +59,6 @@ pub fn create(owner: *std.Build) *WriteFile {
         }),
         .files = .{},
         .directories = .{},
-        .output_source_files = .{},
         .generated_directory = .{ .step = &write_file.step },
     };
     return write_file;
@@ -150,33 +135,6 @@ pub fn addCopyDirectory(
     };
 }
 
-/// A path relative to the package root.
-/// Be careful with this because it updates source files. This should not be
-/// used as part of the normal build process, but as a utility occasionally
-/// run by a developer with intent to modify source files and then commit
-/// those changes to version control.
-pub fn addCopyFileToSource(write_file: *WriteFile, source: std.Build.LazyPath, sub_path: []const u8) void {
-    const b = write_file.step.owner;
-    write_file.output_source_files.append(b.allocator, .{
-        .contents = .{ .copy = source },
-        .sub_path = sub_path,
-    }) catch @panic("OOM");
-    source.addStepDependencies(&write_file.step);
-}
-
-/// A path relative to the package root.
-/// Be careful with this because it updates source files. This should not be
-/// used as part of the normal build process, but as a utility occasionally
-/// run by a developer with intent to modify source files and then commit
-/// those changes to version control.
-pub fn addBytesToSource(write_file: *WriteFile, bytes: []const u8, sub_path: []const u8) void {
-    const b = write_file.step.owner;
-    write_file.output_source_files.append(b.allocator, .{
-        .contents = .{ .bytes = bytes },
-        .sub_path = sub_path,
-    }) catch @panic("OOM");
-}
-
 /// Returns a `LazyPath` representing the base directory that contains all the
 /// files from this `WriteFile`.
 pub fn getDirectory(write_file: *WriteFile) std.Build.LazyPath {
@@ -201,46 +159,6 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
     const write_file: *WriteFile = @fieldParentPtr("step", step);
-
-    // Writing to source files is kind of an extra capability of this
-    // WriteFile - arguably it should be a different step. But anyway here
-    // it is, it happens unconditionally and does not interact with the other
-    // files here.
-    var any_miss = false;
-    for (write_file.output_source_files.items) |output_source_file| {
-        if (fs.path.dirname(output_source_file.sub_path)) |dirname| {
-            b.build_root.handle.makePath(dirname) catch |err| {
-                return step.fail("unable to make path '{}{s}': {s}", .{
-                    b.build_root, dirname, @errorName(err),
-                });
-            };
-        }
-        switch (output_source_file.contents) {
-            .bytes => |bytes| {
-                b.build_root.handle.writeFile(.{ .sub_path = output_source_file.sub_path, .data = bytes }) catch |err| {
-                    return step.fail("unable to write file '{}{s}': {s}", .{
-                        b.build_root, output_source_file.sub_path, @errorName(err),
-                    });
-                };
-                any_miss = true;
-            },
-            .copy => |file_source| {
-                const source_path = file_source.getPath2(b, step);
-                const prev_status = fs.Dir.updateFile(
-                    fs.cwd(),
-                    source_path,
-                    b.build_root.handle,
-                    output_source_file.sub_path,
-                    .{},
-                ) catch |err| {
-                    return step.fail("unable to update file from '{s}' to '{}{s}': {s}", .{
-                        source_path, b.build_root, output_source_file.sub_path, @errorName(err),
-                    });
-                };
-                any_miss = any_miss or prev_status == .stale;
-            },
-        }
-    }
 
     // The cache is used here not really as a way to speed things up - because writing
     // the data to a file would probably be very fast - but as a way to find a canonical
@@ -278,6 +196,7 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
     if (try step.cacheHit(&man)) {
         const digest = man.final();
         write_file.generated_directory.path = try b.cache_root.join(b.allocator, &.{ "o", &digest });
+        step.result_cached = true;
         return;
     }
 

@@ -595,7 +595,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     run_opt.addArg("-o");
     run_opt.addFileArg(b.path("stage1/zig1.wasm"));
 
-    const copy_zig_h = b.addWriteFiles();
+    const copy_zig_h = b.addUpdateSourceFiles();
     copy_zig_h.addCopyFileToSource(b.path("lib/zig.h"), "stage1/zig.h");
 
     const update_zig1_step = b.step("update-zig1", "Update stage1/zig1.wasm");
