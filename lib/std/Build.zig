@@ -2055,7 +2055,7 @@ pub fn dependencyFromBuildZig(
     }
 
     const full_path = b.pathFromRoot("build.zig.zon");
-    debug.panic("'{}' is not a build.zig struct of a dependecy in '{s}'", .{ build_zig, full_path });
+    debug.panic("'{}' is not a build.zig struct of a dependency in '{s}'", .{ build_zig, full_path });
 }
 
 fn userValuesAreSame(lhs: UserValue, rhs: UserValue) bool {

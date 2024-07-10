@@ -26,7 +26,7 @@ pub fn add(self: *Self, data: []const u8, pos: u16) u16 {
     return self.set(h, pos);
 }
 
-// Retruns previous location with the same hash value given the current
+// Returns previous location with the same hash value given the current
 // position.
 pub fn prev(self: *Self, pos: u16) u16 {
     return self.chain[pos];

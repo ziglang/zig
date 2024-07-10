@@ -14,25 +14,6 @@ tid_shift_31: if (single_threaded) u0 else std.math.Log2Int(u32) = if (single_th
 /// Cached shift amount to put a `tid` in the top bits of a 32-bit value.
 tid_shift_32: if (single_threaded) u0 else std.math.Log2Int(u32) = if (single_threaded) 0 else 31,
 
-/// Rather than allocating Decl objects with an Allocator, we instead allocate
-/// them with this SegmentedList. This provides four advantages:
-///  * Stable memory so that one thread can access a Decl object while another
-///    thread allocates additional Decl objects from this list.
-///  * It allows us to use u32 indexes to reference Decl objects rather than
-///    pointers, saving memory in Type, Value, and dependency sets.
-///  * Using integers to reference Decl objects rather than pointers makes
-///    serialization trivial.
-///  * It provides a unique integer to be used for anonymous symbol names, avoiding
-///    multi-threaded contention on an atomic counter.
-allocated_decls: std.SegmentedList(Module.Decl, 0) = .{},
-/// When a Decl object is freed from `allocated_decls`, it is pushed into this stack.
-decls_free_list: std.ArrayListUnmanaged(DeclIndex) = .{},
-
-/// Same pattern as with `allocated_decls`.
-allocated_namespaces: std.SegmentedList(Module.Namespace, 0) = .{},
-/// Same pattern as with `decls_free_list`.
-namespaces_free_list: std.ArrayListUnmanaged(NamespaceIndex) = .{},
-
 /// Some types such as enums, structs, and unions need to store mappings from field names
 /// to field index, or value to field index. In such cases, they will store the underlying
 /// field names and values directly, relying on one of these maps, stored separately,
@@ -354,10 +335,14 @@ const Local = struct {
     /// atomic access.
     mutate: struct {
         arena: std.heap.ArenaAllocator.State,
-        items: Mutate,
-        extra: Mutate,
-        limbs: Mutate,
-        strings: Mutate,
+
+        items: ListMutate,
+        extra: ListMutate,
+        limbs: ListMutate,
+        strings: ListMutate,
+
+        decls: BucketListMutate,
+        namespaces: BucketListMutate,
     } align(std.atomic.cache_line),
 
     const Shared = struct {
@@ -365,6 +350,9 @@ const Local = struct {
         extra: Extra,
         limbs: Limbs,
         strings: Strings,
+
+        decls: Decls,
+        namespaces: Namespaces,
 
         pub fn getLimbs(shared: *const Local.Shared) Limbs {
             return switch (@sizeOf(Limb)) {
@@ -383,11 +371,35 @@ const Local = struct {
     };
     const Strings = List(struct { u8 });
 
-    const Mutate = struct {
+    const decls_bucket_width = 8;
+    const decls_bucket_mask = (1 << decls_bucket_width) - 1;
+    const decl_next_free_field = "src_namespace";
+    const Decls = List(struct { *[1 << decls_bucket_width]Module.Decl });
+
+    const namespaces_bucket_width = 8;
+    const namespaces_bucket_mask = (1 << namespaces_bucket_width) - 1;
+    const namespace_next_free_field = "decl_index";
+    const Namespaces = List(struct { *[1 << namespaces_bucket_width]Module.Namespace });
+
+    const ListMutate = struct {
         len: u32,
 
-        const empty: Mutate = .{
+        const empty: ListMutate = .{
             .len = 0,
+        };
+    };
+
+    const BucketListMutate = struct {
+        last_bucket_len: u32,
+        buckets_list: ListMutate,
+        free_list: u32,
+
+        const free_list_sentinel = std.math.maxInt(u32);
+
+        const empty: BucketListMutate = .{
+            .last_bucket_len = 0,
+            .buckets_list = ListMutate.empty,
+            .free_list = free_list_sentinel,
         };
     };
 
@@ -400,7 +412,7 @@ const Local = struct {
             const Mutable = struct {
                 gpa: std.mem.Allocator,
                 arena: *std.heap.ArenaAllocator.State,
-                mutate: *Mutate,
+                mutate: *ListMutate,
                 list: *ListSelf,
 
                 const fields = std.enums.values(std.meta.FieldEnum(Elem));
@@ -664,6 +676,35 @@ const Local = struct {
             .list = &local.shared.strings,
         };
     }
+
+    /// Rather than allocating Decl objects with an Allocator, we instead allocate
+    /// them with this BucketList. This provides four advantages:
+    ///  * Stable memory so that one thread can access a Decl object while another
+    ///    thread allocates additional Decl objects from this list.
+    ///  * It allows us to use u32 indexes to reference Decl objects rather than
+    ///    pointers, saving memory in Type, Value, and dependency sets.
+    ///  * Using integers to reference Decl objects rather than pointers makes
+    ///    serialization trivial.
+    ///  * It provides a unique integer to be used for anonymous symbol names, avoiding
+    ///    multi-threaded contention on an atomic counter.
+    pub fn getMutableDecls(local: *Local, gpa: std.mem.Allocator) Decls.Mutable {
+        return .{
+            .gpa = gpa,
+            .arena = &local.mutate.arena,
+            .mutate = &local.mutate.decls.buckets_list,
+            .list = &local.shared.decls,
+        };
+    }
+
+    /// Same pattern as with `getMutableDecls`.
+    pub fn getMutableNamespaces(local: *Local, gpa: std.mem.Allocator) Namespaces.Mutable {
+        return .{
+            .gpa = gpa,
+            .arena = &local.mutate.arena,
+            .mutate = &local.mutate.namespaces.buckets_list,
+            .list = &local.shared.namespaces,
+        };
+    }
 };
 
 pub fn getLocal(ip: *InternPool, tid: Zcu.PerThread.Id) *Local {
@@ -810,6 +851,29 @@ pub const ComptimeAllocIndex = enum(u32) { _ };
 pub const DeclIndex = enum(u32) {
     _,
 
+    const Unwrapped = struct {
+        tid: Zcu.PerThread.Id,
+        bucket_index: u32,
+        index: u32,
+
+        fn wrap(unwrapped: Unwrapped, ip: *const InternPool) DeclIndex {
+            assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
+            assert(unwrapped.bucket_index <= ip.getIndexMask(u32) >> Local.decls_bucket_width);
+            assert(unwrapped.index <= Local.decls_bucket_mask);
+            return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_32 |
+                unwrapped.bucket_index << Local.decls_bucket_width |
+                unwrapped.index);
+        }
+    };
+    fn unwrap(decl_index: DeclIndex, ip: *const InternPool) Unwrapped {
+        const index = @intFromEnum(decl_index) & ip.getIndexMask(u32);
+        return .{
+            .tid = @enumFromInt(@intFromEnum(decl_index) >> ip.tid_shift_32 & ip.getTidMask()),
+            .bucket_index = index >> Local.decls_bucket_width,
+            .index = index & Local.decls_bucket_mask,
+        };
+    }
+
     pub fn toOptional(i: DeclIndex) OptionalDeclIndex {
         return @enumFromInt(@intFromEnum(i));
     }
@@ -831,6 +895,29 @@ pub const OptionalDeclIndex = enum(u32) {
 
 pub const NamespaceIndex = enum(u32) {
     _,
+
+    const Unwrapped = struct {
+        tid: Zcu.PerThread.Id,
+        bucket_index: u32,
+        index: u32,
+
+        fn wrap(unwrapped: Unwrapped, ip: *const InternPool) NamespaceIndex {
+            assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
+            assert(unwrapped.bucket_index <= ip.getIndexMask(u32) >> Local.namespaces_bucket_width);
+            assert(unwrapped.index <= Local.namespaces_bucket_mask);
+            return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_32 |
+                unwrapped.bucket_index << Local.namespaces_bucket_width |
+                unwrapped.index);
+        }
+    };
+    fn unwrap(namespace_index: NamespaceIndex, ip: *const InternPool) Unwrapped {
+        const index = @intFromEnum(namespace_index) & ip.getIndexMask(u32);
+        return .{
+            .tid = @enumFromInt(@intFromEnum(namespace_index) >> ip.tid_shift_32 & ip.getTidMask()),
+            .bucket_index = index >> Local.namespaces_bucket_width,
+            .index = index & Local.namespaces_bucket_mask,
+        };
+    }
 
     pub fn toOptional(i: NamespaceIndex) OptionalNamespaceIndex {
         return @enumFromInt(@intFromEnum(i));
@@ -5114,13 +5201,20 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
             .extra = Local.Extra.empty,
             .limbs = Local.Limbs.empty,
             .strings = Local.Strings.empty,
+
+            .decls = Local.Decls.empty,
+            .namespaces = Local.Namespaces.empty,
         },
         .mutate = .{
             .arena = .{},
-            .items = Local.Mutate.empty,
-            .extra = Local.Mutate.empty,
-            .limbs = Local.Mutate.empty,
-            .strings = Local.Mutate.empty,
+
+            .items = Local.ListMutate.empty,
+            .extra = Local.ListMutate.empty,
+            .limbs = Local.ListMutate.empty,
+            .strings = Local.ListMutate.empty,
+
+            .decls = Local.BucketListMutate.empty,
+            .namespaces = Local.BucketListMutate.empty,
         },
     });
 
@@ -5173,12 +5267,6 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
 }
 
 pub fn deinit(ip: *InternPool, gpa: Allocator) void {
-    ip.decls_free_list.deinit(gpa);
-    ip.allocated_decls.deinit(gpa);
-
-    ip.namespaces_free_list.deinit(gpa);
-    ip.allocated_namespaces.deinit(gpa);
-
     for (ip.maps.items) |*map| map.deinit(gpa);
     ip.maps.deinit(gpa);
 
@@ -5198,7 +5286,23 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     ip.files.deinit(gpa);
 
     gpa.free(ip.shards);
-    for (ip.locals) |*local| local.mutate.arena.promote(gpa).deinit();
+    for (ip.locals) |*local| {
+        const buckets_len = local.mutate.namespaces.buckets_list.len;
+        if (buckets_len > 0) for (
+            local.shared.namespaces.view().items(.@"0")[0..buckets_len],
+            0..,
+        ) |namespace_bucket, buckets_index| {
+            for (namespace_bucket[0..if (buckets_index < buckets_len - 1)
+                namespace_bucket.len
+            else
+                local.mutate.namespaces.last_bucket_len]) |*namespace|
+            {
+                namespace.decls.deinit(gpa);
+                namespace.usingnamespace_set.deinit(gpa);
+            }
+        };
+        local.mutate.arena.promote(gpa).deinit();
+    }
     gpa.free(ip.locals);
 
     ip.* = undefined;
@@ -7849,7 +7953,7 @@ fn finishFuncInstance(
     section: OptionalNullTerminatedString,
 ) Allocator.Error!void {
     const fn_owner_decl = ip.declPtr(ip.funcDeclOwner(generic_owner));
-    const decl_index = try ip.createDecl(gpa, .{
+    const decl_index = try ip.createDecl(gpa, tid, .{
         .name = undefined,
         .src_namespace = fn_owner_decl.src_namespace,
         .has_tv = true,
@@ -7864,7 +7968,7 @@ fn finishFuncInstance(
         .is_exported = fn_owner_decl.is_exported,
         .kind = .anon,
     });
-    errdefer ip.destroyDecl(gpa, decl_index);
+    errdefer ip.destroyDecl(tid, decl_index);
 
     // Populate the owner_decl field which was left undefined until now.
     extra.view().items(.@"0")[
@@ -9078,15 +9182,17 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
     var items_len: usize = 0;
     var extra_len: usize = 0;
     var limbs_len: usize = 0;
+    var decls_len: usize = 0;
     for (ip.locals) |*local| {
         items_len += local.mutate.items.len;
         extra_len += local.mutate.extra.len;
         limbs_len += local.mutate.limbs.len;
+        decls_len += local.mutate.decls.buckets_list.len;
     }
     const items_size = (1 + 4) * items_len;
     const extra_size = 4 * extra_len;
     const limbs_size = 8 * limbs_len;
-    const decls_size = ip.allocated_decls.len * @sizeOf(Module.Decl);
+    const decls_size = @sizeOf(Module.Decl) * decls_len;
 
     // TODO: map overhead size is not taken into account
     const total_size = @sizeOf(InternPool) + items_size + extra_size + limbs_size + decls_size;
@@ -9106,7 +9212,7 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
         extra_size,
         limbs_len,
         limbs_size,
-        ip.allocated_decls.len,
+        decls_len,
         decls_size,
     });
 
@@ -9513,64 +9619,120 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
     try bw.flush();
 }
 
-pub fn declPtr(ip: *InternPool, index: DeclIndex) *Module.Decl {
-    return ip.allocated_decls.at(@intFromEnum(index));
+pub fn declPtr(ip: *InternPool, decl_index: DeclIndex) *Module.Decl {
+    return @constCast(ip.declPtrConst(decl_index));
 }
 
-pub fn declPtrConst(ip: *const InternPool, index: DeclIndex) *const Module.Decl {
-    return ip.allocated_decls.at(@intFromEnum(index));
+pub fn declPtrConst(ip: *const InternPool, decl_index: DeclIndex) *const Module.Decl {
+    const unwrapped_decl_index = decl_index.unwrap(ip);
+    const decls = ip.getLocalShared(unwrapped_decl_index.tid).decls.acquire();
+    const decls_bucket = decls.view().items(.@"0")[unwrapped_decl_index.bucket_index];
+    return &decls_bucket[unwrapped_decl_index.index];
 }
 
-pub fn namespacePtr(ip: *InternPool, index: NamespaceIndex) *Module.Namespace {
-    return ip.allocated_namespaces.at(@intFromEnum(index));
+pub fn namespacePtr(ip: *InternPool, namespace_index: NamespaceIndex) *Module.Namespace {
+    const unwrapped_namespace_index = namespace_index.unwrap(ip);
+    const namespaces = ip.getLocalShared(unwrapped_namespace_index.tid).namespaces.acquire();
+    const namespaces_bucket = namespaces.view().items(.@"0")[unwrapped_namespace_index.bucket_index];
+    return &namespaces_bucket[unwrapped_namespace_index.index];
 }
 
 pub fn createDecl(
     ip: *InternPool,
     gpa: Allocator,
+    tid: Zcu.PerThread.Id,
     initialization: Module.Decl,
 ) Allocator.Error!DeclIndex {
-    if (ip.decls_free_list.popOrNull()) |index| {
-        ip.allocated_decls.at(@intFromEnum(index)).* = initialization;
-        return index;
+    const local = ip.getLocal(tid);
+    const free_list_next = local.mutate.decls.free_list;
+    if (free_list_next != Local.BucketListMutate.free_list_sentinel) {
+        const reused_decl_index: DeclIndex = @enumFromInt(free_list_next);
+        const reused_decl = ip.declPtr(reused_decl_index);
+        local.mutate.decls.free_list = @intFromEnum(@field(reused_decl, Local.decl_next_free_field));
+        reused_decl.* = initialization;
+        return reused_decl_index;
     }
-    const ptr = try ip.allocated_decls.addOne(gpa);
-    ptr.* = initialization;
-    return @enumFromInt(ip.allocated_decls.len - 1);
+    const decls = local.getMutableDecls(gpa);
+    if (local.mutate.decls.last_bucket_len == 0) {
+        try decls.ensureUnusedCapacity(1);
+        var arena = decls.arena.promote(decls.gpa);
+        defer decls.arena.* = arena.state;
+        decls.appendAssumeCapacity(.{try arena.allocator().create(
+            [1 << Local.decls_bucket_width]Module.Decl,
+        )});
+    }
+    const unwrapped_decl_index: DeclIndex.Unwrapped = .{
+        .tid = tid,
+        .bucket_index = decls.mutate.len - 1,
+        .index = local.mutate.decls.last_bucket_len,
+    };
+    local.mutate.decls.last_bucket_len =
+        (unwrapped_decl_index.index + 1) & Local.namespaces_bucket_mask;
+    const decl_index = unwrapped_decl_index.wrap(ip);
+    ip.declPtr(decl_index).* = initialization;
+    return decl_index;
 }
 
-pub fn destroyDecl(ip: *InternPool, gpa: Allocator, index: DeclIndex) void {
-    ip.declPtr(index).* = undefined;
-    ip.decls_free_list.append(gpa, index) catch {
-        // In order to keep `destroyDecl` a non-fallible function, we ignore memory
-        // allocation failures here, instead leaking the Decl until garbage collection.
-    };
+pub fn destroyDecl(ip: *InternPool, tid: Zcu.PerThread.Id, decl_index: DeclIndex) void {
+    const local = ip.getLocal(tid);
+    const decl = ip.declPtr(decl_index);
+    decl.* = undefined;
+    @field(decl, Local.decl_next_free_field) = @enumFromInt(local.mutate.decls.free_list);
+    local.mutate.decls.free_list = @intFromEnum(decl_index);
 }
 
 pub fn createNamespace(
     ip: *InternPool,
     gpa: Allocator,
+    tid: Zcu.PerThread.Id,
     initialization: Module.Namespace,
 ) Allocator.Error!NamespaceIndex {
-    if (ip.namespaces_free_list.popOrNull()) |index| {
-        ip.allocated_namespaces.at(@intFromEnum(index)).* = initialization;
-        return index;
+    const local = ip.getLocal(tid);
+    const free_list_next = local.mutate.namespaces.free_list;
+    if (free_list_next != Local.BucketListMutate.free_list_sentinel) {
+        const reused_namespace_index: NamespaceIndex = @enumFromInt(free_list_next);
+        const reused_namespace = ip.namespacePtr(reused_namespace_index);
+        local.mutate.namespaces.free_list =
+            @intFromEnum(@field(reused_namespace, Local.namespace_next_free_field));
+        reused_namespace.* = initialization;
+        return reused_namespace_index;
     }
-    const ptr = try ip.allocated_namespaces.addOne(gpa);
-    ptr.* = initialization;
-    return @enumFromInt(ip.allocated_namespaces.len - 1);
+    const namespaces = local.getMutableNamespaces(gpa);
+    if (local.mutate.namespaces.last_bucket_len == 0) {
+        try namespaces.ensureUnusedCapacity(1);
+        var arena = namespaces.arena.promote(namespaces.gpa);
+        defer namespaces.arena.* = arena.state;
+        namespaces.appendAssumeCapacity(.{try arena.allocator().create(
+            [1 << Local.namespaces_bucket_width]Module.Namespace,
+        )});
+    }
+    const unwrapped_namespace_index: NamespaceIndex.Unwrapped = .{
+        .tid = tid,
+        .bucket_index = namespaces.mutate.len - 1,
+        .index = local.mutate.namespaces.last_bucket_len,
+    };
+    local.mutate.namespaces.last_bucket_len =
+        (unwrapped_namespace_index.index + 1) & Local.namespaces_bucket_mask;
+    const namespace_index = unwrapped_namespace_index.wrap(ip);
+    ip.namespacePtr(namespace_index).* = initialization;
+    return namespace_index;
 }
 
-pub fn destroyNamespace(ip: *InternPool, gpa: Allocator, index: NamespaceIndex) void {
-    ip.namespacePtr(index).* = .{
+pub fn destroyNamespace(
+    ip: *InternPool,
+    tid: Zcu.PerThread.Id,
+    namespace_index: NamespaceIndex,
+) void {
+    const local = ip.getLocal(tid);
+    const namespace = ip.namespacePtr(namespace_index);
+    namespace.* = .{
         .parent = undefined,
         .file_scope = undefined,
         .decl_index = undefined,
     };
-    ip.namespaces_free_list.append(gpa, index) catch {
-        // In order to keep `destroyNamespace` a non-fallible function, we ignore memory
-        // allocation failures here, instead leaking the Namespace until garbage collection.
-    };
+    @field(namespace, Local.namespace_next_free_field) =
+        @enumFromInt(local.mutate.namespaces.free_list);
+    local.mutate.namespaces.free_list = @intFromEnum(namespace_index);
 }
 
 const EmbeddedNulls = enum {

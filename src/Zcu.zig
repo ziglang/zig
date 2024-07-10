@@ -2410,6 +2410,7 @@ pub fn init(mod: *Module, thread_count: usize) !void {
 }
 
 pub fn deinit(zcu: *Zcu) void {
+    const pt: Zcu.PerThread = .{ .tid = .main, .zcu = zcu };
     const gpa = zcu.gpa;
 
     if (zcu.llvm_object) |llvm_object| {
@@ -2422,7 +2423,7 @@ pub fn deinit(zcu: *Zcu) void {
     }
     for (0..zcu.import_table.entries.len) |file_index_usize| {
         const file_index: File.Index = @enumFromInt(file_index_usize);
-        zcu.destroyFile(file_index);
+        pt.destroyFile(file_index);
     }
     zcu.import_table.deinit(gpa);
 
@@ -2497,66 +2498,7 @@ pub fn deinit(zcu: *Zcu) void {
     zcu.all_references.deinit(gpa);
     zcu.free_references.deinit(gpa);
 
-    {
-        var it = zcu.intern_pool.allocated_namespaces.iterator(0);
-        while (it.next()) |namespace| {
-            namespace.decls.deinit(gpa);
-            namespace.usingnamespace_set.deinit(gpa);
-        }
-    }
-
     zcu.intern_pool.deinit(gpa);
-}
-
-pub fn destroyDecl(mod: *Module, decl_index: Decl.Index) void {
-    const gpa = mod.gpa;
-    const ip = &mod.intern_pool;
-
-    {
-        _ = mod.test_functions.swapRemove(decl_index);
-        if (mod.global_assembly.fetchSwapRemove(decl_index)) |kv| {
-            gpa.free(kv.value);
-        }
-    }
-
-    ip.destroyDecl(gpa, decl_index);
-
-    if (mod.emit_h) |mod_emit_h| {
-        const decl_emit_h = mod_emit_h.declPtr(decl_index);
-        decl_emit_h.fwd_decl.deinit(gpa);
-        decl_emit_h.* = undefined;
-    }
-}
-
-fn deinitFile(zcu: *Zcu, file_index: File.Index) void {
-    const gpa = zcu.gpa;
-    const file = zcu.fileByIndex(file_index);
-    const is_builtin = file.mod.isBuiltin();
-    log.debug("deinit File {s}", .{file.sub_file_path});
-    if (is_builtin) {
-        file.unloadTree(gpa);
-        file.unloadZir(gpa);
-    } else {
-        gpa.free(file.sub_file_path);
-        file.unload(gpa);
-    }
-    file.references.deinit(gpa);
-    if (zcu.fileRootDecl(file_index).unwrap()) |root_decl| {
-        zcu.destroyDecl(root_decl);
-    }
-    if (file.prev_zir) |prev_zir| {
-        prev_zir.deinit(gpa);
-        gpa.destroy(prev_zir);
-    }
-    file.* = undefined;
-}
-
-pub fn destroyFile(zcu: *Zcu, file_index: File.Index) void {
-    const gpa = zcu.gpa;
-    const file = zcu.fileByIndex(file_index);
-    const is_builtin = file.mod.isBuiltin();
-    zcu.deinitFile(file_index);
-    if (!is_builtin) gpa.destroy(file);
 }
 
 pub fn declPtr(mod: *Module, index: Decl.Index) *Decl {
@@ -3269,13 +3211,6 @@ fn computePathDigest(zcu: *Zcu, mod: *Package.Module, sub_file_path: []const u8)
     return bin;
 }
 
-/// Cancel the creation of an anon decl and delete any references to it.
-/// If other decls depend on this decl, they must be aborted first.
-pub fn abortAnonDecl(mod: *Module, decl_index: Decl.Index) void {
-    assert(!mod.declIsRoot(decl_index));
-    mod.destroyDecl(decl_index);
-}
-
 /// Delete all the Export objects that are caused by this `AnalUnit`. Re-analysis of
 /// this `AnalUnit` will cause them to be re-created (or not).
 pub fn deleteUnitExports(zcu: *Zcu, anal_unit: AnalUnit) void {
@@ -3355,42 +3290,6 @@ pub fn addUnitReference(zcu: *Zcu, src_unit: AnalUnit, referenced_unit: AnalUnit
     };
 
     gop.value_ptr.* = @intCast(ref_idx);
-}
-
-pub fn createNamespace(mod: *Module, initialization: Namespace) !Namespace.Index {
-    return mod.intern_pool.createNamespace(mod.gpa, initialization);
-}
-
-pub fn destroyNamespace(mod: *Module, index: Namespace.Index) void {
-    return mod.intern_pool.destroyNamespace(mod.gpa, index);
-}
-
-pub fn allocateNewDecl(zcu: *Zcu, namespace: Namespace.Index) !Decl.Index {
-    const gpa = zcu.gpa;
-    const decl_index = try zcu.intern_pool.createDecl(gpa, .{
-        .name = undefined,
-        .src_namespace = namespace,
-        .has_tv = false,
-        .owns_tv = false,
-        .val = undefined,
-        .alignment = undefined,
-        .@"linksection" = .none,
-        .@"addrspace" = .generic,
-        .analysis = .unreferenced,
-        .zir_decl_index = .none,
-        .is_pub = false,
-        .is_exported = false,
-        .kind = .anon,
-    });
-
-    if (zcu.emit_h) |zcu_emit_h| {
-        if (@intFromEnum(decl_index) >= zcu_emit_h.allocated_emit_h.len) {
-            try zcu_emit_h.allocated_emit_h.append(gpa, .{});
-            assert(@intFromEnum(decl_index) == zcu_emit_h.allocated_emit_h.len);
-        }
-    }
-
-    return decl_index;
 }
 
 pub fn getErrorValue(

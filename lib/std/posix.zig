@@ -493,7 +493,7 @@ pub fn fchown(fd: fd_t, owner: ?uid_t, group: ?gid_t) FChownError!void {
         switch (errno(res)) {
             .SUCCESS => return,
             .INTR => continue,
-            .BADF => unreachable, // Can be reached if the fd refers to a directory opened without `OpenDirOptions{ .iterate = true }`
+            .BADF => unreachable, // Can be reached if the fd refers to a directory opened without `Dir.OpenOptions{ .iterate = true }`
 
             .FAULT => unreachable,
             .INVAL => unreachable,
@@ -3474,7 +3474,7 @@ pub const SocketError = error{
 pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t {
     if (native_os == .windows) {
         // NOTE: windows translates the SOCK.NONBLOCK/SOCK.CLOEXEC flags into
-        // windows-analagous operations
+        // windows-analogous operations
         const filtered_sock_type = socket_type & ~@as(u32, SOCK.NONBLOCK | SOCK.CLOEXEC);
         const flags: u32 = if ((socket_type & SOCK.CLOEXEC) != 0)
             windows.ws2_32.WSA_FLAG_NO_HANDLE_INHERIT
@@ -6479,33 +6479,31 @@ pub const PollError = error{
 } || UnexpectedError;
 
 pub fn poll(fds: []pollfd, timeout: i32) PollError!usize {
+    if (native_os == .windows) {
+        switch (windows.poll(fds.ptr, @intCast(fds.len), timeout)) {
+            windows.ws2_32.SOCKET_ERROR => switch (windows.ws2_32.WSAGetLastError()) {
+                .WSANOTINITIALISED => unreachable,
+                .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                .WSAENOBUFS => return error.SystemResources,
+                // TODO: handle more errors
+                else => |err| return windows.unexpectedWSAError(err),
+            },
+            else => |rc| return @intCast(rc),
+        }
+    }
     while (true) {
         const fds_count = cast(nfds_t, fds.len) orelse return error.SystemResources;
         const rc = system.poll(fds.ptr, fds_count, timeout);
-        if (native_os == .windows) {
-            if (rc == windows.ws2_32.SOCKET_ERROR) {
-                switch (windows.ws2_32.WSAGetLastError()) {
-                    .WSANOTINITIALISED => unreachable,
-                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
-                    .WSAENOBUFS => return error.SystemResources,
-                    // TODO: handle more errors
-                    else => |err| return windows.unexpectedWSAError(err),
-                }
-            } else {
-                return @intCast(rc);
-            }
-        } else {
-            switch (errno(rc)) {
-                .SUCCESS => return @intCast(rc),
-                .FAULT => unreachable,
-                .INTR => continue,
-                .INVAL => unreachable,
-                .NOMEM => return error.SystemResources,
-                else => |err| return unexpectedErrno(err),
-            }
+        switch (errno(rc)) {
+            .SUCCESS => return @intCast(rc),
+            .FAULT => unreachable,
+            .INTR => continue,
+            .INVAL => unreachable,
+            .NOMEM => return error.SystemResources,
+            else => |err| return unexpectedErrno(err),
         }
-        unreachable;
     }
+    unreachable;
 }
 
 pub const PPollError = error{

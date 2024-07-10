@@ -5,6 +5,58 @@ tid: Id,
 
 pub const Id = if (InternPool.single_threaded) enum { main } else enum(u8) { main, _ };
 
+pub fn destroyDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) void {
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+
+    {
+        _ = zcu.test_functions.swapRemove(decl_index);
+        if (zcu.global_assembly.fetchSwapRemove(decl_index)) |kv| {
+            gpa.free(kv.value);
+        }
+    }
+
+    pt.zcu.intern_pool.destroyDecl(pt.tid, decl_index);
+
+    if (zcu.emit_h) |zcu_emit_h| {
+        const decl_emit_h = zcu_emit_h.declPtr(decl_index);
+        decl_emit_h.fwd_decl.deinit(gpa);
+        decl_emit_h.* = undefined;
+    }
+}
+
+fn deinitFile(pt: Zcu.PerThread, file_index: Zcu.File.Index) void {
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+    const file = zcu.fileByIndex(file_index);
+    const is_builtin = file.mod.isBuiltin();
+    log.debug("deinit File {s}", .{file.sub_file_path});
+    if (is_builtin) {
+        file.unloadTree(gpa);
+        file.unloadZir(gpa);
+    } else {
+        gpa.free(file.sub_file_path);
+        file.unload(gpa);
+    }
+    file.references.deinit(gpa);
+    if (zcu.fileRootDecl(file_index).unwrap()) |root_decl| {
+        pt.zcu.intern_pool.destroyDecl(pt.tid, root_decl);
+    }
+    if (file.prev_zir) |prev_zir| {
+        prev_zir.deinit(gpa);
+        gpa.destroy(prev_zir);
+    }
+    file.* = undefined;
+}
+
+pub fn destroyFile(pt: Zcu.PerThread, file_index: Zcu.File.Index) void {
+    const gpa = pt.zcu.gpa;
+    const file = pt.zcu.fileByIndex(file_index);
+    const is_builtin = file.mod.isBuiltin();
+    pt.deinitFile(file_index);
+    if (!is_builtin) gpa.destroy(file);
+}
+
 pub fn astGenFile(
     pt: Zcu.PerThread,
     file: *Zcu.File,
@@ -930,14 +982,14 @@ fn semaFile(pt: Zcu.PerThread, file_index: Zcu.File.Index) Zcu.SemaError!void {
     // Because these three things each reference each other, `undefined`
     // placeholders are used before being set after the struct type gains an
     // InternPool index.
-    const new_namespace_index = try zcu.createNamespace(.{
+    const new_namespace_index = try pt.createNamespace(.{
         .parent = .none,
         .decl_index = undefined,
         .file_scope = file_index,
     });
-    errdefer zcu.destroyNamespace(new_namespace_index);
+    errdefer pt.destroyNamespace(new_namespace_index);
 
-    const new_decl_index = try zcu.allocateNewDecl(new_namespace_index);
+    const new_decl_index = try pt.allocateNewDecl(new_namespace_index);
     const new_decl = zcu.declPtr(new_decl_index);
     errdefer @panic("TODO error handling");
 
@@ -1380,6 +1432,13 @@ pub fn embedFile(
     return pt.newEmbedFile(cur_file.mod, sub_file_path, resolved_path, gop.value_ptr, src_loc);
 }
 
+/// Cancel the creation of an anon decl and delete any references to it.
+/// If other decls depend on this decl, they must be aborted first.
+pub fn abortAnonDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) void {
+    assert(!pt.zcu.declIsRoot(decl_index));
+    pt.destroyDecl(decl_index);
+}
+
 /// Finalize the creation of an anon decl.
 pub fn finalizeAnonDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) Allocator.Error!void {
     if (pt.zcu.declPtr(decl_index).typeOf(pt.zcu).isFnOrHasRuntimeBits(pt)) {
@@ -1674,7 +1733,7 @@ const ScanDeclIter = struct {
             break :decl_index .{ was_exported, decl_index };
         } else decl_index: {
             // Create and set up a new Decl.
-            const new_decl_index = try zcu.allocateNewDecl(namespace_index);
+            const new_decl_index = try pt.allocateNewDecl(namespace_index);
             const new_decl = zcu.declPtr(new_decl_index);
             new_decl.kind = kind;
             new_decl.name = decl_name;
@@ -1981,6 +2040,43 @@ pub fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index, arena: All
     };
 }
 
+pub fn createNamespace(pt: Zcu.PerThread, initialization: Zcu.Namespace) !Zcu.Namespace.Index {
+    return pt.zcu.intern_pool.createNamespace(pt.zcu.gpa, pt.tid, initialization);
+}
+
+pub fn destroyNamespace(pt: Zcu.PerThread, namespace_index: Zcu.Namespace.Index) void {
+    return pt.zcu.intern_pool.destroyNamespace(pt.tid, namespace_index);
+}
+
+pub fn allocateNewDecl(pt: Zcu.PerThread, namespace: Zcu.Namespace.Index) !Zcu.Decl.Index {
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+    const decl_index = try zcu.intern_pool.createDecl(gpa, pt.tid, .{
+        .name = undefined,
+        .src_namespace = namespace,
+        .has_tv = false,
+        .owns_tv = false,
+        .val = undefined,
+        .alignment = undefined,
+        .@"linksection" = .none,
+        .@"addrspace" = .generic,
+        .analysis = .unreferenced,
+        .zir_decl_index = .none,
+        .is_pub = false,
+        .is_exported = false,
+        .kind = .anon,
+    });
+
+    if (zcu.emit_h) |zcu_emit_h| {
+        if (@intFromEnum(decl_index) >= zcu_emit_h.allocated_emit_h.len) {
+            try zcu_emit_h.allocated_emit_h.append(gpa, .{});
+            assert(@intFromEnum(decl_index) == zcu_emit_h.allocated_emit_h.len);
+        }
+    }
+
+    return decl_index;
+}
+
 fn lockAndClearFileCompileError(pt: Zcu.PerThread, file: *Zcu.File) void {
     switch (file.status) {
         .success_zir, .retryable_failure => {},
@@ -2098,6 +2194,25 @@ fn processExportsInner(
             gop.value_ptr.* = export_idx;
         }
     }
+
+    switch (exported) {
+        .decl_index => |idx| if (failed: {
+            const decl = zcu.declPtr(idx);
+            if (decl.analysis != .complete) break :failed true;
+            // Check if has owned function
+            if (!decl.owns_tv) break :failed false;
+            if (decl.typeOf(zcu).zigTypeTag(zcu) != .Fn) break :failed false;
+            // Check if owned function failed
+            const a = zcu.funcInfo(decl.val.toIntern()).analysis(&zcu.intern_pool);
+            break :failed a.state != .success;
+        }) {
+            // This `Decl` is failed, so was never sent to codegen.
+            // TODO: we should probably tell the backend to delete any old exports of this `Decl`?
+            return;
+        },
+        .value => {},
+    }
+
     if (zcu.comp.bin_file) |lf| {
         try zcu.handleUpdateExports(export_indices, lf.updateExports(pt, exported, export_indices));
     } else if (zcu.llvm_object) |llvm_object| {

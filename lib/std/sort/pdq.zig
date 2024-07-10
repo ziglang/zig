@@ -268,7 +268,7 @@ fn breakPatterns(a: usize, b: usize, context: anytype) void {
     }
 }
 
-/// choses a pivot in `items[a..b]`.
+/// chooses a pivot in `items[a..b]`.
 /// swaps likely_sorted when `items[a..b]` seems to be already sorted.
 fn chosePivot(a: usize, b: usize, pivot: *usize, context: anytype) Hint {
     // minimum length for using the Tukey's ninther method

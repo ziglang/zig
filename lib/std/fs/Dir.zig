@@ -740,7 +740,7 @@ pub const Walker = struct {
 
 /// Recursively iterates over a directory.
 ///
-/// `self` must have been opened with `OpenDirOptions{.iterate = true}`.
+/// `self` must have been opened with `OpenOptions{.iterate = true}`.
 ///
 /// `Walker.deinit` releases allocated memory and directory handles.
 ///
@@ -1233,7 +1233,7 @@ fn makeOpenPathAccessMaskW(self: Dir, sub_path: []const u8, access_mask: u32, no
 /// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
-pub fn makeOpenPath(self: Dir, sub_path: []const u8, open_dir_options: OpenDirOptions) (MakeError || OpenError || StatFileError)!Dir {
+pub fn makeOpenPath(self: Dir, sub_path: []const u8, open_dir_options: OpenOptions) (MakeError || OpenError || StatFileError)!Dir {
     return switch (native_os) {
         .windows => {
             const w = windows;
@@ -1393,7 +1393,10 @@ pub fn setAsCwd(self: Dir) !void {
     try posix.fchdir(self.fd);
 }
 
-pub const OpenDirOptions = struct {
+/// Deprecated: use `OpenOptions`
+pub const OpenDirOptions = OpenOptions;
+
+pub const OpenOptions = struct {
     /// `true` means the opened directory can be used as the `Dir` parameter
     /// for functions which operate based on an open directory handle. When `false`,
     /// such operations are Illegal Behavior.
@@ -1415,7 +1418,7 @@ pub const OpenDirOptions = struct {
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 /// Asserts that the path parameter has no null bytes.
-pub fn openDir(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!Dir {
+pub fn openDir(self: Dir, sub_path: []const u8, args: OpenOptions) OpenError!Dir {
     switch (native_os) {
         .windows => {
             const sub_path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
@@ -1473,7 +1476,7 @@ pub fn openDir(self: Dir, sub_path: []const u8, args: OpenDirOptions) OpenError!
 }
 
 /// Same as `openDir` except the parameter is null-terminated.
-pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenDirOptions) OpenError!Dir {
+pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenOptions) OpenError!Dir {
     switch (native_os) {
         .windows => {
             const sub_path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path_c);
@@ -1530,7 +1533,7 @@ pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenDirOptions) Open
 
 /// Same as `openDir` except the path parameter is WTF-16 LE encoded, NT-prefixed.
 /// This function asserts the target OS is Windows.
-pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16, args: OpenDirOptions) OpenError!Dir {
+pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16, args: OpenOptions) OpenError!Dir {
     const w = windows;
     // TODO remove some of these flags if args.access_sub_paths is false
     const base_flags = w.STANDARD_RIGHTS_READ | w.FILE_READ_ATTRIBUTES | w.FILE_READ_EA |
@@ -2650,7 +2653,7 @@ pub const ChmodError = File.ChmodError;
 /// The process must have the correct privileges in order to do this
 /// successfully, or must have the effective user ID matching the owner
 /// of the directory. Additionally, the directory must have been opened
-/// with `OpenDirOptions{ .iterate = true }`.
+/// with `OpenOptions{ .iterate = true }`.
 pub fn chmod(self: Dir, new_mode: File.Mode) ChmodError!void {
     const file: File = .{ .handle = self.fd };
     try file.chmod(new_mode);
@@ -2660,7 +2663,7 @@ pub fn chmod(self: Dir, new_mode: File.Mode) ChmodError!void {
 /// The process must have the correct privileges in order to do this
 /// successfully. The group may be changed by the owner of the directory to
 /// any group of which the owner is a member. Additionally, the directory
-/// must have been opened with `OpenDirOptions{ .iterate = true }`. If the
+/// must have been opened with `OpenOptions{ .iterate = true }`. If the
 /// owner or group is specified as `null`, the ID is not changed.
 pub fn chown(self: Dir, owner: ?File.Uid, group: ?File.Gid) ChownError!void {
     const file: File = .{ .handle = self.fd };

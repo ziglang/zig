@@ -3938,7 +3938,7 @@ test BufferGroup {
 
     // Server uses buffer group receive
     {
-        // Submit recv operation, buffer will be choosen from buffer group
+        // Submit recv operation, buffer will be chosen from buffer group
         _ = try buf_grp.recv(2, fds.server, 0);
         const submitted = try ring.submit();
         try testing.expectEqual(1, submitted);
@@ -3956,7 +3956,7 @@ test BufferGroup {
         // Get buffer from pool
         const buf = buf_grp.get(buffer_id)[0..len];
         try testing.expectEqualSlices(u8, &data, buf);
-        // Releaase buffer to the kernel when application is done with it
+        // Release buffer to the kernel when application is done with it
         buf_grp.put(buffer_id);
     }
 }
