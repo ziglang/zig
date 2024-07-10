@@ -13,13 +13,6 @@ tid_shift_31: if (single_threaded) u0 else std.math.Log2Int(u32) = if (single_th
 /// Cached shift amount to put a `tid` in the top bits of a 32-bit value.
 tid_shift_32: if (single_threaded) u0 else std.math.Log2Int(u32) = if (single_threaded) 0 else 31,
 
-/// Some types such as enums, structs, and unions need to store mappings from field names
-/// to field index, or value to field index. In such cases, they will store the underlying
-/// field names and values directly, relying on one of these maps, stored separately,
-/// to provide lookup.
-/// These are not serialized; it is computed upon deserialization.
-maps: std.ArrayListUnmanaged(FieldMap) = .{},
-
 /// Dependencies on the source code hash associated with a ZIR instruction.
 /// * For a `declaration`, this is the entire declaration body.
 /// * For a `struct_decl`, `union_decl`, etc, this is the source of the fields (but not declarations).
@@ -428,6 +421,7 @@ const Local = struct {
         strings: ListMutate,
         tracked_insts: MutexListMutate,
         files: ListMutate,
+        maps: ListMutate,
 
         decls: BucketListMutate,
         namespaces: BucketListMutate,
@@ -440,6 +434,7 @@ const Local = struct {
         strings: Strings,
         tracked_insts: TrackedInsts,
         files: List(File),
+        maps: Maps,
 
         decls: Decls,
         namespaces: Namespaces,
@@ -461,6 +456,7 @@ const Local = struct {
     };
     const Strings = List(struct { u8 });
     const TrackedInsts = List(struct { TrackedInst });
+    const Maps = List(struct { FieldMap });
 
     const decls_bucket_width = 8;
     const decls_bucket_mask = (1 << decls_bucket_width) - 1;
@@ -536,14 +532,17 @@ const Local = struct {
                         .is_tuple = elem_info.is_tuple,
                     } });
                 }
-                fn SliceElem(comptime opts: struct { is_const: bool = false }) type {
+                fn PtrElem(comptime opts: struct {
+                    size: std.builtin.Type.Pointer.Size,
+                    is_const: bool = false,
+                }) type {
                     const elem_info = @typeInfo(Elem).Struct;
                     const elem_fields = elem_info.fields;
                     var new_fields: [elem_fields.len]std.builtin.Type.StructField = undefined;
                     for (&new_fields, elem_fields) |*new_field, elem_field| new_field.* = .{
                         .name = elem_field.name,
                         .type = @Type(.{ .Pointer = .{
-                            .size = .Slice,
+                            .size = opts.size,
                             .is_const = opts.is_const,
                             .is_volatile = false,
                             .alignment = 0,
@@ -564,6 +563,23 @@ const Local = struct {
                     } });
                 }
 
+                pub fn addOne(mutable: Mutable) Allocator.Error!PtrElem(.{ .size = .One }) {
+                    try mutable.ensureUnusedCapacity(1);
+                    return mutable.addOneAssumeCapacity();
+                }
+
+                pub fn addOneAssumeCapacity(mutable: Mutable) PtrElem(.{ .size = .One }) {
+                    const index = mutable.mutate.len;
+                    assert(index < mutable.list.header().capacity);
+                    mutable.mutate.len = index + 1;
+                    const mutable_view = mutable.view().slice();
+                    var ptr: PtrElem(.{ .size = .One }) = undefined;
+                    inline for (fields) |field| {
+                        @field(ptr, @tagName(field)) = &mutable_view.items(field)[index];
+                    }
+                    return ptr;
+                }
+
                 pub fn append(mutable: Mutable, elem: Elem) Allocator.Error!void {
                     try mutable.ensureUnusedCapacity(1);
                     mutable.appendAssumeCapacity(elem);
@@ -577,14 +593,14 @@ const Local = struct {
 
                 pub fn appendSliceAssumeCapacity(
                     mutable: Mutable,
-                    slice: SliceElem(.{ .is_const = true }),
+                    slice: PtrElem(.{ .size = .Slice, .is_const = true }),
                 ) void {
                     if (fields.len == 0) return;
                     const start = mutable.mutate.len;
                     const slice_len = @field(slice, @tagName(fields[0])).len;
                     assert(slice_len <= mutable.list.header().capacity - start);
                     mutable.mutate.len = @intCast(start + slice_len);
-                    const mutable_view = mutable.view();
+                    const mutable_view = mutable.view().slice();
                     inline for (fields) |field| {
                         const field_slice = @field(slice, @tagName(field));
                         assert(field_slice.len == slice_len);
@@ -601,7 +617,7 @@ const Local = struct {
                     const start = mutable.mutate.len;
                     assert(len <= mutable.list.header().capacity - start);
                     mutable.mutate.len = @intCast(start + len);
-                    const mutable_view = mutable.view();
+                    const mutable_view = mutable.view().slice();
                     inline for (fields) |field| {
                         @memset(mutable_view.items(field)[start..][0..len], @field(elem, @tagName(field)));
                     }
@@ -616,7 +632,7 @@ const Local = struct {
                     const start = mutable.mutate.len;
                     assert(len <= mutable.list.header().capacity - start);
                     mutable.mutate.len = @intCast(start + len);
-                    const mutable_view = mutable.view();
+                    const mutable_view = mutable.view().slice();
                     var ptr_array: PtrArrayElem(len) = undefined;
                     inline for (fields) |field| {
                         @field(ptr_array, @tagName(field)) = mutable_view.items(field)[start..][0..len];
@@ -624,17 +640,17 @@ const Local = struct {
                     return ptr_array;
                 }
 
-                pub fn addManyAsSlice(mutable: Mutable, len: usize) Allocator.Error!SliceElem(.{}) {
+                pub fn addManyAsSlice(mutable: Mutable, len: usize) Allocator.Error!PtrElem(.{ .size = .Slice }) {
                     try mutable.ensureUnusedCapacity(len);
                     return mutable.addManyAsSliceAssumeCapacity(len);
                 }
 
-                pub fn addManyAsSliceAssumeCapacity(mutable: Mutable, len: usize) SliceElem(.{}) {
+                pub fn addManyAsSliceAssumeCapacity(mutable: Mutable, len: usize) PtrElem(.{ .size = .Slice }) {
                     const start = mutable.mutate.len;
                     assert(len <= mutable.list.header().capacity - start);
                     mutable.mutate.len = @intCast(start + len);
-                    const mutable_view = mutable.view();
-                    var slice: SliceElem(.{}) = undefined;
+                    const mutable_view = mutable.view().slice();
+                    var slice: PtrElem(.{ .size = .Slice }) = undefined;
                     inline for (fields) |field| {
                         @field(slice, @tagName(field)) = mutable_view.items(field)[start..][0..len];
                     }
@@ -807,6 +823,20 @@ const Local = struct {
         };
     }
 
+    /// Some types such as enums, structs, and unions need to store mappings from field names
+    /// to field index, or value to field index. In such cases, they will store the underlying
+    /// field names and values directly, relying on one of these maps, stored separately,
+    /// to provide lookup.
+    /// These are not serialized; it is computed upon deserialization.
+    pub fn getMutableMaps(local: *Local, gpa: Allocator) Maps.Mutable {
+        return .{
+            .gpa = gpa,
+            .arena = &local.mutate.arena,
+            .mutate = &local.mutate.maps,
+            .list = &local.shared.maps,
+        };
+    }
+
     /// Rather than allocating Decl objects with an Allocator, we instead allocate
     /// them with this BucketList. This provides four advantages:
     ///  * Stable memory so that one thread can access a Decl object while another
@@ -961,8 +991,36 @@ pub const OptionalMapIndex = enum(u32) {
 pub const MapIndex = enum(u32) {
     _,
 
+    pub fn get(map_index: MapIndex, ip: *InternPool) *FieldMap {
+        const unwrapped_map_index = map_index.unwrap(ip);
+        const maps = ip.getLocalShared(unwrapped_map_index.tid).maps.acquire();
+        return &maps.view().items(.@"0")[unwrapped_map_index.index];
+    }
+
+    pub fn getConst(map_index: MapIndex, ip: *const InternPool) FieldMap {
+        return map_index.get(@constCast(ip)).*;
+    }
+
     pub fn toOptional(i: MapIndex) OptionalMapIndex {
         return @enumFromInt(@intFromEnum(i));
+    }
+
+    const Unwrapped = struct {
+        tid: Zcu.PerThread.Id,
+        index: u32,
+
+        fn wrap(unwrapped: Unwrapped, ip: *const InternPool) MapIndex {
+            assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
+            assert(unwrapped.index <= ip.getIndexMask(u32));
+            return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_32 |
+                unwrapped.index);
+        }
+    };
+    fn unwrap(map_index: MapIndex, ip: *const InternPool) Unwrapped {
+        return .{
+            .tid = @enumFromInt(@intFromEnum(map_index) >> ip.tid_shift_32 & ip.getTidMask()),
+            .index = @intFromEnum(map_index) & ip.getIndexMask(u32),
+        };
     }
 };
 
@@ -1398,7 +1456,7 @@ pub const Key = union(enum) {
 
         /// Look up field index based on field name.
         pub fn nameIndex(self: ErrorSetType, ip: *const InternPool, name: NullTerminatedString) ?u32 {
-            const map = &ip.maps.items[@intFromEnum(self.names_map.unwrap().?)];
+            const map = self.names_map.unwrap().?.getConst(ip);
             const adapter: NullTerminatedString.Adapter = .{ .strings = self.names.get(ip) };
             const field_index = map.getIndexAdapted(name, adapter) orelse return null;
             return @intCast(field_index);
@@ -2823,7 +2881,7 @@ pub const LoadedStructType = struct {
             if (i >= self.field_types.len) return null;
             return i;
         };
-        const map = &ip.maps.items[@intFromEnum(names_map)];
+        const map = names_map.getConst(ip);
         const adapter: NullTerminatedString.Adapter = .{ .strings = self.field_names.get(ip) };
         const field_index = map.getIndexAdapted(name, adapter) orelse return null;
         return @intCast(field_index);
@@ -3350,7 +3408,7 @@ const LoadedEnumType = struct {
 
     /// Look up field index based on field name.
     pub fn nameIndex(self: LoadedEnumType, ip: *const InternPool, name: NullTerminatedString) ?u32 {
-        const map = &ip.maps.items[@intFromEnum(self.names_map)];
+        const map = self.names_map.getConst(ip);
         const adapter: NullTerminatedString.Adapter = .{ .strings = self.names.get(ip) };
         const field_index = map.getIndexAdapted(name, adapter) orelse return null;
         return @intCast(field_index);
@@ -3370,7 +3428,7 @@ const LoadedEnumType = struct {
             else => unreachable,
         };
         if (self.values_map.unwrap()) |values_map| {
-            const map = &ip.maps.items[@intFromEnum(values_map)];
+            const map = values_map.getConst(ip);
             const adapter: Index.Adapter = .{ .indexes = self.values.get(ip) };
             const field_index = map.getIndexAdapted(int_tag_val, adapter) orelse return null;
             return @intCast(field_index);
@@ -5370,6 +5428,7 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
             .strings = Local.Strings.empty,
             .tracked_insts = Local.TrackedInsts.empty,
             .files = Local.List(File).empty,
+            .maps = Local.Maps.empty,
 
             .decls = Local.Decls.empty,
             .namespaces = Local.Namespaces.empty,
@@ -5383,6 +5442,7 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
             .strings = Local.ListMutate.empty,
             .tracked_insts = Local.MutexListMutate.empty,
             .files = Local.ListMutate.empty,
+            .maps = Local.ListMutate.empty,
 
             .decls = Local.BucketListMutate.empty,
             .namespaces = Local.BucketListMutate.empty,
@@ -5440,9 +5500,6 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
 }
 
 pub fn deinit(ip: *InternPool, gpa: Allocator) void {
-    for (ip.maps.items) |*map| map.deinit(gpa);
-    ip.maps.deinit(gpa);
-
     ip.src_hash_deps.deinit(gpa);
     ip.decl_val_deps.deinit(gpa);
     ip.func_ies_deps.deinit(gpa);
@@ -5470,6 +5527,8 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
                 namespace.usingnamespace_set.deinit(gpa);
             }
         };
+        const maps = local.getMutableMaps(gpa);
+        if (maps.mutate.len > 0) for (maps.view().items(.@"0")) |*map| map.deinit(gpa);
         local.mutate.arena.promote(gpa).deinit();
     }
     gpa.free(ip.locals);
@@ -6386,8 +6445,8 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
             assert(error_set_type.names_map == .none);
             assert(std.sort.isSorted(NullTerminatedString, error_set_type.names.get(ip), {}, NullTerminatedString.indexLessThan));
             const names = error_set_type.names.get(ip);
-            const names_map = try ip.addMap(gpa, names.len);
-            addStringsToMap(ip, names_map, names);
+            const names_map = try ip.addMap(gpa, tid, names.len);
+            ip.addStringsToMap(names_map, names);
             const names_len = error_set_type.names.len;
             try extra.ensureUnusedCapacity(@typeInfo(Tag.ErrorSet).Struct.fields.len + names_len);
             items.appendAssumeCapacity(.{
@@ -7287,8 +7346,8 @@ pub fn getStructType(
     const items = local.getMutableItems(gpa);
     const extra = local.getMutableExtra(gpa);
 
-    const names_map = try ip.addMap(gpa, ini.fields_len);
-    errdefer _ = ip.maps.pop();
+    const names_map = try ip.addMap(gpa, tid, ini.fields_len);
+    errdefer local.mutate.maps.len -= 1;
 
     const zir_index = switch (ini.key) {
         inline else => |x| x.zir_index,
@@ -7835,17 +7894,18 @@ pub fn getErrorSetType(
     const extra = local.getMutableExtra(gpa);
     try extra.ensureUnusedCapacity(@typeInfo(Tag.ErrorSet).Struct.fields.len + names.len);
 
+    const names_map = try ip.addMap(gpa, tid, names.len);
+    errdefer local.mutate.maps.len -= 1;
+
     // The strategy here is to add the type unconditionally, then to ask if it
     // already exists, and if so, revert the lengths of the mutated arrays.
     // This is similar to what `getOrPutTrailingString` does.
     const prev_extra_len = extra.mutate.len;
     errdefer extra.mutate.len = prev_extra_len;
 
-    const predicted_names_map: MapIndex = @enumFromInt(ip.maps.items.len);
-
     const error_set_extra_index = addExtraAssumeCapacity(extra, Tag.ErrorSet{
         .names_len = @intCast(names.len),
-        .names_map = predicted_names_map,
+        .names_map = names_map,
     });
     extra.appendSliceAssumeCapacity(.{@ptrCast(names)});
     errdefer extra.mutate.len = prev_extra_len;
@@ -7865,11 +7925,7 @@ pub fn getErrorSetType(
     });
     errdefer items.mutate.len -= 1;
 
-    const names_map = try ip.addMap(gpa, names.len);
-    assert(names_map == predicted_names_map);
-    errdefer _ = ip.maps.pop();
-
-    addStringsToMap(ip, names_map, names);
+    ip.addStringsToMap(names_map, names);
 
     return gop.put();
 }
@@ -8235,7 +8291,7 @@ pub const WipEnumType = struct {
             return null;
         }
         assert(ip.typeOf(value) == @as(Index, @enumFromInt(extra_items[wip.tag_ty_index])));
-        const map = &ip.maps.items[@intFromEnum(wip.values_map.unwrap().?)];
+        const map = wip.values_map.unwrap().?.get(ip);
         const field_index = map.count();
         const indexes = extra_items[wip.values_start..][0..field_index];
         const adapter: Index.Adapter = .{ .indexes = @ptrCast(indexes) };
@@ -8281,8 +8337,8 @@ pub fn getEnumType(
     try items.ensureUnusedCapacity(1);
     const extra = local.getMutableExtra(gpa);
 
-    const names_map = try ip.addMap(gpa, ini.fields_len);
-    errdefer _ = ip.maps.pop();
+    const names_map = try ip.addMap(gpa, tid, ini.fields_len);
+    errdefer local.mutate.maps.len -= 1;
 
     switch (ini.tag_mode) {
         .auto => {
@@ -8335,11 +8391,11 @@ pub fn getEnumType(
         },
         .explicit, .nonexhaustive => {
             const values_map: OptionalMapIndex = if (!ini.has_values) .none else m: {
-                const values_map = try ip.addMap(gpa, ini.fields_len);
+                const values_map = try ip.addMap(gpa, tid, ini.fields_len);
                 break :m values_map.toOptional();
             };
             errdefer if (ini.has_values) {
-                _ = ip.maps.pop();
+                local.mutate.maps.len -= 1;
             };
 
             try extra.ensureUnusedCapacity(@typeInfo(EnumExplicit).Struct.fields.len +
@@ -8428,8 +8484,8 @@ pub fn getGeneratedTagEnumType(
     try items.ensureUnusedCapacity(1);
     const extra = local.getMutableExtra(gpa);
 
-    const names_map = try ip.addMap(gpa, ini.names.len);
-    errdefer _ = ip.maps.pop();
+    const names_map = try ip.addMap(gpa, tid, ini.names.len);
+    errdefer local.mutate.maps.len -= 1;
     ip.addStringsToMap(names_map, ini.names);
 
     const fields_len: u32 = @intCast(ini.names.len);
@@ -8462,8 +8518,8 @@ pub fn getGeneratedTagEnumType(
                 ini.values.len); // field values
 
             const values_map: OptionalMapIndex = if (ini.values.len != 0) m: {
-                const map = try ip.addMap(gpa, ini.values.len);
-                addIndexesToMap(ip, map, ini.values);
+                const map = try ip.addMap(gpa, tid, ini.values.len);
+                ip.addIndexesToMap(map, ini.values);
                 break :m map.toOptional();
             } else .none;
             // We don't clean up the values map on error!
@@ -8494,7 +8550,9 @@ pub fn getGeneratedTagEnumType(
     errdefer extra.mutate.len = prev_extra_len;
     errdefer switch (ini.tag_mode) {
         .auto => {},
-        .explicit, .nonexhaustive => _ = if (ini.values.len != 0) ip.maps.pop(),
+        .explicit, .nonexhaustive => if (ini.values.len != 0) {
+            local.mutate.maps.len -= 1;
+        },
     };
 
     var gop = try ip.getOrPutKey(gpa, tid, .{ .enum_type = .{
@@ -8598,7 +8656,7 @@ fn addStringsToMap(
     map_index: MapIndex,
     strings: []const NullTerminatedString,
 ) void {
-    const map = &ip.maps.items[@intFromEnum(map_index)];
+    const map = map_index.get(ip);
     const adapter: NullTerminatedString.Adapter = .{ .strings = strings };
     for (strings) |string| {
         const gop = map.getOrPutAssumeCapacityAdapted(string, adapter);
@@ -8611,7 +8669,7 @@ fn addIndexesToMap(
     map_index: MapIndex,
     indexes: []const Index,
 ) void {
-    const map = &ip.maps.items[@intFromEnum(map_index)];
+    const map = map_index.get(ip);
     const adapter: Index.Adapter = .{ .indexes = indexes };
     for (indexes) |index| {
         const gop = map.getOrPutAssumeCapacityAdapted(index, adapter);
@@ -8619,12 +8677,14 @@ fn addIndexesToMap(
     }
 }
 
-fn addMap(ip: *InternPool, gpa: Allocator, cap: usize) Allocator.Error!MapIndex {
-    const ptr = try ip.maps.addOne(gpa);
-    errdefer _ = ip.maps.pop();
-    ptr.* = .{};
-    try ptr.ensureTotalCapacity(gpa, cap);
-    return @enumFromInt(ip.maps.items.len - 1);
+fn addMap(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, cap: usize) Allocator.Error!MapIndex {
+    const maps = ip.getLocal(tid).getMutableMaps(gpa);
+    const unwrapped: MapIndex.Unwrapped = .{ .tid = tid, .index = maps.mutate.len };
+    const ptr = try maps.addOne();
+    errdefer maps.mutate.len = unwrapped.index;
+    ptr[0].* = .{};
+    try ptr[0].ensureTotalCapacity(gpa, cap);
+    return unwrapped.wrap(ip);
 }
 
 /// This operation only happens under compile error conditions.
@@ -10858,7 +10918,7 @@ pub fn addFieldName(
     name: NullTerminatedString,
 ) ?u32 {
     const extra_items = extra.view().items(.@"0");
-    const map = &ip.maps.items[@intFromEnum(names_map)];
+    const map = names_map.get(ip);
     const field_index = map.count();
     const strings = extra_items[names_start..][0..field_index];
     const adapter: NullTerminatedString.Adapter = .{ .strings = @ptrCast(strings) };
