@@ -8030,6 +8030,8 @@ fn finishFuncInstance(
     decl.name = try ip.getOrPutStringFmt(gpa, tid, "{}__anon_{d}", .{
         fn_owner_decl.name.fmt(ip), @intFromEnum(decl_index),
     }, .no_embedded_nulls);
+    decl.fqn = try ip.namespacePtr(fn_owner_decl.src_namespace)
+        .internFullyQualifiedName(ip, gpa, tid, decl.name);
 }
 
 pub const EnumTypeInit = struct {

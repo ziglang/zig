@@ -1896,7 +1896,7 @@ const ScanDeclIter = struct {
             const was_exported = decl.is_exported;
             assert(decl.kind == kind); // ZIR tracking should preserve this
             decl.name = decl_name;
-            decl.fqn = try namespace.internFullyQualifiedName(pt, decl_name);
+            decl.fqn = try namespace.internFullyQualifiedName(ip, gpa, pt.tid, decl_name);
             decl.is_pub = declaration.flags.is_pub;
             decl.is_exported = declaration.flags.is_export;
             break :decl_index .{ was_exported, decl_index };
@@ -1906,7 +1906,7 @@ const ScanDeclIter = struct {
             const new_decl = zcu.declPtr(new_decl_index);
             new_decl.kind = kind;
             new_decl.name = decl_name;
-            new_decl.fqn = try namespace.internFullyQualifiedName(pt, decl_name);
+            new_decl.fqn = try namespace.internFullyQualifiedName(ip, gpa, pt.tid, decl_name);
             new_decl.is_pub = declaration.flags.is_pub;
             new_decl.is_exported = declaration.flags.is_export;
             new_decl.zir_decl_index = tracked_inst.toOptional();
@@ -2279,8 +2279,8 @@ pub fn initNewAnonDecl(
     const new_decl = pt.zcu.declPtr(new_decl_index);
 
     new_decl.name = name;
-    new_decl.fqn = fqn.unwrap() orelse
-        try pt.zcu.namespacePtr(new_decl.src_namespace).internFullyQualifiedName(pt, name);
+    new_decl.fqn = fqn.unwrap() orelse try pt.zcu.namespacePtr(new_decl.src_namespace)
+        .internFullyQualifiedName(&pt.zcu.intern_pool, pt.zcu.gpa, pt.tid, name);
     new_decl.val = val;
     new_decl.alignment = .none;
     new_decl.@"linksection" = .none;

@@ -628,23 +628,27 @@ pub const Namespace = struct {
         return zcu.fileByIndex(ns.file_scope);
     }
 
+    pub fn fileScopeIp(ns: Namespace, ip: *InternPool) *File {
+        return ip.filePtr(ns.file_scope);
+    }
+
     // This renders e.g. "std.fs.Dir.OpenOptions"
     pub fn renderFullyQualifiedName(
         ns: Namespace,
-        zcu: *Zcu,
+        ip: *InternPool,
         name: InternPool.NullTerminatedString,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
         if (ns.parent.unwrap()) |parent| {
-            try zcu.namespacePtr(parent).renderFullyQualifiedName(
-                zcu,
-                zcu.declPtr(ns.decl_index).name,
+            try ip.namespacePtr(parent).renderFullyQualifiedName(
+                ip,
+                ip.declPtr(ns.decl_index).name,
                 writer,
             );
         } else {
-            try ns.fileScope(zcu).renderFullyQualifiedName(writer);
+            try ns.fileScopeIp(ip).renderFullyQualifiedName(writer);
         }
-        if (name != .empty) try writer.print(".{}", .{name.fmt(&zcu.intern_pool)});
+        if (name != .empty) try writer.print(".{}", .{name.fmt(ip)});
     }
 
     /// This renders e.g. "std/fs.zig:Dir.OpenOptions"
@@ -670,44 +674,43 @@ pub const Namespace = struct {
 
     pub fn internFullyQualifiedName(
         ns: Namespace,
-        pt: Zcu.PerThread,
+        ip: *InternPool,
+        gpa: Allocator,
+        tid: Zcu.PerThread.Id,
         name: InternPool.NullTerminatedString,
     ) !InternPool.NullTerminatedString {
-        const zcu = pt.zcu;
-        const ip = &zcu.intern_pool;
-
-        const gpa = zcu.gpa;
-        const strings = ip.getLocal(pt.tid).getMutableStrings(gpa);
+        const strings = ip.getLocal(tid).getMutableStrings(gpa);
         // Protects reads of interned strings from being reallocated during the call to
         // renderFullyQualifiedName.
         const slice = try strings.addManyAsSlice(count: {
             var count: usize = name.length(ip) + 1;
             var cur_ns = &ns;
             while (true) {
-                const decl = zcu.declPtr(cur_ns.decl_index);
-                cur_ns = zcu.namespacePtr(cur_ns.parent.unwrap() orelse {
-                    count += ns.fileScope(zcu).fullyQualifiedNameLen();
+                const decl = ip.declPtr(cur_ns.decl_index);
+                cur_ns = ip.namespacePtr(cur_ns.parent.unwrap() orelse {
+                    count += ns.fileScopeIp(ip).fullyQualifiedNameLen();
                     break :count count;
                 });
                 count += decl.name.length(ip) + 1;
             }
         });
         var fbs = std.io.fixedBufferStream(slice[0]);
-        ns.renderFullyQualifiedName(zcu, name, fbs.writer()) catch unreachable;
+        ns.renderFullyQualifiedName(ip, name, fbs.writer()) catch unreachable;
         assert(fbs.pos == slice[0].len);
 
         // Sanitize the name for nvptx which is more restrictive.
         // TODO This should be handled by the backend, not the frontend. Have a
         // look at how the C backend does it for inspiration.
-        const cpu_arch = zcu.root_mod.resolved_target.result.cpu.arch;
-        if (cpu_arch.isNvptx()) {
-            for (slice[0]) |*byte| switch (byte.*) {
-                '{', '}', '*', '[', ']', '(', ')', ',', ' ', '\'' => byte.* = '_',
-                else => {},
-            };
-        }
+        // FIXME This has bitrotted and is no longer able to be implemented here.
+        //const cpu_arch = zcu.root_mod.resolved_target.result.cpu.arch;
+        //if (cpu_arch.isNvptx()) {
+        //    for (slice[0]) |*byte| switch (byte.*) {
+        //        '{', '}', '*', '[', ']', '(', ')', ',', ' ', '\'' => byte.* = '_',
+        //        else => {},
+        //    };
+        //}
 
-        return ip.getOrPutTrailingString(gpa, pt.tid, @intCast(slice[0].len), .no_embedded_nulls);
+        return ip.getOrPutTrailingString(gpa, tid, @intCast(slice[0].len), .no_embedded_nulls);
     }
 
     pub fn getType(ns: Namespace, zcu: *Zcu) Type {

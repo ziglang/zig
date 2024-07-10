@@ -9737,9 +9737,6 @@ fn funcCommon(
             .generic_owner = sema.generic_owner,
             .comptime_args = sema.comptime_args,
         });
-        const func_decl = mod.declPtr(ip.indexToKey(func_index).func.owner_decl);
-        func_decl.fqn =
-            try ip.namespacePtr(func_decl.src_namespace).internFullyQualifiedName(pt, func_decl.name);
         return finishFunc(
             sema,
             block,

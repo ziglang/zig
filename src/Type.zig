@@ -337,7 +337,7 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
                 try writer.print("{}", .{decl.fqn.fmt(ip)});
             } else if (ip.loadStructType(ty.toIntern()).namespace.unwrap()) |namespace_index| {
                 const namespace = mod.namespacePtr(namespace_index);
-                try namespace.renderFullyQualifiedName(mod, .empty, writer);
+                try namespace.renderFullyQualifiedName(ip, .empty, writer);
             } else {
                 try writer.writeAll("@TypeOf(.{})");
             }
