@@ -269,10 +269,37 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
         }
     }
     for (write_file.directories.items) |dir| {
-        man.hash.addBytes(dir.source.getPath2(b, step));
+        const full_src_dir_path = dir.source.getPath2(b, step);
+        man.hash.addBytes(full_src_dir_path);
         man.hash.addBytes(dir.sub_path);
         for (dir.options.exclude_extensions) |ext| man.hash.addBytes(ext);
         if (dir.options.include_extensions) |incs| for (incs) |inc| man.hash.addBytes(inc);
+        var src_dir = b.build_root.handle.openDir(full_src_dir_path, .{ .iterate = true }) catch |err| {
+            return step.fail("unable to open source directory '{s}': {s}", .{
+                full_src_dir_path, @errorName(err),
+            });
+        };
+        defer src_dir.close();
+
+        var it = try src_dir.walk(b.allocator);
+        next_entry: while (try it.next()) |entry| {
+            for (dir.options.exclude_extensions) |ext| {
+                if (std.mem.endsWith(u8, entry.path, ext)) continue :next_entry;
+            }
+            if (dir.options.include_extensions) |incs| {
+                for (incs) |inc| {
+                    if (std.mem.endsWith(u8, entry.path, inc)) break;
+                } else {
+                    continue :next_entry;
+                }
+            }
+            const full_src_entry_path = b.pathJoin(&.{ full_src_dir_path, entry.path });
+            switch (entry.kind) {
+                .directory => man.hash.addBytes(full_src_entry_path),
+                .file => _ = try man.addFile(full_src_entry_path, null),
+                else => continue,
+            }
+        }
     }
 
     if (try step.cacheHit(&man)) {
