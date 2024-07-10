@@ -3488,9 +3488,9 @@ test reverse {
             b: u24,
             c,
         };
-        var arr = [_]MyType{ .{ .a = .{0, 0, 0} }, .{ .b = 0 }, .c };
+        var arr = [_]MyType{ .{ .a = .{ 0, 0, 0 } }, .{ .b = 0 }, .c };
         reverse(MyType, arr[0..]);
-        try testing.expectEqualSlices(MyType, &arr, &([_]MyType{ .c, .{ .b = 0 }, .{ .a = .{0, 0, 0} } }));
+        try testing.expectEqualSlices(MyType, &arr, &([_]MyType{ .c, .{ .b = 0 }, .{ .a = .{ 0, 0, 0 } } }));
     }
 }
 
