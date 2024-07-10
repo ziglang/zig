@@ -2327,36 +2327,52 @@ pub const LazyPath = union(enum) {
         }
     }
 
-    /// Returns an absolute path.
-    /// Intended to be used during the make phase only.
+    /// Deprecated, see `getPath3`.
     pub fn getPath(lazy_path: LazyPath, src_builder: *Build) []const u8 {
         return getPath2(lazy_path, src_builder, null);
     }
 
-    /// Returns an absolute path.
+    /// Deprecated, see `getPath3`.
+    pub fn getPath2(lazy_path: LazyPath, src_builder: *Build, asking_step: ?*Step) []const u8 {
+        const p = getPath3(lazy_path, src_builder, asking_step);
+        return src_builder.pathResolve(&.{ p.root_dir.path orelse ".", p.sub_path });
+    }
+
     /// Intended to be used during the make phase only.
     ///
     /// `asking_step` is only used for debugging purposes; it's the step being
     /// run that is asking for the path.
-    pub fn getPath2(lazy_path: LazyPath, src_builder: *Build, asking_step: ?*Step) []const u8 {
+    pub fn getPath3(lazy_path: LazyPath, src_builder: *Build, asking_step: ?*Step) Cache.Path {
         switch (lazy_path) {
-            .src_path => |sp| return sp.owner.pathFromRoot(sp.sub_path),
-            .cwd_relative => |p| return src_builder.pathFromCwd(p),
+            .src_path => |sp| return .{
+                .root_dir = sp.owner.build_root,
+                .sub_path = sp.sub_path,
+            },
+            .cwd_relative => |sub_path| return .{
+                .root_dir = Cache.Directory.cwd(),
+                .sub_path = sub_path,
+            },
             .generated => |gen| {
-                var file_path: []const u8 = gen.file.step.owner.pathFromRoot(gen.file.path orelse {
-                    std.debug.lockStdErr();
-                    const stderr = std.io.getStdErr();
-                    dumpBadGetPathHelp(gen.file.step, stderr, src_builder, asking_step) catch {};
-                    std.debug.unlockStdErr();
-                    @panic("misconfigured build script");
-                });
+                // TODO make gen.file.path not be absolute and use that as the
+                // basis for not traversing up too many directories.
+
+                var file_path: Cache.Path = .{
+                    .root_dir = gen.file.step.owner.build_root,
+                    .sub_path = gen.file.path orelse {
+                        std.debug.lockStdErr();
+                        const stderr = std.io.getStdErr();
+                        dumpBadGetPathHelp(gen.file.step, stderr, src_builder, asking_step) catch {};
+                        std.debug.unlockStdErr();
+                        @panic("misconfigured build script");
+                    },
+                };
 
                 if (gen.up > 0) {
                     const cache_root_path = src_builder.cache_root.path orelse
                         (src_builder.cache_root.join(src_builder.allocator, &.{"."}) catch @panic("OOM"));
 
                     for (0..gen.up) |_| {
-                        if (mem.eql(u8, file_path, cache_root_path)) {
+                        if (mem.eql(u8, file_path.sub_path, cache_root_path)) {
                             // If we hit the cache root and there's still more to go,
                             // the script attempted to go too far.
                             dumpBadDirnameHelp(gen.file.step, asking_step,
@@ -2370,7 +2386,7 @@ pub const LazyPath = union(enum) {
                         // path is absolute.
                         // dirname will return null only if we're at root.
                         // Typically, we'll stop well before that at the cache root.
-                        file_path = fs.path.dirname(file_path) orelse {
+                        file_path.sub_path = fs.path.dirname(file_path.sub_path) orelse {
                             dumpBadDirnameHelp(gen.file.step, asking_step,
                                 \\dirname() reached root.
                                 \\No more directories left to go up.
@@ -2381,9 +2397,12 @@ pub const LazyPath = union(enum) {
                     }
                 }
 
-                return src_builder.pathResolve(&.{ file_path, gen.sub_path });
+                return file_path.join(src_builder.allocator, gen.sub_path) catch @panic("OOM");
             },
-            .dependency => |dep| return dep.dependency.builder.pathFromRoot(dep.sub_path),
+            .dependency => |dep| return .{
+                .root_dir = dep.dependency.builder.build_root,
+                .sub_path = dep.sub_path,
+            },
         }
     }
 
