@@ -58,6 +58,20 @@ pub fn openFile(
     return p.root_dir.handle.openFile(joined_path, flags);
 }
 
+pub fn openDir(
+    p: Path,
+    sub_path: []const u8,
+    args: fs.Dir.OpenOptions,
+) fs.Dir.OpenError!fs.Dir {
+    var buf: [fs.max_path_bytes]u8 = undefined;
+    const joined_path = if (p.sub_path.len == 0) sub_path else p: {
+        break :p std.fmt.bufPrint(&buf, "{s}" ++ fs.path.sep_str ++ "{s}", .{
+            p.sub_path, sub_path,
+        }) catch return error.NameTooLong;
+    };
+    return p.root_dir.handle.openDir(joined_path, args);
+}
+
 pub fn makeOpenPath(p: Path, sub_path: []const u8, opts: fs.Dir.OpenOptions) !fs.Dir {
     var buf: [fs.max_path_bytes]u8 = undefined;
     const joined_path = if (p.sub_path.len == 0) sub_path else p: {
@@ -137,6 +151,10 @@ pub fn format(
     }
     if (fmt_string.len > 0)
         std.fmt.invalidFmtError(fmt_string, self);
+    if (std.fs.path.isAbsolute(self.sub_path)) {
+        try writer.writeAll(self.sub_path);
+        return;
+    }
     if (self.root_dir.path) |p| {
         try writer.writeAll(p);
         try writer.writeAll(fs.path.sep_str);
