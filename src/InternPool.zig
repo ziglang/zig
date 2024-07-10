@@ -416,7 +416,7 @@ const Local = struct {
         arena: std.heap.ArenaAllocator.State,
 
         items: ListMutate,
-        extra: ListMutate,
+        extra: MutexListMutate,
         limbs: ListMutate,
         strings: ListMutate,
         tracked_insts: MutexListMutate,
@@ -758,7 +758,7 @@ const Local = struct {
         return .{
             .gpa = gpa,
             .arena = &local.mutate.arena,
-            .mutate = &local.mutate.extra,
+            .mutate = &local.mutate.extra.list,
             .list = &local.shared.extra,
         };
     }
@@ -2999,6 +2999,9 @@ pub const LoadedStructType = struct {
     }
 
     pub fn setInitsWip(s: LoadedStructType, ip: *InternPool) bool {
+        const local = ip.getLocal(s.tid);
+        local.mutate.extra.mutex.lock();
+        defer local.mutate.extra.mutex.unlock();
         return switch (s.layout) {
             .@"packed" => @as(Tag.TypeStructPacked.Flags, @bitCast(@atomicRmw(
                 u32,
@@ -5437,7 +5440,7 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
             .arena = .{},
 
             .items = Local.ListMutate.empty,
-            .extra = Local.ListMutate.empty,
+            .extra = Local.MutexListMutate.empty,
             .limbs = Local.ListMutate.empty,
             .strings = Local.ListMutate.empty,
             .tracked_insts = Local.MutexListMutate.empty,
@@ -9410,10 +9413,13 @@ pub fn errorUnionPayload(ip: *const InternPool, ty: Index) Index {
 /// The is only legal because the initializer is not part of the hash.
 pub fn mutateVarInit(ip: *InternPool, index: Index, init_index: Index) void {
     const unwrapped_index = index.unwrap(ip);
-    const extra_list = unwrapped_index.getExtra(ip);
+    const local = ip.getLocal(unwrapped_index.tid);
+    local.mutate.extra.mutex.lock();
+    defer local.mutate.extra.mutex.unlock();
+    const extra_items = local.shared.extra.view().items(.@"0");
     const item = unwrapped_index.getItem(ip);
     assert(item.tag == .variable);
-    @atomicStore(u32, &extra_list.view().items(.@"0")[item.data + std.meta.fieldIndex(Tag.Variable, "init").?], @intFromEnum(init_index), .release);
+    @atomicStore(u32, &extra_items[item.data + std.meta.fieldIndex(Tag.Variable, "init").?], @intFromEnum(init_index), .release);
 }
 
 pub fn dump(ip: *const InternPool) void {
@@ -9428,7 +9434,7 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
     var decls_len: usize = 0;
     for (ip.locals) |*local| {
         items_len += local.mutate.items.len;
-        extra_len += local.mutate.extra.len;
+        extra_len += local.mutate.extra.list.len;
         limbs_len += local.mutate.limbs.len;
         decls_len += local.mutate.decls.buckets_list.len;
     }
