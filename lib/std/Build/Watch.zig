@@ -104,22 +104,6 @@ pub const LinuxFileHandle = struct {
     };
 };
 
-pub fn getFileHandle(gpa: Allocator, path: std.Build.Cache.Path, basename: []const u8) !LinuxFileHandle {
-    var file_handle_buffer: [@sizeOf(std.os.linux.file_handle) + 128]u8 align(@alignOf(std.os.linux.file_handle)) = undefined;
-    var mount_id: i32 = undefined;
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const joined_path = if (path.sub_path.len == 0) basename else path: {
-        break :path std.fmt.bufPrint(&buf, "{s}/{s}", .{
-            path.sub_path, basename,
-        }) catch return error.NameTooLong;
-    };
-    const stack_ptr: *std.os.linux.file_handle = @ptrCast(&file_handle_buffer);
-    stack_ptr.handle_bytes = file_handle_buffer.len - @sizeOf(std.os.linux.file_handle);
-    try std.posix.name_to_handle_at(path.root_dir.handle.fd, joined_path, stack_ptr, &mount_id, 0);
-    const stack_lfh: LinuxFileHandle = .{ .handle = stack_ptr };
-    return stack_lfh.clone(gpa);
-}
-
 pub fn getDirHandle(gpa: Allocator, path: std.Build.Cache.Path) !LinuxFileHandle {
     var file_handle_buffer: [@sizeOf(std.os.linux.file_handle) + 128]u8 align(@alignOf(std.os.linux.file_handle)) = undefined;
     var mount_id: i32 = undefined;

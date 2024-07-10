@@ -107,6 +107,7 @@ pub fn main() !void {
     var steps_menu = false;
     var output_tmp_nonce: ?[16]u8 = null;
     var watch = false;
+    var debounce_interval_ms: u16 = 50;
 
     while (nextArg(args, &arg_idx)) |arg| {
         if (mem.startsWith(u8, arg, "-Z")) {
@@ -194,7 +195,15 @@ pub fn main() !void {
                 const next_arg = nextArg(args, &arg_idx) orelse
                     fatalWithHint("expected u32 after '{s}'", .{arg});
                 seed = std.fmt.parseUnsigned(u32, next_arg, 0) catch |err| {
-                    fatal("unable to parse seed '{s}' as 32-bit integer: {s}\n", .{
+                    fatal("unable to parse seed '{s}' as unsigned 32-bit integer: {s}\n", .{
+                        next_arg, @errorName(err),
+                    });
+                };
+            } else if (mem.eql(u8, arg, "--debounce")) {
+                const next_arg = nextArg(args, &arg_idx) orelse
+                    fatalWithHint("expected u16 after '{s}'", .{arg});
+                debounce_interval_ms = std.fmt.parseUnsigned(u16, next_arg, 0) catch |err| {
+                    fatal("unable to parse debounce interval '{s}' as unsigned 16-bit integer: {s}\n", .{
                         next_arg, @errorName(err),
                     });
                 };
@@ -473,7 +482,6 @@ pub fn main() !void {
         // if any more events come in. After the debounce interval has passed,
         // trigger a rebuild on all steps with modified inputs, as well as their
         // recursive dependants.
-        const debounce_interval_ms = 50;
         var poll_fds: [1]std.posix.pollfd = .{
             .{
                 .fd = w.fan_fd,
@@ -515,67 +523,29 @@ fn markDirtySteps(w: *Watch) !bool {
             error.WouldBlock => return any_dirty,
             else => |e| return e,
         };
-        //std.debug.dump_hex(events_buf[0..len]);
         var meta: [*]align(1) M = @ptrCast(&events_buf);
         while (len >= @sizeOf(M) and meta[0].event_len >= @sizeOf(M) and meta[0].event_len <= len) : ({
             len -= meta[0].event_len;
             meta = @ptrCast(@as([*]u8, @ptrCast(meta)) + meta[0].event_len);
         }) {
             assert(meta[0].vers == M.VERSION);
-            std.debug.print("meta = {any}\n", .{meta[0]});
             const fid: *align(1) fanotify.event_info_fid = @ptrCast(meta + 1);
             switch (fid.hdr.info_type) {
                 .DFID_NAME => {
                     const file_handle: *align(1) std.os.linux.file_handle = @ptrCast(&fid.handle);
                     const file_name_z: [*:0]u8 = @ptrCast((&file_handle.f_handle).ptr + file_handle.handle_bytes);
                     const file_name = mem.span(file_name_z);
-                    std.debug.print("DFID_NAME file_handle = {any}, found: '{s}'\n", .{ file_handle.*, file_name });
                     const lfh: Watch.LinuxFileHandle = .{ .handle = file_handle };
                     if (w.handle_table.getPtr(lfh)) |reaction_set| {
                         if (reaction_set.getPtr(file_name)) |step_set| {
                             for (step_set.keys()) |step| {
-                                std.debug.print("DFID_NAME marking step '{s}' dirty\n", .{step.name});
                                 step.state = .precheck_done;
                                 any_dirty = true;
                             }
                         }
-                    } else {
-                        std.debug.print("DFID_NAME changed file did not match any directories: '{}'\n", .{
-                            std.fmt.fmtSliceHexLower(lfh.slice()),
-                        });
                     }
                 },
-                //.FID => {
-                //    const file_handle: *align(1) std.os.linux.file_handle = @ptrCast(&fid.handle);
-                //    const lfh: Watch.LinuxFileHandle = .{ .handle = file_handle };
-                //    if (w.handle_table.get(lfh)) |step_set| {
-                //        for (step_set.keys()) |step| {
-                //            std.debug.print("FID marking step '{s}' dirty\n", .{step.name});
-                //            step.state = .precheck_done;
-                //            any_dirty = true;
-                //        }
-                //    } else {
-                //        std.debug.print("FID changed file did not match any steps: '{}'\n", .{
-                //            std.fmt.fmtSliceHexLower(lfh.slice()),
-                //        });
-                //    }
-                //},
-                //.DFID => {
-                //    const file_handle: *align(1) std.os.linux.file_handle = @ptrCast(&fid.handle);
-                //    const lfh: Watch.LinuxFileHandle = .{ .handle = file_handle };
-                //    if (w.handle_table.get(lfh)) |step_set| {
-                //        for (step_set.keys()) |step| {
-                //            std.debug.print("DFID marking step '{s}' dirty\n", .{step.name});
-                //            step.state = .precheck_done;
-                //            any_dirty = true;
-                //        }
-                //    } else {
-                //        std.debug.print("DFID changed file did not match any steps\n", .{});
-                //    }
-                //},
-                else => |t| {
-                    std.debug.panic("TODO: received event type '{s}'", .{@tagName(t)});
-                },
+                else => |t| std.log.warn("unexpected fanotify event '{s}'", .{@tagName(t)}),
             }
         }
     }
@@ -1349,6 +1319,7 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  --skip-oom-steps             Instead of failing, skip steps that would exceed --maxrss
         \\  --fetch                      Exit after fetching dependency tree
         \\  --watch                      Continuously rebuild when source files are modified
+        \\  --debounce <ms>              Delay before rebuilding after watched file detection
         \\
         \\Project-Specific Options:
         \\
