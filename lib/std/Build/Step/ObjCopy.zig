@@ -98,10 +98,6 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
     var man = b.graph.cache.obtain();
     defer man.deinit();
 
-    // Random bytes to make ObjCopy unique. Refresh this with new random
-    // bytes when ObjCopy implementation is modified incompatibly.
-    man.hash.add(@as(u32, 0xe18b7baf));
-
     const full_src_path = objcopy.input_file.getPath2(b, step);
     _ = try man.addFile(full_src_path, null);
     man.hash.addOptionalBytes(objcopy.only_section);
