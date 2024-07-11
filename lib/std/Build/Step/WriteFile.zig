@@ -189,11 +189,6 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
     var man = b.graph.cache.obtain();
     defer man.deinit();
 
-    // Random bytes to make WriteFile unique. Refresh this with
-    // new random bytes when WriteFile implementation is modified
-    // in a non-backwards-compatible way.
-    man.hash.add(@as(u32, 0xc2a287d0));
-
     for (write_file.files.items) |file| {
         man.hash.addBytes(file.sub_path);
 
