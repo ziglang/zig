@@ -157,12 +157,17 @@ pub fn format(
     }
     if (self.root_dir.path) |p| {
         try writer.writeAll(p);
-        try writer.writeAll(fs.path.sep_str);
+        if (self.sub_path.len > 0) {
+            try writer.writeAll(fs.path.sep_str);
+            try writer.writeAll(self.sub_path);
+        }
+        return;
     }
     if (self.sub_path.len > 0) {
         try writer.writeAll(self.sub_path);
-        try writer.writeAll(fs.path.sep_str);
+        return;
     }
+    try writer.writeByte('.');
 }
 
 pub fn eql(self: Path, other: Path) bool {
