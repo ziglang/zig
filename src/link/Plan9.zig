@@ -483,11 +483,9 @@ pub fn lowerUnnamedConst(self: *Plan9, pt: Zcu.PerThread, val: Value, decl_index
     }
     const unnamed_consts = gop.value_ptr;
 
-    const decl_name = try decl.fullyQualifiedName(pt);
-
     const index = unnamed_consts.items.len;
     // name is freed when the unnamed const is freed
-    const name = try std.fmt.allocPrint(gpa, "__unnamed_{}_{d}", .{ decl_name.fmt(&mod.intern_pool), index });
+    const name = try std.fmt.allocPrint(gpa, "__unnamed_{}_{d}", .{ decl.fqn.fmt(&mod.intern_pool), index });
 
     const sym_index = try self.allocateSymbolIndex();
     const new_atom_idx = try self.createAtom();

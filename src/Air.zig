@@ -1034,7 +1034,12 @@ pub const Inst = struct {
         ty: Type,
         arg: struct {
             ty: Ref,
-            src_index: u32,
+            /// Index into `extra` of a null-terminated string representing the parameter name.
+            /// This is `.none` if debug info is stripped.
+            name: enum(u32) {
+                none = std.math.maxInt(u32),
+                _,
+            },
         },
         ty_op: struct {
             ty: Ref,

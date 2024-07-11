@@ -2585,11 +2585,13 @@ fn airArg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     switch (func.debug_output) {
         .dwarf => |dwarf| {
-            const src_index = func.air.instructions.items(.data)[@intFromEnum(inst)].arg.src_index;
-            const name = mod.getParamName(func.func_index, src_index);
-            try dwarf.genArgDbgInfo(name, arg_ty, mod.funcOwnerDeclIndex(func.func_index), .{
-                .wasm_local = arg.local.value,
-            });
+            const name_nts = func.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
+            if (name_nts != .none) {
+                const name = func.air.nullTerminatedString(@intFromEnum(name_nts));
+                try dwarf.genArgDbgInfo(name, arg_ty, mod.funcOwnerDeclIndex(func.func_index), .{
+                    .wasm_local = arg.local.value,
+                });
+            }
         },
         else => {},
     }
@@ -3302,7 +3304,7 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
             }
         },
         .err => |err| {
-            const int = try mod.getErrorValue(err.name);
+            const int = try pt.getErrorValue(err.name);
             return WValue{ .imm32 = int };
         },
         .error_union => |error_union| {
@@ -3450,30 +3452,25 @@ fn emitUndefined(func: *CodeGen, ty: Type) InnerError!WValue {
 /// Returns a `Value` as a signed 32 bit value.
 /// It's illegal to provide a value with a type that cannot be represented
 /// as an integer value.
-fn valueAsI32(func: *const CodeGen, val: Value, ty: Type) i32 {
+fn valueAsI32(func: *const CodeGen, val: Value) i32 {
     const pt = func.pt;
     const mod = pt.zcu;
+    const ip = &mod.intern_pool;
 
-    switch (val.ip_index) {
-        .none => {},
+    switch (val.toIntern()) {
         .bool_true => return 1,
         .bool_false => return 0,
-        else => return switch (mod.intern_pool.indexToKey(val.ip_index)) {
-            .enum_tag => |enum_tag| intIndexAsI32(&mod.intern_pool, enum_tag.int, pt),
+        else => return switch (ip.indexToKey(val.ip_index)) {
+            .enum_tag => |enum_tag| intIndexAsI32(ip, enum_tag.int, pt),
             .int => |int| intStorageAsI32(int.storage, pt),
             .ptr => |ptr| {
                 assert(ptr.base_addr == .int);
                 return @intCast(ptr.byte_offset);
             },
-            .err => |err| @as(i32, @bitCast(@as(Zcu.ErrorInt, @intCast(mod.global_error_set.getIndex(err.name).?)))),
+            .err => |err| @bitCast(ip.getErrorValueIfExists(err.name).?),
             else => unreachable,
         },
     }
-
-    return switch (ty.zigTypeTag(mod)) {
-        .ErrorSet => @as(i32, @bitCast(val.getErrorInt(mod))),
-        else => unreachable, // Programmer called this function for an illegal type
-    };
 }
 
 fn intIndexAsI32(ip: *const InternPool, int: InternPool.Index, pt: Zcu.PerThread) i32 {
@@ -4096,7 +4093,7 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
         for (items, 0..) |ref, i| {
             const item_val = (try func.air.value(ref, pt)).?;
-            const int_val = func.valueAsI32(item_val, target_ty);
+            const int_val = func.valueAsI32(item_val);
             if (lowest_maybe == null or int_val < lowest_maybe.?) {
                 lowest_maybe = int_val;
             }
@@ -7284,8 +7281,8 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const fqn = try mod.declPtr(enum_decl_index).fullyQualifiedName(pt);
-    const func_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{}", .{fqn.fmt(ip)});
+    const decl = mod.declPtr(enum_decl_index);
+    const func_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{}", .{decl.fqn.fmt(ip)});
 
     // check if we already generated code for this.
     if (func.bin_file.findGlobalSymbol(func_name)) |loc| {
@@ -7452,7 +7449,7 @@ fn airErrorSetHasValue(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     var lowest: ?u32 = null;
     var highest: ?u32 = null;
     for (0..names.len) |name_index| {
-        const err_int: Zcu.ErrorInt = @intCast(mod.global_error_set.getIndex(names.get(ip)[name_index]).?);
+        const err_int = ip.getErrorValueIfExists(names.get(ip)[name_index]).?;
         if (lowest) |*l| {
             if (err_int < l.*) {
                 l.* = err_int;

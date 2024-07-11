@@ -1082,9 +1082,7 @@ pub fn initDeclState(self: *Dwarf, pt: Zcu.PerThread, decl_index: InternPool.Dec
     defer tracy.end();
 
     const decl = pt.zcu.declPtr(decl_index);
-    const decl_linkage_name = try decl.fullyQualifiedName(pt);
-
-    log.debug("initDeclState {}{*}", .{ decl_linkage_name.fmt(&pt.zcu.intern_pool), decl });
+    log.debug("initDeclState {}{*}", .{ decl.fqn.fmt(&pt.zcu.intern_pool), decl });
 
     const gpa = self.allocator;
     var decl_state: DeclState = .{
@@ -1157,7 +1155,7 @@ pub fn initDeclState(self: *Dwarf, pt: Zcu.PerThread, decl_index: InternPool.Dec
 
             // .debug_info subprogram
             const decl_name_slice = decl.name.toSlice(&pt.zcu.intern_pool);
-            const decl_linkage_name_slice = decl_linkage_name.toSlice(&pt.zcu.intern_pool);
+            const decl_linkage_name_slice = decl.fqn.toSlice(&pt.zcu.intern_pool);
             try dbg_info_buffer.ensureUnusedCapacity(1 + ptr_width_bytes + 4 + 4 +
                 (decl_name_slice.len + 1) + (decl_linkage_name_slice.len + 1));
 
@@ -2700,7 +2698,7 @@ pub fn flushModule(self: *Dwarf, pt: Zcu.PerThread) !void {
         try addDbgInfoErrorSetNames(
             pt,
             Type.anyerror,
-            pt.zcu.global_error_set.keys(),
+            pt.zcu.intern_pool.global_error_set.getNamesFromMainThread(),
             target,
             &dbg_info_buffer,
         );
@@ -2869,7 +2867,7 @@ fn addDbgInfoErrorSetNames(
     mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), 0, target_endian);
 
     for (error_names) |error_name| {
-        const int = try pt.zcu.getErrorValue(error_name);
+        const int = try pt.getErrorValue(error_name);
         const error_name_slice = error_name.toSlice(&pt.zcu.intern_pool);
         // DW.AT.enumerator
         try dbg_info_buffer.ensureUnusedCapacity(error_name_slice.len + 2 + @sizeOf(u64));
