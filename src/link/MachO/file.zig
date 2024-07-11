@@ -118,7 +118,24 @@ pub const File = union(enum) {
         };
     }
 
+    pub fn getNlists(file: File) []macho.nlist_64 {
+        return switch (file) {
+            .dylib => unreachable,
+            .internal => |x| x.symtab.items,
+            inline else => |x| x.symtab.items(.nlist),
+        };
+    }
+
+    pub fn getGlobals(file: File) []MachO.SymbolResolver.Index {
+        return switch (file) {
+            inline else => |x| x.globals.items,
+        };
+    }
+
     pub fn markImportsExports(file: File, macho_file: *MachO) void {
+        const tracy = trace(@src());
+        defer tracy.end();
+
         const nsyms = switch (file) {
             .dylib => unreachable,
             inline else => |x| x.symbols.items.len,
@@ -138,7 +155,25 @@ pub const File = union(enum) {
         }
     }
 
+    pub fn markExportsRelocatable(file: File, macho_file: *MachO) void {
+        const tracy = trace(@src());
+        defer tracy.end();
+
+        assert(file == .object or file == .zig_object);
+
+        for (file.getSymbols(), 0..) |*sym, i| {
+            const ref = file.getSymbolRef(@intCast(i), macho_file);
+            const other_file = ref.getFile(macho_file) orelse continue;
+            if (other_file.getIndex() != file.getIndex()) continue;
+            if (sym.visibility != .global) continue;
+            sym.flags.@"export" = true;
+        }
+    }
+
     pub fn createSymbolIndirection(file: File, macho_file: *MachO) !void {
+        const tracy = trace(@src());
+        defer tracy.end();
+
         const nsyms = switch (file) {
             inline else => |x| x.symbols.items.len,
         };
@@ -163,6 +198,59 @@ pub const File = union(enum) {
                 log.debug("'{s}' needs OBJC STUBS", .{sym.getName(macho_file)});
                 try macho_file.objc_stubs.addSymbol(ref, macho_file);
             }
+        }
+    }
+
+    pub fn claimUnresolved(file: File, macho_file: *MachO) void {
+        const tracy = trace(@src());
+        defer tracy.end();
+
+        assert(file == .object or file == .zig_object);
+
+        for (file.getSymbols(), file.getNlists(), 0..) |*sym, nlist, i| {
+            if (!nlist.ext()) continue;
+            if (!nlist.undf()) continue;
+
+            if (file.getSymbolRef(@intCast(i), macho_file).getFile(macho_file) != null) continue;
+
+            const is_import = switch (macho_file.undefined_treatment) {
+                .@"error" => false,
+                .warn, .suppress => nlist.weakRef(),
+                .dynamic_lookup => true,
+            };
+            if (is_import) {
+                sym.value = 0;
+                sym.atom_ref = .{ .index = 0, .file = 0 };
+                sym.flags.weak = false;
+                sym.flags.weak_ref = nlist.weakRef();
+                sym.flags.import = is_import;
+                sym.visibility = .global;
+
+                const idx = file.getGlobals()[i];
+                macho_file.resolver.values.items[idx - 1] = .{ .index = @intCast(i), .file = file.getIndex() };
+            }
+        }
+    }
+
+    pub fn claimUnresolvedRelocatable(file: File, macho_file: *MachO) void {
+        const tracy = trace(@src());
+        defer tracy.end();
+
+        assert(file == .object or file == .zig_object);
+
+        for (file.getSymbols(), file.getNlists(), 0..) |*sym, nlist, i| {
+            if (!nlist.ext()) continue;
+            if (!nlist.undf()) continue;
+            if (file.getSymbolRef(@intCast(i), macho_file).getFile(macho_file) != null) continue;
+
+            sym.value = 0;
+            sym.atom_ref = .{ .index = 0, .file = 0 };
+            sym.flags.weak_ref = nlist.weakRef();
+            sym.flags.import = true;
+            sym.visibility = .global;
+
+            const idx = file.getGlobals()[i];
+            macho_file.resolver.values.items[idx - 1] = .{ .index = @intCast(i), .file = file.getIndex() };
         }
     }
 

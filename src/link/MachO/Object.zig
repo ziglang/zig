@@ -1636,56 +1636,6 @@ pub fn convertTentativeDefinitions(self: *Object, macho_file: *MachO) !void {
     }
 }
 
-pub fn claimUnresolved(self: *Object, macho_file: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    for (self.symbols.items, 0..) |*sym, i| {
-        const nlist = self.symtab.items(.nlist)[i];
-        if (!nlist.ext()) continue;
-        if (!nlist.undf()) continue;
-
-        if (self.getSymbolRef(@intCast(i), macho_file).getFile(macho_file) != null) continue;
-
-        const is_import = switch (macho_file.undefined_treatment) {
-            .@"error" => false,
-            .warn, .suppress => nlist.weakRef(),
-            .dynamic_lookup => true,
-        };
-        if (is_import) {
-            sym.value = 0;
-            sym.atom_ref = .{ .index = 0, .file = 0 };
-            sym.flags.weak = false;
-            sym.flags.weak_ref = nlist.weakRef();
-            sym.flags.import = is_import;
-            sym.visibility = .global;
-
-            const idx = self.globals.items[i];
-            macho_file.resolver.values.items[idx - 1] = .{ .index = @intCast(i), .file = self.index };
-        }
-    }
-}
-
-pub fn claimUnresolvedRelocatable(self: *Object, macho_file: *MachO) void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    for (self.symbols.items, self.symtab.items(.nlist), 0..) |*sym, nlist, i| {
-        if (!nlist.ext()) continue;
-        if (!nlist.undf()) continue;
-        if (self.getSymbolRef(@intCast(i), macho_file).getFile(macho_file) != null) continue;
-
-        sym.value = 0;
-        sym.atom_ref = .{ .index = 0, .file = 0 };
-        sym.flags.weak_ref = nlist.weakRef();
-        sym.flags.import = true;
-        sym.visibility = .global;
-
-        const idx = self.globals.items[i];
-        macho_file.resolver.values.items[idx - 1] = .{ .index = @intCast(i), .file = self.index };
-    }
-}
-
 fn addSection(self: *Object, allocator: Allocator, segname: []const u8, sectname: []const u8) !u8 {
     const n_sect = @as(u8, @intCast(try self.sections.addOne(allocator)));
     self.sections.set(n_sect, .{
@@ -1936,7 +1886,7 @@ pub fn writeAtomsRelocatable(self: *Object, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = macho_file.base.allocator;
+    const gpa = macho_file.base.comp.gpa;
     const headers = self.sections.items(.header);
     const sections_data = try gpa.alloc([]const u8, headers.len);
     defer {
@@ -1995,15 +1945,17 @@ pub fn writeCompactUnwindRelocatable(self: *Object, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const cpu_arch = macho_file.getTarget().cpu.arch;
+
     const addReloc = struct {
-        fn addReloc(offset: u32, cpu_arch: std.Target.Cpu.Arch) !macho.relocation_info {
+        fn addReloc(offset: u32, arch: std.Target.Cpu.Arch) !macho.relocation_info {
             return .{
                 .r_address = math.cast(i32, offset) orelse return error.Overflow,
                 .r_symbolnum = 0,
                 .r_pcrel = 0,
                 .r_length = 3,
                 .r_extern = 0,
-                .r_type = switch (cpu_arch) {
+                .r_type = switch (arch) {
                     .aarch64 => @intFromEnum(macho.reloc_type_arm64.ARM64_RELOC_UNSIGNED),
                     .x86_64 => @intFromEnum(macho.reloc_type_x86_64.X86_64_RELOC_UNSIGNED),
                     else => unreachable,
@@ -2039,7 +1991,7 @@ pub fn writeCompactUnwindRelocatable(self: *Object, macho_file: *MachO) !void {
             const atom = rec.getAtom(macho_file);
             const addr = rec.getAtomAddress(macho_file);
             out.rangeStart = addr;
-            var reloc = try addReloc(offset, macho_file.options.cpu_arch.?);
+            var reloc = try addReloc(offset, cpu_arch);
             reloc.r_symbolnum = atom.out_n_sect + 1;
             relocs[reloc_index] = reloc;
             reloc_index += 1;
@@ -2048,7 +2000,7 @@ pub fn writeCompactUnwindRelocatable(self: *Object, macho_file: *MachO) !void {
         // Personality function
         if (rec.getPersonality(macho_file)) |sym| {
             const r_symbolnum = math.cast(u24, sym.getOutputSymtabIndex(macho_file).?) orelse return error.Overflow;
-            var reloc = try addReloc(offset + 16, macho_file.options.cpu_arch.?);
+            var reloc = try addReloc(offset + 16, cpu_arch);
             reloc.r_symbolnum = r_symbolnum;
             reloc.r_extern = 1;
             relocs[reloc_index] = reloc;
@@ -2059,7 +2011,7 @@ pub fn writeCompactUnwindRelocatable(self: *Object, macho_file: *MachO) !void {
         if (rec.getLsdaAtom(macho_file)) |atom| {
             const addr = rec.getLsdaAddress(macho_file);
             out.lsda = addr;
-            var reloc = try addReloc(offset + 24, macho_file.options.cpu_arch.?);
+            var reloc = try addReloc(offset + 24, cpu_arch);
             reloc.r_symbolnum = atom.out_n_sect + 1;
             relocs[reloc_index] = reloc;
             reloc_index += 1;

@@ -1008,6 +1008,7 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.r
                         .r_extern = 0,
                         .r_type = @intFromEnum(macho.reloc_type_arm64.ARM64_RELOC_ADDEND),
                     };
+                    i += 1;
                 }
 
                 const r_type: macho.reloc_type_arm64 = switch (rel.type) {

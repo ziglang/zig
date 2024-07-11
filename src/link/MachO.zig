@@ -290,10 +290,16 @@ pub fn deinit(self: *MachO) void {
     self.dylibs.deinit(gpa);
 
     self.segments.deinit(gpa);
-    for (self.sections.items(.atoms), self.sections.items(.out), self.sections.items(.thunks)) |*atoms, *out, *thnks| {
+    for (
+        self.sections.items(.atoms),
+        self.sections.items(.out),
+        self.sections.items(.thunks),
+        self.sections.items(.relocs),
+    ) |*atoms, *out, *thnks, *relocs| {
         atoms.deinit(gpa);
         out.deinit(gpa);
         thnks.deinit(gpa);
+        relocs.deinit(gpa);
     }
     self.sections.deinit(gpa);
 
@@ -1457,10 +1463,10 @@ pub fn dedupLiterals(self: *MachO) !void {
 
 fn claimUnresolved(self: *MachO) void {
     if (self.getZigObject()) |zo| {
-        zo.claimUnresolved(self);
+        zo.asFile().claimUnresolved(self);
     }
     for (self.objects.items) |index| {
-        self.getFile(index).?.object.claimUnresolved(self);
+        self.getFile(index).?.claimUnresolved(self);
     }
 }
 
@@ -3987,6 +3993,7 @@ const Section = struct {
     last_atom_index: Atom.Index = 0,
     thunks: std.ArrayListUnmanaged(Thunk.Index) = .{},
     out: std.ArrayListUnmanaged(u8) = .{},
+    relocs: std.ArrayListUnmanaged(macho.relocation_info) = .{},
 };
 
 pub const LiteralPool = struct {
