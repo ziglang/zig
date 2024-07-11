@@ -840,7 +840,7 @@ fn initSymbols(self: *Object, allocator: Allocator, macho_file: *MachO) !void {
         symbol.flags.tentative = nlist.tentative();
         symbol.flags.no_dead_strip = symbol.flags.no_dead_strip or nlist.noDeadStrip();
         symbol.flags.dyn_ref = nlist.n_desc & macho.REFERENCED_DYNAMICALLY != 0;
-        symbol.flags.interposable = nlist.ext() and (nlist.sect() or nlist.abs()) and macho_file.base.isDynLib() and !nlist.pext();
+        symbol.flags.interposable = false;
         // TODO
         // symbol.flags.interposable = nlist.ext() and (nlist.sect() or nlist.abs()) and macho_file.base.isDynLib() and macho_file.options.namespace == .flat and !nlist.pext();
 
