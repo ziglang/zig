@@ -89,7 +89,7 @@ pub const StreamInterface = struct {
 };
 
 pub fn InitError(comptime Stream: type) type {
-    return std.mem.Allocator.Error || Stream.WriteError || Stream.ReadError || tls.AlertDescription.Error || error{
+    return std.mem.Allocator.Error || Stream.WriteError || Stream.ReadError || tls.AlertDescription.Error || Certificate.Error || error{
         InsufficientEntropy,
         DiskQuota,
         LockViolation,
@@ -99,32 +99,16 @@ pub fn InitError(comptime Stream: type) type {
         TlsDecryptFailure,
         TlsRecordOverflow,
         TlsBadRecordMac,
-        CertificateFieldHasInvalidLength,
-        CertificateHostMismatch,
-        CertificatePublicKeyInvalid,
-        CertificateExpired,
-        CertificateFieldHasWrongDataType,
-        CertificateIssuerMismatch,
-        CertificateNotYetValid,
-        CertificateSignatureAlgorithmMismatch,
-        CertificateSignatureAlgorithmUnsupported,
-        CertificateSignatureInvalid,
-        CertificateSignatureInvalidLength,
-        CertificateSignatureNamedCurveUnsupported,
-        CertificateSignatureUnsupportedBitCount,
         TlsCertificateNotVerified,
         TlsBadSignatureScheme,
         TlsBadRsaSignatureBitCount,
+        TlsDecryptError,
+        TlsConnectionTruncated,
+        TlsUnsupportedVersion,
+        TlsDecodeError,
         InvalidEncoding,
         IdentityElement,
         SignatureVerificationFailed,
-        TlsDecryptError,
-        TlsConnectionTruncated,
-        TlsDecodeError,
-        UnsupportedCertificateVersion,
-        CertificateTimeInvalid,
-        CertificateHasUnrecognizedObjectId,
-        CertificateHasInvalidBitString,
         MessageTooLong,
         NegativeIntoUnsigned,
         TargetTooSmall,
@@ -346,7 +330,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
 
                 const tls_version = if (supported_version == 0) legacy_version else supported_version;
                 if (tls_version != @intFromEnum(tls.ProtocolVersion.tls_1_3))
-                    return error.TlsIllegalParameter;
+                    return error.TlsUnsupportedVersion;
 
                 switch (cipher_suite_tag) {
                     inline .AES_128_GCM_SHA256,
