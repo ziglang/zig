@@ -267,7 +267,7 @@ pub fn mergeSymbolVisibility(self: *ZigObject, macho_file: *MachO) void {
     for (self.symbols.items, 0..) |sym, i| {
         const ref = self.getSymbolRef(@intCast(i), macho_file);
         const global = ref.getSymbol(macho_file) orelse continue;
-        if (global.visibility != .global) {
+        if (sym.visibility.rank() < global.visibility.rank()) {
             global.visibility = sym.visibility;
         }
         if (sym.flags.weak_ref) {
