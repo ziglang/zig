@@ -510,7 +510,6 @@ pub inline fn callMain() u8 {
     const main_info = @typeInfo(@TypeOf(root.main)).Fn;
     const ReturnType = main_info.return_type.?;
 
-    // We could return from this switch with a bunch of labeled blocks but that is ugly
     switch (ReturnType) {
         void => {
             root.main();
