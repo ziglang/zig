@@ -1877,6 +1877,7 @@ pub fn destroy(comp: *Compilation) void {
     if (comp.module) |zcu| zcu.deinit();
     comp.cache_use.deinit();
     comp.work_queue.deinit();
+    if (!InternPool.single_threaded) comp.codegen_work.queue.deinit();
     comp.c_object_work_queue.deinit();
     if (!build_options.only_core_functionality) {
         comp.win32_resource_work_queue.deinit();
