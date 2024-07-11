@@ -31,21 +31,15 @@ pub fn main() !void {
     // skip my own exe name
     var arg_idx: usize = 1;
 
-    const zig_exe = nextArg(args, &arg_idx) orelse {
-        std.debug.print("Expected path to zig compiler\n", .{});
-        return error.InvalidArgs;
-    };
-    const build_root = nextArg(args, &arg_idx) orelse {
-        std.debug.print("Expected build root directory path\n", .{});
-        return error.InvalidArgs;
-    };
-    const cache_root = nextArg(args, &arg_idx) orelse {
-        std.debug.print("Expected cache root directory path\n", .{});
-        return error.InvalidArgs;
-    };
-    const global_cache_root = nextArg(args, &arg_idx) orelse {
-        std.debug.print("Expected global cache root directory path\n", .{});
-        return error.InvalidArgs;
+    const zig_exe = nextArg(args, &arg_idx) orelse fatal("missing zig compiler path", .{});
+    const zig_lib_dir = nextArg(args, &arg_idx) orelse fatal("missing zig lib directory path", .{});
+    const build_root = nextArg(args, &arg_idx) orelse fatal("missing build root directory path", .{});
+    const cache_root = nextArg(args, &arg_idx) orelse fatal("missing cache root directory path", .{});
+    const global_cache_root = nextArg(args, &arg_idx) orelse fatal("missing global cache root directory path", .{});
+
+    const zig_lib_directory: std.Build.Cache.Directory = .{
+        .path = zig_lib_dir,
+        .handle = try std.fs.cwd().openDir(zig_lib_dir, .{}),
     };
 
     const build_root_directory: std.Build.Cache.Directory = .{
@@ -72,6 +66,7 @@ pub fn main() !void {
         .zig_exe = zig_exe,
         .env_map = try process.getEnvMap(arena),
         .global_cache_root = global_cache_directory,
+        .zig_lib_directory = zig_lib_directory,
         .host = .{
             .query = .{},
             .result = try std.zig.system.resolveTargetQuery(.{}),
@@ -189,8 +184,6 @@ pub fn main() !void {
                         arg, next_arg,
                     });
                 };
-            } else if (mem.eql(u8, arg, "--zig-lib-dir")) {
-                builder.zig_lib_dir = .{ .cwd_relative = nextArgOrFatal(args, &arg_idx) };
             } else if (mem.eql(u8, arg, "--seed")) {
                 const next_arg = nextArg(args, &arg_idx) orelse
                     fatalWithHint("expected u32 after '{s}'", .{arg});
@@ -416,15 +409,27 @@ pub fn main() !void {
                 const reaction_set = rs: {
                     const gop = try w.dir_table.getOrPut(gpa, path);
                     if (!gop.found_existing) {
-                        std.posix.fanotify_mark(w.fan_fd, .{
-                            .ADD = true,
-                            .ONLYDIR = true,
-                        }, Watch.fan_mask, path.root_dir.handle.fd, path.subPathOrDot()) catch |err| {
-                            fatal("unable to watch {}: {s}", .{ path, @errorName(err) });
-                        };
-
                         const dir_handle = try Watch.getDirHandle(gpa, path);
-                        try w.handle_table.putNoClobber(gpa, dir_handle, .{});
+                        // `dir_handle` may already be present in the table in
+                        // the case that we have multiple Cache.Path instances
+                        // that compare inequal but ultimately point to the same
+                        // directory on the file system.
+                        // In such case, we must revert adding this directory, but keep
+                        // the additions to the step set.
+                        const dh_gop = try w.handle_table.getOrPut(gpa, dir_handle);
+                        if (dh_gop.found_existing) {
+                            _ = w.dir_table.pop();
+                        } else {
+                            assert(dh_gop.index == gop.index);
+                            dh_gop.value_ptr.* = .{};
+                            std.posix.fanotify_mark(w.fan_fd, .{
+                                .ADD = true,
+                                .ONLYDIR = true,
+                            }, Watch.fan_mask, path.root_dir.handle.fd, path.subPathOrDot()) catch |err| {
+                                fatal("unable to watch {}: {s}", .{ path, @errorName(err) });
+                            };
+                        }
+                        break :rs dh_gop.value_ptr;
                     }
                     break :rs &w.handle_table.values()[gop.index];
                 };

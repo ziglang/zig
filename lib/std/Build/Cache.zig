@@ -1007,6 +1007,22 @@ pub const Manifest = struct {
         }
         self.files.deinit(self.cache.gpa);
     }
+
+    pub fn populateFileSystemInputs(man: *Manifest, buf: *std.ArrayListUnmanaged(u8)) Allocator.Error!void {
+        assert(@typeInfo(std.zig.Server.Message.PathPrefix).Enum.fields.len == man.cache.prefixes_len);
+        const gpa = man.cache.gpa;
+        const files = man.files.keys();
+        if (files.len > 0) {
+            for (files) |file| {
+                try buf.ensureUnusedCapacity(gpa, file.prefixed_path.sub_path.len + 2);
+                buf.appendAssumeCapacity(file.prefixed_path.prefix + 1);
+                buf.appendSliceAssumeCapacity(file.prefixed_path.sub_path);
+                buf.appendAssumeCapacity(0);
+            }
+            // The null byte is a separator, not a terminator.
+            buf.items.len -= 1;
+        }
+    }
 };
 
 /// On operating systems that support symlinks, does a readlink. On other operating systems,

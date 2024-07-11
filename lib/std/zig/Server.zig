@@ -20,8 +20,22 @@ pub const Message = struct {
         test_metadata,
         /// Body is a TestResults
         test_results,
+        /// Body is a series of strings, delimited by null bytes.
+        /// Each string is a prefixed file path.
+        /// The first byte indicates the file prefix path (see prefixes fields
+        /// of Cache). This byte is sent over the wire incremented so that null
+        /// bytes are not confused with string terminators.
+        /// The remaining bytes is the file path relative to that prefix.
+        /// The prefixes are hard-coded in Compilation.create (cwd, zig lib dir, local cache dir)
+        file_system_inputs,
 
         _,
+    };
+
+    pub const PathPrefix = enum(u8) {
+        cwd,
+        zig_lib,
+        local_cache,
     };
 
     /// Trailing:
@@ -58,7 +72,7 @@ pub const Message = struct {
     };
 
     /// Trailing:
-    /// * the file system path the emitted binary can be found
+    /// * file system path where the emitted binary can be found
     pub const EmitBinPath = extern struct {
         flags: Flags,
 

@@ -54,7 +54,6 @@ libc_file: ?[]const u8 = null,
 /// Path to the directory containing build.zig.
 build_root: Cache.Directory,
 cache_root: Cache.Directory,
-zig_lib_dir: ?LazyPath,
 pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
 args: ?[]const []const u8 = null,
 debug_log_scopes: []const []const u8 = &.{},
@@ -117,6 +116,7 @@ pub const Graph = struct {
     zig_exe: [:0]const u8,
     env_map: EnvMap,
     global_cache_root: Cache.Directory,
+    zig_lib_directory: Cache.Directory,
     needed_lazy_dependencies: std.StringArrayHashMapUnmanaged(void) = .{},
     /// Information about the native target. Computed before build() is invoked.
     host: ResolvedTarget,
@@ -293,7 +293,6 @@ pub fn create(
             }),
             .description = "Remove build artifacts from prefix path",
         },
-        .zig_lib_dir = null,
         .install_path = undefined,
         .args = null,
         .host = graph.host,
@@ -379,7 +378,6 @@ fn createChildOnly(
         .libc_file = parent.libc_file,
         .build_root = build_root,
         .cache_root = parent.cache_root,
-        .zig_lib_dir = parent.zig_lib_dir,
         .debug_log_scopes = parent.debug_log_scopes,
         .debug_compile_errors = parent.debug_compile_errors,
         .debug_pkg_config = parent.debug_pkg_config,
@@ -687,7 +685,7 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
         .max_rss = options.max_rss,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
-        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .zig_lib_dir = options.zig_lib_dir,
         .win32_manifest = options.win32_manifest,
     });
 }
@@ -735,7 +733,7 @@ pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
         .max_rss = options.max_rss,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
-        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .zig_lib_dir = options.zig_lib_dir,
     });
 }
 
@@ -791,7 +789,7 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile 
         .max_rss = options.max_rss,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
-        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .zig_lib_dir = options.zig_lib_dir,
         .win32_manifest = options.win32_manifest,
     });
 }
@@ -842,7 +840,7 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile 
         .max_rss = options.max_rss,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
-        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .zig_lib_dir = options.zig_lib_dir,
     });
 }
 
@@ -905,7 +903,7 @@ pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
         .test_runner = options.test_runner,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
-        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .zig_lib_dir = options.zig_lib_dir,
     });
 }
 
@@ -929,7 +927,7 @@ pub fn addAssembly(b: *Build, options: AssemblyOptions) *Step.Compile {
             .optimize = options.optimize,
         },
         .max_rss = options.max_rss,
-        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .zig_lib_dir = options.zig_lib_dir,
     });
     obj_step.addAssemblyFile(options.source_file);
     return obj_step;

@@ -435,6 +435,44 @@ pub fn evalZigProcess(
                 s.result_cached = ebp_hdr.flags.cache_hit;
                 result = try arena.dupe(u8, body[@sizeOf(EbpHdr)..]);
             },
+            .file_system_inputs => {
+                s.clearWatchInputs();
+                var it = std.mem.splitScalar(u8, body, 0);
+                while (it.next()) |prefixed_path| {
+                    const prefix_index: std.zig.Server.Message.PathPrefix = @enumFromInt(prefixed_path[0] - 1);
+                    const sub_path = try arena.dupe(u8, prefixed_path[1..]);
+                    const sub_path_dirname = std.fs.path.dirname(sub_path) orelse "";
+                    switch (prefix_index) {
+                        .cwd => {
+                            const path: Build.Cache.Path = .{
+                                .root_dir = Build.Cache.Directory.cwd(),
+                                .sub_path = sub_path_dirname,
+                            };
+                            try addWatchInputFromPath(s, path, std.fs.path.basename(sub_path));
+                        },
+                        .zig_lib => zl: {
+                            if (s.cast(Step.Compile)) |compile| {
+                                if (compile.zig_lib_dir) |lp| {
+                                    try addWatchInput(s, lp);
+                                    break :zl;
+                                }
+                            }
+                            const path: Build.Cache.Path = .{
+                                .root_dir = s.owner.graph.zig_lib_directory,
+                                .sub_path = sub_path_dirname,
+                            };
+                            try addWatchInputFromPath(s, path, std.fs.path.basename(sub_path));
+                        },
+                        .local_cache => {
+                            const path: Build.Cache.Path = .{
+                                .root_dir = b.cache_root,
+                                .sub_path = sub_path_dirname,
+                            };
+                            try addWatchInputFromPath(s, path, std.fs.path.basename(sub_path));
+                        },
+                    }
+                }
+            },
             else => {}, // ignore other messages
         }
 

@@ -1261,7 +1261,9 @@ fn generateLangRef(b: *std.Build) std.Build.LazyPath {
     });
 
     var dir = b.build_root.handle.openDir("doc/langref", .{ .iterate = true }) catch |err| {
-        std.debug.panic("unable to open 'doc/langref' directory: {s}", .{@errorName(err)});
+        std.debug.panic("unable to open '{}doc/langref' directory: {s}", .{
+            b.build_root, @errorName(err),
+        });
     };
     defer dir.close();
 
@@ -1280,10 +1282,7 @@ fn generateLangRef(b: *std.Build) std.Build.LazyPath {
             // in a temporary directory
             "--cache-root", b.cache_root.path orelse ".",
         });
-        if (b.zig_lib_dir) |p| {
-            cmd.addArg("--zig-lib-dir");
-            cmd.addDirectoryArg(p);
-        }
+        cmd.addArgs(&.{ "--zig-lib-dir", b.fmt("{}", .{b.graph.zig_lib_directory}) });
         cmd.addArgs(&.{"-i"});
         cmd.addFileArg(b.path(b.fmt("doc/langref/{s}", .{entry.name})));
 

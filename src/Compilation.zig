@@ -235,6 +235,8 @@ astgen_wait_group: WaitGroup = .{},
 
 llvm_opt_bisect_limit: c_int,
 
+file_system_inputs: ?*std.ArrayListUnmanaged(u8),
+
 pub const Emit = struct {
     /// Where the output will go.
     directory: Directory,
@@ -1157,6 +1159,9 @@ pub const CreateOptions = struct {
     error_limit: ?Zcu.ErrorInt = null,
     global_cc_argv: []const []const u8 = &.{},
 
+    /// Tracks all files that can cause the Compilation to be invalidated and need a rebuild.
+    file_system_inputs: ?*std.ArrayListUnmanaged(u8) = null,
+
     pub const Entry = link.File.OpenOptions.Entry;
 };
 
@@ -1332,6 +1337,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .gpa = gpa,
             .manifest_dir = try options.local_cache_directory.handle.makeOpenPath("h", .{}),
         };
+        // These correspond to std.zig.Server.Message.PathPrefix.
         cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
         cache.addPrefix(options.zig_lib_directory);
         cache.addPrefix(options.local_cache_directory);
@@ -1508,6 +1514,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .force_undefined_symbols = options.force_undefined_symbols,
             .link_eh_frame_hdr = link_eh_frame_hdr,
             .global_cc_argv = options.global_cc_argv,
+            .file_system_inputs = options.file_system_inputs,
         };
 
         // Prevent some footguns by making the "any" fields of config reflect
@@ -2044,6 +2051,8 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                 );
             };
             if (is_hit) {
+                if (comp.file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
+
                 comp.last_update_was_cache_hit = true;
                 log.debug("CacheMode.whole cache hit for {s}", .{comp.root_name});
                 const digest = man.final();
@@ -2169,6 +2178,11 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
     }
 
     try comp.performAllTheWork(main_progress_node);
+
+    switch (comp.cache_use) {
+        .whole => if (comp.file_system_inputs) |buf| try man.populateFileSystemInputs(buf),
+        .incremental => {},
+    }
 
     if (comp.module) |zcu| {
         const pt: Zcu.PerThread = .{ .zcu = zcu, .tid = .main };

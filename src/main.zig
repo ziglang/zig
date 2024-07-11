@@ -3227,6 +3227,9 @@ fn buildOutputType(
 
     process.raiseFileDescriptorLimit();
 
+    var file_system_inputs: std.ArrayListUnmanaged(u8) = .{};
+    defer file_system_inputs.deinit(gpa);
+
     const comp = Compilation.create(gpa, arena, .{
         .zig_lib_directory = zig_lib_directory,
         .local_cache_directory = local_cache_directory,
@@ -3350,6 +3353,7 @@ fn buildOutputType(
         // than to any particular module. This feature can greatly reduce CLI
         // noise when --search-prefix and --mod are combined.
         .global_cc_argv = try cc_argv.toOwnedSlice(arena),
+        .file_system_inputs = &file_system_inputs,
     }) catch |err| switch (err) {
         error.LibCUnavailable => {
             const triple_name = try target.zigTriple(arena);
@@ -3433,7 +3437,7 @@ fn buildOutputType(
         defer root_prog_node.end();
 
         if (arg_mode == .translate_c) {
-            return cmdTranslateC(comp, arena, null, root_prog_node);
+            return cmdTranslateC(comp, arena, null, null, root_prog_node);
         }
 
         updateModule(comp, color, root_prog_node) catch |err| switch (err) {
@@ -4059,6 +4063,7 @@ fn serve(
     var child_pid: ?std.process.Child.Id = null;
 
     const main_progress_node = std.Progress.start(.{});
+    const file_system_inputs = comp.file_system_inputs.?;
 
     while (true) {
         const hdr = try server.receiveMessage();
@@ -4067,14 +4072,16 @@ fn serve(
             .exit => return cleanExit(),
             .update => {
                 tracy.frameMark();
+                file_system_inputs.clearRetainingCapacity();
 
                 if (arg_mode == .translate_c) {
                     var arena_instance = std.heap.ArenaAllocator.init(gpa);
                     defer arena_instance.deinit();
                     const arena = arena_instance.allocator();
                     var output: Compilation.CImportResult = undefined;
-                    try cmdTranslateC(comp, arena, &output, main_progress_node);
+                    try cmdTranslateC(comp, arena, &output, file_system_inputs, main_progress_node);
                     defer output.deinit(gpa);
+                    try server.serveStringMessage(.file_system_inputs, file_system_inputs.items);
                     if (output.errors.errorMessageCount() != 0) {
                         try server.serveErrorBundle(output.errors);
                     } else {
@@ -4116,6 +4123,7 @@ fn serve(
             },
             .hot_update => {
                 tracy.frameMark();
+                file_system_inputs.clearRetainingCapacity();
                 if (child_pid) |pid| {
                     try comp.hotCodeSwap(main_progress_node, pid);
                     try serveUpdateResults(&server, comp);
@@ -4147,6 +4155,12 @@ fn serve(
 
 fn serveUpdateResults(s: *Server, comp: *Compilation) !void {
     const gpa = comp.gpa;
+
+    if (comp.file_system_inputs) |file_system_inputs| {
+        assert(file_system_inputs.items.len > 0);
+        try s.serveStringMessage(.file_system_inputs, file_system_inputs.items);
+    }
+
     var error_bundle = try comp.getAllErrorsAlloc();
     defer error_bundle.deinit(gpa);
     if (error_bundle.errorMessageCount() > 0) {
@@ -4434,6 +4448,7 @@ fn cmdTranslateC(
     comp: *Compilation,
     arena: Allocator,
     fancy_output: ?*Compilation.CImportResult,
+    file_system_inputs: ?*std.ArrayListUnmanaged(u8),
     prog_node: std.Progress.Node,
 ) !void {
     if (build_options.only_core_functionality) @panic("@translate-c is not available in a zig2.c build");
@@ -4454,7 +4469,10 @@ fn cmdTranslateC(
     };
 
     if (fancy_output) |p| p.cache_hit = true;
-    const digest = if (try man.hit()) man.final() else digest: {
+    const digest = if (try man.hit()) digest: {
+        if (file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
+        break :digest man.final();
+    } else digest: {
         if (fancy_output) |p| p.cache_hit = false;
         var argv = std.ArrayList([]const u8).init(arena);
         switch (comp.config.c_frontend) {
@@ -4565,6 +4583,8 @@ fn cmdTranslateC(
         man.writeManifest() catch |err| warn("failed to write cache manifest: {s}", .{
             @errorName(err),
         });
+
+        if (file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
 
         break :digest digest;
     };
@@ -4678,6 +4698,9 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     const self_exe_path = try introspect.findZigExePath(arena);
     try child_argv.append(self_exe_path);
 
+    const argv_index_zig_lib_dir = child_argv.items.len;
+    _ = try child_argv.addOne();
+
     const argv_index_build_file = child_argv.items.len;
     _ = try child_argv.addOne();
 
@@ -4727,7 +4750,6 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
                     i += 1;
                     override_lib_dir = args[i];
-                    try child_argv.appendSlice(&.{ arg, args[i] });
                     continue;
                 } else if (mem.eql(u8, arg, "--build-runner")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
@@ -4865,6 +4887,8 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     defer zig_lib_directory.handle.close();
 
     const cwd_path = try process.getCwdAlloc(arena);
+    child_argv.items[argv_index_zig_lib_dir] = zig_lib_directory.path orelse cwd_path;
+
     const build_root = try findBuildRoot(arena, .{
         .cwd_path = cwd_path,
         .build_file = build_file,
