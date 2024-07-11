@@ -582,9 +582,24 @@ pub fn allocPrintCmd2(
     return buf.toOwnedSlice(arena);
 }
 
+/// Prefer `cacheHitAndWatch` unless you already added watch inputs
+/// separately from using the cache system.
 pub fn cacheHit(s: *Step, man: *Build.Cache.Manifest) !bool {
     s.result_cached = man.hit() catch |err| return failWithCacheError(s, man, err);
     return s.result_cached;
+}
+
+/// Clears previous watch inputs, if any, and then populates watch inputs from
+/// the full set of files picked up by the cache manifest.
+///
+/// Must be accompanied with `writeManifestAndWatch`.
+pub fn cacheHitAndWatch(s: *Step, man: *Build.Cache.Manifest) !bool {
+    const is_hit = man.hit() catch |err| return failWithCacheError(s, man, err);
+    s.result_cached = is_hit;
+    // The above call to hit() populates the manifest with files, so in case of
+    // a hit, we need to populate watch inputs.
+    if (is_hit) try setWatchInputsFromManifest(s, man);
+    return is_hit;
 }
 
 fn failWithCacheError(s: *Step, man: *const Build.Cache.Manifest, err: anyerror) anyerror {
@@ -594,11 +609,36 @@ fn failWithCacheError(s: *Step, man: *const Build.Cache.Manifest, err: anyerror)
     return s.fail("{s}: {s}/{s}", .{ @errorName(err), prefix, pp.sub_path });
 }
 
+/// Prefer `writeManifestAndWatch` unless you already added watch inputs
+/// separately from using the cache system.
 pub fn writeManifest(s: *Step, man: *Build.Cache.Manifest) !void {
     if (s.test_results.isSuccess()) {
         man.writeManifest() catch |err| {
             try s.addError("unable to write cache manifest: {s}", .{@errorName(err)});
         };
+    }
+}
+
+/// Clears previous watch inputs, if any, and then populates watch inputs from
+/// the full set of files picked up by the cache manifest.
+///
+/// Must be accompanied with `cacheHitAndWatch`.
+pub fn writeManifestAndWatch(s: *Step, man: *Build.Cache.Manifest) !void {
+    try writeManifest(s, man);
+    try setWatchInputsFromManifest(s, man);
+}
+
+fn setWatchInputsFromManifest(s: *Step, man: *Build.Cache.Manifest) !void {
+    const arena = s.owner.allocator;
+    const prefixes = man.cache.prefixes();
+    clearWatchInputs(s);
+    for (man.files.keys()) |file| {
+        // The file path data is freed when the cache manifest is cleaned up at the end of `make`.
+        const sub_path = try arena.dupe(u8, file.prefixed_path.sub_path);
+        try addWatchInputFromPath(s, .{
+            .root_dir = prefixes[file.prefixed_path.prefix],
+            .sub_path = std.fs.path.dirname(sub_path) orelse "",
+        }, std.fs.path.basename(sub_path));
     }
 }
 

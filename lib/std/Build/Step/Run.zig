@@ -615,7 +615,7 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
                     // On Windows we don't have rpaths so we have to add .dll search paths to PATH
                     run.addPathForDynLibs(artifact);
                 }
-                const file_path = artifact.installed_path orelse artifact.generated_bin.?.path.?; // the path is guaranteed to be set
+                const file_path = artifact.installed_path orelse artifact.generated_bin.?.path.?;
 
                 try argv_list.append(file_path);
 
@@ -665,7 +665,7 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
         _ = try man.addFile(lazy_path.getPath2(b, step), null);
     }
 
-    if (!has_side_effects and try step.cacheHit(&man)) {
+    if (!has_side_effects and try step.cacheHitAndWatch(&man)) {
         // cache hit, skip running command
         const digest = man.final();
 
@@ -719,7 +719,7 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
         }
 
         try runCommand(run, argv_list.items, has_side_effects, output_dir_path, prog_node);
-        if (!has_side_effects) try step.writeManifest(&man);
+        if (!has_side_effects) try step.writeManifestAndWatch(&man);
         return;
     };
 
@@ -795,7 +795,7 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
         };
     }
 
-    if (!has_side_effects) try step.writeManifest(&man);
+    if (!has_side_effects) try step.writeManifestAndWatch(&man);
 
     try populateGeneratedPaths(
         arena,
