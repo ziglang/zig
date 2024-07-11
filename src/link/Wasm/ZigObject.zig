@@ -1051,7 +1051,7 @@ fn setupErrorsLen(zig_object: *ZigObject, wasm_file: *Wasm) !void {
     const gpa = wasm_file.base.comp.gpa;
     const sym_index = zig_object.findGlobalSymbol("__zig_errors_len") orelse return;
 
-    const errors_len = 1 + wasm_file.base.comp.module.?.intern_pool.global_error_set.mutate.list.len;
+    const errors_len = 1 + wasm_file.base.comp.module.?.intern_pool.global_error_set.getNamesFromMainThread().len;
     // overwrite existing atom if it already exists (maybe the error set has increased)
     // if not, allcoate a new atom.
     const atom_index = if (wasm_file.symbol_atom.get(.{ .file = zig_object.index, .index = sym_index })) |index| blk: {

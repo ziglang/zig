@@ -3011,7 +3011,7 @@ pub fn totalErrorCount(comp: *Compilation) u32 {
             }
         }
 
-        if (zcu.intern_pool.global_error_set.mutate.list.len > zcu.error_limit) {
+        if (zcu.intern_pool.global_error_set.getNamesFromMainThread().len > zcu.error_limit) {
             total += 1;
         }
     }
@@ -3140,7 +3140,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             try addModuleErrorMsg(zcu, &bundle, value.*, &all_references);
         }
 
-        const actual_error_count = zcu.intern_pool.global_error_set.mutate.list.len;
+        const actual_error_count = zcu.intern_pool.global_error_set.getNamesFromMainThread().len;
         if (actual_error_count > zcu.error_limit) {
             try bundle.addRootErrorMessage(.{
                 .msg = try bundle.printString("ZCU used more errors than possible: used {d}, max {d}", .{

@@ -558,7 +558,7 @@ pub fn writeToPackedMemory(
         },
         .Union => {
             const union_obj = mod.typeToUnion(ty).?;
-            switch (union_obj.getLayout(ip)) {
+            switch (union_obj.flagsUnordered(ip).layout) {
                 .auto, .@"extern" => unreachable, // Handled in non-packed writeToMemory
                 .@"packed" => {
                     if (val.unionTag(mod)) |union_tag| {

@@ -2968,7 +2968,7 @@ pub fn ensureFuncBodyAnalysisQueued(mod: *Module, func_index: InternPool.Index) 
     const is_outdated = mod.outdated.contains(func_as_depender) or
         mod.potentially_outdated.contains(func_as_depender);
 
-    switch (func.analysis(ip).state) {
+    switch (func.analysisUnordered(ip).state) {
         .none => {},
         .queued => return,
         // As above, we don't need to forward errors here.
@@ -2989,7 +2989,7 @@ pub fn ensureFuncBodyAnalysisQueued(mod: *Module, func_index: InternPool.Index) 
         // since the last update
         try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl_index });
     }
-    func.analysis(ip).state = .queued;
+    func.setAnalysisState(ip, .queued);
 }
 
 pub const SemaDeclResult = packed struct {

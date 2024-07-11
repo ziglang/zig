@@ -71,7 +71,7 @@ pub fn classifyType(ty: Type, pt: Zcu.PerThread) [2]Class {
         },
         .Union => {
             const union_obj = pt.zcu.typeToUnion(ty).?;
-            if (union_obj.getLayout(ip) == .@"packed") {
+            if (union_obj.flagsUnordered(ip).layout == .@"packed") {
                 if (ty.bitSize(pt) <= 64) return direct;
                 return .{ .direct, .direct };
             }
@@ -107,7 +107,7 @@ pub fn scalarType(ty: Type, pt: Zcu.PerThread) Type {
     switch (ty.zigTypeTag(mod)) {
         .Struct => {
             if (mod.typeToPackedStruct(ty)) |packed_struct| {
-                return scalarType(Type.fromInterned(packed_struct.backingIntType(ip).*), pt);
+                return scalarType(Type.fromInterned(packed_struct.backingIntTypeUnordered(ip)), pt);
             } else {
                 assert(ty.structFieldCount(mod) == 1);
                 return scalarType(ty.structFieldType(0, mod), pt);
@@ -115,7 +115,7 @@ pub fn scalarType(ty: Type, pt: Zcu.PerThread) Type {
         },
         .Union => {
             const union_obj = mod.typeToUnion(ty).?;
-            if (union_obj.getLayout(ip) != .@"packed") {
+            if (union_obj.flagsUnordered(ip).layout != .@"packed") {
                 const layout = pt.getUnionLayout(union_obj);
                 if (layout.payload_size == 0 and layout.tag_size != 0) {
                     return scalarType(ty.unionTagTypeSafety(mod).?, pt);

@@ -1366,7 +1366,7 @@ pub const DeclGen = struct {
                 const loaded_union = ip.loadUnionType(ty.toIntern());
                 if (un.tag == .none) {
                     const backing_ty = try ty.unionBackingType(pt);
-                    switch (loaded_union.getLayout(ip)) {
+                    switch (loaded_union.flagsUnordered(ip).layout) {
                         .@"packed" => {
                             if (!location.isInitializer()) {
                                 try writer.writeByte('(');
@@ -1401,7 +1401,7 @@ pub const DeclGen = struct {
                     const field_index = zcu.unionTagFieldIndex(loaded_union, Value.fromInterned(un.tag)).?;
                     const field_ty = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
                     const field_name = loaded_union.loadTagType(ip).names.get(ip)[field_index];
-                    if (loaded_union.getLayout(ip) == .@"packed") {
+                    if (loaded_union.flagsUnordered(ip).layout == .@"packed") {
                         if (field_ty.hasRuntimeBits(pt)) {
                             if (field_ty.isPtrAtRuntime(zcu)) {
                                 try writer.writeByte('(');
@@ -1629,7 +1629,7 @@ pub const DeclGen = struct {
                 },
                 .union_type => {
                     const loaded_union = ip.loadUnionType(ty.toIntern());
-                    switch (loaded_union.getLayout(ip)) {
+                    switch (loaded_union.flagsUnordered(ip).layout) {
                         .auto, .@"extern" => {
                             if (!location.isInitializer()) {
                                 try writer.writeByte('(');
@@ -1792,7 +1792,7 @@ pub const DeclGen = struct {
                 else => unreachable,
             }
         }
-        if (fn_val.getFunction(zcu)) |func| if (func.analysis(ip).is_cold)
+        if (fn_val.getFunction(zcu)) |func| if (func.analysisUnordered(ip).is_cold)
             try w.writeAll("zig_cold ");
         if (fn_info.return_type == .noreturn_type) try w.writeAll("zig_noreturn ");
 
@@ -5527,7 +5527,7 @@ fn fieldLocation(
                 .{ .field = field_index } },
         .union_type => {
             const loaded_union = ip.loadUnionType(container_ty.toIntern());
-            switch (loaded_union.getLayout(ip)) {
+            switch (loaded_union.flagsUnordered(ip).layout) {
                 .auto, .@"extern" => {
                     const field_ty = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
                     if (!field_ty.hasRuntimeBitsIgnoreComptime(pt))
@@ -5763,7 +5763,7 @@ fn airStructFieldVal(f: *Function, inst: Air.Inst.Index) !CValue {
             .{ .field = extra.field_index },
         .union_type => field_name: {
             const loaded_union = ip.loadUnionType(struct_ty.toIntern());
-            switch (loaded_union.getLayout(ip)) {
+            switch (loaded_union.flagsUnordered(ip).layout) {
                 .auto, .@"extern" => {
                     const name = loaded_union.loadTagType(ip).names.get(ip)[extra.field_index];
                     break :field_name if (loaded_union.hasTag(ip))
@@ -7267,7 +7267,7 @@ fn airUnionInit(f: *Function, inst: Air.Inst.Index) !CValue {
 
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, union_ty);
-    if (loaded_union.getLayout(ip) == .@"packed") return f.moveCValue(inst, union_ty, payload);
+    if (loaded_union.flagsUnordered(ip).layout == .@"packed") return f.moveCValue(inst, union_ty, payload);
 
     const field: CValue = if (union_ty.unionTagTypeSafety(zcu)) |tag_ty| field: {
         const layout = union_ty.unionGetLayout(pt);
