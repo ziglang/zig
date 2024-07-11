@@ -2066,6 +2066,23 @@ test "shift-right negative" {
     defer arg3.deinit();
     try a.shiftRight(&arg3, 1232);
     try testing.expect((try a.to(i32)) == -1); // -10 >> 1232 == -1
+
+    var arg4 = try Managed.initSet(testing.allocator, -5);
+    defer arg4.deinit();
+    try a.shiftRight(&arg4, 2);
+    try testing.expect(try a.to(i32) == -2); // -5 >> 2 == -2
+
+    var arg5 = try Managed.initSet(testing.allocator, -0xffff0000eeee1111dddd2222cccc3333);
+    defer arg5.deinit();
+    try a.shiftRight(&arg5, 67);
+    try testing.expect(try a.to(i64) == -0x1fffe0001dddc223);
+
+    var arg6 = try Managed.initSet(testing.allocator, -0x1ffffffffffffffff);
+    defer arg6.deinit();
+    try a.shiftRight(&arg6, 1);
+    try a.shiftRight(&a, 1);
+    a.setSign(true);
+    try testing.expect(try a.to(u64) == 0x8000000000000000);
 }
 
 test "sat shift-left simple unsigned" {
