@@ -91,9 +91,9 @@ pub const ZigGotSection = struct {
         _ = unused_fmt_string;
         const zig_got = ctx.zig_got;
         const macho_file = ctx.macho_file;
-        const zo = macho_file.getZigObject().?;
         try writer.writeAll("__zig_got\n");
         for (zig_got.entries.items, 0..) |entry, index| {
+            const zo = macho_file.getZigObject().?;
             const symbol = zo.symbols.items[entry];
             try writer.print("  {d}@0x{x} => {d}@0x{x} ({s})\n", .{
                 index,

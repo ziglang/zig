@@ -1542,6 +1542,9 @@ fn scanRelocs(self: *MachO) !void {
     for (self.objects.items) |index| {
         try self.getFile(index).?.createSymbolIndirection(self);
     }
+    for (self.dylibs.items) |index| {
+        try self.getFile(index).?.createSymbolIndirection(self);
+    }
     if (self.getInternalObject()) |obj| {
         try obj.asFile().createSymbolIndirection(self);
     }
@@ -2358,9 +2361,9 @@ fn allocateLinkeditSegment(self: *MachO) !void {
 
 fn resizeSections(self: *MachO) !void {
     const slice = self.sections.slice();
-    for (slice.items(.header), slice.items(.atoms), slice.items(.out)) |header, atoms, *out| {
-        if (atoms.items.len == 0) continue;
+    for (slice.items(.header), slice.items(.out), 0..) |header, *out, n_sect| {
         if (header.isZerofill()) continue;
+        if (self.isZigSection(@intCast(n_sect))) continue; // TODO this is horrible
         const cpu_arch = self.getTarget().cpu.arch;
         try out.resize(self.base.comp.gpa, header.size);
         const padding_byte: u8 = if (header.isCode() and cpu_arch == .x86_64) 0xcc else 0;
