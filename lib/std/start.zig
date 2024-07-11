@@ -496,19 +496,8 @@ fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.C) c_int {
 // General error message for a malformed return type
 const bad_main_ret = "expected return type of main to be 'void', '!void', 'noreturn', 'u8', or '!u8'";
 
-inline fn handleMainError(err: anytype) u8 {
-    std.log.err("{s}", .{@errorName(err)});
-
-    if (@errorReturnTrace()) |trace| {
-        std.debug.dumpStackTrace(trace.*);
-    }
-
-    return 1;
-}
-
 pub inline fn callMain() u8 {
-    const main_info = @typeInfo(@TypeOf(root.main)).Fn;
-    const ReturnType = main_info.return_type.?;
+    const ReturnType = @typeInfo(@TypeOf(root.main)).Fn.return_type.?;
 
     switch (ReturnType) {
         void => {
@@ -519,19 +508,21 @@ pub inline fn callMain() u8 {
             return root.main();
         },
         else => {
-            const return_info = @typeInfo(ReturnType);
-            if (return_info != .ErrorUnion) @compileError(bad_main_ret);
+            if (@typeInfo(ReturnType) != .ErrorUnion) @compileError(bad_main_ret);
 
-            switch (return_info.ErrorUnion.payload) {
-                void => {
-                    root.main() catch |err| return handleMainError(err);
-                    return 0;
-                },
-                u8 => {
-                    return root.main() catch |err| handleMainError(err);
-                },
+            const result = root.main() catch |err| {
+                std.log.err("{s}", .{@errorName(err)});
+                if (@errorReturnTrace()) |trace| {
+                    std.debug.dumpStackTrace(trace.*);
+                }
+                return 1;
+            };
+
+            return switch (@TypeOf(result)) {
+                void => 0,
+                u8 => result,
                 else => @compileError(bad_main_ret),
-            }
+            };
         },
     }
 }
