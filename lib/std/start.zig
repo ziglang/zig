@@ -521,7 +521,7 @@ pub inline fn callMain() u8 {
         },
         else => {
             const return_info = @typeInfo(ReturnType);
-            if (comptime std.meta.activeTag(return_info) != .ErrorUnion) @compileError(bad_main_ret);
+            if (return_info != .ErrorUnion) @compileError(bad_main_ret);
 
             switch (return_info.ErrorUnion.payload) {
                 void => {
