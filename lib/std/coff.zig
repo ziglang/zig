@@ -1002,6 +1002,10 @@ pub const MachineType = enum(u16) {
     I386 = 0x14c,
     /// Intel Itanium processor family
     IA64 = 0x200,
+    /// LoongArch32
+    LOONGARCH32 = 0x6232,
+    /// LoongArch64
+    LOONGARCH64 = 0x6264,
     /// Mitsubishi M32R little endian
     M32R = 0x9041,
     /// MIPS16
@@ -1047,6 +1051,8 @@ pub const MachineType = enum(u16) {
             .aarch64 => .ARM64,
             .riscv64 => .RISCV64,
             .x86_64 => .X64,
+            .loongarch32 => .LOONGARCH32,
+            .loongarch64 => .LOONGARCH64,
             // there's cases we don't (yet) handle
             else => unreachable,
         };
@@ -1062,6 +1068,8 @@ pub const MachineType = enum(u16) {
             .ARM64 => .aarch64,
             .RISCV64 => .riscv64,
             .X64 => .x86_64,
+            .LOONGARCH32 => .loongarch32,
+            .LOONGARCH64 => .loongarch64,
             // there's cases we don't (yet) handle
             else => null,
         };
