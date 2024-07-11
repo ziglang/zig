@@ -183,7 +183,11 @@ pub const TableAdapter = struct {
 
     pub fn hash(self: TableAdapter, a: Cache.Path) u32 {
         _ = self;
-        const seed: u32 = @bitCast(a.root_dir.handle.fd);
+        const seed = switch (@typeInfo(@TypeOf(a.root_dir.handle.fd))) {
+            .Pointer => @intFromPtr(a.root_dir.handle.fd),
+            .Int => @as(u32, @bitCast(a.root_dir.handle.fd)),
+            else => @compileError("unimplemented hash function"),
+        };
         return @truncate(Hash.hash(seed, a.sub_path));
     }
     pub fn eql(self: TableAdapter, a: Cache.Path, b: Cache.Path, b_index: usize) bool {
