@@ -16435,7 +16435,7 @@ fn airErrorName(self: *Self, inst: Air.Inst.Index) !void {
                 .size = .dword,
                 .index = err_reg.to64(),
                 .scale = .@"4",
-                .disp = 4,
+                .disp = (1 - 1) * 4,
             } },
         },
     );
@@ -16448,7 +16448,7 @@ fn airErrorName(self: *Self, inst: Air.Inst.Index) !void {
                 .size = .dword,
                 .index = err_reg.to64(),
                 .scale = .@"4",
-                .disp = 8,
+                .disp = (2 - 1) * 4,
             } },
         },
     );

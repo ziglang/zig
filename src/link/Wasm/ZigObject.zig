@@ -652,13 +652,22 @@ fn populateErrorNameTable(zig_object: *ZigObject, wasm_file: *Wasm, tid: Zcu.Per
     // Addend for each relocation to the table
     var addend: u32 = 0;
     const pt: Zcu.PerThread = .{ .zcu = wasm_file.base.comp.module.?, .tid = tid };
-    for (pt.zcu.global_error_set.keys()) |error_name| {
-        const atom = wasm_file.getAtomPtr(atom_index);
+    const slice_ty = Type.slice_const_u8_sentinel_0;
+    const atom = wasm_file.getAtomPtr(atom_index);
+    {
+        // TODO: remove this unreachable entry
+        try atom.code.appendNTimes(gpa, 0, 4);
+        try atom.code.writer(gpa).writeInt(u32, 0, .little);
+        atom.size += @intCast(slice_ty.abiSize(pt));
+        addend += 1;
 
-        const error_name_slice = error_name.toSlice(&pt.zcu.intern_pool);
+        try names_atom.code.append(gpa, 0);
+    }
+    const ip = &pt.zcu.intern_pool;
+    for (ip.global_error_set.getNamesFromMainThread()) |error_name| {
+        const error_name_slice = error_name.toSlice(ip);
         const len: u32 = @intCast(error_name_slice.len + 1); // names are 0-terminated
 
-        const slice_ty = Type.slice_const_u8_sentinel_0;
         const offset = @as(u32, @intCast(atom.code.items.len));
         // first we create the data for the slice of the name
         try atom.code.appendNTimes(gpa, 0, 4); // ptr to name, will be relocated
@@ -677,7 +686,7 @@ fn populateErrorNameTable(zig_object: *ZigObject, wasm_file: *Wasm, tid: Zcu.Per
         try names_atom.code.ensureUnusedCapacity(gpa, len);
         names_atom.code.appendSliceAssumeCapacity(error_name_slice[0..len]);
 
-        log.debug("Populated error name: '{}'", .{error_name.fmt(&pt.zcu.intern_pool)});
+        log.debug("Populated error name: '{}'", .{error_name.fmt(ip)});
     }
     names_atom.size = addend;
     zig_object.error_names_atom = names_atom_index;
@@ -1042,7 +1051,7 @@ fn setupErrorsLen(zig_object: *ZigObject, wasm_file: *Wasm) !void {
     const gpa = wasm_file.base.comp.gpa;
     const sym_index = zig_object.findGlobalSymbol("__zig_errors_len") orelse return;
 
-    const errors_len = wasm_file.base.comp.module.?.global_error_set.count();
+    const errors_len = 1 + wasm_file.base.comp.module.?.intern_pool.global_error_set.mutate.list.len;
     // overwrite existing atom if it already exists (maybe the error set has increased)
     // if not, allcoate a new atom.
     const atom_index = if (wasm_file.symbol_atom.get(.{ .file = zig_object.index, .index = sym_index })) |index| blk: {

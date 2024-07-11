@@ -1036,20 +1036,21 @@ pub const Object = struct {
 
         const pt = o.pt;
         const mod = pt.zcu;
+        const ip = &mod.intern_pool;
 
-        const error_name_list = mod.global_error_set.keys();
-        const llvm_errors = try mod.gpa.alloc(Builder.Constant, error_name_list.len);
+        const error_name_list = ip.global_error_set.getNamesFromMainThread();
+        const llvm_errors = try mod.gpa.alloc(Builder.Constant, 1 + error_name_list.len);
         defer mod.gpa.free(llvm_errors);
 
         // TODO: Address space
         const slice_ty = Type.slice_const_u8_sentinel_0;
         const llvm_usize_ty = try o.lowerType(Type.usize);
         const llvm_slice_ty = try o.lowerType(slice_ty);
-        const llvm_table_ty = try o.builder.arrayType(error_name_list.len, llvm_slice_ty);
+        const llvm_table_ty = try o.builder.arrayType(1 + error_name_list.len, llvm_slice_ty);
 
         llvm_errors[0] = try o.builder.undefConst(llvm_slice_ty);
-        for (llvm_errors[1..], error_name_list[1..]) |*llvm_error, name| {
-            const name_string = try o.builder.stringNull(name.toSlice(&mod.intern_pool));
+        for (llvm_errors[1..], error_name_list) |*llvm_error, name| {
+            const name_string = try o.builder.stringNull(name.toSlice(ip));
             const name_init = try o.builder.stringConst(name_string);
             const name_variable_index =
                 try o.builder.addVariable(.empty, name_init.typeOf(&o.builder), .default);
@@ -1085,7 +1086,7 @@ pub const Object = struct {
         // If there is no such function in the module, it means the source code does not need it.
         const name = o.builder.strtabStringIfExists(lt_errors_fn_name) orelse return;
         const llvm_fn = o.builder.getGlobal(name) orelse return;
-        const errors_len = o.pt.zcu.global_error_set.count();
+        const errors_len = o.pt.zcu.intern_pool.global_error_set.mutate.list.len;
 
         var wip = try Builder.WipFunction.init(&o.builder, .{
             .function = llvm_fn.ptrConst(&o.builder).kind.function,
@@ -1096,12 +1097,12 @@ pub const Object = struct {
 
         // Example source of the following LLVM IR:
         // fn __zig_lt_errors_len(index: u16) bool {
-        //     return index < total_errors_len;
+        //     return index <= total_errors_len;
         // }
 
         const lhs = wip.arg(0);
         const rhs = try o.builder.intValue(try o.errorIntType(), errors_len);
-        const is_lt = try wip.icmp(.ult, lhs, rhs, "");
+        const is_lt = try wip.icmp(.ule, lhs, rhs, "");
         _ = try wip.ret(is_lt);
         try wip.finish();
     }
@@ -3820,7 +3821,7 @@ pub const Object = struct {
                 return lowerBigInt(o, ty, bigint);
             },
             .err => |err| {
-                const int = try mod.getErrorValue(err.name);
+                const int = try pt.getErrorValue(err.name);
                 const llvm_int = try o.builder.intConst(try o.errorIntType(), int);
                 return llvm_int;
             },
@@ -9658,7 +9659,7 @@ pub const FuncGen = struct {
         defer wip_switch.finish(&self.wip);
 
         for (0..names.len) |name_index| {
-            const err_int = mod.global_error_set.getIndex(names.get(ip)[name_index]).?;
+            const err_int = ip.getErrorValueIfExists(names.get(ip)[name_index]).?;
             const this_tag_int_value = try o.builder.intConst(try o.errorIntType(), err_int);
             try wip_switch.addCase(this_tag_int_value, valid_block, &self.wip);
         }

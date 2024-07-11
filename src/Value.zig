@@ -417,7 +417,7 @@ pub fn writeToMemory(val: Value, ty: Type, pt: Zcu.PerThread, buffer: []u8) erro
             var bigint_buffer: BigIntSpace = undefined;
             const bigint = BigIntMutable.init(
                 &bigint_buffer.limbs,
-                mod.global_error_set.getIndex(name).?,
+                ip.getErrorValueIfExists(name).?,
             ).toConst();
             bigint.writeTwosComplement(buffer[0..byte_count], endian);
         },
@@ -427,7 +427,7 @@ pub fn writeToMemory(val: Value, ty: Type, pt: Zcu.PerThread, buffer: []u8) erro
                 if (val.unionTag(mod)) |union_tag| {
                     const union_obj = mod.typeToUnion(ty).?;
                     const field_index = mod.unionTagFieldIndex(union_obj, union_tag).?;
-                    const field_type = Type.fromInterned(union_obj.field_types.get(&mod.intern_pool)[field_index]);
+                    const field_type = Type.fromInterned(union_obj.field_types.get(ip)[field_index]);
                     const field_val = try val.fieldValue(pt, field_index);
                     const byte_count: usize = @intCast(field_type.abiSize(pt));
                     return writeToMemory(field_val, field_type, pt, buffer[0..byte_count]);
@@ -1455,9 +1455,9 @@ pub fn getErrorName(val: Value, mod: *const Module) InternPool.OptionalNullTermi
     };
 }
 
-pub fn getErrorInt(val: Value, mod: *const Module) Module.ErrorInt {
-    return if (getErrorName(val, mod).unwrap()) |err_name|
-        @intCast(mod.global_error_set.getIndex(err_name).?)
+pub fn getErrorInt(val: Value, zcu: *Zcu) Module.ErrorInt {
+    return if (getErrorName(val, zcu).unwrap()) |err_name|
+        zcu.intern_pool.getErrorValueIfExists(err_name).?
     else
         0;
 }

@@ -963,7 +963,7 @@ const DeclGen = struct {
                     break :cache result_id;
                 },
                 .err => |err| {
-                    const value = try mod.getErrorValue(err.name);
+                    const value = try pt.getErrorValue(err.name);
                     break :cache try self.constInt(ty, value, repr);
                 },
                 .error_union => |error_union| {

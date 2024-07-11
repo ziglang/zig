@@ -2698,7 +2698,7 @@ pub fn flushModule(self: *Dwarf, pt: Zcu.PerThread) !void {
         try addDbgInfoErrorSetNames(
             pt,
             Type.anyerror,
-            pt.zcu.global_error_set.keys(),
+            pt.zcu.intern_pool.global_error_set.getNamesFromMainThread(),
             target,
             &dbg_info_buffer,
         );
@@ -2867,7 +2867,7 @@ fn addDbgInfoErrorSetNames(
     mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), 0, target_endian);
 
     for (error_names) |error_name| {
-        const int = try pt.zcu.getErrorValue(error_name);
+        const int = try pt.getErrorValue(error_name);
         const error_name_slice = error_name.toSlice(&pt.zcu.intern_pool);
         // DW.AT.enumerator
         try dbg_info_buffer.ensureUnusedCapacity(error_name_slice.len + 2 + @sizeOf(u64));

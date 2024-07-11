@@ -3473,7 +3473,7 @@ fn zirErrorSetDecl(
         const name_index: Zir.NullTerminatedString = @enumFromInt(sema.code.extra[extra_index]);
         const name = sema.code.nullTerminatedString(name_index);
         const name_ip = try mod.intern_pool.getOrPutString(gpa, pt.tid, name, .no_embedded_nulls);
-        _ = try mod.getErrorValue(name_ip);
+        _ = try pt.getErrorValue(name_ip);
         const result = names.getOrPutAssumeCapacity(name_ip);
         assert(!result.found_existing); // verified in AstGen
     }
@@ -8705,7 +8705,7 @@ fn zirErrorValue(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
         inst_data.get(sema.code),
         .no_embedded_nulls,
     );
-    _ = try pt.zcu.getErrorValue(name);
+    _ = try pt.getErrorValue(name);
     // Create an error set type with only this error value, and return the value.
     const error_set_type = try pt.singleErrorSetType(name);
     return Air.internedToRef((try pt.intern(.{ .err = .{
@@ -8735,7 +8735,7 @@ fn zirIntFromError(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
         const err_name = ip.indexToKey(val.toIntern()).err.name;
         return Air.internedToRef((try pt.intValue(
             err_int_ty,
-            try mod.getErrorValue(err_name),
+            try pt.getErrorValue(err_name),
         )).toIntern());
     }
 
@@ -8746,10 +8746,7 @@ fn zirIntFromError(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
             const names = ip.indexToKey(err_set_ty_index).error_set_type.names;
             switch (names.len) {
                 0 => return Air.internedToRef((try pt.intValue(err_int_ty, 0)).toIntern()),
-                1 => {
-                    const int: Module.ErrorInt = @intCast(mod.global_error_set.getIndex(names.get(ip)[0]).?);
-                    return pt.intRef(err_int_ty, int);
-                },
+                1 => return pt.intRef(err_int_ty, ip.getErrorValueIfExists(names.get(ip)[0]).?),
                 else => {},
             }
         },
@@ -8765,6 +8762,7 @@ fn zirErrorFromInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
 
     const pt = sema.pt;
     const mod = pt.zcu;
+    const ip = &mod.intern_pool;
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
     const src = block.nodeOffset(extra.node);
     const operand_src = block.builtinCallArgSrc(extra.node, 0);
@@ -8774,11 +8772,16 @@ fn zirErrorFromInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
 
     if (try sema.resolveDefinedValue(block, operand_src, operand)) |value| {
         const int = try sema.usizeCast(block, operand_src, try value.toUnsignedIntSema(pt));
-        if (int > mod.global_error_set.count() or int == 0)
+        if (int > len: {
+            const mutate = &ip.global_error_set.mutate;
+            mutate.mutex.lock();
+            defer mutate.mutex.unlock();
+            break :len mutate.list.len;
+        } or int == 0)
             return sema.fail(block, operand_src, "integer value '{d}' represents no error", .{int});
         return Air.internedToRef((try pt.intern(.{ .err = .{
             .ty = .anyerror_type,
-            .name = mod.global_error_set.keys()[int],
+            .name = ip.global_error_set.shared.names.acquire().view().items(.@"0")[int - 1],
         } })));
     }
     try sema.requireRuntimeBlock(block, src, operand_src);
@@ -14005,7 +14008,7 @@ fn zirRetErrValueCode(sema: *Sema, inst: Zir.Inst.Index) CompileError!Air.Inst.R
         inst_data.get(sema.code),
         .no_embedded_nulls,
     );
-    _ = try mod.getErrorValue(name);
+    _ = try pt.getErrorValue(name);
     const error_set_type = try pt.singleErrorSetType(name);
     return Air.internedToRef((try pt.intern(.{ .err = .{
         .ty = error_set_type.toIntern(),
@@ -19564,7 +19567,7 @@ fn zirRetErrValue(
         inst_data.get(sema.code),
         .no_embedded_nulls,
     );
-    _ = try mod.getErrorValue(err_name);
+    _ = try pt.getErrorValue(err_name);
     // Return the error code from the function.
     const error_set_type = try pt.singleErrorSetType(err_name);
     const result_inst = Air.internedToRef((try pt.intern(.{ .err = .{
@@ -21607,7 +21610,7 @@ fn zirReify(
                 const name = try sema.sliceToIpString(block, src, name_val, .{
                     .needed_comptime_reason = "error set contents must be comptime-known",
                 });
-                _ = try mod.getErrorValue(name);
+                _ = try pt.getErrorValue(name);
                 const gop = names.getOrPutAssumeCapacity(name);
                 if (gop.found_existing) {
                     return sema.fail(block, src, "duplicate error '{}'", .{
@@ -27485,7 +27488,7 @@ fn fieldVal(
                         },
                         .simple_type => |t| {
                             assert(t == .anyerror);
-                            _ = try mod.getErrorValue(field_name);
+                            _ = try pt.getErrorValue(field_name);
                         },
                         else => unreachable,
                     }
@@ -27725,7 +27728,7 @@ fn fieldPtr(
                         },
                         .simple_type => |t| {
                             assert(t == .anyerror);
-                            _ = try mod.getErrorValue(field_name);
+                            _ = try pt.getErrorValue(field_name);
                         },
                         else => unreachable,
                     }

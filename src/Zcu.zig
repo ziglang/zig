@@ -141,9 +141,6 @@ failed_exports: std.AutoArrayHashMapUnmanaged(u32, *ErrorMsg) = .{},
 /// are stored here.
 cimport_errors: std.AutoArrayHashMapUnmanaged(AnalUnit, std.zig.ErrorBundle) = .{},
 
-/// Key is the error name, index is the error tag value. Index 0 has a length-0 string.
-global_error_set: GlobalErrorSet = .{},
-
 /// Maximum amount of distinct error values, set by --error-limit
 error_limit: ErrorInt,
 
@@ -2399,7 +2396,6 @@ pub const CompileError = error{
 pub fn init(mod: *Module, thread_count: usize) !void {
     const gpa = mod.gpa;
     try mod.intern_pool.init(gpa, thread_count);
-    try mod.global_error_set.put(gpa, .empty, {});
 }
 
 pub fn deinit(zcu: *Zcu) void {
@@ -2470,8 +2466,6 @@ pub fn deinit(zcu: *Zcu) void {
     zcu.free_exports.deinit(gpa);
     zcu.single_exports.deinit(gpa);
     zcu.multi_exports.deinit(gpa);
-
-    zcu.global_error_set.deinit(gpa);
 
     zcu.potentially_outdated.deinit(gpa);
     zcu.outdated.deinit(gpa);
@@ -3106,22 +3100,6 @@ pub fn addUnitReference(zcu: *Zcu, src_unit: AnalUnit, referenced_unit: AnalUnit
     };
 
     gop.value_ptr.* = @intCast(ref_idx);
-}
-
-pub fn getErrorValue(
-    mod: *Module,
-    name: InternPool.NullTerminatedString,
-) Allocator.Error!ErrorInt {
-    const gop = try mod.global_error_set.getOrPut(mod.gpa, name);
-    return @as(ErrorInt, @intCast(gop.index));
-}
-
-pub fn getErrorValueFromSlice(
-    mod: *Module,
-    name: []const u8,
-) Allocator.Error!ErrorInt {
-    const interned_name = try mod.intern_pool.getOrPutString(mod.gpa, name);
-    return getErrorValue(mod, interned_name);
 }
 
 pub fn errorSetBits(mod: *Module) u16 {

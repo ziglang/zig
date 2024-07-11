@@ -2287,6 +2287,17 @@ pub fn allocateNewDecl(pt: Zcu.PerThread, namespace: Zcu.Namespace.Index) !Zcu.D
     return decl_index;
 }
 
+pub fn getErrorValue(
+    pt: Zcu.PerThread,
+    name: InternPool.NullTerminatedString,
+) Allocator.Error!Zcu.ErrorInt {
+    return pt.zcu.intern_pool.getErrorValue(pt.zcu.gpa, pt.tid, name);
+}
+
+pub fn getErrorValueFromSlice(pt: Zcu.PerThread, name: []const u8) Allocator.Error!Zcu.ErrorInt {
+    return pt.getErrorValue(try pt.zcu.intern_pool.getOrPutString(pt.zcu.gpa, name));
+}
+
 pub fn initNewAnonDecl(
     pt: Zcu.PerThread,
     new_decl_index: Zcu.Decl.Index,

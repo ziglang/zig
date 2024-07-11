@@ -6,6 +6,8 @@ locals: []Local = &.{},
 /// Length must be a power of two and represents the number of simultaneous
 /// writers that can mutate any single sharded data structure.
 shards: []Shard = &.{},
+/// Key is the error name, index is the error tag value. Index 0 has a length-0 string.
+global_error_set: GlobalErrorSet = GlobalErrorSet.empty,
 /// Cached number of active bits in a `tid`.
 tid_width: if (single_threaded) u0 else std.math.Log2Int(u32) = 0,
 /// Cached shift amount to put a `tid` in the top bits of a 31-bit value.
@@ -10129,10 +10131,10 @@ pub fn getOrPutTrailingString(
     defer shard.mutate.string_map.len += 1;
     const map_header = map.header().*;
     if (shard.mutate.string_map.len < map_header.capacity * 3 / 5) {
+        strings.appendAssumeCapacity(.{0});
         const entry = &map.entries[map_index];
         entry.hash = hash;
         entry.release(@enumFromInt(@intFromEnum(value)));
-        strings.appendAssumeCapacity(.{0});
         return value;
     }
     const arena_state = &ip.getLocal(tid).mutate.arena;
@@ -10171,12 +10173,12 @@ pub fn getOrPutTrailingString(
         map_index &= new_map_mask;
         if (map.entries[map_index].value == .none) break;
     }
+    strings.appendAssumeCapacity(.{0});
     map.entries[map_index] = .{
         .value = @enumFromInt(@intFromEnum(value)),
         .hash = hash,
     };
     shard.shared.string_map.release(new_map);
-    strings.appendAssumeCapacity(.{0});
     return value;
 }
 
@@ -10941,4 +10943,160 @@ fn ptrsHaveSameAlignment(ip: *InternPool, a_ty: Index, a_info: Key.PtrType, b_ty
     const b_info = ip.indexToKey(b_ty).ptr_type;
     return a_info.flags.alignment == b_info.flags.alignment and
         (a_info.child == b_info.child or a_info.flags.alignment != .none);
+}
+
+const GlobalErrorSet = struct {
+    shared: struct {
+        names: Names,
+        map: Shard.Map(GlobalErrorSet.Index),
+    } align(std.atomic.cache_line),
+    mutate: Local.MutexListMutate align(std.atomic.cache_line),
+
+    const Names = Local.List(struct { NullTerminatedString });
+
+    const empty: GlobalErrorSet = .{
+        .shared = .{
+            .names = Names.empty,
+            .map = Shard.Map(GlobalErrorSet.Index).empty,
+        },
+        .mutate = Local.MutexListMutate.empty,
+    };
+
+    const Index = enum(Zcu.ErrorInt) {
+        none = 0,
+        _,
+    };
+
+    /// Not thread-safe, may only be called from the main thread.
+    pub fn getNamesFromMainThread(ges: *const GlobalErrorSet) []const NullTerminatedString {
+        return ges.shared.names.view().items(.@"0")[0..ges.mutate.list.len];
+    }
+
+    fn getErrorValue(
+        ges: *GlobalErrorSet,
+        gpa: Allocator,
+        arena_state: *std.heap.ArenaAllocator.State,
+        name: NullTerminatedString,
+    ) Allocator.Error!GlobalErrorSet.Index {
+        if (name == .empty) return .none;
+        const hash = std.hash.uint32(@intFromEnum(name));
+        var map = ges.shared.map.acquire();
+        const Map = @TypeOf(map);
+        var map_mask = map.header().mask();
+        const names = ges.shared.names.acquire();
+        var map_index = hash;
+        while (true) : (map_index += 1) {
+            map_index &= map_mask;
+            const entry = &map.entries[map_index];
+            const index = entry.acquire();
+            if (index == .none) break;
+            if (entry.hash != hash) continue;
+            if (names.view().items(.@"0")[@intFromEnum(index) - 1] == name) return index;
+        }
+        ges.mutate.mutex.lock();
+        defer ges.mutate.mutex.unlock();
+        if (map.entries != ges.shared.map.entries) {
+            map = ges.shared.map;
+            map_mask = map.header().mask();
+            map_index = hash;
+        }
+        while (true) : (map_index += 1) {
+            map_index &= map_mask;
+            const entry = &map.entries[map_index];
+            const index = entry.value;
+            if (index == .none) break;
+            if (entry.hash != hash) continue;
+            if (names.view().items(.@"0")[@intFromEnum(index) - 1] == name) return index;
+        }
+        const mutable_names: Names.Mutable = .{
+            .gpa = gpa,
+            .arena = arena_state,
+            .mutate = &ges.mutate.list,
+            .list = &ges.shared.names,
+        };
+        try mutable_names.ensureUnusedCapacity(1);
+        const map_header = map.header().*;
+        if (ges.mutate.list.len < map_header.capacity * 3 / 5) {
+            mutable_names.appendAssumeCapacity(.{name});
+            const index: GlobalErrorSet.Index = @enumFromInt(mutable_names.mutate.len);
+            const entry = &map.entries[map_index];
+            entry.hash = hash;
+            entry.release(index);
+            return index;
+        }
+        var arena = arena_state.promote(gpa);
+        defer arena_state.* = arena.state;
+        const new_map_capacity = map_header.capacity * 2;
+        const new_map_buf = try arena.allocator().alignedAlloc(
+            u8,
+            Map.alignment,
+            Map.entries_offset + new_map_capacity * @sizeOf(Map.Entry),
+        );
+        const new_map: Map = .{ .entries = @ptrCast(new_map_buf[Map.entries_offset..].ptr) };
+        new_map.header().* = .{ .capacity = new_map_capacity };
+        @memset(new_map.entries[0..new_map_capacity], .{ .value = .none, .hash = undefined });
+        const new_map_mask = new_map.header().mask();
+        map_index = 0;
+        while (map_index < map_header.capacity) : (map_index += 1) {
+            const entry = &map.entries[map_index];
+            const index = entry.value;
+            if (index == .none) continue;
+            const item_hash = entry.hash;
+            var new_map_index = item_hash;
+            while (true) : (new_map_index += 1) {
+                new_map_index &= new_map_mask;
+                const new_entry = &new_map.entries[new_map_index];
+                if (new_entry.value != .none) continue;
+                new_entry.* = .{
+                    .value = index,
+                    .hash = item_hash,
+                };
+                break;
+            }
+        }
+        map = new_map;
+        map_index = hash;
+        while (true) : (map_index += 1) {
+            map_index &= new_map_mask;
+            if (map.entries[map_index].value == .none) break;
+        }
+        mutable_names.appendAssumeCapacity(.{name});
+        const index: GlobalErrorSet.Index = @enumFromInt(mutable_names.mutate.len);
+        map.entries[map_index] = .{ .value = index, .hash = hash };
+        ges.shared.map.release(new_map);
+        return index;
+    }
+
+    fn getErrorValueIfExists(
+        ges: *const GlobalErrorSet,
+        name: NullTerminatedString,
+    ) ?GlobalErrorSet.Index {
+        if (name == .empty) return .none;
+        const hash = std.hash.uint32(@intFromEnum(name));
+        const map = ges.shared.map.acquire();
+        const map_mask = map.header().mask();
+        const names_items = ges.shared.names.acquire().view().items(.@"0");
+        var map_index = hash;
+        while (true) : (map_index += 1) {
+            map_index &= map_mask;
+            const entry = &map.entries[map_index];
+            const index = entry.acquire();
+            if (index == .none) return null;
+            if (entry.hash != hash) continue;
+            if (names_items[@intFromEnum(index) - 1] == name) return index;
+        }
+    }
+};
+
+pub fn getErrorValue(
+    ip: *InternPool,
+    gpa: Allocator,
+    tid: Zcu.PerThread.Id,
+    name: NullTerminatedString,
+) Allocator.Error!Zcu.ErrorInt {
+    return @intFromEnum(try ip.global_error_set.getErrorValue(gpa, &ip.getLocal(tid).mutate.arena, name));
+}
+
+pub fn getErrorValueIfExists(ip: *const InternPool, name: NullTerminatedString) ?Zcu.ErrorInt {
+    return @intFromEnum(ip.global_error_set.getErrorValueIfExists(name) orelse return null);
 }
