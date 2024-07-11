@@ -10969,7 +10969,8 @@ const GlobalErrorSet = struct {
 
     /// Not thread-safe, may only be called from the main thread.
     pub fn getNamesFromMainThread(ges: *const GlobalErrorSet) []const NullTerminatedString {
-        return ges.shared.names.view().items(.@"0")[0..ges.mutate.list.len];
+        const len = ges.mutate.list.len;
+        return if (len > 0) ges.shared.names.view().items(.@"0")[0..len] else &.{};
     }
 
     fn getErrorValue(
