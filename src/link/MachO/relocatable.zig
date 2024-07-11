@@ -26,68 +26,70 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]c
         return;
     }
 
-    for (positionals.items) |obj| {
-        macho_file.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
-            error.MalformedObject,
-            error.MalformedArchive,
-            error.InvalidCpuArch,
-            error.InvalidTarget,
-            => continue, // already reported
-            error.UnknownFileType => try macho_file.reportParseError(obj.path, "unknown file type for an object file", .{}),
-            else => |e| try macho_file.reportParseError(
-                obj.path,
-                "unexpected error: parsing input file failed with error {s}",
-                .{@errorName(e)},
-            ),
-        };
-    }
+    @panic("TODO -r mode");
 
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+    // for (positionals.items) |obj| {
+    //     macho_file.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
+    //         error.MalformedObject,
+    //         error.MalformedArchive,
+    //         error.InvalidCpuArch,
+    //         error.InvalidTarget,
+    //         => continue, // already reported
+    //         error.UnknownFileType => try macho_file.reportParseError(obj.path, "unknown file type for an object file", .{}),
+    //         else => |e| try macho_file.reportParseError(
+    //             obj.path,
+    //             "unexpected error: parsing input file failed with error {s}",
+    //             .{@errorName(e)},
+    //         ),
+    //     };
+    // }
 
-    try macho_file.addUndefinedGlobals();
-    try macho_file.resolveSymbols();
-    try macho_file.parseDebugInfo();
-    try macho_file.dedupLiterals();
-    markExports(macho_file);
-    claimUnresolved(macho_file);
-    try initOutputSections(macho_file);
-    try macho_file.sortSections();
-    try macho_file.addAtomsToSections();
-    try calcSectionSizes(macho_file);
+    // if (comp.link_errors.items.len > 0) return error.FlushFailure;
 
-    try createSegment(macho_file);
-    try allocateSections(macho_file);
-    allocateSegment(macho_file);
+    // try macho_file.addUndefinedGlobals();
+    // try macho_file.resolveSymbols();
+    // try macho_file.parseDebugInfo();
+    // try macho_file.dedupLiterals();
+    // markExports(macho_file);
+    // claimUnresolved(macho_file);
+    // try initOutputSections(macho_file);
+    // try macho_file.sortSections();
+    // try macho_file.addAtomsToSections();
+    // try calcSectionSizes(macho_file);
 
-    var off = off: {
-        const seg = macho_file.segments.items[0];
-        const off = math.cast(u32, seg.fileoff + seg.filesize) orelse return error.Overflow;
-        break :off mem.alignForward(u32, off, @alignOf(macho.relocation_info));
-    };
-    off = allocateSectionsRelocs(macho_file, off);
+    // try createSegment(macho_file);
+    // try allocateSections(macho_file);
+    // allocateSegment(macho_file);
 
-    if (build_options.enable_logging) {
-        state_log.debug("{}", .{macho_file.dumpState()});
-    }
+    // var off = off: {
+    //     const seg = macho_file.segments.items[0];
+    //     const off = math.cast(u32, seg.fileoff + seg.filesize) orelse return error.Overflow;
+    //     break :off mem.alignForward(u32, off, @alignOf(macho.relocation_info));
+    // };
+    // off = allocateSectionsRelocs(macho_file, off);
 
-    try macho_file.calcSymtabSize();
-    try writeAtoms(macho_file);
-    try writeCompactUnwind(macho_file);
-    try writeEhFrame(macho_file);
+    // if (build_options.enable_logging) {
+    //     state_log.debug("{}", .{macho_file.dumpState()});
+    // }
 
-    off = mem.alignForward(u32, off, @alignOf(u64));
-    off = try macho_file.writeDataInCode(0, off);
-    off = mem.alignForward(u32, off, @alignOf(u64));
-    off = try macho_file.writeSymtab(off);
-    off = mem.alignForward(u32, off, @alignOf(u64));
-    off = try macho_file.writeStrtab(off);
+    // try macho_file.calcSymtabSize();
+    // try writeAtoms(macho_file);
+    // try writeCompactUnwind(macho_file);
+    // try writeEhFrame(macho_file);
 
-    // In order to please Apple ld (and possibly other MachO linkers in the wild),
-    // we will now sanitize segment names of Zig-specific segments.
-    sanitizeZigSections(macho_file);
+    // off = mem.alignForward(u32, off, @alignOf(u64));
+    // off = try macho_file.writeDataInCode(0, off);
+    // off = mem.alignForward(u32, off, @alignOf(u64));
+    // off = try macho_file.writeSymtab(off);
+    // off = mem.alignForward(u32, off, @alignOf(u64));
+    // off = try macho_file.writeStrtab(off);
 
-    const ncmds, const sizeofcmds = try writeLoadCommands(macho_file);
-    try writeHeader(macho_file, ncmds, sizeofcmds);
+    // // In order to please Apple ld (and possibly other MachO linkers in the wild),
+    // // we will now sanitize segment names of Zig-specific segments.
+    // sanitizeZigSections(macho_file);
+
+    // const ncmds, const sizeofcmds = try writeLoadCommands(macho_file);
+    // try writeHeader(macho_file, ncmds, sizeofcmds);
 }
 
 pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
