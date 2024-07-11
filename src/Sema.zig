@@ -2853,7 +2853,7 @@ fn zirStructDecl(
     }
 
     try pt.finalizeAnonDecl(new_decl_index);
-    try mod.comp.work_queue.writeItem(.{ .resolve_type_fully = wip_ty.index });
+    try mod.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
     try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .decl = new_decl_index }));
     return Air.internedToRef(wip_ty.finish(ip, new_decl_index, new_namespace_index));
 }
@@ -3358,7 +3358,7 @@ fn zirUnionDecl(
     }
 
     try pt.finalizeAnonDecl(new_decl_index);
-    try mod.comp.work_queue.writeItem(.{ .resolve_type_fully = wip_ty.index });
+    try mod.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
     try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .decl = new_decl_index }));
     return Air.internedToRef(wip_ty.finish(ip, new_decl_index, new_namespace_index));
 }
@@ -22203,7 +22203,7 @@ fn reifyUnion(
     loaded_union.setStatus(ip, .have_field_types);
 
     try pt.finalizeAnonDecl(new_decl_index);
-    try mod.comp.work_queue.writeItem(.{ .resolve_type_fully = wip_ty.index });
+    try mod.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
     try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .decl = new_decl_index }));
     return Air.internedToRef(wip_ty.finish(ip, new_decl_index, .none));
 }
@@ -22470,7 +22470,7 @@ fn reifyStruct(
     }
 
     try pt.finalizeAnonDecl(new_decl_index);
-    try mod.comp.work_queue.writeItem(.{ .resolve_type_fully = wip_ty.index });
+    try mod.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
     try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .decl = new_decl_index }));
     return Air.internedToRef(wip_ty.finish(ip, new_decl_index, .none));
 }

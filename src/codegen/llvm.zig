@@ -1625,7 +1625,7 @@ pub const Object = struct {
                         llvm_arg_i += 1;
 
                         const alignment = param_ty.abiAlignment(pt).toLlvm();
-                        const arg_ptr = try buildAllocaInner(&wip, param_llvm_ty, alignment, target);
+                        const arg_ptr = try buildAllocaInner(&wip, param.typeOfWip(&wip), alignment, target);
                         _ = try wip.store(.normal, param, arg_ptr, alignment);
 
                         args.appendAssumeCapacity(if (isByRef(param_ty, pt))

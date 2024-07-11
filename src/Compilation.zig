@@ -101,7 +101,15 @@ link_error_flags: link.File.ErrorFlags = .{},
 link_errors: std.ArrayListUnmanaged(link.File.ErrorMsg) = .{},
 lld_errors: std.ArrayListUnmanaged(LldError) = .{},
 
-work_queue: std.fifo.LinearFifo(Job, .Dynamic),
+work_queues: [
+    len: {
+        var len: usize = 0;
+        for (std.enums.values(Job.Tag)) |tag| {
+            len = @max(Job.stage(tag) + 1, len);
+        }
+        break :len len;
+    }
+]std.fifo.LinearFifo(Job, .Dynamic),
 
 codegen_work: if (InternPool.single_threaded) void else struct {
     mutex: std.Thread.Mutex,
@@ -370,6 +378,20 @@ const Job = union(enum) {
 
     /// The value is the index into `system_libs`.
     windows_import_lib: usize,
+
+    const Tag = @typeInfo(Job).Union.tag_type.?;
+    fn stage(tag: Tag) usize {
+        return switch (tag) {
+            // Prioritize functions so that codegen can get to work on them on a
+            // separate thread, while Sema goes back to its own work.
+            .resolve_type_fully, .analyze_func, .codegen_func => 0,
+            else => 1,
+        };
+    }
+    comptime {
+        // Job dependencies
+        assert(stage(.resolve_type_fully) <= stage(.codegen_func));
+    }
 };
 
 const CodegenJob = union(enum) {
@@ -1452,7 +1474,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .emit_asm = options.emit_asm,
             .emit_llvm_ir = options.emit_llvm_ir,
             .emit_llvm_bc = options.emit_llvm_bc,
-            .work_queue = std.fifo.LinearFifo(Job, .Dynamic).init(gpa),
+            .work_queues = .{std.fifo.LinearFifo(Job, .Dynamic).init(gpa)} ** @typeInfo(std.meta.FieldType(Compilation, .work_queues)).Array.len,
             .codegen_work = if (InternPool.single_threaded) {} else .{
                 .mutex = .{},
                 .cond = .{},
@@ -1760,12 +1782,12 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
             if (glibc.needsCrtiCrtn(target)) {
-                try comp.work_queue.write(&[_]Job{
+                try comp.queueJobs(&[_]Job{
                     .{ .glibc_crt_file = .crti_o },
                     .{ .glibc_crt_file = .crtn_o },
                 });
             }
-            try comp.work_queue.write(&[_]Job{
+            try comp.queueJobs(&[_]Job{
                 .{ .glibc_crt_file = .scrt1_o },
                 .{ .glibc_crt_file = .libc_nonshared_a },
                 .{ .glibc_shared_objects = {} },
@@ -1774,14 +1796,13 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         if (comp.wantBuildMuslFromSource()) {
             if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
-            try comp.work_queue.ensureUnusedCapacity(6);
             if (musl.needsCrtiCrtn(target)) {
-                comp.work_queue.writeAssumeCapacity(&[_]Job{
+                try comp.queueJobs(&[_]Job{
                     .{ .musl_crt_file = .crti_o },
                     .{ .musl_crt_file = .crtn_o },
                 });
             }
-            comp.work_queue.writeAssumeCapacity(&[_]Job{
+            try comp.queueJobs(&[_]Job{
                 .{ .musl_crt_file = .crt1_o },
                 .{ .musl_crt_file = .scrt1_o },
                 .{ .musl_crt_file = .rcrt1_o },
@@ -1795,15 +1816,12 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         if (comp.wantBuildWasiLibcFromSource()) {
             if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
-            // worst-case we need all components
-            try comp.work_queue.ensureUnusedCapacity(comp.wasi_emulated_libs.len + 2);
-
             for (comp.wasi_emulated_libs) |crt_file| {
-                comp.work_queue.writeItemAssumeCapacity(.{
+                try comp.queueJob(.{
                     .wasi_libc_crt_file = crt_file,
                 });
             }
-            comp.work_queue.writeAssumeCapacity(&[_]Job{
+            try comp.queueJobs(&[_]Job{
                 .{ .wasi_libc_crt_file = wasi_libc.execModelCrtFile(comp.config.wasi_exec_model) },
                 .{ .wasi_libc_crt_file = .libc_a },
             });
@@ -1813,9 +1831,10 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
             const crt_job: Job = .{ .mingw_crt_file = if (is_dyn_lib) .dllcrt2_o else .crt2_o };
-            try comp.work_queue.ensureUnusedCapacity(2);
-            comp.work_queue.writeItemAssumeCapacity(.{ .mingw_crt_file = .mingw32_lib });
-            comp.work_queue.writeItemAssumeCapacity(crt_job);
+            try comp.queueJobs(&.{
+                .{ .mingw_crt_file = .mingw32_lib },
+                crt_job,
+            });
 
             // When linking mingw-w64 there are some import libs we always need.
             for (mingw.always_link_libs) |name| {
@@ -1829,20 +1848,19 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         // Generate Windows import libs.
         if (target.os.tag == .windows) {
             const count = comp.system_libs.count();
-            try comp.work_queue.ensureUnusedCapacity(count);
             for (0..count) |i| {
-                comp.work_queue.writeItemAssumeCapacity(.{ .windows_import_lib = i });
+                try comp.queueJob(.{ .windows_import_lib = i });
             }
         }
         if (comp.wantBuildLibUnwindFromSource()) {
-            try comp.work_queue.writeItem(.{ .libunwind = {} });
+            try comp.queueJob(.{ .libunwind = {} });
         }
         if (build_options.have_llvm and is_exe_or_dyn_lib and comp.config.link_libcpp) {
-            try comp.work_queue.writeItem(.libcxx);
-            try comp.work_queue.writeItem(.libcxxabi);
+            try comp.queueJob(.libcxx);
+            try comp.queueJob(.libcxxabi);
         }
         if (build_options.have_llvm and comp.config.any_sanitize_thread) {
-            try comp.work_queue.writeItem(.libtsan);
+            try comp.queueJob(.libtsan);
         }
 
         if (target.isMinGW() and comp.config.any_non_single_threaded) {
@@ -1872,7 +1890,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         if (!comp.skip_linker_dependencies and is_exe_or_dyn_lib and
             !comp.config.link_libc and capable_of_building_zig_libc)
         {
-            try comp.work_queue.writeItem(.{ .zig_libc = {} });
+            try comp.queueJob(.{ .zig_libc = {} });
         }
     }
 
@@ -1883,7 +1901,7 @@ pub fn destroy(comp: *Compilation) void {
     if (comp.bin_file) |lf| lf.destroy();
     if (comp.module) |zcu| zcu.deinit();
     comp.cache_use.deinit();
-    comp.work_queue.deinit();
+    for (comp.work_queues) |work_queue| work_queue.deinit();
     if (!InternPool.single_threaded) comp.codegen_work.queue.deinit();
     comp.c_object_work_queue.deinit();
     if (!build_options.only_core_functionality) {
@@ -2199,13 +2217,13 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             }
         }
 
-        try comp.work_queue.writeItem(.{ .analyze_mod = std_mod });
+        try comp.queueJob(.{ .analyze_mod = std_mod });
         if (comp.config.is_test) {
-            try comp.work_queue.writeItem(.{ .analyze_mod = zcu.main_mod });
+            try comp.queueJob(.{ .analyze_mod = zcu.main_mod });
         }
 
         if (zcu.root_mod.deps.get("compiler_rt")) |compiler_rt_mod| {
-            try comp.work_queue.writeItem(.{ .analyze_mod = compiler_rt_mod });
+            try comp.queueJob(.{ .analyze_mod = compiler_rt_mod });
         }
     }
 
@@ -3095,6 +3113,39 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         for (zcu.failed_embed_files.values()) |error_msg| {
             try addModuleErrorMsg(zcu, &bundle, error_msg.*, &all_references);
         }
+        {
+            const SortOrder = struct {
+                zcu: *Zcu,
+                err: *?Error,
+
+                const Error = @typeInfo(
+                    @typeInfo(@TypeOf(Zcu.SrcLoc.span)).Fn.return_type.?,
+                ).ErrorUnion.error_set;
+
+                pub fn lessThan(ctx: @This(), lhs_index: usize, rhs_index: usize) bool {
+                    if (ctx.err.*) |_| return lhs_index < rhs_index;
+                    const errors = ctx.zcu.failed_analysis.values();
+                    const lhs_src_loc = errors[lhs_index].src_loc.upgrade(ctx.zcu);
+                    const rhs_src_loc = errors[rhs_index].src_loc.upgrade(ctx.zcu);
+                    return if (lhs_src_loc.file_scope != rhs_src_loc.file_scope) std.mem.order(
+                        u8,
+                        lhs_src_loc.file_scope.sub_file_path,
+                        rhs_src_loc.file_scope.sub_file_path,
+                    ).compare(.lt) else (lhs_src_loc.span(ctx.zcu.gpa) catch |e| {
+                        ctx.err.* = e;
+                        return lhs_index < rhs_index;
+                    }).main < (rhs_src_loc.span(ctx.zcu.gpa) catch |e| {
+                        ctx.err.* = e;
+                        return lhs_index < rhs_index;
+                    }).main;
+                }
+            };
+            var err: ?SortOrder.Error = null;
+            // This leaves `zcu.failed_analysis` an invalid state, but we do not
+            // need lookups anymore anyway.
+            zcu.failed_analysis.entries.sort(SortOrder{ .zcu = zcu, .err = &err });
+            if (err) |e| return e;
+        }
         for (zcu.failed_analysis.keys(), zcu.failed_analysis.values()) |anal_unit, error_msg| {
             const decl_index = switch (anal_unit.unwrap()) {
                 .decl => |d| d,
@@ -3543,18 +3594,18 @@ fn performAllTheWorkInner(
         comp.codegen_work.cond.signal();
     };
 
-    while (true) {
-        if (comp.work_queue.readItem()) |work_item| {
-            try processOneJob(@intFromEnum(Zcu.PerThread.Id.main), comp, work_item, main_progress_node);
-            continue;
-        }
+    work: while (true) {
+        for (&comp.work_queues) |*work_queue| if (work_queue.readItem()) |job| {
+            try processOneJob(@intFromEnum(Zcu.PerThread.Id.main), comp, job, main_progress_node);
+            continue :work;
+        };
         if (comp.module) |zcu| {
             // If there's no work queued, check if there's anything outdated
             // which we need to work on, and queue it if so.
             if (try zcu.findOutdatedToAnalyze()) |outdated| {
                 switch (outdated.unwrap()) {
-                    .decl => |decl| try comp.work_queue.writeItem(.{ .analyze_decl = decl }),
-                    .func => |func| try comp.work_queue.writeItem(.{ .analyze_func = func }),
+                    .decl => |decl| try comp.queueJob(.{ .analyze_decl = decl }),
+                    .func => |func| try comp.queueJob(.{ .analyze_func = func }),
                 }
                 continue;
             }
@@ -3574,6 +3625,14 @@ fn performAllTheWorkInner(
 }
 
 const JobError = Allocator.Error;
+
+pub fn queueJob(comp: *Compilation, job: Job) !void {
+    try comp.work_queues[Job.stage(job)].writeItem(job);
+}
+
+pub fn queueJobs(comp: *Compilation, jobs: []const Job) !void {
+    for (jobs) |job| try comp.queueJob(job);
+}
 
 fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progress.Node) JobError!void {
     switch (job) {
@@ -6478,7 +6537,7 @@ pub fn addLinkLib(comp: *Compilation, lib_name: []const u8) !void {
         };
         const target = comp.root_mod.resolved_target.result;
         if (target.os.tag == .windows and target.ofmt != .c) {
-            try comp.work_queue.writeItem(.{
+            try comp.queueJob(.{
                 .windows_import_lib = comp.system_libs.count() - 1,
             });
         }

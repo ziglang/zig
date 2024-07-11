@@ -729,7 +729,7 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
         return;
     }
 
-    try comp.work_queue.writeItem(.{ .codegen_func = .{
+    try comp.queueJob(.{ .codegen_func = .{
         .func = func_index,
         .air = air,
     } });
@@ -903,7 +903,7 @@ fn getFileRootStruct(
     decl.analysis = .complete;
 
     try pt.scanNamespace(namespace_index, decls, decl);
-    try zcu.comp.work_queue.writeItem(.{ .resolve_type_fully = wip_ty.index });
+    try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
     return wip_ty.finish(ip, decl_index, namespace_index.toOptional());
 }
 
@@ -1311,10 +1311,10 @@ fn semaDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) !Zcu.SemaDeclResult {
         // codegen backend wants full access to the Decl Type.
         try decl_ty.resolveFully(pt);
 
-        try zcu.comp.work_queue.writeItem(.{ .codegen_decl = decl_index });
+        try zcu.comp.queueJob(.{ .codegen_decl = decl_index });
 
         if (result.invalidate_decl_ref and zcu.emit_h != null) {
-            try zcu.comp.work_queue.writeItem(.{ .emit_h_decl = decl_index });
+            try zcu.comp.queueJob(.{ .emit_h_decl = decl_index });
         }
     }
 
@@ -1740,8 +1740,6 @@ pub fn scanNamespace(
     var seen_decls: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
     defer seen_decls.deinit(gpa);
 
-    try zcu.comp.work_queue.ensureUnusedCapacity(decls.len);
-
     namespace.decls.clearRetainingCapacity();
     try namespace.decls.ensureTotalCapacity(gpa, decls.len);
 
@@ -1967,7 +1965,7 @@ const ScanDeclIter = struct {
                 log.debug("scanDecl queue analyze_decl file='{s}' decl_name='{}' decl_index={d}", .{
                     namespace.fileScope(zcu).sub_file_path, decl_name.fmt(ip), decl_index,
                 });
-                comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = decl_index });
+                try comp.queueJob(.{ .analyze_decl = decl_index });
             }
         }
 
@@ -1976,7 +1974,7 @@ const ScanDeclIter = struct {
             // updated line numbers. Look into this!
             // TODO Look into detecting when this would be unnecessary by storing enough state
             // in `Decl` to notice that the line number did not change.
-            comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl_index });
+            try comp.queueJob(.{ .update_line_number = decl_index });
         }
     }
 };
@@ -1991,7 +1989,7 @@ pub fn abortAnonDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) void {
 /// Finalize the creation of an anon decl.
 pub fn finalizeAnonDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) Allocator.Error!void {
     if (pt.zcu.declPtr(decl_index).typeOf(pt.zcu).isFnOrHasRuntimeBits(pt)) {
-        try pt.zcu.comp.work_queue.writeItem(.{ .codegen_decl = decl_index });
+        try pt.zcu.comp.queueJob(.{ .codegen_decl = decl_index });
     }
 }
 
