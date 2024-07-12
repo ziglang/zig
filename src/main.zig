@@ -4691,6 +4691,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var verbose_llvm_cpu_features = false;
     var fetch_only = false;
     var system_pkg_dir_path: ?[]const u8 = null;
+    var debug_target: ?[]const u8 = null;
 
     const argv_index_exe = child_argv.items.len;
     _ = try child_argv.addOne();
@@ -4799,6 +4800,14 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     } else {
                         warn("Zig was compiled without debug extensions. --debug-compile-errors has no effect.", .{});
                     }
+                } else if (mem.eql(u8, arg, "--debug-target")) {
+                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                    i += 1;
+                    if (build_options.enable_debug_extensions) {
+                        debug_target = args[i];
+                    } else {
+                        warn("Zig was compiled without debug extensions. --debug-target has no effect.", .{});
+                    }
                 } else if (mem.eql(u8, arg, "--verbose-link")) {
                     verbose_link = true;
                 } else if (mem.eql(u8, arg, "--verbose-cc")) {
@@ -4857,11 +4866,27 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     });
     defer root_prog_node.end();
 
-    const target_query: std.Target.Query = .{};
-    const resolved_target: Package.Module.ResolvedTarget = .{
-        .result = std.zig.resolveTargetQueryOrFatal(target_query),
-        .is_native_os = true,
-        .is_native_abi = true,
+    // Normally the build runner is compiled for the host target but here is
+    // some code to help when debugging edits to the build runner so that you
+    // can make sure it compiles successfully on other targets.
+    const resolved_target: Package.Module.ResolvedTarget = t: {
+        if (build_options.enable_debug_extensions) {
+            if (debug_target) |triple| {
+                const target_query = try std.Target.Query.parse(.{
+                    .arch_os_abi = triple,
+                });
+                break :t .{
+                    .result = std.zig.resolveTargetQueryOrFatal(target_query),
+                    .is_native_os = false,
+                    .is_native_abi = false,
+                };
+            }
+        }
+        break :t .{
+            .result = std.zig.resolveTargetQueryOrFatal(.{}),
+            .is_native_os = true,
+            .is_native_abi = true,
+        };
     };
 
     const exe_basename = try std.zig.binNameAlloc(arena, .{
