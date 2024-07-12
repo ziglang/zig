@@ -1284,7 +1284,8 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
     }
 }
 
-/// creates a step with the given name and description
+/// creates a new Step with the given name and description
+/// returns the pointer to the Step
 pub fn step(b: *Build, name: []const u8, description: []const u8) *Step {
     const step_info = b.allocator.create(TopLevelStep) catch @panic("OOM");
     step_info.* = .{
@@ -1716,12 +1717,13 @@ fn pathFromCwd(b: *Build, sub_path: []const u8) []u8 {
     return b.pathResolve(&.{ cwd, sub_path });
 }
 
-/// joins a list of paths together meaning a []const []const u8 to a []u8
+/// joins the given slice of paths into a single path
 pub fn pathJoin(b: *Build, paths: []const []const u8) []u8 {
     return fs.path.join(b.allocator, paths) catch @panic("OOM");
 }
 
-/// resolves the path meaning convets . and .. to the correct reletive path
+/// resolves the given slice of paths to a single path that converts . and .. to their actual paths
+/// returns a relative path
 pub fn pathResolve(b: *Build, paths: []const []const u8) []u8 {
     return fs.path.resolve(b.allocator, paths) catch @panic("OOM");
 }
@@ -1737,7 +1739,8 @@ fn supportedWindowsProgramExtension(ext: []const u8) bool {
     return false;
 }
 
-/// tries to find a program in the given path
+/// Tries to find a program in the path given that has the extension in PATHEXT
+/// only works with windows
 fn tryFindProgram(b: *Build, full_path: []const u8) ?[]const u8 {
     if (fs.realpathAlloc(b.allocator, full_path)) |p| {
         return p;
@@ -1764,7 +1767,8 @@ fn tryFindProgram(b: *Build, full_path: []const u8) ?[]const u8 {
     return null;
 }
 
-/// Find a program in the PATH or in the search prefixes.
+/// Tries to find a program in the given paths and in the PATH env, that has the name in the given names
+/// if fails returns error.FileNotFound and if seccess returns the path to the program
 pub fn findProgram(b: *Build, names: []const []const u8, paths: []const []const u8) ![]const u8 {
     // TODO report error for ambiguous situations
     for (b.search_prefixes.items) |search_prefix| {
@@ -1859,7 +1863,7 @@ pub fn run(b: *Build, argv: []const []const u8) []u8 {
     };
 }
 
-/// adds a search prefix to the build
+/// adds a search prefix to the build where things will be searched for
 pub fn addSearchPrefix(b: *Build, search_prefix: []const u8) void {
     b.search_prefixes.append(b.allocator, b.dupePath(search_prefix)) catch @panic("OOM");
 }
