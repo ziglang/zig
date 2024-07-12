@@ -383,6 +383,55 @@ pub fn scanRelocs(self: *ZigObject, macho_file: *MachO) !void {
     }
 }
 
+pub fn resolveRelocs(self: *ZigObject, macho_file: *MachO) !void {
+    const gpa = macho_file.base.comp.gpa;
+    var has_error = false;
+    for (self.getAtoms()) |atom_index| {
+        const atom = self.getAtom(atom_index) orelse continue;
+        if (!atom.flags.alive) continue;
+        const sect = &macho_file.sections.items(.header)[atom.out_n_sect];
+        if (sect.isZerofill()) continue;
+        if (!macho_file.isZigSection(atom.out_n_sect)) continue; // Non-Zig sections are handled separately
+        if (atom.getRelocs(macho_file).len == 0) continue;
+        // TODO: we will resolve and write ZigObject's TLS data twice:
+        // once here, and once in writeAtoms
+        const atom_size = std.math.cast(usize, atom.size) orelse return error.Overflow;
+        const code = try gpa.alloc(u8, atom_size);
+        defer gpa.free(code);
+        self.getAtomData(macho_file, atom.*, code) catch |err| {
+            switch (err) {
+                error.InputOutput => {
+                    try macho_file.reportUnexpectedError("fetching code for '{s}' failed", .{
+                        atom.getName(macho_file),
+                    });
+                },
+                else => |e| {
+                    try macho_file.reportUnexpectedError("unexpected error while fetching code for '{s}': {s}", .{
+                        atom.getName(macho_file),
+                        @errorName(e),
+                    });
+                },
+            }
+            has_error = true;
+            continue;
+        };
+        const file_offset = sect.offset + atom.value;
+        atom.resolveRelocs(macho_file, code) catch |err| {
+            switch (err) {
+                error.ResolveFailed => {},
+                else => |e| {
+                    try macho_file.reportUnexpectedError("unexpected error while resolving relocations: {s}", .{@errorName(e)});
+                },
+            }
+            has_error = true;
+            continue;
+        };
+        try macho_file.base.file.?.pwriteAll(code, file_offset);
+    }
+
+    if (has_error) return error.ResolveFailed;
+}
+
 pub fn calcSymtabSize(self: *ZigObject, macho_file: *MachO) void {
     const tracy = trace(@src());
     defer tracy.end();

@@ -567,47 +567,10 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     try self.resizeSections();
 
     if (self.getZigObject()) |zo| {
-        var has_resolve_error = false;
-
-        for (zo.getAtoms()) |atom_index| {
-            const atom = zo.getAtom(atom_index) orelse continue;
-            if (!atom.flags.alive) continue;
-            const sect = &self.sections.items(.header)[atom.out_n_sect];
-            if (sect.isZerofill()) continue;
-            if (!self.isZigSection(atom.out_n_sect)) continue; // Non-Zig sections are handled separately
-            if (atom.getRelocs(self).len == 0) continue;
-            // TODO: we will resolve and write ZigObject's TLS data twice:
-            // once here, and once in writeAtoms
-            const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
-            const code = try gpa.alloc(u8, atom_size);
-            defer gpa.free(code);
-            zo.getAtomData(self, atom.*, code) catch |err| switch (err) {
-                error.InputOutput => {
-                    try self.reportUnexpectedError("fetching code for '{s}' failed", .{
-                        atom.getName(self),
-                    });
-                    return error.FlushFailure;
-                },
-                else => |e| {
-                    try self.reportUnexpectedError("unexpected error while fetching code for '{s}': {s}", .{
-                        atom.getName(self),
-                        @errorName(e),
-                    });
-                    return error.FlushFailure;
-                },
-            };
-            const file_offset = sect.offset + atom.value;
-            atom.resolveRelocs(self, code) catch |err| switch (err) {
-                error.ResolveFailed => has_resolve_error = true,
-                else => |e| {
-                    try self.reportUnexpectedError("unexpected error while resolving relocations", .{});
-                    return e;
-                },
-            };
-            try self.base.file.?.pwriteAll(code, file_offset);
-        }
-
-        if (has_resolve_error) return error.FlushFailure;
+        zo.resolveRelocs(self) catch |err| switch (err) {
+            error.ResolveFailed => return error.FlushFailure,
+            else => |e| return e,
+        };
     }
     self.writeSectionsAndUpdateLinkeditSizes() catch |err| {
         switch (err) {
