@@ -3305,37 +3305,31 @@ pub fn atomicPtrAlignment(
         .spirv => @panic("TODO what should this value be?"),
     };
 
-    const int_ty = switch (ty.zigTypeTag(mod)) {
-        .Int => ty,
-        .Enum => ty.intTagType(mod),
-        .Float => {
-            const bit_count = ty.floatBits(target);
-            if (bit_count > max_atomic_bits) {
-                diags.* = .{
-                    .bits = bit_count,
-                    .max_bits = max_atomic_bits,
-                };
-                return error.FloatTooBig;
-            }
-            return .none;
-        },
-        .Bool => return .none,
-        else => {
-            if (ty.isPtrAtRuntime(mod)) return .none;
-            return error.BadType;
-        },
-    };
-
-    const bit_count = int_ty.intInfo(mod).bits;
-    if (bit_count > max_atomic_bits) {
-        diags.* = .{
-            .bits = bit_count,
-            .max_bits = max_atomic_bits,
-        };
-        return error.IntTooBig;
+    if (ty.toIntern() == .bool_type) return .none;
+    if (ty.isRuntimeFloat()) {
+        const bit_count = ty.floatBits(target);
+        if (bit_count > max_atomic_bits) {
+            diags.* = .{
+                .bits = bit_count,
+                .max_bits = max_atomic_bits,
+            };
+            return error.FloatTooBig;
+        }
+        return .none;
     }
-
-    return .none;
+    if (ty.isAbiInt(mod)) {
+        const bit_count = ty.intInfo(mod).bits;
+        if (bit_count > max_atomic_bits) {
+            diags.* = .{
+                .bits = bit_count,
+                .max_bits = max_atomic_bits,
+            };
+            return error.IntTooBig;
+        }
+        return .none;
+    }
+    if (ty.isPtrAtRuntime(mod)) return .none;
+    return error.BadType;
 }
 
 pub fn declFileScope(mod: *Module, decl_index: Decl.Index) *File {
