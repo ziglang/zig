@@ -372,6 +372,7 @@ fn calcSectionSizes(macho_file: *MachO) !void {
     if (macho_file.getZigObject()) |zo| {
         // TODO this will create a race
         zo.calcNumRelocs(macho_file);
+        zo.calcSymtabSize(macho_file);
     }
 
     if (macho_file.eh_frame_sect_index) |_| {
@@ -390,7 +391,7 @@ fn calcSectionSizes(macho_file: *MachO) !void {
     if (macho_file.unwind_info_sect_index) |_| {
         calcCompactUnwindSize(macho_file);
     }
-    calcSymtabSize(macho_file);
+    try calcSymtabSize(macho_file);
 }
 
 fn calcSectionSize(macho_file: *MachO, sect_id: u8) void {
@@ -445,9 +446,11 @@ fn calcCompactUnwindSize(macho_file: *MachO) void {
     sect.@"align" = 3;
 }
 
-fn calcSymtabSize(macho_file: *MachO) void {
+fn calcSymtabSize(macho_file: *MachO) error{OutOfMemory}!void {
     const tracy = trace(@src());
     defer tracy.end();
+
+    const gpa = macho_file.base.comp.gpa;
 
     var nlocals: u32 = 0;
     var nstabs: u32 = 0;
@@ -455,9 +458,15 @@ fn calcSymtabSize(macho_file: *MachO) void {
     var nimports: u32 = 0;
     var strsize: u32 = 1;
 
-    for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
-        const ctx = &object.output_symtab_ctx;
+    var objects = try std.ArrayList(File.Index).initCapacity(gpa, macho_file.objects.items.len + 1);
+    defer objects.deinit();
+    if (macho_file.getZigObject()) |zo| objects.appendAssumeCapacity(zo.index);
+    objects.appendSliceAssumeCapacity(macho_file.objects.items);
+
+    for (objects.items) |index| {
+        const ctx = switch (macho_file.getFile(index).?) {
+            inline else => |x| &x.output_symtab_ctx,
+        };
         ctx.ilocal = nlocals;
         ctx.istab = nstabs;
         ctx.iexport = nexports;
@@ -470,9 +479,10 @@ fn calcSymtabSize(macho_file: *MachO) void {
         strsize += ctx.strsize;
     }
 
-    for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
-        const ctx = &object.output_symtab_ctx;
+    for (objects.items) |index| {
+        const ctx = switch (macho_file.getFile(index).?) {
+            inline else => |x| &x.output_symtab_ctx,
+        };
         ctx.istab += nlocals;
         ctx.iexport += nlocals + nstabs;
         ctx.iimport += nlocals + nstabs + nexports;
@@ -643,6 +653,11 @@ fn writeSections(macho_file: *MachO) !void {
     for (macho_file.objects.items) |index| {
         try macho_file.getFile(index).?.object.writeAtomsRelocatable(macho_file);
         macho_file.getFile(index).?.writeSymtab(macho_file, macho_file);
+    }
+
+    if (macho_file.getZigObject()) |zo| {
+        try zo.writeRelocs(macho_file);
+        zo.writeSymtab(macho_file, macho_file);
     }
 
     if (macho_file.eh_frame_sect_index) |_| {
