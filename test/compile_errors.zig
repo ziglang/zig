@@ -43,7 +43,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
 
         case.addError("const foo = \\\\\test\r\r rogue carriage return\n;", &[_][]const u8{
             ":1:19: error: expected ';' after declaration",
-            ":1:20: note: invalid byte: '\\r'",
+            ":1:19: note: invalid byte: '\\r'",
         });
     }
 

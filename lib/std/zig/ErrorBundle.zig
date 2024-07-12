@@ -229,7 +229,7 @@ fn renderErrorMessageToWriter(
             try stderr.writeByteNTimes('~', measureLine(line[begin..src.data.column]));
             try stderr.writeByte('^');
             // -1 since span.main includes the caret
-            try stderr.writeByteNTimes('~', measureLine(line[src.data.column..end]) -| 1);
+            try stderr.writeByteNTimes('~', measureLine(line[src.data.column..@min(end, line.len)]) -| 1);
             try stderr.writeByte('\n');
             try ttyconf.setColor(stderr, .reset);
         }
@@ -489,7 +489,7 @@ pub const Wip = struct {
                 }
                 const token_starts = tree.tokens.items(.start);
                 const start = token_starts[item.data.token] + item.data.byte_offset;
-                const end = start + @as(u32, @intCast(tree.tokenSlice(item.data.token).len)) - item.data.byte_offset;
+                const end = token_starts[item.data.token] + @as(u32, @intCast(tree.tokenSlice(item.data.token).len));
                 break :blk std.zig.Ast.Span{ .start = start, .end = end, .main = start };
             };
             const err_loc = std.zig.findLineColumn(source, err_span.main);
@@ -524,7 +524,7 @@ pub const Wip = struct {
                         }
                         const token_starts = tree.tokens.items(.start);
                         const start = token_starts[note_item.data.token] + note_item.data.byte_offset;
-                        const end = start + @as(u32, @intCast(tree.tokenSlice(note_item.data.token).len)) - item.data.byte_offset;
+                        const end = token_starts[note_item.data.token] + @as(u32, @intCast(tree.tokenSlice(note_item.data.token).len));
                         break :blk std.zig.Ast.Span{ .start = start, .end = end, .main = start };
                     };
                     const loc = std.zig.findLineColumn(source, span.main);

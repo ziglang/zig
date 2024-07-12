@@ -584,8 +584,8 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         result.tag = .invalid;
-                        result.loc.end = self.index;
                         self.index += 1;
+                        result.loc.end = self.index;
                         return result;
                     },
                 },
@@ -601,6 +601,8 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         result.tag = .invalid;
+                        if (c != 0)
+                            self.index += 1;
                         break;
                     },
                 },
@@ -755,6 +757,7 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         result.tag = .invalid;
+                        if (c != 0) self.index += 1;
                         break;
                     },
                 },
@@ -776,6 +779,7 @@ pub const Tokenizer = struct {
                     },
                     '\n' => {
                         result.tag = .invalid;
+                        self.index += 1;
                         break;
                     },
                     else => self.checkLiteralCharacter(),
@@ -784,6 +788,7 @@ pub const Tokenizer = struct {
                 .string_literal_backslash => switch (c) {
                     0, '\n' => {
                         result.tag = .invalid;
+                        if (c != 0) self.index += 1;
                         break;
                     },
                     else => {
@@ -794,6 +799,7 @@ pub const Tokenizer = struct {
                 .char_literal => switch (c) {
                     0, '\n' => {
                         result.tag = .invalid;
+                        if (c != 0) self.index += 1;
                         break;
                     },
                     '\\' => {
@@ -804,12 +810,15 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
-                    else => {},
+                    else => {
+                        self.checkLiteralCharacter();
+                    },
                 },
 
                 .char_literal_backslash => switch (c) {
                     0, '\n' => {
                         result.tag = .invalid;
+                        if (c != 0) self.index += 1;
                         break;
                     },
                     'x' => {
@@ -820,6 +829,7 @@ pub const Tokenizer = struct {
                         state = .char_literal_unicode_escape_saw_u;
                     },
                     else => {
+                        self.checkLiteralCharacter();
                         state = .char_literal;
                     },
                 },
@@ -827,6 +837,7 @@ pub const Tokenizer = struct {
                 .char_literal_hex_escape => switch (c) {
                     0, '\n' => {
                         result.tag = .invalid;
+                        if (c != 0) self.index += 1;
                         break;
                     },
                     '\'' => {
@@ -835,6 +846,7 @@ pub const Tokenizer = struct {
                         break;
                     },
                     else => {
+                        self.checkLiteralCharacter();
                         seen_escape_digits += 1;
                         if (seen_escape_digits == 2) {
                             state = .char_literal;
@@ -845,6 +857,7 @@ pub const Tokenizer = struct {
                 .char_literal_unicode_escape_saw_u => switch (c) {
                     0, '\n' => {
                         result.tag = .invalid;
+                        if (c != 0) self.index += 1;
                         break;
                     },
                     '\'' => {
@@ -856,6 +869,7 @@ pub const Tokenizer = struct {
                         state = .char_literal_unicode_escape;
                     },
                     else => {
+                        self.checkLiteralCharacter();
                         state = .char_literal;
                     },
                 },
@@ -863,12 +877,15 @@ pub const Tokenizer = struct {
                 .char_literal_unicode_escape => switch (c) {
                     0, '\n' => {
                         result.tag = .invalid;
+                        if (c != 0) self.index += 1;
                         break;
                     },
                     '}' => {
                         state = .char_literal;
                     },
-                    else => {},
+                    else => {
+                        self.checkLiteralCharacter();
+                    },
                 },
 
                 .multiline_string_literal_line => switch (c) {
@@ -1144,6 +1161,10 @@ pub const Tokenizer = struct {
                         break;
                     },
                     '\n' => {
+                        if (self.pending_invalid_token) |invalid| {
+                            self.pending_invalid_token = null;
+                            return invalid;
+                        }
                         state = .start;
                         result.loc.start = self.index + 1;
                     },
@@ -1215,7 +1236,7 @@ pub const Tokenizer = struct {
             .tag = .invalid,
             .loc = .{
                 .start = self.index,
-                .end = self.index + invalid_length,
+                .end = self.index + 1,
             },
         };
     }
