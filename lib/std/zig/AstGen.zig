@@ -11243,6 +11243,12 @@ fn appendIdentStr(
     assert(token_tags[token] == .identifier);
     const ident_name = tree.tokenSlice(token);
     if (!mem.startsWith(u8, ident_name, "@")) {
+        for (ident_name, 0..) |c, i| {
+            if (!std.ascii.isAlphanumeric(c) and c != '_') {
+                try astgen.appendErrorTokNotesOff(token, @intCast(i), "regular identifier cannot contain non-ASCII bytes", .{}, &.{});
+                return error.AnalysisFail;
+            }
+        }
         return buf.appendSlice(astgen.gpa, ident_name);
     } else {
         const start = buf.items.len;
@@ -11348,6 +11354,9 @@ fn failWithStrLitError(astgen: *AstGen, err: std.zig.string_literal.Error, token
                 "invalid byte in string or character literal: '{c}'",
                 .{raw_string[bad_index]},
             );
+        },
+        .empty => {
+            return astgen.failOff(token, offset + 1, "empty character literal", .{});
         },
     }
 }

@@ -366,9 +366,6 @@ pub const Tokenizer = struct {
         char_literal_hex_escape,
         char_literal_unicode_escape_saw_u,
         char_literal_unicode_escape,
-        char_literal_unicode_invalid,
-        char_literal_unicode,
-        char_literal_end,
         backslash,
         equal,
         bang,
@@ -452,7 +449,6 @@ pub const Tokenizer = struct {
             },
         };
         var seen_escape_digits: usize = undefined;
-        var remaining_code_units: usize = undefined;
         while (true) : (self.index += 1) {
             const c = self.buffer[self.index];
             switch (state) {
@@ -740,7 +736,8 @@ pub const Tokenizer = struct {
                 },
 
                 .identifier => switch (c) {
-                    'a'...'z', 'A'...'Z', '_', '0'...'9' => {},
+                    // Accept non-ASCII here, reject it later in AstGen.appendIdentStr.
+                    'a'...'z', 'A'...'Z', '_', '0'...'9', 128...255 => {},
                     else => {
                         if (Token.getKeyword(self.buffer[result.loc.start..self.index])) |tag| {
                             result.tag = tag;
@@ -795,36 +792,19 @@ pub const Tokenizer = struct {
                 },
 
                 .char_literal => switch (c) {
-                    0 => {
+                    0, '\n' => {
                         result.tag = .invalid;
                         break;
                     },
                     '\\' => {
                         state = .char_literal_backslash;
                     },
-                    '\'', 0x80...0xbf, 0xf8...0xff => {
-                        result.tag = .invalid;
+                    '\'' => {
+                        result.tag = .char_literal;
+                        self.index += 1;
                         break;
                     },
-                    0xc0...0xdf => { // 110xxxxx
-                        remaining_code_units = 1;
-                        state = .char_literal_unicode;
-                    },
-                    0xe0...0xef => { // 1110xxxx
-                        remaining_code_units = 2;
-                        state = .char_literal_unicode;
-                    },
-                    0xf0...0xf7 => { // 11110xxx
-                        remaining_code_units = 3;
-                        state = .char_literal_unicode;
-                    },
-                    '\n' => {
-                        result.tag = .invalid;
-                        break;
-                    },
-                    else => {
-                        state = .char_literal_end;
-                    },
+                    else => {},
                 },
 
                 .char_literal_backslash => switch (c) {
@@ -840,83 +820,55 @@ pub const Tokenizer = struct {
                         state = .char_literal_unicode_escape_saw_u;
                     },
                     else => {
-                        state = .char_literal_end;
+                        state = .char_literal;
                     },
                 },
 
                 .char_literal_hex_escape => switch (c) {
-                    '0'...'9', 'a'...'f', 'A'...'F' => {
-                        seen_escape_digits += 1;
-                        if (seen_escape_digits == 2) {
-                            state = .char_literal_end;
-                        }
-                    },
-                    else => {
+                    0, '\n' => {
                         result.tag = .invalid;
                         break;
                     },
-                },
-
-                .char_literal_unicode_escape_saw_u => switch (c) {
-                    0 => {
-                        result.tag = .invalid;
-                        break;
-                    },
-                    '{' => {
-                        state = .char_literal_unicode_escape;
-                    },
-                    else => {
-                        result.tag = .invalid;
-                        state = .char_literal_unicode_invalid;
-                    },
-                },
-
-                .char_literal_unicode_escape => switch (c) {
-                    0 => {
-                        result.tag = .invalid;
-                        break;
-                    },
-                    '0'...'9', 'a'...'f', 'A'...'F' => {},
-                    '}' => {
-                        state = .char_literal_end; // too many/few digits handled later
-                    },
-                    else => {
-                        result.tag = .invalid;
-                        state = .char_literal_unicode_invalid;
-                    },
-                },
-
-                .char_literal_unicode_invalid => switch (c) {
-                    // Keep consuming characters until an obvious stopping point.
-                    // This consolidates e.g. `u{0ab1Q}` into a single invalid token
-                    // instead of creating the tokens `u{0ab1`, `Q`, `}`
-                    '0'...'9', 'a'...'z', 'A'...'Z', '}' => {},
-                    else => break,
-                },
-
-                .char_literal_end => switch (c) {
                     '\'' => {
                         result.tag = .char_literal;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.tag = .invalid;
-                        break;
+                        seen_escape_digits += 1;
+                        if (seen_escape_digits == 2) {
+                            state = .char_literal;
+                        }
                     },
                 },
 
-                .char_literal_unicode => switch (c) {
-                    0x80...0xbf => {
-                        remaining_code_units -= 1;
-                        if (remaining_code_units == 0) {
-                            state = .char_literal_end;
-                        }
-                    },
-                    else => {
+                .char_literal_unicode_escape_saw_u => switch (c) {
+                    0, '\n' => {
                         result.tag = .invalid;
                         break;
                     },
+                    '\'' => {
+                        result.tag = .char_literal;
+                        self.index += 1;
+                        break;
+                    },
+                    '{' => {
+                        state = .char_literal_unicode_escape;
+                    },
+                    else => {
+                        state = .char_literal;
+                    },
+                },
+
+                .char_literal_unicode_escape => switch (c) {
+                    0, '\n' => {
+                        result.tag = .invalid;
+                        break;
+                    },
+                    '}' => {
+                        state = .char_literal;
+                    },
+                    else => {},
                 },
 
                 .multiline_string_literal_line => switch (c) {
@@ -1351,9 +1303,6 @@ test "code point literal with hex escape" {
     try testTokenize(
         \\'\x1b'
     , &.{.char_literal});
-    try testTokenize(
-        \\'\x1'
-    , &.{ .invalid, .invalid });
 }
 
 test "newline in char literal" {
@@ -1390,34 +1339,6 @@ test "code point literal with unicode escapes" {
     try testTokenize(
         \\"\u{440}"
     , &.{.string_literal});
-
-    // Invalid unicode escapes
-    try testTokenize(
-        \\'\u'
-    , &.{.invalid});
-    try testTokenize(
-        \\'\u{{'
-    , &.{ .invalid, .invalid });
-    try testTokenize(
-        \\'\u{}'
-    , &.{.char_literal});
-    try testTokenize(
-        \\'\u{s}'
-    , &.{ .invalid, .invalid });
-    try testTokenize(
-        \\'\u{2z}'
-    , &.{ .invalid, .invalid });
-    try testTokenize(
-        \\'\u{4a'
-    , &.{.invalid});
-
-    // Test old-style unicode literals
-    try testTokenize(
-        \\'\u0333'
-    , &.{ .invalid, .invalid });
-    try testTokenize(
-        \\'\U0333'
-    , &.{ .invalid, .number_literal, .invalid });
 }
 
 test "code point literal with unicode code point" {
@@ -1449,11 +1370,8 @@ test "chars" {
 }
 
 test "invalid token characters" {
-    try testTokenize("#", &.{.invalid});
-    try testTokenize("`", &.{.invalid});
     try testTokenize("'c", &.{.invalid});
     try testTokenize("'", &.{.invalid});
-    try testTokenize("''", &.{ .invalid, .invalid });
 }
 
 test "invalid literal/comment characters" {

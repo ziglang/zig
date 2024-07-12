@@ -218,19 +218,18 @@ fn renderErrorMessageToWriter(
         if (src.data.source_line != 0 and options.include_source_line) {
             const line = eb.nullTerminatedString(src.data.source_line);
             for (line) |b| switch (b) {
-                '\t' => try stderr.writeByte(' '),
+                '\t' => try stderr.writeAll("    "),
                 else => try stderr.writeByte(b),
             };
             try stderr.writeByte('\n');
-            // TODO basic unicode code point monospace width
-            const before_caret = src.data.span_main - src.data.span_start;
-            // -1 since span.main includes the caret
-            const after_caret = src.data.span_end -| src.data.span_main -| 1;
-            try stderr.writeByteNTimes(' ', src.data.column - before_caret);
+            const begin = src.data.column - (src.data.span_main - src.data.span_start);
+            const end = src.data.column + (src.data.span_end -| src.data.span_main);
+            try stderr.writeByteNTimes(' ', measureLine(line[0..begin]));
             try ttyconf.setColor(stderr, .green);
-            try stderr.writeByteNTimes('~', before_caret);
+            try stderr.writeByteNTimes('~', measureLine(line[begin..src.data.column]));
             try stderr.writeByte('^');
-            try stderr.writeByteNTimes('~', after_caret);
+            // -1 since span.main includes the caret
+            try stderr.writeByteNTimes('~', measureLine(line[src.data.column..end]) -| 1);
             try stderr.writeByte('\n');
             try ttyconf.setColor(stderr, .reset);
         }
@@ -287,6 +286,12 @@ fn renderErrorMessageToWriter(
             try renderErrorMessageToWriter(eb, options, note, stderr, "note", .cyan, indent + 4);
         }
     }
+}
+
+fn measureLine(line: []const u8) usize {
+    // Since this is only for visuals, we can just fallback to byte length on malformed UTF-8.
+    const chars = std.unicode.utf8CountCodepoints(line) catch line.len;
+    return chars + 3 * std.mem.count(u8, line, "\t");
 }
 
 /// Splits the error message up into lines to properly indent them
