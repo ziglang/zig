@@ -2666,7 +2666,7 @@ pub fn reportRetryableAstGenError(
         },
     };
 
-    const err_msg = try Zcu.ErrorMsg.create(gpa, src_loc, "unable to load '{}{s}': {s}", .{
+    const err_msg = try Zcu.ErrorMsg.create(gpa, src_loc, "unable to load '{}/{s}': {s}", .{
         file.mod.root, file.sub_file_path, @errorName(err),
     });
     errdefer err_msg.destroy(gpa);

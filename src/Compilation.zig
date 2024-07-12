@@ -2051,6 +2051,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                 );
             };
             if (is_hit) {
+                // In this case the cache hit contains the full set of file system inputs. Nice!
                 if (comp.file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
 
                 comp.last_update_was_cache_hit = true;
@@ -2112,11 +2113,23 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         .incremental => {},
     }
 
+    // From this point we add a preliminary set of file system inputs that
+    // affects both incremental and whole cache mode. For incremental cache
+    // mode, the long-lived compiler state will track additional file system
+    // inputs discovered after this point. For whole cache mode, we rely on
+    // these inputs to make it past AstGen, and once there, we can rely on
+    // learning file system inputs from the Cache object.
+
     // For compiling C objects, we rely on the cache hash system to avoid duplicating work.
     // Add a Job for each C object.
     try comp.c_object_work_queue.ensureUnusedCapacity(comp.c_object_table.count());
     for (comp.c_object_table.keys()) |key| {
         comp.c_object_work_queue.writeItemAssumeCapacity(key);
+    }
+    if (comp.file_system_inputs) |fsi| {
+        for (comp.c_object_table.keys()) |c_object| {
+            try comp.appendFileSystemInput(fsi, c_object.src.owner.root, c_object.src.src_path);
+        }
     }
 
     // For compiling Win32 resources, we rely on the cache hash system to avoid duplicating work.
@@ -2125,6 +2138,12 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         try comp.win32_resource_work_queue.ensureUnusedCapacity(comp.win32_resource_table.count());
         for (comp.win32_resource_table.keys()) |key| {
             comp.win32_resource_work_queue.writeItemAssumeCapacity(key);
+        }
+        if (comp.file_system_inputs) |fsi| {
+            for (comp.win32_resource_table.keys()) |win32_resource| switch (win32_resource.src) {
+                .rc => |f| try comp.appendFileSystemInput(fsi, f.owner.root, f.src_path),
+                .manifest => continue,
+            };
         }
     }
 
@@ -2160,11 +2179,23 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             if (zcu.fileByIndex(file_index).mod.isBuiltin()) continue;
             comp.astgen_work_queue.writeItemAssumeCapacity(file_index);
         }
+        if (comp.file_system_inputs) |fsi| {
+            for (zcu.import_table.values()) |file| {
+                try comp.appendFileSystemInput(fsi, file.mod.root, file.sub_file_path);
+            }
+        }
 
         // Put a work item in for checking if any files used with `@embedFile` changed.
         try comp.embed_file_work_queue.ensureUnusedCapacity(zcu.embed_table.count());
         for (zcu.embed_table.values()) |embed_file| {
             comp.embed_file_work_queue.writeItemAssumeCapacity(embed_file);
+        }
+        if (comp.file_system_inputs) |fsi| {
+            const ip = &zcu.intern_pool;
+            for (zcu.embed_table.values()) |embed_file| {
+                const sub_file_path = embed_file.sub_file_path.toSlice(ip);
+                try comp.appendFileSystemInput(fsi, embed_file.owner.root, sub_file_path);
+            }
         }
 
         try comp.work_queue.writeItem(.{ .analyze_mod = std_mod });
@@ -2178,11 +2209,6 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
     }
 
     try comp.performAllTheWork(main_progress_node);
-
-    switch (comp.cache_use) {
-        .whole => if (comp.file_system_inputs) |buf| try man.populateFileSystemInputs(buf),
-        .incremental => {},
-    }
 
     if (comp.module) |zcu| {
         const pt: Zcu.PerThread = .{ .zcu = zcu, .tid = .main };
@@ -2224,6 +2250,8 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
 
     switch (comp.cache_use) {
         .whole => |whole| {
+            if (comp.file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
+
             const digest = man.final();
 
             // Rename the temporary directory into place.
@@ -2309,6 +2337,30 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             if (comp.totalErrorCount() != 0) return;
         },
     }
+}
+
+fn appendFileSystemInput(
+    comp: *Compilation,
+    file_system_inputs: *std.ArrayListUnmanaged(u8),
+    root: Cache.Path,
+    sub_file_path: []const u8,
+) Allocator.Error!void {
+    const gpa = comp.gpa;
+    const prefixes = comp.cache_parent.prefixes();
+    try file_system_inputs.ensureUnusedCapacity(gpa, root.sub_path.len + sub_file_path.len + 3);
+    if (file_system_inputs.items.len > 0) file_system_inputs.appendAssumeCapacity(0);
+    for (prefixes, 1..) |prefix_directory, i| {
+        if (prefix_directory.eql(root.root_dir)) {
+            file_system_inputs.appendAssumeCapacity(@intCast(i));
+            if (root.sub_path.len > 0) {
+                file_system_inputs.appendSliceAssumeCapacity(root.sub_path);
+                file_system_inputs.appendAssumeCapacity(std.fs.path.sep);
+            }
+            file_system_inputs.appendSliceAssumeCapacity(sub_file_path);
+            return;
+        }
+    }
+    std.debug.panic("missing prefix directory: {}, {s}", .{ root, sub_file_path });
 }
 
 fn flush(comp: *Compilation, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
@@ -4218,6 +4270,9 @@ fn workerAstGenFile(
                         .token = item.data.token,
                     } }) catch continue;
                 }
+                if (res.is_new) if (comp.file_system_inputs) |fsi| {
+                    comp.appendFileSystemInput(fsi, res.file.mod.root, res.file.sub_file_path) catch continue;
+                };
                 const imported_path_digest = pt.zcu.filePathDigest(res.file_index);
                 const imported_root_decl = pt.zcu.fileRootDecl(res.file_index);
                 break :blk .{ res, imported_path_digest, imported_root_decl };
@@ -4588,7 +4643,7 @@ fn reportRetryableEmbedFileError(
     const gpa = mod.gpa;
     const src_loc = embed_file.src_loc;
     const ip = &mod.intern_pool;
-    const err_msg = try Zcu.ErrorMsg.create(gpa, src_loc, "unable to load '{}{s}': {s}", .{
+    const err_msg = try Zcu.ErrorMsg.create(gpa, src_loc, "unable to load '{}/{s}': {s}", .{
         embed_file.owner.root,
         embed_file.sub_file_path.toSlice(ip),
         @errorName(err),

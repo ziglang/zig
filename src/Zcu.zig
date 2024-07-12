@@ -728,7 +728,7 @@ pub const File = struct {
     source_loaded: bool,
     tree_loaded: bool,
     zir_loaded: bool,
-    /// Relative to the owning package's root_src_dir.
+    /// Relative to the owning package's root source directory.
     /// Memory is stored in gpa, owned by File.
     sub_file_path: []const u8,
     /// Whether this is populated depends on `source_loaded`.

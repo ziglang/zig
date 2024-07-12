@@ -1010,6 +1010,7 @@ pub const Manifest = struct {
 
     pub fn populateFileSystemInputs(man: *Manifest, buf: *std.ArrayListUnmanaged(u8)) Allocator.Error!void {
         assert(@typeInfo(std.zig.Server.Message.PathPrefix).Enum.fields.len == man.cache.prefixes_len);
+        buf.clearRetainingCapacity();
         const gpa = man.cache.gpa;
         const files = man.files.keys();
         if (files.len > 0) {
