@@ -168,6 +168,8 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
     const config_header: *ConfigHeader = @fieldParentPtr("step", step);
+    if (config_header.style.getPath()) |lp| try step.singleUnchangingWatchInput(lp);
+
     const gpa = b.allocator;
     const arena = b.allocator;
 
