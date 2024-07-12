@@ -4852,6 +4852,11 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     i += 1;
                     child_argv.items[argv_index_seed] = args[i];
                     continue;
+                } else if (mem.eql(u8, arg, "--")) {
+                    // The rest of the args are supposed to get passed onto
+                    // build runner's `build.args`
+                    try child_argv.appendSlice(args[i..]);
+                    break;
                 }
             }
             try child_argv.append(arg);
