@@ -663,11 +663,11 @@ pub const ArgIteratorWasi = struct {
 /// - https://daviddeley.com/autohotkey/parameters/parameters.htm#WINCRULES
 pub const ArgIteratorWindows = struct {
     allocator: Allocator,
-    /// Owned by the iterator.
-    /// Encoded as WTF-8.
-    cmd_line: []const u8,
+    /// Encoded as WTF-16 LE.
+    cmd_line: [:0]const u16,
     index: usize = 0,
-    /// Owned by the iterator. Long enough to hold the entire `cmd_line` plus a null terminator.
+    /// Owned by the iterator. Long enough to hold contiguous NUL-terminated slices
+    /// of each argument encoded as WTF-8.
     buffer: []u8,
     start: usize = 0,
     end: usize = 0,
@@ -676,13 +676,18 @@ pub const ArgIteratorWindows = struct {
 
     /// `cmd_line_w` *must* be a WTF16-LE-encoded string.
     ///
-    /// The iterator makes a copy of `cmd_line_w` converted WTF-8 and keeps it; it does *not* take
-    /// ownership of `cmd_line_w`.
+    /// The iterator stores and uses `cmd_line_w`, so its memory must be valid for
+    /// at least as long as the returned ArgIteratorWindows.
     pub fn init(allocator: Allocator, cmd_line_w: [*:0]const u16) InitError!ArgIteratorWindows {
-        const cmd_line = try unicode.wtf16LeToWtf8Alloc(allocator, mem.sliceTo(cmd_line_w, 0));
-        errdefer allocator.free(cmd_line);
+        const cmd_line = mem.sliceTo(cmd_line_w, 0);
+        const wtf8_len = unicode.calcWtf8Len(cmd_line);
 
-        const buffer = try allocator.alloc(u8, cmd_line.len + 1);
+        // This buffer must be large enough to contain contiguous NUL-terminated slices
+        // of each argument. For arguments past the first one, space for the NUL-terminator
+        // is guaranteed due to the necessary whitespace between arugments. However, we need
+        // one extra byte to guarantee enough room for the NUL terminator if the command line
+        // ends up being exactly 1 argument long with no quotes, etc.
+        const buffer = try allocator.alloc(u8, wtf8_len + 1);
         errdefer allocator.free(buffer);
 
         return .{
@@ -714,11 +719,11 @@ pub const ArgIteratorWindows = struct {
             for (0..count) |_| emitCharacter(self, '\\');
         }
 
-        fn emitCharacter(self: *ArgIteratorWindows, char: u8) void {
-            self.buffer[self.end] = char;
-            self.end += 1;
+        fn emitCharacter(self: *ArgIteratorWindows, code_unit: u16) void {
+            const wtf8_len = std.unicode.wtf8Encode(code_unit, self.buffer[self.end..]) catch unreachable;
+            self.end += wtf8_len;
 
-            // Because we are emitting WTF-8 byte-by-byte, we need to
+            // Because we are emitting WTF-8, we need to
             // check to see if we've emitted two consecutive surrogate
             // codepoints that form a valid surrogate pair in order
             // to ensure that we're always emitting well-formed WTF-8
@@ -732,9 +737,7 @@ pub const ArgIteratorWindows = struct {
             // This is relevant when dealing with a WTF-16 encoded
             // command line like this:
             // "<0xD801>"<0xDC37>
-            // which would get converted to WTF-8 in `cmd_line` as:
-            // "<0xED><0xA0><0x81>"<0xED><0xB0><0xB7>
-            // and then after parsing it'd naively get emitted as:
+            // which would get parsed and converted to WTF-8 as:
             // <0xED><0xA0><0x81><0xED><0xB0><0xB7>
             // but instead, we need to recognize the surrogate pair
             // and emit the codepoint it encodes, which in this
@@ -780,7 +783,7 @@ pub const ArgIteratorWindows = struct {
 
         fn emitBackslashes(_: *ArgIteratorWindows, _: usize) void {}
 
-        fn emitCharacter(_: *ArgIteratorWindows, _: u8) void {}
+        fn emitCharacter(_: *ArgIteratorWindows, _: u16) void {}
 
         fn yieldArg(_: *ArgIteratorWindows) bool {
             return true;
@@ -798,7 +801,10 @@ pub const ArgIteratorWindows = struct {
 
             var inside_quotes = false;
             while (true) : (self.index += 1) {
-                const char = if (self.index != self.cmd_line.len) self.cmd_line[self.index] else 0;
+                const char = if (self.index != self.cmd_line.len)
+                    mem.littleToNative(u16, self.cmd_line[self.index])
+                else
+                    0;
                 switch (char) {
                     0 => {
                         return strategy.yieldArg(self);
@@ -823,7 +829,10 @@ pub const ArgIteratorWindows = struct {
 
         // Skip spaces and tabs. The iterator completes if we reach the end of the string here.
         while (true) : (self.index += 1) {
-            const char = if (self.index != self.cmd_line.len) self.cmd_line[self.index] else 0;
+            const char = if (self.index != self.cmd_line.len)
+                mem.littleToNative(u16, self.cmd_line[self.index])
+            else
+                0;
             switch (char) {
                 0 => return strategy.eof,
                 ' ', '\t' => continue,
@@ -844,7 +853,10 @@ pub const ArgIteratorWindows = struct {
         var backslash_count: usize = 0;
         var inside_quotes = false;
         while (true) : (self.index += 1) {
-            const char = if (self.index != self.cmd_line.len) self.cmd_line[self.index] else 0;
+            const char = if (self.index != self.cmd_line.len)
+                mem.littleToNative(u16, self.cmd_line[self.index])
+            else
+                0;
             switch (char) {
                 0 => {
                     strategy.emitBackslashes(self, backslash_count);
@@ -867,7 +879,7 @@ pub const ArgIteratorWindows = struct {
                     } else {
                         if (inside_quotes and
                             self.index + 1 != self.cmd_line.len and
-                            self.cmd_line[self.index + 1] == '"')
+                            mem.littleToNative(u16, self.cmd_line[self.index + 1]) == '"')
                         {
                             strategy.emitCharacter(self, '"');
                             self.index += 1;
@@ -892,7 +904,6 @@ pub const ArgIteratorWindows = struct {
     /// argument slices.
     pub fn deinit(self: *ArgIteratorWindows) void {
         self.allocator.free(self.buffer);
-        self.allocator.free(self.cmd_line);
     }
 };
 
