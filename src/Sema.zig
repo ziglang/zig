@@ -23950,7 +23950,7 @@ fn checkAtomicPtrOperand(
         error.BadType => return sema.fail(
             block,
             elem_ty_src,
-            "expected bool, integer, float, enum, or pointer type; found '{}'",
+            "expected bool, integer, float, enum, packed struct, or pointer type; found '{}'",
             .{elem_ty.fmt(pt)},
         ),
     };
@@ -24279,7 +24279,7 @@ fn zirCmpxchg(
         return sema.fail(
             block,
             elem_ty_src,
-            "expected bool, integer, enum, or pointer type; found '{}'",
+            "expected bool, integer, enum, packed struct, or pointer type; found '{}'",
             .{elem_ty.fmt(pt)},
         );
     }
