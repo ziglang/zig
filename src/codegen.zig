@@ -137,10 +137,10 @@ pub fn generateLazySymbol(
 
     if (lazy_sym.ty.isAnyError(pt.zcu)) {
         alignment.* = .@"4";
-        const err_names = pt.zcu.global_error_set.keys();
+        const err_names = ip.global_error_set.getNamesFromMainThread();
         mem.writeInt(u32, try code.addManyAsArray(4), @intCast(err_names.len), endian);
         var offset = code.items.len;
-        try code.resize((1 + err_names.len + 1) * 4);
+        try code.resize((err_names.len + 1) * 4);
         for (err_names) |err_name_nts| {
             const err_name = err_name_nts.toSlice(ip);
             mem.writeInt(u32, code.items[offset..][0..4], @intCast(code.items.len), endian);
@@ -243,13 +243,13 @@ pub fn generateSymbol(
             int_val.writeTwosComplement(try code.addManyAsSlice(abi_size), endian);
         },
         .err => |err| {
-            const int = try mod.getErrorValue(err.name);
+            const int = try pt.getErrorValue(err.name);
             try code.writer().writeInt(u16, @intCast(int), endian);
         },
         .error_union => |error_union| {
             const payload_ty = ty.errorUnionPayload(mod);
             const err_val: u16 = switch (error_union.val) {
-                .err_name => |err_name| @intCast(try mod.getErrorValue(err_name)),
+                .err_name => |err_name| @intCast(try pt.getErrorValue(err_name)),
                 .payload => 0,
             };
 
@@ -1058,7 +1058,7 @@ pub fn genTypedValue(
         },
         .ErrorSet => {
             const err_name = ip.indexToKey(val.toIntern()).err.name;
-            const error_index = zcu.global_error_set.getIndex(err_name).?;
+            const error_index = try pt.getErrorValue(err_name);
             return GenResult.mcv(.{ .immediate = error_index });
         },
         .ErrorUnion => {

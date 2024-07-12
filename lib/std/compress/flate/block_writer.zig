@@ -48,7 +48,7 @@ pub fn BlockWriter(comptime WriterType: type) type {
         /// Should be called only when bit stream is at byte boundary.
         ///
         /// That is after final block; when last byte could be incomplete or
-        /// after stored block; which is aligned to the byte bounday (it has x
+        /// after stored block; which is aligned to the byte boundary (it has x
         /// padding bits after first 3 bits).
         pub fn flush(self: *Self) Error!void {
             try self.bit_writer.flush();

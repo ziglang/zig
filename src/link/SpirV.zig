@@ -227,9 +227,9 @@ pub fn flushModule(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     var error_info = std.ArrayList(u8).init(self.object.gpa);
     defer error_info.deinit();
 
-    try error_info.appendSlice("zig_errors");
-    const mod = self.base.comp.module.?;
-    for (mod.global_error_set.keys()) |name| {
+    try error_info.appendSlice("zig_errors:");
+    const ip = &self.base.comp.module.?.intern_pool;
+    for (ip.global_error_set.getNamesFromMainThread()) |name| {
         // Errors can contain pretty much any character - to encode them in a string we must escape
         // them somehow. Easiest here is to use some established scheme, one which also preseves the
         // name if it contains no strange characters is nice for debugging. URI encoding fits the bill.
@@ -238,7 +238,7 @@ pub fn flushModule(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
         try error_info.append(':');
         try std.Uri.Component.percentEncode(
             error_info.writer(),
-            name.toSlice(&mod.intern_pool),
+            name.toSlice(ip),
             struct {
                 fn isValidChar(c: u8) bool {
                     return switch (c) {

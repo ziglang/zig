@@ -809,10 +809,10 @@ fn updateDeclCode(
 ) !void {
     const gpa = macho_file.base.comp.gpa;
     const mod = pt.zcu;
+    const ip = &mod.intern_pool;
     const decl = mod.declPtr(decl_index);
-    const decl_name = try decl.fullyQualifiedName(pt);
 
-    log.debug("updateDeclCode {}{*}", .{ decl_name.fmt(&mod.intern_pool), decl });
+    log.debug("updateDeclCode {}{*}", .{ decl.fqn.fmt(ip), decl });
 
     const required_alignment = decl.getAlignment(pt);
 
@@ -824,7 +824,7 @@ fn updateDeclCode(
     sym.out_n_sect = sect_index;
     atom.out_n_sect = sect_index;
 
-    sym.name = try self.strtab.insert(gpa, decl_name.toSlice(&mod.intern_pool));
+    sym.name = try self.strtab.insert(gpa, decl.fqn.toSlice(ip));
     atom.flags.alive = true;
     atom.name = sym.name;
     nlist.n_strx = sym.name;
@@ -843,7 +843,7 @@ fn updateDeclCode(
 
         if (need_realloc) {
             try atom.grow(macho_file);
-            log.debug("growing {} from 0x{x} to 0x{x}", .{ decl_name.fmt(&mod.intern_pool), old_vaddr, atom.value });
+            log.debug("growing {} from 0x{x} to 0x{x}", .{ decl.fqn.fmt(ip), old_vaddr, atom.value });
             if (old_vaddr != atom.value) {
                 sym.value = 0;
                 nlist.n_value = 0;
@@ -893,25 +893,22 @@ fn updateTlv(
     sect_index: u8,
     code: []const u8,
 ) !void {
+    const ip = &pt.zcu.intern_pool;
     const decl = pt.zcu.declPtr(decl_index);
-    const decl_name = try decl.fullyQualifiedName(pt);
 
-    log.debug("updateTlv {} ({*})", .{ decl_name.fmt(&pt.zcu.intern_pool), decl });
-
-    const decl_name_slice = decl_name.toSlice(&pt.zcu.intern_pool);
-    const required_alignment = decl.getAlignment(pt);
+    log.debug("updateTlv {} ({*})", .{ decl.fqn.fmt(&pt.zcu.intern_pool), decl });
 
     // 1. Lower TLV initializer
     const init_sym_index = try self.createTlvInitializer(
         macho_file,
-        decl_name_slice,
-        required_alignment,
+        decl.fqn.toSlice(ip),
+        decl.getAlignment(pt),
         sect_index,
         code,
     );
 
     // 2. Create TLV descriptor
-    try self.createTlvDescriptor(macho_file, sym_index, init_sym_index, decl_name_slice);
+    try self.createTlvDescriptor(macho_file, sym_index, init_sym_index, decl.fqn.toSlice(ip));
 }
 
 fn createTlvInitializer(
@@ -1099,9 +1096,8 @@ pub fn lowerUnnamedConst(
     }
     const unnamed_consts = gop.value_ptr;
     const decl = mod.declPtr(decl_index);
-    const decl_name = try decl.fullyQualifiedName(pt);
     const index = unnamed_consts.items.len;
-    const name = try std.fmt.allocPrint(gpa, "__unnamed_{}_{d}", .{ decl_name.fmt(&mod.intern_pool), index });
+    const name = try std.fmt.allocPrint(gpa, "__unnamed_{}_{d}", .{ decl.fqn.fmt(&mod.intern_pool), index });
     defer gpa.free(name);
     const sym_index = switch (try self.lowerConst(
         macho_file,

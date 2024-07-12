@@ -90,7 +90,7 @@ pub const Node = struct {
         /// 0 means unknown.
         /// Little endian.
         estimated_total_count: u32,
-        name: [max_name_len]u8,
+        name: [max_name_len]u8 align(@alignOf(usize)),
 
         /// Not thread-safe.
         fn getIpcFd(s: Storage) ?posix.fd_t {
@@ -285,13 +285,12 @@ pub const Node = struct {
         assert(parent == .none or @intFromEnum(parent) < node_storage_buffer_len);
 
         const storage = storageByIndex(free_index);
-        storage.* = .{
-            .completed_count = 0,
-            .estimated_total_count = std.math.lossyCast(u32, estimated_total_items),
-            .name = [1]u8{0} ** max_name_len,
-        };
+        @atomicStore(u32, &storage.completed_count, 0, .monotonic);
+        @atomicStore(u32, &storage.estimated_total_count, std.math.lossyCast(u32, estimated_total_items), .monotonic);
         const name_len = @min(max_name_len, name.len);
-        @memcpy(storage.name[0..name_len], name[0..name_len]);
+        copyAtomicStore(storage.name[0..name_len], name[0..name_len]);
+        if (name_len < storage.name.len)
+            @atomicStore(u8, &storage.name[name_len], 0, .monotonic);
 
         const parent_ptr = parentByIndex(free_index);
         assert(parent_ptr.* == .unused);
@@ -765,7 +764,7 @@ fn serialize(serialized_buffer: *Serialized.Buffer) Serialized {
         var begin_parent = @atomicLoad(Node.Parent, parent_ptr, .acquire);
         while (begin_parent != .unused) {
             const dest_storage = &serialized_buffer.storage[serialized_len];
-            @memcpy(&dest_storage.name, &storage_ptr.name);
+            copyAtomicLoad(&dest_storage.name, &storage_ptr.name);
             dest_storage.estimated_total_count = @atomicLoad(u32, &storage_ptr.estimated_total_count, .acquire);
             dest_storage.completed_count = @atomicLoad(u32, &storage_ptr.completed_count, .monotonic);
             const end_parent = @atomicLoad(Node.Parent, parent_ptr, .acquire);
@@ -1386,3 +1385,29 @@ const have_sigwinch = switch (builtin.os.tag) {
 /// stderr mutex is held still dumps the stack trace and other debug
 /// information.
 var stderr_mutex = std.Thread.Mutex.Recursive.init;
+
+fn copyAtomicStore(dest: []align(@alignOf(usize)) u8, src: []const u8) void {
+    assert(dest.len == src.len);
+    const chunked_len = dest.len / @sizeOf(usize);
+    const dest_chunked: []usize = @as([*]usize, @ptrCast(dest))[0..chunked_len];
+    const src_chunked: []align(1) const usize = @as([*]align(1) const usize, @ptrCast(src))[0..chunked_len];
+    for (dest_chunked, src_chunked) |*d, s| {
+        @atomicStore(usize, d, s, .monotonic);
+    }
+    const remainder_start = chunked_len * @sizeOf(usize);
+    for (dest[remainder_start..], src[remainder_start..]) |*d, s| {
+        @atomicStore(u8, d, s, .monotonic);
+    }
+}
+
+fn copyAtomicLoad(
+    dest: *align(@alignOf(usize)) [Node.max_name_len]u8,
+    src: *align(@alignOf(usize)) const [Node.max_name_len]u8,
+) void {
+    const chunked_len = @divExact(dest.len, @sizeOf(usize));
+    const dest_chunked: *[chunked_len]usize = @ptrCast(dest);
+    const src_chunked: *const [chunked_len]usize = @ptrCast(src);
+    for (dest_chunked, src_chunked) |*d, *s| {
+        d.* = @atomicLoad(usize, s, .monotonic);
+    }
+}

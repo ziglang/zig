@@ -2194,13 +2194,9 @@ pub const DeclGen = struct {
         }) else {
             // MSVC has a limit of 4095 character token length limit, and fmtIdent can (worst case),
             // expand to 3x the length of its input, but let's cut it off at a much shorter limit.
-            var name: [100]u8 = undefined;
-            var name_stream = std.io.fixedBufferStream(&name);
-            decl.renderFullyQualifiedName(zcu, name_stream.writer()) catch |err| switch (err) {
-                error.NoSpaceLeft => {},
-            };
+            const fqn_slice = decl.fqn.toSlice(ip);
             try writer.print("{}__{d}", .{
-                fmtIdent(name_stream.getWritten()),
+                fmtIdent(fqn_slice[0..@min(fqn_slice.len, 100)]),
                 @intFromEnum(decl_index),
             });
         }
@@ -2587,11 +2583,9 @@ pub fn genTypeDecl(
                 try writer.writeByte(';');
                 const owner_decl = zcu.declPtr(owner_decl_index);
                 const owner_mod = zcu.namespacePtr(owner_decl.src_namespace).fileScope(zcu).mod;
-                if (!owner_mod.strip) {
-                    try writer.writeAll(" /* ");
-                    try owner_decl.renderFullyQualifiedName(zcu, writer);
-                    try writer.writeAll(" */");
-                }
+                if (!owner_mod.strip) try writer.print(" /* {} */", .{
+                    owner_decl.fqn.fmt(&zcu.intern_pool),
+                });
                 try writer.writeByte('\n');
             },
         },
@@ -2628,10 +2622,11 @@ pub fn genErrDecls(o: *Object) !void {
 
     var max_name_len: usize = 0;
     // do not generate an invalid empty enum when the global error set is empty
-    if (zcu.global_error_set.keys().len > 1) {
+    const names = ip.global_error_set.getNamesFromMainThread();
+    if (names.len > 0) {
         try writer.writeAll("enum {\n");
         o.indent_writer.pushIndent();
-        for (zcu.global_error_set.keys()[1..], 1..) |name_nts, value| {
+        for (names, 1..) |name_nts, value| {
             const name = name_nts.toSlice(ip);
             max_name_len = @max(name.len, max_name_len);
             const err_val = try pt.intern(.{ .err = .{
@@ -2650,7 +2645,7 @@ pub fn genErrDecls(o: *Object) !void {
     defer o.dg.gpa.free(name_buf);
 
     @memcpy(name_buf[0..name_prefix.len], name_prefix);
-    for (zcu.global_error_set.keys()) |name| {
+    for (names) |name| {
         const name_slice = name.toSlice(ip);
         @memcpy(name_buf[name_prefix.len..][0..name_slice.len], name_slice);
         const identifier = name_buf[0 .. name_prefix.len + name_slice.len];
@@ -2680,7 +2675,7 @@ pub fn genErrDecls(o: *Object) !void {
     }
 
     const name_array_ty = try pt.arrayType(.{
-        .len = zcu.global_error_set.count(),
+        .len = 1 + names.len,
         .child = .slice_const_u8_sentinel_0_type,
     });
 
@@ -2694,9 +2689,9 @@ pub fn genErrDecls(o: *Object) !void {
         .complete,
     );
     try writer.writeAll(" = {");
-    for (zcu.global_error_set.keys(), 0..) |name_nts, value| {
+    for (names, 1..) |name_nts, val| {
         const name = name_nts.toSlice(ip);
-        if (value != 0) try writer.writeByte(',');
+        if (val > 1) try writer.writeAll(", ");
         try writer.print("{{" ++ name_prefix ++ "{}, {}}}", .{
             fmtIdent(name),
             try o.dg.fmtIntLiteral(try pt.intValue(Type.usize, name.len), .StaticInitializer),
@@ -4563,9 +4558,7 @@ fn airDbgInlineBlock(f: *Function, inst: Air.Inst.Index) !CValue {
     const extra = f.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
     const owner_decl = zcu.funcOwnerDeclPtr(extra.data.func);
     const writer = f.object.writer();
-    try writer.writeAll("/* inline:");
-    try owner_decl.renderFullyQualifiedName(zcu, writer);
-    try writer.writeAll(" */\n");
+    try writer.print("/* inline:{} */\n", .{owner_decl.fqn.fmt(&zcu.intern_pool)});
     return lowerBlock(f, inst, @ptrCast(f.air.extra[extra.end..][0..extra.data.body_len]));
 }
 
@@ -6881,7 +6874,7 @@ fn airErrorName(f: *Function, inst: Air.Inst.Index) !CValue {
 
     try writer.writeAll(" = zig_errorName[");
     try f.writeCValue(writer, operand, .Other);
-    try writer.writeAll("];\n");
+    try writer.writeAll(" - 1];\n");
     return local;
 }
 

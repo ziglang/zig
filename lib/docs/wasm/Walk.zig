@@ -7,7 +7,10 @@ file: File.Index,
 
 /// keep in sync with "CAT_" constants in main.js
 pub const Category = union(enum(u8)) {
+    /// A struct type used only to group declarations.
     namespace: Ast.Node.Index,
+    /// A container type (struct, union, enum, opaque).
+    container: Ast.Node.Index,
     global_variable: Ast.Node.Index,
     /// A function that has not been detected as returning a type.
     function: Ast.Node.Index,
@@ -45,13 +48,6 @@ pub const File = struct {
         return file.node_decls.get(decl_node) orelse return .none;
     }
 
-    pub fn field_count(file: *const File, node: Ast.Node.Index) u32 {
-        const scope = file.scopes.get(node) orelse return 0;
-        if (scope.tag != .namespace) return 0;
-        const namespace: *Scope.Namespace = @alignCast(@fieldParentPtr("base", scope));
-        return namespace.field_count;
-    }
-
     pub const Index = enum(u32) {
         _,
 
@@ -87,7 +83,18 @@ pub const File = struct {
             const node_tags = ast.nodes.items(.tag);
             const token_tags = ast.tokens.items(.tag);
             switch (node_tags[node]) {
-                .root => return .{ .namespace = node },
+                .root => {
+                    for (ast.rootDecls()) |member| {
+                        switch (node_tags[member]) {
+                            .container_field_init,
+                            .container_field_align,
+                            .container_field,
+                            => return .{ .container = node },
+                            else => {},
+                        }
+                    }
+                    return .{ .namespace = node };
+                },
 
                 .global_var_decl,
                 .local_var_decl,
@@ -122,7 +129,7 @@ pub const File = struct {
             full: Ast.full.FnProto,
         ) Category {
             return switch (categorize_expr(file_index, full.ast.return_type)) {
-                .namespace, .error_set, .type_type => .{ .type_function = node },
+                .namespace, .container, .error_set, .type_type => .{ .type_function = node },
                 else => .{ .function = node },
             };
         }
@@ -140,6 +147,7 @@ pub const File = struct {
             const node_tags = ast.nodes.items(.tag);
             const node_datas = ast.nodes.items(.data);
             const main_tokens = ast.nodes.items(.main_token);
+            const token_tags = ast.tokens.items(.tag);
             //log.debug("categorize_expr tag {s}", .{@tagName(node_tags[node])});
             return switch (node_tags[node]) {
                 .container_decl,
@@ -154,7 +162,23 @@ pub const File = struct {
                 .tagged_union_enum_tag_trailing,
                 .tagged_union_two,
                 .tagged_union_two_trailing,
-                => .{ .namespace = node },
+                => {
+                    var buf: [2]Ast.Node.Index = undefined;
+                    const container_decl = ast.fullContainerDecl(&buf, node).?;
+                    if (token_tags[container_decl.ast.main_token] != .keyword_struct) {
+                        return .{ .container = node };
+                    }
+                    for (container_decl.ast.members) |member| {
+                        switch (node_tags[member]) {
+                            .container_field_init,
+                            .container_field_align,
+                            .container_field,
+                            => return .{ .container = node },
+                            else => {},
+                        }
+                    }
+                    return .{ .namespace = node };
+                },
 
                 .error_set_decl,
                 .merge_error_sets,
@@ -240,6 +264,7 @@ pub const File = struct {
                             return .{ .error_set = node };
                         } else if (then_cat == .type or else_cat == .type or
                             then_cat == .namespace or else_cat == .namespace or
+                            then_cat == .container or else_cat == .container or
                             then_cat == .error_set or else_cat == .error_set or
                             then_cat == .type_function or else_cat == .type_function)
                         {
@@ -346,7 +371,7 @@ pub const File = struct {
                         any_type = true;
                         all_type_type = false;
                     },
-                    .type, .namespace, .type_function => {
+                    .type, .namespace, .container, .type_function => {
                         any_type = true;
                         all_error_set = false;
                         all_type_type = false;
@@ -431,7 +456,6 @@ pub const Scope = struct {
         names: std.StringArrayHashMapUnmanaged(Ast.Node.Index) = .{},
         doctests: std.StringArrayHashMapUnmanaged(Ast.Node.Index) = .{},
         decl_index: Decl.Index,
-        field_count: u32,
     };
 
     fn getNamespaceDecl(start_scope: *Scope) Decl.Index {
@@ -500,7 +524,6 @@ fn struct_decl(
     namespace.* = .{
         .parent = scope,
         .decl_index = parent_decl,
-        .field_count = 0,
     };
     try w.file.get().scopes.putNoClobber(gpa, node, &namespace.base);
     try w.scanDecls(namespace, container_decl.ast.members);
@@ -1058,14 +1081,6 @@ fn scanDecls(w: *Walk, namespace: *Scope.Namespace, members: []const Ast.Node.In
                     const token_bytes = ast.tokenSlice(ident_token);
                     try namespace.doctests.put(gpa, token_bytes, member_node);
                 }
-                continue;
-            },
-
-            .container_field_init,
-            .container_field_align,
-            .container_field,
-            => {
-                namespace.field_count += 1;
                 continue;
             },
 

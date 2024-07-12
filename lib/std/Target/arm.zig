@@ -446,7 +446,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.fix_cmse_cve_2021_35465)] = .{
         .llvm_name = "fix-cmse-cve-2021-35465",
-        .description = "Mitigate against the cve-2021-35465 security vulnurability",
+        .description = "Mitigate against the cve-2021-35465 security vulnerability",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.fix_cortex_a57_aes_1742098)] = .{

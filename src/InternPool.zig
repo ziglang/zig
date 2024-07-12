@@ -1,48 +1,19 @@
 //! All interned objects have both a value and a type.
-//! This data structure is self-contained, with the following exceptions:
-//! * Module.Namespace has a pointer to Module.File
+//! This data structure is self-contained.
 
 /// One item per thread, indexed by `tid`, which is dense and unique per thread.
 locals: []Local = &.{},
 /// Length must be a power of two and represents the number of simultaneous
 /// writers that can mutate any single sharded data structure.
 shards: []Shard = &.{},
+/// Key is the error name, index is the error tag value. Index 0 has a length-0 string.
+global_error_set: GlobalErrorSet = GlobalErrorSet.empty,
 /// Cached number of active bits in a `tid`.
 tid_width: if (single_threaded) u0 else std.math.Log2Int(u32) = 0,
 /// Cached shift amount to put a `tid` in the top bits of a 31-bit value.
 tid_shift_31: if (single_threaded) u0 else std.math.Log2Int(u32) = if (single_threaded) 0 else 31,
 /// Cached shift amount to put a `tid` in the top bits of a 32-bit value.
 tid_shift_32: if (single_threaded) u0 else std.math.Log2Int(u32) = if (single_threaded) 0 else 31,
-
-/// Rather than allocating Decl objects with an Allocator, we instead allocate
-/// them with this SegmentedList. This provides four advantages:
-///  * Stable memory so that one thread can access a Decl object while another
-///    thread allocates additional Decl objects from this list.
-///  * It allows us to use u32 indexes to reference Decl objects rather than
-///    pointers, saving memory in Type, Value, and dependency sets.
-///  * Using integers to reference Decl objects rather than pointers makes
-///    serialization trivial.
-///  * It provides a unique integer to be used for anonymous symbol names, avoiding
-///    multi-threaded contention on an atomic counter.
-allocated_decls: std.SegmentedList(Module.Decl, 0) = .{},
-/// When a Decl object is freed from `allocated_decls`, it is pushed into this stack.
-decls_free_list: std.ArrayListUnmanaged(DeclIndex) = .{},
-
-/// Same pattern as with `allocated_decls`.
-allocated_namespaces: std.SegmentedList(Module.Namespace, 0) = .{},
-/// Same pattern as with `decls_free_list`.
-namespaces_free_list: std.ArrayListUnmanaged(NamespaceIndex) = .{},
-
-/// Some types such as enums, structs, and unions need to store mappings from field names
-/// to field index, or value to field index. In such cases, they will store the underlying
-/// field names and values directly, relying on one of these maps, stored separately,
-/// to provide lookup.
-/// These are not serialized; it is computed upon deserialization.
-maps: std.ArrayListUnmanaged(FieldMap) = .{},
-
-/// An index into `tracked_insts` gives a reference to a single ZIR instruction which
-/// persists across incremental updates.
-tracked_insts: std.AutoArrayHashMapUnmanaged(TrackedInst, void) = .{},
 
 /// Dependencies on the source code hash associated with a ZIR instruction.
 /// * For a `declaration`, this is the entire declaration body.
@@ -79,17 +50,6 @@ dep_entries: std.ArrayListUnmanaged(DepEntry) = .{},
 /// garbage collection pass.
 free_dep_entries: std.ArrayListUnmanaged(DepEntry.Index) = .{},
 
-/// Elements are ordered identically to the `import_table` field of `Zcu`.
-///
-/// Unlike `import_table`, this data is serialized as part of incremental
-/// compilation state.
-///
-/// Key is the hash of the path to this file, used to store
-/// `InternPool.TrackedInst`.
-///
-/// Value is the `Decl` of the struct that represents this `File`.
-files: std.AutoArrayHashMapUnmanaged(Cache.BinDigest, OptionalDeclIndex) = .{},
-
 /// Whether a multi-threaded intern pool is useful.
 /// Currently `false` until the intern pool is actually accessed
 /// from multiple threads to reduce the cost of this data structure.
@@ -97,10 +57,6 @@ const want_multi_threaded = false;
 
 /// Whether a single-threaded intern pool impl is in use.
 pub const single_threaded = builtin.single_threaded or !want_multi_threaded;
-
-pub const FileIndex = enum(u32) {
-    _,
-};
 
 pub const TrackedInst = extern struct {
     file: FileIndex,
@@ -111,12 +67,15 @@ pub const TrackedInst = extern struct {
     }
     pub const Index = enum(u32) {
         _,
-        pub fn resolveFull(i: TrackedInst.Index, ip: *const InternPool) TrackedInst {
-            return ip.tracked_insts.keys()[@intFromEnum(i)];
+        pub fn resolveFull(tracked_inst_index: TrackedInst.Index, ip: *const InternPool) TrackedInst {
+            const tracked_inst_unwrapped = tracked_inst_index.unwrap(ip);
+            const tracked_insts = ip.getLocalShared(tracked_inst_unwrapped.tid).tracked_insts.acquire();
+            return tracked_insts.view().items(.@"0")[tracked_inst_unwrapped.index];
         }
         pub fn resolve(i: TrackedInst.Index, ip: *const InternPool) Zir.Inst.Index {
             return i.resolveFull(ip).inst;
         }
+
         pub fn toOptional(i: TrackedInst.Index) Optional {
             return @enumFromInt(@intFromEnum(i));
         }
@@ -130,21 +89,124 @@ pub const TrackedInst = extern struct {
                 };
             }
         };
+
+        pub const Unwrapped = struct {
+            tid: Zcu.PerThread.Id,
+            index: u32,
+
+            pub fn wrap(unwrapped: Unwrapped, ip: *const InternPool) TrackedInst.Index {
+                assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
+                assert(unwrapped.index <= ip.getIndexMask(u32));
+                return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_32 |
+                    unwrapped.index);
+            }
+        };
+        pub fn unwrap(tracked_inst_index: TrackedInst.Index, ip: *const InternPool) Unwrapped {
+            return .{
+                .tid = @enumFromInt(@intFromEnum(tracked_inst_index) >> ip.tid_shift_32 & ip.getTidMask()),
+                .index = @intFromEnum(tracked_inst_index) & ip.getIndexMask(u32),
+            };
+        }
     };
 };
 
 pub fn trackZir(
     ip: *InternPool,
     gpa: Allocator,
-    file: FileIndex,
-    inst: Zir.Inst.Index,
+    tid: Zcu.PerThread.Id,
+    key: TrackedInst,
 ) Allocator.Error!TrackedInst.Index {
-    const key: TrackedInst = .{
-        .file = file,
-        .inst = inst,
-    };
-    const gop = try ip.tracked_insts.getOrPut(gpa, key);
-    return @enumFromInt(gop.index);
+    const full_hash = Hash.hash(0, std.mem.asBytes(&key));
+    const hash: u32 = @truncate(full_hash >> 32);
+    const shard = &ip.shards[@intCast(full_hash & (ip.shards.len - 1))];
+    var map = shard.shared.tracked_inst_map.acquire();
+    const Map = @TypeOf(map);
+    var map_mask = map.header().mask();
+    var map_index = hash;
+    while (true) : (map_index += 1) {
+        map_index &= map_mask;
+        const entry = &map.entries[map_index];
+        const index = entry.acquire().unwrap() orelse break;
+        if (entry.hash != hash) continue;
+        if (std.meta.eql(index.resolveFull(ip), key)) return index;
+    }
+    shard.mutate.tracked_inst_map.mutex.lock();
+    defer shard.mutate.tracked_inst_map.mutex.unlock();
+    if (map.entries != shard.shared.tracked_inst_map.entries) {
+        shard.mutate.tracked_inst_map.len += 1;
+        map = shard.shared.tracked_inst_map;
+        map_mask = map.header().mask();
+        map_index = hash;
+    }
+    while (true) : (map_index += 1) {
+        map_index &= map_mask;
+        const entry = &map.entries[map_index];
+        const index = entry.acquire().unwrap() orelse break;
+        if (entry.hash != hash) continue;
+        if (std.meta.eql(index.resolveFull(ip), key)) return index;
+    }
+    defer shard.mutate.tracked_inst_map.len += 1;
+    const local = ip.getLocal(tid);
+    local.mutate.tracked_insts.mutex.lock();
+    defer local.mutate.tracked_insts.mutex.unlock();
+    const list = local.getMutableTrackedInsts(gpa);
+    try list.ensureUnusedCapacity(1);
+    const map_header = map.header().*;
+    if (shard.mutate.tracked_inst_map.len < map_header.capacity * 3 / 5) {
+        const entry = &map.entries[map_index];
+        entry.hash = hash;
+        const index = (TrackedInst.Index.Unwrapped{
+            .tid = tid,
+            .index = list.mutate.len,
+        }).wrap(ip);
+        list.appendAssumeCapacity(.{key});
+        entry.release(index.toOptional());
+        return index;
+    }
+    const arena_state = &local.mutate.arena;
+    var arena = arena_state.promote(gpa);
+    defer arena_state.* = arena.state;
+    const new_map_capacity = map_header.capacity * 2;
+    const new_map_buf = try arena.allocator().alignedAlloc(
+        u8,
+        Map.alignment,
+        Map.entries_offset + new_map_capacity * @sizeOf(Map.Entry),
+    );
+    const new_map: Map = .{ .entries = @ptrCast(new_map_buf[Map.entries_offset..].ptr) };
+    new_map.header().* = .{ .capacity = new_map_capacity };
+    @memset(new_map.entries[0..new_map_capacity], .{ .value = .none, .hash = undefined });
+    const new_map_mask = new_map.header().mask();
+    map_index = 0;
+    while (map_index < map_header.capacity) : (map_index += 1) {
+        const entry = &map.entries[map_index];
+        const index = entry.value.unwrap() orelse continue;
+        const item_hash = entry.hash;
+        var new_map_index = item_hash;
+        while (true) : (new_map_index += 1) {
+            new_map_index &= new_map_mask;
+            const new_entry = &new_map.entries[new_map_index];
+            if (new_entry.value != .none) continue;
+            new_entry.* = .{
+                .value = index.toOptional(),
+                .hash = item_hash,
+            };
+            break;
+        }
+    }
+    map = new_map;
+    map_index = hash;
+    while (true) : (map_index += 1) {
+        map_index &= new_map_mask;
+        if (map.entries[map_index].value == .none) break;
+    }
+    const index = (TrackedInst.Index.Unwrapped{
+        .tid = tid,
+        .index = list.mutate.len,
+    }).wrap(ip);
+    list.appendAssumeCapacity(.{key});
+    map.entries[map_index] = .{ .value = index.toOptional(), .hash = hash };
+    shard.shared.tracked_inst_map.release(new_map);
+    return index;
 }
 
 /// Analysis Unit. Represents a single entity which undergoes semantic analysis.
@@ -354,10 +416,17 @@ const Local = struct {
     /// atomic access.
     mutate: struct {
         arena: std.heap.ArenaAllocator.State,
-        items: Mutate,
-        extra: Mutate,
-        limbs: Mutate,
-        strings: Mutate,
+
+        items: ListMutate,
+        extra: MutexListMutate,
+        limbs: ListMutate,
+        strings: ListMutate,
+        tracked_insts: MutexListMutate,
+        files: ListMutate,
+        maps: ListMutate,
+
+        decls: BucketListMutate,
+        namespaces: BucketListMutate,
     } align(std.atomic.cache_line),
 
     const Shared = struct {
@@ -365,6 +434,12 @@ const Local = struct {
         extra: Extra,
         limbs: Limbs,
         strings: Strings,
+        tracked_insts: TrackedInsts,
+        files: List(File),
+        maps: Maps,
+
+        decls: Decls,
+        namespaces: Namespaces,
 
         pub fn getLimbs(shared: *const Local.Shared) Limbs {
             return switch (@sizeOf(Limb)) {
@@ -382,12 +457,48 @@ const Local = struct {
         else => @compileError("unsupported host"),
     };
     const Strings = List(struct { u8 });
+    const TrackedInsts = List(struct { TrackedInst });
+    const Maps = List(struct { FieldMap });
 
-    const Mutate = struct {
+    const decls_bucket_width = 8;
+    const decls_bucket_mask = (1 << decls_bucket_width) - 1;
+    const decl_next_free_field = "src_namespace";
+    const Decls = List(struct { *[1 << decls_bucket_width]Zcu.Decl });
+
+    const namespaces_bucket_width = 8;
+    const namespaces_bucket_mask = (1 << namespaces_bucket_width) - 1;
+    const namespace_next_free_field = "decl_index";
+    const Namespaces = List(struct { *[1 << namespaces_bucket_width]Zcu.Namespace });
+
+    const ListMutate = struct {
         len: u32,
 
-        const empty: Mutate = .{
+        const empty: ListMutate = .{
             .len = 0,
+        };
+    };
+
+    const MutexListMutate = struct {
+        mutex: std.Thread.Mutex,
+        list: ListMutate,
+
+        const empty: MutexListMutate = .{
+            .mutex = .{},
+            .list = ListMutate.empty,
+        };
+    };
+
+    const BucketListMutate = struct {
+        last_bucket_len: u32,
+        buckets_list: ListMutate,
+        free_list: u32,
+
+        const free_list_sentinel = std.math.maxInt(u32);
+
+        const empty: BucketListMutate = .{
+            .last_bucket_len = 0,
+            .buckets_list = ListMutate.empty,
+            .free_list = free_list_sentinel,
         };
     };
 
@@ -398,9 +509,9 @@ const Local = struct {
 
             const ListSelf = @This();
             const Mutable = struct {
-                gpa: std.mem.Allocator,
+                gpa: Allocator,
                 arena: *std.heap.ArenaAllocator.State,
-                mutate: *Mutate,
+                mutate: *ListMutate,
                 list: *ListSelf,
 
                 const fields = std.enums.values(std.meta.FieldEnum(Elem));
@@ -423,14 +534,17 @@ const Local = struct {
                         .is_tuple = elem_info.is_tuple,
                     } });
                 }
-                fn SliceElem(comptime opts: struct { is_const: bool = false }) type {
+                fn PtrElem(comptime opts: struct {
+                    size: std.builtin.Type.Pointer.Size,
+                    is_const: bool = false,
+                }) type {
                     const elem_info = @typeInfo(Elem).Struct;
                     const elem_fields = elem_info.fields;
                     var new_fields: [elem_fields.len]std.builtin.Type.StructField = undefined;
                     for (&new_fields, elem_fields) |*new_field, elem_field| new_field.* = .{
                         .name = elem_field.name,
                         .type = @Type(.{ .Pointer = .{
-                            .size = .Slice,
+                            .size = opts.size,
                             .is_const = opts.is_const,
                             .is_volatile = false,
                             .alignment = 0,
@@ -451,6 +565,23 @@ const Local = struct {
                     } });
                 }
 
+                pub fn addOne(mutable: Mutable) Allocator.Error!PtrElem(.{ .size = .One }) {
+                    try mutable.ensureUnusedCapacity(1);
+                    return mutable.addOneAssumeCapacity();
+                }
+
+                pub fn addOneAssumeCapacity(mutable: Mutable) PtrElem(.{ .size = .One }) {
+                    const index = mutable.mutate.len;
+                    assert(index < mutable.list.header().capacity);
+                    mutable.mutate.len = index + 1;
+                    const mutable_view = mutable.view().slice();
+                    var ptr: PtrElem(.{ .size = .One }) = undefined;
+                    inline for (fields) |field| {
+                        @field(ptr, @tagName(field)) = &mutable_view.items(field)[index];
+                    }
+                    return ptr;
+                }
+
                 pub fn append(mutable: Mutable, elem: Elem) Allocator.Error!void {
                     try mutable.ensureUnusedCapacity(1);
                     mutable.appendAssumeCapacity(elem);
@@ -464,14 +595,14 @@ const Local = struct {
 
                 pub fn appendSliceAssumeCapacity(
                     mutable: Mutable,
-                    slice: SliceElem(.{ .is_const = true }),
+                    slice: PtrElem(.{ .size = .Slice, .is_const = true }),
                 ) void {
                     if (fields.len == 0) return;
                     const start = mutable.mutate.len;
                     const slice_len = @field(slice, @tagName(fields[0])).len;
                     assert(slice_len <= mutable.list.header().capacity - start);
                     mutable.mutate.len = @intCast(start + slice_len);
-                    const mutable_view = mutable.view();
+                    const mutable_view = mutable.view().slice();
                     inline for (fields) |field| {
                         const field_slice = @field(slice, @tagName(field));
                         assert(field_slice.len == slice_len);
@@ -488,7 +619,7 @@ const Local = struct {
                     const start = mutable.mutate.len;
                     assert(len <= mutable.list.header().capacity - start);
                     mutable.mutate.len = @intCast(start + len);
-                    const mutable_view = mutable.view();
+                    const mutable_view = mutable.view().slice();
                     inline for (fields) |field| {
                         @memset(mutable_view.items(field)[start..][0..len], @field(elem, @tagName(field)));
                     }
@@ -503,7 +634,7 @@ const Local = struct {
                     const start = mutable.mutate.len;
                     assert(len <= mutable.list.header().capacity - start);
                     mutable.mutate.len = @intCast(start + len);
-                    const mutable_view = mutable.view();
+                    const mutable_view = mutable.view().slice();
                     var ptr_array: PtrArrayElem(len) = undefined;
                     inline for (fields) |field| {
                         @field(ptr_array, @tagName(field)) = mutable_view.items(field)[start..][0..len];
@@ -511,17 +642,17 @@ const Local = struct {
                     return ptr_array;
                 }
 
-                pub fn addManyAsSlice(mutable: Mutable, len: usize) Allocator.Error!SliceElem(.{}) {
+                pub fn addManyAsSlice(mutable: Mutable, len: usize) Allocator.Error!PtrElem(.{ .size = .Slice }) {
                     try mutable.ensureUnusedCapacity(len);
                     return mutable.addManyAsSliceAssumeCapacity(len);
                 }
 
-                pub fn addManyAsSliceAssumeCapacity(mutable: Mutable, len: usize) SliceElem(.{}) {
+                pub fn addManyAsSliceAssumeCapacity(mutable: Mutable, len: usize) PtrElem(.{ .size = .Slice }) {
                     const start = mutable.mutate.len;
                     assert(len <= mutable.list.header().capacity - start);
                     mutable.mutate.len = @intCast(start + len);
-                    const mutable_view = mutable.view();
-                    var slice: SliceElem(.{}) = undefined;
+                    const mutable_view = mutable.view().slice();
+                    var slice: PtrElem(.{ .size = .Slice }) = undefined;
                     inline for (fields) |field| {
                         @field(slice, @tagName(field)) = mutable_view.items(field)[start..][0..len];
                     }
@@ -566,7 +697,7 @@ const Local = struct {
                     mutable.list.release(new_list);
                 }
 
-                fn view(mutable: Mutable) View {
+                pub fn view(mutable: Mutable) View {
                     const capacity = mutable.list.header().capacity;
                     assert(capacity > 0); // optimizes `MultiArrayList.Slice.items`
                     return .{
@@ -590,7 +721,7 @@ const Local = struct {
             const View = std.MultiArrayList(Elem);
 
             /// Must be called when accessing from another thread.
-            fn acquire(list: *const ListSelf) ListSelf {
+            pub fn acquire(list: *const ListSelf) ListSelf {
                 return .{ .bytes = @atomicLoad([*]align(@alignOf(Elem)) u8, &list.bytes, .acquire) };
             }
             fn release(list: *ListSelf, new_list: ListSelf) void {
@@ -604,7 +735,7 @@ const Local = struct {
                 return @ptrFromInt(@intFromPtr(list.bytes) - bytes_offset);
             }
 
-            fn view(list: ListSelf) View {
+            pub fn view(list: ListSelf) View {
                 const capacity = list.header().capacity;
                 assert(capacity > 0); // optimizes `MultiArrayList.Slice.items`
                 return .{
@@ -616,7 +747,7 @@ const Local = struct {
         };
     }
 
-    pub fn getMutableItems(local: *Local, gpa: std.mem.Allocator) List(Item).Mutable {
+    pub fn getMutableItems(local: *Local, gpa: Allocator) List(Item).Mutable {
         return .{
             .gpa = gpa,
             .arena = &local.mutate.arena,
@@ -625,11 +756,11 @@ const Local = struct {
         };
     }
 
-    pub fn getMutableExtra(local: *Local, gpa: std.mem.Allocator) Extra.Mutable {
+    pub fn getMutableExtra(local: *Local, gpa: Allocator) Extra.Mutable {
         return .{
             .gpa = gpa,
             .arena = &local.mutate.arena,
-            .mutate = &local.mutate.extra,
+            .mutate = &local.mutate.extra.list,
             .list = &local.shared.extra,
         };
     }
@@ -638,7 +769,7 @@ const Local = struct {
     /// On 64-bit systems, this array is used for big integers and associated metadata.
     /// Use the helper methods instead of accessing this directly in order to not
     /// violate the above mechanism.
-    pub fn getMutableLimbs(local: *Local, gpa: std.mem.Allocator) Limbs.Mutable {
+    pub fn getMutableLimbs(local: *Local, gpa: Allocator) Limbs.Mutable {
         return switch (@sizeOf(Limb)) {
             @sizeOf(u32) => local.getMutableExtra(gpa),
             @sizeOf(u64) => .{
@@ -656,12 +787,84 @@ const Local = struct {
     /// is referencing the data here whether they want to store both index and length,
     /// thus allowing null bytes, or store only index, and use null-termination. The
     /// `strings` array is agnostic to either usage.
-    pub fn getMutableStrings(local: *Local, gpa: std.mem.Allocator) Strings.Mutable {
+    pub fn getMutableStrings(local: *Local, gpa: Allocator) Strings.Mutable {
         return .{
             .gpa = gpa,
             .arena = &local.mutate.arena,
             .mutate = &local.mutate.strings,
             .list = &local.shared.strings,
+        };
+    }
+
+    /// An index into `tracked_insts` gives a reference to a single ZIR instruction which
+    /// persists across incremental updates.
+    pub fn getMutableTrackedInsts(local: *Local, gpa: Allocator) TrackedInsts.Mutable {
+        return .{
+            .gpa = gpa,
+            .arena = &local.mutate.arena,
+            .mutate = &local.mutate.tracked_insts.list,
+            .list = &local.shared.tracked_insts,
+        };
+    }
+
+    /// Elements are ordered identically to the `import_table` field of `Zcu`.
+    ///
+    /// Unlike `import_table`, this data is serialized as part of incremental
+    /// compilation state.
+    ///
+    /// Key is the hash of the path to this file, used to store
+    /// `InternPool.TrackedInst`.
+    ///
+    /// Value is the `Decl` of the struct that represents this `File`.
+    pub fn getMutableFiles(local: *Local, gpa: Allocator) List(File).Mutable {
+        return .{
+            .gpa = gpa,
+            .arena = &local.mutate.arena,
+            .mutate = &local.mutate.files,
+            .list = &local.shared.files,
+        };
+    }
+
+    /// Some types such as enums, structs, and unions need to store mappings from field names
+    /// to field index, or value to field index. In such cases, they will store the underlying
+    /// field names and values directly, relying on one of these maps, stored separately,
+    /// to provide lookup.
+    /// These are not serialized; it is computed upon deserialization.
+    pub fn getMutableMaps(local: *Local, gpa: Allocator) Maps.Mutable {
+        return .{
+            .gpa = gpa,
+            .arena = &local.mutate.arena,
+            .mutate = &local.mutate.maps,
+            .list = &local.shared.maps,
+        };
+    }
+
+    /// Rather than allocating Decl objects with an Allocator, we instead allocate
+    /// them with this BucketList. This provides four advantages:
+    ///  * Stable memory so that one thread can access a Decl object while another
+    ///    thread allocates additional Decl objects from this list.
+    ///  * It allows us to use u32 indexes to reference Decl objects rather than
+    ///    pointers, saving memory in Type, Value, and dependency sets.
+    ///  * Using integers to reference Decl objects rather than pointers makes
+    ///    serialization trivial.
+    ///  * It provides a unique integer to be used for anonymous symbol names, avoiding
+    ///    multi-threaded contention on an atomic counter.
+    pub fn getMutableDecls(local: *Local, gpa: Allocator) Decls.Mutable {
+        return .{
+            .gpa = gpa,
+            .arena = &local.mutate.arena,
+            .mutate = &local.mutate.decls.buckets_list,
+            .list = &local.shared.decls,
+        };
+    }
+
+    /// Same pattern as with `getMutableDecls`.
+    pub fn getMutableNamespaces(local: *Local, gpa: Allocator) Namespaces.Mutable {
+        return .{
+            .gpa = gpa,
+            .arena = &local.mutate.arena,
+            .mutate = &local.mutate.namespaces.buckets_list,
+            .list = &local.shared.namespaces,
         };
     }
 };
@@ -678,11 +881,13 @@ const Shard = struct {
     shared: struct {
         map: Map(Index),
         string_map: Map(OptionalNullTerminatedString),
+        tracked_inst_map: Map(TrackedInst.Index.Optional),
     } align(std.atomic.cache_line),
     mutate: struct {
         // TODO: measure cost of sharing unrelated mutate state
         map: Mutate align(std.atomic.cache_line),
         string_map: Mutate align(std.atomic.cache_line),
+        tracked_inst_map: Mutate align(std.atomic.cache_line),
     },
 
     const Mutate = struct {
@@ -771,8 +976,6 @@ const Hash = std.hash.Wyhash;
 
 const InternPool = @This();
 const Zcu = @import("Zcu.zig");
-/// Deprecated.
-const Module = Zcu;
 const Zir = std.zig.Zir;
 
 /// An index into `maps` which might be `none`.
@@ -790,8 +993,36 @@ pub const OptionalMapIndex = enum(u32) {
 pub const MapIndex = enum(u32) {
     _,
 
+    pub fn get(map_index: MapIndex, ip: *InternPool) *FieldMap {
+        const unwrapped_map_index = map_index.unwrap(ip);
+        const maps = ip.getLocalShared(unwrapped_map_index.tid).maps.acquire();
+        return &maps.view().items(.@"0")[unwrapped_map_index.index];
+    }
+
+    pub fn getConst(map_index: MapIndex, ip: *const InternPool) FieldMap {
+        return map_index.get(@constCast(ip)).*;
+    }
+
     pub fn toOptional(i: MapIndex) OptionalMapIndex {
         return @enumFromInt(@intFromEnum(i));
+    }
+
+    const Unwrapped = struct {
+        tid: Zcu.PerThread.Id,
+        index: u32,
+
+        fn wrap(unwrapped: Unwrapped, ip: *const InternPool) MapIndex {
+            assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
+            assert(unwrapped.index <= ip.getIndexMask(u32));
+            return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_32 |
+                unwrapped.index);
+        }
+    };
+    fn unwrap(map_index: MapIndex, ip: *const InternPool) Unwrapped {
+        return .{
+            .tid = @enumFromInt(@intFromEnum(map_index) >> ip.tid_shift_32 & ip.getTidMask()),
+            .index = @intFromEnum(map_index) & ip.getIndexMask(u32),
+        };
     }
 };
 
@@ -809,6 +1040,29 @@ pub const ComptimeAllocIndex = enum(u32) { _ };
 
 pub const DeclIndex = enum(u32) {
     _,
+
+    const Unwrapped = struct {
+        tid: Zcu.PerThread.Id,
+        bucket_index: u32,
+        index: u32,
+
+        fn wrap(unwrapped: Unwrapped, ip: *const InternPool) DeclIndex {
+            assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
+            assert(unwrapped.bucket_index <= ip.getIndexMask(u32) >> Local.decls_bucket_width);
+            assert(unwrapped.index <= Local.decls_bucket_mask);
+            return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_32 |
+                unwrapped.bucket_index << Local.decls_bucket_width |
+                unwrapped.index);
+        }
+    };
+    fn unwrap(decl_index: DeclIndex, ip: *const InternPool) Unwrapped {
+        const index = @intFromEnum(decl_index) & ip.getIndexMask(u32);
+        return .{
+            .tid = @enumFromInt(@intFromEnum(decl_index) >> ip.tid_shift_32 & ip.getTidMask()),
+            .bucket_index = index >> Local.decls_bucket_width,
+            .index = index & Local.decls_bucket_mask,
+        };
+    }
 
     pub fn toOptional(i: DeclIndex) OptionalDeclIndex {
         return @enumFromInt(@intFromEnum(i));
@@ -832,6 +1086,29 @@ pub const OptionalDeclIndex = enum(u32) {
 pub const NamespaceIndex = enum(u32) {
     _,
 
+    const Unwrapped = struct {
+        tid: Zcu.PerThread.Id,
+        bucket_index: u32,
+        index: u32,
+
+        fn wrap(unwrapped: Unwrapped, ip: *const InternPool) NamespaceIndex {
+            assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
+            assert(unwrapped.bucket_index <= ip.getIndexMask(u32) >> Local.namespaces_bucket_width);
+            assert(unwrapped.index <= Local.namespaces_bucket_mask);
+            return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_32 |
+                unwrapped.bucket_index << Local.namespaces_bucket_width |
+                unwrapped.index);
+        }
+    };
+    fn unwrap(namespace_index: NamespaceIndex, ip: *const InternPool) Unwrapped {
+        const index = @intFromEnum(namespace_index) & ip.getIndexMask(u32);
+        return .{
+            .tid = @enumFromInt(@intFromEnum(namespace_index) >> ip.tid_shift_32 & ip.getTidMask()),
+            .bucket_index = index >> Local.namespaces_bucket_width,
+            .index = index & Local.namespaces_bucket_mask,
+        };
+    }
+
     pub fn toOptional(i: NamespaceIndex) OptionalNamespaceIndex {
         return @enumFromInt(@intFromEnum(i));
     }
@@ -849,6 +1126,34 @@ pub const OptionalNamespaceIndex = enum(u32) {
         if (oi == .none) return null;
         return @enumFromInt(@intFromEnum(oi));
     }
+};
+
+pub const FileIndex = enum(u32) {
+    _,
+
+    const Unwrapped = struct {
+        tid: Zcu.PerThread.Id,
+        index: u32,
+
+        fn wrap(unwrapped: Unwrapped, ip: *const InternPool) FileIndex {
+            assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
+            assert(unwrapped.index <= ip.getIndexMask(u32));
+            return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_32 |
+                unwrapped.index);
+        }
+    };
+    pub fn unwrap(file_index: FileIndex, ip: *const InternPool) Unwrapped {
+        return .{
+            .tid = @enumFromInt(@intFromEnum(file_index) >> ip.tid_shift_32 & ip.getTidMask()),
+            .index = @intFromEnum(file_index) & ip.getIndexMask(u32),
+        };
+    }
+};
+
+const File = struct {
+    bin_digest: Cache.BinDigest,
+    file: *Zcu.File,
+    root_decl: OptionalDeclIndex,
 };
 
 /// An index into `strings`.
@@ -1153,7 +1458,7 @@ pub const Key = union(enum) {
 
         /// Look up field index based on field name.
         pub fn nameIndex(self: ErrorSetType, ip: *const InternPool, name: NullTerminatedString) ?u32 {
-            const map = &ip.maps.items[@intFromEnum(self.names_map.unwrap().?)];
+            const map = self.names_map.unwrap().?.getConst(ip);
             const adapter: NullTerminatedString.Adapter = .{ .strings = self.names.get(ip) };
             const field_index = map.getIndexAdapted(name, adapter) orelse return null;
             return @intCast(field_index);
@@ -2578,7 +2883,7 @@ pub const LoadedStructType = struct {
             if (i >= self.field_types.len) return null;
             return i;
         };
-        const map = &ip.maps.items[@intFromEnum(names_map)];
+        const map = names_map.getConst(ip);
         const adapter: NullTerminatedString.Adapter = .{ .strings = self.field_names.get(ip) };
         const field_index = map.getIndexAdapted(name, adapter) orelse return null;
         return @intCast(field_index);
@@ -2696,20 +3001,25 @@ pub const LoadedStructType = struct {
     }
 
     pub fn setInitsWip(s: LoadedStructType, ip: *InternPool) bool {
-        switch (s.layout) {
-            .@"packed" => {
-                const flag = &s.packedFlagsPtr(ip).field_inits_wip;
-                if (flag.*) return true;
-                flag.* = true;
-                return false;
-            },
-            .auto, .@"extern" => {
-                const flag = &s.flagsPtr(ip).field_inits_wip;
-                if (flag.*) return true;
-                flag.* = true;
-                return false;
-            },
-        }
+        const local = ip.getLocal(s.tid);
+        local.mutate.extra.mutex.lock();
+        defer local.mutate.extra.mutex.unlock();
+        return switch (s.layout) {
+            .@"packed" => @as(Tag.TypeStructPacked.Flags, @bitCast(@atomicRmw(
+                u32,
+                @as(*u32, @ptrCast(s.packedFlagsPtr(ip))),
+                .Or,
+                @bitCast(Tag.TypeStructPacked.Flags{ .field_inits_wip = true }),
+                .acq_rel,
+            ))).field_inits_wip,
+            .auto, .@"extern" => @as(Tag.TypeStruct.Flags, @bitCast(@atomicRmw(
+                u32,
+                @as(*u32, @ptrCast(s.flagsPtr(ip))),
+                .Or,
+                @bitCast(Tag.TypeStruct.Flags{ .field_inits_wip = true }),
+                .acq_rel,
+            ))).field_inits_wip,
+        };
     }
 
     pub fn clearInitsWip(s: LoadedStructType, ip: *InternPool) void {
@@ -2875,6 +3185,7 @@ pub const LoadedStructType = struct {
 pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
     const unwrapped_index = index.unwrap(ip);
     const extra_list = unwrapped_index.getExtra(ip);
+    const extra_items = extra_list.view().items(.@"0");
     const item = unwrapped_index.getItem(ip);
     switch (item.tag) {
         .type_struct => {
@@ -2895,10 +3206,12 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .names_map = .none,
                 .captures = CaptureValue.Slice.empty,
             };
-            const extra = extraDataTrail(extra_list, Tag.TypeStruct, item.data);
-            const fields_len = extra.data.fields_len;
-            var extra_index = extra.end;
-            const captures_len = if (extra.data.flags.any_captures) c: {
+            const decl: DeclIndex = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "decl").?]);
+            const zir_index: TrackedInst.Index = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "zir_index").?]);
+            const fields_len = extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "fields_len").?];
+            const flags: Tag.TypeStruct.Flags = @bitCast(@atomicLoad(u32, &extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "flags").?], .monotonic));
+            var extra_index = item.data + @as(u32, @typeInfo(Tag.TypeStruct).Struct.fields.len);
+            const captures_len = if (flags.any_captures) c: {
                 const len = extra_list.view().items(.@"0")[extra_index];
                 extra_index += 1;
                 break :c len;
@@ -2909,7 +3222,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .len = captures_len,
             };
             extra_index += captures_len;
-            if (extra.data.flags.is_reified) {
+            if (flags.is_reified) {
                 extra_index += 2; // PackedU64
             }
             const field_types: Index.Slice = .{
@@ -2918,7 +3231,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .len = fields_len,
             };
             extra_index += fields_len;
-            const names_map: OptionalMapIndex, const names = if (!extra.data.flags.is_tuple) n: {
+            const names_map: OptionalMapIndex, const names = if (!flags.is_tuple) n: {
                 const names_map: OptionalMapIndex = @enumFromInt(extra_list.view().items(.@"0")[extra_index]);
                 extra_index += 1;
                 const names: NullTerminatedString.Slice = .{
@@ -2929,7 +3242,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 extra_index += fields_len;
                 break :n .{ names_map, names };
             } else .{ .none, NullTerminatedString.Slice.empty };
-            const inits: Index.Slice = if (extra.data.flags.any_default_inits) i: {
+            const inits: Index.Slice = if (flags.any_default_inits) i: {
                 const inits: Index.Slice = .{
                     .tid = unwrapped_index.tid,
                     .start = extra_index,
@@ -2938,12 +3251,12 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 extra_index += fields_len;
                 break :i inits;
             } else Index.Slice.empty;
-            const namespace: OptionalNamespaceIndex = if (extra.data.flags.has_namespace) n: {
+            const namespace: OptionalNamespaceIndex = if (flags.has_namespace) n: {
                 const n: NamespaceIndex = @enumFromInt(extra_list.view().items(.@"0")[extra_index]);
                 extra_index += 1;
                 break :n n.toOptional();
             } else .none;
-            const aligns: Alignment.Slice = if (extra.data.flags.any_aligned_fields) a: {
+            const aligns: Alignment.Slice = if (flags.any_aligned_fields) a: {
                 const a: Alignment.Slice = .{
                     .tid = unwrapped_index.tid,
                     .start = extra_index,
@@ -2952,7 +3265,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 extra_index += std.math.divCeil(u32, fields_len, 4) catch unreachable;
                 break :a a;
             } else Alignment.Slice.empty;
-            const comptime_bits: LoadedStructType.ComptimeBits = if (extra.data.flags.any_comptime_fields) c: {
+            const comptime_bits: LoadedStructType.ComptimeBits = if (flags.any_comptime_fields) c: {
                 const len = std.math.divCeil(u32, fields_len, 32) catch unreachable;
                 const c: LoadedStructType.ComptimeBits = .{
                     .tid = unwrapped_index.tid,
@@ -2962,7 +3275,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 extra_index += len;
                 break :c c;
             } else LoadedStructType.ComptimeBits.empty;
-            const runtime_order: LoadedStructType.RuntimeOrder.Slice = if (!extra.data.flags.is_extern) ro: {
+            const runtime_order: LoadedStructType.RuntimeOrder.Slice = if (!flags.is_extern) ro: {
                 const ro: LoadedStructType.RuntimeOrder.Slice = .{
                     .tid = unwrapped_index.tid,
                     .start = extra_index,
@@ -2983,10 +3296,10 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
             return .{
                 .tid = unwrapped_index.tid,
                 .extra_index = item.data,
-                .decl = extra.data.decl.toOptional(),
+                .decl = decl.toOptional(),
                 .namespace = namespace,
-                .zir_index = extra.data.zir_index.toOptional(),
-                .layout = if (extra.data.flags.is_extern) .@"extern" else .auto,
+                .zir_index = zir_index.toOptional(),
+                .layout = if (flags.is_extern) .@"extern" else .auto,
                 .field_names = names,
                 .field_types = field_types,
                 .field_inits = inits,
@@ -2999,11 +3312,15 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
             };
         },
         .type_struct_packed, .type_struct_packed_inits => {
-            const extra = extraDataTrail(extra_list, Tag.TypeStructPacked, item.data);
+            const decl: DeclIndex = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "decl").?]);
+            const zir_index: TrackedInst.Index = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "zir_index").?]);
+            const fields_len = extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "fields_len").?];
+            const namespace: OptionalNamespaceIndex = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "namespace").?]);
+            const names_map: MapIndex = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "names_map").?]);
+            const flags: Tag.TypeStructPacked.Flags = @bitCast(@atomicLoad(u32, &extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "flags").?], .monotonic));
+            var extra_index = item.data + @as(u32, @typeInfo(Tag.TypeStructPacked).Struct.fields.len);
             const has_inits = item.tag == .type_struct_packed_inits;
-            const fields_len = extra.data.fields_len;
-            var extra_index = extra.end;
-            const captures_len = if (extra.data.flags.any_captures) c: {
+            const captures_len = if (flags.any_captures) c: {
                 const len = extra_list.view().items(.@"0")[extra_index];
                 extra_index += 1;
                 break :c len;
@@ -3014,7 +3331,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .len = captures_len,
             };
             extra_index += captures_len;
-            if (extra.data.flags.is_reified) {
+            if (flags.is_reified) {
                 extra_index += 2; // PackedU64
             }
             const field_types: Index.Slice = .{
@@ -3041,9 +3358,9 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
             return .{
                 .tid = unwrapped_index.tid,
                 .extra_index = item.data,
-                .decl = extra.data.decl.toOptional(),
-                .namespace = extra.data.namespace,
-                .zir_index = extra.data.zir_index.toOptional(),
+                .decl = decl.toOptional(),
+                .namespace = namespace,
+                .zir_index = zir_index.toOptional(),
                 .layout = .@"packed",
                 .field_names = field_names,
                 .field_types = field_types,
@@ -3052,7 +3369,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .runtime_order = LoadedStructType.RuntimeOrder.Slice.empty,
                 .comptime_bits = LoadedStructType.ComptimeBits.empty,
                 .offsets = LoadedStructType.Offsets.empty,
-                .names_map = extra.data.names_map.toOptional(),
+                .names_map = names_map.toOptional(),
                 .captures = captures,
             };
         },
@@ -3096,7 +3413,7 @@ const LoadedEnumType = struct {
 
     /// Look up field index based on field name.
     pub fn nameIndex(self: LoadedEnumType, ip: *const InternPool, name: NullTerminatedString) ?u32 {
-        const map = &ip.maps.items[@intFromEnum(self.names_map)];
+        const map = self.names_map.getConst(ip);
         const adapter: NullTerminatedString.Adapter = .{ .strings = self.names.get(ip) };
         const field_index = map.getIndexAdapted(name, adapter) orelse return null;
         return @intCast(field_index);
@@ -3116,7 +3433,7 @@ const LoadedEnumType = struct {
             else => unreachable,
         };
         if (self.values_map.unwrap()) |values_map| {
-            const map = &ip.maps.items[@intFromEnum(values_map)];
+            const map = values_map.getConst(ip);
             const adapter: Index.Adapter = .{ .indexes = self.values.get(ip) };
             const field_index = map.getIndexAdapted(int_tag_val, adapter) orelse return null;
             return @intCast(field_index);
@@ -4389,11 +4706,11 @@ pub const Tag = enum(u8) {
         flags: Flags,
 
         pub const Flags = packed struct(u32) {
-            any_captures: bool,
+            any_captures: bool = false,
             /// Dependency loop detection when resolving field inits.
-            field_inits_wip: bool,
-            inits_resolved: bool,
-            is_reified: bool,
+            field_inits_wip: bool = false,
+            inits_resolved: bool = false,
+            is_reified: bool = false,
             _: u28 = 0,
         };
     };
@@ -4439,36 +4756,36 @@ pub const Tag = enum(u8) {
         size: u32,
 
         pub const Flags = packed struct(u32) {
-            any_captures: bool,
-            is_extern: bool,
-            known_non_opv: bool,
-            requires_comptime: RequiresComptime,
-            is_tuple: bool,
-            assumed_runtime_bits: bool,
-            assumed_pointer_aligned: bool,
-            has_namespace: bool,
-            any_comptime_fields: bool,
-            any_default_inits: bool,
-            any_aligned_fields: bool,
+            any_captures: bool = false,
+            is_extern: bool = false,
+            known_non_opv: bool = false,
+            requires_comptime: RequiresComptime = @enumFromInt(0),
+            is_tuple: bool = false,
+            assumed_runtime_bits: bool = false,
+            assumed_pointer_aligned: bool = false,
+            has_namespace: bool = false,
+            any_comptime_fields: bool = false,
+            any_default_inits: bool = false,
+            any_aligned_fields: bool = false,
             /// `.none` until layout_resolved
-            alignment: Alignment,
+            alignment: Alignment = @enumFromInt(0),
             /// Dependency loop detection when resolving struct alignment.
-            alignment_wip: bool,
+            alignment_wip: bool = false,
             /// Dependency loop detection when resolving field types.
-            field_types_wip: bool,
+            field_types_wip: bool = false,
             /// Dependency loop detection when resolving struct layout.
-            layout_wip: bool,
+            layout_wip: bool = false,
             /// Indicates whether `size`, `alignment`, runtime field order, and
             /// field offets are populated.
-            layout_resolved: bool,
+            layout_resolved: bool = false,
             /// Dependency loop detection when resolving field inits.
-            field_inits_wip: bool,
+            field_inits_wip: bool = false,
             /// Indicates whether `field_inits` has been resolved.
-            inits_resolved: bool,
-            // The types and all its fields have had their layout resolved. Even through pointer,
+            inits_resolved: bool = false,
+            // The types and all its fields have had their layout resolved. Even through pointer = false,
             // which `layout_resolved` does not ensure.
-            fully_resolved: bool,
-            is_reified: bool,
+            fully_resolved: bool = false,
+            is_reified: bool = false,
             _: u6 = 0,
         };
     };
@@ -4512,12 +4829,12 @@ pub const FuncAnalysis = packed struct(u32) {
         /// inline, which means no runtime version of the function will be generated.
         inline_only,
         in_progress,
-        /// There will be a corresponding ErrorMsg in Module.failed_decls
+        /// There will be a corresponding ErrorMsg in Zcu.failed_decls
         sema_failure,
         /// This function might be OK but it depends on another Decl which did not
         /// successfully complete semantic analysis.
         dependency_failure,
-        /// There will be a corresponding ErrorMsg in Module.failed_decls.
+        /// There will be a corresponding ErrorMsg in Zcu.failed_decls.
         /// Indicates that semantic analysis succeeded, but code generation for
         /// this function failed.
         codegen_failure,
@@ -5114,13 +5431,26 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
             .extra = Local.Extra.empty,
             .limbs = Local.Limbs.empty,
             .strings = Local.Strings.empty,
+            .tracked_insts = Local.TrackedInsts.empty,
+            .files = Local.List(File).empty,
+            .maps = Local.Maps.empty,
+
+            .decls = Local.Decls.empty,
+            .namespaces = Local.Namespaces.empty,
         },
         .mutate = .{
             .arena = .{},
-            .items = Local.Mutate.empty,
-            .extra = Local.Mutate.empty,
-            .limbs = Local.Mutate.empty,
-            .strings = Local.Mutate.empty,
+
+            .items = Local.ListMutate.empty,
+            .extra = Local.MutexListMutate.empty,
+            .limbs = Local.ListMutate.empty,
+            .strings = Local.ListMutate.empty,
+            .tracked_insts = Local.MutexListMutate.empty,
+            .files = Local.ListMutate.empty,
+            .maps = Local.ListMutate.empty,
+
+            .decls = Local.BucketListMutate.empty,
+            .namespaces = Local.BucketListMutate.empty,
         },
     });
 
@@ -5132,10 +5462,12 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
         .shared = .{
             .map = Shard.Map(Index).empty,
             .string_map = Shard.Map(OptionalNullTerminatedString).empty,
+            .tracked_inst_map = Shard.Map(TrackedInst.Index.Optional).empty,
         },
         .mutate = .{
             .map = Shard.Mutate.empty,
             .string_map = Shard.Mutate.empty,
+            .tracked_inst_map = Shard.Mutate.empty,
         },
     });
 
@@ -5173,17 +5505,6 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
 }
 
 pub fn deinit(ip: *InternPool, gpa: Allocator) void {
-    ip.decls_free_list.deinit(gpa);
-    ip.allocated_decls.deinit(gpa);
-
-    ip.namespaces_free_list.deinit(gpa);
-    ip.allocated_namespaces.deinit(gpa);
-
-    for (ip.maps.items) |*map| map.deinit(gpa);
-    ip.maps.deinit(gpa);
-
-    ip.tracked_insts.deinit(gpa);
-
     ip.src_hash_deps.deinit(gpa);
     ip.decl_val_deps.deinit(gpa);
     ip.func_ies_deps.deinit(gpa);
@@ -5195,10 +5516,26 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     ip.dep_entries.deinit(gpa);
     ip.free_dep_entries.deinit(gpa);
 
-    ip.files.deinit(gpa);
-
     gpa.free(ip.shards);
-    for (ip.locals) |*local| local.mutate.arena.promote(gpa).deinit();
+    for (ip.locals) |*local| {
+        const buckets_len = local.mutate.namespaces.buckets_list.len;
+        if (buckets_len > 0) for (
+            local.shared.namespaces.view().items(.@"0")[0..buckets_len],
+            0..,
+        ) |namespace_bucket, buckets_index| {
+            for (namespace_bucket[0..if (buckets_index < buckets_len - 1)
+                namespace_bucket.len
+            else
+                local.mutate.namespaces.last_bucket_len]) |*namespace|
+            {
+                namespace.decls.deinit(gpa);
+                namespace.usingnamespace_set.deinit(gpa);
+            }
+        };
+        const maps = local.getMutableMaps(gpa);
+        if (maps.mutate.len > 0) for (maps.view().items(.@"0")) |*map| map.deinit(gpa);
+        local.mutate.arena.promote(gpa).deinit();
+    }
     gpa.free(ip.locals);
 
     ip.* = undefined;
@@ -5296,40 +5633,46 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
         .type_struct => .{ .struct_type = ns: {
             if (data == 0) break :ns .empty_struct;
             const extra_list = unwrapped_index.getExtra(ip);
-            const extra = extraDataTrail(extra_list, Tag.TypeStruct, data);
-            if (extra.data.flags.is_reified) {
-                assert(!extra.data.flags.any_captures);
+            const extra_items = extra_list.view().items(.@"0");
+            const zir_index: TrackedInst.Index = @enumFromInt(extra_items[data + std.meta.fieldIndex(Tag.TypeStruct, "zir_index").?]);
+            const flags: Tag.TypeStruct.Flags = @bitCast(@atomicLoad(u32, &extra_items[data + std.meta.fieldIndex(Tag.TypeStruct, "flags").?], .monotonic));
+            const end_extra_index = data + @as(u32, @typeInfo(Tag.TypeStruct).Struct.fields.len);
+            if (flags.is_reified) {
+                assert(!flags.any_captures);
                 break :ns .{ .reified = .{
-                    .zir_index = extra.data.zir_index,
-                    .type_hash = extraData(extra_list, PackedU64, extra.end).get(),
+                    .zir_index = zir_index,
+                    .type_hash = extraData(extra_list, PackedU64, end_extra_index).get(),
                 } };
             }
             break :ns .{ .declared = .{
-                .zir_index = extra.data.zir_index,
-                .captures = .{ .owned = if (extra.data.flags.any_captures) .{
+                .zir_index = zir_index,
+                .captures = .{ .owned = if (flags.any_captures) .{
                     .tid = unwrapped_index.tid,
-                    .start = extra.end + 1,
-                    .len = extra_list.view().items(.@"0")[extra.end],
+                    .start = end_extra_index + 1,
+                    .len = extra_list.view().items(.@"0")[end_extra_index],
                 } else CaptureValue.Slice.empty },
             } };
         } },
 
         .type_struct_packed, .type_struct_packed_inits => .{ .struct_type = ns: {
             const extra_list = unwrapped_index.getExtra(ip);
-            const extra = extraDataTrail(extra_list, Tag.TypeStructPacked, data);
-            if (extra.data.flags.is_reified) {
-                assert(!extra.data.flags.any_captures);
+            const extra_items = extra_list.view().items(.@"0");
+            const zir_index: TrackedInst.Index = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "zir_index").?]);
+            const flags: Tag.TypeStructPacked.Flags = @bitCast(@atomicLoad(u32, &extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "flags").?], .monotonic));
+            const end_extra_index = data + @as(u32, @typeInfo(Tag.TypeStructPacked).Struct.fields.len);
+            if (flags.is_reified) {
+                assert(!flags.any_captures);
                 break :ns .{ .reified = .{
-                    .zir_index = extra.data.zir_index,
-                    .type_hash = extraData(extra_list, PackedU64, extra.end).get(),
+                    .zir_index = zir_index,
+                    .type_hash = extraData(extra_list, PackedU64, end_extra_index).get(),
                 } };
             }
             break :ns .{ .declared = .{
-                .zir_index = extra.data.zir_index,
-                .captures = .{ .owned = if (extra.data.flags.any_captures) .{
+                .zir_index = zir_index,
+                .captures = .{ .owned = if (flags.any_captures) .{
                     .tid = unwrapped_index.tid,
-                    .start = extra.end + 1,
-                    .len = extra_list.view().items(.@"0")[extra.end],
+                    .start = end_extra_index + 1,
+                    .len = extra_items[end_extra_index],
                 } else CaptureValue.Slice.empty },
             } };
         } },
@@ -5810,27 +6153,32 @@ fn extraFuncDecl(tid: Zcu.PerThread.Id, extra: Local.Extra, extra_index: u32) Ke
 }
 
 fn extraFuncInstance(ip: *const InternPool, tid: Zcu.PerThread.Id, extra: Local.Extra, extra_index: u32) Key.Func {
-    const P = Tag.FuncInstance;
-    const fi = extraDataTrail(extra, P, extra_index);
-    const func_decl = ip.funcDeclInfo(fi.data.generic_owner);
+    const extra_items = extra.view().items(.@"0");
+    const analysis_extra_index = extra_index + std.meta.fieldIndex(Tag.FuncInstance, "analysis").?;
+    const analysis: FuncAnalysis = @bitCast(@atomicLoad(u32, &extra_items[analysis_extra_index], .monotonic));
+    const owner_decl: DeclIndex = @enumFromInt(extra_items[extra_index + std.meta.fieldIndex(Tag.FuncInstance, "owner_decl").?]);
+    const ty: Index = @enumFromInt(extra_items[extra_index + std.meta.fieldIndex(Tag.FuncInstance, "ty").?]);
+    const generic_owner: Index = @enumFromInt(extra_items[extra_index + std.meta.fieldIndex(Tag.FuncInstance, "generic_owner").?]);
+    const func_decl = ip.funcDeclInfo(generic_owner);
+    const end_extra_index = extra_index + @as(u32, @typeInfo(Tag.FuncInstance).Struct.fields.len);
     return .{
         .tid = tid,
-        .ty = fi.data.ty,
-        .uncoerced_ty = fi.data.ty,
-        .analysis_extra_index = extra_index + std.meta.fieldIndex(P, "analysis").?,
+        .ty = ty,
+        .uncoerced_ty = ty,
+        .analysis_extra_index = analysis_extra_index,
         .zir_body_inst_extra_index = func_decl.zir_body_inst_extra_index,
-        .resolved_error_set_extra_index = if (fi.data.analysis.inferred_error_set) fi.end else 0,
-        .branch_quota_extra_index = extra_index + std.meta.fieldIndex(P, "branch_quota").?,
-        .owner_decl = fi.data.owner_decl,
+        .resolved_error_set_extra_index = if (analysis.inferred_error_set) end_extra_index else 0,
+        .branch_quota_extra_index = extra_index + std.meta.fieldIndex(Tag.FuncInstance, "branch_quota").?,
+        .owner_decl = owner_decl,
         .zir_body_inst = func_decl.zir_body_inst,
         .lbrace_line = func_decl.lbrace_line,
         .rbrace_line = func_decl.rbrace_line,
         .lbrace_column = func_decl.lbrace_column,
         .rbrace_column = func_decl.rbrace_column,
-        .generic_owner = fi.data.generic_owner,
+        .generic_owner = generic_owner,
         .comptime_args = .{
             .tid = tid,
-            .start = fi.end + @intFromBool(fi.data.analysis.inferred_error_set),
+            .start = end_extra_index + @intFromBool(analysis.inferred_error_set),
             .len = ip.funcTypeParamsLen(func_decl.ty),
         },
     };
@@ -6102,8 +6450,8 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
             assert(error_set_type.names_map == .none);
             assert(std.sort.isSorted(NullTerminatedString, error_set_type.names.get(ip), {}, NullTerminatedString.indexLessThan));
             const names = error_set_type.names.get(ip);
-            const names_map = try ip.addMap(gpa, names.len);
-            addStringsToMap(ip, names_map, names);
+            const names_map = try ip.addMap(gpa, tid, names.len);
+            ip.addStringsToMap(names_map, names);
             const names_len = error_set_type.names.len;
             try extra.ensureUnusedCapacity(@typeInfo(Tag.ErrorSet).Struct.fields.len + names_len);
             items.appendAssumeCapacity(.{
@@ -7003,8 +7351,8 @@ pub fn getStructType(
     const items = local.getMutableItems(gpa);
     const extra = local.getMutableExtra(gpa);
 
-    const names_map = try ip.addMap(gpa, ini.fields_len);
-    errdefer _ = ip.maps.pop();
+    const names_map = try ip.addMap(gpa, tid, ini.fields_len);
+    errdefer local.mutate.maps.len -= 1;
 
     const zir_index = switch (ini.key) {
         inline else => |x| x.zir_index,
@@ -7551,17 +7899,18 @@ pub fn getErrorSetType(
     const extra = local.getMutableExtra(gpa);
     try extra.ensureUnusedCapacity(@typeInfo(Tag.ErrorSet).Struct.fields.len + names.len);
 
+    const names_map = try ip.addMap(gpa, tid, names.len);
+    errdefer local.mutate.maps.len -= 1;
+
     // The strategy here is to add the type unconditionally, then to ask if it
     // already exists, and if so, revert the lengths of the mutated arrays.
     // This is similar to what `getOrPutTrailingString` does.
     const prev_extra_len = extra.mutate.len;
     errdefer extra.mutate.len = prev_extra_len;
 
-    const predicted_names_map: MapIndex = @enumFromInt(ip.maps.items.len);
-
     const error_set_extra_index = addExtraAssumeCapacity(extra, Tag.ErrorSet{
         .names_len = @intCast(names.len),
-        .names_map = predicted_names_map,
+        .names_map = names_map,
     });
     extra.appendSliceAssumeCapacity(.{@ptrCast(names)});
     errdefer extra.mutate.len = prev_extra_len;
@@ -7581,11 +7930,7 @@ pub fn getErrorSetType(
     });
     errdefer items.mutate.len -= 1;
 
-    const names_map = try ip.addMap(gpa, names.len);
-    assert(names_map == predicted_names_map);
-    errdefer _ = ip.maps.pop();
-
-    addStringsToMap(ip, names_map, names);
+    ip.addStringsToMap(names_map, names);
 
     return gop.put();
 }
@@ -7849,8 +8194,9 @@ fn finishFuncInstance(
     section: OptionalNullTerminatedString,
 ) Allocator.Error!void {
     const fn_owner_decl = ip.declPtr(ip.funcDeclOwner(generic_owner));
-    const decl_index = try ip.createDecl(gpa, .{
+    const decl_index = try ip.createDecl(gpa, tid, .{
         .name = undefined,
+        .fqn = undefined,
         .src_namespace = fn_owner_decl.src_namespace,
         .has_tv = true,
         .owns_tv = true,
@@ -7864,7 +8210,7 @@ fn finishFuncInstance(
         .is_exported = fn_owner_decl.is_exported,
         .kind = .anon,
     });
-    errdefer ip.destroyDecl(gpa, decl_index);
+    errdefer ip.destroyDecl(tid, decl_index);
 
     // Populate the owner_decl field which was left undefined until now.
     extra.view().items(.@"0")[
@@ -7876,6 +8222,8 @@ fn finishFuncInstance(
     decl.name = try ip.getOrPutStringFmt(gpa, tid, "{}__anon_{d}", .{
         fn_owner_decl.name.fmt(ip), @intFromEnum(decl_index),
     }, .no_embedded_nulls);
+    decl.fqn = try ip.namespacePtr(fn_owner_decl.src_namespace)
+        .internFullyQualifiedName(ip, gpa, tid, decl.name);
 }
 
 pub const EnumTypeInit = struct {
@@ -7948,7 +8296,7 @@ pub const WipEnumType = struct {
             return null;
         }
         assert(ip.typeOf(value) == @as(Index, @enumFromInt(extra_items[wip.tag_ty_index])));
-        const map = &ip.maps.items[@intFromEnum(wip.values_map.unwrap().?)];
+        const map = wip.values_map.unwrap().?.get(ip);
         const field_index = map.count();
         const indexes = extra_items[wip.values_start..][0..field_index];
         const adapter: Index.Adapter = .{ .indexes = @ptrCast(indexes) };
@@ -7994,8 +8342,8 @@ pub fn getEnumType(
     try items.ensureUnusedCapacity(1);
     const extra = local.getMutableExtra(gpa);
 
-    const names_map = try ip.addMap(gpa, ini.fields_len);
-    errdefer _ = ip.maps.pop();
+    const names_map = try ip.addMap(gpa, tid, ini.fields_len);
+    errdefer local.mutate.maps.len -= 1;
 
     switch (ini.tag_mode) {
         .auto => {
@@ -8048,11 +8396,11 @@ pub fn getEnumType(
         },
         .explicit, .nonexhaustive => {
             const values_map: OptionalMapIndex = if (!ini.has_values) .none else m: {
-                const values_map = try ip.addMap(gpa, ini.fields_len);
+                const values_map = try ip.addMap(gpa, tid, ini.fields_len);
                 break :m values_map.toOptional();
             };
             errdefer if (ini.has_values) {
-                _ = ip.maps.pop();
+                local.mutate.maps.len -= 1;
             };
 
             try extra.ensureUnusedCapacity(@typeInfo(EnumExplicit).Struct.fields.len +
@@ -8141,8 +8489,8 @@ pub fn getGeneratedTagEnumType(
     try items.ensureUnusedCapacity(1);
     const extra = local.getMutableExtra(gpa);
 
-    const names_map = try ip.addMap(gpa, ini.names.len);
-    errdefer _ = ip.maps.pop();
+    const names_map = try ip.addMap(gpa, tid, ini.names.len);
+    errdefer local.mutate.maps.len -= 1;
     ip.addStringsToMap(names_map, ini.names);
 
     const fields_len: u32 = @intCast(ini.names.len);
@@ -8175,8 +8523,8 @@ pub fn getGeneratedTagEnumType(
                 ini.values.len); // field values
 
             const values_map: OptionalMapIndex = if (ini.values.len != 0) m: {
-                const map = try ip.addMap(gpa, ini.values.len);
-                addIndexesToMap(ip, map, ini.values);
+                const map = try ip.addMap(gpa, tid, ini.values.len);
+                ip.addIndexesToMap(map, ini.values);
                 break :m map.toOptional();
             } else .none;
             // We don't clean up the values map on error!
@@ -8207,7 +8555,9 @@ pub fn getGeneratedTagEnumType(
     errdefer extra.mutate.len = prev_extra_len;
     errdefer switch (ini.tag_mode) {
         .auto => {},
-        .explicit, .nonexhaustive => _ = if (ini.values.len != 0) ip.maps.pop(),
+        .explicit, .nonexhaustive => if (ini.values.len != 0) {
+            local.mutate.maps.len -= 1;
+        },
     };
 
     var gop = try ip.getOrPutKey(gpa, tid, .{ .enum_type = .{
@@ -8311,7 +8661,7 @@ fn addStringsToMap(
     map_index: MapIndex,
     strings: []const NullTerminatedString,
 ) void {
-    const map = &ip.maps.items[@intFromEnum(map_index)];
+    const map = map_index.get(ip);
     const adapter: NullTerminatedString.Adapter = .{ .strings = strings };
     for (strings) |string| {
         const gop = map.getOrPutAssumeCapacityAdapted(string, adapter);
@@ -8324,7 +8674,7 @@ fn addIndexesToMap(
     map_index: MapIndex,
     indexes: []const Index,
 ) void {
-    const map = &ip.maps.items[@intFromEnum(map_index)];
+    const map = map_index.get(ip);
     const adapter: Index.Adapter = .{ .indexes = indexes };
     for (indexes) |index| {
         const gop = map.getOrPutAssumeCapacityAdapted(index, adapter);
@@ -8332,12 +8682,14 @@ fn addIndexesToMap(
     }
 }
 
-fn addMap(ip: *InternPool, gpa: Allocator, cap: usize) Allocator.Error!MapIndex {
-    const ptr = try ip.maps.addOne(gpa);
-    errdefer _ = ip.maps.pop();
-    ptr.* = .{};
-    try ptr.ensureTotalCapacity(gpa, cap);
-    return @enumFromInt(ip.maps.items.len - 1);
+fn addMap(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, cap: usize) Allocator.Error!MapIndex {
+    const maps = ip.getLocal(tid).getMutableMaps(gpa);
+    const unwrapped: MapIndex.Unwrapped = .{ .tid = tid, .index = maps.mutate.len };
+    const ptr = try maps.addOne();
+    errdefer maps.mutate.len = unwrapped.index;
+    ptr[0].* = .{};
+    try ptr[0].ensureTotalCapacity(gpa, cap);
+    return unwrapped.wrap(ip);
 }
 
 /// This operation only happens under compile error conditions.
@@ -9063,10 +9415,13 @@ pub fn errorUnionPayload(ip: *const InternPool, ty: Index) Index {
 /// The is only legal because the initializer is not part of the hash.
 pub fn mutateVarInit(ip: *InternPool, index: Index, init_index: Index) void {
     const unwrapped_index = index.unwrap(ip);
-    const extra_list = unwrapped_index.getExtra(ip);
+    const local = ip.getLocal(unwrapped_index.tid);
+    local.mutate.extra.mutex.lock();
+    defer local.mutate.extra.mutex.unlock();
+    const extra_items = local.shared.extra.view().items(.@"0");
     const item = unwrapped_index.getItem(ip);
     assert(item.tag == .variable);
-    @atomicStore(u32, &extra_list.view().items(.@"0")[item.data + std.meta.fieldIndex(Tag.Variable, "init").?], @intFromEnum(init_index), .release);
+    @atomicStore(u32, &extra_items[item.data + std.meta.fieldIndex(Tag.Variable, "init").?], @intFromEnum(init_index), .release);
 }
 
 pub fn dump(ip: *const InternPool) void {
@@ -9078,15 +9433,17 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
     var items_len: usize = 0;
     var extra_len: usize = 0;
     var limbs_len: usize = 0;
+    var decls_len: usize = 0;
     for (ip.locals) |*local| {
         items_len += local.mutate.items.len;
-        extra_len += local.mutate.extra.len;
+        extra_len += local.mutate.extra.list.len;
         limbs_len += local.mutate.limbs.len;
+        decls_len += local.mutate.decls.buckets_list.len;
     }
     const items_size = (1 + 4) * items_len;
     const extra_size = 4 * extra_len;
     const limbs_size = 8 * limbs_len;
-    const decls_size = ip.allocated_decls.len * @sizeOf(Module.Decl);
+    const decls_size = @sizeOf(Zcu.Decl) * decls_len;
 
     // TODO: map overhead size is not taken into account
     const total_size = @sizeOf(InternPool) + items_size + extra_size + limbs_size + decls_size;
@@ -9106,7 +9463,7 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
         extra_size,
         limbs_len,
         limbs_size,
-        ip.allocated_decls.len,
+        decls_len,
         decls_size,
     });
 
@@ -9513,64 +9870,141 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
     try bw.flush();
 }
 
-pub fn declPtr(ip: *InternPool, index: DeclIndex) *Module.Decl {
-    return ip.allocated_decls.at(@intFromEnum(index));
+pub fn declPtr(ip: *InternPool, decl_index: DeclIndex) *Zcu.Decl {
+    return @constCast(ip.declPtrConst(decl_index));
 }
 
-pub fn declPtrConst(ip: *const InternPool, index: DeclIndex) *const Module.Decl {
-    return ip.allocated_decls.at(@intFromEnum(index));
-}
-
-pub fn namespacePtr(ip: *InternPool, index: NamespaceIndex) *Module.Namespace {
-    return ip.allocated_namespaces.at(@intFromEnum(index));
+pub fn declPtrConst(ip: *const InternPool, decl_index: DeclIndex) *const Zcu.Decl {
+    const unwrapped_decl_index = decl_index.unwrap(ip);
+    const decls = ip.getLocalShared(unwrapped_decl_index.tid).decls.acquire();
+    const decls_bucket = decls.view().items(.@"0")[unwrapped_decl_index.bucket_index];
+    return &decls_bucket[unwrapped_decl_index.index];
 }
 
 pub fn createDecl(
     ip: *InternPool,
     gpa: Allocator,
-    initialization: Module.Decl,
+    tid: Zcu.PerThread.Id,
+    initialization: Zcu.Decl,
 ) Allocator.Error!DeclIndex {
-    if (ip.decls_free_list.popOrNull()) |index| {
-        ip.allocated_decls.at(@intFromEnum(index)).* = initialization;
-        return index;
+    const local = ip.getLocal(tid);
+    const free_list_next = local.mutate.decls.free_list;
+    if (free_list_next != Local.BucketListMutate.free_list_sentinel) {
+        const reused_decl_index: DeclIndex = @enumFromInt(free_list_next);
+        const reused_decl = ip.declPtr(reused_decl_index);
+        local.mutate.decls.free_list = @intFromEnum(@field(reused_decl, Local.decl_next_free_field));
+        reused_decl.* = initialization;
+        return reused_decl_index;
     }
-    const ptr = try ip.allocated_decls.addOne(gpa);
-    ptr.* = initialization;
-    return @enumFromInt(ip.allocated_decls.len - 1);
+    const decls = local.getMutableDecls(gpa);
+    if (local.mutate.decls.last_bucket_len == 0) {
+        try decls.ensureUnusedCapacity(1);
+        var arena = decls.arena.promote(decls.gpa);
+        defer decls.arena.* = arena.state;
+        decls.appendAssumeCapacity(.{try arena.allocator().create(
+            [1 << Local.decls_bucket_width]Zcu.Decl,
+        )});
+    }
+    const unwrapped_decl_index: DeclIndex.Unwrapped = .{
+        .tid = tid,
+        .bucket_index = decls.mutate.len - 1,
+        .index = local.mutate.decls.last_bucket_len,
+    };
+    local.mutate.decls.last_bucket_len =
+        (unwrapped_decl_index.index + 1) & Local.namespaces_bucket_mask;
+    const decl_index = unwrapped_decl_index.wrap(ip);
+    ip.declPtr(decl_index).* = initialization;
+    return decl_index;
 }
 
-pub fn destroyDecl(ip: *InternPool, gpa: Allocator, index: DeclIndex) void {
-    ip.declPtr(index).* = undefined;
-    ip.decls_free_list.append(gpa, index) catch {
-        // In order to keep `destroyDecl` a non-fallible function, we ignore memory
-        // allocation failures here, instead leaking the Decl until garbage collection.
-    };
+pub fn destroyDecl(ip: *InternPool, tid: Zcu.PerThread.Id, decl_index: DeclIndex) void {
+    const local = ip.getLocal(tid);
+    const decl = ip.declPtr(decl_index);
+    decl.* = undefined;
+    @field(decl, Local.decl_next_free_field) = @enumFromInt(local.mutate.decls.free_list);
+    local.mutate.decls.free_list = @intFromEnum(decl_index);
+}
+
+pub fn namespacePtr(ip: *InternPool, namespace_index: NamespaceIndex) *Zcu.Namespace {
+    const unwrapped_namespace_index = namespace_index.unwrap(ip);
+    const namespaces = ip.getLocalShared(unwrapped_namespace_index.tid).namespaces.acquire();
+    const namespaces_bucket = namespaces.view().items(.@"0")[unwrapped_namespace_index.bucket_index];
+    return &namespaces_bucket[unwrapped_namespace_index.index];
 }
 
 pub fn createNamespace(
     ip: *InternPool,
     gpa: Allocator,
-    initialization: Module.Namespace,
+    tid: Zcu.PerThread.Id,
+    initialization: Zcu.Namespace,
 ) Allocator.Error!NamespaceIndex {
-    if (ip.namespaces_free_list.popOrNull()) |index| {
-        ip.allocated_namespaces.at(@intFromEnum(index)).* = initialization;
-        return index;
+    const local = ip.getLocal(tid);
+    const free_list_next = local.mutate.namespaces.free_list;
+    if (free_list_next != Local.BucketListMutate.free_list_sentinel) {
+        const reused_namespace_index: NamespaceIndex = @enumFromInt(free_list_next);
+        const reused_namespace = ip.namespacePtr(reused_namespace_index);
+        local.mutate.namespaces.free_list =
+            @intFromEnum(@field(reused_namespace, Local.namespace_next_free_field));
+        reused_namespace.* = initialization;
+        return reused_namespace_index;
     }
-    const ptr = try ip.allocated_namespaces.addOne(gpa);
-    ptr.* = initialization;
-    return @enumFromInt(ip.allocated_namespaces.len - 1);
+    const namespaces = local.getMutableNamespaces(gpa);
+    if (local.mutate.namespaces.last_bucket_len == 0) {
+        try namespaces.ensureUnusedCapacity(1);
+        var arena = namespaces.arena.promote(namespaces.gpa);
+        defer namespaces.arena.* = arena.state;
+        namespaces.appendAssumeCapacity(.{try arena.allocator().create(
+            [1 << Local.namespaces_bucket_width]Zcu.Namespace,
+        )});
+    }
+    const unwrapped_namespace_index: NamespaceIndex.Unwrapped = .{
+        .tid = tid,
+        .bucket_index = namespaces.mutate.len - 1,
+        .index = local.mutate.namespaces.last_bucket_len,
+    };
+    local.mutate.namespaces.last_bucket_len =
+        (unwrapped_namespace_index.index + 1) & Local.namespaces_bucket_mask;
+    const namespace_index = unwrapped_namespace_index.wrap(ip);
+    ip.namespacePtr(namespace_index).* = initialization;
+    return namespace_index;
 }
 
-pub fn destroyNamespace(ip: *InternPool, gpa: Allocator, index: NamespaceIndex) void {
-    ip.namespacePtr(index).* = .{
+pub fn destroyNamespace(
+    ip: *InternPool,
+    tid: Zcu.PerThread.Id,
+    namespace_index: NamespaceIndex,
+) void {
+    const local = ip.getLocal(tid);
+    const namespace = ip.namespacePtr(namespace_index);
+    namespace.* = .{
         .parent = undefined,
         .file_scope = undefined,
         .decl_index = undefined,
     };
-    ip.namespaces_free_list.append(gpa, index) catch {
-        // In order to keep `destroyNamespace` a non-fallible function, we ignore memory
-        // allocation failures here, instead leaking the Namespace until garbage collection.
+    @field(namespace, Local.namespace_next_free_field) =
+        @enumFromInt(local.mutate.namespaces.free_list);
+    local.mutate.namespaces.free_list = @intFromEnum(namespace_index);
+}
+
+pub fn filePtr(ip: *InternPool, file_index: FileIndex) *Zcu.File {
+    const file_index_unwrapped = file_index.unwrap(ip);
+    const files = ip.getLocalShared(file_index_unwrapped.tid).files.acquire();
+    return files.view().items(.file)[file_index_unwrapped.index];
+}
+
+pub fn createFile(
+    ip: *InternPool,
+    gpa: Allocator,
+    tid: Zcu.PerThread.Id,
+    file: File,
+) Allocator.Error!FileIndex {
+    const files = ip.getLocal(tid).getMutableFiles(gpa);
+    const file_index_unwrapped: FileIndex.Unwrapped = .{
+        .tid = tid,
+        .index = files.mutate.len,
     };
+    try files.append(file);
+    return file_index_unwrapped.wrap(ip);
 }
 
 const EmbeddedNulls = enum {
@@ -9651,7 +10085,7 @@ pub fn getOrPutTrailingString(
     }
     const key: []const u8 = strings.view().items(.@"0")[start..];
     const value: embedded_nulls.StringType() =
-        @enumFromInt(@as(u32, @intFromEnum(tid)) << ip.tid_shift_32 | start);
+        @enumFromInt(@intFromEnum((String.Unwrapped{ .tid = tid, .index = start }).wrap(ip)));
     const has_embedded_null = std.mem.indexOfScalar(u8, key, 0) != null;
     switch (embedded_nulls) {
         .no_embedded_nulls => assert(!has_embedded_null),
@@ -9697,10 +10131,10 @@ pub fn getOrPutTrailingString(
     defer shard.mutate.string_map.len += 1;
     const map_header = map.header().*;
     if (shard.mutate.string_map.len < map_header.capacity * 3 / 5) {
+        strings.appendAssumeCapacity(.{0});
         const entry = &map.entries[map_index];
         entry.hash = hash;
         entry.release(@enumFromInt(@intFromEnum(value)));
-        strings.appendAssumeCapacity(.{0});
         return value;
     }
     const arena_state = &ip.getLocal(tid).mutate.arena;
@@ -9739,12 +10173,12 @@ pub fn getOrPutTrailingString(
         map_index &= new_map_mask;
         if (map.entries[map_index].value == .none) break;
     }
+    strings.appendAssumeCapacity(.{0});
     map.entries[map_index] = .{
         .value = @enumFromInt(@intFromEnum(value)),
         .hash = hash,
     };
     shard.shared.string_map.release(new_map);
-    strings.appendAssumeCapacity(.{0});
     return value;
 }
 
@@ -10492,7 +10926,7 @@ pub fn addFieldName(
     name: NullTerminatedString,
 ) ?u32 {
     const extra_items = extra.view().items(.@"0");
-    const map = &ip.maps.items[@intFromEnum(names_map)];
+    const map = names_map.get(ip);
     const field_index = map.count();
     const strings = extra_items[names_start..][0..field_index];
     const adapter: NullTerminatedString.Adapter = .{ .strings = @ptrCast(strings) };
@@ -10509,4 +10943,161 @@ fn ptrsHaveSameAlignment(ip: *InternPool, a_ty: Index, a_info: Key.PtrType, b_ty
     const b_info = ip.indexToKey(b_ty).ptr_type;
     return a_info.flags.alignment == b_info.flags.alignment and
         (a_info.child == b_info.child or a_info.flags.alignment != .none);
+}
+
+const GlobalErrorSet = struct {
+    shared: struct {
+        names: Names,
+        map: Shard.Map(GlobalErrorSet.Index),
+    } align(std.atomic.cache_line),
+    mutate: Local.MutexListMutate align(std.atomic.cache_line),
+
+    const Names = Local.List(struct { NullTerminatedString });
+
+    const empty: GlobalErrorSet = .{
+        .shared = .{
+            .names = Names.empty,
+            .map = Shard.Map(GlobalErrorSet.Index).empty,
+        },
+        .mutate = Local.MutexListMutate.empty,
+    };
+
+    const Index = enum(Zcu.ErrorInt) {
+        none = 0,
+        _,
+    };
+
+    /// Not thread-safe, may only be called from the main thread.
+    pub fn getNamesFromMainThread(ges: *const GlobalErrorSet) []const NullTerminatedString {
+        const len = ges.mutate.list.len;
+        return if (len > 0) ges.shared.names.view().items(.@"0")[0..len] else &.{};
+    }
+
+    fn getErrorValue(
+        ges: *GlobalErrorSet,
+        gpa: Allocator,
+        arena_state: *std.heap.ArenaAllocator.State,
+        name: NullTerminatedString,
+    ) Allocator.Error!GlobalErrorSet.Index {
+        if (name == .empty) return .none;
+        const hash = std.hash.uint32(@intFromEnum(name));
+        var map = ges.shared.map.acquire();
+        const Map = @TypeOf(map);
+        var map_mask = map.header().mask();
+        const names = ges.shared.names.acquire();
+        var map_index = hash;
+        while (true) : (map_index += 1) {
+            map_index &= map_mask;
+            const entry = &map.entries[map_index];
+            const index = entry.acquire();
+            if (index == .none) break;
+            if (entry.hash != hash) continue;
+            if (names.view().items(.@"0")[@intFromEnum(index) - 1] == name) return index;
+        }
+        ges.mutate.mutex.lock();
+        defer ges.mutate.mutex.unlock();
+        if (map.entries != ges.shared.map.entries) {
+            map = ges.shared.map;
+            map_mask = map.header().mask();
+            map_index = hash;
+        }
+        while (true) : (map_index += 1) {
+            map_index &= map_mask;
+            const entry = &map.entries[map_index];
+            const index = entry.value;
+            if (index == .none) break;
+            if (entry.hash != hash) continue;
+            if (names.view().items(.@"0")[@intFromEnum(index) - 1] == name) return index;
+        }
+        const mutable_names: Names.Mutable = .{
+            .gpa = gpa,
+            .arena = arena_state,
+            .mutate = &ges.mutate.list,
+            .list = &ges.shared.names,
+        };
+        try mutable_names.ensureUnusedCapacity(1);
+        const map_header = map.header().*;
+        if (ges.mutate.list.len < map_header.capacity * 3 / 5) {
+            mutable_names.appendAssumeCapacity(.{name});
+            const index: GlobalErrorSet.Index = @enumFromInt(mutable_names.mutate.len);
+            const entry = &map.entries[map_index];
+            entry.hash = hash;
+            entry.release(index);
+            return index;
+        }
+        var arena = arena_state.promote(gpa);
+        defer arena_state.* = arena.state;
+        const new_map_capacity = map_header.capacity * 2;
+        const new_map_buf = try arena.allocator().alignedAlloc(
+            u8,
+            Map.alignment,
+            Map.entries_offset + new_map_capacity * @sizeOf(Map.Entry),
+        );
+        const new_map: Map = .{ .entries = @ptrCast(new_map_buf[Map.entries_offset..].ptr) };
+        new_map.header().* = .{ .capacity = new_map_capacity };
+        @memset(new_map.entries[0..new_map_capacity], .{ .value = .none, .hash = undefined });
+        const new_map_mask = new_map.header().mask();
+        map_index = 0;
+        while (map_index < map_header.capacity) : (map_index += 1) {
+            const entry = &map.entries[map_index];
+            const index = entry.value;
+            if (index == .none) continue;
+            const item_hash = entry.hash;
+            var new_map_index = item_hash;
+            while (true) : (new_map_index += 1) {
+                new_map_index &= new_map_mask;
+                const new_entry = &new_map.entries[new_map_index];
+                if (new_entry.value != .none) continue;
+                new_entry.* = .{
+                    .value = index,
+                    .hash = item_hash,
+                };
+                break;
+            }
+        }
+        map = new_map;
+        map_index = hash;
+        while (true) : (map_index += 1) {
+            map_index &= new_map_mask;
+            if (map.entries[map_index].value == .none) break;
+        }
+        mutable_names.appendAssumeCapacity(.{name});
+        const index: GlobalErrorSet.Index = @enumFromInt(mutable_names.mutate.len);
+        map.entries[map_index] = .{ .value = index, .hash = hash };
+        ges.shared.map.release(new_map);
+        return index;
+    }
+
+    fn getErrorValueIfExists(
+        ges: *const GlobalErrorSet,
+        name: NullTerminatedString,
+    ) ?GlobalErrorSet.Index {
+        if (name == .empty) return .none;
+        const hash = std.hash.uint32(@intFromEnum(name));
+        const map = ges.shared.map.acquire();
+        const map_mask = map.header().mask();
+        const names_items = ges.shared.names.acquire().view().items(.@"0");
+        var map_index = hash;
+        while (true) : (map_index += 1) {
+            map_index &= map_mask;
+            const entry = &map.entries[map_index];
+            const index = entry.acquire();
+            if (index == .none) return null;
+            if (entry.hash != hash) continue;
+            if (names_items[@intFromEnum(index) - 1] == name) return index;
+        }
+    }
+};
+
+pub fn getErrorValue(
+    ip: *InternPool,
+    gpa: Allocator,
+    tid: Zcu.PerThread.Id,
+    name: NullTerminatedString,
+) Allocator.Error!Zcu.ErrorInt {
+    return @intFromEnum(try ip.global_error_set.getErrorValue(gpa, &ip.getLocal(tid).mutate.arena, name));
+}
+
+pub fn getErrorValueIfExists(ip: *const InternPool, name: NullTerminatedString) ?Zcu.ErrorInt {
+    return @intFromEnum(ip.global_error_set.getErrorValueIfExists(name) orelse return null);
 }

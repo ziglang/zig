@@ -4206,19 +4206,19 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     while (self.args[arg_index] == .none) arg_index += 1;
     self.arg_index = arg_index + 1;
 
-    const pt = self.pt;
-    const mod = pt.zcu;
     const ty = self.typeOfIndex(inst);
     const tag = self.air.instructions.items(.tag)[@intFromEnum(inst)];
-    const src_index = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.src_index;
-    const name = mod.getParamName(self.func_index, src_index);
 
-    try self.dbg_info_relocs.append(self.gpa, .{
-        .tag = tag,
-        .ty = ty,
-        .name = name,
-        .mcv = self.args[arg_index],
-    });
+    const name_nts = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
+    if (name_nts != .none) {
+        const name = self.air.nullTerminatedString(@intFromEnum(name_nts));
+        try self.dbg_info_relocs.append(self.gpa, .{
+            .tag = tag,
+            .ty = ty,
+            .name = name,
+            .mcv = self.args[arg_index],
+        });
+    }
 
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else self.args[arg_index];
     return self.finishAir(inst, result, .{ .none, .none, .none });
