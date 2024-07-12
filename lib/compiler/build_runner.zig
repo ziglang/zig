@@ -10,6 +10,7 @@ const File = std.fs.File;
 const Step = std.Build.Step;
 const Watch = std.Build.Watch;
 const Allocator = std.mem.Allocator;
+const fatal = std.zig.fatal;
 
 pub const root = @import("@build");
 pub const dependencies = @import("@dependencies");
@@ -371,18 +372,7 @@ pub fn main() !void {
         else => return err,
     };
 
-    var w = Watch.init;
-    if (watch) {
-        w.fan_fd = try std.posix.fanotify_init(.{
-            .CLASS = .NOTIF,
-            .CLOEXEC = true,
-            .NONBLOCK = true,
-            .REPORT_NAME = true,
-            .REPORT_DIR_FID = true,
-            .REPORT_FID = true,
-            .REPORT_TARGET_FID = true,
-        }, 0);
-    }
+    var w = if (watch) try Watch.init() else undefined;
 
     try run.thread_pool.init(thread_pool_options);
     defer run.thread_pool.deinit();
@@ -403,125 +393,51 @@ pub fn main() !void {
         };
         if (!watch) return cleanExit();
 
-        // Add missing marks and note persisted ones.
-        for (run.step_stack.keys()) |step| {
-            for (step.inputs.table.keys(), step.inputs.table.values()) |path, *files| {
-                const reaction_set = rs: {
-                    const gop = try w.dir_table.getOrPut(gpa, path);
-                    if (!gop.found_existing) {
-                        const dir_handle = try Watch.getDirHandle(gpa, path);
-                        // `dir_handle` may already be present in the table in
-                        // the case that we have multiple Cache.Path instances
-                        // that compare inequal but ultimately point to the same
-                        // directory on the file system.
-                        // In such case, we must revert adding this directory, but keep
-                        // the additions to the step set.
-                        const dh_gop = try w.handle_table.getOrPut(gpa, dir_handle);
-                        if (dh_gop.found_existing) {
-                            _ = w.dir_table.pop();
-                        } else {
-                            assert(dh_gop.index == gop.index);
-                            dh_gop.value_ptr.* = .{};
-                            std.posix.fanotify_mark(w.fan_fd, .{
-                                .ADD = true,
-                                .ONLYDIR = true,
-                            }, Watch.fan_mask, path.root_dir.handle.fd, path.subPathOrDot()) catch |err| {
-                                fatal("unable to watch {}: {s}", .{ path, @errorName(err) });
-                            };
-                        }
-                        break :rs dh_gop.value_ptr;
-                    }
-                    break :rs &w.handle_table.values()[gop.index];
-                };
-                for (files.items) |basename| {
-                    const gop = try reaction_set.getOrPut(gpa, basename);
-                    if (!gop.found_existing) gop.value_ptr.* = .{};
-                    try gop.value_ptr.put(gpa, step, w.generation);
-                }
-            }
+        switch (builtin.os.tag) {
+            .linux => {},
+            else => fatal("--watch not yet implemented for {s}", .{@tagName(builtin.os.tag)}),
         }
 
-        {
-            // Remove marks for files that are no longer inputs.
-            var i: usize = 0;
-            while (i < w.handle_table.entries.len) {
-                {
-                    const reaction_set = &w.handle_table.values()[i];
-                    var step_set_i: usize = 0;
-                    while (step_set_i < reaction_set.entries.len) {
-                        const step_set = &reaction_set.values()[step_set_i];
-                        var dirent_i: usize = 0;
-                        while (dirent_i < step_set.entries.len) {
-                            const generations = step_set.values();
-                            if (generations[dirent_i] == w.generation) {
-                                dirent_i += 1;
-                                continue;
-                            }
-                            step_set.swapRemoveAt(dirent_i);
-                        }
-                        if (step_set.entries.len > 0) {
-                            step_set_i += 1;
-                            continue;
-                        }
-                        reaction_set.swapRemoveAt(step_set_i);
-                    }
-                    if (reaction_set.entries.len > 0) {
-                        i += 1;
-                        continue;
-                    }
-                }
-
-                const path = w.dir_table.keys()[i];
-
-                std.posix.fanotify_mark(w.fan_fd, .{
-                    .REMOVE = true,
-                    .ONLYDIR = true,
-                }, Watch.fan_mask, path.root_dir.handle.fd, path.subPathOrDot()) catch |err| switch (err) {
-                    error.FileNotFound => {}, // Expected, harmless.
-                    else => |e| std.log.warn("unable to unwatch '{}': {s}", .{ path, @errorName(e) }),
-                };
-
-                w.dir_table.swapRemoveAt(i);
-                w.handle_table.swapRemoveAt(i);
-            }
-            w.generation +%= 1;
-        }
+        try w.update(gpa, run.step_stack.keys());
 
         // Wait until a file system notification arrives. Read all such events
         // until the buffer is empty. Then wait for a debounce interval, resetting
         // if any more events come in. After the debounce interval has passed,
         // trigger a rebuild on all steps with modified inputs, as well as their
         // recursive dependants.
-        var poll_fds: [1]std.posix.pollfd = .{
-            .{
-                .fd = w.fan_fd,
-                .events = std.posix.POLL.IN,
-                .revents = undefined,
-            },
-        };
         var caption_buf: [std.Progress.Node.max_name_len]u8 = undefined;
         const caption = std.fmt.bufPrint(&caption_buf, "Watching {d} Directories", .{
             w.dir_table.entries.len,
         }) catch &caption_buf;
         var debouncing_node = main_progress_node.start(caption, 0);
-        var debouncing = false;
-        while (true) {
-            const timeout: i32 = if (debouncing) debounce_interval_ms else -1;
-            const events_len = try std.posix.poll(&poll_fds, timeout);
-            if (events_len == 0) {
+        var debounce_timeout: Watch.Timeout = .none;
+        while (true) switch (try w.wait(gpa, debounce_timeout)) {
+            .timeout => {
                 debouncing_node.end();
-                Watch.markFailedStepsDirty(gpa, run.step_stack.keys());
+                markFailedStepsDirty(gpa, run.step_stack.keys());
                 continue :rebuild;
-            }
-            if (try w.markDirtySteps(gpa)) {
-                if (!debouncing) {
-                    debouncing = true;
-                    debouncing_node.end();
-                    debouncing_node = main_progress_node.start("Debouncing (Change Detected)", 0);
-                }
-            }
-        }
+            },
+            .dirty => if (debounce_timeout == .none) {
+                debounce_timeout = .{ .ms = debounce_interval_ms };
+                debouncing_node.end();
+                debouncing_node = main_progress_node.start("Debouncing (Change Detected)", 0);
+            },
+            .clean => {},
+        };
     }
+}
+
+fn markFailedStepsDirty(gpa: Allocator, all_steps: []const *Step) void {
+    for (all_steps) |step| switch (step.state) {
+        .dependency_failure, .failure, .skipped => step.recursiveReset(gpa),
+        else => continue,
+    };
+    // Now that all dirty steps have been found, the remaining steps that
+    // succeeded from last run shall be marked "cached".
+    for (all_steps) |step| switch (step.state) {
+        .success => step.result_cached = true,
+        else => continue,
+    };
 }
 
 const Run = struct {
@@ -1427,11 +1343,6 @@ fn renderOptions(ttyconf: std.io.tty.Config) std.zig.ErrorBundle.RenderOptions {
 
 fn fatalWithHint(comptime f: []const u8, args: anytype) noreturn {
     std.debug.print(f ++ "\n  access the help menu with 'zig build -h'\n", args);
-    process.exit(1);
-}
-
-fn fatal(comptime f: []const u8, args: anytype) noreturn {
-    std.debug.print(f ++ "\n", args);
     process.exit(1);
 }
 
