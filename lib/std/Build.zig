@@ -1284,6 +1284,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
     }
 }
 
+/// creates a step with the given name and description
 pub fn step(b: *Build, name: []const u8, description: []const u8) *Step {
     const step_info = b.allocator.create(TopLevelStep) catch @panic("OOM");
     step_info.* = .{
@@ -1715,10 +1716,12 @@ fn pathFromCwd(b: *Build, sub_path: []const u8) []u8 {
     return b.pathResolve(&.{ cwd, sub_path });
 }
 
+/// joins a list of paths together meaning a []const []const u8 to a []u8
 pub fn pathJoin(b: *Build, paths: []const []const u8) []u8 {
     return fs.path.join(b.allocator, paths) catch @panic("OOM");
 }
 
+/// resolves the path meaning convets . and .. to the correct reletive path
 pub fn pathResolve(b: *Build, paths: []const []const u8) []u8 {
     return fs.path.resolve(b.allocator, paths) catch @panic("OOM");
 }
@@ -1734,6 +1737,7 @@ fn supportedWindowsProgramExtension(ext: []const u8) bool {
     return false;
 }
 
+/// tries to find a program in the given path
 fn tryFindProgram(b: *Build, full_path: []const u8) ?[]const u8 {
     if (fs.realpathAlloc(b.allocator, full_path)) |p| {
         return p;
@@ -1760,6 +1764,7 @@ fn tryFindProgram(b: *Build, full_path: []const u8) ?[]const u8 {
     return null;
 }
 
+/// Find a program in the PATH or in the search prefixes.
 pub fn findProgram(b: *Build, names: []const []const u8, paths: []const []const u8) ![]const u8 {
     // TODO report error for ambiguous situations
     for (b.search_prefixes.items) |search_prefix| {
@@ -1854,6 +1859,7 @@ pub fn run(b: *Build, argv: []const []const u8) []u8 {
     };
 }
 
+/// adds a search prefix to the build
 pub fn addSearchPrefix(b: *Build, search_prefix: []const u8) void {
     b.search_prefixes.append(b.allocator, b.dupePath(search_prefix)) catch @panic("OOM");
 }
@@ -2578,6 +2584,7 @@ pub fn resolveTargetQuery(b: *Build, query: Target.Query) ResolvedTarget {
     };
 }
 
+/// Returns true if the target is not a Windows target.
 pub fn wantSharedLibSymLinks(target: Target) bool {
     return target.os.tag != .windows;
 }
