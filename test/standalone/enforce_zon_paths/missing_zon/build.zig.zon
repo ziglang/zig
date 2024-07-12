@@ -1,0 +1,8 @@
+.{
+    .name = "missing_zon",
+    .version = "0.0.0",
+    .paths = .{
+        "build.zig",
+        // missing build.zig.zon
+    },
+}

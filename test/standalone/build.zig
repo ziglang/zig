@@ -29,22 +29,23 @@ pub fn build(b: *std.Build) void {
     const tools_tests_step = b.step("standalone_test_cases.tools", "Test tools");
     step.dependOn(tools_tests_step);
     const tools_target = b.resolveTargetQuery(.{});
+    const tools_dep = b.dependency("tools", .{});
     for ([_][]const u8{
         // Alphabetically sorted. No need to build `tools/spirv/grammar.zig`.
-        "../../tools/gen_outline_atomics.zig",
-        "../../tools/gen_spirv_spec.zig",
-        "../../tools/gen_stubs.zig",
-        "../../tools/generate_linux_syscalls.zig",
-        "../../tools/process_headers.zig",
-        "../../tools/update-linux-headers.zig",
-        "../../tools/update_clang_options.zig",
-        "../../tools/update_cpu_features.zig",
-        "../../tools/update_glibc.zig",
-        "../../tools/update_spirv_features.zig",
+        "gen_outline_atomics.zig",
+        "gen_spirv_spec.zig",
+        "gen_stubs.zig",
+        "generate_linux_syscalls.zig",
+        "process_headers.zig",
+        "update-linux-headers.zig",
+        "update_clang_options.zig",
+        "update_cpu_features.zig",
+        "update_glibc.zig",
+        "update_spirv_features.zig",
     }) |tool_src_path| {
         const tool = b.addTest(.{
             .name = std.fs.path.stem(tool_src_path),
-            .root_source_file = b.path(tool_src_path),
+            .root_source_file = tools_dep.path(tool_src_path),
             .optimize = .Debug,
             .target = tools_target,
         });
@@ -55,6 +56,7 @@ pub fn build(b: *std.Build) void {
     add_dep_steps: for (b.available_deps) |available_dep| {
         const dep_name, const dep_hash = available_dep;
 
+        if (std.mem.eql(u8, dep_name, "tools")) continue;
         // The 'simple' dependency was already handled manually above.
         if (std.mem.eql(u8, dep_name, "simple")) continue;
 
