@@ -369,6 +369,11 @@ fn calcSectionSizes(macho_file: *MachO) !void {
         calcSectionSize(macho_file, @intCast(i));
     }
 
+    if (macho_file.getZigObject()) |zo| {
+        // TODO this will create a race
+        zo.calcNumRelocs(macho_file);
+    }
+
     if (macho_file.eh_frame_sect_index) |_| {
         try calcEhFrameSize(macho_file);
     }
@@ -382,19 +387,10 @@ fn calcSectionSizes(macho_file: *MachO) !void {
 
     try macho_file.data_in_code.updateSize(macho_file);
 
-    calcCompactUnwindSize(macho_file);
+    if (macho_file.unwind_info_sect_index) |_| {
+        calcCompactUnwindSize(macho_file);
+    }
     calcSymtabSize(macho_file);
-
-    // TODO
-    // if (macho_file.getZigObject()) |zo| {
-    //     for (zo.atoms.items) |atom_index| {
-    //         const atom = macho_file.getAtom(atom_index) orelse continue;
-    //         if (!atom.flags.alive) continue;
-    //         const header = &macho_file.sections.items(.header)[atom.out_n_sect];
-    //         if (!macho_file.isZigSection(atom.out_n_sect) and !macho_file.isDebugSection(atom.out_n_sect)) continue;
-    //         header.nreloc += atom.calcNumRelocs(macho_file);
-    //     }
-    // }
 }
 
 fn calcSectionSize(macho_file: *MachO, sect_id: u8) void {

@@ -433,6 +433,16 @@ pub fn resolveRelocs(self: *ZigObject, macho_file: *MachO) !void {
     if (has_error) return error.ResolveFailed;
 }
 
+pub fn calcNumRelocs(self: *ZigObject, macho_file: *MachO) void {
+    for (self.getAtoms()) |atom_index| {
+        const atom = self.getAtom(atom_index) orelse continue;
+        if (!atom.flags.alive) continue;
+        if (!macho_file.isZigSection(atom.out_n_sect) and !macho_file.isDebugSection(atom.out_n_sect)) continue;
+        const header = &macho_file.sections.items(.header)[atom.out_n_sect];
+        header.nreloc += atom.calcNumRelocs(macho_file);
+    }
+}
+
 pub fn calcSymtabSize(self: *ZigObject, macho_file: *MachO) void {
     const tracy = trace(@src());
     defer tracy.end();
