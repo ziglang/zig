@@ -2180,7 +2180,8 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             comp.astgen_work_queue.writeItemAssumeCapacity(file_index);
         }
         if (comp.file_system_inputs) |fsi| {
-            for (zcu.import_table.values()) |file| {
+            for (zcu.import_table.values()) |file_index| {
+                const file = zcu.fileByIndex(file_index);
                 try comp.appendFileSystemInput(fsi, file.mod.root, file.sub_file_path);
             }
         }
