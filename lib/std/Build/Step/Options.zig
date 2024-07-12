@@ -523,6 +523,7 @@ test Options {
             .query = .{},
             .result = try std.zig.system.resolveTargetQuery(.{}),
         },
+        .zig_lib_directory = std.Build.Cache.Directory.cwd(),
     };
 
     var builder = try std.Build.create(
