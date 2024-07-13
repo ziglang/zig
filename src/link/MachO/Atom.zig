@@ -979,6 +979,7 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.r
         defer i += 1;
         const rel_offset = rel.offset - self.off;
         const r_address: i32 = math.cast(i32, self.value + rel_offset) orelse return error.Overflow;
+        assert(r_address >= 0);
         const r_symbolnum = r_symbolnum: {
             const r_symbolnum: u32 = switch (rel.tag) {
                 .local => rel.getTargetAtom(self, macho_file).out_n_sect + 1,

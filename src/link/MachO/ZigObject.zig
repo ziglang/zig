@@ -482,6 +482,37 @@ pub fn writeRelocs(self: *ZigObject, macho_file: *MachO) !void {
     }
 }
 
+// TODO we need this because not everything gets written out incrementally.
+// For example, TLS data gets written out via traditional route.
+// Is there any better way of handling this?
+pub fn writeAtomsRelocatable(self: *ZigObject, macho_file: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    for (self.getAtoms()) |atom_index| {
+        const atom = self.getAtom(atom_index) orelse continue;
+        if (!atom.flags.alive) continue;
+        const sect = atom.getInputSection(macho_file);
+        if (sect.isZerofill()) continue;
+        if (macho_file.isZigSection(atom.out_n_sect)) continue;
+        const off = atom.value;
+        const buffer = macho_file.sections.items(.out)[atom.out_n_sect].items;
+        try self.getAtomData(macho_file, atom.*, buffer[off..][0..atom.size]);
+        const relocs = macho_file.sections.items(.relocs)[atom.out_n_sect].items;
+        const extra = atom.getExtra(macho_file);
+        try atom.writeRelocs(macho_file, buffer[off..][0..atom.size], relocs[extra.rel_out_index..][0..extra.rel_out_count]);
+    }
+}
+
+// TODO we need this because not everything gets written out incrementally.
+// For example, TLS data gets written out via traditional route.
+// Is there any better way of handling this?
+pub fn writeAtoms(self: *ZigObject, macho_file: *MachO) !void {
+    const gpa = macho_file.base.comp.gpa;
+    _ = gpa;
+    _ = self;
+}
+
 pub fn calcSymtabSize(self: *ZigObject, macho_file: *MachO) void {
     const tracy = trace(@src());
     defer tracy.end();

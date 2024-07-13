@@ -657,6 +657,7 @@ fn writeSections(macho_file: *MachO) !void {
 
     if (macho_file.getZigObject()) |zo| {
         try zo.writeRelocs(macho_file);
+        try zo.writeAtomsRelocatable(macho_file);
         zo.writeSymtab(macho_file, macho_file);
     }
 
