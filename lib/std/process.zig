@@ -717,14 +717,20 @@ pub const ArgIteratorWindows = struct {
 
         const eof = null;
 
-        fn emitBackslashes(self: *ArgIteratorWindows, count: usize) void {
-            for (0..count) |_| emitCharacter(self, '\\');
+        /// Returns '\' if any backslashes are emitted, otherwise returns `last_emitted_code_unit`.
+        fn emitBackslashes(self: *ArgIteratorWindows, count: usize, last_emitted_code_unit: ?u16) ?u16 {
+            for (0..count) |_| {
+                self.buffer[self.end] = '\\';
+                self.end += 1;
+            }
+            return if (count != 0) '\\' else last_emitted_code_unit;
         }
 
-        fn emitCharacter(self: *ArgIteratorWindows, code_unit: u16) void {
-            const wtf8_len = std.unicode.wtf8Encode(code_unit, self.buffer[self.end..]) catch unreachable;
-            self.end += wtf8_len;
-
+        /// If `last_emitted_code_unit` and `code_unit` form a surrogate pair, then
+        /// the previously emitted high surrogate is overwritten by the codepoint encoded
+        /// by the surrogate pair, and `null` is returned.
+        /// Otherwise, `code_unit` is emitted and returned.
+        fn emitCharacter(self: *ArgIteratorWindows, code_unit: u16, last_emitted_code_unit: ?u16) ?u16 {
             // Because we are emitting WTF-8, we need to
             // check to see if we've emitted two consecutive surrogate
             // codepoints that form a valid surrogate pair in order
@@ -745,28 +751,24 @@ pub const ArgIteratorWindows = struct {
             // and emit the codepoint it encodes, which in this
             // example is U+10437 (𐐷), which is encoded in UTF-8 as:
             // <0xF0><0x90><0x90><0xB7>
-            concatSurrogatePair(self);
-        }
+            if (last_emitted_code_unit != null and
+                std.unicode.utf16IsLowSurrogate(code_unit) and
+                std.unicode.utf16IsHighSurrogate(last_emitted_code_unit.?))
+            {
+                const codepoint = std.unicode.utf16DecodeSurrogatePair(&.{ last_emitted_code_unit.?, code_unit }) catch unreachable;
 
-        fn concatSurrogatePair(self: *ArgIteratorWindows) void {
-            // Surrogate codepoints are always encoded as 3 bytes, so there
-            // must be 6 bytes for a surrogate pair to exist.
-            if (self.end - self.start >= 6) {
-                const window = self.buffer[self.end - 6 .. self.end];
-                const view = unicode.Wtf8View.init(window) catch return;
-                var it = view.iterator();
-                var pair: [2]u16 = undefined;
-                pair[0] = std.mem.nativeToLittle(u16, std.math.cast(u16, it.nextCodepoint().?) orelse return);
-                if (!unicode.utf16IsHighSurrogate(std.mem.littleToNative(u16, pair[0]))) return;
-                pair[1] = std.mem.nativeToLittle(u16, std.math.cast(u16, it.nextCodepoint().?) orelse return);
-                if (!unicode.utf16IsLowSurrogate(std.mem.littleToNative(u16, pair[1]))) return;
-                // We know we have a valid surrogate pair, so convert
-                // it to UTF-8, overwriting the surrogate pair's bytes
-                // and then chop off the extra bytes.
-                const len = unicode.utf16LeToUtf8(window, &pair) catch unreachable;
-                const delta = 6 - len;
-                self.end -= delta;
+                // Unpaired surrogate is 3 bytes long
+                const dest = self.buffer[self.end - 3 ..];
+                const len = unicode.utf8Encode(codepoint, dest) catch unreachable;
+                // All codepoints that require a surrogate pair (> U+FFFF) are encoded as 4 bytes
+                assert(len == 4);
+                self.end += 1;
+                return null;
             }
+
+            const wtf8_len = std.unicode.wtf8Encode(code_unit, self.buffer[self.end..]) catch unreachable;
+            self.end += wtf8_len;
+            return code_unit;
         }
 
         fn yieldArg(self: *ArgIteratorWindows) [:0]const u8 {
@@ -783,9 +785,13 @@ pub const ArgIteratorWindows = struct {
 
         const eof = false;
 
-        fn emitBackslashes(_: *ArgIteratorWindows, _: usize) void {}
+        fn emitBackslashes(_: *ArgIteratorWindows, _: usize, last_emitted_code_unit: ?u16) ?u16 {
+            return last_emitted_code_unit;
+        }
 
-        fn emitCharacter(_: *ArgIteratorWindows, _: u16) void {}
+        fn emitCharacter(_: *ArgIteratorWindows, _: u16, last_emitted_code_unit: ?u16) ?u16 {
+            return last_emitted_code_unit;
+        }
 
         fn yieldArg(_: *ArgIteratorWindows) bool {
             return true;
@@ -793,6 +799,7 @@ pub const ArgIteratorWindows = struct {
     };
 
     fn nextWithStrategy(self: *ArgIteratorWindows, comptime strategy: type) strategy.T {
+        var last_emitted_code_unit: ?u16 = null;
         // The first argument (the executable name) uses different parsing rules.
         if (self.index == 0) {
             if (self.cmd_line.len == 0 or self.cmd_line[0] == 0) {
@@ -815,15 +822,15 @@ pub const ArgIteratorWindows = struct {
                         inside_quotes = !inside_quotes;
                     },
                     ' ', '\t' => {
-                        if (inside_quotes)
-                            strategy.emitCharacter(self, char)
-                        else {
+                        if (inside_quotes) {
+                            last_emitted_code_unit = strategy.emitCharacter(self, char, last_emitted_code_unit);
+                        } else {
                             self.index += 1;
                             return strategy.yieldArg(self);
                         }
                     },
                     else => {
-                        strategy.emitCharacter(self, char);
+                        last_emitted_code_unit = strategy.emitCharacter(self, char, last_emitted_code_unit);
                     },
                 }
             }
@@ -861,29 +868,28 @@ pub const ArgIteratorWindows = struct {
                 0;
             switch (char) {
                 0 => {
-                    strategy.emitBackslashes(self, backslash_count);
+                    last_emitted_code_unit = strategy.emitBackslashes(self, backslash_count, last_emitted_code_unit);
                     return strategy.yieldArg(self);
                 },
                 ' ', '\t' => {
-                    strategy.emitBackslashes(self, backslash_count);
+                    last_emitted_code_unit = strategy.emitBackslashes(self, backslash_count, last_emitted_code_unit);
                     backslash_count = 0;
-                    if (inside_quotes)
-                        strategy.emitCharacter(self, char)
-                    else
-                        return strategy.yieldArg(self);
+                    if (inside_quotes) {
+                        last_emitted_code_unit = strategy.emitCharacter(self, char, last_emitted_code_unit);
+                    } else return strategy.yieldArg(self);
                 },
                 '"' => {
                     const char_is_escaped_quote = backslash_count % 2 != 0;
-                    strategy.emitBackslashes(self, backslash_count / 2);
+                    last_emitted_code_unit = strategy.emitBackslashes(self, backslash_count / 2, last_emitted_code_unit);
                     backslash_count = 0;
                     if (char_is_escaped_quote) {
-                        strategy.emitCharacter(self, '"');
+                        last_emitted_code_unit = strategy.emitCharacter(self, '"', last_emitted_code_unit);
                     } else {
                         if (inside_quotes and
                             self.index + 1 != self.cmd_line.len and
                             mem.littleToNative(u16, self.cmd_line[self.index + 1]) == '"')
                         {
-                            strategy.emitCharacter(self, '"');
+                            last_emitted_code_unit = strategy.emitCharacter(self, '"', last_emitted_code_unit);
                             self.index += 1;
                         } else {
                             inside_quotes = !inside_quotes;
@@ -894,9 +900,9 @@ pub const ArgIteratorWindows = struct {
                     backslash_count += 1;
                 },
                 else => {
-                    strategy.emitBackslashes(self, backslash_count);
+                    last_emitted_code_unit = strategy.emitBackslashes(self, backslash_count, last_emitted_code_unit);
                     backslash_count = 0;
-                    strategy.emitCharacter(self, char);
+                    last_emitted_code_unit = strategy.emitCharacter(self, char, last_emitted_code_unit);
                 },
             }
         }
