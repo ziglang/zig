@@ -9380,7 +9380,7 @@ pub fn printUnbuffered(
             \\
         , .{function_attributes.fmt(self)});
         try writer.print(
-            \\{s}{}{}{}{}{}{"} {} {}(
+            \\{s}{}{}{}{}{}{"} {%} {}(
         , .{
             if (function.instructions.len > 0) "define" else "declare",
             global.linkage,
