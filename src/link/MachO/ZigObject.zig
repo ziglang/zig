@@ -313,7 +313,9 @@ pub fn dedupLiterals(self: *ZigObject, lp: MachO.LiteralPool, macho_file: *MachO
 /// This is just a temporary helper function that allows us to re-read what we wrote to file into a buffer.
 /// We need this so that we can write to an archive.
 /// TODO implement writing ZigObject data directly to a buffer instead.
-pub fn readFileContents(self: *ZigObject, size: usize, macho_file: *MachO) !void {
+pub fn readFileContents(self: *ZigObject, macho_file: *MachO) !void {
+    // Size of the output object file is always the offset + size of the strtab
+    const size = macho_file.symtab_cmd.stroff + macho_file.symtab_cmd.strsize;
     const gpa = macho_file.base.comp.gpa;
     try self.data.resize(gpa, size);
     const amt = try macho_file.base.file.?.preadAll(self.data.items, 0);
@@ -322,9 +324,9 @@ pub fn readFileContents(self: *ZigObject, size: usize, macho_file: *MachO) !void
 
 pub fn updateArSymtab(self: ZigObject, ar_symtab: *Archive.ArSymtab, macho_file: *MachO) error{OutOfMemory}!void {
     const gpa = macho_file.base.comp.gpa;
-    for (self.symbols.items) |sym_index| {
-        const sym = macho_file.getSymbol(sym_index);
-        const file = sym.getFile(macho_file).?;
+    for (self.symbols.items, 0..) |sym, i| {
+        const ref = self.getSymbolRef(@intCast(i), macho_file);
+        const file = ref.getFile(macho_file).?;
         assert(file.getIndex() == self.index);
         if (!sym.flags.@"export") continue;
         const off = try ar_symtab.strtab.insert(gpa, sym.getName(macho_file));
