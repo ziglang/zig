@@ -942,7 +942,7 @@ const CacheUse = union(CacheMode) {
         implib_sub_path: ?[]u8,
         docs_sub_path: ?[]u8,
         lf_open_opts: link.File.OpenOptions,
-        tmp_artifact_directory: ?Cache.Directory,
+        tmp_artifact_directory: ?Directory,
         /// Prevents other processes from clobbering files in the output directory.
         lock: ?Cache.Lock,
 
@@ -2128,7 +2128,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
     }
     if (comp.file_system_inputs) |fsi| {
         for (comp.c_object_table.keys()) |c_object| {
-            try comp.appendFileSystemInput(fsi, c_object.src.owner.root, c_object.src.src_path);
+            try comp.appendFileSystemInput(fsi, Cache.Path.cwd(), c_object.src.src_path);
         }
     }
 
@@ -2141,7 +2141,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         }
         if (comp.file_system_inputs) |fsi| {
             for (comp.win32_resource_table.keys()) |win32_resource| switch (win32_resource.src) {
-                .rc => |f| try comp.appendFileSystemInput(fsi, f.owner.root, f.src_path),
+                .rc => |f| try comp.appendFileSystemInput(fsi, Cache.Path.cwd(), f.src_path),
                 .manifest => continue,
             };
         }
