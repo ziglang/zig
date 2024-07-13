@@ -3636,7 +3636,7 @@ typedef int zig_memory_order;
 #define  zig_atomicrmw_min(res, obj, arg, order, Type, ReprType) res = zig_msvc_atomicrmw_min_ ##Type(obj, arg)
 #define  zig_atomicrmw_max(res, obj, arg, order, Type, ReprType) res = zig_msvc_atomicrmw_max_ ##Type(obj, arg)
 #define   zig_atomic_store(     obj, arg, order, Type, ReprType)       zig_msvc_atomic_store_  ##Type(obj, arg)
-#define    zig_atomic_load(res, obj,      order, Type, ReprType) res = zig_msvc_atomic_load_   ##Type(obj)
+#define    zig_atomic_load(res, obj,      order, Type, ReprType) res = zig_msvc_atomic_load_   ##order##_##Type(obj)
 #if _M_X64
 #define zig_fence(order) __faststorefence()
 #else
@@ -3742,7 +3742,15 @@ typedef int zig_memory_order;
     static inline void zig_msvc_atomic_store_##ZigType(Type volatile* obj, Type value) { \
         (void)_InterlockedExchange##suffix((SigType volatile*)obj, (SigType)value); \
     }                                                                   \
-    static inline Type zig_msvc_atomic_load_##ZigType(Type volatile* obj) { \
+    static inline Type zig_msvc_atomic_load_zig_memory_order_relaxed_##ZigType(Type volatile* obj) { \
+        return __iso_volatile_load##iso_suffix((SigType volatile*)obj); \
+    } \
+    static inline Type zig_msvc_atomic_load_zig_memory_order_acquire_##ZigType(Type volatile* obj) { \
+        Type val = __iso_volatile_load##iso_suffix((SigType volatile*)obj); \
+        _ReadWriteBarrier(); \
+        return val; \
+    } \
+    static inline Type zig_msvc_atomic_load_zig_memory_order_seq_cst_##ZigType(Type volatile* obj) { \
         Type val = __iso_volatile_load##iso_suffix((SigType volatile*)obj); \
         _ReadWriteBarrier(); \
         return val; \
@@ -3760,7 +3768,7 @@ zig_msvc_atomics(u64, uint64_t, __int64, 64, 64)
 zig_msvc_atomics(i64,  int64_t, __int64, 64, 64)
 #endif
 
-#define zig_msvc_flt_atomics(Type, SigType, suffix) \
+#define zig_msvc_flt_atomics(Type, SigType, suffix, iso_suffix) \
     static inline bool zig_msvc_cmpxchg_##Type(zig_##Type volatile* obj, zig_##Type* expected, zig_##Type desired) { \
         SigType exchange; \
         SigType comparand; \
@@ -3778,15 +3786,30 @@ zig_msvc_atomics(i64,  int64_t, __int64, 64, 64)
         memcpy(&value, &arg, sizeof(value)); \
         (void)_InterlockedExchange##suffix((SigType volatile*)obj, value); \
     } \
-    static inline zig_##Type zig_msvc_atomic_load_##Type(zig_##Type volatile* obj) { \
+    static inline zig_##Type zig_msvc_atomic_load_zig_memory_order_relaxed_##Type(zig_##Type volatile* obj) { \
         zig_##Type result; \
-        SigType initial = _InterlockedExchangeAdd##suffix((SigType volatile*)obj, (SigType)0); \
+        SigType initial = __iso_volatile_load##iso_suffix((SigType volatile*)obj); \
         memcpy(&result, &initial, sizeof(result)); \
         return result; \
+    } \
+    static inline zig_##Type zig_msvc_atomic_load_zig_memory_order_acquire_##Type(zig_##Type volatile* obj) { \
+        zig_##Type result; \
+        SigType initial = __iso_volatile_load##iso_suffix((SigType volatile*)obj); \
+        _ReadWriteBarrier(); \
+        memcpy(&result, &initial, sizeof(result));     \
+        return result; \
+    } \
+    static inline zig_##Type zig_msvc_atomic_load_zig_memory_order_seq_cst_##Type(zig_##Type volatile* obj) { \
+        zig_##Type result; \
+        SigType initial = __iso_volatile_load##iso_suffix((SigType volatile*)obj); \
+        _ReadWriteBarrier(); \
+        memcpy(&result, &initial, sizeof(result));     \
+        return result; \
     }
-zig_msvc_flt_atomics(f32,    long,   )
+
+zig_msvc_flt_atomics(f32,    long,   , 32)
 #if _M_X64
-zig_msvc_flt_atomics(f64, int64_t, 64)
+zig_msvc_flt_atomics(f64, int64_t, 64, 64)
 #endif
 
 #if _M_IX86
