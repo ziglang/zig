@@ -593,8 +593,14 @@ pub fn resolveRelocs(self: Atom, macho_file: *MachO, buffer: []u8) !void {
                     };
                     try macho_file.reportParseError2(
                         file.getIndex(),
-                        "{s}: 0x{x}: 0x{x}: failed to relax relocation: type {s}, target {s}",
-                        .{ name, self.getAddress(macho_file), rel.offset, @tagName(rel.type), target },
+                        "{s}: 0x{x}: 0x{x}: failed to relax relocation: type {}, target {s}",
+                        .{
+                            name,
+                            self.getAddress(macho_file),
+                            rel.offset,
+                            rel.fmtPretty(macho_file.getTarget().cpu.arch),
+                            target,
+                        },
                     );
                     has_error = true;
                 },
@@ -650,17 +656,17 @@ fn resolveRelocInner(
     }.divExact;
 
     switch (rel.tag) {
-        .local => relocs_log.debug("  {x}<+{d}>: {s}: [=> {x}] atom({d})", .{
+        .local => relocs_log.debug("  {x}<+{d}>: {}: [=> {x}] atom({d})", .{
             P,
             rel_offset,
-            @tagName(rel.type),
+            rel.fmtPretty(cpu_arch),
             S + A - SUB,
             rel.getTargetAtom(self, macho_file).atom_index,
         }),
-        .@"extern" => relocs_log.debug("  {x}<+{d}>: {s}: [=> {x}] G({x}) ZG({x}) ({s})", .{
+        .@"extern" => relocs_log.debug("  {x}<+{d}>: {}: [=> {x}] G({x}) ZG({x}) ({s})", .{
             P,
             rel_offset,
-            @tagName(rel.type),
+            rel.fmtPretty(cpu_arch),
             S + A - SUB,
             G + A,
             ZIG_GOT + A,
@@ -900,11 +906,11 @@ const x86_64 = struct {
             },
             else => |x| {
                 var err = try macho_file.addErrorWithNotes(2);
-                try err.addMsg(macho_file, "{s}: 0x{x}: 0x{x}: failed to relax relocation of type {s}", .{
+                try err.addMsg(macho_file, "{s}: 0x{x}: 0x{x}: failed to relax relocation of type {}", .{
                     self.getName(macho_file),
                     self.getAddress(macho_file),
                     rel.offset,
-                    @tagName(rel.type),
+                    rel.fmtPretty(.x86_64),
                 });
                 try err.addNote(macho_file, "expected .mov instruction but found .{s}", .{@tagName(x)});
                 try err.addNote(macho_file, "while parsing {}", .{self.getFile(macho_file).fmtPath()});
