@@ -2870,11 +2870,7 @@ pub fn makeBinFileWritable(comp: *Compilation) !void {
 
 const Header = extern struct {
     intern_pool: extern struct {
-        //items_len: u32,
-        //extra_len: u32,
-        //limbs_len: u32,
-        //string_bytes_len: u32,
-        //tracked_insts_len: u32,
+        thread_count: u32,
         src_hash_deps_len: u32,
         decl_val_deps_len: u32,
         namespace_deps_len: u32,
@@ -2882,28 +2878,39 @@ const Header = extern struct {
         first_dependency_len: u32,
         dep_entries_len: u32,
         free_dep_entries_len: u32,
-        //files_len: u32,
     },
+
+    const PerThread = extern struct {
+        intern_pool: extern struct {
+            items_len: u32,
+            extra_len: u32,
+            limbs_len: u32,
+            string_bytes_len: u32,
+            tracked_insts_len: u32,
+            files_len: u32,
+        },
+    };
 };
 
 /// Note that all state that is included in the cache hash namespace is *not*
 /// saved, such as the target and most CLI flags. A cache hit will only occur
 /// when subsequent compiler invocations use the same set of flags.
 pub fn saveState(comp: *Compilation) !void {
-    var bufs_list: [21]std.posix.iovec_const = undefined;
-    var bufs_len: usize = 0;
-
     const lf = comp.bin_file orelse return;
+
+    const gpa = comp.gpa;
+
+    var bufs = std.ArrayList(std.posix.iovec_const).init(gpa);
+    defer bufs.deinit();
+
+    var pt_headers = std.ArrayList(Header.PerThread).init(gpa);
+    defer pt_headers.deinit();
 
     if (comp.module) |zcu| {
         const ip = &zcu.intern_pool;
         const header: Header = .{
             .intern_pool = .{
-                //.items_len = @intCast(ip.items.len),
-                //.extra_len = @intCast(ip.extra.items.len),
-                //.limbs_len = @intCast(ip.limbs.items.len),
-                //.string_bytes_len = @intCast(ip.string_bytes.items.len),
-                //.tracked_insts_len = @intCast(ip.tracked_insts.count()),
+                .thread_count = @intCast(ip.locals.len),
                 .src_hash_deps_len = @intCast(ip.src_hash_deps.count()),
                 .decl_val_deps_len = @intCast(ip.decl_val_deps.count()),
                 .namespace_deps_len = @intCast(ip.namespace_deps.count()),
@@ -2911,38 +2918,54 @@ pub fn saveState(comp: *Compilation) !void {
                 .first_dependency_len = @intCast(ip.first_dependency.count()),
                 .dep_entries_len = @intCast(ip.dep_entries.items.len),
                 .free_dep_entries_len = @intCast(ip.free_dep_entries.items.len),
-                //.files_len = @intCast(ip.files.entries.len),
             },
         };
-        addBuf(&bufs_list, &bufs_len, mem.asBytes(&header));
-        //addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.limbs.items));
-        //addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.extra.items));
-        //addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.items.items(.data)));
-        //addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.items.items(.tag)));
-        //addBuf(&bufs_list, &bufs_len, ip.string_bytes.items);
-        //addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.tracked_insts.keys()));
 
-        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.src_hash_deps.keys()));
-        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.src_hash_deps.values()));
-        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.decl_val_deps.keys()));
-        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.decl_val_deps.values()));
-        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.namespace_deps.keys()));
-        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.namespace_deps.values()));
-        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.namespace_name_deps.keys()));
-        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.namespace_name_deps.values()));
+        try pt_headers.ensureTotalCapacityPrecise(header.intern_pool.thread_count);
+        for (ip.locals) |*local| pt_headers.appendAssumeCapacity(.{
+            .intern_pool = .{
+                .items_len = @intCast(local.mutate.items.len),
+                .extra_len = @intCast(local.mutate.extra.len),
+                .limbs_len = @intCast(local.mutate.limbs.len),
+                .string_bytes_len = @intCast(local.mutate.strings.len),
+                .tracked_insts_len = @intCast(local.mutate.tracked_insts.len),
+                .files_len = @intCast(local.mutate.files.len),
+            },
+        });
 
-        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.first_dependency.keys()));
-        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.first_dependency.values()));
-        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.dep_entries.items));
-        addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.free_dep_entries.items));
+        try bufs.ensureTotalCapacityPrecise(14 + 8 * pt_headers.items.len);
+        addBuf(&bufs, mem.asBytes(&header));
+        addBuf(&bufs, mem.sliceAsBytes(pt_headers.items));
 
-        //addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.files.keys()));
-        //addBuf(&bufs_list, &bufs_len, mem.sliceAsBytes(ip.files.values()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.src_hash_deps.keys()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.src_hash_deps.values()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.decl_val_deps.keys()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.decl_val_deps.values()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.namespace_deps.keys()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.namespace_deps.values()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.namespace_name_deps.keys()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.namespace_name_deps.values()));
 
-        // TODO: compilation errors
-        // TODO: namespaces
-        // TODO: decls
-        // TODO: linker state
+        addBuf(&bufs, mem.sliceAsBytes(ip.first_dependency.keys()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.first_dependency.values()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.dep_entries.items));
+        addBuf(&bufs, mem.sliceAsBytes(ip.free_dep_entries.items));
+
+        for (ip.locals, pt_headers.items) |*local, pt_header| {
+            addBuf(&bufs, mem.sliceAsBytes(local.shared.limbs.view().items(.@"0")[0..pt_header.intern_pool.limbs_len]));
+            addBuf(&bufs, mem.sliceAsBytes(local.shared.extra.view().items(.@"0")[0..pt_header.intern_pool.extra_len]));
+            addBuf(&bufs, mem.sliceAsBytes(local.shared.items.view().items(.data)[0..pt_header.intern_pool.items_len]));
+            addBuf(&bufs, mem.sliceAsBytes(local.shared.items.view().items(.tag)[0..pt_header.intern_pool.items_len]));
+            addBuf(&bufs, local.shared.strings.view().items(.@"0")[0..pt_header.intern_pool.string_bytes_len]);
+            addBuf(&bufs, mem.sliceAsBytes(local.shared.tracked_insts.view().items(.@"0")[0..pt_header.intern_pool.tracked_insts_len]));
+            addBuf(&bufs, mem.sliceAsBytes(local.shared.files.view().items(.bin_digest)[0..pt_header.intern_pool.files_len]));
+            addBuf(&bufs, mem.sliceAsBytes(local.shared.files.view().items(.root_decl)[0..pt_header.intern_pool.files_len]));
+        }
+
+        //// TODO: compilation errors
+        //// TODO: namespaces
+        //// TODO: decls
+        //// TODO: linker state
     }
     var basename_buf: [255]u8 = undefined;
     const basename = std.fmt.bufPrint(&basename_buf, "{s}.zcs", .{
@@ -2956,20 +2979,14 @@ pub fn saveState(comp: *Compilation) !void {
     // the previous incremental compilation state.
     var af = try lf.emit.directory.handle.atomicFile(basename, .{});
     defer af.deinit();
-    try af.file.pwritevAll(bufs_list[0..bufs_len], 0);
+    try af.file.pwritevAll(bufs.items, 0);
     try af.finish();
 }
 
-fn addBuf(bufs_list: []std.posix.iovec_const, bufs_len: *usize, buf: []const u8) void {
+fn addBuf(list: *std.ArrayList(std.posix.iovec_const), buf: []const u8) void {
     // Even when len=0, the undefined pointer might cause EFAULT.
     if (buf.len == 0) return;
-
-    const i = bufs_len.*;
-    bufs_len.* = i + 1;
-    bufs_list[i] = .{
-        .base = buf.ptr,
-        .len = buf.len,
-    };
+    list.appendAssumeCapacity(.{ .base = buf.ptr, .len = buf.len });
 }
 
 /// This function is temporally single-threaded.
