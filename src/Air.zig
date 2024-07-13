@@ -1034,7 +1034,12 @@ pub const Inst = struct {
         ty: Type,
         arg: struct {
             ty: Ref,
-            src_index: u32,
+            /// Index into `extra` of a null-terminated string representing the parameter name.
+            /// This is `.none` if debug info is stripped.
+            name: enum(u32) {
+                none = std.math.maxInt(u32),
+                _,
+            },
         },
         ty_op: struct {
             ty: Ref,
@@ -1563,12 +1568,12 @@ pub fn internedToRef(ip_index: InternPool.Index) Inst.Ref {
 }
 
 /// Returns `null` if runtime-known.
-pub fn value(air: Air, inst: Inst.Ref, mod: *Module) !?Value {
+pub fn value(air: Air, inst: Inst.Ref, pt: Zcu.PerThread) !?Value {
     if (inst.toInterned()) |ip_index| {
         return Value.fromInterned(ip_index);
     }
     const index = inst.toIndex().?;
-    return air.typeOfIndex(index, &mod.intern_pool).onePossibleValue(mod);
+    return air.typeOfIndex(index, &pt.zcu.intern_pool).onePossibleValue(pt);
 }
 
 pub fn nullTerminatedString(air: Air, index: usize) [:0]const u8 {

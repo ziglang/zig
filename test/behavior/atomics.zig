@@ -413,6 +413,14 @@ test "atomics with different types" {
 
     try testAtomicsWithType(u0, 0, 0);
     try testAtomicsWithType(i0, 0, 0);
+
+    try testAtomicsWithType(enum(u32) { x = 1234, y = 5678 }, .x, .y);
+
+    try testAtomicsWithPackedStruct(
+        packed struct { x: u7, y: u24, z: bool },
+        .{ .x = 1, .y = 2, .z = true },
+        .{ .x = 3, .y = 4, .z = false },
+    );
 }
 
 fn testAtomicsWithType(comptime T: type, a: T, b: T) !void {
@@ -424,6 +432,18 @@ fn testAtomicsWithType(comptime T: type, a: T, b: T) !void {
     try expect(@cmpxchgStrong(T, &x, b, a, .seq_cst, .seq_cst) == null);
     if (@sizeOf(T) != 0)
         try expect(@cmpxchgStrong(T, &x, b, a, .seq_cst, .seq_cst).? == a);
+}
+
+fn testAtomicsWithPackedStruct(comptime T: type, a: T, b: T) !void {
+    const BackingInt = @typeInfo(T).Struct.backing_integer.?;
+    var x: T = b;
+    @atomicStore(T, &x, a, .seq_cst);
+    try expect(@as(BackingInt, @bitCast(x)) == @as(BackingInt, @bitCast(a)));
+    try expect(@as(BackingInt, @bitCast(@atomicLoad(T, &x, .seq_cst))) == @as(BackingInt, @bitCast(a)));
+    try expect(@as(BackingInt, @bitCast(@atomicRmw(T, &x, .Xchg, b, .seq_cst))) == @as(BackingInt, @bitCast(a)));
+    try expect(@cmpxchgStrong(T, &x, b, a, .seq_cst, .seq_cst) == null);
+    if (@sizeOf(T) != 0)
+        try expect(@as(BackingInt, @bitCast(@cmpxchgStrong(T, &x, b, a, .seq_cst, .seq_cst).?)) == @as(BackingInt, @bitCast(a)));
 }
 
 test "return @atomicStore, using it as a void value" {

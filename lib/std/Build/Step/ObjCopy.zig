@@ -93,13 +93,10 @@ pub fn getOutputSeparatedDebug(objcopy: *const ObjCopy) ?std.Build.LazyPath {
 fn make(step: *Step, prog_node: std.Progress.Node) !void {
     const b = step.owner;
     const objcopy: *ObjCopy = @fieldParentPtr("step", step);
+    try step.singleUnchangingWatchInput(objcopy.input_file);
 
     var man = b.graph.cache.obtain();
     defer man.deinit();
-
-    // Random bytes to make ObjCopy unique. Refresh this with new random
-    // bytes when ObjCopy implementation is modified incompatibly.
-    man.hash.add(@as(u32, 0xe18b7baf));
 
     const full_src_path = objcopy.input_file.getPath2(b, step);
     _ = try man.addFile(full_src_path, null);

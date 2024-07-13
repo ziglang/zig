@@ -5085,7 +5085,7 @@ fn structDeclInner(
             any_default_inits = true;
 
             // The decl_inst is used as here so that we can easily reconstruct a mapping
-            // between it and the field type when the fields inits are analzyed.
+            // between it and the field type when the fields inits are analyzed.
             const ri: ResultInfo = .{ .rl = if (field_type == .none) .none else .{ .coerced_ty = decl_inst.toRef() } };
 
             const default_inst = try expr(&block_scope, &namespace.base, ri, member.ast.value_expr);
@@ -11559,7 +11559,7 @@ fn identAsString(astgen: *AstGen, ident_token: Ast.TokenIndex) !Zir.NullTerminat
 }
 
 /// Adds a doc comment block to `string_bytes` by walking backwards from `end_token`.
-/// `end_token` must point at the first token after the last doc coment line.
+/// `end_token` must point at the first token after the last doc comment line.
 /// Returns 0 if no doc comment is present.
 fn docCommentAsString(astgen: *AstGen, end_token: Ast.TokenIndex) !Zir.NullTerminatedString {
     if (end_token == 0) return .empty;
@@ -11780,7 +11780,7 @@ const Scope = struct {
         inst: Zir.Inst.Ref,
         /// Source location of the corresponding variable declaration.
         token_src: Ast.TokenIndex,
-        /// Track the first identifer where it is referenced.
+        /// Track the first identifier where it is referenced.
         /// 0 means never referenced.
         used: Ast.TokenIndex = 0,
         /// Track the identifier where it is discarded, like this `_ = foo;`.
@@ -11803,13 +11803,13 @@ const Scope = struct {
         ptr: Zir.Inst.Ref,
         /// Source location of the corresponding variable declaration.
         token_src: Ast.TokenIndex,
-        /// Track the first identifer where it is referenced.
+        /// Track the first identifier where it is referenced.
         /// 0 means never referenced.
         used: Ast.TokenIndex = 0,
         /// Track the identifier where it is discarded, like this `_ = foo;`.
         /// 0 means never discarded.
         discarded: Ast.TokenIndex = 0,
-        /// Whether this value is used as an lvalue after inititialization.
+        /// Whether this value is used as an lvalue after initialization.
         /// If not, we know it can be `const`, so will emit a compile error if it is `var`.
         used_as_lvalue: bool = false,
         /// String table index.

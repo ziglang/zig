@@ -487,7 +487,7 @@ pub const Box = struct {
     /// A key pair.
     pub const KeyPair = X25519.KeyPair;
 
-    /// Compute a secret suitable for `secretbox` given a recipent's public key and a sender's secret key.
+    /// Compute a secret suitable for `secretbox` given a recipient's public key and a sender's secret key.
     pub fn createSharedSecret(public_key: [public_length]u8, secret_key: [secret_length]u8) (IdentityElementError || WeakPublicKeyError)![shared_length]u8 {
         const p = try X25519.scalarmult(secret_key, public_key);
         const zero = [_]u8{0} ** 16;

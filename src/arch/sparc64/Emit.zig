@@ -6,9 +6,7 @@ const Endian = std.builtin.Endian;
 const assert = std.debug.assert;
 const link = @import("../../link.zig");
 const Zcu = @import("../../Zcu.zig");
-/// Deprecated.
-const Module = Zcu;
-const ErrorMsg = Module.ErrorMsg;
+const ErrorMsg = Zcu.ErrorMsg;
 const Liveness = @import("../../Liveness.zig");
 const log = std.log.scoped(.sparcv9_emit);
 const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
@@ -24,7 +22,7 @@ bin_file: *link.File,
 debug_output: DebugInfoOutput,
 target: *const std.Target,
 err_msg: ?*ErrorMsg = null,
-src_loc: Module.LazySrcLoc,
+src_loc: Zcu.LazySrcLoc,
 code: *std.ArrayList(u8),
 
 prev_di_line: u32,

@@ -29,8 +29,6 @@ const InternPool = @import("../InternPool.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Zcu = @import("../Zcu.zig");
-/// Deprecated.
-const Module = Zcu;
 const Object = @import("Wasm/Object.zig");
 const Symbol = @import("Wasm/Symbol.zig");
 const Type = @import("../Type.zig");
@@ -1441,27 +1439,27 @@ pub fn deinit(wasm: *Wasm) void {
     wasm.files.deinit(gpa);
 }
 
-pub fn updateFunc(wasm: *Wasm, mod: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(wasm: *Wasm, pt: Zcu.PerThread, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (wasm.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func_index, air, liveness);
-    try wasm.zigObjectPtr().?.updateFunc(wasm, mod, func_index, air, liveness);
+    if (wasm.llvm_object) |llvm_object| return llvm_object.updateFunc(pt, func_index, air, liveness);
+    try wasm.zigObjectPtr().?.updateFunc(wasm, pt, func_index, air, liveness);
 }
 
 // Generate code for the Decl, storing it in memory to be later written to
 // the file on flush().
-pub fn updateDecl(wasm: *Wasm, mod: *Module, decl_index: InternPool.DeclIndex) !void {
+pub fn updateDecl(wasm: *Wasm, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (wasm.llvm_object) |llvm_object| return llvm_object.updateDecl(mod, decl_index);
-    try wasm.zigObjectPtr().?.updateDecl(wasm, mod, decl_index);
+    if (wasm.llvm_object) |llvm_object| return llvm_object.updateDecl(pt, decl_index);
+    try wasm.zigObjectPtr().?.updateDecl(wasm, pt, decl_index);
 }
 
-pub fn updateDeclLineNumber(wasm: *Wasm, mod: *Module, decl_index: InternPool.DeclIndex) !void {
+pub fn updateDeclLineNumber(wasm: *Wasm, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
     if (wasm.llvm_object) |_| return;
-    try wasm.zigObjectPtr().?.updateDeclLineNumber(mod, decl_index);
+    try wasm.zigObjectPtr().?.updateDeclLineNumber(pt, decl_index);
 }
 
 /// From a given symbol location, returns its `wasm.GlobalType`.
@@ -1506,8 +1504,8 @@ fn getFunctionSignature(wasm: *const Wasm, loc: SymbolLoc) std.wasm.Type {
 /// Lowers a constant typed value to a local symbol and atom.
 /// Returns the symbol index of the local
 /// The given `decl` is the parent decl whom owns the constant.
-pub fn lowerUnnamedConst(wasm: *Wasm, val: Value, decl_index: InternPool.DeclIndex) !u32 {
-    return wasm.zigObjectPtr().?.lowerUnnamedConst(wasm, val, decl_index);
+pub fn lowerUnnamedConst(wasm: *Wasm, pt: Zcu.PerThread, val: Value, decl_index: InternPool.DeclIndex) !u32 {
+    return wasm.zigObjectPtr().?.lowerUnnamedConst(wasm, pt, val, decl_index);
 }
 
 /// Returns the symbol index from a symbol of which its flag is set global,
@@ -1523,19 +1521,21 @@ pub fn getGlobalSymbol(wasm: *Wasm, name: []const u8, lib_name: ?[]const u8) !Sy
 /// Returns the given pointer address
 pub fn getDeclVAddr(
     wasm: *Wasm,
+    pt: Zcu.PerThread,
     decl_index: InternPool.DeclIndex,
     reloc_info: link.File.RelocInfo,
 ) !u64 {
-    return wasm.zigObjectPtr().?.getDeclVAddr(wasm, decl_index, reloc_info);
+    return wasm.zigObjectPtr().?.getDeclVAddr(wasm, pt, decl_index, reloc_info);
 }
 
 pub fn lowerAnonDecl(
     wasm: *Wasm,
+    pt: Zcu.PerThread,
     decl_val: InternPool.Index,
     explicit_alignment: Alignment,
-    src_loc: Module.LazySrcLoc,
+    src_loc: Zcu.LazySrcLoc,
 ) !codegen.Result {
-    return wasm.zigObjectPtr().?.lowerAnonDecl(wasm, decl_val, explicit_alignment, src_loc);
+    return wasm.zigObjectPtr().?.lowerAnonDecl(wasm, pt, decl_val, explicit_alignment, src_loc);
 }
 
 pub fn getAnonDeclVAddr(wasm: *Wasm, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
@@ -1553,15 +1553,15 @@ pub fn deleteExport(
 
 pub fn updateExports(
     wasm: *Wasm,
-    mod: *Module,
-    exported: Module.Exported,
+    pt: Zcu.PerThread,
+    exported: Zcu.Exported,
     export_indices: []const u32,
 ) !void {
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (wasm.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, export_indices);
-    return wasm.zigObjectPtr().?.updateExports(wasm, mod, exported, export_indices);
+    if (wasm.llvm_object) |llvm_object| return llvm_object.updateExports(pt, exported, export_indices);
+    return wasm.zigObjectPtr().?.updateExports(wasm, pt, exported, export_indices);
 }
 
 pub fn freeDecl(wasm: *Wasm, decl_index: InternPool.DeclIndex) void {
@@ -2466,18 +2466,18 @@ fn appendDummySegment(wasm: *Wasm) !void {
     });
 }
 
-pub fn flush(wasm: *Wasm, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
+pub fn flush(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
     const comp = wasm.base.comp;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
 
     if (use_lld) {
-        return wasm.linkWithLLD(arena, prog_node);
+        return wasm.linkWithLLD(arena, tid, prog_node);
     }
-    return wasm.flushModule(arena, prog_node);
+    return wasm.flushModule(arena, tid, prog_node);
 }
 
 /// Uses the in-house linker to link one or multiple object -and archive files into a WebAssembly binary.
-pub fn flushModule(wasm: *Wasm, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -2513,7 +2513,7 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, prog_node: std.Progress.Node) 
     const wasi_exec_model = comp.config.wasi_exec_model;
 
     if (wasm.zigObjectPtr()) |zig_object| {
-        try zig_object.flushModule(wasm);
+        try zig_object.flushModule(wasm, tid);
     }
 
     // When the target os is WASI, we allow linking with WASI-LIBC
@@ -3324,7 +3324,7 @@ fn emitImport(wasm: *Wasm, writer: anytype, import: types.Import) !void {
     }
 }
 
-fn linkWithLLD(wasm: *Wasm, arena: Allocator, prog_node: std.Progress.Node) !void {
+fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -3342,7 +3342,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, prog_node: std.Progress.Node) !voi
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
     const module_obj_path: ?[]const u8 = if (comp.module != null) blk: {
-        try wasm.flushModule(arena, prog_node);
+        try wasm.flushModule(arena, tid, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, wasm.base.zcu_object_sub_path.? });
@@ -4009,16 +4009,16 @@ pub fn storeDeclType(wasm: *Wasm, decl_index: InternPool.DeclIndex, func_type: s
 /// Returns the symbol index of the error name table.
 ///
 /// When the symbol does not yet exist, it will create a new one instead.
-pub fn getErrorTableSymbol(wasm_file: *Wasm) !u32 {
-    const sym_index = try wasm_file.zigObjectPtr().?.getErrorTableSymbol(wasm_file);
+pub fn getErrorTableSymbol(wasm_file: *Wasm, pt: Zcu.PerThread) !u32 {
+    const sym_index = try wasm_file.zigObjectPtr().?.getErrorTableSymbol(wasm_file, pt);
     return @intFromEnum(sym_index);
 }
 
 /// For a given `InternPool.DeclIndex` returns its corresponding `Atom.Index`.
 /// When the index was not found, a new `Atom` will be created, and its index will be returned.
 /// The newly created Atom is empty with default fields as specified by `Atom.empty`.
-pub fn getOrCreateAtomForDecl(wasm_file: *Wasm, decl_index: InternPool.DeclIndex) !Atom.Index {
-    return wasm_file.zigObjectPtr().?.getOrCreateAtomForDecl(wasm_file, decl_index);
+pub fn getOrCreateAtomForDecl(wasm_file: *Wasm, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !Atom.Index {
+    return wasm_file.zigObjectPtr().?.getOrCreateAtomForDecl(wasm_file, pt, decl_index);
 }
 
 /// Verifies all resolved symbols and checks whether itself needs to be marked alive,

@@ -902,7 +902,7 @@ pub fn intToEnum(comptime EnumTag: type, tag_int: anytype) IntToEnumError!EnumTa
         return error.InvalidEnumTag;
     }
 
-    // We don't direcly iterate over the fields of EnumTag, as that
+    // We don't directly iterate over the fields of EnumTag, as that
     // would require an inline loop. Instead, we create an array of
     // values that is comptime-know, but can be iterated at runtime
     // without requiring an inline loop. This generates better

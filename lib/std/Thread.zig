@@ -280,12 +280,13 @@ pub fn getCurrentId() Id {
 pub const CpuCountError = error{
     PermissionDenied,
     SystemResources,
+    Unsupported,
     Unexpected,
 };
 
 /// Returns the platforms view on the number of logical CPU cores available.
 pub fn getCpuCount() CpuCountError!usize {
-    return Impl.getCpuCount();
+    return try Impl.getCpuCount();
 }
 
 /// Configuration options for hints on how to spawn threads.
@@ -780,6 +781,10 @@ const WasiThreadImpl = struct {
 
     fn getCurrentId() Id {
         return tls_thread_id;
+    }
+
+    fn getCpuCount() error{Unsupported}!noreturn {
+        return error.Unsupported;
     }
 
     fn getHandle(self: Impl) ThreadHandle {
@@ -1460,6 +1465,7 @@ test {
     _ = Semaphore;
     _ = Condition;
     _ = RwLock;
+    _ = Pool;
 }
 
 fn testIncrementNotify(value: *usize, event: *ResetEvent) void {

@@ -424,6 +424,9 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
             item.path.getPath2(b, step),
         );
     }
+    if (!step.inputs.populated()) for (options.args.items) |item| {
+        try step.addWatchInput(item.path);
+    };
 
     const basename = "options.zig";
 
@@ -520,6 +523,7 @@ test Options {
             .query = .{},
             .result = try std.zig.system.resolveTargetQuery(.{}),
         },
+        .zig_lib_directory = std.Build.Cache.Directory.cwd(),
     };
 
     var builder = try std.Build.create(

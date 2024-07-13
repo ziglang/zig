@@ -370,7 +370,7 @@ pub const rlimit_resource = enum(c_int) {
     /// values of this resource limit.
     NICE,
 
-    /// Maximum realtime priority allowed for non-priviledged
+    /// Maximum realtime priority allowed for non-privileged
     /// processes.
     RTPRIO,
 

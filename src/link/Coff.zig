@@ -1120,16 +1120,17 @@ fn freeAtom(self: *Coff, atom_index: Atom.Index) void {
     self.getAtomPtr(atom_index).sym_index = 0;
 }
 
-pub fn updateFunc(self: *Coff, mod: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(self: *Coff, pt: Zcu.PerThread, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
     if (self.llvm_object) |llvm_object| {
-        return llvm_object.updateFunc(mod, func_index, air, liveness);
+        return llvm_object.updateFunc(pt, func_index, air, liveness);
     }
     const tracy = trace(@src());
     defer tracy.end();
 
+    const mod = pt.zcu;
     const func = mod.funcInfo(func_index);
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
@@ -1144,6 +1145,7 @@ pub fn updateFunc(self: *Coff, mod: *Module, func_index: InternPool.Index, air: 
 
     const res = try codegen.generateFunction(
         &self.base,
+        pt,
         decl.navSrcLoc(mod),
         func_index,
         air,
@@ -1160,26 +1162,27 @@ pub fn updateFunc(self: *Coff, mod: *Module, func_index: InternPool.Index, air: 
         },
     };
 
-    try self.updateDeclCode(decl_index, code, .FUNCTION);
+    try self.updateDeclCode(pt, decl_index, code, .FUNCTION);
 
     // Exports will be updated by `Zcu.processExports` after the update.
 }
 
-pub fn lowerUnnamedConst(self: *Coff, val: Value, decl_index: InternPool.DeclIndex) !u32 {
-    const gpa = self.base.comp.gpa;
-    const mod = self.base.comp.module.?;
+pub fn lowerUnnamedConst(self: *Coff, pt: Zcu.PerThread, val: Value, decl_index: InternPool.DeclIndex) !u32 {
+    const mod = pt.zcu;
+    const gpa = mod.gpa;
     const decl = mod.declPtr(decl_index);
     const gop = try self.unnamed_const_atoms.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
         gop.value_ptr.* = .{};
     }
     const unnamed_consts = gop.value_ptr;
-    const decl_name = try decl.fullyQualifiedName(mod);
     const index = unnamed_consts.items.len;
-    const sym_name = try std.fmt.allocPrint(gpa, "__unnamed_{}_{d}", .{ decl_name.fmt(&mod.intern_pool), index });
+    const sym_name = try std.fmt.allocPrint(gpa, "__unnamed_{}_{d}", .{
+        decl.fqn.fmt(&mod.intern_pool), index,
+    });
     defer gpa.free(sym_name);
     const ty = val.typeOf(mod);
-    const atom_index = switch (try self.lowerConst(sym_name, val, ty.abiAlignment(mod), self.rdata_section_index.?, decl.navSrcLoc(mod))) {
+    const atom_index = switch (try self.lowerConst(pt, sym_name, val, ty.abiAlignment(pt), self.rdata_section_index.?, decl.navSrcLoc(mod))) {
         .ok => |atom_index| atom_index,
         .fail => |em| {
             decl.analysis = .codegen_failure;
@@ -1197,7 +1200,15 @@ const LowerConstResult = union(enum) {
     fail: *Module.ErrorMsg,
 };
 
-fn lowerConst(self: *Coff, name: []const u8, val: Value, required_alignment: InternPool.Alignment, sect_id: u16, src_loc: Module.LazySrcLoc) !LowerConstResult {
+fn lowerConst(
+    self: *Coff,
+    pt: Zcu.PerThread,
+    name: []const u8,
+    val: Value,
+    required_alignment: InternPool.Alignment,
+    sect_id: u16,
+    src_loc: Module.LazySrcLoc,
+) !LowerConstResult {
     const gpa = self.base.comp.gpa;
 
     var code_buffer = std.ArrayList(u8).init(gpa);
@@ -1208,7 +1219,7 @@ fn lowerConst(self: *Coff, name: []const u8, val: Value, required_alignment: Int
     try self.setSymbolName(sym, name);
     sym.section_number = @as(coff.SectionNumber, @enumFromInt(sect_id + 1));
 
-    const res = try codegen.generateSymbol(&self.base, src_loc, val, &code_buffer, .none, .{
+    const res = try codegen.generateSymbol(&self.base, pt, src_loc, val, &code_buffer, .none, .{
         .parent_atom_index = self.getAtom(atom_index).getSymbolIndex().?,
     });
     const code = switch (res) {
@@ -1235,13 +1246,14 @@ fn lowerConst(self: *Coff, name: []const u8, val: Value, required_alignment: Int
 
 pub fn updateDecl(
     self: *Coff,
-    mod: *Module,
+    pt: Zcu.PerThread,
     decl_index: InternPool.DeclIndex,
 ) link.File.UpdateDeclError!void {
+    const mod = pt.zcu;
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(mod, decl_index);
+    if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(pt, decl_index);
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1270,7 +1282,7 @@ pub fn updateDecl(
     defer code_buffer.deinit();
 
     const decl_val = if (decl.val.getVariable(mod)) |variable| Value.fromInterned(variable.init) else decl.val;
-    const res = try codegen.generateSymbol(&self.base, decl.navSrcLoc(mod), decl_val, &code_buffer, .none, .{
+    const res = try codegen.generateSymbol(&self.base, pt, decl.navSrcLoc(mod), decl_val, &code_buffer, .none, .{
         .parent_atom_index = atom.getSymbolIndex().?,
     });
     const code = switch (res) {
@@ -1282,19 +1294,20 @@ pub fn updateDecl(
         },
     };
 
-    try self.updateDeclCode(decl_index, code, .NULL);
+    try self.updateDeclCode(pt, decl_index, code, .NULL);
 
     // Exports will be updated by `Zcu.processExports` after the update.
 }
 
 fn updateLazySymbolAtom(
     self: *Coff,
+    pt: Zcu.PerThread,
     sym: link.File.LazySymbol,
     atom_index: Atom.Index,
     section_index: u16,
 ) !void {
-    const gpa = self.base.comp.gpa;
-    const mod = self.base.comp.module.?;
+    const mod = pt.zcu;
+    const gpa = mod.gpa;
 
     var required_alignment: InternPool.Alignment = .none;
     var code_buffer = std.ArrayList(u8).init(gpa);
@@ -1302,7 +1315,7 @@ fn updateLazySymbolAtom(
 
     const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{}", .{
         @tagName(sym.kind),
-        sym.ty.fmt(mod),
+        sym.ty.fmt(pt),
     });
     defer gpa.free(name);
 
@@ -1312,6 +1325,7 @@ fn updateLazySymbolAtom(
     const src = sym.ty.srcLocOrNull(mod) orelse Module.LazySrcLoc.unneeded;
     const res = try codegen.generateLazySymbol(
         &self.base,
+        pt,
         src,
         sym,
         &required_alignment,
@@ -1346,7 +1360,7 @@ fn updateLazySymbolAtom(
     try self.writeAtom(atom_index, code);
 }
 
-pub fn getOrCreateAtomForLazySymbol(self: *Coff, sym: link.File.LazySymbol) !Atom.Index {
+pub fn getOrCreateAtomForLazySymbol(self: *Coff, pt: Zcu.PerThread, sym: link.File.LazySymbol) !Atom.Index {
     const gpa = self.base.comp.gpa;
     const mod = self.base.comp.module.?;
     const gop = try self.lazy_syms.getOrPut(gpa, sym.getDecl(mod));
@@ -1364,7 +1378,7 @@ pub fn getOrCreateAtomForLazySymbol(self: *Coff, sym: link.File.LazySymbol) !Ato
     metadata.state.* = .pending_flush;
     const atom = metadata.atom.*;
     // anyerror needs to be deferred until flushModule
-    if (sym.getDecl(mod) != .none) try self.updateLazySymbolAtom(sym, atom, switch (sym.kind) {
+    if (sym.getDecl(mod) != .none) try self.updateLazySymbolAtom(pt, sym, atom, switch (sym.kind) {
         .code => self.text_section_index.?,
         .const_data => self.rdata_section_index.?,
     });
@@ -1410,14 +1424,12 @@ fn getDeclOutputSection(self: *Coff, decl_index: InternPool.DeclIndex) u16 {
     return index;
 }
 
-fn updateDeclCode(self: *Coff, decl_index: InternPool.DeclIndex, code: []u8, complex_type: coff.ComplexType) !void {
-    const mod = self.base.comp.module.?;
+fn updateDeclCode(self: *Coff, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex, code: []u8, complex_type: coff.ComplexType) !void {
+    const mod = pt.zcu;
     const decl = mod.declPtr(decl_index);
 
-    const decl_name = try decl.fullyQualifiedName(mod);
-
-    log.debug("updateDeclCode {}{*}", .{ decl_name.fmt(&mod.intern_pool), decl });
-    const required_alignment: u32 = @intCast(decl.getAlignment(mod).toByteUnits() orelse 0);
+    log.debug("updateDeclCode {}{*}", .{ decl.fqn.fmt(&mod.intern_pool), decl });
+    const required_alignment: u32 = @intCast(decl.getAlignment(pt).toByteUnits() orelse 0);
 
     const decl_metadata = self.decls.get(decl_index).?;
     const atom_index = decl_metadata.atom;
@@ -1428,7 +1440,7 @@ fn updateDeclCode(self: *Coff, decl_index: InternPool.DeclIndex, code: []u8, com
 
     if (atom.size != 0) {
         const sym = atom.getSymbolPtr(self);
-        try self.setSymbolName(sym, decl_name.toSlice(&mod.intern_pool));
+        try self.setSymbolName(sym, decl.fqn.toSlice(&mod.intern_pool));
         sym.section_number = @as(coff.SectionNumber, @enumFromInt(sect_index + 1));
         sym.type = .{ .complex_type = complex_type, .base_type = .NULL };
 
@@ -1436,7 +1448,7 @@ fn updateDeclCode(self: *Coff, decl_index: InternPool.DeclIndex, code: []u8, com
         const need_realloc = code.len > capacity or !mem.isAlignedGeneric(u64, sym.value, required_alignment);
         if (need_realloc) {
             const vaddr = try self.growAtom(atom_index, code_len, required_alignment);
-            log.debug("growing {} from 0x{x} to 0x{x}", .{ decl_name.fmt(&mod.intern_pool), sym.value, vaddr });
+            log.debug("growing {} from 0x{x} to 0x{x}", .{ decl.fqn.fmt(&mod.intern_pool), sym.value, vaddr });
             log.debug("  (required alignment 0x{x}", .{required_alignment});
 
             if (vaddr != sym.value) {
@@ -1452,13 +1464,13 @@ fn updateDeclCode(self: *Coff, decl_index: InternPool.DeclIndex, code: []u8, com
         self.getAtomPtr(atom_index).size = code_len;
     } else {
         const sym = atom.getSymbolPtr(self);
-        try self.setSymbolName(sym, decl_name.toSlice(&mod.intern_pool));
+        try self.setSymbolName(sym, decl.fqn.toSlice(&mod.intern_pool));
         sym.section_number = @as(coff.SectionNumber, @enumFromInt(sect_index + 1));
         sym.type = .{ .complex_type = complex_type, .base_type = .NULL };
 
         const vaddr = try self.allocateAtom(atom_index, code_len, required_alignment);
         errdefer self.freeAtom(atom_index);
-        log.debug("allocated atom for {} at 0x{x}", .{ decl_name.fmt(&mod.intern_pool), vaddr });
+        log.debug("allocated atom for {} at 0x{x}", .{ decl.fqn.fmt(&mod.intern_pool), vaddr });
         self.getAtomPtr(atom_index).size = code_len;
         sym.value = vaddr;
 
@@ -1496,7 +1508,7 @@ pub fn freeDecl(self: *Coff, decl_index: InternPool.DeclIndex) void {
 
 pub fn updateExports(
     self: *Coff,
-    mod: *Module,
+    pt: Zcu.PerThread,
     exported: Module.Exported,
     export_indices: []const u32,
 ) link.File.UpdateExportsError!void {
@@ -1504,6 +1516,7 @@ pub fn updateExports(
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
 
+    const mod = pt.zcu;
     const ip = &mod.intern_pool;
     const comp = self.base.comp;
     const target = comp.root_mod.resolved_target.result;
@@ -1542,7 +1555,7 @@ pub fn updateExports(
         }
     }
 
-    if (self.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, export_indices);
+    if (self.llvm_object) |llvm_object| return llvm_object.updateExports(pt, exported, export_indices);
 
     const gpa = comp.gpa;
 
@@ -1553,7 +1566,7 @@ pub fn updateExports(
         },
         .value => |value| self.anon_decls.getPtr(value) orelse blk: {
             const first_exp = mod.all_exports.items[export_indices[0]];
-            const res = try self.lowerAnonDecl(value, .none, first_exp.src);
+            const res = try self.lowerAnonDecl(pt, value, .none, first_exp.src);
             switch (res) {
                 .ok => {},
                 .fail => |em| {
@@ -1696,19 +1709,19 @@ fn resolveGlobalSymbol(self: *Coff, current: SymbolWithLoc) !void {
     gop.value_ptr.* = current;
 }
 
-pub fn flush(self: *Coff, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
+pub fn flush(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
     const comp = self.base.comp;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
     if (use_lld) {
-        return lld.linkWithLLD(self, arena, prog_node);
+        return lld.linkWithLLD(self, arena, tid, prog_node);
     }
     switch (comp.config.output_mode) {
-        .Exe, .Obj => return self.flushModule(arena, prog_node),
+        .Exe, .Obj => return self.flushModule(arena, tid, prog_node),
         .Lib => return error.TODOImplementWritingLibFiles,
     }
 }
 
-pub fn flushModule(self: *Coff, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1723,13 +1736,17 @@ pub fn flushModule(self: *Coff, arena: Allocator, prog_node: std.Progress.Node) 
     const sub_prog_node = prog_node.start("COFF Flush", 0);
     defer sub_prog_node.end();
 
-    const module = comp.module orelse return error.LinkingWithoutZigSourceUnimplemented;
+    const pt: Zcu.PerThread = .{
+        .zcu = comp.module orelse return error.LinkingWithoutZigSourceUnimplemented,
+        .tid = tid,
+    };
 
     if (self.lazy_syms.getPtr(.none)) |metadata| {
         // Most lazy symbols can be updated on first use, but
         // anyerror needs to wait for everything to be flushed.
         if (metadata.text_state != .unused) self.updateLazySymbolAtom(
-            link.File.LazySymbol.initDecl(.code, null, module),
+            pt,
+            link.File.LazySymbol.initDecl(.code, null, pt.zcu),
             metadata.text_atom,
             self.text_section_index.?,
         ) catch |err| return switch (err) {
@@ -1737,7 +1754,8 @@ pub fn flushModule(self: *Coff, arena: Allocator, prog_node: std.Progress.Node) 
             else => |e| e,
         };
         if (metadata.rdata_state != .unused) self.updateLazySymbolAtom(
-            link.File.LazySymbol.initDecl(.const_data, null, module),
+            pt,
+            link.File.LazySymbol.initDecl(.const_data, null, pt.zcu),
             metadata.rdata_atom,
             self.rdata_section_index.?,
         ) catch |err| return switch (err) {
@@ -1836,7 +1854,7 @@ pub fn flushModule(self: *Coff, arena: Allocator, prog_node: std.Progress.Node) 
     assert(!self.imports_count_dirty);
 }
 
-pub fn getDeclVAddr(self: *Coff, decl_index: InternPool.DeclIndex, reloc_info: link.File.RelocInfo) !u64 {
+pub fn getDeclVAddr(self: *Coff, _: Zcu.PerThread, decl_index: InternPool.DeclIndex, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
 
     const this_atom_index = try self.getOrCreateAtomForDecl(decl_index);
@@ -1858,6 +1876,7 @@ pub fn getDeclVAddr(self: *Coff, decl_index: InternPool.DeclIndex, reloc_info: l
 
 pub fn lowerAnonDecl(
     self: *Coff,
+    pt: Zcu.PerThread,
     decl_val: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
     src_loc: Module.LazySrcLoc,
@@ -1866,7 +1885,7 @@ pub fn lowerAnonDecl(
     const mod = self.base.comp.module.?;
     const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
     const decl_alignment = switch (explicit_alignment) {
-        .none => ty.abiAlignment(mod),
+        .none => ty.abiAlignment(pt),
         else => explicit_alignment,
     };
     if (self.anon_decls.get(decl_val)) |metadata| {
@@ -1881,6 +1900,7 @@ pub fn lowerAnonDecl(
         @intFromEnum(decl_val),
     }) catch unreachable;
     const res = self.lowerConst(
+        pt,
         name,
         val,
         decl_alignment,
@@ -1951,9 +1971,9 @@ pub fn getGlobalSymbol(self: *Coff, name: []const u8, lib_name_name: ?[]const u8
     return global_index;
 }
 
-pub fn updateDeclLineNumber(self: *Coff, module: *Module, decl_index: InternPool.DeclIndex) !void {
+pub fn updateDeclLineNumber(self: *Coff, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
     _ = self;
-    _ = module;
+    _ = pt;
     _ = decl_index;
     log.debug("TODO implement updateDeclLineNumber", .{});
 }

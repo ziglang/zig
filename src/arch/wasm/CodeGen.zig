@@ -684,6 +684,7 @@ simd_immediates: std.ArrayListUnmanaged([16]u8) = .{},
 target: std.Target,
 /// Represents the wasm binary file that is being linked.
 bin_file: *link.File.Wasm,
+pt: Zcu.PerThread,
 /// List of MIR Instructions
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
 /// Contains extra data for MIR
@@ -764,8 +765,7 @@ pub fn deinit(func: *CodeGen) void {
 
 /// Sets `err_msg` on `CodeGen` and returns `error.CodegenFail` which is caught in link/Wasm.zig
 fn fail(func: *CodeGen, comptime fmt: []const u8, args: anytype) InnerError {
-    const mod = func.bin_file.base.comp.module.?;
-    const src_loc = func.decl.navSrcLoc(mod);
+    const src_loc = func.decl.navSrcLoc(func.pt.zcu);
     func.err_msg = try Zcu.ErrorMsg.create(func.gpa, src_loc, fmt, args);
     return error.CodegenFail;
 }
@@ -788,10 +788,11 @@ fn resolveInst(func: *CodeGen, ref: Air.Inst.Ref) InnerError!WValue {
     const gop = try func.branches.items[0].values.getOrPut(func.gpa, ref);
     assert(!gop.found_existing);
 
-    const mod = func.bin_file.base.comp.module.?;
-    const val = (try func.air.value(ref, mod)).?;
+    const pt = func.pt;
+    const mod = pt.zcu;
+    const val = (try func.air.value(ref, pt)).?;
     const ty = func.typeOf(ref);
-    if (!ty.hasRuntimeBitsIgnoreComptime(mod) and !ty.isInt(mod) and !ty.isError(mod)) {
+    if (!ty.hasRuntimeBitsIgnoreComptime(pt) and !ty.isInt(mod) and !ty.isError(mod)) {
         gop.value_ptr.* = WValue{ .none = {} };
         return gop.value_ptr.*;
     }
@@ -802,8 +803,8 @@ fn resolveInst(func: *CodeGen, ref: Air.Inst.Ref) InnerError!WValue {
     //
     // In the other cases, we will simply lower the constant to a value that fits
     // into a single local (such as a pointer, integer, bool, etc).
-    const result = if (isByRef(ty, mod)) blk: {
-        const sym_index = try func.bin_file.lowerUnnamedConst(val, func.decl_index);
+    const result = if (isByRef(ty, pt)) blk: {
+        const sym_index = try func.bin_file.lowerUnnamedConst(pt, val, func.decl_index);
         break :blk WValue{ .memory = sym_index };
     } else try func.lowerConstant(val, ty);
 
@@ -990,7 +991,8 @@ fn addExtraAssumeCapacity(func: *CodeGen, extra: anytype) error{OutOfMemory}!u32
 }
 
 /// Using a given `Type`, returns the corresponding type
-fn typeToValtype(ty: Type, mod: *Zcu) wasm.Valtype {
+fn typeToValtype(ty: Type, pt: Zcu.PerThread) wasm.Valtype {
+    const mod = pt.zcu;
     const target = mod.getTarget();
     const ip = &mod.intern_pool;
     return switch (ty.zigTypeTag(mod)) {
@@ -1002,26 +1004,26 @@ fn typeToValtype(ty: Type, mod: *Zcu) wasm.Valtype {
             else => unreachable,
         },
         .Int, .Enum => blk: {
-            const info = ty.intInfo(mod);
+            const info = ty.intInfo(pt.zcu);
             if (info.bits <= 32) break :blk wasm.Valtype.i32;
             if (info.bits > 32 and info.bits <= 128) break :blk wasm.Valtype.i64;
             break :blk wasm.Valtype.i32; // represented as pointer to stack
         },
         .Struct => {
-            if (mod.typeToPackedStruct(ty)) |packed_struct| {
-                return typeToValtype(Type.fromInterned(packed_struct.backingIntType(ip).*), mod);
+            if (pt.zcu.typeToPackedStruct(ty)) |packed_struct| {
+                return typeToValtype(Type.fromInterned(packed_struct.backingIntType(ip).*), pt);
             } else {
                 return wasm.Valtype.i32;
             }
         },
-        .Vector => switch (determineSimdStoreStrategy(ty, mod)) {
+        .Vector => switch (determineSimdStoreStrategy(ty, pt)) {
             .direct => wasm.Valtype.v128,
             .unrolled => wasm.Valtype.i32,
         },
-        .Union => switch (ty.containerLayout(mod)) {
+        .Union => switch (ty.containerLayout(pt.zcu)) {
             .@"packed" => {
-                const int_ty = mod.intType(.unsigned, @as(u16, @intCast(ty.bitSize(mod)))) catch @panic("out of memory");
-                return typeToValtype(int_ty, mod);
+                const int_ty = pt.intType(.unsigned, @as(u16, @intCast(ty.bitSize(pt)))) catch @panic("out of memory");
+                return typeToValtype(int_ty, pt);
             },
             else => wasm.Valtype.i32,
         },
@@ -1030,17 +1032,17 @@ fn typeToValtype(ty: Type, mod: *Zcu) wasm.Valtype {
 }
 
 /// Using a given `Type`, returns the byte representation of its wasm value type
-fn genValtype(ty: Type, mod: *Zcu) u8 {
-    return wasm.valtype(typeToValtype(ty, mod));
+fn genValtype(ty: Type, pt: Zcu.PerThread) u8 {
+    return wasm.valtype(typeToValtype(ty, pt));
 }
 
 /// Using a given `Type`, returns the corresponding wasm value type
 /// Differently from `genValtype` this also allows `void` to create a block
 /// with no return type
-fn genBlockType(ty: Type, mod: *Zcu) u8 {
+fn genBlockType(ty: Type, pt: Zcu.PerThread) u8 {
     return switch (ty.ip_index) {
         .void_type, .noreturn_type => wasm.block_empty,
-        else => genValtype(ty, mod),
+        else => genValtype(ty, pt),
     };
 }
 
@@ -1101,8 +1103,8 @@ fn getResolvedInst(func: *CodeGen, ref: Air.Inst.Ref) *WValue {
 /// Creates one locals for a given `Type`.
 /// Returns a corresponding `Wvalue` with `local` as active tag
 fn allocLocal(func: *CodeGen, ty: Type) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
-    const valtype = typeToValtype(ty, mod);
+    const pt = func.pt;
+    const valtype = typeToValtype(ty, pt);
     switch (valtype) {
         .i32 => if (func.free_locals_i32.popOrNull()) |index| {
             log.debug("reusing local ({d}) of type {}", .{ index, valtype });
@@ -1133,8 +1135,8 @@ fn allocLocal(func: *CodeGen, ty: Type) InnerError!WValue {
 /// Ensures a new local will be created. This is useful when it's useful
 /// to use a zero-initialized local.
 fn ensureAllocLocal(func: *CodeGen, ty: Type) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
-    try func.locals.append(func.gpa, genValtype(ty, mod));
+    const pt = func.pt;
+    try func.locals.append(func.gpa, genValtype(ty, pt));
     const initial_index = func.local_index;
     func.local_index += 1;
     return WValue{ .local = .{ .value = initial_index, .references = 1 } };
@@ -1147,23 +1149,24 @@ fn genFunctype(
     cc: std.builtin.CallingConvention,
     params: []const InternPool.Index,
     return_type: Type,
-    mod: *Zcu,
+    pt: Zcu.PerThread,
 ) !wasm.Type {
+    const mod = pt.zcu;
     var temp_params = std.ArrayList(wasm.Valtype).init(gpa);
     defer temp_params.deinit();
     var returns = std.ArrayList(wasm.Valtype).init(gpa);
     defer returns.deinit();
 
-    if (firstParamSRet(cc, return_type, mod)) {
+    if (firstParamSRet(cc, return_type, pt)) {
         try temp_params.append(.i32); // memory address is always a 32-bit handle
-    } else if (return_type.hasRuntimeBitsIgnoreComptime(mod)) {
+    } else if (return_type.hasRuntimeBitsIgnoreComptime(pt)) {
         if (cc == .C) {
-            const res_classes = abi.classifyType(return_type, mod);
+            const res_classes = abi.classifyType(return_type, pt);
             assert(res_classes[0] == .direct and res_classes[1] == .none);
-            const scalar_type = abi.scalarType(return_type, mod);
-            try returns.append(typeToValtype(scalar_type, mod));
+            const scalar_type = abi.scalarType(return_type, pt);
+            try returns.append(typeToValtype(scalar_type, pt));
         } else {
-            try returns.append(typeToValtype(return_type, mod));
+            try returns.append(typeToValtype(return_type, pt));
         }
     } else if (return_type.isError(mod)) {
         try returns.append(.i32);
@@ -1172,25 +1175,25 @@ fn genFunctype(
     // param types
     for (params) |param_type_ip| {
         const param_type = Type.fromInterned(param_type_ip);
-        if (!param_type.hasRuntimeBitsIgnoreComptime(mod)) continue;
+        if (!param_type.hasRuntimeBitsIgnoreComptime(pt)) continue;
 
         switch (cc) {
             .C => {
-                const param_classes = abi.classifyType(param_type, mod);
+                const param_classes = abi.classifyType(param_type, pt);
                 for (param_classes) |class| {
                     if (class == .none) continue;
                     if (class == .direct) {
-                        const scalar_type = abi.scalarType(param_type, mod);
-                        try temp_params.append(typeToValtype(scalar_type, mod));
+                        const scalar_type = abi.scalarType(param_type, pt);
+                        try temp_params.append(typeToValtype(scalar_type, pt));
                     } else {
-                        try temp_params.append(typeToValtype(param_type, mod));
+                        try temp_params.append(typeToValtype(param_type, pt));
                     }
                 }
             },
-            else => if (isByRef(param_type, mod))
+            else => if (isByRef(param_type, pt))
                 try temp_params.append(.i32)
             else
-                try temp_params.append(typeToValtype(param_type, mod)),
+                try temp_params.append(typeToValtype(param_type, pt)),
         }
     }
 
@@ -1202,6 +1205,7 @@ fn genFunctype(
 
 pub fn generate(
     bin_file: *link.File,
+    pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     air: Air,
@@ -1210,15 +1214,15 @@ pub fn generate(
     debug_output: codegen.DebugInfoOutput,
 ) codegen.CodeGenError!codegen.Result {
     _ = src_loc;
-    const comp = bin_file.comp;
-    const gpa = comp.gpa;
-    const zcu = comp.module.?;
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
     const func = zcu.funcInfo(func_index);
     const decl = zcu.declPtr(func.owner_decl);
     const namespace = zcu.namespacePtr(decl.src_namespace);
     const target = namespace.fileScope(zcu).mod.resolved_target.result;
     var code_gen: CodeGen = .{
         .gpa = gpa,
+        .pt = pt,
         .air = air,
         .liveness = liveness,
         .code = code,
@@ -1242,10 +1246,11 @@ pub fn generate(
 }
 
 fn genFunc(func: *CodeGen) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ip = &mod.intern_pool;
     const fn_info = mod.typeToFunc(func.decl.typeOf(mod)).?;
-    var func_type = try genFunctype(func.gpa, fn_info.cc, fn_info.param_types.get(ip), Type.fromInterned(fn_info.return_type), mod);
+    var func_type = try genFunctype(func.gpa, fn_info.cc, fn_info.param_types.get(ip), Type.fromInterned(fn_info.return_type), pt);
     defer func_type.deinit(func.gpa);
     _ = try func.bin_file.storeDeclType(func.decl_index, func_type);
 
@@ -1272,7 +1277,7 @@ fn genFunc(func: *CodeGen) InnerError!void {
     if (func_type.returns.len != 0 and func.air.instructions.len > 0) {
         const inst: Air.Inst.Index = @enumFromInt(func.air.instructions.len - 1);
         const last_inst_ty = func.typeOfIndex(inst);
-        if (!last_inst_ty.hasRuntimeBitsIgnoreComptime(mod) or last_inst_ty.isNoReturn(mod)) {
+        if (!last_inst_ty.hasRuntimeBitsIgnoreComptime(pt) or last_inst_ty.isNoReturn(mod)) {
             try func.addTag(.@"unreachable");
         }
     }
@@ -1354,7 +1359,8 @@ const CallWValues = struct {
 };
 
 fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWValues {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ip = &mod.intern_pool;
     const fn_info = mod.typeToFunc(fn_ty).?;
     const cc = fn_info.cc;
@@ -1369,7 +1375,7 @@ fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWV
 
     // Check if we store the result as a pointer to the stack rather than
     // by value
-    if (firstParamSRet(fn_info.cc, Type.fromInterned(fn_info.return_type), mod)) {
+    if (firstParamSRet(fn_info.cc, Type.fromInterned(fn_info.return_type), pt)) {
         // the sret arg will be passed as first argument, therefore we
         // set the `return_value` before allocating locals for regular args.
         result.return_value = .{ .local = .{ .value = func.local_index, .references = 1 } };
@@ -1379,7 +1385,7 @@ fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWV
     switch (cc) {
         .Unspecified => {
             for (fn_info.param_types.get(ip)) |ty| {
-                if (!Type.fromInterned(ty).hasRuntimeBitsIgnoreComptime(mod)) {
+                if (!Type.fromInterned(ty).hasRuntimeBitsIgnoreComptime(pt)) {
                     continue;
                 }
 
@@ -1389,7 +1395,7 @@ fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWV
         },
         .C => {
             for (fn_info.param_types.get(ip)) |ty| {
-                const ty_classes = abi.classifyType(Type.fromInterned(ty), mod);
+                const ty_classes = abi.classifyType(Type.fromInterned(ty), pt);
                 for (ty_classes) |class| {
                     if (class == .none) continue;
                     try args.append(.{ .local = .{ .value = func.local_index, .references = 1 } });
@@ -1403,11 +1409,11 @@ fn resolveCallingConventionValues(func: *CodeGen, fn_ty: Type) InnerError!CallWV
     return result;
 }
 
-fn firstParamSRet(cc: std.builtin.CallingConvention, return_type: Type, mod: *Zcu) bool {
+fn firstParamSRet(cc: std.builtin.CallingConvention, return_type: Type, pt: Zcu.PerThread) bool {
     switch (cc) {
-        .Unspecified, .Inline => return isByRef(return_type, mod),
+        .Unspecified, .Inline => return isByRef(return_type, pt),
         .C => {
-            const ty_classes = abi.classifyType(return_type, mod);
+            const ty_classes = abi.classifyType(return_type, pt);
             if (ty_classes[0] == .indirect) return true;
             if (ty_classes[0] == .direct and ty_classes[1] == .direct) return true;
             return false;
@@ -1423,8 +1429,9 @@ fn lowerArg(func: *CodeGen, cc: std.builtin.CallingConvention, ty: Type, value: 
         return func.lowerToStack(value);
     }
 
-    const mod = func.bin_file.base.comp.module.?;
-    const ty_classes = abi.classifyType(ty, mod);
+    const pt = func.pt;
+    const mod = pt.zcu;
+    const ty_classes = abi.classifyType(ty, pt);
     assert(ty_classes[0] != .none);
     switch (ty.zigTypeTag(mod)) {
         .Struct, .Union => {
@@ -1432,7 +1439,7 @@ fn lowerArg(func: *CodeGen, cc: std.builtin.CallingConvention, ty: Type, value: 
                 return func.lowerToStack(value);
             }
             assert(ty_classes[0] == .direct);
-            const scalar_type = abi.scalarType(ty, mod);
+            const scalar_type = abi.scalarType(ty, pt);
             switch (value) {
                 .memory,
                 .memory_offset,
@@ -1447,7 +1454,7 @@ fn lowerArg(func: *CodeGen, cc: std.builtin.CallingConvention, ty: Type, value: 
                 return func.lowerToStack(value);
             }
             assert(ty_classes[0] == .direct and ty_classes[1] == .direct);
-            assert(ty.abiSize(mod) == 16);
+            assert(ty.abiSize(pt) == 16);
             // in this case we have an integer or float that must be lowered as 2 i64's.
             try func.emitWValue(value);
             try func.addMemArg(.i64_load, .{ .offset = value.offset(), .alignment = 8 });
@@ -1514,18 +1521,18 @@ fn restoreStackPointer(func: *CodeGen) !void {
 ///
 /// Asserts Type has codegenbits
 fn allocStack(func: *CodeGen, ty: Type) !WValue {
-    const mod = func.bin_file.base.comp.module.?;
-    assert(ty.hasRuntimeBitsIgnoreComptime(mod));
+    const pt = func.pt;
+    assert(ty.hasRuntimeBitsIgnoreComptime(pt));
     if (func.initial_stack_value == .none) {
         try func.initializeStack();
     }
 
-    const abi_size = std.math.cast(u32, ty.abiSize(mod)) orelse {
+    const abi_size = std.math.cast(u32, ty.abiSize(pt)) orelse {
         return func.fail("Type {} with ABI size of {d} exceeds stack frame size", .{
-            ty.fmt(mod), ty.abiSize(mod),
+            ty.fmt(pt), ty.abiSize(pt),
         });
     };
-    const abi_align = ty.abiAlignment(mod);
+    const abi_align = ty.abiAlignment(pt);
 
     func.stack_alignment = func.stack_alignment.max(abi_align);
 
@@ -1540,7 +1547,8 @@ fn allocStack(func: *CodeGen, ty: Type) !WValue {
 /// This is different from allocStack where this will use the pointer's alignment
 /// if it is set, to ensure the stack alignment will be set correctly.
 fn allocStackPtr(func: *CodeGen, inst: Air.Inst.Index) !WValue {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ptr_ty = func.typeOfIndex(inst);
     const pointee_ty = ptr_ty.childType(mod);
 
@@ -1548,14 +1556,14 @@ fn allocStackPtr(func: *CodeGen, inst: Air.Inst.Index) !WValue {
         try func.initializeStack();
     }
 
-    if (!pointee_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+    if (!pointee_ty.hasRuntimeBitsIgnoreComptime(pt)) {
         return func.allocStack(Type.usize); // create a value containing just the stack pointer.
     }
 
-    const abi_alignment = ptr_ty.ptrAlignment(mod);
-    const abi_size = std.math.cast(u32, pointee_ty.abiSize(mod)) orelse {
+    const abi_alignment = ptr_ty.ptrAlignment(pt);
+    const abi_size = std.math.cast(u32, pointee_ty.abiSize(pt)) orelse {
         return func.fail("Type {} with ABI size of {d} exceeds stack frame size", .{
-            pointee_ty.fmt(mod), pointee_ty.abiSize(mod),
+            pointee_ty.fmt(pt), pointee_ty.abiSize(pt),
         });
     };
     func.stack_alignment = func.stack_alignment.max(abi_alignment);
@@ -1711,7 +1719,8 @@ fn arch(func: *const CodeGen) std.Target.Cpu.Arch {
 
 /// For a given `Type`, will return true when the type will be passed
 /// by reference, rather than by value
-fn isByRef(ty: Type, mod: *Zcu) bool {
+fn isByRef(ty: Type, pt: Zcu.PerThread) bool {
+    const mod = pt.zcu;
     const ip = &mod.intern_pool;
     const target = mod.getTarget();
     switch (ty.zigTypeTag(mod)) {
@@ -1734,28 +1743,28 @@ fn isByRef(ty: Type, mod: *Zcu) bool {
 
         .Array,
         .Frame,
-        => return ty.hasRuntimeBitsIgnoreComptime(mod),
+        => return ty.hasRuntimeBitsIgnoreComptime(pt),
         .Union => {
             if (mod.typeToUnion(ty)) |union_obj| {
                 if (union_obj.getLayout(ip) == .@"packed") {
-                    return ty.abiSize(mod) > 8;
+                    return ty.abiSize(pt) > 8;
                 }
             }
-            return ty.hasRuntimeBitsIgnoreComptime(mod);
+            return ty.hasRuntimeBitsIgnoreComptime(pt);
         },
         .Struct => {
             if (mod.typeToPackedStruct(ty)) |packed_struct| {
-                return isByRef(Type.fromInterned(packed_struct.backingIntType(ip).*), mod);
+                return isByRef(Type.fromInterned(packed_struct.backingIntType(ip).*), pt);
             }
-            return ty.hasRuntimeBitsIgnoreComptime(mod);
+            return ty.hasRuntimeBitsIgnoreComptime(pt);
         },
-        .Vector => return determineSimdStoreStrategy(ty, mod) == .unrolled,
+        .Vector => return determineSimdStoreStrategy(ty, pt) == .unrolled,
         .Int => return ty.intInfo(mod).bits > 64,
         .Enum => return ty.intInfo(mod).bits > 64,
         .Float => return ty.floatBits(target) > 64,
         .ErrorUnion => {
             const pl_ty = ty.errorUnionPayload(mod);
-            if (!pl_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+            if (!pl_ty.hasRuntimeBitsIgnoreComptime(pt)) {
                 return false;
             }
             return true;
@@ -1764,7 +1773,7 @@ fn isByRef(ty: Type, mod: *Zcu) bool {
             if (ty.isPtrLikeOptional(mod)) return false;
             const pl_type = ty.optionalChild(mod);
             if (pl_type.zigTypeTag(mod) == .ErrorSet) return false;
-            return pl_type.hasRuntimeBitsIgnoreComptime(mod);
+            return pl_type.hasRuntimeBitsIgnoreComptime(pt);
         },
         .Pointer => {
             // Slices act like struct and will be passed by reference
@@ -1783,11 +1792,11 @@ const SimdStoreStrategy = enum {
 /// This means when a given type is 128 bits and either the simd128 or relaxed-simd
 /// features are enabled, the function will return `.direct`. This would allow to store
 /// it using a instruction, rather than an unrolled version.
-fn determineSimdStoreStrategy(ty: Type, mod: *Zcu) SimdStoreStrategy {
-    std.debug.assert(ty.zigTypeTag(mod) == .Vector);
-    if (ty.bitSize(mod) != 128) return .unrolled;
+fn determineSimdStoreStrategy(ty: Type, pt: Zcu.PerThread) SimdStoreStrategy {
+    std.debug.assert(ty.zigTypeTag(pt.zcu) == .Vector);
+    if (ty.bitSize(pt) != 128) return .unrolled;
     const hasFeature = std.Target.wasm.featureSetHas;
-    const target = mod.getTarget();
+    const target = pt.zcu.getTarget();
     const features = target.cpu.features;
     if (hasFeature(features, .relaxed_simd) or hasFeature(features, .simd128)) {
         return .direct;
@@ -2064,7 +2073,8 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn genBody(func: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ip = &mod.intern_pool;
 
     for (body) |inst| {
@@ -2085,7 +2095,8 @@ fn genBody(func: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
 }
 
 fn airRet(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try func.resolveInst(un_op);
     const fn_info = mod.typeToFunc(func.decl.typeOf(mod)).?;
@@ -2095,27 +2106,27 @@ fn airRet(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     // to the stack instead
     if (func.return_value != .none) {
         try func.store(func.return_value, operand, ret_ty, 0);
-    } else if (fn_info.cc == .C and ret_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+    } else if (fn_info.cc == .C and ret_ty.hasRuntimeBitsIgnoreComptime(pt)) {
         switch (ret_ty.zigTypeTag(mod)) {
             // Aggregate types can be lowered as a singular value
             .Struct, .Union => {
-                const scalar_type = abi.scalarType(ret_ty, mod);
+                const scalar_type = abi.scalarType(ret_ty, pt);
                 try func.emitWValue(operand);
                 const opcode = buildOpcode(.{
                     .op = .load,
-                    .width = @as(u8, @intCast(scalar_type.abiSize(mod) * 8)),
+                    .width = @as(u8, @intCast(scalar_type.abiSize(pt) * 8)),
                     .signedness = if (scalar_type.isSignedInt(mod)) .signed else .unsigned,
-                    .valtype1 = typeToValtype(scalar_type, mod),
+                    .valtype1 = typeToValtype(scalar_type, pt),
                 });
                 try func.addMemArg(Mir.Inst.Tag.fromOpcode(opcode), .{
                     .offset = operand.offset(),
-                    .alignment = @intCast(scalar_type.abiAlignment(mod).toByteUnits().?),
+                    .alignment = @intCast(scalar_type.abiAlignment(pt).toByteUnits().?),
                 });
             },
             else => try func.emitWValue(operand),
         }
     } else {
-        if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod) and ret_ty.isError(mod)) {
+        if (!ret_ty.hasRuntimeBitsIgnoreComptime(pt) and ret_ty.isError(mod)) {
             try func.addImm32(0);
         } else {
             try func.emitWValue(operand);
@@ -2128,16 +2139,17 @@ fn airRet(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airRetPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const child_type = func.typeOfIndex(inst).childType(mod);
 
     const result = result: {
-        if (!child_type.isFnOrHasRuntimeBitsIgnoreComptime(mod)) {
+        if (!child_type.isFnOrHasRuntimeBitsIgnoreComptime(pt)) {
             break :result try func.allocStack(Type.usize); // create pointer to void
         }
 
         const fn_info = mod.typeToFunc(func.decl.typeOf(mod)).?;
-        if (firstParamSRet(fn_info.cc, Type.fromInterned(fn_info.return_type), mod)) {
+        if (firstParamSRet(fn_info.cc, Type.fromInterned(fn_info.return_type), pt)) {
             break :result func.return_value;
         }
 
@@ -2148,17 +2160,18 @@ fn airRetPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airRetLoad(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try func.resolveInst(un_op);
     const ret_ty = func.typeOf(un_op).childType(mod);
 
     const fn_info = mod.typeToFunc(func.decl.typeOf(mod)).?;
-    if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+    if (!ret_ty.hasRuntimeBitsIgnoreComptime(pt)) {
         if (ret_ty.isError(mod)) {
             try func.addImm32(0);
         }
-    } else if (!firstParamSRet(fn_info.cc, Type.fromInterned(fn_info.return_type), mod)) {
+    } else if (!firstParamSRet(fn_info.cc, Type.fromInterned(fn_info.return_type), pt)) {
         // leave on the stack
         _ = try func.load(operand, ret_ty, 0);
     }
@@ -2175,7 +2188,8 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
     const args = @as([]const Air.Inst.Ref, @ptrCast(func.air.extra[extra.end..][0..extra.data.args_len]));
     const ty = func.typeOf(pl_op.operand);
 
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ip = &mod.intern_pool;
     const fn_ty = switch (ty.zigTypeTag(mod)) {
         .Fn => ty,
@@ -2184,20 +2198,20 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
     };
     const ret_ty = fn_ty.fnReturnType(mod);
     const fn_info = mod.typeToFunc(fn_ty).?;
-    const first_param_sret = firstParamSRet(fn_info.cc, Type.fromInterned(fn_info.return_type), mod);
+    const first_param_sret = firstParamSRet(fn_info.cc, Type.fromInterned(fn_info.return_type), pt);
 
     const callee: ?InternPool.DeclIndex = blk: {
-        const func_val = (try func.air.value(pl_op.operand, mod)) orelse break :blk null;
+        const func_val = (try func.air.value(pl_op.operand, pt)) orelse break :blk null;
 
         if (func_val.getFunction(mod)) |function| {
-            _ = try func.bin_file.getOrCreateAtomForDecl(function.owner_decl);
+            _ = try func.bin_file.getOrCreateAtomForDecl(pt, function.owner_decl);
             break :blk function.owner_decl;
         } else if (func_val.getExternFunc(mod)) |extern_func| {
             const ext_decl = mod.declPtr(extern_func.decl);
             const ext_info = mod.typeToFunc(ext_decl.typeOf(mod)).?;
-            var func_type = try genFunctype(func.gpa, ext_info.cc, ext_info.param_types.get(ip), Type.fromInterned(ext_info.return_type), mod);
+            var func_type = try genFunctype(func.gpa, ext_info.cc, ext_info.param_types.get(ip), Type.fromInterned(ext_info.return_type), pt);
             defer func_type.deinit(func.gpa);
-            const atom_index = try func.bin_file.getOrCreateAtomForDecl(extern_func.decl);
+            const atom_index = try func.bin_file.getOrCreateAtomForDecl(pt, extern_func.decl);
             const atom = func.bin_file.getAtomPtr(atom_index);
             const type_index = try func.bin_file.storeDeclType(extern_func.decl, func_type);
             try func.bin_file.addOrUpdateImport(
@@ -2210,7 +2224,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
         } else switch (mod.intern_pool.indexToKey(func_val.ip_index)) {
             .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
                 .decl => |decl| {
-                    _ = try func.bin_file.getOrCreateAtomForDecl(decl);
+                    _ = try func.bin_file.getOrCreateAtomForDecl(pt, decl);
                     break :blk decl;
                 },
                 else => {},
@@ -2230,7 +2244,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
         const arg_val = try func.resolveInst(arg);
 
         const arg_ty = func.typeOf(arg);
-        if (!arg_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
+        if (!arg_ty.hasRuntimeBitsIgnoreComptime(pt)) continue;
 
         try func.lowerArg(mod.typeToFunc(fn_ty).?.cc, arg_ty, arg_val);
     }
@@ -2245,7 +2259,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
         const operand = try func.resolveInst(pl_op.operand);
         try func.emitWValue(operand);
 
-        var fn_type = try genFunctype(func.gpa, fn_info.cc, fn_info.param_types.get(ip), Type.fromInterned(fn_info.return_type), mod);
+        var fn_type = try genFunctype(func.gpa, fn_info.cc, fn_info.param_types.get(ip), Type.fromInterned(fn_info.return_type), pt);
         defer fn_type.deinit(func.gpa);
 
         const fn_type_index = try func.bin_file.zigObjectPtr().?.putOrGetFuncType(func.gpa, fn_type);
@@ -2253,7 +2267,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
     }
 
     const result_value = result_value: {
-        if (!ret_ty.hasRuntimeBitsIgnoreComptime(mod) and !ret_ty.isError(mod)) {
+        if (!ret_ty.hasRuntimeBitsIgnoreComptime(pt) and !ret_ty.isError(mod)) {
             break :result_value WValue{ .none = {} };
         } else if (ret_ty.isNoReturn(mod)) {
             try func.addTag(.@"unreachable");
@@ -2264,7 +2278,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
         } else if (mod.typeToFunc(fn_ty).?.cc == .C and ret_ty.zigTypeTag(mod) == .Struct or ret_ty.zigTypeTag(mod) == .Union) {
             const result_local = try func.allocLocal(ret_ty);
             try func.addLabel(.local_set, result_local.local.value);
-            const scalar_type = abi.scalarType(ret_ty, mod);
+            const scalar_type = abi.scalarType(ret_ty, pt);
             const result = try func.allocStack(scalar_type);
             try func.store(result, result_local, scalar_type, 0);
             break :result_value result;
@@ -2287,7 +2301,8 @@ fn airAlloc(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airStore(func: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     if (safety) {
         // TODO if the value is undef, write 0xaa bytes to dest
     } else {
@@ -2306,13 +2321,13 @@ fn airStore(func: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void 
     } else {
         // at this point we have a non-natural alignment, we must
         // load the value, and then shift+or the rhs into the result location.
-        const int_elem_ty = try mod.intType(.unsigned, ptr_info.packed_offset.host_size * 8);
+        const int_elem_ty = try pt.intType(.unsigned, ptr_info.packed_offset.host_size * 8);
 
-        if (isByRef(int_elem_ty, mod)) {
+        if (isByRef(int_elem_ty, pt)) {
             return func.fail("TODO: airStore for pointers to bitfields with backing type larger than 64bits", .{});
         }
 
-        var mask = @as(u64, @intCast((@as(u65, 1) << @as(u7, @intCast(ty.bitSize(mod)))) - 1));
+        var mask = @as(u64, @intCast((@as(u65, 1) << @as(u7, @intCast(ty.bitSize(pt)))) - 1));
         mask <<= @as(u6, @intCast(ptr_info.packed_offset.bit_offset));
         mask ^= ~@as(u64, 0);
         const shift_val = if (ptr_info.packed_offset.host_size <= 4)
@@ -2324,9 +2339,9 @@ fn airStore(func: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void 
         else
             WValue{ .imm64 = mask };
         const wrap_mask_val = if (ptr_info.packed_offset.host_size <= 4)
-            WValue{ .imm32 = @truncate(~@as(u64, 0) >> @intCast(64 - ty.bitSize(mod))) }
+            WValue{ .imm32 = @truncate(~@as(u64, 0) >> @intCast(64 - ty.bitSize(pt))) }
         else
-            WValue{ .imm64 = ~@as(u64, 0) >> @intCast(64 - ty.bitSize(mod)) };
+            WValue{ .imm64 = ~@as(u64, 0) >> @intCast(64 - ty.bitSize(pt)) };
 
         try func.emitWValue(lhs);
         const loaded = try func.load(lhs, int_elem_ty, 0);
@@ -2346,12 +2361,13 @@ fn airStore(func: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void 
 
 fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerError!void {
     assert(!(lhs != .stack and rhs == .stack));
-    const mod = func.bin_file.base.comp.module.?;
-    const abi_size = ty.abiSize(mod);
+    const pt = func.pt;
+    const mod = pt.zcu;
+    const abi_size = ty.abiSize(pt);
     switch (ty.zigTypeTag(mod)) {
         .ErrorUnion => {
             const pl_ty = ty.errorUnionPayload(mod);
-            if (!pl_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+            if (!pl_ty.hasRuntimeBitsIgnoreComptime(pt)) {
                 return func.store(lhs, rhs, Type.anyerror, 0);
             }
 
@@ -2363,7 +2379,7 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
                 return func.store(lhs, rhs, Type.usize, 0);
             }
             const pl_ty = ty.optionalChild(mod);
-            if (!pl_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+            if (!pl_ty.hasRuntimeBitsIgnoreComptime(pt)) {
                 return func.store(lhs, rhs, Type.u8, 0);
             }
             if (pl_ty.zigTypeTag(mod) == .ErrorSet) {
@@ -2373,11 +2389,11 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
             const len = @as(u32, @intCast(abi_size));
             return func.memcpy(lhs, rhs, .{ .imm32 = len });
         },
-        .Struct, .Array, .Union => if (isByRef(ty, mod)) {
+        .Struct, .Array, .Union => if (isByRef(ty, pt)) {
             const len = @as(u32, @intCast(abi_size));
             return func.memcpy(lhs, rhs, .{ .imm32 = len });
         },
-        .Vector => switch (determineSimdStoreStrategy(ty, mod)) {
+        .Vector => switch (determineSimdStoreStrategy(ty, pt)) {
             .unrolled => {
                 const len: u32 = @intCast(abi_size);
                 return func.memcpy(lhs, rhs, .{ .imm32 = len });
@@ -2391,7 +2407,7 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
                 try func.mir_extra.appendSlice(func.gpa, &[_]u32{
                     std.wasm.simdOpcode(.v128_store),
                     offset + lhs.offset(),
-                    @intCast(ty.abiAlignment(mod).toByteUnits() orelse 0),
+                    @intCast(ty.abiAlignment(pt).toByteUnits() orelse 0),
                 });
                 return func.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
             },
@@ -2421,11 +2437,11 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
             try func.store(.{ .stack = {} }, msb, Type.u64, 8 + lhs.offset());
             return;
         } else if (abi_size > 16) {
-            try func.memcpy(lhs, rhs, .{ .imm32 = @as(u32, @intCast(ty.abiSize(mod))) });
+            try func.memcpy(lhs, rhs, .{ .imm32 = @as(u32, @intCast(ty.abiSize(pt))) });
         },
         else => if (abi_size > 8) {
             return func.fail("TODO: `store` for type `{}` with abisize `{d}`", .{
-                ty.fmt(func.bin_file.base.comp.module.?),
+                ty.fmt(pt),
                 abi_size,
             });
         },
@@ -2435,7 +2451,7 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
     // into lhs, so we calculate that and emit that instead
     try func.lowerToStack(rhs);
 
-    const valtype = typeToValtype(ty, mod);
+    const valtype = typeToValtype(ty, pt);
     const opcode = buildOpcode(.{
         .valtype1 = valtype,
         .width = @as(u8, @intCast(abi_size * 8)),
@@ -2447,23 +2463,24 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
         Mir.Inst.Tag.fromOpcode(opcode),
         .{
             .offset = offset + lhs.offset(),
-            .alignment = @intCast(ty.abiAlignment(mod).toByteUnits().?),
+            .alignment = @intCast(ty.abiAlignment(pt).toByteUnits().?),
         },
     );
 }
 
 fn airLoad(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const operand = try func.resolveInst(ty_op.operand);
     const ty = ty_op.ty.toType();
     const ptr_ty = func.typeOf(ty_op.operand);
     const ptr_info = ptr_ty.ptrInfo(mod);
 
-    if (!ty.hasRuntimeBitsIgnoreComptime(mod)) return func.finishAir(inst, .none, &.{ty_op.operand});
+    if (!ty.hasRuntimeBitsIgnoreComptime(pt)) return func.finishAir(inst, .none, &.{ty_op.operand});
 
     const result = result: {
-        if (isByRef(ty, mod)) {
+        if (isByRef(ty, pt)) {
             const new_local = try func.allocStack(ty);
             try func.store(new_local, operand, ty, 0);
             break :result new_local;
@@ -2476,7 +2493,7 @@ fn airLoad(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
         // at this point we have a non-natural alignment, we must
         // shift the value to obtain the correct bit.
-        const int_elem_ty = try mod.intType(.unsigned, ptr_info.packed_offset.host_size * 8);
+        const int_elem_ty = try pt.intType(.unsigned, ptr_info.packed_offset.host_size * 8);
         const shift_val = if (ptr_info.packed_offset.host_size <= 4)
             WValue{ .imm32 = ptr_info.packed_offset.bit_offset }
         else if (ptr_info.packed_offset.host_size <= 8)
@@ -2496,7 +2513,8 @@ fn airLoad(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 /// Loads an operand from the linear memory section.
 /// NOTE: Leaves the value on the stack.
 fn load(func: *CodeGen, operand: WValue, ty: Type, offset: u32) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     // load local's value from memory by its stack position
     try func.emitWValue(operand);
 
@@ -2507,15 +2525,15 @@ fn load(func: *CodeGen, operand: WValue, ty: Type, offset: u32) InnerError!WValu
         try func.mir_extra.appendSlice(func.gpa, &[_]u32{
             std.wasm.simdOpcode(.v128_load),
             offset + operand.offset(),
-            @intCast(ty.abiAlignment(mod).toByteUnits().?),
+            @intCast(ty.abiAlignment(pt).toByteUnits().?),
         });
         try func.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
         return WValue{ .stack = {} };
     }
 
-    const abi_size: u8 = @intCast(ty.abiSize(mod));
+    const abi_size: u8 = @intCast(ty.abiSize(pt));
     const opcode = buildOpcode(.{
-        .valtype1 = typeToValtype(ty, mod),
+        .valtype1 = typeToValtype(ty, pt),
         .width = abi_size * 8,
         .op = .load,
         .signedness = if (ty.isSignedInt(mod)) .signed else .unsigned,
@@ -2525,7 +2543,7 @@ fn load(func: *CodeGen, operand: WValue, ty: Type, offset: u32) InnerError!WValu
         Mir.Inst.Tag.fromOpcode(opcode),
         .{
             .offset = offset + operand.offset(),
-            .alignment = @intCast(ty.abiAlignment(mod).toByteUnits().?),
+            .alignment = @intCast(ty.abiAlignment(pt).toByteUnits().?),
         },
     );
 
@@ -2533,13 +2551,14 @@ fn load(func: *CodeGen, operand: WValue, ty: Type, offset: u32) InnerError!WValu
 }
 
 fn airArg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const arg_index = func.arg_index;
     const arg = func.args[arg_index];
     const cc = mod.typeToFunc(func.decl.typeOf(mod)).?.cc;
     const arg_ty = func.typeOfIndex(inst);
     if (cc == .C) {
-        const arg_classes = abi.classifyType(arg_ty, mod);
+        const arg_classes = abi.classifyType(arg_ty, pt);
         for (arg_classes) |class| {
             if (class != .none) {
                 func.arg_index += 1;
@@ -2552,7 +2571,7 @@ fn airArg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             if (arg_ty.zigTypeTag(mod) != .Int and arg_ty.zigTypeTag(mod) != .Float) {
                 return func.fail(
                     "TODO: Implement C-ABI argument for type '{}'",
-                    .{arg_ty.fmt(func.bin_file.base.comp.module.?)},
+                    .{arg_ty.fmt(pt)},
                 );
             }
             const result = try func.allocStack(arg_ty);
@@ -2566,11 +2585,13 @@ fn airArg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     switch (func.debug_output) {
         .dwarf => |dwarf| {
-            const src_index = func.air.instructions.items(.data)[@intFromEnum(inst)].arg.src_index;
-            const name = mod.getParamName(func.func_index, src_index);
-            try dwarf.genArgDbgInfo(name, arg_ty, mod.funcOwnerDeclIndex(func.func_index), .{
-                .wasm_local = arg.local.value,
-            });
+            const name_nts = func.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
+            if (name_nts != .none) {
+                const name = func.air.nullTerminatedString(@intFromEnum(name_nts));
+                try dwarf.genArgDbgInfo(name, arg_ty, mod.funcOwnerDeclIndex(func.func_index), .{
+                    .wasm_local = arg.local.value,
+                });
+            }
         },
         else => {},
     }
@@ -2579,7 +2600,7 @@ fn airArg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airBinOp(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
     const lhs = try func.resolveInst(bin_op.lhs);
     const rhs = try func.resolveInst(bin_op.rhs);
@@ -2593,10 +2614,10 @@ fn airBinOp(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
     // For big integers we can ignore this as we will call into compiler-rt which handles this.
     const result = switch (op) {
         .shr, .shl => res: {
-            const lhs_wasm_bits = toWasmBits(@as(u16, @intCast(lhs_ty.bitSize(mod)))) orelse {
+            const lhs_wasm_bits = toWasmBits(@intCast(lhs_ty.bitSize(pt))) orelse {
                 return func.fail("TODO: implement '{s}' for types larger than 128 bits", .{@tagName(op)});
             };
-            const rhs_wasm_bits = toWasmBits(@as(u16, @intCast(rhs_ty.bitSize(mod)))).?;
+            const rhs_wasm_bits = toWasmBits(@intCast(rhs_ty.bitSize(pt))).?;
             const new_rhs = if (lhs_wasm_bits != rhs_wasm_bits and lhs_wasm_bits != 128) blk: {
                 const tmp = try func.intcast(rhs, rhs_ty, lhs_ty);
                 break :blk try tmp.toLocal(func, lhs_ty);
@@ -2616,7 +2637,8 @@ fn airBinOp(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
 /// Performs a binary operation on the given `WValue`'s
 /// NOTE: THis leaves the value on top of the stack.
 fn binOp(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     assert(!(lhs != .stack and rhs == .stack));
 
     if (ty.isAnyFloat()) {
@@ -2624,20 +2646,20 @@ fn binOp(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!
         return func.floatOp(float_op, ty, &.{ lhs, rhs });
     }
 
-    if (isByRef(ty, mod)) {
+    if (isByRef(ty, pt)) {
         if (ty.zigTypeTag(mod) == .Int) {
             return func.binOpBigInt(lhs, rhs, ty, op);
         } else {
             return func.fail(
                 "TODO: Implement binary operation for type: {}",
-                .{ty.fmt(func.bin_file.base.comp.module.?)},
+                .{ty.fmt(pt)},
             );
         }
     }
 
     const opcode: wasm.Opcode = buildOpcode(.{
         .op = op,
-        .valtype1 = typeToValtype(ty, mod),
+        .valtype1 = typeToValtype(ty, pt),
         .signedness = if (ty.isSignedInt(mod)) .signed else .unsigned,
     });
     try func.emitWValue(lhs);
@@ -2649,7 +2671,8 @@ fn binOp(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!
 }
 
 fn binOpBigInt(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const int_info = ty.intInfo(mod);
     if (int_info.bits > 128) {
         return func.fail("TODO: Implement binary operation for big integers larger than 128 bits", .{});
@@ -2785,7 +2808,8 @@ const FloatOp = enum {
 };
 
 fn airAbs(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const operand = try func.resolveInst(ty_op.operand);
     const ty = func.typeOf(ty_op.operand);
@@ -2793,7 +2817,7 @@ fn airAbs(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     switch (scalar_ty.zigTypeTag(mod)) {
         .Int => if (ty.zigTypeTag(mod) == .Vector) {
-            return func.fail("TODO implement airAbs for {}", .{ty.fmt(mod)});
+            return func.fail("TODO implement airAbs for {}", .{ty.fmt(pt)});
         } else {
             const int_bits = ty.intInfo(mod).bits;
             const wasm_bits = toWasmBits(int_bits) orelse {
@@ -2877,7 +2901,8 @@ fn airUnaryFloatOp(func: *CodeGen, inst: Air.Inst.Index, op: FloatOp) InnerError
 }
 
 fn floatOp(func: *CodeGen, float_op: FloatOp, ty: Type, args: []const WValue) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     if (ty.zigTypeTag(mod) == .Vector) {
         return func.fail("TODO: Implement floatOps for vectors", .{});
     }
@@ -2893,7 +2918,7 @@ fn floatOp(func: *CodeGen, float_op: FloatOp, ty: Type, args: []const WValue) In
             for (args) |operand| {
                 try func.emitWValue(operand);
             }
-            const opcode = buildOpcode(.{ .op = op, .valtype1 = typeToValtype(ty, mod) });
+            const opcode = buildOpcode(.{ .op = op, .valtype1 = typeToValtype(ty, pt) });
             try func.addTag(Mir.Inst.Tag.fromOpcode(opcode));
             return .stack;
         }
@@ -2983,7 +3008,8 @@ fn floatNeg(func: *CodeGen, ty: Type, arg: WValue) InnerError!WValue {
 }
 
 fn airWrapBinOp(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
     const lhs = try func.resolveInst(bin_op.lhs);
@@ -3002,10 +3028,10 @@ fn airWrapBinOp(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
     // For big integers we can ignore this as we will call into compiler-rt which handles this.
     const result = switch (op) {
         .shr, .shl => res: {
-            const lhs_wasm_bits = toWasmBits(@as(u16, @intCast(lhs_ty.bitSize(mod)))) orelse {
+            const lhs_wasm_bits = toWasmBits(@intCast(lhs_ty.bitSize(pt))) orelse {
                 return func.fail("TODO: implement '{s}' for types larger than 128 bits", .{@tagName(op)});
             };
-            const rhs_wasm_bits = toWasmBits(@as(u16, @intCast(rhs_ty.bitSize(mod)))).?;
+            const rhs_wasm_bits = toWasmBits(@intCast(rhs_ty.bitSize(pt))).?;
             const new_rhs = if (lhs_wasm_bits != rhs_wasm_bits and lhs_wasm_bits != 128) blk: {
                 const tmp = try func.intcast(rhs, rhs_ty, lhs_ty);
                 break :blk try tmp.toLocal(func, lhs_ty);
@@ -3034,9 +3060,10 @@ fn wrapBinOp(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerEr
 /// Asserts `Type` is <= 128 bits.
 /// NOTE: When the Type is <= 64 bits, leaves the value on top of the stack, if wrapping was needed.
 fn wrapOperand(func: *CodeGen, operand: WValue, ty: Type) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
-    assert(ty.abiSize(mod) <= 16);
-    const int_bits = @as(u16, @intCast(ty.bitSize(mod))); // TODO use ty.intInfo(mod).bits
+    const pt = func.pt;
+    const mod = pt.zcu;
+    assert(ty.abiSize(pt) <= 16);
+    const int_bits: u16 = @intCast(ty.bitSize(pt)); // TODO use ty.intInfo(mod).bits
     const wasm_bits = toWasmBits(int_bits) orelse {
         return func.fail("TODO: Implement wrapOperand for bitsize '{d}'", .{int_bits});
     };
@@ -3098,13 +3125,14 @@ fn wrapOperand(func: *CodeGen, operand: WValue, ty: Type) InnerError!WValue {
 }
 
 fn lowerPtr(func: *CodeGen, ptr_val: InternPool.Index, prev_offset: u64) InnerError!WValue {
-    const zcu = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const zcu = pt.zcu;
     const ptr = zcu.intern_pool.indexToKey(ptr_val).ptr;
     const offset: u64 = prev_offset + ptr.byte_offset;
     return switch (ptr.base_addr) {
         .decl => |decl| return func.lowerDeclRefValue(decl, @intCast(offset)),
         .anon_decl => |ad| return func.lowerAnonDeclRef(ad, @intCast(offset)),
-        .int => return func.lowerConstant(try zcu.intValue(Type.usize, offset), Type.usize),
+        .int => return func.lowerConstant(try pt.intValue(Type.usize, offset), Type.usize),
         .eu_payload => return func.fail("Wasm TODO: lower error union payload pointer", .{}),
         .opt_payload => |opt_ptr| return func.lowerPtr(opt_ptr, offset),
         .field => |field| {
@@ -3120,13 +3148,13 @@ fn lowerPtr(func: *CodeGen, ptr_val: InternPool.Index, prev_offset: u64) InnerEr
                     };
                 },
                 .Struct => switch (base_ty.containerLayout(zcu)) {
-                    .auto => base_ty.structFieldOffset(@intCast(field.index), zcu),
+                    .auto => base_ty.structFieldOffset(@intCast(field.index), pt),
                     .@"extern", .@"packed" => unreachable,
                 },
                 .Union => switch (base_ty.containerLayout(zcu)) {
                     .auto => off: {
                         // Keep in sync with the `un` case of `generateSymbol`.
-                        const layout = base_ty.unionGetLayout(zcu);
+                        const layout = base_ty.unionGetLayout(pt);
                         if (layout.payload_size == 0) break :off 0;
                         if (layout.tag_size == 0) break :off 0;
                         if (layout.tag_align.compare(.gte, layout.payload_align)) {
@@ -3152,17 +3180,18 @@ fn lowerAnonDeclRef(
     anon_decl: InternPool.Key.Ptr.BaseAddr.AnonDecl,
     offset: u32,
 ) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const decl_val = anon_decl.val;
     const ty = Type.fromInterned(mod.intern_pool.typeOf(decl_val));
 
     const is_fn_body = ty.zigTypeTag(mod) == .Fn;
-    if (!is_fn_body and !ty.hasRuntimeBitsIgnoreComptime(mod)) {
+    if (!is_fn_body and !ty.hasRuntimeBitsIgnoreComptime(pt)) {
         return WValue{ .imm32 = 0xaaaaaaaa };
     }
 
     const decl_align = mod.intern_pool.indexToKey(anon_decl.orig_ty).ptr_type.flags.alignment;
-    const res = try func.bin_file.lowerAnonDecl(decl_val, decl_align, func.decl.navSrcLoc(mod));
+    const res = try func.bin_file.lowerAnonDecl(pt, decl_val, decl_align, func.decl.navSrcLoc(mod));
     switch (res) {
         .ok => {},
         .fail => |em| {
@@ -3180,7 +3209,8 @@ fn lowerAnonDeclRef(
 }
 
 fn lowerDeclRefValue(func: *CodeGen, decl_index: InternPool.DeclIndex, offset: u32) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
 
     const decl = mod.declPtr(decl_index);
     // check if decl is an alias to a function, in which case we
@@ -3195,11 +3225,11 @@ fn lowerDeclRefValue(func: *CodeGen, decl_index: InternPool.DeclIndex, offset: u
         }
     }
     const decl_ty = decl.typeOf(mod);
-    if (decl_ty.zigTypeTag(mod) != .Fn and !decl_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+    if (decl_ty.zigTypeTag(mod) != .Fn and !decl_ty.hasRuntimeBitsIgnoreComptime(pt)) {
         return WValue{ .imm32 = 0xaaaaaaaa };
     }
 
-    const atom_index = try func.bin_file.getOrCreateAtomForDecl(decl_index);
+    const atom_index = try func.bin_file.getOrCreateAtomForDecl(pt, decl_index);
     const atom = func.bin_file.getAtom(atom_index);
 
     const target_sym_index = @intFromEnum(atom.sym_index);
@@ -3212,8 +3242,9 @@ fn lowerDeclRefValue(func: *CodeGen, decl_index: InternPool.DeclIndex, offset: u
 
 /// Asserts that `isByRef` returns `false` for `ty`.
 fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
-    assert(!isByRef(ty, mod));
+    const pt = func.pt;
+    const mod = pt.zcu;
+    assert(!isByRef(ty, pt));
     const ip = &mod.intern_pool;
     if (val.isUndefDeep(mod)) return func.emitUndefined(ty);
 
@@ -3261,38 +3292,38 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
             const int_info = ty.intInfo(mod);
             switch (int_info.signedness) {
                 .signed => switch (int_info.bits) {
-                    0...32 => return WValue{ .imm32 = @bitCast(@as(i32, @intCast(val.toSignedInt(mod)))) },
-                    33...64 => return WValue{ .imm64 = @bitCast(val.toSignedInt(mod)) },
+                    0...32 => return WValue{ .imm32 = @bitCast(@as(i32, @intCast(val.toSignedInt(pt)))) },
+                    33...64 => return WValue{ .imm64 = @bitCast(val.toSignedInt(pt)) },
                     else => unreachable,
                 },
                 .unsigned => switch (int_info.bits) {
-                    0...32 => return WValue{ .imm32 = @intCast(val.toUnsignedInt(mod)) },
-                    33...64 => return WValue{ .imm64 = val.toUnsignedInt(mod) },
+                    0...32 => return WValue{ .imm32 = @intCast(val.toUnsignedInt(pt)) },
+                    33...64 => return WValue{ .imm64 = val.toUnsignedInt(pt) },
                     else => unreachable,
                 },
             }
         },
         .err => |err| {
-            const int = try mod.getErrorValue(err.name);
+            const int = try pt.getErrorValue(err.name);
             return WValue{ .imm32 = int };
         },
         .error_union => |error_union| {
-            const err_int_ty = try mod.errorIntType();
+            const err_int_ty = try pt.errorIntType();
             const err_ty, const err_val = switch (error_union.val) {
                 .err_name => |err_name| .{
                     ty.errorUnionSet(mod),
-                    Value.fromInterned((try mod.intern(.{ .err = .{
+                    Value.fromInterned(try pt.intern(.{ .err = .{
                         .ty = ty.errorUnionSet(mod).toIntern(),
                         .name = err_name,
-                    } }))),
+                    } })),
                 },
                 .payload => .{
                     err_int_ty,
-                    try mod.intValue(err_int_ty, 0),
+                    try pt.intValue(err_int_ty, 0),
                 },
             };
             const payload_type = ty.errorUnionPayload(mod);
-            if (!payload_type.hasRuntimeBitsIgnoreComptime(mod)) {
+            if (!payload_type.hasRuntimeBitsIgnoreComptime(pt)) {
                 // We use the error type directly as the type.
                 return func.lowerConstant(err_val, err_ty);
             }
@@ -3318,7 +3349,7 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
                 .field => |base_index| ptr = ip.indexToKey(base_index.base).ptr,
                 .arr_elem, .comptime_field, .comptime_alloc => unreachable,
             };
-            return .{ .memory = try func.bin_file.lowerUnnamedConst(val, owner_decl) };
+            return .{ .memory = try func.bin_file.lowerUnnamedConst(pt, val, owner_decl) };
         },
         .ptr => return func.lowerPtr(val.toIntern(), 0),
         .opt => if (ty.optionalReprIsPayload(mod)) {
@@ -3332,11 +3363,11 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
             return WValue{ .imm32 = @intFromBool(!val.isNull(mod)) };
         },
         .aggregate => switch (ip.indexToKey(ty.ip_index)) {
-            .array_type => return func.fail("Wasm TODO: LowerConstant for {}", .{ty.fmt(mod)}),
+            .array_type => return func.fail("Wasm TODO: LowerConstant for {}", .{ty.fmt(pt)}),
             .vector_type => {
-                assert(determineSimdStoreStrategy(ty, mod) == .direct);
+                assert(determineSimdStoreStrategy(ty, pt) == .direct);
                 var buf: [16]u8 = undefined;
-                val.writeToMemory(ty, mod, &buf) catch unreachable;
+                val.writeToMemory(ty, pt, &buf) catch unreachable;
                 return func.storeSimdImmd(buf);
             },
             .struct_type => {
@@ -3345,9 +3376,9 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
                 // are by-ref types.
                 assert(struct_type.layout == .@"packed");
                 var buf: [8]u8 = .{0} ** 8; // zero the buffer so we do not read 0xaa as integer
-                val.writeToPackedMemory(ty, mod, &buf, 0) catch unreachable;
+                val.writeToPackedMemory(ty, pt, &buf, 0) catch unreachable;
                 const backing_int_ty = Type.fromInterned(struct_type.backingIntType(ip).*);
-                const int_val = try mod.intValue(
+                const int_val = try pt.intValue(
                     backing_int_ty,
                     mem.readInt(u64, &buf, .little),
                 );
@@ -3358,7 +3389,7 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
         .un => |un| {
             // in this case we have a packed union which will not be passed by reference.
             const constant_ty = if (un.tag == .none)
-                try ty.unionBackingType(mod)
+                try ty.unionBackingType(pt)
             else field_ty: {
                 const union_obj = mod.typeToUnion(ty).?;
                 const field_index = mod.unionTagFieldIndex(union_obj, Value.fromInterned(un.tag)).?;
@@ -3379,7 +3410,8 @@ fn storeSimdImmd(func: *CodeGen, value: [16]u8) !WValue {
 }
 
 fn emitUndefined(func: *CodeGen, ty: Type) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ip = &mod.intern_pool;
     switch (ty.zigTypeTag(mod)) {
         .Bool, .ErrorSet => return WValue{ .imm32 = 0xaaaaaaaa },
@@ -3420,42 +3452,38 @@ fn emitUndefined(func: *CodeGen, ty: Type) InnerError!WValue {
 /// Returns a `Value` as a signed 32 bit value.
 /// It's illegal to provide a value with a type that cannot be represented
 /// as an integer value.
-fn valueAsI32(func: *const CodeGen, val: Value, ty: Type) i32 {
-    const mod = func.bin_file.base.comp.module.?;
+fn valueAsI32(func: *const CodeGen, val: Value) i32 {
+    const pt = func.pt;
+    const mod = pt.zcu;
+    const ip = &mod.intern_pool;
 
-    switch (val.ip_index) {
-        .none => {},
+    switch (val.toIntern()) {
         .bool_true => return 1,
         .bool_false => return 0,
-        else => return switch (mod.intern_pool.indexToKey(val.ip_index)) {
-            .enum_tag => |enum_tag| intIndexAsI32(&mod.intern_pool, enum_tag.int, mod),
-            .int => |int| intStorageAsI32(int.storage, mod),
+        else => return switch (ip.indexToKey(val.ip_index)) {
+            .enum_tag => |enum_tag| intIndexAsI32(ip, enum_tag.int, pt),
+            .int => |int| intStorageAsI32(int.storage, pt),
             .ptr => |ptr| {
                 assert(ptr.base_addr == .int);
                 return @intCast(ptr.byte_offset);
             },
-            .err => |err| @as(i32, @bitCast(@as(Zcu.ErrorInt, @intCast(mod.global_error_set.getIndex(err.name).?)))),
+            .err => |err| @bitCast(ip.getErrorValueIfExists(err.name).?),
             else => unreachable,
         },
     }
-
-    return switch (ty.zigTypeTag(mod)) {
-        .ErrorSet => @as(i32, @bitCast(val.getErrorInt(mod))),
-        else => unreachable, // Programmer called this function for an illegal type
-    };
 }
 
-fn intIndexAsI32(ip: *const InternPool, int: InternPool.Index, mod: *Zcu) i32 {
-    return intStorageAsI32(ip.indexToKey(int).int.storage, mod);
+fn intIndexAsI32(ip: *const InternPool, int: InternPool.Index, pt: Zcu.PerThread) i32 {
+    return intStorageAsI32(ip.indexToKey(int).int.storage, pt);
 }
 
-fn intStorageAsI32(storage: InternPool.Key.Int.Storage, mod: *Zcu) i32 {
+fn intStorageAsI32(storage: InternPool.Key.Int.Storage, pt: Zcu.PerThread) i32 {
     return switch (storage) {
         .i64 => |x| @as(i32, @intCast(x)),
         .u64 => |x| @as(i32, @bitCast(@as(u32, @intCast(x)))),
         .big_int => unreachable,
-        .lazy_align => |ty| @as(i32, @bitCast(@as(u32, @intCast(Type.fromInterned(ty).abiAlignment(mod).toByteUnits() orelse 0)))),
-        .lazy_size => |ty| @as(i32, @bitCast(@as(u32, @intCast(Type.fromInterned(ty).abiSize(mod))))),
+        .lazy_align => |ty| @as(i32, @bitCast(@as(u32, @intCast(Type.fromInterned(ty).abiAlignment(pt).toByteUnits() orelse 0)))),
+        .lazy_size => |ty| @as(i32, @bitCast(@as(u32, @intCast(Type.fromInterned(ty).abiSize(pt))))),
     };
 }
 
@@ -3466,12 +3494,12 @@ fn airBlock(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn lowerBlock(func: *CodeGen, inst: Air.Inst.Index, block_ty: Type, body: []const Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
-    const wasm_block_ty = genBlockType(block_ty, mod);
+    const pt = func.pt;
+    const wasm_block_ty = genBlockType(block_ty, pt);
 
     // if wasm_block_ty is non-empty, we create a register to store the temporary value
     const block_result: WValue = if (wasm_block_ty != wasm.block_empty) blk: {
-        const ty: Type = if (isByRef(block_ty, mod)) Type.u32 else block_ty;
+        const ty: Type = if (isByRef(block_ty, pt)) Type.u32 else block_ty;
         break :blk try func.ensureAllocLocal(ty); // make sure it's a clean local as it may never get overwritten
     } else WValue.none;
 
@@ -3583,10 +3611,11 @@ fn airCmp(func: *CodeGen, inst: Air.Inst.Index, op: std.math.CompareOperator) In
 /// NOTE: This leaves the result on top of the stack, rather than a new local.
 fn cmp(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: std.math.CompareOperator) InnerError!WValue {
     assert(!(lhs != .stack and rhs == .stack));
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     if (ty.zigTypeTag(mod) == .Optional and !ty.optionalReprIsPayload(mod)) {
         const payload_ty = ty.optionalChild(mod);
-        if (payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+        if (payload_ty.hasRuntimeBitsIgnoreComptime(pt)) {
             // When we hit this case, we must check the value of optionals
             // that are not pointers. This means first checking against non-null for
             // both lhs and rhs, as well as checking the payload are matching of lhs and rhs
@@ -3594,7 +3623,7 @@ fn cmp(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: std.math.CompareO
         }
     } else if (ty.isAnyFloat()) {
         return func.cmpFloat(ty, lhs, rhs, op);
-    } else if (isByRef(ty, mod)) {
+    } else if (isByRef(ty, pt)) {
         return func.cmpBigInt(lhs, rhs, ty, op);
     }
 
@@ -3612,7 +3641,7 @@ fn cmp(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: std.math.CompareO
     try func.lowerToStack(rhs);
 
     const opcode: wasm.Opcode = buildOpcode(.{
-        .valtype1 = typeToValtype(ty, mod),
+        .valtype1 = typeToValtype(ty, pt),
         .op = switch (op) {
             .lt => .lt,
             .lte => .le,
@@ -3683,8 +3712,8 @@ fn airCmpLtErrorsLen(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const errors_len = WValue{ .memory = @intFromEnum(sym_index) };
 
     try func.emitWValue(operand);
-    const mod = func.bin_file.base.comp.module.?;
-    const err_int_ty = try mod.errorIntType();
+    const pt = func.pt;
+    const err_int_ty = try pt.errorIntType();
     const errors_len_val = try func.load(errors_len, err_int_ty, 0);
     const result = try func.cmp(.stack, errors_len_val, err_int_ty, .lt);
 
@@ -3692,12 +3721,12 @@ fn airCmpLtErrorsLen(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
     const br = func.air.instructions.items(.data)[@intFromEnum(inst)].br;
     const block = func.blocks.get(br.block_inst).?;
 
     // if operand has codegen bits we should break with a value
-    if (func.typeOf(br.operand).hasRuntimeBitsIgnoreComptime(mod)) {
+    if (func.typeOf(br.operand).hasRuntimeBitsIgnoreComptime(pt)) {
         const operand = try func.resolveInst(br.operand);
         try func.lowerToStack(operand);
 
@@ -3719,7 +3748,8 @@ fn airNot(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const operand = try func.resolveInst(ty_op.operand);
     const operand_ty = func.typeOf(ty_op.operand);
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
 
     const result = result: {
         if (operand_ty.zigTypeTag(mod) == .Bool) {
@@ -3731,7 +3761,7 @@ fn airNot(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         } else {
             const int_info = operand_ty.intInfo(mod);
             const wasm_bits = toWasmBits(int_info.bits) orelse {
-                return func.fail("TODO: Implement binary NOT for {}", .{operand_ty.fmt(mod)});
+                return func.fail("TODO: Implement binary NOT for {}", .{operand_ty.fmt(pt)});
             };
 
             switch (wasm_bits) {
@@ -3798,13 +3828,14 @@ fn airUnreachable(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airBitcast(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const operand = try func.resolveInst(ty_op.operand);
     const wanted_ty = func.typeOfIndex(inst);
     const given_ty = func.typeOf(ty_op.operand);
 
-    const bit_size = given_ty.bitSize(mod);
+    const bit_size = given_ty.bitSize(pt);
     const needs_wrapping = (given_ty.isSignedInt(mod) != wanted_ty.isSignedInt(mod)) and
         bit_size != 32 and bit_size != 64 and bit_size != 128;
 
@@ -3814,7 +3845,7 @@ fn airBitcast(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             break :result try bitcast_result.toLocal(func, wanted_ty);
         }
 
-        if (isByRef(given_ty, mod) and !isByRef(wanted_ty, mod)) {
+        if (isByRef(given_ty, pt) and !isByRef(wanted_ty, pt)) {
             const loaded_memory = try func.load(operand, wanted_ty, 0);
             if (needs_wrapping) {
                 break :result try (try func.wrapOperand(loaded_memory, wanted_ty)).toLocal(func, wanted_ty);
@@ -3822,7 +3853,7 @@ fn airBitcast(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 break :result try loaded_memory.toLocal(func, wanted_ty);
             }
         }
-        if (!isByRef(given_ty, mod) and isByRef(wanted_ty, mod)) {
+        if (!isByRef(given_ty, pt) and isByRef(wanted_ty, pt)) {
             const stack_memory = try func.allocStack(wanted_ty);
             try func.store(stack_memory, operand, given_ty, 0);
             if (needs_wrapping) {
@@ -3842,17 +3873,18 @@ fn airBitcast(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn bitcast(func: *CodeGen, wanted_ty: Type, given_ty: Type, operand: WValue) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     // if we bitcast a float to or from an integer we must use the 'reinterpret' instruction
     if (!(wanted_ty.isAnyFloat() or given_ty.isAnyFloat())) return operand;
     if (wanted_ty.ip_index == .f16_type or given_ty.ip_index == .f16_type) return operand;
-    if (wanted_ty.bitSize(mod) > 64) return operand;
+    if (wanted_ty.bitSize(pt) > 64) return operand;
     assert((wanted_ty.isInt(mod) and given_ty.isAnyFloat()) or (wanted_ty.isAnyFloat() and given_ty.isInt(mod)));
 
     const opcode = buildOpcode(.{
         .op = .reinterpret,
-        .valtype1 = typeToValtype(wanted_ty, mod),
-        .valtype2 = typeToValtype(given_ty, mod),
+        .valtype1 = typeToValtype(wanted_ty, pt),
+        .valtype2 = typeToValtype(given_ty, pt),
     });
     try func.emitWValue(operand);
     try func.addTag(Mir.Inst.Tag.fromOpcode(opcode));
@@ -3860,7 +3892,8 @@ fn bitcast(func: *CodeGen, wanted_ty: Type, given_ty: Type, operand: WValue) Inn
 }
 
 fn airStructFieldPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = func.air.extraData(Air.StructField, ty_pl.payload);
 
@@ -3872,7 +3905,8 @@ fn airStructFieldPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airStructFieldPtrIndex(func: *CodeGen, inst: Air.Inst.Index, index: u32) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const struct_ptr = try func.resolveInst(ty_op.operand);
     const struct_ptr_ty = func.typeOf(ty_op.operand);
@@ -3891,7 +3925,8 @@ fn structFieldPtr(
     struct_ty: Type,
     index: u32,
 ) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const result_ty = func.typeOfIndex(inst);
     const struct_ptr_ty_info = struct_ptr_ty.ptrInfo(mod);
 
@@ -3902,12 +3937,12 @@ fn structFieldPtr(
                     break :offset @as(u32, 0);
                 }
                 const struct_type = mod.typeToStruct(struct_ty).?;
-                break :offset @divExact(mod.structPackedFieldBitOffset(struct_type, index) + struct_ptr_ty_info.packed_offset.bit_offset, 8);
+                break :offset @divExact(pt.structPackedFieldBitOffset(struct_type, index) + struct_ptr_ty_info.packed_offset.bit_offset, 8);
             },
             .Union => 0,
             else => unreachable,
         },
-        else => struct_ty.structFieldOffset(index, mod),
+        else => struct_ty.structFieldOffset(index, pt),
     };
     // save a load and store when we can simply reuse the operand
     if (offset == 0) {
@@ -3922,7 +3957,8 @@ fn structFieldPtr(
 }
 
 fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ip = &mod.intern_pool;
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const struct_field = func.air.extraData(Air.StructField, ty_pl.payload).data;
@@ -3931,13 +3967,13 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const operand = try func.resolveInst(struct_field.struct_operand);
     const field_index = struct_field.field_index;
     const field_ty = struct_ty.structFieldType(field_index, mod);
-    if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) return func.finishAir(inst, .none, &.{struct_field.struct_operand});
+    if (!field_ty.hasRuntimeBitsIgnoreComptime(pt)) return func.finishAir(inst, .none, &.{struct_field.struct_operand});
 
     const result = switch (struct_ty.containerLayout(mod)) {
         .@"packed" => switch (struct_ty.zigTypeTag(mod)) {
             .Struct => result: {
                 const packed_struct = mod.typeToPackedStruct(struct_ty).?;
-                const offset = mod.structPackedFieldBitOffset(packed_struct, field_index);
+                const offset = pt.structPackedFieldBitOffset(packed_struct, field_index);
                 const backing_ty = Type.fromInterned(packed_struct.backingIntType(ip).*);
                 const wasm_bits = toWasmBits(backing_ty.intInfo(mod).bits) orelse {
                     return func.fail("TODO: airStructFieldVal for packed structs larger than 128 bits", .{});
@@ -3956,7 +3992,7 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     try func.binOp(operand, const_wvalue, backing_ty, .shr);
 
                 if (field_ty.zigTypeTag(mod) == .Float) {
-                    const int_type = try mod.intType(.unsigned, @as(u16, @intCast(field_ty.bitSize(mod))));
+                    const int_type = try pt.intType(.unsigned, @as(u16, @intCast(field_ty.bitSize(pt))));
                     const truncated = try func.trunc(shifted_value, int_type, backing_ty);
                     const bitcasted = try func.bitcast(field_ty, int_type, truncated);
                     break :result try bitcasted.toLocal(func, field_ty);
@@ -3965,7 +4001,7 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     // we can simply reuse the operand.
                     break :result func.reuseOperand(struct_field.struct_operand, operand);
                 } else if (field_ty.isPtrAtRuntime(mod)) {
-                    const int_type = try mod.intType(.unsigned, @as(u16, @intCast(field_ty.bitSize(mod))));
+                    const int_type = try pt.intType(.unsigned, @as(u16, @intCast(field_ty.bitSize(pt))));
                     const truncated = try func.trunc(shifted_value, int_type, backing_ty);
                     break :result try truncated.toLocal(func, field_ty);
                 }
@@ -3973,8 +4009,8 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 break :result try truncated.toLocal(func, field_ty);
             },
             .Union => result: {
-                if (isByRef(struct_ty, mod)) {
-                    if (!isByRef(field_ty, mod)) {
+                if (isByRef(struct_ty, pt)) {
+                    if (!isByRef(field_ty, pt)) {
                         const val = try func.load(operand, field_ty, 0);
                         break :result try val.toLocal(func, field_ty);
                     } else {
@@ -3984,14 +4020,14 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     }
                 }
 
-                const union_int_type = try mod.intType(.unsigned, @as(u16, @intCast(struct_ty.bitSize(mod))));
+                const union_int_type = try pt.intType(.unsigned, @as(u16, @intCast(struct_ty.bitSize(pt))));
                 if (field_ty.zigTypeTag(mod) == .Float) {
-                    const int_type = try mod.intType(.unsigned, @as(u16, @intCast(field_ty.bitSize(mod))));
+                    const int_type = try pt.intType(.unsigned, @as(u16, @intCast(field_ty.bitSize(pt))));
                     const truncated = try func.trunc(operand, int_type, union_int_type);
                     const bitcasted = try func.bitcast(field_ty, int_type, truncated);
                     break :result try bitcasted.toLocal(func, field_ty);
                 } else if (field_ty.isPtrAtRuntime(mod)) {
-                    const int_type = try mod.intType(.unsigned, @as(u16, @intCast(field_ty.bitSize(mod))));
+                    const int_type = try pt.intType(.unsigned, @as(u16, @intCast(field_ty.bitSize(pt))));
                     const truncated = try func.trunc(operand, int_type, union_int_type);
                     break :result try truncated.toLocal(func, field_ty);
                 }
@@ -4001,10 +4037,10 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             else => unreachable,
         },
         else => result: {
-            const offset = std.math.cast(u32, struct_ty.structFieldOffset(field_index, mod)) orelse {
-                return func.fail("Field type '{}' too big to fit into stack frame", .{field_ty.fmt(mod)});
+            const offset = std.math.cast(u32, struct_ty.structFieldOffset(field_index, pt)) orelse {
+                return func.fail("Field type '{}' too big to fit into stack frame", .{field_ty.fmt(pt)});
             };
-            if (isByRef(field_ty, mod)) {
+            if (isByRef(field_ty, pt)) {
                 switch (operand) {
                     .stack_offset => |stack_offset| {
                         break :result WValue{ .stack_offset = .{ .value = stack_offset.value + offset, .references = 1 } };
@@ -4021,7 +4057,8 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     // result type is always 'noreturn'
     const blocktype = wasm.block_empty;
     const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
@@ -4055,8 +4092,8 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         errdefer func.gpa.free(values);
 
         for (items, 0..) |ref, i| {
-            const item_val = (try func.air.value(ref, mod)).?;
-            const int_val = func.valueAsI32(item_val, target_ty);
+            const item_val = (try func.air.value(ref, pt)).?;
+            const int_val = func.valueAsI32(item_val);
             if (lowest_maybe == null or int_val < lowest_maybe.?) {
                 lowest_maybe = int_val;
             }
@@ -4078,7 +4115,7 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     // When the target is an integer size larger than u32, we have no way to use the value
     // as an index, therefore we also use an if/else-chain for those cases.
     // TODO: Benchmark this to find a proper value, LLVM seems to draw the line at '40~45'.
-    const is_sparse = highest - lowest > 50 or target_ty.bitSize(mod) > 32;
+    const is_sparse = highest - lowest > 50 or target_ty.bitSize(pt) > 32;
 
     const else_body: []const Air.Inst.Index = @ptrCast(func.air.extra[extra_index..][0..switch_br.data.else_body_len]);
     const has_else_body = else_body.len != 0;
@@ -4150,7 +4187,7 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 const val = try func.lowerConstant(case.values[0].value, target_ty);
                 try func.emitWValue(val);
                 const opcode = buildOpcode(.{
-                    .valtype1 = typeToValtype(target_ty, mod),
+                    .valtype1 = typeToValtype(target_ty, pt),
                     .op = .ne, // not equal, because we want to jump out of this block if it does not match the condition.
                     .signedness = signedness,
                 });
@@ -4164,7 +4201,7 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     const val = try func.lowerConstant(value.value, target_ty);
                     try func.emitWValue(val);
                     const opcode = buildOpcode(.{
-                        .valtype1 = typeToValtype(target_ty, mod),
+                        .valtype1 = typeToValtype(target_ty, pt),
                         .op = .eq,
                         .signedness = signedness,
                     });
@@ -4201,7 +4238,8 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airIsErr(func: *CodeGen, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try func.resolveInst(un_op);
     const err_union_ty = func.typeOf(un_op);
@@ -4217,10 +4255,10 @@ fn airIsErr(func: *CodeGen, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerErro
         }
 
         try func.emitWValue(operand);
-        if (pl_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+        if (pl_ty.hasRuntimeBitsIgnoreComptime(pt)) {
             try func.addMemArg(.i32_load16_u, .{
-                .offset = operand.offset() + @as(u32, @intCast(errUnionErrorOffset(pl_ty, mod))),
-                .alignment = @intCast(Type.anyerror.abiAlignment(mod).toByteUnits().?),
+                .offset = operand.offset() + @as(u32, @intCast(errUnionErrorOffset(pl_ty, pt))),
+                .alignment = @intCast(Type.anyerror.abiAlignment(pt).toByteUnits().?),
             });
         }
 
@@ -4236,7 +4274,8 @@ fn airIsErr(func: *CodeGen, inst: Air.Inst.Index, opcode: wasm.Opcode) InnerErro
 }
 
 fn airUnwrapErrUnionPayload(func: *CodeGen, inst: Air.Inst.Index, op_is_ptr: bool) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try func.resolveInst(ty_op.operand);
@@ -4245,15 +4284,15 @@ fn airUnwrapErrUnionPayload(func: *CodeGen, inst: Air.Inst.Index, op_is_ptr: boo
     const payload_ty = err_ty.errorUnionPayload(mod);
 
     const result = result: {
-        if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime(pt)) {
             if (op_is_ptr) {
                 break :result func.reuseOperand(ty_op.operand, operand);
             }
             break :result WValue{ .none = {} };
         }
 
-        const pl_offset = @as(u32, @intCast(errUnionPayloadOffset(payload_ty, mod)));
-        if (op_is_ptr or isByRef(payload_ty, mod)) {
+        const pl_offset = @as(u32, @intCast(errUnionPayloadOffset(payload_ty, pt)));
+        if (op_is_ptr or isByRef(payload_ty, pt)) {
             break :result try func.buildPointerOffset(operand, pl_offset, .new);
         }
 
@@ -4264,7 +4303,8 @@ fn airUnwrapErrUnionPayload(func: *CodeGen, inst: Air.Inst.Index, op_is_ptr: boo
 }
 
 fn airUnwrapErrUnionError(func: *CodeGen, inst: Air.Inst.Index, op_is_ptr: bool) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try func.resolveInst(ty_op.operand);
@@ -4277,18 +4317,18 @@ fn airUnwrapErrUnionError(func: *CodeGen, inst: Air.Inst.Index, op_is_ptr: bool)
             break :result WValue{ .imm32 = 0 };
         }
 
-        if (op_is_ptr or !payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+        if (op_is_ptr or !payload_ty.hasRuntimeBitsIgnoreComptime(pt)) {
             break :result func.reuseOperand(ty_op.operand, operand);
         }
 
-        const error_val = try func.load(operand, Type.anyerror, @as(u32, @intCast(errUnionErrorOffset(payload_ty, mod))));
+        const error_val = try func.load(operand, Type.anyerror, @intCast(errUnionErrorOffset(payload_ty, pt)));
         break :result try error_val.toLocal(func, Type.anyerror);
     };
     func.finishAir(inst, result, &.{ty_op.operand});
 }
 
 fn airWrapErrUnionPayload(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try func.resolveInst(ty_op.operand);
@@ -4296,18 +4336,18 @@ fn airWrapErrUnionPayload(func: *CodeGen, inst: Air.Inst.Index) InnerError!void 
 
     const pl_ty = func.typeOf(ty_op.operand);
     const result = result: {
-        if (!pl_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+        if (!pl_ty.hasRuntimeBitsIgnoreComptime(pt)) {
             break :result func.reuseOperand(ty_op.operand, operand);
         }
 
         const err_union = try func.allocStack(err_ty);
-        const payload_ptr = try func.buildPointerOffset(err_union, @as(u32, @intCast(errUnionPayloadOffset(pl_ty, mod))), .new);
+        const payload_ptr = try func.buildPointerOffset(err_union, @as(u32, @intCast(errUnionPayloadOffset(pl_ty, pt))), .new);
         try func.store(payload_ptr, operand, pl_ty, 0);
 
         // ensure we also write '0' to the error part, so any present stack value gets overwritten by it.
         try func.emitWValue(err_union);
         try func.addImm32(0);
-        const err_val_offset = @as(u32, @intCast(errUnionErrorOffset(pl_ty, mod)));
+        const err_val_offset: u32 = @intCast(errUnionErrorOffset(pl_ty, pt));
         try func.addMemArg(.i32_store16, .{
             .offset = err_union.offset() + err_val_offset,
             .alignment = 2,
@@ -4318,7 +4358,8 @@ fn airWrapErrUnionPayload(func: *CodeGen, inst: Air.Inst.Index) InnerError!void 
 }
 
 fn airWrapErrUnionErr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try func.resolveInst(ty_op.operand);
@@ -4326,17 +4367,17 @@ fn airWrapErrUnionErr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const pl_ty = err_ty.errorUnionPayload(mod);
 
     const result = result: {
-        if (!pl_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+        if (!pl_ty.hasRuntimeBitsIgnoreComptime(pt)) {
             break :result func.reuseOperand(ty_op.operand, operand);
         }
 
         const err_union = try func.allocStack(err_ty);
         // store error value
-        try func.store(err_union, operand, Type.anyerror, @as(u32, @intCast(errUnionErrorOffset(pl_ty, mod))));
+        try func.store(err_union, operand, Type.anyerror, @intCast(errUnionErrorOffset(pl_ty, pt)));
 
         // write 'undefined' to the payload
-        const payload_ptr = try func.buildPointerOffset(err_union, @as(u32, @intCast(errUnionPayloadOffset(pl_ty, mod))), .new);
-        const len = @as(u32, @intCast(err_ty.errorUnionPayload(mod).abiSize(mod)));
+        const payload_ptr = try func.buildPointerOffset(err_union, @as(u32, @intCast(errUnionPayloadOffset(pl_ty, pt))), .new);
+        const len = @as(u32, @intCast(err_ty.errorUnionPayload(mod).abiSize(pt)));
         try func.memset(Type.u8, payload_ptr, .{ .imm32 = len }, .{ .imm32 = 0xaa });
 
         break :result err_union;
@@ -4350,16 +4391,17 @@ fn airIntcast(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty = ty_op.ty.toType();
     const operand = try func.resolveInst(ty_op.operand);
     const operand_ty = func.typeOf(ty_op.operand);
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     if (ty.zigTypeTag(mod) == .Vector or operand_ty.zigTypeTag(mod) == .Vector) {
         return func.fail("todo Wasm intcast for vectors", .{});
     }
-    if (ty.abiSize(mod) > 16 or operand_ty.abiSize(mod) > 16) {
+    if (ty.abiSize(pt) > 16 or operand_ty.abiSize(pt) > 16) {
         return func.fail("todo Wasm intcast for bitsize > 128", .{});
     }
 
-    const op_bits = toWasmBits(@as(u16, @intCast(operand_ty.bitSize(mod)))).?;
-    const wanted_bits = toWasmBits(@as(u16, @intCast(ty.bitSize(mod)))).?;
+    const op_bits = toWasmBits(@intCast(operand_ty.bitSize(pt))).?;
+    const wanted_bits = toWasmBits(@intCast(ty.bitSize(pt))).?;
     const result = if (op_bits == wanted_bits)
         func.reuseOperand(ty_op.operand, operand)
     else
@@ -4373,9 +4415,10 @@ fn airIntcast(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 /// Asserts type's bitsize <= 128
 /// NOTE: May leave the result on the top of the stack.
 fn intcast(func: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
-    const given_bitsize = @as(u16, @intCast(given.bitSize(mod)));
-    const wanted_bitsize = @as(u16, @intCast(wanted.bitSize(mod)));
+    const pt = func.pt;
+    const mod = pt.zcu;
+    const given_bitsize = @as(u16, @intCast(given.bitSize(pt)));
+    const wanted_bitsize = @as(u16, @intCast(wanted.bitSize(pt)));
     assert(given_bitsize <= 128);
     assert(wanted_bitsize <= 128);
 
@@ -4422,7 +4465,8 @@ fn intcast(func: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerErro
 }
 
 fn airIsNull(func: *CodeGen, inst: Air.Inst.Index, opcode: wasm.Opcode, op_kind: enum { value, ptr }) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try func.resolveInst(un_op);
 
@@ -4436,15 +4480,16 @@ fn airIsNull(func: *CodeGen, inst: Air.Inst.Index, opcode: wasm.Opcode, op_kind:
 /// For a given type and operand, checks if it's considered `null`.
 /// NOTE: Leaves the result on the stack
 fn isNull(func: *CodeGen, operand: WValue, optional_ty: Type, opcode: wasm.Opcode) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     try func.emitWValue(operand);
     const payload_ty = optional_ty.optionalChild(mod);
     if (!optional_ty.optionalReprIsPayload(mod)) {
         // When payload is zero-bits, we can treat operand as a value, rather than
         // a pointer to the stack value
-        if (payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
-            const offset = std.math.cast(u32, payload_ty.abiSize(mod)) orelse {
-                return func.fail("Optional type {} too big to fit into stack frame", .{optional_ty.fmt(mod)});
+        if (payload_ty.hasRuntimeBitsIgnoreComptime(pt)) {
+            const offset = std.math.cast(u32, payload_ty.abiSize(pt)) orelse {
+                return func.fail("Optional type {} too big to fit into stack frame", .{optional_ty.fmt(pt)});
             };
             try func.addMemArg(.i32_load8_u, .{ .offset = operand.offset() + offset, .alignment = 1 });
         }
@@ -4464,11 +4509,12 @@ fn isNull(func: *CodeGen, operand: WValue, optional_ty: Type, opcode: wasm.Opcod
 }
 
 fn airOptionalPayload(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const opt_ty = func.typeOf(ty_op.operand);
     const payload_ty = func.typeOfIndex(inst);
-    if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+    if (!payload_ty.hasRuntimeBitsIgnoreComptime(pt)) {
         return func.finishAir(inst, .none, &.{ty_op.operand});
     }
 
@@ -4476,7 +4522,7 @@ fn airOptionalPayload(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         const operand = try func.resolveInst(ty_op.operand);
         if (opt_ty.optionalReprIsPayload(mod)) break :result func.reuseOperand(ty_op.operand, operand);
 
-        if (isByRef(payload_ty, mod)) {
+        if (isByRef(payload_ty, pt)) {
             break :result try func.buildPointerOffset(operand, 0, .new);
         }
 
@@ -4487,14 +4533,15 @@ fn airOptionalPayload(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airOptionalPayloadPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const operand = try func.resolveInst(ty_op.operand);
     const opt_ty = func.typeOf(ty_op.operand).childType(mod);
 
     const result = result: {
         const payload_ty = opt_ty.optionalChild(mod);
-        if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod) or opt_ty.optionalReprIsPayload(mod)) {
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime(pt) or opt_ty.optionalReprIsPayload(mod)) {
             break :result func.reuseOperand(ty_op.operand, operand);
         }
 
@@ -4504,12 +4551,13 @@ fn airOptionalPayloadPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airOptionalPayloadPtrSet(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const operand = try func.resolveInst(ty_op.operand);
     const opt_ty = func.typeOf(ty_op.operand).childType(mod);
     const payload_ty = opt_ty.optionalChild(mod);
-    if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+    if (!payload_ty.hasRuntimeBitsIgnoreComptime(pt)) {
         return func.fail("TODO: Implement OptionalPayloadPtrSet for optional with zero-sized type {}", .{payload_ty.fmtDebug()});
     }
 
@@ -4517,8 +4565,8 @@ fn airOptionalPayloadPtrSet(func: *CodeGen, inst: Air.Inst.Index) InnerError!voi
         return func.finishAir(inst, operand, &.{ty_op.operand});
     }
 
-    const offset = std.math.cast(u32, payload_ty.abiSize(mod)) orelse {
-        return func.fail("Optional type {} too big to fit into stack frame", .{opt_ty.fmt(mod)});
+    const offset = std.math.cast(u32, payload_ty.abiSize(pt)) orelse {
+        return func.fail("Optional type {} too big to fit into stack frame", .{opt_ty.fmt(pt)});
     };
 
     try func.emitWValue(operand);
@@ -4532,10 +4580,11 @@ fn airOptionalPayloadPtrSet(func: *CodeGen, inst: Air.Inst.Index) InnerError!voi
 fn airWrapOptional(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const payload_ty = func.typeOf(ty_op.operand);
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
 
     const result = result: {
-        if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime(pt)) {
             const non_null_bit = try func.allocStack(Type.u1);
             try func.emitWValue(non_null_bit);
             try func.addImm32(1);
@@ -4548,8 +4597,8 @@ fn airWrapOptional(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         if (op_ty.optionalReprIsPayload(mod)) {
             break :result func.reuseOperand(ty_op.operand, operand);
         }
-        const offset = std.math.cast(u32, payload_ty.abiSize(mod)) orelse {
-            return func.fail("Optional type {} too big to fit into stack frame", .{op_ty.fmt(mod)});
+        const offset = std.math.cast(u32, payload_ty.abiSize(pt)) orelse {
+            return func.fail("Optional type {} too big to fit into stack frame", .{op_ty.fmt(pt)});
         };
 
         // Create optional type, set the non-null bit, and store the operand inside the optional type
@@ -4589,14 +4638,15 @@ fn airSliceLen(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airSliceElemVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
     const slice_ty = func.typeOf(bin_op.lhs);
     const slice = try func.resolveInst(bin_op.lhs);
     const index = try func.resolveInst(bin_op.rhs);
     const elem_ty = slice_ty.childType(mod);
-    const elem_size = elem_ty.abiSize(mod);
+    const elem_size = elem_ty.abiSize(pt);
 
     // load pointer onto stack
     _ = try func.load(slice, Type.usize, 0);
@@ -4610,7 +4660,7 @@ fn airSliceElemVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const result_ptr = try func.allocLocal(Type.usize);
     try func.addLabel(.local_set, result_ptr.local.value);
 
-    const result = if (!isByRef(elem_ty, mod)) result: {
+    const result = if (!isByRef(elem_ty, pt)) result: {
         const elem_val = try func.load(result_ptr, elem_ty, 0);
         break :result try elem_val.toLocal(func, elem_ty);
     } else result_ptr;
@@ -4619,12 +4669,13 @@ fn airSliceElemVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airSliceElemPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const bin_op = func.air.extraData(Air.Bin, ty_pl.payload).data;
 
     const elem_ty = ty_pl.ty.toType().childType(mod);
-    const elem_size = elem_ty.abiSize(mod);
+    const elem_size = elem_ty.abiSize(pt);
 
     const slice = try func.resolveInst(bin_op.lhs);
     const index = try func.resolveInst(bin_op.rhs);
@@ -4672,14 +4723,14 @@ fn airTrunc(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 /// Truncates a given operand to a given type, discarding any overflown bits.
 /// NOTE: Resulting value is left on the stack.
 fn trunc(func: *CodeGen, operand: WValue, wanted_ty: Type, given_ty: Type) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
-    const given_bits = @as(u16, @intCast(given_ty.bitSize(mod)));
+    const pt = func.pt;
+    const given_bits = @as(u16, @intCast(given_ty.bitSize(pt)));
     if (toWasmBits(given_bits) == null) {
         return func.fail("TODO: Implement wasm integer truncation for integer bitsize: {d}", .{given_bits});
     }
 
     var result = try func.intcast(operand, given_ty, wanted_ty);
-    const wanted_bits = @as(u16, @intCast(wanted_ty.bitSize(mod)));
+    const wanted_bits = @as(u16, @intCast(wanted_ty.bitSize(pt)));
     const wasm_bits = toWasmBits(wanted_bits).?;
     if (wasm_bits != wanted_bits) {
         result = try func.wrapOperand(result, wanted_ty);
@@ -4696,7 +4747,8 @@ fn airIntFromBool(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airArrayToSlice(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try func.resolveInst(ty_op.operand);
@@ -4707,7 +4759,7 @@ fn airArrayToSlice(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const slice_local = try func.allocStack(slice_ty);
 
     // store the array ptr in the slice
-    if (array_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+    if (array_ty.hasRuntimeBitsIgnoreComptime(pt)) {
         try func.store(slice_local, operand, Type.usize, 0);
     }
 
@@ -4719,7 +4771,8 @@ fn airArrayToSlice(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airIntFromPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try func.resolveInst(un_op);
     const ptr_ty = func.typeOf(un_op);
@@ -4734,14 +4787,15 @@ fn airIntFromPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airPtrElemVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
     const ptr_ty = func.typeOf(bin_op.lhs);
     const ptr = try func.resolveInst(bin_op.lhs);
     const index = try func.resolveInst(bin_op.rhs);
     const elem_ty = ptr_ty.childType(mod);
-    const elem_size = elem_ty.abiSize(mod);
+    const elem_size = elem_ty.abiSize(pt);
 
     // load pointer onto the stack
     if (ptr_ty.isSlice(mod)) {
@@ -4759,7 +4813,7 @@ fn airPtrElemVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const elem_result = val: {
         var result = try func.allocLocal(Type.usize);
         try func.addLabel(.local_set, result.local.value);
-        if (isByRef(elem_ty, mod)) {
+        if (isByRef(elem_ty, pt)) {
             break :val result;
         }
         defer result.free(func); // only free if it's not returned like above
@@ -4771,13 +4825,14 @@ fn airPtrElemVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airPtrElemPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const bin_op = func.air.extraData(Air.Bin, ty_pl.payload).data;
 
     const ptr_ty = func.typeOf(bin_op.lhs);
     const elem_ty = ty_pl.ty.toType().childType(mod);
-    const elem_size = elem_ty.abiSize(mod);
+    const elem_size = elem_ty.abiSize(pt);
 
     const ptr = try func.resolveInst(bin_op.lhs);
     const index = try func.resolveInst(bin_op.rhs);
@@ -4801,7 +4856,8 @@ fn airPtrElemPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airPtrBinOp(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const bin_op = func.air.extraData(Air.Bin, ty_pl.payload).data;
 
@@ -4813,13 +4869,13 @@ fn airPtrBinOp(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
         else => ptr_ty.childType(mod),
     };
 
-    const valtype = typeToValtype(Type.usize, mod);
+    const valtype = typeToValtype(Type.usize, pt);
     const mul_opcode = buildOpcode(.{ .valtype1 = valtype, .op = .mul });
     const bin_opcode = buildOpcode(.{ .valtype1 = valtype, .op = op });
 
     try func.lowerToStack(ptr);
     try func.emitWValue(offset);
-    try func.addImm32(@intCast(pointee_ty.abiSize(mod)));
+    try func.addImm32(@intCast(pointee_ty.abiSize(pt)));
     try func.addTag(Mir.Inst.Tag.fromOpcode(mul_opcode));
     try func.addTag(Mir.Inst.Tag.fromOpcode(bin_opcode));
 
@@ -4829,7 +4885,8 @@ fn airPtrBinOp(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
 }
 
 fn airMemset(func: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     if (safety) {
         // TODO if the value is undef, write 0xaa bytes to dest
     } else {
@@ -4862,8 +4919,8 @@ fn airMemset(func: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void
 /// this to wasm's memset instruction. When the feature is not present,
 /// we implement it manually.
 fn memset(func: *CodeGen, elem_ty: Type, ptr: WValue, len: WValue, value: WValue) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
-    const abi_size = @as(u32, @intCast(elem_ty.abiSize(mod)));
+    const pt = func.pt;
+    const abi_size = @as(u32, @intCast(elem_ty.abiSize(pt)));
 
     // When bulk_memory is enabled, we lower it to wasm's memset instruction.
     // If not, we lower it ourselves.
@@ -4951,16 +5008,17 @@ fn memset(func: *CodeGen, elem_ty: Type, ptr: WValue, len: WValue, value: WValue
 }
 
 fn airArrayElemVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
     const array_ty = func.typeOf(bin_op.lhs);
     const array = try func.resolveInst(bin_op.lhs);
     const index = try func.resolveInst(bin_op.rhs);
     const elem_ty = array_ty.childType(mod);
-    const elem_size = elem_ty.abiSize(mod);
+    const elem_size = elem_ty.abiSize(pt);
 
-    if (isByRef(array_ty, mod)) {
+    if (isByRef(array_ty, pt)) {
         try func.lowerToStack(array);
         try func.emitWValue(index);
         try func.addImm32(@intCast(elem_size));
@@ -4971,7 +5029,7 @@ fn airArrayElemVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
         switch (index) {
             inline .imm32, .imm64 => |lane| {
-                const opcode: wasm.SimdOpcode = switch (elem_ty.bitSize(mod)) {
+                const opcode: wasm.SimdOpcode = switch (elem_ty.bitSize(pt)) {
                     8 => if (elem_ty.isSignedInt(mod)) .i8x16_extract_lane_s else .i8x16_extract_lane_u,
                     16 => if (elem_ty.isSignedInt(mod)) .i16x8_extract_lane_s else .i16x8_extract_lane_u,
                     32 => if (elem_ty.isInt(mod)) .i32x4_extract_lane else .f32x4_extract_lane,
@@ -5007,7 +5065,7 @@ fn airArrayElemVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         var result = try func.allocLocal(Type.usize);
         try func.addLabel(.local_set, result.local.value);
 
-        if (isByRef(elem_ty, mod)) {
+        if (isByRef(elem_ty, pt)) {
             break :val result;
         }
         defer result.free(func); // only free if no longer needed and not returned like above
@@ -5020,7 +5078,8 @@ fn airArrayElemVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airIntFromFloat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try func.resolveInst(ty_op.operand);
@@ -5054,8 +5113,8 @@ fn airIntFromFloat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     try func.emitWValue(operand);
     const op = buildOpcode(.{
         .op = .trunc,
-        .valtype1 = typeToValtype(dest_ty, mod),
-        .valtype2 = typeToValtype(op_ty, mod),
+        .valtype1 = typeToValtype(dest_ty, pt),
+        .valtype2 = typeToValtype(op_ty, pt),
         .signedness = dest_info.signedness,
     });
     try func.addTag(Mir.Inst.Tag.fromOpcode(op));
@@ -5065,7 +5124,8 @@ fn airIntFromFloat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airFloatFromInt(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try func.resolveInst(ty_op.operand);
@@ -5099,8 +5159,8 @@ fn airFloatFromInt(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     try func.emitWValue(operand);
     const op = buildOpcode(.{
         .op = .convert,
-        .valtype1 = typeToValtype(dest_ty, mod),
-        .valtype2 = typeToValtype(op_ty, mod),
+        .valtype1 = typeToValtype(dest_ty, pt),
+        .valtype2 = typeToValtype(op_ty, pt),
         .signedness = op_info.signedness,
     });
     try func.addTag(Mir.Inst.Tag.fromOpcode(op));
@@ -5111,19 +5171,20 @@ fn airFloatFromInt(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airSplat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const operand = try func.resolveInst(ty_op.operand);
     const ty = func.typeOfIndex(inst);
     const elem_ty = ty.childType(mod);
 
-    if (determineSimdStoreStrategy(ty, mod) == .direct) blk: {
+    if (determineSimdStoreStrategy(ty, pt) == .direct) blk: {
         switch (operand) {
             // when the operand lives in the linear memory section, we can directly
             // load and splat the value at once. Meaning we do not first have to load
             // the scalar value onto the stack.
             .stack_offset, .memory, .memory_offset => {
-                const opcode = switch (elem_ty.bitSize(mod)) {
+                const opcode = switch (elem_ty.bitSize(pt)) {
                     8 => std.wasm.simdOpcode(.v128_load8_splat),
                     16 => std.wasm.simdOpcode(.v128_load16_splat),
                     32 => std.wasm.simdOpcode(.v128_load32_splat),
@@ -5138,14 +5199,14 @@ fn airSplat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 try func.mir_extra.appendSlice(func.gpa, &[_]u32{
                     opcode,
                     operand.offset(),
-                    @intCast(elem_ty.abiAlignment(mod).toByteUnits().?),
+                    @intCast(elem_ty.abiAlignment(pt).toByteUnits().?),
                 });
                 try func.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
                 try func.addLabel(.local_set, result.local.value);
                 return func.finishAir(inst, result, &.{ty_op.operand});
             },
             .local => {
-                const opcode = switch (elem_ty.bitSize(mod)) {
+                const opcode = switch (elem_ty.bitSize(pt)) {
                     8 => std.wasm.simdOpcode(.i8x16_splat),
                     16 => std.wasm.simdOpcode(.i16x8_splat),
                     32 => if (elem_ty.isInt(mod)) std.wasm.simdOpcode(.i32x4_splat) else std.wasm.simdOpcode(.f32x4_splat),
@@ -5163,14 +5224,14 @@ fn airSplat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             else => unreachable,
         }
     }
-    const elem_size = elem_ty.bitSize(mod);
+    const elem_size = elem_ty.bitSize(pt);
     const vector_len = @as(usize, @intCast(ty.vectorLen(mod)));
     if ((!std.math.isPowerOfTwo(elem_size) or elem_size % 8 != 0) and vector_len > 1) {
         return func.fail("TODO: WebAssembly `@splat` for arbitrary element bitsize {d}", .{elem_size});
     }
 
     const result = try func.allocStack(ty);
-    const elem_byte_size = @as(u32, @intCast(elem_ty.abiSize(mod)));
+    const elem_byte_size = @as(u32, @intCast(elem_ty.abiSize(pt)));
     var index: usize = 0;
     var offset: u32 = 0;
     while (index < vector_len) : (index += 1) {
@@ -5190,7 +5251,8 @@ fn airSelect(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airShuffle(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const inst_ty = func.typeOfIndex(inst);
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = func.air.extraData(Air.Shuffle, ty_pl.payload).data;
@@ -5201,14 +5263,14 @@ fn airShuffle(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const mask_len = extra.mask_len;
 
     const child_ty = inst_ty.childType(mod);
-    const elem_size = child_ty.abiSize(mod);
+    const elem_size = child_ty.abiSize(pt);
 
     // TODO: One of them could be by ref; handle in loop
-    if (isByRef(func.typeOf(extra.a), mod) or isByRef(inst_ty, mod)) {
+    if (isByRef(func.typeOf(extra.a), pt) or isByRef(inst_ty, pt)) {
         const result = try func.allocStack(inst_ty);
 
         for (0..mask_len) |index| {
-            const value = (try mask.elemValue(mod, index)).toSignedInt(mod);
+            const value = (try mask.elemValue(pt, index)).toSignedInt(pt);
 
             try func.emitWValue(result);
 
@@ -5228,7 +5290,7 @@ fn airShuffle(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
         var lanes = mem.asBytes(operands[1..]);
         for (0..@as(usize, @intCast(mask_len))) |index| {
-            const mask_elem = (try mask.elemValue(mod, index)).toSignedInt(mod);
+            const mask_elem = (try mask.elemValue(pt, index)).toSignedInt(pt);
             const base_index = if (mask_elem >= 0)
                 @as(u8, @intCast(@as(i64, @intCast(elem_size)) * mask_elem))
             else
@@ -5259,7 +5321,8 @@ fn airReduce(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ip = &mod.intern_pool;
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const result_ty = func.typeOfIndex(inst);
@@ -5271,7 +5334,7 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             .Array => {
                 const result = try func.allocStack(result_ty);
                 const elem_ty = result_ty.childType(mod);
-                const elem_size = @as(u32, @intCast(elem_ty.abiSize(mod)));
+                const elem_size = @as(u32, @intCast(elem_ty.abiSize(pt)));
                 const sentinel = if (result_ty.sentinel(mod)) |sent| blk: {
                     break :blk try func.lowerConstant(sent, elem_ty);
                 } else null;
@@ -5279,7 +5342,7 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 // When the element type is by reference, we must copy the entire
                 // value. It is therefore safer to move the offset pointer and store
                 // each value individually, instead of using store offsets.
-                if (isByRef(elem_ty, mod)) {
+                if (isByRef(elem_ty, pt)) {
                     // copy stack pointer into a temporary local, which is
                     // moved for each element to store each value in the right position.
                     const offset = try func.buildPointerOffset(result, 0, .new);
@@ -5309,7 +5372,7 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             },
             .Struct => switch (result_ty.containerLayout(mod)) {
                 .@"packed" => {
-                    if (isByRef(result_ty, mod)) {
+                    if (isByRef(result_ty, pt)) {
                         return func.fail("TODO: airAggregateInit for packed structs larger than 64 bits", .{});
                     }
                     const packed_struct = mod.typeToPackedStruct(result_ty).?;
@@ -5318,7 +5381,7 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
                     // ensure the result is zero'd
                     const result = try func.allocLocal(backing_type);
-                    if (backing_type.bitSize(mod) <= 32)
+                    if (backing_type.bitSize(pt) <= 32)
                         try func.addImm32(0)
                     else
                         try func.addImm64(0);
@@ -5327,16 +5390,16 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     var current_bit: u16 = 0;
                     for (elements, 0..) |elem, elem_index| {
                         const field_ty = Type.fromInterned(field_types.get(ip)[elem_index]);
-                        if (!field_ty.hasRuntimeBitsIgnoreComptime(mod)) continue;
+                        if (!field_ty.hasRuntimeBitsIgnoreComptime(pt)) continue;
 
-                        const shift_val = if (backing_type.bitSize(mod) <= 32)
+                        const shift_val = if (backing_type.bitSize(pt) <= 32)
                             WValue{ .imm32 = current_bit }
                         else
                             WValue{ .imm64 = current_bit };
 
                         const value = try func.resolveInst(elem);
-                        const value_bit_size: u16 = @intCast(field_ty.bitSize(mod));
-                        const int_ty = try mod.intType(.unsigned, value_bit_size);
+                        const value_bit_size: u16 = @intCast(field_ty.bitSize(pt));
+                        const int_ty = try pt.intType(.unsigned, value_bit_size);
 
                         // load our current result on stack so we can perform all transformations
                         // using only stack values. Saving the cost of loads and stores.
@@ -5359,10 +5422,10 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     const offset = try func.buildPointerOffset(result, 0, .new); // pointer to offset
                     var prev_field_offset: u64 = 0;
                     for (elements, 0..) |elem, elem_index| {
-                        if ((try result_ty.structFieldValueComptime(mod, elem_index)) != null) continue;
+                        if (try result_ty.structFieldValueComptime(pt, elem_index) != null) continue;
 
                         const elem_ty = result_ty.structFieldType(elem_index, mod);
-                        const field_offset = result_ty.structFieldOffset(elem_index, mod);
+                        const field_offset = result_ty.structFieldOffset(elem_index, pt);
                         _ = try func.buildPointerOffset(offset, @intCast(field_offset - prev_field_offset), .modify);
                         prev_field_offset = field_offset;
 
@@ -5389,14 +5452,15 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airUnionInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ip = &mod.intern_pool;
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = func.air.extraData(Air.UnionInit, ty_pl.payload).data;
 
     const result = result: {
         const union_ty = func.typeOfIndex(inst);
-        const layout = union_ty.unionGetLayout(mod);
+        const layout = union_ty.unionGetLayout(pt);
         const union_obj = mod.typeToUnion(union_ty).?;
         const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[extra.field_index]);
         const field_name = union_obj.loadTagType(ip).names.get(ip)[extra.field_index];
@@ -5404,22 +5468,22 @@ fn airUnionInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         const tag_int = blk: {
             const tag_ty = union_ty.unionTagTypeHypothetical(mod);
             const enum_field_index = tag_ty.enumFieldIndex(field_name, mod).?;
-            const tag_val = try mod.enumValueFieldIndex(tag_ty, enum_field_index);
+            const tag_val = try pt.enumValueFieldIndex(tag_ty, enum_field_index);
             break :blk try func.lowerConstant(tag_val, tag_ty);
         };
         if (layout.payload_size == 0) {
             if (layout.tag_size == 0) {
                 break :result WValue{ .none = {} };
             }
-            assert(!isByRef(union_ty, mod));
+            assert(!isByRef(union_ty, pt));
             break :result tag_int;
         }
 
-        if (isByRef(union_ty, mod)) {
+        if (isByRef(union_ty, pt)) {
             const result_ptr = try func.allocStack(union_ty);
             const payload = try func.resolveInst(extra.init);
             if (layout.tag_align.compare(.gte, layout.payload_align)) {
-                if (isByRef(field_ty, mod)) {
+                if (isByRef(field_ty, pt)) {
                     const payload_ptr = try func.buildPointerOffset(result_ptr, layout.tag_size, .new);
                     try func.store(payload_ptr, payload, field_ty, 0);
                 } else {
@@ -5443,14 +5507,14 @@ fn airUnionInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             break :result result_ptr;
         } else {
             const operand = try func.resolveInst(extra.init);
-            const union_int_type = try mod.intType(.unsigned, @as(u16, @intCast(union_ty.bitSize(mod))));
+            const union_int_type = try pt.intType(.unsigned, @as(u16, @intCast(union_ty.bitSize(pt))));
             if (field_ty.zigTypeTag(mod) == .Float) {
-                const int_type = try mod.intType(.unsigned, @intCast(field_ty.bitSize(mod)));
+                const int_type = try pt.intType(.unsigned, @intCast(field_ty.bitSize(pt)));
                 const bitcasted = try func.bitcast(field_ty, int_type, operand);
                 const casted = try func.trunc(bitcasted, int_type, union_int_type);
                 break :result try casted.toLocal(func, field_ty);
             } else if (field_ty.isPtrAtRuntime(mod)) {
-                const int_type = try mod.intType(.unsigned, @intCast(field_ty.bitSize(mod)));
+                const int_type = try pt.intType(.unsigned, @intCast(field_ty.bitSize(pt)));
                 const casted = try func.intcast(operand, int_type, union_int_type);
                 break :result try casted.toLocal(func, field_ty);
             }
@@ -5488,8 +5552,9 @@ fn airWasmMemoryGrow(func: *CodeGen, inst: Air.Inst.Index) !void {
 }
 
 fn cmpOptionals(func: *CodeGen, lhs: WValue, rhs: WValue, operand_ty: Type, op: std.math.CompareOperator) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
-    assert(operand_ty.hasRuntimeBitsIgnoreComptime(mod));
+    const pt = func.pt;
+    const mod = pt.zcu;
+    assert(operand_ty.hasRuntimeBitsIgnoreComptime(pt));
     assert(op == .eq or op == .neq);
     const payload_ty = operand_ty.optionalChild(mod);
 
@@ -5506,7 +5571,7 @@ fn cmpOptionals(func: *CodeGen, lhs: WValue, rhs: WValue, operand_ty: Type, op: 
 
     _ = try func.load(lhs, payload_ty, 0);
     _ = try func.load(rhs, payload_ty, 0);
-    const opcode = buildOpcode(.{ .op = .ne, .valtype1 = typeToValtype(payload_ty, mod) });
+    const opcode = buildOpcode(.{ .op = .ne, .valtype1 = typeToValtype(payload_ty, pt) });
     try func.addTag(Mir.Inst.Tag.fromOpcode(opcode));
     try func.addLabel(.br_if, 0);
 
@@ -5524,11 +5589,12 @@ fn cmpOptionals(func: *CodeGen, lhs: WValue, rhs: WValue, operand_ty: Type, op: 
 /// NOTE: Leaves the result of the comparison on top of the stack.
 /// TODO: Lower this to compiler_rt call when bitsize > 128
 fn cmpBigInt(func: *CodeGen, lhs: WValue, rhs: WValue, operand_ty: Type, op: std.math.CompareOperator) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
-    assert(operand_ty.abiSize(mod) >= 16);
+    const pt = func.pt;
+    const mod = pt.zcu;
+    assert(operand_ty.abiSize(pt) >= 16);
     assert(!(lhs != .stack and rhs == .stack));
-    if (operand_ty.bitSize(mod) > 128) {
-        return func.fail("TODO: Support cmpBigInt for integer bitsize: '{d}'", .{operand_ty.bitSize(mod)});
+    if (operand_ty.bitSize(pt) > 128) {
+        return func.fail("TODO: Support cmpBigInt for integer bitsize: '{d}'", .{operand_ty.bitSize(pt)});
     }
 
     var lhs_high_bit = try (try func.load(lhs, Type.u64, 0)).toLocal(func, Type.u64);
@@ -5566,11 +5632,12 @@ fn cmpBigInt(func: *CodeGen, lhs: WValue, rhs: WValue, operand_ty: Type, op: std
 }
 
 fn airSetUnionTag(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
     const un_ty = func.typeOf(bin_op.lhs).childType(mod);
     const tag_ty = func.typeOf(bin_op.rhs);
-    const layout = un_ty.unionGetLayout(mod);
+    const layout = un_ty.unionGetLayout(pt);
     if (layout.tag_size == 0) return func.finishAir(inst, .none, &.{ bin_op.lhs, bin_op.rhs });
 
     const union_ptr = try func.resolveInst(bin_op.lhs);
@@ -5590,12 +5657,12 @@ fn airSetUnionTag(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airGetUnionTag(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const un_ty = func.typeOf(ty_op.operand);
     const tag_ty = func.typeOfIndex(inst);
-    const layout = un_ty.unionGetLayout(mod);
+    const layout = un_ty.unionGetLayout(pt);
     if (layout.tag_size == 0) return func.finishAir(inst, .none, &.{ty_op.operand});
 
     const operand = try func.resolveInst(ty_op.operand);
@@ -5695,7 +5762,8 @@ fn fptrunc(func: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerErro
 }
 
 fn airErrUnionPayloadPtrSet(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const err_set_ty = func.typeOf(ty_op.operand).childType(mod);
@@ -5707,27 +5775,28 @@ fn airErrUnionPayloadPtrSet(func: *CodeGen, inst: Air.Inst.Index) InnerError!voi
         operand,
         .{ .imm32 = 0 },
         Type.anyerror,
-        @as(u32, @intCast(errUnionErrorOffset(payload_ty, mod))),
+        @intCast(errUnionErrorOffset(payload_ty, pt)),
     );
 
     const result = result: {
-        if (!payload_ty.hasRuntimeBitsIgnoreComptime(mod)) {
+        if (!payload_ty.hasRuntimeBitsIgnoreComptime(pt)) {
             break :result func.reuseOperand(ty_op.operand, operand);
         }
 
-        break :result try func.buildPointerOffset(operand, @as(u32, @intCast(errUnionPayloadOffset(payload_ty, mod))), .new);
+        break :result try func.buildPointerOffset(operand, @as(u32, @intCast(errUnionPayloadOffset(payload_ty, pt))), .new);
     };
     func.finishAir(inst, result, &.{ty_op.operand});
 }
 
 fn airFieldParentPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = func.air.extraData(Air.FieldParentPtr, ty_pl.payload).data;
 
     const field_ptr = try func.resolveInst(extra.field_ptr);
     const parent_ty = ty_pl.ty.toType().childType(mod);
-    const field_offset = parent_ty.structFieldOffset(extra.field_index, mod);
+    const field_offset = parent_ty.structFieldOffset(extra.field_index, pt);
 
     const result = if (field_offset != 0) result: {
         const base = try func.buildPointerOffset(field_ptr, 0, .new);
@@ -5742,7 +5811,8 @@ fn airFieldParentPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn sliceOrArrayPtr(func: *CodeGen, ptr: WValue, ptr_ty: Type) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     if (ptr_ty.isSlice(mod)) {
         return func.slicePtr(ptr);
     } else {
@@ -5751,7 +5821,8 @@ fn sliceOrArrayPtr(func: *CodeGen, ptr: WValue, ptr_ty: Type) InnerError!WValue 
 }
 
 fn airMemcpy(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
     const dst = try func.resolveInst(bin_op.lhs);
     const dst_ty = func.typeOf(bin_op.lhs);
@@ -5761,16 +5832,16 @@ fn airMemcpy(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const len = switch (dst_ty.ptrSize(mod)) {
         .Slice => blk: {
             const slice_len = try func.sliceLen(dst);
-            if (ptr_elem_ty.abiSize(mod) != 1) {
+            if (ptr_elem_ty.abiSize(pt) != 1) {
                 try func.emitWValue(slice_len);
-                try func.emitWValue(.{ .imm32 = @as(u32, @intCast(ptr_elem_ty.abiSize(mod))) });
+                try func.emitWValue(.{ .imm32 = @as(u32, @intCast(ptr_elem_ty.abiSize(pt))) });
                 try func.addTag(.i32_mul);
                 try func.addLabel(.local_set, slice_len.local.value);
             }
             break :blk slice_len;
         },
         .One => @as(WValue, .{
-            .imm32 = @as(u32, @intCast(ptr_elem_ty.arrayLen(mod) * ptr_elem_ty.childType(mod).abiSize(mod))),
+            .imm32 = @as(u32, @intCast(ptr_elem_ty.arrayLen(mod) * ptr_elem_ty.childType(mod).abiSize(pt))),
         }),
         .C, .Many => unreachable,
     };
@@ -5791,7 +5862,8 @@ fn airRetAddr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airPopcount(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try func.resolveInst(ty_op.operand);
@@ -5812,14 +5884,14 @@ fn airPopcount(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         32 => {
             try func.emitWValue(operand);
             if (op_ty.isSignedInt(mod) and bits != wasm_bits) {
-                _ = try func.wrapOperand(.stack, try mod.intType(.unsigned, bits));
+                _ = try func.wrapOperand(.stack, try pt.intType(.unsigned, bits));
             }
             try func.addTag(.i32_popcnt);
         },
         64 => {
             try func.emitWValue(operand);
             if (op_ty.isSignedInt(mod) and bits != wasm_bits) {
-                _ = try func.wrapOperand(.stack, try mod.intType(.unsigned, bits));
+                _ = try func.wrapOperand(.stack, try pt.intType(.unsigned, bits));
             }
             try func.addTag(.i64_popcnt);
             try func.addTag(.i32_wrap_i64);
@@ -5830,7 +5902,7 @@ fn airPopcount(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             try func.addTag(.i64_popcnt);
             _ = try func.load(operand, Type.u64, 8);
             if (op_ty.isSignedInt(mod) and bits != wasm_bits) {
-                _ = try func.wrapOperand(.stack, try mod.intType(.unsigned, bits - 64));
+                _ = try func.wrapOperand(.stack, try pt.intType(.unsigned, bits - 64));
             }
             try func.addTag(.i64_popcnt);
             try func.addTag(.i64_add);
@@ -5845,7 +5917,8 @@ fn airPopcount(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airBitReverse(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try func.resolveInst(ty_op.operand);
@@ -5956,10 +6029,10 @@ fn airErrorName(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     //
     // As the names are global and the slice elements are constant, we do not have
     // to make a copy of the ptr+value but can point towards them directly.
-    const error_table_symbol = try func.bin_file.getErrorTableSymbol();
+    const pt = func.pt;
+    const error_table_symbol = try func.bin_file.getErrorTableSymbol(pt);
     const name_ty = Type.slice_const_u8_sentinel_0;
-    const mod = func.bin_file.base.comp.module.?;
-    const abi_size = name_ty.abiSize(mod);
+    const abi_size = name_ty.abiSize(pt);
 
     const error_name_value: WValue = .{ .memory = error_table_symbol }; // emitting this will create a relocation
     try func.emitWValue(error_name_value);
@@ -5998,7 +6071,8 @@ fn airAddSubWithOverflow(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerErro
     const lhs = try func.resolveInst(extra.lhs);
     const rhs = try func.resolveInst(extra.rhs);
     const lhs_ty = func.typeOf(extra.lhs);
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
 
     if (lhs_ty.zigTypeTag(mod) == .Vector) {
         return func.fail("TODO: Implement overflow arithmetic for vectors", .{});
@@ -6044,14 +6118,15 @@ fn airAddSubWithOverflow(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerErro
 
     const result_ptr = try func.allocStack(func.typeOfIndex(inst));
     try func.store(result_ptr, result, lhs_ty, 0);
-    const offset = @as(u32, @intCast(lhs_ty.abiSize(mod)));
+    const offset = @as(u32, @intCast(lhs_ty.abiSize(pt)));
     try func.store(result_ptr, overflow_local, Type.u1, offset);
 
     func.finishAir(inst, result_ptr, &.{ extra.lhs, extra.rhs });
 }
 
 fn addSubWithOverflowBigInt(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, result_ty: Type, op: Op) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     assert(op == .add or op == .sub);
     const int_info = ty.intInfo(mod);
     const is_signed = int_info.signedness == .signed;
@@ -6116,7 +6191,8 @@ fn addSubWithOverflowBigInt(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, 
 }
 
 fn airShlWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = func.air.extraData(Air.Bin, ty_pl.payload).data;
 
@@ -6159,7 +6235,7 @@ fn airShlWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const result_ptr = try func.allocStack(func.typeOfIndex(inst));
     try func.store(result_ptr, result, lhs_ty, 0);
-    const offset = @as(u32, @intCast(lhs_ty.abiSize(mod)));
+    const offset = @as(u32, @intCast(lhs_ty.abiSize(pt)));
     try func.store(result_ptr, overflow_local, Type.u1, offset);
 
     func.finishAir(inst, result_ptr, &.{ extra.lhs, extra.rhs });
@@ -6172,7 +6248,8 @@ fn airMulWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const lhs = try func.resolveInst(extra.lhs);
     const rhs = try func.resolveInst(extra.rhs);
     const lhs_ty = func.typeOf(extra.lhs);
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
 
     if (lhs_ty.zigTypeTag(mod) == .Vector) {
         return func.fail("TODO: Implement overflow arithmetic for vectors", .{});
@@ -6332,7 +6409,7 @@ fn airMulWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const result_ptr = try func.allocStack(func.typeOfIndex(inst));
     try func.store(result_ptr, bin_op_local, lhs_ty, 0);
-    const offset = @as(u32, @intCast(lhs_ty.abiSize(mod)));
+    const offset = @as(u32, @intCast(lhs_ty.abiSize(pt)));
     try func.store(result_ptr, overflow_bit, Type.u1, offset);
 
     func.finishAir(inst, result_ptr, &.{ extra.lhs, extra.rhs });
@@ -6340,7 +6417,8 @@ fn airMulWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
 fn airMaxMin(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
     assert(op == .max or op == .min);
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const target = mod.getTarget();
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
@@ -6349,7 +6427,7 @@ fn airMaxMin(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
         return func.fail("TODO: `@maximum` and `@minimum` for vectors", .{});
     }
 
-    if (ty.abiSize(mod) > 16) {
+    if (ty.abiSize(pt) > 16) {
         return func.fail("TODO: `@maximum` and `@minimum` for types larger than 16 bytes", .{});
     }
 
@@ -6377,14 +6455,15 @@ fn airMaxMin(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
     }
 
     // store result in local
-    const result_ty = if (isByRef(ty, mod)) Type.u32 else ty;
+    const result_ty = if (isByRef(ty, pt)) Type.u32 else ty;
     const result = try func.allocLocal(result_ty);
     try func.addLabel(.local_set, result.local.value);
     func.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
 }
 
 fn airMulAdd(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const bin_op = func.air.extraData(Air.Bin, pl_op.payload).data;
 
@@ -6418,7 +6497,8 @@ fn airMulAdd(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airClz(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const ty = func.typeOf(ty_op.operand);
@@ -6471,7 +6551,8 @@ fn airClz(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airCtz(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const ty = func.typeOf(ty_op.operand);
@@ -6558,7 +6639,8 @@ fn airDbgInlineBlock(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 fn airDbgVar(func: *CodeGen, inst: Air.Inst.Index, is_ptr: bool) InnerError!void {
     if (func.debug_output != .dwarf) return func.finishAir(inst, .none, &.{});
 
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const ty = func.typeOf(pl_op.operand);
     const operand = try func.resolveInst(pl_op.operand);
@@ -6591,7 +6673,8 @@ fn airTry(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airTryPtr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = func.air.extraData(Air.TryPtr, ty_pl.payload);
     const err_union_ptr = try func.resolveInst(extra.data.ptr);
@@ -6609,13 +6692,14 @@ fn lowerTry(
     err_union_ty: Type,
     operand_is_ptr: bool,
 ) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     if (operand_is_ptr) {
         return func.fail("TODO: lowerTry for pointers", .{});
     }
 
     const pl_ty = err_union_ty.errorUnionPayload(mod);
-    const pl_has_bits = pl_ty.hasRuntimeBitsIgnoreComptime(mod);
+    const pl_has_bits = pl_ty.hasRuntimeBitsIgnoreComptime(pt);
 
     if (!err_union_ty.errorUnionSet(mod).errorSetIsEmpty(mod)) {
         // Block we can jump out of when error is not set
@@ -6624,10 +6708,10 @@ fn lowerTry(
         // check if the error tag is set for the error union.
         try func.emitWValue(err_union);
         if (pl_has_bits) {
-            const err_offset = @as(u32, @intCast(errUnionErrorOffset(pl_ty, mod)));
+            const err_offset: u32 = @intCast(errUnionErrorOffset(pl_ty, pt));
             try func.addMemArg(.i32_load16_u, .{
                 .offset = err_union.offset() + err_offset,
-                .alignment = @intCast(Type.anyerror.abiAlignment(mod).toByteUnits().?),
+                .alignment = @intCast(Type.anyerror.abiAlignment(pt).toByteUnits().?),
             });
         }
         try func.addTag(.i32_eqz);
@@ -6649,8 +6733,8 @@ fn lowerTry(
         return WValue{ .none = {} };
     }
 
-    const pl_offset = @as(u32, @intCast(errUnionPayloadOffset(pl_ty, mod)));
-    if (isByRef(pl_ty, mod)) {
+    const pl_offset: u32 = @intCast(errUnionPayloadOffset(pl_ty, pt));
+    if (isByRef(pl_ty, pt)) {
         return buildPointerOffset(func, err_union, pl_offset, .new);
     }
     const payload = try func.load(err_union, pl_ty, pl_offset);
@@ -6658,7 +6742,8 @@ fn lowerTry(
 }
 
 fn airByteSwap(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const ty = func.typeOfIndex(inst);
@@ -6744,7 +6829,8 @@ fn airDivTrunc(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 fn airDivFloor(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty = func.typeOfIndex(inst);
     const lhs = try func.resolveInst(bin_op.lhs);
     const rhs = try func.resolveInst(bin_op.rhs);
@@ -6864,7 +6950,8 @@ fn airRem(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 fn airMod(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty = func.typeOfIndex(inst);
     const lhs = try func.resolveInst(bin_op.lhs);
     const rhs = try func.resolveInst(bin_op.rhs);
@@ -6901,7 +6988,8 @@ fn airSatBinOp(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
     assert(op == .add or op == .sub);
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty = func.typeOfIndex(inst);
     const lhs = try func.resolveInst(bin_op.lhs);
     const rhs = try func.resolveInst(bin_op.rhs);
@@ -6949,11 +7037,12 @@ fn airSatBinOp(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
 }
 
 fn signedSat(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WValue {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const int_info = ty.intInfo(mod);
     const wasm_bits = toWasmBits(int_info.bits).?;
     const is_wasm_bits = wasm_bits == int_info.bits;
-    const ext_ty = if (!is_wasm_bits) try mod.intType(int_info.signedness, wasm_bits) else ty;
+    const ext_ty = if (!is_wasm_bits) try pt.intType(int_info.signedness, wasm_bits) else ty;
 
     const max_val: u64 = @as(u64, @intCast((@as(u65, 1) << @as(u7, @intCast(int_info.bits - 1))) - 1));
     const min_val: i64 = (-@as(i64, @intCast(@as(u63, @intCast(max_val))))) - 1;
@@ -7007,7 +7096,8 @@ fn signedSat(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerEr
 fn airShlSat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty = func.typeOfIndex(inst);
     const int_info = ty.intInfo(mod);
     const is_signed = int_info.signedness == .signed;
@@ -7061,7 +7151,7 @@ fn airShlSat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             64 => WValue{ .imm64 = shift_size },
             else => unreachable,
         };
-        const ext_ty = try mod.intType(int_info.signedness, wasm_bits);
+        const ext_ty = try pt.intType(int_info.signedness, wasm_bits);
 
         var shl_res = try (try func.binOp(lhs, shift_value, ext_ty, .shl)).toLocal(func, ext_ty);
         defer shl_res.free(func);
@@ -7128,13 +7218,14 @@ fn callIntrinsic(
     };
 
     // Always pass over C-ABI
-    const mod = func.bin_file.base.comp.module.?;
-    var func_type = try genFunctype(func.gpa, .C, param_types, return_type, mod);
+    const pt = func.pt;
+    const mod = pt.zcu;
+    var func_type = try genFunctype(func.gpa, .C, param_types, return_type, pt);
     defer func_type.deinit(func.gpa);
     const func_type_index = try func.bin_file.zigObjectPtr().?.putOrGetFuncType(func.gpa, func_type);
     try func.bin_file.addOrUpdateImport(name, symbol_index, null, func_type_index);
 
-    const want_sret_param = firstParamSRet(.C, return_type, mod);
+    const want_sret_param = firstParamSRet(.C, return_type, pt);
     // if we want return as first param, we allocate a pointer to stack,
     // and emit it as our first argument
     const sret = if (want_sret_param) blk: {
@@ -7146,14 +7237,14 @@ fn callIntrinsic(
     // Lower all arguments to the stack before we call our function
     for (args, 0..) |arg, arg_i| {
         assert(!(want_sret_param and arg == .stack));
-        assert(Type.fromInterned(param_types[arg_i]).hasRuntimeBitsIgnoreComptime(mod));
+        assert(Type.fromInterned(param_types[arg_i]).hasRuntimeBitsIgnoreComptime(pt));
         try func.lowerArg(.C, Type.fromInterned(param_types[arg_i]), arg);
     }
 
     // Actually call our intrinsic
     try func.addLabel(.call, @intFromEnum(symbol_index));
 
-    if (!return_type.hasRuntimeBitsIgnoreComptime(mod)) {
+    if (!return_type.hasRuntimeBitsIgnoreComptime(pt)) {
         return WValue.none;
     } else if (return_type.isNoReturn(mod)) {
         try func.addTag(.@"unreachable");
@@ -7181,7 +7272,8 @@ fn airTagName(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ip = &mod.intern_pool;
     const enum_decl_index = enum_ty.getOwnerDecl(mod);
 
@@ -7189,8 +7281,8 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const fqn = try mod.declPtr(enum_decl_index).fullyQualifiedName(mod);
-    const func_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{}", .{fqn.fmt(ip)});
+    const decl = mod.declPtr(enum_decl_index);
+    const func_name = try std.fmt.allocPrintZ(arena, "__zig_tag_name_{}", .{decl.fqn.fmt(ip)});
 
     // check if we already generated code for this.
     if (func.bin_file.findGlobalSymbol(func_name)) |loc| {
@@ -7199,7 +7291,7 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
 
     const int_tag_ty = enum_ty.intTagType(mod);
 
-    if (int_tag_ty.bitSize(mod) > 64) {
+    if (int_tag_ty.bitSize(pt) > 64) {
         return func.fail("TODO: Implement @tagName for enums with tag size larger than 64 bits", .{});
     }
 
@@ -7225,16 +7317,17 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
         const tag_name_len = tag_name.length(ip);
         // for each tag name, create an unnamed const,
         // and then get a pointer to its value.
-        const name_ty = try mod.arrayType(.{
+        const name_ty = try pt.arrayType(.{
             .len = tag_name_len,
             .child = .u8_type,
             .sentinel = .zero_u8,
         });
-        const name_val = try mod.intern(.{ .aggregate = .{
+        const name_val = try pt.intern(.{ .aggregate = .{
             .ty = name_ty.toIntern(),
             .storage = .{ .bytes = tag_name.toString() },
         } });
         const tag_sym_index = try func.bin_file.lowerUnnamedConst(
+            pt,
             Value.fromInterned(name_val),
             enum_decl_index,
         );
@@ -7247,7 +7340,7 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
         try writer.writeByte(std.wasm.opcode(.local_get));
         try leb.writeUleb128(writer, @as(u32, 1));
 
-        const tag_val = try mod.enumValueFieldIndex(enum_ty, @intCast(tag_index));
+        const tag_val = try pt.enumValueFieldIndex(enum_ty, @intCast(tag_index));
         const tag_value = try func.lowerConstant(tag_val, enum_ty);
 
         switch (tag_value) {
@@ -7334,13 +7427,14 @@ fn getTagNameFunction(func: *CodeGen, enum_ty: Type) InnerError!u32 {
     try writer.writeByte(std.wasm.opcode(.end));
 
     const slice_ty = Type.slice_const_u8_sentinel_0;
-    const func_type = try genFunctype(arena, .Unspecified, &.{int_tag_ty.ip_index}, slice_ty, mod);
+    const func_type = try genFunctype(arena, .Unspecified, &.{int_tag_ty.ip_index}, slice_ty, pt);
     const sym_index = try func.bin_file.createFunction(func_name, func_type, &body_list, &relocs);
     return @intFromEnum(sym_index);
 }
 
 fn airErrorSetHasValue(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ip = &mod.intern_pool;
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
@@ -7355,7 +7449,7 @@ fn airErrorSetHasValue(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     var lowest: ?u32 = null;
     var highest: ?u32 = null;
     for (0..names.len) |name_index| {
-        const err_int: Zcu.ErrorInt = @intCast(mod.global_error_set.getIndex(names.get(ip)[name_index]).?);
+        const err_int = ip.getErrorValueIfExists(names.get(ip)[name_index]).?;
         if (lowest) |*l| {
             if (err_int < l.*) {
                 l.* = err_int;
@@ -7426,7 +7520,8 @@ inline fn useAtomicFeature(func: *const CodeGen) bool {
 }
 
 fn airCmpxchg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = func.air.extraData(Air.Cmpxchg, ty_pl.payload).data;
 
@@ -7445,7 +7540,7 @@ fn airCmpxchg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         try func.emitWValue(ptr_operand);
         try func.lowerToStack(expected_val);
         try func.lowerToStack(new_val);
-        try func.addAtomicMemArg(switch (ty.abiSize(mod)) {
+        try func.addAtomicMemArg(switch (ty.abiSize(pt)) {
             1 => .i32_atomic_rmw8_cmpxchg_u,
             2 => .i32_atomic_rmw16_cmpxchg_u,
             4 => .i32_atomic_rmw_cmpxchg,
@@ -7453,14 +7548,14 @@ fn airCmpxchg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             else => |size| return func.fail("TODO: implement `@cmpxchg` for types with abi size '{d}'", .{size}),
         }, .{
             .offset = ptr_operand.offset(),
-            .alignment = @intCast(ty.abiAlignment(mod).toByteUnits().?),
+            .alignment = @intCast(ty.abiAlignment(pt).toByteUnits().?),
         });
         try func.addLabel(.local_tee, val_local.local.value);
         _ = try func.cmp(.stack, expected_val, ty, .eq);
         try func.addLabel(.local_set, cmp_result.local.value);
         break :val val_local;
     } else val: {
-        if (ty.abiSize(mod) > 8) {
+        if (ty.abiSize(pt) > 8) {
             return func.fail("TODO: Implement `@cmpxchg` for types larger than abi size of 8 bytes", .{});
         }
         const ptr_val = try WValue.toLocal(try func.load(ptr_operand, ty, 0), func, ty);
@@ -7476,7 +7571,7 @@ fn airCmpxchg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         break :val ptr_val;
     };
 
-    const result_ptr = if (isByRef(result_ty, mod)) val: {
+    const result_ptr = if (isByRef(result_ty, pt)) val: {
         try func.emitWValue(cmp_result);
         try func.addImm32(~@as(u32, 0));
         try func.addTag(.i32_xor);
@@ -7484,7 +7579,7 @@ fn airCmpxchg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         try func.addTag(.i32_and);
         const and_result = try WValue.toLocal(.stack, func, Type.bool);
         const result_ptr = try func.allocStack(result_ty);
-        try func.store(result_ptr, and_result, Type.bool, @as(u32, @intCast(ty.abiSize(mod))));
+        try func.store(result_ptr, and_result, Type.bool, @as(u32, @intCast(ty.abiSize(pt))));
         try func.store(result_ptr, ptr_val, ty, 0);
         break :val result_ptr;
     } else val: {
@@ -7499,13 +7594,13 @@ fn airCmpxchg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airAtomicLoad(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
     const atomic_load = func.air.instructions.items(.data)[@intFromEnum(inst)].atomic_load;
     const ptr = try func.resolveInst(atomic_load.ptr);
     const ty = func.typeOfIndex(inst);
 
     if (func.useAtomicFeature()) {
-        const tag: wasm.AtomicsOpcode = switch (ty.abiSize(mod)) {
+        const tag: wasm.AtomicsOpcode = switch (ty.abiSize(pt)) {
             1 => .i32_atomic_load8_u,
             2 => .i32_atomic_load16_u,
             4 => .i32_atomic_load,
@@ -7515,7 +7610,7 @@ fn airAtomicLoad(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         try func.emitWValue(ptr);
         try func.addAtomicMemArg(tag, .{
             .offset = ptr.offset(),
-            .alignment = @intCast(ty.abiAlignment(mod).toByteUnits().?),
+            .alignment = @intCast(ty.abiAlignment(pt).toByteUnits().?),
         });
     } else {
         _ = try func.load(ptr, ty, 0);
@@ -7526,7 +7621,8 @@ fn airAtomicLoad(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airAtomicRmw(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const extra = func.air.extraData(Air.AtomicRmw, pl_op.payload).data;
 
@@ -7550,7 +7646,7 @@ fn airAtomicRmw(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 try func.emitWValue(ptr);
                 try func.emitWValue(value);
                 if (op == .Nand) {
-                    const wasm_bits = toWasmBits(@as(u16, @intCast(ty.bitSize(mod)))).?;
+                    const wasm_bits = toWasmBits(@intCast(ty.bitSize(pt))).?;
 
                     const and_res = try func.binOp(value, operand, ty, .@"and");
                     if (wasm_bits == 32)
@@ -7567,7 +7663,7 @@ fn airAtomicRmw(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     try func.addTag(.select);
                 }
                 try func.addAtomicMemArg(
-                    switch (ty.abiSize(mod)) {
+                    switch (ty.abiSize(pt)) {
                         1 => .i32_atomic_rmw8_cmpxchg_u,
                         2 => .i32_atomic_rmw16_cmpxchg_u,
                         4 => .i32_atomic_rmw_cmpxchg,
@@ -7576,7 +7672,7 @@ fn airAtomicRmw(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     },
                     .{
                         .offset = ptr.offset(),
-                        .alignment = @intCast(ty.abiAlignment(mod).toByteUnits().?),
+                        .alignment = @intCast(ty.abiAlignment(pt).toByteUnits().?),
                     },
                 );
                 const select_res = try func.allocLocal(ty);
@@ -7595,7 +7691,7 @@ fn airAtomicRmw(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             else => {
                 try func.emitWValue(ptr);
                 try func.emitWValue(operand);
-                const tag: wasm.AtomicsOpcode = switch (ty.abiSize(mod)) {
+                const tag: wasm.AtomicsOpcode = switch (ty.abiSize(pt)) {
                     1 => switch (op) {
                         .Xchg => .i32_atomic_rmw8_xchg_u,
                         .Add => .i32_atomic_rmw8_add_u,
@@ -7636,7 +7732,7 @@ fn airAtomicRmw(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 };
                 try func.addAtomicMemArg(tag, .{
                     .offset = ptr.offset(),
-                    .alignment = @intCast(ty.abiAlignment(mod).toByteUnits().?),
+                    .alignment = @intCast(ty.abiAlignment(pt).toByteUnits().?),
                 });
                 const result = try WValue.toLocal(.stack, func, ty);
                 return func.finishAir(inst, result, &.{ pl_op.operand, extra.operand });
@@ -7681,7 +7777,7 @@ fn airAtomicRmw(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 try func.store(.stack, .stack, ty, ptr.offset());
             },
             .Nand => {
-                const wasm_bits = toWasmBits(@as(u16, @intCast(ty.bitSize(mod)))).?;
+                const wasm_bits = toWasmBits(@intCast(ty.bitSize(pt))).?;
 
                 try func.emitWValue(ptr);
                 const and_res = try func.binOp(result, operand, ty, .@"and");
@@ -7701,7 +7797,8 @@ fn airAtomicRmw(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airFence(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const zcu = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const zcu = pt.zcu;
     // Only when the atomic feature is enabled, and we're not building
     // for a single-threaded build, can we emit the `fence` instruction.
     // In all other cases, we emit no instructions for a fence.
@@ -7715,7 +7812,8 @@ fn airFence(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airAtomicStore(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
     const ptr = try func.resolveInst(bin_op.lhs);
@@ -7724,7 +7822,7 @@ fn airAtomicStore(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty = ptr_ty.childType(mod);
 
     if (func.useAtomicFeature()) {
-        const tag: wasm.AtomicsOpcode = switch (ty.abiSize(mod)) {
+        const tag: wasm.AtomicsOpcode = switch (ty.abiSize(pt)) {
             1 => .i32_atomic_store8,
             2 => .i32_atomic_store16,
             4 => .i32_atomic_store,
@@ -7735,7 +7833,7 @@ fn airAtomicStore(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         try func.lowerToStack(operand);
         try func.addAtomicMemArg(tag, .{
             .offset = ptr.offset(),
-            .alignment = @intCast(ty.abiAlignment(mod).toByteUnits().?),
+            .alignment = @intCast(ty.abiAlignment(pt).toByteUnits().?),
         });
     } else {
         try func.store(ptr, operand, ty, 0);
@@ -7754,11 +7852,13 @@ fn airFrameAddress(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn typeOf(func: *CodeGen, inst: Air.Inst.Ref) Type {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     return func.air.typeOf(inst, &mod.intern_pool);
 }
 
 fn typeOfIndex(func: *CodeGen, inst: Air.Inst.Index) Type {
-    const mod = func.bin_file.base.comp.module.?;
+    const pt = func.pt;
+    const mod = pt.zcu;
     return func.air.typeOfIndex(inst, &mod.intern_pool);
 }

@@ -315,7 +315,7 @@ pub const FileKind = enum {
     file,
 };
 
-/// Iteartor over entries in the tar file represented by reader.
+/// Iterator over entries in the tar file represented by reader.
 pub fn Iterator(comptime ReaderType: type) type {
     return struct {
         reader: ReaderType,
@@ -423,7 +423,7 @@ pub fn Iterator(comptime ReaderType: type) type {
                 self.padding = blockPadding(size);
 
                 switch (kind) {
-                    // File types to retrun upstream
+                    // File types to return upstream
                     .directory, .normal, .symbolic_link => {
                         file.kind = switch (kind) {
                             .directory => .directory,

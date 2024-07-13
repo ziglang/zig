@@ -137,7 +137,18 @@ pub const IncludeDir = union(enum) {
 };
 
 pub const LinkFrameworkOptions = struct {
+    /// Causes dynamic libraries to be linked regardless of whether they are
+    /// actually depended on. When false, dynamic libraries with no referenced
+    /// symbols will be omitted by the linker.
     needed: bool = false,
+    /// Marks all referenced symbols from this library as weak, meaning that if
+    /// a same-named symbol is provided by another compilation unit, instead of
+    /// emitting a "duplicate symbol" error, the linker will resolve all
+    /// references to the symbol with the strong version.
+    ///
+    /// When the linker encounters two weak symbols, the chosen one is
+    /// determined by the order compilation units are provided to the linker,
+    /// priority given to later ones.
     weak: bool = false,
 };
 
@@ -414,7 +425,18 @@ pub fn iterateDependencies(
 }
 
 pub const LinkSystemLibraryOptions = struct {
+    /// Causes dynamic libraries to be linked regardless of whether they are
+    /// actually depended on. When false, dynamic libraries with no referenced
+    /// symbols will be omitted by the linker.
     needed: bool = false,
+    /// Marks all referenced symbols from this library as weak, meaning that if
+    /// a same-named symbol is provided by another compilation unit, instead of
+    /// emitting a "duplicate symbol" error, the linker will resolve all
+    /// references to the symbol with the strong version.
+    ///
+    /// When the linker encounters two weak symbols, the chosen one is
+    /// determined by the order compilation units are provided to the linker,
+    /// priority given to later ones.
     weak: bool = false,
     use_pkg_config: SystemLib.UsePkgConfig = .yes,
     preferred_link_mode: std.builtin.LinkMode = .dynamic,

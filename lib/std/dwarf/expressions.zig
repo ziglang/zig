@@ -15,8 +15,8 @@ pub const ExpressionContext = struct {
     /// The dwarf format of the section this expression is in
     format: dwarf.Format = .@"32",
 
-    /// If specified, any addresses will pass through this function before being acccessed
-    isValidMemory: ?*const fn (address: usize) bool = null,
+    /// If specified, any addresses will pass through before being accessed
+    memory_accessor: ?*std.debug.StackIterator.MemoryAccessor = null,
 
     /// The compilation unit this expression relates to, if any
     compile_unit: ?*const dwarf.CompileUnit = null,
@@ -42,14 +42,14 @@ pub const ExpressionOptions = struct {
     /// The address size of the target architecture
     addr_size: u8 = @sizeOf(usize),
 
-    /// Endianess of the target architecture
+    /// Endianness of the target architecture
     endian: std.builtin.Endian = builtin.target.cpu.arch.endian(),
 
     /// Restrict the stack machine to a subset of opcodes used in call frame instructions
     call_frame_context: bool = false,
 };
 
-// Explcitly defined to support executing sub-expressions
+// Explicitly defined to support executing sub-expressions
 pub const ExpressionError = error{
     UnimplementedExpressionCall,
     UnimplementedOpcode,
@@ -460,7 +460,6 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                     // This code will need to be updated to handle any architectures that utilize this.
                     _ = addr_space_identifier;
 
-                    if (context.isValidMemory) |isValidMemory| if (!isValidMemory(addr)) return error.InvalidExpression;
                     const size = switch (opcode) {
                         OP.deref,
                         OP.xderef,
@@ -473,6 +472,16 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
                         => operand.?.deref_type.size,
                         else => unreachable,
                     };
+
+                    if (context.memory_accessor) |memory_accessor| {
+                        if (!switch (size) {
+                            1 => memory_accessor.load(u8, addr) != null,
+                            2 => memory_accessor.load(u16, addr) != null,
+                            4 => memory_accessor.load(u32, addr) != null,
+                            8 => memory_accessor.load(u64, addr) != null,
+                            else => return error.InvalidExpression,
+                        }) return error.InvalidExpression;
+                    }
 
                     const value: addr_type = std.math.cast(addr_type, @as(u64, switch (size) {
                         1 => @as(*const u8, @ptrFromInt(addr)).*,

@@ -2523,7 +2523,7 @@ pub const F = struct {
     /// add signature from same file (used by dyld for shared libs)
     pub const ADDFILESIGS = 61;
     /// used in conjunction with F.NOCACHE to indicate that DIRECT, synchronous writes
-    /// should not be used (i.e. its ok to temporaily create cached pages)
+    /// should not be used (i.e. its ok to temporarily create cached pages)
     pub const NODIRECT = 62;
     ///Get the protection class of a file from the EA, returns int
     pub const GETPROTECTIONCLASS = 63;

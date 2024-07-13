@@ -7,13 +7,12 @@ const InternPool = @import("InternPool.zig");
 
 const Zir = std.zig.Zir;
 const Zcu = @import("Zcu.zig");
-const Module = Zcu;
 const LazySrcLoc = Zcu.LazySrcLoc;
 
 /// Write human-readable, debug formatted ZIR code to a file.
 pub fn renderAsTextToFile(
     gpa: Allocator,
-    scope_file: *Module.File,
+    scope_file: *Zcu.File,
     fs_file: std.fs.File,
 ) !void {
     var arena = std.heap.ArenaAllocator.init(gpa);
@@ -64,7 +63,7 @@ pub fn renderInstructionContext(
     gpa: Allocator,
     block: []const Zir.Inst.Index,
     block_index: usize,
-    scope_file: *Module.File,
+    scope_file: *Zcu.File,
     parent_decl_node: Ast.Node.Index,
     indent: u32,
     stream: anytype,
@@ -96,7 +95,7 @@ pub fn renderInstructionContext(
 pub fn renderSingleInstruction(
     gpa: Allocator,
     inst: Zir.Inst.Index,
-    scope_file: *Module.File,
+    scope_file: *Zcu.File,
     parent_decl_node: Ast.Node.Index,
     indent: u32,
     stream: anytype,
@@ -122,7 +121,7 @@ pub fn renderSingleInstruction(
 const Writer = struct {
     gpa: Allocator,
     arena: Allocator,
-    file: *Module.File,
+    file: *Zcu.File,
     code: Zir,
     indent: u32,
     parent_decl_node: Ast.Node.Index,

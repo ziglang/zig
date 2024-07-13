@@ -537,20 +537,42 @@ pub fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBacken
     };
 }
 
-pub fn backendSupportsFeature(
-    cpu_arch: std.Target.Cpu.Arch,
-    ofmt: std.Target.ObjectFormat,
-    use_llvm: bool,
-    feature: Feature,
-) bool {
+pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, comptime feature: Feature) bool {
     return switch (feature) {
-        .panic_fn => ofmt == .c or use_llvm or cpu_arch == .x86_64 or cpu_arch == .riscv64,
-        .panic_unwrap_error => ofmt == .c or use_llvm,
-        .safety_check_formatted => ofmt == .c or use_llvm,
-        .error_return_trace => use_llvm,
-        .is_named_enum_value => use_llvm,
-        .error_set_has_value => use_llvm or cpu_arch.isWasm(),
-        .field_reordering => ofmt == .c or use_llvm,
-        .safety_checked_instructions => use_llvm,
+        .panic_fn => switch (backend) {
+            .stage2_c, .stage2_llvm, .stage2_x86_64, .stage2_riscv64 => true,
+            else => false,
+        },
+        .panic_unwrap_error => switch (backend) {
+            .stage2_c, .stage2_llvm => true,
+            else => false,
+        },
+        .safety_check_formatted => switch (backend) {
+            .stage2_c, .stage2_llvm => true,
+            else => false,
+        },
+        .error_return_trace => switch (backend) {
+            .stage2_llvm => true,
+            else => false,
+        },
+        .is_named_enum_value => switch (backend) {
+            .stage2_llvm => true,
+            else => false,
+        },
+        .error_set_has_value => switch (backend) {
+            .stage2_llvm, .stage2_wasm => true,
+            else => false,
+        },
+        .field_reordering => switch (backend) {
+            .stage2_c, .stage2_llvm => true,
+            else => false,
+        },
+        .safety_checked_instructions => switch (backend) {
+            .stage2_llvm => true,
+            else => false,
+        },
+        .separate_thread => switch (backend) {
+            else => false,
+        },
     };
 }

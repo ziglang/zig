@@ -7,6 +7,16 @@ dependencies: std.ArrayList(*Step),
 /// This field is empty during execution of the user's build script, and
 /// then populated during dependency loop checking in the build runner.
 dependants: std.ArrayListUnmanaged(*Step),
+/// Collects the set of files that retrigger this step to run.
+///
+/// This is used by the build system's implementation of `--watch` but it can
+/// also be potentially useful for IDEs to know what effects editing a
+/// particular file has.
+///
+/// Populated within `make`. Implementation may choose to clear and repopulate,
+/// retain previous value, or update.
+inputs: Inputs,
+
 state: State,
 /// Set this field to declare an upper bound on the amount of bytes of memory it will
 /// take to run the step. Zero means no limit.
@@ -63,6 +73,11 @@ pub const MakeFn = *const fn (step: *Step, prog_node: std.Progress.Node) anyerro
 pub const State = enum {
     precheck_unstarted,
     precheck_started,
+    /// This is also used to indicate "dirty" steps that have been modified
+    /// after a previous build completed, in which case, the step may or may
+    /// not have been completed before. Either way, one or more of its direct
+    /// file system inputs have been modified, meaning that the step needs to
+    /// be re-evaluated.
     precheck_done,
     running,
     dependency_failure,
@@ -87,6 +102,7 @@ pub const Id = enum {
     fmt,
     translate_c,
     write_file,
+    update_source_files,
     run,
     check_file,
     check_object,
@@ -107,6 +123,7 @@ pub const Id = enum {
             .fmt => Fmt,
             .translate_c => TranslateC,
             .write_file => WriteFile,
+            .update_source_files => UpdateSourceFiles,
             .run => Run,
             .check_file => CheckFile,
             .check_object => CheckObject,
@@ -133,6 +150,28 @@ pub const RemoveDir = @import("Step/RemoveDir.zig");
 pub const Run = @import("Step/Run.zig");
 pub const TranslateC = @import("Step/TranslateC.zig");
 pub const WriteFile = @import("Step/WriteFile.zig");
+pub const UpdateSourceFiles = @import("Step/UpdateSourceFiles.zig");
+
+pub const Inputs = struct {
+    table: Table,
+
+    pub const init: Inputs = .{
+        .table = .{},
+    };
+
+    pub const Table = std.ArrayHashMapUnmanaged(Build.Cache.Path, Files, Build.Cache.Path.TableAdapter, false);
+    /// The special file name "." means any changes inside the directory.
+    pub const Files = std.ArrayListUnmanaged([]const u8);
+
+    pub fn populated(inputs: *Inputs) bool {
+        return inputs.table.count() != 0;
+    }
+
+    pub fn clear(inputs: *Inputs, gpa: Allocator) void {
+        for (inputs.table.values()) |*files| files.deinit(gpa);
+        inputs.table.clearRetainingCapacity();
+    }
+};
 
 pub const StepOptions = struct {
     id: Id,
@@ -153,6 +192,7 @@ pub fn init(options: StepOptions) Step {
         .makeFn = options.makeFn,
         .dependencies = std.ArrayList(*Step).init(arena),
         .dependants = .{},
+        .inputs = Inputs.init,
         .state = .precheck_unstarted,
         .max_rss = options.max_rss,
         .debug_stack_trace = blk: {
@@ -395,6 +435,44 @@ pub fn evalZigProcess(
                 s.result_cached = ebp_hdr.flags.cache_hit;
                 result = try arena.dupe(u8, body[@sizeOf(EbpHdr)..]);
             },
+            .file_system_inputs => {
+                s.clearWatchInputs();
+                var it = std.mem.splitScalar(u8, body, 0);
+                while (it.next()) |prefixed_path| {
+                    const prefix_index: std.zig.Server.Message.PathPrefix = @enumFromInt(prefixed_path[0] - 1);
+                    const sub_path = try arena.dupe(u8, prefixed_path[1..]);
+                    const sub_path_dirname = std.fs.path.dirname(sub_path) orelse "";
+                    switch (prefix_index) {
+                        .cwd => {
+                            const path: Build.Cache.Path = .{
+                                .root_dir = Build.Cache.Directory.cwd(),
+                                .sub_path = sub_path_dirname,
+                            };
+                            try addWatchInputFromPath(s, path, std.fs.path.basename(sub_path));
+                        },
+                        .zig_lib => zl: {
+                            if (s.cast(Step.Compile)) |compile| {
+                                if (compile.zig_lib_dir) |lp| {
+                                    try addWatchInput(s, lp);
+                                    break :zl;
+                                }
+                            }
+                            const path: Build.Cache.Path = .{
+                                .root_dir = s.owner.graph.zig_lib_directory,
+                                .sub_path = sub_path_dirname,
+                            };
+                            try addWatchInputFromPath(s, path, std.fs.path.basename(sub_path));
+                        },
+                        .local_cache => {
+                            const path: Build.Cache.Path = .{
+                                .root_dir = b.cache_root,
+                                .sub_path = sub_path_dirname,
+                            };
+                            try addWatchInputFromPath(s, path, std.fs.path.basename(sub_path));
+                        },
+                    }
+                }
+            },
             else => {}, // ignore other messages
         }
 
@@ -542,23 +620,176 @@ pub fn allocPrintCmd2(
     return buf.toOwnedSlice(arena);
 }
 
-pub fn cacheHit(s: *Step, man: *std.Build.Cache.Manifest) !bool {
+/// Prefer `cacheHitAndWatch` unless you already added watch inputs
+/// separately from using the cache system.
+pub fn cacheHit(s: *Step, man: *Build.Cache.Manifest) !bool {
     s.result_cached = man.hit() catch |err| return failWithCacheError(s, man, err);
     return s.result_cached;
 }
 
-fn failWithCacheError(s: *Step, man: *const std.Build.Cache.Manifest, err: anyerror) anyerror {
+/// Clears previous watch inputs, if any, and then populates watch inputs from
+/// the full set of files picked up by the cache manifest.
+///
+/// Must be accompanied with `writeManifestAndWatch`.
+pub fn cacheHitAndWatch(s: *Step, man: *Build.Cache.Manifest) !bool {
+    const is_hit = man.hit() catch |err| return failWithCacheError(s, man, err);
+    s.result_cached = is_hit;
+    // The above call to hit() populates the manifest with files, so in case of
+    // a hit, we need to populate watch inputs.
+    if (is_hit) try setWatchInputsFromManifest(s, man);
+    return is_hit;
+}
+
+fn failWithCacheError(s: *Step, man: *const Build.Cache.Manifest, err: anyerror) anyerror {
     const i = man.failed_file_index orelse return err;
     const pp = man.files.keys()[i].prefixed_path;
     const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
     return s.fail("{s}: {s}/{s}", .{ @errorName(err), prefix, pp.sub_path });
 }
 
-pub fn writeManifest(s: *Step, man: *std.Build.Cache.Manifest) !void {
+/// Prefer `writeManifestAndWatch` unless you already added watch inputs
+/// separately from using the cache system.
+pub fn writeManifest(s: *Step, man: *Build.Cache.Manifest) !void {
     if (s.test_results.isSuccess()) {
         man.writeManifest() catch |err| {
             try s.addError("unable to write cache manifest: {s}", .{@errorName(err)});
         };
+    }
+}
+
+/// Clears previous watch inputs, if any, and then populates watch inputs from
+/// the full set of files picked up by the cache manifest.
+///
+/// Must be accompanied with `cacheHitAndWatch`.
+pub fn writeManifestAndWatch(s: *Step, man: *Build.Cache.Manifest) !void {
+    try writeManifest(s, man);
+    try setWatchInputsFromManifest(s, man);
+}
+
+fn setWatchInputsFromManifest(s: *Step, man: *Build.Cache.Manifest) !void {
+    const arena = s.owner.allocator;
+    const prefixes = man.cache.prefixes();
+    clearWatchInputs(s);
+    for (man.files.keys()) |file| {
+        // The file path data is freed when the cache manifest is cleaned up at the end of `make`.
+        const sub_path = try arena.dupe(u8, file.prefixed_path.sub_path);
+        try addWatchInputFromPath(s, .{
+            .root_dir = prefixes[file.prefixed_path.prefix],
+            .sub_path = std.fs.path.dirname(sub_path) orelse "",
+        }, std.fs.path.basename(sub_path));
+    }
+}
+
+/// For steps that have a single input that never changes when re-running `make`.
+pub fn singleUnchangingWatchInput(step: *Step, lazy_path: Build.LazyPath) Allocator.Error!void {
+    if (!step.inputs.populated()) try step.addWatchInput(lazy_path);
+}
+
+pub fn clearWatchInputs(step: *Step) void {
+    const gpa = step.owner.allocator;
+    step.inputs.clear(gpa);
+}
+
+/// Places a *file* dependency on the path.
+pub fn addWatchInput(step: *Step, lazy_file: Build.LazyPath) Allocator.Error!void {
+    switch (lazy_file) {
+        .src_path => |src_path| try addWatchInputFromBuilder(step, src_path.owner, src_path.sub_path),
+        .dependency => |d| try addWatchInputFromBuilder(step, d.dependency.builder, d.sub_path),
+        .cwd_relative => |path_string| {
+            try addWatchInputFromPath(step, .{
+                .root_dir = .{
+                    .path = null,
+                    .handle = std.fs.cwd(),
+                },
+                .sub_path = std.fs.path.dirname(path_string) orelse "",
+            }, std.fs.path.basename(path_string));
+        },
+        // Nothing to watch because this dependency edge is modeled instead via `dependants`.
+        .generated => {},
+    }
+}
+
+/// Any changes inside the directory will trigger invalidation.
+///
+/// See also `addDirectoryWatchInputFromPath` which takes a `Build.Cache.Path` instead.
+///
+/// Paths derived from this directory should also be manually added via
+/// `addDirectoryWatchInputFromPath` if and only if this function returns
+/// `true`.
+pub fn addDirectoryWatchInput(step: *Step, lazy_directory: Build.LazyPath) Allocator.Error!bool {
+    switch (lazy_directory) {
+        .src_path => |src_path| try addDirectoryWatchInputFromBuilder(step, src_path.owner, src_path.sub_path),
+        .dependency => |d| try addDirectoryWatchInputFromBuilder(step, d.dependency.builder, d.sub_path),
+        .cwd_relative => |path_string| {
+            try addDirectoryWatchInputFromPath(step, .{
+                .root_dir = .{
+                    .path = null,
+                    .handle = std.fs.cwd(),
+                },
+                .sub_path = path_string,
+            });
+        },
+        // Nothing to watch because this dependency edge is modeled instead via `dependants`.
+        .generated => return false,
+    }
+    return true;
+}
+
+/// Any changes inside the directory will trigger invalidation.
+///
+/// See also `addDirectoryWatchInput` which takes a `Build.LazyPath` instead.
+///
+/// This function should only be called when it has been verified that the
+/// dependency on `path` is not already accounted for by a `Step` dependency.
+/// In other words, before calling this function, first check that the
+/// `Build.LazyPath` which this `path` is derived from is not `generated`.
+pub fn addDirectoryWatchInputFromPath(step: *Step, path: Build.Cache.Path) !void {
+    return addWatchInputFromPath(step, path, ".");
+}
+
+fn addWatchInputFromBuilder(step: *Step, builder: *Build, sub_path: []const u8) !void {
+    return addWatchInputFromPath(step, .{
+        .root_dir = builder.build_root,
+        .sub_path = std.fs.path.dirname(sub_path) orelse "",
+    }, std.fs.path.basename(sub_path));
+}
+
+fn addDirectoryWatchInputFromBuilder(step: *Step, builder: *Build, sub_path: []const u8) !void {
+    return addDirectoryWatchInputFromPath(step, .{
+        .root_dir = builder.build_root,
+        .sub_path = sub_path,
+    });
+}
+
+fn addWatchInputFromPath(step: *Step, path: Build.Cache.Path, basename: []const u8) !void {
+    const gpa = step.owner.allocator;
+    const gop = try step.inputs.table.getOrPut(gpa, path);
+    if (!gop.found_existing) gop.value_ptr.* = .{};
+    try gop.value_ptr.append(gpa, basename);
+}
+
+fn reset(step: *Step, gpa: Allocator) void {
+    assert(step.state == .precheck_done);
+
+    step.result_error_msgs.clearRetainingCapacity();
+    step.result_stderr = "";
+    step.result_cached = false;
+    step.result_duration_ns = null;
+    step.result_peak_rss = 0;
+    step.test_results = .{};
+
+    step.result_error_bundle.deinit(gpa);
+    step.result_error_bundle = std.zig.ErrorBundle.empty;
+}
+
+/// Implementation detail of file watching. Prepares the step for being re-evaluated.
+pub fn recursiveReset(step: *Step, gpa: Allocator) void {
+    assert(step.state != .precheck_done);
+    step.state = .precheck_done;
+    step.reset(gpa);
+    for (step.dependants.items) |dep| {
+        if (dep.state == .precheck_done) continue;
+        dep.recursiveReset(gpa);
     }
 }
 
@@ -577,4 +808,5 @@ test {
     _ = Run;
     _ = TranslateC;
     _ = WriteFile;
+    _ = UpdateSourceFiles;
 }
