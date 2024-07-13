@@ -508,11 +508,6 @@ pub const Block = struct {
         }
     };
 
-    /// For debugging purposes.
-    pub fn dump(block: *Block, mod: Module) void {
-        Zir.dumpBlock(mod, block);
-    }
-
     pub fn makeSubBlock(parent: *Block) Block {
         return .{
             .parent = parent,
