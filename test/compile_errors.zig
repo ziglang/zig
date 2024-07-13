@@ -39,6 +39,76 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     }
 
     {
+        const case = ctx.obj("identifier escapes", b.graph.host);
+
+        case.addError(
+            \\export fn a() void {
+            \\    return @"Á";
+            \\}
+            \\
+            \\export fn b() void {
+            \\    return @"B";
+            \\}
+            \\
+            \\export fn c() void {
+            \\    return @"a\nb";
+            \\}
+        , &[_][]const u8{
+            \\:2:12: error: use of undeclared identifier @"\xc3\x81"
+            ,
+            \\:6:12: error: use of undeclared identifier 'B'
+            ,
+            \\:10:12: error: use of undeclared identifier @"a\nb"
+        });
+    }
+
+
+    {
+        const case = ctx.obj("unmatched parentheses", b.graph.host);
+
+        case.addError(
+            \\export fn a() void {
+            \\}
+            \\}
+        , &[_][]const u8{
+            ":3:1: error: unmatched curly brace",
+            ":2:2: error: expected 'EOF', found '}'",
+        });
+
+    }
+
+    {
+        const case = ctx.obj("unmatched parentheses #2", b.graph.host);
+
+        case.addError(
+            \\const c = {
+            \\)
+            \\};
+        , &[_][]const u8{
+            ":2:1: error: unmatched parenthesis",
+            ":2:1: error: expected statement, found ')'",
+        });
+    }
+
+    {
+        const case = ctx.obj("unmatched parentheses #3", b.graph.host);
+
+        case.addError(
+            \\pub fn bar() void {
+            \\    // Oops...
+            \\    }
+            \\
+            \\    if (true) {
+            \\        return;
+            \\    }
+            \\}
+        , &[_][]const u8{
+            ":8:1: error: unmatched curly brace",
+            ":5:15: error: expected type expression, found '{'",
+        });
+    }
+
+    {
         const case = ctx.obj("isolated carriage return in multiline string literal", b.graph.host);
 
         case.addError("const foo = \\\\\test\r\r rogue carriage return\n;", &[_][]const u8{

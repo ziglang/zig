@@ -14,4 +14,4 @@ comptime {
 // target=native
 //
 // :2:15: error: expected error set type, found 'error.Foo'
-// :3:15: error: expected error set type, found 'i32'
+// :7:15: error: expected error set type, found 'i32'
