@@ -683,10 +683,12 @@ pub const ArgIteratorWindows = struct {
         const wtf8_len = unicode.calcWtf8Len(cmd_line);
 
         // This buffer must be large enough to contain contiguous NUL-terminated slices
-        // of each argument. For arguments past the first one, space for the NUL-terminator
-        // is guaranteed due to the necessary whitespace between arugments. However, we need
-        // one extra byte to guarantee enough room for the NUL terminator if the command line
-        // ends up being exactly 1 argument long with no quotes, etc.
+        // of each argument.
+        // - During parsing, the length of a parsed argument will always be equal to
+        //   to less than its unparsed length
+        // - The first argument needs one extra byte of space allocated for its NUL
+        //   terminator, but for each subsequent argument the necessary whitespace
+        //   between arguments guarantees room for their NUL terminator(s).
         const buffer = try allocator.alloc(u8, wtf8_len + 1);
         errdefer allocator.free(buffer);
 
