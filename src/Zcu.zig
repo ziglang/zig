@@ -3127,14 +3127,14 @@ pub fn errNote(
 /// Deprecated. There is no global target for a Zig Compilation Unit. Instead,
 /// look up the target based on the Module that contains the source code being
 /// analyzed.
-pub fn getTarget(zcu: Module) Target {
+pub fn getTarget(zcu: *const Zcu) Target {
     return zcu.root_mod.resolved_target.result;
 }
 
 /// Deprecated. There is no global optimization mode for a Zig Compilation
 /// Unit. Instead, look up the optimization mode based on the Module that
 /// contains the source code being analyzed.
-pub fn optimizeMode(zcu: Module) std.builtin.OptimizeMode {
+pub fn optimizeMode(zcu: *const Zcu) std.builtin.OptimizeMode {
     return zcu.root_mod.optimize_mode;
 }
 
@@ -3203,7 +3203,7 @@ pub const Feature = enum {
     separate_thread,
 };
 
-pub fn backendSupportsFeature(zcu: Module, comptime feature: Feature) bool {
+pub fn backendSupportsFeature(zcu: *const Zcu, comptime feature: Feature) bool {
     const backend = target_util.zigBackend(zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
     return target_util.backendSupportsFeature(backend, feature);
 }
