@@ -214,12 +214,12 @@ pub fn findUnmatchedParen(gpa: Allocator, token_tags: []const Token.Tag) !?Token
 
     for (token_tags, 0..) |t, i| {
         switch (t) {
-            .l_paren, .l_brace, .l_bracket => try stack.append(.{.tag = t, .idx = @intCast(i)}),
+            .l_paren, .l_brace, .l_bracket => try stack.append(.{ .tag = t, .idx = @intCast(i) }),
             .r_paren, .r_brace, .r_bracket => {
                 if (stack.items.len == 0 or !parenMatch(stack.pop().tag, t))
                     return @intCast(i);
             },
-            else => {}
+            else => {},
         }
     }
     if (stack.items.len > 0)

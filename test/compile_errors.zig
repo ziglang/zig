@@ -62,7 +62,6 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
         });
     }
 
-
     {
         const case = ctx.obj("unmatched parentheses", b.graph.host);
 
@@ -74,7 +73,6 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             ":3:1: error: unmatched curly brace",
             ":2:2: error: expected 'EOF', found '}'",
         });
-
     }
 
     {
