@@ -2351,6 +2351,9 @@ fn writeSectionsAndUpdateLinkeditSizes(self: *MachO) !void {
     for (self.objects.items) |index| {
         try self.getFile(index).?.writeAtoms(self);
     }
+    if (self.getZigObject()) |zo| {
+        try zo.writeAtoms(self);
+    }
     if (self.getInternalObject()) |obj| {
         try obj.asFile().writeAtoms(self);
     }
