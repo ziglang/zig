@@ -637,11 +637,13 @@ fn writeSections(macho_file: *MachO) !void {
     const gpa = macho_file.base.comp.gpa;
     const cpu_arch = macho_file.getTarget().cpu.arch;
     const slice = macho_file.sections.slice();
-    for (slice.items(.header), slice.items(.out), slice.items(.relocs)) |header, *out, *relocs| {
+    for (slice.items(.header), slice.items(.out), slice.items(.relocs), 0..) |header, *out, *relocs, n_sect| {
         if (header.isZerofill()) continue;
-        try out.resize(gpa, header.size);
-        const padding_byte: u8 = if (header.isCode() and cpu_arch == .x86_64) 0xcc else 0;
-        @memset(out.items, padding_byte);
+        if (!macho_file.isZigSection(@intCast(n_sect))) { // TODO this is wrong; what about debug sections?
+            try out.resize(gpa, header.size);
+            const padding_byte: u8 = if (header.isCode() and cpu_arch == .x86_64) 0xcc else 0;
+            @memset(out.items, padding_byte);
+        }
         try relocs.resize(gpa, header.nreloc);
     }
 
