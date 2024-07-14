@@ -1150,8 +1150,9 @@ pub const ArgIterator = struct {
             return ArgIterator{ .inner = try InnerType.init(allocator) };
         }
         if (native_os == .windows) {
-            const cmd_line_w = windows.kernel32.GetCommandLineW();
-            return ArgIterator{ .inner = try InnerType.init(allocator, cmd_line_w) };
+            const cmd_line = std.os.windows.peb().ProcessParameters.CommandLine;
+            const cmd_line_w = cmd_line.Buffer.?[0 .. cmd_line.Length / 2 :0];
+            return ArgIterator{ .inner = try InnerType.init(allocator, cmd_line_w.ptr) };
         }
 
         return ArgIterator{ .inner = InnerType.init() };
