@@ -664,7 +664,7 @@ pub const ArgIteratorWasi = struct {
 pub const ArgIteratorWindows = struct {
     allocator: Allocator,
     /// Encoded as WTF-16 LE.
-    cmd_line: [:0]const u16,
+    cmd_line: []const u16,
     index: usize = 0,
     /// Owned by the iterator. Long enough to hold contiguous NUL-terminated slices
     /// of each argument encoded as WTF-8.
@@ -678,9 +678,8 @@ pub const ArgIteratorWindows = struct {
     ///
     /// The iterator stores and uses `cmd_line_w`, so its memory must be valid for
     /// at least as long as the returned ArgIteratorWindows.
-    pub fn init(allocator: Allocator, cmd_line_w: [*:0]const u16) InitError!ArgIteratorWindows {
-        const cmd_line = mem.sliceTo(cmd_line_w, 0);
-        const wtf8_len = unicode.calcWtf8Len(cmd_line);
+    pub fn init(allocator: Allocator, cmd_line_w: []const u16) InitError!ArgIteratorWindows {
+        const wtf8_len = unicode.calcWtf8Len(cmd_line_w);
 
         // This buffer must be large enough to contain contiguous NUL-terminated slices
         // of each argument.
@@ -694,7 +693,7 @@ pub const ArgIteratorWindows = struct {
 
         return .{
             .allocator = allocator,
-            .cmd_line = cmd_line,
+            .cmd_line = cmd_line_w,
             .buffer = buffer,
         };
     }
@@ -1151,8 +1150,8 @@ pub const ArgIterator = struct {
         }
         if (native_os == .windows) {
             const cmd_line = std.os.windows.peb().ProcessParameters.CommandLine;
-            const cmd_line_w = cmd_line.Buffer.?[0 .. cmd_line.Length / 2 :0];
-            return ArgIterator{ .inner = try InnerType.init(allocator, cmd_line_w.ptr) };
+            const cmd_line_w = cmd_line.Buffer.?[0 .. cmd_line.Length / 2];
+            return ArgIterator{ .inner = try InnerType.init(allocator, cmd_line_w) };
         }
 
         return ArgIterator{ .inner = InnerType.init() };
