@@ -1635,9 +1635,16 @@ fn getZigArgs(compile: *Compile) ![][]const u8 {
         });
     }
 
-    if (compile.zig_lib_dir) |dir| {
+    const opt_zig_lib_dir = if (compile.zig_lib_dir) |dir|
+        dir.getPath2(b, step)
+    else if (b.graph.zig_lib_directory.path) |_|
+        b.fmt("{}", .{b.graph.zig_lib_directory})
+    else
+        null;
+
+    if (opt_zig_lib_dir) |zig_lib_dir| {
         try zig_args.append("--zig-lib-dir");
-        try zig_args.append(dir.getPath2(b, step));
+        try zig_args.append(zig_lib_dir);
     }
 
     try addFlag(&zig_args, "PIE", compile.pie);
