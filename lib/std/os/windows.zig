@@ -173,14 +173,7 @@ pub fn GetCurrentThreadId() DWORD {
 }
 
 pub fn GetLastError() Win32Error {
-    const offset = comptime switch (builtin.target.ptrBitWidth()) {
-        32 => 0x34,
-        64 => 0x68,
-        else => @compileError("Unkown target."),
-    };
-    const addr = @intFromPtr(teb());
-    const ptr: *const u32 = @ptrFromInt(addr + offset);
-    return @enumFromInt(ptr.*);
+    return @enumFromInt(teb().LastErrorValue);
 }
 
 pub const CreatePipeError = error{ Unexpected, SystemResources };
@@ -4441,7 +4434,8 @@ pub const TEB = extern struct {
     ActiveRpcHandle: PVOID,
     ThreadLocalStoragePointer: PVOID,
     ProcessEnvironmentBlock: *PEB,
-    Reserved2: [399]PVOID,
+    LastErrorValue: ULONG,
+    Reserved2: [399 * @sizeOf(PVOID) - @sizeOf(ULONG)]u8,
     Reserved3: [1952]u8,
     TlsSlots: [64]PVOID,
     Reserved4: [8]u8,
@@ -4461,12 +4455,16 @@ comptime {
         assert(@offsetOf(TEB, "ActiveRpcHandle") == 0x28);
         assert(@offsetOf(TEB, "ThreadLocalStoragePointer") == 0x2C);
         assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x30);
+        assert(@offsetOf(TEB, "LastErrorValue") == 0x34);
+        assert(@offsetOf(TEB, "TlsSlots") == 0xe10);
     } else if (@sizeOf(usize) == 8) {
         assert(@offsetOf(TEB, "EnvironmentPointer") == 0x38);
         assert(@offsetOf(TEB, "ClientId") == 0x40);
         assert(@offsetOf(TEB, "ActiveRpcHandle") == 0x50);
         assert(@offsetOf(TEB, "ThreadLocalStoragePointer") == 0x58);
         assert(@offsetOf(TEB, "ProcessEnvironmentBlock") == 0x60);
+        assert(@offsetOf(TEB, "LastErrorValue") == 0x68);
+        assert(@offsetOf(TEB, "TlsSlots") == 0x1480);
     }
 }
 
