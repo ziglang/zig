@@ -61,7 +61,7 @@ pub fn accessW(path: [*:0]const u16) windows.GetFileAttributesError!void {
     if (ret != windows.INVALID_FILE_ATTRIBUTES) {
         return;
     }
-    switch (windows.kernel32.GetLastError()) {
+    switch (windows.GetLastError()) {
         .FILE_NOT_FOUND => return error.FileNotFound,
         .PATH_NOT_FOUND => return error.FileNotFound,
         .ACCESS_DENIED => return error.PermissionDenied,

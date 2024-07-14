@@ -1781,7 +1781,7 @@ pub const DebugInfo = struct {
 
             const handle = windows.kernel32.CreateToolhelp32Snapshot(windows.TH32CS_SNAPMODULE | windows.TH32CS_SNAPMODULE32, 0);
             if (handle == windows.INVALID_HANDLE_VALUE) {
-                switch (windows.kernel32.GetLastError()) {
+                switch (windows.GetLastError()) {
                     else => |err| return windows.unexpectedError(err),
                 }
             }
