@@ -1012,7 +1012,7 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.posix.iove
     // Cleartext capacity of output buffer, in records. Minimum one full record.
     const buf_cap = @max(cleartext_buf_len / max_ciphertext_len, 1);
     const wanted_read_len = buf_cap * (max_ciphertext_len + tls.record_header_len);
-    const ask_len = @max(wanted_read_len, cleartext_stack_buffer.len);
+    const ask_len = @max(wanted_read_len, cleartext_stack_buffer.len) - c.partial_ciphertext_end;
     const ask_iovecs = limitVecs(&ask_iovecs_buf, ask_len);
     const actual_read_len = try stream.readv(ask_iovecs);
     if (actual_read_len == 0) {

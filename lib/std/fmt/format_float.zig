@@ -1513,6 +1513,8 @@ const FLOAT128_POW5_INV_ERRORS: [154]u64 = .{
 
 // zig fmt: on
 
+const builtin = @import("builtin");
+
 fn check(comptime T: type, value: T, comptime expected: []const u8) !void {
     const I = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = @bitSizeOf(T) } });
 
@@ -1521,15 +1523,15 @@ fn check(comptime T: type, value: T, comptime expected: []const u8) !void {
     const s = try formatFloat(&buf, value, .{});
     try std.testing.expectEqualStrings(expected, s);
 
-    if (@bitSizeOf(T) != 80) {
-        const o = try std.fmt.parseFloat(T, s);
-        const o_bits: I = @bitCast(o);
+    if (T == f80 and builtin.target.os.tag == .windows and builtin.target.cpu.arch == .x86_64) return;
 
-        if (std.math.isNan(value)) {
-            try std.testing.expect(std.math.isNan(o));
-        } else {
-            try std.testing.expectEqual(value_bits, o_bits);
-        }
+    const o = try std.fmt.parseFloat(T, s);
+    const o_bits: I = @bitCast(o);
+
+    if (std.math.isNan(value)) {
+        try std.testing.expect(std.math.isNan(o));
+    } else {
+        try std.testing.expectEqual(value_bits, o_bits);
     }
 }
 

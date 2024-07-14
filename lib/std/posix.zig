@@ -4501,7 +4501,7 @@ pub const FanotifyInitError = error{
     PermissionDenied,
 } || UnexpectedError;
 
-pub fn fanotify_init(flags: u32, event_f_flags: u32) FanotifyInitError!i32 {
+pub fn fanotify_init(flags: std.os.linux.fanotify.InitFlags, event_f_flags: u32) FanotifyInitError!i32 {
     const rc = system.fanotify_init(flags, event_f_flags);
     switch (errno(rc)) {
         .SUCCESS => return @intCast(rc),
@@ -4530,16 +4530,28 @@ pub const FanotifyMarkError = error{
     NameTooLong,
 } || UnexpectedError;
 
-pub fn fanotify_mark(fanotify_fd: i32, flags: u32, mask: u64, dirfd: i32, pathname: ?[]const u8) FanotifyMarkError!void {
+pub fn fanotify_mark(
+    fanotify_fd: fd_t,
+    flags: std.os.linux.fanotify.MarkFlags,
+    mask: std.os.linux.fanotify.MarkMask,
+    dirfd: fd_t,
+    pathname: ?[]const u8,
+) FanotifyMarkError!void {
     if (pathname) |path| {
         const path_c = try toPosixPath(path);
         return fanotify_markZ(fanotify_fd, flags, mask, dirfd, &path_c);
+    } else {
+        return fanotify_markZ(fanotify_fd, flags, mask, dirfd, null);
     }
-
-    return fanotify_markZ(fanotify_fd, flags, mask, dirfd, null);
 }
 
-pub fn fanotify_markZ(fanotify_fd: i32, flags: u32, mask: u64, dirfd: i32, pathname: ?[*:0]const u8) FanotifyMarkError!void {
+pub fn fanotify_markZ(
+    fanotify_fd: fd_t,
+    flags: std.os.linux.fanotify.MarkFlags,
+    mask: std.os.linux.fanotify.MarkMask,
+    dirfd: fd_t,
+    pathname: ?[*:0]const u8,
+) FanotifyMarkError!void {
     const rc = system.fanotify_mark(fanotify_fd, flags, mask, dirfd, pathname);
     switch (errno(rc)) {
         .SUCCESS => return,
@@ -6479,33 +6491,31 @@ pub const PollError = error{
 } || UnexpectedError;
 
 pub fn poll(fds: []pollfd, timeout: i32) PollError!usize {
+    if (native_os == .windows) {
+        switch (windows.poll(fds.ptr, @intCast(fds.len), timeout)) {
+            windows.ws2_32.SOCKET_ERROR => switch (windows.ws2_32.WSAGetLastError()) {
+                .WSANOTINITIALISED => unreachable,
+                .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                .WSAENOBUFS => return error.SystemResources,
+                // TODO: handle more errors
+                else => |err| return windows.unexpectedWSAError(err),
+            },
+            else => |rc| return @intCast(rc),
+        }
+    }
     while (true) {
         const fds_count = cast(nfds_t, fds.len) orelse return error.SystemResources;
         const rc = system.poll(fds.ptr, fds_count, timeout);
-        if (native_os == .windows) {
-            if (rc == windows.ws2_32.SOCKET_ERROR) {
-                switch (windows.ws2_32.WSAGetLastError()) {
-                    .WSANOTINITIALISED => unreachable,
-                    .WSAENETDOWN => return error.NetworkSubsystemFailed,
-                    .WSAENOBUFS => return error.SystemResources,
-                    // TODO: handle more errors
-                    else => |err| return windows.unexpectedWSAError(err),
-                }
-            } else {
-                return @intCast(rc);
-            }
-        } else {
-            switch (errno(rc)) {
-                .SUCCESS => return @intCast(rc),
-                .FAULT => unreachable,
-                .INTR => continue,
-                .INVAL => unreachable,
-                .NOMEM => return error.SystemResources,
-                else => |err| return unexpectedErrno(err),
-            }
+        switch (errno(rc)) {
+            .SUCCESS => return @intCast(rc),
+            .FAULT => unreachable,
+            .INTR => continue,
+            .INVAL => unreachable,
+            .NOMEM => return error.SystemResources,
+            else => |err| return unexpectedErrno(err),
         }
-        unreachable;
     }
+    unreachable;
 }
 
 pub const PPollError = error{
@@ -7274,6 +7284,44 @@ pub fn ptrace(request: u32, pid: pid_t, addr: usize, signal: usize) PtraceError!
             else => |err| return unexpectedErrno(err),
         },
     };
+}
+
+pub const NameToFileHandleAtError = error{
+    FileNotFound,
+    NotDir,
+    OperationNotSupported,
+    NameTooLong,
+    Unexpected,
+};
+
+pub fn name_to_handle_at(
+    dirfd: fd_t,
+    pathname: []const u8,
+    handle: *std.os.linux.file_handle,
+    mount_id: *i32,
+    flags: u32,
+) NameToFileHandleAtError!void {
+    const pathname_c = try toPosixPath(pathname);
+    return name_to_handle_atZ(dirfd, &pathname_c, handle, mount_id, flags);
+}
+
+pub fn name_to_handle_atZ(
+    dirfd: fd_t,
+    pathname_z: [*:0]const u8,
+    handle: *std.os.linux.file_handle,
+    mount_id: *i32,
+    flags: u32,
+) NameToFileHandleAtError!void {
+    switch (errno(system.name_to_handle_at(dirfd, pathname_z, handle, mount_id, flags))) {
+        .SUCCESS => {},
+        .FAULT => unreachable, // pathname, mount_id, or handle outside accessible address space
+        .INVAL => unreachable, // bad flags, or handle_bytes too big
+        .NOENT => return error.FileNotFound,
+        .NOTDIR => return error.NotDir,
+        .OPNOTSUPP => return error.OperationNotSupported,
+        .OVERFLOW => return error.NameTooLong,
+        else => |err| return unexpectedErrno(err),
+    }
 }
 
 pub const IoCtl_SIOCGIFINDEX_Error = error{

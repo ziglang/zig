@@ -354,6 +354,19 @@ pub const Manifest = struct {
     /// ```
     /// var file_contents = cache_hash.files.keys()[file_index].contents.?;
     /// ```
+    pub fn addFilePath(m: *Manifest, file_path: Path, max_file_size: ?usize) !usize {
+        const gpa = m.cache.gpa;
+        try m.files.ensureUnusedCapacity(gpa, 1);
+        const resolved_path = try fs.path.resolve(gpa, &.{
+            file_path.root_dir.path orelse ".",
+            file_path.subPathOrDot(),
+        });
+        errdefer gpa.free(resolved_path);
+        const prefixed_path = try m.cache.findPrefixResolved(resolved_path);
+        return addFileInner(m, prefixed_path, max_file_size);
+    }
+
+    /// Deprecated; use `addFilePath`.
     pub fn addFile(self: *Manifest, file_path: []const u8, max_file_size: ?usize) !usize {
         assert(self.manifest_file == null);
 
@@ -362,6 +375,10 @@ pub const Manifest = struct {
         const prefixed_path = try self.cache.findPrefix(file_path);
         errdefer gpa.free(prefixed_path.sub_path);
 
+        return addFileInner(self, prefixed_path, max_file_size);
+    }
+
+    fn addFileInner(self: *Manifest, prefixed_path: PrefixedPath, max_file_size: ?usize) !usize {
         const gop = self.files.getOrPutAssumeCapacityAdapted(prefixed_path, FilesAdapter{});
         if (gop.found_existing) {
             gop.key_ptr.updateMaxSize(max_file_size);
@@ -989,6 +1006,23 @@ pub const Manifest = struct {
             file.deinit(self.cache.gpa);
         }
         self.files.deinit(self.cache.gpa);
+    }
+
+    pub fn populateFileSystemInputs(man: *Manifest, buf: *std.ArrayListUnmanaged(u8)) Allocator.Error!void {
+        assert(@typeInfo(std.zig.Server.Message.PathPrefix).Enum.fields.len == man.cache.prefixes_len);
+        buf.clearRetainingCapacity();
+        const gpa = man.cache.gpa;
+        const files = man.files.keys();
+        if (files.len > 0) {
+            for (files) |file| {
+                try buf.ensureUnusedCapacity(gpa, file.prefixed_path.sub_path.len + 2);
+                buf.appendAssumeCapacity(file.prefixed_path.prefix + 1);
+                buf.appendSliceAssumeCapacity(file.prefixed_path.sub_path);
+                buf.appendAssumeCapacity(0);
+            }
+            // The null byte is a separator, not a terminator.
+            buf.items.len -= 1;
+        }
     }
 };
 

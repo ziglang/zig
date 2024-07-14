@@ -50,6 +50,7 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
     _ = prog_node;
     const b = step.owner;
     const check_file: *CheckFile = @fieldParentPtr("step", step);
+    try step.singleUnchangingWatchInput(check_file.source);
 
     const src_path = check_file.source.getPath2(b, step);
     const contents = fs.cwd().readFileAlloc(b.allocator, src_path, check_file.max_bytes) catch |err| {

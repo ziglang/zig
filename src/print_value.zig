@@ -299,8 +299,8 @@ fn printPtrDerivation(derivation: Value.PointerDeriveStep, writer: anytype, leve
             int.ptr_ty.fmt(pt),
             int.addr,
         }),
-        .decl_ptr => |decl| {
-            try zcu.declPtr(decl).renderFullyQualifiedName(zcu, writer);
+        .decl_ptr => |decl_index| {
+            try writer.print("{}", .{zcu.declPtr(decl_index).fqn.fmt(ip)});
         },
         .anon_decl_ptr => |anon| {
             const ty = Value.fromInterned(anon.val).typeOf(zcu);

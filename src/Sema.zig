@@ -508,11 +508,6 @@ pub const Block = struct {
         }
     };
 
-    /// For debugging purposes.
-    pub fn dump(block: *Block, mod: Module) void {
-        Zir.dumpBlock(mod, block);
-    }
-
     pub fn makeSubBlock(parent: *Block) Block {
         return .{
             .parent = parent,
@@ -835,12 +830,11 @@ pub const Block = struct {
     }
 
     fn trackZir(block: *Block, inst: Zir.Inst.Index) Allocator.Error!InternPool.TrackedInst.Index {
-        const sema = block.sema;
-        const gpa = sema.gpa;
-        const zcu = sema.pt.zcu;
-        const ip = &zcu.intern_pool;
-        const file_index = block.getFileScopeIndex(zcu);
-        return ip.trackZir(gpa, file_index, inst);
+        const pt = block.sema.pt;
+        return pt.zcu.intern_pool.trackZir(pt.zcu.gpa, pt.tid, .{
+            .file = block.getFileScopeIndex(pt.zcu),
+            .inst = inst,
+        });
     }
 };
 
@@ -2878,7 +2872,7 @@ fn createAnonymousDeclTypeNamed(
     switch (name_strategy) {
         .anon => {}, // handled after switch
         .parent => {
-            try zcu.initNewAnonDecl(new_decl_index, val, block.type_name_ctx);
+            try pt.initNewAnonDecl(new_decl_index, val, block.type_name_ctx, .none);
             return new_decl_index;
         },
         .func => func_strat: {
@@ -2923,7 +2917,7 @@ fn createAnonymousDeclTypeNamed(
 
             try writer.writeByte(')');
             const name = try ip.getOrPutString(gpa, pt.tid, buf.items, .no_embedded_nulls);
-            try zcu.initNewAnonDecl(new_decl_index, val, name);
+            try pt.initNewAnonDecl(new_decl_index, val, name, .none);
             return new_decl_index;
         },
         .dbg_var => {
@@ -2937,7 +2931,7 @@ fn createAnonymousDeclTypeNamed(
                     const name = try ip.getOrPutStringFmt(gpa, pt.tid, "{}.{s}", .{
                         block.type_name_ctx.fmt(ip), zir_data[i].str_op.getStr(sema.code),
                     }, .no_embedded_nulls);
-                    try zcu.initNewAnonDecl(new_decl_index, val, name);
+                    try pt.initNewAnonDecl(new_decl_index, val, name, .none);
                     return new_decl_index;
                 },
                 else => {},
@@ -2958,7 +2952,7 @@ fn createAnonymousDeclTypeNamed(
     const name = ip.getOrPutStringFmt(gpa, pt.tid, "{}__{s}_{d}", .{
         block.type_name_ctx.fmt(ip), anon_prefix, @intFromEnum(new_decl_index),
     }, .no_embedded_nulls) catch unreachable;
-    try zcu.initNewAnonDecl(new_decl_index, val, name);
+    try pt.initNewAnonDecl(new_decl_index, val, name, .none);
     return new_decl_index;
 }
 
@@ -3474,7 +3468,7 @@ fn zirErrorSetDecl(
         const name_index: Zir.NullTerminatedString = @enumFromInt(sema.code.extra[extra_index]);
         const name = sema.code.nullTerminatedString(name_index);
         const name_ip = try mod.intern_pool.getOrPutString(gpa, pt.tid, name, .no_embedded_nulls);
-        _ = try mod.getErrorValue(name_ip);
+        _ = try pt.getErrorValue(name_ip);
         const result = names.getOrPutAssumeCapacity(name_ip);
         assert(!result.found_existing); // verified in AstGen
     }
@@ -5527,13 +5521,12 @@ fn failWithBadStructFieldAccess(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const decl = zcu.declPtr(struct_type.decl.unwrap().?);
-    const fqn = try decl.fullyQualifiedName(pt);
 
     const msg = msg: {
         const msg = try sema.errMsg(
             field_src,
             "no field named '{}' in struct '{}'",
-            .{ field_name.fmt(ip), fqn.fmt(ip) },
+            .{ field_name.fmt(ip), decl.fqn.fmt(ip) },
         );
         errdefer msg.destroy(sema.gpa);
         try sema.errNote(struct_ty.srcLoc(zcu), msg, "struct declared here", .{});
@@ -5554,15 +5547,13 @@ fn failWithBadUnionFieldAccess(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const gpa = sema.gpa;
-
     const decl = zcu.declPtr(union_obj.decl);
-    const fqn = try decl.fullyQualifiedName(pt);
 
     const msg = msg: {
         const msg = try sema.errMsg(
             field_src,
             "no field named '{}' in union '{}'",
-            .{ field_name.fmt(ip), fqn.fmt(ip) },
+            .{ field_name.fmt(ip), decl.fqn.fmt(ip) },
         );
         errdefer msg.destroy(gpa);
         try sema.errNote(union_ty.srcLoc(zcu), msg, "union declared here", .{});
@@ -6059,7 +6050,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
         else => |e| return e,
     };
 
-    const result = zcu.importPkg(c_import_mod) catch |err|
+    const result = pt.importPkg(c_import_mod) catch |err|
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
 
     const path_digest = zcu.filePathDigest(result.file_index);
@@ -6721,13 +6712,7 @@ fn addDbgVar(
     if (block.need_debug_scope) |ptr| ptr.* = true;
 
     // Add the name to the AIR.
-    const name_extra_index: u32 = @intCast(sema.air_extra.items.len);
-    const elements_used = name.len / 4 + 1;
-    try sema.air_extra.ensureUnusedCapacity(sema.gpa, elements_used);
-    const buffer = mem.sliceAsBytes(sema.air_extra.unusedCapacitySlice());
-    @memcpy(buffer[0..name.len], name);
-    buffer[name.len] = 0;
-    sema.air_extra.items.len += elements_used;
+    const name_extra_index = try sema.appendAirString(name);
 
     _ = try block.addInst(.{
         .tag = air_tag,
@@ -6736,6 +6721,16 @@ fn addDbgVar(
             .operand = operand,
         } },
     });
+}
+
+pub fn appendAirString(sema: *Sema, str: []const u8) Allocator.Error!u32 {
+    const str_extra_index: u32 = @intCast(sema.air_extra.items.len);
+    const elements_used = str.len / 4 + 1;
+    const elements = try sema.air_extra.addManyAsSlice(sema.gpa, elements_used);
+    const buffer = mem.sliceAsBytes(elements);
+    @memcpy(buffer[0..str.len], str);
+    buffer[str.len] = 0;
+    return str_extra_index;
 }
 
 fn zirDeclRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -8357,13 +8352,6 @@ fn instantiateGenericCall(
             }
         } else {
             // The parameter is runtime-known.
-            child_sema.inst_map.putAssumeCapacityNoClobber(param_inst, try child_block.addInst(.{
-                .tag = .arg,
-                .data = .{ .arg = .{
-                    .ty = Air.internedToRef(arg_ty.toIntern()),
-                    .src_index = @intCast(arg_index),
-                } },
-            }));
             const param_name: Zir.NullTerminatedString = switch (param_tag) {
                 .param_anytype => fn_zir.instructions.items(.data)[@intFromEnum(param_inst)].str_tok.start,
                 .param => name: {
@@ -8373,6 +8361,16 @@ fn instantiateGenericCall(
                 },
                 else => unreachable,
             };
+            child_sema.inst_map.putAssumeCapacityNoClobber(param_inst, try child_block.addInst(.{
+                .tag = .arg,
+                .data = .{ .arg = .{
+                    .ty = Air.internedToRef(arg_ty.toIntern()),
+                    .name = if (child_block.ownerModule().strip)
+                        .none
+                    else
+                        @enumFromInt(try sema.appendAirString(fn_zir.nullTerminatedString(param_name))),
+                } },
+            }));
             try child_block.params.append(sema.arena, .{
                 .ty = arg_ty.toIntern(), // This is the type after coercion
                 .is_comptime = false, // We're adding only runtime args to the instantiation
@@ -8702,7 +8700,7 @@ fn zirErrorValue(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
         inst_data.get(sema.code),
         .no_embedded_nulls,
     );
-    _ = try pt.zcu.getErrorValue(name);
+    _ = try pt.getErrorValue(name);
     // Create an error set type with only this error value, and return the value.
     const error_set_type = try pt.singleErrorSetType(name);
     return Air.internedToRef((try pt.intern(.{ .err = .{
@@ -8732,7 +8730,7 @@ fn zirIntFromError(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
         const err_name = ip.indexToKey(val.toIntern()).err.name;
         return Air.internedToRef((try pt.intValue(
             err_int_ty,
-            try mod.getErrorValue(err_name),
+            try pt.getErrorValue(err_name),
         )).toIntern());
     }
 
@@ -8743,10 +8741,7 @@ fn zirIntFromError(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
             const names = ip.indexToKey(err_set_ty_index).error_set_type.names;
             switch (names.len) {
                 0 => return Air.internedToRef((try pt.intValue(err_int_ty, 0)).toIntern()),
-                1 => {
-                    const int: Module.ErrorInt = @intCast(mod.global_error_set.getIndex(names.get(ip)[0]).?);
-                    return pt.intRef(err_int_ty, int);
-                },
+                1 => return pt.intRef(err_int_ty, ip.getErrorValueIfExists(names.get(ip)[0]).?),
                 else => {},
             }
         },
@@ -8762,6 +8757,7 @@ fn zirErrorFromInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
 
     const pt = sema.pt;
     const mod = pt.zcu;
+    const ip = &mod.intern_pool;
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
     const src = block.nodeOffset(extra.node);
     const operand_src = block.builtinCallArgSrc(extra.node, 0);
@@ -8771,11 +8767,16 @@ fn zirErrorFromInt(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstD
 
     if (try sema.resolveDefinedValue(block, operand_src, operand)) |value| {
         const int = try sema.usizeCast(block, operand_src, try value.toUnsignedIntSema(pt));
-        if (int > mod.global_error_set.count() or int == 0)
+        if (int > len: {
+            const mutate = &ip.global_error_set.mutate;
+            mutate.mutex.lock();
+            defer mutate.mutex.unlock();
+            break :len mutate.list.len;
+        } or int == 0)
             return sema.fail(block, operand_src, "integer value '{d}' represents no error", .{int});
         return Air.internedToRef((try pt.intern(.{ .err = .{
             .ty = .anyerror_type,
-            .name = mod.global_error_set.keys()[int],
+            .name = ip.global_error_set.shared.names.acquire().view().items(.@"0")[int - 1],
         } })));
     }
     try sema.requireRuntimeBlock(block, src, operand_src);
@@ -13943,7 +13944,7 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const operand_src = block.tokenOffset(inst_data.src_tok);
     const operand = inst_data.get(sema.code);
 
-    const result = zcu.importFile(block.getFileScope(zcu), operand) catch |err| switch (err) {
+    const result = pt.importFile(block.getFileScope(zcu), operand) catch |err| switch (err) {
         error.ImportOutsideModulePath => {
             return sema.fail(block, operand_src, "import of file outside module path: '{s}'", .{operand});
         },
@@ -14002,7 +14003,7 @@ fn zirRetErrValueCode(sema: *Sema, inst: Zir.Inst.Index) CompileError!Air.Inst.R
         inst_data.get(sema.code),
         .no_embedded_nulls,
     );
-    _ = try mod.getErrorValue(name);
+    _ = try pt.getErrorValue(name);
     const error_set_type = try pt.singleErrorSetType(name);
     return Air.internedToRef((try pt.intern(.{ .err = .{
         .ty = error_set_type.toIntern(),
@@ -19561,7 +19562,7 @@ fn zirRetErrValue(
         inst_data.get(sema.code),
         .no_embedded_nulls,
     );
-    _ = try mod.getErrorValue(err_name);
+    _ = try pt.getErrorValue(err_name);
     // Return the error code from the function.
     const error_set_type = try pt.singleErrorSetType(err_name);
     const result_inst = Air.internedToRef((try pt.intern(.{ .err = .{
@@ -21604,7 +21605,7 @@ fn zirReify(
                 const name = try sema.sliceToIpString(block, src, name_val, .{
                     .needed_comptime_reason = "error set contents must be comptime-known",
                 });
-                _ = try mod.getErrorValue(name);
+                _ = try pt.getErrorValue(name);
                 const gop = names.getOrPutAssumeCapacity(name);
                 if (gop.found_existing) {
                     return sema.fail(block, src, "duplicate error '{}'", .{
@@ -23944,7 +23945,7 @@ fn checkAtomicPtrOperand(
         error.BadType => return sema.fail(
             block,
             elem_ty_src,
-            "expected bool, integer, float, enum, or pointer type; found '{}'",
+            "expected bool, integer, float, enum, packed struct, or pointer type; found '{}'",
             .{elem_ty.fmt(pt)},
         ),
     };
@@ -24273,7 +24274,7 @@ fn zirCmpxchg(
         return sema.fail(
             block,
             elem_ty_src,
-            "expected bool, integer, enum, or pointer type; found '{}'",
+            "expected bool, integer, enum, packed struct, or pointer type; found '{}'",
             .{elem_ty.fmt(pt)},
         );
     }
@@ -26500,7 +26501,7 @@ fn zirBuiltinExtern(
     const new_decl_index = try pt.allocateNewDecl(sema.owner_decl.src_namespace);
     errdefer pt.destroyDecl(new_decl_index);
     const new_decl = mod.declPtr(new_decl_index);
-    try mod.initNewAnonDecl(
+    try pt.initNewAnonDecl(
         new_decl_index,
         Value.fromInterned(
             if (Type.fromInterned(ptr_info.child).zigTypeTag(mod) == .Fn)
@@ -26522,6 +26523,7 @@ fn zirBuiltinExtern(
                 } }),
         ),
         options.name,
+        .none,
     );
     new_decl.owns_tv = true;
     // Note that this will queue the anon decl for codegen, so that the backend can
@@ -27481,7 +27483,7 @@ fn fieldVal(
                         },
                         .simple_type => |t| {
                             assert(t == .anyerror);
-                            _ = try mod.getErrorValue(field_name);
+                            _ = try pt.getErrorValue(field_name);
                         },
                         else => unreachable,
                     }
@@ -27721,7 +27723,7 @@ fn fieldPtr(
                         },
                         .simple_type => |t| {
                             assert(t == .anyerror);
-                            _ = try mod.getErrorValue(field_name);
+                            _ = try pt.getErrorValue(field_name);
                         },
                         else => unreachable,
                     }
@@ -36735,24 +36737,23 @@ fn generateUnionTagTypeNumbered(
 
     const new_decl_index = try pt.allocateNewDecl(block.namespace);
     errdefer pt.destroyDecl(new_decl_index);
-    const fqn = try union_owner_decl.fullyQualifiedName(pt);
     const name = try ip.getOrPutStringFmt(
         gpa,
         pt.tid,
         "@typeInfo({}).Union.tag_type.?",
-        .{fqn.fmt(ip)},
+        .{union_owner_decl.fqn.fmt(ip)},
         .no_embedded_nulls,
     );
-    try mod.initNewAnonDecl(
+    try pt.initNewAnonDecl(
         new_decl_index,
         Value.@"unreachable",
         name,
+        name.toOptional(),
     );
     errdefer pt.abortAnonDecl(new_decl_index);
 
     const new_decl = mod.declPtr(new_decl_index);
     new_decl.owns_tv = true;
-    new_decl.name_fully_qualified = true;
 
     const enum_ty = try ip.getGeneratedTagEnumType(gpa, pt.tid, .{
         .decl = new_decl_index,
@@ -36784,22 +36785,21 @@ fn generateUnionTagTypeSimple(
     const gpa = sema.gpa;
 
     const new_decl_index = new_decl_index: {
-        const fqn = try union_owner_decl.fullyQualifiedName(pt);
         const new_decl_index = try pt.allocateNewDecl(block.namespace);
         errdefer pt.destroyDecl(new_decl_index);
         const name = try ip.getOrPutStringFmt(
             gpa,
             pt.tid,
             "@typeInfo({}).Union.tag_type.?",
-            .{fqn.fmt(ip)},
+            .{union_owner_decl.fqn.fmt(ip)},
             .no_embedded_nulls,
         );
-        try mod.initNewAnonDecl(
+        try pt.initNewAnonDecl(
             new_decl_index,
             Value.@"unreachable",
             name,
+            name.toOptional(),
         );
-        mod.declPtr(new_decl_index).name_fully_qualified = true;
         break :new_decl_index new_decl_index;
     };
     errdefer pt.abortAnonDecl(new_decl_index);

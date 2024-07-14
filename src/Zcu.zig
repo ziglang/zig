@@ -102,7 +102,7 @@ multi_exports: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
 /// `Compilation.update` of the process for a given `Compilation`.
 ///
 /// Indexes correspond 1:1 to `files`.
-import_table: std.StringArrayHashMapUnmanaged(*File) = .{},
+import_table: std.StringArrayHashMapUnmanaged(File.Index) = .{},
 
 /// The set of all the files which have been loaded with `@embedFile` in the Module.
 /// We keep track of this in order to iterate over it and check which files have been
@@ -140,9 +140,6 @@ failed_exports: std.AutoArrayHashMapUnmanaged(u32, *ErrorMsg) = .{},
 /// If analysis failed due to a cimport error, the corresponding Clang errors
 /// are stored here.
 cimport_errors: std.AutoArrayHashMapUnmanaged(AnalUnit, std.zig.ErrorBundle) = .{},
-
-/// Key is the error name, index is the error tag value. Index 0 has a length-0 string.
-global_error_set: GlobalErrorSet = .{},
 
 /// Maximum amount of distinct error values, set by --error-limit
 error_limit: ErrorInt,
@@ -326,7 +323,10 @@ pub const Reference = struct {
 };
 
 pub const Decl = struct {
+    /// Equal to `fqn` if already fully qualified.
     name: InternPool.NullTerminatedString,
+    /// Fully qualified name.
+    fqn: InternPool.NullTerminatedString,
     /// The most recent Value of the Decl after a successful semantic analysis.
     /// Populated when `has_tv`.
     val: Value,
@@ -384,8 +384,6 @@ pub const Decl = struct {
     is_pub: bool,
     /// Whether the corresponding AST decl has a `export` keyword.
     is_exported: bool,
-    /// If true `name` is already fully qualified.
-    name_fully_qualified: bool = false,
     /// What kind of a declaration is this.
     kind: Kind,
 
@@ -406,25 +404,6 @@ pub const Decl = struct {
         const declaration = zir.instructions.items(.data)[@intFromEnum(zir_index)].declaration;
         const extra = zir.extraData(Zir.Inst.Declaration, declaration.payload_index);
         return extra.data.getBodies(@intCast(extra.end), zir);
-    }
-
-    pub fn renderFullyQualifiedName(decl: Decl, zcu: *Zcu, writer: anytype) !void {
-        if (decl.name_fully_qualified) {
-            try writer.print("{}", .{decl.name.fmt(&zcu.intern_pool)});
-        } else {
-            try zcu.namespacePtr(decl.src_namespace).renderFullyQualifiedName(zcu, decl.name, writer);
-        }
-    }
-
-    pub fn renderFullyQualifiedDebugName(decl: Decl, zcu: *Zcu, writer: anytype) !void {
-        return zcu.namespacePtr(decl.src_namespace).renderFullyQualifiedDebugName(zcu, decl.name, writer);
-    }
-
-    pub fn fullyQualifiedName(decl: Decl, pt: Zcu.PerThread) !InternPool.NullTerminatedString {
-        return if (decl.name_fully_qualified)
-            decl.name
-        else
-            pt.zcu.namespacePtr(decl.src_namespace).fullyQualifiedName(pt, decl.name);
     }
 
     pub fn typeOf(decl: Decl, zcu: *const Zcu) Type {
@@ -646,23 +625,27 @@ pub const Namespace = struct {
         return zcu.fileByIndex(ns.file_scope);
     }
 
+    pub fn fileScopeIp(ns: Namespace, ip: *InternPool) *File {
+        return ip.filePtr(ns.file_scope);
+    }
+
     // This renders e.g. "std.fs.Dir.OpenOptions"
     pub fn renderFullyQualifiedName(
         ns: Namespace,
-        zcu: *Zcu,
+        ip: *InternPool,
         name: InternPool.NullTerminatedString,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
         if (ns.parent.unwrap()) |parent| {
-            try zcu.namespacePtr(parent).renderFullyQualifiedName(
-                zcu,
-                zcu.declPtr(ns.decl_index).name,
+            try ip.namespacePtr(parent).renderFullyQualifiedName(
+                ip,
+                ip.declPtr(ns.decl_index).name,
                 writer,
             );
         } else {
-            try ns.fileScope(zcu).renderFullyQualifiedName(writer);
+            try ns.fileScopeIp(ip).renderFullyQualifiedName(writer);
         }
-        if (name != .empty) try writer.print(".{}", .{name.fmt(&zcu.intern_pool)});
+        if (name != .empty) try writer.print(".{}", .{name.fmt(ip)});
     }
 
     /// This renders e.g. "std/fs.zig:Dir.OpenOptions"
@@ -686,46 +669,45 @@ pub const Namespace = struct {
         if (name != .empty) try writer.print("{c}{}", .{ sep, name.fmt(&zcu.intern_pool) });
     }
 
-    pub fn fullyQualifiedName(
+    pub fn internFullyQualifiedName(
         ns: Namespace,
-        pt: Zcu.PerThread,
+        ip: *InternPool,
+        gpa: Allocator,
+        tid: Zcu.PerThread.Id,
         name: InternPool.NullTerminatedString,
     ) !InternPool.NullTerminatedString {
-        const zcu = pt.zcu;
-        const ip = &zcu.intern_pool;
-
-        const gpa = zcu.gpa;
-        const strings = ip.getLocal(pt.tid).getMutableStrings(gpa);
+        const strings = ip.getLocal(tid).getMutableStrings(gpa);
         // Protects reads of interned strings from being reallocated during the call to
         // renderFullyQualifiedName.
         const slice = try strings.addManyAsSlice(count: {
             var count: usize = name.length(ip) + 1;
             var cur_ns = &ns;
             while (true) {
-                const decl = zcu.declPtr(cur_ns.decl_index);
-                cur_ns = zcu.namespacePtr(cur_ns.parent.unwrap() orelse {
-                    count += ns.fileScope(zcu).fullyQualifiedNameLen();
+                const decl = ip.declPtr(cur_ns.decl_index);
+                cur_ns = ip.namespacePtr(cur_ns.parent.unwrap() orelse {
+                    count += ns.fileScopeIp(ip).fullyQualifiedNameLen();
                     break :count count;
                 });
                 count += decl.name.length(ip) + 1;
             }
         });
         var fbs = std.io.fixedBufferStream(slice[0]);
-        ns.renderFullyQualifiedName(zcu, name, fbs.writer()) catch unreachable;
+        ns.renderFullyQualifiedName(ip, name, fbs.writer()) catch unreachable;
         assert(fbs.pos == slice[0].len);
 
         // Sanitize the name for nvptx which is more restrictive.
         // TODO This should be handled by the backend, not the frontend. Have a
         // look at how the C backend does it for inspiration.
-        const cpu_arch = zcu.root_mod.resolved_target.result.cpu.arch;
-        if (cpu_arch.isNvptx()) {
-            for (slice[0]) |*byte| switch (byte.*) {
-                '{', '}', '*', '[', ']', '(', ')', ',', ' ', '\'' => byte.* = '_',
-                else => {},
-            };
-        }
+        // FIXME This has bitrotted and is no longer able to be implemented here.
+        //const cpu_arch = zcu.root_mod.resolved_target.result.cpu.arch;
+        //if (cpu_arch.isNvptx()) {
+        //    for (slice[0]) |*byte| switch (byte.*) {
+        //        '{', '}', '*', '[', ']', '(', ')', ',', ' ', '\'' => byte.* = '_',
+        //        else => {},
+        //    };
+        //}
 
-        return ip.getOrPutTrailingString(gpa, pt.tid, @intCast(slice[0].len), .no_embedded_nulls);
+        return ip.getOrPutTrailingString(gpa, tid, @intCast(slice[0].len), .no_embedded_nulls);
     }
 
     pub fn getType(ns: Namespace, zcu: *Zcu) Type {
@@ -746,7 +728,7 @@ pub const File = struct {
     source_loaded: bool,
     tree_loaded: bool,
     zir_loaded: bool,
-    /// Relative to the owning package's root_src_dir.
+    /// Relative to the owning package's root source directory.
     /// Memory is stored in gpa, owned by File.
     sub_file_path: []const u8,
     /// Whether this is populated depends on `source_loaded`.
@@ -882,7 +864,7 @@ pub const File = struct {
         };
     }
 
-    pub fn fullyQualifiedName(file: File, pt: Zcu.PerThread) !InternPool.NullTerminatedString {
+    pub fn internFullyQualifiedName(file: File, pt: Zcu.PerThread) !InternPool.NullTerminatedString {
         const gpa = pt.zcu.gpa;
         const ip = &pt.zcu.intern_pool;
         const strings = ip.getLocal(pt.tid).getMutableStrings(gpa);
@@ -910,7 +892,7 @@ pub const File = struct {
     }
 
     /// Add a reference to this file during AstGen.
-    pub fn addReference(file: *File, zcu: Zcu, ref: File.Reference) !void {
+    pub fn addReference(file: *File, zcu: *Zcu, ref: File.Reference) !void {
         // Don't add the same module root twice. Note that since we always add module roots at the
         // front of the references array (see below), this loop is actually O(1) on valid code.
         if (ref == .root) {
@@ -942,7 +924,7 @@ pub const File = struct {
 
     /// Mark this file and every file referenced by it as multi_pkg and report an
     /// astgen_failure error for them. AstGen must have completed in its entirety.
-    pub fn recursiveMarkMultiPkg(file: *File, mod: *Module) void {
+    pub fn recursiveMarkMultiPkg(file: *File, pt: Zcu.PerThread) void {
         file.multi_pkg = true;
         file.status = .astgen_failure;
 
@@ -962,9 +944,9 @@ pub const File = struct {
             const import_path = file.zir.nullTerminatedString(item.data.name);
             if (mem.eql(u8, import_path, "builtin")) continue;
 
-            const res = mod.importFile(file, import_path) catch continue;
+            const res = pt.importFile(file, import_path) catch continue;
             if (!res.is_pkg and !res.file.multi_pkg) {
-                res.file.recursiveMarkMultiPkg(mod);
+                res.file.recursiveMarkMultiPkg(pt);
             }
         }
     }
@@ -1031,6 +1013,14 @@ pub const ErrorMsg = struct {
         gpa.free(err_msg.msg);
         err_msg.* = undefined;
     }
+};
+
+pub const AstGenSrc = union(enum) {
+    root,
+    import: struct {
+        importing_file: Zcu.File.Index,
+        import_tok: std.zig.Ast.TokenIndex,
+    },
 };
 
 /// Canonical reference to a position within a source file.
@@ -2406,7 +2396,6 @@ pub const CompileError = error{
 pub fn init(mod: *Module, thread_count: usize) !void {
     const gpa = mod.gpa;
     try mod.intern_pool.init(gpa, thread_count);
-    try mod.global_error_set.put(gpa, .empty, {});
 }
 
 pub fn deinit(zcu: *Zcu) void {
@@ -2421,8 +2410,7 @@ pub fn deinit(zcu: *Zcu) void {
     for (zcu.import_table.keys()) |key| {
         gpa.free(key);
     }
-    for (0..zcu.import_table.entries.len) |file_index_usize| {
-        const file_index: File.Index = @enumFromInt(file_index_usize);
+    for (zcu.import_table.values()) |file_index| {
         pt.destroyFile(file_index);
     }
     zcu.import_table.deinit(gpa);
@@ -2478,8 +2466,6 @@ pub fn deinit(zcu: *Zcu) void {
     zcu.free_exports.deinit(gpa);
     zcu.single_exports.deinit(gpa);
     zcu.multi_exports.deinit(gpa);
-
-    zcu.global_error_set.deinit(gpa);
 
     zcu.potentially_outdated.deinit(gpa);
     zcu.outdated.deinit(gpa);
@@ -3020,183 +3006,7 @@ pub const ImportFileResult = struct {
     is_pkg: bool,
 };
 
-pub fn importPkg(zcu: *Zcu, mod: *Package.Module) !ImportFileResult {
-    const gpa = zcu.gpa;
-
-    // The resolved path is used as the key in the import table, to detect if
-    // an import refers to the same as another, despite different relative paths
-    // or differently mapped package names.
-    const resolved_path = try std.fs.path.resolve(gpa, &.{
-        mod.root.root_dir.path orelse ".",
-        mod.root.sub_path,
-        mod.root_src_path,
-    });
-    var keep_resolved_path = false;
-    defer if (!keep_resolved_path) gpa.free(resolved_path);
-
-    const gop = try zcu.import_table.getOrPut(gpa, resolved_path);
-    errdefer _ = zcu.import_table.pop();
-    if (gop.found_existing) {
-        try gop.value_ptr.*.addReference(zcu.*, .{ .root = mod });
-        return .{
-            .file = gop.value_ptr.*,
-            .file_index = @enumFromInt(gop.index),
-            .is_new = false,
-            .is_pkg = true,
-        };
-    }
-
-    const ip = &zcu.intern_pool;
-
-    try ip.files.ensureUnusedCapacity(gpa, 1);
-
-    if (mod.builtin_file) |builtin_file| {
-        keep_resolved_path = true; // It's now owned by import_table.
-        gop.value_ptr.* = builtin_file;
-        try builtin_file.addReference(zcu.*, .{ .root = mod });
-        const path_digest = computePathDigest(zcu, mod, builtin_file.sub_file_path);
-        ip.files.putAssumeCapacityNoClobber(path_digest, .none);
-        return .{
-            .file = builtin_file,
-            .file_index = @enumFromInt(ip.files.entries.len - 1),
-            .is_new = false,
-            .is_pkg = true,
-        };
-    }
-
-    const sub_file_path = try gpa.dupe(u8, mod.root_src_path);
-    errdefer gpa.free(sub_file_path);
-
-    const new_file = try gpa.create(File);
-    errdefer gpa.destroy(new_file);
-
-    keep_resolved_path = true; // It's now owned by import_table.
-    gop.value_ptr.* = new_file;
-    new_file.* = .{
-        .sub_file_path = sub_file_path,
-        .source = undefined,
-        .source_loaded = false,
-        .tree_loaded = false,
-        .zir_loaded = false,
-        .stat = undefined,
-        .tree = undefined,
-        .zir = undefined,
-        .status = .never_loaded,
-        .mod = mod,
-    };
-
-    const path_digest = computePathDigest(zcu, mod, sub_file_path);
-
-    try new_file.addReference(zcu.*, .{ .root = mod });
-    ip.files.putAssumeCapacityNoClobber(path_digest, .none);
-    return .{
-        .file = new_file,
-        .file_index = @enumFromInt(ip.files.entries.len - 1),
-        .is_new = true,
-        .is_pkg = true,
-    };
-}
-
-/// Called from a worker thread during AstGen.
-/// Also called from Sema during semantic analysis.
-pub fn importFile(
-    zcu: *Zcu,
-    cur_file: *File,
-    import_string: []const u8,
-) !ImportFileResult {
-    const mod = cur_file.mod;
-
-    if (std.mem.eql(u8, import_string, "std")) {
-        return zcu.importPkg(zcu.std_mod);
-    }
-    if (std.mem.eql(u8, import_string, "root")) {
-        return zcu.importPkg(zcu.root_mod);
-    }
-    if (mod.deps.get(import_string)) |pkg| {
-        return zcu.importPkg(pkg);
-    }
-    if (!mem.endsWith(u8, import_string, ".zig")) {
-        return error.ModuleNotFound;
-    }
-    const gpa = zcu.gpa;
-
-    // The resolved path is used as the key in the import table, to detect if
-    // an import refers to the same as another, despite different relative paths
-    // or differently mapped package names.
-    const resolved_path = try std.fs.path.resolve(gpa, &.{
-        mod.root.root_dir.path orelse ".",
-        mod.root.sub_path,
-        cur_file.sub_file_path,
-        "..",
-        import_string,
-    });
-
-    var keep_resolved_path = false;
-    defer if (!keep_resolved_path) gpa.free(resolved_path);
-
-    const gop = try zcu.import_table.getOrPut(gpa, resolved_path);
-    errdefer _ = zcu.import_table.pop();
-    if (gop.found_existing) return .{
-        .file = gop.value_ptr.*,
-        .file_index = @enumFromInt(gop.index),
-        .is_new = false,
-        .is_pkg = false,
-    };
-
-    const ip = &zcu.intern_pool;
-
-    try ip.files.ensureUnusedCapacity(gpa, 1);
-
-    const new_file = try gpa.create(File);
-    errdefer gpa.destroy(new_file);
-
-    const resolved_root_path = try std.fs.path.resolve(gpa, &.{
-        mod.root.root_dir.path orelse ".",
-        mod.root.sub_path,
-    });
-    defer gpa.free(resolved_root_path);
-
-    const sub_file_path = p: {
-        const relative = try std.fs.path.relative(gpa, resolved_root_path, resolved_path);
-        errdefer gpa.free(relative);
-
-        if (!isUpDir(relative) and !std.fs.path.isAbsolute(relative)) {
-            break :p relative;
-        }
-        return error.ImportOutsideModulePath;
-    };
-    errdefer gpa.free(sub_file_path);
-
-    log.debug("new importFile. resolved_root_path={s}, resolved_path={s}, sub_file_path={s}, import_string={s}", .{
-        resolved_root_path, resolved_path, sub_file_path, import_string,
-    });
-
-    keep_resolved_path = true; // It's now owned by import_table.
-    gop.value_ptr.* = new_file;
-    new_file.* = .{
-        .sub_file_path = sub_file_path,
-        .source = undefined,
-        .source_loaded = false,
-        .tree_loaded = false,
-        .zir_loaded = false,
-        .stat = undefined,
-        .tree = undefined,
-        .zir = undefined,
-        .status = .never_loaded,
-        .mod = mod,
-    };
-
-    const path_digest = computePathDigest(zcu, mod, sub_file_path);
-    ip.files.putAssumeCapacityNoClobber(path_digest, .none);
-    return .{
-        .file = new_file,
-        .file_index = @enumFromInt(ip.files.entries.len - 1),
-        .is_new = true,
-        .is_pkg = false,
-    };
-}
-
-fn computePathDigest(zcu: *Zcu, mod: *Package.Module, sub_file_path: []const u8) Cache.BinDigest {
+pub fn computePathDigest(zcu: *Zcu, mod: *Package.Module, sub_file_path: []const u8) Cache.BinDigest {
     const want_local_cache = mod == zcu.main_mod;
     var path_hash: Cache.HashHelper = .{};
     path_hash.addBytes(build_options.version);
@@ -3292,41 +3102,9 @@ pub fn addUnitReference(zcu: *Zcu, src_unit: AnalUnit, referenced_unit: AnalUnit
     gop.value_ptr.* = @intCast(ref_idx);
 }
 
-pub fn getErrorValue(
-    mod: *Module,
-    name: InternPool.NullTerminatedString,
-) Allocator.Error!ErrorInt {
-    const gop = try mod.global_error_set.getOrPut(mod.gpa, name);
-    return @as(ErrorInt, @intCast(gop.index));
-}
-
-pub fn getErrorValueFromSlice(
-    mod: *Module,
-    name: []const u8,
-) Allocator.Error!ErrorInt {
-    const interned_name = try mod.intern_pool.getOrPutString(mod.gpa, name);
-    return getErrorValue(mod, interned_name);
-}
-
 pub fn errorSetBits(mod: *Module) u16 {
     if (mod.error_limit == 0) return 0;
     return std.math.log2_int_ceil(ErrorInt, mod.error_limit + 1); // +1 for no error
-}
-
-pub fn initNewAnonDecl(
-    mod: *Module,
-    new_decl_index: Decl.Index,
-    val: Value,
-    name: InternPool.NullTerminatedString,
-) Allocator.Error!void {
-    const new_decl = mod.declPtr(new_decl_index);
-
-    new_decl.name = name;
-    new_decl.val = val;
-    new_decl.alignment = .none;
-    new_decl.@"linksection" = .none;
-    new_decl.has_tv = true;
-    new_decl.analysis = .complete;
 }
 
 pub fn errNote(
@@ -3349,14 +3127,14 @@ pub fn errNote(
 /// Deprecated. There is no global target for a Zig Compilation Unit. Instead,
 /// look up the target based on the Module that contains the source code being
 /// analyzed.
-pub fn getTarget(zcu: Module) Target {
+pub fn getTarget(zcu: *const Zcu) Target {
     return zcu.root_mod.resolved_target.result;
 }
 
 /// Deprecated. There is no global optimization mode for a Zig Compilation
 /// Unit. Instead, look up the optimization mode based on the Module that
 /// contains the source code being analyzed.
-pub fn optimizeMode(zcu: Module) std.builtin.OptimizeMode {
+pub fn optimizeMode(zcu: *const Zcu) std.builtin.OptimizeMode {
     return zcu.root_mod.optimize_mode;
 }
 
@@ -3394,41 +3172,6 @@ pub fn handleUpdateExports(
     };
 }
 
-pub fn reportRetryableFileError(
-    zcu: *Zcu,
-    file_index: File.Index,
-    comptime format: []const u8,
-    args: anytype,
-) error{OutOfMemory}!void {
-    const gpa = zcu.gpa;
-    const ip = &zcu.intern_pool;
-
-    const file = zcu.fileByIndex(file_index);
-    file.status = .retryable_failure;
-
-    const err_msg = try ErrorMsg.create(
-        gpa,
-        .{
-            .base_node_inst = try ip.trackZir(gpa, file_index, .main_struct_inst),
-            .offset = .entire_file,
-        },
-        format,
-        args,
-    );
-    errdefer err_msg.destroy(gpa);
-
-    zcu.comp.mutex.lock();
-    defer zcu.comp.mutex.unlock();
-
-    const gop = try zcu.failed_files.getOrPut(gpa, file);
-    if (gop.found_existing) {
-        if (gop.value_ptr.*) |old_err_msg| {
-            old_err_msg.destroy(gpa);
-        }
-    }
-    gop.value_ptr.* = err_msg;
-}
-
 pub fn addGlobalAssembly(mod: *Module, decl_index: Decl.Index, source: []const u8) !void {
     const gop = try mod.global_assembly.getOrPut(mod.gpa, decl_index);
     if (gop.found_existing) {
@@ -3460,7 +3203,7 @@ pub const Feature = enum {
     separate_thread,
 };
 
-pub fn backendSupportsFeature(zcu: Module, comptime feature: Feature) bool {
+pub fn backendSupportsFeature(zcu: *const Zcu, comptime feature: Feature) bool {
     const backend = target_util.zigBackend(zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
     return target_util.backendSupportsFeature(backend, feature);
 }
@@ -3562,37 +3305,31 @@ pub fn atomicPtrAlignment(
         .spirv => @panic("TODO what should this value be?"),
     };
 
-    const int_ty = switch (ty.zigTypeTag(mod)) {
-        .Int => ty,
-        .Enum => ty.intTagType(mod),
-        .Float => {
-            const bit_count = ty.floatBits(target);
-            if (bit_count > max_atomic_bits) {
-                diags.* = .{
-                    .bits = bit_count,
-                    .max_bits = max_atomic_bits,
-                };
-                return error.FloatTooBig;
-            }
-            return .none;
-        },
-        .Bool => return .none,
-        else => {
-            if (ty.isPtrAtRuntime(mod)) return .none;
-            return error.BadType;
-        },
-    };
-
-    const bit_count = int_ty.intInfo(mod).bits;
-    if (bit_count > max_atomic_bits) {
-        diags.* = .{
-            .bits = bit_count,
-            .max_bits = max_atomic_bits,
-        };
-        return error.IntTooBig;
+    if (ty.toIntern() == .bool_type) return .none;
+    if (ty.isRuntimeFloat()) {
+        const bit_count = ty.floatBits(target);
+        if (bit_count > max_atomic_bits) {
+            diags.* = .{
+                .bits = bit_count,
+                .max_bits = max_atomic_bits,
+            };
+            return error.FloatTooBig;
+        }
+        return .none;
     }
-
-    return .none;
+    if (ty.isAbiInt(mod)) {
+        const bit_count = ty.intInfo(mod).bits;
+        if (bit_count > max_atomic_bits) {
+            diags.* = .{
+                .bits = bit_count,
+                .max_bits = max_atomic_bits,
+            };
+            return error.IntTooBig;
+        }
+        return .none;
+    }
+    if (ty.isPtrAtRuntime(mod)) return .none;
+    return error.BadType;
 }
 
 pub fn declFileScope(mod: *Module, decl_index: Decl.Index) *File {
@@ -3744,22 +3481,28 @@ pub fn resolveReferences(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, Resolved
     return result;
 }
 
-pub fn fileByIndex(zcu: *const Zcu, i: File.Index) *File {
-    return zcu.import_table.values()[@intFromEnum(i)];
+pub fn fileByIndex(zcu: *Zcu, file_index: File.Index) *File {
+    return zcu.intern_pool.filePtr(file_index);
 }
 
 /// Returns the `Decl` of the struct that represents this `File`.
-pub fn fileRootDecl(zcu: *const Zcu, i: File.Index) Decl.OptionalIndex {
+pub fn fileRootDecl(zcu: *const Zcu, file_index: File.Index) Decl.OptionalIndex {
     const ip = &zcu.intern_pool;
-    return ip.files.values()[@intFromEnum(i)];
+    const file_index_unwrapped = file_index.unwrap(ip);
+    const files = ip.getLocalShared(file_index_unwrapped.tid).files.acquire();
+    return files.view().items(.root_decl)[file_index_unwrapped.index];
 }
 
-pub fn setFileRootDecl(zcu: *Zcu, i: File.Index, root_decl: Decl.OptionalIndex) void {
+pub fn setFileRootDecl(zcu: *Zcu, file_index: File.Index, root_decl: Decl.OptionalIndex) void {
     const ip = &zcu.intern_pool;
-    ip.files.values()[@intFromEnum(i)] = root_decl;
+    const file_index_unwrapped = file_index.unwrap(ip);
+    const files = ip.getLocalShared(file_index_unwrapped.tid).files.acquire();
+    files.view().items(.root_decl)[file_index_unwrapped.index] = root_decl;
 }
 
-pub fn filePathDigest(zcu: *const Zcu, i: File.Index) Cache.BinDigest {
+pub fn filePathDigest(zcu: *const Zcu, file_index: File.Index) Cache.BinDigest {
     const ip = &zcu.intern_pool;
-    return ip.files.keys()[@intFromEnum(i)];
+    const file_index_unwrapped = file_index.unwrap(ip);
+    const files = ip.getLocalShared(file_index_unwrapped.tid).files.acquire();
+    return files.view().items(.bin_digest)[file_index_unwrapped.index];
 }

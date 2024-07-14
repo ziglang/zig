@@ -566,7 +566,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// This can be useful for writing directly into an ArrayList.
         /// Note that such an operation must be followed up with a direct
         /// modification of `self.items.len`.
-        pub fn unusedCapacitySlice(self: Self) Slice {
+        pub fn unusedCapacitySlice(self: Self) []T {
             return self.allocatedSlice()[self.items.len..];
         }
 
@@ -1193,7 +1193,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// This can be useful for writing directly into an ArrayList.
         /// Note that such an operation must be followed up with a direct
         /// modification of `self.items.len`.
-        pub fn unusedCapacitySlice(self: Self) Slice {
+        pub fn unusedCapacitySlice(self: Self) []T {
             return self.allocatedSlice()[self.items.len..];
         }
 
@@ -2241,4 +2241,11 @@ test "return OutOfMemory when capacity would exceed maximum usize integer value"
         try testing.expectError(error.OutOfMemory, list.insertSlice(0, items));
         try testing.expectError(error.OutOfMemory, list.ensureUnusedCapacity(2));
     }
+}
+
+test "ArrayListAligned with non-native alignment compiles unusedCapabitySlice" {
+    var list = ArrayListAligned(u8, 4).init(testing.allocator);
+    defer list.deinit();
+    try list.appendNTimes(1, 4);
+    _ = list.unusedCapacitySlice();
 }

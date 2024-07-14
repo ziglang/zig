@@ -933,7 +933,7 @@ fn formatDecl(
     _: std.fmt.FormatOptions,
     writer: anytype,
 ) @TypeOf(writer).Error!void {
-    try data.mod.declPtr(data.decl_index).renderFullyQualifiedName(data.mod, writer);
+    try writer.print("{}", .{data.mod.declPtr(data.decl_index).fqn.fmt(&data.mod.intern_pool)});
 }
 fn fmtDecl(func: *Func, decl_index: InternPool.DeclIndex) std.fmt.Formatter(formatDecl) {
     return .{ .data = .{
@@ -4051,7 +4051,8 @@ fn genArgDbgInfo(func: Func, inst: Air.Inst.Index, mcv: MCValue) !void {
     const arg = func.air.instructions.items(.data)[@intFromEnum(inst)].arg;
     const ty = arg.ty.toType();
     const owner_decl = zcu.funcOwnerDeclIndex(func.func_index);
-    const name = zcu.getParamName(func.func_index, arg.src_index);
+    if (arg.name == .none) return;
+    const name = func.air.nullTerminatedString(@intFromEnum(arg.name));
 
     switch (func.debug_output) {
         .dwarf => |dw| switch (mcv) {

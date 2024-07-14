@@ -595,7 +595,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     run_opt.addArg("-o");
     run_opt.addFileArg(b.path("stage1/zig1.wasm"));
 
-    const copy_zig_h = b.addWriteFiles();
+    const copy_zig_h = b.addUpdateSourceFiles();
     copy_zig_h.addCopyFileToSource(b.path("lib/zig.h"), "stage1/zig.h");
 
     const update_zig1_step = b.step("update-zig1", "Update stage1/zig1.wasm");
@@ -1261,7 +1261,9 @@ fn generateLangRef(b: *std.Build) std.Build.LazyPath {
     });
 
     var dir = b.build_root.handle.openDir("doc/langref", .{ .iterate = true }) catch |err| {
-        std.debug.panic("unable to open 'doc/langref' directory: {s}", .{@errorName(err)});
+        std.debug.panic("unable to open '{}doc/langref' directory: {s}", .{
+            b.build_root, @errorName(err),
+        });
     };
     defer dir.close();
 
@@ -1280,10 +1282,7 @@ fn generateLangRef(b: *std.Build) std.Build.LazyPath {
             // in a temporary directory
             "--cache-root", b.cache_root.path orelse ".",
         });
-        if (b.zig_lib_dir) |p| {
-            cmd.addArg("--zig-lib-dir");
-            cmd.addDirectoryArg(p);
-        }
+        cmd.addArgs(&.{ "--zig-lib-dir", b.fmt("{}", .{b.graph.zig_lib_directory}) });
         cmd.addArgs(&.{"-i"});
         cmd.addFileArg(b.path(b.fmt("doc/langref/{s}", .{entry.name})));
 

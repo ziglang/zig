@@ -223,7 +223,7 @@ pub fn spawn(pool: *Pool, comptime func: anytype, args: anytype) !void {
         pool: *Pool,
         run_node: RunQueue.Node = .{ .data = .{ .runFn = runFn } },
 
-        fn runFn(runnable: *Runnable) void {
+        fn runFn(runnable: *Runnable, _: ?usize) void {
             const run_node: *RunQueue.Node = @fieldParentPtr("data", runnable);
             const closure: *@This() = @alignCast(@fieldParentPtr("run_node", run_node));
             @call(.auto, func, closure.arguments);
@@ -252,6 +252,27 @@ pub fn spawn(pool: *Pool, comptime func: anytype, args: anytype) !void {
 
     // Notify waiting threads outside the lock to try and keep the critical section small.
     pool.cond.signal();
+}
+
+test spawn {
+    const TestFn = struct {
+        fn checkRun(completed: *bool) void {
+            completed.* = true;
+        }
+    };
+
+    var completed: bool = false;
+
+    {
+        var pool: Pool = undefined;
+        try pool.init(.{
+            .allocator = std.testing.allocator,
+        });
+        defer pool.deinit();
+        try pool.spawn(TestFn.checkRun, .{&completed});
+    }
+
+    try std.testing.expectEqual(true, completed);
 }
 
 fn worker(pool: *Pool) void {
