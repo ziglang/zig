@@ -1843,6 +1843,15 @@ pub fn addAtomsToSections(self: *MachO) !void {
 
     const gpa = self.base.comp.gpa;
 
+    if (self.getZigObject()) |zo| {
+        for (zo.getAtoms()) |atom_index| {
+            const atom = zo.getAtom(atom_index) orelse continue;
+            if (!atom.flags.alive) continue;
+            if (self.isZigSection(atom.out_n_sect)) continue;
+            const atoms = &self.sections.items(.atoms)[atom.out_n_sect];
+            try atoms.append(gpa, .{ .index = atom_index, .file = zo.index });
+        }
+    }
     for (self.objects.items) |index| {
         const file = self.getFile(index).?;
         for (file.getAtoms()) |atom_index| {
