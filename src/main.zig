@@ -6921,7 +6921,7 @@ fn cmdFetch(
                 } else if (mem.eql(u8, arg, "--save-exact")) {
                     save = .{ .exact = null };
                 } else if (mem.startsWith(u8, arg, "--save-exact=")) {
-                    save = .{ .exact = arg["--save=".len..] };
+                    save = .{ .exact = arg["--save-exact=".len..] };
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
