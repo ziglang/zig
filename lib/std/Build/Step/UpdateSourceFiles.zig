@@ -67,8 +67,8 @@ pub fn addBytesToSource(usf: *UpdateSourceFiles, bytes: []const u8, sub_path: []
     }) catch @panic("OOM");
 }
 
-fn make(step: *Step, prog_node: std.Progress.Node) !void {
-    _ = prog_node;
+fn make(step: *Step, options: Step.MakeOptions) !void {
+    _ = options;
     const b = step.owner;
     const usf: *UpdateSourceFiles = @fieldParentPtr("step", step);
 

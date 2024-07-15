@@ -404,6 +404,8 @@ const usage_build_generic =
     \\  -h, --help                Print this help and exit
     \\  --color [auto|off|on]     Enable or disable colored error messages
     \\  -j<N>                     Limit concurrent jobs (default is to use all CPU cores)
+    \\  -fincremental             Enable incremental compilation
+    \\  -fno-incremental          Disable incremental compilation
     \\  -femit-bin[=path]         (default) Output machine code
     \\  -fno-emit-bin             Do not output machine code
     \\  -femit-asm[=path]         Output .s (assembly code)
@@ -642,7 +644,6 @@ const usage_build_generic =
     \\  --debug-log [scope]          Enable printing debug/info log messages for scope
     \\  --debug-compile-errors       Crash with helpful diagnostics at the first compile error
     \\  --debug-link-snapshot        Enable dumping of the linker's state in JSON format
-    \\  --debug-incremental          Enable experimental feature: incremental compilation
     \\
 ;
 
@@ -904,7 +905,7 @@ fn buildOutputType(
     var minor_subsystem_version: ?u16 = null;
     var mingw_unicode_entry_point: bool = false;
     var enable_link_snapshots: bool = false;
-    var debug_incremental: bool = false;
+    var opt_incremental: ?bool = null;
     var install_name: ?[]const u8 = null;
     var hash_style: link.File.Elf.HashStyle = .both;
     var entitlements: ?[]const u8 = null;
@@ -1357,8 +1358,10 @@ fn buildOutputType(
                         } else {
                             enable_link_snapshots = true;
                         }
-                    } else if (mem.eql(u8, arg, "--debug-incremental")) {
-                        debug_incremental = true;
+                    } else if (mem.eql(u8, arg, "-fincremental")) {
+                        opt_incremental = true;
+                    } else if (mem.eql(u8, arg, "-fno-incremental")) {
+                        opt_incremental = false;
                     } else if (mem.eql(u8, arg, "--entitlements")) {
                         entitlements = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "-fcompiler-rt")) {
@@ -3225,6 +3228,8 @@ fn buildOutputType(
         break :b .incremental;
     };
 
+    const incremental = opt_incremental orelse false;
+
     process.raiseFileDescriptorLimit();
 
     var file_system_inputs: std.ArrayListUnmanaged(u8) = .{};
@@ -3336,7 +3341,7 @@ fn buildOutputType(
         .cache_mode = cache_mode,
         .subsystem = subsystem,
         .debug_compile_errors = debug_compile_errors,
-        .debug_incremental = debug_incremental,
+        .incremental = incremental,
         .enable_link_snapshots = enable_link_snapshots,
         .install_name = install_name,
         .entitlements = entitlements,
@@ -3443,7 +3448,7 @@ fn buildOutputType(
         updateModule(comp, color, root_prog_node) catch |err| switch (err) {
             error.SemanticAnalyzeFail => {
                 assert(listen == .none);
-                saveState(comp, debug_incremental);
+                saveState(comp, incremental);
                 process.exit(1);
             },
             else => |e| return e,
@@ -3451,7 +3456,7 @@ fn buildOutputType(
     }
     if (build_options.only_c) return cleanExit();
     try comp.makeBinFileExecutable();
-    saveState(comp, debug_incremental);
+    saveState(comp, incremental);
 
     if (test_exec_args.items.len == 0 and target.ofmt == .c) default_exec_args: {
         // Default to using `zig run` to execute the produced .c code from `zig test`.
@@ -4032,8 +4037,8 @@ fn createModule(
     return mod;
 }
 
-fn saveState(comp: *Compilation, debug_incremental: bool) void {
-    if (debug_incremental) {
+fn saveState(comp: *Compilation, incremental: bool) void {
+    if (incremental) {
         comp.saveState() catch |err| {
             warn("unable to save incremental compilation state: {s}", .{@errorName(err)});
         };

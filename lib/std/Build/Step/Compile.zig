@@ -213,6 +213,10 @@ is_linking_libcpp: bool = false,
 
 no_builtin: bool = false,
 
+/// Populated during the make phase when there is a long-lived compiler process.
+/// Managed by the build runner, not user build script.
+zig_process: ?*Step.ZigProcess,
+
 pub const ExpectedCompileErrors = union(enum) {
     contains: []const u8,
     exact: []const []const u8,
@@ -398,6 +402,8 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
+
+        .zig_process = null,
     };
 
     compile.root_module.init(owner, options.root_module, compile);
@@ -1673,6 +1679,8 @@ fn getZigArgs(compile: *Compile) ![][]const u8 {
         b.fmt("{}", .{err_limit}),
     });
 
+    try addFlag(&zig_args, "incremental", b.graph.incremental);
+
     try zig_args.append("--listen=-");
 
     // Windows has an argument length limit of 32,766 characters, macOS 262,144 and Linux
@@ -1735,13 +1743,17 @@ fn getZigArgs(compile: *Compile) ![][]const u8 {
     return try zig_args.toOwnedSlice();
 }
 
-fn make(step: *Step, prog_node: std.Progress.Node) !void {
+fn make(step: *Step, options: Step.MakeOptions) !void {
     const b = step.owner;
     const compile: *Compile = @fieldParentPtr("step", step);
 
     const zig_args = try getZigArgs(compile);
 
-    const maybe_output_bin_path = step.evalZigProcess(zig_args, prog_node) catch |err| switch (err) {
+    const maybe_output_bin_path = step.evalZigProcess(
+        zig_args,
+        options.progress_node,
+        (b.graph.incremental == true) and options.watch,
+    ) catch |err| switch (err) {
         error.NeedCompileErrorCheck => {
             assert(compile.expect_errors != null);
             try checkCompileErrors(compile);

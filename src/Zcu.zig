@@ -2679,7 +2679,7 @@ fn markTransitiveDependersPotentiallyOutdated(zcu: *Zcu, maybe_outdated: AnalUni
 }
 
 pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?AnalUnit {
-    if (!zcu.comp.debug_incremental) return null;
+    if (!zcu.comp.incremental) return null;
 
     if (zcu.outdated.count() == 0 and zcu.potentially_outdated.count() == 0) {
         log.debug("findOutdatedToAnalyze: no outdated depender", .{});
