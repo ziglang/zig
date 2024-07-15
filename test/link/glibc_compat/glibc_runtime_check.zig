@@ -8,17 +8,11 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 
-const c_malloc = @cImport(
-    @cInclude("malloc.h"), // for reallocarray
-);
+const c_malloc = @import("malloc.h"); // for reallocarray
 
-const c_stdlib = @cImport(
-    @cInclude("stdlib.h"), // for atexit
-);
+const c_stdlib = @import("stdlib.h"); // for atexit
 
-const c_string = @cImport(
-    @cInclude("string.h"), // for strlcpy
-);
+const c_string = @import("string.h"); // for strlcpy
 
 // Version of glibc this test is being built to run against
 const glibc_ver = builtin.target.os.version_range.linux.glibc;

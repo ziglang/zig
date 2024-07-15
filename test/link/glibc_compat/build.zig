@@ -157,6 +157,25 @@ pub fn build(b: *std.Build) void {
         });
         exe.linkLibC();
 
+        const c_malloc = b.addTranslateC(.{
+            .root_source_file = b.path("malloc.h"),
+            .target = target,
+            .optimize = .Debug,
+        });
+        exe.root_module.addImport("malloc.h", c_malloc.createModule());
+        const c_stdlib = b.addTranslateC(.{
+            .root_source_file = b.path("stdlib.h"),
+            .target = target,
+            .optimize = .Debug,
+        });
+        exe.root_module.addImport("stdlib.h", c_stdlib.createModule());
+        const c_string = b.addTranslateC(.{
+            .root_source_file = b.path("string.h"),
+            .target = target,
+            .optimize = .Debug,
+        });
+        exe.root_module.addImport("string.h", c_string.createModule());
+
         // Only try running the test if the host glibc is known to be good enough.  Ideally, the Zig
         // test runner would be able to check this, but see https://github.com/ziglang/zig/pull/17702#issuecomment-1831310453
         if (running_glibc_ver) |running_ver| {
