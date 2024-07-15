@@ -204,10 +204,10 @@ fn newSymbolWithAtom(self: *ZigObject, allocator: Allocator, name: u32, macho_fi
 pub fn getAtomData(self: ZigObject, macho_file: *MachO, atom: Atom, buffer: []u8) !void {
     assert(atom.file == self.index);
     assert(atom.size == buffer.len);
-    const sect = macho_file.sections.items(.header)[atom.out_n_sect];
-    assert(!sect.isZerofill());
+    const isec = atom.getInputSection(macho_file);
+    assert(!isec.isZerofill());
 
-    switch (sect.type()) {
+    switch (isec.type()) {
         macho.S_THREAD_LOCAL_REGULAR => {
             const tlv = self.tlv_initializers.get(atom.atom_index).?;
             @memcpy(buffer, tlv.data);
@@ -216,6 +216,7 @@ pub fn getAtomData(self: ZigObject, macho_file: *MachO, atom: Atom, buffer: []u8
             @memset(buffer, 0);
         },
         else => {
+            const sect = macho_file.sections.items(.header)[atom.out_n_sect];
             const file_offset = sect.offset + atom.value;
             const amt = try macho_file.base.file.?.preadAll(buffer, file_offset);
             if (amt != buffer.len) return error.InputOutput;
