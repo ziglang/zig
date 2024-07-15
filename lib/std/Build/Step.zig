@@ -374,10 +374,37 @@ pub fn evalZigProcess(
     prog_node: std.Progress.Node,
     watch: bool,
 ) !?[]const u8 {
-    if (s.getZigProcess()) |zp| {
+    if (s.getZigProcess()) |zp| update: {
         assert(watch);
         if (std.Progress.have_ipc) if (zp.progress_ipc_fd) |fd| prog_node.setIpcFd(fd);
-        return zigProcessUpdate(s, zp, watch);
+        const result = zigProcessUpdate(s, zp, watch) catch |err| switch (err) {
+            error.BrokenPipe => {
+                // Process restart required.
+                const term = zp.child.wait() catch |e| {
+                    return s.fail("unable to wait for {s}: {s}", .{ argv[0], @errorName(e) });
+                };
+                _ = term;
+                s.clearZigProcess();
+                break :update;
+            },
+            else => |e| return e,
+        };
+
+        if (s.result_error_bundle.errorMessageCount() > 0)
+            return s.fail("{d} compilation errors", .{s.result_error_bundle.errorMessageCount()});
+
+        if (s.result_error_msgs.items.len > 0 and result == null) {
+            // Crash detected.
+            const term = zp.child.wait() catch |e| {
+                return s.fail("unable to wait for {s}: {s}", .{ argv[0], @errorName(e) });
+            };
+            s.result_peak_rss = zp.child.resource_usage_statistics.getMaxRss() orelse 0;
+            s.clearZigProcess();
+            try handleChildProcessTerm(s, term, null, argv);
+            return error.MakeFailed;
+        }
+
+        return result;
     }
     assert(argv.len != 0);
     const b = s.owner;
@@ -399,7 +426,7 @@ pub fn evalZigProcess(
         argv[0], @errorName(err),
     });
 
-    const zp = try arena.create(ZigProcess);
+    const zp = try gpa.create(ZigProcess);
     zp.* = .{
         .child = child,
         .poller = std.io.poll(gpa, ZigProcess.StreamEnum, .{
@@ -586,6 +613,20 @@ fn getZigProcess(s: *Step) ?*ZigProcess {
 fn setZigProcess(s: *Step, zp: *ZigProcess) void {
     switch (s.id) {
         .compile => s.cast(Compile).?.zig_process = zp,
+        else => unreachable,
+    }
+}
+
+fn clearZigProcess(s: *Step) void {
+    const gpa = s.owner.allocator;
+    switch (s.id) {
+        .compile => {
+            const compile = s.cast(Compile).?;
+            if (compile.zig_process) |zp| {
+                gpa.destroy(zp);
+                compile.zig_process = null;
+            }
+        },
         else => unreachable,
     }
 }
