@@ -141,34 +141,64 @@ pub fn deinit(self: *ZigObject, allocator: Allocator) void {
     }
 }
 
-fn addNlist(self: *ZigObject, allocator: Allocator) !Symbol.Index {
+fn newSymbol(self: *ZigObject, allocator: Allocator, name: u32, args: struct {
+    type: u8 = macho.N_UNDF | macho.N_EXT,
+    desc: u16 = 0,
+}) !Symbol.Index {
     try self.symtab.ensureUnusedCapacity(allocator, 1);
-    const index = @as(Symbol.Index, @intCast(self.symtab.addOneAssumeCapacity()));
-    self.symtab.set(index, .{
-        .nlist = MachO.null_sym,
+    try self.symbols.ensureUnusedCapacity(allocator, 1);
+    try self.symbols_extra.ensureUnusedCapacity(allocator, @sizeOf(Symbol.Extra));
+    try self.globals.ensureUnusedCapacity(allocator, 1);
+
+    const index = self.addSymbolAssumeCapacity();
+    const symbol = &self.symbols.items[index];
+    symbol.name = name;
+    symbol.extra = self.addSymbolExtraAssumeCapacity(.{});
+
+    const nlist_idx: u32 = @intCast(self.symtab.addOneAssumeCapacity());
+    self.symtab.set(nlist_idx, .{
+        .nlist = .{
+            .n_strx = name,
+            .n_type = args.type,
+            .n_sect = 0,
+            .n_desc = args.desc,
+            .n_value = 0,
+        },
         .size = 0,
         .atom = 0,
     });
+    symbol.nlist_idx = nlist_idx;
+
+    self.globals.appendAssumeCapacity(0);
+
     return index;
 }
 
-pub fn createAtomForDecl(self: *ZigObject, allocator: Allocator, macho_file: *MachO) !Symbol.Index {
-    const atom_index = try self.addAtom(allocator);
-    const symbol_index = try self.addSymbol(allocator);
-    const nlist_index = try self.addNlist(allocator);
-    self.symtab.items(.atom)[nlist_index] = atom_index;
-    try self.atoms_indexes.append(allocator, atom_index);
-    const symbol = &self.symbols.items[symbol_index];
-    symbol.atom_ref = .{ .index = atom_index, .file = self.index };
-    symbol.nlist_idx = nlist_index;
-    symbol.extra = try self.addSymbolExtra(allocator, .{});
+fn newAtom(self: *ZigObject, allocator: Allocator, name: u32, macho_file: *MachO) !Atom.Index {
+    try self.atoms.ensureUnusedCapacity(allocator, 1);
+    try self.atoms_extra.ensureUnusedCapacity(allocator, @sizeOf(Atom.Extra));
+    try self.atoms_indexes.ensureUnusedCapacity(allocator, 1);
+    try self.relocs.ensureUnusedCapacity(allocator, 1);
+
+    const index = self.addAtomAssumeCapacity();
+    self.atoms_indexes.appendAssumeCapacity(index);
+    const atom = self.getAtom(index).?;
+    atom.name = name;
+
     const relocs_index = @as(u32, @intCast(self.relocs.items.len));
-    const relocs = try self.relocs.addOne(allocator);
-    relocs.* = .{};
-    const atom = self.getAtom(atom_index).?;
+    self.relocs.addOneAssumeCapacity().* = .{};
     atom.addExtra(.{ .rel_index = relocs_index, .rel_count = 0 }, macho_file);
-    try self.globals.append(allocator, 0);
-    return symbol_index;
+
+    return index;
+}
+
+fn newSymbolWithAtom(self: *ZigObject, allocator: Allocator, name: u32, macho_file: *MachO) !Symbol.Index {
+    const atom_index = try self.newAtom(allocator, name, macho_file);
+    const sym_index = try self.newSymbol(allocator, name, .{ .type = macho.N_SECT });
+    const sym = &self.symbols.items[sym_index];
+    sym.atom_ref = .{ .index = atom_index, .file = self.index };
+    self.symtab.items(.atom)[sym.nlist_idx] = atom_index;
+    return sym_index;
 }
 
 pub fn getAtomData(self: ZigObject, macho_file: *MachO, atom: Atom, buffer: []u8) !void {
@@ -1079,27 +1109,19 @@ fn createTlvInitializer(
     const gpa = macho_file.base.comp.gpa;
     const sym_name = try std.fmt.allocPrint(gpa, "{s}$tlv$init", .{name});
     defer gpa.free(sym_name);
+    const off = try self.strtab.insert(gpa, sym_name);
 
-    const sym_index = try self.createAtomForDecl(gpa, macho_file);
+    const sym_index = try self.newSymbolWithAtom(gpa, off, macho_file);
     const sym = &self.symbols.items[sym_index];
     const nlist = &self.symtab.items(.nlist)[sym.nlist_idx];
     const atom = sym.getAtom(macho_file).?;
-
     sym.out_n_sect = sect_index;
     atom.out_n_sect = sect_index;
-
-    sym.value = 0;
-    sym.name = try self.strtab.insert(gpa, sym_name);
     atom.flags.alive = true;
-    atom.name = sym.name;
-    nlist.n_strx = sym.name;
-    nlist.n_sect = sect_index + 1;
-    nlist.n_type = macho.N_SECT;
-    nlist.n_value = 0;
-    self.symtab.items(.size)[sym.nlist_idx] = code.len;
-
     atom.alignment = alignment;
     atom.size = code.len;
+    nlist.n_sect = sect_index + 1;
+    self.symtab.items(.size)[sym.nlist_idx] = code.len;
 
     const slice = macho_file.sections.slice();
     const header = slice.items(.header)[sect_index];
@@ -1293,7 +1315,8 @@ fn lowerConst(
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
-    const sym_index = try self.createAtomForDecl(gpa, macho_file);
+    const name_str_index = try self.strtab.insert(gpa, name);
+    const sym_index = try self.newSymbolWithAtom(gpa, name_str_index, macho_file);
 
     const res = try codegen.generateSymbol(&macho_file.base, pt, src_loc, val, &code_buffer, .{
         .none = {},
@@ -1306,19 +1329,14 @@ fn lowerConst(
     };
 
     const sym = &self.symbols.items[sym_index];
-    const name_str_index = try self.strtab.insert(gpa, name);
-    sym.name = name_str_index;
     sym.out_n_sect = output_section_index;
 
     const nlist = &self.symtab.items(.nlist)[sym.nlist_idx];
-    nlist.n_strx = name_str_index;
-    nlist.n_type = macho.N_SECT;
     nlist.n_sect = output_section_index + 1;
     self.symtab.items(.size)[sym.nlist_idx] = code.len;
 
     const atom = sym.getAtom(macho_file).?;
     atom.flags.alive = true;
-    atom.name = name_str_index;
     atom.alignment = required_alignment;
     atom.size = code.len;
     atom.out_n_sect = output_section_index;
@@ -1326,9 +1344,6 @@ fn lowerConst(
     try atom.allocate(macho_file);
     // TODO rename and re-audit this method
     errdefer self.freeDeclMetadata(macho_file, sym_index);
-
-    sym.value = 0;
-    nlist.n_value = 0;
 
     const sect = macho_file.sections.items(.header)[output_section_index];
     const file_offset = sect.offset + atom.value;
@@ -1560,17 +1575,9 @@ pub fn getGlobalSymbol(self: *ZigObject, macho_file: *MachO, name: []const u8, l
     const off = try self.strtab.insert(gpa, sym_name);
     const lookup_gop = try self.globals_lookup.getOrPut(gpa, off);
     if (!lookup_gop.found_existing) {
-        const sym_index = try self.addSymbol(gpa);
+        const sym_index = try self.newSymbol(gpa, off, .{});
         const sym = &self.symbols.items[sym_index];
-        const nlist_index = try self.addNlist(gpa);
-        const nlist = &self.symtab.items(.nlist)[nlist_index];
-        nlist.n_strx = off;
-        nlist.n_type = macho.N_EXT;
-        sym.name = off;
-        sym.nlist_idx = nlist_index;
-        sym.extra = try self.addSymbolExtra(gpa, .{});
-        lookup_gop.value_ptr.* = nlist_index;
-        try self.globals.append(gpa, 0);
+        lookup_gop.value_ptr.* = sym.nlist_idx;
     }
     return lookup_gop.value_ptr.*;
 }
@@ -1584,10 +1591,10 @@ pub fn getOrCreateMetadataForDecl(
     const gop = try self.decls.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
         const any_non_single_threaded = macho_file.base.comp.config.any_non_single_threaded;
-        const sym_index = try self.createAtomForDecl(gpa, macho_file);
+        const sym_index = try self.newSymbolWithAtom(gpa, 0, macho_file);
+        const sym = &self.symbols.items[sym_index];
         const mod = macho_file.base.comp.module.?;
         const decl = mod.declPtr(decl_index);
-        const sym = &self.symbols.items[sym_index];
         if (decl.getOwnedVariable(mod)) |variable| {
             if (variable.is_threadlocal and any_non_single_threaded) {
                 sym.flags.tlv = true;
@@ -1627,7 +1634,7 @@ pub fn getOrCreateMetadataForLazySymbol(
     };
     switch (metadata.state.*) {
         .unused => {
-            const symbol_index = try self.createAtomForDecl(gpa, macho_file);
+            const symbol_index = try self.newSymbolWithAtom(gpa, 0, macho_file);
             const sym = &self.symbols.items[symbol_index];
             sym.flags.needs_zig_got = true;
             metadata.symbol_index.* = symbol_index;
@@ -1643,12 +1650,18 @@ pub fn getOrCreateMetadataForLazySymbol(
 }
 
 fn addAtom(self: *ZigObject, allocator: Allocator) !Atom.Index {
+    try self.atoms.ensureUnusedCapacity(allocator, 1);
+    try self.atoms_extra.ensureUnusedCapacity(allocator, 1);
+    return self.addAtomAssumeCapacity();
+}
+
+fn addAtomAssumeCapacity(self: *ZigObject) Atom.Index {
     const atom_index: Atom.Index = @intCast(self.atoms.items.len);
-    const atom = try self.atoms.addOne(allocator);
+    const atom = self.atoms.addOneAssumeCapacity();
     atom.* = .{
         .file = self.index,
         .atom_index = atom_index,
-        .extra = try self.addAtomExtra(allocator, .{}),
+        .extra = self.addAtomExtraAssumeCapacity(.{}),
     };
     return atom_index;
 }

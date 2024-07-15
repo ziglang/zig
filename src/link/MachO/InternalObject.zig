@@ -52,8 +52,8 @@ pub fn init(self: *InternalObject, allocator: Allocator) !void {
 }
 
 pub fn initSymbols(self: *InternalObject, macho_file: *MachO) !void {
-    const createSymbol = struct {
-        fn createSymbol(obj: *InternalObject, name: u32, args: struct {
+    const newSymbolAssumeCapacity = struct {
+        fn newSymbolAssumeCapacity(obj: *InternalObject, name: u32, args: struct {
             type: u8 = macho.N_UNDF | macho.N_EXT,
             desc: u16 = 0,
         }) Symbol.Index {
@@ -78,7 +78,7 @@ pub fn initSymbols(self: *InternalObject, macho_file: *MachO) !void {
             symbol.nlist_idx = nlist_idx;
             return index;
         }
-    }.createSymbol;
+    }.newSymbolAssumeCapacity;
 
     const gpa = macho_file.base.comp.gpa;
     var nsyms = macho_file.base.comp.force_undefined_symbols.keys().len;
@@ -102,28 +102,28 @@ pub fn initSymbols(self: *InternalObject, macho_file: *MachO) !void {
 
     try self.force_undefined.ensureTotalCapacityPrecise(gpa, macho_file.base.comp.force_undefined_symbols.keys().len);
     for (macho_file.base.comp.force_undefined_symbols.keys()) |name| {
-        self.force_undefined.addOneAssumeCapacity().* = createSymbol(self, try self.addString(gpa, name), .{});
+        self.force_undefined.addOneAssumeCapacity().* = newSymbolAssumeCapacity(self, try self.addString(gpa, name), .{});
     }
 
-    self.dyld_stub_binder_index = createSymbol(self, try self.addString(gpa, "dyld_stub_binder"), .{});
-    self.objc_msg_send_index = createSymbol(self, try self.addString(gpa, "_objc_msgSend"), .{});
+    self.dyld_stub_binder_index = newSymbolAssumeCapacity(self, try self.addString(gpa, "dyld_stub_binder"), .{});
+    self.objc_msg_send_index = newSymbolAssumeCapacity(self, try self.addString(gpa, "_objc_msgSend"), .{});
 
     if (!macho_file.base.isDynLib()) {
-        self.entry_index = createSymbol(self, try self.addString(gpa, macho_file.entry_name orelse "_main"), .{});
-        self.mh_execute_header_index = createSymbol(self, try self.addString(gpa, "__mh_execute_header"), .{
+        self.entry_index = newSymbolAssumeCapacity(self, try self.addString(gpa, macho_file.entry_name orelse "_main"), .{});
+        self.mh_execute_header_index = newSymbolAssumeCapacity(self, try self.addString(gpa, "__mh_execute_header"), .{
             .type = macho.N_SECT | macho.N_EXT,
             .desc = macho.REFERENCED_DYNAMICALLY,
         });
     } else {
-        self.mh_dylib_header_index = createSymbol(self, try self.addString(gpa, "__mh_dylib_header"), .{
+        self.mh_dylib_header_index = newSymbolAssumeCapacity(self, try self.addString(gpa, "__mh_dylib_header"), .{
             .type = macho.N_SECT | macho.N_EXT,
         });
     }
 
-    self.dso_handle_index = createSymbol(self, try self.addString(gpa, "___dso_handle"), .{
+    self.dso_handle_index = newSymbolAssumeCapacity(self, try self.addString(gpa, "___dso_handle"), .{
         .type = macho.N_SECT | macho.N_EXT,
     });
-    self.dyld_private_index = createSymbol(self, try self.addString(gpa, "dyld_private"), .{
+    self.dyld_private_index = newSymbolAssumeCapacity(self, try self.addString(gpa, "dyld_private"), .{
         .type = macho.N_SECT,
     });
 }
