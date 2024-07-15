@@ -10188,9 +10188,15 @@ fn analyzeAs(
     const dest_ty_tag = dest_ty.zigTypeTagOrPoison(mod) catch |err| switch (err) {
         error.GenericPoison => return operand,
     };
+
+    if (dest_ty_tag == .Opaque) {
+        return sema.fail(block, src, "cannot cast to opaque type '{}'", .{dest_ty.fmt(pt)});
+    }
+
     if (dest_ty_tag == .NoReturn) {
         return sema.fail(block, src, "cannot cast to noreturn", .{});
     }
+
     const is_ret = if (zir_dest_type.toIndex()) |ptr_index|
         sema.code.instructions.items(.tag)[@intFromEnum(ptr_index)] == .ret_type
     else
