@@ -198,7 +198,7 @@ fn wasi_start() callconv(.C) void {
     // release mode fails to inline it, and we want fewer call frames in stack traces.
     switch (builtin.wasi_exec_model) {
         .reactor => _ = @call(.always_inline, callMain, .{}),
-        .command => std.os.wasi.proc_exit(@call(.always_inline, callMain, .{})),
+        .command => std.os.wasi.proc_exit(@call(.always_inline, callMain, .{ null, null })),
     }
 }
 
@@ -591,16 +591,16 @@ fn main(c_argc: c_int, c_argv: [*:null]?[*:0]c_char, c_envp: [*:null]?[*:0]c_cha
         expandStackSize(phdrs);
     }
 
-    return callMainWithArgs(c_argv[0..c_argc], envp);
+    return callMainWithArgs(@ptrCast(c_argv[0..@intCast(c_argc) :null]), @ptrCast(envp));
 }
 
 fn mainWithoutEnv(c_argc: c_int, c_argv: [*:null]?[*:0]c_char) callconv(.C) c_int {
-    std.os.argv = @ptrCast(c_argv[0..c_argc]);
+    std.os.argv = @ptrCast(c_argv[0..@intCast(c_argc)]);
 
     std.debug.maybeEnableSegfaultHandler();
     maybeIgnoreSigpipe();
 
-    return callMain(c_argv[0..c_argc], null);
+    return callMain(c_argv[0..@intCast(c_argc) :null], null);
 }
 
 // General error message for a malformed return type
