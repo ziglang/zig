@@ -1,5 +1,6 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
+const utf8ByteSequenceLength = std.unicode.utf8ByteSequenceLength;
 const utf8Decode = std.unicode.utf8Decode;
 const utf8Encode = std.unicode.utf8Encode;
 
@@ -37,12 +38,16 @@ pub const Error = union(enum) {
     expected_single_quote: usize,
     /// The character at this index cannot be represented without an escape sequence.
     invalid_character: usize,
+    // Expected some content, found '\''.
+    empty,
 };
 
 /// Only validates escape sequence characters.
 /// Slice must be valid utf8 starting and ending with "'" and exactly one codepoint in between.
 pub fn parseCharLiteral(slice: []const u8) ParsedCharLiteral {
-    assert(slice.len >= 3 and slice[0] == '\'' and slice[slice.len - 1] == '\'');
+    assert(slice.len >= 2 and slice[0] == '\'' and slice[slice.len - 1] == '\'');
+    if (slice.len == 2)
+        return .{ .failure = .empty };
 
     switch (slice[1]) {
         '\\' => {
@@ -55,7 +60,16 @@ pub fn parseCharLiteral(slice: []const u8) ParsedCharLiteral {
         },
         0 => return .{ .failure = .{ .invalid_character = 1 } },
         else => {
-            const codepoint = utf8Decode(slice[1 .. slice.len - 1]) catch unreachable;
+            const content = slice[1 .. slice.len - 1];
+            const len = utf8ByteSequenceLength(content[0]) catch
+                return .{ .failure = .{ .invalid_character = 1 } };
+            if (len > content.len)
+                return .{ .failure = .{ .invalid_character = content.len + 1 } };
+            if (len < content.len)
+                return .{ .failure = .{ .expected_single_quote = len + 1 } };
+
+            const codepoint = utf8Decode(content) catch
+                return .{ .failure = .{ .invalid_character = 2 } };
             return .{ .success = codepoint };
         },
     }

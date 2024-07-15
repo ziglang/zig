@@ -11243,6 +11243,14 @@ fn appendIdentStr(
     assert(token_tags[token] == .identifier);
     const ident_name = tree.tokenSlice(token);
     if (!mem.startsWith(u8, ident_name, "@")) {
+        for (ident_name, 0..) |c, i| {
+            if (!std.ascii.isAlphanumeric(c) and c != '_') {
+                try astgen.appendErrorTokNotesOff(token, @intCast(i), "regular identifier cannot contain non-ASCII bytes", .{}, &.{
+                    try astgen.errNoteTokOff(token, @intCast(i), "invalid byte: '{'}'", .{std.zig.fmtEscapes(&.{c})}),
+                });
+                return error.AnalysisFail;
+            }
+        }
         return buf.appendSlice(astgen.gpa, ident_name);
     } else {
         const start = buf.items.len;
@@ -11348,6 +11356,9 @@ fn failWithStrLitError(astgen: *AstGen, err: std.zig.string_literal.Error, token
                 "invalid byte in string or character literal: '{c}'",
                 .{raw_string[bad_index]},
             );
+        },
+        .empty => {
+            return astgen.failOff(token, offset + 1, "empty character literal", .{});
         },
     }
 }
@@ -13824,11 +13835,11 @@ fn lowerAstErrors(astgen: *AstGen) !void {
     var notes: std.ArrayListUnmanaged(u32) = .{};
     defer notes.deinit(gpa);
 
-    if (token_tags[parse_err.token + @intFromBool(parse_err.token_is_prev)] == .invalid) {
-        const tok = parse_err.token + @intFromBool(parse_err.token_is_prev);
-        const bad_off: u32 = @intCast(tree.tokenSlice(parse_err.token + @intFromBool(parse_err.token_is_prev)).len);
-        const byte_abs = token_starts[parse_err.token + @intFromBool(parse_err.token_is_prev)] + bad_off;
-        try notes.append(gpa, try astgen.errNoteTokOff(tok, bad_off, "invalid byte: '{'}'", .{
+    const err_tok = parse_err.token + @intFromBool(parse_err.token_is_prev);
+    if (token_tags[err_tok] == .invalid) {
+        const bad_off: u32 = @intCast(tree.tokenSlice(err_tok).len - 1);
+        const byte_abs = token_starts[err_tok] + bad_off;
+        try notes.append(gpa, try astgen.errNoteTokOff(err_tok, bad_off, "invalid byte: '{'}'", .{
             std.zig.fmtEscapes(tree.source[byte_abs..][0..1]),
         }));
     }

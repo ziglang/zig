@@ -558,6 +558,9 @@ const Parse = struct {
                     .{raw_string[bad_index]},
                 );
             },
+            .empty => {
+                try p.appendErrorOff(token, offset + 1, "empty character literal", .{});
+            },
         }
     }
 
