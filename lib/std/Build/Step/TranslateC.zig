@@ -80,6 +80,8 @@ pub fn addExecutable(translate_c: *TranslateC, options: AddExecutableOptions) *S
 pub fn addModule(translate_c: *TranslateC, name: []const u8) *std.Build.Module {
     return translate_c.step.owner.addModule(name, .{
         .root_source_file = translate_c.getOutput(),
+        .target = translate_c.target,
+        .optimize = translate_c.optimize,
     });
 }
 
@@ -89,6 +91,8 @@ pub fn addModule(translate_c: *TranslateC, name: []const u8) *std.Build.Module {
 pub fn createModule(translate_c: *TranslateC) *std.Build.Module {
     return translate_c.step.owner.createModule(.{
         .root_source_file = translate_c.getOutput(),
+        .target = translate_c.target,
+        .optimize = translate_c.optimize,
     });
 }
 
