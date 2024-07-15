@@ -3145,7 +3145,7 @@ pub fn unionFieldNormalAlignmentAdvanced(
     pt: Zcu.PerThread,
     loaded_union: InternPool.LoadedUnionType,
     field_index: u32,
-    strat: Type.ResolveStrat,
+    comptime strat: Type.ResolveStrat,
 ) Zcu.SemaError!InternPool.Alignment {
     const ip = &pt.zcu.intern_pool;
     assert(loaded_union.flagsUnordered(ip).layout != .@"packed");
@@ -3173,7 +3173,7 @@ pub fn structFieldAlignmentAdvanced(
     explicit_alignment: InternPool.Alignment,
     field_ty: Type,
     layout: std.builtin.Type.ContainerLayout,
-    strat: Type.ResolveStrat,
+    comptime strat: Type.ResolveStrat,
 ) Zcu.SemaError!InternPool.Alignment {
     assert(layout != .@"packed");
     if (explicit_alignment != .none) return explicit_alignment;

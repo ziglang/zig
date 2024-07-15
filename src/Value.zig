@@ -178,7 +178,7 @@ pub fn toBigIntAdvanced(
     val: Value,
     space: *BigIntSpace,
     pt: Zcu.PerThread,
-    strat: ResolveStrat,
+    comptime strat: ResolveStrat,
 ) Module.CompileError!BigIntConst {
     return switch (val.toIntern()) {
         .bool_false => BigIntMutable.init(&space.limbs, 0).toConst(),
@@ -240,7 +240,7 @@ pub fn getUnsignedInt(val: Value, pt: Zcu.PerThread) ?u64 {
 
 /// If the value fits in a u64, return it, otherwise null.
 /// Asserts not undefined.
-pub fn getUnsignedIntAdvanced(val: Value, pt: Zcu.PerThread, strat: ResolveStrat) !?u64 {
+pub fn getUnsignedIntAdvanced(val: Value, pt: Zcu.PerThread, comptime strat: ResolveStrat) !?u64 {
     const mod = pt.zcu;
     return switch (val.toIntern()) {
         .undef => unreachable,
@@ -1042,7 +1042,7 @@ pub fn orderAgainstZero(lhs: Value, pt: Zcu.PerThread) std.math.Order {
 pub fn orderAgainstZeroAdvanced(
     lhs: Value,
     pt: Zcu.PerThread,
-    strat: ResolveStrat,
+    comptime strat: ResolveStrat,
 ) Module.CompileError!std.math.Order {
     return switch (lhs.toIntern()) {
         .bool_false => .eq,
@@ -1081,7 +1081,7 @@ pub fn order(lhs: Value, rhs: Value, pt: Zcu.PerThread) std.math.Order {
 }
 
 /// Asserts the value is comparable.
-pub fn orderAdvanced(lhs: Value, rhs: Value, pt: Zcu.PerThread, strat: ResolveStrat) !std.math.Order {
+pub fn orderAdvanced(lhs: Value, rhs: Value, pt: Zcu.PerThread, comptime strat: ResolveStrat) !std.math.Order {
     const lhs_against_zero = try lhs.orderAgainstZeroAdvanced(pt, strat);
     const rhs_against_zero = try rhs.orderAgainstZeroAdvanced(pt, strat);
     switch (lhs_against_zero) {
@@ -1119,7 +1119,7 @@ pub fn compareHeteroAdvanced(
     op: std.math.CompareOperator,
     rhs: Value,
     pt: Zcu.PerThread,
-    strat: ResolveStrat,
+    comptime strat: ResolveStrat,
 ) !bool {
     if (lhs.pointerDecl(pt.zcu)) |lhs_decl| {
         if (rhs.pointerDecl(pt.zcu)) |rhs_decl| {
@@ -1199,7 +1199,7 @@ pub fn compareAllWithZeroAdvancedExtra(
     lhs: Value,
     op: std.math.CompareOperator,
     pt: Zcu.PerThread,
-    strat: ResolveStrat,
+    comptime strat: ResolveStrat,
 ) Module.CompileError!bool {
     const mod = pt.zcu;
     if (lhs.isInf(mod)) {
@@ -1505,7 +1505,7 @@ pub fn floatFromIntAdvanced(
     int_ty: Type,
     float_ty: Type,
     pt: Zcu.PerThread,
-    strat: ResolveStrat,
+    comptime strat: ResolveStrat,
 ) !Value {
     const mod = pt.zcu;
     if (int_ty.zigTypeTag(mod) == .Vector) {
@@ -1523,7 +1523,7 @@ pub fn floatFromIntAdvanced(
     return floatFromIntScalar(val, float_ty, pt, strat);
 }
 
-pub fn floatFromIntScalar(val: Value, float_ty: Type, pt: Zcu.PerThread, strat: ResolveStrat) !Value {
+pub fn floatFromIntScalar(val: Value, float_ty: Type, pt: Zcu.PerThread, comptime strat: ResolveStrat) !Value {
     const mod = pt.zcu;
     return switch (mod.intern_pool.indexToKey(val.toIntern())) {
         .undef => try pt.undefValue(float_ty),

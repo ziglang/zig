@@ -478,7 +478,7 @@ pub fn hasRuntimeBitsAdvanced(
     ty: Type,
     pt: Zcu.PerThread,
     ignore_comptime_only: bool,
-    strat: ResolveStratLazy,
+    comptime strat: ResolveStratLazy,
 ) RuntimeBitsError!bool {
     const mod = pt.zcu;
     const ip = &mod.intern_pool;
@@ -792,7 +792,7 @@ pub fn fnHasRuntimeBits(ty: Type, pt: Zcu.PerThread) bool {
 /// Determines whether a function type has runtime bits, i.e. whether a
 /// function with this type can exist at runtime.
 /// Asserts that `ty` is a function type.
-pub fn fnHasRuntimeBitsAdvanced(ty: Type, pt: Zcu.PerThread, strat: ResolveStrat) SemaError!bool {
+pub fn fnHasRuntimeBitsAdvanced(ty: Type, pt: Zcu.PerThread, comptime strat: ResolveStrat) SemaError!bool {
     const fn_info = pt.zcu.typeToFunc(ty).?;
     if (fn_info.is_generic) return false;
     if (fn_info.is_var_args) return true;
@@ -824,7 +824,7 @@ pub fn ptrAlignment(ty: Type, pt: Zcu.PerThread) Alignment {
     return ptrAlignmentAdvanced(ty, pt, .normal) catch unreachable;
 }
 
-pub fn ptrAlignmentAdvanced(ty: Type, pt: Zcu.PerThread, strat: ResolveStrat) !Alignment {
+pub fn ptrAlignmentAdvanced(ty: Type, pt: Zcu.PerThread, comptime strat: ResolveStrat) !Alignment {
     return switch (pt.zcu.intern_pool.indexToKey(ty.toIntern())) {
         .ptr_type => |ptr_type| {
             if (ptr_type.flags.alignment != .none)
@@ -891,7 +891,7 @@ pub const ResolveStrat = enum {
     /// This should typically be used from semantic analysis.
     sema,
 
-    pub fn toLazy(strat: ResolveStrat) ResolveStratLazy {
+    pub inline fn toLazy(strat: ResolveStrat) ResolveStratLazy {
         return switch (strat) {
             .normal => .eager,
             .sema => .sema,
@@ -908,7 +908,7 @@ pub const ResolveStrat = enum {
 pub fn abiAlignmentAdvanced(
     ty: Type,
     pt: Zcu.PerThread,
-    strat: ResolveStratLazy,
+    comptime strat: ResolveStratLazy,
 ) SemaError!AbiAlignmentAdvanced {
     const mod = pt.zcu;
     const target = mod.getTarget();
@@ -1130,7 +1130,7 @@ pub fn abiAlignmentAdvanced(
 fn abiAlignmentAdvancedErrorUnion(
     ty: Type,
     pt: Zcu.PerThread,
-    strat: ResolveStratLazy,
+    comptime strat: ResolveStratLazy,
     payload_ty: Type,
 ) SemaError!AbiAlignmentAdvanced {
     // This code needs to be kept in sync with the equivalent switch prong
@@ -1167,7 +1167,7 @@ fn abiAlignmentAdvancedErrorUnion(
 fn abiAlignmentAdvancedOptional(
     ty: Type,
     pt: Zcu.PerThread,
-    strat: ResolveStratLazy,
+    comptime strat: ResolveStratLazy,
 ) SemaError!AbiAlignmentAdvanced {
     const mod = pt.zcu;
     const target = mod.getTarget();
@@ -1231,7 +1231,7 @@ const AbiSizeAdvanced = union(enum) {
 pub fn abiSizeAdvanced(
     ty: Type,
     pt: Zcu.PerThread,
-    strat: ResolveStratLazy,
+    comptime strat: ResolveStratLazy,
 ) SemaError!AbiSizeAdvanced {
     const mod = pt.zcu;
     const target = mod.getTarget();
@@ -1505,7 +1505,7 @@ pub fn abiSizeAdvanced(
 fn abiSizeAdvancedOptional(
     ty: Type,
     pt: Zcu.PerThread,
-    strat: ResolveStratLazy,
+    comptime strat: ResolveStratLazy,
 ) SemaError!AbiSizeAdvanced {
     const mod = pt.zcu;
     const child_ty = ty.optionalChild(mod);
@@ -1680,7 +1680,7 @@ pub fn bitSize(ty: Type, pt: Zcu.PerThread) u64 {
 pub fn bitSizeAdvanced(
     ty: Type,
     pt: Zcu.PerThread,
-    strat: ResolveStrat,
+    comptime strat: ResolveStrat,
 ) SemaError!u64 {
     const mod = pt.zcu;
     const target = mod.getTarget();
@@ -2739,7 +2739,7 @@ pub fn comptimeOnly(ty: Type, pt: Zcu.PerThread) bool {
 
 /// `generic_poison` will return false.
 /// May return false negatives when structs and unions are having their field types resolved.
-pub fn comptimeOnlyAdvanced(ty: Type, pt: Zcu.PerThread, strat: ResolveStrat) SemaError!bool {
+pub fn comptimeOnlyAdvanced(ty: Type, pt: Zcu.PerThread, comptime strat: ResolveStrat) SemaError!bool {
     const mod = pt.zcu;
     const ip = &mod.intern_pool;
     return switch (ty.toIntern()) {
@@ -3198,7 +3198,7 @@ pub fn structFieldAlign(ty: Type, index: usize, pt: Zcu.PerThread) Alignment {
     return ty.structFieldAlignAdvanced(index, pt, .normal) catch unreachable;
 }
 
-pub fn structFieldAlignAdvanced(ty: Type, index: usize, pt: Zcu.PerThread, strat: ResolveStrat) !Alignment {
+pub fn structFieldAlignAdvanced(ty: Type, index: usize, pt: Zcu.PerThread, comptime strat: ResolveStrat) !Alignment {
     const ip = &pt.zcu.intern_pool;
     switch (ip.indexToKey(ty.toIntern())) {
         .struct_type => {
