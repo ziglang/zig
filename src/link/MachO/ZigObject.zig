@@ -497,6 +497,7 @@ pub fn writeAtomsRelocatable(self: *ZigObject, macho_file: *MachO) !void {
         const sect = atom.getInputSection(macho_file);
         if (sect.isZerofill()) continue;
         if (macho_file.isZigSection(atom.out_n_sect)) continue;
+        if (atom.getRelocs(macho_file).len == 0) continue;
         const off = atom.value;
         const buffer = macho_file.sections.items(.out)[atom.out_n_sect].items;
         try self.getAtomData(macho_file, atom.*, buffer[off..][0..atom.size]);
@@ -1174,11 +1175,6 @@ fn createTlvDescriptor(
             .length = 3,
             .symbolnum = @intCast(init_sym_index),
         },
-    });
-
-    try macho_file.sections.items(.atoms)[sect_index].append(gpa, .{
-        .index = atom.atom_index,
-        .file = self.index,
     });
 }
 
