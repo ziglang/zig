@@ -2757,12 +2757,14 @@ fn airAddWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = func.air.extraData(Air.Bin, ty_pl.payload).data;
 
+    const rhs_ty = func.typeOf(extra.rhs);
+    const lhs_ty = func.typeOf(extra.lhs);
+
     const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
-        const ty = func.typeOf(extra.lhs);
-        switch (ty.zigTypeTag(zcu)) {
+        switch (lhs_ty.zigTypeTag(zcu)) {
             .Vector => return func.fail("TODO implement add with overflow for Vector type", .{}),
             .Int => {
-                const int_info = ty.intInfo(zcu);
+                const int_info = lhs_ty.intInfo(zcu);
 
                 const tuple_ty = func.typeOfIndex(inst);
                 const result_mcv = try func.allocRegOrMem(tuple_ty, inst, false);
@@ -2774,11 +2776,11 @@ fn airAddWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
                     try func.genSetMem(
                         .{ .frame = offset.index },
                         offset.off + @as(i32, @intCast(tuple_ty.structFieldOffset(0, pt))),
-                        ty,
+                        lhs_ty,
                         add_result,
                     );
 
-                    const trunc_reg = try func.copyToTmpRegister(ty, add_result);
+                    const trunc_reg = try func.copyToTmpRegister(lhs_ty, add_result);
                     const trunc_reg_lock = func.register_manager.lockRegAssumeUnused(trunc_reg);
                     defer func.register_manager.unlockReg(trunc_reg_lock);
 
@@ -2787,13 +2789,13 @@ fn airAddWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
 
                     // if the result isn't equal after truncating it to the given type,
                     // an overflow must have happened.
-                    try func.truncateRegister(func.typeOf(extra.lhs), trunc_reg);
+                    try func.truncateRegister(lhs_ty, trunc_reg);
                     try func.genBinOp(
                         .cmp_neq,
                         add_result,
-                        ty,
+                        lhs_ty,
                         .{ .register = trunc_reg },
-                        ty,
+                        rhs_ty,
                         overflow_reg,
                     );
 
@@ -2806,7 +2808,69 @@ fn airAddWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
 
                     break :result result_mcv;
                 } else {
-                    return func.fail("TODO: less than 8 bit or non-pow 2 addition", .{});
+                    const rhs_mcv = try func.resolveInst(extra.rhs);
+                    const lhs_mcv = try func.resolveInst(extra.lhs);
+
+                    const rhs_reg, const rhs_lock = try func.promoteReg(rhs_ty, rhs_mcv);
+                    const lhs_reg, const lhs_lock = try func.promoteReg(lhs_ty, lhs_mcv);
+                    defer {
+                        if (rhs_lock) |lock| func.register_manager.unlockReg(lock);
+                        if (lhs_lock) |lock| func.register_manager.unlockReg(lock);
+                    }
+
+                    try func.truncateRegister(rhs_ty, rhs_reg);
+                    try func.truncateRegister(lhs_ty, lhs_reg);
+
+                    const dest_reg, const dest_lock = try func.allocReg(.int);
+                    defer func.register_manager.unlockReg(dest_lock);
+
+                    _ = try func.addInst(.{
+                        .tag = .add,
+                        .ops = .rrr,
+                        .data = .{ .r_type = .{
+                            .rs1 = rhs_reg,
+                            .rs2 = lhs_reg,
+                            .rd = dest_reg,
+                        } },
+                    });
+
+                    try func.truncateRegister(func.typeOfIndex(inst), dest_reg);
+                    const add_result: MCValue = .{ .register = dest_reg };
+
+                    try func.genSetMem(
+                        .{ .frame = offset.index },
+                        offset.off + @as(i32, @intCast(tuple_ty.structFieldOffset(0, pt))),
+                        lhs_ty,
+                        add_result,
+                    );
+
+                    const trunc_reg = try func.copyToTmpRegister(lhs_ty, add_result);
+                    const trunc_reg_lock = func.register_manager.lockRegAssumeUnused(trunc_reg);
+                    defer func.register_manager.unlockReg(trunc_reg_lock);
+
+                    const overflow_reg, const overflow_lock = try func.allocReg(.int);
+                    defer func.register_manager.unlockReg(overflow_lock);
+
+                    // if the result isn't equal after truncating it to the given type,
+                    // an overflow must have happened.
+                    try func.truncateRegister(lhs_ty, trunc_reg);
+                    try func.genBinOp(
+                        .cmp_neq,
+                        add_result,
+                        lhs_ty,
+                        .{ .register = trunc_reg },
+                        rhs_ty,
+                        overflow_reg,
+                    );
+
+                    try func.genSetMem(
+                        .{ .frame = offset.index },
+                        offset.off + @as(i32, @intCast(tuple_ty.structFieldOffset(1, pt))),
+                        Type.u1,
+                        .{ .register = overflow_reg },
+                    );
+
+                    break :result result_mcv;
                 }
             },
             else => unreachable,
