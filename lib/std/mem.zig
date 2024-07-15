@@ -1226,7 +1226,7 @@ pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, 
             // {block_len, block_len / 2} check
             inline for (0..2) |j| {
                 const block_x_len = block_len / (1 << j);
-                comptime if (block_x_len < 4) break;
+                if (comptime block_x_len < 4) break;
 
                 const BlockX = @Vector(block_x_len, T);
                 if (i + block_x_len < slice.len) {

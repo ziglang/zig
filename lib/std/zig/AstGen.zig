@@ -2166,6 +2166,11 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                     continue;
                 };
                 // If we made it here, this block is the target of the break expr
+                
+                if (parent_gz.is_comptime and !block_gz.is_comptime) {
+                    const block_type = if (block_gz.is_inline) "inline" else "runtime";
+                    return astgen.failNode(node, "cannot comptime break out of {s} block", .{block_type});
+                }
 
                 const break_tag: Zir.Inst.Tag = if (block_gz.is_inline)
                     .break_inline
@@ -2259,6 +2264,11 @@ fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) 
                     // found continue but either it has a different label, or no label
                     scope = gen_zir.parent;
                     continue;
+                }
+
+                if (parent_gz.is_comptime and !gen_zir.is_comptime) {
+                    const block_type = if (gen_zir.is_inline) "inline" else "runtime";
+                    return astgen.failNode(node, "cannot comptime continue out of {s} block", .{block_type});
                 }
 
                 const break_tag: Zir.Inst.Tag = if (gen_zir.is_inline)
