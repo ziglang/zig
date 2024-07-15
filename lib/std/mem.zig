@@ -1050,15 +1050,16 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
             // as we don't read into a new page. This should be the case for most architectures
             // which use paged memory, however should be confirmed before adding a new arch below.
             .aarch64, .x86, .x86_64 => if (std.simd.suggestVectorLength(T)) |block_len| {
+                const block_size = @sizeOf(T) * block_len;
                 const Block = @Vector(block_len, T);
                 const mask: Block = @splat(sentinel);
 
-                comptime std.debug.assert(std.mem.page_size % @sizeOf(Block) == 0);
+                comptime std.debug.assert(std.mem.page_size % block_size == 0);
 
                 // First block may be unaligned
                 const start_addr = @intFromPtr(&p[i]);
                 const offset_in_page = start_addr & (std.mem.page_size - 1);
-                if (offset_in_page <= std.mem.page_size - @sizeOf(Block)) {
+                if (offset_in_page <= std.mem.page_size - block_size) {
                     // Will not read past the end of a page, full block.
                     const block: Block = p[i..][0..block_len].*;
                     const matches = block == mask;
@@ -1066,19 +1067,19 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
                         return i + std.simd.firstTrue(matches).?;
                     }
 
-                    i += (std.mem.alignForward(usize, start_addr, @alignOf(Block)) - start_addr) / @sizeOf(T);
+                    i += @divExact(std.mem.alignForward(usize, start_addr, block_size) - start_addr, @sizeOf(T));
                 } else {
                     // Would read over a page boundary. Per-byte at a time until aligned or found.
                     // 0.39% chance this branch is taken for 4K pages at 16b block length.
                     //
                     // An alternate strategy is to do read a full block (the last in the page) and
                     // mask the entries before the pointer.
-                    while ((@intFromPtr(&p[i]) & (@alignOf(Block) - 1)) != 0) : (i += 1) {
+                    while ((@intFromPtr(&p[i]) & (block_size - 1)) != 0) : (i += 1) {
                         if (p[i] == sentinel) return i;
                     }
                 }
 
-                std.debug.assert(std.mem.isAligned(@intFromPtr(&p[i]), @alignOf(Block)));
+                std.debug.assert(std.mem.isAligned(@intFromPtr(&p[i]), block_size));
                 while (true) {
                     const block: *const Block = @ptrCast(@alignCast(p[i..][0..block_len]));
                     const matches = block.* == mask;
