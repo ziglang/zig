@@ -567,7 +567,7 @@ pub fn Poller(comptime StreamEnum: type) type {
                         windows.INFINITE,
                 );
                 if (status == windows.WAIT_FAILED)
-                    return windows.unexpectedError(windows.kernel32.GetLastError());
+                    return windows.unexpectedError(windows.GetLastError());
                 if (status == windows.WAIT_TIMEOUT)
                     return true;
 
@@ -584,7 +584,7 @@ pub fn Poller(comptime StreamEnum: type) type {
                     &self.windows.overlapped[stream_idx],
                     &read_bytes,
                     0,
-                )) switch (windows.kernel32.GetLastError()) {
+                )) switch (windows.GetLastError()) {
                     .BROKEN_PIPE => {
                         self.windows.active.removeAt(active_idx);
                         continue;
@@ -664,7 +664,7 @@ fn windowsAsyncRead(
         const buf = try fifo.writableWithSize(bump_amt);
         var read_bytes: u32 = undefined;
         const read_result = windows.kernel32.ReadFile(handle, buf.ptr, math.cast(u32, buf.len) orelse math.maxInt(u32), &read_bytes, overlapped);
-        if (read_result == 0) return switch (windows.kernel32.GetLastError()) {
+        if (read_result == 0) return switch (windows.GetLastError()) {
             .IO_PENDING => .pending,
             .BROKEN_PIPE => .closed,
             else => |err| windows.unexpectedError(err),
