@@ -31761,11 +31761,9 @@ fn coerceTupleToStruct(
     };
     for (0..field_count) |tuple_field_index| {
         const field_src = inst_src; // TODO better source location
-        const field_name: InternPool.NullTerminatedString = blk: {
-            const field_name_optional = inst_ty.structFieldName(tuple_field_index, mod);
-            break :blk field_name_optional.unwrap() orelse
-                try ip.getOrPutStringFmt(sema.gpa, pt.tid, "{d}", .{tuple_field_index}, .no_embedded_nulls);
-        };
+        const field_name = inst_ty.structFieldName(tuple_field_index, mod).unwrap() orelse
+            try ip.getOrPutStringFmt(sema.gpa, pt.tid, "{d}", .{tuple_field_index}, .no_embedded_nulls);
+
         const struct_field_index = try sema.structFieldIndex(block, struct_ty, field_name, field_src);
         const struct_field_ty = Type.fromInterned(struct_type.field_types.get(ip)[struct_field_index]);
         const elem_ref = try sema.tupleField(block, inst_src, inst, field_src, @intCast(tuple_field_index));
@@ -31871,11 +31869,9 @@ fn coerceTupleToTuple(
     for (0..dest_field_count) |field_index_usize| {
         const field_i: u32 = @intCast(field_index_usize);
         const field_src = inst_src; // TODO better source location
-        const field_name: InternPool.NullTerminatedString = blk: {
-            const field_name_optional = inst_ty.structFieldName(field_index_usize, mod);
-            break :blk field_name_optional.unwrap() orelse
-                try ip.getOrPutStringFmt(sema.gpa, pt.tid, "{d}", .{field_index_usize}, .no_embedded_nulls);
-        };
+        const field_name = inst_ty.structFieldName(field_index_usize, mod).unwrap() orelse
+            try ip.getOrPutStringFmt(sema.gpa, pt.tid, "{d}", .{field_index_usize}, .no_embedded_nulls);
+
         if (field_name.eqlSlice("len", ip))
             return sema.fail(block, field_src, "cannot assign to 'len' field of tuple", .{});
 
