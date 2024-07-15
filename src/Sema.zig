@@ -16475,14 +16475,17 @@ fn analyzeArithmetic(
                     return sema.failWithInvalidPtrArithmetic(block, src, "pointer-pointer", "subtraction");
                 }
                 if (!lhs_ty.elemType2(mod).eql(rhs_ty.elemType2(mod), mod)) {
-                    return sema.fail(block, src, "pointer subtraction operand element types {} and {} are not equal", .{
-                        lhs_ty.elemType2(mod).fmt(pt),
-                        rhs_ty.elemType2(mod).fmt(pt),
+                    return sema.fail(block, src, "incompatible pointer arithmetic operands '{}' and '{}'", .{
+                        lhs_ty.fmt(pt), rhs_ty.fmt(pt),
                     });
                 }
 
                 const elem_size = lhs_ty.elemType2(mod).abiSize(pt);
-                if (elem_size == 0) return sema.fail(block, src, "element size is 0", .{});
+                if (elem_size == 0) {
+                    return sema.fail(block, src, "pointer arithmetic requires element type '{}' to have runtime bits", .{
+                        lhs_ty.elemType2(mod).fmt(pt),
+                    });
+                }
 
                 const runtime_src = runtime_src: {
                     if (try sema.resolveValue(lhs)) |lhs_value| {
@@ -16526,6 +16529,12 @@ fn analyzeArithmetic(
                         .sub => .ptr_sub,
                         else => return sema.failWithInvalidPtrArithmetic(block, src, "pointer-integer", "addition and subtraction"),
                     };
+
+                    if (!try sema.typeHasRuntimeBits(lhs_ty.elemType2(mod))) {
+                        return sema.fail(block, src, "pointer arithmetic requires element type '{}' to have runtime bits", .{
+                            lhs_ty.elemType2(mod).fmt(pt),
+                        });
+                    }
                     return sema.analyzePtrArithmetic(block, src, lhs, rhs, air_tag, lhs_src, rhs_src);
                 },
             }
