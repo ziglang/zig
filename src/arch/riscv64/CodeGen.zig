@@ -3620,25 +3620,19 @@ fn airPtrElemPtr(func: *Func, inst: Air.Inst.Index) !void {
         defer if (base_ptr_lock) |lock| func.register_manager.unlockReg(lock);
 
         if (elem_ptr_ty.ptrInfo(zcu).flags.vector_index != .none) {
-            break :result if (func.reuseOperand(inst, extra.lhs, 0, base_ptr_mcv))
-                base_ptr_mcv
-            else
-                try func.copyToNewRegister(inst, base_ptr_mcv);
+            // break :result if (func.reuseOperand(inst, extra.lhs, 0, base_ptr_mcv))
+            //     base_ptr_mcv
+            // else
+            //     try func.copyToNewRegister(inst, base_ptr_mcv);
+            @panic("audit");
         }
 
-        const elem_ty = base_ptr_ty.elemType2(zcu);
-        const elem_abi_size = elem_ty.abiSize(pt);
-        const index_ty = func.typeOf(extra.rhs);
         const index_mcv = try func.resolveInst(extra.rhs);
         const index_lock: ?RegisterLock = switch (index_mcv) {
             .register => |reg| func.register_manager.lockRegAssumeUnused(reg),
             else => null,
         };
         defer if (index_lock) |lock| func.register_manager.unlockReg(lock);
-
-        const offset_reg = try func.elemOffset(index_ty, index_mcv, elem_abi_size);
-        const offset_reg_lock = func.register_manager.lockRegAssumeUnused(offset_reg);
-        defer func.register_manager.unlockReg(offset_reg_lock);
 
         const result_reg, const result_lock = try func.allocReg(.int);
         defer func.register_manager.unlockReg(result_lock);
@@ -3647,7 +3641,7 @@ fn airPtrElemPtr(func: *Func, inst: Air.Inst.Index) !void {
             .ptr_add,
             base_ptr_mcv,
             base_ptr_ty,
-            .{ .register = offset_reg },
+            index_mcv,
             Type.usize,
             result_reg,
         );

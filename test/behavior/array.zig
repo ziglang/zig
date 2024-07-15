@@ -22,7 +22,6 @@ test "arrays" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var array: [5]u32 = undefined;
 
@@ -614,7 +613,6 @@ test "type coercion of pointer to anon struct literal to pointer to array" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         const U = union {
@@ -667,7 +665,6 @@ test "array init of container level array variable" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         var pair: [2]usize = .{ 1, 2 };
@@ -802,8 +799,6 @@ test "runtime side-effects in comptime-known array init" {
 }
 
 test "slice initialized through reference to anonymous array init provides result types" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     var my_u32: u32 = 123;
     var my_u64: u64 = 456;
     _ = .{ &my_u32, &my_u64 };
@@ -817,8 +812,6 @@ test "slice initialized through reference to anonymous array init provides resul
 }
 
 test "sentinel-terminated slice initialized through reference to anonymous array init provides result types" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     var my_u32: u32 = 123;
     var my_u64: u64 = 456;
     _ = .{ &my_u32, &my_u64 };
@@ -869,8 +862,6 @@ test "many-item sentinel-terminated pointer initialized through reference to ano
 }
 
 test "pointer to array initialized through reference to anonymous array init provides result types" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     var my_u32: u32 = 123;
     var my_u64: u64 = 456;
     _ = .{ &my_u32, &my_u64 };
@@ -884,8 +875,6 @@ test "pointer to array initialized through reference to anonymous array init pro
 }
 
 test "pointer to sentinel-terminated array initialized through reference to anonymous array init provides result types" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     var my_u32: u32 = 123;
     var my_u64: u64 = 456;
     _ = .{ &my_u32, &my_u64 };
@@ -912,7 +901,6 @@ test "copied array element doesn't alias source" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var x: [10][10]u32 = undefined;
 
