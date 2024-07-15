@@ -995,7 +995,7 @@
 
       {#header_open|Local Variables#}
       <p>
-      Local variables occur inside {#link|Functions#}, {#link|comptime#} blocks, and {#link|@cImport#} blocks.
+      Local variables occur inside {#link|Functions#} and {#link|comptime#} blocks.
       </p>
       <p>
       When a local variable is {#syntax#}const{#endsyntax#}, it means that after initialization, the variable's
@@ -3742,17 +3742,17 @@ void do_a_thing(struct Foo *foo) {
 
       <p>
       {#syntax#}usingnamespace{#endsyntax#} has an important use case when organizing the public
-      API of a file or package. For example, one might have <code class="file">c.zig</code> with all of the
-      {#link|C imports|Import from C Header File#}:
+      API of a file or package. For example, one might have <code class="file">c.zig</code> with C definitions
+      based on the OS:
       </p>
       {#syntax_block|zig|c.zig#}
-pub usingnamespace @cImport({
-    @cInclude("epoxy/gl.h");
-    @cInclude("GLFW/glfw3.h");
-    @cDefine("STBI_ONLY_PNG", "");
-    @cDefine("STBI_NO_STDIO", "");
-    @cInclude("stb_image.h");
-});
+pub usingnamespace switch(native_os) {
+    .linux => @import("c/linux.zig"),
+    .windows => @import("c/windows.zig"),
+    .macos => @import("c/darwin.zig"),
+    .wasi => wasi,
+    else => struct {},
+};
       {#end_syntax_block#}
       <p>
       The above example demonstrates using {#syntax#}pub{#endsyntax#} to qualify the
@@ -4409,62 +4409,6 @@ comptime {
 
       {#header_close#}
 
-      {#header_open|@cDefine#}
-      <pre>{#syntax#}@cDefine(comptime name: []const u8, value) void{#endsyntax#}</pre>
-      <p>
-      This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
-      </p>
-      <p>
-      This appends <code>#define $name $value</code> to the {#syntax#}@cImport{#endsyntax#}
-      temporary buffer.
-      </p>
-      <p>
-      To define without a value, like this:
-      </p>
-      <pre><code class="c">#define _GNU_SOURCE</code></pre>
-      <p>
-      Use the void value, like this:
-      </p>
-      <pre>{#syntax#}@cDefine("_GNU_SOURCE", {}){#endsyntax#}</pre>
-      {#see_also|Import from C Header File|@cInclude|@cImport|@cUndef|void#}
-      {#header_close#}
-      {#header_open|@cImport#}
-      <pre>{#syntax#}@cImport(expression) type{#endsyntax#}</pre>
-      <p>
-      This function parses C code and imports the functions, types, variables,
-      and compatible macro definitions into a new empty struct type, and then
-      returns that type.
-      </p>
-      <p>
-      {#syntax#}expression{#endsyntax#} is interpreted at compile time. The builtin functions
-          {#syntax#}@cInclude{#endsyntax#}, {#syntax#}@cDefine{#endsyntax#}, and {#syntax#}@cUndef{#endsyntax#} work
-      within this expression, appending to a temporary buffer which is then parsed as C code.
-      </p>
-      <p>
-      Usually you should only have one {#syntax#}@cImport{#endsyntax#} in your entire application, because it saves the compiler
-      from invoking clang multiple times, and prevents inline functions from being duplicated.
-      </p>
-      <p>
-      Reasons for having multiple {#syntax#}@cImport{#endsyntax#} expressions would be:
-      </p>
-      <ul>
-          <li>To avoid a symbol collision, for example if foo.h and bar.h both <code>#define CONNECTION_COUNT</code></li>
-        <li>To analyze the C code with different preprocessor defines</li>
-      </ul>
-      {#see_also|Import from C Header File|@cInclude|@cDefine|@cUndef#}
-      {#header_close#}
-      {#header_open|@cInclude#}
-      <pre>{#syntax#}@cInclude(comptime path: []const u8) void{#endsyntax#}</pre>
-      <p>
-      This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
-      </p>
-      <p>
-      This appends <code>#include &lt;$path&gt;\n</code> to the {#syntax#}c_import{#endsyntax#}
-      temporary buffer.
-      </p>
-      {#see_also|Import from C Header File|@cImport|@cDefine|@cUndef#}
-      {#header_close#}
-
       {#header_open|@clz#}
       <pre>{#syntax#}@clz(operand: anytype) anytype{#endsyntax#}</pre>
       <p>{#syntax#}@TypeOf(operand){#endsyntax#} must be an integer type or an integer vector type.</p>
@@ -4596,18 +4540,6 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       the bit width of integer type {#syntax#}T{#endsyntax#}.
       </p>
       {#see_also|@clz|@popCount#}
-      {#header_close#}
-
-      {#header_open|@cUndef#}
-      <pre>{#syntax#}@cUndef(comptime name: []const u8) void{#endsyntax#}</pre>
-      <p>
-      This function can only occur inside {#syntax#}@cImport{#endsyntax#}.
-      </p>
-      <p>
-      This appends <code>#undef $name</code> to the {#syntax#}@cImport{#endsyntax#}
-      temporary buffer.
-      </p>
-      {#see_also|Import from C Header File|@cImport|@cDefine|@cInclude#}
       {#header_close#}
 
       {#header_open|@cVaArg#}
@@ -6456,35 +6388,6 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </p>
       {#see_also|Primitive Types#}
       {#header_close#}
-      {#header_open|Import from C Header File#}
-      <p>
-      The {#syntax#}@cImport{#endsyntax#} builtin function can be used
-      to directly import symbols from <code class="file">.h</code> files:
-      </p>
-      {#code|cImport_builtin.zig#}
-
-      <p>
-      The {#syntax#}@cImport{#endsyntax#} function takes an expression as a parameter.
-      This expression is evaluated at compile-time and is used to control
-      preprocessor directives and include multiple <code class="file">.h</code> files:
-      </p>
-      {#syntax_block|zig|@cImport Expression#}
-const builtin = @import("builtin");
-
-const c = @cImport({
-    @cDefine("NDEBUG", builtin.mode == .ReleaseFast);
-    if (something) {
-        @cDefine("_GNU_SOURCE", {});
-    }
-    @cInclude("stdlib.h");
-    if (something) {
-        @cUndef("_GNU_SOURCE");
-    }
-    @cInclude("soundio.h");
-});
-      {#end_syntax_block#}
-      {#see_also|@cImport|@cInclude|@cDefine|@cUndef|@import#}
-      {#header_close#}
 
       {#header_open|C Translation CLI#}
       <p>
@@ -6544,41 +6447,15 @@ $ zig translate-c -cflags -fshort-enums -- varycflags.h|grep -B1 do_something
 pub const enum_FOO = u8;
 pub extern fn do_something(foo: enum_FOO) c_int;{#end_shell_samp#}
       {#header_close#}
-      {#header_open|@cImport vs translate-c#}
-      <p>{#syntax#}@cImport{#endsyntax#} and <kbd>zig translate-c</kbd> use the same underlying
-      C translation functionality, so on a technical level they are equivalent. In practice,
-      {#syntax#}@cImport{#endsyntax#} is useful as a way to quickly and easily access numeric constants, typedefs,
-      and record types without needing any extra setup. If you need to pass {#link|cflags|Using -target and -cflags#}
-      to clang, or if you would like to edit the translated code, it is recommended to use
-      <kbd>zig translate-c</kbd> and save the results to a file. Common reasons for editing
-      the generated code include: changing {#syntax#}anytype{#endsyntax#} parameters in function-like macros to more
-      specific types; changing {#syntax#}[*c]T{#endsyntax#} pointers to {#syntax#}[*]T{#endsyntax#} or
-      {#syntax#}*T{#endsyntax#} pointers for improved type safety; and
-      {#link|enabling or disabling runtime safety|@setRuntimeSafety#} within specific functions.
-      </p>
-      {#header_close#}
-      {#see_also|Targets|C Type Primitives|Pointers|C Pointers|Import from C Header File|@cInclude|@cImport|@setRuntimeSafety#}
+      {#see_also|Targets|C Type Primitives|Pointers|C Pointers|@setRuntimeSafety#}
       {#header_close#}
       {#header_open|C Translation Caching#}
       <p>
-        The C translation feature (whether used via <kbd>zig translate-c</kbd> or
-        {#syntax#}@cImport{#endsyntax#}) integrates with the Zig caching system. Subsequent runs with
+        The C translation feature integrates with the Zig caching system. Subsequent runs with
         the same source file, target, and cflags will use the cache instead of repeatedly translating
         the same code.
       </p>
-      <p>
-        To see where the cached files are stored when compiling code that uses {#syntax#}@cImport{#endsyntax#},
-        use the <kbd>--verbose-cimport</kbd> flag:
-      </p>
-      {#code|verbose_cimport_flag.zig#}
-
-      <p>
-        <code class="file">cimport.h</code> contains the file to translate (constructed from calls to
-        {#syntax#}@cInclude{#endsyntax#}, {#syntax#}@cDefine{#endsyntax#}, and {#syntax#}@cUndef{#endsyntax#}),
-        <code class="file">cimport.h.d</code> is the list of file dependencies, and
-        <code class="file">cimport.zig</code> contains the translated output.
-      </p>
-      {#see_also|Import from C Header File|C Translation CLI|@cInclude|@cImport#}
+      {#see_also|C Translation CLI#}
       {#header_close#}
       {#header_open|Translation failures#}
       <p>
