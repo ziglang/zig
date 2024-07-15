@@ -304,7 +304,6 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index, options: struct {
                 };
 
                 const is_unsigned = ty.isUnsignedInt(pt.zcu);
-
                 const less_than: Encoding.Mnemonic = if (is_unsigned) .sltu else .slt;
 
                 switch (class) {
@@ -338,8 +337,8 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index, options: struct {
                         .gt => {
                             try lower.emit(less_than, &.{
                                 .{ .reg = rd },
-                                .{ .reg = rs1 },
                                 .{ .reg = rs2 },
+                                .{ .reg = rs1 },
                             });
                         },
                         .gte => {
@@ -348,7 +347,6 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index, options: struct {
                                 .{ .reg = rs1 },
                                 .{ .reg = rs2 },
                             });
-
                             try lower.emit(.xori, &.{
                                 .{ .reg = rd },
                                 .{ .reg = rd },
