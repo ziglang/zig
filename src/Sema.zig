@@ -379,8 +379,6 @@ pub const Block = struct {
     /// What mode to generate float operations in, set by @setFloatMode
     float_mode: std.builtin.FloatMode = .strict,
 
-    c_import_buf: ?*std.ArrayList(u8) = null,
-
     /// If not `null`, this boolean is set when a `dbg_var_ptr` or `dbg_var_val`
     /// instruction is emitted. It signals that the innermost lexically
     /// enclosing `block`/`block_inline` should be translated into a real AIR
@@ -422,9 +420,6 @@ pub const Block = struct {
     }
 
     const ComptimeReason = union(enum) {
-        c_import: struct {
-            src: LazySrcLoc,
-        },
         comptime_ret_ty: struct {
             func: Air.Inst.Ref,
             func_src: LazySrcLoc,
@@ -436,9 +431,6 @@ pub const Block = struct {
             const pt = sema.pt;
             const prefix = "expression is evaluated at comptime because ";
             switch (cr) {
-                .c_import => |ci| {
-                    try sema.errNote(ci.src, parent, prefix ++ "it is inside a @cImport", .{});
-                },
                 .comptime_ret_ty => |rt| {
                     const ret_ty_src: LazySrcLoc = if (try sema.funcDeclSrc(rt.func)) |fn_decl| .{
                         .base_node_inst = fn_decl.zir_decl_index.unwrap().?,
@@ -524,7 +516,6 @@ pub const Block = struct {
             .runtime_index = parent.runtime_index,
             .want_safety = parent.want_safety,
             .float_mode = parent.float_mode,
-            .c_import_buf = parent.c_import_buf,
             .error_return_trace_index = parent.error_return_trace_index,
             .need_debug_scope = parent.need_debug_scope,
             .src_base_inst = parent.src_base_inst,
@@ -1040,7 +1031,6 @@ fn analyzeBodyInner(
             .bool_not                     => try sema.zirBoolNot(block, inst),
             .bool_br_and                  => try sema.zirBoolBr(block, inst, false),
             .bool_br_or                   => try sema.zirBoolBr(block, inst, true),
-            .c_import                     => try sema.zirCImport(block, inst),
             .call                         => try sema.zirCall(block, inst, .direct),
             .field_call                   => try sema.zirCall(block, inst, .field),
             .cmp_lt                       => try sema.zirCmp(block, inst, .lt),
@@ -1262,9 +1252,6 @@ fn analyzeBodyInner(
                     .sub_with_overflow  => try sema.zirOverflowArithmetic(block, extended, extended.opcode),
                     .mul_with_overflow  => try sema.zirOverflowArithmetic(block, extended, extended.opcode),
                     .shl_with_overflow  => try sema.zirOverflowArithmetic(block, extended, extended.opcode),
-                    .c_undef            => try sema.zirCUndef(            block, extended),
-                    .c_include          => try sema.zirCInclude(          block, extended),
-                    .c_define           => try sema.zirCDefine(           block, extended),
                     .wasm_memory_size   => try sema.zirWasmMemorySize(    block, extended),
                     .wasm_memory_grow   => try sema.zirWasmMemoryGrow(    block, extended),
                     .prefetch           => try sema.zirPrefetch(          block, extended),
@@ -5954,115 +5941,6 @@ fn zirLoop(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError
     return sema.resolveAnalyzedBlock(parent_block, src, &child_block, merges, false);
 }
 
-fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const pt = sema.pt;
-    const zcu = pt.zcu;
-    const comp = zcu.comp;
-    const gpa = sema.gpa;
-    const pl_node = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
-    const src = parent_block.nodeOffset(pl_node.src_node);
-    const extra = sema.code.extraData(Zir.Inst.Block, pl_node.payload_index);
-    const body = sema.code.bodySlice(extra.end, extra.data.body_len);
-
-    // we check this here to avoid undefined symbols
-    if (!build_options.have_llvm)
-        return sema.fail(parent_block, src, "C import unavailable; Zig compiler built without LLVM extensions", .{});
-
-    var c_import_buf = std.ArrayList(u8).init(gpa);
-    defer c_import_buf.deinit();
-
-    const comptime_reason: Block.ComptimeReason = .{ .c_import = .{ .src = src } };
-    var child_block: Block = .{
-        .parent = parent_block,
-        .sema = sema,
-        .namespace = parent_block.namespace,
-        .instructions = .{},
-        .inlining = parent_block.inlining,
-        .is_comptime = true,
-        .comptime_reason = &comptime_reason,
-        .c_import_buf = &c_import_buf,
-        .runtime_cond = parent_block.runtime_cond,
-        .runtime_loop = parent_block.runtime_loop,
-        .runtime_index = parent_block.runtime_index,
-        .src_base_inst = parent_block.src_base_inst,
-        .type_name_ctx = parent_block.type_name_ctx,
-    };
-    defer child_block.instructions.deinit(gpa);
-
-    _ = try sema.analyzeInlineBody(&child_block, body, inst);
-
-    var c_import_res = comp.cImport(c_import_buf.items, parent_block.ownerModule()) catch |err|
-        return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
-    defer c_import_res.deinit(gpa);
-
-    if (c_import_res.errors.errorMessageCount() != 0) {
-        const msg = msg: {
-            const msg = try sema.errMsg(src, "C import failed", .{});
-            errdefer msg.destroy(gpa);
-
-            if (!comp.config.link_libc)
-                try sema.errNote(src, msg, "libc headers not available; compilation does not link against libc", .{});
-
-            const gop = try zcu.cimport_errors.getOrPut(gpa, sema.ownerUnit());
-            if (!gop.found_existing) {
-                gop.value_ptr.* = c_import_res.errors;
-                c_import_res.errors = std.zig.ErrorBundle.empty;
-            }
-            break :msg msg;
-        };
-        return sema.failWithOwnedErrorMsg(&child_block, msg);
-    }
-    const parent_mod = parent_block.ownerModule();
-    const c_import_mod = Package.Module.create(comp.arena, .{
-        .global_cache_directory = comp.global_cache_directory,
-        .paths = .{
-            .root = .{
-                .root_dir = Compilation.Directory.cwd(),
-                .sub_path = std.fs.path.dirname(c_import_res.out_zig_path) orelse "",
-            },
-            .root_src_path = std.fs.path.basename(c_import_res.out_zig_path),
-        },
-        .fully_qualified_name = c_import_res.out_zig_path,
-        .cc_argv = parent_mod.cc_argv,
-        .inherited = .{},
-        .global = comp.config,
-        .parent = parent_mod,
-        .builtin_mod = parent_mod.getBuiltinDependency(),
-        .builtin_modules = null, // `builtin_mod` is set
-    }) catch |err| switch (err) {
-        // None of these are possible because we are creating a package with
-        // the exact same configuration as the parent package, which already
-        // passed these checks.
-        error.ValgrindUnsupportedOnTarget => unreachable,
-        error.TargetRequiresSingleThreaded => unreachable,
-        error.BackendRequiresSingleThreaded => unreachable,
-        error.TargetRequiresPic => unreachable,
-        error.PieRequiresPic => unreachable,
-        error.DynamicLinkingRequiresPic => unreachable,
-        error.TargetHasNoRedZone => unreachable,
-        error.StackCheckUnsupportedByTarget => unreachable,
-        error.StackProtectorUnsupportedByTarget => unreachable,
-        error.StackProtectorUnavailableWithoutLibC => unreachable,
-
-        else => |e| return e,
-    };
-
-    const result = pt.importPkg(c_import_mod) catch |err|
-        return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
-
-    const path_digest = zcu.filePathDigest(result.file_index);
-    const root_decl = zcu.fileRootDecl(result.file_index);
-    pt.astGenFile(result.file, result.file_index, path_digest, root_decl) catch |err|
-        return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
-
-    try pt.ensureFileAnalyzed(result.file_index);
-    const file_root_decl_index = zcu.fileRootDecl(result.file_index).unwrap().?;
-    return sema.analyzeDeclVal(parent_block, src, file_root_decl_index);
-}
-
 fn zirSuspendBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const src = parent_block.nodeOffset(inst_data.src_node);
@@ -6110,7 +5988,6 @@ fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index, force_compt
         .is_typeof = parent_block.is_typeof,
         .want_safety = parent_block.want_safety,
         .float_mode = parent_block.float_mode,
-        .c_import_buf = parent_block.c_import_buf,
         .runtime_cond = parent_block.runtime_cond,
         .runtime_loop = parent_block.runtime_loop,
         .runtime_index = parent_block.runtime_index,
@@ -11648,7 +11525,6 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
         .is_comptime = block.is_comptime,
         .comptime_reason = block.comptime_reason,
         .is_typeof = block.is_typeof,
-        .c_import_buf = block.c_import_buf,
         .runtime_cond = block.runtime_cond,
         .runtime_loop = block.runtime_loop,
         .runtime_index = block.runtime_index,
@@ -12381,7 +12257,6 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         .is_comptime = block.is_comptime,
         .comptime_reason = block.comptime_reason,
         .is_typeof = block.is_typeof,
-        .c_import_buf = block.c_import_buf,
         .runtime_cond = block.runtime_cond,
         .runtime_loop = block.runtime_loop,
         .runtime_index = block.runtime_index,
@@ -26212,62 +26087,6 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         noalias_bits,
         is_noinline,
     );
-}
-
-fn zirCUndef(
-    sema: *Sema,
-    block: *Block,
-    extended: Zir.Inst.Extended.InstData,
-) CompileError!Air.Inst.Ref {
-    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
-    const src = block.builtinCallArgSrc(extra.node, 0);
-
-    const name = try sema.resolveConstString(block, src, extra.operand, .{
-        .needed_comptime_reason = "name of macro being undefined must be comptime-known",
-    });
-    try block.c_import_buf.?.writer().print("#undef {s}\n", .{name});
-    return .void_value;
-}
-
-fn zirCInclude(
-    sema: *Sema,
-    block: *Block,
-    extended: Zir.Inst.Extended.InstData,
-) CompileError!Air.Inst.Ref {
-    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
-    const src = block.builtinCallArgSrc(extra.node, 0);
-
-    const name = try sema.resolveConstString(block, src, extra.operand, .{
-        .needed_comptime_reason = "path being included must be comptime-known",
-    });
-    try block.c_import_buf.?.writer().print("#include <{s}>\n", .{name});
-    return .void_value;
-}
-
-fn zirCDefine(
-    sema: *Sema,
-    block: *Block,
-    extended: Zir.Inst.Extended.InstData,
-) CompileError!Air.Inst.Ref {
-    const pt = sema.pt;
-    const mod = pt.zcu;
-    const extra = sema.code.extraData(Zir.Inst.BinNode, extended.operand).data;
-    const name_src = block.builtinCallArgSrc(extra.node, 0);
-    const val_src = block.builtinCallArgSrc(extra.node, 1);
-
-    const name = try sema.resolveConstString(block, name_src, extra.lhs, .{
-        .needed_comptime_reason = "name of macro being undefined must be comptime-known",
-    });
-    const rhs = try sema.resolveInst(extra.rhs);
-    if (sema.typeOf(rhs).zigTypeTag(mod) != .Void) {
-        const value = try sema.resolveConstString(block, val_src, extra.rhs, .{
-            .needed_comptime_reason = "value of macro being undefined must be comptime-known",
-        });
-        try block.c_import_buf.?.writer().print("#define {s} {s}\n", .{ name, value });
-    } else {
-        try block.c_import_buf.?.writer().print("#define {s}\n", .{name});
-    }
-    return .void_value;
 }
 
 fn zirWasmMemorySize(

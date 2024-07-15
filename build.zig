@@ -469,18 +469,6 @@ pub fn build(b: *std.Build) !void {
 
     test_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
-        .root_src = "test/c_import.zig",
-        .name = "c-import",
-        .desc = "Run the @cImport tests",
-        .optimize_modes = optimization_modes,
-        .include_paths = &.{"test/c_import"},
-        .skip_single_threaded = true,
-        .skip_non_native = skip_non_native,
-        .skip_libc = skip_libc,
-    }));
-
-    test_step.dependOn(tests.addModuleTests(b, .{
-        .test_filters = test_filters,
         .root_src = "lib/compiler_rt.zig",
         .name = "compiler-rt",
         .desc = "Run the compiler_rt tests",
@@ -1282,7 +1270,7 @@ fn generateLangRef(b: *std.Build) std.Build.LazyPath {
             // in a temporary directory
             "--cache-root", b.cache_root.path orelse ".",
         });
-        cmd.addArgs(&.{ "--zig-lib-dir", b.fmt("{}", .{b.graph.zig_lib_directory}) });
+        // cmd.addArgs(&.{ "--zig-lib-dir", b.fmt("{}", .{b.graph.zig_lib_directory}) });
         cmd.addArgs(&.{"-i"});
         cmd.addFileArg(b.path(b.fmt("doc/langref/{s}", .{entry.name})));
 

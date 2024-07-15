@@ -2788,7 +2788,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .mul_add,
             .max,
             .min,
-            .c_import,
             .@"resume",
             .@"await",
             .ret_err_value_code,
@@ -8981,7 +8980,6 @@ fn typeOf(
         var typeof_scope = gz.makeSubBlock(scope);
         typeof_scope.is_comptime = false;
         typeof_scope.is_typeof = true;
-        typeof_scope.c_import = false;
         defer typeof_scope.unstack();
 
         const ty_expr = try reachableExpr(&typeof_scope, &typeof_scope.base, .{ .rl = .none }, args[0], node);
@@ -9080,8 +9078,7 @@ fn builtinCall(
     const builtin_name = tree.tokenSlice(builtin_token);
 
     // We handle the different builtins manually because they have different semantics depending
-    // on the function. For example, `@as` and others participate in result location semantics,
-    // and `@cImport` creates a special scope that collects a .c source code text buffer.
+    // on the function. For example `@as` and others participate in result location semantics.
     // Also, some builtins have a variable number of parameters.
 
     const info = BuiltinFn.list.get(builtin_name) orelse {
@@ -9159,7 +9156,6 @@ fn builtinCall(
         .bit_cast   => return bitCast(  gz, scope, ri, node, params[0]),
         .TypeOf     => return typeOf(   gz, scope, ri, node, params),
         .union_init => return unionInit(gz, scope, ri, node, params),
-        .c_import   => return cImport(  gz, scope,     node, params[0]),
         .min        => return minMax(   gz, scope, ri, node, params, .min),
         .max        => return minMax(   gz, scope, ri, node, params, .max),
         // zig fmt: on
@@ -9449,9 +9445,6 @@ fn builtinCall(
         .bit_offset_of => return offsetOf(gz, scope, ri, node, params[0], params[1], .bit_offset_of),
         .offset_of     => return offsetOf(gz, scope, ri, node, params[0], params[1], .offset_of),
 
-        .c_undef   => return simpleCBuiltin(gz, scope, ri, node, params[0], .c_undef),
-        .c_include => return simpleCBuiltin(gz, scope, ri, node, params[0], .c_include),
-
         .cmpxchg_strong => return cmpxchg(gz, scope, ri, node, params, 1),
         .cmpxchg_weak   => return cmpxchg(gz, scope, ri, node, params, 0),
         // zig fmt: on
@@ -9471,17 +9464,6 @@ fn builtinCall(
                 .node = gz.nodeIndexToRelative(node),
                 .lhs = index_arg,
                 .rhs = delta_arg,
-            });
-            return rvalue(gz, ri, result, node);
-        },
-        .c_define => {
-            if (!gz.c_import) return gz.astgen.failNode(node, "C define valid only inside C import block", .{});
-            const name = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, params[0]);
-            const value = try comptimeExpr(gz, scope, .{ .rl = .none }, params[1]);
-            const result = try gz.addExtendedPayload(.c_define, Zir.Inst.BinNode{
-                .node = gz.nodeIndexToRelative(node),
-                .lhs = name,
-                .rhs = value,
             });
             return rvalue(gz, ri, result, node);
         },
@@ -9851,24 +9833,6 @@ fn divBuiltin(
     return rvalue(gz, ri, result, node);
 }
 
-fn simpleCBuiltin(
-    gz: *GenZir,
-    scope: *Scope,
-    ri: ResultInfo,
-    node: Ast.Node.Index,
-    operand_node: Ast.Node.Index,
-    tag: Zir.Inst.Extended,
-) InnerError!Zir.Inst.Ref {
-    const name: []const u8 = if (tag == .c_undef) "C undef" else "C include";
-    if (!gz.c_import) return gz.astgen.failNode(node, "{s} valid only inside C import block", .{name});
-    const operand = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, operand_node);
-    _ = try gz.addExtendedPayload(tag, Zir.Inst.UnNode{
-        .node = gz.nodeIndexToRelative(node),
-        .operand = operand,
-    });
-    return rvalue(gz, ri, .void_value, node);
-}
-
 fn offsetOf(
     gz: *GenZir,
     scope: *Scope,
@@ -9916,35 +9880,6 @@ fn shiftOp(
         .rhs = rhs,
     });
     return rvalue(gz, ri, result, node);
-}
-
-fn cImport(
-    gz: *GenZir,
-    scope: *Scope,
-    node: Ast.Node.Index,
-    body_node: Ast.Node.Index,
-) InnerError!Zir.Inst.Ref {
-    const astgen = gz.astgen;
-    const gpa = astgen.gpa;
-
-    if (gz.c_import) return gz.astgen.failNode(node, "cannot nest @cImport", .{});
-
-    var block_scope = gz.makeSubBlock(scope);
-    block_scope.is_comptime = true;
-    block_scope.c_import = true;
-    defer block_scope.unstack();
-
-    const block_inst = try gz.makeBlockInst(.c_import, node);
-    const block_result = try fullBodyExpr(&block_scope, &block_scope.base, .{ .rl = .none }, body_node);
-    _ = try gz.addUnNode(.ensure_result_used, block_result, node);
-    if (!gz.refIsNoReturn(block_result)) {
-        _ = try block_scope.addBreak(.break_inline, block_inst, .void_value);
-    }
-    try block_scope.setBlockBody(block_inst);
-    // block_scope unstacked now, can add new instructions to gz
-    try gz.instructions.append(gpa, block_inst);
-
-    return block_inst.toRef();
 }
 
 fn overflowArithmetic(
@@ -11943,7 +11878,6 @@ const GenZir = struct {
         return .{
             .is_comptime = gz.is_comptime,
             .is_typeof = gz.is_typeof,
-            .c_import = gz.c_import,
             .decl_node_index = gz.decl_node_index,
             .decl_line = gz.decl_line,
             .parent = scope,

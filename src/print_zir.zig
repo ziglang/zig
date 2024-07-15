@@ -439,7 +439,6 @@ const Writer = struct {
             .block_inline,
             .suspend_block,
             .loop,
-            .c_import,
             .typeof_builtin,
             => try self.writeBlock(stream, inst),
 
@@ -559,8 +558,6 @@ const Writer = struct {
             .opaque_decl => try self.writeOpaqueDecl(stream, extended),
 
             .await_nosuspend,
-            .c_undef,
-            .c_include,
             .fence,
             .set_float_mode,
             .set_align_stack,
@@ -592,7 +589,6 @@ const Writer = struct {
             },
 
             .builtin_extern,
-            .c_define,
             .error_cast,
             .wasm_memory_grow,
             .prefetch,
