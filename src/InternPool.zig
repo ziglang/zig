@@ -55,7 +55,7 @@ free_dep_entries: std.ArrayListUnmanaged(DepEntry.Index) = .{},
 /// Whether a multi-threaded intern pool is useful.
 /// Currently `false` until the intern pool is actually accessed
 /// from multiple threads to reduce the cost of this data structure.
-const want_multi_threaded = false;
+const want_multi_threaded = true;
 
 /// Whether a single-threaded intern pool impl is in use.
 pub const single_threaded = builtin.single_threaded or !want_multi_threaded;
