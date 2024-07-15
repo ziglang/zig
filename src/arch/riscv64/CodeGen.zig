@@ -2368,7 +2368,6 @@ fn genBinOp(
     const pt = func.pt;
     const zcu = pt.zcu;
     const bit_size = lhs_ty.bitSize(pt);
-    assert(bit_size <= 64);
 
     const is_unsigned = lhs_ty.isUnsignedInt(zcu);
 

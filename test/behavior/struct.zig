@@ -1587,7 +1587,6 @@ test "optional field init with tuple" {
 
 test "if inside struct init inside if" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const MyStruct = struct { x: u32 };
     const b: u32 = 5;

@@ -65,7 +65,6 @@ fn testFnForSrc() std.builtin.SourceLocation {
 test "@src() returns a struct containing 0-terminated string slices" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const src = testFnForSrc();
     try std.testing.expect([:0]const u8 == @TypeOf(src.file));
