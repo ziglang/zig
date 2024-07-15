@@ -2166,7 +2166,7 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                     continue;
                 };
                 // If we made it here, this block is the target of the break expr
-                
+
                 if (parent_gz.is_comptime and !block_gz.is_comptime) {
                     const block_type = if (block_gz.is_inline) "inline" else "runtime";
                     return astgen.failNode(node, "cannot comptime break out of {s} block", .{block_type});
