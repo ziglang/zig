@@ -72,7 +72,6 @@ pub fn main() !void {
             .query = .{},
             .result = try std.zig.system.resolveTargetQuery(.{}),
         },
-        .incremental = null,
     };
 
     graph.cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
@@ -411,8 +410,8 @@ pub fn main() !void {
         // trigger a rebuild on all steps with modified inputs, as well as their
         // recursive dependants.
         var caption_buf: [std.Progress.Node.max_name_len]u8 = undefined;
-        const caption = std.fmt.bufPrint(&caption_buf, "Watching {d} Directories", .{
-            w.dir_table.entries.len,
+        const caption = std.fmt.bufPrint(&caption_buf, "watching {d} directories, {d} processes", .{
+            w.dir_table.entries.len, countSubProcesses(run.step_stack.keys()),
         }) catch &caption_buf;
         var debouncing_node = main_progress_node.start(caption, 0);
         var debounce_timeout: Watch.Timeout = .none;
@@ -443,6 +442,14 @@ fn markFailedStepsDirty(gpa: Allocator, all_steps: []const *Step) void {
         .success => step.result_cached = true,
         else => continue,
     };
+}
+
+fn countSubProcesses(all_steps: []const *Step) usize {
+    var count: usize = 0;
+    for (all_steps) |s| {
+        count += @intFromBool(s.getZigProcess() != null);
+    }
+    return count;
 }
 
 const Run = struct {

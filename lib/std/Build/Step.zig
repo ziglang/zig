@@ -603,7 +603,7 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?[]const u8 {
     return result;
 }
 
-fn getZigProcess(s: *Step) ?*ZigProcess {
+pub fn getZigProcess(s: *Step) ?*ZigProcess {
     return switch (s.id) {
         .compile => s.cast(Compile).?.zig_process,
         else => null,

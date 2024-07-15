@@ -120,7 +120,7 @@ pub const Graph = struct {
     needed_lazy_dependencies: std.StringArrayHashMapUnmanaged(void) = .{},
     /// Information about the native target. Computed before build() is invoked.
     host: ResolvedTarget,
-    incremental: ?bool,
+    incremental: ?bool = null,
 };
 
 const AvailableDeps = []const struct { []const u8, []const u8 };
