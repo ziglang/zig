@@ -932,7 +932,9 @@ pub fn abiAlignmentAdvanced(
                 if (vector_type.len == 0) return .{ .scalar = .@"1" };
                 switch (mod.comp.getZigBackend()) {
                     else => {
-                        const elem_bits: u32 = @intCast(try Type.fromInterned(vector_type.child).bitSizeAdvanced(pt, .sema));
+                        // This is fine because the child type of a vector always has a bit-size known
+                        // without needing any type resolution.
+                        const elem_bits: u32 = @intCast(Type.fromInterned(vector_type.child).bitSize(pt));
                         if (elem_bits == 0) return .{ .scalar = .@"1" };
                         const bytes = ((elem_bits * vector_type.len) + 7) / 8;
                         const alignment = std.math.ceilPowerOfTwoAssert(u32, bytes);
@@ -2829,7 +2831,8 @@ pub fn comptimeOnlyAdvanced(ty: Type, pt: Zcu.PerThread, comptime strat: Resolve
                     .no, .wip => false,
                     .yes => true,
                     .unknown => {
-                        assert(strat == .sema);
+                        // Inlined `assert` so that the resolution calls below are not statically reachable.
+                        if (strat != .sema) unreachable;
 
                         if (struct_type.flagsUnordered(ip).field_types_wip) {
                             struct_type.setRequiresComptime(ip, .unknown);
@@ -2874,7 +2877,8 @@ pub fn comptimeOnlyAdvanced(ty: Type, pt: Zcu.PerThread, comptime strat: Resolve
                     .no, .wip => return false,
                     .yes => return true,
                     .unknown => {
-                        assert(strat == .sema);
+                        // Inlined `assert` so that the resolution calls below are not statically reachable.
+                        if (strat != .sema) unreachable;
 
                         if (union_type.flagsUnordered(ip).status == .field_types_wip) {
                             union_type.setRequiresComptime(ip, .unknown);
