@@ -1912,6 +1912,7 @@ pub const LC = enum(c_int) {
     TELEPHONE = 10,
     MEASUREMENT = 11,
     IDENTIFICATION = 12,
+    _,
 };
 
 pub extern "c" fn setlocale(category: LC, locale: ?[*:0]const u8) ?[*:0]const u8;
