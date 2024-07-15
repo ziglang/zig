@@ -84,9 +84,14 @@ pub fn addCase(self: *RunTranslatedCContext, case: *const TestCase) void {
     });
 
     translate_c.step.name = b.fmt("{s} translate-c", .{annotated_case_name});
-    const exe = translate_c.addExecutable(.{});
+
+    const exe = b.addExecutable2(.{
+        .name = "translated_c",
+        .root_module = translate_c.createModule(),
+    });
+    exe.root_module.link_libc = true;
     exe.step.name = b.fmt("{s} build-exe", .{annotated_case_name});
-    exe.linkLibC();
+
     const run = b.addRunArtifact(exe);
     run.step.name = b.fmt("{s} run", .{annotated_case_name});
     if (!case.allow_warnings) {

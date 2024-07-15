@@ -572,16 +572,20 @@ pub fn lowerToTranslateCSteps(
 
             const translate_c = b.addTranslateC(.{
                 .root_source_file = file_source,
-                .optimize = .Debug,
                 .target = case.target,
+                .optimize = .Debug,
                 .link_libc = case.link_libc,
                 .use_clang = case.c_frontend == .clang,
             });
             translate_c.step.name = b.fmt("{s} translate-c", .{annotated_case_name});
 
-            const run_exe = translate_c.addExecutable(.{});
+            const run_exe = b.addExecutable2(.{
+                .name = "translated_c",
+                .root_module = translate_c.createModule(),
+            });
+            run_exe.root_module.link_libc = true;
             run_exe.step.name = b.fmt("{s} build-exe", .{annotated_case_name});
-            run_exe.linkLibC();
+
             const run = b.addRunArtifact(run_exe);
             run.step.name = b.fmt("{s} run", .{annotated_case_name});
             run.expectStdOutEqual(output);
