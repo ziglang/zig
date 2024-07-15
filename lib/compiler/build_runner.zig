@@ -72,6 +72,7 @@ pub fn main() !void {
             .query = .{},
             .result = try std.zig.system.resolveTargetQuery(.{}),
         },
+        .incremental = null,
     };
 
     graph.cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
@@ -235,6 +236,10 @@ pub fn main() !void {
                 prominent_compile_errors = true;
             } else if (mem.eql(u8, arg, "--watch")) {
                 watch = true;
+            } else if (mem.eql(u8, arg, "-fincremental")) {
+                graph.incremental = true;
+            } else if (mem.eql(u8, arg, "-fno-incremental")) {
+                graph.incremental = false;
             } else if (mem.eql(u8, arg, "-fwine")) {
                 builder.enable_wine = true;
             } else if (mem.eql(u8, arg, "-fno-wine")) {
@@ -1216,6 +1221,8 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  --fetch                      Exit after fetching dependency tree
         \\  --watch                      Continuously rebuild when source files are modified
         \\  --debounce <ms>              Delay before rebuilding after changed file detected
+        \\     -fincremental             Enable incremental compilation
+        \\  -fno-incremental             Disable incremental compilation
         \\
         \\Project-Specific Options:
         \\

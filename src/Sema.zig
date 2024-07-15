@@ -2726,7 +2726,7 @@ fn maybeRemoveOutdatedType(sema: *Sema, ty: InternPool.Index) !bool {
     const pt = sema.pt;
     const zcu = pt.zcu;
 
-    if (!zcu.comp.debug_incremental) return false;
+    if (!zcu.comp.incremental) return false;
 
     const decl_index = Type.fromInterned(ty).getOwnerDecl(zcu);
     const decl_as_depender = AnalUnit.wrap(.{ .decl = decl_index });
@@ -2826,7 +2826,7 @@ fn zirStructDecl(
     mod.declPtr(new_decl_index).owns_tv = true;
     errdefer pt.abortAnonDecl(new_decl_index);
 
-    if (pt.zcu.comp.debug_incremental) {
+    if (pt.zcu.comp.incremental) {
         try ip.addDependency(
             sema.gpa,
             AnalUnit.wrap(.{ .decl = new_decl_index }),
@@ -3064,7 +3064,7 @@ fn zirEnumDecl(
     new_decl.owns_tv = true;
     errdefer if (!done) pt.abortAnonDecl(new_decl_index);
 
-    if (pt.zcu.comp.debug_incremental) {
+    if (pt.zcu.comp.incremental) {
         try mod.intern_pool.addDependency(
             gpa,
             AnalUnit.wrap(.{ .decl = new_decl_index }),
@@ -3331,7 +3331,7 @@ fn zirUnionDecl(
     mod.declPtr(new_decl_index).owns_tv = true;
     errdefer pt.abortAnonDecl(new_decl_index);
 
-    if (pt.zcu.comp.debug_incremental) {
+    if (pt.zcu.comp.incremental) {
         try mod.intern_pool.addDependency(
             gpa,
             AnalUnit.wrap(.{ .decl = new_decl_index }),
@@ -3421,7 +3421,7 @@ fn zirOpaqueDecl(
     mod.declPtr(new_decl_index).owns_tv = true;
     errdefer pt.abortAnonDecl(new_decl_index);
 
-    if (pt.zcu.comp.debug_incremental) {
+    if (pt.zcu.comp.incremental) {
         try ip.addDependency(
             gpa,
             AnalUnit.wrap(.{ .decl = new_decl_index }),
@@ -38098,7 +38098,7 @@ fn isKnownZigType(sema: *Sema, ref: Air.Inst.Ref, tag: std.builtin.TypeId) bool 
 
 pub fn declareDependency(sema: *Sema, dependee: InternPool.Dependee) !void {
     const zcu = sema.pt.zcu;
-    if (!zcu.comp.debug_incremental) return;
+    if (!zcu.comp.incremental) return;
 
     // Avoid creating dependencies on ourselves. This situation can arise when we analyze the fields
     // of a type and they use `@This()`. This dependency would be unnecessary, and in fact would

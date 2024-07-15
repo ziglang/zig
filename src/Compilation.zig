@@ -169,7 +169,7 @@ time_report: bool,
 stack_report: bool,
 debug_compiler_runtime_libs: bool,
 debug_compile_errors: bool,
-debug_incremental: bool,
+incremental: bool,
 job_queued_compiler_rt_lib: bool = false,
 job_queued_compiler_rt_obj: bool = false,
 job_queued_update_builtin_zig: bool,
@@ -1134,7 +1134,7 @@ pub const CreateOptions = struct {
     verbose_llvm_cpu_features: bool = false,
     debug_compiler_runtime_libs: bool = false,
     debug_compile_errors: bool = false,
-    debug_incremental: bool = false,
+    incremental: bool = false,
     /// Normally when you create a `Compilation`, Zig will automatically build
     /// and link in required dependencies, such as compiler-rt and libc. When
     /// building such dependencies themselves, this flag must be set to avoid
@@ -1516,7 +1516,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .test_name_prefix = options.test_name_prefix,
             .debug_compiler_runtime_libs = options.debug_compiler_runtime_libs,
             .debug_compile_errors = options.debug_compile_errors,
-            .debug_incremental = options.debug_incremental,
+            .incremental = options.incremental,
             .libcxx_abi_version = options.libcxx_abi_version,
             .root_name = root_name,
             .sysroot = sysroot,

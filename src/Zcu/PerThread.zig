@@ -888,7 +888,7 @@ fn getFileRootStruct(
     };
     errdefer wip_ty.cancel(ip, pt.tid);
 
-    if (zcu.comp.debug_incremental) {
+    if (zcu.comp.incremental) {
         try ip.addDependency(
             gpa,
             InternPool.AnalUnit.wrap(.{ .decl = decl_index }),

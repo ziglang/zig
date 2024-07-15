@@ -1679,6 +1679,8 @@ fn getZigArgs(compile: *Compile) ![][]const u8 {
         b.fmt("{}", .{err_limit}),
     });
 
+    try addFlag(&zig_args, "incremental", b.graph.incremental);
+
     try zig_args.append("--listen=-");
 
     // Windows has an argument length limit of 32,766 characters, macOS 262,144 and Linux
@@ -1750,7 +1752,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const maybe_output_bin_path = step.evalZigProcess(
         zig_args,
         options.progress_node,
-        options.watch,
+        (b.graph.incremental == true) and options.watch,
     ) catch |err| switch (err) {
         error.NeedCompileErrorCheck => {
             assert(compile.expect_errors != null);
