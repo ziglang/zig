@@ -79,7 +79,7 @@ This produces a `zig2` executable in the current working directory. This is a
 therefore lacking these features:
 - Release mode optimizations
 - aarch64 machine code backend
-- `@cImport` / `zig translate-c`
+- `zig translate-c`
 - Ability to compile C files
 - Ability to compile assembly files
 - [Some ELF linking features](https://github.com/ziglang/zig/issues/17749)
