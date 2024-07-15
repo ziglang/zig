@@ -4,6 +4,7 @@ const root = @import("root");
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
+const process = std.process;
 const uefi = std.os.uefi;
 const elf = std.elf;
 const native_arch = builtin.cpu.arch;
@@ -432,7 +433,7 @@ fn WinStartup() callconv(std.os.windows.WINAPI) noreturn {
 
     std.debug.maybeEnableSegfaultHandler();
 
-    std.os.windows.ntdll.RtlExitUserProcess(callMain());
+    std.os.windows.ntdll.RtlExitUserProcess(callMain(null, null));
 }
 
 fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
@@ -453,12 +454,14 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
     // Code coverage instrumentation might try to use thread local variables.
     @disableInstrumentation();
     const argc = argc_argv_ptr[0];
-    const argv = @as([*][*:0]u8, @ptrCast(argc_argv_ptr + 1));
+    const argv: [:null]?[*:0]u8 = @ptrCast(argc_argv_ptr[1..][0..argc]);
+    const envp_null: [*:null]?[*:0]u8 = @ptrCast(argc_argv_ptr + 1 + argc + 1);
 
-    const envp_optional: [*:null]?[*:0]u8 = @ptrCast(@alignCast(argv + argc + 1));
     var envp_count: usize = 0;
-    while (envp_optional[envp_count]) |_| : (envp_count += 1) {}
-    const envp = @as([*][*:0]u8, @ptrCast(envp_optional))[0..envp_count];
+    while (envp_null[envp_count]) |_| {
+        envp_count += 1;
+    }
+    const envp: [:null]?[*:0]u8 = envp_null[0..envp_count :null];
 
     if (native_os == .linux) {
         // Find the beginning of the auxiliary vector
@@ -529,7 +532,7 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
         }
     }
 
-    std.posix.exit(callMainWithArgs(argc, argv, envp));
+    std.posix.exit(callMainWithArgs(argv, envp));
 }
 
 fn expandStackSize(phdrs: []elf.Phdr) void {
@@ -566,17 +569,17 @@ fn expandStackSize(phdrs: []elf.Phdr) void {
     }
 }
 
-inline fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
-    std.os.argv = argv[0..argc];
-    std.os.environ = envp;
+inline fn callMainWithArgs(argv: [:null]?[*:0]u8, envp: [:null]?[*:0]u8) u8 {
+    std.os.argv = @ptrCast(argv);
+    std.os.environ = @ptrCast(envp);
 
     std.debug.maybeEnableSegfaultHandler();
     maybeIgnoreSigpipe();
 
-    return callMain();
+    return callMain(@ptrCast(argv), @ptrCast(envp));
 }
 
-fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) callconv(.C) c_int {
+fn main(c_argc: c_int, c_argv: [*:null]?[*:0]c_char, c_envp: [*:null]?[*:0]c_char) callconv(.C) c_int {
     var env_count: usize = 0;
     while (c_envp[env_count] != null) : (env_count += 1) {}
     const envp = @as([*][*:0]u8, @ptrCast(c_envp))[0..env_count];
@@ -588,19 +591,56 @@ fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) cal
         expandStackSize(phdrs);
     }
 
-    return callMainWithArgs(@as(usize, @intCast(c_argc)), @as([*][*:0]u8, @ptrCast(c_argv)), envp);
+    return callMainWithArgs(c_argv[0..c_argc], envp);
 }
 
-fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.C) c_int {
-    std.os.argv = @as([*][*:0]u8, @ptrCast(c_argv))[0..@as(usize, @intCast(c_argc))];
-    return callMain();
+fn mainWithoutEnv(c_argc: c_int, c_argv: [*:null]?[*:0]c_char) callconv(.C) c_int {
+    std.os.argv = @ptrCast(c_argv[0..c_argc]);
+
+    std.debug.maybeEnableSegfaultHandler();
+    maybeIgnoreSigpipe();
+
+    return callMain(c_argv[0..c_argc], null);
 }
 
 // General error message for a malformed return type
-const bad_main_ret = "expected return type of main to be 'void', '!void', 'noreturn', 'u8', or '!u8'";
+const bad_main_ret = "expected return type of main to be 'void', '!void', 'noreturn', 'u8', '!u8', or c_int";
 
-pub inline fn callMain() u8 {
-    const ReturnType = @typeInfo(@TypeOf(root.main)).Fn.return_type.?;
+// General error message for a malformed C main unction
+const bad_c_main = "expected main function returning c_int to accept zero, two, or three arguments";
+
+// Same as std.process.argsAlloc but with null sentinal and c_char
+inline fn argvAlloc(arena: std.mem.Allocator) ![:null]?[*:0]c_char {
+    var arg_iter = try process.argsWithAllocator(arena);
+    defer arg_iter.deinit();
+
+    var arg_data = std.ArrayList(c_char).init(arena);
+    errdefer arg_data.deinit();
+    var arg_addr = std.ArrayList(usize).init(arena);
+    errdefer arg_data.deinit();
+
+    while (arg_iter.next()) |arg_ptr| {
+        try arg_addr.append(arg_data.items.len);
+        try arg_data.appendSlice(@ptrCast(arg_ptr[0 .. arg_ptr.len + 1]));
+    }
+
+    const arg_data_owned = try arg_data.toOwnedSlice();
+    for (arg_addr.items) |*addr| {
+        addr.* += @intFromPtr(arg_data_owned.ptr);
+    }
+
+    return @ptrCast(try arg_addr.toOwnedSliceSentinel(0));
+}
+
+inline fn envpAlloc(arena: std.mem.Allocator) ![*:null]?[*:0]c_char {
+    var envmap = try std.process.getEnvMap(arena);
+    defer envmap.deinit();
+    return @ptrCast(try process.createNullDelimitedEnvMap(arena, &envmap));
+}
+
+pub inline fn callMain(c_argv_optional: ?[:null]?[*:0]c_char, c_envp_optional: ?[*:null]?[*:0]c_char) u8 {
+    const main_info = @typeInfo(@TypeOf(root.main));
+    const ReturnType = main_info.Fn.return_type.?;
 
     switch (ReturnType) {
         void => {
@@ -609,6 +649,37 @@ pub inline fn callMain() u8 {
         },
         noreturn, u8 => {
             return root.main();
+        },
+        c_int => {
+            if (main_info.Fn.params.len == 0) {
+                return @intCast(root.main() & 0xff);
+            }
+
+            var arena_ctx = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+            defer arena_ctx.deinit();
+            const arena = arena_ctx.allocator();
+
+            const c_argv = c_argv_optional orelse (argvAlloc(arena) catch |err|
+                std.debug.panic("failed to allocate argv: {s}", .{@errorName(err)}));
+
+            const max_args = std.math.maxInt(c_int);
+            if (c_argv.len > max_args) {
+                std.debug.panic("too many argument passed to main`s (max {d}, found {d})", .{
+                    max_args,
+                    c_argv.len,
+                });
+            }
+
+            if (main_info.Fn.params.len == 2) {
+                return @intCast(root.main(@intCast(c_argv.len), @ptrCast(c_argv)) & 0xff);
+            }
+
+            const c_envp = c_envp_optional orelse (envpAlloc(arena) catch |err|
+                std.debug.panic("failed to allocate envp: {s}", .{@errorName(err)}));
+
+            if (main_info.Fn.params.len != 3) @compileError(bad_c_main);
+
+            return @intCast(root.main(@intCast(c_argv.len), @ptrCast(c_argv), @ptrCast(c_envp)) & 0xff);
         },
         else => {
             if (@typeInfo(ReturnType) != .ErrorUnion) @compileError(bad_main_ret);
