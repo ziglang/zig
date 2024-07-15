@@ -595,7 +595,8 @@ const IndexedOutput = struct {
     tag: @typeInfo(Arg).Union.tag_type.?,
     output: *Output,
 };
-fn make(step: *Step, prog_node: std.Progress.Node) !void {
+fn make(step: *Step, options: Step.MakeOptions) !void {
+    const prog_node = options.progress_node;
     const b = step.owner;
     const arena = b.allocator;
     const run: *Run = @fieldParentPtr("step", step);

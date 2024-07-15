@@ -1078,8 +1078,8 @@ pub fn getUninstallStep(b: *Build) *Step {
     return &b.uninstall_tls.step;
 }
 
-fn makeUninstall(uninstall_step: *Step, prog_node: std.Progress.Node) anyerror!void {
-    _ = prog_node;
+fn makeUninstall(uninstall_step: *Step, options: Step.MakeOptions) anyerror!void {
+    _ = options;
     const uninstall_tls: *TopLevelStep = @fieldParentPtr("step", uninstall_step);
     const b: *Build = @fieldParentPtr("uninstall_tls", uninstall_tls);
 

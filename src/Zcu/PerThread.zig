@@ -1418,6 +1418,10 @@ pub fn importPkg(pt: Zcu.PerThread, mod: *Module) !Zcu.ImportFileResult {
     const sub_file_path = try gpa.dupe(u8, mod.root_src_path);
     errdefer gpa.free(sub_file_path);
 
+    const comp = zcu.comp;
+    if (comp.file_system_inputs) |fsi|
+        try comp.appendFileSystemInput(fsi, mod.root, sub_file_path);
+
     const new_file = try gpa.create(Zcu.File);
     errdefer gpa.destroy(new_file);
 
@@ -1526,6 +1530,10 @@ pub fn importFile(
     log.debug("new importFile. resolved_root_path={s}, resolved_path={s}, sub_file_path={s}, import_string={s}", .{
         resolved_root_path, resolved_path, sub_file_path, import_string,
     });
+
+    const comp = zcu.comp;
+    if (comp.file_system_inputs) |fsi|
+        try comp.appendFileSystemInput(fsi, mod.root, sub_file_path);
 
     const path_digest = zcu.computePathDigest(mod, sub_file_path);
     const new_file_index = try ip.createFile(gpa, pt.tid, .{

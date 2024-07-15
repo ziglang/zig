@@ -1031,7 +1031,11 @@ fn workerMakeOneStep(
     const sub_prog_node = prog_node.start(s.name, 0);
     defer sub_prog_node.end();
 
-    const make_result = s.make(sub_prog_node);
+    const make_result = s.make(.{
+        .progress_node = sub_prog_node,
+        .thread_pool = thread_pool,
+        .watch = run.watch,
+    });
 
     // No matter the result, we want to display error/warning messages.
     const show_compile_errors = !run.prominent_compile_errors and

@@ -1363,6 +1363,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
         cache.addPrefix(options.zig_lib_directory);
         cache.addPrefix(options.local_cache_directory);
+        cache.addPrefix(options.global_cache_directory);
         errdefer cache.manifest_dir.close();
 
         // This is shared hasher state common to zig source and all C source files.
@@ -2358,7 +2359,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
     }
 }
 
-fn appendFileSystemInput(
+pub fn appendFileSystemInput(
     comp: *Compilation,
     file_system_inputs: *std.ArrayListUnmanaged(u8),
     root: Cache.Path,
