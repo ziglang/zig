@@ -549,7 +549,7 @@ fn reportUndefSymbol(self: Atom, rel: Relocation, macho_file: *MachO) !bool {
     const ref = file.getSymbolRef(rel.target, macho_file);
     if (ref.getFile(macho_file) == null) {
         const gpa = macho_file.base.comp.gpa;
-        const gop = try macho_file.undefs.getOrPut(gpa, .{ .index = rel.target, .file = self.file });
+        const gop = try macho_file.undefs.getOrPut(gpa, file.getGlobals()[rel.target]);
         if (!gop.found_existing) {
             gop.value_ptr.* = .{};
         }

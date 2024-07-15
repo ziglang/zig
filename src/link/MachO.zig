@@ -25,7 +25,7 @@ sections: std.MultiArrayList(Section) = .{},
 resolver: SymbolResolver = .{},
 /// This table will be populated after `scanRelocs` has run.
 /// Key is symbol index.
-undefs: std.AutoHashMapUnmanaged(Ref, std.ArrayListUnmanaged(Ref)) = .{},
+undefs: std.AutoHashMapUnmanaged(SymbolResolver.Index, std.ArrayListUnmanaged(Ref)) = .{},
 
 dyld_info_cmd: macho.dyld_info_command = .{},
 symtab_cmd: macho.symtab_command = .{},
@@ -1531,7 +1531,7 @@ fn reportUndefs(self: *MachO) !void {
     var has_undefs = false;
     var it = self.undefs.iterator();
     while (it.next()) |entry| {
-        const undef_sym = entry.key_ptr.getSymbol(self).?;
+        const undef_sym = self.resolver.keys.items[entry.key_ptr.* - 1];
         const notes = entry.value_ptr.*;
         const nnotes = @min(notes.items.len, max_notes) + @intFromBool(notes.items.len > max_notes);
 

@@ -26,6 +26,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testReexportsZig(b, .{ .use_llvm = false, .target = x86_64_target }));
     macho_step.dependOn(testRelocatableZig(b, .{ .use_llvm = false, .target = x86_64_target }));
     macho_step.dependOn(testTlsZig(b, .{ .use_llvm = false, .target = x86_64_target }));
+    macho_step.dependOn(testUnresolvedError(b, .{ .use_llvm = false, .target = x86_64_target }));
 
     // Exercise linker with LLVM backend
     macho_step.dependOn(testDeadStrip(b, .{ .target = default_target }));
@@ -59,6 +60,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testTlsLargeTbss(b, .{ .target = default_target }));
     macho_step.dependOn(testTlsZig(b, .{ .target = default_target }));
     macho_step.dependOn(testUndefinedFlag(b, .{ .target = default_target }));
+    macho_step.dependOn(testUnresolvedError(b, .{ .target = default_target }));
     macho_step.dependOn(testUnwindInfo(b, .{ .target = default_target }));
     macho_step.dependOn(testUnwindInfoNoSubsectionsX64(b, .{ .target = x86_64_target }));
     macho_step.dependOn(testUnwindInfoNoSubsectionsArm64(b, .{ .target = aarch64_target }));
@@ -2495,6 +2497,33 @@ fn testUndefinedFlag(b: *Build, opts: Options) *Step {
         check.checkNotPresent("_foo");
         test_step.dependOn(&check.step);
     }
+
+    return test_step;
+}
+
+fn testUnresolvedError(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "unresolved-error", opts);
+
+    const obj = addObject(b, opts, .{ .name = "a", .zig_source_bytes = 
+    \\extern fn foo() i32;
+    \\export fn bar() i32 { return foo() + 1; }
+    });
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .zig_source_bytes = 
+    \\const std = @import("std");
+    \\extern fn foo() i32;
+    \\extern fn bar() i32;
+    \\pub fn main() void {
+    \\    std.debug.print("foo() + bar() = {d}", .{foo() + bar()});
+    \\}
+    });
+    exe.addObject(obj);
+
+    expectLinkErrors(exe, test_step, .{ .exact = &.{
+        "error: undefined symbol: _foo",
+        "note: referenced by /?/a.o:_bar",
+        "note: referenced by /?/main.o:_a.main",
+    } });
 
     return test_step;
 }
