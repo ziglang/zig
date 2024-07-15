@@ -2679,7 +2679,7 @@ fn markTransitiveDependersPotentiallyOutdated(zcu: *Zcu, maybe_outdated: AnalUni
 }
 
 pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?AnalUnit {
-    if (!zcu.comp.debug_incremental) return null;
+    if (!zcu.comp.incremental) return null;
 
     if (zcu.outdated.count() == 0 and zcu.potentially_outdated.count() == 0) {
         log.debug("findOutdatedToAnalyze: no outdated depender", .{});
@@ -2968,7 +2968,7 @@ pub fn ensureFuncBodyAnalysisQueued(mod: *Module, func_index: InternPool.Index) 
     const is_outdated = mod.outdated.contains(func_as_depender) or
         mod.potentially_outdated.contains(func_as_depender);
 
-    switch (func.analysis(ip).state) {
+    switch (func.analysisUnordered(ip).state) {
         .none => {},
         .queued => return,
         // As above, we don't need to forward errors here.
@@ -2983,13 +2983,13 @@ pub fn ensureFuncBodyAnalysisQueued(mod: *Module, func_index: InternPool.Index) 
 
     // Decl itself is safely analyzed, and body analysis is not yet queued
 
-    try mod.comp.work_queue.writeItem(.{ .analyze_func = func_index });
+    try mod.comp.queueJob(.{ .analyze_func = func_index });
     if (mod.emit_h != null) {
         // TODO: we ideally only want to do this if the function's type changed
         // since the last update
-        try mod.comp.work_queue.writeItem(.{ .emit_h_decl = decl_index });
+        try mod.comp.queueJob(.{ .emit_h_decl = decl_index });
     }
-    func.analysis(ip).state = .queued;
+    func.setAnalysisState(ip, .queued);
 }
 
 pub const SemaDeclResult = packed struct {
@@ -3127,14 +3127,14 @@ pub fn errNote(
 /// Deprecated. There is no global target for a Zig Compilation Unit. Instead,
 /// look up the target based on the Module that contains the source code being
 /// analyzed.
-pub fn getTarget(zcu: Module) Target {
+pub fn getTarget(zcu: *const Zcu) Target {
     return zcu.root_mod.resolved_target.result;
 }
 
 /// Deprecated. There is no global optimization mode for a Zig Compilation
 /// Unit. Instead, look up the optimization mode based on the Module that
 /// contains the source code being analyzed.
-pub fn optimizeMode(zcu: Module) std.builtin.OptimizeMode {
+pub fn optimizeMode(zcu: *const Zcu) std.builtin.OptimizeMode {
     return zcu.root_mod.optimize_mode;
 }
 
@@ -3203,7 +3203,7 @@ pub const Feature = enum {
     separate_thread,
 };
 
-pub fn backendSupportsFeature(zcu: Module, comptime feature: Feature) bool {
+pub fn backendSupportsFeature(zcu: *const Zcu, comptime feature: Feature) bool {
     const backend = target_util.zigBackend(zcu.root_mod.resolved_target.result, zcu.comp.config.use_llvm);
     return target_util.backendSupportsFeature(backend, feature);
 }

@@ -36,6 +36,7 @@ pub const Message = struct {
         cwd,
         zig_lib,
         local_cache,
+        global_cache,
     };
 
     /// Trailing:

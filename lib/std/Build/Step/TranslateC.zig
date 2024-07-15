@@ -116,7 +116,8 @@ pub fn defineCMacroRaw(translate_c: *TranslateC, name_and_value: []const u8) voi
     translate_c.c_macros.append(translate_c.step.owner.dupe(name_and_value)) catch @panic("OOM");
 }
 
-fn make(step: *Step, prog_node: std.Progress.Node) !void {
+fn make(step: *Step, options: Step.MakeOptions) !void {
+    const prog_node = options.progress_node;
     const b = step.owner;
     const translate_c: *TranslateC = @fieldParentPtr("step", step);
 
@@ -154,7 +155,7 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
 
     try argv_list.append(translate_c.source.getPath2(b, step));
 
-    const output_path = try step.evalZigProcess(argv_list.items, prog_node);
+    const output_path = try step.evalZigProcess(argv_list.items, prog_node, false);
 
     translate_c.out_basename = fs.path.basename(output_path.?);
     const output_dir = fs.path.dirname(output_path.?).?;

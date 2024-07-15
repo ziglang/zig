@@ -337,7 +337,6 @@ pub const Token = struct {
 pub const Tokenizer = struct {
     buffer: [:0]const u8,
     index: usize,
-    pending_invalid_token: ?Token,
 
     /// For debugging purposes
     pub fn dump(self: *Tokenizer, token: *const Token) void {
@@ -350,7 +349,6 @@ pub const Tokenizer = struct {
         return Tokenizer{
             .buffer = buffer,
             .index = src_start,
-            .pending_invalid_token = null,
         };
     }
 
@@ -366,8 +364,6 @@ pub const Tokenizer = struct {
         char_literal_hex_escape,
         char_literal_unicode_escape_saw_u,
         char_literal_unicode_escape,
-        char_literal_unicode_invalid,
-        char_literal_unicode,
         char_literal_end,
         backslash,
         equal,
@@ -406,43 +402,7 @@ pub const Tokenizer = struct {
         saw_at_sign,
     };
 
-    /// This is a workaround to the fact that the tokenizer can queue up
-    /// 'pending_invalid_token's when parsing literals, which means that we need
-    /// to scan from the start of the current line to find a matching tag - just
-    /// in case it was an invalid character generated during literal
-    /// tokenization. Ideally this processing of this would be pushed to the AST
-    /// parser or another later stage, both to give more useful error messages
-    /// with that extra context and in order to be able to remove this
-    /// workaround.
-    pub fn findTagAtCurrentIndex(self: *Tokenizer, tag: Token.Tag) Token {
-        if (tag == .invalid) {
-            const target_index = self.index;
-            var starting_index = target_index;
-            while (starting_index > 0) {
-                if (self.buffer[starting_index] == '\n') {
-                    break;
-                }
-                starting_index -= 1;
-            }
-
-            self.index = starting_index;
-            while (self.index <= target_index or self.pending_invalid_token != null) {
-                const result = self.next();
-                if (result.loc.start == target_index and result.tag == tag) {
-                    return result;
-                }
-            }
-            unreachable;
-        } else {
-            return self.next();
-        }
-    }
-
     pub fn next(self: *Tokenizer) Token {
-        if (self.pending_invalid_token) |token| {
-            self.pending_invalid_token = null;
-            return token;
-        }
         var state: State = .start;
         var result = Token{
             .tag = .eof,
@@ -452,7 +412,6 @@ pub const Tokenizer = struct {
             },
         };
         var seen_escape_digits: usize = undefined;
-        var remaining_code_units: usize = undefined;
         while (true) : (self.index += 1) {
             const c = self.buffer[self.index];
             switch (state) {
@@ -460,9 +419,8 @@ pub const Tokenizer = struct {
                     0 => {
                         if (self.index != self.buffer.len) {
                             result.tag = .invalid;
-                            result.loc.start = self.index;
-                            self.index += 1;
                             result.loc.end = self.index;
+                            self.index += 1;
                             return result;
                         }
                         break;
@@ -589,7 +547,7 @@ pub const Tokenizer = struct {
                     else => {
                         result.tag = .invalid;
                         result.loc.end = self.index;
-                        self.index += 1;
+                        self.index += std.unicode.utf8ByteSequenceLength(c) catch 1;
                         return result;
                     },
                 },
@@ -762,6 +720,14 @@ pub const Tokenizer = struct {
                     },
                 },
                 .string_literal => switch (c) {
+                    0, '\n' => {
+                        result.tag = .invalid;
+                        result.loc.end = self.index;
+                        if (self.index != self.buffer.len) {
+                            self.index += 1;
+                        }
+                        return result;
+                    },
                     '\\' => {
                         state = .string_literal_backslash;
                     },
@@ -769,68 +735,75 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
-                    0 => {
-                        if (self.index == self.buffer.len) {
+                    else => {
+                        if (self.invalidCharacterLength()) |len| {
                             result.tag = .invalid;
-                            break;
-                        } else {
-                            self.checkLiteralCharacter();
+                            result.loc.end = self.index;
+                            self.index += len;
+                            return result;
                         }
+
+                        self.index += (std.unicode.utf8ByteSequenceLength(c) catch unreachable) - 1;
                     },
-                    '\n' => {
-                        result.tag = .invalid;
-                        break;
-                    },
-                    else => self.checkLiteralCharacter(),
                 },
 
                 .string_literal_backslash => switch (c) {
                     0, '\n' => {
                         result.tag = .invalid;
-                        break;
+                        result.loc.end = self.index;
+                        if (self.index != self.buffer.len) {
+                            self.index += 1;
+                        }
+                        return result;
                     },
                     else => {
                         state = .string_literal;
+
+                        if (self.invalidCharacterLength()) |len| {
+                            result.tag = .invalid;
+                            result.loc.end = self.index;
+                            self.index += len;
+                            return result;
+                        }
+
+                        self.index += (std.unicode.utf8ByteSequenceLength(c) catch unreachable) - 1;
                     },
                 },
 
                 .char_literal => switch (c) {
-                    0 => {
+                    0, '\n', '\'' => {
                         result.tag = .invalid;
-                        break;
+                        result.loc.end = self.index;
+                        if (self.index != self.buffer.len) {
+                            self.index += 1;
+                        }
+                        return result;
                     },
                     '\\' => {
                         state = .char_literal_backslash;
                     },
-                    '\'', 0x80...0xbf, 0xf8...0xff => {
-                        result.tag = .invalid;
-                        break;
-                    },
-                    0xc0...0xdf => { // 110xxxxx
-                        remaining_code_units = 1;
-                        state = .char_literal_unicode;
-                    },
-                    0xe0...0xef => { // 1110xxxx
-                        remaining_code_units = 2;
-                        state = .char_literal_unicode;
-                    },
-                    0xf0...0xf7 => { // 11110xxx
-                        remaining_code_units = 3;
-                        state = .char_literal_unicode;
-                    },
-                    '\n' => {
-                        result.tag = .invalid;
-                        break;
-                    },
                     else => {
                         state = .char_literal_end;
+
+                        if (self.invalidCharacterLength()) |len| {
+                            result.tag = .invalid;
+                            result.loc.end = self.index;
+                            self.index += len;
+                            return result;
+                        }
+
+                        self.index += (std.unicode.utf8ByteSequenceLength(c) catch unreachable) - 1;
                     },
                 },
 
                 .char_literal_backslash => switch (c) {
                     0, '\n' => {
                         result.tag = .invalid;
-                        break;
+                        result.loc.end = self.index;
+                        if (self.index != self.buffer.len) {
+                            self.index += 1;
+                        }
+                        return result;
                     },
                     'x' => {
                         state = .char_literal_hex_escape;
@@ -841,6 +814,15 @@ pub const Tokenizer = struct {
                     },
                     else => {
                         state = .char_literal_end;
+
+                        if (self.invalidCharacterLength()) |len| {
+                            result.tag = .invalid;
+                            result.loc.end = self.index;
+                            self.index += len;
+                            return result;
+                        }
+
+                        self.index += (std.unicode.utf8ByteSequenceLength(c) catch unreachable) - 1;
                     },
                 },
 
@@ -858,40 +840,24 @@ pub const Tokenizer = struct {
                 },
 
                 .char_literal_unicode_escape_saw_u => switch (c) {
-                    0 => {
-                        result.tag = .invalid;
-                        break;
-                    },
                     '{' => {
                         state = .char_literal_unicode_escape;
                     },
                     else => {
                         result.tag = .invalid;
-                        state = .char_literal_unicode_invalid;
+                        break;
                     },
                 },
 
                 .char_literal_unicode_escape => switch (c) {
-                    0 => {
-                        result.tag = .invalid;
-                        break;
-                    },
                     '0'...'9', 'a'...'f', 'A'...'F' => {},
                     '}' => {
                         state = .char_literal_end; // too many/few digits handled later
                     },
                     else => {
                         result.tag = .invalid;
-                        state = .char_literal_unicode_invalid;
+                        break;
                     },
-                },
-
-                .char_literal_unicode_invalid => switch (c) {
-                    // Keep consuming characters until an obvious stopping point.
-                    // This consolidates e.g. `u{0ab1Q}` into a single invalid token
-                    // instead of creating the tokens `u{0ab1`, `Q`, `}`
-                    '0'...'9', 'a'...'z', 'A'...'Z', '}' => {},
-                    else => break,
                 },
 
                 .char_literal_end => switch (c) {
@@ -906,27 +872,31 @@ pub const Tokenizer = struct {
                     },
                 },
 
-                .char_literal_unicode => switch (c) {
-                    0x80...0xbf => {
-                        remaining_code_units -= 1;
-                        if (remaining_code_units == 0) {
-                            state = .char_literal_end;
+                .multiline_string_literal_line => switch (c) {
+                    0 => {
+                        if (self.index != self.buffer.len) {
+                            result.tag = .invalid;
+                            result.loc.end = self.index;
+                            self.index += 1;
+                            return result;
                         }
-                    },
-                    else => {
-                        result.tag = .invalid;
                         break;
                     },
-                },
-
-                .multiline_string_literal_line => switch (c) {
-                    0 => break,
                     '\n' => {
                         self.index += 1;
                         break;
                     },
                     '\t' => {},
-                    else => self.checkLiteralCharacter(),
+                    else => {
+                        if (self.invalidCharacterLength()) |len| {
+                            result.tag = .invalid;
+                            result.loc.end = self.index;
+                            self.index += len;
+                            return result;
+                        }
+
+                        self.index += (std.unicode.utf8ByteSequenceLength(c) catch unreachable) - 1;
+                    },
                 },
 
                 .bang => switch (c) {
@@ -1144,7 +1114,9 @@ pub const Tokenizer = struct {
                     0 => {
                         if (self.index != self.buffer.len) {
                             result.tag = .invalid;
+                            result.loc.end = self.index;
                             self.index += 1;
+                            return result;
                         }
                         break;
                     },
@@ -1159,17 +1131,37 @@ pub const Tokenizer = struct {
                         state = .start;
                         result.loc.start = self.index + 1;
                     },
-                    '\t' => state = .line_comment,
+                    '\t' => {
+                        state = .line_comment;
+                    },
                     else => {
                         state = .line_comment;
-                        self.checkLiteralCharacter();
+
+                        if (self.invalidCharacterLength()) |len| {
+                            result.tag = .invalid;
+                            result.loc.end = self.index;
+                            self.index += len;
+                            return result;
+                        }
+
+                        self.index += (std.unicode.utf8ByteSequenceLength(c) catch unreachable) - 1;
                     },
                 },
                 .doc_comment_start => switch (c) {
                     '/' => {
                         state = .line_comment;
                     },
-                    0, '\n' => {
+                    0 => {
+                        if (self.index != self.buffer.len) {
+                            result.tag = .invalid;
+                            result.loc.end = self.index;
+                            self.index += 1;
+                            return result;
+                        }
+                        result.tag = .doc_comment;
+                        break;
+                    },
+                    '\n' => {
                         result.tag = .doc_comment;
                         break;
                     },
@@ -1180,14 +1172,24 @@ pub const Tokenizer = struct {
                     else => {
                         state = .doc_comment;
                         result.tag = .doc_comment;
-                        self.checkLiteralCharacter();
+
+                        if (self.invalidCharacterLength()) |len| {
+                            result.tag = .invalid;
+                            result.loc.end = self.index;
+                            self.index += len;
+                            return result;
+                        }
+
+                        self.index += (std.unicode.utf8ByteSequenceLength(c) catch unreachable) - 1;
                     },
                 },
                 .line_comment => switch (c) {
                     0 => {
                         if (self.index != self.buffer.len) {
                             result.tag = .invalid;
+                            result.loc.end = self.index;
                             self.index += 1;
+                            return result;
                         }
                         break;
                     },
@@ -1196,12 +1198,30 @@ pub const Tokenizer = struct {
                         result.loc.start = self.index + 1;
                     },
                     '\t' => {},
-                    else => self.checkLiteralCharacter(),
+                    else => {
+                        if (self.invalidCharacterLength()) |len| {
+                            result.tag = .invalid;
+                            result.loc.end = self.index;
+                            self.index += len;
+                            return result;
+                        }
+
+                        self.index += (std.unicode.utf8ByteSequenceLength(c) catch unreachable) - 1;
+                    },
                 },
                 .doc_comment => switch (c) {
                     0, '\n' => break,
                     '\t' => {},
-                    else => self.checkLiteralCharacter(),
+                    else => {
+                        if (self.invalidCharacterLength()) |len| {
+                            result.tag = .invalid;
+                            result.loc.end = self.index;
+                            self.index += len;
+                            return result;
+                        }
+
+                        self.index += (std.unicode.utf8ByteSequenceLength(c) catch unreachable) - 1;
+                    },
                 },
                 .int => switch (c) {
                     '.' => state = .int_period,
@@ -1244,10 +1264,6 @@ pub const Tokenizer = struct {
         }
 
         if (result.tag == .eof) {
-            if (self.pending_invalid_token) |token| {
-                self.pending_invalid_token = null;
-                return token;
-            }
             result.loc.start = self.index;
         }
 
@@ -1255,27 +1271,14 @@ pub const Tokenizer = struct {
         return result;
     }
 
-    fn checkLiteralCharacter(self: *Tokenizer) void {
-        if (self.pending_invalid_token != null) return;
-        const invalid_length = self.getInvalidCharacterLength();
-        if (invalid_length == 0) return;
-        self.pending_invalid_token = .{
-            .tag = .invalid,
-            .loc = .{
-                .start = self.index,
-                .end = self.index + invalid_length,
-            },
-        };
-    }
-
-    fn getInvalidCharacterLength(self: *Tokenizer) u3 {
+    fn invalidCharacterLength(self: *Tokenizer) ?u3 {
         const c0 = self.buffer[self.index];
         if (std.ascii.isAscii(c0)) {
             if (c0 == '\r') {
                 if (self.index + 1 < self.buffer.len and self.buffer[self.index + 1] == '\n') {
                     // Carriage returns are *only* allowed just before a linefeed as part of a CRLF pair, otherwise
                     // they constitute an illegal byte!
-                    return 0;
+                    return null;
                 } else {
                     return 1;
                 }
@@ -1285,7 +1288,7 @@ pub const Tokenizer = struct {
                 return 1;
             }
             // looks fine to me.
-            return 0;
+            return null;
         } else {
             // check utf8-encoded character.
             const length = std.unicode.utf8ByteSequenceLength(c0) catch return 1;
@@ -1308,8 +1311,7 @@ pub const Tokenizer = struct {
                 },
                 else => unreachable,
             }
-            self.index += length - 1;
-            return 0;
+            return null;
         }
     }
 };
@@ -1394,27 +1396,37 @@ test "code point literal with unicode escapes" {
     // Invalid unicode escapes
     try testTokenize(
         \\'\u'
-    , &.{.invalid});
+    , &.{ .invalid, .invalid });
     try testTokenize(
         \\'\u{{'
-    , &.{ .invalid, .invalid });
+    , &.{ .invalid, .l_brace, .invalid });
     try testTokenize(
         \\'\u{}'
     , &.{.char_literal});
     try testTokenize(
         \\'\u{s}'
-    , &.{ .invalid, .invalid });
+    , &.{
+        .invalid,
+        .identifier,
+        .r_brace,
+        .invalid,
+    });
     try testTokenize(
         \\'\u{2z}'
-    , &.{ .invalid, .invalid });
+    , &.{
+        .invalid,
+        .identifier,
+        .r_brace,
+        .invalid,
+    });
     try testTokenize(
         \\'\u{4a'
-    , &.{.invalid});
+    , &.{ .invalid, .invalid }); // 4a is valid
 
     // Test old-style unicode literals
     try testTokenize(
         \\'\u0333'
-    , &.{ .invalid, .invalid });
+    , &.{ .invalid, .number_literal, .invalid });
     try testTokenize(
         \\'\U0333'
     , &.{ .invalid, .number_literal, .invalid });
@@ -1453,13 +1465,14 @@ test "invalid token characters" {
     try testTokenize("`", &.{.invalid});
     try testTokenize("'c", &.{.invalid});
     try testTokenize("'", &.{.invalid});
-    try testTokenize("''", &.{ .invalid, .invalid });
+    try testTokenize("''", &.{.invalid});
+    try testTokenize("'\n'", &.{ .invalid, .invalid });
 }
 
 test "invalid literal/comment characters" {
     try testTokenize("\"\x00\"", &.{
-        .string_literal,
         .invalid,
+        .invalid, // Incomplete string literal starting after invalid
     });
     try testTokenize("//\x00", &.{
         .invalid,
@@ -1910,10 +1923,10 @@ test "saturating operators" {
 test "null byte before eof" {
     try testTokenize("123 \x00 456", &.{ .number_literal, .invalid, .number_literal });
     try testTokenize("//\x00", &.{.invalid});
-    try testTokenize("\\\\\x00", &.{ .multiline_string_literal_line, .invalid });
+    try testTokenize("\\\\\x00", &.{.invalid});
     try testTokenize("\x00", &.{.invalid});
     try testTokenize("// NUL\x00\n", &.{.invalid});
-    try testTokenize("///\x00\n", &.{ .doc_comment, .invalid });
+    try testTokenize("///\x00\n", &.{.invalid});
     try testTokenize("/// NUL\x00\n", &.{ .doc_comment, .invalid });
 }
 

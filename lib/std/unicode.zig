@@ -2107,3 +2107,36 @@ test "well-formed WTF-16 roundtrips" {
         mem.nativeToLittle(u16, 0xDC00), // low surrogate
     });
 }
+
+/// Returns the length, in bytes, that would be necessary to encode the
+/// given WTF-16 LE slice as WTF-8.
+pub fn calcWtf8Len(wtf16le: []const u16) usize {
+    var it = Wtf16LeIterator.init(wtf16le);
+    var num_wtf8_bytes: usize = 0;
+    while (it.nextCodepoint()) |codepoint| {
+        // Note: If utf8CodepointSequenceLength is ever changed to error on surrogate
+        // codepoints, then it would no longer be eligible to be used in this context.
+        num_wtf8_bytes += utf8CodepointSequenceLength(codepoint) catch |err| switch (err) {
+            error.CodepointTooLarge => unreachable,
+        };
+    }
+    return num_wtf8_bytes;
+}
+
+fn testCalcWtf8Len() !void {
+    const L = utf8ToUtf16LeStringLiteral;
+    try testing.expectEqual(@as(usize, 1), calcWtf8Len(L("a")));
+    try testing.expectEqual(@as(usize, 10), calcWtf8Len(L("abcdefghij")));
+    // unpaired surrogate
+    try testing.expectEqual(@as(usize, 3), calcWtf8Len(&[_]u16{
+        mem.nativeToLittle(u16, 0xD800),
+    }));
+    try testing.expectEqual(@as(usize, 15), calcWtf8Len(L("こんにちは")));
+    // First codepoints that are encoded as 1, 2, 3, and 4 bytes
+    try testing.expectEqual(@as(usize, 1 + 2 + 3 + 4), calcWtf8Len(L("\u{0}\u{80}\u{800}\u{10000}")));
+}
+
+test "calculate wtf8 string length of given wtf16 string" {
+    try testCalcWtf8Len();
+    try comptime testCalcWtf8Len();
+}

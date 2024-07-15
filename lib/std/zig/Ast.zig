@@ -188,9 +188,8 @@ pub fn tokenSlice(tree: Ast, token_index: TokenIndex) []const u8 {
     var tokenizer: std.zig.Tokenizer = .{
         .buffer = tree.source,
         .index = token_starts[token_index],
-        .pending_invalid_token = null,
     };
-    const token = tokenizer.findTagAtCurrentIndex(token_tag);
+    const token = tokenizer.next();
     assert(token.tag == token_tag);
     return tree.source[token.loc.start..token.loc.end];
 }

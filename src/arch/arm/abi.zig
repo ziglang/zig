@@ -56,7 +56,7 @@ pub fn classifyType(ty: Type, pt: Zcu.PerThread, ctx: Context) Class {
         .Union => {
             const bit_size = ty.bitSize(pt);
             const union_obj = pt.zcu.typeToUnion(ty).?;
-            if (union_obj.getLayout(ip) == .@"packed") {
+            if (union_obj.flagsUnordered(ip).layout == .@"packed") {
                 if (bit_size > 64) return .memory;
                 return .byval;
             }

@@ -68,7 +68,13 @@ pub const TestResults = struct {
     }
 };
 
-pub const MakeFn = *const fn (step: *Step, prog_node: std.Progress.Node) anyerror!void;
+pub const MakeOptions = struct {
+    progress_node: std.Progress.Node,
+    thread_pool: *std.Thread.Pool,
+    watch: bool,
+};
+
+pub const MakeFn = *const fn (step: *Step, options: MakeOptions) anyerror!void;
 
 pub const State = enum {
     precheck_unstarted,
@@ -219,10 +225,10 @@ pub fn init(options: StepOptions) Step {
 /// If the Step's `make` function reports `error.MakeFailed`, it indicates they
 /// have already reported the error. Otherwise, we add a simple error report
 /// here.
-pub fn make(s: *Step, prog_node: std.Progress.Node) error{ MakeFailed, MakeSkipped }!void {
+pub fn make(s: *Step, options: MakeOptions) error{ MakeFailed, MakeSkipped }!void {
     const arena = s.owner.allocator;
 
-    s.makeFn(s, prog_node) catch |err| switch (err) {
+    s.makeFn(s, options) catch |err| switch (err) {
         error.MakeFailed => return error.MakeFailed,
         error.MakeSkipped => return error.MakeSkipped,
         else => {
@@ -260,8 +266,8 @@ pub fn getStackTrace(s: *Step) ?std.builtin.StackTrace {
     };
 }
 
-fn makeNoOp(step: *Step, prog_node: std.Progress.Node) anyerror!void {
-    _ = prog_node;
+fn makeNoOp(step: *Step, options: MakeOptions) anyerror!void {
+    _ = options;
 
     var all_cached = true;
 
@@ -352,13 +358,54 @@ pub fn addError(step: *Step, comptime fmt: []const u8, args: anytype) error{OutO
     try step.result_error_msgs.append(arena, msg);
 }
 
+pub const ZigProcess = struct {
+    child: std.process.Child,
+    poller: std.io.Poller(StreamEnum),
+    progress_ipc_fd: if (std.Progress.have_ipc) ?std.posix.fd_t else void,
+
+    pub const StreamEnum = enum { stdout, stderr };
+};
+
 /// Assumes that argv contains `--listen=-` and that the process being spawned
 /// is the zig compiler - the same version that compiled the build runner.
 pub fn evalZigProcess(
     s: *Step,
     argv: []const []const u8,
     prog_node: std.Progress.Node,
+    watch: bool,
 ) !?[]const u8 {
+    if (s.getZigProcess()) |zp| update: {
+        assert(watch);
+        if (std.Progress.have_ipc) if (zp.progress_ipc_fd) |fd| prog_node.setIpcFd(fd);
+        const result = zigProcessUpdate(s, zp, watch) catch |err| switch (err) {
+            error.BrokenPipe => {
+                // Process restart required.
+                const term = zp.child.wait() catch |e| {
+                    return s.fail("unable to wait for {s}: {s}", .{ argv[0], @errorName(e) });
+                };
+                _ = term;
+                s.clearZigProcess();
+                break :update;
+            },
+            else => |e| return e,
+        };
+
+        if (s.result_error_bundle.errorMessageCount() > 0)
+            return s.fail("{d} compilation errors", .{s.result_error_bundle.errorMessageCount()});
+
+        if (s.result_error_msgs.items.len > 0 and result == null) {
+            // Crash detected.
+            const term = zp.child.wait() catch |e| {
+                return s.fail("unable to wait for {s}: {s}", .{ argv[0], @errorName(e) });
+            };
+            s.result_peak_rss = zp.child.resource_usage_statistics.getMaxRss() orelse 0;
+            s.clearZigProcess();
+            try handleChildProcessTerm(s, term, null, argv);
+            return error.MakeFailed;
+        }
+
+        return result;
+    }
     assert(argv.len != 0);
     const b = s.owner;
     const arena = b.allocator;
@@ -378,29 +425,79 @@ pub fn evalZigProcess(
     child.spawn() catch |err| return s.fail("unable to spawn {s}: {s}", .{
         argv[0], @errorName(err),
     });
+
+    const zp = try gpa.create(ZigProcess);
+    zp.* = .{
+        .child = child,
+        .poller = std.io.poll(gpa, ZigProcess.StreamEnum, .{
+            .stdout = child.stdout.?,
+            .stderr = child.stderr.?,
+        }),
+        .progress_ipc_fd = if (std.Progress.have_ipc) child.progress_node.getIpcFd() else {},
+    };
+    if (watch) s.setZigProcess(zp);
+    defer if (!watch) zp.poller.deinit();
+
+    const result = try zigProcessUpdate(s, zp, watch);
+
+    if (!watch) {
+        // Send EOF to stdin.
+        zp.child.stdin.?.close();
+        zp.child.stdin = null;
+
+        const term = zp.child.wait() catch |err| {
+            return s.fail("unable to wait for {s}: {s}", .{ argv[0], @errorName(err) });
+        };
+        s.result_peak_rss = zp.child.resource_usage_statistics.getMaxRss() orelse 0;
+
+        // Special handling for Compile step that is expecting compile errors.
+        if (s.cast(Compile)) |compile| switch (term) {
+            .Exited => {
+                // Note that the exit code may be 0 in this case due to the
+                // compiler server protocol.
+                if (compile.expect_errors != null) {
+                    return error.NeedCompileErrorCheck;
+                }
+            },
+            else => {},
+        };
+
+        try handleChildProcessTerm(s, term, null, argv);
+    }
+
+    // This is intentionally printed for failure on the first build but not for
+    // subsequent rebuilds.
+    if (s.result_error_bundle.errorMessageCount() > 0) {
+        return s.fail("the following command failed with {d} compilation errors:\n{s}", .{
+            s.result_error_bundle.errorMessageCount(),
+            try allocPrintCmd(arena, null, argv),
+        });
+    }
+
+    return result;
+}
+
+fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?[]const u8 {
+    const b = s.owner;
+    const arena = b.allocator;
+
     var timer = try std.time.Timer.start();
 
-    var poller = std.io.poll(gpa, enum { stdout, stderr }, .{
-        .stdout = child.stdout.?,
-        .stderr = child.stderr.?,
-    });
-    defer poller.deinit();
-
-    try sendMessage(child.stdin.?, .update);
-    try sendMessage(child.stdin.?, .exit);
+    try sendMessage(zp.child.stdin.?, .update);
+    if (!watch) try sendMessage(zp.child.stdin.?, .exit);
 
     const Header = std.zig.Server.Message.Header;
     var result: ?[]const u8 = null;
 
-    const stdout = poller.fifo(.stdout);
+    const stdout = zp.poller.fifo(.stdout);
 
     poll: while (true) {
         while (stdout.readableLength() < @sizeOf(Header)) {
-            if (!(try poller.poll())) break :poll;
+            if (!(try zp.poller.poll())) break :poll;
         }
         const header = stdout.reader().readStruct(Header) catch unreachable;
         while (stdout.readableLength() < header.bytes_len) {
-            if (!(try poller.poll())) break :poll;
+            if (!(try zp.poller.poll())) break :poll;
         }
         const body = stdout.readableSliceOfLen(header.bytes_len);
 
@@ -428,12 +525,22 @@ pub fn evalZigProcess(
                     .string_bytes = try arena.dupe(u8, string_bytes),
                     .extra = extra_array,
                 };
+                if (watch) {
+                    // This message indicates the end of the update.
+                    stdout.discard(body.len);
+                    break;
+                }
             },
             .emit_bin_path => {
                 const EbpHdr = std.zig.Server.Message.EmitBinPath;
                 const ebp_hdr = @as(*align(1) const EbpHdr, @ptrCast(body));
                 s.result_cached = ebp_hdr.flags.cache_hit;
                 result = try arena.dupe(u8, body[@sizeOf(EbpHdr)..]);
+                if (watch) {
+                    // This message indicates the end of the update.
+                    stdout.discard(body.len);
+                    break;
+                }
             },
             .file_system_inputs => {
                 s.clearWatchInputs();
@@ -470,6 +577,13 @@ pub fn evalZigProcess(
                             };
                             try addWatchInputFromPath(s, path, std.fs.path.basename(sub_path));
                         },
+                        .global_cache => {
+                            const path: Build.Cache.Path = .{
+                                .root_dir = s.owner.graph.global_cache_root,
+                                .sub_path = sub_path_dirname,
+                            };
+                            try addWatchInputFromPath(s, path, std.fs.path.basename(sub_path));
+                        },
                     }
                 }
             },
@@ -479,43 +593,42 @@ pub fn evalZigProcess(
         stdout.discard(body.len);
     }
 
-    const stderr = poller.fifo(.stderr);
+    s.result_duration_ns = timer.read();
+
+    const stderr = zp.poller.fifo(.stderr);
     if (stderr.readableLength() > 0) {
         try s.result_error_msgs.append(arena, try stderr.toOwnedSlice());
     }
 
-    // Send EOF to stdin.
-    child.stdin.?.close();
-    child.stdin = null;
+    return result;
+}
 
-    const term = child.wait() catch |err| {
-        return s.fail("unable to wait for {s}: {s}", .{ argv[0], @errorName(err) });
+pub fn getZigProcess(s: *Step) ?*ZigProcess {
+    return switch (s.id) {
+        .compile => s.cast(Compile).?.zig_process,
+        else => null,
     };
-    s.result_duration_ns = timer.read();
-    s.result_peak_rss = child.resource_usage_statistics.getMaxRss() orelse 0;
+}
 
-    // Special handling for Compile step that is expecting compile errors.
-    if (s.cast(Compile)) |compile| switch (term) {
-        .Exited => {
-            // Note that the exit code may be 0 in this case due to the
-            // compiler server protocol.
-            if (compile.expect_errors != null) {
-                return error.NeedCompileErrorCheck;
+fn setZigProcess(s: *Step, zp: *ZigProcess) void {
+    switch (s.id) {
+        .compile => s.cast(Compile).?.zig_process = zp,
+        else => unreachable,
+    }
+}
+
+fn clearZigProcess(s: *Step) void {
+    const gpa = s.owner.allocator;
+    switch (s.id) {
+        .compile => {
+            const compile = s.cast(Compile).?;
+            if (compile.zig_process) |zp| {
+                gpa.destroy(zp);
+                compile.zig_process = null;
             }
         },
-        else => {},
-    };
-
-    try handleChildProcessTerm(s, term, null, argv);
-
-    if (s.result_error_bundle.errorMessageCount() > 0) {
-        return s.fail("the following command failed with {d} compilation errors:\n{s}", .{
-            s.result_error_bundle.errorMessageCount(),
-            try allocPrintCmd(arena, null, argv),
-        });
+        else => unreachable,
     }
-
-    return result;
 }
 
 fn sendMessage(file: std.fs.File, tag: std.zig.Client.Message.Tag) !void {

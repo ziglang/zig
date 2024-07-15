@@ -147,8 +147,6 @@ pub fn trackZir(
     }
     defer shard.mutate.tracked_inst_map.len += 1;
     const local = ip.getLocal(tid);
-    local.mutate.tracked_insts.mutex.lock();
-    defer local.mutate.tracked_insts.mutex.unlock();
     const list = local.getMutableTrackedInsts(gpa);
     try list.ensureUnusedCapacity(1);
     const map_header = map.header().*;
@@ -418,10 +416,10 @@ const Local = struct {
         arena: std.heap.ArenaAllocator.State,
 
         items: ListMutate,
-        extra: MutexListMutate,
+        extra: ListMutate,
         limbs: ListMutate,
         strings: ListMutate,
-        tracked_insts: MutexListMutate,
+        tracked_insts: ListMutate,
         files: ListMutate,
         maps: ListMutate,
 
@@ -471,20 +469,12 @@ const Local = struct {
     const Namespaces = List(struct { *[1 << namespaces_bucket_width]Zcu.Namespace });
 
     const ListMutate = struct {
+        mutex: std.Thread.Mutex,
         len: u32,
 
         const empty: ListMutate = .{
-            .len = 0,
-        };
-    };
-
-    const MutexListMutate = struct {
-        mutex: std.Thread.Mutex,
-        list: ListMutate,
-
-        const empty: MutexListMutate = .{
             .mutex = .{},
-            .list = ListMutate.empty,
+            .len = 0,
         };
     };
 
@@ -694,6 +684,8 @@ const Local = struct {
                         const new_slice = new_list.view().slice();
                         inline for (fields) |field| @memcpy(new_slice.items(field)[0..len], old_slice.items(field)[0..len]);
                     }
+                    mutable.mutate.mutex.lock();
+                    defer mutable.mutate.mutex.unlock();
                     mutable.list.release(new_list);
                 }
 
@@ -760,7 +752,7 @@ const Local = struct {
         return .{
             .gpa = gpa,
             .arena = &local.mutate.arena,
-            .mutate = &local.mutate.extra.list,
+            .mutate = &local.mutate.extra,
             .list = &local.shared.extra,
         };
     }
@@ -802,7 +794,7 @@ const Local = struct {
         return .{
             .gpa = gpa,
             .arena = &local.mutate.arena,
-            .mutate = &local.mutate.tracked_insts.list,
+            .mutate = &local.mutate.tracked_insts,
             .list = &local.shared.tracked_insts,
         };
     }
@@ -1714,28 +1706,75 @@ pub const Key = union(enum) {
         comptime_args: Index.Slice,
 
         /// Returns a pointer that becomes invalid after any additions to the `InternPool`.
-        pub fn analysis(func: *const Func, ip: *const InternPool) *FuncAnalysis {
+        fn analysisPtr(func: Func, ip: *InternPool) *FuncAnalysis {
             const extra = ip.getLocalShared(func.tid).extra.acquire();
             return @ptrCast(&extra.view().items(.@"0")[func.analysis_extra_index]);
         }
 
+        pub fn analysisUnordered(func: Func, ip: *const InternPool) FuncAnalysis {
+            return @atomicLoad(FuncAnalysis, func.analysisPtr(@constCast(ip)), .unordered);
+        }
+
+        pub fn setAnalysisState(func: Func, ip: *InternPool, state: FuncAnalysis.State) void {
+            const extra_mutex = &ip.getLocal(func.tid).mutate.extra.mutex;
+            extra_mutex.lock();
+            defer extra_mutex.unlock();
+
+            const analysis_ptr = func.analysisPtr(ip);
+            var analysis = analysis_ptr.*;
+            analysis.state = state;
+            @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
+        }
+
+        pub fn setCallsOrAwaitsErrorableFn(func: Func, ip: *InternPool, value: bool) void {
+            const extra_mutex = &ip.getLocal(func.tid).mutate.extra.mutex;
+            extra_mutex.lock();
+            defer extra_mutex.unlock();
+
+            const analysis_ptr = func.analysisPtr(ip);
+            var analysis = analysis_ptr.*;
+            analysis.calls_or_awaits_errorable_fn = value;
+            @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
+        }
+
         /// Returns a pointer that becomes invalid after any additions to the `InternPool`.
-        pub fn zirBodyInst(func: *const Func, ip: *const InternPool) *TrackedInst.Index {
+        fn zirBodyInstPtr(func: Func, ip: *InternPool) *TrackedInst.Index {
             const extra = ip.getLocalShared(func.tid).extra.acquire();
             return @ptrCast(&extra.view().items(.@"0")[func.zir_body_inst_extra_index]);
         }
 
+        pub fn zirBodyInstUnordered(func: Func, ip: *const InternPool) TrackedInst.Index {
+            return @atomicLoad(TrackedInst.Index, func.zirBodyInstPtr(@constCast(ip)), .unordered);
+        }
+
         /// Returns a pointer that becomes invalid after any additions to the `InternPool`.
-        pub fn branchQuota(func: *const Func, ip: *const InternPool) *u32 {
+        fn branchQuotaPtr(func: Func, ip: *InternPool) *u32 {
             const extra = ip.getLocalShared(func.tid).extra.acquire();
             return &extra.view().items(.@"0")[func.branch_quota_extra_index];
         }
 
+        pub fn branchQuotaUnordered(func: Func, ip: *const InternPool) u32 {
+            return @atomicLoad(u32, func.branchQuotaPtr(@constCast(ip)), .unordered);
+        }
+
+        pub fn maxBranchQuota(func: Func, ip: *InternPool, new_branch_quota: u32) void {
+            const extra_mutex = &ip.getLocal(func.tid).mutate.extra.mutex;
+            extra_mutex.lock();
+            defer extra_mutex.unlock();
+
+            const branch_quota_ptr = func.branchQuotaPtr(ip);
+            @atomicStore(u32, branch_quota_ptr, @max(branch_quota_ptr.*, new_branch_quota), .release);
+        }
+
         /// Returns a pointer that becomes invalid after any additions to the `InternPool`.
-        pub fn resolvedErrorSet(func: *const Func, ip: *const InternPool) *Index {
+        fn resolvedErrorSetPtr(func: Func, ip: *InternPool) *Index {
             const extra = ip.getLocalShared(func.tid).extra.acquire();
-            assert(func.analysis(ip).inferred_error_set);
+            assert(func.analysisUnordered(ip).inferred_error_set);
             return @ptrCast(&extra.view().items(.@"0")[func.resolved_error_set_extra_index]);
+        }
+
+        pub fn resolvedErrorSetUnordered(func: Func, ip: *const InternPool) Index {
+            return @atomicLoad(Index, func.resolvedErrorSetPtr(@constCast(ip)), .unordered);
         }
     };
 
@@ -2663,47 +2702,170 @@ pub const LoadedUnionType = struct {
     /// This accessor is provided so that the tag type can be mutated, and so that
     /// when it is mutated, the mutations are observed.
     /// The returned pointer expires with any addition to the `InternPool`.
-    pub fn tagTypePtr(self: LoadedUnionType, ip: *const InternPool) *Index {
+    fn tagTypePtr(self: LoadedUnionType, ip: *InternPool) *Index {
         const extra = ip.getLocalShared(self.tid).extra.acquire();
         const field_index = std.meta.fieldIndex(Tag.TypeUnion, "tag_ty").?;
         return @ptrCast(&extra.view().items(.@"0")[self.extra_index + field_index]);
     }
 
+    pub fn tagTypeUnordered(u: LoadedUnionType, ip: *const InternPool) Index {
+        return @atomicLoad(Index, u.tagTypePtr(@constCast(ip)), .unordered);
+    }
+
+    pub fn setTagType(u: LoadedUnionType, ip: *InternPool, tag_type: Index) void {
+        const extra_mutex = &ip.getLocal(u.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
+        @atomicStore(Index, u.tagTypePtr(ip), tag_type, .release);
+    }
+
     /// The returned pointer expires with any addition to the `InternPool`.
-    pub fn flagsPtr(self: LoadedUnionType, ip: *const InternPool) *Tag.TypeUnion.Flags {
+    fn flagsPtr(self: LoadedUnionType, ip: *InternPool) *Tag.TypeUnion.Flags {
         const extra = ip.getLocalShared(self.tid).extra.acquire();
         const field_index = std.meta.fieldIndex(Tag.TypeUnion, "flags").?;
         return @ptrCast(&extra.view().items(.@"0")[self.extra_index + field_index]);
     }
 
+    pub fn flagsUnordered(u: LoadedUnionType, ip: *const InternPool) Tag.TypeUnion.Flags {
+        return @atomicLoad(Tag.TypeUnion.Flags, u.flagsPtr(@constCast(ip)), .unordered);
+    }
+
+    pub fn setStatus(u: LoadedUnionType, ip: *InternPool, status: Status) void {
+        const extra_mutex = &ip.getLocal(u.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
+        const flags_ptr = u.flagsPtr(ip);
+        var flags = flags_ptr.*;
+        flags.status = status;
+        @atomicStore(Tag.TypeUnion.Flags, flags_ptr, flags, .release);
+    }
+
+    pub fn setStatusIfLayoutWip(u: LoadedUnionType, ip: *InternPool, status: Status) void {
+        const extra_mutex = &ip.getLocal(u.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
+        const flags_ptr = u.flagsPtr(ip);
+        var flags = flags_ptr.*;
+        if (flags.status == .layout_wip) flags.status = status;
+        @atomicStore(Tag.TypeUnion.Flags, flags_ptr, flags, .release);
+    }
+
+    pub fn setAlignment(u: LoadedUnionType, ip: *InternPool, alignment: Alignment) void {
+        const extra_mutex = &ip.getLocal(u.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
+        const flags_ptr = u.flagsPtr(ip);
+        var flags = flags_ptr.*;
+        flags.alignment = alignment;
+        @atomicStore(Tag.TypeUnion.Flags, flags_ptr, flags, .release);
+    }
+
+    pub fn assumeRuntimeBitsIfFieldTypesWip(u: LoadedUnionType, ip: *InternPool) bool {
+        const extra_mutex = &ip.getLocal(u.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
+        const flags_ptr = u.flagsPtr(ip);
+        var flags = flags_ptr.*;
+        defer if (flags.status == .field_types_wip) {
+            flags.assumed_runtime_bits = true;
+            @atomicStore(Tag.TypeUnion.Flags, flags_ptr, flags, .release);
+        };
+        return flags.status == .field_types_wip;
+    }
+
+    pub fn setRequiresComptimeWip(u: LoadedUnionType, ip: *InternPool) RequiresComptime {
+        const extra_mutex = &ip.getLocal(u.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
+        const flags_ptr = u.flagsPtr(ip);
+        var flags = flags_ptr.*;
+        defer if (flags.requires_comptime == .unknown) {
+            flags.requires_comptime = .wip;
+            @atomicStore(Tag.TypeUnion.Flags, flags_ptr, flags, .release);
+        };
+        return flags.requires_comptime;
+    }
+
+    pub fn setRequiresComptime(u: LoadedUnionType, ip: *InternPool, requires_comptime: RequiresComptime) void {
+        assert(requires_comptime != .wip); // see setRequiresComptimeWip
+
+        const extra_mutex = &ip.getLocal(u.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
+        const flags_ptr = u.flagsPtr(ip);
+        var flags = flags_ptr.*;
+        flags.requires_comptime = requires_comptime;
+        @atomicStore(Tag.TypeUnion.Flags, flags_ptr, flags, .release);
+    }
+
+    pub fn assumePointerAlignedIfFieldTypesWip(u: LoadedUnionType, ip: *InternPool, ptr_align: Alignment) bool {
+        const extra_mutex = &ip.getLocal(u.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
+        const flags_ptr = u.flagsPtr(ip);
+        var flags = flags_ptr.*;
+        defer if (flags.status == .field_types_wip) {
+            flags.alignment = ptr_align;
+            flags.assumed_pointer_aligned = true;
+            @atomicStore(Tag.TypeUnion.Flags, flags_ptr, flags, .release);
+        };
+        return flags.status == .field_types_wip;
+    }
+
     /// The returned pointer expires with any addition to the `InternPool`.
-    pub fn size(self: LoadedUnionType, ip: *const InternPool) *u32 {
+    fn sizePtr(self: LoadedUnionType, ip: *InternPool) *u32 {
         const extra = ip.getLocalShared(self.tid).extra.acquire();
         const field_index = std.meta.fieldIndex(Tag.TypeUnion, "size").?;
         return &extra.view().items(.@"0")[self.extra_index + field_index];
     }
 
+    pub fn sizeUnordered(u: LoadedUnionType, ip: *const InternPool) u32 {
+        return @atomicLoad(u32, u.sizePtr(@constCast(ip)), .unordered);
+    }
+
     /// The returned pointer expires with any addition to the `InternPool`.
-    pub fn padding(self: LoadedUnionType, ip: *const InternPool) *u32 {
+    fn paddingPtr(self: LoadedUnionType, ip: *InternPool) *u32 {
         const extra = ip.getLocalShared(self.tid).extra.acquire();
         const field_index = std.meta.fieldIndex(Tag.TypeUnion, "padding").?;
         return &extra.view().items(.@"0")[self.extra_index + field_index];
     }
 
+    pub fn paddingUnordered(u: LoadedUnionType, ip: *const InternPool) u32 {
+        return @atomicLoad(u32, u.paddingPtr(@constCast(ip)), .unordered);
+    }
+
     pub fn hasTag(self: LoadedUnionType, ip: *const InternPool) bool {
-        return self.flagsPtr(ip).runtime_tag.hasTag();
+        return self.flagsUnordered(ip).runtime_tag.hasTag();
     }
 
     pub fn haveFieldTypes(self: LoadedUnionType, ip: *const InternPool) bool {
-        return self.flagsPtr(ip).status.haveFieldTypes();
+        return self.flagsUnordered(ip).status.haveFieldTypes();
     }
 
     pub fn haveLayout(self: LoadedUnionType, ip: *const InternPool) bool {
-        return self.flagsPtr(ip).status.haveLayout();
+        return self.flagsUnordered(ip).status.haveLayout();
     }
 
-    pub fn getLayout(self: LoadedUnionType, ip: *const InternPool) std.builtin.Type.ContainerLayout {
-        return self.flagsPtr(ip).layout;
+    pub fn setHaveLayout(u: LoadedUnionType, ip: *InternPool, size: u32, padding: u32, alignment: Alignment) void {
+        const extra_mutex = &ip.getLocal(u.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
+        @atomicStore(u32, u.sizePtr(ip), size, .unordered);
+        @atomicStore(u32, u.paddingPtr(ip), padding, .unordered);
+        const flags_ptr = u.flagsPtr(ip);
+        var flags = flags_ptr.*;
+        flags.alignment = alignment;
+        flags.status = .have_layout;
+        @atomicStore(Tag.TypeUnion.Flags, flags_ptr, flags, .release);
     }
 
     pub fn fieldAlign(self: LoadedUnionType, ip: *const InternPool, field_index: usize) Alignment {
@@ -2726,7 +2888,7 @@ pub const LoadedUnionType = struct {
 
     pub fn setFieldAligns(self: LoadedUnionType, ip: *const InternPool, aligns: []const Alignment) void {
         if (aligns.len == 0) return;
-        assert(self.flagsPtr(ip).any_aligned_fields);
+        assert(self.flagsUnordered(ip).any_aligned_fields);
         @memcpy(self.field_aligns.get(ip), aligns);
     }
 };
@@ -2877,26 +3039,26 @@ pub const LoadedStructType = struct {
     };
 
     /// Look up field index based on field name.
-    pub fn nameIndex(self: LoadedStructType, ip: *const InternPool, name: NullTerminatedString) ?u32 {
-        const names_map = self.names_map.unwrap() orelse {
+    pub fn nameIndex(s: LoadedStructType, ip: *const InternPool, name: NullTerminatedString) ?u32 {
+        const names_map = s.names_map.unwrap() orelse {
             const i = name.toUnsigned(ip) orelse return null;
-            if (i >= self.field_types.len) return null;
+            if (i >= s.field_types.len) return null;
             return i;
         };
         const map = names_map.getConst(ip);
-        const adapter: NullTerminatedString.Adapter = .{ .strings = self.field_names.get(ip) };
+        const adapter: NullTerminatedString.Adapter = .{ .strings = s.field_names.get(ip) };
         const field_index = map.getIndexAdapted(name, adapter) orelse return null;
         return @intCast(field_index);
     }
 
     /// Returns the already-existing field with the same name, if any.
     pub fn addFieldName(
-        self: LoadedStructType,
+        s: LoadedStructType,
         ip: *InternPool,
         name: NullTerminatedString,
     ) ?u32 {
-        const extra = ip.getLocalShared(self.tid).extra.acquire();
-        return ip.addFieldName(extra, self.names_map.unwrap().?, self.field_names.start, name);
+        const extra = ip.getLocalShared(s.tid).extra.acquire();
+        return ip.addFieldName(extra, s.names_map.unwrap().?, s.field_names.start, name);
     }
 
     pub fn fieldAlign(s: LoadedStructType, ip: *const InternPool, i: usize) Alignment {
@@ -2924,141 +3086,311 @@ pub const LoadedStructType = struct {
         s.comptime_bits.setBit(ip, i);
     }
 
-    /// Reads the non-opv flag calculated during AstGen. Used to short-circuit more
-    /// complicated logic.
-    pub fn knownNonOpv(s: LoadedStructType, ip: *InternPool) bool {
-        return switch (s.layout) {
-            .@"packed" => false,
-            .auto, .@"extern" => s.flagsPtr(ip).known_non_opv,
-        };
-    }
-
     /// The returned pointer expires with any addition to the `InternPool`.
     /// Asserts the struct is not packed.
-    pub fn flagsPtr(self: LoadedStructType, ip: *InternPool) *Tag.TypeStruct.Flags {
-        assert(self.layout != .@"packed");
-        const extra = ip.getLocalShared(self.tid).extra.acquire();
+    fn flagsPtr(s: LoadedStructType, ip: *InternPool) *Tag.TypeStruct.Flags {
+        assert(s.layout != .@"packed");
+        const extra = ip.getLocalShared(s.tid).extra.acquire();
         const flags_field_index = std.meta.fieldIndex(Tag.TypeStruct, "flags").?;
-        return @ptrCast(&extra.view().items(.@"0")[self.extra_index + flags_field_index]);
+        return @ptrCast(&extra.view().items(.@"0")[s.extra_index + flags_field_index]);
+    }
+
+    pub fn flagsUnordered(s: LoadedStructType, ip: *const InternPool) Tag.TypeStruct.Flags {
+        return @atomicLoad(Tag.TypeStruct.Flags, s.flagsPtr(@constCast(ip)), .unordered);
     }
 
     /// The returned pointer expires with any addition to the `InternPool`.
     /// Asserts that the struct is packed.
-    pub fn packedFlagsPtr(self: LoadedStructType, ip: *InternPool) *Tag.TypeStructPacked.Flags {
-        assert(self.layout == .@"packed");
-        const extra = ip.getLocalShared(self.tid).extra.acquire();
+    fn packedFlagsPtr(s: LoadedStructType, ip: *InternPool) *Tag.TypeStructPacked.Flags {
+        assert(s.layout == .@"packed");
+        const extra = ip.getLocalShared(s.tid).extra.acquire();
         const flags_field_index = std.meta.fieldIndex(Tag.TypeStructPacked, "flags").?;
-        return @ptrCast(&extra.view().items(.@"0")[self.extra_index + flags_field_index]);
+        return @ptrCast(&extra.view().items(.@"0")[s.extra_index + flags_field_index]);
+    }
+
+    pub fn packedFlagsUnordered(s: LoadedStructType, ip: *const InternPool) Tag.TypeStructPacked.Flags {
+        return @atomicLoad(Tag.TypeStructPacked.Flags, s.packedFlagsPtr(@constCast(ip)), .unordered);
+    }
+
+    /// Reads the non-opv flag calculated during AstGen. Used to short-circuit more
+    /// complicated logic.
+    pub fn knownNonOpv(s: LoadedStructType, ip: *const InternPool) bool {
+        return switch (s.layout) {
+            .@"packed" => false,
+            .auto, .@"extern" => s.flagsUnordered(ip).known_non_opv,
+        };
+    }
+
+    pub fn requiresComptime(s: LoadedStructType, ip: *const InternPool) RequiresComptime {
+        return s.flagsUnordered(ip).requires_comptime;
+    }
+
+    pub fn setRequiresComptimeWip(s: LoadedStructType, ip: *InternPool) RequiresComptime {
+        const extra_mutex = &ip.getLocal(s.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
+        const flags_ptr = s.flagsPtr(ip);
+        var flags = flags_ptr.*;
+        defer if (flags.requires_comptime == .unknown) {
+            flags.requires_comptime = .wip;
+            @atomicStore(Tag.TypeStruct.Flags, flags_ptr, flags, .release);
+        };
+        return flags.requires_comptime;
+    }
+
+    pub fn setRequiresComptime(s: LoadedStructType, ip: *InternPool, requires_comptime: RequiresComptime) void {
+        assert(requires_comptime != .wip); // see setRequiresComptimeWip
+
+        const extra_mutex = &ip.getLocal(s.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
+        const flags_ptr = s.flagsPtr(ip);
+        var flags = flags_ptr.*;
+        flags.requires_comptime = requires_comptime;
+        @atomicStore(Tag.TypeStruct.Flags, flags_ptr, flags, .release);
     }
 
     pub fn assumeRuntimeBitsIfFieldTypesWip(s: LoadedStructType, ip: *InternPool) bool {
         if (s.layout == .@"packed") return false;
+
+        const extra_mutex = &ip.getLocal(s.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
         const flags_ptr = s.flagsPtr(ip);
-        if (flags_ptr.field_types_wip) {
-            flags_ptr.assumed_runtime_bits = true;
-            return true;
-        }
-        return false;
+        var flags = flags_ptr.*;
+        defer if (flags.field_types_wip) {
+            flags.assumed_runtime_bits = true;
+            @atomicStore(Tag.TypeStruct.Flags, flags_ptr, flags, .release);
+        };
+        return flags.field_types_wip;
     }
 
-    pub fn setTypesWip(s: LoadedStructType, ip: *InternPool) bool {
+    pub fn setFieldTypesWip(s: LoadedStructType, ip: *InternPool) bool {
         if (s.layout == .@"packed") return false;
+
+        const extra_mutex = &ip.getLocal(s.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
         const flags_ptr = s.flagsPtr(ip);
-        if (flags_ptr.field_types_wip) return true;
-        flags_ptr.field_types_wip = true;
-        return false;
+        var flags = flags_ptr.*;
+        defer {
+            flags.field_types_wip = true;
+            @atomicStore(Tag.TypeStruct.Flags, flags_ptr, flags, .release);
+        }
+        return flags.field_types_wip;
     }
 
-    pub fn clearTypesWip(s: LoadedStructType, ip: *InternPool) void {
+    pub fn clearFieldTypesWip(s: LoadedStructType, ip: *InternPool) void {
         if (s.layout == .@"packed") return;
-        s.flagsPtr(ip).field_types_wip = false;
+
+        const extra_mutex = &ip.getLocal(s.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
+        const flags_ptr = s.flagsPtr(ip);
+        var flags = flags_ptr.*;
+        flags.field_types_wip = false;
+        @atomicStore(Tag.TypeStruct.Flags, flags_ptr, flags, .release);
     }
 
     pub fn setLayoutWip(s: LoadedStructType, ip: *InternPool) bool {
         if (s.layout == .@"packed") return false;
+
+        const extra_mutex = &ip.getLocal(s.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
         const flags_ptr = s.flagsPtr(ip);
-        if (flags_ptr.layout_wip) return true;
-        flags_ptr.layout_wip = true;
-        return false;
+        var flags = flags_ptr.*;
+        defer {
+            flags.layout_wip = true;
+            @atomicStore(Tag.TypeStruct.Flags, flags_ptr, flags, .release);
+        }
+        return flags.layout_wip;
     }
 
     pub fn clearLayoutWip(s: LoadedStructType, ip: *InternPool) void {
         if (s.layout == .@"packed") return;
-        s.flagsPtr(ip).layout_wip = false;
+
+        const extra_mutex = &ip.getLocal(s.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
+        const flags_ptr = s.flagsPtr(ip);
+        var flags = flags_ptr.*;
+        flags.layout_wip = false;
+        @atomicStore(Tag.TypeStruct.Flags, flags_ptr, flags, .release);
     }
 
-    pub fn setAlignmentWip(s: LoadedStructType, ip: *InternPool) bool {
-        if (s.layout == .@"packed") return false;
+    pub fn setAlignment(s: LoadedStructType, ip: *InternPool, alignment: Alignment) void {
+        const extra_mutex = &ip.getLocal(s.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
         const flags_ptr = s.flagsPtr(ip);
-        if (flags_ptr.alignment_wip) return true;
-        flags_ptr.alignment_wip = true;
-        return false;
+        var flags = flags_ptr.*;
+        flags.alignment = alignment;
+        @atomicStore(Tag.TypeStruct.Flags, flags_ptr, flags, .release);
+    }
+
+    pub fn assumePointerAlignedIfFieldTypesWip(s: LoadedStructType, ip: *InternPool, ptr_align: Alignment) bool {
+        const extra_mutex = &ip.getLocal(s.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
+        const flags_ptr = s.flagsPtr(ip);
+        var flags = flags_ptr.*;
+        defer if (flags.field_types_wip) {
+            flags.alignment = ptr_align;
+            flags.assumed_pointer_aligned = true;
+            @atomicStore(Tag.TypeStruct.Flags, flags_ptr, flags, .release);
+        };
+        return flags.field_types_wip;
+    }
+
+    pub fn assumePointerAlignedIfWip(s: LoadedStructType, ip: *InternPool, ptr_align: Alignment) bool {
+        const extra_mutex = &ip.getLocal(s.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
+        const flags_ptr = s.flagsPtr(ip);
+        var flags = flags_ptr.*;
+        defer {
+            if (flags.alignment_wip) {
+                flags.alignment = ptr_align;
+                flags.assumed_pointer_aligned = true;
+            } else flags.alignment_wip = true;
+            @atomicStore(Tag.TypeStruct.Flags, flags_ptr, flags, .release);
+        }
+        return flags.alignment_wip;
     }
 
     pub fn clearAlignmentWip(s: LoadedStructType, ip: *InternPool) void {
         if (s.layout == .@"packed") return;
-        s.flagsPtr(ip).alignment_wip = false;
+
+        const extra_mutex = &ip.getLocal(s.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
+        const flags_ptr = s.flagsPtr(ip);
+        var flags = flags_ptr.*;
+        flags.alignment_wip = false;
+        @atomicStore(Tag.TypeStruct.Flags, flags_ptr, flags, .release);
     }
 
     pub fn setInitsWip(s: LoadedStructType, ip: *InternPool) bool {
-        const local = ip.getLocal(s.tid);
-        local.mutate.extra.mutex.lock();
-        defer local.mutate.extra.mutex.unlock();
-        return switch (s.layout) {
-            .@"packed" => @as(Tag.TypeStructPacked.Flags, @bitCast(@atomicRmw(
-                u32,
-                @as(*u32, @ptrCast(s.packedFlagsPtr(ip))),
-                .Or,
-                @bitCast(Tag.TypeStructPacked.Flags{ .field_inits_wip = true }),
-                .acq_rel,
-            ))).field_inits_wip,
-            .auto, .@"extern" => @as(Tag.TypeStruct.Flags, @bitCast(@atomicRmw(
-                u32,
-                @as(*u32, @ptrCast(s.flagsPtr(ip))),
-                .Or,
-                @bitCast(Tag.TypeStruct.Flags{ .field_inits_wip = true }),
-                .acq_rel,
-            ))).field_inits_wip,
-        };
+        const extra_mutex = &ip.getLocal(s.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
+        switch (s.layout) {
+            .@"packed" => {
+                const flags_ptr = s.packedFlagsPtr(ip);
+                var flags = flags_ptr.*;
+                defer {
+                    flags.field_inits_wip = true;
+                    @atomicStore(Tag.TypeStructPacked.Flags, flags_ptr, flags, .release);
+                }
+                return flags.field_inits_wip;
+            },
+            .auto, .@"extern" => {
+                const flags_ptr = s.flagsPtr(ip);
+                var flags = flags_ptr.*;
+                defer {
+                    flags.field_inits_wip = true;
+                    @atomicStore(Tag.TypeStruct.Flags, flags_ptr, flags, .release);
+                }
+                return flags.field_inits_wip;
+            },
+        }
     }
 
     pub fn clearInitsWip(s: LoadedStructType, ip: *InternPool) void {
+        const extra_mutex = &ip.getLocal(s.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
         switch (s.layout) {
-            .@"packed" => s.packedFlagsPtr(ip).field_inits_wip = false,
-            .auto, .@"extern" => s.flagsPtr(ip).field_inits_wip = false,
+            .@"packed" => {
+                const flags_ptr = s.packedFlagsPtr(ip);
+                var flags = flags_ptr.*;
+                flags.field_inits_wip = false;
+                @atomicStore(Tag.TypeStructPacked.Flags, flags_ptr, flags, .release);
+            },
+            .auto, .@"extern" => {
+                const flags_ptr = s.flagsPtr(ip);
+                var flags = flags_ptr.*;
+                flags.field_inits_wip = false;
+                @atomicStore(Tag.TypeStruct.Flags, flags_ptr, flags, .release);
+            },
         }
     }
 
     pub fn setFullyResolved(s: LoadedStructType, ip: *InternPool) bool {
         if (s.layout == .@"packed") return true;
+
+        const extra_mutex = &ip.getLocal(s.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
         const flags_ptr = s.flagsPtr(ip);
-        if (flags_ptr.fully_resolved) return true;
-        flags_ptr.fully_resolved = true;
-        return false;
+        var flags = flags_ptr.*;
+        defer {
+            flags.fully_resolved = true;
+            @atomicStore(Tag.TypeStruct.Flags, flags_ptr, flags, .release);
+        }
+        return flags.fully_resolved;
     }
 
     pub fn clearFullyResolved(s: LoadedStructType, ip: *InternPool) void {
-        s.flagsPtr(ip).fully_resolved = false;
+        const extra_mutex = &ip.getLocal(s.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
+        const flags_ptr = s.flagsPtr(ip);
+        var flags = flags_ptr.*;
+        flags.fully_resolved = false;
+        @atomicStore(Tag.TypeStruct.Flags, flags_ptr, flags, .release);
     }
 
     /// The returned pointer expires with any addition to the `InternPool`.
     /// Asserts the struct is not packed.
-    pub fn size(self: LoadedStructType, ip: *InternPool) *u32 {
-        assert(self.layout != .@"packed");
-        const extra = ip.getLocalShared(self.tid).extra.acquire();
+    fn sizePtr(s: LoadedStructType, ip: *InternPool) *u32 {
+        assert(s.layout != .@"packed");
+        const extra = ip.getLocalShared(s.tid).extra.acquire();
         const size_field_index = std.meta.fieldIndex(Tag.TypeStruct, "size").?;
-        return @ptrCast(&extra.view().items(.@"0")[self.extra_index + size_field_index]);
+        return @ptrCast(&extra.view().items(.@"0")[s.extra_index + size_field_index]);
+    }
+
+    pub fn sizeUnordered(s: LoadedStructType, ip: *const InternPool) u32 {
+        return @atomicLoad(u32, s.sizePtr(@constCast(ip)), .unordered);
     }
 
     /// The backing integer type of the packed struct. Whether zig chooses
     /// this type or the user specifies it, it is stored here. This will be
     /// set to `none` until the layout is resolved.
     /// Asserts the struct is packed.
-    pub fn backingIntType(s: LoadedStructType, ip: *InternPool) *Index {
+    fn backingIntTypePtr(s: LoadedStructType, ip: *InternPool) *Index {
         assert(s.layout == .@"packed");
         const extra = ip.getLocalShared(s.tid).extra.acquire();
         const field_index = std.meta.fieldIndex(Tag.TypeStructPacked, "backing_int_ty").?;
         return @ptrCast(&extra.view().items(.@"0")[s.extra_index + field_index]);
+    }
+
+    pub fn backingIntTypeUnordered(s: LoadedStructType, ip: *const InternPool) Index {
+        return @atomicLoad(Index, s.backingIntTypePtr(@constCast(ip)), .unordered);
+    }
+
+    pub fn setBackingIntType(s: LoadedStructType, ip: *InternPool, backing_int_ty: Index) void {
+        const extra_mutex = &ip.getLocal(s.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
+        @atomicStore(Index, s.backingIntTypePtr(ip), backing_int_ty, .release);
     }
 
     /// Asserts the struct is not packed.
@@ -3073,29 +3405,56 @@ pub const LoadedStructType = struct {
         return types.len == 0 or types[0] != .none;
     }
 
-    pub fn haveFieldInits(s: LoadedStructType, ip: *InternPool) bool {
+    pub fn haveFieldInits(s: LoadedStructType, ip: *const InternPool) bool {
         return switch (s.layout) {
-            .@"packed" => s.packedFlagsPtr(ip).inits_resolved,
-            .auto, .@"extern" => s.flagsPtr(ip).inits_resolved,
+            .@"packed" => s.packedFlagsUnordered(ip).inits_resolved,
+            .auto, .@"extern" => s.flagsUnordered(ip).inits_resolved,
         };
     }
 
     pub fn setHaveFieldInits(s: LoadedStructType, ip: *InternPool) void {
+        const extra_mutex = &ip.getLocal(s.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
         switch (s.layout) {
-            .@"packed" => s.packedFlagsPtr(ip).inits_resolved = true,
-            .auto, .@"extern" => s.flagsPtr(ip).inits_resolved = true,
+            .@"packed" => {
+                const flags_ptr = s.packedFlagsPtr(ip);
+                var flags = flags_ptr.*;
+                flags.inits_resolved = true;
+                @atomicStore(Tag.TypeStructPacked.Flags, flags_ptr, flags, .release);
+            },
+            .auto, .@"extern" => {
+                const flags_ptr = s.flagsPtr(ip);
+                var flags = flags_ptr.*;
+                flags.inits_resolved = true;
+                @atomicStore(Tag.TypeStruct.Flags, flags_ptr, flags, .release);
+            },
         }
     }
 
     pub fn haveLayout(s: LoadedStructType, ip: *InternPool) bool {
         return switch (s.layout) {
-            .@"packed" => s.backingIntType(ip).* != .none,
-            .auto, .@"extern" => s.flagsPtr(ip).layout_resolved,
+            .@"packed" => s.backingIntTypeUnordered(ip) != .none,
+            .auto, .@"extern" => s.flagsUnordered(ip).layout_resolved,
         };
     }
 
+    pub fn setLayoutResolved(s: LoadedStructType, ip: *InternPool, size: u32, alignment: Alignment) void {
+        const extra_mutex = &ip.getLocal(s.tid).mutate.extra.mutex;
+        extra_mutex.lock();
+        defer extra_mutex.unlock();
+
+        @atomicStore(u32, s.sizePtr(ip), size, .unordered);
+        const flags_ptr = s.flagsPtr(ip);
+        var flags = flags_ptr.*;
+        flags.alignment = alignment;
+        flags.layout_resolved = true;
+        @atomicStore(Tag.TypeStruct.Flags, flags_ptr, flags, .release);
+    }
+
     pub fn isTuple(s: LoadedStructType, ip: *InternPool) bool {
-        return s.layout != .@"packed" and s.flagsPtr(ip).is_tuple;
+        return s.layout != .@"packed" and s.flagsUnordered(ip).is_tuple;
     }
 
     pub fn hasReorderedFields(s: LoadedStructType) bool {
@@ -3209,7 +3568,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
             const decl: DeclIndex = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "decl").?]);
             const zir_index: TrackedInst.Index = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "zir_index").?]);
             const fields_len = extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "fields_len").?];
-            const flags: Tag.TypeStruct.Flags = @bitCast(@atomicLoad(u32, &extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "flags").?], .monotonic));
+            const flags: Tag.TypeStruct.Flags = @bitCast(@atomicLoad(u32, &extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "flags").?], .unordered));
             var extra_index = item.data + @as(u32, @typeInfo(Tag.TypeStruct).Struct.fields.len);
             const captures_len = if (flags.any_captures) c: {
                 const len = extra_list.view().items(.@"0")[extra_index];
@@ -3317,7 +3676,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
             const fields_len = extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "fields_len").?];
             const namespace: OptionalNamespaceIndex = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "namespace").?]);
             const names_map: MapIndex = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "names_map").?]);
-            const flags: Tag.TypeStructPacked.Flags = @bitCast(@atomicLoad(u32, &extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "flags").?], .monotonic));
+            const flags: Tag.TypeStructPacked.Flags = @bitCast(@atomicLoad(u32, &extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "flags").?], .unordered));
             var extra_index = item.data + @as(u32, @typeInfo(Tag.TypeStructPacked).Struct.fields.len);
             const has_inits = item.tag == .type_struct_packed_inits;
             const captures_len = if (flags.any_captures) c: {
@@ -5442,10 +5801,10 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
             .arena = .{},
 
             .items = Local.ListMutate.empty,
-            .extra = Local.MutexListMutate.empty,
+            .extra = Local.ListMutate.empty,
             .limbs = Local.ListMutate.empty,
             .strings = Local.ListMutate.empty,
-            .tracked_insts = Local.MutexListMutate.empty,
+            .tracked_insts = Local.ListMutate.empty,
             .files = Local.ListMutate.empty,
             .maps = Local.ListMutate.empty,
 
@@ -5635,7 +5994,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             const extra_list = unwrapped_index.getExtra(ip);
             const extra_items = extra_list.view().items(.@"0");
             const zir_index: TrackedInst.Index = @enumFromInt(extra_items[data + std.meta.fieldIndex(Tag.TypeStruct, "zir_index").?]);
-            const flags: Tag.TypeStruct.Flags = @bitCast(@atomicLoad(u32, &extra_items[data + std.meta.fieldIndex(Tag.TypeStruct, "flags").?], .monotonic));
+            const flags: Tag.TypeStruct.Flags = @bitCast(@atomicLoad(u32, &extra_items[data + std.meta.fieldIndex(Tag.TypeStruct, "flags").?], .unordered));
             const end_extra_index = data + @as(u32, @typeInfo(Tag.TypeStruct).Struct.fields.len);
             if (flags.is_reified) {
                 assert(!flags.any_captures);
@@ -5658,7 +6017,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             const extra_list = unwrapped_index.getExtra(ip);
             const extra_items = extra_list.view().items(.@"0");
             const zir_index: TrackedInst.Index = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "zir_index").?]);
-            const flags: Tag.TypeStructPacked.Flags = @bitCast(@atomicLoad(u32, &extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "flags").?], .monotonic));
+            const flags: Tag.TypeStructPacked.Flags = @bitCast(@atomicLoad(u32, &extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "flags").?], .unordered));
             const end_extra_index = data + @as(u32, @typeInfo(Tag.TypeStructPacked).Struct.fields.len);
             if (flags.is_reified) {
                 assert(!flags.any_captures);
@@ -6155,7 +6514,7 @@ fn extraFuncDecl(tid: Zcu.PerThread.Id, extra: Local.Extra, extra_index: u32) Ke
 fn extraFuncInstance(ip: *const InternPool, tid: Zcu.PerThread.Id, extra: Local.Extra, extra_index: u32) Key.Func {
     const extra_items = extra.view().items(.@"0");
     const analysis_extra_index = extra_index + std.meta.fieldIndex(Tag.FuncInstance, "analysis").?;
-    const analysis: FuncAnalysis = @bitCast(@atomicLoad(u32, &extra_items[analysis_extra_index], .monotonic));
+    const analysis: FuncAnalysis = @bitCast(@atomicLoad(u32, &extra_items[analysis_extra_index], .unordered));
     const owner_decl: DeclIndex = @enumFromInt(extra_items[extra_index + std.meta.fieldIndex(Tag.FuncInstance, "owner_decl").?]);
     const ty: Index = @enumFromInt(extra_items[extra_index + std.meta.fieldIndex(Tag.FuncInstance, "ty").?]);
     const generic_owner: Index = @enumFromInt(extra_items[extra_index + std.meta.fieldIndex(Tag.FuncInstance, "generic_owner").?]);
@@ -8702,7 +9061,7 @@ pub fn remove(ip: *InternPool, tid: Zcu.PerThread.Id, index: Index) void {
         // Restore the original item at this index.
         assert(static_keys[@intFromEnum(index)] == .simple_type);
         const items = ip.getLocalShared(unwrapped_index.tid).items.acquire().view();
-        @atomicStore(Tag, &items.items(.tag)[unwrapped_index.index], .simple_type, .monotonic);
+        @atomicStore(Tag, &items.items(.tag)[unwrapped_index.index], .simple_type, .unordered);
         return;
     }
 
@@ -8719,7 +9078,7 @@ pub fn remove(ip: *InternPool, tid: Zcu.PerThread.Id, index: Index) void {
     // Thus, we will rewrite the tag to `removed`, leaking the item until
     // next GC but causing `KeyAdapter` to ignore it.
     const items = ip.getLocalShared(unwrapped_index.tid).items.acquire().view();
-    @atomicStore(Tag, &items.items(.tag)[unwrapped_index.index], .removed, .monotonic);
+    @atomicStore(Tag, &items.items(.tag)[unwrapped_index.index], .removed, .unordered);
 }
 
 fn addInt(
@@ -9415,9 +9774,11 @@ pub fn errorUnionPayload(ip: *const InternPool, ty: Index) Index {
 /// The is only legal because the initializer is not part of the hash.
 pub fn mutateVarInit(ip: *InternPool, index: Index, init_index: Index) void {
     const unwrapped_index = index.unwrap(ip);
+
     const local = ip.getLocal(unwrapped_index.tid);
     local.mutate.extra.mutex.lock();
     defer local.mutate.extra.mutex.unlock();
+
     const extra_items = local.shared.extra.view().items(.@"0");
     const item = unwrapped_index.getItem(ip);
     assert(item.tag == .variable);
@@ -9436,7 +9797,7 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
     var decls_len: usize = 0;
     for (ip.locals) |*local| {
         items_len += local.mutate.items.len;
-        extra_len += local.mutate.extra.list.len;
+        extra_len += local.mutate.extra.len;
         limbs_len += local.mutate.limbs.len;
         decls_len += local.mutate.decls.buckets_list.len;
     }
@@ -10730,29 +11091,29 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
     };
 }
 
-pub fn isFuncBody(ip: *const InternPool, index: Index) bool {
-    return switch (index.unwrap(ip).getTag(ip)) {
+pub fn isFuncBody(ip: *const InternPool, func: Index) bool {
+    return switch (func.unwrap(ip).getTag(ip)) {
         .func_decl, .func_instance, .func_coerced => true,
         else => false,
     };
 }
 
-pub fn funcAnalysis(ip: *const InternPool, index: Index) *FuncAnalysis {
-    const unwrapped_index = index.unwrap(ip);
-    const extra = unwrapped_index.getExtra(ip);
-    const item = unwrapped_index.getItem(ip);
+fn funcAnalysisPtr(ip: *InternPool, func: Index) *FuncAnalysis {
+    const unwrapped_func = func.unwrap(ip);
+    const extra = unwrapped_func.getExtra(ip);
+    const item = unwrapped_func.getItem(ip);
     const extra_index = switch (item.tag) {
         .func_decl => item.data + std.meta.fieldIndex(Tag.FuncDecl, "analysis").?,
         .func_instance => item.data + std.meta.fieldIndex(Tag.FuncInstance, "analysis").?,
         .func_coerced => {
             const extra_index = item.data + std.meta.fieldIndex(Tag.FuncCoerced, "func").?;
-            const func_index: Index = @enumFromInt(extra.view().items(.@"0")[extra_index]);
-            const unwrapped_func = func_index.unwrap(ip);
-            const func_item = unwrapped_func.getItem(ip);
-            return @ptrCast(&unwrapped_func.getExtra(ip).view().items(.@"0")[
-                switch (func_item.tag) {
-                    .func_decl => func_item.data + std.meta.fieldIndex(Tag.FuncDecl, "analysis").?,
-                    .func_instance => func_item.data + std.meta.fieldIndex(Tag.FuncInstance, "analysis").?,
+            const coerced_func_index: Index = @enumFromInt(extra.view().items(.@"0")[extra_index]);
+            const unwrapped_coerced_func = coerced_func_index.unwrap(ip);
+            const coerced_func_item = unwrapped_coerced_func.getItem(ip);
+            return @ptrCast(&unwrapped_coerced_func.getExtra(ip).view().items(.@"0")[
+                switch (coerced_func_item.tag) {
+                    .func_decl => coerced_func_item.data + std.meta.fieldIndex(Tag.FuncDecl, "analysis").?,
+                    .func_instance => coerced_func_item.data + std.meta.fieldIndex(Tag.FuncInstance, "analysis").?,
                     else => unreachable,
                 }
             ]);
@@ -10762,14 +11123,65 @@ pub fn funcAnalysis(ip: *const InternPool, index: Index) *FuncAnalysis {
     return @ptrCast(&extra.view().items(.@"0")[extra_index]);
 }
 
-pub fn funcHasInferredErrorSet(ip: *const InternPool, i: Index) bool {
-    return funcAnalysis(ip, i).inferred_error_set;
+pub fn funcAnalysisUnordered(ip: *const InternPool, func: Index) FuncAnalysis {
+    return @atomicLoad(FuncAnalysis, @constCast(ip).funcAnalysisPtr(func), .unordered);
 }
 
-pub fn funcZirBodyInst(ip: *const InternPool, index: Index) TrackedInst.Index {
-    const unwrapped_index = index.unwrap(ip);
-    const item = unwrapped_index.getItem(ip);
-    const item_extra = unwrapped_index.getExtra(ip);
+pub fn funcSetAnalysisState(ip: *InternPool, func: Index, state: FuncAnalysis.State) void {
+    const unwrapped_func = func.unwrap(ip);
+    const extra_mutex = &ip.getLocal(unwrapped_func.tid).mutate.extra.mutex;
+    extra_mutex.lock();
+    defer extra_mutex.unlock();
+
+    const analysis_ptr = ip.funcAnalysisPtr(func);
+    var analysis = analysis_ptr.*;
+    analysis.state = state;
+    @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
+}
+
+pub fn funcMaxStackAlignment(ip: *InternPool, func: Index, new_stack_alignment: Alignment) void {
+    const unwrapped_func = func.unwrap(ip);
+    const extra_mutex = &ip.getLocal(unwrapped_func.tid).mutate.extra.mutex;
+    extra_mutex.lock();
+    defer extra_mutex.unlock();
+
+    const analysis_ptr = ip.funcAnalysisPtr(func);
+    var analysis = analysis_ptr.*;
+    analysis.stack_alignment = switch (analysis.stack_alignment) {
+        .none => new_stack_alignment,
+        else => |old_stack_alignment| old_stack_alignment.maxStrict(new_stack_alignment),
+    };
+    @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
+}
+
+pub fn funcSetCallsOrAwaitsErrorableFn(ip: *InternPool, func: Index) void {
+    const unwrapped_func = func.unwrap(ip);
+    const extra_mutex = &ip.getLocal(unwrapped_func.tid).mutate.extra.mutex;
+    extra_mutex.lock();
+    defer extra_mutex.unlock();
+
+    const analysis_ptr = ip.funcAnalysisPtr(func);
+    var analysis = analysis_ptr.*;
+    analysis.calls_or_awaits_errorable_fn = true;
+    @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
+}
+
+pub fn funcSetCold(ip: *InternPool, func: Index, is_cold: bool) void {
+    const unwrapped_func = func.unwrap(ip);
+    const extra_mutex = &ip.getLocal(unwrapped_func.tid).mutate.extra.mutex;
+    extra_mutex.lock();
+    defer extra_mutex.unlock();
+
+    const analysis_ptr = ip.funcAnalysisPtr(func);
+    var analysis = analysis_ptr.*;
+    analysis.is_cold = is_cold;
+    @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
+}
+
+pub fn funcZirBodyInst(ip: *const InternPool, func: Index) TrackedInst.Index {
+    const unwrapped_func = func.unwrap(ip);
+    const item = unwrapped_func.getItem(ip);
+    const item_extra = unwrapped_func.getExtra(ip);
     const zir_body_inst_field_index = std.meta.fieldIndex(Tag.FuncDecl, "zir_body_inst").?;
     switch (item.tag) {
         .func_decl => return @enumFromInt(item_extra.view().items(.@"0")[item.data + zir_body_inst_field_index]),
@@ -10806,17 +11218,17 @@ pub fn iesFuncIndex(ip: *const InternPool, ies_index: Index) Index {
 /// Returns a mutable pointer to the resolved error set type of an inferred
 /// error set function. The returned pointer is invalidated when anything is
 /// added to `ip`.
-pub fn iesResolved(ip: *const InternPool, ies_index: Index) *Index {
+fn iesResolvedPtr(ip: *InternPool, ies_index: Index) *Index {
     const ies_item = ies_index.getItem(ip);
     assert(ies_item.tag == .type_inferred_error_set);
-    return funcIesResolved(ip, ies_item.data);
+    return ip.funcIesResolvedPtr(ies_item.data);
 }
 
 /// Returns a mutable pointer to the resolved error set type of an inferred
 /// error set function. The returned pointer is invalidated when anything is
 /// added to `ip`.
-pub fn funcIesResolved(ip: *const InternPool, func_index: Index) *Index {
-    assert(funcHasInferredErrorSet(ip, func_index));
+fn funcIesResolvedPtr(ip: *InternPool, func_index: Index) *Index {
+    assert(ip.funcAnalysisUnordered(func_index).inferred_error_set);
     const unwrapped_func = func_index.unwrap(ip);
     const func_extra = unwrapped_func.getExtra(ip);
     const func_item = unwrapped_func.getItem(ip);
@@ -10840,6 +11252,19 @@ pub fn funcIesResolved(ip: *const InternPool, func_index: Index) *Index {
         else => unreachable,
     };
     return @ptrCast(&func_extra.view().items(.@"0")[extra_index]);
+}
+
+pub fn funcIesResolvedUnordered(ip: *const InternPool, index: Index) Index {
+    return @atomicLoad(Index, @constCast(ip).funcIesResolvedPtr(index), .unordered);
+}
+
+pub fn funcSetIesResolved(ip: *InternPool, index: Index, ies: Index) void {
+    const unwrapped_func = index.unwrap(ip);
+    const extra_mutex = &ip.getLocal(unwrapped_func.tid).mutate.extra.mutex;
+    extra_mutex.lock();
+    defer extra_mutex.unlock();
+
+    @atomicStore(Index, ip.funcIesResolvedPtr(index), ies, .release);
 }
 
 pub fn funcDeclInfo(ip: *const InternPool, index: Index) Key.Func {
@@ -10950,7 +11375,10 @@ const GlobalErrorSet = struct {
         names: Names,
         map: Shard.Map(GlobalErrorSet.Index),
     } align(std.atomic.cache_line),
-    mutate: Local.MutexListMutate align(std.atomic.cache_line),
+    mutate: struct {
+        names: Local.ListMutate,
+        map: struct { mutex: std.Thread.Mutex },
+    } align(std.atomic.cache_line),
 
     const Names = Local.List(struct { NullTerminatedString });
 
@@ -10959,7 +11387,10 @@ const GlobalErrorSet = struct {
             .names = Names.empty,
             .map = Shard.Map(GlobalErrorSet.Index).empty,
         },
-        .mutate = Local.MutexListMutate.empty,
+        .mutate = .{
+            .names = Local.ListMutate.empty,
+            .map = .{ .mutex = .{} },
+        },
     };
 
     const Index = enum(Zcu.ErrorInt) {
@@ -10969,7 +11400,7 @@ const GlobalErrorSet = struct {
 
     /// Not thread-safe, may only be called from the main thread.
     pub fn getNamesFromMainThread(ges: *const GlobalErrorSet) []const NullTerminatedString {
-        const len = ges.mutate.list.len;
+        const len = ges.mutate.names.len;
         return if (len > 0) ges.shared.names.view().items(.@"0")[0..len] else &.{};
     }
 
@@ -10994,8 +11425,8 @@ const GlobalErrorSet = struct {
             if (entry.hash != hash) continue;
             if (names.view().items(.@"0")[@intFromEnum(index) - 1] == name) return index;
         }
-        ges.mutate.mutex.lock();
-        defer ges.mutate.mutex.unlock();
+        ges.mutate.map.mutex.lock();
+        defer ges.mutate.map.mutex.unlock();
         if (map.entries != ges.shared.map.entries) {
             map = ges.shared.map;
             map_mask = map.header().mask();
@@ -11012,12 +11443,12 @@ const GlobalErrorSet = struct {
         const mutable_names: Names.Mutable = .{
             .gpa = gpa,
             .arena = arena_state,
-            .mutate = &ges.mutate.list,
+            .mutate = &ges.mutate.names,
             .list = &ges.shared.names,
         };
         try mutable_names.ensureUnusedCapacity(1);
         const map_header = map.header().*;
-        if (ges.mutate.list.len < map_header.capacity * 3 / 5) {
+        if (ges.mutate.names.len < map_header.capacity * 3 / 5) {
             mutable_names.appendAssumeCapacity(.{name});
             const index: GlobalErrorSet.Index = @enumFromInt(mutable_names.mutate.len);
             const entry = &map.entries[map_index];

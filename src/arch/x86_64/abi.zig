@@ -349,7 +349,7 @@ fn classifySystemVStruct(
                 .@"packed" => {},
             }
         } else if (pt.zcu.typeToUnion(field_ty)) |field_loaded_union| {
-            switch (field_loaded_union.getLayout(ip)) {
+            switch (field_loaded_union.flagsUnordered(ip).layout) {
                 .auto, .@"extern" => {
                     byte_offset = classifySystemVUnion(result, byte_offset, field_loaded_union, pt, target);
                     continue;
@@ -362,11 +362,11 @@ fn classifySystemVStruct(
             result_class.* = result_class.combineSystemV(field_class);
         byte_offset += field_ty.abiSize(pt);
     }
-    const final_byte_offset = starting_byte_offset + loaded_struct.size(ip).*;
+    const final_byte_offset = starting_byte_offset + loaded_struct.sizeUnordered(ip);
     std.debug.assert(final_byte_offset == std.mem.alignForward(
         u64,
         byte_offset,
-        loaded_struct.flagsPtr(ip).alignment.toByteUnits().?,
+        loaded_struct.flagsUnordered(ip).alignment.toByteUnits().?,
     ));
     return final_byte_offset;
 }
@@ -390,7 +390,7 @@ fn classifySystemVUnion(
                 .@"packed" => {},
             }
         } else if (pt.zcu.typeToUnion(field_ty)) |field_loaded_union| {
-            switch (field_loaded_union.getLayout(ip)) {
+            switch (field_loaded_union.flagsUnordered(ip).layout) {
                 .auto, .@"extern" => {
                     _ = classifySystemVUnion(result, starting_byte_offset, field_loaded_union, pt, target);
                     continue;
@@ -402,7 +402,7 @@ fn classifySystemVUnion(
         for (result[@intCast(starting_byte_offset / 8)..][0..field_classes.len], field_classes) |*result_class, field_class|
             result_class.* = result_class.combineSystemV(field_class);
     }
-    return starting_byte_offset + loaded_union.size(ip).*;
+    return starting_byte_offset + loaded_union.sizeUnordered(ip);
 }
 
 pub const SysV = struct {

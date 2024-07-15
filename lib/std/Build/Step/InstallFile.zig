@@ -35,8 +35,8 @@ pub fn create(
     return install_file;
 }
 
-fn make(step: *Step, prog_node: std.Progress.Node) !void {
-    _ = prog_node;
+fn make(step: *Step, options: Step.MakeOptions) !void {
+    _ = options;
     const b = step.owner;
     const install_file: *InstallFile = @fieldParentPtr("step", step);
     try step.singleUnchangingWatchInput(install_file.source);

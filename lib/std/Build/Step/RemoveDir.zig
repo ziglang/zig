@@ -23,10 +23,8 @@ pub fn create(owner: *std.Build, doomed_path: LazyPath) *RemoveDir {
     return remove_dir;
 }
 
-fn make(step: *Step, prog_node: std.Progress.Node) !void {
-    // TODO update progress node while walking file system.
-    // Should the standard library support this use case??
-    _ = prog_node;
+fn make(step: *Step, options: Step.MakeOptions) !void {
+    _ = options;
 
     const b = step.owner;
     const remove_dir: *RemoveDir = @fieldParentPtr("step", step);

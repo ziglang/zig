@@ -449,7 +449,7 @@ pub fn updateFunc(self: *Plan9, pt: Zcu.PerThread, func_index: InternPool.Index,
     const code = switch (res) {
         .ok => try code_buffer.toOwnedSlice(),
         .fail => |em| {
-            func.analysis(&mod.intern_pool).state = .codegen_failure;
+            func.setAnalysisState(&mod.intern_pool, .codegen_failure);
             try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             return;
         },

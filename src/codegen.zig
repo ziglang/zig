@@ -548,8 +548,8 @@ pub fn generateSymbol(
                             }
                         }
 
-                        const size = struct_type.size(ip).*;
-                        const alignment = struct_type.flagsPtr(ip).alignment.toByteUnits().?;
+                        const size = struct_type.sizeUnordered(ip);
+                        const alignment = struct_type.flagsUnordered(ip).alignment.toByteUnits().?;
 
                         const padding = math.cast(
                             usize,

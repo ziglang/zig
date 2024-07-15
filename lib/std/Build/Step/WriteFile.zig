@@ -171,8 +171,8 @@ fn maybeUpdateName(write_file: *WriteFile) void {
     }
 }
 
-fn make(step: *Step, prog_node: std.Progress.Node) !void {
-    _ = prog_node;
+fn make(step: *Step, options: Step.MakeOptions) !void {
+    _ = options;
     const b = step.owner;
     const arena = b.allocator;
     const gpa = arena;
