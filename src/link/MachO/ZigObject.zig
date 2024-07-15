@@ -958,14 +958,11 @@ pub fn updateDecl(
             return;
         },
     };
-    const sect_index = try self.getDeclOutputSection(macho_file, decl, code);
-    const is_threadlocal = switch (macho_file.sections.items(.header)[sect_index].type()) {
-        macho.S_THREAD_LOCAL_ZEROFILL, macho.S_THREAD_LOCAL_REGULAR => true,
-        else => false,
-    };
-    if (is_threadlocal) {
+    if (isThreadlocal(macho_file, decl_index)) {
+        const sect_index = try self.getDeclOutputSection(macho_file, decl, code);
         try self.updateTlv(macho_file, pt, decl_index, sym_index, sect_index, code);
     } else {
+        const sect_index = try self.getDeclOutputSection(macho_file, decl, code);
         try self.updateDeclCode(macho_file, pt, decl_index, sym_index, sect_index, code);
     }
 
@@ -1590,17 +1587,11 @@ pub fn getOrCreateMetadataForDecl(
     const gpa = macho_file.base.comp.gpa;
     const gop = try self.decls.getOrPut(gpa, decl_index);
     if (!gop.found_existing) {
-        const any_non_single_threaded = macho_file.base.comp.config.any_non_single_threaded;
         const sym_index = try self.newSymbolWithAtom(gpa, 0, macho_file);
         const sym = &self.symbols.items[sym_index];
-        const mod = macho_file.base.comp.module.?;
-        const decl = mod.declPtr(decl_index);
-        if (decl.getOwnedVariable(mod)) |variable| {
-            if (variable.is_threadlocal and any_non_single_threaded) {
-                sym.flags.tlv = true;
-            }
-        }
-        if (!sym.flags.tlv) {
+        if (isThreadlocal(macho_file, decl_index)) {
+            sym.flags.tlv = true;
+        } else {
             sym.flags.needs_zig_got = true;
         }
         gop.value_ptr.* = .{ .symbol_index = sym_index };
@@ -1647,6 +1638,14 @@ pub fn getOrCreateMetadataForLazySymbol(
     // anyerror needs to be deferred until flushModule
     if (lazy_sym.getDecl(mod) != .none) try self.updateLazySymbol(macho_file, pt, lazy_sym, symbol_index);
     return symbol_index;
+}
+
+fn isThreadlocal(macho_file: *MachO, decl_index: InternPool.DeclIndex) bool {
+    const any_non_single_threaded = macho_file.base.comp.config.any_non_single_threaded;
+    const zcu = macho_file.base.comp.module.?;
+    const decl = zcu.declPtr(decl_index);
+    const variable = decl.getOwnedVariable(zcu) orelse return false;
+    return variable.is_threadlocal and any_non_single_threaded;
 }
 
 fn addAtom(self: *ZigObject, allocator: Allocator) !Atom.Index {
