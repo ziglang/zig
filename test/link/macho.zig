@@ -916,7 +916,7 @@ fn testLinksection(b: *Build, opts: Options) *Step {
 
     if (opts.optimize == .Debug) {
         check.checkInSymtab();
-        check.checkContains("(__TEXT,__TestGenFnA) _a.testGenericFn__anon_");
+        check.checkContains("(__TEXT,__TestGenFnA) _main.testGenericFn__anon_");
     }
 
     test_step.dependOn(&check.step);
@@ -2519,11 +2519,20 @@ fn testUnresolvedError(b: *Build, opts: Options) *Step {
     });
     exe.addObject(obj);
 
-    expectLinkErrors(exe, test_step, .{ .exact = &.{
-        "error: undefined symbol: _foo",
-        "note: referenced by /?/a.o:_bar",
-        "note: referenced by /?/main.o:_a.main",
-    } });
+    // TODO order should match across backends if possible
+    if (opts.use_llvm) {
+        expectLinkErrors(exe, test_step, .{ .exact = &.{
+            "error: undefined symbol: _foo",
+            "note: referenced by /?/a.o:_bar",
+            "note: referenced by /?/main.o:_main.main",
+        } });
+    } else {
+        expectLinkErrors(exe, test_step, .{ .exact = &.{
+            "error: undefined symbol: _foo",
+            "note: referenced by /?/main.o:_main.main",
+            "note: referenced by /?/a.o:__TEXT$__text_zig",
+        } });
+    }
 
     return test_step;
 }

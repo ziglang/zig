@@ -979,7 +979,9 @@ fn updateDeclCode(
     sym.out_n_sect = sect_index;
     atom.out_n_sect = sect_index;
 
-    sym.name = try self.strtab.insert(gpa, decl.fqn.toSlice(ip));
+    const sym_name = try std.fmt.allocPrintZ(gpa, "_{s}", .{decl.fqn.toSlice(ip)});
+    defer gpa.free(sym_name);
+    sym.name = try self.strtab.insert(gpa, sym_name);
     atom.flags.alive = true;
     atom.name = sym.name;
     nlist.n_strx = sym.name;
