@@ -641,8 +641,8 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
 
     // We'll want to remember what the IES used to be before the update for
     // dependency invalidation purposes.
-    const old_resolved_ies = if (func.analysis(ip).inferred_error_set)
-        func.resolvedErrorSet(ip).*
+    const old_resolved_ies = if (func.analysisUnordered(ip).inferred_error_set)
+        func.resolvedErrorSetUnordered(ip)
     else
         .none;
 
@@ -671,7 +671,7 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
         zcu.deleteUnitReferences(func_as_depender);
     }
 
-    switch (func.analysis(ip).state) {
+    switch (func.analysisUnordered(ip).state) {
         .success => if (!was_outdated) return,
         .sema_failure,
         .dependency_failure,
@@ -693,11 +693,11 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
 
     var air = pt.analyzeFnBody(func_index, sema_arena) catch |err| switch (err) {
         error.AnalysisFail => {
-            if (func.analysis(ip).state == .in_progress) {
+            if (func.analysisUnordered(ip).state == .in_progress) {
                 // If this decl caused the compile error, the analysis field would
                 // be changed to indicate it was this Decl's fault. Because this
                 // did not happen, we infer here that it was a dependency failure.
-                func.analysis(ip).state = .dependency_failure;
+                func.setAnalysisState(ip, .dependency_failure);
             }
             return error.AnalysisFail;
         },
@@ -707,8 +707,8 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
 
     const invalidate_ies_deps = i: {
         if (!was_outdated) break :i false;
-        if (!func.analysis(ip).inferred_error_set) break :i true;
-        const new_resolved_ies = func.resolvedErrorSet(ip).*;
+        if (!func.analysisUnordered(ip).inferred_error_set) break :i true;
+        const new_resolved_ies = func.resolvedErrorSetUnordered(ip);
         break :i new_resolved_ies != old_resolved_ies;
     };
     if (invalidate_ies_deps) {
@@ -729,7 +729,7 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
         return;
     }
 
-    try comp.work_queue.writeItem(.{ .codegen_func = .{
+    try comp.queueJob(.{ .codegen_func = .{
         .func = func_index,
         .air = air,
     } });
@@ -783,7 +783,7 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: Ai
                         .{@errorName(err)},
                     ),
                 );
-                func.analysis(ip).state = .codegen_failure;
+                func.setAnalysisState(ip, .codegen_failure);
                 return;
             },
         };
@@ -797,12 +797,12 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: Ai
         // Correcting this failure will involve changing a type this function
         // depends on, hence triggering re-analysis of this function, so this
         // interacts correctly with incremental compilation.
-        func.analysis(ip).state = .codegen_failure;
+        func.setAnalysisState(ip, .codegen_failure);
     } else if (comp.bin_file) |lf| {
         lf.updateFunc(pt, func_index, air, liveness) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.AnalysisFail => {
-                func.analysis(ip).state = .codegen_failure;
+                func.setAnalysisState(ip, .codegen_failure);
             },
             else => {
                 try zcu.failed_analysis.ensureUnusedCapacity(gpa, 1);
@@ -812,7 +812,7 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: Ai
                     "unable to codegen: {s}",
                     .{@errorName(err)},
                 ));
-                func.analysis(ip).state = .codegen_failure;
+                func.setAnalysisState(ip, .codegen_failure);
                 try zcu.retryable_failures.append(zcu.gpa, InternPool.AnalUnit.wrap(.{ .func = func_index }));
             },
         };
@@ -903,7 +903,7 @@ fn getFileRootStruct(
     decl.analysis = .complete;
 
     try pt.scanNamespace(namespace_index, decls, decl);
-    try zcu.comp.work_queue.writeItem(.{ .resolve_type_fully = wip_ty.index });
+    try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
     return wip_ty.finish(ip, decl_index, namespace_index.toOptional());
 }
 
@@ -1080,7 +1080,7 @@ fn semaDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) !Zcu.SemaDeclResult {
     const old_linksection = decl.@"linksection";
     const old_addrspace = decl.@"addrspace";
     const old_is_inline = if (decl.getOwnedFunction(zcu)) |prev_func|
-        prev_func.analysis(ip).state == .inline_only
+        prev_func.analysisUnordered(ip).state == .inline_only
     else
         false;
 
@@ -1311,10 +1311,10 @@ fn semaDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) !Zcu.SemaDeclResult {
         // codegen backend wants full access to the Decl Type.
         try decl_ty.resolveFully(pt);
 
-        try zcu.comp.work_queue.writeItem(.{ .codegen_decl = decl_index });
+        try zcu.comp.queueJob(.{ .codegen_decl = decl_index });
 
         if (result.invalidate_decl_ref and zcu.emit_h != null) {
-            try zcu.comp.work_queue.writeItem(.{ .emit_h_decl = decl_index });
+            try zcu.comp.queueJob(.{ .emit_h_decl = decl_index });
         }
     }
 
@@ -1740,8 +1740,6 @@ pub fn scanNamespace(
     var seen_decls: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
     defer seen_decls.deinit(gpa);
 
-    try zcu.comp.work_queue.ensureUnusedCapacity(decls.len);
-
     namespace.decls.clearRetainingCapacity();
     try namespace.decls.ensureTotalCapacity(gpa, decls.len);
 
@@ -1967,7 +1965,7 @@ const ScanDeclIter = struct {
                 log.debug("scanDecl queue analyze_decl file='{s}' decl_name='{}' decl_index={d}", .{
                     namespace.fileScope(zcu).sub_file_path, decl_name.fmt(ip), decl_index,
                 });
-                comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = decl_index });
+                try comp.queueJob(.{ .analyze_decl = decl_index });
             }
         }
 
@@ -1976,7 +1974,7 @@ const ScanDeclIter = struct {
             // updated line numbers. Look into this!
             // TODO Look into detecting when this would be unnecessary by storing enough state
             // in `Decl` to notice that the line number did not change.
-            comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl_index });
+            try comp.queueJob(.{ .update_line_number = decl_index });
         }
     }
 };
@@ -1991,7 +1989,7 @@ pub fn abortAnonDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) void {
 /// Finalize the creation of an anon decl.
 pub fn finalizeAnonDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) Allocator.Error!void {
     if (pt.zcu.declPtr(decl_index).typeOf(pt.zcu).isFnOrHasRuntimeBits(pt)) {
-        try pt.zcu.comp.work_queue.writeItem(.{ .codegen_decl = decl_index });
+        try pt.zcu.comp.queueJob(.{ .codegen_decl = decl_index });
     }
 }
 
@@ -2037,7 +2035,7 @@ pub fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index, arena: All
         .fn_ret_ty = Type.fromInterned(fn_ty_info.return_type),
         .fn_ret_ty_ies = null,
         .owner_func_index = func_index,
-        .branch_quota = @max(func.branchQuota(ip).*, Sema.default_branch_quota),
+        .branch_quota = @max(func.branchQuotaUnordered(ip), Sema.default_branch_quota),
         .comptime_err_ret_trace = &comptime_err_ret_trace,
     };
     defer sema.deinit();
@@ -2047,14 +2045,14 @@ pub fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index, arena: All
     try sema.declareDependency(.{ .src_hash = decl.zir_decl_index.unwrap().? });
     try sema.declareDependency(.{ .decl_val = decl_index });
 
-    if (func.analysis(ip).inferred_error_set) {
+    if (func.analysisUnordered(ip).inferred_error_set) {
         const ies = try arena.create(Sema.InferredErrorSet);
         ies.* = .{ .func = func_index };
         sema.fn_ret_ty_ies = ies;
     }
 
     // reset in case calls to errorable functions are removed.
-    func.analysis(ip).calls_or_awaits_errorable_fn = false;
+    func.setCallsOrAwaitsErrorableFn(ip, false);
 
     // First few indexes of extra are reserved and set at the end.
     const reserved_count = @typeInfo(Air.ExtraIndex).Enum.fields.len;
@@ -2080,7 +2078,7 @@ pub fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index, arena: All
     };
     defer inner_block.instructions.deinit(gpa);
 
-    const fn_info = sema.code.getFnInfo(func.zirBodyInst(ip).resolve(ip));
+    const fn_info = sema.code.getFnInfo(func.zirBodyInstUnordered(ip).resolve(ip));
 
     // Here we are performing "runtime semantic analysis" for a function body, which means
     // we must map the parameter ZIR instructions to `arg` AIR instructions.
@@ -2149,7 +2147,7 @@ pub fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index, arena: All
         });
     }
 
-    func.analysis(ip).state = .in_progress;
+    func.setAnalysisState(ip, .in_progress);
 
     const last_arg_index = inner_block.instructions.items.len;
 
@@ -2176,7 +2174,7 @@ pub fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index, arena: All
     }
 
     // If we don't get an error return trace from a caller, create our own.
-    if (func.analysis(ip).calls_or_awaits_errorable_fn and
+    if (func.analysisUnordered(ip).calls_or_awaits_errorable_fn and
         mod.comp.config.any_error_tracing and
         !sema.fn_ret_ty.isError(mod))
     {
@@ -2218,10 +2216,10 @@ pub fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index, arena: All
             else => |e| return e,
         };
         assert(ies.resolved != .none);
-        ip.funcIesResolved(func_index).* = ies.resolved;
+        ip.funcSetIesResolved(func_index, ies.resolved);
     }
 
-    func.analysis(ip).state = .success;
+    func.setAnalysisState(ip, .success);
 
     // Finally we must resolve the return type and parameter types so that backends
     // have full access to type information.
@@ -2415,6 +2413,7 @@ fn processExportsInner(
 ) error{OutOfMemory}!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
 
     for (export_indices) |export_idx| {
         const new_export = &zcu.all_exports.items[export_idx];
@@ -2423,7 +2422,7 @@ fn processExportsInner(
             new_export.status = .failed_retryable;
             try zcu.failed_exports.ensureUnusedCapacity(gpa, 1);
             const msg = try Zcu.ErrorMsg.create(gpa, new_export.src, "exported symbol collision: {}", .{
-                new_export.opts.name.fmt(&zcu.intern_pool),
+                new_export.opts.name.fmt(ip),
             });
             errdefer msg.destroy(gpa);
             const other_export = zcu.all_exports.items[gop.value_ptr.*];
@@ -2443,8 +2442,7 @@ fn processExportsInner(
             if (!decl.owns_tv) break :failed false;
             if (decl.typeOf(zcu).zigTypeTag(zcu) != .Fn) break :failed false;
             // Check if owned function failed
-            const a = zcu.funcInfo(decl.val.toIntern()).analysis(&zcu.intern_pool);
-            break :failed a.state != .success;
+            break :failed zcu.funcInfo(decl.val.toIntern()).analysisUnordered(ip).state != .success;
         }) {
             // This `Decl` is failed, so was never sent to codegen.
             // TODO: we should probably tell the backend to delete any old exports of this `Decl`?
@@ -3072,7 +3070,7 @@ pub fn getUnionLayout(pt: Zcu.PerThread, loaded_union: InternPool.LoadedUnionTyp
             most_aligned_field_size = field_size;
         }
     }
-    const have_tag = loaded_union.flagsPtr(ip).runtime_tag.hasTag();
+    const have_tag = loaded_union.flagsUnordered(ip).runtime_tag.hasTag();
     if (!have_tag or !Type.fromInterned(loaded_union.enum_tag_ty).hasRuntimeBits(pt)) {
         return .{
             .abi_size = payload_align.forward(payload_size),
@@ -3091,7 +3089,7 @@ pub fn getUnionLayout(pt: Zcu.PerThread, loaded_union: InternPool.LoadedUnionTyp
     const tag_size = Type.fromInterned(loaded_union.enum_tag_ty).abiSize(pt);
     const tag_align = Type.fromInterned(loaded_union.enum_tag_ty).abiAlignment(pt).max(.@"1");
     return .{
-        .abi_size = loaded_union.size(ip).*,
+        .abi_size = loaded_union.sizeUnordered(ip),
         .abi_align = tag_align.max(payload_align),
         .most_aligned_field = most_aligned_field,
         .most_aligned_field_size = most_aligned_field_size,
@@ -3100,7 +3098,7 @@ pub fn getUnionLayout(pt: Zcu.PerThread, loaded_union: InternPool.LoadedUnionTyp
         .payload_align = payload_align,
         .tag_align = tag_align,
         .tag_size = tag_size,
-        .padding = loaded_union.padding(ip).*,
+        .padding = loaded_union.paddingUnordered(ip),
     };
 }
 
@@ -3142,7 +3140,7 @@ pub fn unionFieldNormalAlignmentAdvanced(
     strat: Type.ResolveStrat,
 ) Zcu.SemaError!InternPool.Alignment {
     const ip = &pt.zcu.intern_pool;
-    assert(loaded_union.flagsPtr(ip).layout != .@"packed");
+    assert(loaded_union.flagsUnordered(ip).layout != .@"packed");
     const field_align = loaded_union.fieldAlign(ip, field_index);
     if (field_align != .none) return field_align;
     const field_ty = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);

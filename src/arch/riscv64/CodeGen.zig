@@ -768,7 +768,7 @@ pub fn generate(
         @intFromEnum(FrameIndex.stack_frame),
         FrameAlloc.init(.{
             .size = 0,
-            .alignment = func.analysis(ip).stack_alignment.max(.@"1"),
+            .alignment = func.analysisUnordered(ip).stack_alignment.max(.@"1"),
         }),
     );
     function.frame_allocs.set(

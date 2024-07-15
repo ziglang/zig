@@ -1463,7 +1463,7 @@ const DeclGen = struct {
         const ip = &mod.intern_pool;
         const union_obj = mod.typeToUnion(ty).?;
 
-        if (union_obj.getLayout(ip) == .@"packed") {
+        if (union_obj.flagsUnordered(ip).layout == .@"packed") {
             return self.todo("packed union types", .{});
         }
 
@@ -1735,7 +1735,7 @@ const DeclGen = struct {
                 };
 
                 if (struct_type.layout == .@"packed") {
-                    return try self.resolveType(Type.fromInterned(struct_type.backingIntType(ip).*), .direct);
+                    return try self.resolveType(Type.fromInterned(struct_type.backingIntTypeUnordered(ip)), .direct);
                 }
 
                 var member_types = std.ArrayList(IdRef).init(self.gpa);
@@ -5081,7 +5081,7 @@ const DeclGen = struct {
         const union_ty = mod.typeToUnion(ty).?;
         const tag_ty = Type.fromInterned(union_ty.enum_tag_ty);
 
-        if (union_ty.getLayout(ip) == .@"packed") {
+        if (union_ty.flagsUnordered(ip).layout == .@"packed") {
             unreachable; // TODO
         }
 

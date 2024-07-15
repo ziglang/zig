@@ -699,7 +699,7 @@ pub fn updateFunc(
     const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
-            func.analysis(&mod.intern_pool).state = .codegen_failure;
+            func.setAnalysisState(&mod.intern_pool, .codegen_failure);
             try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             return;
         },

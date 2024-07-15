@@ -1011,7 +1011,7 @@ fn typeToValtype(ty: Type, pt: Zcu.PerThread) wasm.Valtype {
         },
         .Struct => {
             if (pt.zcu.typeToPackedStruct(ty)) |packed_struct| {
-                return typeToValtype(Type.fromInterned(packed_struct.backingIntType(ip).*), pt);
+                return typeToValtype(Type.fromInterned(packed_struct.backingIntTypeUnordered(ip)), pt);
             } else {
                 return wasm.Valtype.i32;
             }
@@ -1746,7 +1746,7 @@ fn isByRef(ty: Type, pt: Zcu.PerThread) bool {
         => return ty.hasRuntimeBitsIgnoreComptime(pt),
         .Union => {
             if (mod.typeToUnion(ty)) |union_obj| {
-                if (union_obj.getLayout(ip) == .@"packed") {
+                if (union_obj.flagsUnordered(ip).layout == .@"packed") {
                     return ty.abiSize(pt) > 8;
                 }
             }
@@ -1754,7 +1754,7 @@ fn isByRef(ty: Type, pt: Zcu.PerThread) bool {
         },
         .Struct => {
             if (mod.typeToPackedStruct(ty)) |packed_struct| {
-                return isByRef(Type.fromInterned(packed_struct.backingIntType(ip).*), pt);
+                return isByRef(Type.fromInterned(packed_struct.backingIntTypeUnordered(ip)), pt);
             }
             return ty.hasRuntimeBitsIgnoreComptime(pt);
         },
@@ -3377,7 +3377,7 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
                 assert(struct_type.layout == .@"packed");
                 var buf: [8]u8 = .{0} ** 8; // zero the buffer so we do not read 0xaa as integer
                 val.writeToPackedMemory(ty, pt, &buf, 0) catch unreachable;
-                const backing_int_ty = Type.fromInterned(struct_type.backingIntType(ip).*);
+                const backing_int_ty = Type.fromInterned(struct_type.backingIntTypeUnordered(ip));
                 const int_val = try pt.intValue(
                     backing_int_ty,
                     mem.readInt(u64, &buf, .little),
@@ -3443,7 +3443,7 @@ fn emitUndefined(func: *CodeGen, ty: Type) InnerError!WValue {
         },
         .Struct => {
             const packed_struct = mod.typeToPackedStruct(ty).?;
-            return func.emitUndefined(Type.fromInterned(packed_struct.backingIntType(ip).*));
+            return func.emitUndefined(Type.fromInterned(packed_struct.backingIntTypeUnordered(ip)));
         },
         else => return func.fail("Wasm TODO: emitUndefined for type: {}\n", .{ty.zigTypeTag(mod)}),
     }
@@ -3974,7 +3974,7 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             .Struct => result: {
                 const packed_struct = mod.typeToPackedStruct(struct_ty).?;
                 const offset = pt.structPackedFieldBitOffset(packed_struct, field_index);
-                const backing_ty = Type.fromInterned(packed_struct.backingIntType(ip).*);
+                const backing_ty = Type.fromInterned(packed_struct.backingIntTypeUnordered(ip));
                 const wasm_bits = toWasmBits(backing_ty.intInfo(mod).bits) orelse {
                     return func.fail("TODO: airStructFieldVal for packed structs larger than 128 bits", .{});
                 };
@@ -5377,7 +5377,7 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     }
                     const packed_struct = mod.typeToPackedStruct(result_ty).?;
                     const field_types = packed_struct.field_types;
-                    const backing_type = Type.fromInterned(packed_struct.backingIntType(ip).*);
+                    const backing_type = Type.fromInterned(packed_struct.backingIntTypeUnordered(ip));
 
                     // ensure the result is zero'd
                     const result = try func.allocLocal(backing_type);
