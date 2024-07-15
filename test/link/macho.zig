@@ -25,6 +25,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testLinkingStaticLib(b, .{ .use_llvm = false, .target = x86_64_target }));
     macho_step.dependOn(testReexportsZig(b, .{ .use_llvm = false, .target = x86_64_target }));
     macho_step.dependOn(testRelocatableZig(b, .{ .use_llvm = false, .target = x86_64_target }));
+    macho_step.dependOn(testTlsZig(b, .{ .use_llvm = false, .target = x86_64_target }));
 
     // Exercise linker with LLVM backend
     macho_step.dependOn(testDeadStrip(b, .{ .target = default_target }));
@@ -56,6 +57,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testTentative(b, .{ .target = default_target }));
     macho_step.dependOn(testThunks(b, .{ .target = aarch64_target }));
     macho_step.dependOn(testTlsLargeTbss(b, .{ .target = default_target }));
+    macho_step.dependOn(testTlsZig(b, .{ .target = default_target }));
     macho_step.dependOn(testUndefinedFlag(b, .{ .target = default_target }));
     macho_step.dependOn(testUnwindInfo(b, .{ .target = default_target }));
     macho_step.dependOn(testUnwindInfoNoSubsectionsX64(b, .{ .target = x86_64_target }));
@@ -2269,6 +2271,32 @@ fn testTlsLargeTbss(b: *Build, opts: Options) *Step {
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("3 0 5 0 0 0\n");
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testTlsZig(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "tls-zig", opts);
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .zig_source_bytes = 
+    \\const std = @import("std");
+    \\threadlocal var x: i32 = 0;
+    \\threadlocal var y: i32 = -1;
+    \\pub fn main() void {
+    \\    std.io.getStdOut().writer().print("{d} {d}\n", .{x, y}) catch unreachable;
+    \\    x -= 1;
+    \\    y += 1;
+    \\    std.io.getStdOut().writer().print("{d} {d}\n", .{x, y}) catch unreachable;
+    \\}
+    });
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual(
+        \\0 -1
+        \\-1 0
+        \\
+    );
     test_step.dependOn(&run.step);
 
     return test_step;
