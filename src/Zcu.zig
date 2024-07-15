@@ -137,9 +137,6 @@ failed_files: std.AutoArrayHashMapUnmanaged(*File, ?*ErrorMsg) = .{},
 failed_embed_files: std.AutoArrayHashMapUnmanaged(*EmbedFile, *ErrorMsg) = .{},
 /// Key is index into `all_exports`.
 failed_exports: std.AutoArrayHashMapUnmanaged(u32, *ErrorMsg) = .{},
-/// If analysis failed due to a cimport error, the corresponding Clang errors
-/// are stored here.
-cimport_errors: std.AutoArrayHashMapUnmanaged(AnalUnit, std.zig.ErrorBundle) = .{},
 
 /// Maximum amount of distinct error values, set by --error-limit
 error_limit: ErrorInt,
@@ -232,21 +229,6 @@ pub const PanicId = enum {
 };
 
 pub const GlobalErrorSet = std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void);
-
-pub const CImportError = struct {
-    offset: u32,
-    line: u32,
-    column: u32,
-    path: ?[*:0]u8,
-    source_line: ?[*:0]u8,
-    msg: [*:0]u8,
-
-    pub fn deinit(err: CImportError, gpa: Allocator) void {
-        if (err.path) |some| gpa.free(std.mem.span(some));
-        if (err.source_line) |some| gpa.free(std.mem.span(some));
-        gpa.free(std.mem.span(err.msg));
-    }
-};
 
 /// A `Module` has zero or one of these depending on whether `-femit-h` is enabled.
 pub const GlobalEmitH = struct {
@@ -2454,11 +2436,6 @@ pub fn deinit(zcu: *Zcu) void {
         value.destroy(gpa);
     }
     zcu.failed_exports.deinit(gpa);
-
-    for (zcu.cimport_errors.values()) |*errs| {
-        errs.deinit(gpa);
-    }
-    zcu.cimport_errors.deinit(gpa);
 
     zcu.compile_log_sources.deinit(gpa);
 

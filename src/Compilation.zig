@@ -3034,9 +3034,6 @@ pub fn totalErrorCount(comp: *Compilation) u32 {
             };
             if (zcu.declFileScope(decl_index).okToReportErrors()) {
                 total += 1;
-                if (zcu.cimport_errors.get(key)) |errors| {
-                    total += errors.errorMessageCount();
-                }
             }
         }
         if (zcu.emit_h) |emit_h| {
@@ -3175,26 +3172,6 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             if (!zcu.declFileScope(decl_index).okToReportErrors()) continue;
 
             try addModuleErrorMsg(zcu, &bundle, error_msg.*, &all_references);
-            if (zcu.cimport_errors.get(anal_unit)) |errors| {
-                for (errors.getMessages()) |err_msg_index| {
-                    const err_msg = errors.getErrorMessage(err_msg_index);
-                    try bundle.addRootErrorMessage(.{
-                        .msg = try bundle.addString(errors.nullTerminatedString(err_msg.msg)),
-                        .src_loc = if (err_msg.src_loc != .none) blk: {
-                            const src_loc = errors.getSourceLocation(err_msg.src_loc);
-                            break :blk try bundle.addSourceLocation(.{
-                                .src_path = try bundle.addString(errors.nullTerminatedString(src_loc.src_path)),
-                                .span_start = src_loc.span_start,
-                                .span_main = src_loc.span_main,
-                                .span_end = src_loc.span_end,
-                                .line = src_loc.line,
-                                .column = src_loc.column,
-                                .source_line = if (src_loc.source_line != 0) try bundle.addString(errors.nullTerminatedString(src_loc.source_line)) else 0,
-                            });
-                        } else .none,
-                    });
-                }
-            }
         }
         if (zcu.emit_h) |emit_h| {
             for (emit_h.failed_decls.keys(), emit_h.failed_decls.values()) |decl_index, error_msg| {
