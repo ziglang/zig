@@ -4230,6 +4230,9 @@ fn serveUpdateResults(s: *Server, comp: *Compilation) !void {
         });
         return;
     }
+
+    // Serve empty error bundle to indicate the update is done.
+    try s.serveErrorBundle(std.zig.ErrorBundle.empty);
 }
 
 fn runOrTest(
