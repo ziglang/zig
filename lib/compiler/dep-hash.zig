@@ -219,12 +219,21 @@ fn listDepHashes(parent_prefix: []const u8, manifest: std.zig.Manifest) !void {
         return;
     }
 
+    var longest_name: usize = 0;
     var deps = manifest.dependencies.iterator();
+
+    while (deps.next()) |entry| {
+        longest_name = @max(longest_name, entry.key_ptr.len);
+    }
+
+    deps.reset();
     while (deps.next()) |entry| {
         const stdout = std.io.getStdOut().writer();
         const name = entry.key_ptr.*;
         if (entry.value_ptr.hash) |hash| {
-            try stdout.print("{s}{s}    {s}\n", .{ parent_prefix, name, hash });
+            try stdout.print("{s}{s}    ", .{ parent_prefix, name });
+            try stdout.writeByteNTimes(' ', longest_name - name.len);
+            try stdout.print("{s}\n", .{hash});
         } else {
             switch (entry.value_ptr.location) {
                 .url => {
