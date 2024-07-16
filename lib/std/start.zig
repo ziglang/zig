@@ -190,14 +190,14 @@ fn _DllMainCRTStartup(
 fn wasm_freestanding_start() callconv(.C) void {
     // This is marked inline because for some reason LLVM in
     // release mode fails to inline it, and we want fewer call frames in stack traces.
-    _ = @call(.always_inline, callMain, .{});
+    _ = @call(.always_inline, callMain, .{ null, null });
 }
 
 fn wasi_start() callconv(.C) void {
     // The function call is marked inline because for some reason LLVM in
     // release mode fails to inline it, and we want fewer call frames in stack traces.
     switch (builtin.wasi_exec_model) {
-        .reactor => _ = @call(.always_inline, callMain, .{}),
+        .reactor => _ = @call(.always_inline, callMain, .{ null, null }),
         .command => std.os.wasi.proc_exit(@call(.always_inline, callMain, .{ null, null })),
     }
 }
