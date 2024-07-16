@@ -1550,25 +1550,6 @@ pub fn mergeSymbolVisibility(self: *Object, macho_file: *MachO) void {
     }
 }
 
-// TODO
-// pub fn checkDuplicates(self: *Object, dupes: anytype, macho_file: *MachO) error{OutOfMemory}!void {
-//     for (self.symbols.items, 0..) |index, nlist_idx| {
-//         const sym = macho_file.getSymbol(index);
-//         if (sym.visibility != .global) continue;
-//         const file = sym.getFile(macho_file) orelse continue;
-//         if (file.getIndex() == self.index) continue;
-
-//         const nlist = self.symtab.items(.nlist)[nlist_idx];
-//         if (!nlist.undf() and !nlist.tentative() and !(nlist.weakDef() or nlist.pext())) {
-//             const gop = try dupes.getOrPut(index);
-//             if (!gop.found_existing) {
-//                 gop.value_ptr.* = .{};
-//             }
-//             try gop.value_ptr.append(macho_file.base.comp.gpa, self.index);
-//         }
-//     }
-// }
-
 pub fn scanRelocs(self: *Object, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();

@@ -30,6 +30,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
 
     // Exercise linker with LLVM backend
     macho_step.dependOn(testDeadStrip(b, .{ .target = default_target }));
+    macho_step.dependOn(testDuplicateDefinitions(b, .{ .target = default_target }));
     macho_step.dependOn(testEmptyObject(b, .{ .target = default_target }));
     macho_step.dependOn(testEmptyZig(b, .{ .target = default_target }));
     macho_step.dependOn(testEntryPoint(b, .{ .target = default_target }));
@@ -178,6 +179,37 @@ fn testDeadStrip(b: *Build, opts: Options) *Step {
         run.expectStdOutEqual("1 2\n");
         test_step.dependOn(&run.step);
     }
+
+    return test_step;
+}
+
+fn testDuplicateDefinitions(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "duplicate-definitions", opts);
+
+    const obj = addObject(b, opts, .{ .name = "a", .zig_source_bytes = 
+    \\var x: usize = 1;
+    \\export fn strong() void { x += 1; }
+    \\export fn weak() void { x += 1; }
+    });
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .zig_source_bytes = 
+    \\var x: usize = 1;
+    \\export fn strong() void { x += 1; }
+    \\comptime { @export(weakImpl, .{ .name = "weak", .linkage = .weak }); }
+    \\fn weakImpl() callconv(.C) void { x += 1; }
+    \\extern fn weak() void;
+    \\pub fn main() void {
+    \\    weak();
+    \\    strong();
+    \\}
+    });
+    exe.addObject(obj);
+
+    expectLinkErrors(exe, test_step, .{ .exact = &.{
+        "error: duplicate symbol definition: _strong",
+        "note: defined by /?/a.o",
+        "note: defined by /?/main.o",
+    } });
 
     return test_step;
 }

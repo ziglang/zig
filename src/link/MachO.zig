@@ -26,6 +26,7 @@ resolver: SymbolResolver = .{},
 /// This table will be populated after `scanRelocs` has run.
 /// Key is symbol index.
 undefs: std.AutoHashMapUnmanaged(SymbolResolver.Index, std.ArrayListUnmanaged(Ref)) = .{},
+dupes: std.AutoHashMapUnmanaged(SymbolResolver.Index, std.ArrayListUnmanaged(File.Index)) = .{},
 
 dyld_info_cmd: macho.dyld_info_command = .{},
 symtab_cmd: macho.symtab_command = .{},
@@ -311,6 +312,13 @@ pub fn deinit(self: *MachO) void {
         }
         self.undefs.deinit(gpa);
     }
+    {
+        var it = self.dupes.iterator();
+        while (it.next()) |entry| {
+            entry.value_ptr.deinit(gpa);
+        }
+        self.dupes.deinit(gpa);
+    }
 
     self.symtab.deinit(gpa);
     self.strtab.deinit(gpa);
@@ -518,14 +526,13 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
         try dead_strip.gcAtoms(self);
     }
 
-    // TODO
-    // self.checkDuplicates() catch |err| switch (err) {
-    //     error.HasDuplicates => return error.FlushFailure,
-    //     else => |e| {
-    //         try self.reportUnexpectedError("unexpected error while checking for duplicate symbol definitions", .{});
-    //         return e;
-    //     },
-    // };
+    self.checkDuplicates() catch |err| switch (err) {
+        error.HasDuplicates => return error.FlushFailure,
+        else => |e| {
+            try self.reportUnexpectedError("unexpected error while checking for duplicate symbol definitions", .{});
+            return e;
+        },
+    };
 
     self.markImportsAndExports();
     self.deadStripDylibs();
@@ -1434,25 +1441,16 @@ fn claimUnresolved(self: *MachO) void {
 }
 
 fn checkDuplicates(self: *MachO) !void {
-    const gpa = self.base.comp.gpa;
-
-    var dupes = std.AutoArrayHashMap(Symbol.Index, std.ArrayListUnmanaged(File.Index)).init(gpa);
-    defer {
-        for (dupes.values()) |*list| {
-            list.deinit(gpa);
-        }
-        dupes.deinit();
-    }
-
     if (self.getZigObject()) |zo| {
-        try zo.checkDuplicates(&dupes, self);
+        try zo.asFile().checkDuplicates(self);
     }
-
     for (self.objects.items) |index| {
-        try self.getFile(index).?.object.checkDuplicates(&dupes, self);
+        try self.getFile(index).?.checkDuplicates(self);
     }
-
-    try self.reportDuplicates(dupes);
+    if (self.getInternalObject()) |obj| {
+        try obj.asFile().checkDuplicates(self);
+    }
+    try self.reportDuplicates();
 }
 
 fn markImportsAndExports(self: *MachO) void {
@@ -3737,22 +3735,23 @@ pub fn reportUnexpectedError(self: *MachO, comptime format: []const u8, args: an
     try err.addNote(self, "please report this as a linker bug on https://github.com/ziglang/zig/issues/new/choose", .{});
 }
 
-fn reportDuplicates(self: *MachO, dupes: anytype) error{ HasDuplicates, OutOfMemory }!void {
+fn reportDuplicates(self: *MachO) error{ HasDuplicates, OutOfMemory }!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const max_notes = 3;
 
     var has_dupes = false;
-    var it = dupes.iterator();
+    var it = self.dupes.iterator();
     while (it.next()) |entry| {
-        const sym = self.getSymbol(entry.key_ptr.*);
+        const sym = self.resolver.keys.items[entry.key_ptr.* - 1];
         const notes = entry.value_ptr.*;
         const nnotes = @min(notes.items.len, max_notes) + @intFromBool(notes.items.len > max_notes);
 
         var err = try self.addErrorWithNotes(nnotes + 1);
         try err.addMsg(self, "duplicate symbol definition: {s}", .{sym.getName(self)});
         try err.addNote(self, "defined by {}", .{sym.getFile(self).?.fmtPath()});
+        has_dupes = true;
 
         var inote: usize = 0;
         while (inote < @min(notes.items.len, max_notes)) : (inote += 1) {
@@ -3764,10 +3763,7 @@ fn reportDuplicates(self: *MachO, dupes: anytype) error{ HasDuplicates, OutOfMem
             const remaining = notes.items.len - max_notes;
             try err.addNote(self, "defined {d} more times", .{remaining});
         }
-
-        has_dupes = true;
     }
-
     if (has_dupes) return error.HasDuplicates;
 }
 
@@ -4450,6 +4446,11 @@ pub const SymbolResolver = struct {
         fn getName(key: Key, macho_file: *MachO) [:0]const u8 {
             const ref = Ref{ .index = key.index, .file = key.file };
             return ref.getSymbol(macho_file).?.getName(macho_file);
+        }
+
+        pub fn getFile(key: Key, macho_file: *MachO) ?File {
+            const ref = Ref{ .index = key.index, .file = key.file };
+            return ref.getFile(macho_file);
         }
 
         fn eql(key: Key, other: Key, macho_file: *MachO) bool {

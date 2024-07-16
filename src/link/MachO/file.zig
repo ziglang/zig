@@ -24,7 +24,7 @@ pub const File = union(enum) {
         _ = options;
         switch (file) {
             .zig_object => |x| try writer.writeAll(x.path),
-            .internal => try writer.writeAll(""),
+            .internal => try writer.writeAll("internal"),
             .object => |x| try writer.print("{}", .{x.fmtPath()}),
             .dylib => |x| try writer.writeAll(x.path),
         }
@@ -57,7 +57,7 @@ pub const File = union(enum) {
         weak: bool = false,
         tentative: bool = false,
     }) u32 {
-        if (file == .object and !args.archive) {
+        if (file != .dylib and !args.archive) {
             const base: u32 = blk: {
                 if (args.tentative) break :blk 3;
                 break :blk if (args.weak) 2 else 1;
@@ -251,6 +251,28 @@ pub const File = union(enum) {
 
             const idx = file.getGlobals()[i];
             macho_file.resolver.values.items[idx - 1] = .{ .index = @intCast(i), .file = file.getIndex() };
+        }
+    }
+
+    pub fn checkDuplicates(file: File, macho_file: *MachO) !void {
+        const tracy = trace(@src());
+        defer tracy.end();
+
+        const gpa = macho_file.base.comp.gpa;
+
+        for (file.getSymbols(), file.getNlists(), 0..) |sym, nlist, i| {
+            if (sym.visibility != .global) continue;
+            if (sym.flags.weak) continue;
+            if (nlist.undf()) continue;
+            const ref = file.getSymbolRef(@intCast(i), macho_file);
+            const ref_file = ref.getFile(macho_file) orelse continue;
+            if (ref_file.getIndex() == file.getIndex()) continue;
+
+            const gop = try macho_file.dupes.getOrPut(gpa, file.getGlobals()[i]);
+            if (!gop.found_existing) {
+                gop.value_ptr.* = .{};
+            }
+            try gop.value_ptr.append(gpa, file.getIndex());
         }
     }
 
