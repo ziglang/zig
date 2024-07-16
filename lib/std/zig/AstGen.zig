@@ -2167,9 +2167,8 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                 };
                 // If we made it here, this block is the target of the break expr
 
-                if (parent_gz.is_comptime and !block_gz.is_comptime) {
-                    const block_type = if (block_gz.is_inline) "inline" else "runtime";
-                    return astgen.failNode(node, "cannot comptime break out of {s} block", .{block_type});
+                if (parent_gz.is_comptime and !(block_gz.is_comptime or block_gz.is_inline)) {
+                    return astgen.failNode(node, "cannot comptime break out of runtime block", .{});
                 }
 
                 const break_tag: Zir.Inst.Tag = if (block_gz.is_inline)
@@ -2266,9 +2265,8 @@ fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) 
                     continue;
                 }
 
-                if (parent_gz.is_comptime and !gen_zir.is_comptime) {
-                    const block_type = if (gen_zir.is_inline) "inline" else "runtime";
-                    return astgen.failNode(node, "cannot comptime continue out of {s} block", .{block_type});
+                if (parent_gz.is_comptime and !(gen_zir.is_comptime or gen_zir.is_inline)) {
+                    return astgen.failNode(node, "cannot comptime continue out of inline block", .{});
                 }
 
                 const break_tag: Zir.Inst.Tag = if (gen_zir.is_inline)
