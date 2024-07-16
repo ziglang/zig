@@ -656,7 +656,7 @@ pub const Indsymtab = struct {
 };
 
 pub const DataInCode = struct {
-    entries: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
+    entries: std.ArrayListUnmanaged(Entry) = .{},
 
     pub fn deinit(dice: *DataInCode, allocator: Allocator) void {
         dice.entries.deinit(allocator);
@@ -668,10 +668,6 @@ pub const DataInCode = struct {
 
     pub fn updateSize(dice: *DataInCode, macho_file: *MachO) !void {
         const gpa = macho_file.base.comp.gpa;
-        const base_address = if (!macho_file.base.isRelocatable())
-            macho_file.getTextSegment().vmaddr
-        else
-            0;
 
         for (macho_file.objects.items) |index| {
             const object = macho_file.getFile(index).?.object;
@@ -683,7 +679,6 @@ pub const DataInCode = struct {
             for (object.getAtoms()) |atom_index| {
                 if (next_dice >= dices.len) break;
                 const atom = object.getAtom(atom_index) orelse continue;
-                if (!atom.flags.alive) continue;
                 const start_off = atom.getInputAddress(macho_file);
                 const end_off = start_off + atom.size;
                 const start_dice = next_dice;
@@ -696,7 +691,8 @@ pub const DataInCode = struct {
 
                 if (atom.flags.alive) for (dices[start_dice..next_dice]) |d| {
                     dice.entries.appendAssumeCapacity(.{
-                        .offset = @intCast(atom.getAddress(macho_file) + d.offset - start_off - base_address),
+                        .atom_ref = .{ .index = atom_index, .file = index },
+                        .offset = @intCast(d.offset - start_off),
                         .length = d.length,
                         .kind = d.kind,
                     });
@@ -706,6 +702,29 @@ pub const DataInCode = struct {
 
         macho_file.data_in_code_cmd.datasize = math.cast(u32, dice.size()) orelse return error.Overflow;
     }
+
+    pub fn write(dice: DataInCode, macho_file: *MachO, writer: anytype) !void {
+        const base_address = if (!macho_file.base.isRelocatable())
+            macho_file.getTextSegment().vmaddr
+        else
+            0;
+        for (dice.entries.items) |entry| {
+            const atom_address = entry.atom_ref.getAtom(macho_file).?.getAddress(macho_file);
+            const offset = atom_address + entry.offset - base_address;
+            try writer.writeStruct(macho.data_in_code_entry{
+                .offset = @intCast(offset),
+                .length = entry.length,
+                .kind = entry.kind,
+            });
+        }
+    }
+
+    const Entry = struct {
+        atom_ref: MachO.Ref,
+        offset: u32,
+        length: u16,
+        kind: u16,
+    };
 };
 
 const aarch64 = @import("../aarch64.zig");

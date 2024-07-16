@@ -2521,8 +2521,12 @@ fn writeDyldInfo(self: *MachO) !void {
 pub fn writeDataInCode(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
+    const gpa = self.base.comp.gpa;
     const cmd = self.data_in_code_cmd;
-    try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.data_in_code.entries.items), cmd.dataoff);
+    var buffer = try std.ArrayList(u8).initCapacity(gpa, self.data_in_code.size());
+    defer buffer.deinit();
+    try self.data_in_code.write(self, buffer.writer());
+    try self.base.file.?.pwriteAll(buffer.items, cmd.dataoff);
 }
 
 fn writeIndsymtab(self: *MachO) !void {
