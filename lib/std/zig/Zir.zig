@@ -1,5 +1,7 @@
-//! Zig Intermediate Representation. Astgen.zig converts AST nodes to these
-//! untyped IR instructions. Next, Sema.zig processes these into AIR.
+//! Zig Intermediate Representation.
+//!
+//! Astgen.zig converts AST nodes to these untyped IR instructions. Next,
+//! Sema.zig processes these into AIR.
 //! The minimum amount of information needed to represent a list of ZIR instructions.
 //! Once this structure is completed, it can be used to generate AIR, followed by
 //! machine code, without any memory access into the AST tree token list, node list,
@@ -4024,8 +4026,8 @@ pub fn getAssociatedSrcHash(zir: Zir, inst: Zir.Inst.Index) ?std.zig.SrcHash {
     const data = zir.instructions.items(.data);
     switch (tag[@intFromEnum(inst)]) {
         .declaration => {
-            const pl_node = data[@intFromEnum(inst)].pl_node;
-            const extra = zir.extraData(Inst.Declaration, pl_node.payload_index);
+            const declaration = data[@intFromEnum(inst)].declaration;
+            const extra = zir.extraData(Inst.Declaration, declaration.payload_index);
             return @bitCast([4]u32{
                 extra.data.src_hash_0,
                 extra.data.src_hash_1,
