@@ -1,4 +1,5 @@
 //! Analyzed Intermediate Representation.
+//!
 //! This data is produced by Sema and consumed by codegen.
 //! Unlike ZIR where there is one instance for an entire source file, each function
 //! gets its own `Air` instance.
@@ -12,8 +13,6 @@ const Value = @import("Value.zig");
 const Type = @import("Type.zig");
 const InternPool = @import("InternPool.zig");
 const Zcu = @import("Zcu.zig");
-/// Deprecated.
-const Module = Zcu;
 
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
