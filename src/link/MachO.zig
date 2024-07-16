@@ -2590,7 +2590,7 @@ fn calcSymtabSize(self: *MachO) !void {
     var nstabs: u32 = 0;
     var nexports: u32 = 0;
     var nimports: u32 = 0;
-    var strsize: u32 = 0;
+    var strsize: u32 = 1;
 
     for (files.items) |index| {
         const file = self.getFile(index).?;
@@ -2624,7 +2624,7 @@ fn calcSymtabSize(self: *MachO) !void {
     {
         const cmd = &self.symtab_cmd;
         cmd.nsyms = nlocals + nstabs + nexports + nimports;
-        cmd.strsize = strsize + 1;
+        cmd.strsize = strsize;
     }
 
     {
