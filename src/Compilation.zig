@@ -3595,7 +3595,7 @@ fn performAllTheWorkInner(
     }
 
     if (comp.module) |zcu| {
-        const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = .main };
+        const pt: Zcu.PerThread = .{ .zcu = zcu, .tid = .main };
         if (comp.incremental) {
             const update_zir_refs_node = main_progress_node.start("Update ZIR References", 0);
             defer update_zir_refs_node.end();
