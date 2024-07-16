@@ -40,16 +40,25 @@ pub fn fmtDebug(val: Value) std.fmt.Formatter(dump) {
     return .{ .data = val };
 }
 
-pub fn fmtValue(val: Value, pt: Zcu.PerThread, opt_sema: ?*Sema) std.fmt.Formatter(print_value.format) {
+pub fn fmtValue(val: Value, pt: Zcu.PerThread) std.fmt.Formatter(print_value.format) {
     return .{ .data = .{
         .val = val,
         .pt = pt,
-        .opt_sema = opt_sema,
+        .opt_sema = null,
         .depth = 3,
     } };
 }
 
-pub fn fmtValueFull(ctx: print_value.FormatContext) std.fmt.Formatter(print_value.format) {
+pub fn fmtValueSema(val: Value, pt: Zcu.PerThread, sema: *Sema) std.fmt.Formatter(print_value.formatSema) {
+    return .{ .data = .{
+        .val = val,
+        .pt = pt,
+        .opt_sema = sema,
+        .depth = 3,
+    } };
+}
+
+pub fn fmtValueSemaFull(ctx: print_value.FormatContext) std.fmt.Formatter(print_value.formatSema) {
     return .{ .data = ctx };
 }
 
@@ -178,7 +187,7 @@ pub fn toBigIntAdvanced(
     val: Value,
     space: *BigIntSpace,
     pt: Zcu.PerThread,
-    strat: ResolveStrat,
+    comptime strat: ResolveStrat,
 ) Module.CompileError!BigIntConst {
     return switch (val.toIntern()) {
         .bool_false => BigIntMutable.init(&space.limbs, 0).toConst(),
@@ -240,7 +249,7 @@ pub fn getUnsignedInt(val: Value, pt: Zcu.PerThread) ?u64 {
 
 /// If the value fits in a u64, return it, otherwise null.
 /// Asserts not undefined.
-pub fn getUnsignedIntAdvanced(val: Value, pt: Zcu.PerThread, strat: ResolveStrat) !?u64 {
+pub fn getUnsignedIntAdvanced(val: Value, pt: Zcu.PerThread, comptime strat: ResolveStrat) !?u64 {
     const mod = pt.zcu;
     return switch (val.toIntern()) {
         .undef => unreachable,
@@ -1042,7 +1051,7 @@ pub fn orderAgainstZero(lhs: Value, pt: Zcu.PerThread) std.math.Order {
 pub fn orderAgainstZeroAdvanced(
     lhs: Value,
     pt: Zcu.PerThread,
-    strat: ResolveStrat,
+    comptime strat: ResolveStrat,
 ) Module.CompileError!std.math.Order {
     return switch (lhs.toIntern()) {
         .bool_false => .eq,
@@ -1081,7 +1090,7 @@ pub fn order(lhs: Value, rhs: Value, pt: Zcu.PerThread) std.math.Order {
 }
 
 /// Asserts the value is comparable.
-pub fn orderAdvanced(lhs: Value, rhs: Value, pt: Zcu.PerThread, strat: ResolveStrat) !std.math.Order {
+pub fn orderAdvanced(lhs: Value, rhs: Value, pt: Zcu.PerThread, comptime strat: ResolveStrat) !std.math.Order {
     const lhs_against_zero = try lhs.orderAgainstZeroAdvanced(pt, strat);
     const rhs_against_zero = try rhs.orderAgainstZeroAdvanced(pt, strat);
     switch (lhs_against_zero) {
@@ -1119,7 +1128,7 @@ pub fn compareHeteroAdvanced(
     op: std.math.CompareOperator,
     rhs: Value,
     pt: Zcu.PerThread,
-    strat: ResolveStrat,
+    comptime strat: ResolveStrat,
 ) !bool {
     if (lhs.pointerDecl(pt.zcu)) |lhs_decl| {
         if (rhs.pointerDecl(pt.zcu)) |rhs_decl| {
@@ -1199,7 +1208,7 @@ pub fn compareAllWithZeroAdvancedExtra(
     lhs: Value,
     op: std.math.CompareOperator,
     pt: Zcu.PerThread,
-    strat: ResolveStrat,
+    comptime strat: ResolveStrat,
 ) Module.CompileError!bool {
     const mod = pt.zcu;
     if (lhs.isInf(mod)) {
@@ -1505,7 +1514,7 @@ pub fn floatFromIntAdvanced(
     int_ty: Type,
     float_ty: Type,
     pt: Zcu.PerThread,
-    strat: ResolveStrat,
+    comptime strat: ResolveStrat,
 ) !Value {
     const mod = pt.zcu;
     if (int_ty.zigTypeTag(mod) == .Vector) {
@@ -1523,7 +1532,7 @@ pub fn floatFromIntAdvanced(
     return floatFromIntScalar(val, float_ty, pt, strat);
 }
 
-pub fn floatFromIntScalar(val: Value, float_ty: Type, pt: Zcu.PerThread, strat: ResolveStrat) !Value {
+pub fn floatFromIntScalar(val: Value, float_ty: Type, pt: Zcu.PerThread, comptime strat: ResolveStrat) !Value {
     const mod = pt.zcu;
     return switch (mod.intern_pool.indexToKey(val.toIntern())) {
         .undef => try pt.undefValue(float_ty),
@@ -4071,7 +4080,7 @@ pub const PointerDeriveStep = union(enum) {
 };
 
 pub fn pointerDerivation(ptr_val: Value, arena: Allocator, pt: Zcu.PerThread) Allocator.Error!PointerDeriveStep {
-    return ptr_val.pointerDerivationAdvanced(arena, pt, null) catch |err| switch (err) {
+    return ptr_val.pointerDerivationAdvanced(arena, pt, false, {}) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,
         error.AnalysisFail => unreachable,
     };
@@ -4081,7 +4090,7 @@ pub fn pointerDerivation(ptr_val: Value, arena: Allocator, pt: Zcu.PerThread) Al
 /// only field and element pointers with no casts. This can be used by codegen backends
 /// which prefer field/elem accesses when lowering constant pointer values.
 /// It is also used by the Value printing logic for pointers.
-pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerThread, opt_sema: ?*Sema) !PointerDeriveStep {
+pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerThread, comptime have_sema: bool, sema: if (have_sema) *Sema else void) !PointerDeriveStep {
     const zcu = pt.zcu;
     const ptr = zcu.intern_pool.indexToKey(ptr_val.toIntern()).ptr;
     const base_derive: PointerDeriveStep = switch (ptr.base_addr) {
@@ -4104,8 +4113,9 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
             } };
         },
         .comptime_alloc => |idx| base: {
-            const alloc = opt_sema.?.getComptimeAlloc(idx);
-            const val = try alloc.val.intern(pt, opt_sema.?.arena);
+            if (!have_sema) unreachable;
+            const alloc = sema.getComptimeAlloc(idx);
+            const val = try alloc.val.intern(pt, sema.arena);
             const ty = val.typeOf(zcu);
             break :base .{ .comptime_alloc_ptr = .{
                 .val = val,
@@ -4122,7 +4132,7 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
             const base_ptr = Value.fromInterned(eu_ptr);
             const base_ptr_ty = base_ptr.typeOf(zcu);
             const parent_step = try arena.create(PointerDeriveStep);
-            parent_step.* = try pointerDerivationAdvanced(Value.fromInterned(eu_ptr), arena, pt, opt_sema);
+            parent_step.* = try pointerDerivationAdvanced(Value.fromInterned(eu_ptr), arena, pt, have_sema, sema);
             break :base .{ .eu_payload_ptr = .{
                 .parent = parent_step,
                 .result_ptr_ty = try pt.adjustPtrTypeChild(base_ptr_ty, base_ptr_ty.childType(zcu).errorUnionPayload(zcu)),
@@ -4132,7 +4142,7 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
             const base_ptr = Value.fromInterned(opt_ptr);
             const base_ptr_ty = base_ptr.typeOf(zcu);
             const parent_step = try arena.create(PointerDeriveStep);
-            parent_step.* = try pointerDerivationAdvanced(Value.fromInterned(opt_ptr), arena, pt, opt_sema);
+            parent_step.* = try pointerDerivationAdvanced(Value.fromInterned(opt_ptr), arena, pt, have_sema, sema);
             break :base .{ .opt_payload_ptr = .{
                 .parent = parent_step,
                 .result_ptr_ty = try pt.adjustPtrTypeChild(base_ptr_ty, base_ptr_ty.childType(zcu).optionalChild(zcu)),
@@ -4143,8 +4153,8 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
             const base_ptr_ty = base_ptr.typeOf(zcu);
             const agg_ty = base_ptr_ty.childType(zcu);
             const field_ty, const field_align = switch (agg_ty.zigTypeTag(zcu)) {
-                .Struct => .{ agg_ty.structFieldType(@intCast(field.index), zcu), try agg_ty.structFieldAlignAdvanced(@intCast(field.index), pt, .sema) },
-                .Union => .{ agg_ty.unionFieldTypeByIndex(@intCast(field.index), zcu), try agg_ty.structFieldAlignAdvanced(@intCast(field.index), pt, .sema) },
+                .Struct => .{ agg_ty.structFieldType(@intCast(field.index), zcu), try agg_ty.structFieldAlignAdvanced(@intCast(field.index), pt, if (have_sema) .sema else .normal) },
+                .Union => .{ agg_ty.unionFieldTypeByIndex(@intCast(field.index), zcu), try agg_ty.structFieldAlignAdvanced(@intCast(field.index), pt, if (have_sema) .sema else .normal) },
                 .Pointer => .{ switch (field.index) {
                     Value.slice_ptr_index => agg_ty.slicePtrFieldType(zcu),
                     Value.slice_len_index => Type.usize,
@@ -4167,7 +4177,7 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
                 },
             });
             const parent_step = try arena.create(PointerDeriveStep);
-            parent_step.* = try pointerDerivationAdvanced(base_ptr, arena, pt, opt_sema);
+            parent_step.* = try pointerDerivationAdvanced(base_ptr, arena, pt, have_sema, sema);
             break :base .{ .field_ptr = .{
                 .parent = parent_step,
                 .field_idx = @intCast(field.index),
@@ -4176,7 +4186,7 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
         },
         .arr_elem => |arr_elem| base: {
             const parent_step = try arena.create(PointerDeriveStep);
-            parent_step.* = try pointerDerivationAdvanced(Value.fromInterned(arr_elem.base), arena, pt, opt_sema);
+            parent_step.* = try pointerDerivationAdvanced(Value.fromInterned(arr_elem.base), arena, pt, have_sema, sema);
             const parent_ptr_info = (try parent_step.ptrType(pt)).ptrInfo(zcu);
             const result_ptr_ty = try pt.ptrType(.{
                 .child = parent_ptr_info.child,

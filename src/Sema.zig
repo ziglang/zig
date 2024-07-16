@@ -2318,7 +2318,7 @@ fn failWithIntegerOverflow(sema: *Sema, block: *Block, src: LazySrcLoc, int_ty: 
     if (int_ty.zigTypeTag(zcu) == .Vector) {
         const msg = msg: {
             const msg = try sema.errMsg(src, "overflow of vector type '{}' with value '{}'", .{
-                int_ty.fmt(pt), val.fmtValue(pt, sema),
+                int_ty.fmt(pt), val.fmtValueSema(pt, sema),
             });
             errdefer msg.destroy(sema.gpa);
             try sema.errNote(src, msg, "when computing vector element at index '{d}'", .{vector_index});
@@ -2327,7 +2327,7 @@ fn failWithIntegerOverflow(sema: *Sema, block: *Block, src: LazySrcLoc, int_ty: 
         return sema.failWithOwnedErrorMsg(block, msg);
     }
     return sema.fail(block, src, "overflow of integer type '{}' with value '{}'", .{
-        int_ty.fmt(pt), val.fmtValue(pt, sema),
+        int_ty.fmt(pt), val.fmtValueSema(pt, sema),
     });
 }
 
@@ -2912,7 +2912,7 @@ fn createAnonymousDeclTypeNamed(
                     // in turn helps to avoid unreasonably long symbol names for namespaced
                     // symbols. Such names should ideally be human-readable, and additionally,
                     // some tooling may not support very long symbol names.
-                    try writer.print("{}", .{Value.fmtValueFull(.{
+                    try writer.print("{}", .{Value.fmtValueSemaFull(.{
                         .val = arg_val,
                         .pt = pt,
                         .opt_sema = sema,
@@ -3202,7 +3202,7 @@ fn zirEnumDecl(
                     .offset = .{ .container_field_value = conflict.prev_field_idx },
                 };
                 const msg = msg: {
-                    const msg = try sema.errMsg(value_src, "enum tag value {} already taken", .{last_tag_val.?.fmtValue(pt, sema)});
+                    const msg = try sema.errMsg(value_src, "enum tag value {} already taken", .{last_tag_val.?.fmtValueSema(pt, sema)});
                     errdefer msg.destroy(gpa);
                     try sema.errNote(other_field_src, msg, "other occurrence here", .{});
                     break :msg msg;
@@ -3224,7 +3224,7 @@ fn zirEnumDecl(
                     .offset = .{ .container_field_value = conflict.prev_field_idx },
                 };
                 const msg = msg: {
-                    const msg = try sema.errMsg(value_src, "enum tag value {} already taken", .{last_tag_val.?.fmtValue(pt, sema)});
+                    const msg = try sema.errMsg(value_src, "enum tag value {} already taken", .{last_tag_val.?.fmtValueSema(pt, sema)});
                     errdefer msg.destroy(gpa);
                     try sema.errNote(other_field_src, msg, "other occurrence here", .{});
                     break :msg msg;
@@ -3242,7 +3242,7 @@ fn zirEnumDecl(
 
         if (tag_overflow) {
             const msg = try sema.errMsg(value_src, "enumeration value '{}' too large for type '{}'", .{
-                last_tag_val.?.fmtValue(pt, sema), int_tag_ty.fmt(pt),
+                last_tag_val.?.fmtValueSema(pt, sema), int_tag_ty.fmt(pt),
             });
             return sema.failWithOwnedErrorMsg(block, msg);
         }
@@ -4430,10 +4430,10 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
                             .input_index = len_idx,
                         } });
                         try sema.errNote(a_src, msg, "length {} here", .{
-                            v.fmtValue(pt, sema),
+                            v.fmtValueSema(pt, sema),
                         });
                         try sema.errNote(arg_src, msg, "length {} here", .{
-                            arg_val.fmtValue(pt, sema),
+                            arg_val.fmtValueSema(pt, sema),
                         });
                         break :msg msg;
                     };
@@ -5853,7 +5853,7 @@ fn zirCompileLog(
         const arg_ty = sema.typeOf(arg);
         if (try sema.resolveValueResolveLazy(arg)) |val| {
             try writer.print("@as({}, {})", .{
-                arg_ty.fmt(pt), val.fmtValue(pt, sema),
+                arg_ty.fmt(pt), val.fmtValueSema(pt, sema),
             });
         } else {
             try writer.print("@as({}, [runtime value])", .{arg_ty.fmt(pt)});
@@ -8949,7 +8949,7 @@ fn zirEnumFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
                 return Air.internedToRef((try pt.getCoerced(int_val, dest_ty)).toIntern());
             }
             return sema.fail(block, src, "int value '{}' out of range of non-exhaustive enum '{}'", .{
-                int_val.fmtValue(pt, sema), dest_ty.fmt(pt),
+                int_val.fmtValueSema(pt, sema), dest_ty.fmt(pt),
             });
         }
         if (int_val.isUndef(mod)) {
@@ -8957,7 +8957,7 @@ fn zirEnumFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         }
         if (!(try sema.enumHasInt(dest_ty, int_val))) {
             return sema.fail(block, src, "enum '{}' has no tag with value '{}'", .{
-                dest_ty.fmt(pt), int_val.fmtValue(pt, sema),
+                dest_ty.fmt(pt), int_val.fmtValueSema(pt, sema),
             });
         }
         return Air.internedToRef((try pt.getCoerced(int_val, dest_ty)).toIntern());
@@ -14067,7 +14067,7 @@ fn zirShl(
                     const rhs_elem = try rhs_val.elemValue(pt, i);
                     if (rhs_elem.compareHetero(.gte, bit_value, pt)) {
                         return sema.fail(block, rhs_src, "shift amount '{}' at index '{d}' is too large for operand type '{}'", .{
-                            rhs_elem.fmtValue(pt, sema),
+                            rhs_elem.fmtValueSema(pt, sema),
                             i,
                             scalar_ty.fmt(pt),
                         });
@@ -14075,7 +14075,7 @@ fn zirShl(
                 }
             } else if (rhs_val.compareHetero(.gte, bit_value, pt)) {
                 return sema.fail(block, rhs_src, "shift amount '{}' is too large for operand type '{}'", .{
-                    rhs_val.fmtValue(pt, sema),
+                    rhs_val.fmtValueSema(pt, sema),
                     scalar_ty.fmt(pt),
                 });
             }
@@ -14086,14 +14086,14 @@ fn zirShl(
                 const rhs_elem = try rhs_val.elemValue(pt, i);
                 if (rhs_elem.compareHetero(.lt, try pt.intValue(scalar_rhs_ty, 0), pt)) {
                     return sema.fail(block, rhs_src, "shift by negative amount '{}' at index '{d}'", .{
-                        rhs_elem.fmtValue(pt, sema),
+                        rhs_elem.fmtValueSema(pt, sema),
                         i,
                     });
                 }
             }
         } else if (rhs_val.compareHetero(.lt, try pt.intValue(rhs_ty, 0), pt)) {
             return sema.fail(block, rhs_src, "shift by negative amount '{}'", .{
-                rhs_val.fmtValue(pt, sema),
+                rhs_val.fmtValueSema(pt, sema),
             });
         }
     }
@@ -14233,7 +14233,7 @@ fn zirShr(
                     const rhs_elem = try rhs_val.elemValue(pt, i);
                     if (rhs_elem.compareHetero(.gte, bit_value, pt)) {
                         return sema.fail(block, rhs_src, "shift amount '{}' at index '{d}' is too large for operand type '{}'", .{
-                            rhs_elem.fmtValue(pt, sema),
+                            rhs_elem.fmtValueSema(pt, sema),
                             i,
                             scalar_ty.fmt(pt),
                         });
@@ -14241,7 +14241,7 @@ fn zirShr(
                 }
             } else if (rhs_val.compareHetero(.gte, bit_value, pt)) {
                 return sema.fail(block, rhs_src, "shift amount '{}' is too large for operand type '{}'", .{
-                    rhs_val.fmtValue(pt, sema),
+                    rhs_val.fmtValueSema(pt, sema),
                     scalar_ty.fmt(pt),
                 });
             }
@@ -14252,14 +14252,14 @@ fn zirShr(
                 const rhs_elem = try rhs_val.elemValue(pt, i);
                 if (rhs_elem.compareHetero(.lt, try pt.intValue(rhs_ty.childType(mod), 0), pt)) {
                     return sema.fail(block, rhs_src, "shift by negative amount '{}' at index '{d}'", .{
-                        rhs_elem.fmtValue(pt, sema),
+                        rhs_elem.fmtValueSema(pt, sema),
                         i,
                     });
                 }
             }
         } else if (rhs_val.compareHetero(.lt, try pt.intValue(rhs_ty, 0), pt)) {
             return sema.fail(block, rhs_src, "shift by negative amount '{}'", .{
-                rhs_val.fmtValue(pt, sema),
+                rhs_val.fmtValueSema(pt, sema),
             });
         }
         if (maybe_lhs_val) |lhs_val| {
@@ -15190,7 +15190,7 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
                 block,
                 src,
                 "ambiguous coercion of division operands '{}' and '{}'; non-zero remainder '{}'",
-                .{ lhs_ty.fmt(pt), rhs_ty.fmt(pt), rem.fmtValue(pt, sema) },
+                .{ lhs_ty.fmt(pt), rhs_ty.fmt(pt), rem.fmtValueSema(pt, sema) },
             );
         }
     }
@@ -21359,7 +21359,7 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         const field_index = enum_ty.enumTagFieldIndex(val, mod) orelse {
             const msg = msg: {
                 const msg = try sema.errMsg(src, "no field with value '{}' in enum '{}'", .{
-                    val.fmtValue(pt, sema), mod.declPtr(enum_decl_index).name.fmt(ip),
+                    val.fmtValueSema(pt, sema), mod.declPtr(enum_decl_index).name.fmt(ip),
                 });
                 errdefer msg.destroy(sema.gpa);
                 try sema.errNote(enum_ty.srcLoc(mod), msg, "declared here", .{});
@@ -22005,7 +22005,7 @@ fn reifyEnum(
             // TODO: better source location
             return sema.fail(block, src, "field '{}' with enumeration value '{}' is too large for backing int type '{}'", .{
                 field_name.fmt(ip),
-                field_value_val.fmtValue(pt, sema),
+                field_value_val.fmtValueSema(pt, sema),
                 tag_ty.fmt(pt),
             });
         }
@@ -22021,7 +22021,7 @@ fn reifyEnum(
                     break :msg msg;
                 },
                 .value => msg: {
-                    const msg = try sema.errMsg(src, "enum tag value {} already taken", .{field_value_val.fmtValue(pt, sema)});
+                    const msg = try sema.errMsg(src, "enum tag value {} already taken", .{field_value_val.fmtValueSema(pt, sema)});
                     errdefer msg.destroy(gpa);
                     _ = conflict.prev_field_idx; // TODO: this note is incorrect
                     try sema.errNote(src, msg, "other enum tag value here", .{});
@@ -23194,12 +23194,12 @@ fn ptrCastFull(
             return sema.failWithOwnedErrorMsg(block, msg: {
                 const msg = if (src_info.sentinel == .none) blk: {
                     break :blk try sema.errMsg(src, "destination pointer requires '{}' sentinel", .{
-                        Value.fromInterned(dest_info.sentinel).fmtValue(pt, sema),
+                        Value.fromInterned(dest_info.sentinel).fmtValueSema(pt, sema),
                     });
                 } else blk: {
                     break :blk try sema.errMsg(src, "pointer sentinel '{}' cannot coerce into pointer sentinel '{}'", .{
-                        Value.fromInterned(src_info.sentinel).fmtValue(pt, sema),
-                        Value.fromInterned(dest_info.sentinel).fmtValue(pt, sema),
+                        Value.fromInterned(src_info.sentinel).fmtValueSema(pt, sema),
+                        Value.fromInterned(dest_info.sentinel).fmtValueSema(pt, sema),
                     });
                 };
                 errdefer msg.destroy(sema.gpa);
@@ -25692,10 +25692,10 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
                         const msg = try sema.errMsg(src, "non-matching @memcpy lengths", .{});
                         errdefer msg.destroy(sema.gpa);
                         try sema.errNote(dest_src, msg, "length {} here", .{
-                            dest_len_val.fmtValue(pt, sema),
+                            dest_len_val.fmtValueSema(pt, sema),
                         });
                         try sema.errNote(src_src, msg, "length {} here", .{
-                            src_len_val.fmtValue(pt, sema),
+                            src_len_val.fmtValueSema(pt, sema),
                         });
                         break :msg msg;
                     };
@@ -29563,7 +29563,7 @@ fn coerceExtra(
                     // comptime-known integer to other number
                     if (!(try sema.intFitsInType(val, dest_ty, null))) {
                         if (!opts.report_err) return error.NotCoercible;
-                        return sema.fail(block, inst_src, "type '{}' cannot represent integer value '{}'", .{ dest_ty.fmt(pt), val.fmtValue(pt, sema) });
+                        return sema.fail(block, inst_src, "type '{}' cannot represent integer value '{}'", .{ dest_ty.fmt(pt), val.fmtValueSema(pt, sema) });
                     }
                     return switch (zcu.intern_pool.indexToKey(val.toIntern())) {
                         .undef => try pt.undefRef(dest_ty),
@@ -29608,7 +29608,7 @@ fn coerceExtra(
                             block,
                             inst_src,
                             "type '{}' cannot represent float value '{}'",
-                            .{ dest_ty.fmt(pt), val.fmtValue(pt, sema) },
+                            .{ dest_ty.fmt(pt), val.fmtValueSema(pt, sema) },
                         );
                     }
                     return Air.internedToRef(result_val.toIntern());
@@ -30026,11 +30026,11 @@ const InMemoryCoercionResult = union(enum) {
             .array_sentinel => |sentinel| {
                 if (sentinel.actual.toIntern() != .unreachable_value) {
                     try sema.errNote(src, msg, "array sentinel '{}' cannot cast into array sentinel '{}'", .{
-                        sentinel.actual.fmtValue(pt, sema), sentinel.wanted.fmtValue(pt, sema),
+                        sentinel.actual.fmtValueSema(pt, sema), sentinel.wanted.fmtValueSema(pt, sema),
                     });
                 } else {
                     try sema.errNote(src, msg, "destination array requires '{}' sentinel", .{
-                        sentinel.wanted.fmtValue(pt, sema),
+                        sentinel.wanted.fmtValueSema(pt, sema),
                     });
                 }
                 break;
@@ -30152,11 +30152,11 @@ const InMemoryCoercionResult = union(enum) {
             .ptr_sentinel => |sentinel| {
                 if (sentinel.actual.toIntern() != .unreachable_value) {
                     try sema.errNote(src, msg, "pointer sentinel '{}' cannot cast into pointer sentinel '{}'", .{
-                        sentinel.actual.fmtValue(pt, sema), sentinel.wanted.fmtValue(pt, sema),
+                        sentinel.actual.fmtValueSema(pt, sema), sentinel.wanted.fmtValueSema(pt, sema),
                     });
                 } else {
                     try sema.errNote(src, msg, "destination pointer requires '{}' sentinel", .{
-                        sentinel.wanted.fmtValue(pt, sema),
+                        sentinel.wanted.fmtValueSema(pt, sema),
                     });
                 }
                 break;
@@ -31412,7 +31412,7 @@ fn coerceEnumToUnion(
     if (try sema.resolveDefinedValue(block, inst_src, enum_tag)) |val| {
         const field_index = union_ty.unionTagFieldIndex(val, pt.zcu) orelse {
             return sema.fail(block, inst_src, "union '{}' has no tag with value '{}'", .{
-                union_ty.fmt(pt), val.fmtValue(pt, sema),
+                union_ty.fmt(pt), val.fmtValueSema(pt, sema),
             });
         };
 
@@ -32644,8 +32644,8 @@ fn analyzeSlice(
                                     msg,
                                     "expected '{}', found '{}'",
                                     .{
-                                        Value.zero_comptime_int.fmtValue(pt, sema),
-                                        start_value.fmtValue(pt, sema),
+                                        Value.zero_comptime_int.fmtValueSema(pt, sema),
+                                        start_value.fmtValueSema(pt, sema),
                                     },
                                 );
                                 break :msg msg;
@@ -32660,8 +32660,8 @@ fn analyzeSlice(
                                     msg,
                                     "expected '{}', found '{}'",
                                     .{
-                                        Value.one_comptime_int.fmtValue(pt, sema),
-                                        end_value.fmtValue(pt, sema),
+                                        Value.one_comptime_int.fmtValueSema(pt, sema),
+                                        end_value.fmtValueSema(pt, sema),
                                     },
                                 );
                                 break :msg msg;
@@ -32674,7 +32674,7 @@ fn analyzeSlice(
                                 block,
                                 end_src,
                                 "end index {} out of bounds for slice of single-item pointer",
-                                .{end_value.fmtValue(pt, sema)},
+                                .{end_value.fmtValueSema(pt, sema)},
                             );
                         }
                     }
@@ -32769,8 +32769,8 @@ fn analyzeSlice(
                             end_src,
                             "end index {} out of bounds for array of length {}{s}",
                             .{
-                                end_val.fmtValue(pt, sema),
-                                len_val.fmtValue(pt, sema),
+                                end_val.fmtValueSema(pt, sema),
+                                len_val.fmtValueSema(pt, sema),
                                 sentinel_label,
                             },
                         );
@@ -32814,7 +32814,7 @@ fn analyzeSlice(
                                 end_src,
                                 "end index {} out of bounds for slice of length {d}{s}",
                                 .{
-                                    end_val.fmtValue(pt, sema),
+                                    end_val.fmtValueSema(pt, sema),
                                     try slice_val.sliceLen(pt),
                                     sentinel_label,
                                 },
@@ -32874,8 +32874,8 @@ fn analyzeSlice(
                     start_src,
                     "start index {} is larger than end index {}",
                     .{
-                        start_val.fmtValue(pt, sema),
-                        end_val.fmtValue(pt, sema),
+                        start_val.fmtValueSema(pt, sema),
+                        end_val.fmtValueSema(pt, sema),
                     },
                 );
             }
@@ -32912,8 +32912,8 @@ fn analyzeSlice(
                         const msg = try sema.errMsg(src, "value in memory does not match slice sentinel", .{});
                         errdefer msg.destroy(sema.gpa);
                         try sema.errNote(src, msg, "expected '{}', found '{}'", .{
-                            expected_sentinel.fmtValue(pt, sema),
-                            actual_sentinel.fmtValue(pt, sema),
+                            expected_sentinel.fmtValueSema(pt, sema),
+                            actual_sentinel.fmtValueSema(pt, sema),
                         });
 
                         break :msg msg;
@@ -36656,7 +36656,7 @@ fn semaUnionFields(pt: Zcu.PerThread, arena: Allocator, union_type: InternPool.L
                     .offset = .{ .container_field_value = @intCast(gop.index) },
                 };
                 const msg = msg: {
-                    const msg = try sema.errMsg(value_src, "enum tag value {} already taken", .{enum_tag_val.fmtValue(pt, &sema)});
+                    const msg = try sema.errMsg(value_src, "enum tag value {} already taken", .{enum_tag_val.fmtValueSema(pt, &sema)});
                     errdefer msg.destroy(gpa);
                     try sema.errNote(other_value_src, msg, "other occurrence here", .{});
                     break :msg msg;
@@ -37888,7 +37888,7 @@ fn intFromFloatScalar(
         block,
         src,
         "fractional component prevents float value '{}' from coercion to type '{}'",
-        .{ val.fmtValue(pt, sema), int_ty.fmt(pt) },
+        .{ val.fmtValueSema(pt, sema), int_ty.fmt(pt) },
     );
 
     const float = val.toFloat(f128, pt);
@@ -37910,7 +37910,7 @@ fn intFromFloatScalar(
 
     if (!(try sema.intFitsInType(cti_result, int_ty, null))) {
         return sema.fail(block, src, "float value '{}' cannot be stored in integer type '{}'", .{
-            val.fmtValue(pt, sema), int_ty.fmt(pt),
+            val.fmtValueSema(pt, sema), int_ty.fmt(pt),
         });
     }
     return pt.getCoerced(cti_result, int_ty);
