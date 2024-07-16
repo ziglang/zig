@@ -3595,7 +3595,12 @@ fn performAllTheWorkInner(
     }
 
     if (comp.module) |zcu| {
-        const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = .main };
+        const pt: Zcu.PerThread = .{ .zcu = zcu, .tid = .main };
+        if (comp.incremental) {
+            const update_zir_refs_node = main_progress_node.start("Update ZIR References", 0);
+            defer update_zir_refs_node.end();
+            try pt.updateZirRefs();
+        }
         try reportMultiModuleErrors(pt);
         try zcu.flushRetryableFailures();
         zcu.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
@@ -4306,7 +4311,7 @@ fn workerAstGenFile(
     defer child_prog_node.end();
 
     const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
-    pt.astGenFile(file, file_index, path_digest, root_decl) catch |err| switch (err) {
+    pt.astGenFile(file, path_digest, root_decl) catch |err| switch (err) {
         error.AnalysisFail => return,
         else => {
             file.status = .retryable_failure;

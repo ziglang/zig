@@ -6065,7 +6065,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
 
     const path_digest = zcu.filePathDigest(result.file_index);
     const root_decl = zcu.fileRootDecl(result.file_index);
-    pt.astGenFile(result.file, result.file_index, path_digest, root_decl) catch |err|
+    pt.astGenFile(result.file, path_digest, root_decl) catch |err|
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
 
     try pt.ensureFileAnalyzed(result.file_index);
