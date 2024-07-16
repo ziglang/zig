@@ -283,10 +283,12 @@ pub const DependencyIterator = struct {
     ip: *const InternPool,
     next_entry: DepEntry.Index.Optional,
     pub fn next(it: *DependencyIterator) ?AnalUnit {
-        const idx = it.next_entry.unwrap() orelse return null;
-        const entry = it.ip.dep_entries.items[@intFromEnum(idx)];
-        it.next_entry = entry.next;
-        return entry.depender.unwrap().?;
+        while (true) {
+            const idx = it.next_entry.unwrap() orelse return null;
+            const entry = it.ip.dep_entries.items[@intFromEnum(idx)];
+            it.next_entry = entry.next;
+            if (entry.depender.unwrap()) |depender| return depender;
+        }
     }
 };
 
