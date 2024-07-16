@@ -664,7 +664,7 @@ pub inline fn callMain(c_argv_optional: ?[:null]?[*:0]c_char, c_envp_optional: ?
 
             const max_args = std.math.maxInt(c_int);
             if (c_argv.len > max_args) {
-                std.debug.panic("too many argument passed to main`s (max {d}, found {d})", .{
+                std.debug.panic("too many argument passed to main (max {d}, found {d})", .{
                     max_args,
                     c_argv.len,
                 });
