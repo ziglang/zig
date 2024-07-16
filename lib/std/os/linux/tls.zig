@@ -1,5 +1,6 @@
 const std = @import("std");
 const mem = std.mem;
+const heap = std.heap;
 const elf = std.elf;
 const math = std.math;
 const assert = std.debug.assert;
@@ -307,7 +308,7 @@ pub fn prepareTLS(area: []u8) usize {
 // because it's less than 3 pages of memory, and putting it in the ELF like this
 // is equivalent to moving the mmap call below into the kernel, avoiding syscall
 // overhead.
-var main_thread_tls_buffer: [0x2100]u8 align(mem.page_size) = undefined;
+var main_thread_tls_buffer: [0x2100]u8 align(heap.page_size) = undefined;
 
 pub fn initStaticTLS(phdrs: []elf.Phdr) void {
     initTLS(phdrs);
@@ -315,7 +316,7 @@ pub fn initStaticTLS(phdrs: []elf.Phdr) void {
     const tls_area = blk: {
         // Fast path for the common case where the TLS data is really small,
         // avoid an allocation and use our local buffer.
-        if (tls_image.alloc_align <= mem.page_size and
+        if (tls_image.alloc_align <= heap.page_size and
             tls_image.alloc_size <= main_thread_tls_buffer.len)
         {
             break :blk main_thread_tls_buffer[0..tls_image.alloc_size];

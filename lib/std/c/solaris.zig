@@ -9,6 +9,11 @@ const timezone = std.c.timezone;
 extern "c" fn ___errno() *c_int;
 pub const _errno = ___errno;
 
+pub const _SC = struct {
+    pub const PAGESIZE = 11;
+    pub const NPROCESSORS_ONLN = 15;
+};
+
 pub const dl_iterate_phdr_callback = *const fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
 pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*anyopaque) c_int;
 
@@ -17,7 +22,6 @@ pub extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
 pub extern "c" fn pipe2(fds: *[2]fd_t, flags: std.c.O) c_int;
 pub extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 pub extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
-pub extern "c" fn sysconf(sc: c_int) i64;
 pub extern "c" fn signalfd(fd: fd_t, mask: *const sigset_t, flags: u32) c_int;
 pub extern "c" fn madvise(address: [*]u8, len: usize, advise: u32) c_int;
 
@@ -1592,11 +1596,6 @@ pub const AF_SUN = struct {
     /// hardware capabilities can be verified against AT_SUN_HWCAP
     pub const HWCAPVERIFY = 0x00000002;
     pub const NOPLM = 0x00000004;
-};
-
-// TODO: Add sysconf numbers when the other OSs do.
-pub const _SC = struct {
-    pub const NPROCESSORS_ONLN = 15;
 };
 
 pub const procfs = struct {

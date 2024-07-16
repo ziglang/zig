@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const c = @This();
-const page_size = std.mem.page_size;
+const page_size = std.heap.page_size;
 const iovec = std.posix.iovec;
 const iovec_const = std.posix.iovec_const;
 const wasi = @import("c/wasi.zig");
@@ -42,6 +42,8 @@ pub usingnamespace switch (native_os) {
     .openbsd => @import("c/openbsd.zig"),
     .haiku => @import("c/haiku.zig"),
     .solaris, .illumos => @import("c/solaris.zig"),
+    .fuchsia => @import("c/fuchsia.zig"),
+    .minix => @import("c/minix.zig"),
     .emscripten => @import("c/emscripten.zig"),
     .wasi => wasi,
     else => struct {},
@@ -1503,6 +1505,8 @@ pub extern "c" fn closedir(dp: *DIR) c_int;
 pub extern "c" fn telldir(dp: *DIR) c_long;
 pub extern "c" fn seekdir(dp: *DIR, loc: c_long) void;
 
+pub extern "c" fn sysconf(sc: c_int) c_long;
+
 pub extern "c" fn sigwait(set: ?*c.sigset_t, sig: ?*c_int) c_int;
 
 pub extern "c" fn alarm(seconds: c_uint) c_uint;
@@ -1974,7 +1978,7 @@ const private = struct {
     extern "c" fn __getrusage50(who: c_int, usage: *c.rusage) c_int;
     extern "c" fn __gettimeofday50(noalias tv: ?*c.timeval, noalias tz: ?*c.timezone) c_int;
     extern "c" fn __libc_thr_yield() c_int;
-    extern "c" fn __msync13(addr: *align(std.mem.page_size) const anyopaque, len: usize, flags: c_int) c_int;
+    extern "c" fn __msync13(addr: *align(page_size) const anyopaque, len: usize, flags: c_int) c_int;
     extern "c" fn __nanosleep50(rqtp: *const c.timespec, rmtp: ?*c.timespec) c_int;
     extern "c" fn __sigaction14(sig: c_int, noalias act: ?*const c.Sigaction, noalias oact: ?*c.Sigaction) c_int;
     extern "c" fn __sigfillset14(set: ?*c.sigset_t) void;

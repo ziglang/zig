@@ -5,6 +5,10 @@ const maxInt = std.math.maxInt;
 const iovec = std.posix.iovec;
 const iovec_const = std.posix.iovec_const;
 
+pub const _SC = struct {
+    pub const PAGESIZE = 27;
+};
+
 pub extern "root" fn find_directory(which: directory_which, volume: i32, createIt: bool, path_ptr: [*]u8, length: i32) u64;
 
 pub extern "root" fn find_thread(thread_name: ?*anyopaque) i32;

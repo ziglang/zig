@@ -8,6 +8,126 @@ const c = std.c;
 const Allocator = std.mem.Allocator;
 const windows = std.os.windows;
 
+const page_size_darwin: ?comptime_int = if (builtin.os.tag.isDarwin())
+    switch (builtin.cpu.arch) {
+        .x86, .x86_64 => 4 << 10,
+        .thumb, .thumbeb, .arm, .armeb, .aarch64, .aarch64_be, .aarch64_32 => 16 << 10,
+        else => null,
+    }
+else
+    null;
+
+// -- <https://devblogs.microsoft.com/oldnewthing/20210510-00/?p=105200>
+const page_size_windows: ?comptime_int = if (builtin.os.tag == .windows and builtin.os.version_range.windows.min.isAtLeast(.xp))
+blk: {
+    break :blk switch (builtin.cpu.arch) {
+        .x86, .x86_64 => 4 << 10,
+        // SuperH => 4 << 10,
+        .mips, .mipsel, .mips64, .mips64el => 4 << 10,
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => 4 << 10,
+        // DEC Alpha => 8 << 10,
+        // Itanium => 8 << 10,
+        .thumb, .thumbeb, .arm, .armeb, .aarch64, .aarch64_be, .aarch64_32 => 4 << 10,
+        else => null,
+    };
+} else null;
+
+const page_size_os: ?comptime_int = page_size_darwin orelse page_size_windows;
+
+/// A compile time known upper bound on page size.
+pub const page_size_cap: usize = page_size_os orelse switch (builtin.cpu.arch) {
+    // Common knowledge.
+    .wasm32, .wasm64 => 64 << 10,
+    .x86, .x86_64 => 4 << 10,
+    .thumb, .thumbeb, .arm, .armeb, .aarch64, .aarch64_32, .aarch64_be => 64 << 10,
+    // Explicitly only 4kb.
+    // https://refspecs.linuxbase.org/ELF/zSeries/lzsabi0_zSeries.html#AEN798
+    .s390x => 4 << 10,
+    // Source: Linux mips/Kconfig.
+    .mips, .mipsel, .mips64, .mips64el, .loongarch32, .loongarch64 => 64 << 10,
+    // Source: csky/Kconfig only selects HAVE_PAGE_SIZE_4KB.
+    .csky => 4 << 10,
+    // Source: Hexagon's page.h in Linux accepts CONFIG_PAGE_SIZE_1MB.
+    .hexagon => 1024 << 10,
+    // Source: Zig's own libc page.h for arc.
+    .arc => 16 << 10,
+    // Source: Wikipedia "Page (computer memory)"
+    .powerpc, .powerpc64, .powerpc64le, .powerpcle => 64 << 10,
+    .riscv32, .riscv64 => 4 << 10,
+    .sparc, .sparcel => 256 << 10,
+    .sparc64 => 64 << 10,
+    // Rare architectures with little support.
+    else => @compileError("Does pageSize() apply to this architecture? If so, file an issue."),
+};
+
+/// Compile time known minimum page size.
+pub const page_size: usize = page_size_os orelse switch (builtin.cpu.arch) {
+    // Common knowledge.
+    .wasm32, .wasm64 => 64 << 10,
+    .x86, .x86_64 => 4 << 10,
+    .thumb, .thumbeb, .arm, .armeb, .aarch64, .aarch64_32, .aarch64_be => 4 << 10,
+    // Explicitly only 4kb.
+    // https://refspecs.linuxbase.org/ELF/zSeries/lzsabi0_zSeries.html#AEN798
+    .s390x => 4 << 10,
+    // Source: Wikipedia "MIPS" and Linux mips/Kconfig.
+    .mips, .mipsel, .mips64, .mips64el, .loongarch32, .loongarch64 => 4 << 10,
+    // Source: csky/Kconfig only selects HAVE_PAGE_SIZE_4KB.
+    .csky => 4 << 10,
+    // Hexagon's Kconfig/page.h in Linux. Non-huge pages go past 256KB.
+    .hexagon => 4 << 10,
+    // Source: Zig's own libc page.h for arc.
+    .arc => 4 << 10,
+    // Source: Wikipedia "Page (computer memory)"
+    .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
+    .riscv32, .riscv64 => 4 << 10,
+    .sparc, .sparcel => 4 << 10,
+    .sparc64 => 8 << 10,
+    // Rare architectures with little support.
+    else => @compileError("Does pageSize() apply to this architecture? If so, file an issue."),
+};
+
+var runtimePageSize = std.atomic.Value(usize).init(0);
+
+/// Runtime detected page size.
+pub inline fn pageSize() usize {
+    if (@inComptime()) {
+        @compileError("pageSize() must NOT be used in comptime. Use page_size variants instead.");
+    }
+    if (page_size == page_size_cap) {
+        assert(queryPageSize() == page_size);
+        return page_size;
+    }
+    const size = queryPageSize();
+    return size;
+}
+
+// Runtime queried page size.
+fn queryPageSize() usize {
+    var size = runtimePageSize.load(.unordered);
+    if (size > 0) return size;
+    defer {
+        std.debug.assert(size > 0);
+        std.debug.assert(size >= page_size);
+        std.debug.assert(size <= page_size_cap);
+        runtimePageSize.store(size, .unordered);
+    }
+    switch (builtin.os.tag) {
+        .linux => size = if (builtin.link_libc) @intCast(std.c.sysconf(std.c._SC.PAGESIZE)) else std.os.linux.getauxval(std.elf.AT_PAGESZ),
+        .macos => blk: {
+            size = @import("c/darwin.zig").machTaskForSelf().getPageSize() catch break :blk;
+        },
+        .windows => {
+            var info: std.os.windows.SYSTEM_INFO = undefined;
+            std.os.windows.kernel32.GetSystemInfo(&info);
+            size = info.dwPageSize;
+        },
+        else => if (@hasDecl(std.c, "_SC") and @hasDecl(std.c._SC, "PAGE_SIZE")) {
+            size = std.c.sysconf(std.c._SC.PAGE_SIZE);
+        } else {},
+    }
+    return size;
+}
+
 pub const LoggingAllocator = @import("heap/logging_allocator.zig").LoggingAllocator;
 pub const loggingAllocator = @import("heap/logging_allocator.zig").loggingAllocator;
 pub const ScopedLoggingAllocator = @import("heap/logging_allocator.zig").ScopedLoggingAllocator;
@@ -30,7 +150,7 @@ pub const MemoryPoolExtra = memory_pool.MemoryPoolExtra;
 pub const MemoryPoolOptions = memory_pool.Options;
 
 /// TODO Utilize this on Windows.
-pub var next_mmap_addr_hint: ?[*]align(mem.page_size) u8 = null;
+pub var next_mmap_addr_hint: ?[*]align(page_size) u8 = null;
 
 const CAllocator = struct {
     comptime {
@@ -255,7 +375,7 @@ pub const wasm_allocator = Allocator{
 /// Verifies that the adjusted length will still map to the full length
 pub fn alignPageAllocLen(full_len: usize, len: usize) usize {
     const aligned_len = mem.alignAllocLen(full_len, len);
-    assert(mem.alignForward(usize, aligned_len, mem.page_size) == full_len);
+    assert(mem.alignForward(usize, aligned_len, pageSize()) == full_len);
     return aligned_len;
 }
 
@@ -616,13 +736,13 @@ test "PageAllocator" {
     }
 
     if (builtin.os.tag == .windows) {
-        const slice = try allocator.alignedAlloc(u8, mem.page_size, 128);
+        const slice = try allocator.alignedAlloc(u8, page_size, 128);
         slice[0] = 0x12;
         slice[127] = 0x34;
         allocator.free(slice);
     }
     {
-        var buf = try allocator.alloc(u8, mem.page_size + 1);
+        var buf = try allocator.alloc(u8, pageSize() + 1);
         defer allocator.free(buf);
         buf = try allocator.realloc(buf, 1); // shrink past the page boundary
     }
@@ -825,7 +945,7 @@ pub fn testAllocatorLargeAlignment(base_allocator: mem.Allocator) !void {
     var validationAllocator = mem.validationWrap(base_allocator);
     const allocator = validationAllocator.allocator();
 
-    const large_align: usize = mem.page_size / 2;
+    const large_align: usize = page_size / 2;
 
     var align_mask: usize = undefined;
     align_mask = @shlWithOverflow(~@as(usize, 0), @as(Allocator.Log2Align, @ctz(large_align)))[0];
@@ -858,7 +978,7 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     var fib = FixedBufferAllocator.init(&debug_buffer);
     const debug_allocator = fib.allocator();
 
-    const alloc_size = mem.page_size * 2 + 50;
+    const alloc_size = pageSize() * 2 + 50;
     var slice = try allocator.alignedAlloc(u8, 16, alloc_size);
     defer allocator.free(slice);
 
@@ -867,7 +987,7 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     // which is 16 pages, hence the 32. This test may require to increase
     // the size of the allocations feeding the `allocator` parameter if they
     // fail, because of this high over-alignment we want to have.
-    while (@intFromPtr(slice.ptr) == mem.alignForward(usize, @intFromPtr(slice.ptr), mem.page_size * 32)) {
+    while (@intFromPtr(slice.ptr) == mem.alignForward(usize, @intFromPtr(slice.ptr), pageSize() * 32)) {
         try stuff_to_free.append(slice);
         slice = try allocator.alignedAlloc(u8, 16, alloc_size);
     }

@@ -8,6 +8,10 @@ const iovec_const = std.posix.iovec_const;
 extern "c" fn __errno() *c_int;
 pub const _errno = __errno;
 
+pub const _SC = struct {
+    pub const PAGESIZE = 28;
+};
+
 pub const dl_iterate_phdr_callback = *const fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
 pub extern "c" fn dl_iterate_phdr(callback: dl_iterate_phdr_callback, data: ?*anyopaque) c_int;
 

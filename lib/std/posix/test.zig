@@ -1315,3 +1315,11 @@ const CommonOpenFlags = packed struct {
         return result;
     }
 };
+
+test "getDefaultPageSize smoke test" {
+    const size = std.heap.pageSize();
+    switch (size) {
+        1024, 2048, 4096, 8192, 16384, 32768 => {}, // 1, 2, 4, 8, 16, 32KB
+        else => return error.InvalidDefaultPageSize,
+    }
+}
