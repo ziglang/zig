@@ -194,8 +194,8 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
 
             if (info.sentinel != .none) switch (info.flags.size) {
                 .One, .C => unreachable,
-                .Many => try writer.print("[*:{}]", .{Value.fromInterned(info.sentinel).fmtValue(pt, null)}),
-                .Slice => try writer.print("[:{}]", .{Value.fromInterned(info.sentinel).fmtValue(pt, null)}),
+                .Many => try writer.print("[*:{}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
+                .Slice => try writer.print("[:{}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
             } else switch (info.flags.size) {
                 .One => try writer.writeAll("*"),
                 .Many => try writer.writeAll("[*]"),
@@ -241,7 +241,7 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
             } else {
                 try writer.print("[{d}:{}]", .{
                     array_type.len,
-                    Value.fromInterned(array_type.sentinel).fmtValue(pt, null),
+                    Value.fromInterned(array_type.sentinel).fmtValue(pt),
                 });
                 try print(Type.fromInterned(array_type.child), writer, pt);
             }
@@ -359,7 +359,7 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
                 try print(Type.fromInterned(field_ty), writer, pt);
 
                 if (val != .none) {
-                    try writer.print(" = {}", .{Value.fromInterned(val).fmtValue(pt, null)});
+                    try writer.print(" = {}", .{Value.fromInterned(val).fmtValue(pt)});
                 }
             }
             try writer.writeAll("}");

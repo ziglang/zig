@@ -892,7 +892,7 @@ const DeclGen = struct {
         const result_ty_id = try self.resolveType(ty, repr);
         const ip = &mod.intern_pool;
 
-        log.debug("lowering constant: ty = {}, val = {}", .{ ty.fmt(pt), val.fmtValue(pt, null) });
+        log.debug("lowering constant: ty = {}, val = {}", .{ ty.fmt(pt), val.fmtValue(pt) });
         if (val.isUndefDeep(mod)) {
             return self.spv.constUndef(result_ty_id);
         }
