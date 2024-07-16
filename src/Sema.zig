@@ -30007,7 +30007,7 @@ const InMemoryCoercionResult = union(enum) {
             },
             .comptime_int_not_coercible => |int| {
                 try sema.errNote(src, msg, "type '{}' cannot represent value '{}'", .{
-                    int.wanted.fmt(pt), int.actual.fmtValue(pt),
+                    int.wanted.fmt(pt), int.actual.fmtValueSema(pt, sema),
                 });
                 break;
             },
