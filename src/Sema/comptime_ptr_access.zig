@@ -321,6 +321,7 @@ fn loadComptimePtrInner(
                 zcu.getTarget(),
                 src,
                 src,
+                null,
             )) {
                 // We already have a value which is IMC to the desired type.
                 return .{ .success = base_val };
@@ -353,6 +354,7 @@ fn loadComptimePtrInner(
             zcu.getTarget(),
             src,
             src,
+            null,
         )) {
             // Changing the length of an array.
             const skip_base: u64 = extra_base_index + if (load_ty.zigTypeTag(zcu) == .Array) skip: {
@@ -721,6 +723,7 @@ fn prepareComptimePtrStore(
                 zcu.getTarget(),
                 src,
                 src,
+                null,
             )) {
                 // The base strategy already gets us a value which the desired type is IMC to.
                 return base_strat;
@@ -753,7 +756,7 @@ fn prepareComptimePtrStore(
             else => unreachable,
         };
         const val_one_ty, const val_count = base_val.typeOf(zcu).arrayBase(zcu);
-        if (.ok != try sema.coerceInMemoryAllowed(block, val_one_ty, store_one_ty, true, zcu.getTarget(), src, src)) {
+        if (.ok != try sema.coerceInMemoryAllowed(block, val_one_ty, store_one_ty, true, zcu.getTarget(), src, src, null)) {
             break :restructure_array;
         }
         if (base_elem_offset + extra_base_index + store_count > val_count) return .{ .out_of_bounds = oob_ty };
