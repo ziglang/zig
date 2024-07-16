@@ -10,6 +10,8 @@ shards: []Shard = &.{},
 global_error_set: GlobalErrorSet = GlobalErrorSet.empty,
 /// Cached number of active bits in a `tid`.
 tid_width: if (single_threaded) u0 else std.math.Log2Int(u32) = 0,
+/// Cached shift amount to put a `tid` in the top bits of a 30-bit value.
+tid_shift_30: if (single_threaded) u0 else std.math.Log2Int(u32) = if (single_threaded) 0 else 31,
 /// Cached shift amount to put a `tid` in the top bits of a 31-bit value.
 tid_shift_31: if (single_threaded) u0 else std.math.Log2Int(u32) = if (single_threaded) 0 else 31,
 /// Cached shift amount to put a `tid` in the top bits of a 32-bit value.
@@ -4091,8 +4093,8 @@ pub const Index = enum(u32) {
 
         fn wrap(unwrapped: Unwrapped, ip: *const InternPool) Index {
             assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
-            assert(unwrapped.index <= ip.getIndexMask(u31));
-            return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_31 | unwrapped.index);
+            assert(unwrapped.index <= ip.getIndexMask(u30));
+            return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_30 | unwrapped.index);
         }
 
         pub fn getExtra(unwrapped: Unwrapped, ip: *const InternPool) Local.Extra {
@@ -4131,8 +4133,8 @@ pub const Index = enum(u32) {
             .tid = .main,
             .index = @intFromEnum(index),
         } else .{
-            .tid = @enumFromInt(@intFromEnum(index) >> ip.tid_shift_31 & ip.getTidMask()),
-            .index = @intFromEnum(index) & ip.getIndexMask(u31),
+            .tid = @enumFromInt(@intFromEnum(index) >> ip.tid_shift_30 & ip.getTidMask()),
+            .index = @intFromEnum(index) & ip.getIndexMask(u30),
         };
     }
 
@@ -5822,6 +5824,7 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
     });
 
     ip.tid_width = @intCast(std.math.log2_int_ceil(usize, used_threads));
+    ip.tid_shift_30 = if (single_threaded) 0 else 30 - ip.tid_width;
     ip.tid_shift_31 = if (single_threaded) 0 else 31 - ip.tid_width;
     ip.tid_shift_32 = if (single_threaded) 0 else ip.tid_shift_31 +| 1;
     ip.shards = try gpa.alloc(Shard, @as(usize, 1) << ip.tid_width);

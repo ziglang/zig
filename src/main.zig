@@ -3110,7 +3110,7 @@ fn buildOutputType(
     var thread_pool: ThreadPool = undefined;
     try thread_pool.init(.{
         .allocator = gpa,
-        .n_jobs = @min(@max(n_jobs orelse std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(u8)),
+        .n_jobs = @min(@max(n_jobs orelse std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(Zcu.PerThread.IdBacking)),
         .track_ids = true,
     });
     defer thread_pool.deinit();
@@ -4961,7 +4961,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var thread_pool: ThreadPool = undefined;
     try thread_pool.init(.{
         .allocator = gpa,
-        .n_jobs = @min(@max(n_jobs orelse std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(u8)),
+        .n_jobs = @min(@max(n_jobs orelse std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(Zcu.PerThread.IdBacking)),
         .track_ids = true,
     });
     defer thread_pool.deinit();
@@ -5399,7 +5399,7 @@ fn jitCmd(
     var thread_pool: ThreadPool = undefined;
     try thread_pool.init(.{
         .allocator = gpa,
-        .n_jobs = @min(@max(std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(u8)),
+        .n_jobs = @min(@max(std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(Zcu.PerThread.IdBacking)),
         .track_ids = true,
     });
     defer thread_pool.deinit();
