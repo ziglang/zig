@@ -669,14 +669,8 @@ fn appendTreeSymbol(symbol: TreeSymbol, buf: []u8, start_i: usize) usize {
 fn clearWrittenWithEscapeCodes() anyerror!void {
     if (!global_progress.need_clear) return;
 
-    var i: usize = 0;
-    const buf = global_progress.draw_buffer;
-
-    buf[i..][0..clear.len].* = clear.*;
-    i += clear.len;
-
     global_progress.need_clear = false;
-    try write(buf[0..i]);
+    try write(clear);
 }
 
 /// U+25BA or ►

@@ -3,7 +3,8 @@ zcu: *Zcu,
 /// Dense, per-thread unique index.
 tid: Id,
 
-pub const Id = if (InternPool.single_threaded) enum { main } else enum(u8) { main, _ };
+pub const IdBacking = u7;
+pub const Id = if (InternPool.single_threaded) enum { main } else enum(IdBacking) { main, _ };
 
 pub fn destroyDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) void {
     const zcu = pt.zcu;
