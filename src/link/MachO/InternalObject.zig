@@ -415,8 +415,9 @@ pub fn resolveLiterals(self: *InternalObject, lp: *MachO.LiteralPool, macho_file
         const rel = relocs[0];
         assert(rel.tag == .@"extern");
         const target = rel.getTargetSymbol(atom.*, macho_file).getAtom(macho_file).?;
-        try buffer.ensureUnusedCapacity(target.size);
-        buffer.resize(target.size) catch unreachable;
+        const target_size = std.math.cast(usize, target.size) orelse return error.Overflow;
+        try buffer.ensureUnusedCapacity(target_size);
+        buffer.resize(target_size) catch unreachable;
         @memcpy(buffer.items, try self.getSectionData(target.n_sect));
         const res = try lp.insert(gpa, header.type(), buffer.items);
         buffer.clearRetainingCapacity();
@@ -572,8 +573,9 @@ pub fn writeAtoms(self: *InternalObject, macho_file: *MachO) !void {
         if (!atom.flags.alive) continue;
         const sect = atom.getInputSection(macho_file);
         if (sect.isZerofill()) continue;
-        const off = atom.value;
-        const buffer = macho_file.sections.items(.out)[atom.out_n_sect].items[off..][0..atom.size];
+        const off = std.math.cast(usize, atom.value) orelse return error.Overflow;
+        const size = std.math.cast(usize, atom.size) orelse return error.Overflow;
+        const buffer = macho_file.sections.items(.out)[atom.out_n_sect].items[off..][0..size];
         @memcpy(buffer, try self.getSectionData(atom.n_sect));
         try atom.resolveRelocs(macho_file, buffer);
     }

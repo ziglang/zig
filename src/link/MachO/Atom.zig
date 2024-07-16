@@ -983,7 +983,7 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.r
     var i: usize = 0;
     for (relocs) |rel| {
         defer i += 1;
-        const rel_offset = rel.offset - self.off;
+        const rel_offset = math.cast(usize, rel.offset - self.off) orelse return error.Overflow;
         const r_address: i32 = math.cast(i32, self.value + rel_offset) orelse return error.Overflow;
         assert(r_address >= 0);
         const r_symbolnum = r_symbolnum: {

@@ -529,12 +529,13 @@ pub fn writeAtomsRelocatable(self: *ZigObject, macho_file: *MachO) !void {
         if (sect.isZerofill()) continue;
         if (macho_file.isZigSection(atom.out_n_sect)) continue;
         if (atom.getRelocs(macho_file).len == 0) continue;
-        const off = atom.value;
+        const off = std.math.cast(usize, atom.value) orelse return error.Overflow;
+        const size = std.math.cast(usize, atom.size) orelse return error.Overflow;
         const buffer = macho_file.sections.items(.out)[atom.out_n_sect].items;
-        try self.getAtomData(macho_file, atom.*, buffer[off..][0..atom.size]);
+        try self.getAtomData(macho_file, atom.*, buffer[off..][0..size]);
         const relocs = macho_file.sections.items(.relocs)[atom.out_n_sect].items;
         const extra = atom.getExtra(macho_file);
-        try atom.writeRelocs(macho_file, buffer[off..][0..atom.size], relocs[extra.rel_out_index..][0..extra.rel_out_count]);
+        try atom.writeRelocs(macho_file, buffer[off..][0..size], relocs[extra.rel_out_index..][0..extra.rel_out_count]);
     }
 }
 
@@ -551,10 +552,11 @@ pub fn writeAtoms(self: *ZigObject, macho_file: *MachO) !void {
         const sect = atom.getInputSection(macho_file);
         if (sect.isZerofill()) continue;
         if (macho_file.isZigSection(atom.out_n_sect)) continue;
-        const off = atom.value;
+        const off = std.math.cast(usize, atom.value) orelse return error.Overflow;
+        const size = std.math.cast(usize, atom.size) orelse return error.Overflow;
         const buffer = macho_file.sections.items(.out)[atom.out_n_sect].items;
-        try self.getAtomData(macho_file, atom.*, buffer[off..][0..atom.size]);
-        try atom.resolveRelocs(macho_file, buffer[off..][0..atom.size]);
+        try self.getAtomData(macho_file, atom.*, buffer[off..][0..size]);
+        try atom.resolveRelocs(macho_file, buffer[off..][0..size]);
     }
 }
 

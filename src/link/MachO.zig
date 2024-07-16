@@ -2343,7 +2343,8 @@ fn resizeSections(self: *MachO) !void {
         if (header.isZerofill()) continue;
         if (self.isZigSection(@intCast(n_sect))) continue; // TODO this is horrible
         const cpu_arch = self.getTarget().cpu.arch;
-        try out.resize(self.base.comp.gpa, header.size);
+        const size = math.cast(usize, header.size) orelse return error.Overflow;
+        try out.resize(self.base.comp.gpa, size);
         const padding_byte: u8 = if (header.isCode() and cpu_arch == .x86_64) 0xcc else 0;
         @memset(out.items, padding_byte);
     }
@@ -2368,7 +2369,7 @@ fn writeSectionsAndUpdateLinkeditSizes(self: *MachO) !void {
     }
     for (self.thunks.items) |thunk| {
         const out = self.sections.items(.out)[thunk.out_n_sect].items;
-        const off = thunk.value;
+        const off = math.cast(usize, thunk.value) orelse return error.Overflow;
         const size = thunk.size();
         var stream = std.io.fixedBufferStream(out[off..][0..size]);
         try thunk.write(self, stream.writer());

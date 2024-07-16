@@ -1015,7 +1015,8 @@ fn initEhFrameRecords(self: *Object, allocator: Allocator, sect_id: u8, file: Fi
     const sect = slice.items(.header)[sect_id];
     const relocs = slice.items(.relocs)[sect_id];
 
-    try self.eh_frame_data.resize(allocator, sect.size);
+    const size = math.cast(usize, sect.size) orelse return error.Overflow;
+    try self.eh_frame_data.resize(allocator, size);
     const amt = try file.preadAll(self.eh_frame_data.items, sect.offset + self.offset);
     if (amt != self.eh_frame_data.items.len) return error.InputOutput;
 
@@ -1116,7 +1117,8 @@ fn initUnwindRecords(self: *Object, allocator: Allocator, sect_id: u8, file: Fil
     };
 
     const header = self.sections.items(.header)[sect_id];
-    const data = try allocator.alloc(u8, header.size);
+    const size = math.cast(usize, header.size) orelse return error.Overflow;
+    const data = try allocator.alloc(u8, size);
     defer allocator.free(data);
     const amt = try file.preadAll(data, header.offset + self.offset);
     if (amt != data.len) return error.InputOutput;
@@ -1346,7 +1348,8 @@ fn parseDebugInfo(self: *Object, macho_file: *MachO) !void {
     const file = macho_file.getFileHandle(self.file_handle);
     const debug_info = blk: {
         const sect = slice.items(.header)[debug_info_index.?];
-        const data = try gpa.alloc(u8, sect.size);
+        const size = math.cast(usize, sect.size) orelse return error.Overflow;
+        const data = try gpa.alloc(u8, size);
         const amt = try file.preadAll(data, sect.offset + self.offset);
         if (amt != data.len) return error.InputOutput;
         break :blk data;
@@ -1354,7 +1357,8 @@ fn parseDebugInfo(self: *Object, macho_file: *MachO) !void {
     defer gpa.free(debug_info);
     const debug_abbrev = blk: {
         const sect = slice.items(.header)[debug_abbrev_index.?];
-        const data = try gpa.alloc(u8, sect.size);
+        const size = math.cast(usize, sect.size) orelse return error.Overflow;
+        const data = try gpa.alloc(u8, size);
         const amt = try file.preadAll(data, sect.offset + self.offset);
         if (amt != data.len) return error.InputOutput;
         break :blk data;
@@ -1362,7 +1366,8 @@ fn parseDebugInfo(self: *Object, macho_file: *MachO) !void {
     defer gpa.free(debug_abbrev);
     const debug_str = if (debug_str_index) |sid| blk: {
         const sect = slice.items(.header)[sid];
-        const data = try gpa.alloc(u8, sect.size);
+        const size = math.cast(usize, sect.size) orelse return error.Overflow;
+        const data = try gpa.alloc(u8, size);
         const amt = try file.preadAll(data, sect.offset + self.offset);
         if (amt != data.len) return error.InputOutput;
         break :blk data;
@@ -1864,7 +1869,8 @@ pub fn writeAtoms(self: *Object, macho_file: *MachO) !void {
 
     for (headers, 0..) |header, n_sect| {
         if (header.isZerofill()) continue;
-        const data = try gpa.alloc(u8, header.size);
+        const size = math.cast(usize, header.size) orelse return error.Overflow;
+        const data = try gpa.alloc(u8, size);
         const amt = try file.preadAll(data, header.offset + self.offset);
         if (amt != data.len) return error.InputOutput;
         sections_data[n_sect] = data;
@@ -1874,11 +1880,13 @@ pub fn writeAtoms(self: *Object, macho_file: *MachO) !void {
         if (!atom.flags.alive) continue;
         const sect = atom.getInputSection(macho_file);
         if (sect.isZerofill()) continue;
-        const off = atom.value;
+        const value = math.cast(usize, atom.value) orelse return error.Overflow;
+        const off = math.cast(usize, atom.off) orelse return error.Overflow;
+        const size = math.cast(usize, atom.size) orelse return error.Overflow;
         const buffer = macho_file.sections.items(.out)[atom.out_n_sect].items;
         const data = sections_data[atom.n_sect];
-        @memcpy(buffer[off..][0..atom.size], data[atom.off..][0..atom.size]);
-        try atom.resolveRelocs(macho_file, buffer[off..][0..atom.size]);
+        @memcpy(buffer[value..][0..size], data[off..][0..size]);
+        try atom.resolveRelocs(macho_file, buffer[value..][0..size]);
     }
 }
 
@@ -1900,7 +1908,8 @@ pub fn writeAtomsRelocatable(self: *Object, macho_file: *MachO) !void {
 
     for (headers, 0..) |header, n_sect| {
         if (header.isZerofill()) continue;
-        const data = try gpa.alloc(u8, header.size);
+        const size = math.cast(usize, header.size) orelse return error.Overflow;
+        const data = try gpa.alloc(u8, size);
         const amt = try file.preadAll(data, header.offset + self.offset);
         if (amt != data.len) return error.InputOutput;
         sections_data[n_sect] = data;
@@ -1910,13 +1919,15 @@ pub fn writeAtomsRelocatable(self: *Object, macho_file: *MachO) !void {
         if (!atom.flags.alive) continue;
         const sect = atom.getInputSection(macho_file);
         if (sect.isZerofill()) continue;
-        const off = atom.value;
+        const value = math.cast(usize, atom.value) orelse return error.Overflow;
+        const off = math.cast(usize, atom.off) orelse return error.Overflow;
+        const size = math.cast(usize, atom.size) orelse return error.Overflow;
         const buffer = macho_file.sections.items(.out)[atom.out_n_sect].items;
         const data = sections_data[atom.n_sect];
-        @memcpy(buffer[off..][0..atom.size], data[atom.off..][0..atom.size]);
+        @memcpy(buffer[value..][0..size], data[off..][0..size]);
         const relocs = macho_file.sections.items(.relocs)[atom.out_n_sect].items;
         const extra = atom.getExtra(macho_file);
-        try atom.writeRelocs(macho_file, buffer[off..][0..atom.size], relocs[extra.rel_out_index..][0..extra.rel_out_count]);
+        try atom.writeRelocs(macho_file, buffer[value..][0..size], relocs[extra.rel_out_index..][0..extra.rel_out_count]);
     }
 }
 
@@ -2812,7 +2823,8 @@ const x86_64 = struct {
         }
         const relocs = @as([*]align(1) const macho.relocation_info, @ptrCast(relocs_buffer.ptr))[0..sect.nreloc];
 
-        const code = try gpa.alloc(u8, sect.size);
+        const sect_size = math.cast(usize, sect.size) orelse return error.Overflow;
+        const code = try gpa.alloc(u8, sect_size);
         defer gpa.free(code);
         {
             const amt = try handle.preadAll(code, sect.offset + self.offset);
@@ -2984,7 +2996,8 @@ const aarch64 = struct {
         }
         const relocs = @as([*]align(1) const macho.relocation_info, @ptrCast(relocs_buffer.ptr))[0..sect.nreloc];
 
-        const code = try gpa.alloc(u8, sect.size);
+        const sect_size = math.cast(usize, sect.size) orelse return error.Overflow;
+        const code = try gpa.alloc(u8, sect_size);
         defer gpa.free(code);
         {
             const amt = try handle.preadAll(code, sect.offset + self.offset);
