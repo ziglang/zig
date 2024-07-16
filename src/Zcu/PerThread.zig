@@ -443,16 +443,16 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
                 {
                     var it = new_zir.declIterator(tracked_inst.inst);
                     while (it.next()) |decl_inst| {
-                        const decl_name = old_zir.getDeclaration(decl_inst)[0].name;
+                        const decl_name = new_zir.getDeclaration(decl_inst)[0].name;
                         switch (decl_name) {
                             .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => continue,
-                            _ => if (decl_name.isNamedTest(old_zir)) continue,
+                            _ => if (decl_name.isNamedTest(new_zir)) continue,
                         }
-                        const name_zir = decl_name.toString(old_zir).?;
+                        const name_zir = decl_name.toString(new_zir).?;
                         const name_ip = try zcu.intern_pool.getOrPutString(
                             zcu.gpa,
                             pt.tid,
-                            old_zir.nullTerminatedString(name_zir),
+                            new_zir.nullTerminatedString(name_zir),
                             .no_embedded_nulls,
                         );
                         if (!old_names.swapRemove(name_ip)) continue;
