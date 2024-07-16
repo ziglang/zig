@@ -2685,60 +2685,65 @@ fn genBinOp(
         // a1, s0 was -1, flipping all the bits in a2 and effectively restoring a0. If a0 was greater than or equal to a1,
         // s0 was 0, leaving a2 unchanged as a0.
         .min, .max => {
-            const int_info = lhs_ty.intInfo(zcu);
+            switch (lhs_ty.zigTypeTag(zcu)) {
+                .Int => {
+                    const int_info = lhs_ty.intInfo(zcu);
 
-            const mask_reg, const mask_lock = try func.allocReg(.int);
-            defer func.register_manager.unlockReg(mask_lock);
+                    const mask_reg, const mask_lock = try func.allocReg(.int);
+                    defer func.register_manager.unlockReg(mask_lock);
 
-            _ = try func.addInst(.{
-                .tag = if (int_info.signedness == .unsigned) .sltu else .slt,
-                .ops = .rrr,
-                .data = .{ .r_type = .{
-                    .rd = mask_reg,
-                    .rs1 = lhs_reg,
-                    .rs2 = rhs_reg,
-                } },
-            });
+                    _ = try func.addInst(.{
+                        .tag = if (int_info.signedness == .unsigned) .sltu else .slt,
+                        .ops = .rrr,
+                        .data = .{ .r_type = .{
+                            .rd = mask_reg,
+                            .rs1 = lhs_reg,
+                            .rs2 = rhs_reg,
+                        } },
+                    });
 
-            _ = try func.addInst(.{
-                .tag = .sub,
-                .ops = .rrr,
-                .data = .{ .r_type = .{
-                    .rd = mask_reg,
-                    .rs1 = .zero,
-                    .rs2 = mask_reg,
-                } },
-            });
+                    _ = try func.addInst(.{
+                        .tag = .sub,
+                        .ops = .rrr,
+                        .data = .{ .r_type = .{
+                            .rd = mask_reg,
+                            .rs1 = .zero,
+                            .rs2 = mask_reg,
+                        } },
+                    });
 
-            _ = try func.addInst(.{
-                .tag = .xor,
-                .ops = .rrr,
-                .data = .{ .r_type = .{
-                    .rd = dst_reg,
-                    .rs1 = lhs_reg,
-                    .rs2 = rhs_reg,
-                } },
-            });
+                    _ = try func.addInst(.{
+                        .tag = .xor,
+                        .ops = .rrr,
+                        .data = .{ .r_type = .{
+                            .rd = dst_reg,
+                            .rs1 = lhs_reg,
+                            .rs2 = rhs_reg,
+                        } },
+                    });
 
-            _ = try func.addInst(.{
-                .tag = .@"and",
-                .ops = .rrr,
-                .data = .{ .r_type = .{
-                    .rd = mask_reg,
-                    .rs1 = dst_reg,
-                    .rs2 = mask_reg,
-                } },
-            });
+                    _ = try func.addInst(.{
+                        .tag = .@"and",
+                        .ops = .rrr,
+                        .data = .{ .r_type = .{
+                            .rd = mask_reg,
+                            .rs1 = dst_reg,
+                            .rs2 = mask_reg,
+                        } },
+                    });
 
-            _ = try func.addInst(.{
-                .tag = .xor,
-                .ops = .rrr,
-                .data = .{ .r_type = .{
-                    .rd = dst_reg,
-                    .rs1 = if (tag == .min) rhs_reg else lhs_reg,
-                    .rs2 = mask_reg,
-                } },
-            });
+                    _ = try func.addInst(.{
+                        .tag = .xor,
+                        .ops = .rrr,
+                        .data = .{ .r_type = .{
+                            .rd = dst_reg,
+                            .rs1 = if (tag == .min) rhs_reg else lhs_reg,
+                            .rs2 = mask_reg,
+                        } },
+                    });
+                },
+                else => |t| return func.fail("TODO: genBinOp min/max for {s}", .{@tagName(t)}),
+            }
         },
         else => return func.fail("TODO: genBinOp {}", .{tag}),
     }
@@ -3852,6 +3857,13 @@ fn airAbs(func: *Func, inst: Air.Inst.Index) !void {
             .Int => if (ty.zigTypeTag(zcu) == .Vector) {
                 return func.fail("TODO implement airAbs for {}", .{ty.fmt(pt)});
             } else {
+                const int_info = scalar_ty.intInfo(zcu);
+                const int_bits = int_info.bits;
+                switch (int_bits) {
+                    32, 64 => {},
+                    else => return func.fail("TODO: airAbs Int size {d}", .{int_bits}),
+                }
+
                 const return_mcv = try func.copyToNewRegister(inst, operand);
                 const operand_reg = return_mcv.register;
 
@@ -3859,12 +3871,16 @@ fn airAbs(func: *Func, inst: Air.Inst.Index) !void {
                 defer func.register_manager.unlockReg(temp_lock);
 
                 _ = try func.addInst(.{
-                    .tag = .srai,
+                    .tag = switch (int_bits) {
+                        32 => .sraiw,
+                        64 => .srai,
+                        else => unreachable,
+                    },
                     .ops = .rri,
                     .data = .{ .i_type = .{
                         .rd = temp_reg,
                         .rs1 = operand_reg,
-                        .imm12 = Immediate.u(63),
+                        .imm12 = Immediate.u(int_bits - 1),
                     } },
                 });
 
@@ -3879,7 +3895,11 @@ fn airAbs(func: *Func, inst: Air.Inst.Index) !void {
                 });
 
                 _ = try func.addInst(.{
-                    .tag = .sub,
+                    .tag = switch (int_bits) {
+                        32 => .subw,
+                        64 => .sub,
+                        else => unreachable,
+                    },
                     .ops = .rrr,
                     .data = .{ .r_type = .{
                         .rd = operand_reg,
