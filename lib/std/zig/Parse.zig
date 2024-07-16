@@ -216,7 +216,7 @@ pub fn findUnmatchedParen(gpa: Allocator, token_tags: []const Token.Tag) !?Token
         switch (t) {
             .l_paren, .l_brace, .l_bracket => try stack.append(.{ .tag = t, .idx = @intCast(i) }),
             .r_paren, .r_brace, .r_bracket => {
-                if (stack.items.len == 0 or !parenMatch(stack.pop().tag, t))
+                if (stack.items.len == 0 or t != closingParen(stack.pop().tag))
                     return @intCast(i);
             },
             else => {},
@@ -227,11 +227,11 @@ pub fn findUnmatchedParen(gpa: Allocator, token_tags: []const Token.Tag) !?Token
     return null;
 }
 
-fn parenMatch(a: Token.Tag, b: Token.Tag) bool {
+fn closingParen(a: Token.Tag) Token.Tag {
     return switch (a) {
-        .l_paren => b == .r_paren,
-        .l_brace => b == .r_brace,
-        .l_bracket => b == .r_bracket,
+        .l_paren => .r_paren,
+        .l_brace => .r_brace,
+        .l_bracket => .r_bracket,
         else => unreachable,
     };
 }

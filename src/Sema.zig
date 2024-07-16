@@ -8675,7 +8675,7 @@ fn zirErrorUnionType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
 
     if (error_set.typeOf(mod).ip_index != .type_type or error_set.toType().zigTypeTag(mod) != .ErrorSet) {
         return sema.fail(block, lhs_src, "expected error set type, found '{}'", .{
-            error_set.fmtValue(pt, sema),
+            error_set.fmtValue(pt),
         });
     }
     try sema.validateErrorUnionPayloadType(block, payload, rhs_src);

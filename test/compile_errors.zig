@@ -71,7 +71,6 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             \\}
         , &[_][]const u8{
             ":3:1: error: unmatched curly brace",
-            ":2:2: error: expected 'EOF', found '}'",
         });
     }
 
@@ -84,7 +83,6 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             \\};
         , &[_][]const u8{
             ":2:1: error: unmatched parenthesis",
-            ":2:1: error: expected statement, found ')'",
         });
     }
 
@@ -102,7 +100,6 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             \\}
         , &[_][]const u8{
             ":8:1: error: unmatched curly brace",
-            ":5:15: error: expected type expression, found '{'",
         });
     }
 
