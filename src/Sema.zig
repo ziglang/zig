@@ -29709,18 +29709,12 @@ fn coerceExtra(
                 // T to E!T
                 return sema.wrapErrorUnionPayload(block, dest_ty, inst, inst_src) catch |err| switch (err) {
                     error.NotCoercible => {
-                        const payload_type = dest_ty.errorUnionPayload(zcu);
-                        const intermediate = sema.coerceExtra(block, payload_type, inst, inst_src, .{ .report_err = false }) catch |intermed_err| switch (intermed_err) {
-                            error.NotCoercible => {
-                                if (in_memory_result == .no_match) {
-                                    // Try to give more useful notes
-                                    in_memory_result = try sema.coerceInMemoryAllowed(block, payload_type, inst_ty, false, target, dest_ty_src, inst_src, maybe_inst_val);
-                                }
-                                break :eu;
-                            },
-                            else => |e| return e,
-                        };
-                        return try sema.wrapErrorUnionPayload(block, dest_ty, intermediate, inst_src);
+                        if (in_memory_result == .no_match) {
+                            const payload_type = dest_ty.errorUnionPayload(zcu);
+                            // Try to give more useful notes
+                            in_memory_result = try sema.coerceInMemoryAllowed(block, payload_type, inst_ty, false, target, dest_ty_src, inst_src, maybe_inst_val);
+                        }
+                        break :eu;
                     },
                     else => |e| return e,
                 };
