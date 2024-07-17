@@ -224,7 +224,7 @@ pub fn expectFmt(expected: []const u8, comptime template: []const u8, args: anyt
 /// not approximately equal to the expected value, prints diagnostics to stderr
 /// to show exactly how they are not equal, then returns a test failure error.
 /// See `math.approxEqAbs` for more information on the tolerance parameter.
-/// The types must be floating-point.
+/// The types must be floating-point or vectors with the same child types and lengths.
 /// `actual` and `expected` are coerced to a common type using peer type resolution.
 pub inline fn expectApproxEqAbs(expected: anytype, actual: anytype, tolerance: anytype) !void {
     const T = @TypeOf(expected, actual, tolerance);
@@ -236,6 +236,12 @@ fn expectApproxEqAbsInner(comptime T: type, expected: T, actual: T, tolerance: T
         .Float => if (!math.approxEqAbs(T, expected, actual, tolerance)) {
             print("actual {}, not within absolute tolerance {} of expected {}\n", .{ actual, tolerance, expected });
             return error.TestExpectedApproxEqAbs;
+        },
+
+        .Vector => |t| {
+            for (0..t.len) |i| {
+                try expectApproxEqAbsInner(expected[i], actual[i], tolerance);
+            }
         },
 
         .ComptimeFloat => @compileError("Cannot approximately compare two comptime_float values"),
@@ -250,9 +256,12 @@ test expectApproxEqAbs {
         const pos_y: T = 12.06;
         const neg_x: T = -12.0;
         const neg_y: T = -12.06;
+        const vec2_x: @Vector(2, T) = @splat(12.0);
+        const vec2_y: @Vector(2, T) = @splat(12.06);
 
         try expectApproxEqAbs(pos_x, pos_y, 0.1);
         try expectApproxEqAbs(neg_x, neg_y, 0.1);
+        try expectApproxEqAbs(vec2_x, vec2_y, 0.1);
     }
 }
 
