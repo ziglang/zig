@@ -81,7 +81,7 @@ pub fn main() !void {
     var manifest, var ast = try loadManifest(
         arena,
         build_root.directory,
-        "",
+        std.zig.Manifest.basename,
         color,
     );
     defer {
@@ -105,29 +105,22 @@ pub fn main() !void {
             try dep_name.appendSlice(package);
 
             for (dep_chain.items[1..]) |p| {
-                if (dep.hash) |hash| {
-                    const sub_manifest, _ = try loadManifest(
-                        arena,
-                        global_cache,
-                        hash,
-                        color,
-                    );
+                const sub_manifest, _ = try loadDepManifest(
+                    arena,
+                    global_cache,
+                    build_root.directory,
+                    dep,
+                    dep_name.items,
+                    color,
+                );
 
-                    dep = sub_manifest.dependencies.get(p) orelse {
-                        fatal("{s} has no dependency named '{s}' in its manifest", .{
-                            dep_name.items, p,
-                        });
-                    };
-                    try dep_name.append('.');
-                    try dep_name.appendSlice(p);
-                } else switch (dep.location) {
-                    .url => fatal("the hash for {s} is missing from the manifest", .{
-                        dep_name.items,
-                    }),
-                    .path => |path| fatal("{s} is a local dependency located at {s}", .{
-                        dep_name.items, path,
-                    }),
-                }
+                dep = sub_manifest.dependencies.get(p) orelse {
+                    fatal("{s} has no dependency named '{s}' in its manifest", .{
+                        dep_name.items, p,
+                    });
+                };
+                try dep_name.append('.');
+                try dep_name.appendSlice(p);
             }
 
             break :dep dep;
@@ -135,28 +128,30 @@ pub fn main() !void {
 
         const stdout = std.io.getStdOut().writer();
 
-        if (dep.hash) |hash| {
-            if (list) {
-                var sub_manifest, var sub_ast = try loadManifest(
-                    arena,
-                    global_cache,
-                    hash,
-                    color,
-                );
-                defer {
-                    sub_manifest.deinit(arena);
-                    sub_ast.deinit(arena);
-                }
-
-                try dep_name.append('.');
-
-                try listDepHashes(dep_name, sub_manifest);
-            } else {
-                try stdout.print("{s}\n", .{hash});
+        if (list) {
+            var sub_manifest, var sub_ast = try loadDepManifest(
+                arena,
+                global_cache,
+                build_root.directory,
+                dep,
+                dep_name.items,
+                color,
+            );
+            defer {
+                sub_manifest.deinit(arena);
+                sub_ast.deinit(arena);
             }
-        } else switch (dep.location) {
-            .url => fatal("the hash for {s} is missing from the manifest", .{package}),
-            .path => |path| fatal("{s} is a local dependency located at {s}", .{ package, path }),
+
+            try dep_name.append('.');
+
+            try listDepHashes(dep_name.items, sub_manifest);
+        } else {
+            if (dep.hash) |hash| {
+                try stdout.print("{s}\n", .{hash});
+            } else switch (dep.location) {
+                .url => fatal("the hash for {s} is missing from the manifest", .{dep_name.items}),
+                .path => fatal("{s} is a local dependency", .{dep_name.items}),
+            }
         }
     } else {
         try listDepHashes("", manifest);
@@ -208,22 +203,57 @@ fn listDepHashes(parent_prefix: []const u8, manifest: std.zig.Manifest) !void {
     }
 }
 
-fn loadManifest(
+fn loadDepManifest(
     allocator: Allocator,
-    root: std.Build.Cache.Directory,
-    hash: []const u8,
+    global_cache: std.Build.Cache.Directory,
+    build_root: std.Build.Cache.Directory,
+    dep: std.zig.Manifest.Dependency,
+    dep_name: []const u8,
     color: std.zig.Color,
 ) !struct { std.zig.Manifest, std.zig.Ast } {
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const manifest_path = if (hash.len > 0)
-        std.fmt.bufPrint(
+    if (dep.hash) |hash| {
+        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        const manifest_path = std.fmt.bufPrint(
             &buf,
             "p" ++ std.fs.path.sep_str ++ "{s}" ++ std.fs.path.sep_str ++ std.zig.Manifest.basename,
             .{hash},
-        ) catch return error.NameTooLong
-    else
-        std.zig.Manifest.basename;
+        ) catch return error.NameTooLong;
 
+        return try loadManifest(
+            allocator,
+            global_cache,
+            manifest_path,
+            color,
+        );
+    } else switch (dep.location) {
+        .url => fatal("the hash for {s} is missing from the manifest", .{
+            dep_name,
+        }),
+        .path => |path| {
+            const handle = build_root.handle.openDir(path, .{}) catch |e| switch (e) {
+                error.FileNotFound => fatal("local dependency {s} does not exist", .{dep_name}),
+                else => |err| return err,
+            };
+            const root_path = try build_root.join(allocator, &.{path});
+            defer allocator.free(root_path);
+            var root: std.Build.Cache.Directory = .{ .handle = handle, .path = root_path };
+            defer root.closeAndFree(allocator);
+            return try loadManifest(
+                allocator,
+                root,
+                std.zig.Manifest.basename,
+                color,
+            );
+        },
+    }
+}
+
+fn loadManifest(
+    allocator: Allocator,
+    root: std.Build.Cache.Directory,
+    manifest_path: []const u8,
+    color: std.zig.Color,
+) !struct { std.zig.Manifest, std.zig.Ast } {
     const manifest_bytes = root.handle.readFileAllocOptions(
         allocator,
         manifest_path,
