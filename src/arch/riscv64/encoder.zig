@@ -1,26 +1,30 @@
 pub const Instruction = struct {
     encoding: Encoding,
-    ops: [3]Operand = .{.none} ** 3,
+    ops: [5]Operand = .{.none} ** 5,
 
     pub const Operand = union(enum) {
         none,
         reg: Register,
+        csr: CSR,
         mem: Memory,
         imm: Immediate,
+        barrier: Mir.Barrier,
     };
 
     pub fn new(mnemonic: Encoding.Mnemonic, ops: []const Operand) !Instruction {
         const encoding = (try Encoding.findByMnemonic(mnemonic, ops)) orelse {
-            std.log.err("no encoding found for:  {s} [{s} {s} {s}]", .{
+            std.log.err("no encoding found for:  {s} [{s} {s} {s} {s} {s}]", .{
                 @tagName(mnemonic),
                 @tagName(if (ops.len > 0) ops[0] else .none),
                 @tagName(if (ops.len > 1) ops[1] else .none),
                 @tagName(if (ops.len > 2) ops[2] else .none),
+                @tagName(if (ops.len > 3) ops[3] else .none),
+                @tagName(if (ops.len > 4) ops[4] else .none),
             });
             return error.InvalidInstruction;
         };
 
-        var result_ops: [3]Operand = .{.none} ** 3;
+        var result_ops: [5]Operand = .{.none} ** 5;
         @memcpy(result_ops[0..ops.len], ops);
 
         return .{
@@ -53,7 +57,9 @@ pub const Instruction = struct {
                 .none => unreachable, // it's sliced out above
                 .reg => |reg| try writer.writeAll(@tagName(reg)),
                 .imm => |imm| try writer.print("{d}", .{imm.asSigned(64)}),
-                .mem => unreachable, // there is no "mem" operand in the actual instructions
+                .mem => try writer.writeAll("mem"),
+                .barrier => |barrier| try writer.writeAll(@tagName(barrier)),
+                .csr => |csr| try writer.writeAll(@tagName(csr)),
             }
         }
     }
@@ -67,6 +73,7 @@ const bits = @import("bits.zig");
 const Encoding = @import("Encoding.zig");
 
 const Register = bits.Register;
+const CSR = bits.CSR;
 const Memory = bits.Memory;
 const Immediate = bits.Immediate;
 

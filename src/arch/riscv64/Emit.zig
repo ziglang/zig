@@ -26,7 +26,7 @@ pub fn emitMir(emit: *Emit) Error!void {
             mir_index,
             @intCast(emit.code.items.len),
         );
-        const lowered = try emit.lower.lowerMir(mir_index);
+        const lowered = try emit.lower.lowerMir(mir_index, .{ .allow_frame_locs = true });
         var lowered_relocs = lowered.relocs;
         for (lowered.insts, 0..) |lowered_inst, lowered_index| {
             const start_offset: u32 = @intCast(emit.code.items.len);
@@ -75,7 +75,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | lo_r_type,
                             .r_addend = 0,
                         });
-                    } else return emit.fail("TODO: load_symbol_reloc non-ELF", .{});
+                    } else unreachable;
                 },
                 .call_extern_fn_reloc => |symbol| {
                     if (emit.bin_file.cast(link.File.Elf)) |elf_file| {

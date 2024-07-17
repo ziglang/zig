@@ -193,6 +193,15 @@ pub fn classifySystem(ty: Type, pt: Zcu.PerThread) [8]SystemClass {
             }
             return memory_class;
         },
+        .Vector => {
+            // we pass vectors through integer registers if they are small enough to fit.
+            const vec_bits = ty.totalVectorBits(pt);
+            if (vec_bits <= 64) {
+                result[0] = .integer;
+                return result;
+            }
+            return memory_class;
+        },
         else => |bad_ty| std.debug.panic("classifySystem {s}", .{@tagName(bad_ty)}),
     }
 }
@@ -254,15 +263,15 @@ fn classifyStruct(
     }
 }
 
-const allocatable_registers = Registers.Integer.all_regs ++ Registers.Float.all_regs;
+const allocatable_registers = Registers.Integer.all_regs ++ Registers.Float.all_regs ++ Registers.Vector.all_regs;
 pub const RegisterManager = RegisterManagerFn(@import("CodeGen.zig"), Register, &allocatable_registers);
 
-// Register classes
 const RegisterBitSet = RegisterManager.RegisterBitSet;
 
 pub const RegisterClass = enum {
     int,
     float,
+    vector,
 };
 
 pub const Registers = struct {
@@ -321,6 +330,19 @@ pub const Registers = struct {
         };
 
         pub const all_regs = callee_preserved_regs ++ function_arg_regs ++ temporary_regs;
+    };
+
+    pub const Vector = struct {
+        pub const general_purpose = initRegBitSet(Integer.all_regs.len + Float.all_regs.len, all_regs.len);
+
+        // zig fmt: off
+        pub const all_regs = [_]Register{
+            .v0,  .v1,  .v2,  .v3,  .v4,  .v5,  .v6,  .v7,
+            .v8,  .v9,  .v10, .v11, .v12, .v13, .v14, .v15,
+            .v16, .v17, .v18, .v19, .v20, .v21, .v22, .v23,
+            .v24, .v25, .v26, .v27, .v28, .v29, .v30, .v31,
+        };
+        // zig fmt: on
     };
 };
 
