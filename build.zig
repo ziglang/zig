@@ -174,6 +174,7 @@ pub fn build(b: *std.Build) !void {
     const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse (enable_llvm or only_c);
     const sanitize_thread = b.option(bool, "sanitize-thread", "Enable thread-sanitization") orelse false;
     const strip = b.option(bool, "strip", "Omit debug information");
+    const valgrind = b.option(bool, "valgrind", "Enable valgrind integration");
     const pie = b.option(bool, "pie", "Produce a Position Independent Executable");
     const value_tracing = b.option(bool, "value-tracing", "Enable extra state tracking to help troubleshoot bugs in the compiler (using the std.debug.Trace API)") orelse false;
 
@@ -187,6 +188,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
         .target = target,
         .strip = strip,
+        .valgrind = valgrind,
         .sanitize_thread = sanitize_thread,
         .single_threaded = single_threaded,
     });
@@ -607,6 +609,7 @@ const AddCompilerStepOptions = struct {
     optimize: std.builtin.OptimizeMode,
     target: std.Build.ResolvedTarget,
     strip: ?bool = null,
+    valgrind: ?bool = null,
     sanitize_thread: ?bool = null,
     single_threaded: ?bool = null,
 };
@@ -622,6 +625,7 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.St
         .sanitize_thread = options.sanitize_thread,
         .single_threaded = options.single_threaded,
     });
+    exe.root_module.valgrind = options.valgrind;
     exe.stack_size = stack_size;
 
     const aro_module = b.createModule(.{
