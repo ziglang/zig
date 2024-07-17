@@ -9433,12 +9433,11 @@ pub fn getCoerced(
     switch (ip.indexToKey(val)) {
         .undef => return ip.get(gpa, tid, .{ .undef = new_ty }),
         .extern_func => |extern_func| if (ip.isFunctionType(new_ty))
-            return ip.get(gpa, tid, .{ .extern_func = .{
+            return ip.getExternFunc(gpa, tid, .{
                 .ty = new_ty,
                 .decl = extern_func.decl,
                 .lib_name = extern_func.lib_name,
-            } }),
-
+            }),
         .func => unreachable,
 
         .int => |int| switch (ip.indexToKey(new_ty)) {
