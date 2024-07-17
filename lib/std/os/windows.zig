@@ -3208,6 +3208,15 @@ pub const FILE_FS_DEVICE_INFORMATION = extern struct {
     Characteristics: ULONG,
 };
 
+pub const FILE_FS_VOLUME_INFORMATION = extern struct {
+    VolumeCreationTime: LARGE_INTEGER,
+    VolumeSerialNumber: ULONG,
+    VolumeLabelLength: ULONG,
+    SupportsObjects: BOOLEAN,
+    // Flexible array member
+    VolumeLabel: [1]WCHAR,
+};
+
 pub const FS_INFORMATION_CLASS = enum(c_int) {
     FileFsVolumeInformation = 1,
     FileFsLabelInformation,

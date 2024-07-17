@@ -237,6 +237,273 @@ const Os = switch (builtin.os.tag) {
             }
         }
     },
+    .windows => struct {
+        const windows = std.os.windows;
+
+        /// Keyed differently but indexes correspond 1:1 with `dir_table`.
+        handle_table: HandleTable,
+        dir_list: std.ArrayListUnmanaged(*Directory),
+        io_cp: ?windows.HANDLE,
+
+        const HandleTable = std.AutoArrayHashMapUnmanaged(FileId, ReactionSet);
+
+        const FileId = struct {
+            volumeSerialNumber: windows.ULONG,
+            indexNumber: windows.LARGE_INTEGER,
+        };
+
+        const Directory = struct {
+            handle: windows.HANDLE,
+            id: FileId,
+            overlapped: windows.OVERLAPPED,
+            // 64 KB is the packet size limit when monitoring over a network.
+            // https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-readdirectorychangesw#remarks
+            buffer: [64 * 1024]u8 align(@alignOf(windows.FILE_NOTIFY_INFORMATION)) = undefined,
+
+            fn readChanges(self: *@This()) !void {
+                const r = windows.kernel32.ReadDirectoryChangesW(
+                    self.handle,
+                    @ptrCast(&self.buffer),
+                    self.buffer.len,
+                    0,
+                    .{
+                        .creation = true,
+                        .dir_name = true,
+                        .file_name = true,
+                        .last_write = true,
+                        .size = true,
+                    },
+                    null,
+                    &self.overlapped,
+                    null,
+                );
+                if (r == windows.FALSE) {
+                    switch (windows.GetLastError()) {
+                        .INVALID_FUNCTION => return error.ReadDirectoryChangesUnsupported,
+                        else => |err| return windows.unexpectedError(err),
+                    }
+                }
+            }
+
+            fn init(gpa: Allocator, path: Cache.Path) !*@This() {
+                // The following code is a drawn out NtCreateFile call. (mostly adapted from std.fs.Dir.makeOpenDirAccessMaskW)
+                // It's necessary in order to get the specific flags that are required when calling ReadDirectoryChangesW.
+                var dir_handle: windows.HANDLE = undefined;
+                const root_fd = path.root_dir.handle.fd;
+                const sub_path = path.subPathOrDot();
+                const sub_path_w = try windows.sliceToPrefixedFileW(root_fd, sub_path);
+                const path_len_bytes = std.math.cast(u16, sub_path_w.len * 2) orelse return error.NameTooLong;
+
+                var nt_name = windows.UNICODE_STRING{
+                    .Length = @intCast(path_len_bytes),
+                    .MaximumLength = @intCast(path_len_bytes),
+                    .Buffer = @constCast(sub_path_w.span().ptr),
+                };
+                var attr = windows.OBJECT_ATTRIBUTES{
+                    .Length = @sizeOf(windows.OBJECT_ATTRIBUTES),
+                    .RootDirectory = if (std.fs.path.isAbsoluteWindowsW(sub_path_w.span())) null else root_fd,
+                    .Attributes = 0, // Note we do not use OBJ_CASE_INSENSITIVE here.
+                    .ObjectName = &nt_name,
+                    .SecurityDescriptor = null,
+                    .SecurityQualityOfService = null,
+                };
+                var io: windows.IO_STATUS_BLOCK = undefined;
+
+                switch (windows.ntdll.NtCreateFile(
+                    &dir_handle,
+                    windows.SYNCHRONIZE | windows.GENERIC_READ | windows.FILE_LIST_DIRECTORY,
+                    &attr,
+                    &io,
+                    null,
+                    0,
+                    windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE | windows.FILE_SHARE_DELETE,
+                    windows.FILE_OPEN,
+                    windows.FILE_DIRECTORY_FILE | windows.FILE_OPEN_FOR_BACKUP_INTENT,
+                    null,
+                    0,
+                )) {
+                    .SUCCESS => {},
+                    .OBJECT_NAME_INVALID => return error.BadPathName,
+                    .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
+                    .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
+                    .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
+                    .NOT_A_DIRECTORY => return error.NotDir,
+                    // This can happen if the directory has 'List folder contents' permission set to 'Deny'
+                    .ACCESS_DENIED => return error.AccessDenied,
+                    .INVALID_PARAMETER => unreachable,
+                    else => |rc| return windows.unexpectedStatus(rc),
+                }
+                assert(dir_handle != windows.INVALID_HANDLE_VALUE);
+                errdefer windows.CloseHandle(dir_handle);
+
+                const dir_id = try getFileId(dir_handle);
+
+                const dir_ptr = try gpa.create(@This());
+                dir_ptr.* = .{
+                    .handle = dir_handle,
+                    .id = dir_id,
+                    .overlapped = std.mem.zeroes(windows.OVERLAPPED),
+                };
+                return dir_ptr;
+            }
+
+            fn deinit(self: *@This(), gpa: Allocator) void {
+                _ = windows.kernel32.CancelIo(self.handle);
+                windows.CloseHandle(self.handle);
+                gpa.destroy(self);
+            }
+        };
+
+        fn getFileId(handle: windows.HANDLE) !FileId {
+            var file_id: FileId = undefined;
+            var io_status: windows.IO_STATUS_BLOCK = undefined;
+            var volume_info: windows.FILE_FS_VOLUME_INFORMATION = undefined;
+            switch (windows.ntdll.NtQueryVolumeInformationFile(
+                handle,
+                &io_status,
+                &volume_info,
+                @sizeOf(windows.FILE_FS_VOLUME_INFORMATION),
+                .FileFsVolumeInformation,
+            )) {
+                .SUCCESS => {},
+                // Buffer overflow here indicates that there is more information available than was able to be stored in the buffer
+                // size provided. This is treated as success because the type of variable-length information that this would be relevant for
+                // (name, volume name, etc) we don't care about.
+                .BUFFER_OVERFLOW => {},
+                else => |rc| return windows.unexpectedStatus(rc),
+            }
+            file_id.volumeSerialNumber = volume_info.VolumeSerialNumber;
+            var internal_info: windows.FILE_INTERNAL_INFORMATION = undefined;
+            switch (windows.ntdll.NtQueryInformationFile(
+                handle,
+                &io_status,
+                &internal_info,
+                @sizeOf(windows.FILE_INTERNAL_INFORMATION),
+                .FileInternalInformation,
+            )) {
+                .SUCCESS => {},
+                else => |rc| return windows.unexpectedStatus(rc),
+            }
+            file_id.indexNumber = internal_info.IndexNumber;
+            return file_id;
+        }
+
+        fn markDirtySteps(w: *Watch, gpa: Allocator, dir: *Directory) !bool {
+            var any_dirty = false;
+            const bytes_returned = try windows.GetOverlappedResult(dir.handle, &dir.overlapped, false);
+            if (bytes_returned == 0) {
+                std.log.warn("file system watch queue overflowed; falling back to fstat", .{});
+                markAllFilesDirty(w, gpa);
+                return true;
+            }
+            var file_name_buf: [std.fs.max_path_bytes]u8 = undefined;
+            var notify: *align(1) windows.FILE_NOTIFY_INFORMATION = undefined;
+            var offset: usize = 0;
+            while (true) {
+                notify = @ptrCast(&dir.buffer[offset]);
+                const file_name_field: [*]u16 = @ptrFromInt(@intFromPtr(notify) + @sizeOf(windows.FILE_NOTIFY_INFORMATION));
+                const file_name_len = std.unicode.wtf16LeToWtf8(&file_name_buf, file_name_field[0 .. notify.FileNameLength / 2]);
+                const file_name = file_name_buf[0..file_name_len];
+                if (w.os.handle_table.getIndex(dir.id)) |reaction_set_i| {
+                    const reaction_set = w.os.handle_table.values()[reaction_set_i];
+                    if (reaction_set.getPtr(".")) |glob_set|
+                        any_dirty = markStepSetDirty(gpa, glob_set, any_dirty);
+                    if (reaction_set.getPtr(file_name)) |step_set| {
+                        any_dirty = markStepSetDirty(gpa, step_set, any_dirty);
+                    }
+                }
+                if (notify.NextEntryOffset == 0)
+                    break;
+
+                offset += notify.NextEntryOffset;
+            }
+
+            try dir.readChanges();
+            return any_dirty;
+        }
+
+        fn update(w: *Watch, gpa: Allocator, steps: []const *Step) !void {
+            // Add missing marks and note persisted ones.
+            for (steps) |step| {
+                for (step.inputs.table.keys(), step.inputs.table.values()) |path, *files| {
+                    const reaction_set = rs: {
+                        const gop = try w.dir_table.getOrPut(gpa, path);
+                        if (!gop.found_existing) {
+                            const dir = try Os.Directory.init(gpa, path);
+                            errdefer dir.deinit(gpa);
+                            // `dir.id` may already be present in the table in
+                            // the case that we have multiple Cache.Path instances
+                            // that compare inequal but ultimately point to the same
+                            // directory on the file system.
+                            // In such case, we must revert adding this directory, but keep
+                            // the additions to the step set.
+                            const dh_gop = try w.os.handle_table.getOrPut(gpa, dir.id);
+                            if (dh_gop.found_existing) {
+                                dir.deinit(gpa);
+                                _ = w.dir_table.pop();
+                            } else {
+                                assert(dh_gop.index == gop.index);
+                                dh_gop.value_ptr.* = .{};
+                                try dir.readChanges();
+                                try w.os.dir_list.insert(gpa, dh_gop.index, dir);
+                                w.os.io_cp = try windows.CreateIoCompletionPort(
+                                    dir.handle,
+                                    w.os.io_cp,
+                                    dh_gop.index,
+                                    0,
+                                );
+                            }
+                            break :rs &w.os.handle_table.values()[dh_gop.index];
+                        }
+                        break :rs &w.os.handle_table.values()[gop.index];
+                    };
+                    for (files.items) |basename| {
+                        const gop = try reaction_set.getOrPut(gpa, basename);
+                        if (!gop.found_existing) gop.value_ptr.* = .{};
+                        try gop.value_ptr.put(gpa, step, w.generation);
+                    }
+                }
+            }
+
+            {
+                // Remove marks for files that are no longer inputs.
+                var i: usize = 0;
+                while (i < w.os.handle_table.entries.len) {
+                    {
+                        const reaction_set = &w.os.handle_table.values()[i];
+                        var step_set_i: usize = 0;
+                        while (step_set_i < reaction_set.entries.len) {
+                            const step_set = &reaction_set.values()[step_set_i];
+                            var dirent_i: usize = 0;
+                            while (dirent_i < step_set.entries.len) {
+                                const generations = step_set.values();
+                                if (generations[dirent_i] == w.generation) {
+                                    dirent_i += 1;
+                                    continue;
+                                }
+                                step_set.swapRemoveAt(dirent_i);
+                            }
+                            if (step_set.entries.len > 0) {
+                                step_set_i += 1;
+                                continue;
+                            }
+                            reaction_set.swapRemoveAt(step_set_i);
+                        }
+                        if (reaction_set.entries.len > 0) {
+                            i += 1;
+                            continue;
+                        }
+                    }
+
+                    w.os.dir_list.items[i].deinit(gpa);
+                    _ = w.os.dir_list.swapRemove(i);
+                    w.dir_table.swapRemoveAt(i);
+                    w.os.handle_table.swapRemoveAt(i);
+                }
+                w.generation +%= 1;
+            }
+        }
+    },
     else => void,
 };
 
@@ -264,6 +531,20 @@ pub fn init() !Watch {
                                 .revents = undefined,
                             },
                         },
+                    },
+                    else => {},
+                },
+                .generation = 0,
+            };
+        },
+        .windows => {
+            return .{
+                .dir_table = .{},
+                .os = switch (builtin.os.tag) {
+                    .windows => .{
+                        .handle_table = .{},
+                        .dir_list = .{},
+                        .io_cp = null,
                     },
                     else => {},
                 },
@@ -320,7 +601,7 @@ fn markStepSetDirty(gpa: Allocator, step_set: *StepSet, any_dirty: bool) bool {
 
 pub fn update(w: *Watch, gpa: Allocator, steps: []const *Step) !void {
     switch (builtin.os.tag) {
-        .linux => return Os.update(w, gpa, steps),
+        .linux, .windows => return Os.update(w, gpa, steps),
         else => @compileError("unimplemented"),
     }
 }
@@ -357,6 +638,31 @@ pub fn wait(w: *Watch, gpa: Allocator, timeout: Timeout) !WaitResult {
                 .dirty
             else
                 .clean;
+        },
+        .windows => {
+            var bytes_transferred: std.os.windows.DWORD = undefined;
+            var key: usize = undefined;
+            var overlapped_ptr: ?*std.os.windows.OVERLAPPED = undefined;
+            return while (true) switch (std.os.windows.GetQueuedCompletionStatus(
+                w.os.io_cp.?,
+                &bytes_transferred,
+                &key,
+                &overlapped_ptr,
+                @bitCast(timeout.to_i32_ms()),
+            )) {
+                .Normal => {
+                    if (bytes_transferred == 0)
+                        break error.Unexpected;
+                    break if (try Os.markDirtySteps(w, gpa, w.os.dir_list.items[key]))
+                        .dirty
+                    else
+                        .clean;
+                },
+                .Timeout => break .timeout,
+                // This status is issued because CancelIo was called, skip and try again.
+                .Cancelled => continue,
+                else => break error.Unexpected,
+            };
         },
         else => @compileError("unimplemented"),
     }

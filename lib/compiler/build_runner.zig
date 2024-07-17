@@ -409,7 +409,7 @@ pub fn main() !void {
         if (!watch) return cleanExit();
 
         switch (builtin.os.tag) {
-            .linux => {},
+            .linux, .windows => {},
             else => fatal("--watch not yet implemented for {s}", .{@tagName(builtin.os.tag)}),
         }
 
