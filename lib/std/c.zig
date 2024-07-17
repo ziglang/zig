@@ -1787,33 +1787,6 @@ pub extern "c" fn kevent(
     timeout: ?*const c.timespec,
 ) c_int;
 
-pub extern "c" fn port_create() c.port_t;
-pub extern "c" fn port_associate(
-    port: c.port_t,
-    source: u32,
-    object: usize,
-    events: u32,
-    user_var: ?*anyopaque,
-) c_int;
-pub extern "c" fn port_dissociate(port: c.port_t, source: u32, object: usize) c_int;
-pub extern "c" fn port_send(port: c.port_t, events: u32, user_var: ?*anyopaque) c_int;
-pub extern "c" fn port_sendn(
-    ports: [*]c.port_t,
-    errors: []u32,
-    num_ports: u32,
-    events: u32,
-    user_var: ?*anyopaque,
-) c_int;
-pub extern "c" fn port_get(port: c.port_t, event: *c.port_event, timeout: ?*c.timespec) c_int;
-pub extern "c" fn port_getn(
-    port: c.port_t,
-    event_list: []c.port_event,
-    max_events: u32,
-    events_retrieved: *u32,
-    timeout: ?*c.timespec,
-) c_int;
-pub extern "c" fn port_alert(port: c.port_t, flags: u32, events: u32, user_var: ?*anyopaque) c_int;
-
 pub extern "c" fn getaddrinfo(
     noalias node: ?[*:0]const u8,
     noalias service: ?[*:0]const u8,

@@ -1720,6 +1720,33 @@ pub const port_notify = extern struct {
     user: ?*void,
 };
 
+pub extern "c" fn port_create() port_t;
+pub extern "c" fn port_associate(
+    port: port_t,
+    source: u32,
+    object: usize,
+    events: u32,
+    user_var: ?*anyopaque,
+) c_int;
+pub extern "c" fn port_dissociate(port: port_t, source: u32, object: usize) c_int;
+pub extern "c" fn port_send(port: port_t, events: u32, user_var: ?*anyopaque) c_int;
+pub extern "c" fn port_sendn(
+    ports: [*]port_t,
+    errors: []u32,
+    num_ports: u32,
+    events: u32,
+    user_var: ?*anyopaque,
+) c_int;
+pub extern "c" fn port_get(port: port_t, event: *port_event, timeout: ?*timespec) c_int;
+pub extern "c" fn port_getn(
+    port: port_t,
+    event_list: []port_event,
+    max_events: u32,
+    events_retrieved: *u32,
+    timeout: ?*timespec,
+) c_int;
+pub extern "c" fn port_alert(port: port_t, flags: u32, events: u32, user_var: ?*anyopaque) c_int;
+
 pub const file_obj = extern struct {
     /// Access time.
     atim: timespec,
