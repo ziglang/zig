@@ -1358,7 +1358,7 @@ fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *cons
         sattr,
     );
     if (read_handle == windows.INVALID_HANDLE_VALUE) {
-        switch (windows.kernel32.GetLastError()) {
+        switch (windows.GetLastError()) {
             else => |err| return windows.unexpectedError(err),
         }
     }
@@ -1375,7 +1375,7 @@ fn windowsMakeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *cons
         null,
     );
     if (write_handle == windows.INVALID_HANDLE_VALUE) {
-        switch (windows.kernel32.GetLastError()) {
+        switch (windows.GetLastError()) {
             else => |err| return windows.unexpectedError(err),
         }
     }
@@ -1529,7 +1529,7 @@ fn windowsCmdExePath(allocator: mem.Allocator) error{ OutOfMemory, Unexpected }!
         // TODO: Get the system directory from PEB.ReadOnlyStaticServerData
         const len = windows.kernel32.GetSystemDirectoryW(@ptrCast(unused_slice), @intCast(unused_slice.len));
         if (len == 0) {
-            switch (windows.kernel32.GetLastError()) {
+            switch (windows.GetLastError()) {
                 else => |err| return windows.unexpectedError(err),
             }
         }

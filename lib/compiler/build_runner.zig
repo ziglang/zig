@@ -235,6 +235,10 @@ pub fn main() !void {
                 prominent_compile_errors = true;
             } else if (mem.eql(u8, arg, "--watch")) {
                 watch = true;
+            } else if (mem.eql(u8, arg, "-fincremental")) {
+                graph.incremental = true;
+            } else if (mem.eql(u8, arg, "-fno-incremental")) {
+                graph.incremental = false;
             } else if (mem.eql(u8, arg, "-fwine")) {
                 builder.enable_wine = true;
             } else if (mem.eql(u8, arg, "-fno-wine")) {
@@ -406,8 +410,8 @@ pub fn main() !void {
         // trigger a rebuild on all steps with modified inputs, as well as their
         // recursive dependants.
         var caption_buf: [std.Progress.Node.max_name_len]u8 = undefined;
-        const caption = std.fmt.bufPrint(&caption_buf, "Watching {d} Directories", .{
-            w.dir_table.entries.len,
+        const caption = std.fmt.bufPrint(&caption_buf, "watching {d} directories, {d} processes", .{
+            w.dir_table.entries.len, countSubProcesses(run.step_stack.keys()),
         }) catch &caption_buf;
         var debouncing_node = main_progress_node.start(caption, 0);
         var debounce_timeout: Watch.Timeout = .none;
@@ -438,6 +442,14 @@ fn markFailedStepsDirty(gpa: Allocator, all_steps: []const *Step) void {
         .success => step.result_cached = true,
         else => continue,
     };
+}
+
+fn countSubProcesses(all_steps: []const *Step) usize {
+    var count: usize = 0;
+    for (all_steps) |s| {
+        count += @intFromBool(s.getZigProcess() != null);
+    }
+    return count;
 }
 
 const Run = struct {
@@ -1031,7 +1043,11 @@ fn workerMakeOneStep(
     const sub_prog_node = prog_node.start(s.name, 0);
     defer sub_prog_node.end();
 
-    const make_result = s.make(sub_prog_node);
+    const make_result = s.make(.{
+        .progress_node = sub_prog_node,
+        .thread_pool = thread_pool,
+        .watch = run.watch,
+    });
 
     // No matter the result, we want to display error/warning messages.
     const show_compile_errors = !run.prominent_compile_errors and
@@ -1212,6 +1228,8 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  --fetch                      Exit after fetching dependency tree
         \\  --watch                      Continuously rebuild when source files are modified
         \\  --debounce <ms>              Delay before rebuilding after changed file detected
+        \\     -fincremental             Enable incremental compilation
+        \\  -fno-incremental             Disable incremental compilation
         \\
         \\Project-Specific Options:
         \\

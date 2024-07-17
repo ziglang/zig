@@ -161,9 +161,6 @@ pub extern "kernel32" fn FormatMessageW(dwFlags: DWORD, lpSource: ?LPVOID, dwMes
 
 pub extern "kernel32" fn FreeEnvironmentStringsW(penv: [*:0]u16) callconv(WINAPI) BOOL;
 
-pub extern "kernel32" fn GetCommandLineA() callconv(WINAPI) LPSTR;
-pub extern "kernel32" fn GetCommandLineW() callconv(WINAPI) LPWSTR;
-
 pub extern "kernel32" fn GetConsoleMode(in_hConsoleHandle: HANDLE, out_lpMode: *DWORD) callconv(WINAPI) BOOL;
 pub extern "kernel32" fn SetConsoleMode(in_hConsoleHandle: HANDLE, in_dwMode: DWORD) callconv(WINAPI) BOOL;
 

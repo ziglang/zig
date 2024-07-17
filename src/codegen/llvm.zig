@@ -1086,7 +1086,7 @@ pub const Object = struct {
         // If there is no such function in the module, it means the source code does not need it.
         const name = o.builder.strtabStringIfExists(lt_errors_fn_name) orelse return;
         const llvm_fn = o.builder.getGlobal(name) orelse return;
-        const errors_len = o.pt.zcu.intern_pool.global_error_set.mutate.list.len;
+        const errors_len = o.pt.zcu.intern_pool.global_error_set.getNamesFromMainThread().len;
 
         var wip = try Builder.WipFunction.init(&o.builder, .{
             .function = llvm_fn.ptrConst(&o.builder).kind.function,
@@ -1385,13 +1385,14 @@ pub const Object = struct {
         var attributes = try function_index.ptrConst(&o.builder).attributes.toWip(&o.builder);
         defer attributes.deinit(&o.builder);
 
-        if (func.analysis(ip).is_noinline) {
+        const func_analysis = func.analysisUnordered(ip);
+        if (func_analysis.is_noinline) {
             try attributes.addFnAttr(.@"noinline", &o.builder);
         } else {
             _ = try attributes.removeFnAttr(.@"noinline");
         }
 
-        const stack_alignment = func.analysis(ip).stack_alignment;
+        const stack_alignment = func.analysisUnordered(ip).stack_alignment;
         if (stack_alignment != .none) {
             try attributes.addFnAttr(.{ .alignstack = stack_alignment.toLlvm() }, &o.builder);
             try attributes.addFnAttr(.@"noinline", &o.builder);
@@ -1399,7 +1400,7 @@ pub const Object = struct {
             _ = try attributes.removeFnAttr(.alignstack);
         }
 
-        if (func.analysis(ip).is_cold) {
+        if (func_analysis.is_cold) {
             try attributes.addFnAttr(.cold, &o.builder);
         } else {
             _ = try attributes.removeFnAttr(.cold);
@@ -1624,7 +1625,7 @@ pub const Object = struct {
                         llvm_arg_i += 1;
 
                         const alignment = param_ty.abiAlignment(pt).toLlvm();
-                        const arg_ptr = try buildAllocaInner(&wip, param_llvm_ty, alignment, target);
+                        const arg_ptr = try buildAllocaInner(&wip, param.typeOfWip(&wip), alignment, target);
                         _ = try wip.store(.normal, param, arg_ptr, alignment);
 
                         args.appendAssumeCapacity(if (isByRef(param_ty, pt))
@@ -2403,7 +2404,7 @@ pub const Object = struct {
                 defer gpa.free(name);
 
                 if (zcu.typeToPackedStruct(ty)) |struct_type| {
-                    const backing_int_ty = struct_type.backingIntType(ip).*;
+                    const backing_int_ty = struct_type.backingIntTypeUnordered(ip);
                     if (backing_int_ty != .none) {
                         const info = Type.fromInterned(backing_int_ty).intInfo(zcu);
                         const builder_name = try o.builder.metadataString(name);
@@ -2615,7 +2616,7 @@ pub const Object = struct {
                     if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(pt)) continue;
 
                     const field_size = Type.fromInterned(field_ty).abiSize(pt);
-                    const field_align: InternPool.Alignment = switch (union_type.flagsPtr(ip).layout) {
+                    const field_align: InternPool.Alignment = switch (union_type.flagsUnordered(ip).layout) {
                         .@"packed" => .none,
                         .auto, .@"extern" => pt.unionFieldNormalAlignment(union_type, @intCast(field_index)),
                     };
@@ -3303,7 +3304,7 @@ pub const Object = struct {
                     const struct_type = ip.loadStructType(t.toIntern());
 
                     if (struct_type.layout == .@"packed") {
-                        const int_ty = try o.lowerType(Type.fromInterned(struct_type.backingIntType(ip).*));
+                        const int_ty = try o.lowerType(Type.fromInterned(struct_type.backingIntTypeUnordered(ip)));
                         try o.type_map.put(o.gpa, t.toIntern(), int_ty);
                         return int_ty;
                     }
@@ -3346,7 +3347,7 @@ pub const Object = struct {
                             // This is a zero-bit field. If there are runtime bits after this field,
                             // map to the next LLVM field (which we know exists): otherwise, don't
                             // map the field, indicating it's at the end of the struct.
-                            if (offset != struct_type.size(ip).*) {
+                            if (offset != struct_type.sizeUnordered(ip)) {
                                 try o.struct_field_map.put(o.gpa, .{
                                     .struct_ty = t.toIntern(),
                                     .field_index = field_index,
@@ -3450,7 +3451,7 @@ pub const Object = struct {
                     const union_obj = ip.loadUnionType(t.toIntern());
                     const layout = pt.getUnionLayout(union_obj);
 
-                    if (union_obj.flagsPtr(ip).layout == .@"packed") {
+                    if (union_obj.flagsUnordered(ip).layout == .@"packed") {
                         const int_ty = try o.builder.intType(@intCast(t.bitSize(pt)));
                         try o.type_map.put(o.gpa, t.toIntern(), int_ty);
                         return int_ty;
@@ -3697,7 +3698,7 @@ pub const Object = struct {
                 if (layout.payload_size == 0) return o.lowerValue(un.tag);
 
                 const union_obj = mod.typeToUnion(ty).?;
-                const container_layout = union_obj.getLayout(ip);
+                const container_layout = union_obj.flagsUnordered(ip).layout;
 
                 assert(container_layout == .@"packed");
 
@@ -4205,7 +4206,7 @@ pub const Object = struct {
                 if (layout.payload_size == 0) return o.lowerValue(un.tag);
 
                 const union_obj = mod.typeToUnion(ty).?;
-                const container_layout = union_obj.getLayout(ip);
+                const container_layout = union_obj.flagsUnordered(ip).layout;
 
                 var need_unnamed = false;
                 const payload = if (un.tag != .none) p: {
@@ -10045,7 +10046,7 @@ pub const FuncGen = struct {
             },
             .Struct => {
                 if (mod.typeToPackedStruct(result_ty)) |struct_type| {
-                    const backing_int_ty = struct_type.backingIntType(ip).*;
+                    const backing_int_ty = struct_type.backingIntTypeUnordered(ip);
                     assert(backing_int_ty != .none);
                     const big_bits = Type.fromInterned(backing_int_ty).bitSize(pt);
                     const int_ty = try o.builder.intType(@intCast(big_bits));
@@ -10155,7 +10156,7 @@ pub const FuncGen = struct {
         const layout = union_ty.unionGetLayout(pt);
         const union_obj = mod.typeToUnion(union_ty).?;
 
-        if (union_obj.getLayout(ip) == .@"packed") {
+        if (union_obj.flagsUnordered(ip).layout == .@"packed") {
             const big_bits = union_ty.bitSize(pt);
             const int_llvm_ty = try o.builder.intType(@intCast(big_bits));
             const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[extra.field_index]);
@@ -11281,7 +11282,7 @@ fn lowerSystemVFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.E
             .struct_type => {
                 const struct_type = ip.loadStructType(return_type.toIntern());
                 assert(struct_type.haveLayout(ip));
-                const size: u64 = struct_type.size(ip).*;
+                const size: u64 = struct_type.sizeUnordered(ip);
                 assert((std.math.divCeil(u64, size, 8) catch unreachable) == types_index);
                 if (size % 8 > 0) {
                     types_buffer[types_index - 1] = try o.builder.intType(@intCast(size % 8 * 8));
@@ -11587,7 +11588,7 @@ const ParamTypeIterator = struct {
                 .struct_type => {
                     const struct_type = ip.loadStructType(ty.toIntern());
                     assert(struct_type.haveLayout(ip));
-                    const size: u64 = struct_type.size(ip).*;
+                    const size: u64 = struct_type.sizeUnordered(ip);
                     assert((std.math.divCeil(u64, size, 8) catch unreachable) == types_index);
                     if (size % 8 > 0) {
                         types_buffer[types_index - 1] =

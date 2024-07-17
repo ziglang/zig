@@ -6912,7 +6912,7 @@ pub fn fsync(fd: fd_t) SyncError!void {
     if (native_os == .windows) {
         if (windows.kernel32.FlushFileBuffers(fd) != 0)
             return;
-        switch (windows.kernel32.GetLastError()) {
+        switch (windows.GetLastError()) {
             .SUCCESS => return,
             .INVALID_HANDLE => unreachable,
             .ACCESS_DENIED => return error.AccessDenied, // a sync was performed but the system couldn't update the access time

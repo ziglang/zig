@@ -55,8 +55,8 @@ pub fn create(owner: *std.Build, options: Options) *InstallDir {
     return install_dir;
 }
 
-fn make(step: *Step, prog_node: std.Progress.Node) !void {
-    _ = prog_node;
+fn make(step: *Step, options: Step.MakeOptions) !void {
+    _ = options;
     const b = step.owner;
     const install_dir: *InstallDir = @fieldParentPtr("step", step);
     step.clearWatchInputs();

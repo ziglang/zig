@@ -856,7 +856,7 @@ pub fn generate(
         @intFromEnum(FrameIndex.stack_frame),
         FrameAlloc.init(.{
             .size = 0,
-            .alignment = func.analysis(ip).stack_alignment.max(.@"1"),
+            .alignment = func.analysisUnordered(ip).stack_alignment.max(.@"1"),
         }),
     );
     function.frame_allocs.set(
@@ -17975,8 +17975,8 @@ fn airShuffle(self: *Self, inst: Air.Inst.Index) !void {
 
         break :result null;
     }) orelse return self.fail("TODO implement airShuffle from {} and {} to {} with {}", .{
-        lhs_ty.fmt(pt),                                    rhs_ty.fmt(pt), dst_ty.fmt(pt),
-        Value.fromInterned(extra.mask).fmtValue(pt, null),
+        lhs_ty.fmt(pt),                              rhs_ty.fmt(pt), dst_ty.fmt(pt),
+        Value.fromInterned(extra.mask).fmtValue(pt),
     });
     return self.finishAir(inst, result, .{ extra.a, extra.b, .none });
 }

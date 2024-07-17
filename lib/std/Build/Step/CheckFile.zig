@@ -46,8 +46,8 @@ pub fn setName(check_file: *CheckFile, name: []const u8) void {
     check_file.step.name = name;
 }
 
-fn make(step: *Step, prog_node: std.Progress.Node) !void {
-    _ = prog_node;
+fn make(step: *Step, options: Step.MakeOptions) !void {
+    _ = options;
     const b = step.owner;
     const check_file: *CheckFile = @fieldParentPtr("step", step);
     try step.singleUnchangingWatchInput(check_file.source);

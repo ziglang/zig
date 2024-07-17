@@ -957,7 +957,7 @@ const Writer = struct {
             const ty = Type.fromInterned(pt.zcu.intern_pool.indexToKey(ip_index).typeOf());
             try s.print("<{}, {}>", .{
                 ty.fmt(pt),
-                Value.fromInterned(ip_index).fmtValue(pt, null),
+                Value.fromInterned(ip_index).fmtValue(pt),
             });
         } else {
             return w.writeInstIndex(s, operand.toIndex().?, dies);

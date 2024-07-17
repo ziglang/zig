@@ -164,8 +164,8 @@ fn putValue(config_header: *ConfigHeader, field_name: []const u8, comptime T: ty
     }
 }
 
-fn make(step: *Step, prog_node: std.Progress.Node) !void {
-    _ = prog_node;
+fn make(step: *Step, options: Step.MakeOptions) !void {
+    _ = options;
     const b = step.owner;
     const config_header: *ConfigHeader = @fieldParentPtr("step", step);
     if (config_header.style.getPath()) |lp| try step.singleUnchangingWatchInput(lp);

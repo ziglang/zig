@@ -188,7 +188,7 @@ pub fn generateSymbol(
     const target = mod.getTarget();
     const endian = target.cpu.arch.endian();
 
-    log.debug("generateSymbol: val = {}", .{val.fmtValue(pt, null)});
+    log.debug("generateSymbol: val = {}", .{val.fmtValue(pt)});
 
     if (val.isUndefDeep(mod)) {
         const abi_size = math.cast(usize, ty.abiSize(pt)) orelse return error.Overflow;
@@ -548,8 +548,8 @@ pub fn generateSymbol(
                             }
                         }
 
-                        const size = struct_type.size(ip).*;
-                        const alignment = struct_type.flagsPtr(ip).alignment.toByteUnits().?;
+                        const size = struct_type.sizeUnordered(ip);
+                        const alignment = struct_type.flagsUnordered(ip).alignment.toByteUnits().?;
 
                         const padding = math.cast(
                             usize,
@@ -838,7 +838,7 @@ fn genDeclRef(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const ty = val.typeOf(zcu);
-    log.debug("genDeclRef: val = {}", .{val.fmtValue(pt, null)});
+    log.debug("genDeclRef: val = {}", .{val.fmtValue(pt)});
 
     const ptr_decl = zcu.declPtr(ptr_decl_index);
     const namespace = zcu.namespacePtr(ptr_decl.src_namespace);
@@ -943,7 +943,7 @@ fn genUnnamedConst(
     owner_decl_index: InternPool.DeclIndex,
 ) CodeGenError!GenResult {
     const gpa = lf.comp.gpa;
-    log.debug("genUnnamedConst: val = {}", .{val.fmtValue(pt, null)});
+    log.debug("genUnnamedConst: val = {}", .{val.fmtValue(pt)});
 
     const local_sym_index = lf.lowerUnnamedConst(pt, val, owner_decl_index) catch |err| {
         return GenResult.fail(gpa, src_loc, "lowering unnamed constant failed: {s}", .{@errorName(err)});
@@ -985,10 +985,11 @@ pub fn genTypedValue(
     const ip = &zcu.intern_pool;
     const ty = val.typeOf(zcu);
 
-    log.debug("genTypedValue: val = {}", .{val.fmtValue(pt, null)});
+    log.debug("genTypedValue: val = {}", .{val.fmtValue(pt)});
 
-    if (val.isUndef(zcu))
+    if (val.isUndef(zcu)) {
         return GenResult.mcv(.undef);
+    }
 
     const owner_decl = zcu.declPtr(owner_decl_index);
     const namespace = zcu.namespacePtr(owner_decl.src_namespace);

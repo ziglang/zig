@@ -501,8 +501,8 @@ fn checkType(ty: Type, zcu: *Zcu) bool {
             .struct_type => {
                 const struct_obj = zcu.typeToStruct(ty).?;
                 return switch (struct_obj.layout) {
-                    .@"packed" => struct_obj.backingIntType(ip).* != .none,
-                    .auto, .@"extern" => struct_obj.flagsPtr(ip).fully_resolved,
+                    .@"packed" => struct_obj.backingIntTypeUnordered(ip) != .none,
+                    .auto, .@"extern" => struct_obj.flagsUnordered(ip).fully_resolved,
                 };
             },
             .anon_struct_type => |tuple| {
@@ -516,6 +516,6 @@ fn checkType(ty: Type, zcu: *Zcu) bool {
             },
             else => unreachable,
         },
-        .Union => return zcu.typeToUnion(ty).?.flagsPtr(ip).status == .fully_resolved,
+        .Union => return zcu.typeToUnion(ty).?.flagsUnordered(ip).status == .fully_resolved,
     };
 }

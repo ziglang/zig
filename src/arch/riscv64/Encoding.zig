@@ -2,35 +2,53 @@ mnemonic: Mnemonic,
 data: Data,
 
 const OpCode = enum(u7) {
-    OP = 0b0110011,
-    OP_IMM = 0b0010011,
-    OP_IMM_32 = 0b0011011,
-    OP_32 = 0b0111011,
-
-    BRANCH = 0b1100011,
     LOAD = 0b0000011,
-    STORE = 0b0100011,
-    SYSTEM = 0b1110011,
-
-    OP_FP = 0b1010011,
     LOAD_FP = 0b0000111,
-    STORE_FP = 0b0100111,
-
-    JALR = 0b1100111,
+    MISC_MEM = 0b0001111,
+    OP_IMM = 0b0010011,
     AUIPC = 0b0010111,
+    OP_IMM_32 = 0b0011011,
+    STORE = 0b0100011,
+    STORE_FP = 0b0100111,
+    AMO = 0b0101111,
+    OP_V = 0b1010111,
+    OP = 0b0110011,
+    OP_32 = 0b0111011,
     LUI = 0b0110111,
+    MADD = 0b1000011,
+    MSUB = 0b1000111,
+    NMSUB = 0b1001011,
+    NMADD = 0b1001111,
+    OP_FP = 0b1010011,
+    OP_IMM_64 = 0b1011011,
+    BRANCH = 0b1100011,
+    JALR = 0b1100111,
     JAL = 0b1101111,
-    NONE = 0b0000000,
+    SYSTEM = 0b1110011,
+    OP_64 = 0b1111011,
+    NONE = 0b00000000,
 };
 
-const Fmt = enum(u2) {
+const FpFmt = enum(u2) {
     /// 32-bit single-precision
     S = 0b00,
     /// 64-bit double-precision
     D = 0b01,
-    _reserved = 0b10,
+
+    // H = 0b10, unused in the G extension
+
     /// 128-bit quad-precision
     Q = 0b11,
+};
+
+const AmoWidth = enum(u3) {
+    W = 0b010,
+    D = 0b011,
+};
+
+const FenceMode = enum(u4) {
+    none = 0b0000,
+    tso = 0b1000,
 };
 
 const Enc = struct {
@@ -42,11 +60,19 @@ const Enc = struct {
             funct3: u3,
             funct7: u7,
         },
+        amo: struct {
+            funct5: u5,
+            width: AmoWidth,
+        },
+        fence: struct {
+            funct3: u3,
+            fm: FenceMode,
+        },
         /// funct5 + rm + fmt
         fmt: struct {
             funct5: u5,
             rm: u3,
-            fmt: Fmt,
+            fmt: FpFmt,
         },
         /// funct3
         f: struct {
@@ -58,9 +84,55 @@ const Enc = struct {
             funct3: u3,
             has_5: bool,
         },
+        vecls: struct {
+            width: VecWidth,
+            umop: Umop,
+            vm: bool,
+            mop: Mop,
+            mew: bool,
+            nf: u3,
+        },
+        vecmath: struct {
+            vm: bool,
+            funct6: u6,
+            funct3: VecType,
+        },
         /// U-type
         none,
     },
+
+    const Mop = enum(u2) {
+        unit = 0b00,
+        unord = 0b01,
+        stride = 0b10,
+        ord = 0b11,
+    };
+
+    const Umop = enum(u5) {
+        unit = 0b00000,
+        whole = 0b01000,
+        mask = 0b01011,
+        fault = 0b10000,
+    };
+
+    const VecWidth = enum(u3) {
+        // zig fmt: off
+        @"8"  = 0b000,
+        @"16" = 0b101,
+        @"32" = 0b110,
+        @"64" = 0b111,
+        // zig fmt: on
+    };
+
+    const VecType = enum(u3) {
+        OPIVV = 0b000,
+        OPFVV = 0b001,
+        OPMVV = 0b010,
+        OPIVI = 0b011,
+        OPIVX = 0b100,
+        OPFVF = 0b101,
+        OPMVX = 0b110,
+    };
 };
 
 pub const Mnemonic = enum {
@@ -89,6 +161,9 @@ pub const Mnemonic = enum {
 
     addi,
     jalr,
+
+    vsetivli,
+    vsetvli,
 
     // U Type
     lui,
@@ -129,6 +204,8 @@ pub const Mnemonic = enum {
     ecall,
     ebreak,
     unimp,
+
+    csrrs,
 
     // M extension
     mul,
@@ -191,6 +268,58 @@ pub const Mnemonic = enum {
 
     fsgnjnd,
     fsgnjxd,
+
+    // V Extension
+    vle8v,
+    vle16v,
+    vle32v,
+    vle64v,
+
+    vse8v,
+    vse16v,
+    vse32v,
+    vse64v,
+
+    vsoxei8v,
+
+    vaddvv,
+    vsubvv,
+
+    vfaddvv,
+    vfsubvv,
+
+    vadcvv,
+
+    vmvvx,
+
+    vslidedownvx,
+
+    // MISC
+    fence,
+    fencetso,
+
+    // AMO
+    amoswapw,
+    amoaddw,
+    amoandw,
+    amoorw,
+    amoxorw,
+    amomaxw,
+    amominw,
+    amomaxuw,
+    amominuw,
+
+    amoswapd,
+    amoaddd,
+    amoandd,
+    amoord,
+    amoxord,
+    amomaxd,
+    amomind,
+    amomaxud,
+    amominud,
+
+    // TODO: Q extension
 
     pub fn encoding(mnem: Mnemonic) Enc {
         return switch (mnem) {
@@ -322,14 +451,25 @@ pub const Mnemonic = enum {
             // LOAD_FP
 
             .flw     => .{ .opcode = .LOAD_FP, .data = .{ .f = .{ .funct3 = 0b010 } } },
-            .fld     => .{ .opcode = .LOAD_FP, .data = .{ .f = .{ .funct3 = 0b011 } } },
+            .fld     => .{ .opcode = .LOAD_FP, .data = .{ .f = .{ .funct3 = 0b011 } } },   
+    
+            .vle8v   => .{ .opcode = .LOAD_FP, .data = .{ .vecls = .{ .width = .@"8",  .umop = .unit, .vm = true, .mop = .unit, .mew = false, .nf = 0b000 } } },
+            .vle16v  => .{ .opcode = .LOAD_FP, .data = .{ .vecls = .{ .width = .@"16", .umop = .unit, .vm = true, .mop = .unit, .mew = false, .nf = 0b000 } } },
+            .vle32v  => .{ .opcode = .LOAD_FP, .data = .{ .vecls = .{ .width = .@"32", .umop = .unit, .vm = true, .mop = .unit, .mew = false, .nf = 0b000 } } },
+            .vle64v  => .{ .opcode = .LOAD_FP, .data = .{ .vecls = .{ .width = .@"64", .umop = .unit, .vm = true, .mop = .unit, .mew = false, .nf = 0b000 } } },
             
 
             // STORE_FP
 
-            .fsw     => .{ .opcode = .STORE_FP, .data = .{ .f = .{ .funct3 = 0b010 } } },
-            .fsd     => .{ .opcode = .STORE_FP, .data = .{ .f = .{ .funct3 = 0b011 } } },
+            .fsw        => .{ .opcode = .STORE_FP, .data = .{ .f = .{ .funct3 = 0b010 } } },
+            .fsd        => .{ .opcode = .STORE_FP, .data = .{ .f = .{ .funct3 = 0b011 } } },
 
+            .vse8v      => .{ .opcode = .STORE_FP, .data = .{ .vecls = .{ .width = .@"8",  .umop = .unit, .vm = true, .mop = .unit, .mew = false, .nf = 0b000 } } },
+            .vse16v     => .{ .opcode = .STORE_FP, .data = .{ .vecls = .{ .width = .@"16", .umop = .unit, .vm = true, .mop = .unit, .mew = false, .nf = 0b000 } } },
+            .vse32v     => .{ .opcode = .STORE_FP, .data = .{ .vecls = .{ .width = .@"32", .umop = .unit, .vm = true, .mop = .unit, .mew = false, .nf = 0b000 } } },
+            .vse64v     => .{ .opcode = .STORE_FP, .data = .{ .vecls = .{ .width = .@"64", .umop = .unit, .vm = true, .mop = .unit, .mew = false, .nf = 0b000 } } },
+
+            .vsoxei8v   => .{ .opcode = .STORE_FP, .data = .{ .vecls = .{ .width = .@"8", .umop = .unit, .vm = true, .mop = .ord,  .mew = false, .nf = 0b000 } } },
 
             // JALR
 
@@ -360,6 +500,8 @@ pub const Mnemonic = enum {
 
             .ecall   => .{ .opcode = .SYSTEM, .data = .{ .f = .{ .funct3 = 0b000 } } },
             .ebreak  => .{ .opcode = .SYSTEM, .data = .{ .f = .{ .funct3 = 0b000 } } },
+
+            .csrrs   => .{ .opcode = .SYSTEM, .data = .{ .f = .{ .funct3 = 0b010 } } },
            
 
             // NONE
@@ -367,6 +509,52 @@ pub const Mnemonic = enum {
             .unimp   => .{ .opcode = .NONE, .data = .{ .f = .{ .funct3 = 0b000 } } },
 
 
+            // MISC_MEM
+
+            .fence    => .{ .opcode = .MISC_MEM, .data = .{ .fence = .{ .funct3 = 0b000, .fm = .none } } },
+            .fencetso => .{ .opcode = .MISC_MEM, .data = .{ .fence = .{ .funct3 = 0b000, .fm = .tso  } } },
+
+
+            // AMO
+
+            .amoaddw   => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .W, .funct5 = 0b00000 } } },
+            .amoswapw  => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .W, .funct5 = 0b00001 } } },
+            // LR.W
+            // SC.W
+            .amoxorw   => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .W, .funct5 = 0b00100 } } },
+            .amoandw   => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .W, .funct5 = 0b01100 } } },
+            .amoorw    => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .W, .funct5 = 0b01000 } } },
+            .amominw   => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .W, .funct5 = 0b10000 } } },
+            .amomaxw   => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .W, .funct5 = 0b10100 } } },
+            .amominuw  => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .W, .funct5 = 0b11000 } } },
+            .amomaxuw  => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .W, .funct5 = 0b11100 } } },
+
+            .amoaddd   => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .D, .funct5 = 0b00000 } } },
+            .amoswapd  => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .D, .funct5 = 0b00001 } } },
+            // LR.D
+            // SC.D
+            .amoxord   => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .D, .funct5 = 0b00100 } } },
+            .amoandd   => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .D, .funct5 = 0b01100 } } },
+            .amoord    => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .D, .funct5 = 0b01000 } } },
+            .amomind   => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .D, .funct5 = 0b10000 } } },
+            .amomaxd   => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .D, .funct5 = 0b10100 } } },
+            .amominud  => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .D, .funct5 = 0b11000 } } },
+            .amomaxud  => .{ .opcode = .AMO, .data = .{ .amo = .{ .width = .D, .funct5 = 0b11100 } } },
+
+            // OP_V
+            .vsetivli       => .{ .opcode = .OP_V, .data = .{ .f = .{ .funct3 = 0b111 } } },
+            .vsetvli        => .{ .opcode = .OP_V, .data = .{ .f = .{ .funct3 = 0b111 } } },
+            .vaddvv         => .{ .opcode = .OP_V, .data = .{ .vecmath = .{ .vm = true, .funct6 = 0b000000, .funct3 = .OPIVV } } },
+            .vsubvv         => .{ .opcode = .OP_V, .data = .{ .vecmath = .{ .vm = true, .funct6 = 0b000010, .funct3 = .OPIVV } } },
+            
+            .vfaddvv         => .{ .opcode = .OP_V, .data = .{ .vecmath = .{ .vm = true, .funct6 = 0b000000, .funct3 = .OPFVV } } },
+            .vfsubvv         => .{ .opcode = .OP_V, .data = .{ .vecmath = .{ .vm = true, .funct6 = 0b000010, .funct3 = .OPFVV } } },
+            
+            .vadcvv         => .{ .opcode = .OP_V, .data = .{ .vecmath = .{ .vm = true, .funct6 = 0b010000, .funct3 = .OPMVV } } },
+            .vmvvx          => .{ .opcode = .OP_V, .data = .{ .vecmath = .{ .vm = true, .funct6 = 0b010111, .funct3 = .OPIVX } } },
+
+            .vslidedownvx   => .{ .opcode = .OP_V, .data = .{ .vecmath = .{ .vm = true, .funct6 = 0b001111, .funct3 = .OPIVX } } },
+            
             // zig fmt: on
         };
     }
@@ -380,8 +568,8 @@ pub const InstEnc = enum {
     B,
     U,
     J,
-
-    /// extras that have unusual op counts
+    fence,
+    amo,
     system,
 
     pub fn fromMnemonic(mnem: Mnemonic) InstEnc {
@@ -410,6 +598,10 @@ pub const InstEnc = enum {
 
             .flw,
             .fld,
+
+            .csrrs,
+            .vsetivli,
+            .vsetvli,
             => .I,
 
             .lui,
@@ -503,26 +695,73 @@ pub const InstEnc = enum {
 
             .fsgnjxs,
             .fsgnjxd,
+
+            .vle8v,
+            .vle16v,
+            .vle32v,
+            .vle64v,
+
+            .vse8v,
+            .vse16v,
+            .vse32v,
+            .vse64v,
+
+            .vsoxei8v,
+
+            .vaddvv,
+            .vsubvv,
+            .vfaddvv,
+            .vfsubvv,
+            .vadcvv,
+            .vmvvx,
+            .vslidedownvx,
             => .R,
 
             .ecall,
             .ebreak,
             .unimp,
             => .system,
+
+            .fence,
+            .fencetso,
+            => .fence,
+
+            .amoswapw,
+            .amoaddw,
+            .amoandw,
+            .amoorw,
+            .amoxorw,
+            .amomaxw,
+            .amominw,
+            .amomaxuw,
+            .amominuw,
+
+            .amoswapd,
+            .amoaddd,
+            .amoandd,
+            .amoord,
+            .amoxord,
+            .amomaxd,
+            .amomind,
+            .amomaxud,
+            .amominud,
+            => .amo,
         };
     }
 
-    pub fn opsList(enc: InstEnc) [4]std.meta.FieldEnum(Operand) {
+    pub fn opsList(enc: InstEnc) [5]std.meta.FieldEnum(Operand) {
         return switch (enc) {
             // zig fmt: off
-            .R      => .{ .reg,  .reg,  .reg,  .none },
-            .R4     => .{ .reg,  .reg,  .reg,  .reg  },  
-            .I      => .{ .reg,  .reg,  .imm,  .none },
-            .S      => .{ .reg,  .reg,  .imm,  .none },
-            .B      => .{ .reg,  .reg,  .imm,  .none },
-            .U      => .{ .reg,  .imm,  .none, .none },
-            .J      => .{ .reg,  .imm,  .none, .none },
-            .system => .{ .none, .none, .none, .none },
+            .R      => .{ .reg,     .reg,     .reg,  .none,    .none,   },
+            .R4     => .{ .reg,     .reg,     .reg,  .reg,     .none,   },  
+            .I      => .{ .reg,     .reg,     .imm,  .none,    .none,   },
+            .S      => .{ .reg,     .reg,     .imm,  .none,    .none,   },
+            .B      => .{ .reg,     .reg,     .imm,  .none,    .none,   },
+            .U      => .{ .reg,     .imm,     .none, .none,    .none,   },
+            .J      => .{ .reg,     .imm,     .none, .none,    .none,   },
+            .system => .{ .none,    .none,    .none, .none,    .none,   },
+            .fence  => .{ .barrier, .barrier, .none, .none,    .none,   },
+            .amo    => .{ .reg,     .reg,     .reg,  .barrier, .barrier },
             // zig fmt: on
         };
     }
@@ -584,20 +823,38 @@ pub const Data = union(InstEnc) {
         imm1_10: u10,
         imm20: u1,
     },
-    system: void,
+    fence: packed struct {
+        opcode: u7,
+        rd: u5 = 0,
+        funct3: u3,
+        rs1: u5 = 0,
+        succ: u4,
+        pred: u4,
+        fm: u4,
+    },
+    amo: packed struct {
+        opcode: u7,
+        rd: u5,
+        funct3: u3,
+        rs1: u5,
+        rs2: u5,
+        rl: bool,
+        aq: bool,
+        funct5: u5,
+    },
+    system: u32,
+
+    comptime {
+        for (std.meta.fields(Data)) |field| {
+            assert(@bitSizeOf(field.type) == 32);
+        }
+    }
 
     pub fn toU32(self: Data) u32 {
         return switch (self) {
-            // zig fmt: off
-            .R  => |v| @bitCast(v),
-            .R4 => |v| @bitCast(v),
-            .I  => |v| @bitCast(v),
-            .S  => |v| @bitCast(v),
-            .B  => |v| @as(u32, @intCast(v.opcode)) + (@as(u32, @intCast(v.imm11)) << 7) + (@as(u32, @intCast(v.imm1_4)) << 8) + (@as(u32, @intCast(v.funct3)) << 12) + (@as(u32, @intCast(v.rs1)) << 15) + (@as(u32, @intCast(v.rs2)) << 20) + (@as(u32, @intCast(v.imm5_10)) << 25) + (@as(u32, @intCast(v.imm12)) << 31),
-            .U  => |v| @bitCast(v),
-            .J  => |v| @bitCast(v),
+            .fence => |v| @as(u32, @intCast(v.opcode)) + (@as(u32, @intCast(v.rd)) << 7) + (@as(u32, @intCast(v.funct3)) << 12) + (@as(u32, @intCast(v.rs1)) << 15) + (@as(u32, @intCast(v.succ)) << 20) + (@as(u32, @intCast(v.pred)) << 24) + (@as(u32, @intCast(v.fm)) << 28),
+            inline else => |v| @bitCast(v),
             .system => unreachable,
-            // zig fmt: on
         };
     }
 
@@ -622,6 +879,25 @@ pub const Data = union(InstEnc) {
                             .unimp => 0x000,
                             else => unreachable,
                         },
+
+                        .opcode = @intFromEnum(enc.opcode),
+                        .funct3 = enc.data.f.funct3,
+                    },
+                };
+            },
+            .csrrs => {
+                assert(ops.len == 3);
+
+                const csr = ops[0].csr;
+                const rs1 = ops[1].reg;
+                const rd = ops[2].reg;
+
+                return .{
+                    .I = .{
+                        .rd = rd.encodeId(),
+                        .rs1 = rs1.encodeId(),
+
+                        .imm0_11 = @intFromEnum(csr),
 
                         .opcode = @intFromEnum(enc.opcode),
                         .funct3 = enc.data.f.funct3,
@@ -653,6 +929,25 @@ pub const Data = union(InstEnc) {
                             .opcode = @intFromEnum(enc.opcode),
                             .funct3 = fmt.rm,
                             .funct7 = (@as(u7, fmt.funct5) << 2) | @intFromEnum(fmt.fmt),
+                        },
+                        .vecls => |vec| .{
+                            .rd = ops[0].reg.encodeId(),
+                            .rs1 = ops[1].reg.encodeId(),
+
+                            .rs2 = @intFromEnum(vec.umop),
+
+                            .opcode = @intFromEnum(enc.opcode),
+                            .funct3 = @intFromEnum(vec.width),
+                            .funct7 = (@as(u7, vec.nf) << 4) | (@as(u7, @intFromBool(vec.mew)) << 3) | (@as(u7, @intFromEnum(vec.mop)) << 1) | @intFromBool(vec.vm),
+                        },
+                        .vecmath => |vec| .{
+                            .rd = ops[0].reg.encodeId(),
+                            .rs1 = ops[1].reg.encodeId(),
+                            .rs2 = ops[2].reg.encodeId(),
+
+                            .opcode = @intFromEnum(enc.opcode),
+                            .funct3 = @intFromEnum(vec.funct3),
+                            .funct7 = (@as(u7, vec.funct6) << 1) | @intFromBool(vec.vm),
                         },
                         else => unreachable,
                     },
@@ -748,7 +1043,48 @@ pub const Data = union(InstEnc) {
                     },
                 };
             },
+            .fence => {
+                assert(ops.len == 2);
 
+                const succ = ops[0].barrier;
+                const pred = ops[1].barrier;
+
+                return .{
+                    .fence = .{
+                        .succ = @intFromEnum(succ),
+                        .pred = @intFromEnum(pred),
+
+                        .opcode = @intFromEnum(enc.opcode),
+                        .funct3 = enc.data.fence.funct3,
+                        .fm = @intFromEnum(enc.data.fence.fm),
+                    },
+                };
+            },
+            .amo => {
+                assert(ops.len == 5);
+
+                const rd = ops[0].reg;
+                const rs1 = ops[1].reg;
+                const rs2 = ops[2].reg;
+                const rl = ops[3].barrier;
+                const aq = ops[4].barrier;
+
+                return .{
+                    .amo = .{
+                        .rd = rd.encodeId(),
+                        .rs1 = rs1.encodeId(),
+                        .rs2 = rs2.encodeId(),
+
+                        // TODO: https://github.com/ziglang/zig/issues/20113
+                        .rl = if (rl == .rl) true else false,
+                        .aq = if (aq == .aq) true else false,
+
+                        .opcode = @intFromEnum(enc.opcode),
+                        .funct3 = @intFromEnum(enc.data.amo.width),
+                        .funct5 = enc.data.amo.funct5,
+                    },
+                };
+            },
             else => std.debug.panic("TODO: construct {s}", .{@tagName(inst_enc)}),
         }
     }

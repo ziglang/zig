@@ -194,8 +194,8 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
 
             if (info.sentinel != .none) switch (info.flags.size) {
                 .One, .C => unreachable,
-                .Many => try writer.print("[*:{}]", .{Value.fromInterned(info.sentinel).fmtValue(pt, null)}),
-                .Slice => try writer.print("[:{}]", .{Value.fromInterned(info.sentinel).fmtValue(pt, null)}),
+                .Many => try writer.print("[*:{}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
+                .Slice => try writer.print("[:{}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
             } else switch (info.flags.size) {
                 .One => try writer.writeAll("*"),
                 .Many => try writer.writeAll("[*]"),
@@ -241,7 +241,7 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
             } else {
                 try writer.print("[{d}:{}]", .{
                     array_type.len,
-                    Value.fromInterned(array_type.sentinel).fmtValue(pt, null),
+                    Value.fromInterned(array_type.sentinel).fmtValue(pt),
                 });
                 try print(Type.fromInterned(array_type.child), writer, pt);
             }
@@ -359,7 +359,7 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
                 try print(Type.fromInterned(field_ty), writer, pt);
 
                 if (val != .none) {
-                    try writer.print(" = {}", .{Value.fromInterned(val).fmtValue(pt, null)});
+                    try writer.print(" = {}", .{Value.fromInterned(val).fmtValue(pt)});
                 }
             }
             try writer.writeAll("}");
@@ -478,7 +478,7 @@ pub fn hasRuntimeBitsAdvanced(
     ty: Type,
     pt: Zcu.PerThread,
     ignore_comptime_only: bool,
-    strat: ResolveStratLazy,
+    comptime strat: ResolveStratLazy,
 ) RuntimeBitsError!bool {
     const mod = pt.zcu;
     const ip = &mod.intern_pool;
@@ -605,17 +605,15 @@ pub fn hasRuntimeBitsAdvanced(
 
             .union_type => {
                 const union_type = ip.loadUnionType(ty.toIntern());
-                switch (union_type.flagsPtr(ip).runtime_tag) {
+                const union_flags = union_type.flagsUnordered(ip);
+                switch (union_flags.runtime_tag) {
                     .none => {
-                        if (union_type.flagsPtr(ip).status == .field_types_wip) {
-                            // In this case, we guess that hasRuntimeBits() for this type is true,
-                            // and then later if our guess was incorrect, we emit a compile error.
-                            union_type.flagsPtr(ip).assumed_runtime_bits = true;
-                            return true;
-                        }
+                        // In this case, we guess that hasRuntimeBits() for this type is true,
+                        // and then later if our guess was incorrect, we emit a compile error.
+                        if (union_type.assumeRuntimeBitsIfFieldTypesWip(ip)) return true;
                     },
                     .safety, .tagged => {
-                        const tag_ty = union_type.tagTypePtr(ip).*;
+                        const tag_ty = union_type.tagTypeUnordered(ip);
                         // tag_ty will be `none` if this union's tag type is not resolved yet,
                         // in which case we want control flow to continue down below.
                         if (tag_ty != .none and
@@ -627,8 +625,8 @@ pub fn hasRuntimeBitsAdvanced(
                 }
                 switch (strat) {
                     .sema => try ty.resolveFields(pt),
-                    .eager => assert(union_type.flagsPtr(ip).status.haveFieldTypes()),
-                    .lazy => if (!union_type.flagsPtr(ip).status.haveFieldTypes())
+                    .eager => assert(union_flags.status.haveFieldTypes()),
+                    .lazy => if (!union_flags.status.haveFieldTypes())
                         return error.NeedLazy,
                 }
                 for (0..union_type.field_types.len) |field_index| {
@@ -745,8 +743,8 @@ pub fn hasWellDefinedLayout(ty: Type, mod: *Module) bool {
         },
         .union_type => {
             const union_type = ip.loadUnionType(ty.toIntern());
-            return switch (union_type.flagsPtr(ip).runtime_tag) {
-                .none, .safety => union_type.flagsPtr(ip).layout != .auto,
+            return switch (union_type.flagsUnordered(ip).runtime_tag) {
+                .none, .safety => union_type.flagsUnordered(ip).layout != .auto,
                 .tagged => false,
             };
         },
@@ -794,7 +792,7 @@ pub fn fnHasRuntimeBits(ty: Type, pt: Zcu.PerThread) bool {
 /// Determines whether a function type has runtime bits, i.e. whether a
 /// function with this type can exist at runtime.
 /// Asserts that `ty` is a function type.
-pub fn fnHasRuntimeBitsAdvanced(ty: Type, pt: Zcu.PerThread, strat: ResolveStrat) SemaError!bool {
+pub fn fnHasRuntimeBitsAdvanced(ty: Type, pt: Zcu.PerThread, comptime strat: ResolveStrat) SemaError!bool {
     const fn_info = pt.zcu.typeToFunc(ty).?;
     if (fn_info.is_generic) return false;
     if (fn_info.is_var_args) return true;
@@ -826,7 +824,7 @@ pub fn ptrAlignment(ty: Type, pt: Zcu.PerThread) Alignment {
     return ptrAlignmentAdvanced(ty, pt, .normal) catch unreachable;
 }
 
-pub fn ptrAlignmentAdvanced(ty: Type, pt: Zcu.PerThread, strat: ResolveStrat) !Alignment {
+pub fn ptrAlignmentAdvanced(ty: Type, pt: Zcu.PerThread, comptime strat: ResolveStrat) !Alignment {
     return switch (pt.zcu.intern_pool.indexToKey(ty.toIntern())) {
         .ptr_type => |ptr_type| {
             if (ptr_type.flags.alignment != .none)
@@ -893,7 +891,7 @@ pub const ResolveStrat = enum {
     /// This should typically be used from semantic analysis.
     sema,
 
-    pub fn toLazy(strat: ResolveStrat) ResolveStratLazy {
+    pub inline fn toLazy(strat: ResolveStrat) ResolveStratLazy {
         return switch (strat) {
             .normal => .eager,
             .sema => .sema,
@@ -910,7 +908,7 @@ pub const ResolveStrat = enum {
 pub fn abiAlignmentAdvanced(
     ty: Type,
     pt: Zcu.PerThread,
-    strat: ResolveStratLazy,
+    comptime strat: ResolveStratLazy,
 ) SemaError!AbiAlignmentAdvanced {
     const mod = pt.zcu;
     const target = mod.getTarget();
@@ -934,7 +932,9 @@ pub fn abiAlignmentAdvanced(
                 if (vector_type.len == 0) return .{ .scalar = .@"1" };
                 switch (mod.comp.getZigBackend()) {
                     else => {
-                        const elem_bits: u32 = @intCast(try Type.fromInterned(vector_type.child).bitSizeAdvanced(pt, .sema));
+                        // This is fine because the child type of a vector always has a bit-size known
+                        // without needing any type resolution.
+                        const elem_bits: u32 = @intCast(Type.fromInterned(vector_type.child).bitSize(pt));
                         if (elem_bits == 0) return .{ .scalar = .@"1" };
                         const bytes = ((elem_bits * vector_type.len) + 7) / 8;
                         const alignment = std.math.ceilPowerOfTwoAssert(u32, bytes);
@@ -1045,7 +1045,7 @@ pub fn abiAlignmentAdvanced(
                 if (struct_type.layout == .@"packed") {
                     switch (strat) {
                         .sema => try ty.resolveLayout(pt),
-                        .lazy => if (struct_type.backingIntType(ip).* == .none) return .{
+                        .lazy => if (struct_type.backingIntTypeUnordered(ip) == .none) return .{
                             .val = Value.fromInterned(try pt.intern(.{ .int = .{
                                 .ty = .comptime_int_type,
                                 .storage = .{ .lazy_align = ty.toIntern() },
@@ -1053,10 +1053,10 @@ pub fn abiAlignmentAdvanced(
                         },
                         .eager => {},
                     }
-                    return .{ .scalar = Type.fromInterned(struct_type.backingIntType(ip).*).abiAlignment(pt) };
+                    return .{ .scalar = Type.fromInterned(struct_type.backingIntTypeUnordered(ip)).abiAlignment(pt) };
                 }
 
-                if (struct_type.flagsPtr(ip).alignment == .none) switch (strat) {
+                if (struct_type.flagsUnordered(ip).alignment == .none) switch (strat) {
                     .eager => unreachable, // struct alignment not resolved
                     .sema => try ty.resolveStructAlignment(pt),
                     .lazy => return .{ .val = Value.fromInterned(try pt.intern(.{ .int = .{
@@ -1065,7 +1065,7 @@ pub fn abiAlignmentAdvanced(
                     } })) },
                 };
 
-                return .{ .scalar = struct_type.flagsPtr(ip).alignment };
+                return .{ .scalar = struct_type.flagsUnordered(ip).alignment };
             },
             .anon_struct_type => |tuple| {
                 var big_align: Alignment = .@"1";
@@ -1088,7 +1088,7 @@ pub fn abiAlignmentAdvanced(
             .union_type => {
                 const union_type = ip.loadUnionType(ty.toIntern());
 
-                if (union_type.flagsPtr(ip).alignment == .none) switch (strat) {
+                if (union_type.flagsUnordered(ip).alignment == .none) switch (strat) {
                     .eager => unreachable, // union layout not resolved
                     .sema => try ty.resolveUnionAlignment(pt),
                     .lazy => return .{ .val = Value.fromInterned(try pt.intern(.{ .int = .{
@@ -1097,7 +1097,7 @@ pub fn abiAlignmentAdvanced(
                     } })) },
                 };
 
-                return .{ .scalar = union_type.flagsPtr(ip).alignment };
+                return .{ .scalar = union_type.flagsUnordered(ip).alignment };
             },
             .opaque_type => return .{ .scalar = .@"1" },
             .enum_type => return .{
@@ -1132,7 +1132,7 @@ pub fn abiAlignmentAdvanced(
 fn abiAlignmentAdvancedErrorUnion(
     ty: Type,
     pt: Zcu.PerThread,
-    strat: ResolveStratLazy,
+    comptime strat: ResolveStratLazy,
     payload_ty: Type,
 ) SemaError!AbiAlignmentAdvanced {
     // This code needs to be kept in sync with the equivalent switch prong
@@ -1169,7 +1169,7 @@ fn abiAlignmentAdvancedErrorUnion(
 fn abiAlignmentAdvancedOptional(
     ty: Type,
     pt: Zcu.PerThread,
-    strat: ResolveStratLazy,
+    comptime strat: ResolveStratLazy,
 ) SemaError!AbiAlignmentAdvanced {
     const mod = pt.zcu;
     const target = mod.getTarget();
@@ -1233,7 +1233,7 @@ const AbiSizeAdvanced = union(enum) {
 pub fn abiSizeAdvanced(
     ty: Type,
     pt: Zcu.PerThread,
-    strat: ResolveStratLazy,
+    comptime strat: ResolveStratLazy,
 ) SemaError!AbiSizeAdvanced {
     const mod = pt.zcu;
     const target = mod.getTarget();
@@ -1420,7 +1420,7 @@ pub fn abiSizeAdvanced(
                     .sema => try ty.resolveLayout(pt),
                     .lazy => switch (struct_type.layout) {
                         .@"packed" => {
-                            if (struct_type.backingIntType(ip).* == .none) return .{
+                            if (struct_type.backingIntTypeUnordered(ip) == .none) return .{
                                 .val = Value.fromInterned(try pt.intern(.{ .int = .{
                                     .ty = .comptime_int_type,
                                     .storage = .{ .lazy_size = ty.toIntern() },
@@ -1440,11 +1440,11 @@ pub fn abiSizeAdvanced(
                 }
                 switch (struct_type.layout) {
                     .@"packed" => return .{
-                        .scalar = Type.fromInterned(struct_type.backingIntType(ip).*).abiSize(pt),
+                        .scalar = Type.fromInterned(struct_type.backingIntTypeUnordered(ip)).abiSize(pt),
                     },
                     .auto, .@"extern" => {
                         assert(struct_type.haveLayout(ip));
-                        return .{ .scalar = struct_type.size(ip).* };
+                        return .{ .scalar = struct_type.sizeUnordered(ip) };
                     },
                 }
             },
@@ -1464,7 +1464,7 @@ pub fn abiSizeAdvanced(
                 const union_type = ip.loadUnionType(ty.toIntern());
                 switch (strat) {
                     .sema => try ty.resolveLayout(pt),
-                    .lazy => if (!union_type.flagsPtr(ip).status.haveLayout()) return .{
+                    .lazy => if (!union_type.flagsUnordered(ip).status.haveLayout()) return .{
                         .val = Value.fromInterned(try pt.intern(.{ .int = .{
                             .ty = .comptime_int_type,
                             .storage = .{ .lazy_size = ty.toIntern() },
@@ -1474,7 +1474,7 @@ pub fn abiSizeAdvanced(
                 }
 
                 assert(union_type.haveLayout(ip));
-                return .{ .scalar = union_type.size(ip).* };
+                return .{ .scalar = union_type.sizeUnordered(ip) };
             },
             .opaque_type => unreachable, // no size available
             .enum_type => return .{ .scalar = Type.fromInterned(ip.loadEnumType(ty.toIntern()).tag_ty).abiSize(pt) },
@@ -1507,7 +1507,7 @@ pub fn abiSizeAdvanced(
 fn abiSizeAdvancedOptional(
     ty: Type,
     pt: Zcu.PerThread,
-    strat: ResolveStratLazy,
+    comptime strat: ResolveStratLazy,
 ) SemaError!AbiSizeAdvanced {
     const mod = pt.zcu;
     const child_ty = ty.optionalChild(mod);
@@ -1682,7 +1682,7 @@ pub fn bitSize(ty: Type, pt: Zcu.PerThread) u64 {
 pub fn bitSizeAdvanced(
     ty: Type,
     pt: Zcu.PerThread,
-    strat: ResolveStrat,
+    comptime strat: ResolveStrat,
 ) SemaError!u64 {
     const mod = pt.zcu;
     const target = mod.getTarget();
@@ -1788,7 +1788,7 @@ pub fn bitSizeAdvanced(
                 if (is_packed) try ty.resolveLayout(pt);
             }
             if (is_packed) {
-                return try Type.fromInterned(struct_type.backingIntType(ip).*).bitSizeAdvanced(pt, strat);
+                return try Type.fromInterned(struct_type.backingIntTypeUnordered(ip)).bitSizeAdvanced(pt, strat);
             }
             return (try ty.abiSizeAdvanced(pt, strat_lazy)).scalar * 8;
         },
@@ -1808,7 +1808,7 @@ pub fn bitSizeAdvanced(
             if (!is_packed) {
                 return (try ty.abiSizeAdvanced(pt, strat_lazy)).scalar * 8;
             }
-            assert(union_type.flagsPtr(ip).status.haveFieldTypes());
+            assert(union_type.flagsUnordered(ip).status.haveFieldTypes());
 
             var size: u64 = 0;
             for (0..union_type.field_types.len) |field_index| {
@@ -2056,9 +2056,10 @@ pub fn unionTagType(ty: Type, mod: *Module) ?Type {
         else => return null,
     }
     const union_type = ip.loadUnionType(ty.toIntern());
-    switch (union_type.flagsPtr(ip).runtime_tag) {
+    const union_flags = union_type.flagsUnordered(ip);
+    switch (union_flags.runtime_tag) {
         .tagged => {
-            assert(union_type.flagsPtr(ip).status.haveFieldTypes());
+            assert(union_flags.status.haveFieldTypes());
             return Type.fromInterned(union_type.enum_tag_ty);
         },
         else => return null,
@@ -2135,7 +2136,7 @@ pub fn containerLayout(ty: Type, mod: *Module) std.builtin.Type.ContainerLayout 
     return switch (ip.indexToKey(ty.toIntern())) {
         .struct_type => ip.loadStructType(ty.toIntern()).layout,
         .anon_struct_type => .auto,
-        .union_type => ip.loadUnionType(ty.toIntern()).flagsPtr(ip).layout,
+        .union_type => ip.loadUnionType(ty.toIntern()).flagsUnordered(ip).layout,
         else => unreachable,
     };
 }
@@ -2157,7 +2158,7 @@ pub fn errorSetIsEmpty(ty: Type, mod: *Module) bool {
         .anyerror_type, .adhoc_inferred_error_set_type => false,
         else => switch (ip.indexToKey(ty.toIntern())) {
             .error_set_type => |error_set_type| error_set_type.names.len == 0,
-            .inferred_error_set_type => |i| switch (ip.funcIesResolved(i).*) {
+            .inferred_error_set_type => |i| switch (ip.funcIesResolvedUnordered(i)) {
                 .none, .anyerror_type => false,
                 else => |t| ip.indexToKey(t).error_set_type.names.len == 0,
             },
@@ -2175,7 +2176,7 @@ pub fn isAnyError(ty: Type, mod: *Module) bool {
         .anyerror_type => true,
         .adhoc_inferred_error_set_type => false,
         else => switch (mod.intern_pool.indexToKey(ty.toIntern())) {
-            .inferred_error_set_type => |i| ip.funcIesResolved(i).* == .anyerror_type,
+            .inferred_error_set_type => |i| ip.funcIesResolvedUnordered(i) == .anyerror_type,
             else => false,
         },
     };
@@ -2200,7 +2201,7 @@ pub fn errorSetHasFieldIp(
         .anyerror_type => true,
         else => switch (ip.indexToKey(ty)) {
             .error_set_type => |error_set_type| error_set_type.nameIndex(ip, name) != null,
-            .inferred_error_set_type => |i| switch (ip.funcIesResolved(i).*) {
+            .inferred_error_set_type => |i| switch (ip.funcIesResolvedUnordered(i)) {
                 .anyerror_type => true,
                 .none => false,
                 else => |t| ip.indexToKey(t).error_set_type.nameIndex(ip, name) != null,
@@ -2336,7 +2337,7 @@ pub fn intInfo(starting_ty: Type, mod: *Module) InternPool.Key.IntType {
         .c_ulonglong_type => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.ulonglong) },
         else => switch (ip.indexToKey(ty.toIntern())) {
             .int_type => |int_type| return int_type,
-            .struct_type => ty = Type.fromInterned(ip.loadStructType(ty.toIntern()).backingIntType(ip).*),
+            .struct_type => ty = Type.fromInterned(ip.loadStructType(ty.toIntern()).backingIntTypeUnordered(ip)),
             .enum_type => ty = Type.fromInterned(ip.loadEnumType(ty.toIntern()).tag_ty),
             .vector_type => |vector_type| ty = Type.fromInterned(vector_type.child),
 
@@ -2740,7 +2741,7 @@ pub fn comptimeOnly(ty: Type, pt: Zcu.PerThread) bool {
 
 /// `generic_poison` will return false.
 /// May return false negatives when structs and unions are having their field types resolved.
-pub fn comptimeOnlyAdvanced(ty: Type, pt: Zcu.PerThread, strat: ResolveStrat) SemaError!bool {
+pub fn comptimeOnlyAdvanced(ty: Type, pt: Zcu.PerThread, comptime strat: ResolveStrat) SemaError!bool {
     const mod = pt.zcu;
     const ip = &mod.intern_pool;
     return switch (ty.toIntern()) {
@@ -2826,17 +2827,19 @@ pub fn comptimeOnlyAdvanced(ty: Type, pt: Zcu.PerThread, strat: ResolveStrat) Se
                     return false;
 
                 // A struct with no fields is not comptime-only.
-                return switch (struct_type.flagsPtr(ip).requires_comptime) {
+                return switch (struct_type.setRequiresComptimeWip(ip)) {
                     .no, .wip => false,
                     .yes => true,
                     .unknown => {
-                        assert(strat == .sema);
+                        // Inlined `assert` so that the resolution calls below are not statically reachable.
+                        if (strat != .sema) unreachable;
 
-                        if (struct_type.flagsPtr(ip).field_types_wip)
+                        if (struct_type.flagsUnordered(ip).field_types_wip) {
+                            struct_type.setRequiresComptime(ip, .unknown);
                             return false;
+                        }
 
-                        struct_type.flagsPtr(ip).requires_comptime = .wip;
-                        errdefer struct_type.flagsPtr(ip).requires_comptime = .unknown;
+                        errdefer struct_type.setRequiresComptime(ip, .unknown);
 
                         try ty.resolveFields(pt);
 
@@ -2849,12 +2852,12 @@ pub fn comptimeOnlyAdvanced(ty: Type, pt: Zcu.PerThread, strat: ResolveStrat) Se
                                 // be considered resolved. Comptime-only types
                                 // still maintain a layout of their
                                 // runtime-known fields.
-                                struct_type.flagsPtr(ip).requires_comptime = .yes;
+                                struct_type.setRequiresComptime(ip, .yes);
                                 return true;
                             }
                         }
 
-                        struct_type.flagsPtr(ip).requires_comptime = .no;
+                        struct_type.setRequiresComptime(ip, .no);
                         return false;
                     },
                 };
@@ -2870,29 +2873,31 @@ pub fn comptimeOnlyAdvanced(ty: Type, pt: Zcu.PerThread, strat: ResolveStrat) Se
 
             .union_type => {
                 const union_type = ip.loadUnionType(ty.toIntern());
-                switch (union_type.flagsPtr(ip).requires_comptime) {
+                switch (union_type.setRequiresComptimeWip(ip)) {
                     .no, .wip => return false,
                     .yes => return true,
                     .unknown => {
-                        assert(strat == .sema);
+                        // Inlined `assert` so that the resolution calls below are not statically reachable.
+                        if (strat != .sema) unreachable;
 
-                        if (union_type.flagsPtr(ip).status == .field_types_wip)
+                        if (union_type.flagsUnordered(ip).status == .field_types_wip) {
+                            union_type.setRequiresComptime(ip, .unknown);
                             return false;
+                        }
 
-                        union_type.flagsPtr(ip).requires_comptime = .wip;
-                        errdefer union_type.flagsPtr(ip).requires_comptime = .unknown;
+                        errdefer union_type.setRequiresComptime(ip, .unknown);
 
                         try ty.resolveFields(pt);
 
                         for (0..union_type.field_types.len) |field_idx| {
                             const field_ty = union_type.field_types.get(ip)[field_idx];
                             if (try Type.fromInterned(field_ty).comptimeOnlyAdvanced(pt, strat)) {
-                                union_type.flagsPtr(ip).requires_comptime = .yes;
+                                union_type.setRequiresComptime(ip, .yes);
                                 return true;
                             }
                         }
 
-                        union_type.flagsPtr(ip).requires_comptime = .no;
+                        union_type.setRequiresComptime(ip, .no);
                         return false;
                     },
                 }
@@ -3117,7 +3122,7 @@ pub fn errorSetNames(ty: Type, mod: *Module) InternPool.NullTerminatedString.Sli
     const ip = &mod.intern_pool;
     return switch (ip.indexToKey(ty.toIntern())) {
         .error_set_type => |x| x.names,
-        .inferred_error_set_type => |i| switch (ip.funcIesResolved(i).*) {
+        .inferred_error_set_type => |i| switch (ip.funcIesResolvedUnordered(i)) {
             .none => unreachable, // unresolved inferred error set
             .anyerror_type => unreachable,
             else => |t| ip.indexToKey(t).error_set_type.names,
@@ -3197,7 +3202,7 @@ pub fn structFieldAlign(ty: Type, index: usize, pt: Zcu.PerThread) Alignment {
     return ty.structFieldAlignAdvanced(index, pt, .normal) catch unreachable;
 }
 
-pub fn structFieldAlignAdvanced(ty: Type, index: usize, pt: Zcu.PerThread, strat: ResolveStrat) !Alignment {
+pub fn structFieldAlignAdvanced(ty: Type, index: usize, pt: Zcu.PerThread, comptime strat: ResolveStrat) !Alignment {
     const ip = &pt.zcu.intern_pool;
     switch (ip.indexToKey(ty.toIntern())) {
         .struct_type => {
@@ -3374,7 +3379,7 @@ pub fn isTuple(ty: Type, mod: *Module) bool {
             const struct_type = ip.loadStructType(ty.toIntern());
             if (struct_type.layout == .@"packed") return false;
             if (struct_type.decl == .none) return false;
-            return struct_type.flagsPtr(ip).is_tuple;
+            return struct_type.flagsUnordered(ip).is_tuple;
         },
         .anon_struct_type => |anon_struct| anon_struct.names.len == 0,
         else => false,
@@ -3396,7 +3401,7 @@ pub fn isTupleOrAnonStruct(ty: Type, mod: *Module) bool {
             const struct_type = ip.loadStructType(ty.toIntern());
             if (struct_type.layout == .@"packed") return false;
             if (struct_type.decl == .none) return false;
-            return struct_type.flagsPtr(ip).is_tuple;
+            return struct_type.flagsUnordered(ip).is_tuple;
         },
         .anon_struct_type => true,
         else => false,

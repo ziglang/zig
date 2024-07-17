@@ -269,6 +269,19 @@ pub const Node = struct {
         storageByIndex(index).setIpcFd(fd);
     }
 
+    /// Posix-only. Thread-safe. Assumes the node is storing an IPC file
+    /// descriptor.
+    pub fn getIpcFd(node: Node) ?posix.fd_t {
+        const index = node.index.unwrap() orelse return null;
+        const storage = storageByIndex(index);
+        const int = @atomicLoad(u32, &storage.completed_count, .monotonic);
+        return switch (@typeInfo(posix.fd_t)) {
+            .Int => @bitCast(int),
+            .Pointer => @ptrFromInt(int),
+            else => @compileError("unsupported fd_t of " ++ @typeName(posix.fd_t)),
+        };
+    }
+
     fn storageByIndex(index: Node.Index) *Node.Storage {
         return &global_progress.node_storage[@intFromEnum(index)];
     }
@@ -328,6 +341,11 @@ var node_freelist_buffer: [node_storage_buffer_len]Node.OptionalIndex = undefine
 var default_draw_buffer: [4096]u8 = undefined;
 
 var debug_start_trace = std.debug.Trace.init;
+
+pub const have_ipc = switch (builtin.os.tag) {
+    .wasi, .freestanding, .windows => false,
+    else => true,
+};
 
 const noop_impl = builtin.single_threaded or switch (builtin.os.tag) {
     .wasi, .freestanding => true,
@@ -651,14 +669,8 @@ fn appendTreeSymbol(symbol: TreeSymbol, buf: []u8, start_i: usize) usize {
 fn clearWrittenWithEscapeCodes() anyerror!void {
     if (!global_progress.need_clear) return;
 
-    var i: usize = 0;
-    const buf = global_progress.draw_buffer;
-
-    buf[i..][0..clear.len].* = clear.*;
-    i += clear.len;
-
     global_progress.need_clear = false;
-    try write(buf[0..i]);
+    try write(clear);
 }
 
 /// U+25BA or ►

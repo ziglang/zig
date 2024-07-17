@@ -1,5 +1,7 @@
-//! Zig Intermediate Representation. Astgen.zig converts AST nodes to these
-//! untyped IR instructions. Next, Sema.zig processes these into AIR.
+//! Zig Intermediate Representation.
+//!
+//! Astgen.zig converts AST nodes to these untyped IR instructions. Next,
+//! Sema.zig processes these into AIR.
 //! The minimum amount of information needed to represent a list of ZIR instructions.
 //! Once this structure is completed, it can be used to generate AIR, followed by
 //! machine code, without any memory access into the AST tree token list, node list,
@@ -3789,11 +3791,15 @@ fn findDeclsSwitch(
         break :blk multi_cases_len;
     } else 0;
 
+    if (extra.data.bits.any_has_tag_capture) {
+        extra_index += 1;
+    }
+
     const special_prong = extra.data.bits.specialProng();
     if (special_prong != .none) {
-        const body_len: u31 = @truncate(zir.extra[extra_index]);
+        const prong_info: Inst.SwitchBlock.ProngInfo = @bitCast(zir.extra[extra_index]);
         extra_index += 1;
-        const body = zir.bodySlice(extra_index, body_len);
+        const body = zir.bodySlice(extra_index, prong_info.body_len);
         extra_index += body.len;
 
         try zir.findDeclsBody(list, body);
@@ -3803,10 +3809,10 @@ fn findDeclsSwitch(
         const scalar_cases_len = extra.data.bits.scalar_cases_len;
         for (0..scalar_cases_len) |_| {
             extra_index += 1;
-            const body_len: u31 = @truncate(zir.extra[extra_index]);
+            const prong_info: Inst.SwitchBlock.ProngInfo = @bitCast(zir.extra[extra_index]);
             extra_index += 1;
-            const body = zir.bodySlice(extra_index, body_len);
-            extra_index += body_len;
+            const body = zir.bodySlice(extra_index, prong_info.body_len);
+            extra_index += body.len;
 
             try zir.findDeclsBody(list, body);
         }
@@ -3817,20 +3823,13 @@ fn findDeclsSwitch(
             extra_index += 1;
             const ranges_len = zir.extra[extra_index];
             extra_index += 1;
-            const body_len: u31 = @truncate(zir.extra[extra_index]);
+            const prong_info: Inst.SwitchBlock.ProngInfo = @bitCast(zir.extra[extra_index]);
             extra_index += 1;
-            const items = zir.refSlice(extra_index, items_len);
-            extra_index += items_len;
-            _ = items;
 
-            var range_i: usize = 0;
-            while (range_i < ranges_len) : (range_i += 1) {
-                extra_index += 1;
-                extra_index += 1;
-            }
+            extra_index += items_len + ranges_len * 2;
 
-            const body = zir.bodySlice(extra_index, body_len);
-            extra_index += body_len;
+            const body = zir.bodySlice(extra_index, prong_info.body_len);
+            extra_index += body.len;
 
             try zir.findDeclsBody(list, body);
         }
@@ -4024,8 +4023,8 @@ pub fn getAssociatedSrcHash(zir: Zir, inst: Zir.Inst.Index) ?std.zig.SrcHash {
     const data = zir.instructions.items(.data);
     switch (tag[@intFromEnum(inst)]) {
         .declaration => {
-            const pl_node = data[@intFromEnum(inst)].pl_node;
-            const extra = zir.extraData(Inst.Declaration, pl_node.payload_index);
+            const declaration = data[@intFromEnum(inst)].declaration;
+            const extra = zir.extraData(Inst.Declaration, declaration.payload_index);
             return @bitCast([4]u32{
                 extra.data.src_hash_0,
                 extra.data.src_hash_1,

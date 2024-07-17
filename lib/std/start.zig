@@ -221,7 +221,26 @@ fn riscv_start() callconv(.C) noreturn {
             }
             break :ret root.main();
         },
-        else => @compileError("expected return type of main to be 'void', 'noreturn', 'u8'"),
+        .ErrorUnion => ret: {
+            const result = root.main() catch {
+                const stderr = std.io.getStdErr().writer();
+                stderr.writeAll("failed with error\n") catch {
+                    @panic("failed to print when main returned error");
+                };
+                break :ret 1;
+            };
+            switch (@typeInfo(@TypeOf(result))) {
+                .Void => break :ret 0,
+                .Int => |info| {
+                    if (info.bits != 8 or info.signedness == .signed) {
+                        @compileError(bad_main_ret);
+                    }
+                    return result;
+                },
+                else => @compileError(bad_main_ret),
+            }
+        },
+        else => @compileError(bad_main_ret),
     });
 }
 
@@ -497,21 +516,19 @@ fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.C) c_int {
 const bad_main_ret = "expected return type of main to be 'void', '!void', 'noreturn', 'u8', or '!u8'";
 
 pub inline fn callMain() u8 {
-    switch (@typeInfo(@typeInfo(@TypeOf(root.main)).Fn.return_type.?)) {
-        .NoReturn => {
-            root.main();
-        },
-        .Void => {
+    const ReturnType = @typeInfo(@TypeOf(root.main)).Fn.return_type.?;
+
+    switch (ReturnType) {
+        void => {
             root.main();
             return 0;
         },
-        .Int => |info| {
-            if (info.bits != 8 or info.signedness == .signed) {
-                @compileError(bad_main_ret);
-            }
+        noreturn, u8 => {
             return root.main();
         },
-        .ErrorUnion => {
+        else => {
+            if (@typeInfo(ReturnType) != .ErrorUnion) @compileError(bad_main_ret);
+
             const result = root.main() catch |err| {
                 std.log.err("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
@@ -519,18 +536,13 @@ pub inline fn callMain() u8 {
                 }
                 return 1;
             };
-            switch (@typeInfo(@TypeOf(result))) {
-                .Void => return 0,
-                .Int => |info| {
-                    if (info.bits != 8 or info.signedness == .signed) {
-                        @compileError(bad_main_ret);
-                    }
-                    return result;
-                },
+
+            return switch (@TypeOf(result)) {
+                void => 0,
+                u8 => result,
                 else => @compileError(bad_main_ret),
-            }
+            };
         },
-        else => @compileError(bad_main_ret),
     }
 }
 

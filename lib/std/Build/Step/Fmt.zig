@@ -36,7 +36,9 @@ pub fn create(owner: *std.Build, options: Options) *Fmt {
     return fmt;
 }
 
-fn make(step: *Step, prog_node: std.Progress.Node) !void {
+fn make(step: *Step, options: Step.MakeOptions) !void {
+    const prog_node = options.progress_node;
+
     // TODO: if check=false, this means we are modifying source files in place, which
     // is an operation that could race against other operations also modifying source files
     // in place. In this case, this step should obtain a write lock while making those

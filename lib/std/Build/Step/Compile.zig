@@ -213,6 +213,10 @@ is_linking_libcpp: bool = false,
 
 no_builtin: bool = false,
 
+/// Populated during the make phase when there is a long-lived compiler process.
+/// Managed by the build runner, not user build script.
+zig_process: ?*Step.ZigProcess,
+
 pub const ExpectedCompileErrors = union(enum) {
     contains: []const u8,
     exact: []const []const u8,
@@ -398,6 +402,8 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
+
+        .zig_process = null,
     };
 
     compile.root_module.init(owner, options.root_module, compile);
@@ -1635,9 +1641,16 @@ fn getZigArgs(compile: *Compile) ![][]const u8 {
         });
     }
 
-    if (compile.zig_lib_dir) |dir| {
+    const opt_zig_lib_dir = if (compile.zig_lib_dir) |dir|
+        dir.getPath2(b, step)
+    else if (b.graph.zig_lib_directory.path) |_|
+        b.fmt("{}", .{b.graph.zig_lib_directory})
+    else
+        null;
+
+    if (opt_zig_lib_dir) |zig_lib_dir| {
         try zig_args.append("--zig-lib-dir");
-        try zig_args.append(dir.getPath2(b, step));
+        try zig_args.append(zig_lib_dir);
     }
 
     try addFlag(&zig_args, "PIE", compile.pie);
@@ -1665,6 +1678,8 @@ fn getZigArgs(compile: *Compile) ![][]const u8 {
         "--error-limit",
         b.fmt("{}", .{err_limit}),
     });
+
+    try addFlag(&zig_args, "incremental", b.graph.incremental);
 
     try zig_args.append("--listen=-");
 
@@ -1728,13 +1743,17 @@ fn getZigArgs(compile: *Compile) ![][]const u8 {
     return try zig_args.toOwnedSlice();
 }
 
-fn make(step: *Step, prog_node: std.Progress.Node) !void {
+fn make(step: *Step, options: Step.MakeOptions) !void {
     const b = step.owner;
     const compile: *Compile = @fieldParentPtr("step", step);
 
     const zig_args = try getZigArgs(compile);
 
-    const maybe_output_bin_path = step.evalZigProcess(zig_args, prog_node) catch |err| switch (err) {
+    const maybe_output_bin_path = step.evalZigProcess(
+        zig_args,
+        options.progress_node,
+        (b.graph.incremental == true) and options.watch,
+    ) catch |err| switch (err) {
         error.NeedCompileErrorCheck => {
             assert(compile.expect_errors != null);
             try checkCompileErrors(compile);

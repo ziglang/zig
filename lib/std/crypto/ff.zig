@@ -305,7 +305,7 @@ fn Fe_(comptime bits: comptime_int) type {
         /// The element value as a `Uint`.
         v: FeUint,
 
-        /// `true` is the element is in Montgomery form.
+        /// `true` if the element is in Montgomery form.
         montgomery: bool = false,
 
         /// The maximum number of bytes required to encode a field element.

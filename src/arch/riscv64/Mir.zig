@@ -31,6 +31,7 @@ pub const Inst = struct {
         @"and",
         andi,
 
+        xori,
         xor,
         @"or",
 
@@ -133,6 +134,19 @@ pub const Inst = struct {
         fltd,
         fled,
 
+        // Zicsr Extension Instructions
+        csrrs,
+
+        // V Extension Instructions
+        vsetvli,
+        vsetivli,
+        vsetvl,
+        vaddvv,
+        vfaddvv,
+        vsubvv,
+        vfsubvv,
+        vslidedownvx,
+
         /// A pseudo-instruction. Used for anything that isn't 1:1 with an
         /// assembly instruction.
         pseudo,
@@ -142,91 +156,57 @@ pub const Inst = struct {
     /// this union. `Ops` determines which union field is active, as well as
     /// how to interpret the data within.
     pub const Data = union {
-        /// No additional data
-        ///
-        /// Used by e.g. ebreak
         nop: void,
-        /// Another instruction.
-        ///
-        /// Used by e.g. b
         inst: Index,
-        /// Index into `extra`. Meaning of what can be found there is context-dependent.
-        ///
-        /// Used by e.g. load_memory
         payload: u32,
-
         r_type: struct {
             rd: Register,
             rs1: Register,
             rs2: Register,
         },
-
         i_type: struct {
             rd: Register,
             rs1: Register,
             imm12: Immediate,
         },
-
         s_type: struct {
             rs1: Register,
             rs2: Register,
             imm5: Immediate,
             imm7: Immediate,
         },
-
         b_type: struct {
             rs1: Register,
             rs2: Register,
             inst: Inst.Index,
         },
-
         u_type: struct {
             rd: Register,
             imm20: Immediate,
         },
-
         j_type: struct {
             rd: Register,
             inst: Inst.Index,
         },
-
-        /// Debug info: line and column
-        ///
-        /// Used by e.g. pseudo_dbg_line
         pseudo_dbg_line_column: struct {
             line: u32,
             column: u32,
         },
-
-        // Custom types to be lowered
-
-        /// Register + Memory
         rm: struct {
             r: Register,
             m: Memory,
         },
-
         reg_list: Mir.RegisterList,
-
-        /// A register
-        ///
-        /// Used by e.g. blr
         reg: Register,
-
-        /// Two registers
-        ///
-        /// Used by e.g. mv
         rr: struct {
             rd: Register,
             rs: Register,
         },
-
         fabs: struct {
             rd: Register,
             rs: Register,
             bits: u16,
         },
-
         compare: struct {
             rd: Register,
             rs1: Register,
@@ -241,10 +221,31 @@ pub const Inst = struct {
             },
             ty: Type,
         },
-
         reloc: struct {
             atom_index: u32,
             sym_index: u32,
+        },
+        fence: struct {
+            pred: Barrier,
+            succ: Barrier,
+            fm: enum {
+                none,
+                tso,
+            },
+        },
+        amo: struct {
+            rd: Register,
+            rs1: Register,
+            rs2: Register,
+            aq: Barrier,
+            rl: Barrier,
+            op: AmoOp,
+            ty: Type,
+        },
+        csr: struct {
+            csr: CSR,
+            rs1: Register,
+            rd: Register,
         },
     };
 
@@ -269,6 +270,9 @@ pub const Inst = struct {
 
         /// Another instruction.
         inst,
+
+        /// Control and Status Register Instruction.
+        csr,
 
         /// Pseudo-instruction that will generate a backpatched
         /// function prologue.
@@ -298,11 +302,6 @@ pub const Inst = struct {
         /// Uses `rm` payload.
         pseudo_lea_rm,
 
-        /// Shorthand for returning, aka jumping to ra register.
-        ///
-        /// Uses nop payload.
-        pseudo_ret,
-
         /// Jumps. Uses `inst` payload.
         pseudo_j,
 
@@ -326,19 +325,19 @@ pub const Inst = struct {
         pseudo_spill_regs,
 
         pseudo_compare,
+
+        /// NOT operation on booleans. Does an `andi reg, reg, 1` to mask out any other bits from the boolean.
         pseudo_not,
 
         /// Generates an auipc + jalr pair, with a R_RISCV_CALL_PLT reloc
         pseudo_extern_fn_reloc,
-    };
 
-    // Make sure we don't accidentally make instructions bigger than expected.
-    // Note that in Debug builds, Zig is allowed to insert a secret field for safety checks.
-    // comptime {
-    //     if (builtin.mode != .Debug) {
-    //         assert(@sizeOf(Inst) == 8);
-    //     }
-    // }
+        /// IORW, IORW
+        pseudo_fence,
+
+        /// Ordering, Src, Addr, Dest
+        pseudo_amo,
+    };
 
     pub fn format(
         inst: Inst,
@@ -363,6 +362,28 @@ pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
 pub const FrameLoc = struct {
     base: Register,
     disp: i32,
+};
+
+pub const Barrier = enum(u4) {
+    // Fence
+    w = 0b0001,
+    r = 0b0010,
+    rw = 0b0011,
+
+    // Amo
+    none,
+    aq,
+    rl,
+};
+
+pub const AmoOp = enum(u5) {
+    SWAP,
+    ADD,
+    AND,
+    OR,
+    XOR,
+    MAX,
+    MIN,
 };
 
 /// Returns the requested data, as well as the new index which is at the start of the
@@ -437,6 +458,7 @@ const assert = std.debug.assert;
 
 const bits = @import("bits.zig");
 const Register = bits.Register;
+const CSR = bits.CSR;
 const Immediate = bits.Immediate;
 const Memory = bits.Memory;
 const FrameIndex = bits.FrameIndex;

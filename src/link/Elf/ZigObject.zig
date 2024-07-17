@@ -540,8 +540,8 @@ inline fn isGlobal(index: Symbol.Index) bool {
 
 pub fn symbol(self: ZigObject, index: Symbol.Index) Symbol.Index {
     const actual_index = index & symbol_mask;
-    if (isGlobal(index)) return self.global_symbols.items[actual_index];
-    return self.local_symbols.items[actual_index];
+    if (isGlobal(index)) return self.globals()[actual_index];
+    return self.locals()[actual_index];
 }
 
 pub fn elfSym(self: *ZigObject, index: Symbol.Index) *elf.Elf64_Sym {
@@ -1093,7 +1093,7 @@ pub fn updateFunc(
     const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| {
-            func.analysis(&mod.intern_pool).state = .codegen_failure;
+            func.setAnalysisState(&mod.intern_pool, .codegen_failure);
             try mod.failed_analysis.put(mod.gpa, AnalUnit.wrap(.{ .decl = decl_index }), em);
             return;
         },
@@ -1334,11 +1334,15 @@ fn lowerConst(
 
     const sym_index = try self.addAtom(elf_file);
 
-    const res = try codegen.generateSymbol(&elf_file.base, pt, src_loc, val, &code_buffer, .{
-        .none = {},
-    }, .{
-        .parent_atom_index = sym_index,
-    });
+    const res = try codegen.generateSymbol(
+        &elf_file.base,
+        pt,
+        src_loc,
+        val,
+        &code_buffer,
+        .{ .none = {} },
+        .{ .parent_atom_index = sym_index },
+    );
     const code = switch (res) {
         .ok => code_buffer.items,
         .fail => |em| return .{ .fail = em },

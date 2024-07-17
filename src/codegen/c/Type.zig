@@ -1744,7 +1744,7 @@ pub const Pool = struct {
                         .@"packed" => return pool.fromType(
                             allocator,
                             scratch,
-                            Type.fromInterned(loaded_struct.backingIntType(ip).*),
+                            Type.fromInterned(loaded_struct.backingIntTypeUnordered(ip)),
                             pt,
                             mod,
                             kind,
@@ -1817,7 +1817,7 @@ pub const Pool = struct {
                 },
                 .union_type => {
                     const loaded_union = ip.loadUnionType(ip_index);
-                    switch (loaded_union.getLayout(ip)) {
+                    switch (loaded_union.flagsUnordered(ip).layout) {
                         .auto, .@"extern" => {
                             const has_tag = loaded_union.hasTag(ip);
                             const fwd_decl = try pool.getFwdDecl(allocator, .{

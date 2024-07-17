@@ -3,7 +3,8 @@ zcu: *Zcu,
 /// Dense, per-thread unique index.
 tid: Id,
 
-pub const Id = if (InternPool.single_threaded) enum { main } else enum(u8) { main, _ };
+pub const IdBacking = u7;
+pub const Id = if (InternPool.single_threaded) enum { main } else enum(IdBacking) { main, _ };
 
 pub fn destroyDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) void {
     const zcu = pt.zcu;
@@ -60,10 +61,6 @@ pub fn destroyFile(pt: Zcu.PerThread, file_index: Zcu.File.Index) void {
 pub fn astGenFile(
     pt: Zcu.PerThread,
     file: *Zcu.File,
-    /// This parameter is provided separately from `file` because it is not
-    /// safe to access `import_table` without a lock, and this index is needed
-    /// in the call to `updateZirRefs`.
-    file_index: Zcu.File.Index,
     path_digest: Cache.BinDigest,
     opt_root_decl: Zcu.Decl.OptionalIndex,
 ) !void {
@@ -210,13 +207,18 @@ pub fn astGenFile(
 
     pt.lockAndClearFileCompileError(file);
 
-    // If the previous ZIR does not have compile errors, keep it around
-    // in case parsing or new ZIR fails. In case of successful ZIR update
-    // at the end of this function we will free it.
-    // We keep the previous ZIR loaded so that we can use it
-    // for the update next time it does not have any compile errors. This avoids
-    // needlessly tossing out semantic analysis work when an error is
-    // temporarily introduced.
+    // Previous ZIR is kept for two reasons:
+    //
+    // 1. In case an update to the file causes a Parse or AstGen failure, we
+    //    need to compare two successful ZIR files in order to proceed with an
+    //    incremental update. This avoids needlessly tossing out semantic
+    //    analysis work when an error is temporarily introduced.
+    //
+    // 2. In order to detect updates, we need to iterate over the intern pool
+    //    values while comparing old ZIR to new ZIR. This is better done in a
+    //    single-threaded context, so we need to keep both versions around
+    //    until that point in the pipeline. Previous ZIR data is freed after
+    //    that.
     if (file.zir_loaded and !file.zir.hasCompileErrors()) {
         assert(file.prev_zir == null);
         const prev_zir_ptr = try gpa.create(Zir);
@@ -320,14 +322,6 @@ pub fn astGenFile(
         return error.AnalysisFail;
     }
 
-    if (file.prev_zir) |prev_zir| {
-        try pt.updateZirRefs(file, file_index, prev_zir.*);
-        // No need to keep previous ZIR.
-        prev_zir.deinit(gpa);
-        gpa.destroy(prev_zir);
-        file.prev_zir = null;
-    }
-
     if (opt_root_decl.unwrap()) |root_decl| {
         // The root of this file must be re-analyzed, since the file has changed.
         comp.mutex.lock();
@@ -338,136 +332,161 @@ pub fn astGenFile(
     }
 }
 
-/// This is called from the AstGen thread pool, so must acquire
-/// the Compilation mutex when acting on shared state.
-fn updateZirRefs(pt: Zcu.PerThread, file: *Zcu.File, file_index: Zcu.File.Index, old_zir: Zir) !void {
+const UpdatedFile = struct {
+    file_index: Zcu.File.Index,
+    file: *Zcu.File,
+    inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index),
+};
+
+fn cleanupUpdatedFiles(gpa: Allocator, updated_files: *std.ArrayListUnmanaged(UpdatedFile)) void {
+    for (updated_files.items) |*elem| elem.inst_map.deinit(gpa);
+    updated_files.deinit(gpa);
+}
+
+pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
+    assert(pt.tid == .main);
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const gpa = zcu.gpa;
-    const new_zir = file.zir;
 
-    var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{};
-    defer inst_map.deinit(gpa);
+    // We need to visit every updated File for every TrackedInst in InternPool.
+    var updated_files: std.ArrayListUnmanaged(UpdatedFile) = .{};
+    defer cleanupUpdatedFiles(gpa, &updated_files);
+    for (zcu.import_table.values()) |file_index| {
+        const file = zcu.fileByIndex(file_index);
+        const old_zir = file.prev_zir orelse continue;
+        const new_zir = file.zir;
+        try updated_files.append(gpa, .{
+            .file_index = file_index,
+            .file = file,
+            .inst_map = .{},
+        });
+        const inst_map = &updated_files.items[updated_files.items.len - 1].inst_map;
+        try Zcu.mapOldZirToNew(gpa, old_zir.*, new_zir, inst_map);
+    }
 
-    try Zcu.mapOldZirToNew(gpa, old_zir, new_zir, &inst_map);
+    if (updated_files.items.len == 0)
+        return;
 
-    const old_tag = old_zir.instructions.items(.tag);
-    const old_data = old_zir.instructions.items(.data);
-
-    // TODO: this should be done after all AstGen workers complete, to avoid
-    // iterating over this full set for every updated file.
     for (ip.locals, 0..) |*local, tid| {
-        local.mutate.tracked_insts.mutex.lock();
-        defer local.mutate.tracked_insts.mutex.unlock();
         const tracked_insts_list = local.getMutableTrackedInsts(gpa);
         for (tracked_insts_list.view().items(.@"0"), 0..) |*tracked_inst, tracked_inst_unwrapped_index| {
-            if (tracked_inst.file != file_index) continue;
-            const old_inst = tracked_inst.inst;
-            const tracked_inst_index = (InternPool.TrackedInst.Index.Unwrapped{
-                .tid = @enumFromInt(tid),
-                .index = @intCast(tracked_inst_unwrapped_index),
-            }).wrap(ip);
-            tracked_inst.inst = inst_map.get(old_inst) orelse {
-                // Tracking failed for this instruction. Invalidate associated `src_hash` deps.
-                zcu.comp.mutex.lock();
-                defer zcu.comp.mutex.unlock();
-                log.debug("tracking failed for %{d}", .{old_inst});
-                try zcu.markDependeeOutdated(.{ .src_hash = tracked_inst_index });
-                continue;
-            };
+            for (updated_files.items) |updated_file| {
+                const file_index = updated_file.file_index;
+                if (tracked_inst.file != file_index) continue;
 
-            if (old_zir.getAssociatedSrcHash(old_inst)) |old_hash| hash_changed: {
-                if (new_zir.getAssociatedSrcHash(tracked_inst.inst)) |new_hash| {
-                    if (std.zig.srcHashEql(old_hash, new_hash)) {
-                        break :hash_changed;
+                const file = updated_file.file;
+                const old_zir = file.prev_zir.?.*;
+                const new_zir = file.zir;
+                const old_tag = old_zir.instructions.items(.tag);
+                const old_data = old_zir.instructions.items(.data);
+                const inst_map = &updated_file.inst_map;
+
+                const old_inst = tracked_inst.inst;
+                const tracked_inst_index = (InternPool.TrackedInst.Index.Unwrapped{
+                    .tid = @enumFromInt(tid),
+                    .index = @intCast(tracked_inst_unwrapped_index),
+                }).wrap(ip);
+                tracked_inst.inst = inst_map.get(old_inst) orelse {
+                    // Tracking failed for this instruction. Invalidate associated `src_hash` deps.
+                    log.debug("tracking failed for %{d}", .{old_inst});
+                    try zcu.markDependeeOutdated(.{ .src_hash = tracked_inst_index });
+                    continue;
+                };
+
+                if (old_zir.getAssociatedSrcHash(old_inst)) |old_hash| hash_changed: {
+                    if (new_zir.getAssociatedSrcHash(tracked_inst.inst)) |new_hash| {
+                        if (std.zig.srcHashEql(old_hash, new_hash)) {
+                            break :hash_changed;
+                        }
+                        log.debug("hash for (%{d} -> %{d}) changed: {} -> {}", .{
+                            old_inst,
+                            tracked_inst.inst,
+                            std.fmt.fmtSliceHexLower(&old_hash),
+                            std.fmt.fmtSliceHexLower(&new_hash),
+                        });
                     }
-                    log.debug("hash for (%{d} -> %{d}) changed: {} -> {}", .{
-                        old_inst,
-                        tracked_inst.inst,
-                        std.fmt.fmtSliceHexLower(&old_hash),
-                        std.fmt.fmtSliceHexLower(&new_hash),
-                    });
+                    // The source hash associated with this instruction changed - invalidate relevant dependencies.
+                    try zcu.markDependeeOutdated(.{ .src_hash = tracked_inst_index });
                 }
-                // The source hash associated with this instruction changed - invalidate relevant dependencies.
-                zcu.comp.mutex.lock();
-                defer zcu.comp.mutex.unlock();
-                try zcu.markDependeeOutdated(.{ .src_hash = tracked_inst_index });
-            }
 
-            // If this is a `struct_decl` etc, we must invalidate any outdated namespace dependencies.
-            const has_namespace = switch (old_tag[@intFromEnum(old_inst)]) {
-                .extended => switch (old_data[@intFromEnum(old_inst)].extended.opcode) {
-                    .struct_decl, .union_decl, .opaque_decl, .enum_decl => true,
+                // If this is a `struct_decl` etc, we must invalidate any outdated namespace dependencies.
+                const has_namespace = switch (old_tag[@intFromEnum(old_inst)]) {
+                    .extended => switch (old_data[@intFromEnum(old_inst)].extended.opcode) {
+                        .struct_decl, .union_decl, .opaque_decl, .enum_decl => true,
+                        else => false,
+                    },
                     else => false,
-                },
-                else => false,
-            };
-            if (!has_namespace) continue;
+                };
+                if (!has_namespace) continue;
 
-            var old_names: std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
-            defer old_names.deinit(zcu.gpa);
-            {
-                var it = old_zir.declIterator(old_inst);
-                while (it.next()) |decl_inst| {
-                    const decl_name = old_zir.getDeclaration(decl_inst)[0].name;
-                    switch (decl_name) {
-                        .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => continue,
-                        _ => if (decl_name.isNamedTest(old_zir)) continue,
+                var old_names: std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
+                defer old_names.deinit(zcu.gpa);
+                {
+                    var it = old_zir.declIterator(old_inst);
+                    while (it.next()) |decl_inst| {
+                        const decl_name = old_zir.getDeclaration(decl_inst)[0].name;
+                        switch (decl_name) {
+                            .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => continue,
+                            _ => if (decl_name.isNamedTest(old_zir)) continue,
+                        }
+                        const name_zir = decl_name.toString(old_zir).?;
+                        const name_ip = try zcu.intern_pool.getOrPutString(
+                            zcu.gpa,
+                            pt.tid,
+                            old_zir.nullTerminatedString(name_zir),
+                            .no_embedded_nulls,
+                        );
+                        try old_names.put(zcu.gpa, name_ip, {});
                     }
-                    const name_zir = decl_name.toString(old_zir).?;
-                    const name_ip = try zcu.intern_pool.getOrPutString(
-                        zcu.gpa,
-                        pt.tid,
-                        old_zir.nullTerminatedString(name_zir),
-                        .no_embedded_nulls,
-                    );
-                    try old_names.put(zcu.gpa, name_ip, {});
                 }
-            }
-            var any_change = false;
-            {
-                var it = new_zir.declIterator(tracked_inst.inst);
-                while (it.next()) |decl_inst| {
-                    const decl_name = old_zir.getDeclaration(decl_inst)[0].name;
-                    switch (decl_name) {
-                        .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => continue,
-                        _ => if (decl_name.isNamedTest(old_zir)) continue,
+                var any_change = false;
+                {
+                    var it = new_zir.declIterator(tracked_inst.inst);
+                    while (it.next()) |decl_inst| {
+                        const decl_name = new_zir.getDeclaration(decl_inst)[0].name;
+                        switch (decl_name) {
+                            .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => continue,
+                            _ => if (decl_name.isNamedTest(new_zir)) continue,
+                        }
+                        const name_zir = decl_name.toString(new_zir).?;
+                        const name_ip = try zcu.intern_pool.getOrPutString(
+                            zcu.gpa,
+                            pt.tid,
+                            new_zir.nullTerminatedString(name_zir),
+                            .no_embedded_nulls,
+                        );
+                        if (!old_names.swapRemove(name_ip)) continue;
+                        // Name added
+                        any_change = true;
+                        try zcu.markDependeeOutdated(.{ .namespace_name = .{
+                            .namespace = tracked_inst_index,
+                            .name = name_ip,
+                        } });
                     }
-                    const name_zir = decl_name.toString(old_zir).?;
-                    const name_ip = try zcu.intern_pool.getOrPutString(
-                        zcu.gpa,
-                        pt.tid,
-                        old_zir.nullTerminatedString(name_zir),
-                        .no_embedded_nulls,
-                    );
-                    if (!old_names.swapRemove(name_ip)) continue;
-                    // Name added
+                }
+                // The only elements remaining in `old_names` now are any names which were removed.
+                for (old_names.keys()) |name_ip| {
                     any_change = true;
-                    zcu.comp.mutex.lock();
-                    defer zcu.comp.mutex.unlock();
                     try zcu.markDependeeOutdated(.{ .namespace_name = .{
                         .namespace = tracked_inst_index,
                         .name = name_ip,
                     } });
                 }
-            }
-            // The only elements remaining in `old_names` now are any names which were removed.
-            for (old_names.keys()) |name_ip| {
-                any_change = true;
-                zcu.comp.mutex.lock();
-                defer zcu.comp.mutex.unlock();
-                try zcu.markDependeeOutdated(.{ .namespace_name = .{
-                    .namespace = tracked_inst_index,
-                    .name = name_ip,
-                } });
-            }
 
-            if (any_change) {
-                zcu.comp.mutex.lock();
-                defer zcu.comp.mutex.unlock();
-                try zcu.markDependeeOutdated(.{ .namespace = tracked_inst_index });
+                if (any_change) {
+                    try zcu.markDependeeOutdated(.{ .namespace = tracked_inst_index });
+                }
             }
         }
+    }
+
+    for (updated_files.items) |updated_file| {
+        const file = updated_file.file;
+        const prev_zir = file.prev_zir.?;
+        file.prev_zir = null;
+        prev_zir.deinit(gpa);
+        gpa.destroy(prev_zir);
     }
 }
 
@@ -641,8 +660,8 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
 
     // We'll want to remember what the IES used to be before the update for
     // dependency invalidation purposes.
-    const old_resolved_ies = if (func.analysis(ip).inferred_error_set)
-        func.resolvedErrorSet(ip).*
+    const old_resolved_ies = if (func.analysisUnordered(ip).inferred_error_set)
+        func.resolvedErrorSetUnordered(ip)
     else
         .none;
 
@@ -671,7 +690,7 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
         zcu.deleteUnitReferences(func_as_depender);
     }
 
-    switch (func.analysis(ip).state) {
+    switch (func.analysisUnordered(ip).state) {
         .success => if (!was_outdated) return,
         .sema_failure,
         .dependency_failure,
@@ -693,11 +712,11 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
 
     var air = pt.analyzeFnBody(func_index, sema_arena) catch |err| switch (err) {
         error.AnalysisFail => {
-            if (func.analysis(ip).state == .in_progress) {
+            if (func.analysisUnordered(ip).state == .in_progress) {
                 // If this decl caused the compile error, the analysis field would
                 // be changed to indicate it was this Decl's fault. Because this
                 // did not happen, we infer here that it was a dependency failure.
-                func.analysis(ip).state = .dependency_failure;
+                func.setAnalysisState(ip, .dependency_failure);
             }
             return error.AnalysisFail;
         },
@@ -707,8 +726,8 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
 
     const invalidate_ies_deps = i: {
         if (!was_outdated) break :i false;
-        if (!func.analysis(ip).inferred_error_set) break :i true;
-        const new_resolved_ies = func.resolvedErrorSet(ip).*;
+        if (!func.analysisUnordered(ip).inferred_error_set) break :i true;
+        const new_resolved_ies = func.resolvedErrorSetUnordered(ip);
         break :i new_resolved_ies != old_resolved_ies;
     };
     if (invalidate_ies_deps) {
@@ -729,7 +748,7 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
         return;
     }
 
-    try comp.work_queue.writeItem(.{ .codegen_func = .{
+    try comp.queueJob(.{ .codegen_func = .{
         .func = func_index,
         .air = air,
     } });
@@ -783,7 +802,7 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: Ai
                         .{@errorName(err)},
                     ),
                 );
-                func.analysis(ip).state = .codegen_failure;
+                func.setAnalysisState(ip, .codegen_failure);
                 return;
             },
         };
@@ -797,12 +816,12 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: Ai
         // Correcting this failure will involve changing a type this function
         // depends on, hence triggering re-analysis of this function, so this
         // interacts correctly with incremental compilation.
-        func.analysis(ip).state = .codegen_failure;
+        func.setAnalysisState(ip, .codegen_failure);
     } else if (comp.bin_file) |lf| {
         lf.updateFunc(pt, func_index, air, liveness) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.AnalysisFail => {
-                func.analysis(ip).state = .codegen_failure;
+                func.setAnalysisState(ip, .codegen_failure);
             },
             else => {
                 try zcu.failed_analysis.ensureUnusedCapacity(gpa, 1);
@@ -812,7 +831,7 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: Ai
                     "unable to codegen: {s}",
                     .{@errorName(err)},
                 ));
-                func.analysis(ip).state = .codegen_failure;
+                func.setAnalysisState(ip, .codegen_failure);
                 try zcu.retryable_failures.append(zcu.gpa, InternPool.AnalUnit.wrap(.{ .func = func_index }));
             },
         };
@@ -888,7 +907,7 @@ fn getFileRootStruct(
     };
     errdefer wip_ty.cancel(ip, pt.tid);
 
-    if (zcu.comp.debug_incremental) {
+    if (zcu.comp.incremental) {
         try ip.addDependency(
             gpa,
             InternPool.AnalUnit.wrap(.{ .decl = decl_index }),
@@ -903,7 +922,7 @@ fn getFileRootStruct(
     decl.analysis = .complete;
 
     try pt.scanNamespace(namespace_index, decls, decl);
-    try zcu.comp.work_queue.writeItem(.{ .resolve_type_fully = wip_ty.index });
+    try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
     return wip_ty.finish(ip, decl_index, namespace_index.toOptional());
 }
 
@@ -1080,7 +1099,7 @@ fn semaDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) !Zcu.SemaDeclResult {
     const old_linksection = decl.@"linksection";
     const old_addrspace = decl.@"addrspace";
     const old_is_inline = if (decl.getOwnedFunction(zcu)) |prev_func|
-        prev_func.analysis(ip).state == .inline_only
+        prev_func.analysisUnordered(ip).state == .inline_only
     else
         false;
 
@@ -1311,10 +1330,10 @@ fn semaDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) !Zcu.SemaDeclResult {
         // codegen backend wants full access to the Decl Type.
         try decl_ty.resolveFully(pt);
 
-        try zcu.comp.work_queue.writeItem(.{ .codegen_decl = decl_index });
+        try zcu.comp.queueJob(.{ .codegen_decl = decl_index });
 
         if (result.invalidate_decl_ref and zcu.emit_h != null) {
-            try zcu.comp.work_queue.writeItem(.{ .emit_h_decl = decl_index });
+            try zcu.comp.queueJob(.{ .emit_h_decl = decl_index });
         }
     }
 
@@ -1417,6 +1436,10 @@ pub fn importPkg(pt: Zcu.PerThread, mod: *Module) !Zcu.ImportFileResult {
 
     const sub_file_path = try gpa.dupe(u8, mod.root_src_path);
     errdefer gpa.free(sub_file_path);
+
+    const comp = zcu.comp;
+    if (comp.file_system_inputs) |fsi|
+        try comp.appendFileSystemInput(fsi, mod.root, sub_file_path);
 
     const new_file = try gpa.create(Zcu.File);
     errdefer gpa.destroy(new_file);
@@ -1526,6 +1549,10 @@ pub fn importFile(
     log.debug("new importFile. resolved_root_path={s}, resolved_path={s}, sub_file_path={s}, import_string={s}", .{
         resolved_root_path, resolved_path, sub_file_path, import_string,
     });
+
+    const comp = zcu.comp;
+    if (comp.file_system_inputs) |fsi|
+        try comp.appendFileSystemInput(fsi, mod.root, sub_file_path);
 
     const path_digest = zcu.computePathDigest(mod, sub_file_path);
     const new_file_index = try ip.createFile(gpa, pt.tid, .{
@@ -1739,8 +1766,6 @@ pub fn scanNamespace(
 
     var seen_decls: std.AutoHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
     defer seen_decls.deinit(gpa);
-
-    try zcu.comp.work_queue.ensureUnusedCapacity(decls.len);
 
     namespace.decls.clearRetainingCapacity();
     try namespace.decls.ensureTotalCapacity(gpa, decls.len);
@@ -1967,7 +1992,7 @@ const ScanDeclIter = struct {
                 log.debug("scanDecl queue analyze_decl file='{s}' decl_name='{}' decl_index={d}", .{
                     namespace.fileScope(zcu).sub_file_path, decl_name.fmt(ip), decl_index,
                 });
-                comp.work_queue.writeItemAssumeCapacity(.{ .analyze_decl = decl_index });
+                try comp.queueJob(.{ .analyze_decl = decl_index });
             }
         }
 
@@ -1976,7 +2001,7 @@ const ScanDeclIter = struct {
             // updated line numbers. Look into this!
             // TODO Look into detecting when this would be unnecessary by storing enough state
             // in `Decl` to notice that the line number did not change.
-            comp.work_queue.writeItemAssumeCapacity(.{ .update_line_number = decl_index });
+            try comp.queueJob(.{ .update_line_number = decl_index });
         }
     }
 };
@@ -1991,7 +2016,7 @@ pub fn abortAnonDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) void {
 /// Finalize the creation of an anon decl.
 pub fn finalizeAnonDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) Allocator.Error!void {
     if (pt.zcu.declPtr(decl_index).typeOf(pt.zcu).isFnOrHasRuntimeBits(pt)) {
-        try pt.zcu.comp.work_queue.writeItem(.{ .codegen_decl = decl_index });
+        try pt.zcu.comp.queueJob(.{ .codegen_decl = decl_index });
     }
 }
 
@@ -2037,7 +2062,7 @@ pub fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index, arena: All
         .fn_ret_ty = Type.fromInterned(fn_ty_info.return_type),
         .fn_ret_ty_ies = null,
         .owner_func_index = func_index,
-        .branch_quota = @max(func.branchQuota(ip).*, Sema.default_branch_quota),
+        .branch_quota = @max(func.branchQuotaUnordered(ip), Sema.default_branch_quota),
         .comptime_err_ret_trace = &comptime_err_ret_trace,
     };
     defer sema.deinit();
@@ -2047,14 +2072,14 @@ pub fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index, arena: All
     try sema.declareDependency(.{ .src_hash = decl.zir_decl_index.unwrap().? });
     try sema.declareDependency(.{ .decl_val = decl_index });
 
-    if (func.analysis(ip).inferred_error_set) {
+    if (func.analysisUnordered(ip).inferred_error_set) {
         const ies = try arena.create(Sema.InferredErrorSet);
         ies.* = .{ .func = func_index };
         sema.fn_ret_ty_ies = ies;
     }
 
     // reset in case calls to errorable functions are removed.
-    func.analysis(ip).calls_or_awaits_errorable_fn = false;
+    func.setCallsOrAwaitsErrorableFn(ip, false);
 
     // First few indexes of extra are reserved and set at the end.
     const reserved_count = @typeInfo(Air.ExtraIndex).Enum.fields.len;
@@ -2080,7 +2105,7 @@ pub fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index, arena: All
     };
     defer inner_block.instructions.deinit(gpa);
 
-    const fn_info = sema.code.getFnInfo(func.zirBodyInst(ip).resolve(ip));
+    const fn_info = sema.code.getFnInfo(func.zirBodyInstUnordered(ip).resolve(ip));
 
     // Here we are performing "runtime semantic analysis" for a function body, which means
     // we must map the parameter ZIR instructions to `arg` AIR instructions.
@@ -2149,7 +2174,7 @@ pub fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index, arena: All
         });
     }
 
-    func.analysis(ip).state = .in_progress;
+    func.setAnalysisState(ip, .in_progress);
 
     const last_arg_index = inner_block.instructions.items.len;
 
@@ -2176,7 +2201,7 @@ pub fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index, arena: All
     }
 
     // If we don't get an error return trace from a caller, create our own.
-    if (func.analysis(ip).calls_or_awaits_errorable_fn and
+    if (func.analysisUnordered(ip).calls_or_awaits_errorable_fn and
         mod.comp.config.any_error_tracing and
         !sema.fn_ret_ty.isError(mod))
     {
@@ -2218,10 +2243,10 @@ pub fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index, arena: All
             else => |e| return e,
         };
         assert(ies.resolved != .none);
-        ip.funcIesResolved(func_index).* = ies.resolved;
+        ip.funcSetIesResolved(func_index, ies.resolved);
     }
 
-    func.analysis(ip).state = .success;
+    func.setAnalysisState(ip, .success);
 
     // Finally we must resolve the return type and parameter types so that backends
     // have full access to type information.
@@ -2415,6 +2440,7 @@ fn processExportsInner(
 ) error{OutOfMemory}!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
 
     for (export_indices) |export_idx| {
         const new_export = &zcu.all_exports.items[export_idx];
@@ -2423,7 +2449,7 @@ fn processExportsInner(
             new_export.status = .failed_retryable;
             try zcu.failed_exports.ensureUnusedCapacity(gpa, 1);
             const msg = try Zcu.ErrorMsg.create(gpa, new_export.src, "exported symbol collision: {}", .{
-                new_export.opts.name.fmt(&zcu.intern_pool),
+                new_export.opts.name.fmt(ip),
             });
             errdefer msg.destroy(gpa);
             const other_export = zcu.all_exports.items[gop.value_ptr.*];
@@ -2443,8 +2469,7 @@ fn processExportsInner(
             if (!decl.owns_tv) break :failed false;
             if (decl.typeOf(zcu).zigTypeTag(zcu) != .Fn) break :failed false;
             // Check if owned function failed
-            const a = zcu.funcInfo(decl.val.toIntern()).analysis(&zcu.intern_pool);
-            break :failed a.state != .success;
+            break :failed zcu.funcInfo(decl.val.toIntern()).analysisUnordered(ip).state != .success;
         }) {
             // This `Decl` is failed, so was never sent to codegen.
             // TODO: we should probably tell the backend to delete any old exports of this `Decl`?
@@ -3072,7 +3097,7 @@ pub fn getUnionLayout(pt: Zcu.PerThread, loaded_union: InternPool.LoadedUnionTyp
             most_aligned_field_size = field_size;
         }
     }
-    const have_tag = loaded_union.flagsPtr(ip).runtime_tag.hasTag();
+    const have_tag = loaded_union.flagsUnordered(ip).runtime_tag.hasTag();
     if (!have_tag or !Type.fromInterned(loaded_union.enum_tag_ty).hasRuntimeBits(pt)) {
         return .{
             .abi_size = payload_align.forward(payload_size),
@@ -3091,7 +3116,7 @@ pub fn getUnionLayout(pt: Zcu.PerThread, loaded_union: InternPool.LoadedUnionTyp
     const tag_size = Type.fromInterned(loaded_union.enum_tag_ty).abiSize(pt);
     const tag_align = Type.fromInterned(loaded_union.enum_tag_ty).abiAlignment(pt).max(.@"1");
     return .{
-        .abi_size = loaded_union.size(ip).*,
+        .abi_size = loaded_union.sizeUnordered(ip),
         .abi_align = tag_align.max(payload_align),
         .most_aligned_field = most_aligned_field,
         .most_aligned_field_size = most_aligned_field_size,
@@ -3100,7 +3125,7 @@ pub fn getUnionLayout(pt: Zcu.PerThread, loaded_union: InternPool.LoadedUnionTyp
         .payload_align = payload_align,
         .tag_align = tag_align,
         .tag_size = tag_size,
-        .padding = loaded_union.padding(ip).*,
+        .padding = loaded_union.paddingUnordered(ip),
     };
 }
 
@@ -3139,10 +3164,10 @@ pub fn unionFieldNormalAlignmentAdvanced(
     pt: Zcu.PerThread,
     loaded_union: InternPool.LoadedUnionType,
     field_index: u32,
-    strat: Type.ResolveStrat,
+    comptime strat: Type.ResolveStrat,
 ) Zcu.SemaError!InternPool.Alignment {
     const ip = &pt.zcu.intern_pool;
-    assert(loaded_union.flagsPtr(ip).layout != .@"packed");
+    assert(loaded_union.flagsUnordered(ip).layout != .@"packed");
     const field_align = loaded_union.fieldAlign(ip, field_index);
     if (field_align != .none) return field_align;
     const field_ty = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
@@ -3167,7 +3192,7 @@ pub fn structFieldAlignmentAdvanced(
     explicit_alignment: InternPool.Alignment,
     field_ty: Type,
     layout: std.builtin.Type.ContainerLayout,
-    strat: Type.ResolveStrat,
+    comptime strat: Type.ResolveStrat,
 ) Zcu.SemaError!InternPool.Alignment {
     assert(layout != .@"packed");
     if (explicit_alignment != .none) return explicit_alignment;
