@@ -74,7 +74,7 @@ pub fn main() !void {
     });
     defer build_root.deinit();
 
-    var global_cache_package_directory: std.fs.Dir = l: {
+    var global_cache: std.fs.Dir = l: {
         const p = try std.fs.path.join(arena, &.{
             override_global_cache_dir orelse try std.zig.introspect.resolveGlobalCacheDir(arena),
             "p",
@@ -82,7 +82,7 @@ pub fn main() !void {
 
         break :l try std.fs.cwd().makeOpenPath(p, .{});
     };
-    defer global_cache_package_directory.close();
+    defer global_cache.close();
 
     var manifest, var ast = std.zig.loadManifest(gpa, arena, .{
         .root_name = null,
@@ -106,14 +106,14 @@ pub fn main() !void {
         }
         const dep: std.zig.Package.Manifest.Dependency = dep: {
             var dep = manifest.dependencies.get(package) orelse {
-                fatal("there is no dependency named '{s}' in the manifest\n", .{package});
+                fatal("there is no dependency named '{s}' in the manifest", .{package});
             };
 
             try dep_name.appendSlice(package);
 
             for (subdeps.items) |p| {
                 if (dep.hash) |hash| {
-                    var package_dir = global_cache_package_directory.openDir(hash, .{}) catch |e| switch (e) {
+                    var package_dir = global_cache.openDir(hash, .{}) catch |e| switch (e) {
                         error.FileNotFound => fatal("{s} is not in the global cache (hash: {s})", .{
                             dep_name.items, hash,
                         }),
@@ -135,10 +135,10 @@ pub fn main() !void {
                     try dep_name.append('.');
                     try dep_name.appendSlice(p);
                 } else switch (dep.location) {
-                    .url => fatal("the hash for {s} is missing from the manifest.\n", .{
+                    .url => fatal("the hash for {s} is missing from the manifest.", .{
                         dep_name.items,
                     }),
-                    .path => |path| fatal("{s} is a local dependency located at {s}\n", .{
+                    .path => |path| fatal("{s} is a local dependency located at {s}", .{
                         dep_name.items, path,
                     }),
                 }
@@ -151,7 +151,7 @@ pub fn main() !void {
 
         if (dep.hash) |hash| {
             if (list) {
-                var package_dir = global_cache_package_directory.openDir(hash, .{}) catch |e| switch (e) {
+                var package_dir = global_cache.openDir(hash, .{}) catch |e| switch (e) {
                     error.FileNotFound => fatal("{s} is not in the global cache (hash: {s})", .{
                         dep_name.items, hash,
                     }),
@@ -197,8 +197,8 @@ pub fn main() !void {
                 try stdout.print("{s}\n", .{hash});
             }
         } else switch (dep.location) {
-            .url => fatal("the hash for {s} is missing from the manifest.\n", .{package}),
-            .path => |path| fatal("{s} is a local dependency located at {s}\n", .{ package, path }),
+            .url => fatal("the hash for {s} is missing from the manifest.", .{package}),
+            .path => |path| fatal("{s} is a local dependency located at {s}", .{ package, path }),
         }
     } else {
         try listDepHashes("", manifest);
