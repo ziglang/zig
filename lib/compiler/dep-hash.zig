@@ -113,36 +113,27 @@ pub fn main() !void {
             try dep_name.appendSlice(package);
 
             for (subdeps.items) |p| {
-                if (dep.hash) |hash| {
-                    var package_dir = global_cache.openDir(hash, .{}) catch |e| switch (e) {
-                        error.FileNotFound => fatal("{s} is not in the global cache (hash: {s})", .{
-                            dep_name.items, hash,
-                        }),
-                        else => |err| return err,
-                    };
-                    defer package_dir.close();
+                var package_dir = try getDepDir(
+                    dep,
+                    dep_name.items,
+                    global_cache,
+                    build_root,
+                );
+                defer package_dir.close();
 
-                    const sub_manifest, _ = try std.zig.loadManifest(arena, arena, .{
-                        .root_name = null,
-                        .dir = package_dir,
-                        .color = color,
+                const sub_manifest, _ = try std.zig.loadManifest(arena, arena, .{
+                    .root_name = null,
+                    .dir = package_dir,
+                    .color = color,
+                });
+
+                dep = sub_manifest.dependencies.get(p) orelse {
+                    fatal("{s} has no dependency named '{s}' in its manifest", .{
+                        dep_name.items, p,
                     });
-
-                    dep = sub_manifest.dependencies.get(p) orelse {
-                        fatal("{s} has no dependency named '{s}' in its manifest", .{
-                            dep_name.items, p,
-                        });
-                    };
-                    try dep_name.append('.');
-                    try dep_name.appendSlice(p);
-                } else switch (dep.location) {
-                    .url => fatal("the hash for {s} is missing from the manifest.", .{
-                        dep_name.items,
-                    }),
-                    .path => |path| fatal("{s} is a local dependency located at {s}", .{
-                        dep_name.items, path,
-                    }),
-                }
+                };
+                try dep_name.append('.');
+                try dep_name.appendSlice(p);
             }
 
             break :dep dep;
@@ -150,59 +141,83 @@ pub fn main() !void {
 
         const stdout = std.io.getStdOut().writer();
 
-        if (dep.hash) |hash| {
-            if (list) {
-                var package_dir = global_cache.openDir(hash, .{}) catch |e| switch (e) {
-                    error.FileNotFound => fatal("{s} is not in the global cache (hash: {s})", .{
-                        dep_name.items, hash,
-                    }),
-                    else => |err| return err,
-                };
-                defer package_dir.close();
+        if (list) {
+            var package_dir = try getDepDir(
+                dep,
+                dep_name.items,
+                global_cache,
+                build_root,
+            );
+            defer package_dir.close();
 
-                var sub_manifest, var sub_ast = std.zig.loadManifest(gpa, arena, .{
-                    .root_name = null,
-                    .dir = package_dir,
-                    .color = color,
-                }) catch |err| switch (err) {
-                    error.FileNotFound => fatal("no manifest found in build root", .{}),
-                    else => |e| return e,
-                };
-                defer {
-                    sub_manifest.deinit(gpa);
-                    sub_ast.deinit(gpa);
+            var sub_manifest, var sub_ast = std.zig.loadManifest(gpa, arena, .{
+                .root_name = null,
+                .dir = package_dir,
+                .color = color,
+            }) catch |err| switch (err) {
+                error.FileNotFound => fatal("no manifest found in build root", .{}),
+                else => |e| return e,
+            };
+            defer {
+                sub_manifest.deinit(gpa);
+                sub_ast.deinit(gpa);
+            }
+
+            const prefix = prefix: {
+                var prefix_len: usize = package.len + 1;
+                for (subdeps.items) |subdep| {
+                    prefix_len += subdep.len + 1;
                 }
 
-                const prefix = prefix: {
-                    var prefix_len: usize = package.len + 1;
-                    for (subdeps.items) |subdep| {
-                        prefix_len += subdep.len + 1;
-                    }
+                const buffer = try arena.alloc(u8, prefix_len);
 
-                    const buffer = try arena.alloc(u8, prefix_len);
+                @memcpy(buffer[0..package.len], package);
+                buffer[package.len] = '.';
 
-                    @memcpy(buffer[0..package.len], package);
-                    buffer[package.len] = '.';
+                var i: usize = package.len + 1;
+                for (subdeps.items) |subdep| {
+                    @memcpy(buffer[i..][0..subdep.len], subdep);
+                    buffer[i + subdep.len] = '.';
+                    i += subdep.len + 1;
+                }
+                break :prefix buffer;
+            };
 
-                    var i: usize = package.len + 1;
-                    for (subdeps.items) |subdep| {
-                        @memcpy(buffer[i..][0..subdep.len], subdep);
-                        buffer[i + subdep.len] = '.';
-                        i += subdep.len + 1;
-                    }
-                    break :prefix buffer;
-                };
-
-                try listDepHashes(prefix, sub_manifest);
-            } else {
+            try listDepHashes(prefix, sub_manifest);
+        } else {
+            if (dep.hash) |hash| {
                 try stdout.print("{s}\n", .{hash});
+            } else switch (dep.location) {
+                .url => fatal("the hash for {s} is missing from the manifest", .{dep_name.items}),
+                .path => fatal("{s} is a local dependency", .{dep_name.items}),
             }
-        } else switch (dep.location) {
-            .url => fatal("the hash for {s} is missing from the manifest.", .{package}),
-            .path => |path| fatal("{s} is a local dependency located at {s}", .{ package, path }),
         }
     } else {
         try listDepHashes("", manifest);
+    }
+}
+
+fn getDepDir(
+    dep: std.zig.Manifest.Dependency,
+    dep_name: []const u8,
+    global_cache_package_directory: std.fs.Dir,
+    build_root: std.zig.BuildRoot,
+) !std.fs.Dir {
+    if (dep.hash) |hash| {
+        return global_cache_package_directory.openDir(hash, .{}) catch |e| switch (e) {
+            error.FileNotFound => fatal("{s} is not in the global cache (hash: {s})", .{
+                dep_name, hash,
+            }),
+            else => |err| return err,
+        };
+    } else switch (dep.location) {
+        .url => fatal("the hash for {s} is missing from the manifest.\n", .{
+            dep_name,
+        }),
+        .path => |path| return build_root.directory.handle.openDir(path, .{}) catch |e| switch (e) {
+            error.FileNotFound => fatal("local dependency {s} does not exist", .{dep_name}),
+            else => |err| return err,
+        },
     }
 }
 
