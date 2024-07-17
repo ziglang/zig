@@ -1935,6 +1935,7 @@ or
           <li>{#syntax#}*T{#endsyntax#} - single-item pointer to exactly one item.
             <ul>
               <li>Supports deref syntax: {#syntax#}ptr.*{#endsyntax#}</li>
+              <li>Supports slice syntax: {#syntax#}ptr[0..1]{#endsyntax#}</li>
               <li>Supports pointer subtraction: {#syntax#}ptr - ptr{#endsyntax#}</li>
             </ul>
           </li>
