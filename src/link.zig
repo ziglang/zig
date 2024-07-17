@@ -743,6 +743,9 @@ pub const File = struct {
             for (comp.c_object_table.keys()) |key| {
                 _ = try man.addFile(key.status.success.object_path, null);
             }
+            for (comp.natvis_source_files) |nv| {
+                _ = try man.addFile(nv.src_path, null);
+            }
             if (!build_options.only_core_functionality) {
                 for (comp.win32_resource_table.keys()) |key| {
                     _ = try man.addFile(key.status.success.res_path, null);
