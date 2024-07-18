@@ -712,14 +712,27 @@ pub fn fanotify_mark(
     dirfd: fd_t,
     pathname: ?[*:0]const u8,
 ) usize {
-    return syscall5(
-        .fanotify_mark,
-        @bitCast(@as(isize, fd)),
-        @as(u32, @bitCast(flags)),
-        @bitCast(mask),
-        @bitCast(@as(isize, dirfd)),
-        @intFromPtr(pathname),
-    );
+    if (usize_bits < 64) {
+        const mask_halves = splitValue64(@bitCast(mask));
+        return syscall6(
+            .fanotify_mark,
+            @bitCast(@as(isize, fd)),
+            @as(u32, @bitCast(flags)),
+            mask_halves[0],
+            mask_halves[1],
+            @bitCast(@as(isize, dirfd)),
+            @intFromPtr(pathname),
+        );
+    } else {
+        return syscall5(
+            .fanotify_mark,
+            @bitCast(@as(isize, fd)),
+            @as(u32, @bitCast(flags)),
+            @bitCast(mask),
+            @bitCast(@as(isize, dirfd)),
+            @intFromPtr(pathname),
+        );
+    }
 }
 
 pub fn name_to_handle_at(
