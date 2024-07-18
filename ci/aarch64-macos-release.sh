@@ -26,8 +26,9 @@ cd $ZIGDIR
 git fetch --unshallow || true
 git fetch --tags
 
-mkdir build
-cd build
+rm -rf build-release
+mkdir build-release
+cd build-release
 
 # Override the cache directories because they won't actually help other CI runs
 # which will be testing alternate versions of zig, and ultimately would just
