@@ -14,13 +14,15 @@ generation: Generation,
 /// interested in noticing changes to.
 ///
 /// Value is generation.
-const DirTable = std.ArrayHashMapUnmanaged(Cache.Path, void, Cache.Path.TableAdapter, false);
+const DirTable = std.ArrayHashMapUnmanaged(Cache.Path, MountId, Cache.Path.TableAdapter, false);
 
 /// Special key of "." means any changes in this directory trigger the steps.
 const ReactionSet = std.StringArrayHashMapUnmanaged(StepSet);
 const StepSet = std.AutoArrayHashMapUnmanaged(*Step, Generation);
 
 const Generation = u8;
+
+const MountId = i32;
 
 const Hash = std.hash.Wyhash;
 const Cache = std.Build.Cache;
@@ -31,7 +33,8 @@ const Os = switch (builtin.os.tag) {
 
         /// Keyed differently but indexes correspond 1:1 with `dir_table`.
         handle_table: HandleTable,
-        poll_fds: [1]posix.pollfd,
+        // mount_id -> fanotify
+        poll_fds: std.AutoArrayHashMapUnmanaged(MountId, posix.pollfd),
 
         const HandleTable = std.ArrayHashMapUnmanaged(FileHandle, ReactionSet, FileHandle.Adapter, false);
 
@@ -89,22 +92,20 @@ const Os = switch (builtin.os.tag) {
             };
         };
 
-        fn getDirHandle(gpa: Allocator, path: std.Build.Cache.Path) !FileHandle {
+        fn getDirHandle(gpa: Allocator, path: std.Build.Cache.Path, mount_id: *MountId) !FileHandle {
             var file_handle_buffer: [@sizeOf(std.os.linux.file_handle) + 128]u8 align(@alignOf(std.os.linux.file_handle)) = undefined;
-            var mount_id: i32 = undefined;
             var buf: [std.fs.max_path_bytes]u8 = undefined;
             const adjusted_path = if (path.sub_path.len == 0) "./" else std.fmt.bufPrint(&buf, "{s}/", .{
                 path.sub_path,
             }) catch return error.NameTooLong;
             const stack_ptr: *std.os.linux.file_handle = @ptrCast(&file_handle_buffer);
             stack_ptr.handle_bytes = file_handle_buffer.len - @sizeOf(std.os.linux.file_handle);
-            try posix.name_to_handle_at(path.root_dir.handle.fd, adjusted_path, stack_ptr, &mount_id, std.os.linux.AT.HANDLE_FID);
+            try posix.name_to_handle_at(path.root_dir.handle.fd, adjusted_path, stack_ptr, mount_id, std.os.linux.AT.HANDLE_FID);
             const stack_lfh: FileHandle = .{ .handle = stack_ptr };
             return stack_lfh.clone(gpa);
         }
 
-        fn markDirtySteps(w: *Watch, gpa: Allocator) !bool {
-            const fan_fd = w.os.getFanFd();
+        fn markDirtySteps(w: *Watch, gpa: Allocator, fan_fd: posix.fd_t) !bool {
             const fanotify = std.os.linux.fanotify;
             const M = fanotify.event_metadata;
             var events_buf: [256 + 4096]u8 = undefined;
@@ -146,19 +147,36 @@ const Os = switch (builtin.os.tag) {
             }
         }
 
-        fn getFanFd(os: *const @This()) posix.fd_t {
-            return os.poll_fds[0].fd;
-        }
-
         fn update(w: *Watch, gpa: Allocator, steps: []const *Step) !void {
-            const fan_fd = w.os.getFanFd();
             // Add missing marks and note persisted ones.
             for (steps) |step| {
                 for (step.inputs.table.keys(), step.inputs.table.values()) |path, *files| {
                     const reaction_set = rs: {
                         const gop = try w.dir_table.getOrPut(gpa, path);
                         if (!gop.found_existing) {
-                            const dir_handle = try Os.getDirHandle(gpa, path);
+                            var mount_id: MountId = undefined;
+                            const dir_handle = try Os.getDirHandle(gpa, path, &mount_id);
+
+                            const fan_fd = blk: {
+                                const fd_gop = try w.os.poll_fds.getOrPut(gpa, mount_id);
+                                if (!fd_gop.found_existing) {
+                                    const fd = try std.posix.fanotify_init(.{
+                                        .CLASS = .NOTIF,
+                                        .CLOEXEC = true,
+                                        .NONBLOCK = true,
+                                        .REPORT_NAME = true,
+                                        .REPORT_DIR_FID = true,
+                                        .REPORT_FID = true,
+                                        .REPORT_TARGET_FID = true,
+                                    }, 0);
+                                    fd_gop.value_ptr.* = .{
+                                        .fd = fd,
+                                        .events = std.posix.POLL.IN,
+                                        .revents = undefined,
+                                    };
+                                }
+                                break :blk fd_gop.value_ptr.*.fd;
+                            };
                             // `dir_handle` may already be present in the table in
                             // the case that we have multiple Cache.Path instances
                             // that compare inequal but ultimately point to the same
@@ -175,9 +193,10 @@ const Os = switch (builtin.os.tag) {
                                     .ADD = true,
                                     .ONLYDIR = true,
                                 }, fan_mask, path.root_dir.handle.fd, path.subPathOrDot()) catch |err| {
-                                    fatal("unable to watch {}: {s}", .{ path, @errorName(err) });
+                                    std.log.err("unable to watch {}: {s}", .{ path, @errorName(err) });
                                 };
                             }
+                            gop.value_ptr.* = mount_id;
                             break :rs dh_gop.value_ptr;
                         }
                         break :rs &w.os.handle_table.values()[gop.index];
@@ -221,7 +240,8 @@ const Os = switch (builtin.os.tag) {
                     }
 
                     const path = w.dir_table.keys()[i];
-
+                    const mount_fd = w.dir_table.values()[i];
+                    const fan_fd = w.os.poll_fds.getEntry(mount_fd).?.value_ptr.fd;
                     posix.fanotify_mark(fan_fd, .{
                         .REMOVE = true,
                         .ONLYDIR = true,
@@ -243,27 +263,12 @@ const Os = switch (builtin.os.tag) {
 pub fn init() !Watch {
     switch (builtin.os.tag) {
         .linux => {
-            const fan_fd = try std.posix.fanotify_init(.{
-                .CLASS = .NOTIF,
-                .CLOEXEC = true,
-                .NONBLOCK = true,
-                .REPORT_NAME = true,
-                .REPORT_DIR_FID = true,
-                .REPORT_FID = true,
-                .REPORT_TARGET_FID = true,
-            }, 0);
             return .{
                 .dir_table = .{},
                 .os = switch (builtin.os.tag) {
                     .linux => .{
                         .handle_table = .{},
-                        .poll_fds = .{
-                            .{
-                                .fd = fan_fd,
-                                .events = std.posix.POLL.IN,
-                                .revents = undefined,
-                            },
-                        },
+                        .poll_fds = .{},
                     },
                     else => {},
                 },
@@ -350,13 +355,20 @@ pub const WaitResult = enum {
 pub fn wait(w: *Watch, gpa: Allocator, timeout: Timeout) !WaitResult {
     switch (builtin.os.tag) {
         .linux => {
-            const events_len = try std.posix.poll(&w.os.poll_fds, timeout.to_i32_ms());
-            return if (events_len == 0)
-                .timeout
-            else if (try Os.markDirtySteps(w, gpa))
-                .dirty
-            else
-                .clean;
+            const events_len = try std.posix.poll(w.os.poll_fds.values(), timeout.to_i32_ms());
+
+            if (events_len == 0)
+                return .timeout;
+
+            for (w.os.poll_fds.values()) |poll_fd| {
+                var any_dirty: bool = false;
+                if (poll_fd.revents & std.posix.POLL.IN == std.posix.POLL.IN and
+                    try Os.markDirtySteps(w, gpa, poll_fd.fd))
+                    any_dirty = true;
+                if (any_dirty) return .dirty;
+            }
+
+            return .clean;
         },
         else => @compileError("unimplemented"),
     }
