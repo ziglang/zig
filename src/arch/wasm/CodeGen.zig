@@ -2675,41 +2675,41 @@ fn binOpBigInt(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) Inner
         .@"and", .@"or", .xor => {
             const result = try func.allocStack(ty);
             try func.emitWValue(result);
-            const lhs_high_bit = try func.load(lhs, Type.u64, 0);
-            const rhs_high_bit = try func.load(rhs, Type.u64, 0);
-            const op_high_bit = try func.binOp(lhs_high_bit, rhs_high_bit, Type.u64, op);
-            try func.store(.stack, op_high_bit, Type.u64, result.offset());
+            const lhs_low_bit = try func.load(lhs, Type.u64, 0);
+            const rhs_low_bit = try func.load(rhs, Type.u64, 0);
+            const op_low_bit = try func.binOp(lhs_low_bit, rhs_low_bit, Type.u64, op);
+            try func.store(.stack, op_low_bit, Type.u64, result.offset());
 
             try func.emitWValue(result);
-            const lhs_low_bit = try func.load(lhs, Type.u64, 8);
-            const rhs_low_bit = try func.load(rhs, Type.u64, 8);
-            const op_low_bit = try func.binOp(lhs_low_bit, rhs_low_bit, Type.u64, op);
-            try func.store(.stack, op_low_bit, Type.u64, result.offset() + 8);
+            const lhs_high_bit = try func.load(lhs, Type.u64, 8);
+            const rhs_high_bit = try func.load(rhs, Type.u64, 8);
+            const op_high_bit = try func.binOp(lhs_high_bit, rhs_high_bit, Type.u64, op);
+            try func.store(.stack, op_high_bit, Type.u64, result.offset() + 8);
             return result;
         },
         .add, .sub => {
             const result = try func.allocStack(ty);
-            var lhs_high_bit = try (try func.load(lhs, Type.u64, 0)).toLocal(func, Type.u64);
-            defer lhs_high_bit.free(func);
-            var rhs_high_bit = try (try func.load(rhs, Type.u64, 0)).toLocal(func, Type.u64);
-            defer rhs_high_bit.free(func);
-            var high_op_res = try (try func.binOp(lhs_high_bit, rhs_high_bit, Type.u64, op)).toLocal(func, Type.u64);
-            defer high_op_res.free(func);
+            var lhs_low_bit = try (try func.load(lhs, Type.u64, 0)).toLocal(func, Type.u64);
+            defer lhs_low_bit.free(func);
+            var rhs_low_bit = try (try func.load(rhs, Type.u64, 0)).toLocal(func, Type.u64);
+            defer rhs_low_bit.free(func);
+            var low_op_res = try (try func.binOp(lhs_low_bit, rhs_low_bit, Type.u64, op)).toLocal(func, Type.u64);
+            defer low_op_res.free(func);
 
-            const lhs_low_bit = try func.load(lhs, Type.u64, 8);
-            const rhs_low_bit = try func.load(rhs, Type.u64, 8);
-            const low_op_res = try func.binOp(lhs_low_bit, rhs_low_bit, Type.u64, op);
+            const lhs_high_bit = try func.load(lhs, Type.u64, 8);
+            const rhs_high_bit = try func.load(rhs, Type.u64, 8);
+            const high_op_res = try func.binOp(lhs_high_bit, rhs_high_bit, Type.u64, op);
 
             const lt = if (op == .add) blk: {
-                break :blk try func.cmp(high_op_res, rhs_high_bit, Type.u64, .lt);
+                break :blk try func.cmp(low_op_res, rhs_low_bit, Type.u64, .lt);
             } else if (op == .sub) blk: {
-                break :blk try func.cmp(lhs_high_bit, rhs_high_bit, Type.u64, .lt);
+                break :blk try func.cmp(lhs_low_bit, rhs_low_bit, Type.u64, .lt);
             } else unreachable;
             const tmp = try func.intcast(lt, Type.u32, Type.u64);
-            var tmp_op = try (try func.binOp(low_op_res, tmp, Type.u64, op)).toLocal(func, Type.u64);
+            var tmp_op = try (try func.binOp(high_op_res, tmp, Type.u64, op)).toLocal(func, Type.u64);
             defer tmp_op.free(func);
 
-            try func.store(result, high_op_res, Type.u64, 0);
+            try func.store(result, low_op_res, Type.u64, 0);
             try func.store(result, tmp_op, Type.u64, 8);
             return result;
         },
@@ -5523,16 +5523,16 @@ fn cmpBigInt(func: *CodeGen, lhs: WValue, rhs: WValue, operand_ty: Type, op: std
         return func.fail("TODO: Support cmpBigInt for integer bitsize: '{d}'", .{operand_ty.bitSize(pt)});
     }
 
-    var lhs_high_bit = try (try func.load(lhs, Type.u64, 0)).toLocal(func, Type.u64);
+    var lhs_high_bit = try (try func.load(lhs, Type.u64, 8)).toLocal(func, Type.u64);
     defer lhs_high_bit.free(func);
-    var rhs_high_bit = try (try func.load(rhs, Type.u64, 0)).toLocal(func, Type.u64);
+    var rhs_high_bit = try (try func.load(rhs, Type.u64, 8)).toLocal(func, Type.u64);
     defer rhs_high_bit.free(func);
 
     switch (op) {
         .eq, .neq => {
             const xor_high = try func.binOp(lhs_high_bit, rhs_high_bit, Type.u64, .xor);
-            const lhs_low_bit = try func.load(lhs, Type.u64, 8);
-            const rhs_low_bit = try func.load(rhs, Type.u64, 8);
+            const lhs_low_bit = try func.load(lhs, Type.u64, 0);
+            const rhs_low_bit = try func.load(rhs, Type.u64, 0);
             const xor_low = try func.binOp(lhs_low_bit, rhs_low_bit, Type.u64, .xor);
             const or_result = try func.binOp(xor_high, xor_low, Type.u64, .@"or");
 
@@ -5545,9 +5545,9 @@ fn cmpBigInt(func: *CodeGen, lhs: WValue, rhs: WValue, operand_ty: Type, op: std
         else => {
             const ty = if (operand_ty.isSignedInt(mod)) Type.i64 else Type.u64;
             // leave those value on top of the stack for '.select'
-            const lhs_low_bit = try func.load(lhs, Type.u64, 8);
-            const rhs_low_bit = try func.load(rhs, Type.u64, 8);
-            _ = try func.cmp(lhs_low_bit, rhs_low_bit, ty, op);
+            const lhs_low_bit = try func.load(lhs, Type.u64, 0);
+            const rhs_low_bit = try func.load(rhs, Type.u64, 0);
+            _ = try func.cmp(lhs_low_bit, rhs_low_bit, Type.u64, op);
             _ = try func.cmp(lhs_high_bit, rhs_high_bit, ty, op);
             _ = try func.cmp(lhs_high_bit, rhs_high_bit, ty, .eq);
             try func.addTag(.select);
