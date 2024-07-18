@@ -17787,8 +17787,7 @@ fn zirBuiltinSrc(
     };
 
     const file_name_val = v: {
-        // The compiler must not call realpath anywhere.
-        const file_name = try fn_owner_decl.getFileScope(mod).fullPath(sema.arena);
+        const file_name = fn_owner_decl.getFileScope(mod).sub_file_path;
         const array_ty = try pt.intern(.{ .array_type = .{
             .len = file_name.len,
             .sentinel = .zero_u8,
