@@ -1345,62 +1345,56 @@ test "@subWithOverflow > 64 bits" {
     try testSubWithOverflow(i128, maxInt(i128), -2, minInt(i128) + 1, 1);
 }
 
+fn testShlWithOverflow(comptime T: type, a: T, b: math.Log2Int(T), shl: T, bit: u1) !void {
+    const ov = @shlWithOverflow(a, b);
+    try expect(ov[0] == shl);
+    try expect(ov[1] == bit);
+}
+
 test "@shlWithOverflow" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    {
-        var a: u4 = 2;
-        _ = &a;
-        var b: u2 = 1;
-        var ov = @shlWithOverflow(a, b);
-        try expect(ov[0] == 4);
-        try expect(ov[1] == 0);
+    try testShlWithOverflow(u4, 2, 1, 4, 0);
+    try testShlWithOverflow(u4, 2, 3, 0, 1);
 
-        b = 3;
-        ov = @shlWithOverflow(a, b);
-        try expect(ov[0] == 0);
-        try expect(ov[1] == 1);
-    }
+    try testShlWithOverflow(i9, 127, 1, 254, 0);
+    try testShlWithOverflow(i9, 127, 2, -4, 1);
 
-    {
-        var a: i9 = 127;
-        _ = &a;
-        var b: u4 = 1;
-        var ov = @shlWithOverflow(a, b);
-        try expect(ov[0] == 254);
-        try expect(ov[1] == 0);
+    try testShlWithOverflow(u16, 0b0010111111111111, 3, 0b0111111111111000, 1);
+    try testShlWithOverflow(u16, 0b0010111111111111, 2, 0b1011111111111100, 0);
 
-        b = 2;
-        ov = @shlWithOverflow(a, b);
-        try expect(ov[0] == -4);
-        try expect(ov[1] == 1);
-    }
+    try testShlWithOverflow(u16, 0b0000_0000_0000_0011, 15, 0b1000_0000_0000_0000, 1);
+    try testShlWithOverflow(u16, 0b0000_0000_0000_0011, 14, 0b1100_0000_0000_0000, 0);
+}
 
-    {
-        const ov = @shlWithOverflow(@as(u16, 0b0010111111111111), 3);
-        try expect(ov[0] == 0b0111111111111000);
-        try expect(ov[1] == 1);
-    }
-    {
-        const ov = @shlWithOverflow(@as(u16, 0b0010111111111111), 2);
-        try expect(ov[0] == 0b1011111111111100);
-        try expect(ov[1] == 0);
-    }
-    {
-        var a: u16 = 0b0000_0000_0000_0011;
-        _ = &a;
-        var b: u4 = 15;
-        var ov = @shlWithOverflow(a, b);
-        try expect(ov[0] == 0b1000_0000_0000_0000);
-        try expect(ov[1] == 1);
-        b = 14;
-        ov = @shlWithOverflow(a, b);
-        try expect(ov[0] == 0b1100_0000_0000_0000);
-        try expect(ov[1] == 0);
-    }
+test "@shlWithOverflow > 64 bits" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    try testShlWithOverflow(u65, 0x0_0100_0000_0000_0000, 7, 0x0_8000_0000_0000_0000, 0);
+    try testShlWithOverflow(u65, 0x0_0100_0000_0000_0000, 8, 0x1_0000_0000_0000_0000, 0);
+    try testShlWithOverflow(u65, 0x0_0100_0000_0000_0000, 9, 0, 1);
+    try testShlWithOverflow(u65, 0x0_0100_0000_0000_0000, 10, 0, 1);
+
+    try testShlWithOverflow(u128, 0x0100_0000_0000_0000_0000000000000000, 6, 0x4000_0000_0000_0000_0000000000000000, 0);
+    try testShlWithOverflow(u128, 0x0100_0000_0000_0000_0000000000000000, 7, 0x8000_0000_0000_0000_0000000000000000, 0);
+    try testShlWithOverflow(u128, 0x0100_0000_0000_0000_0000000000000000, 8, 0, 1);
+    try testShlWithOverflow(u128, 0x0100_0000_0000_0000_0000000000000000, 9, 0, 1);
+
+    try testShlWithOverflow(i65, 0x0_0100_0000_0000_0000, 7, 0x0_8000_0000_0000_0000, 0);
+    try testShlWithOverflow(i65, 0x0_0100_0000_0000_0000, 8, minInt(i65), 1);
+    try testShlWithOverflow(i65, 0x0_0100_0000_0000_0000, 9, 0, 1);
+    try testShlWithOverflow(i65, 0x0_0100_0000_0000_0000, 10, 0, 1);
+
+    try testShlWithOverflow(i128, 0x0100_0000_0000_0000_0000000000000000, 6, 0x4000_0000_0000_0000_0000000000000000, 0);
+    try testShlWithOverflow(i128, 0x0100_0000_0000_0000_0000000000000000, 7, minInt(i128), 1);
+    try testShlWithOverflow(i128, 0x0100_0000_0000_0000_0000000000000000, 8, 0, 1);
+    try testShlWithOverflow(i128, 0x0100_0000_0000_0000_0000000000000000, 9, 0, 1);
 }
 
 test "overflow arithmetic with u0 values" {

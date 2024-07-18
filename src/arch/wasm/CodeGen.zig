@@ -2669,8 +2669,14 @@ fn binOpBigInt(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) Inner
             .signed => return func.callIntrinsic("__udivti3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
             .unsigned => return func.callIntrinsic("__divti3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
         },
-        .rem => return func.callIntrinsic("__umodti3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
-        .shr => return func.callIntrinsic("__lshrti3", &.{ ty.toIntern(), .i32_type }, ty, &.{ lhs, rhs }),
+        .rem => switch (int_info.signedness) {
+            .signed => return func.callIntrinsic("__modti3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
+            .unsigned => return func.callIntrinsic("__umodti3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
+        },
+        .shr => switch (int_info.signedness) {
+            .signed => return func.callIntrinsic("__ashrti3", &.{ ty.toIntern(), .i32_type }, ty, &.{ lhs, rhs }),
+            .unsigned => return func.callIntrinsic("__lshrti3", &.{ ty.toIntern(), .i32_type }, ty, &.{ lhs, rhs }),
+        },
         .shl => return func.callIntrinsic("__ashlti3", &.{ ty.toIntern(), .i32_type }, ty, &.{ lhs, rhs }),
         .@"and", .@"or", .xor => {
             const result = try func.allocStack(ty);
@@ -6055,14 +6061,14 @@ fn airShlWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const lhs = try func.resolveInst(extra.lhs);
     const rhs = try func.resolveInst(extra.rhs);
-    const lhs_ty = func.typeOf(extra.lhs);
+    const ty = func.typeOf(extra.lhs);
     const rhs_ty = func.typeOf(extra.rhs);
 
-    if (lhs_ty.zigTypeTag(mod) == .Vector) {
+    if (ty.zigTypeTag(mod) == .Vector) {
         return func.fail("TODO: Implement overflow arithmetic for vectors", .{});
     }
 
-    const int_info = lhs_ty.intInfo(mod);
+    const int_info = ty.intInfo(mod);
     const wasm_bits = toWasmBits(int_info.bits) orelse {
         return func.fail("TODO: Implement shl_with_overflow for integer bitsize: {d}", .{int_info.bits});
     };
@@ -6070,32 +6076,28 @@ fn airShlWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     // Ensure rhs is coerced to lhs as they must have the same WebAssembly types
     // before we can perform any binary operation.
     const rhs_wasm_bits = toWasmBits(rhs_ty.intInfo(mod).bits).?;
-    const rhs_final = if (wasm_bits != rhs_wasm_bits) blk: {
-        const rhs_casted = try func.intcast(rhs, rhs_ty, lhs_ty);
-        break :blk try rhs_casted.toLocal(func, lhs_ty);
+    // If wasm_bits == 128, compiler-rt expects i32 for shift
+    const rhs_final = if (wasm_bits != rhs_wasm_bits and wasm_bits == 64) blk: {
+        const rhs_casted = try func.intcast(rhs, rhs_ty, ty);
+        break :blk try rhs_casted.toLocal(func, ty);
     } else rhs;
 
-    var shl = try (try func.binOp(lhs, rhs_final, lhs_ty, .shl)).toLocal(func, lhs_ty);
+    var shl = try (try func.wrapBinOp(lhs, rhs_final, ty, .shl)).toLocal(func, ty);
     defer shl.free(func);
-    var result = if (wasm_bits != int_info.bits) blk: {
-        break :blk try (try func.wrapOperand(shl, lhs_ty)).toLocal(func, lhs_ty);
-    } else shl;
-    defer result.free(func); // it's a no-op to free the same local twice (when wasm_bits == int_info.bits)
 
     const overflow_bit = blk: {
-        try func.emitWValue(lhs);
-        const shr = try func.binOp(result, rhs_final, lhs_ty, .shr);
-        break :blk try func.cmp(.stack, shr, lhs_ty, .neq);
+        const shr = try func.binOp(shl, rhs_final, ty, .shr);
+        break :blk try func.cmp(shr, lhs, ty, .neq);
     };
     var overflow_local = try overflow_bit.toLocal(func, Type.u1);
     defer overflow_local.free(func);
 
-    const result_ptr = try func.allocStack(func.typeOfIndex(inst));
-    try func.store(result_ptr, result, lhs_ty, 0);
-    const offset = @as(u32, @intCast(lhs_ty.abiSize(pt)));
-    try func.store(result_ptr, overflow_local, Type.u1, offset);
+    const result = try func.allocStack(func.typeOfIndex(inst));
+    const offset: u32 = @intCast(ty.abiSize(pt));
+    try func.store(result, shl, ty, 0);
+    try func.store(result, overflow_local, Type.u1, offset);
 
-    return func.finishAir(inst, result_ptr, &.{ extra.lhs, extra.rhs });
+    return func.finishAir(inst, result, &.{ extra.lhs, extra.rhs });
 }
 
 fn airMulWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
