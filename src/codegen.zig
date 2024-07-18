@@ -901,15 +901,16 @@ fn genDeclRef(
         }
         return GenResult.mcv(.{ .load_symbol = sym.esym_index });
     } else if (lf.cast(link.File.MachO)) |macho_file| {
+        const zo = macho_file.getZigObject().?;
         if (is_extern) {
             const name = decl.name.toSlice(ip);
             const lib_name = if (decl.getOwnedVariable(zcu)) |ov| ov.lib_name.toSlice(ip) else null;
             const sym_index = try macho_file.getGlobalSymbol(name, lib_name);
-            macho_file.getSymbol(macho_file.getZigObject().?.symbols.items[sym_index]).flags.needs_got = true;
+            zo.symbols.items[sym_index].flags.needs_got = true;
             return GenResult.mcv(.{ .load_symbol = sym_index });
         }
-        const sym_index = try macho_file.getZigObject().?.getOrCreateMetadataForDecl(macho_file, decl_index);
-        const sym = macho_file.getSymbol(sym_index);
+        const sym_index = try zo.getOrCreateMetadataForDecl(macho_file, decl_index);
+        const sym = zo.symbols.items[sym_index];
         if (is_threadlocal) {
             return GenResult.mcv(.{ .load_tlv = sym.nlist_idx });
         }
@@ -956,7 +957,7 @@ fn genUnnamedConst(
         },
         .macho => {
             const macho_file = lf.cast(link.File.MachO).?;
-            const local = macho_file.getSymbol(local_sym_index);
+            const local = macho_file.getZigObject().?.symbols.items[local_sym_index];
             return GenResult.mcv(.{ .load_symbol = local.nlist_idx });
         },
         .coff => {

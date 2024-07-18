@@ -425,8 +425,8 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             else => unreachable,
                         };
                     } else if (lower.bin_file.cast(link.File.MachO)) |macho_file| {
-                        const sym_index = macho_file.getZigObject().?.symbols.items[sym.sym_index];
-                        const macho_sym = macho_file.getSymbol(sym_index);
+                        const zo = macho_file.getZigObject().?;
+                        const macho_sym = zo.symbols.items[sym.sym_index];
 
                         if (macho_sym.flags.tlv) {
                             _ = lower.reloc(.{ .linker_reloc = sym });

@@ -6,7 +6,9 @@ strtab: std.ArrayListUnmanaged(u8) = .{},
 id: ?Id = null,
 ordinal: u16 = 0,
 
-symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
+symbols: std.ArrayListUnmanaged(Symbol) = .{},
+symbols_extra: std.ArrayListUnmanaged(u32) = .{},
+globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .{},
 dependents: std.ArrayListUnmanaged(Id) = .{},
 rpaths: std.StringArrayHashMapUnmanaged(void) = .{},
 umbrella: File.Index = 0,
@@ -37,6 +39,8 @@ pub fn deinit(self: *Dylib, allocator: Allocator) void {
     self.strtab.deinit(allocator);
     if (self.id) |*id| id.deinit(allocator);
     self.symbols.deinit(allocator);
+    self.symbols_extra.deinit(allocator);
+    self.globals.deinit(allocator);
     for (self.dependents.items) |*id| {
         id.deinit(allocator);
     }
@@ -494,50 +498,52 @@ fn addObjCExport(
 pub fn initSymbols(self: *Dylib, macho_file: *MachO) !void {
     const gpa = macho_file.base.comp.gpa;
 
-    try self.symbols.ensureTotalCapacityPrecise(gpa, self.exports.items(.name).len);
+    const nsyms = self.exports.items(.name).len;
+    try self.symbols.ensureTotalCapacityPrecise(gpa, nsyms);
+    try self.symbols_extra.ensureTotalCapacityPrecise(gpa, nsyms * @sizeOf(Symbol.Extra));
+    try self.globals.ensureTotalCapacityPrecise(gpa, nsyms);
+    self.globals.resize(gpa, nsyms) catch unreachable;
+    @memset(self.globals.items, 0);
 
-    for (self.exports.items(.name)) |noff| {
-        const name = self.getString(noff);
-        const off = try macho_file.strings.insert(gpa, name);
-        const gop = try macho_file.getOrCreateGlobal(off);
-        self.symbols.addOneAssumeCapacity().* = gop.index;
+    for (self.exports.items(.name), self.exports.items(.flags)) |noff, flags| {
+        const index = self.addSymbolAssumeCapacity();
+        const symbol = &self.symbols.items[index];
+        symbol.name = noff;
+        symbol.extra = self.addSymbolExtraAssumeCapacity(.{});
+        symbol.flags.weak = flags.weak;
+        symbol.flags.tlv = flags.tlv;
+        symbol.visibility = .global;
     }
 }
 
-pub fn resolveSymbols(self: *Dylib, macho_file: *MachO) void {
+pub fn resolveSymbols(self: *Dylib, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     if (!self.explicit and !self.hoisted) return;
 
-    for (self.symbols.items, self.exports.items(.flags)) |index, flags| {
-        const global = macho_file.getSymbol(index);
+    const gpa = macho_file.base.comp.gpa;
+
+    for (self.exports.items(.flags), self.globals.items, 0..) |flags, *global, i| {
+        const gop = try macho_file.resolver.getOrPut(gpa, .{
+            .index = @intCast(i),
+            .file = self.index,
+        }, macho_file);
+        if (!gop.found_existing) {
+            gop.ref.* = .{ .index = 0, .file = 0 };
+        }
+        global.* = gop.index;
+
+        if (gop.ref.getFile(macho_file) == null) {
+            gop.ref.* = .{ .index = @intCast(i), .file = self.index };
+            continue;
+        }
+
         if (self.asFile().getSymbolRank(.{
             .weak = flags.weak,
-        }) < global.getSymbolRank(macho_file)) {
-            global.value = 0;
-            global.atom = 0;
-            global.nlist_idx = 0;
-            global.file = self.index;
-            global.flags.weak = flags.weak;
-            global.flags.tlv = flags.tlv;
-            global.flags.dyn_ref = false;
-            global.flags.tentative = false;
-            global.visibility = .global;
+        }) < gop.ref.getSymbol(macho_file).?.getSymbolRank(macho_file)) {
+            gop.ref.* = .{ .index = @intCast(i), .file = self.index };
         }
-    }
-}
-
-pub fn resetGlobals(self: *Dylib, macho_file: *MachO) void {
-    for (self.symbols.items) |sym_index| {
-        const sym = macho_file.getSymbol(sym_index);
-        const name = sym.name;
-        const global = sym.flags.global;
-        const weak_ref = sym.flags.weak_ref;
-        sym.* = .{};
-        sym.name = name;
-        sym.flags.global = global;
-        sym.flags.weak_ref = weak_ref;
     }
 }
 
@@ -550,30 +556,31 @@ pub fn markReferenced(self: *Dylib, macho_file: *MachO) void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    for (self.symbols.items) |global_index| {
-        const global = macho_file.getSymbol(global_index);
-        const file_ptr = global.getFile(macho_file) orelse continue;
-        if (file_ptr.getIndex() != self.index) continue;
+    for (0..self.symbols.items.len) |i| {
+        const ref = self.getSymbolRef(@intCast(i), macho_file);
+        const file = ref.getFile(macho_file) orelse continue;
+        if (file.getIndex() != self.index) continue;
+        const global = ref.getSymbol(macho_file).?;
         if (global.isLocal()) continue;
         self.referenced = true;
         break;
     }
 }
 
-pub fn calcSymtabSize(self: *Dylib, macho_file: *MachO) !void {
+pub fn calcSymtabSize(self: *Dylib, macho_file: *MachO) void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    for (self.symbols.items) |global_index| {
-        const global = macho_file.getSymbol(global_index);
-        const file_ptr = global.getFile(macho_file) orelse continue;
-        if (file_ptr.getIndex() != self.index) continue;
-        if (global.isLocal()) continue;
-        assert(global.flags.import);
-        global.flags.output_symtab = true;
-        try global.addExtra(.{ .symtab = self.output_symtab_ctx.nimports }, macho_file);
+    for (self.symbols.items, 0..) |*sym, i| {
+        const ref = self.getSymbolRef(@intCast(i), macho_file);
+        const file = ref.getFile(macho_file) orelse continue;
+        if (file.getIndex() != self.index) continue;
+        if (sym.isLocal()) continue;
+        assert(sym.flags.import);
+        sym.flags.output_symtab = true;
+        sym.addExtra(.{ .symtab = self.output_symtab_ctx.nimports }, macho_file);
         self.output_symtab_ctx.nimports += 1;
-        self.output_symtab_ctx.strsize += @as(u32, @intCast(global.getName(macho_file).len + 1));
+        self.output_symtab_ctx.strsize += @as(u32, @intCast(sym.getName(macho_file).len + 1));
     }
 }
 
@@ -581,17 +588,20 @@ pub fn writeSymtab(self: Dylib, macho_file: *MachO, ctx: anytype) void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    for (self.symbols.items) |global_index| {
-        const global = macho_file.getSymbol(global_index);
-        const file = global.getFile(macho_file) orelse continue;
+    var n_strx = self.output_symtab_ctx.stroff;
+    for (self.symbols.items, 0..) |sym, i| {
+        const ref = self.getSymbolRef(@intCast(i), macho_file);
+        const file = ref.getFile(macho_file) orelse continue;
         if (file.getIndex() != self.index) continue;
-        const idx = global.getOutputSymtabIndex(macho_file) orelse continue;
-        const n_strx = @as(u32, @intCast(ctx.strtab.items.len));
-        ctx.strtab.appendSliceAssumeCapacity(global.getName(macho_file));
-        ctx.strtab.appendAssumeCapacity(0);
+        const idx = sym.getOutputSymtabIndex(macho_file) orelse continue;
         const out_sym = &ctx.symtab.items[idx];
         out_sym.n_strx = n_strx;
-        global.setOutputSym(macho_file, out_sym);
+        sym.setOutputSym(macho_file, out_sym);
+        const name = sym.getName(macho_file);
+        @memcpy(ctx.strtab.items[n_strx..][0..name.len], name);
+        n_strx += @intCast(name.len);
+        ctx.strtab.items[n_strx] = 0;
+        n_strx += 1;
     }
 }
 
@@ -605,13 +615,73 @@ fn addString(self: *Dylib, allocator: Allocator, name: []const u8) !u32 {
     return off;
 }
 
-pub inline fn getString(self: Dylib, off: u32) [:0]const u8 {
+pub fn getString(self: Dylib, off: u32) [:0]const u8 {
     assert(off < self.strtab.items.len);
     return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.strtab.items.ptr + off)), 0);
 }
 
 pub fn asFile(self: *Dylib) File {
     return .{ .dylib = self };
+}
+
+fn addSymbol(self: *Dylib, allocator: Allocator) !Symbol.Index {
+    try self.symbols.ensureUnusedCapacity(allocator, 1);
+    return self.addSymbolAssumeCapacity();
+}
+
+fn addSymbolAssumeCapacity(self: *Dylib) Symbol.Index {
+    const index: Symbol.Index = @intCast(self.symbols.items.len);
+    const symbol = self.symbols.addOneAssumeCapacity();
+    symbol.* = .{ .file = self.index };
+    return index;
+}
+
+pub fn getSymbolRef(self: Dylib, index: Symbol.Index, macho_file: *MachO) MachO.Ref {
+    const global_index = self.globals.items[index];
+    if (macho_file.resolver.get(global_index)) |ref| return ref;
+    return .{ .index = index, .file = self.index };
+}
+
+pub fn addSymbolExtra(self: *Dylib, allocator: Allocator, extra: Symbol.Extra) !u32 {
+    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    try self.symbols_extra.ensureUnusedCapacity(allocator, fields.len);
+    return self.addSymbolExtraAssumeCapacity(extra);
+}
+
+fn addSymbolExtraAssumeCapacity(self: *Dylib, extra: Symbol.Extra) u32 {
+    const index = @as(u32, @intCast(self.symbols_extra.items.len));
+    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    inline for (fields) |field| {
+        self.symbols_extra.appendAssumeCapacity(switch (field.type) {
+            u32 => @field(extra, field.name),
+            else => @compileError("bad field type"),
+        });
+    }
+    return index;
+}
+
+pub fn getSymbolExtra(self: Dylib, index: u32) Symbol.Extra {
+    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    var i: usize = index;
+    var result: Symbol.Extra = undefined;
+    inline for (fields) |field| {
+        @field(result, field.name) = switch (field.type) {
+            u32 => self.symbols_extra.items[i],
+            else => @compileError("bad field type"),
+        };
+        i += 1;
+    }
+    return result;
+}
+
+pub fn setSymbolExtra(self: *Dylib, index: u32, extra: Symbol.Extra) void {
+    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    inline for (fields, 0..) |field, i| {
+        self.symbols_extra.items[index + i] = switch (field.type) {
+            u32 => @field(extra, field.name),
+            else => @compileError("bad field type"),
+        };
+    }
 }
 
 pub fn format(
@@ -648,10 +718,16 @@ fn formatSymtab(
     _ = unused_fmt_string;
     _ = options;
     const dylib = ctx.dylib;
+    const macho_file = ctx.macho_file;
     try writer.writeAll("  globals\n");
-    for (dylib.symbols.items) |index| {
-        const global = ctx.macho_file.getSymbol(index);
-        try writer.print("    {}\n", .{global.fmt(ctx.macho_file)});
+    for (dylib.symbols.items, 0..) |sym, i| {
+        const ref = dylib.getSymbolRef(@intCast(i), macho_file);
+        if (ref.getFile(macho_file) == null) {
+            // TODO any better way of handling this?
+            try writer.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
+        } else {
+            try writer.print("    {}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
+        }
     }
 }
 

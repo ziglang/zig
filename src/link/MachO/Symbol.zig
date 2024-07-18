@@ -9,17 +9,16 @@ name: u32 = 0,
 /// File where this symbol is defined.
 file: File.Index = 0,
 
-/// Atom containing this symbol if any.
-/// Index of 0 means there is no associated atom with this symbol.
+/// Reference to Atom containing this symbol if any.
 /// Use `getAtom` to get the pointer to the atom.
-atom: Atom.Index = 0,
+atom_ref: MachO.Ref = .{ .index = 0, .file = 0 },
 
 /// Assigned output section index for this symbol.
 out_n_sect: u8 = 0,
 
 /// Index of the source nlist this symbol references.
 /// Use `getNlist` to pull the nlist from the relevant file.
-nlist_idx: Index = 0,
+nlist_idx: u32 = 0,
 
 /// Misc flags for the symbol packaged as packed struct for compression.
 flags: Flags = .{},
@@ -55,16 +54,19 @@ pub fn weakRef(symbol: Symbol, macho_file: *MachO) bool {
 }
 
 pub fn getName(symbol: Symbol, macho_file: *MachO) [:0]const u8 {
-    if (symbol.flags.global) return macho_file.strings.getAssumeExists(symbol.name);
     return switch (symbol.getFile(macho_file).?) {
-        .dylib => unreachable, // There are no local symbols for dylibs
         .zig_object => |x| x.strtab.getAssumeExists(symbol.name),
         inline else => |x| x.getString(symbol.name),
     };
 }
 
 pub fn getAtom(symbol: Symbol, macho_file: *MachO) ?*Atom {
-    return macho_file.getAtom(symbol.atom);
+    return symbol.atom_ref.getAtom(macho_file);
+}
+
+pub fn getOutputSectionIndex(symbol: Symbol, macho_file: *MachO) u8 {
+    if (symbol.getAtom(macho_file)) |atom| return atom.out_n_sect;
+    return symbol.out_n_sect;
 }
 
 pub fn getFile(symbol: Symbol, macho_file: *MachO) ?File {
@@ -75,8 +77,10 @@ pub fn getFile(symbol: Symbol, macho_file: *MachO) ?File {
 pub fn getNlist(symbol: Symbol, macho_file: *MachO) macho.nlist_64 {
     const file = symbol.getFile(macho_file).?;
     return switch (file) {
+        .dylib => unreachable,
+        .zig_object => unreachable,
         .object => |x| x.symtab.items(.nlist)[symbol.nlist_idx],
-        else => unreachable,
+        .internal => |x| x.symtab.items[symbol.nlist_idx],
     };
 }
 
@@ -124,33 +128,35 @@ pub fn getAddress(symbol: Symbol, opts: struct {
 
 pub fn getGotAddress(symbol: Symbol, macho_file: *MachO) u64 {
     if (!symbol.flags.has_got) return 0;
-    const extra = symbol.getExtra(macho_file).?;
+    const extra = symbol.getExtra(macho_file);
     return macho_file.got.getAddress(extra.got, macho_file);
 }
 
 pub fn getStubsAddress(symbol: Symbol, macho_file: *MachO) u64 {
     if (!symbol.flags.stubs) return 0;
-    const extra = symbol.getExtra(macho_file).?;
+    const extra = symbol.getExtra(macho_file);
     return macho_file.stubs.getAddress(extra.stubs, macho_file);
 }
 
 pub fn getObjcStubsAddress(symbol: Symbol, macho_file: *MachO) u64 {
     if (!symbol.flags.objc_stubs) return 0;
-    const extra = symbol.getExtra(macho_file).?;
+    const extra = symbol.getExtra(macho_file);
     return macho_file.objc_stubs.getAddress(extra.objc_stubs, macho_file);
 }
 
 pub fn getObjcSelrefsAddress(symbol: Symbol, macho_file: *MachO) u64 {
     if (!symbol.flags.objc_stubs) return 0;
-    const extra = symbol.getExtra(macho_file).?;
-    const atom = macho_file.getAtom(extra.objc_selrefs).?;
-    assert(atom.flags.alive);
-    return atom.getAddress(macho_file);
+    const extra = symbol.getExtra(macho_file);
+    const file = symbol.getFile(macho_file).?;
+    return switch (file) {
+        .dylib, .zig_object => unreachable,
+        inline else => |x| x.symbols.items[extra.objc_selrefs].getAddress(.{}, macho_file),
+    };
 }
 
 pub fn getTlvPtrAddress(symbol: Symbol, macho_file: *MachO) u64 {
     if (!symbol.flags.tlv_ptr) return 0;
-    const extra = symbol.getExtra(macho_file).?;
+    const extra = symbol.getExtra(macho_file);
     return macho_file.tlv_ptr.getAddress(extra.tlv_ptr, macho_file);
 }
 
@@ -162,14 +168,14 @@ const GetOrCreateZigGotEntryResult = struct {
 pub fn getOrCreateZigGotEntry(symbol: *Symbol, symbol_index: Index, macho_file: *MachO) !GetOrCreateZigGotEntryResult {
     assert(!macho_file.base.isRelocatable());
     assert(symbol.flags.needs_zig_got);
-    if (symbol.flags.has_zig_got) return .{ .found_existing = true, .index = symbol.getExtra(macho_file).?.zig_got };
+    if (symbol.flags.has_zig_got) return .{ .found_existing = true, .index = symbol.getExtra(macho_file).zig_got };
     const index = try macho_file.zig_got.addSymbol(symbol_index, macho_file);
     return .{ .found_existing = false, .index = index };
 }
 
 pub fn getZigGotAddress(symbol: Symbol, macho_file: *MachO) u64 {
     if (!symbol.flags.has_zig_got) return 0;
-    const extras = symbol.getExtra(macho_file).?;
+    const extras = symbol.getExtra(macho_file);
     return macho_file.zig_got.entryAddress(extras.zig_got, macho_file);
 }
 
@@ -180,7 +186,7 @@ pub fn getOutputSymtabIndex(symbol: Symbol, macho_file: *MachO) ?u32 {
     const symtab_ctx = switch (file) {
         inline else => |x| x.output_symtab_ctx,
     };
-    var idx = symbol.getExtra(macho_file).?.symtab;
+    var idx = symbol.getExtra(macho_file).symtab;
     if (symbol.isLocal()) {
         idx += symtab_ctx.ilocal;
     } else if (symbol.flags.@"export") {
@@ -202,11 +208,8 @@ const AddExtraOpts = struct {
     symtab: ?u32 = null,
 };
 
-pub fn addExtra(symbol: *Symbol, opts: AddExtraOpts, macho_file: *MachO) !void {
-    if (symbol.getExtra(macho_file) == null) {
-        symbol.extra = try macho_file.addSymbolExtra(.{});
-    }
-    var extra = symbol.getExtra(macho_file).?;
+pub fn addExtra(symbol: *Symbol, opts: AddExtraOpts, macho_file: *MachO) void {
+    var extra = symbol.getExtra(macho_file);
     inline for (@typeInfo(@TypeOf(opts)).Struct.fields) |field| {
         if (@field(opts, field.name)) |x| {
             @field(extra, field.name) = x;
@@ -215,18 +218,22 @@ pub fn addExtra(symbol: *Symbol, opts: AddExtraOpts, macho_file: *MachO) !void {
     symbol.setExtra(extra, macho_file);
 }
 
-pub inline fn getExtra(symbol: Symbol, macho_file: *MachO) ?Extra {
-    return macho_file.getSymbolExtra(symbol.extra);
+pub inline fn getExtra(symbol: Symbol, macho_file: *MachO) Extra {
+    return switch (symbol.getFile(macho_file).?) {
+        inline else => |x| x.getSymbolExtra(symbol.extra),
+    };
 }
 
 pub inline fn setExtra(symbol: Symbol, extra: Extra, macho_file: *MachO) void {
-    macho_file.setSymbolExtra(symbol.extra, extra);
+    return switch (symbol.getFile(macho_file).?) {
+        inline else => |x| x.setSymbolExtra(symbol.extra, extra),
+    };
 }
 
 pub fn setOutputSym(symbol: Symbol, macho_file: *MachO, out: *macho.nlist_64) void {
     if (symbol.isLocal()) {
         out.n_type = if (symbol.flags.abs) macho.N_ABS else macho.N_SECT;
-        out.n_sect = if (symbol.flags.abs) 0 else @intCast(symbol.out_n_sect + 1);
+        out.n_sect = if (symbol.flags.abs) 0 else @intCast(symbol.getOutputSectionIndex(macho_file) + 1);
         out.n_desc = 0;
         out.n_value = symbol.getAddress(.{ .stubs = false }, macho_file);
 
@@ -238,7 +245,7 @@ pub fn setOutputSym(symbol: Symbol, macho_file: *MachO, out: *macho.nlist_64) vo
         assert(symbol.visibility == .global);
         out.n_type = macho.N_EXT;
         out.n_type |= if (symbol.flags.abs) macho.N_ABS else macho.N_SECT;
-        out.n_sect = if (symbol.flags.abs) 0 else @intCast(symbol.out_n_sect + 1);
+        out.n_sect = if (symbol.flags.abs) 0 else @intCast(symbol.getOutputSectionIndex(macho_file) + 1);
         out.n_value = symbol.getAddress(.{ .stubs = false }, macho_file);
         out.n_desc = 0;
 
@@ -318,15 +325,20 @@ fn format2(
         symbol.getAddress(.{}, ctx.macho_file),
     });
     if (symbol.getFile(ctx.macho_file)) |file| {
-        if (symbol.out_n_sect != 0) {
-            try writer.print(" : sect({d})", .{symbol.out_n_sect});
+        if (symbol.getOutputSectionIndex(ctx.macho_file) != 0) {
+            try writer.print(" : sect({d})", .{symbol.getOutputSectionIndex(ctx.macho_file)});
         }
         if (symbol.getAtom(ctx.macho_file)) |atom| {
             try writer.print(" : atom({d})", .{atom.atom_index});
         }
-        var buf: [2]u8 = .{'_'} ** 2;
+        var buf: [3]u8 = .{'_'} ** 3;
         if (symbol.flags.@"export") buf[0] = 'E';
         if (symbol.flags.import) buf[1] = 'I';
+        switch (symbol.visibility) {
+            .local => buf[2] = 'L',
+            .hidden => buf[2] = 'H',
+            .global => buf[2] = 'G',
+        }
         try writer.print(" : {s}", .{&buf});
         if (symbol.flags.weak) try writer.writeAll(" : weak");
         if (symbol.isSymbolStab(ctx.macho_file)) try writer.writeAll(" : stab");
@@ -345,11 +357,6 @@ pub const Flags = packed struct {
 
     /// Whether the symbol is exported at runtime.
     @"export": bool = false,
-
-    /// Whether the symbol is effectively an extern and takes part in global
-    /// symbol resolution. Then, its name will be saved in global string interning
-    /// table.
-    global: bool = false,
 
     /// Whether this symbol is weak.
     weak: bool = false,
@@ -400,6 +407,14 @@ pub const Visibility = enum {
     global,
     hidden,
     local,
+
+    pub fn rank(vis: Visibility) u2 {
+        return switch (vis) {
+            .local => 2,
+            .hidden => 1,
+            .global => 0,
+        };
+    }
 };
 
 pub const Extra = struct {
