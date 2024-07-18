@@ -1,0 +1,188 @@
+.{
+    .name = "zig/ci",
+    .version = "0.0.0",
+    .paths = .{""},
+    .dependencies = .{
+        .@"binaryen-x86_64-linux-musl" = .{
+            .hash = "12207d5dd577b7cc822cc007bdc06411fac7f536243afff77f6a181df1987f99b610",
+            .url = "https://github.com/WebAssembly/binaryen/releases/download/version_117/binaryen-version_117-x86_64-linux.tar.gz",
+            .lazy = true,
+        },
+        .@"binaryen-aarch64-linux-musl" = .{
+            .hash = "12207fa9d8edc6d3cb3e56ad5df7ed6205bea4a0712946d1115689ec4e8b6c6013c7",
+            .url = "https://github.com/WebAssembly/binaryen/releases/download/version_117/binaryen-version_117-aarch64-linux.tar.gz",
+            .lazy = true,
+        },
+        .@"binaryen-x86_64-macos-none" = .{
+            .hash = "12207e36613e24971953f70ee13654f5b91a279f95f71c930702ba913878b19a91d3",
+            .url = "https://github.com/WebAssembly/binaryen/releases/download/version_117/binaryen-version_117-x86_64-macos.tar.gz",
+            .lazy = true,
+        },
+        .@"binaryen-aarch64-macos-none" = .{
+            .hash = "122042c3690f6a477febcb4c68568c03bd3409c517e0d9037e06010fff003a4efcc0",
+            .url = "https://github.com/WebAssembly/binaryen/releases/download/version_117/binaryen-version_117-arm64-macos.tar.gz",
+            .lazy = true,
+        },
+        .@"binaryen-x86_64-windows-gnu" = .{
+            .hash = "122046d1b9b8e32c6198520178862b2079ffd2021a03a1f5f8dd6f5b474672dd0217",
+            .url = "https://github.com/WebAssembly/binaryen/releases/download/version_117/binaryen-version_117-x86_64-windows.tar.gz",
+            .lazy = true,
+        },
+
+        .@"cmake-x86_64-linux-musl" = .{
+            .hash = "1220e08f2db1f68d20caeb41d923d1e468ef53e0973d02c1a00c2d517b011e121c40",
+            .url = "https://github.com/Kitware/CMake/releases/download/v3.29.2/cmake-3.29.2-linux-x86_64.tar.gz",
+            .lazy = true,
+        },
+        .@"cmake-aarch64-linux-musl" = .{
+            .hash = "1220a16a663bb2be43a236cb945bac8957be27c6edac8f630e81123fc99f7b2b2de9",
+            .url = "https://github.com/Kitware/CMake/releases/download/v3.29.2/cmake-3.29.2-linux-aarch64.tar.gz",
+            .lazy = true,
+        },
+        .@"cmake-x86_64-macos-none" = .{
+            .hash = "1220d158a5c05cfa2f20d339ec5503c79e96d61a21fe81fd6710c815f2cdcf6e3da0",
+            .url = "https://github.com/Kitware/CMake/releases/download/v3.29.2/cmake-3.29.2-macos-universal.tar.gz",
+            .lazy = true,
+        },
+        .@"cmake-aarch64-macos-none" = .{
+            .hash = "1220d158a5c05cfa2f20d339ec5503c79e96d61a21fe81fd6710c815f2cdcf6e3da0",
+            .url = "https://github.com/Kitware/CMake/releases/download/v3.29.2/cmake-3.29.2-macos-universal.tar.gz",
+            .lazy = true,
+        },
+        .@"cmake-x86_64-windows-gnu" = .{
+            .hash = "12204ff75c21a274e8d4803b77d4699d37f42974d039e398b28cdea7ea2cc1fa3376",
+            .url = "https://github.com/Kitware/CMake/releases/download/v3.29.2/cmake-3.29.2-windows-x86_64.zip",
+            .lazy = true,
+        },
+        .@"cmake-aarch64-windows-gnu" = .{
+            .hash = "12201d1c55e49eecfcbcf0347af9edc4396c2f3a12ab682f3da61d6f310b617753a2",
+            .url = "https://github.com/Kitware/CMake/releases/download/v3.29.2/cmake-3.29.2-windows-arm64.zip",
+            .lazy = true,
+        },
+
+        .@"ninja-x86_64-linux-musl" = .{
+            .hash = "12206a681b6a380e8b380120f8c4e6688bc67b587b01091b019d722f74dca33ad012",
+            .url = "https://github.com/ninja-build/ninja/releases/download/v1.12.0/ninja-linux.zip",
+            .lazy = true,
+        },
+        .@"ninja-aarch64-linux-musl" = .{
+            .hash = "1220480757926ac5ade22fc2a4b39bde33e03480eb0d5e7087474ca4b81b8426e6b6",
+            .url = "https://github.com/ninja-build/ninja/releases/download/v1.12.0/ninja-linux-aarch64.zip",
+            .lazy = true,
+        },
+        .@"ninja-x86_64-macos-none" = .{
+            .hash = "1220978a9f52d9dff7614814ec52381aa709ea63a333249549c02f0b917c65733f5a",
+            .url = "https://github.com/ninja-build/ninja/releases/download/v1.12.0/ninja-mac.zip",
+            .lazy = true,
+        },
+        .@"ninja-aarch64-macos-none" = .{
+            .hash = "1220978a9f52d9dff7614814ec52381aa709ea63a333249549c02f0b917c65733f5a",
+            .url = "https://github.com/ninja-build/ninja/releases/download/v1.12.0/ninja-mac.zip",
+            .lazy = true,
+        },
+        .@"ninja-x86_64-windows-gnu" = .{
+            .hash = "1220543c9071fd6d5f16d2d5a64473cf252266b2928f9947c3b87a87de6d983724df",
+            .url = "https://github.com/ninja-build/ninja/releases/download/v1.12.0/ninja-win.zip",
+            .lazy = true,
+        },
+        .@"ninja-aarch64-windows-gnu" = .{
+            .hash = "12207d071c13ee8539a3445ea198243c12c917492411c3e7dfd8b54ff1714d759a73",
+            .url = "https://github.com/ninja-build/ninja/releases/download/v1.12.0/ninja-winarm64.zip",
+            .lazy = true,
+        },
+
+        .@"qemu-x86_64-linux-musl" = .{
+            .hash = "122077e46a30ef6fee9b98aedc50bc613a5d37c038d2ac823445951d1cd8bbc0e162",
+            .url = "https://ziglang.org/deps/qemu-linux-x86_64-8.2.1.tar.xz",
+            .lazy = true,
+        },
+
+        .@"tidy-x86_64-linux-musl" = .{
+            .hash = "1220b07c11837da15ae5f44201327cf3a1d554c650b384429f48d8234be8942ddc9d",
+            .url = "https://github.com/jacobly0/zig-tidy/releases/download/5.8.0/tidy-5.8.0-x86_64-linux-musl.tar.xz",
+            .lazy = true,
+        },
+        .@"tidy-aarch64-linux-musl" = .{
+            .hash = "122006a2ede0400f00789abe48e47861e5bbab7f8ca16789db4bd9e351299c4ac590",
+            .url = "https://github.com/jacobly0/zig-tidy/releases/download/5.8.0/tidy-5.8.0-aarch64-linux-musl.tar.xz",
+            .lazy = true,
+        },
+        .@"tidy-x86_64-macos-none" = .{
+            .hash = "1220f18256987f627618a21fde39f3cda13ac7bd6f01f35c9ccbb9e07ea81ca77cfc",
+            .url = "https://github.com/jacobly0/zig-tidy/releases/download/5.8.0/tidy-5.8.0-x86_64-macos-none.tar.xz",
+            .lazy = true,
+        },
+        .@"tidy-aarch64-macos-none" = .{
+            .hash = "1220a8ee39addf48e3be546616fe14853e3db1cb49522bd90a24bade371330176826",
+            .url = "https://github.com/jacobly0/zig-tidy/releases/download/5.8.0/tidy-5.8.0-aarch64-macos-none.tar.xz",
+            .lazy = true,
+        },
+        .@"tidy-x86_64-windows-gnu" = .{
+            .hash = "12205c2cb107a59e552947a51a302296912bd097fcf1414e9a7521ce8ededb915574",
+            .url = "https://github.com/jacobly0/zig-tidy/releases/download/5.8.0/tidy-5.8.0-x86_64-windows-gnu.zip",
+            .lazy = true,
+        },
+        .@"tidy-aarch64-windows-gnu" = .{
+            .hash = "1220dce14dc654e391c06c7e1d5b078355195286350cb8cab8e1f21f3a08df716736",
+            .url = "https://github.com/jacobly0/zig-tidy/releases/download/5.8.0/tidy-5.8.0-aarch64-windows-gnu.zip",
+            .lazy = true,
+        },
+
+        .@"wasmtime-x86_64-linux-musl" = .{
+            .hash = "122062e8c3f052636b68b60f096eab11618a010ee67e5ec772d5c41362e471c30607",
+            .url = "https://github.com/bytecodealliance/wasmtime/releases/download/v13.0.1/wasmtime-v13.0.1-x86_64-linux.tar.xz",
+            .lazy = true,
+        },
+        .@"wasmtime-aarch64-linux-musl" = .{
+            .hash = "122069362558cae6da16d5de27a23b793bcd604bbbeb908ee8af25a1f9e48ce0d87b",
+            .url = "https://github.com/bytecodealliance/wasmtime/releases/download/v13.0.1/wasmtime-v13.0.1-aarch64-linux.tar.xz",
+            .lazy = true,
+        },
+        .@"wasmtime-x86_64-macos-none" = .{
+            .hash = "12205fbb7d93b7e41f74565b1b8df5862834d5b8e1676ad9d5814127f8ea79c6d923",
+            .url = "https://github.com/bytecodealliance/wasmtime/releases/download/v13.0.1/wasmtime-v13.0.1-x86_64-macos.tar.xz",
+            .lazy = true,
+        },
+        .@"wasmtime-aarch64-macos-none" = .{
+            .hash = "122021a51bda85da636583101f1815432b4b421d1506db459640af13fe28795ad5a0",
+            .url = "https://github.com/bytecodealliance/wasmtime/releases/download/v13.0.1/wasmtime-v13.0.1-aarch64-macos.tar.xz",
+            .lazy = true,
+        },
+        .@"wasmtime-x86_64-windows-gnu" = .{
+            .hash = "12206dd597841bb2e048996c650ae66b621c25c0e59d2555b4abf242d4b6deb16151",
+            .url = "https://github.com/bytecodealliance/wasmtime/releases/download/v13.0.1/wasmtime-v13.0.1-x86_64-windows.zip",
+            .lazy = true,
+        },
+
+        .@"zig+llvm+lld+clang-x86_64-linux-musl" = .{
+            .hash = "12202441821c4e916ab128580655d8189610ca66c85fcc2545629c509e211cc88f8f",
+            .url = "https://ziglang.org/deps/zig+llvm+lld+clang-x86_64-linux-musl-0.13.0-dev.130+98a30acad.tar.xz",
+            .lazy = true,
+        },
+        .@"zig+llvm+lld+clang-aarch64-linux-musl" = .{
+            .hash = "122007c945ba64a5103b6ee10455c7e6b89d8d5de5887034df5b9d1b5c1dc8a0a4c1",
+            .url = "https://ziglang.org/deps/zig+llvm+lld+clang-aarch64-linux-musl-0.13.0-dev.130+98a30acad.tar.xz",
+            .lazy = true,
+        },
+        .@"zig+llvm+lld+clang-x86_64-macos-none" = .{
+            .hash = "1220451d009ecda5092b59835ba65ea5d5ca04046436aab6f2fd113c00c7e794b860",
+            .url = "https://ziglang.org/deps/zig+llvm+lld+clang-x86_64-macos-none-0.13.0-dev.130+98a30acad.tar.xz",
+            .lazy = true,
+        },
+        .@"zig+llvm+lld+clang-aarch64-macos-none" = .{
+            .hash = "1220c6e8b6fd8eb397a8e54139ae0baec6583a7f72e509623437ff255ebc278822a1",
+            .url = "https://ziglang.org/deps/zig+llvm+lld+clang-aarch64-macos-none-0.13.0-dev.130+98a30acad.tar.xz",
+            .lazy = true,
+        },
+        .@"zig+llvm+lld+clang-x86_64-windows-gnu" = .{
+            .hash = "12204a122b74c73de3b84d0626b99a5e355a037fc7b1c8ffa14c9d7bdc2e9a40d3d3",
+            .url = "https://ziglang.org/deps/zig+llvm+lld+clang-x86_64-windows-gnu-0.13.0-dev.130+98a30acad.zip",
+            .lazy = true,
+        },
+        .@"zig+llvm+lld+clang-aarch64-windows-gnu" = .{
+            .hash = "1220f756f38997a4f89d620aa77a2db21463ed7cc2dff5574e835894bb1969dfca95",
+            .url = "https://ziglang.org/deps/zig+llvm+lld+clang-aarch64-windows-gnu-0.13.0-dev.130+98a30acad.zip",
+            .lazy = true,
+        },
+    },
+}

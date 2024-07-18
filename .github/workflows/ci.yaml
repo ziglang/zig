@@ -4,95 +4,184 @@ on:
   push:
     branches:
       - master
-      - llvm18
-concurrency:
-  # Cancels pending runs when a PR gets updated.
-  group: ${{ github.head_ref || github.run_id }}-${{ github.actor }}
-  cancel-in-progress: true
+      - ci-scripts
+env:
+  ci-zig-version: 0.13.0-dev.76+dee9f82f6
 jobs:
   x86_64-linux-debug:
-    timeout-minutes: 420
+    if: github.repository_owner == 'ziglang'
     runs-on: [self-hosted, Linux, x86_64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
-        run: sh ci/x86_64-linux-debug.sh
+        working-directory: ci
+        run: ~/deps/zig-x86_64-linux-musl-${{env.ci-zig-version}}/bin/zig build --maxrss 21000000000 -Dbuild-type=Debug -Dextra-target=arm-linux-musleabihf test-cmake-bootstrap update-stage1
   x86_64-linux-release:
-    timeout-minutes: 420
+    if: github.repository_owner == 'ziglang'
     runs-on: [self-hosted, Linux, x86_64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
-        run: sh ci/x86_64-linux-release.sh
+        working-directory: ci
+        run: ~/deps/zig-x86_64-linux-musl-${{env.ci-zig-version}}/bin/zig build --maxrss 21000000000 -Dbuild-type=Release -Dextra-target=arm-linux-musleabihf -Dcc=cc test-cc-bootstrap test-cmake-bootstrap reproducible update-stage1
   aarch64-linux-debug:
-    timeout-minutes: 480
+    if: github.repository_owner == 'ziglang'
     runs-on: [self-hosted, Linux, aarch64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
-        run: sh ci/aarch64-linux-debug.sh
+        working-directory: ci
+        run: ~/deps/zig-aarch64-linux-musl-${{env.ci-zig-version}}/bin/zig build --maxrss 24696061952 -Dbuild-type=Debug -Dextra-target=arm-linux-musleabihf test-cmake-bootstrap update-stage1
   aarch64-linux-release:
-    timeout-minutes: 480
+    if: github.repository_owner == 'ziglang'
     runs-on: [self-hosted, Linux, aarch64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
-        run: sh ci/aarch64-linux-release.sh
+        working-directory: ci
+        run: ~/deps/zig-aarch64-linux-musl-${{env.ci-zig-version}}/bin/zig build --maxrss 24696061952 -Dbuild-type=Release -Dextra-target=arm-linux-musleabihf test-cmake-bootstrap reproducible update-stage1
+  x86_64-macos-debug:
+    if: github.repository_owner == 'ziglang'
+    runs-on: macos-12
+    steps:
+      - name: Restore Zig Cache
+        id: zig-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/deps/zig-x86_64-macos-none-${{env.ci-zig-version}}
+          key: zig-x86_64-macos-none-${{env.ci-zig-version}}
+      - name: Download Zig
+        if: steps.zig-cache.outputs.cache-hit != 'true'
+        run: 'mkdir -p ~/deps && curl https://jacobly.com/deps/zig-x86_64-macos-none-${{env.ci-zig-version}}.tar.xz | tar xJ -C ~/deps'
+      - name: Save Zig Cache
+        if: steps.zig-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/deps/zig-x86_64-macos-none-${{env.ci-zig-version}}
+          key: ${{steps.zig-cache.outputs.cache-primary-key}}
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restore Package Cache
+        id: package-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/zig
+          key: x86_64-macos-package-${{hashFiles('ci/build.zig.zon')}}
+          restore-keys: x86_64-macos-package-
+      - name: Build and Test
+        working-directory: ci
+        run: ~/deps/zig-x86_64-macos-none-${{env.ci-zig-version}}/bin/zig build -Dbuild-type=Debug -Dskip-non-native test-cmake-bootstrap update-stage1
+      - name: Save Package Cache
+        if: steps.package-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/zig
+          key: ${{steps.package-cache.outputs.cache-primary-key}}
   x86_64-macos-release:
-    runs-on: "macos-12"
-    env:
-      ARCH: "x86_64"
+    if: github.repository_owner == 'ziglang'
+    runs-on: macos-12
     steps:
+      - name: Restore Zig Cache
+        id: zig-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/deps/zig-x86_64-macos-none-${{env.ci-zig-version}}
+          key: zig-x86_64-macos-none-${{env.ci-zig-version}}
+      - name: Download Zig
+        if: steps.zig-cache.outputs.cache-hit != 'true'
+        run: 'mkdir -p ~/deps && curl https://jacobly.com/deps/zig-x86_64-macos-none-${{env.ci-zig-version}}.tar.xz | tar xJ -C ~/deps'
+      - name: Save Zig Cache
+        if: steps.zig-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/deps/zig-x86_64-macos-none-${{env.ci-zig-version}}
+          key: ${{steps.zig-cache.outputs.cache-primary-key}}
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restore Package Cache
+        id: package-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/zig
+          key: x86_64-macos-package-${{hashFiles('ci/build.zig.zon')}}
+          restore-keys: x86_64-macos-package-
       - name: Build and Test
-        run: ci/x86_64-macos-release.sh
+        working-directory: ci
+        run: ~/deps/zig-x86_64-macos-none-${{env.ci-zig-version}}/bin/zig build -Dbuild-type=Release -Dcc=cc -Dskip-non-native test-cc-bootstrap test-cmake-bootstrap reproducible update-stage1
+      - name: Save Package Cache
+        if: steps.package-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/zig
+          key: ${{steps.package-cache.outputs.cache-primary-key}}
   aarch64-macos-debug:
+    if: github.repository_owner == 'ziglang'
     runs-on: [self-hosted, macOS, aarch64]
-    env:
-      ARCH: "aarch64"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
-        run: ci/aarch64-macos-debug.sh
+        working-directory: ci
+        run: ~/deps/zig-aarch64-macos-none-${{env.ci-zig-version}}/bin/zig build -Dbuild-type=Debug -Dskip-non-native test-cmake-bootstrap update-stage1
   aarch64-macos-release:
+    if: github.repository_owner == 'ziglang'
     runs-on: [self-hosted, macOS, aarch64]
-    env:
-      ARCH: "aarch64"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
-        run: ci/aarch64-macos-release.sh
+        working-directory: ci
+        run: ~/deps/zig-aarch64-macos-none-${{env.ci-zig-version}}/bin/zig build -Dbuild-type=Release -Dskip-non-native test-cmake-bootstrap reproducible update-stage1
   x86_64-windows-debug:
+    if: github.repository_owner == 'ziglang'
     runs-on: [self-hosted, Windows, x86_64]
-    env:
-      ARCH: "x86_64"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
-        run: ci/x86_64-windows-debug.ps1
+        working-directory: ci
+        run: '& $Env:USERPROFILE\deps\zig-x86_64-windows-gnu-${{env.ci-zig-version}}\bin\zig.exe build -Dbuild-type=Debug -Dskip-non-native test-cmake-bootstrap update-stage1 msvc'
   x86_64-windows-release:
+    if: github.repository_owner == 'ziglang'
     runs-on: [self-hosted, Windows, x86_64]
-    env:
-      ARCH: "x86_64"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
-        run: ci/x86_64-windows-release.ps1
-  aarch64-windows:
+        working-directory: ci
+        run: '& $Env:USERPROFILE\deps\zig-x86_64-windows-gnu-${{env.ci-zig-version}}\bin\zig.exe build -Dbuild-type=Release -Dskip-non-native test-cmake-bootstrap update-stage1 msvc' # reproducible
+  aarch64-windows-release:
+    if: github.repository_owner == 'ziglang'
     runs-on: [self-hosted, Windows, aarch64]
-    env:
-      ARCH: "aarch64"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build and Test
-        run: ci/aarch64-windows.ps1
+        working-directory: ci
+        run: '& $Env:USERPROFILE\deps\zig-aarch64-windows-gnu-${{env.ci-zig-version}}\bin\zig.exe build -Dbuild-type=Release -Dskip-non-native test-cmake-bootstrap' # reproducible

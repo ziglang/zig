@@ -35,14 +35,8 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const full_doomed_path = remove_dir.doomed_path.getPath2(b, step);
 
     b.build_root.handle.deleteTree(full_doomed_path) catch |err| {
-        if (b.build_root.path) |base| {
-            return step.fail("unable to recursively delete path '{s}/{s}': {s}", .{
-                base, full_doomed_path, @errorName(err),
-            });
-        } else {
-            return step.fail("unable to recursively delete path '{s}': {s}", .{
-                full_doomed_path, @errorName(err),
-            });
-        }
+        return step.fail("unable to recursively delete path '{s}': {s}", .{
+            b.pathFromRoot(full_doomed_path), @errorName(err),
+        });
     };
 }

@@ -944,10 +944,12 @@ set(ZIG_BUILD_ARGS
 
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
   list(APPEND ZIG_BUILD_ARGS -Doptimize=Debug)
+elseif("${CMAKE_BUILD_TYPE}" STREQUAL "Release")
+  list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseFast -Dstrip)
 elseif("${CMAKE_BUILD_TYPE}" STREQUAL "RelWithDebInfo")
   list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseFast)
-else()
-  list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseFast -Dstrip)
+elseif("${CMAKE_BUILD_TYPE}" STREQUAL "MinSizeRel")
+  list(APPEND ZIG_BUILD_ARGS -Doptimize=ReleaseSmall)
 endif()
 
 if(ZIG_STATIC AND NOT MSVC)
