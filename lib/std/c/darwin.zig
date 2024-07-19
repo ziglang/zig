@@ -355,31 +355,22 @@ pub const MACH_PORT_RIGHT = enum(mach_port_right_t) {
 pub const MACH_MSG_TYPE = enum(mach_msg_type_name_t) {
     /// Must hold receive right
     MOVE_RECEIVE = 16,
-
     /// Must hold send right(s)
     MOVE_SEND = 17,
-
     /// Must hold sendonce right
     MOVE_SEND_ONCE = 18,
-
     /// Must hold send right(s)
     COPY_SEND = 19,
-
     /// Must hold receive right
     MAKE_SEND = 20,
-
     /// Must hold receive right
     MAKE_SEND_ONCE = 21,
-
     /// NOT VALID
     COPY_RECEIVE = 22,
-
     /// Must hold receive right
     DISPOSE_RECEIVE = 24,
-
     /// Must hold send right(s)
     DISPOSE_SEND = 25,
-
     /// Must hold sendonce right
     DISPOSE_SEND_ONCE = 26,
 };
@@ -469,38 +460,45 @@ pub const vm_behavior_t = i32;
 pub const vm32_object_id_t = u32;
 pub const vm_object_id_t = u64;
 
-pub const VM_INHERIT_SHARE: vm_inherit_t = 0;
-pub const VM_INHERIT_COPY: vm_inherit_t = 1;
-pub const VM_INHERIT_NONE: vm_inherit_t = 2;
-pub const VM_INHERIT_DONATE_COPY: vm_inherit_t = 3;
-pub const VM_INHERIT_DEFAULT = VM_INHERIT_COPY;
+pub const VM = struct {
+    pub const INHERIT = struct {
+        pub const SHARE: vm_inherit_t = 0;
+        pub const COPY: vm_inherit_t = 1;
+        pub const NONE: vm_inherit_t = 2;
+        pub const DONATE_COPY: vm_inherit_t = 3;
+        pub const DEFAULT = COPY;
+    };
 
-pub const VM_BEHAVIOR_DEFAULT: vm_behavior_t = 0;
-pub const VM_BEHAVIOR_RANDOM: vm_behavior_t = 1;
-pub const VM_BEHAVIOR_SEQUENTIAL: vm_behavior_t = 2;
-pub const VM_BEHAVIOR_RSEQNTL: vm_behavior_t = 3;
+    pub const BEHAVIOR = struct {
+        pub const DEFAULT: vm_behavior_t = 0;
+        pub const RANDOM: vm_behavior_t = 1;
+        pub const SEQUENTIAL: vm_behavior_t = 2;
+        pub const RSEQNTL: vm_behavior_t = 3;
+        pub const WILLNEED: vm_behavior_t = 4;
+        pub const DONTNEED: vm_behavior_t = 5;
+        pub const FREE: vm_behavior_t = 6;
+        pub const ZERO_WIRED_PAGES: vm_behavior_t = 7;
+        pub const REUSABLE: vm_behavior_t = 8;
+        pub const REUSE: vm_behavior_t = 9;
+        pub const CAN_REUSE: vm_behavior_t = 10;
+        pub const PAGEOUT: vm_behavior_t = 11;
+    };
 
-pub const VM_BEHAVIOR_WILLNEED: vm_behavior_t = 4;
-pub const VM_BEHAVIOR_DONTNEED: vm_behavior_t = 5;
-pub const VM_BEHAVIOR_FREE: vm_behavior_t = 6;
-pub const VM_BEHAVIOR_ZERO_WIRED_PAGES: vm_behavior_t = 7;
-pub const VM_BEHAVIOR_REUSABLE: vm_behavior_t = 8;
-pub const VM_BEHAVIOR_REUSE: vm_behavior_t = 9;
-pub const VM_BEHAVIOR_CAN_REUSE: vm_behavior_t = 10;
-pub const VM_BEHAVIOR_PAGEOUT: vm_behavior_t = 11;
+    pub const REGION = struct {
+        pub const BASIC_INFO_64 = 9;
+        pub const EXTENDED_INFO = 13;
+        pub const TOP_INFO = 12;
+        pub const SUBMAP_INFO_COUNT_64: mach_msg_type_number_t = @sizeOf(vm_region_submap_info_64) / @sizeOf(natural_t);
+        pub const SUBMAP_SHORT_INFO_COUNT_64: mach_msg_type_number_t = @sizeOf(vm_region_submap_short_info_64) / @sizeOf(natural_t);
+        pub const BASIC_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_basic_info_64) / @sizeOf(c_int);
+        pub const EXTENDED_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_extended_info) / @sizeOf(natural_t);
+        pub const TOP_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_top_info) / @sizeOf(natural_t);
+    };
 
-pub const VM_REGION_BASIC_INFO_64 = 9;
-pub const VM_REGION_EXTENDED_INFO = 13;
-pub const VM_REGION_TOP_INFO = 12;
-pub const VM_REGION_SUBMAP_INFO_COUNT_64: mach_msg_type_number_t = @sizeOf(vm_region_submap_info_64) / @sizeOf(natural_t);
-pub const VM_REGION_SUBMAP_SHORT_INFO_COUNT_64: mach_msg_type_number_t = @sizeOf(vm_region_submap_short_info_64) / @sizeOf(natural_t);
-pub const VM_REGION_BASIC_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_basic_info_64) / @sizeOf(c_int);
-pub const VM_REGION_EXTENDED_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_extended_info) / @sizeOf(natural_t);
-pub const VM_REGION_TOP_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_top_info) / @sizeOf(natural_t);
-
-pub fn VM_MAKE_TAG(tag: u8) u32 {
-    return @as(u32, tag) << 24;
-}
+    pub fn MAKE_TAG(tag: u8) u32 {
+        return @as(u32, tag) << 24;
+    }
+};
 
 pub const vm_region_basic_info_64 = extern struct {
     protection: vm_prot_t,
@@ -678,29 +676,30 @@ pub const thread_identifier_info = extern struct {
     dispatch_qaddr: u64,
 };
 
-/// Cachability
-pub const MATTR_CACHE = 1;
-/// Migrability
-pub const MATTR_MIGRATE = 2;
-/// Replicability
-pub const MATTR_REPLICATE = 4;
-
-/// (Generic) turn attribute off
-pub const MATTR_VAL_OFF = 0;
-/// (Generic) turn attribute on
-pub const MATTR_VAL_ON = 1;
-/// (Generic) return current value
-pub const MATTR_VAL_GET = 2;
-/// Flush from all caches
-pub const MATTR_VAL_CACHE_FLUSH = 6;
-/// Flush from data caches
-pub const MATTR_VAL_DCACHE_FLUSH = 7;
-/// Flush from instruction caches
-pub const MATTR_VAL_ICACHE_FLUSH = 8;
-/// Sync I+D caches
-pub const MATTR_VAL_CACHE_SYNC = 9;
-/// Get page info (stats)
-pub const MATTR_VAL_GET_INFO = 10;
+pub const MATTR = struct {
+    /// Cachability
+    pub const CACHE = 1;
+    /// Migrability
+    pub const MIGRATE = 2;
+    /// Replicability
+    pub const REPLICATE = 4;
+    /// (Generic) turn attribute off
+    pub const VAL_OFF = 0;
+    /// (Generic) turn attribute on
+    pub const VAL_ON = 1;
+    /// (Generic) return current value
+    pub const VAL_GET = 2;
+    /// Flush from all caches
+    pub const VAL_CACHE_FLUSH = 6;
+    /// Flush from data caches
+    pub const VAL_DCACHE_FLUSH = 7;
+    /// Flush from instruction caches
+    pub const VAL_ICACHE_FLUSH = 8;
+    /// Sync I+D caches
+    pub const VAL_CACHE_SYNC = 9;
+    /// Get page info (stats)
+    pub const VAL_GET_INFO = 10;
+};
 
 pub const TASK_VM_INFO = 22;
 pub const TASK_VM_INFO_COUNT: mach_msg_type_number_t = @sizeOf(task_vm_info_data_t) / @sizeOf(natural_t);
@@ -804,19 +803,14 @@ pub extern "c" fn task_info(
 pub const mach_task_basic_info = extern struct {
     /// Virtual memory size (bytes)
     virtual_size: mach_vm_size_t,
-
     /// Resident memory size (bytes)
     resident_size: mach_vm_size_t,
-
     /// Total user run time for terminated threads
     user_time: time_value_t,
-
     /// Total system run time for terminated threads
     system_time: time_value_t,
-
     /// Default policy for new threads
     policy: policy_t,
-
     /// Suspend count for task
     suspend_count: mach_vm_size_t,
 };
@@ -925,486 +919,6 @@ pub extern "c" fn os_unfair_lock_trylock(o: os_unfair_lock_t) bool;
 pub extern "c" fn os_unfair_lock_assert_owner(o: os_unfair_lock_t) void;
 pub extern "c" fn os_unfair_lock_assert_not_owner(o: os_unfair_lock_t) void;
 
-pub fn getKernError(err: kern_return_t) KernE {
-    return @as(KernE, @enumFromInt(@as(u32, @truncate(@as(usize, @intCast(err))))));
-}
-
-pub fn unexpectedKernError(err: KernE) std.posix.UnexpectedError {
-    if (std.posix.unexpected_error_tracing) {
-        std.debug.print("unexpected error: {d}\n", .{@intFromEnum(err)});
-        std.debug.dumpCurrentStackTrace(null);
-    }
-    return error.Unexpected;
-}
-
-pub const MachError = error{
-    /// Not enough permissions held to perform the requested kernel
-    /// call.
-    PermissionDenied,
-} || std.posix.UnexpectedError;
-
-pub const MachTask = extern struct {
-    port: mach_port_name_t,
-
-    pub fn isValid(self: MachTask) bool {
-        return self.port != TASK_NULL;
-    }
-
-    pub fn pidForTask(self: MachTask) MachError!std.c.pid_t {
-        var pid: std.c.pid_t = undefined;
-        switch (getKernError(pid_for_task(self.port, &pid))) {
-            .SUCCESS => return pid,
-            .FAILURE => return error.PermissionDenied,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    pub fn allocatePort(self: MachTask, right: MACH_PORT_RIGHT) MachError!MachTask {
-        var out_port: mach_port_name_t = undefined;
-        switch (getKernError(mach_port_allocate(
-            self.port,
-            @intFromEnum(right),
-            &out_port,
-        ))) {
-            .SUCCESS => return .{ .port = out_port },
-            .FAILURE => return error.PermissionDenied,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    pub fn deallocatePort(self: MachTask, port: MachTask) void {
-        _ = getKernError(mach_port_deallocate(self.port, port.port));
-    }
-
-    pub fn insertRight(self: MachTask, port: MachTask, msg: MACH_MSG_TYPE) !void {
-        switch (getKernError(mach_port_insert_right(
-            self.port,
-            port.port,
-            port.port,
-            @intFromEnum(msg),
-        ))) {
-            .SUCCESS => return,
-            .FAILURE => return error.PermissionDenied,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    pub const PortInfo = struct {
-        mask: exception_mask_t,
-        masks: [EXC.TYPES_COUNT]exception_mask_t,
-        ports: [EXC.TYPES_COUNT]mach_port_t,
-        behaviors: [EXC.TYPES_COUNT]exception_behavior_t,
-        flavors: [EXC.TYPES_COUNT]thread_state_flavor_t,
-        count: mach_msg_type_number_t,
-    };
-
-    pub fn getExceptionPorts(self: MachTask, mask: exception_mask_t) !PortInfo {
-        var info = PortInfo{
-            .mask = mask,
-            .masks = undefined,
-            .ports = undefined,
-            .behaviors = undefined,
-            .flavors = undefined,
-            .count = 0,
-        };
-        info.count = info.ports.len / @sizeOf(mach_port_t);
-
-        switch (getKernError(task_get_exception_ports(
-            self.port,
-            info.mask,
-            &info.masks,
-            &info.count,
-            &info.ports,
-            &info.behaviors,
-            &info.flavors,
-        ))) {
-            .SUCCESS => return info,
-            .FAILURE => return error.PermissionDenied,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    pub fn setExceptionPorts(
-        self: MachTask,
-        mask: exception_mask_t,
-        new_port: MachTask,
-        behavior: exception_behavior_t,
-        new_flavor: thread_state_flavor_t,
-    ) !void {
-        switch (getKernError(task_set_exception_ports(
-            self.port,
-            mask,
-            new_port.port,
-            behavior,
-            new_flavor,
-        ))) {
-            .SUCCESS => return,
-            .FAILURE => return error.PermissionDenied,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    pub const RegionInfo = struct {
-        pub const Tag = enum {
-            basic,
-            extended,
-            top,
-        };
-
-        base_addr: u64,
-        tag: Tag,
-        info: union {
-            basic: vm_region_basic_info_64,
-            extended: vm_region_extended_info,
-            top: vm_region_top_info,
-        },
-    };
-
-    pub fn getRegionInfo(
-        task: MachTask,
-        address: u64,
-        len: usize,
-        tag: RegionInfo.Tag,
-    ) MachError!RegionInfo {
-        var info: RegionInfo = .{
-            .base_addr = address,
-            .tag = tag,
-            .info = undefined,
-        };
-        switch (tag) {
-            .basic => info.info = .{ .basic = undefined },
-            .extended => info.info = .{ .extended = undefined },
-            .top => info.info = .{ .top = undefined },
-        }
-        var base_len: mach_vm_size_t = if (len == 1) 2 else len;
-        var objname: mach_port_t = undefined;
-        var count: mach_msg_type_number_t = switch (tag) {
-            .basic => VM_REGION_BASIC_INFO_COUNT,
-            .extended => VM_REGION_EXTENDED_INFO_COUNT,
-            .top => VM_REGION_TOP_INFO_COUNT,
-        };
-        switch (getKernError(mach_vm_region(
-            task.port,
-            &info.base_addr,
-            &base_len,
-            switch (tag) {
-                .basic => VM_REGION_BASIC_INFO_64,
-                .extended => VM_REGION_EXTENDED_INFO,
-                .top => VM_REGION_TOP_INFO,
-            },
-            switch (tag) {
-                .basic => @as(vm_region_info_t, @ptrCast(&info.info.basic)),
-                .extended => @as(vm_region_info_t, @ptrCast(&info.info.extended)),
-                .top => @as(vm_region_info_t, @ptrCast(&info.info.top)),
-            },
-            &count,
-            &objname,
-        ))) {
-            .SUCCESS => return info,
-            .FAILURE => return error.PermissionDenied,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    pub const RegionSubmapInfo = struct {
-        pub const Tag = enum {
-            short,
-            full,
-        };
-
-        tag: Tag,
-        base_addr: u64,
-        info: union {
-            short: vm_region_submap_short_info_64,
-            full: vm_region_submap_info_64,
-        },
-    };
-
-    pub fn getRegionSubmapInfo(
-        task: MachTask,
-        address: u64,
-        len: usize,
-        nesting_depth: u32,
-        tag: RegionSubmapInfo.Tag,
-    ) MachError!RegionSubmapInfo {
-        var info: RegionSubmapInfo = .{
-            .base_addr = address,
-            .tag = tag,
-            .info = undefined,
-        };
-        switch (tag) {
-            .short => info.info = .{ .short = undefined },
-            .full => info.info = .{ .full = undefined },
-        }
-        var nesting = nesting_depth;
-        var base_len: mach_vm_size_t = if (len == 1) 2 else len;
-        var count: mach_msg_type_number_t = switch (tag) {
-            .short => VM_REGION_SUBMAP_SHORT_INFO_COUNT_64,
-            .full => VM_REGION_SUBMAP_INFO_COUNT_64,
-        };
-        switch (getKernError(mach_vm_region_recurse(
-            task.port,
-            &info.base_addr,
-            &base_len,
-            &nesting,
-            switch (tag) {
-                .short => @as(vm_region_recurse_info_t, @ptrCast(&info.info.short)),
-                .full => @as(vm_region_recurse_info_t, @ptrCast(&info.info.full)),
-            },
-            &count,
-        ))) {
-            .SUCCESS => return info,
-            .FAILURE => return error.PermissionDenied,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    pub fn getCurrProtection(task: MachTask, address: u64, len: usize) MachError!vm_prot_t {
-        const info = try task.getRegionSubmapInfo(address, len, 0, .short);
-        return info.info.short.protection;
-    }
-
-    pub fn setMaxProtection(task: MachTask, address: u64, len: usize, prot: vm_prot_t) MachError!void {
-        return task.setProtectionImpl(address, len, true, prot);
-    }
-
-    pub fn setCurrProtection(task: MachTask, address: u64, len: usize, prot: vm_prot_t) MachError!void {
-        return task.setProtectionImpl(address, len, false, prot);
-    }
-
-    fn setProtectionImpl(task: MachTask, address: u64, len: usize, set_max: bool, prot: vm_prot_t) MachError!void {
-        switch (getKernError(mach_vm_protect(task.port, address, len, @intFromBool(set_max), prot))) {
-            .SUCCESS => return,
-            .FAILURE => return error.PermissionDenied,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    /// Will write to VM even if current protection attributes specifically prohibit
-    /// us from doing so, by temporarily setting protection level to a level with VM_PROT_COPY
-    /// variant, and resetting after a successful or unsuccessful write.
-    pub fn writeMemProtected(task: MachTask, address: u64, buf: []const u8, arch: std.Target.Cpu.Arch) MachError!usize {
-        const curr_prot = try task.getCurrProtection(address, buf.len);
-        try task.setCurrProtection(
-            address,
-            buf.len,
-            PROT.READ | PROT.WRITE | PROT.COPY,
-        );
-        defer {
-            task.setCurrProtection(address, buf.len, curr_prot) catch {};
-        }
-        return task.writeMem(address, buf, arch);
-    }
-
-    pub fn writeMem(task: MachTask, address: u64, buf: []const u8, arch: std.Target.Cpu.Arch) MachError!usize {
-        const count = buf.len;
-        var total_written: usize = 0;
-        var curr_addr = address;
-        const page_size = try getPageSize(task); // TODO we probably can assume value here
-        var out_buf = buf[0..];
-
-        while (total_written < count) {
-            const curr_size = maxBytesLeftInPage(page_size, curr_addr, count - total_written);
-            switch (getKernError(mach_vm_write(
-                task.port,
-                curr_addr,
-                @intFromPtr(out_buf.ptr),
-                @as(mach_msg_type_number_t, @intCast(curr_size)),
-            ))) {
-                .SUCCESS => {},
-                .FAILURE => return error.PermissionDenied,
-                else => |err| return unexpectedKernError(err),
-            }
-
-            switch (arch) {
-                .aarch64 => {
-                    var mattr_value: vm_machine_attribute_val_t = MATTR_VAL_CACHE_FLUSH;
-                    switch (getKernError(vm_machine_attribute(
-                        task.port,
-                        curr_addr,
-                        curr_size,
-                        MATTR_CACHE,
-                        &mattr_value,
-                    ))) {
-                        .SUCCESS => {},
-                        .FAILURE => return error.PermissionDenied,
-                        else => |err| return unexpectedKernError(err),
-                    }
-                },
-                .x86_64 => {},
-                else => unreachable,
-            }
-
-            out_buf = out_buf[curr_size..];
-            total_written += curr_size;
-            curr_addr += curr_size;
-        }
-
-        return total_written;
-    }
-
-    pub fn readMem(task: MachTask, address: u64, buf: []u8) MachError!usize {
-        const count = buf.len;
-        var total_read: usize = 0;
-        var curr_addr = address;
-        const page_size = try getPageSize(task); // TODO we probably can assume value here
-        var out_buf = buf[0..];
-
-        while (total_read < count) {
-            const curr_size = maxBytesLeftInPage(page_size, curr_addr, count - total_read);
-            var curr_bytes_read: mach_msg_type_number_t = 0;
-            var vm_memory: vm_offset_t = undefined;
-            switch (getKernError(mach_vm_read(task.port, curr_addr, curr_size, &vm_memory, &curr_bytes_read))) {
-                .SUCCESS => {},
-                .FAILURE => return error.PermissionDenied,
-                else => |err| return unexpectedKernError(err),
-            }
-
-            @memcpy(out_buf[0..curr_bytes_read], @as([*]const u8, @ptrFromInt(vm_memory)));
-            _ = vm_deallocate(mach_task_self(), vm_memory, curr_bytes_read);
-
-            out_buf = out_buf[curr_bytes_read..];
-            curr_addr += curr_bytes_read;
-            total_read += curr_bytes_read;
-        }
-
-        return total_read;
-    }
-
-    fn maxBytesLeftInPage(page_size: usize, address: u64, count: usize) usize {
-        var left = count;
-        if (page_size > 0) {
-            const page_offset = address % page_size;
-            const bytes_left_in_page = page_size - page_offset;
-            if (count > bytes_left_in_page) {
-                left = bytes_left_in_page;
-            }
-        }
-        return left;
-    }
-
-    fn getPageSize(task: MachTask) MachError!usize {
-        if (task.isValid()) {
-            var info_count = TASK_VM_INFO_COUNT;
-            var vm_info: task_vm_info_data_t = undefined;
-            switch (getKernError(task_info(
-                task.port,
-                TASK_VM_INFO,
-                @as(task_info_t, @ptrCast(&vm_info)),
-                &info_count,
-            ))) {
-                .SUCCESS => return @as(usize, @intCast(vm_info.page_size)),
-                else => {},
-            }
-        }
-        var page_size: vm_size_t = undefined;
-        switch (getKernError(_host_page_size(mach_host_self(), &page_size))) {
-            .SUCCESS => return page_size,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    pub fn basicTaskInfo(task: MachTask) MachError!mach_task_basic_info {
-        var info: mach_task_basic_info = undefined;
-        var count = MACH_TASK_BASIC_INFO_COUNT;
-        switch (getKernError(task_info(
-            task.port,
-            MACH_TASK_BASIC_INFO,
-            @as(task_info_t, @ptrCast(&info)),
-            &count,
-        ))) {
-            .SUCCESS => return info,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    pub fn @"resume"(task: MachTask) MachError!void {
-        switch (getKernError(task_resume(task.port))) {
-            .SUCCESS => {},
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    pub fn @"suspend"(task: MachTask) MachError!void {
-        switch (getKernError(task_suspend(task.port))) {
-            .SUCCESS => {},
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    const ThreadList = struct {
-        buf: []MachThread,
-
-        pub fn deinit(list: ThreadList) void {
-            const self_task = machTaskForSelf();
-            _ = vm_deallocate(
-                self_task.port,
-                @intFromPtr(list.buf.ptr),
-                @as(vm_size_t, @intCast(list.buf.len * @sizeOf(mach_port_t))),
-            );
-        }
-    };
-
-    pub fn getThreads(task: MachTask) MachError!ThreadList {
-        var thread_list: mach_port_array_t = undefined;
-        var thread_count: mach_msg_type_number_t = undefined;
-        switch (getKernError(task_threads(task.port, &thread_list, &thread_count))) {
-            .SUCCESS => return ThreadList{ .buf = @as([*]MachThread, @ptrCast(thread_list))[0..thread_count] },
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-};
-
-pub const MachThread = extern struct {
-    port: mach_port_t,
-
-    pub fn isValid(thread: MachThread) bool {
-        return thread.port != THREAD_NULL;
-    }
-
-    pub fn getBasicInfo(thread: MachThread) MachError!thread_basic_info {
-        var info: thread_basic_info = undefined;
-        var count = THREAD_BASIC_INFO_COUNT;
-        switch (getKernError(thread_info(
-            thread.port,
-            THREAD_BASIC_INFO,
-            @as(thread_info_t, @ptrCast(&info)),
-            &count,
-        ))) {
-            .SUCCESS => return info,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-
-    pub fn getIdentifierInfo(thread: MachThread) MachError!thread_identifier_info {
-        var info: thread_identifier_info = undefined;
-        var count = THREAD_IDENTIFIER_INFO_COUNT;
-        switch (getKernError(thread_info(
-            thread.port,
-            THREAD_IDENTIFIER_INFO,
-            @as(thread_info_t, @ptrCast(&info)),
-            &count,
-        ))) {
-            .SUCCESS => return info,
-            else => |err| return unexpectedKernError(err),
-        }
-    }
-};
-
-pub fn machTaskForPid(pid: std.c.pid_t) MachError!MachTask {
-    var port: mach_port_name_t = undefined;
-    switch (getKernError(task_for_pid(mach_task_self(), pid, &port))) {
-        .SUCCESS => {},
-        .FAILURE => return error.PermissionDenied,
-        else => |err| return unexpectedKernError(err),
-    }
-    return MachTask{ .port = port };
-}
-
-pub fn machTaskForSelf() MachTask {
-    return .{ .port = mach_task_self() };
-}
-
 pub const os_signpost_id_t = u64;
 
 pub const OS_SIGNPOST_ID_NULL: os_signpost_id_t = 0;
@@ -1503,168 +1017,6 @@ pub const KEVENT_FLAG_ERROR_EVENTS = 0x002;
 
 pub const SYSPROTO_EVENT = 1;
 pub const SYSPROTO_CONTROL = 2;
-/// Kernel return values
-pub const KernE = enum(u32) {
-    SUCCESS = 0,
-    /// Specified address is not currently valid
-    INVALID_ADDRESS = 1,
-    /// Specified memory is valid, but does not permit the
-    /// required forms of access.
-    PROTECTION_FAILURE = 2,
-    /// The address range specified is already in use, or
-    /// no address range of the size specified could be
-    /// found.
-    NO_SPACE = 3,
-    /// The function requested was not applicable to this
-    /// type of argument, or an argument is invalid
-    INVALID_ARGUMENT = 4,
-    /// The function could not be performed.  A catch-all.
-    FAILURE = 5,
-    /// A system resource could not be allocated to fulfill
-    /// this request.  This failure may not be permanent.
-    RESOURCE_SHORTAGE = 6,
-    /// The task in question does not hold receive rights
-    /// for the port argument.
-    NOT_RECEIVER = 7,
-    /// Bogus access restriction.
-    NO_ACCESS = 8,
-    /// During a page fault, the target address refers to a
-    /// memory object that has been destroyed.  This
-    /// failure is permanent.
-    MEMORY_FAILURE = 9,
-    /// During a page fault, the memory object indicated
-    /// that the data could not be returned.  This failure
-    /// may be temporary; future attempts to access this
-    /// same data may succeed, as defined by the memory
-    /// object.
-    MEMORY_ERROR = 10,
-    /// The receive right is already a member of the portset.
-    ALREADY_IN_SET = 11,
-    /// The receive right is not a member of a port set.
-    NOT_IN_SET = 12,
-    /// The name already denotes a right in the task.
-    NAME_EXISTS = 13,
-    /// The operation was aborted.  Ipc code will
-    /// catch this and reflect it as a message error.
-    ABORTED = 14,
-    /// The name doesn't denote a right in the task.
-    INVALID_NAME = 15,
-    /// Target task isn't an active task.
-    INVALID_TASK = 16,
-    /// The name denotes a right, but not an appropriate right.
-    INVALID_RIGHT = 17,
-    /// A blatant range error.
-    INVALID_VALUE = 18,
-    /// Operation would overflow limit on user-references.
-    UREFS_OVERFLOW = 19,
-    /// The supplied (port) capability is improper.
-    INVALID_CAPABILITY = 20,
-    /// The task already has send or receive rights
-    /// for the port under another name.
-    RIGHT_EXISTS = 21,
-    /// Target host isn't actually a host.
-    INVALID_HOST = 22,
-    /// An attempt was made to supply "precious" data
-    /// for memory that is already present in a
-    /// memory object.
-    MEMORY_PRESENT = 23,
-    /// A page was requested of a memory manager via
-    /// memory_object_data_request for an object using
-    /// a MEMORY_OBJECT_COPY_CALL strategy, with the
-    /// VM_PROT_WANTS_COPY flag being used to specify
-    /// that the page desired is for a copy of the
-    /// object, and the memory manager has detected
-    /// the page was pushed into a copy of the object
-    /// while the kernel was walking the shadow chain
-    /// from the copy to the object. This error code
-    /// is delivered via memory_object_data_error
-    /// and is handled by the kernel (it forces the
-    /// kernel to restart the fault). It will not be
-    /// seen by users.
-    MEMORY_DATA_MOVED = 24,
-    /// A strategic copy was attempted of an object
-    /// upon which a quicker copy is now possible.
-    /// The caller should retry the copy using
-    /// vm_object_copy_quickly. This error code
-    /// is seen only by the kernel.
-    MEMORY_RESTART_COPY = 25,
-    /// An argument applied to assert processor set privilege
-    /// was not a processor set control port.
-    INVALID_PROCESSOR_SET = 26,
-    /// The specified scheduling attributes exceed the thread's
-    /// limits.
-    POLICY_LIMIT = 27,
-    /// The specified scheduling policy is not currently
-    /// enabled for the processor set.
-    INVALID_POLICY = 28,
-    /// The external memory manager failed to initialize the
-    /// memory object.
-    INVALID_OBJECT = 29,
-    /// A thread is attempting to wait for an event for which
-    /// there is already a waiting thread.
-    ALREADY_WAITING = 30,
-    /// An attempt was made to destroy the default processor
-    /// set.
-    DEFAULT_SET = 31,
-    /// An attempt was made to fetch an exception port that is
-    /// protected, or to abort a thread while processing a
-    /// protected exception.
-    EXCEPTION_PROTECTED = 32,
-    /// A ledger was required but not supplied.
-    INVALID_LEDGER = 33,
-    /// The port was not a memory cache control port.
-    INVALID_MEMORY_CONTROL = 34,
-    /// An argument supplied to assert security privilege
-    /// was not a host security port.
-    INVALID_SECURITY = 35,
-    /// thread_depress_abort was called on a thread which
-    /// was not currently depressed.
-    NOT_DEPRESSED = 36,
-    /// Object has been terminated and is no longer available
-    TERMINATED = 37,
-    /// Lock set has been destroyed and is no longer available.
-    LOCK_SET_DESTROYED = 38,
-    /// The thread holding the lock terminated before releasing
-    /// the lock
-    LOCK_UNSTABLE = 39,
-    /// The lock is already owned by another thread
-    LOCK_OWNED = 40,
-    /// The lock is already owned by the calling thread
-    LOCK_OWNED_SELF = 41,
-    /// Semaphore has been destroyed and is no longer available.
-    SEMAPHORE_DESTROYED = 42,
-    /// Return from RPC indicating the target server was
-    /// terminated before it successfully replied
-    RPC_SERVER_TERMINATED = 43,
-    /// Terminate an orphaned activation.
-    RPC_TERMINATE_ORPHAN = 44,
-    /// Allow an orphaned activation to continue executing.
-    RPC_CONTINUE_ORPHAN = 45,
-    /// Empty thread activation (No thread linked to it)
-    NOT_SUPPORTED = 46,
-    /// Remote node down or inaccessible.
-    NODE_DOWN = 47,
-    /// A signalled thread was not actually waiting.
-    NOT_WAITING = 48,
-    /// Some thread-oriented operation (semaphore_wait) timed out
-    OPERATION_TIMED_OUT = 49,
-    /// During a page fault, indicates that the page was rejected
-    /// as a result of a signature check.
-    CODESIGN_ERROR = 50,
-    /// The requested property cannot be changed at this time.
-    POLICY_STATIC = 51,
-    /// The provided buffer is of insufficient size for the requested data.
-    INSUFFICIENT_BUFFER_SIZE = 52,
-    /// Denied by security policy
-    DENIED = 53,
-    /// The KC on which the function is operating is missing
-    MISSING_KC = 54,
-    /// The KC on which the function is operating is invalid
-    INVALID_KC = 55,
-    /// A search or query operation did not return a result
-    NOT_FOUND = 56,
-    _,
-};
 
 pub const mach_msg_return_t = kern_return_t;
 
