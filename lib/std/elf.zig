@@ -1665,8 +1665,8 @@ pub const EM = enum(u16) {
             // FIXME:
             // No support for .loongarch32 yet so it is safe to assume we are on .loongarch64.
             //
-            // However, when ELFMACHINE is .LOONGARCH, we should check
-            // ELFCLASS's value to decide the CPU architecture.
+            // However, when e_machine is .LOONGARCH, we should check
+            // ei_class's value to decide the CPU architecture.
             // - ELFCLASS32 => .loongarch32
             // - ELFCLASS64 => .loongarch64
             .LOONGARCH => .loongarch64,
