@@ -96,6 +96,7 @@ debug_line_sect_index: ?u8 = null,
 has_tlv: bool = false,
 binds_to_weak: bool = false,
 weak_defines: bool = false,
+has_errors: AtomicBool = AtomicBool.init(false),
 
 /// Options
 /// SDK layout
@@ -468,8 +469,6 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
             ),
         };
     }
-
-    if (self.base.hasErrors()) return error.FlushFailure;
 
     try self.parseInputFiles();
     self.parseDependentDylibs() catch |err| {
@@ -900,24 +899,36 @@ pub fn parseInputFiles(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    for (self.objects.items) |index| {
-        self.getFile(index).?.parse(self) catch |err| switch (err) {
-            error.MalformedObject,
-            error.InvalidCpuArch,
-            error.InvalidTarget,
-            => {}, // already reported
-            else => |e| try self.reportParseError2(index, "unexpected error: parsing input file failed with error {s}", .{@errorName(e)}),
-        };
+    const tp = self.base.comp.thread_pool;
+    var wg: WaitGroup = .{};
+
+    {
+        wg.reset();
+        defer wg.wait();
+
+        for (self.objects.items) |index| {
+            tp.spawnWg(&wg, parseInputFileWorker, .{ self, index });
+        }
+        for (self.dylibs.items) |index| {
+            tp.spawnWg(&wg, parseInputFileWorker, .{ self, index });
+        }
     }
-    for (self.dylibs.items) |index| {
-        self.getFile(index).?.parse(self) catch |err| switch (err) {
+
+    if (self.has_errors.swap(false, .seq_cst)) return error.FlushFailure;
+}
+
+fn parseInputFileWorker(self: *MachO, index: File.Index) void {
+    self.getFile(index).?.parse(self) catch |err| {
+        switch (err) {
+            error.MalformedObject,
             error.MalformedDylib,
             error.InvalidCpuArch,
             error.InvalidTarget,
             => {}, // already reported
-            else => |e| try self.reportParseError2(index, "unexpected error: parsing input file failed with error {s}", .{@errorName(e)}),
-        };
-    }
+            else => |e| self.reportParseError2(index, "unexpected error: parsing input file failed with error {s}", .{@errorName(e)}) catch {},
+        }
+        _ = self.has_errors.swap(true, .seq_cst);
+    };
 }
 
 fn addArchive(self: *MachO, lib: SystemLib, must_link: bool, handle: File.HandleIndex, fat_arch: ?fat.Arch) !void {
@@ -4436,6 +4447,7 @@ const Alignment = Atom.Alignment;
 const Allocator = mem.Allocator;
 const Archive = @import("MachO/Archive.zig");
 pub const Atom = @import("MachO/Atom.zig");
+const AtomicBool = std.atomic.Value(bool);
 const Bind = bind.Bind;
 const Cache = std.Build.Cache;
 const CodeSignature = @import("MachO/CodeSignature.zig");
@@ -4471,6 +4483,7 @@ const Thunk = thunks.Thunk;
 const TlvPtrSection = synthetic.TlvPtrSection;
 const Value = @import("../Value.zig");
 const UnwindInfo = @import("MachO/UnwindInfo.zig");
+const WaitGroup = std.Thread.WaitGroup;
 const WeakBind = bind.WeakBind;
 const ZigGotSection = synthetic.ZigGotSection;
 const ZigObject = @import("MachO/ZigObject.zig");
