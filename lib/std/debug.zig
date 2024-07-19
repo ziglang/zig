@@ -201,11 +201,7 @@ pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     }
 }
 
-pub const have_ucontext = @hasDecl(posix.system, "ucontext_t") and
-    (native_os != .linux or switch (builtin.cpu.arch) {
-    .mips, .mipsel, .mips64, .mips64el, .riscv64 => false,
-    else => true,
-});
+pub const have_ucontext = posix.ucontext_t != void;
 
 /// Platform-specific thread state. This contains register state, and on some platforms
 /// information about the stack. This is not safe to trivially copy, because some platforms
@@ -237,14 +233,7 @@ pub fn relocateContext(context: *ThreadContext) void {
     };
 }
 
-pub const have_getcontext = native_os != .openbsd and native_os != .haiku and
-    !builtin.target.isAndroid() and
-    (native_os != .linux or switch (builtin.cpu.arch) {
-    .x86,
-    .x86_64,
-    => true,
-    else => builtin.link_libc and !builtin.target.isMusl(),
-});
+pub const have_getcontext = @TypeOf(posix.system.getcontext) != void;
 
 /// Capture the current context. The register values in the context will reflect the
 /// state after the platform `getcontext` function returns.
@@ -704,7 +693,7 @@ pub const StackIterator = struct {
             }
 
             return true;
-        } else if (@hasDecl(posix.system, "msync") and native_os != .wasi and native_os != .emscripten) {
+        } else if (have_msync) {
             posix.msync(aligned_memory, posix.MSF.ASYNC) catch |err| {
                 switch (err) {
                     error.UnmappedMemory => return false,
@@ -851,6 +840,11 @@ pub const StackIterator = struct {
 
         return new_pc;
     }
+};
+
+const have_msync = switch (native_os) {
+    .wasi, .emscripten, .windows => false,
+    else => true,
 };
 
 pub fn writeCurrentStackTrace(
@@ -2078,15 +2072,15 @@ pub const DebugInfo = struct {
         if (posix.dl_iterate_phdr(&ctx, error{Found}, struct {
             fn callback(info: *posix.dl_phdr_info, size: usize, context: *CtxTy) !void {
                 _ = size;
-                if (context.address < info.dlpi_addr) return;
-                const phdrs = info.dlpi_phdr[0..info.dlpi_phnum];
+                if (context.address < info.addr) return;
+                const phdrs = info.phdr[0..info.phnum];
                 for (phdrs) |*phdr| {
                     if (phdr.p_type != elf.PT_LOAD) continue;
 
-                    const seg_start = info.dlpi_addr +% phdr.p_vaddr;
+                    const seg_start = info.addr +% phdr.p_vaddr;
                     const seg_end = seg_start + phdr.p_memsz;
                     if (context.address >= seg_start and context.address < seg_end) {
-                        context.name = mem.sliceTo(info.dlpi_name, 0) orelse "";
+                        context.name = mem.sliceTo(info.name, 0) orelse "";
                         break;
                     }
                 } else return;
@@ -2118,30 +2112,30 @@ pub const DebugInfo = struct {
             fn callback(info: *posix.dl_phdr_info, size: usize, context: *CtxTy) !void {
                 _ = size;
                 // The base address is too high
-                if (context.address < info.dlpi_addr)
+                if (context.address < info.addr)
                     return;
 
-                const phdrs = info.dlpi_phdr[0..info.dlpi_phnum];
+                const phdrs = info.phdr[0..info.phnum];
                 for (phdrs) |*phdr| {
                     if (phdr.p_type != elf.PT_LOAD) continue;
 
                     // Overflowing addition is used to handle the case of VSDOs having a p_vaddr = 0xffffffffff700000
-                    const seg_start = info.dlpi_addr +% phdr.p_vaddr;
+                    const seg_start = info.addr +% phdr.p_vaddr;
                     const seg_end = seg_start + phdr.p_memsz;
                     if (context.address >= seg_start and context.address < seg_end) {
                         // Android libc uses NULL instead of an empty string to mark the
                         // main program
-                        context.name = mem.sliceTo(info.dlpi_name, 0) orelse "";
-                        context.base_address = info.dlpi_addr;
+                        context.name = mem.sliceTo(info.name, 0) orelse "";
+                        context.base_address = info.addr;
                         break;
                     }
                 } else return;
 
-                for (info.dlpi_phdr[0..info.dlpi_phnum]) |phdr| {
+                for (info.phdr[0..info.phnum]) |phdr| {
                     switch (phdr.p_type) {
                         elf.PT_NOTE => {
                             // Look for .note.gnu.build-id
-                            const note_bytes = @as([*]const u8, @ptrFromInt(info.dlpi_addr + phdr.p_vaddr))[0..phdr.p_memsz];
+                            const note_bytes = @as([*]const u8, @ptrFromInt(info.addr + phdr.p_vaddr))[0..phdr.p_memsz];
                             const name_size = mem.readInt(u32, note_bytes[0..4], native_endian);
                             if (name_size != 4) continue;
                             const desc_size = mem.readInt(u32, note_bytes[4..8], native_endian);
@@ -2151,7 +2145,7 @@ pub const DebugInfo = struct {
                             context.build_id = note_bytes[16..][0..desc_size];
                         },
                         elf.PT_GNU_EH_FRAME => {
-                            context.gnu_eh_frame = @as([*]const u8, @ptrFromInt(info.dlpi_addr + phdr.p_vaddr))[0..phdr.p_memsz];
+                            context.gnu_eh_frame = @as([*]const u8, @ptrFromInt(info.addr + phdr.p_vaddr))[0..phdr.p_memsz];
                         },
                         else => {},
                     }
@@ -2592,7 +2586,7 @@ pub const have_segfault_handling_support = switch (native_os) {
     .windows,
     => true,
 
-    .freebsd, .openbsd => @hasDecl(std.c, "ucontext_t"),
+    .freebsd, .openbsd => have_ucontext,
     else => false,
 };
 
@@ -2742,7 +2736,7 @@ fn handleSegfaultWindowsExtra(
     label: ?[]const u8,
 ) noreturn {
     const exception_address = @intFromPtr(info.ExceptionRecord.ExceptionAddress);
-    if (@hasDecl(windows, "CONTEXT")) {
+    if (windows.CONTEXT != void) {
         nosuspend switch (panic_stage) {
             0 => {
                 panic_stage = 1;

@@ -115,10 +115,10 @@ pub fn nanoTimestamp() i128 {
         },
         else => {
             var ts: posix.timespec = undefined;
-            posix.clock_gettime(posix.CLOCK.REALTIME, &ts) catch |err| switch (err) {
+            posix.clock_gettime(.REALTIME, &ts) catch |err| switch (err) {
                 error.UnsupportedClock, error.Unexpected => return 0, // "Precision of timing depends on hardware and OS".
             };
-            return (@as(i128, ts.tv_sec) * ns_per_s) + ts.tv_nsec;
+            return (@as(i128, ts.sec) * ns_per_s) + ts.nsec;
         },
     }
 }
@@ -229,9 +229,9 @@ pub const Instant = struct {
             return std.math.order(self.timestamp, other.timestamp);
         }
 
-        var ord = std.math.order(self.timestamp.tv_sec, other.timestamp.tv_sec);
+        var ord = std.math.order(self.timestamp.sec, other.timestamp.sec);
         if (ord == .eq) {
-            ord = std.math.order(self.timestamp.tv_nsec, other.timestamp.tv_nsec);
+            ord = std.math.order(self.timestamp.nsec, other.timestamp.nsec);
         }
         return ord;
     }
@@ -267,9 +267,9 @@ pub const Instant = struct {
         }
 
         // Convert timespec diff to ns
-        const seconds = @as(u64, @intCast(self.timestamp.tv_sec - earlier.timestamp.tv_sec));
-        const elapsed = (seconds * ns_per_s) + @as(u32, @intCast(self.timestamp.tv_nsec));
-        return elapsed - @as(u32, @intCast(earlier.timestamp.tv_nsec));
+        const seconds = @as(u64, @intCast(self.timestamp.sec - earlier.timestamp.sec));
+        const elapsed = (seconds * ns_per_s) + @as(u32, @intCast(self.timestamp.nsec));
+        return elapsed - @as(u32, @intCast(earlier.timestamp.nsec));
     }
 };
 

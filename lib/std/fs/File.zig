@@ -420,9 +420,9 @@ pub const Stat = struct {
 
                 break :k .unknown;
             },
-            .atime = @as(i128, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
-            .mtime = @as(i128, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
-            .ctime = @as(i128, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
+            .atime = @as(i128, atime.sec) * std.time.ns_per_s + atime.nsec,
+            .mtime = @as(i128, mtime.sec) * std.time.ns_per_s + mtime.nsec,
+            .ctime = @as(i128, ctime.sec) * std.time.ns_per_s + ctime.nsec,
         };
     }
 
@@ -791,13 +791,13 @@ pub const MetadataUnix = struct {
     /// Returns the last time the file was accessed in nanoseconds since UTC 1970-01-01
     pub fn accessed(self: Self) i128 {
         const atime = self.stat.atime();
-        return @as(i128, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec;
+        return @as(i128, atime.sec) * std.time.ns_per_s + atime.nsec;
     }
 
     /// Returns the last time the file was modified in nanoseconds since UTC 1970-01-01
     pub fn modified(self: Self) i128 {
         const mtime = self.stat.mtime();
-        return @as(i128, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec;
+        return @as(i128, mtime.sec) * std.time.ns_per_s + mtime.nsec;
     }
 
     /// Returns the time the file was created in nanoseconds since UTC 1970-01-01.
@@ -807,17 +807,17 @@ pub const MetadataUnix = struct {
         const birthtime = self.stat.birthtime();
 
         // If the filesystem doesn't support this the value *should* be:
-        // On FreeBSD: tv_nsec = 0, tv_sec = -1
-        // On NetBSD and OpenBSD: tv_nsec = 0, tv_sec = 0
+        // On FreeBSD: nsec = 0, sec = -1
+        // On NetBSD and OpenBSD: nsec = 0, sec = 0
         // On MacOS, it is set to ctime -- we cannot detect this!!
         switch (builtin.os.tag) {
-            .freebsd => if (birthtime.tv_sec == -1 and birthtime.tv_nsec == 0) return null,
-            .netbsd, .openbsd => if (birthtime.tv_sec == 0 and birthtime.tv_nsec == 0) return null,
+            .freebsd => if (birthtime.sec == -1 and birthtime.nsec == 0) return null,
+            .netbsd, .openbsd => if (birthtime.sec == 0 and birthtime.nsec == 0) return null,
             .macos => {},
             else => @compileError("Creation time detection not implemented for OS"),
         }
 
-        return @as(i128, birthtime.tv_sec) * std.time.ns_per_s + birthtime.tv_nsec;
+        return @as(i128, birthtime.sec) * std.time.ns_per_s + birthtime.nsec;
     }
 };
 
@@ -858,19 +858,19 @@ pub const MetadataLinux = struct {
 
     /// Returns the last time the file was accessed in nanoseconds since UTC 1970-01-01
     pub fn accessed(self: Self) i128 {
-        return @as(i128, self.statx.atime.tv_sec) * std.time.ns_per_s + self.statx.atime.tv_nsec;
+        return @as(i128, self.statx.atime.sec) * std.time.ns_per_s + self.statx.atime.nsec;
     }
 
     /// Returns the last time the file was modified in nanoseconds since UTC 1970-01-01
     pub fn modified(self: Self) i128 {
-        return @as(i128, self.statx.mtime.tv_sec) * std.time.ns_per_s + self.statx.mtime.tv_nsec;
+        return @as(i128, self.statx.mtime.sec) * std.time.ns_per_s + self.statx.mtime.nsec;
     }
 
     /// Returns the time the file was created in nanoseconds since UTC 1970-01-01.
     /// Returns null if this is not supported by the filesystem, or on kernels before than version 4.11
     pub fn created(self: Self) ?i128 {
         if (self.statx.mask & std.os.linux.STATX_BTIME == 0) return null;
-        return @as(i128, self.statx.btime.tv_sec) * std.time.ns_per_s + self.statx.btime.tv_nsec;
+        return @as(i128, self.statx.btime.sec) * std.time.ns_per_s + self.statx.btime.nsec;
     }
 };
 
@@ -1026,12 +1026,12 @@ pub fn metadata(self: File) MetadataError!Metadata {
 
                         // Hacky conversion from timespec to statx_timestamp
                         stx.atime = std.mem.zeroes(l.statx_timestamp);
-                        stx.atime.tv_sec = st.atim.tv_sec;
-                        stx.atime.tv_nsec = @as(u32, @intCast(st.atim.tv_nsec)); // Guaranteed to succeed (tv_nsec is always below 10^9)
+                        stx.atime.sec = st.atim.sec;
+                        stx.atime.nsec = @as(u32, @intCast(st.atim.nsec)); // Guaranteed to succeed (nsec is always below 10^9)
 
                         stx.mtime = std.mem.zeroes(l.statx_timestamp);
-                        stx.mtime.tv_sec = st.mtim.tv_sec;
-                        stx.mtime.tv_nsec = @as(u32, @intCast(st.mtim.tv_nsec));
+                        stx.mtime.sec = st.mtim.sec;
+                        stx.mtime.nsec = @as(u32, @intCast(st.mtim.nsec));
 
                         stx.mask = l.STATX_BASIC_STATS | l.STATX_MTIME;
                     },
@@ -1072,12 +1072,12 @@ pub fn updateTimes(
     }
     const times = [2]posix.timespec{
         posix.timespec{
-            .tv_sec = math.cast(isize, @divFloor(atime, std.time.ns_per_s)) orelse maxInt(isize),
-            .tv_nsec = math.cast(isize, @mod(atime, std.time.ns_per_s)) orelse maxInt(isize),
+            .sec = math.cast(isize, @divFloor(atime, std.time.ns_per_s)) orelse maxInt(isize),
+            .nsec = math.cast(isize, @mod(atime, std.time.ns_per_s)) orelse maxInt(isize),
         },
         posix.timespec{
-            .tv_sec = math.cast(isize, @divFloor(mtime, std.time.ns_per_s)) orelse maxInt(isize),
-            .tv_nsec = math.cast(isize, @mod(mtime, std.time.ns_per_s)) orelse maxInt(isize),
+            .sec = math.cast(isize, @divFloor(mtime, std.time.ns_per_s)) orelse maxInt(isize),
+            .nsec = math.cast(isize, @mod(mtime, std.time.ns_per_s)) orelse maxInt(isize),
         },
     };
     try posix.futimens(self.handle, &times);

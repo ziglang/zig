@@ -440,7 +440,7 @@ pub const DlDynLib = struct {
 
     pub fn openZ(path_c: [*:0]const u8) Error!DlDynLib {
         return .{
-            .handle = std.c.dlopen(path_c, std.c.RTLD.LAZY) orelse {
+            .handle = std.c.dlopen(path_c, .{ .LAZY = true }) orelse {
                 return error.FileNotFound;
             },
         };

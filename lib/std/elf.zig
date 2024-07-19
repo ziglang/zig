@@ -1082,11 +1082,7 @@ pub const Addr = switch (@sizeOf(usize)) {
     8 => Elf64_Addr,
     else => @compileError("expected pointer size of 32 or 64"),
 };
-pub const Half = switch (@sizeOf(usize)) {
-    4 => Elf32_Half,
-    8 => Elf64_Half,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
+pub const Half = u16;
 
 /// Machine architectures.
 ///
