@@ -868,7 +868,6 @@ pub const Object = struct {
     pub const TypeMap = std.AutoHashMapUnmanaged(InternPool.Index, Builder.Type);
 
     pub fn create(arena: Allocator, comp: *Compilation) !*Object {
-        if (build_options.only_c) unreachable;
         const gpa = comp.gpa;
         const target = comp.root_mod.resolved_target.result;
         const llvm_target_triple = try targetTriple(arena, target);

@@ -6,6 +6,7 @@ const assert = std.debug.assert;
 const build_options = @import("build_options");
 const builtin = @import("builtin");
 const codegen = @import("../codegen.zig");
+const dev = @import("../dev.zig");
 const fs = std.fs;
 const leb = std.leb;
 const link = @import("../link.zig");
@@ -3325,6 +3326,8 @@ fn emitImport(wasm: *Wasm, writer: anytype, import: types.Import) !void {
 }
 
 fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
+    dev.check(.lld_linker);
+
     const tracy = trace(@src());
     defer tracy.end();
 

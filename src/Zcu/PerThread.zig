@@ -64,6 +64,7 @@ pub fn astGenFile(
     path_digest: Cache.BinDigest,
     opt_root_decl: Zcu.Decl.OptionalIndex,
 ) !void {
+    dev.check(.ast_gen);
     assert(!file.mod.isBuiltin());
 
     const tracy = trace(@src());
@@ -504,6 +505,8 @@ pub fn ensureFileAnalyzed(pt: Zcu.PerThread, file_index: Zcu.File.Index) Zcu.Sem
 /// For example an inferred error set is not resolved until after `analyzeFnBody`.
 /// is called.
 pub fn ensureDeclAnalyzed(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) Zcu.SemaError!void {
+    dev.check(.sema);
+
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -552,9 +555,9 @@ pub fn ensureDeclAnalyzed(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) Zcu.Sem
     }
 
     if (was_outdated) {
+        dev.check(.incremental);
         // The exports this Decl performs will be re-discovered, so we remove them here
         // prior to re-analysis.
-        if (build_options.only_c) unreachable;
         mod.deleteUnitExports(decl_as_depender);
         mod.deleteUnitReferences(decl_as_depender);
     }
@@ -623,6 +626,8 @@ pub fn ensureDeclAnalyzed(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) Zcu.Sem
 }
 
 pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: InternPool.Index) Zcu.SemaError!void {
+    dev.check(.sema);
+
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -684,7 +689,7 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
         zcu.potentially_outdated.swapRemove(func_as_depender);
 
     if (was_outdated) {
-        if (build_options.only_c) unreachable;
+        dev.check(.incremental);
         _ = zcu.outdated_ready.swapRemove(func_as_depender);
         zcu.deleteUnitExports(func_as_depender);
         zcu.deleteUnitReferences(func_as_depender);
@@ -836,7 +841,6 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: Ai
             },
         };
     } else if (zcu.llvm_object) |llvm_object| {
-        if (build_options.only_c) unreachable;
         llvm_object.updateFunc(pt, func_index, air, liveness) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
         };
@@ -845,6 +849,7 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: Ai
 
 /// https://github.com/ziglang/zig/issues/14307
 pub fn semaPkg(pt: Zcu.PerThread, pkg: *Module) !void {
+    dev.check(.sema);
     const import_file_result = try pt.importPkg(pkg);
     const root_decl_index = pt.zcu.fileRootDecl(import_file_result.file_index);
     if (root_decl_index == .none) {
@@ -2481,7 +2486,6 @@ fn processExportsInner(
     if (zcu.comp.bin_file) |lf| {
         try zcu.handleUpdateExports(export_indices, lf.updateExports(pt, exported, export_indices));
     } else if (zcu.llvm_object) |llvm_object| {
-        if (build_options.only_c) unreachable;
         try zcu.handleUpdateExports(export_indices, llvm_object.updateExports(pt, exported, export_indices));
     }
 }
@@ -2654,7 +2658,6 @@ pub fn linkerUpdateDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) !void {
             },
         };
     } else if (zcu.llvm_object) |llvm_object| {
-        if (build_options.only_c) unreachable;
         llvm_object.updateDecl(pt, decl_index) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
         };
@@ -3271,6 +3274,7 @@ const BigIntMutable = std.math.big.int.Mutable;
 const build_options = @import("build_options");
 const builtin = @import("builtin");
 const Cache = std.Build.Cache;
+const dev = @import("../dev.zig");
 const InternPool = @import("../InternPool.zig");
 const isUpDir = @import("../introspect.zig").isUpDir;
 const Liveness = @import("../Liveness.zig");
