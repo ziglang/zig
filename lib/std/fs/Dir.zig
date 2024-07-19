@@ -881,7 +881,7 @@ pub fn openFileZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) File
     const fd = try posix.openatZ(self.fd, sub_path, os_flags, 0);
     errdefer posix.close(fd);
 
-    if (!has_flock_open_flags and flags.lock != .none) {
+    if (have_flock and !has_flock_open_flags and flags.lock != .none) {
         // TODO: integrate async I/O
         const lock_nonblocking: i32 = if (flags.lock_nonblocking) posix.LOCK.NB else 0;
         try posix.flock(fd, switch (flags.lock) {
@@ -1029,7 +1029,7 @@ pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags
     const fd = try posix.openatZ(self.fd, sub_path_c, os_flags, flags.mode);
     errdefer posix.close(fd);
 
-    if (!has_flock_open_flags and flags.lock != .none) {
+    if (have_flock and !has_flock_open_flags and flags.lock != .none) {
         // TODO: integrate async I/O
         const lock_nonblocking: i32 = if (flags.lock_nonblocking) posix.LOCK.NB else 0;
         try posix.flock(fd, switch (flags.lock) {
@@ -2702,3 +2702,4 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const windows = std.os.windows;
 const native_os = builtin.os.tag;
+const have_flock = @TypeOf(posix.system.flock) != void;

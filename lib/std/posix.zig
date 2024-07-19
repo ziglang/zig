@@ -70,7 +70,6 @@ pub const IOV_MAX = system.IOV_MAX;
 pub const IPPROTO = system.IPPROTO;
 pub const KERN = system.KERN;
 pub const Kevent = system.Kevent;
-pub const LOCK = system.LOCK;
 pub const MADV = system.MADV;
 pub const MAP = system.MAP;
 pub const MAX_ADDR_LEN = system.MAX_ADDR_LEN;
@@ -200,6 +199,13 @@ pub const winsize = extern struct {
     col: u16,
     xpixel: u16,
     ypixel: u16,
+};
+
+pub const LOCK = struct {
+    pub const SH = 1;
+    pub const EX = 2;
+    pub const NB = 4;
+    pub const UN = 8;
 };
 
 pub const LOG = struct {

@@ -181,13 +181,6 @@ pub const F = struct {
     pub const UNLCK = 2;
 };
 
-pub const LOCK = struct {
-    pub const SH = 1;
-    pub const EX = 2;
-    pub const NB = 4;
-    pub const UN = 8;
-};
-
 pub const MMAP2_UNIT = 4096;
 
 pub const VDSO = struct {

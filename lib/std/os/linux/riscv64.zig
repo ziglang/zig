@@ -134,13 +134,6 @@ pub const F = struct {
     pub const GETOWNER_UIDS = 17;
 };
 
-pub const LOCK = struct {
-    pub const SH = 1;
-    pub const EX = 2;
-    pub const UN = 8;
-    pub const NB = 4;
-};
-
 pub const blksize_t = i32;
 pub const nlink_t = u32;
 pub const time_t = isize;

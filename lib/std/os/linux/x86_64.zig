@@ -195,13 +195,6 @@ pub const REG = struct {
     pub const CR2 = 22;
 };
 
-pub const LOCK = struct {
-    pub const SH = 1;
-    pub const EX = 2;
-    pub const NB = 4;
-    pub const UN = 8;
-};
-
 pub const Flock = extern struct {
     type: i16,
     whence: i16,

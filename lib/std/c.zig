@@ -4,9 +4,6 @@ const c = @This();
 const maxInt = std.math.maxInt;
 const assert = std.debug.assert;
 const page_size = std.mem.page_size;
-const iovec = std.posix.iovec;
-const iovec_const = std.posix.iovec_const;
-const winsize = std.posix.winsize;
 const native_abi = builtin.abi;
 const native_arch = builtin.cpu.arch;
 const native_os = builtin.os.tag;
@@ -22,6 +19,14 @@ const netbsd = @import("c/netbsd.zig");
 const dragonfly = @import("c/dragonfly.zig");
 const haiku = @import("c/haiku.zig");
 const openbsd = @import("c/openbsd.zig");
+
+// These constants are shared among all operating systems even when not linking
+// libc.
+
+pub const iovec = std.posix.iovec;
+pub const iovec_const = std.posix.iovec_const;
+pub const LOCK = std.posix.LOCK;
+pub const winsize = std.posix.winsize;
 
 /// The value of the link editor defined symbol _MH_EXECUTE_SYM is the address
 /// of the mach header in a Mach-O executable file type.  It does not appear in
@@ -1329,16 +1334,6 @@ pub const KERN = switch (native_os) {
         pub const PROC_NENV = 4;
     },
     else => void,
-};
-pub const LOCK = switch (native_os) {
-    .linux => linux.LOCK,
-    .emscripten => emscripten.LOCK,
-    else => struct {
-        pub const SH = 1;
-        pub const EX = 2;
-        pub const NB = 4;
-        pub const UN = 8;
-    },
 };
 pub const MADV = switch (native_os) {
     .linux => linux.MADV,
@@ -9032,6 +9027,11 @@ pub const sf_hdtr = switch (native_os) {
     else => void,
 };
 
+pub const flock = switch (native_os) {
+    .windows, .wasi => {},
+    else => private.flock,
+};
+
 pub extern "c" var environ: [*:null]?[*:0]u8;
 
 pub extern "c" fn fopen(noalias filename: [*:0]const u8, noalias modes: [*:0]const u8) ?*FILE;
@@ -9116,7 +9116,6 @@ pub extern "c" fn sysctlnametomib(name: [*:0]const u8, mibp: ?*c_int, sizep: ?*u
 pub extern "c" fn tcgetattr(fd: fd_t, termios_p: *termios) c_int;
 pub extern "c" fn tcsetattr(fd: fd_t, optional_action: TCSA, termios_p: *const termios) c_int;
 pub extern "c" fn fcntl(fd: fd_t, cmd: c_int, ...) c_int;
-pub extern "c" fn flock(fd: fd_t, operation: c_int) c_int;
 pub extern "c" fn ioctl(fd: fd_t, request: c_int, ...) c_int;
 pub extern "c" fn uname(buf: *utsname) c_int;
 
@@ -9395,6 +9394,9 @@ else
 pub extern "c" fn pthread_getthreadid_np() c_int;
 pub extern "c" fn pthread_set_name_np(thread: pthread_t, name: [*:0]const u8) void;
 pub extern "c" fn pthread_get_name_np(thread: pthread_t, name: [*:0]u8, len: usize) void;
+
+// OS-specific bits. These are protected from being used on the wrong OS by
+// comptime assertions inside each OS-specific file.
 
 pub const AF_SUN = solaris.AF_SUN;
 pub const AT_SUN = solaris.AT_SUN;
@@ -9675,6 +9677,7 @@ const private = struct {
     extern "c" fn clock_getres(clk_id: clockid_t, tp: *timespec) c_int;
     extern "c" fn clock_gettime(clk_id: clockid_t, tp: *timespec) c_int;
     extern "c" fn copy_file_range(fd_in: fd_t, off_in: ?*i64, fd_out: fd_t, off_out: ?*i64, len: usize, flags: c_uint) isize;
+    extern "c" fn flock(fd: fd_t, operation: c_int) c_int;
     extern "c" fn fork() c_int;
     extern "c" fn fstat(fd: fd_t, buf: *Stat) c_int;
     extern "c" fn fstatat(dirfd: fd_t, path: [*:0]const u8, buf: *Stat, flag: u32) c_int;
