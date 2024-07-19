@@ -105,6 +105,12 @@ test "vector float operators" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
 
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
+        // Triggers an assertion with LLVM 18:
+        // https://github.com/ziglang/zig/issues/20680
+        return error.SkipZigTest;
+    }
+
     const S = struct {
         fn doTheTest(T: type) !void {
             var v: @Vector(4, T) = .{ 10, 20, 30, 40 };
