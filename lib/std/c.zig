@@ -8903,8 +8903,10 @@ pub const sigaltstack = switch (native_os) {
 };
 
 pub extern "c" fn memfd_create(name: [*:0]const u8, flags: c_uint) c_int;
-pub extern "c" fn pipe2(fds: *[2]fd_t, flags: O) c_int;
-
+pub const pipe2 = switch (native_os) {
+    .dragonfly, .emscripten, .netbsd, .freebsd, .kfreebsd, .solaris, .illumos, .openbsd, .linux => private.pipe2,
+    else => {},
+};
 pub const copy_file_range = switch (native_os) {
     .linux => private.copy_file_range,
     .freebsd, .kfreebsd => freebsd.copy_file_range,
@@ -9686,6 +9688,7 @@ const private = struct {
     extern "c" fn gettimeofday(noalias tv: ?*timeval, noalias tz: ?*timezone) c_int;
     extern "c" fn msync(addr: *align(page_size) const anyopaque, len: usize, flags: c_int) c_int;
     extern "c" fn nanosleep(rqtp: *const timespec, rmtp: ?*timespec) c_int;
+    extern "c" fn pipe2(fds: *[2]fd_t, flags: O) c_int;
     extern "c" fn readdir(dir: *DIR) ?*dirent;
     extern "c" fn realpath(noalias file_name: [*:0]const u8, noalias resolved_name: [*]u8) ?[*:0]u8;
     extern "c" fn sched_yield() c_int;
