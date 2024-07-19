@@ -906,15 +906,15 @@ const x86_64 = struct {
                 encode(&.{inst}, code) catch return error.RelaxFail;
             },
             else => |x| {
-                var err = try macho_file.addErrorWithNotes(2);
-                try err.addMsg(macho_file, "{s}: 0x{x}: 0x{x}: failed to relax relocation of type {}", .{
+                var err = try macho_file.base.addErrorWithNotes(2);
+                try err.addMsg("{s}: 0x{x}: 0x{x}: failed to relax relocation of type {}", .{
                     self.getName(macho_file),
                     self.getAddress(macho_file),
                     rel.offset,
                     rel.fmtPretty(.x86_64),
                 });
-                try err.addNote(macho_file, "expected .mov instruction but found .{s}", .{@tagName(x)});
-                try err.addNote(macho_file, "while parsing {}", .{self.getFile(macho_file).fmtPath()});
+                try err.addNote("expected .mov instruction but found .{s}", .{@tagName(x)});
+                try err.addNote("while parsing {}", .{self.getFile(macho_file).fmtPath()});
                 return error.RelaxFailUnexpectedInstruction;
             },
         }

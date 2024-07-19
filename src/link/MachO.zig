@@ -395,17 +395,11 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     }
 
     for (positionals.items) |obj| {
-        self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
-            error.MalformedObject,
-            error.MalformedArchive,
-            error.MalformedDylib,
-            error.InvalidCpuArch,
-            error.InvalidTarget,
-            => continue, // already reported
-            error.UnknownFileType => try self.reportParseError(obj.path, "unknown file type for an object file", .{}),
+        self.classifyInputFile(obj.path, .{ .path = obj.path }, obj.must_link) catch |err| switch (err) {
+            error.UnknownFileType => try self.reportParseError(obj.path, "unknown file type for an input file", .{}),
             else => |e| try self.reportParseError(
                 obj.path,
-                "unexpected error: parsing input file failed with error {s}",
+                "unexpected error: reading input file failed with error {s}",
                 .{@errorName(e)},
             ),
         };
@@ -448,15 +442,11 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     };
 
     for (system_libs.items) |lib| {
-        self.parseLibrary(lib, false) catch |err| switch (err) {
-            error.MalformedArchive,
-            error.MalformedDylib,
-            error.InvalidCpuArch,
-            => continue, // already reported
-            error.UnknownFileType => try self.reportParseError(lib.path, "unknown file type for a library", .{}),
+        self.classifyInputFile(lib.path, lib, false) catch |err| switch (err) {
+            error.UnknownFileType => try self.reportParseError(lib.path, "unknown file type for an input file", .{}),
             else => |e| try self.reportParseError(
                 lib.path,
-                "unexpected error: parsing library failed with error {s}",
+                "unexpected error: parsing input file failed with error {s}",
                 .{@errorName(e)},
             ),
         };
@@ -469,13 +459,8 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
         break :blk null;
     };
     if (compiler_rt_path) |path| {
-        self.parsePositional(path, false) catch |err| switch (err) {
-            error.MalformedObject,
-            error.MalformedArchive,
-            error.InvalidCpuArch,
-            error.InvalidTarget,
-            => {}, // already reported
-            error.UnknownFileType => try self.reportParseError(path, "unknown file type for a library", .{}),
+        self.classifyInputFile(path, .{ .path = path }, false) catch |err| switch (err) {
+            error.UnknownFileType => try self.reportParseError(path, "unknown file type for an input file", .{}),
             else => |e| try self.reportParseError(
                 path,
                 "unexpected error: parsing input file failed with error {s}",
@@ -484,30 +469,20 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
         };
     }
 
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+    if (self.base.hasErrors()) return error.FlushFailure;
 
-    for (self.dylibs.items) |index| {
-        self.getFile(index).?.dylib.umbrella = index;
-    }
+    try self.parseInputFiles();
+    self.parseDependentDylibs() catch |err| {
+        switch (err) {
+            error.MissingLibraryDependencies => {},
+            else => |e| try self.reportUnexpectedError(
+                "unexpected error while parsing dependent libraries: {s}",
+                .{@errorName(e)},
+            ),
+        }
+    };
 
-    if (self.dylibs.items.len > 0) {
-        self.parseDependentDylibs() catch |err| {
-            switch (err) {
-                error.MissingLibraryDependencies => {},
-                else => |e| try self.reportUnexpectedError(
-                    "unexpected error while parsing dependent libraries: {s}",
-                    .{@errorName(e)},
-                ),
-            }
-            return error.FlushFailure;
-        };
-    }
-
-    for (self.dylibs.items) |index| {
-        const dylib = self.getFile(index).?.dylib;
-        if (!dylib.explicit and !dylib.hoisted) continue;
-        try dylib.initSymbols(self);
-    }
+    if (self.base.hasErrors()) return error.FlushFailure;
 
     {
         const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
@@ -841,181 +816,173 @@ pub fn resolveLibSystem(
     });
 }
 
-pub const ParseError = error{
-    MalformedObject,
-    MalformedArchive,
-    MalformedDylib,
-    MalformedTbd,
-    NotLibStub,
-    InvalidCpuArch,
-    InvalidTarget,
-    InvalidTargetFatLibrary,
-    IncompatibleDylibVersion,
-    OutOfMemory,
-    Overflow,
-    InputOutput,
-    EndOfStream,
-    FileSystem,
-    NotSupported,
-    Unhandled,
-    UnknownFileType,
-} || fs.File.SeekError || fs.File.OpenError || fs.File.ReadError || tapi.TapiError;
-
-pub fn parsePositional(self: *MachO, path: []const u8, must_link: bool) ParseError!void {
+pub fn classifyInputFile(self: *MachO, path: []const u8, lib: SystemLib, must_link: bool) !void {
     const tracy = trace(@src());
     defer tracy.end();
-    if (try Object.isObject(path)) {
-        try self.parseObject(path);
-    } else {
-        try self.parseLibrary(.{ .path = path }, must_link);
+
+    log.debug("classifying input file {s}", .{path});
+
+    const file = try std.fs.cwd().openFile(path, .{});
+    const fh = try self.addFileHandle(file);
+    var buffer: [Archive.SARMAG]u8 = undefined;
+
+    const fat_arch: ?fat.Arch = try self.parseFatFile(file, path);
+    const offset = if (fat_arch) |fa| fa.offset else 0;
+
+    if (readMachHeader(file, offset) catch null) |h| blk: {
+        if (h.magic != macho.MH_MAGIC_64) break :blk;
+        switch (h.filetype) {
+            macho.MH_OBJECT => try self.addObject(path, fh, offset),
+            macho.MH_DYLIB => _ = try self.addDylib(lib, true, fh, offset),
+            else => return error.UnknownFileType,
+        }
+        return;
     }
-}
-
-fn parseLibrary(self: *MachO, lib: SystemLib, must_link: bool) ParseError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-    if (try fat.isFatLibrary(lib.path)) {
-        const fat_arch = try self.parseFatLibrary(lib.path);
-        if (try Archive.isArchive(lib.path, fat_arch)) {
-            try self.parseArchive(lib, must_link, fat_arch);
-        } else if (try Dylib.isDylib(lib.path, fat_arch)) {
-            _ = try self.parseDylib(lib, true, fat_arch);
-        } else return error.UnknownFileType;
-    } else if (try Archive.isArchive(lib.path, null)) {
-        try self.parseArchive(lib, must_link, null);
-    } else if (try Dylib.isDylib(lib.path, null)) {
-        _ = try self.parseDylib(lib, true, null);
-    } else {
-        _ = self.parseTbd(lib, true) catch |err| switch (err) {
-            error.MalformedTbd => return error.UnknownFileType,
-            else => |e| return e,
-        };
+    if (readArMagic(file, offset, &buffer) catch null) |ar_magic| blk: {
+        if (!mem.eql(u8, ar_magic, Archive.ARMAG)) break :blk;
+        try self.addArchive(lib, must_link, fh, fat_arch);
+        return;
     }
+    _ = try self.addTbd(lib, true, fh);
 }
 
-fn parseObject(self: *MachO, path: []const u8) ParseError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const gpa = self.base.comp.gpa;
-    const file = try fs.cwd().openFile(path, .{});
-    const handle = try self.addFileHandle(file);
-    const mtime: u64 = mtime: {
-        const stat = file.stat() catch break :mtime 0;
-        break :mtime @as(u64, @intCast(@divFloor(stat.mtime, 1_000_000_000)));
-    };
-    const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
-    self.files.set(index, .{
-        .object = .{
-            .offset = 0, // TODO FAT objects
-            .path = try gpa.dupe(u8, path),
-            .file_handle = handle,
-            .mtime = mtime,
-            .index = index,
-        },
-    });
-    try self.objects.append(gpa, index);
-
-    const object = self.getFile(index).?.object;
-    try object.parse(self);
-}
-
-pub fn parseFatLibrary(self: *MachO, path: []const u8) !fat.Arch {
-    var buffer: [2]fat.Arch = undefined;
-    const fat_archs = try fat.parseArchs(path, &buffer);
+fn parseFatFile(self: *MachO, file: std.fs.File, path: []const u8) !?fat.Arch {
+    const fat_h = fat.readFatHeader(file) catch return null;
+    if (fat_h.magic != macho.FAT_MAGIC and fat_h.magic != macho.FAT_MAGIC_64) return null;
+    var fat_archs_buffer: [2]fat.Arch = undefined;
+    const fat_archs = try fat.parseArchs(file, fat_h, &fat_archs_buffer);
     const cpu_arch = self.getTarget().cpu.arch;
     for (fat_archs) |arch| {
         if (arch.tag == cpu_arch) return arch;
     }
-    try self.reportParseError(path, "missing arch in universal file: expected {s}", .{@tagName(cpu_arch)});
-    return error.InvalidCpuArch;
+    try self.reportParseError(path, "missing arch in universal file: expected {s}", .{
+        @tagName(cpu_arch),
+    });
+    return error.MissingCpuArch;
 }
 
-fn parseArchive(self: *MachO, lib: SystemLib, must_link: bool, fat_arch: ?fat.Arch) ParseError!void {
+pub fn readMachHeader(file: std.fs.File, offset: usize) !macho.mach_header_64 {
+    var buffer: [@sizeOf(macho.mach_header_64)]u8 = undefined;
+    const nread = try file.preadAll(&buffer, offset);
+    if (nread != buffer.len) return error.InputOutput;
+    const hdr = @as(*align(1) const macho.mach_header_64, @ptrCast(&buffer)).*;
+    return hdr;
+}
+
+pub fn readArMagic(file: std.fs.File, offset: usize, buffer: *[Archive.SARMAG]u8) ![]const u8 {
+    const nread = try file.preadAll(buffer, offset);
+    if (nread != buffer.len) return error.InputOutput;
+    return buffer[0..Archive.SARMAG];
+}
+
+fn addObject(self: *MachO, path: []const u8, handle: File.HandleIndex, offset: u64) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = self.base.comp.gpa;
+    const mtime: u64 = mtime: {
+        const file = self.getFileHandle(handle);
+        const stat = file.stat() catch break :mtime 0;
+        break :mtime @as(u64, @intCast(@divFloor(stat.mtime, 1_000_000_000)));
+    };
+    const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
+    self.files.set(index, .{ .object = .{
+        .offset = offset,
+        .path = try gpa.dupe(u8, path),
+        .file_handle = handle,
+        .mtime = mtime,
+        .index = index,
+    } });
+    try self.objects.append(gpa, index);
+}
+
+pub fn parseInputFiles(self: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    for (self.objects.items) |index| {
+        self.getFile(index).?.parse(self) catch |err| switch (err) {
+            error.MalformedObject,
+            error.InvalidCpuArch,
+            error.InvalidTarget,
+            => {}, // already reported
+            else => |e| try self.reportParseError2(index, "unexpected error: parsing input file failed with error {s}", .{@errorName(e)}),
+        };
+    }
+    for (self.dylibs.items) |index| {
+        self.getFile(index).?.parse(self) catch |err| switch (err) {
+            error.MalformedDylib,
+            error.InvalidCpuArch,
+            error.InvalidTarget,
+            => {}, // already reported
+            else => |e| try self.reportParseError2(index, "unexpected error: parsing input file failed with error {s}", .{@errorName(e)}),
+        };
+    }
+}
+
+fn addArchive(self: *MachO, lib: SystemLib, must_link: bool, handle: File.HandleIndex, fat_arch: ?fat.Arch) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
 
-    const file = try fs.cwd().openFile(lib.path, .{});
-    const handle = try self.addFileHandle(file);
-
     var archive = Archive{};
     defer archive.deinit(gpa);
-    try archive.parse(self, lib.path, handle, fat_arch);
+    try archive.unpack(self, lib.path, handle, fat_arch);
 
-    var has_parse_error = false;
-    for (archive.objects.items) |extracted| {
-        const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
-        self.files.set(index, .{ .object = extracted });
+    for (archive.objects.items) |unpacked| {
+        const index: File.Index = @intCast(try self.files.addOne(gpa));
+        self.files.set(index, .{ .object = unpacked });
         const object = &self.files.items(.data)[index].object;
         object.index = index;
         object.alive = must_link or lib.needed; // TODO: or self.options.all_load;
         object.hidden = lib.hidden;
-        object.parse(self) catch |err| switch (err) {
-            error.MalformedObject,
-            error.InvalidCpuArch,
-            error.InvalidTarget,
-            => has_parse_error = true,
-            else => |e| return e,
-        };
         try self.objects.append(gpa, index);
-
-        // Finally, we do a post-parse check for -ObjC to see if we need to force load this member
-        // anyhow.
-        object.alive = object.alive or (self.force_load_objc and object.hasObjc());
     }
-    if (has_parse_error) return error.MalformedArchive;
 }
 
-fn parseDylib(self: *MachO, lib: SystemLib, explicit: bool, fat_arch: ?fat.Arch) ParseError!File.Index {
+fn addDylib(self: *MachO, lib: SystemLib, explicit: bool, handle: File.HandleIndex, offset: u64) !File.Index {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
 
-    const file = try fs.cwd().openFile(lib.path, .{});
-    defer file.close();
-
-    const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
+    const index: File.Index = @intCast(try self.files.addOne(gpa));
     self.files.set(index, .{ .dylib = .{
+        .offset = offset,
+        .file_handle = handle,
+        .tag = .dylib,
         .path = try gpa.dupe(u8, lib.path),
         .index = index,
         .needed = lib.needed,
         .weak = lib.weak,
         .reexport = lib.reexport,
         .explicit = explicit,
+        .umbrella = index,
     } });
-    const dylib = &self.files.items(.data)[index].dylib;
-    try dylib.parse(self, file, fat_arch);
-
     try self.dylibs.append(gpa, index);
 
     return index;
 }
 
-fn parseTbd(self: *MachO, lib: SystemLib, explicit: bool) ParseError!File.Index {
+fn addTbd(self: *MachO, lib: SystemLib, explicit: bool, handle: File.HandleIndex) !File.Index {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
-    const file = try fs.cwd().openFile(lib.path, .{});
-    defer file.close();
-
-    var lib_stub = LibStub.loadFromFile(gpa, file) catch return error.MalformedTbd; // TODO actually handle different errors
-    defer lib_stub.deinit();
-
-    const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
+    const index: File.Index = @intCast(try self.files.addOne(gpa));
     self.files.set(index, .{ .dylib = .{
+        .offset = 0,
+        .file_handle = handle,
+        .tag = .tbd,
         .path = try gpa.dupe(u8, lib.path),
         .index = index,
         .needed = lib.needed,
         .weak = lib.weak,
         .reexport = lib.reexport,
         .explicit = explicit,
+        .umbrella = index,
     } });
-    const dylib = &self.files.items(.data)[index].dylib;
-    try dylib.parseTbd(self.getTarget().cpu.arch, self.platform, lib_stub, self);
     try self.dylibs.append(gpa, index);
 
     return index;
@@ -1092,6 +1059,8 @@ fn parseDependentDylibs(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    if (self.dylibs.items.len == 0) return;
+
     const gpa = self.base.comp.gpa;
     const lib_dirs = self.lib_dirs;
     const framework_dirs = self.framework_dirs;
@@ -1108,7 +1077,7 @@ fn parseDependentDylibs(self: *MachO) !void {
     while (index < self.dylibs.items.len) : (index += 1) {
         const dylib_index = self.dylibs.items[index];
 
-        var dependents = std.ArrayList(struct { id: Dylib.Id, file: File.Index }).init(gpa);
+        var dependents = std.ArrayList(File.Index).init(gpa);
         defer dependents.deinit();
         try dependents.ensureTotalCapacityPrecise(self.getFile(dylib_index).?.dylib.dependents.items.len);
 
@@ -1199,38 +1168,34 @@ fn parseDependentDylibs(self: *MachO) !void {
                 .path = full_path,
                 .weak = is_weak,
             };
+            const file = try std.fs.cwd().openFile(lib.path, .{});
+            const fh = try self.addFileHandle(file);
+            const fat_arch = try self.parseFatFile(file, lib.path);
+            const offset = if (fat_arch) |fa| fa.offset else 0;
             const file_index = file_index: {
-                if (try fat.isFatLibrary(lib.path)) {
-                    const fat_arch = try self.parseFatLibrary(lib.path);
-                    if (try Dylib.isDylib(lib.path, fat_arch)) {
-                        break :file_index try self.parseDylib(lib, false, fat_arch);
-                    } else break :file_index @as(File.Index, 0);
-                } else if (try Dylib.isDylib(lib.path, null)) {
-                    break :file_index try self.parseDylib(lib, false, null);
-                } else {
-                    const file_index = self.parseTbd(lib, false) catch |err| switch (err) {
-                        error.MalformedTbd => @as(File.Index, 0),
-                        else => |e| return e,
-                    };
-                    break :file_index file_index;
+                if (readMachHeader(file, offset) catch null) |h| blk: {
+                    if (h.magic != macho.MH_MAGIC_64) break :blk;
+                    switch (h.filetype) {
+                        macho.MH_DYLIB => break :file_index try self.addDylib(lib, false, fh, offset),
+                        else => break :file_index @as(File.Index, 0),
+                    }
                 }
+                break :file_index try self.addTbd(lib, false, fh);
             };
-            dependents.appendAssumeCapacity(.{ .id = id, .file = file_index });
+            dependents.appendAssumeCapacity(file_index);
         }
 
         const dylib = self.getFile(dylib_index).?.dylib;
-        for (dependents.items) |entry| {
-            const id = entry.id;
-            const file_index = entry.file;
+        for (dylib.dependents.items, dependents.items) |id, file_index| {
             if (self.getFile(file_index)) |file| {
                 const dep_dylib = file.dylib;
+                try dep_dylib.parse(self); // TODO in parallel
                 dep_dylib.hoisted = self.isHoisted(id.name);
-                if (self.getFile(dep_dylib.umbrella) == null) {
-                    dep_dylib.umbrella = dylib.umbrella;
-                }
+                dep_dylib.umbrella = dylib.umbrella;
                 if (!dep_dylib.hoisted) {
                     const umbrella = dep_dylib.getUmbrella(self);
                     for (dep_dylib.exports.items(.name), dep_dylib.exports.items(.flags)) |off, flags| {
+                        // TODO rethink this entire algorithm
                         try umbrella.addExport(gpa, dep_dylib.getString(off), flags);
                     }
                     try umbrella.rpaths.ensureUnusedCapacity(gpa, dep_dylib.rpaths.keys().len);
@@ -1238,15 +1203,13 @@ fn parseDependentDylibs(self: *MachO) !void {
                         umbrella.rpaths.putAssumeCapacity(try gpa.dupe(u8, rpath), {});
                     }
                 }
-            } else {
-                try self.reportDependencyError(
-                    dylib.getUmbrella(self).index,
-                    id.name,
-                    "unable to resolve dependency",
-                    .{},
-                );
-                has_errors = true;
-            }
+            } else try self.reportDependencyError(
+                dylib.getUmbrella(self).index,
+                id.name,
+                "unable to resolve dependency",
+                .{},
+            );
+            has_errors = true;
         }
     }
 
@@ -1533,8 +1496,8 @@ fn reportUndefs(self: *MachO) !void {
         const notes = entry.value_ptr.*;
         const nnotes = @min(notes.items.len, max_notes) + @intFromBool(notes.items.len > max_notes);
 
-        var err = try self.addErrorWithNotes(nnotes);
-        try err.addMsg(self, "undefined symbol: {s}", .{undef_sym.getName(self)});
+        var err = try self.base.addErrorWithNotes(nnotes);
+        try err.addMsg("undefined symbol: {s}", .{undef_sym.getName(self)});
         has_undefs = true;
 
         var inote: usize = 0;
@@ -1542,12 +1505,12 @@ fn reportUndefs(self: *MachO) !void {
             const note = notes.items[inote];
             const file = self.getFile(note.file).?;
             const atom = note.getAtom(self).?;
-            try err.addNote(self, "referenced by {}:{s}", .{ file.fmtPath(), atom.getName(self) });
+            try err.addNote("referenced by {}:{s}", .{ file.fmtPath(), atom.getName(self) });
         }
 
         if (notes.items.len > max_notes) {
             const remaining = notes.items.len - max_notes;
-            try err.addNote(self, "referenced {d} more times", .{remaining});
+            try err.addNote("referenced {d} more times", .{remaining});
         }
     }
     if (has_undefs) return error.HasUndefinedSymbols;
@@ -3323,13 +3286,13 @@ fn growSectionNonRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !vo
 
     const mem_capacity = self.allocatedSizeVirtual(seg.vmaddr);
     if (needed_size > mem_capacity) {
-        var err = try self.addErrorWithNotes(2);
-        try err.addMsg(self, "fatal linker error: cannot expand segment seg({d})({s}) in virtual memory", .{
+        var err = try self.base.addErrorWithNotes(2);
+        try err.addMsg("fatal linker error: cannot expand segment seg({d})({s}) in virtual memory", .{
             seg_id,
             seg.segName(),
         });
-        try err.addNote(self, "TODO: emit relocations to memory locations in self-hosted backends", .{});
-        try err.addNote(self, "as a workaround, try increasing pre-allocated virtual memory of each segment", .{});
+        try err.addNote("TODO: emit relocations to memory locations in self-hosted backends", .{});
+        try err.addNote("as a workaround, try increasing pre-allocated virtual memory of each segment", .{});
     }
 
     seg.vmsize = needed_size;
@@ -3618,65 +3581,15 @@ pub fn eatPrefix(path: []const u8, prefix: []const u8) ?[]const u8 {
     return null;
 }
 
-const ErrorWithNotes = struct {
-    /// Allocated index in comp.link_errors array.
-    index: usize,
-
-    /// Next available note slot.
-    note_slot: usize = 0,
-
-    pub fn addMsg(
-        err: ErrorWithNotes,
-        macho_file: *MachO,
-        comptime format: []const u8,
-        args: anytype,
-    ) error{OutOfMemory}!void {
-        const comp = macho_file.base.comp;
-        const gpa = comp.gpa;
-        const err_msg = &comp.link_errors.items[err.index];
-        err_msg.msg = try std.fmt.allocPrint(gpa, format, args);
-    }
-
-    pub fn addNote(
-        err: *ErrorWithNotes,
-        macho_file: *MachO,
-        comptime format: []const u8,
-        args: anytype,
-    ) error{OutOfMemory}!void {
-        const comp = macho_file.base.comp;
-        const gpa = comp.gpa;
-        const err_msg = &comp.link_errors.items[err.index];
-        assert(err.note_slot < err_msg.notes.len);
-        err_msg.notes[err.note_slot] = .{ .msg = try std.fmt.allocPrint(gpa, format, args) };
-        err.note_slot += 1;
-    }
-};
-
-pub fn addErrorWithNotes(self: *MachO, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
-    const comp = self.base.comp;
-    const gpa = comp.gpa;
-    try comp.link_errors.ensureUnusedCapacity(gpa, 1);
-    return self.addErrorWithNotesAssumeCapacity(note_count);
-}
-
-fn addErrorWithNotesAssumeCapacity(self: *MachO, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
-    const comp = self.base.comp;
-    const gpa = comp.gpa;
-    const index = comp.link_errors.items.len;
-    const err = comp.link_errors.addOneAssumeCapacity();
-    err.* = .{ .msg = undefined, .notes = try gpa.alloc(link.File.ErrorMsg, note_count) };
-    return .{ .index = index };
-}
-
 pub fn reportParseError(
     self: *MachO,
     path: []const u8,
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
-    var err = try self.addErrorWithNotes(1);
-    try err.addMsg(self, format, args);
-    try err.addNote(self, "while parsing {s}", .{path});
+    var err = try self.base.addErrorWithNotes(1);
+    try err.addMsg(format, args);
+    try err.addNote("while parsing {s}", .{path});
 }
 
 pub fn reportParseError2(
@@ -3685,9 +3598,9 @@ pub fn reportParseError2(
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
-    var err = try self.addErrorWithNotes(1);
-    try err.addMsg(self, format, args);
-    try err.addNote(self, "while parsing {}", .{self.getFile(file_index).?.fmtPath()});
+    var err = try self.base.addErrorWithNotes(1);
+    try err.addMsg(format, args);
+    try err.addNote("while parsing {}", .{self.getFile(file_index).?.fmtPath()});
 }
 
 fn reportMissingLibraryError(
@@ -3696,10 +3609,10 @@ fn reportMissingLibraryError(
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
-    var err = try self.addErrorWithNotes(checked_paths.len);
-    try err.addMsg(self, format, args);
+    var err = try self.base.addErrorWithNotes(checked_paths.len);
+    try err.addMsg(format, args);
     for (checked_paths) |path| {
-        try err.addNote(self, "tried {s}", .{path});
+        try err.addNote("tried {s}", .{path});
     }
 }
 
@@ -3711,12 +3624,12 @@ fn reportMissingDependencyError(
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
-    var err = try self.addErrorWithNotes(2 + checked_paths.len);
-    try err.addMsg(self, format, args);
-    try err.addNote(self, "while resolving {s}", .{path});
-    try err.addNote(self, "a dependency of {}", .{self.getFile(parent).?.fmtPath()});
+    var err = try self.base.addErrorWithNotes(2 + checked_paths.len);
+    try err.addMsg(format, args);
+    try err.addNote("while resolving {s}", .{path});
+    try err.addNote("a dependency of {}", .{self.getFile(parent).?.fmtPath()});
     for (checked_paths) |p| {
-        try err.addNote(self, "tried {s}", .{p});
+        try err.addNote("tried {s}", .{p});
     }
 }
 
@@ -3727,16 +3640,16 @@ fn reportDependencyError(
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
-    var err = try self.addErrorWithNotes(2);
-    try err.addMsg(self, format, args);
-    try err.addNote(self, "while parsing {s}", .{path});
-    try err.addNote(self, "a dependency of {}", .{self.getFile(parent).?.fmtPath()});
+    var err = try self.base.addErrorWithNotes(2);
+    try err.addMsg(format, args);
+    try err.addNote("while parsing {s}", .{path});
+    try err.addNote("a dependency of {}", .{self.getFile(parent).?.fmtPath()});
 }
 
 pub fn reportUnexpectedError(self: *MachO, comptime format: []const u8, args: anytype) error{OutOfMemory}!void {
-    var err = try self.addErrorWithNotes(1);
-    try err.addMsg(self, format, args);
-    try err.addNote(self, "please report this as a linker bug on https://github.com/ziglang/zig/issues/new/choose", .{});
+    var err = try self.base.addErrorWithNotes(1);
+    try err.addMsg(format, args);
+    try err.addNote("please report this as a linker bug on https://github.com/ziglang/zig/issues/new/choose", .{});
 }
 
 fn reportDuplicates(self: *MachO) error{ HasDuplicates, OutOfMemory }!void {
@@ -3752,20 +3665,20 @@ fn reportDuplicates(self: *MachO) error{ HasDuplicates, OutOfMemory }!void {
         const notes = entry.value_ptr.*;
         const nnotes = @min(notes.items.len, max_notes) + @intFromBool(notes.items.len > max_notes);
 
-        var err = try self.addErrorWithNotes(nnotes + 1);
-        try err.addMsg(self, "duplicate symbol definition: {s}", .{sym.getName(self)});
-        try err.addNote(self, "defined by {}", .{sym.getFile(self).?.fmtPath()});
+        var err = try self.base.addErrorWithNotes(nnotes + 1);
+        try err.addMsg("duplicate symbol definition: {s}", .{sym.getName(self)});
+        try err.addNote("defined by {}", .{sym.getFile(self).?.fmtPath()});
         has_dupes = true;
 
         var inote: usize = 0;
         while (inote < @min(notes.items.len, max_notes)) : (inote += 1) {
             const file = self.getFile(notes.items[inote]).?;
-            try err.addNote(self, "defined by {}", .{file.fmtPath()});
+            try err.addNote("defined by {}", .{file.fmtPath()});
         }
 
         if (notes.items.len > max_notes) {
             const remaining = notes.items.len - max_notes;
-            try err.addNote(self, "defined {d} more times", .{remaining});
+            try err.addNote("defined {d} more times", .{remaining});
         }
     }
     if (has_dupes) return error.HasDuplicates;

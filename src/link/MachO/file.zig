@@ -335,6 +335,21 @@ pub const File = union(enum) {
         };
     }
 
+    pub fn parse(file: File, macho_file: *MachO) !void {
+        return switch (file) {
+            .internal, .zig_object => unreachable,
+            .object => |x| x.parse(macho_file),
+            .dylib => |x| x.parse(macho_file),
+        };
+    }
+
+    pub fn parseAr(file: File, macho_file: *MachO) !void {
+        return switch (file) {
+            .internal, .zig_object, .dylib => unreachable,
+            .object => |x| x.parseAr(macho_file),
+        };
+    }
+
     pub const Index = u32;
 
     pub const Entry = union(enum) {

@@ -591,12 +591,12 @@ const riscv = struct {
 };
 
 fn reportInvalidReloc(rec: anytype, elf_file: *Elf, rel: elf.Elf64_Rela) !void {
-    var err = try elf_file.addErrorWithNotes(1);
-    try err.addMsg(elf_file, "invalid relocation type {} at offset 0x{x}", .{
+    var err = try elf_file.base.addErrorWithNotes(1);
+    try err.addMsg("invalid relocation type {} at offset 0x{x}", .{
         relocation.fmtRelocType(rel.r_type(), elf_file.getTarget().cpu.arch),
         rel.r_offset,
     });
-    try err.addNote(elf_file, "in {}:.eh_frame", .{elf_file.file(rec.file_index).?.fmtPath()});
+    try err.addNote("in {}:.eh_frame", .{elf_file.file(rec.file_index).?.fmtPath()});
     return error.RelocFailure;
 }
 

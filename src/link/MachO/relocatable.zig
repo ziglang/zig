@@ -27,22 +27,21 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]c
     }
 
     for (positionals.items) |obj| {
-        macho_file.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
-            error.MalformedObject,
-            error.MalformedArchive,
-            error.InvalidCpuArch,
-            error.InvalidTarget,
-            => continue, // already reported
-            error.UnknownFileType => try macho_file.reportParseError(obj.path, "unknown file type for an object file", .{}),
+        macho_file.classifyInputFile(obj.path, .{ .path = obj.path }, obj.must_link) catch |err| switch (err) {
+            error.UnknownFileType => try macho_file.reportParseError(obj.path, "unknown file type for an input file", .{}),
             else => |e| try macho_file.reportParseError(
                 obj.path,
-                "unexpected error: parsing input file failed with error {s}",
+                "unexpected error: reading input file failed with error {s}",
                 .{@errorName(e)},
             ),
         };
     }
 
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+    if (macho_file.base.hasErrors()) return error.FlushFailure;
+
+    try macho_file.parseInputFiles();
+
+    if (macho_file.base.hasErrors()) return error.FlushFailure;
 
     try macho_file.resolveSymbols();
     try macho_file.dedupLiterals();
@@ -93,22 +92,21 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
     }
 
     for (positionals.items) |obj| {
-        parsePositional(macho_file, obj.path) catch |err| switch (err) {
-            error.MalformedObject,
-            error.MalformedArchive,
-            error.InvalidCpuArch,
-            error.InvalidTarget,
-            => continue, // already reported
-            error.UnknownFileType => try macho_file.reportParseError(obj.path, "unknown file type for an object file", .{}),
+        macho_file.classifyInputFile(obj.path, .{ .path = obj.path }, obj.must_link) catch |err| switch (err) {
+            error.UnknownFileType => try macho_file.reportParseError(obj.path, "unknown file type for an input file", .{}),
             else => |e| try macho_file.reportParseError(
                 obj.path,
-                "unexpected error: parsing input file failed with error {s}",
+                "unexpected error: reading input file failed with error {s}",
                 .{@errorName(e)},
             ),
         };
     }
 
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+    if (macho_file.base.hasErrors()) return error.FlushFailure;
+
+    try parseInputFilesAr(macho_file);
+
+    if (macho_file.base.hasErrors()) return error.FlushFailure;
 
     // First, we flush relocatable object file generated with our backends.
     if (macho_file.getZigObject()) |zo| {
@@ -225,79 +223,19 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
     try macho_file.base.file.?.setEndPos(total_size);
     try macho_file.base.file.?.pwriteAll(buffer.items, 0);
 
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+    if (macho_file.base.hasErrors()) return error.FlushFailure;
 }
 
-fn parsePositional(macho_file: *MachO, path: []const u8) MachO.ParseError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-    if (try Object.isObject(path)) {
-        try parseObject(macho_file, path);
-    } else if (try fat.isFatLibrary(path)) {
-        const fat_arch = try macho_file.parseFatLibrary(path);
-        if (try Archive.isArchive(path, fat_arch)) {
-            try parseArchive(macho_file, path, fat_arch);
-        } else return error.UnknownFileType;
-    } else if (try Archive.isArchive(path, null)) {
-        try parseArchive(macho_file, path, null);
-    } else return error.UnknownFileType;
-}
-
-fn parseObject(macho_file: *MachO, path: []const u8) MachO.ParseError!void {
+fn parseInputFilesAr(macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = macho_file.base.comp.gpa;
-    const file = try std.fs.cwd().openFile(path, .{});
-    errdefer file.close();
-    const handle = try macho_file.addFileHandle(file);
-    const mtime: u64 = mtime: {
-        const stat = file.stat() catch break :mtime 0;
-        break :mtime @as(u64, @intCast(@divFloor(stat.mtime, 1_000_000_000)));
-    };
-    const index = @as(File.Index, @intCast(try macho_file.files.addOne(gpa)));
-    macho_file.files.set(index, .{
-        .object = .{
-            .offset = 0, // TODO FAT objects
-            .path = try gpa.dupe(u8, path),
-            .file_handle = handle,
-            .mtime = mtime,
-            .index = index,
-        },
-    });
-    try macho_file.objects.append(gpa, index);
-
-    const object = macho_file.getFile(index).?.object;
-    try object.parseAr(macho_file);
-}
-
-fn parseArchive(macho_file: *MachO, path: []const u8, fat_arch: ?fat.Arch) MachO.ParseError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const gpa = macho_file.base.comp.gpa;
-
-    const file = try std.fs.cwd().openFile(path, .{});
-    errdefer file.close();
-    const handle = try macho_file.addFileHandle(file);
-
-    var archive = Archive{};
-    defer archive.deinit(gpa);
-    try archive.parse(macho_file, path, handle, fat_arch);
-
-    var has_parse_error = false;
-    for (archive.objects.items) |extracted| {
-        const index = @as(File.Index, @intCast(try macho_file.files.addOne(gpa)));
-        macho_file.files.set(index, .{ .object = extracted });
-        const object = &macho_file.files.items(.data)[index].object;
-        object.index = index;
-        object.parseAr(macho_file) catch |err| switch (err) {
-            error.InvalidCpuArch => has_parse_error = true,
-            else => |e| return e,
+    for (macho_file.objects.items) |index| {
+        macho_file.getFile(index).?.parseAr(macho_file) catch |err| switch (err) {
+            error.InvalidCpuArch => {}, // already reported
+            else => |e| try macho_file.reportParseError2(index, "unexpected error: parsing input file failed with error {s}", .{@errorName(e)}),
         };
-        try macho_file.objects.append(gpa, index);
     }
-    if (has_parse_error) return error.MalformedArchive;
 }
 
 fn markExports(macho_file: *MachO) void {

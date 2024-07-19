@@ -38,13 +38,6 @@ compact_unwind_ctx: CompactUnwindCtx = .{},
 output_symtab_ctx: MachO.SymtabCtx = .{},
 output_ar_state: Archive.ArState = .{},
 
-pub fn isObject(path: []const u8) !bool {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-    const header = file.reader().readStruct(macho.mach_header_64) catch return false;
-    return header.filetype == macho.MH_OBJECT;
-}
-
 pub fn deinit(self: *Object, allocator: Allocator) void {
     if (self.in_archive) |*ar| allocator.free(ar.path);
     allocator.free(self.path);
@@ -273,6 +266,9 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
             atom.flags.alive = false;
         }
     }
+
+    // Finally, we do a post-parse check for -ObjC to see if we need to force load this member anyhow.
+    self.alive = self.alive or (macho_file.force_load_objc and self.hasObjC());
 }
 
 pub fn isCstringLiteral(sect: macho.section_64) bool {
@@ -2325,7 +2321,7 @@ fn hasSymbolStabs(self: Object) bool {
     return self.stab_files.items.len > 0;
 }
 
-pub fn hasObjc(self: Object) bool {
+fn hasObjC(self: Object) bool {
     for (self.symtab.items(.nlist)) |nlist| {
         const name = self.getString(nlist.n_strx);
         if (mem.startsWith(u8, name, "_OBJC_CLASS_$_")) return true;

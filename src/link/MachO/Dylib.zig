@@ -1,5 +1,9 @@
+/// Non-zero for fat dylibs
+offset: u64,
 path: []const u8,
 index: File.Index,
+file_handle: File.HandleIndex,
+tag: enum { dylib, tbd },
 
 exports: std.MultiArrayList(Export) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
@@ -11,7 +15,7 @@ symbols_extra: std.ArrayListUnmanaged(u32) = .{},
 globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .{},
 dependents: std.ArrayListUnmanaged(Id) = .{},
 rpaths: std.StringArrayHashMapUnmanaged(void) = .{},
-umbrella: File.Index = 0,
+umbrella: File.Index,
 platform: ?MachO.Platform = null,
 
 needed: bool,
@@ -22,16 +26,6 @@ hoisted: bool = true,
 referenced: bool = false,
 
 output_symtab_ctx: MachO.SymtabCtx = .{},
-
-pub fn isDylib(path: []const u8, fat_arch: ?fat.Arch) !bool {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-    if (fat_arch) |arch| {
-        try file.seekTo(arch.offset);
-    }
-    const header = file.reader().readStruct(macho.mach_header_64) catch return false;
-    return header.filetype == macho.MH_DYLIB;
-}
 
 pub fn deinit(self: *Dylib, allocator: Allocator) void {
     allocator.free(self.path);
@@ -51,12 +45,21 @@ pub fn deinit(self: *Dylib, allocator: Allocator) void {
     self.rpaths.deinit(allocator);
 }
 
-pub fn parse(self: *Dylib, macho_file: *MachO, file: std.fs.File, fat_arch: ?fat.Arch) !void {
+pub fn parse(self: *Dylib, macho_file: *MachO) !void {
+    switch (self.tag) {
+        .tbd => try self.parseTbd(macho_file),
+        .dylib => try self.parseBinary(macho_file),
+    }
+    try self.initSymbols(macho_file);
+}
+
+fn parseBinary(self: *Dylib, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = macho_file.base.comp.gpa;
-    const offset = if (fat_arch) |ar| ar.offset else 0;
+    const file = macho_file.getFileHandle(self.file_handle);
+    const offset = self.offset;
 
     log.debug("parsing dylib from binary: {s}", .{self.path});
 
@@ -258,13 +261,7 @@ fn parseTrie(self: *Dylib, data: []const u8, macho_file: *MachO) !void {
     try self.parseTrieNode(&it, gpa, arena.allocator(), "");
 }
 
-pub fn parseTbd(
-    self: *Dylib,
-    cpu_arch: std.Target.Cpu.Arch,
-    platform: MachO.Platform,
-    lib_stub: LibStub,
-    macho_file: *MachO,
-) !void {
+fn parseTbd(self: *Dylib, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -272,6 +269,9 @@ pub fn parseTbd(
 
     log.debug("parsing dylib from stub: {s}", .{self.path});
 
+    const file = macho_file.getFileHandle(self.file_handle);
+    var lib_stub = LibStub.loadFromFile(gpa, file) catch return error.NotLibStub;
+    defer lib_stub.deinit();
     const umbrella_lib = lib_stub.inner[0];
 
     {
@@ -290,7 +290,8 @@ pub fn parseTbd(
 
     log.debug("  (install_name '{s}')", .{umbrella_lib.installName()});
 
-    self.platform = platform;
+    const cpu_arch = macho_file.getTarget().cpu.arch;
+    self.platform = macho_file.platform;
 
     var matcher = try TargetMatcher.init(gpa, cpu_arch, self.platform.?.toApplePlatform());
     defer matcher.deinit();
@@ -495,7 +496,7 @@ fn addObjCExport(
     try self.addExport(allocator, full_name, .{});
 }
 
-pub fn initSymbols(self: *Dylib, macho_file: *MachO) !void {
+fn initSymbols(self: *Dylib, macho_file: *MachO) !void {
     const gpa = macho_file.base.comp.gpa;
 
     const nsyms = self.exports.items(.name).len;

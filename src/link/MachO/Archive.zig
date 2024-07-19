@@ -1,21 +1,10 @@
 objects: std.ArrayListUnmanaged(Object) = .{},
 
-pub fn isArchive(path: []const u8, fat_arch: ?fat.Arch) !bool {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-    if (fat_arch) |arch| {
-        try file.seekTo(arch.offset);
-    }
-    const magic = file.reader().readBytesNoEof(SARMAG) catch return false;
-    if (!mem.eql(u8, &magic, ARMAG)) return false;
-    return true;
-}
-
 pub fn deinit(self: *Archive, allocator: Allocator) void {
     self.objects.deinit(allocator);
 }
 
-pub fn parse(self: *Archive, macho_file: *MachO, path: []const u8, handle_index: File.HandleIndex, fat_arch: ?fat.Arch) !void {
+pub fn unpack(self: *Archive, macho_file: *MachO, path: []const u8, handle_index: File.HandleIndex, fat_arch: ?fat.Arch) !void {
     const gpa = macho_file.base.comp.gpa;
 
     var arena = std.heap.ArenaAllocator.init(gpa);
