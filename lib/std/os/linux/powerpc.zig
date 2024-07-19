@@ -249,13 +249,13 @@ pub const Stat = extern struct {
 };
 
 pub const timeval = extern struct {
-    tv_sec: time_t,
-    tv_usec: isize,
+    sec: time_t,
+    usec: isize,
 };
 
 pub const timezone = extern struct {
-    tz_minuteswest: i32,
-    tz_dsttime: i32,
+    minuteswest: i32,
+    dsttime: i32,
 };
 
 pub const greg_t = u32;
@@ -290,3 +290,6 @@ pub const ucontext_t = extern struct {
 pub const Elf_Symndx = u32;
 
 pub const MMAP2_UNIT = 4096;
+
+/// TODO
+pub const getcontext = {};

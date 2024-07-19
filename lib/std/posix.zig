@@ -50,6 +50,7 @@ else switch (native_os) {
 
 pub const AF = system.AF;
 pub const AF_SUN = system.AF_SUN;
+pub const AI = system.AI;
 pub const ARCH = system.ARCH;
 pub const AT = system.AT;
 pub const AT_SUN = system.AT_SUN;
@@ -72,10 +73,10 @@ pub const Kevent = system.Kevent;
 pub const LOCK = system.LOCK;
 pub const MADV = system.MADV;
 pub const MAP = system.MAP;
-pub const MSF = system.MSF;
 pub const MAX_ADDR_LEN = system.MAX_ADDR_LEN;
 pub const MFD = system.MFD;
 pub const MMAP2_UNIT = system.MMAP2_UNIT;
+pub const MSF = system.MSF;
 pub const MSG = system.MSG;
 pub const NAME_MAX = system.NAME_MAX;
 pub const O = system.O;
@@ -90,7 +91,6 @@ pub const RR = system.RR;
 pub const S = system.S;
 pub const SA = system.SA;
 pub const SC = system.SC;
-pub const _SC = system._SC;
 pub const SEEK = system.SEEK;
 pub const SHUT = system.SHUT;
 pub const SIG = system.SIG;
@@ -105,20 +105,22 @@ pub const SYS = system.SYS;
 pub const Sigaction = system.Sigaction;
 pub const Stat = system.Stat;
 pub const T = system.T;
-pub const TCSA = system.TCSA;
 pub const TCP = system.TCP;
 pub const VDSO = system.VDSO;
 pub const W = system.W;
+pub const _SC = system._SC;
 pub const addrinfo = system.addrinfo;
 pub const blkcnt_t = system.blkcnt_t;
 pub const blksize_t = system.blksize_t;
 pub const clock_t = system.clock_t;
+pub const clockid_t = system.clockid_t;
 pub const cpu_set_t = system.cpu_set_t;
 pub const dev_t = system.dev_t;
 pub const dl_phdr_info = system.dl_phdr_info;
 pub const empty_sigset = system.empty_sigset;
-pub const filled_sigset = system.filled_sigset;
 pub const fd_t = system.fd_t;
+pub const file_obj = system.file_obj;
+pub const filled_sigset = system.filled_sigset;
 pub const gid_t = system.gid_t;
 pub const ifreq = system.ifreq;
 pub const ino_t = system.ino_t;
@@ -131,10 +133,9 @@ pub const nlink_t = system.nlink_t;
 pub const off_t = system.off_t;
 pub const pid_t = system.pid_t;
 pub const pollfd = system.pollfd;
-pub const port_t = system.port_t;
 pub const port_event = system.port_event;
 pub const port_notify = system.port_notify;
-pub const file_obj = system.file_obj;
+pub const port_t = system.port_t;
 pub const rlim_t = system.rlim_t;
 pub const rlimit = system.rlimit;
 pub const rlimit_resource = system.rlimit_resource;
@@ -154,7 +155,6 @@ pub const ucontext_t = system.ucontext_t;
 pub const uid_t = system.uid_t;
 pub const user_desc = system.user_desc;
 pub const utsname = system.utsname;
-pub const winsize = system.winsize;
 
 pub const termios = system.termios;
 pub const CSIZE = system.CSIZE;
@@ -186,6 +186,20 @@ pub const ACCMODE = enum(u2) {
     RDONLY = 0,
     WRONLY = 1,
     RDWR = 2,
+};
+
+pub const TCSA = enum(c_uint) {
+    NOW,
+    DRAIN,
+    FLUSH,
+    _,
+};
+
+pub const winsize = extern struct {
+    row: u16,
+    col: u16,
+    xpixel: u16,
+    ypixel: u16,
 };
 
 pub const LOG = struct {
@@ -226,6 +240,8 @@ pub fn errno(rc: anytype) E {
 
 /// Closes the file descriptor.
 ///
+/// Asserts the file descriptor is open.
+///
 /// This function is not capable of returning any indication of failure. An
 /// application which wants to ensure writes have succeeded before closing must
 /// call `fsync` before `close`.
@@ -238,13 +254,6 @@ pub fn close(fd: fd_t) void {
     if (native_os == .wasi and !builtin.link_libc) {
         _ = std.os.wasi.fd_close(fd);
         return;
-    }
-    if (builtin.target.isDarwin()) {
-        // This avoids the EINTR problem.
-        switch (errno(std.c.@"close$NOCANCEL"(fd))) {
-            .BADF => unreachable, // Always a race condition.
-            else => return,
-        }
     }
     switch (errno(system.close(fd))) {
         .BADF => unreachable, // Always a race condition.
@@ -571,7 +580,15 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
     if (native_os == .windows) {
         return windows.RtlGenRandom(buffer);
     }
-    if (native_os == .linux or native_os == .freebsd) {
+    if (builtin.link_libc and @TypeOf(system.arc4random_buf) != void) {
+        system.arc4random_buf(buffer.ptr, buffer.len);
+        return;
+    }
+    if (native_os == .wasi) switch (wasi.random_get(buffer.ptr, buffer.len)) {
+        .SUCCESS => return,
+        else => |err| return unexpectedErrno(err),
+    };
+    if (@TypeOf(system.getrandom) != void) {
         var buf = buffer;
         const use_c = native_os != .linux or
             std.c.versionCheck(std.SemanticVersion{ .major = 2, .minor = 25, .patch = 0 });
@@ -603,17 +620,7 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
             else => return unexpectedErrno(err),
         }
     }
-    switch (native_os) {
-        .netbsd, .openbsd, .macos, .ios, .tvos, .watchos, .visionos => {
-            system.arc4random_buf(buffer.ptr, buffer.len);
-            return;
-        },
-        .wasi => switch (wasi.random_get(buffer.ptr, buffer.len)) {
-            .SUCCESS => return,
-            else => |err| return unexpectedErrno(err),
-        },
-        else => return getRandomBytesDevURandom(buffer),
-    }
+    return getRandomBytesDevURandom(buffer);
 }
 
 fn getRandomBytesDevURandom(buf: []u8) !void {
@@ -3430,7 +3437,7 @@ pub fn isatty(handle: fd_t) bool {
     }
     if (native_os == .linux) {
         while (true) {
-            var wsz: linux.winsize = undefined;
+            var wsz: winsize = undefined;
             const fd: usize = @bitCast(@as(isize, handle));
             const rc = linux.syscall3(.ioctl, fd, linux.T.IOCGWINSZ, @intFromPtr(&wsz));
             switch (linux.E.init(rc)) {
@@ -4929,8 +4936,7 @@ pub fn pipe() PipeError![2]fd_t {
 }
 
 pub fn pipe2(flags: O) PipeError![2]fd_t {
-    // https://github.com/ziglang/zig/issues/19352
-    if (@hasDecl(system, "pipe2")) {
+    if (@TypeOf(system.pipe2) != void) {
         var fds: [2]fd_t = undefined;
         switch (errno(system.pipe2(&fds, flags))) {
             .SUCCESS => return fds,
@@ -5438,8 +5444,8 @@ pub fn realpathW(pathname: []const u16, out_buffer: *[max_path_bytes]u8) RealPat
 /// Spurious wakeups are possible and no precision of timing is guaranteed.
 pub fn nanosleep(seconds: u64, nanoseconds: u64) void {
     var req = timespec{
-        .tv_sec = cast(isize, seconds) orelse maxInt(isize),
-        .tv_nsec = cast(isize, nanoseconds) orelse maxInt(isize),
+        .sec = cast(isize, seconds) orelse maxInt(isize),
+        .nsec = cast(isize, nanoseconds) orelse maxInt(isize),
     };
     var rem: timespec = undefined;
     while (true) {
@@ -5511,10 +5517,10 @@ pub fn dl_iterate_phdr(
         } else unreachable;
 
         var info = dl_phdr_info{
-            .dlpi_addr = base_address,
-            .dlpi_name = "/proc/self/exe",
-            .dlpi_phdr = phdrs.ptr,
-            .dlpi_phnum = ehdr.e_phnum,
+            .addr = base_address,
+            .name = "/proc/self/exe",
+            .phdr = phdrs.ptr,
+            .phnum = ehdr.e_phnum,
         };
 
         return callback(&info, @sizeOf(dl_phdr_info), context);
@@ -5522,24 +5528,24 @@ pub fn dl_iterate_phdr(
 
     // Last return value from the callback function.
     while (it.next()) |entry| {
-        var dlpi_phdr: [*]elf.Phdr = undefined;
-        var dlpi_phnum: u16 = undefined;
+        var phdr: [*]elf.Phdr = undefined;
+        var phnum: u16 = undefined;
 
         if (entry.l_addr != 0) {
             const elf_header: *elf.Ehdr = @ptrFromInt(entry.l_addr);
-            dlpi_phdr = @ptrFromInt(entry.l_addr + elf_header.e_phoff);
-            dlpi_phnum = elf_header.e_phnum;
+            phdr = @ptrFromInt(entry.l_addr + elf_header.e_phoff);
+            phnum = elf_header.e_phnum;
         } else {
             // This is the running ELF image
-            dlpi_phdr = @ptrFromInt(elf_base + ehdr.e_phoff);
-            dlpi_phnum = ehdr.e_phnum;
+            phdr = @ptrFromInt(elf_base + ehdr.e_phoff);
+            phnum = ehdr.e_phnum;
         }
 
         var info = dl_phdr_info{
-            .dlpi_addr = entry.l_addr,
-            .dlpi_name = entry.l_name,
-            .dlpi_phdr = dlpi_phdr,
-            .dlpi_phnum = dlpi_phnum,
+            .addr = entry.l_addr,
+            .name = entry.l_name,
+            .phdr = phdr,
+            .phnum = phnum,
         };
 
         try callback(&info, @sizeOf(dl_phdr_info), context);
@@ -5549,15 +5555,14 @@ pub fn dl_iterate_phdr(
 pub const ClockGetTimeError = error{UnsupportedClock} || UnexpectedError;
 
 /// TODO: change this to return the timespec as a return value
-/// TODO: look into making clk_id an enum
-pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
+pub fn clock_gettime(clock_id: clockid_t, tp: *timespec) ClockGetTimeError!void {
     if (native_os == .wasi and !builtin.link_libc) {
         var ts: timestamp_t = undefined;
-        switch (system.clock_time_get(@bitCast(clk_id), 1, &ts)) {
+        switch (system.clock_time_get(clock_id, 1, &ts)) {
             .SUCCESS => {
                 tp.* = .{
-                    .tv_sec = @intCast(ts / std.time.ns_per_s),
-                    .tv_nsec = @intCast(ts % std.time.ns_per_s),
+                    .sec = @intCast(ts / std.time.ns_per_s),
+                    .nsec = @intCast(ts % std.time.ns_per_s),
                 };
             },
             .INVAL => return error.UnsupportedClock,
@@ -5566,15 +5571,15 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
         return;
     }
     if (native_os == .windows) {
-        if (clk_id == CLOCK.REALTIME) {
+        if (clock_id == .REALTIME) {
             var ft: windows.FILETIME = undefined;
             windows.kernel32.GetSystemTimeAsFileTime(&ft);
             // FileTime has a granularity of 100 nanoseconds and uses the NTFS/Windows epoch.
             const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
             const ft_per_s = std.time.ns_per_s / 100;
             tp.* = .{
-                .tv_sec = @as(i64, @intCast(ft64 / ft_per_s)) + std.time.epoch.windows,
-                .tv_nsec = @as(c_long, @intCast(ft64 % ft_per_s)) * 100,
+                .sec = @as(i64, @intCast(ft64 / ft_per_s)) + std.time.epoch.windows,
+                .nsec = @as(c_long, @intCast(ft64 % ft_per_s)) * 100,
             };
             return;
         } else {
@@ -5583,7 +5588,7 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
         }
     }
 
-    switch (errno(system.clock_gettime(clk_id, tp))) {
+    switch (errno(system.clock_gettime(clock_id, tp))) {
         .SUCCESS => return,
         .FAULT => unreachable,
         .INVAL => return error.UnsupportedClock,
@@ -5591,13 +5596,13 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) ClockGetTimeError!void {
     }
 }
 
-pub fn clock_getres(clk_id: i32, res: *timespec) ClockGetTimeError!void {
+pub fn clock_getres(clock_id: clockid_t, res: *timespec) ClockGetTimeError!void {
     if (native_os == .wasi and !builtin.link_libc) {
         var ts: timestamp_t = undefined;
-        switch (system.clock_res_get(@bitCast(clk_id), &ts)) {
+        switch (system.clock_res_get(@bitCast(clock_id), &ts)) {
             .SUCCESS => res.* = .{
-                .tv_sec = @intCast(ts / std.time.ns_per_s),
-                .tv_nsec = @intCast(ts % std.time.ns_per_s),
+                .sec = @intCast(ts / std.time.ns_per_s),
+                .nsec = @intCast(ts % std.time.ns_per_s),
             },
             .INVAL => return error.UnsupportedClock,
             else => |err| return unexpectedErrno(err),
@@ -5605,7 +5610,7 @@ pub fn clock_getres(clk_id: i32, res: *timespec) ClockGetTimeError!void {
         return;
     }
 
-    switch (errno(system.clock_getres(clk_id, res))) {
+    switch (errno(system.clock_getres(clock_id, res))) {
         .SUCCESS => return,
         .FAULT => unreachable,
         .INVAL => return error.UnsupportedClock,
@@ -5666,7 +5671,7 @@ pub fn sigprocmask(flags: u32, noalias set: ?*const sigset_t, noalias oldset: ?*
 }
 
 pub const FutimensError = error{
-    /// times is NULL, or both tv_nsec values are UTIME_NOW, and either:
+    /// times is NULL, or both nsec values are UTIME_NOW, and either:
     /// *  the effective user ID of the caller does not match the  owner
     ///    of  the  file,  the  caller does not have write access to the
     ///    file, and the caller is not privileged (Linux: does not  have
@@ -5678,8 +5683,8 @@ pub const FutimensError = error{
     /// The caller attempted to change one or both timestamps to a value
     /// other than the current time, or to change one of the  timestamps
     /// to the current time while leaving the other timestamp unchanged,
-    /// (i.e., times is not NULL, neither tv_nsec  field  is  UTIME_NOW,
-    /// and neither tv_nsec field is UTIME_OMIT) and either:
+    /// (i.e., times is not NULL, neither nsec  field  is  UTIME_NOW,
+    /// and neither nsec field is UTIME_OMIT) and either:
     /// *  the  caller's  effective  user ID does not match the owner of
     ///    file, and the caller is not privileged (Linux: does not  have
     ///    the CAP_FOWNER capability); or,
@@ -5794,9 +5799,9 @@ pub fn res_mkquery(
 
     // Make a reasonably unpredictable id
     var ts: timespec = undefined;
-    clock_gettime(CLOCK.REALTIME, &ts) catch {};
-    const UInt = std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(ts.tv_nsec)));
-    const unsec: UInt = @bitCast(ts.tv_nsec);
+    clock_gettime(.REALTIME, &ts) catch {};
+    const UInt = std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(ts.nsec)));
+    const unsec: UInt = @bitCast(ts.nsec);
     const id: u32 = @truncate(unsec + unsec / 65536);
     q[0] = @truncate(id / 256);
     q[1] = @truncate(id);
@@ -7195,8 +7200,8 @@ pub const TimerFdCreateError = error{
 pub const TimerFdGetError = error{InvalidHandle} || UnexpectedError;
 pub const TimerFdSetError = TimerFdGetError || error{Canceled};
 
-pub fn timerfd_create(clokid: i32, flags: system.TFD) TimerFdCreateError!fd_t {
-    const rc = system.timerfd_create(clokid, @bitCast(flags));
+pub fn timerfd_create(clock_id: clockid_t, flags: system.TFD) TimerFdCreateError!fd_t {
+    const rc = system.timerfd_create(clock_id, @bitCast(flags));
     return switch (errno(rc)) {
         .SUCCESS => @intCast(rc),
         .INVAL => unreachable,

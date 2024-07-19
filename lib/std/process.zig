@@ -1789,10 +1789,7 @@ pub fn cleanExit() void {
 /// On some systems, this raises the limit before seeing ProcessFdQuotaExceeded
 /// errors. On other systems, this does nothing.
 pub fn raiseFileDescriptorLimit() void {
-    const have_rlimit = switch (native_os) {
-        .windows, .wasi => false,
-        else => true,
-    };
+    const have_rlimit = posix.rlimit_resource != void;
     if (!have_rlimit) return;
 
     var lim = posix.getrlimit(.NOFILE) catch return; // Oh well; we tried.

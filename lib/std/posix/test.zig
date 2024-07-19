@@ -483,7 +483,8 @@ test "sigaltstack" {
 
 // If the type is not available use void to avoid erroring out when `iter_fn` is
 // analyzed
-const dl_phdr_info = if (@hasDecl(posix.system, "dl_phdr_info")) posix.dl_phdr_info else anyopaque;
+const have_dl_phdr_info = posix.system.dl_phdr_info != void;
+const dl_phdr_info = if (have_dl_phdr_info) posix.dl_phdr_info else anyopaque;
 
 const IterFnError = error{
     MissingPtLoadSegment,
@@ -498,24 +499,24 @@ fn iter_fn(info: *dl_phdr_info, size: usize, counter: *usize) IterFnError!void {
     counter.* += @as(usize, 1);
 
     // The image should contain at least a PT_LOAD segment
-    if (info.dlpi_phnum < 1) return error.MissingPtLoadSegment;
+    if (info.phnum < 1) return error.MissingPtLoadSegment;
 
     // Quick & dirty validation of the phdr pointers, make sure we're not
     // pointing to some random gibberish
     var i: usize = 0;
     var found_load = false;
-    while (i < info.dlpi_phnum) : (i += 1) {
-        const phdr = info.dlpi_phdr[i];
+    while (i < info.phnum) : (i += 1) {
+        const phdr = info.phdr[i];
 
         if (phdr.p_type != elf.PT_LOAD) continue;
 
-        const reloc_addr = info.dlpi_addr + phdr.p_vaddr;
+        const reloc_addr = info.addr + phdr.p_vaddr;
         // Find the ELF header
         const elf_header = @as(*elf.Ehdr, @ptrFromInt(reloc_addr - phdr.p_offset));
         // Validate the magic
         if (!mem.eql(u8, elf_header.e_ident[0..4], elf.MAGIC)) return error.BadElfMagic;
         // Consistency check
-        if (elf_header.e_phnum != info.dlpi_phnum) return error.FailedConsistencyCheck;
+        if (elf_header.e_phnum != info.phnum) return error.FailedConsistencyCheck;
 
         found_load = true;
         break;
@@ -774,12 +775,10 @@ test "fsync" {
 }
 
 test "getrlimit and setrlimit" {
-    if (!@hasDecl(posix.system, "rlimit")) {
-        return error.SkipZigTest;
-    }
+    if (posix.system.rlimit_resource == void) return error.SkipZigTest;
 
-    inline for (std.meta.fields(posix.rlimit_resource)) |field| {
-        const resource = @as(posix.rlimit_resource, @enumFromInt(field.value));
+    inline for (@typeInfo(posix.rlimit_resource).Enum.fields) |field| {
+        const resource: posix.rlimit_resource = @enumFromInt(field.value);
         const limit = try posix.getrlimit(resource);
 
         // XNU kernel does not support RLIMIT_STACK if a custom stack is active,
@@ -1116,18 +1115,18 @@ test "access smoke test" {
 test "timerfd" {
     if (native_os != .linux) return error.SkipZigTest;
 
-    const tfd = try posix.timerfd_create(linux.CLOCK.MONOTONIC, .{ .CLOEXEC = true });
+    const tfd = try posix.timerfd_create(.MONOTONIC, .{ .CLOEXEC = true });
     defer posix.close(tfd);
 
     // Fire event 10_000_000ns = 10ms after the posix.timerfd_settime call.
-    var sit: linux.itimerspec = .{ .it_interval = .{ .tv_sec = 0, .tv_nsec = 0 }, .it_value = .{ .tv_sec = 0, .tv_nsec = 10 * (1000 * 1000) } };
+    var sit: linux.itimerspec = .{ .it_interval = .{ .sec = 0, .nsec = 0 }, .it_value = .{ .sec = 0, .nsec = 10 * (1000 * 1000) } };
     try posix.timerfd_settime(tfd, .{}, &sit, null);
 
     var fds: [1]posix.pollfd = .{.{ .fd = tfd, .events = linux.POLL.IN, .revents = 0 }};
     try expectEqual(@as(usize, 1), try posix.poll(&fds, -1)); // -1 => infinite waiting
 
     const git = try posix.timerfd_gettime(tfd);
-    const expect_disarmed_timer: linux.itimerspec = .{ .it_interval = .{ .tv_sec = 0, .tv_nsec = 0 }, .it_value = .{ .tv_sec = 0, .tv_nsec = 0 } };
+    const expect_disarmed_timer: linux.itimerspec = .{ .it_interval = .{ .sec = 0, .nsec = 0 }, .it_value = .{ .sec = 0, .nsec = 0 } };
     try expectEqual(expect_disarmed_timer, git);
 }
 

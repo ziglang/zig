@@ -267,13 +267,13 @@ pub const Stat = extern struct {
 };
 
 pub const timeval = extern struct {
-    tv_sec: i32,
-    tv_usec: i32,
+    sec: i32,
+    usec: i32,
 };
 
 pub const timezone = extern struct {
-    tz_minuteswest: i32,
-    tz_dsttime: i32,
+    minuteswest: i32,
+    dsttime: i32,
 };
 
 pub const mcontext_t = extern struct {

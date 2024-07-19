@@ -151,8 +151,8 @@ pub const dev_t = usize;
 pub const blkcnt_t = isize;
 
 pub const timeval = extern struct {
-    tv_sec: time_t,
-    tv_usec: i64,
+    sec: time_t,
+    usec: i64,
 };
 
 pub const Flock = extern struct {
@@ -223,3 +223,9 @@ pub const Stat = extern struct {
 pub const Elf_Symndx = u32;
 
 pub const VDSO = struct {};
+
+/// TODO
+pub const ucontext_t = void;
+
+/// TODO
+pub const getcontext = {};

@@ -1349,16 +1349,16 @@ fn maybeUpdateSize(resize_flag: bool) void {
         }
     } else {
         var winsize: posix.winsize = .{
-            .ws_row = 0,
-            .ws_col = 0,
-            .ws_xpixel = 0,
-            .ws_ypixel = 0,
+            .row = 0,
+            .col = 0,
+            .xpixel = 0,
+            .ypixel = 0,
         };
 
         const err = posix.system.ioctl(fd, posix.T.IOCGWINSZ, @intFromPtr(&winsize));
         if (posix.errno(err) == .SUCCESS) {
-            global_progress.rows = winsize.ws_row;
-            global_progress.cols = winsize.ws_col;
+            global_progress.rows = winsize.row;
+            global_progress.cols = winsize.col;
         } else {
             std.log.debug("failed to determine terminal size; using conservative guess 80x25", .{});
             global_progress.rows = 25;
