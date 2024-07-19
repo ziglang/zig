@@ -22,6 +22,7 @@ const Type = @import("Type.zig");
 const Value = @import("Value.zig");
 const Zir = std.zig.Zir;
 const Alignment = InternPool.Alignment;
+const dev = @import("dev.zig");
 
 pub const Result = union(enum) {
     /// The `code` parameter passed to `generateSymbol` has the value ok.
@@ -43,6 +44,23 @@ pub const DebugInfoOutput = union(enum) {
     none,
 };
 
+fn devFeatureForBackend(comptime backend: std.builtin.CompilerBackend) dev.Feature {
+    comptime assert(mem.startsWith(u8, @tagName(backend), "stage2_"));
+    return @field(dev.Feature, @tagName(backend)["stage2_".len..] ++ "_backend");
+}
+
+fn importBackend(comptime backend: std.builtin.CompilerBackend) type {
+    return switch (backend) {
+        .stage2_aarch64 => @import("arch/aarch64/CodeGen.zig"),
+        .stage2_arm => @import("arch/arm/CodeGen.zig"),
+        .stage2_riscv64 => @import("arch/riscv64/CodeGen.zig"),
+        .stage2_sparc64 => @import("arch/sparc64/CodeGen.zig"),
+        .stage2_wasm => @import("arch/wasm/CodeGen.zig"),
+        .stage2_x86_64 => @import("arch/x86_64/CodeGen.zig"),
+        else => unreachable,
+    };
+}
+
 pub fn generateFunction(
     lf: *link.File,
     pt: Zcu.PerThread,
@@ -58,21 +76,18 @@ pub fn generateFunction(
     const decl = zcu.declPtr(func.owner_decl);
     const namespace = zcu.namespacePtr(decl.src_namespace);
     const target = namespace.fileScope(zcu).mod.resolved_target.result;
-    switch (target.cpu.arch) {
-        .arm,
-        .armeb,
-        => return @import("arch/arm/CodeGen.zig").generate(lf, pt, src_loc, func_index, air, liveness, code, debug_output),
-        .aarch64,
-        .aarch64_be,
-        .aarch64_32,
-        => return @import("arch/aarch64/CodeGen.zig").generate(lf, pt, src_loc, func_index, air, liveness, code, debug_output),
-        .riscv64 => return @import("arch/riscv64/CodeGen.zig").generate(lf, pt, src_loc, func_index, air, liveness, code, debug_output),
-        .sparc64 => return @import("arch/sparc64/CodeGen.zig").generate(lf, pt, src_loc, func_index, air, liveness, code, debug_output),
-        .x86_64 => return @import("arch/x86_64/CodeGen.zig").generate(lf, pt, src_loc, func_index, air, liveness, code, debug_output),
-        .wasm32,
-        .wasm64,
-        => return @import("arch/wasm/CodeGen.zig").generate(lf, pt, src_loc, func_index, air, liveness, code, debug_output),
+    switch (target_util.zigBackend(target, false)) {
         else => unreachable,
+        inline .stage2_aarch64,
+        .stage2_arm,
+        .stage2_riscv64,
+        .stage2_sparc64,
+        .stage2_wasm,
+        .stage2_x86_64,
+        => |backend| {
+            dev.check(devFeatureForBackend(backend));
+            return importBackend(backend).generate(lf, pt, src_loc, func_index, air, liveness, code, debug_output);
+        },
     }
 }
 
@@ -89,9 +104,12 @@ pub fn generateLazyFunction(
     const decl = zcu.declPtr(decl_index);
     const namespace = zcu.namespacePtr(decl.src_namespace);
     const target = namespace.fileScope(zcu).mod.resolved_target.result;
-    switch (target.cpu.arch) {
-        .x86_64 => return @import("arch/x86_64/CodeGen.zig").generateLazy(lf, pt, src_loc, lazy_sym, code, debug_output),
+    switch (target_util.zigBackend(target, false)) {
         else => unreachable,
+        inline .stage2_x86_64 => |backend| {
+            dev.check(devFeatureForBackend(backend));
+            return importBackend(backend).generateLazy(lf, pt, src_loc, lazy_sym, code, debug_output);
+        },
     }
 }
 

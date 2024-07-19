@@ -578,6 +578,7 @@ set(ZIG_STAGE2_SOURCES
     src/codegen/spirv/Section.zig
     src/codegen/spirv/spec.zig
     src/crash_report.zig
+    src/dev.zig
     src/glibc.zig
     src/introspect.zig
     src/libcxx.zig

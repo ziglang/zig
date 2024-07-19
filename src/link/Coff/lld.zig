@@ -2,6 +2,7 @@ const std = @import("std");
 const build_options = @import("build_options");
 const allocPrint = std.fmt.allocPrint;
 const assert = std.debug.assert;
+const dev = @import("../../dev.zig");
 const fs = std.fs;
 const log = std.log.scoped(.link);
 const mem = std.mem;
@@ -18,6 +19,8 @@ const Compilation = @import("../../Compilation.zig");
 const Zcu = @import("../../Zcu.zig");
 
 pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
+    dev.check(.lld_linker);
+
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -77,10 +80,8 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
         for (comp.c_object_table.keys()) |key| {
             _ = try man.addFile(key.status.success.object_path, null);
         }
-        if (!build_options.only_core_functionality) {
-            for (comp.win32_resource_table.keys()) |key| {
-                _ = try man.addFile(key.status.success.res_path, null);
-            }
+        for (comp.win32_resource_table.keys()) |key| {
+            _ = try man.addFile(key.status.success.res_path, null);
         }
         try man.addOptionalFile(module_obj_path);
         man.hash.addOptionalBytes(entry_name);
@@ -274,10 +275,8 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
             try argv.append(key.status.success.object_path);
         }
 
-        if (!build_options.only_core_functionality) {
-            for (comp.win32_resource_table.keys()) |key| {
-                try argv.append(key.status.success.res_path);
-            }
+        for (comp.win32_resource_table.keys()) |key| {
+            try argv.append(key.status.success.res_path);
         }
 
         if (module_obj_path) |p| {

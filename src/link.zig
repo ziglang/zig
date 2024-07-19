@@ -21,6 +21,7 @@ const Value = @import("Value.zig");
 const LlvmObject = @import("codegen/llvm.zig").Object;
 const lldMain = @import("main.zig").lldMain;
 const Package = @import("Package.zig");
+const dev = @import("dev.zig");
 
 /// When adding a new field, remember to update `hashAddSystemLibs`.
 /// These are *always* dynamically linked. Static libraries will be
@@ -192,7 +193,7 @@ pub const File = struct {
     ) !*File {
         switch (Tag.fromObjectFormat(comp.root_mod.resolved_target.result.ofmt)) {
             inline else => |tag| {
-                if (tag != .c and build_options.only_c) unreachable;
+                dev.check(tag.devFeature());
                 const ptr = try tag.Type().open(arena, comp, emit, options);
                 return &ptr.base;
             },
@@ -207,7 +208,7 @@ pub const File = struct {
     ) !*File {
         switch (Tag.fromObjectFormat(comp.root_mod.resolved_target.result.ofmt)) {
             inline else => |tag| {
-                if (tag != .c and build_options.only_c) unreachable;
+                dev.check(tag.devFeature());
                 const ptr = try tag.Type().createEmpty(arena, comp, emit, options);
                 return &ptr.base;
             },
@@ -219,12 +220,13 @@ pub const File = struct {
     }
 
     pub fn makeWritable(base: *File) !void {
+        dev.check(.make_writable);
         const comp = base.comp;
         const gpa = comp.gpa;
         switch (base.tag) {
             .coff, .elf, .macho, .plan9, .wasm => {
-                if (build_options.only_c) unreachable;
                 if (base.file != null) return;
+                dev.checkAny(&.{ .coff_linker, .elf_linker, .macho_linker, .plan9_linker, .wasm_linker });
                 const emit = base.emit;
                 if (base.child_pid) |pid| {
                     if (builtin.os.tag == .windows) {
@@ -263,11 +265,12 @@ pub const File = struct {
                     .mode = determineMode(use_lld, output_mode, link_mode),
                 });
             },
-            .c, .spirv, .nvptx => {},
+            .c, .spirv, .nvptx => dev.checkAny(&.{ .c_linker, .spirv_linker, .nvptx_linker }),
         }
     }
 
     pub fn makeExecutable(base: *File) !void {
+        dev.check(.make_executable);
         const comp = base.comp;
         const output_mode = comp.config.output_mode;
         const link_mode = comp.config.link_mode;
@@ -283,7 +286,7 @@ pub const File = struct {
         }
         switch (base.tag) {
             .elf => if (base.file) |f| {
-                if (build_options.only_c) unreachable;
+                dev.check(.elf_linker);
                 if (base.zcu_object_sub_path != null and use_lld) {
                     // The file we have open is not the final file that we want to
                     // make executable, so we don't have to close it.
@@ -302,7 +305,7 @@ pub const File = struct {
                 }
             },
             .coff, .macho, .plan9, .wasm => if (base.file) |f| {
-                if (build_options.only_c) unreachable;
+                dev.checkAny(&.{ .coff_linker, .macho_linker, .plan9_linker, .wasm_linker });
                 if (base.zcu_object_sub_path != null) {
                     // The file we have open is not the final file that we want to
                     // make executable, so we don't have to close it.
@@ -321,7 +324,7 @@ pub const File = struct {
                     }
                 }
             },
-            .c, .spirv, .nvptx => {},
+            .c, .spirv, .nvptx => dev.checkAny(&.{ .c_linker, .spirv_linker, .nvptx_linker }),
         }
     }
 
@@ -366,13 +369,13 @@ pub const File = struct {
     /// constant. Returns the symbol index of the lowered constant in the read-only section
     /// of the final binary.
     pub fn lowerUnnamedConst(base: *File, pt: Zcu.PerThread, val: Value, decl_index: InternPool.DeclIndex) UpdateDeclError!u32 {
-        if (build_options.only_c) @compileError("unreachable");
         switch (base.tag) {
             .spirv => unreachable,
             .c => unreachable,
             .nvptx => unreachable,
-            inline else => |t| {
-                return @as(*t.Type(), @fieldParentPtr("base", base)).lowerUnnamedConst(pt, val, decl_index);
+            inline else => |tag| {
+                dev.check(tag.devFeature());
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).lowerUnnamedConst(pt, val, decl_index);
             },
         }
     }
@@ -383,15 +386,15 @@ pub const File = struct {
     /// Optionally, it is possible to specify where to expect the symbol defined if it
     /// is an import.
     pub fn getGlobalSymbol(base: *File, name: []const u8, lib_name: ?[]const u8) UpdateDeclError!u32 {
-        if (build_options.only_c) @compileError("unreachable");
         log.debug("getGlobalSymbol '{s}' (expected in '{?s}')", .{ name, lib_name });
         switch (base.tag) {
             .plan9 => unreachable,
             .spirv => unreachable,
             .c => unreachable,
             .nvptx => unreachable,
-            inline else => |t| {
-                return @as(*t.Type(), @fieldParentPtr("base", base)).getGlobalSymbol(name, lib_name);
+            inline else => |tag| {
+                dev.check(tag.devFeature());
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).getGlobalSymbol(name, lib_name);
             },
         }
     }
@@ -402,7 +405,7 @@ pub const File = struct {
         assert(decl.has_tv);
         switch (base.tag) {
             inline else => |tag| {
-                if (tag != .c and build_options.only_c) unreachable;
+                dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).updateDecl(pt, decl_index);
             },
         }
@@ -418,7 +421,7 @@ pub const File = struct {
     ) UpdateDeclError!void {
         switch (base.tag) {
             inline else => |tag| {
-                if (tag != .c and build_options.only_c) unreachable;
+                dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).updateFunc(pt, func_index, air, liveness);
             },
         }
@@ -430,7 +433,7 @@ pub const File = struct {
         switch (base.tag) {
             .spirv, .nvptx => {},
             inline else => |tag| {
-                if (tag != .c and build_options.only_c) unreachable;
+                dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).updateDeclLineNumber(pt, decl_index);
             },
         }
@@ -454,7 +457,7 @@ pub const File = struct {
         if (base.file) |f| f.close();
         switch (base.tag) {
             inline else => |tag| {
-                if (tag != .c and build_options.only_c) unreachable;
+                dev.check(tag.devFeature());
                 @as(*tag.Type(), @fieldParentPtr("base", base)).deinit();
             },
         }
@@ -536,12 +539,9 @@ pub const File = struct {
     /// and `use_lld`, not only `effectiveOutputMode`.
     /// `arena` has the lifetime of the call to `Compilation.update`.
     pub fn flush(base: *File, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) FlushError!void {
-        if (build_options.only_c) {
-            assert(base.tag == .c);
-            return @as(*C, @fieldParentPtr("base", base)).flush(arena, tid, prog_node);
-        }
         const comp = base.comp;
         if (comp.clang_preprocessor_mode == .yes or comp.clang_preprocessor_mode == .pch) {
+            dev.check(.clang_command);
             const gpa = comp.gpa;
             const emit = base.emit;
             // TODO: avoid extra link step when it's just 1 object file (the `zig cc -c` case)
@@ -565,6 +565,7 @@ pub const File = struct {
         }
         switch (base.tag) {
             inline else => |tag| {
+                dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).flush(arena, tid, prog_node);
             },
         }
@@ -575,7 +576,7 @@ pub const File = struct {
     pub fn flushModule(base: *File, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) FlushError!void {
         switch (base.tag) {
             inline else => |tag| {
-                if (tag != .c and build_options.only_c) unreachable;
+                dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).flushModule(arena, tid, prog_node);
             },
         }
@@ -585,7 +586,7 @@ pub const File = struct {
     pub fn freeDecl(base: *File, decl_index: InternPool.DeclIndex) void {
         switch (base.tag) {
             inline else => |tag| {
-                if (tag != .c and build_options.only_c) unreachable;
+                dev.check(tag.devFeature());
                 @as(*tag.Type(), @fieldParentPtr("base", base)).freeDecl(decl_index);
             },
         }
@@ -608,7 +609,7 @@ pub const File = struct {
     ) UpdateExportsError!void {
         switch (base.tag) {
             inline else => |tag| {
-                if (tag != .c and build_options.only_c) unreachable;
+                dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).updateExports(pt, exported, export_indices);
             },
         }
@@ -627,12 +628,12 @@ pub const File = struct {
     /// May be called before or after updateFunc/updateDecl therefore it is up to the linker to allocate
     /// the block/atom.
     pub fn getDeclVAddr(base: *File, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex, reloc_info: RelocInfo) !u64 {
-        if (build_options.only_c) @compileError("unreachable");
         switch (base.tag) {
             .c => unreachable,
             .spirv => unreachable,
             .nvptx => unreachable,
             inline else => |tag| {
+                dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).getDeclVAddr(pt, decl_index, reloc_info);
             },
         }
@@ -647,24 +648,24 @@ pub const File = struct {
         decl_align: InternPool.Alignment,
         src_loc: Zcu.LazySrcLoc,
     ) !LowerResult {
-        if (build_options.only_c) @compileError("unreachable");
         switch (base.tag) {
             .c => unreachable,
             .spirv => unreachable,
             .nvptx => unreachable,
             inline else => |tag| {
+                dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).lowerAnonDecl(pt, decl_val, decl_align, src_loc);
             },
         }
     }
 
     pub fn getAnonDeclVAddr(base: *File, decl_val: InternPool.Index, reloc_info: RelocInfo) !u64 {
-        if (build_options.only_c) @compileError("unreachable");
         switch (base.tag) {
             .c => unreachable,
             .spirv => unreachable,
             .nvptx => unreachable,
             inline else => |tag| {
+                dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).getAnonDeclVAddr(decl_val, reloc_info);
             },
         }
@@ -675,7 +676,6 @@ pub const File = struct {
         exported: Zcu.Exported,
         name: InternPool.NullTerminatedString,
     ) void {
-        if (build_options.only_c) @compileError("unreachable");
         switch (base.tag) {
             .plan9,
             .spirv,
@@ -683,12 +683,15 @@ pub const File = struct {
             => {},
 
             inline else => |tag| {
+                dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).deleteExport(exported, name);
             },
         }
     }
 
     pub fn linkAsArchive(base: *File, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) FlushError!void {
+        dev.check(.lld_linker);
+
         const tracy = trace(@src());
         defer tracy.end();
 
@@ -743,10 +746,8 @@ pub const File = struct {
             for (comp.c_object_table.keys()) |key| {
                 _ = try man.addFile(key.status.success.object_path, null);
             }
-            if (!build_options.only_core_functionality) {
-                for (comp.win32_resource_table.keys()) |key| {
-                    _ = try man.addFile(key.status.success.res_path, null);
-                }
+            for (comp.win32_resource_table.keys()) |key| {
+                _ = try man.addFile(key.status.success.res_path, null);
             }
             try man.addOptionalFile(zcu_obj_path);
             try man.addOptionalFile(compiler_rt_path);
@@ -777,7 +778,7 @@ pub const File = struct {
             };
         }
 
-        const win32_resource_table_len = if (build_options.only_core_functionality) 0 else comp.win32_resource_table.count();
+        const win32_resource_table_len = comp.win32_resource_table.count();
         const num_object_files = objects.len + comp.c_object_table.count() + win32_resource_table_len + 2;
         var object_files = try std.ArrayList([*:0]const u8).initCapacity(gpa, num_object_files);
         defer object_files.deinit();
@@ -788,10 +789,8 @@ pub const File = struct {
         for (comp.c_object_table.keys()) |key| {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, key.status.success.object_path));
         }
-        if (!build_options.only_core_functionality) {
-            for (comp.win32_resource_table.keys()) |key| {
-                object_files.appendAssumeCapacity(try arena.dupeZ(u8, key.status.success.res_path));
-            }
+        for (comp.win32_resource_table.keys()) |key| {
+            object_files.appendAssumeCapacity(try arena.dupeZ(u8, key.status.success.res_path));
         }
         if (zcu_obj_path) |p| {
             object_files.appendAssumeCapacity(try arena.dupeZ(u8, p));
@@ -868,6 +867,10 @@ pub const File = struct {
                 .raw => @panic("TODO implement raw object format"),
                 .dxcontainer => @panic("TODO implement dxcontainer object format"),
             };
+        }
+
+        pub fn devFeature(tag: Tag) dev.Feature {
+            return @field(dev.Feature, @tagName(tag) ++ "_linker");
         }
     };
 
