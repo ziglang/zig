@@ -9,6 +9,7 @@
 #include <iostream>
 #else
 #include <stdio.h>
+#include <stdbool.h>
 #endif
 
 #define A_INCLUDED 1
