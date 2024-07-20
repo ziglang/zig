@@ -535,11 +535,14 @@ set(ZIG_STAGE2_SOURCES
     src/arch/arm/Mir.zig
     src/arch/arm/abi.zig
     src/arch/arm/bits.zig
-    src/arch/riscv64/CodeGen.zig
-    src/arch/riscv64/Emit.zig
-    src/arch/riscv64/Mir.zig
     src/arch/riscv64/abi.zig
     src/arch/riscv64/bits.zig
+    src/arch/riscv64/CodeGen.zig
+    src/arch/riscv64/Emit.zig
+    src/arch/riscv64/encoder.zig
+    src/arch/riscv64/Encoding.zig
+    src/arch/riscv64/Lower.zig
+    src/arch/riscv64/Mir.zig
     src/arch/sparc64/CodeGen.zig
     src/arch/sparc64/Emit.zig
     src/arch/sparc64/Mir.zig
