@@ -30,7 +30,7 @@ entry_name: ?[]const u8,
 ptr_width: PtrWidth,
 
 /// If this is not null, an object file is created by LLVM and emitted to zcu_object_sub_path.
-llvm_object: ?*LlvmObject = null,
+llvm_object: ?LlvmObject.Ptr = null,
 
 /// A list of all input files.
 /// Index of each input file also encodes the priority or precedence of one input file

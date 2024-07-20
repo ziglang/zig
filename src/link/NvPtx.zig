@@ -23,7 +23,7 @@ const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 
 base: link.File,
-llvm_object: *LlvmObject,
+llvm_object: LlvmObject.Ptr,
 
 pub fn createEmpty(
     arena: Allocator,

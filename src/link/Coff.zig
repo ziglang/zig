@@ -4,7 +4,7 @@
 //! LLD is also the default linker for LLVM.
 
 /// If this is not null, an object file is created by LLVM and emitted to zcu_object_sub_path.
-llvm_object: ?*LlvmObject = null,
+llvm_object: ?LlvmObject.Ptr = null,
 
 base: link.File,
 image_base: u64,
@@ -2765,6 +2765,7 @@ const StringTable = @import("StringTable.zig");
 const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const AnalUnit = InternPool.AnalUnit;
+const dev = @import("../dev.zig");
 
 pub const base_tag: link.File.Tag = .coff;
 

@@ -26,6 +26,7 @@ const wasm_c_abi = @import("../arch/wasm/abi.zig");
 const aarch64_c_abi = @import("../arch/aarch64/abi.zig");
 const arm_c_abi = @import("../arch/arm/abi.zig");
 const riscv_c_abi = @import("../arch/riscv64/abi.zig");
+const dev = @import("../dev.zig");
 
 const target_util = @import("../target.zig");
 const libcFloatPrefix = target_util.libcFloatPrefix;
@@ -865,9 +866,12 @@ pub const Object = struct {
         field_index: u32,
     };
 
+    pub const Ptr = if (dev.env.supports(.llvm_backend)) *Object else noreturn;
+
     pub const TypeMap = std.AutoHashMapUnmanaged(InternPool.Index, Builder.Type);
 
-    pub fn create(arena: Allocator, comp: *Compilation) !*Object {
+    pub fn create(arena: Allocator, comp: *Compilation) !Ptr {
+        dev.check(.llvm_backend);
         const gpa = comp.gpa;
         const target = comp.root_mod.resolved_target.result;
         const llvm_target_triple = try targetTriple(arena, target);

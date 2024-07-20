@@ -61,7 +61,7 @@ export_table: bool,
 /// Output name of the file
 name: []const u8,
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
-llvm_object: ?*LlvmObject = null,
+llvm_object: ?LlvmObject.Ptr = null,
 /// The file index of a `ZigObject`. This will only contain a valid index when a zcu exists,
 /// and the chosen backend is the Wasm backend.
 zig_object_index: File.Index = .null,

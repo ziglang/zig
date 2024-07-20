@@ -968,7 +968,7 @@ pub const File = struct {
     pub fn emitLlvmObject(
         base: File,
         arena: Allocator,
-        llvm_object: *LlvmObject,
+        llvm_object: LlvmObject.Ptr,
         prog_node: std.Progress.Node,
     ) !void {
         return base.comp.emitLlvmObject(arena, base.emit, .{
