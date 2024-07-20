@@ -1285,53 +1285,6 @@ fn markLive(self: *MachO) void {
     if (self.getInternalObject()) |obj| obj.markLive(self);
 }
 
-fn resolveSyntheticSymbols(self: *MachO) !void {
-    const internal = self.getInternalObject() orelse return;
-
-    if (!self.base.isDynLib()) {
-        self.mh_execute_header_index = try internal.addSymbol("__mh_execute_header", self);
-        const sym = self.getSymbol(self.mh_execute_header_index.?);
-        sym.flags.@"export" = true;
-        sym.flags.dyn_ref = true;
-        sym.visibility = .global;
-    } else {
-        self.mh_dylib_header_index = try internal.addSymbol("__mh_dylib_header", self);
-    }
-
-    self.dso_handle_index = try internal.addSymbol("___dso_handle", self);
-    self.dyld_private_index = try internal.addSymbol("dyld_private", self);
-
-    {
-        const gpa = self.base.comp.gpa;
-        var boundary_symbols = std.AutoHashMap(Symbol.Index, void).init(gpa);
-        defer boundary_symbols.deinit();
-
-        for (self.objects.items) |index| {
-            const object = self.getFile(index).?.object;
-            for (object.symbols.items, 0..) |sym_index, i| {
-                const nlist = object.symtab.items(.nlist)[i];
-                const name = self.getSymbol(sym_index).getName(self);
-                if (!nlist.undf() or !nlist.ext()) continue;
-                if (mem.startsWith(u8, name, "segment$start$") or
-                    mem.startsWith(u8, name, "segment$stop$") or
-                    mem.startsWith(u8, name, "section$start$") or
-                    mem.startsWith(u8, name, "section$stop$"))
-                {
-                    _ = try boundary_symbols.put(sym_index, {});
-                }
-            }
-        }
-
-        try self.boundary_symbols.ensureTotalCapacityPrecise(gpa, boundary_symbols.count());
-
-        var it = boundary_symbols.iterator();
-        while (it.next()) |entry| {
-            _ = try internal.addSymbol(self.getSymbol(entry.key_ptr.*).getName(self), self);
-            self.boundary_symbols.appendAssumeCapacity(entry.key_ptr.*);
-        }
-    }
-}
-
 fn convertTentativeDefsAndResolveSpecialSymbols(self: *MachO) !void {
     for (self.objects.items) |index| {
         try self.getFile(index).?.object.convertTentativeDefinitions(self);
@@ -1339,40 +1292,6 @@ fn convertTentativeDefsAndResolveSpecialSymbols(self: *MachO) !void {
     if (self.getInternalObject()) |obj| {
         try obj.resolveBoundarySymbols(self);
         try obj.resolveObjcMsgSendSymbols(self);
-    }
-}
-
-fn createObjcSections(self: *MachO) !void {
-    const gpa = self.base.comp.gpa;
-    var objc_msgsend_syms = std.AutoArrayHashMap(Symbol.Index, void).init(gpa);
-    defer objc_msgsend_syms.deinit();
-
-    for (self.objects.items) |index| {
-        const object = self.getFile(index).?.object;
-
-        for (object.symbols.items, 0..) |sym_index, i| {
-            const nlist_idx = @as(Symbol.Index, @intCast(i));
-            const nlist = object.symtab.items(.nlist)[nlist_idx];
-            if (!nlist.ext()) continue;
-            if (!nlist.undf()) continue;
-
-            const sym = self.getSymbol(sym_index);
-            if (sym.getFile(self) != null) continue;
-            if (mem.startsWith(u8, sym.getName(self), "_objc_msgSend$")) {
-                _ = try objc_msgsend_syms.put(sym_index, {});
-            }
-        }
-    }
-
-    for (objc_msgsend_syms.keys()) |sym_index| {
-        const internal = self.getInternalObject().?;
-        const sym = self.getSymbol(sym_index);
-        _ = try internal.addSymbol(sym.getName(self), self);
-        sym.visibility = .hidden;
-        const name = eatPrefix(sym.getName(self), "_objc_msgSend$").?;
-        const selrefs_index = try internal.addObjcMsgsendSections(name, self);
-        try sym.addExtra(.{ .objc_selrefs = selrefs_index }, self);
-        sym.flags.objc_stubs = true;
     }
 }
 
