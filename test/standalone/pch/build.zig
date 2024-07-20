@@ -7,7 +7,8 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // c-header
+    // test case 1: precompiled hader in C, from a generated file, with a compile step generated automaticcaly, twice with a cache hit
+    //       and it also test the explicit source lang not inferred from file extenson.
     {
         const exe = b.addExecutable(.{
             .name = "pchtest",
@@ -16,28 +17,30 @@ pub fn build(b: *std.Build) void {
             .link_libc = true,
         });
 
-        const pch = b.addPrecompiledCHeader(.{
-            .name = "pch_c",
-            .target = target,
-            .optimize = optimize,
-            .link_libc = true,
-        }, .{
-            .file = b.path("include_a.h"),
-            .flags = &[_][]const u8{},
-            .lang = .h,
-        });
+        const generated_header = b.addWriteFiles().add("generated.h",
+            \\ /* generated file */
+            \\ #include "include_a.h"
+        );
 
+        exe.addCSourceFile(.{
+            .file = b.path("test.c2"),
+            .flags = &[_][]const u8{},
+            .lang = .c,
+            .precompiled_header = .{ .source_header = .{ .path = generated_header, .lang = .h } },
+        });
         exe.addCSourceFiles(.{
             .files = &.{"test.c"},
             .flags = &[_][]const u8{},
             .lang = .c,
-            .precompiled_header = pch.getEmittedBin(),
+            .precompiled_header = .{ .source_header = .{ .path = generated_header, .lang = .h } },
         });
+
+        exe.addIncludePath(b.path("."));
 
         test_step.dependOn(&b.addRunArtifact(exe).step);
     }
 
-    // c++-header
+    // test case 2: precompiled hader in C++, from a .h file that must be precompiled as c++, with an explicit compile step.
     {
         const exe = b.addExecutable(.{
             .name = "pchtest++",
@@ -61,7 +64,7 @@ pub fn build(b: *std.Build) void {
         exe.addCSourceFile(.{
             .file = b.path("test.cpp"),
             .flags = &[_][]const u8{},
-            .precompiled_header = pch.getEmittedBin(),
+            .precompiled_header = .{ .pch_step = pch },
         });
 
         test_step.dependOn(&b.addRunArtifact(exe).step);
