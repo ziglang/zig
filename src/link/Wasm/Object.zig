@@ -220,7 +220,7 @@ pub fn findImport(object: *const Object, sym: Symbol) types.Import {
 }
 
 /// Checks if the object file is an MVP version.
-/// When that's the case, we check if there's an import table definiton with its name
+/// When that's the case, we check if there's an import table definition with its name
 /// set to '__indirect_function_table". When that's also the case,
 /// we initialize a new table symbol that corresponds to that import and return that symbol.
 ///
@@ -315,7 +315,7 @@ pub const ParseError = error{
     Overflow,
     /// Found table definitions but no corresponding table symbols
     MissingTableSymbols,
-    /// Did not expect a table definiton, but did find one
+    /// Did not expect a table definition, but did find one
     UnexpectedTable,
     /// Object file contains a feature that is unknown to the linker
     UnknownFeature,

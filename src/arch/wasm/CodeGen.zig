@@ -692,7 +692,7 @@ mir_extra: std.ArrayListUnmanaged(u32) = .{},
 /// When a function is executing, we store the the current stack pointer's value within this local.
 /// This value is then used to restore the stack pointer to the original value at the return of the function.
 initial_stack_value: WValue = .none,
-/// The current stack pointer substracted with the stack size. From this value, we will calculate
+/// The current stack pointer subtracted with the stack size. From this value, we will calculate
 /// all offsets of the stack values.
 bottom_stack_value: WValue = .none,
 /// Arguments of this function declaration
@@ -1294,7 +1294,7 @@ fn genFunc(func: *CodeGen) InnerError!void {
         try prologue.append(.{ .tag = .i32_const, .data = .{ .imm32 = @intCast(aligned_stack) } });
         // subtract it from the current stack pointer
         try prologue.append(.{ .tag = .i32_sub, .data = .{ .tag = {} } });
-        // Get negative stack aligment
+        // Get negative stack alignment
         try prologue.append(.{ .tag = .i32_const, .data = .{ .imm32 = @as(i32, @intCast(func.stack_alignment.toByteUnits().?)) * -1 } });
         // Bitwise-and the value to get the new stack pointer to ensure the pointers are aligned with the abi alignment
         try prologue.append(.{ .tag = .i32_and, .data = .{ .tag = {} } });
@@ -4921,7 +4921,7 @@ fn memset(func: *CodeGen, elem_ty: Type, ptr: WValue, len: WValue, value: WValue
     try func.startBlock(.block, wasm.block_empty);
     try func.startBlock(.loop, wasm.block_empty);
 
-    // check for codition for loop end
+    // check for condition for loop end
     try func.emitWValue(new_ptr);
     try func.emitWValue(end_ptr);
     switch (func.arch()) {
