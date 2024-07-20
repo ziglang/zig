@@ -19,63 +19,69 @@ pub fn main() !void {
 
     const rand_int = std.crypto.random.int(u64);
     const tmp_dir_path = "tmp_" ++ std.fmt.hex(rand_int);
-    const local_cache_path = tmp_dir_path ++ std.fs.path.sep_str ++ ".local-cache";
-    const global_cache_path = tmp_dir_path ++ std.fs.path.sep_str ++ ".global-cache";
     const tmp_dir = try std.fs.cwd().makeOpenPath(tmp_dir_path, .{});
 
     const child_prog_node = prog_node.start("zig build-exe", 0);
     defer child_prog_node.end();
 
     var child = std.process.Child.init(&.{
-        zig_exe,
+        // Convert incr-check-relative path to subprocess-relative path.
+        try std.fs.path.relative(arena, tmp_dir_path, zig_exe),
         "build-exe",
         case.root_source_file,
         "-fno-llvm",
         "-fno-lld",
         "-fincremental",
-        "--listen=-",
         "-target",
         case.target_query,
         "--cache-dir",
-        local_cache_path,
+        ".local-cache",
         "--global-cache-dir",
-        global_cache_path,
+        ".global_cache",
+        "--listen=-",
     }, arena);
 
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
     child.progress_node = child_prog_node;
+    child.cwd_dir = tmp_dir;
+    child.cwd = tmp_dir_path;
 
     var eval: Eval = .{
+        .arena = arena,
         .case = case,
         .tmp_dir = tmp_dir,
         .child = &child,
     };
 
-    eval.write(case.updates[0]);
-
     try child.spawn();
 
-    var poller = std.io.poll(arena, enum { stdout, stderr }, .{
+    var poller = std.io.poll(arena, Eval.StreamEnum, .{
         .stdout = child.stdout.?,
         .stderr = child.stderr.?,
     });
     defer poller.deinit();
 
-    try eval.check(case.updates[0]);
-
-    for (case.updates[1..]) |update| {
+    for (case.updates) |update| {
         eval.write(update);
-        try eval.requestIncrementalUpdate();
-        try eval.check(update);
+        try eval.requestUpdate();
+        try eval.check(&poller, update);
     }
+
+    try eval.end(&poller);
+
+    waitChild(&child);
 }
 
 const Eval = struct {
+    arena: Allocator,
     case: Case,
     tmp_dir: std.fs.Dir,
     child: *std.process.Child,
+
+    const StreamEnum = enum { stdout, stderr };
+    const Poller = std.io.Poller(StreamEnum);
 
     /// Currently this function assumes the previous updates have already been written.
     fn write(eval: *Eval, update: Case.Update) void {
@@ -94,15 +100,137 @@ const Eval = struct {
         }
     }
 
-    fn check(eval: *Eval, update: Case.Update) !void {
-        _ = eval;
-        _ = update;
-        @panic("TODO: read messages from the compiler");
+    fn check(eval: *Eval, poller: *Poller, update: Case.Update) !void {
+        const arena = eval.arena;
+        const Header = std.zig.Server.Message.Header;
+        const stdout = poller.fifo(.stdout);
+        const stderr = poller.fifo(.stderr);
+
+        poll: while (true) {
+            while (stdout.readableLength() < @sizeOf(Header)) {
+                if (!(try poller.poll())) break :poll;
+            }
+            const header = stdout.reader().readStruct(Header) catch unreachable;
+            while (stdout.readableLength() < header.bytes_len) {
+                if (!(try poller.poll())) break :poll;
+            }
+            const body = stdout.readableSliceOfLen(header.bytes_len);
+            std.log.debug("received message: {s}", .{@tagName(header.tag)});
+
+            switch (header.tag) {
+                .error_bundle => {
+                    const EbHdr = std.zig.Server.Message.ErrorBundle;
+                    const eb_hdr = @as(*align(1) const EbHdr, @ptrCast(body));
+                    const extra_bytes =
+                        body[@sizeOf(EbHdr)..][0 .. @sizeOf(u32) * eb_hdr.extra_len];
+                    const string_bytes =
+                        body[@sizeOf(EbHdr) + extra_bytes.len ..][0..eb_hdr.string_bytes_len];
+                    // TODO: use @ptrCast when the compiler supports it
+                    const unaligned_extra = std.mem.bytesAsSlice(u32, extra_bytes);
+                    const extra_array = try arena.alloc(u32, unaligned_extra.len);
+                    @memcpy(extra_array, unaligned_extra);
+                    const result_error_bundle: std.zig.ErrorBundle = .{
+                        .string_bytes = try arena.dupe(u8, string_bytes),
+                        .extra = extra_array,
+                    };
+                    if (stderr.readableLength() > 0) {
+                        const stderr_data = try stderr.toOwnedSlice();
+                        fatal("error_bundle included unexpected stderr:\n{s}", .{stderr_data});
+                    }
+                    try eval.checkErrorOutcome(update, result_error_bundle);
+                    // This message indicates the end of the update.
+                    stdout.discard(body.len);
+                    return;
+                },
+                .emit_bin_path => {
+                    const EbpHdr = std.zig.Server.Message.EmitBinPath;
+                    const ebp_hdr = @as(*align(1) const EbpHdr, @ptrCast(body));
+                    _ = ebp_hdr;
+                    const result_binary = try arena.dupe(u8, body[@sizeOf(EbpHdr)..]);
+                    if (stderr.readableLength() > 0) {
+                        const stderr_data = try stderr.toOwnedSlice();
+                        fatal("emit_bin_path included unexpected stderr:\n{s}", .{stderr_data});
+                    }
+                    try eval.checkSuccessOutcome(update, result_binary);
+                    // This message indicates the end of the update.
+                    stdout.discard(body.len);
+                    return;
+                },
+                else => {
+                    // Ignore other messages.
+                    stdout.discard(body.len);
+                },
+            }
+        }
+
+        if (stderr.readableLength() > 0) {
+            const stderr_data = try stderr.toOwnedSlice();
+            fatal("update '{s}' failed:\n{s}", .{ update.name, stderr_data });
+        }
+
+        waitChild(eval.child);
+        fatal("update '{s}': compiler failed to send error_bundle or emit_bin_path", .{update.name});
     }
 
-    fn requestIncrementalUpdate(eval: *Eval) !void {
+    fn checkErrorOutcome(eval: *Eval, update: Case.Update, error_bundle: std.zig.ErrorBundle) !void {
         _ = eval;
-        @panic("TODO: send update request to the compiler");
+        switch (update.outcome) {
+            .unknown => return,
+            .compile_errors => |expected_errors| {
+                for (expected_errors) |expected_error| {
+                    _ = expected_error;
+                    @panic("TODO check if the expected error matches the compile errors");
+                }
+            },
+            .stdout, .exit_code => {
+                const color: std.zig.Color = .auto;
+                error_bundle.renderToStdErr(color.renderOptions());
+                fatal("update '{s}': unexpected compile errors", .{update.name});
+            },
+        }
+    }
+
+    fn checkSuccessOutcome(eval: *Eval, update: Case.Update, binary_path: []const u8) !void {
+        _ = eval;
+        switch (update.outcome) {
+            .unknown => return,
+            .compile_errors => fatal("expected compile errors but compilation incorrectly succeeded", .{}),
+            .stdout, .exit_code => {},
+        }
+        fatal("TODO: run this binary: '{s}'", .{binary_path});
+    }
+
+    fn requestUpdate(eval: *Eval) !void {
+        const header: std.zig.Client.Message.Header = .{
+            .tag = .update,
+            .bytes_len = 0,
+        };
+        try eval.child.stdin.?.writeAll(std.mem.asBytes(&header));
+    }
+
+    fn end(eval: *Eval, poller: *Poller) !void {
+        requestExit(eval.child);
+
+        const Header = std.zig.Server.Message.Header;
+        const stdout = poller.fifo(.stdout);
+        const stderr = poller.fifo(.stderr);
+
+        poll: while (true) {
+            while (stdout.readableLength() < @sizeOf(Header)) {
+                if (!(try poller.poll())) break :poll;
+            }
+            const header = stdout.reader().readStruct(Header) catch unreachable;
+            while (stdout.readableLength() < header.bytes_len) {
+                if (!(try poller.poll())) break :poll;
+            }
+            const body = stdout.readableSliceOfLen(header.bytes_len);
+            stdout.discard(body.len);
+        }
+
+        if (stderr.readableLength() > 0) {
+            const stderr_data = try stderr.toOwnedSlice();
+            fatal("unexpected stderr:\n{s}", .{stderr_data});
+        }
     }
 };
 
@@ -213,3 +341,29 @@ const Case = struct {
         };
     }
 };
+
+fn requestExit(child: *std.process.Child) void {
+    if (child.stdin == null) return;
+
+    const header: std.zig.Client.Message.Header = .{
+        .tag = .exit,
+        .bytes_len = 0,
+    };
+    child.stdin.?.writeAll(std.mem.asBytes(&header)) catch |err| switch (err) {
+        error.BrokenPipe => {},
+        else => fatal("failed to send exit: {s}", .{@errorName(err)}),
+    };
+
+    // Send EOF to stdin.
+    child.stdin.?.close();
+    child.stdin = null;
+}
+
+fn waitChild(child: *std.process.Child) void {
+    requestExit(child);
+    const term = child.wait() catch |err| fatal("child process failed: {s}", .{@errorName(err)});
+    switch (term) {
+        .Exited => |code| if (code != 0) fatal("compiler failed with code {d}", .{code}),
+        .Signal, .Stopped, .Unknown => fatal("compiler terminated unexpectedly", .{}),
+    }
+}
