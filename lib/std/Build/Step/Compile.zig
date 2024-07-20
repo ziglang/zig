@@ -1773,6 +1773,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
 fn finalize(step: *Step) !void {
     const compile: *Compile = @fieldParentPtr("step", step);
+    const b = step.owner;
 
     // Fully recursive iteration including dynamic libraries to detect
     // libc and libc++ linkage.
@@ -1789,6 +1790,66 @@ fn finalize(step: *Step) !void {
         assert(deps.len == 1);
         const link_objects = deps[0].root_module.link_objects.items;
         assert(link_objects.len == 1 and link_objects[0] == .c_source_file);
+    }
+
+    // add additional compile steps for precompiled headers
+    for (compile.root_module.link_objects.items) |*link_object| {
+        const pch_ptr: *Module.PrecompiledHeader, const flags: []const []const u8 = blk: {
+            switch (link_object.*) {
+                .c_source_file => |src| {
+                    if (src.precompiled_header) |*pch| break :blk .{ pch, src.flags };
+                },
+                .c_source_files => |src| {
+                    if (src.precompiled_header) |*pch| break :blk .{ pch, src.flags };
+                },
+                else => {},
+            }
+
+            continue;
+        };
+
+        switch (pch_ptr.*) {
+            .pch_step => {
+                // step customized by the user, nothing to do.
+            },
+            .source_header => |src| {
+                const name = switch (src.path) {
+                    .src_path => |sp| fs.path.basename(sp.sub_path),
+                    .cwd_relative => |p| fs.path.basename(p),
+                    .generated => "generated",
+                    .dependency => "dependency",
+                };
+
+                const step_name = b.fmt("zig build-pch {s}{s} {s}", .{
+                    name,
+                    @tagName(compile.root_module.optimize orelse .Debug),
+                    compile.root_module.resolved_target.?.query.zigTriple(b.allocator) catch @panic("OOM"),
+                });
+
+                // We generate a new compile step for each use,
+                // leveraging the cache system to reuse the generated pch file when possible.
+                const compile_pch = b.allocator.create(Compile) catch @panic("OOM");
+
+                // For robustness, suppose all options have an impact on the header compilation.
+                // (instead of auditing each llvm version for flags observable from header compilation)
+                // So, copy everything and minimally adjust as needed:
+                compile_pch.* = compile.*;
+
+                compile_pch.kind = .pch;
+                compile_pch.step.name = step_name;
+                compile_pch.name = name;
+                compile_pch.out_filename = std.fmt.allocPrint(b.allocator, "{s}.pch", .{name}) catch @panic("OOM");
+                compile_pch.installed_headers = .init(b.allocator);
+                compile_pch.force_undefined_symbols = .init(b.allocator);
+
+                compile_pch.root_module.link_objects = .{};
+                compile_pch.root_module.addCSourceFile(.{ .file = src.path, .lang = src.lang, .flags = flags });
+
+                // finalize the parent compile step by modifying it to use the generated pch compile step
+                pch_ptr.* = .{ .pch_step = compile_pch };
+                _ = compile_pch.getEmittedBin(); // Indicate there is a dependency on the outputted binary.
+            },
+        }
     }
 }
 

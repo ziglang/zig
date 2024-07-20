@@ -149,6 +149,22 @@ pub const CSourceLang = enum {
     }
 };
 
+pub const PrecompiledHeader = union(enum) {
+    /// automatically create the PCH compile step for the source header file,
+    /// inheriting the options from the parent compile step.
+    source_header: struct { path: LazyPath, lang: ?CSourceLang = null },
+
+    /// final PCH compile step,
+    /// can be provided by the user or else will be created from the `source_header` field during step finalization.
+    pch_step: *Step.Compile,
+
+    pub fn getPath(pch: PrecompiledHeader, b: *std.Build) []const u8 {
+        switch (pch) {
+            .source_header => unreachable,
+            .pch_step => |pch_step| return pch_step.getEmittedBin().getPath(b),
+        }
+    }
+};
 pub const CSourceFiles = struct {
     root: LazyPath,
     /// `files` is relative to `root`, which is
@@ -157,14 +173,14 @@ pub const CSourceFiles = struct {
     /// if null, deduce the language from the file extension
     lang: ?CSourceLang = null,
     flags: []const []const u8,
-    precompiled_header: ?LazyPath = null,
+    precompiled_header: ?PrecompiledHeader = null,
 };
 
 pub const CSourceFile = struct {
     file: LazyPath,
     lang: ?CSourceLang = null,
     flags: []const []const u8 = &.{},
-    precompiled_header: ?LazyPath = null,
+    precompiled_header: ?PrecompiledHeader = null,
 
     pub fn dupe(file: CSourceFile, b: *std.Build) CSourceFile {
         return .{
@@ -457,7 +473,7 @@ pub const AddCSourceFilesOptions = struct {
     files: []const []const u8,
     lang: ?CSourceLang = null,
     flags: []const []const u8 = &.{},
-    precompiled_header: ?LazyPath = null,
+    precompiled_header: ?PrecompiledHeader = null,
 };
 
 /// Handy when you have many C/C++ source files and want them all to have the same flags.
@@ -483,6 +499,13 @@ pub fn addCSourceFiles(m: *Module, options: AddCSourceFilesOptions) void {
         .precompiled_header = options.precompiled_header,
     };
     m.link_objects.append(allocator, .{ .c_source_files = c_source_files }) catch @panic("OOM");
+
+    if (options.precompiled_header) |pch| {
+        switch (pch) {
+            .source_header => {},
+            .pch_step => |step| _ = step.getEmittedBin(), // Indicate there is a dependency on the outputted binary.
+        }
+    }
 }
 
 pub fn addCSourceFile(m: *Module, source: CSourceFile) void {
@@ -491,6 +514,13 @@ pub fn addCSourceFile(m: *Module, source: CSourceFile) void {
     const c_source_file = allocator.create(CSourceFile) catch @panic("OOM");
     c_source_file.* = source.dupe(b);
     m.link_objects.append(allocator, .{ .c_source_file = c_source_file }) catch @panic("OOM");
+
+    if (source.precompiled_header) |pch| {
+        switch (pch) {
+            .source_header => {},
+            .pch_step => |step| _ = step.getEmittedBin(), // Indicate there is a dependency on the outputted binary.
+        }
+    }
 }
 
 /// Resource files must have the extension `.rc`.

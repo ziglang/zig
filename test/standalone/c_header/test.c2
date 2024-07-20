@@ -10,10 +10,11 @@
 #error "pch not included"
 #endif
 
-extern int func(real a, bool cond);
-
-int main(int argc, char *argv[])
+int func(real a, bool cond)
 {
-	real a = 0.123;
-	return func(a, (argc > 1));
+	if (cond) {
+		fprintf(stdout, "abs(%g)=%g\n", a, fabs(a));
+	}
+
+	return EXIT_SUCCESS;
 }

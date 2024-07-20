@@ -1546,11 +1546,17 @@ fn createModuleDependenciesForStep(step: *Step) Allocator.Error!void {
             .system_lib => {},
             .c_source_file => |source| {
                 source.file.addStepDependencies(step);
-                if (source.precompiled_header) |pch| pch.addStepDependencies(step);
+                if (source.precompiled_header) |pch| switch (pch) {
+                    .source_header => |src| src.path.addStepDependencies(step),
+                    .pch_step => |s| step.dependOn(&s.step),
+                };
             },
             .c_source_files => |source_files| {
                 source_files.root.addStepDependencies(step);
-                if (source_files.precompiled_header) |pch| pch.addStepDependencies(step);
+                if (source_files.precompiled_header) |pch| switch (pch) {
+                    .source_header => |src| src.path.addStepDependencies(step),
+                    .pch_step => |s| step.dependOn(&s.step),
+                };
             },
             .win32_resource_file => |rc_source| {
                 rc_source.file.addStepDependencies(step);
