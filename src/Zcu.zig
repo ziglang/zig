@@ -58,7 +58,7 @@ comp: *Compilation,
 /// Usually, the LlvmObject is managed by linker code, however, in the case
 /// that -fno-emit-bin is specified, the linker code never executes, so we
 /// store the LlvmObject here.
-llvm_object: if (dev.env.supports(.llvm_backend)) ?*LlvmObject else ?noreturn,
+llvm_object: ?LlvmObject.Ptr,
 
 /// Pointer to externally managed resource.
 root_mod: *Package.Module,

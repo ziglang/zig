@@ -1,7 +1,7 @@
 base: link.File,
 
 /// If this is not null, an object file is created by LLVM and emitted to zcu_object_sub_path.
-llvm_object: ?*LlvmObject = null,
+llvm_object: ?LlvmObject.Ptr = null,
 
 /// Debug symbols bundle (or dSym).
 d_sym: ?DebugSymbols = null,
@@ -4510,7 +4510,6 @@ const dead_strip = @import("MachO/dead_strip.zig");
 const eh_frame = @import("MachO/eh_frame.zig");
 const fat = @import("MachO/fat.zig");
 const link = @import("../link.zig");
-const llvm_backend = @import("../codegen/llvm.zig");
 const load_commands = @import("MachO/load_commands.zig");
 const relocatable = @import("MachO/relocatable.zig");
 const tapi = @import("tapi.zig");
@@ -4562,6 +4561,7 @@ const UnwindInfo = @import("MachO/UnwindInfo.zig");
 const WeakBind = bind.WeakBind;
 const ZigGotSection = synthetic.ZigGotSection;
 const ZigObject = @import("MachO/ZigObject.zig");
+const dev = @import("../dev.zig");
 
 pub const MachError = error{
     /// Not enough permissions held to perform the requested kernel

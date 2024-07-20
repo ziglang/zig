@@ -23,7 +23,6 @@ pub const Env = enum {
     sema,
 
     /// - sema
-    /// - jit command on x86_64-linux host
     /// - `zig build-* -fno-llvm -fno-lld -target x86_64-linux`
     @"x86_64-linux",
 
