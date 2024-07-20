@@ -897,6 +897,7 @@ fn resolveRelocInner(
 
 const x86_64 = struct {
     fn relaxGotLoad(self: Atom, code: []u8, rel: Relocation, macho_file: *MachO) ResolveError!void {
+        dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse return error.RelaxFail;
         switch (old_inst.encoding.mnemonic) {
             .mov => {
@@ -920,6 +921,7 @@ const x86_64 = struct {
     }
 
     fn relaxTlv(code: []u8) error{RelaxFail}!void {
+        dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse return error.RelaxFail;
         switch (old_inst.encoding.mnemonic) {
             .mov => {
@@ -1214,3 +1216,4 @@ const Relocation = @import("Relocation.zig");
 const Symbol = @import("Symbol.zig");
 const Thunk = @import("thunks.zig").Thunk;
 const UnwindInfo = @import("UnwindInfo.zig");
+const dev = @import("../../dev.zig");
