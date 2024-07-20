@@ -28008,21 +28008,11 @@ fn fieldCallBind(
     };
 
     const msg = msg: {
-        const msg = blk: {
-            if (is_double_ptr) {
-                const m = try sema.errMsg(src, "type '{}' does not support member function invocation", .{raw_ptr_ty.fmt(pt)});
-                errdefer m.destroy(sema.gpa);
-                try sema.errNote(src, m, "consider dereferencing using '.*'", .{});
-                break :blk m;
-            } else {
-                const m = try sema.errMsg(src, "no field or member function named '{}' in '{}'", .{
-                    field_name.fmt(ip),
-                    concrete_ty.fmt(pt),
-                });
-                errdefer m.destroy(sema.gpa);
-                break :blk m;
-            }
-        };
+        const msg = try sema.errMsg(src, "no field or member function named '{}' in '{}'", .{
+            field_name.fmt(ip),
+            concrete_ty.fmt(pt),
+        });
+        errdefer msg.destroy(sema.gpa);
         try sema.addDeclaredHereNote(msg, concrete_ty);
         if (found_decl) |decl_idx| {
             const decl = mod.declPtr(decl_idx);
@@ -28033,6 +28023,10 @@ fn fieldCallBind(
         }
         if (concrete_ty.zigTypeTag(mod) == .ErrorUnion) {
             try sema.errNote(src, msg, "consider using 'try', 'catch', or 'if'", .{});
+        }
+        if (is_double_ptr) {
+            try sema.errNote(src, msg, "method invocation only supports up to one level of implicit pointer dereferencing", .{});
+            try sema.errNote(src, msg, "the dereference operator is '.*'", .{});
         }
         break :msg msg;
     };
