@@ -2032,3 +2032,9 @@ pub fn createWindowsEnvBlock(allocator: mem.Allocator, env_map: *const EnvMap) !
     i += 1;
     return try allocator.realloc(result, i);
 }
+
+/// Logs an error and then terminates the process with exit code 1.
+pub fn fatal(comptime format: []const u8, format_arguments: anytype) noreturn {
+    std.log.err(format, format_arguments);
+    exit(1);
+}

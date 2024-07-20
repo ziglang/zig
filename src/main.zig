@@ -4746,7 +4746,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     // the strategy is to choose a temporary file name ahead of time, and then
     // read this file in the parent to obtain the results, in the case the child
     // exits with code 3.
-    const results_tmp_file_nonce = Package.Manifest.hex64(std.crypto.random.int(u64));
+    const results_tmp_file_nonce = std.fmt.hex(std.crypto.random.int(u64));
     try child_argv.append("-Z" ++ results_tmp_file_nonce);
 
     var color: Color = .auto;
@@ -7196,8 +7196,7 @@ fn createDependenciesModule(
     // Atomically create the file in a directory named after the hash of its contents.
     const basename = "dependencies.zig";
     const rand_int = std.crypto.random.int(u64);
-    const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++
-        Package.Manifest.hex64(rand_int);
+    const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(rand_int);
     {
         var tmp_dir = try local_cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
         defer tmp_dir.close();

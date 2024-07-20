@@ -457,7 +457,7 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
 
             const rand_int = std.crypto.random.int(u64);
             const tmp_sub_path = "tmp" ++ fs.path.sep_str ++
-                std.Build.hex64(rand_int) ++ fs.path.sep_str ++
+                std.fmt.hex(rand_int) ++ fs.path.sep_str ++
                 basename;
             const tmp_sub_path_dirname = fs.path.dirname(tmp_sub_path).?;
 
