@@ -3424,7 +3424,11 @@ pub fn requiresCodeSig(self: MachO) bool {
             .watchos, .tvos, .ios, .visionos => target.abi == .simulator,
             else => false,
         },
-        .x86_64 => false,
+        .x86_64 => switch (target.os.tag) {
+            .macos => true,
+            .watchos, .tvos, .ios, .visionos => target.abi == .simulator,
+            else => false,
+        },
         else => unreachable,
     };
 }
