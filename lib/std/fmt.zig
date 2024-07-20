@@ -2722,7 +2722,7 @@ test "recursive format function" {
 pub const hex_charset = "0123456789abcdef";
 
 /// Converts an unsigned integer of any multiple of u8 to an array of lowercase
-/// hex bytes.
+/// hex bytes, little endian.
 pub fn hex(x: anytype) [@sizeOf(@TypeOf(x)) * 2]u8 {
     comptime assert(@typeInfo(@TypeOf(x)).Int.signedness == .unsigned);
     var result: [@sizeOf(@TypeOf(x)) * 2]u8 = undefined;
@@ -2739,17 +2739,11 @@ test hex {
     {
         const x = hex(@as(u32, 0xdeadbeef));
         try std.testing.expect(x.len == 8);
-        switch (builtin.cpu.arch.endian()) {
-            .little => try std.testing.expectEqualStrings("efbeadde", &x),
-            .big => try std.testing.expectEqualStrings("deadbeef", &x),
-        }
+        try std.testing.expectEqualStrings("efbeadde", &x);
     }
     {
         const s = "[" ++ hex(@as(u64, 0x12345678_abcdef00)) ++ "]";
         try std.testing.expect(s.len == 18);
-        switch (builtin.cpu.arch.endian()) {
-            .little => try std.testing.expectEqualStrings("[00efcdab78563412]", s),
-            .big => try std.testing.expectEqualStrings("[12345678abcdef00]", s),
-        }
+        try std.testing.expectEqualStrings("[00efcdab78563412]", s);
     }
 }
