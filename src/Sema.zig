@@ -30276,7 +30276,7 @@ pub fn coerceInMemoryAllowed(
 
         if ((src_info.signedness == dest_info.signedness and dest_info.bits < src_info.bits) or
             // small enough unsigned ints can get casted to large enough signed ints
-            (dest_info.signedness == .signed and (src_info.signedness == .unsigned or dest_info.bits <= src_info.bits)) or
+            (dest_info.signedness == .signed and src_info.signedness == .unsigned and dest_info.bits <= src_info.bits) or
             (dest_info.signedness == .unsigned and src_info.signedness == .signed))
         {
             return InMemoryCoercionResult{ .int_not_coercible = .{
@@ -30357,12 +30357,16 @@ pub fn coerceInMemoryAllowed(
         }
 
         const child = try sema.coerceInMemoryAllowed(block, dest_info.elem_type, src_info.elem_type, dest_is_mut, target, dest_src, src_src, null);
-        if (child != .ok) {
-            return InMemoryCoercionResult{ .array_elem = .{
-                .child = try child.dupe(sema.arena),
-                .actual = src_info.elem_type,
-                .wanted = dest_info.elem_type,
-            } };
+        switch (child) {
+            .ok => {},
+            .no_match => return child,
+            else => {
+                return InMemoryCoercionResult{ .array_elem = .{
+                    .child = try child.dupe(sema.arena),
+                    .actual = src_info.elem_type,
+                    .wanted = dest_info.elem_type,
+                } };
+            },
         }
         const ok_sent = (dest_info.sentinel == null and src_info.sentinel == null) or
             (src_info.sentinel != null and
