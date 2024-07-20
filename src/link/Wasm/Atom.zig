@@ -14,7 +14,7 @@ alignment: Wasm.Alignment = .@"1",
 /// Offset into the section where the atom lives, this already accounts
 /// for alignment.
 offset: u32 = 0,
-/// The original offset within the object file. This value is substracted from
+/// The original offset within the object file. This value is subtracted from
 /// relocation offsets to determine where in the `data` to rewrite the value
 original_offset: u32 = 0,
 /// Previous atom in relation to this atom.

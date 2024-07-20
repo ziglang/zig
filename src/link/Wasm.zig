@@ -1314,7 +1314,7 @@ fn validateFeatures(
 /// Creates synthetic linker-symbols, but only if they are being referenced from
 /// any object file. For instance, the `__heap_base` symbol will only be created,
 /// if one or multiple undefined references exist. When none exist, the symbol will
-/// not be created, ensuring we don't unneccesarily emit unreferenced symbols.
+/// not be created, ensuring we don't unnecessarily emit unreferenced symbols.
 fn resolveLazySymbols(wasm: *Wasm) !void {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
@@ -2340,10 +2340,10 @@ fn setupMemory(wasm: *Wasm) !void {
             try wasm.addErrorWithoutNotes("Maximum memory must be {d}-byte aligned", .{page_size});
         }
         if (memory_ptr > max_memory) {
-            try wasm.addErrorWithoutNotes("Maxmimum memory too small, must be at least {d} bytes", .{memory_ptr});
+            try wasm.addErrorWithoutNotes("Maximum memory too small, must be at least {d} bytes", .{memory_ptr});
         }
         if (max_memory > max_memory_allowed) {
-            try wasm.addErrorWithoutNotes("Maximum memory exceeds maxmium amount {d}", .{max_memory_allowed});
+            try wasm.addErrorWithoutNotes("Maximum memory exceeds maximum amount {d}", .{max_memory_allowed});
         }
         wasm.memories.limits.max = @as(u32, @intCast(max_memory / page_size));
         wasm.memories.limits.setFlag(.WASM_LIMITS_FLAG_HAS_MAX);

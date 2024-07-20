@@ -855,7 +855,7 @@ pub const Object = struct {
     /// table for every zig source field of the struct that has a corresponding
     /// LLVM struct field. comptime fields are not included. Zero-bit fields are
     /// mapped to a field at the correct byte, which may be a padding field, or
-    /// are not mapped, in which case they are sematically at the end of the
+    /// are not mapped, in which case they are semantically at the end of the
     /// struct.
     /// The value is the LLVM struct field index.
     /// This is denormalized data.
