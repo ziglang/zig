@@ -28008,11 +28008,21 @@ fn fieldCallBind(
     };
 
     const msg = msg: {
-        const msg = try sema.errMsg(src, "no field or member function named '{}' in '{}'", .{
-            field_name.fmt(ip),
-            concrete_ty.fmt(pt),
-        });
-        errdefer msg.destroy(sema.gpa);
+        const msg = blk: {
+            if (is_double_ptr) {
+                const m = try sema.errMsg(src, "type '{}' does not support member function invocation", .{raw_ptr_ty.fmt(pt)});
+                errdefer m.destroy(sema.gpa);
+                try sema.errNote(src, m, "consider dereferencing using '.*'", .{});
+                break :blk m;
+            } else {
+                const m = try sema.errMsg(src, "no field or member function named '{}' in '{}'", .{
+                    field_name.fmt(ip),
+                    concrete_ty.fmt(pt),
+                });
+                errdefer m.destroy(sema.gpa);
+                break :blk m;
+            }
+        };
         try sema.addDeclaredHereNote(msg, concrete_ty);
         if (found_decl) |decl_idx| {
             const decl = mod.declPtr(decl_idx);
