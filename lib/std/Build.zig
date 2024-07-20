@@ -2522,7 +2522,7 @@ pub const InstallDir = union(enum) {
 /// function.
 pub fn makeTempPath(b: *Build) []const u8 {
     const rand_int = std.crypto.random.int(u64);
-    const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ hex64(rand_int);
+    const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(rand_int);
     const result_path = b.cache_root.join(b.allocator, &.{tmp_dir_sub_path}) catch @panic("OOM");
     b.cache_root.handle.makePath(tmp_dir_sub_path) catch |err| {
         std.debug.print("unable to make tmp path '{s}': {s}\n", .{
@@ -2532,18 +2532,9 @@ pub fn makeTempPath(b: *Build) []const u8 {
     return result_path;
 }
 
-/// There are a few copies of this function in miscellaneous places. Would be nice to find
-/// a home for them.
+/// Deprecated; use `std.fmt.hex` instead.
 pub fn hex64(x: u64) [16]u8 {
-    const hex_charset = "0123456789abcdef";
-    var result: [16]u8 = undefined;
-    var i: usize = 0;
-    while (i < 8) : (i += 1) {
-        const byte: u8 = @truncate(x >> @as(u6, @intCast(8 * i)));
-        result[i * 2 + 0] = hex_charset[byte >> 4];
-        result[i * 2 + 1] = hex_charset[byte & 15];
-    }
-    return result;
+    return std.fmt.hex(x);
 }
 
 /// A pair of target query and fully resolved target.

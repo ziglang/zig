@@ -2718,3 +2718,38 @@ test "recursive format function" {
     var r = R{ .Leaf = 1 };
     try expectFmt("Leaf(1)\n", "{}\n", .{&r});
 }
+
+pub const hex_charset = "0123456789abcdef";
+
+/// Converts an unsigned integer of any multiple of u8 to an array of lowercase
+/// hex bytes.
+pub fn hex(x: anytype) [@sizeOf(@TypeOf(x)) * 2]u8 {
+    comptime assert(@typeInfo(@TypeOf(x)).Int.signedness == .unsigned);
+    var result: [@sizeOf(@TypeOf(x)) * 2]u8 = undefined;
+    var i: usize = 0;
+    while (i < result.len / 2) : (i += 1) {
+        const byte: u8 = @truncate(x >> @intCast(8 * i));
+        result[i * 2 + 0] = hex_charset[byte >> 4];
+        result[i * 2 + 1] = hex_charset[byte & 15];
+    }
+    return result;
+}
+
+test hex {
+    {
+        const x = hex(@as(u32, 0xdeadbeef));
+        try std.testing.expect(x.len == 8);
+        switch (builtin.cpu.arch.endian()) {
+            .little => try std.testing.expectEqualStrings("efbeadde", &x),
+            .big => try std.testing.expectEqualStrings("deadbeef", &x),
+        }
+    }
+    {
+        const s = "[" ++ hex(@as(u64, 0x12345678_abcdef00)) ++ "]";
+        try std.testing.expect(s.len == 18);
+        switch (builtin.cpu.arch.endian()) {
+            .little => try std.testing.expectEqualStrings("[00efcdab78563412]", s),
+            .big => try std.testing.expectEqualStrings("[12345678abcdef00]", s),
+        }
+    }
+}
