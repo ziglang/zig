@@ -109,6 +109,7 @@ pub fn deinit(s: *Server) void {
 pub fn receiveMessage(s: *Server) !InMessage.Header {
     const Header = InMessage.Header;
     const fifo = &s.receive_fifo;
+    var last_amt_zero = false;
 
     while (true) {
         const buf = fifo.readableSlice(0);
@@ -136,6 +137,10 @@ pub fn receiveMessage(s: *Server) !InMessage.Header {
         const write_buffer = try fifo.writableWithSize(256);
         const amt = try s.in.read(write_buffer);
         fifo.update(amt);
+        if (amt == 0) {
+            if (last_amt_zero) return error.BrokenPipe;
+            last_amt_zero = true;
+        }
     }
 }
 
