@@ -667,10 +667,8 @@ pub fn parseTargetQueryOrReportFatalError(
     };
 }
 
-pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
-    std.log.err(format, args);
-    std.process.exit(1);
-}
+/// Deprecated; see `std.process.fatal`.
+pub const fatal = std.process.fatal;
 
 /// Collects all the environment variables that Zig could possibly inspect, so
 /// that we can do reflection on this and print them with `zig env`.
