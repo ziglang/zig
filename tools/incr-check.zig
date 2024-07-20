@@ -52,6 +52,7 @@ pub fn main() !void {
         .arena = arena,
         .case = case,
         .tmp_dir = tmp_dir,
+        .tmp_dir_path = tmp_dir_path,
         .child = &child,
     };
 
@@ -78,6 +79,7 @@ const Eval = struct {
     arena: Allocator,
     case: Case,
     tmp_dir: std.fs.Dir,
+    tmp_dir_path: []const u8,
     child: *std.process.Child,
 
     const StreamEnum = enum { stdout, stderr };
@@ -115,7 +117,6 @@ const Eval = struct {
                 if (!(try poller.poll())) break :poll;
             }
             const body = stdout.readableSliceOfLen(header.bytes_len);
-            std.log.debug("received message: {s}", .{@tagName(header.tag)});
 
             switch (header.tag) {
                 .error_bundle => {
@@ -191,13 +192,46 @@ const Eval = struct {
     }
 
     fn checkSuccessOutcome(eval: *Eval, update: Case.Update, binary_path: []const u8) !void {
-        _ = eval;
         switch (update.outcome) {
             .unknown => return,
             .compile_errors => fatal("expected compile errors but compilation incorrectly succeeded", .{}),
             .stdout, .exit_code => {},
         }
-        fatal("TODO: run this binary: '{s}'", .{binary_path});
+        const result = std.process.Child.run(.{
+            .allocator = eval.arena,
+            .argv = &.{binary_path},
+            .cwd_dir = eval.tmp_dir,
+            .cwd = eval.tmp_dir_path,
+        }) catch |err| {
+            fatal("update '{s}': failed to run the generated executable '{s}': {s}", .{
+                update.name, binary_path, @errorName(err),
+            });
+        };
+        if (result.stderr.len != 0) {
+            std.log.err("update '{s}': generated executable '{s}' had unexpected stderr:\n{s}", .{
+                update.name, binary_path, result.stderr,
+            });
+        }
+        switch (result.term) {
+            .Exited => |code| switch (update.outcome) {
+                .unknown, .compile_errors => unreachable,
+                .stdout => |expected_stdout| {
+                    if (code != 0) {
+                        fatal("update '{s}': generated executable '{s}' failed with code {d}", .{
+                            update.name, binary_path, code,
+                        });
+                    }
+                    try std.testing.expectEqualStrings(expected_stdout, result.stdout);
+                },
+                .exit_code => |expected_code| try std.testing.expectEqual(expected_code, result.term.Exited),
+            },
+            .Signal, .Stopped, .Unknown => {
+                fatal("update '{s}': generated executable '{s}' terminated unexpectedly", .{
+                    update.name, binary_path,
+                });
+            },
+        }
+        if (result.stderr.len != 0) std.process.exit(1);
     }
 
     fn requestUpdate(eval: *Eval) !void {
