@@ -10,10 +10,7 @@ pub const Entry = struct {
             if (entry.target.eql(other.target)) {
                 return entry.offset < other.offset;
             }
-            if (entry.target.file == other.target.file) {
-                return entry.target.index < other.target.index;
-            }
-            return entry.target.file < other.target.file;
+            return entry.target.lessThan(other.target);
         }
         return entry.segment_id < other.segment_id;
     }
@@ -47,7 +44,7 @@ pub const Bind = struct {
             const file = macho_file.getFile(index).?;
             for (file.getAtoms()) |atom_index| {
                 const atom = file.getAtom(atom_index) orelse continue;
-                if (!atom.flags.alive) continue;
+                if (!atom.isAlive()) continue;
                 if (atom.getInputSection(macho_file).isZerofill()) continue;
                 const atom_addr = atom.getAddress(macho_file);
                 const relocs = atom.getRelocs(macho_file);
@@ -299,7 +296,7 @@ pub const WeakBind = struct {
             const file = macho_file.getFile(index).?;
             for (file.getAtoms()) |atom_index| {
                 const atom = file.getAtom(atom_index) orelse continue;
-                if (!atom.flags.alive) continue;
+                if (!atom.isAlive()) continue;
                 if (atom.getInputSection(macho_file).isZerofill()) continue;
                 const atom_addr = atom.getAddress(macho_file);
                 const relocs = atom.getRelocs(macho_file);

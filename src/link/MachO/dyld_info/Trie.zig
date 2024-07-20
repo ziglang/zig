@@ -102,7 +102,7 @@ pub fn updateSize(self: *Trie, macho_file: *MachO) !void {
         if (ref.getFile(macho_file) == null) continue;
         const sym = ref.getSymbol(macho_file).?;
         if (!sym.flags.@"export") continue;
-        if (sym.getAtom(macho_file)) |atom| if (!atom.flags.alive) continue;
+        if (sym.getAtom(macho_file)) |atom| if (!atom.isAlive()) continue;
         var flags: u64 = if (sym.flags.abs)
             macho.EXPORT_SYMBOL_FLAGS_KIND_ABSOLUTE
         else if (sym.flags.tlv)
@@ -111,8 +111,8 @@ pub fn updateSize(self: *Trie, macho_file: *MachO) !void {
             macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR;
         if (sym.flags.weak) {
             flags |= macho.EXPORT_SYMBOL_FLAGS_WEAK_DEFINITION;
-            macho_file.weak_defines = true;
-            macho_file.binds_to_weak = true;
+            macho_file.weak_defines.store(true, .seq_cst);
+            macho_file.binds_to_weak.store(true, .seq_cst);
         }
         try self.put(gpa, .{
             .name = sym.getName(macho_file),

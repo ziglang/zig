@@ -35,7 +35,7 @@ pub fn updateSize(rebase: *Rebase, macho_file: *MachO) !void {
         const file = macho_file.getFile(index).?;
         for (file.getAtoms()) |atom_index| {
             const atom = file.getAtom(atom_index) orelse continue;
-            if (!atom.flags.alive) continue;
+            if (!atom.isAlive()) continue;
             if (atom.getInputSection(macho_file).isZerofill()) continue;
             const atom_addr = atom.getAddress(macho_file);
             const seg_id = macho_file.sections.items(.segment_id)[atom.out_n_sect];

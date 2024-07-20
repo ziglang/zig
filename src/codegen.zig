@@ -924,7 +924,7 @@ fn genDeclRef(
             const name = decl.name.toSlice(ip);
             const lib_name = if (decl.getOwnedVariable(zcu)) |ov| ov.lib_name.toSlice(ip) else null;
             const sym_index = try macho_file.getGlobalSymbol(name, lib_name);
-            zo.symbols.items[sym_index].flags.needs_got = true;
+            zo.symbols.items[sym_index].setSectionFlags(.{ .needs_got = true });
             return GenResult.mcv(.{ .load_symbol = sym_index });
         }
         const sym_index = try zo.getOrCreateMetadataForDecl(macho_file, decl_index);

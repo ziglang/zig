@@ -389,7 +389,7 @@ pub fn resolveObjcMsgSendSymbols(self: *InternalObject, macho_file: *MachO) !voi
         };
         sym.nlist_idx = nlist_idx;
         sym.extra = try self.addSymbolExtra(gpa, .{ .objc_selrefs = selrefs_index });
-        sym.flags.objc_stubs = true;
+        sym.setSectionFlags(.{ .objc_stubs = true });
 
         const idx = ref.getFile(macho_file).?.object.globals.items[ref.index];
         try self.globals.append(gpa, idx);
@@ -427,7 +427,7 @@ pub fn resolveLiterals(self: *InternalObject, lp: *MachO.LiteralPool, macho_file
             const lp_sym = lp.getSymbol(res.index, macho_file);
             const lp_atom = lp_sym.getAtom(macho_file).?;
             lp_atom.alignment = lp_atom.alignment.max(atom.alignment);
-            atom.flags.alive = false;
+            atom.setAlive(false);
         }
         atom.addExtra(.{ .literal_pool_index = res.index }, macho_file);
     }
@@ -439,7 +439,7 @@ pub fn dedupLiterals(self: *InternalObject, lp: MachO.LiteralPool, macho_file: *
 
     for (self.getAtoms()) |atom_index| {
         const atom = self.getAtom(atom_index) orelse continue;
-        if (!atom.flags.alive) continue;
+        if (!atom.isAlive()) continue;
 
         const relocs = blk: {
             const extra = atom.getExtra(macho_file);
@@ -464,7 +464,7 @@ pub fn dedupLiterals(self: *InternalObject, lp: MachO.LiteralPool, macho_file: *
     }
 
     for (self.symbols.items) |*sym| {
-        if (!sym.flags.objc_stubs) continue;
+        if (!sym.getSectionFlags().objc_stubs) continue;
         const extra = sym.getExtra(macho_file);
         const file = sym.getFile(macho_file).?;
         if (file.getIndex() != self.index) continue;
@@ -490,20 +490,20 @@ pub fn scanRelocs(self: *InternalObject, macho_file: *MachO) void {
     if (self.getEntryRef(macho_file)) |ref| {
         if (ref.getFile(macho_file) != null) {
             const sym = ref.getSymbol(macho_file).?;
-            if (sym.flags.import) sym.flags.stubs = true;
+            if (sym.flags.import) sym.setSectionFlags(.{ .stubs = true });
         }
     }
     if (self.getDyldStubBinderRef(macho_file)) |ref| {
         if (ref.getFile(macho_file) != null) {
             const sym = ref.getSymbol(macho_file).?;
-            sym.flags.needs_got = true;
+            sym.setSectionFlags(.{ .needs_got = true });
         }
     }
     if (self.getObjcMsgSendRef(macho_file)) |ref| {
         if (ref.getFile(macho_file) != null) {
             const sym = ref.getSymbol(macho_file).?;
             // TODO is it always needed, or only if we are synthesising fast stubs
-            sym.flags.needs_got = true;
+            sym.setSectionFlags(.{ .needs_got = true });
         }
     }
 }
@@ -570,7 +570,7 @@ pub fn writeAtoms(self: *InternalObject, macho_file: *MachO) !void {
 
     for (self.getAtoms()) |atom_index| {
         const atom = self.getAtom(atom_index) orelse continue;
-        if (!atom.flags.alive) continue;
+        if (!atom.isAlive()) continue;
         const sect = atom.getInputSection(macho_file);
         if (sect.isZerofill()) continue;
         const off = std.math.cast(usize, atom.value) orelse return error.Overflow;

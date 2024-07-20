@@ -261,7 +261,7 @@ fn initOutputSections(macho_file: *MachO) !void {
         const file = macho_file.getFile(index).?;
         for (file.getAtoms()) |atom_index| {
             const atom = file.getAtom(atom_index) orelse continue;
-            if (!atom.flags.alive) continue;
+            if (!atom.isAlive()) continue;
             atom.out_n_sect = try Atom.initOutputSection(atom.getInputSection(macho_file), macho_file);
         }
     }

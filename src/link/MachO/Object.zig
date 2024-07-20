@@ -263,7 +263,7 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
             mem.eql(u8, isec.sectName(), "__compact_unwind") or
             isec.attrs() & macho.S_ATTR_DEBUG != 0)
         {
-            atom.flags.alive = false;
+            atom.setAlive(false);
         }
     }
 
@@ -645,7 +645,7 @@ pub fn resolveLiterals(self: *Object, lp: *MachO.LiteralPool, macho_file: *MachO
                     const lp_sym = lp.getSymbol(res.index, macho_file);
                     const lp_atom = lp_sym.getAtom(macho_file).?;
                     lp_atom.alignment = lp_atom.alignment.max(atom.alignment);
-                    atom.flags.alive = false;
+                    atom.setAlive(false);
                 }
                 atom.addExtra(.{ .literal_pool_index = res.index }, macho_file);
             }
@@ -683,7 +683,7 @@ pub fn resolveLiterals(self: *Object, lp: *MachO.LiteralPool, macho_file: *MachO
                     const lp_sym = lp.getSymbol(res.index, macho_file);
                     const lp_atom = lp_sym.getAtom(macho_file).?;
                     lp_atom.alignment = lp_atom.alignment.max(atom.alignment);
-                    atom.flags.alive = false;
+                    atom.setAlive(false);
                 }
                 atom.addExtra(.{ .literal_pool_index = res.index }, macho_file);
             }
@@ -697,7 +697,7 @@ pub fn dedupLiterals(self: *Object, lp: MachO.LiteralPool, macho_file: *MachO) v
 
     for (self.getAtoms()) |atom_index| {
         const atom = self.getAtom(atom_index) orelse continue;
-        if (!atom.flags.alive) continue;
+        if (!atom.isAlive()) continue;
 
         const relocs = blk: {
             const extra = atom.getExtra(macho_file);
@@ -990,7 +990,7 @@ fn initRelocs(self: *Object, file: File.Handle, cpu_arch: std.Target.Cpu.Arch, m
         var next_reloc: u32 = 0;
         for (subsections.items) |subsection| {
             const atom = self.getAtom(subsection.atom).?;
-            if (!atom.flags.alive) continue;
+            if (!atom.isAlive()) continue;
             if (next_reloc >= relocs.items.len) break;
             const end_addr = atom.off + atom.size;
             const rel_index = next_reloc;
@@ -1483,7 +1483,7 @@ pub fn resolveSymbols(self: *Object, macho_file: *MachO) !void {
         if (!nlist.ext()) continue;
         if (nlist.sect()) {
             const atom = self.getAtom(atom_index).?;
-            if (!atom.flags.alive) continue;
+            if (!atom.isAlive()) continue;
         }
 
         const gop = try macho_file.resolver.getOrPut(gpa, .{
@@ -1552,7 +1552,7 @@ pub fn scanRelocs(self: *Object, macho_file: *MachO) !void {
 
     for (self.getAtoms()) |atom_index| {
         const atom = self.getAtom(atom_index) orelse continue;
-        if (!atom.flags.alive) continue;
+        if (!atom.isAlive()) continue;
         const sect = atom.getInputSection(macho_file);
         if (sect.isZerofill()) continue;
         try atom.scanRelocs(macho_file);
@@ -1563,10 +1563,10 @@ pub fn scanRelocs(self: *Object, macho_file: *MachO) !void {
         if (!rec.alive) continue;
         if (rec.getFde(macho_file)) |fde| {
             if (fde.getCie(macho_file).getPersonality(macho_file)) |sym| {
-                sym.flags.needs_got = true;
+                sym.setSectionFlags(.{ .needs_got = true });
             }
         } else if (rec.getPersonality(macho_file)) |sym| {
-            sym.flags.needs_got = true;
+            sym.setSectionFlags(.{ .needs_got = true });
         }
     }
 }
@@ -1745,7 +1745,7 @@ pub fn calcSymtabSize(self: *Object, macho_file: *MachO) void {
         const ref = self.getSymbolRef(@intCast(i), macho_file);
         const file = ref.getFile(macho_file) orelse continue;
         if (file.getIndex() != self.index) continue;
-        if (sym.getAtom(macho_file)) |atom| if (!atom.flags.alive) continue;
+        if (sym.getAtom(macho_file)) |atom| if (!atom.isAlive()) continue;
         if (sym.isSymbolStab(macho_file)) continue;
         const name = sym.getName(macho_file);
         if (name.len == 0) continue;
@@ -1854,7 +1854,7 @@ pub fn writeAtoms(self: *Object, macho_file: *MachO) !void {
     }
     for (self.getAtoms()) |atom_index| {
         const atom = self.getAtom(atom_index) orelse continue;
-        if (!atom.flags.alive) continue;
+        if (!atom.isAlive()) continue;
         const sect = atom.getInputSection(macho_file);
         if (sect.isZerofill()) continue;
         const value = math.cast(usize, atom.value) orelse return error.Overflow;
@@ -1893,7 +1893,7 @@ pub fn writeAtomsRelocatable(self: *Object, macho_file: *MachO) !void {
     }
     for (self.getAtoms()) |atom_index| {
         const atom = self.getAtom(atom_index) orelse continue;
-        if (!atom.flags.alive) continue;
+        if (!atom.isAlive()) continue;
         const sect = atom.getInputSection(macho_file);
         if (sect.isZerofill()) continue;
         const value = math.cast(usize, atom.value) orelse return error.Overflow;
