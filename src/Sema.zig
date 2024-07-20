@@ -28026,7 +28026,7 @@ fn fieldCallBind(
         }
         if (is_double_ptr) {
             try sema.errNote(src, msg, "method invocation only supports up to one level of implicit pointer dereferencing", .{});
-            try sema.errNote(src, msg, "the dereference operator is '.*'", .{});
+            try sema.errNote(src, msg, "use '.*' to dereference pointer", .{});
         }
         break :msg msg;
     };

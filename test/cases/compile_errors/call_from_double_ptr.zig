@@ -12,4 +12,4 @@ export fn entry(a: **S) void {
 //
 // 6:10: error: no field or member function named 'b' in '*tmp.S'
 // 6:10: note: method invocation only supports up to one level of implicit pointer dereferencing
-// 6:10: note: the dereference operator is '.*'
+// 6:10: note: use '.*' to dereference pointer
