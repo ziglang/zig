@@ -221,7 +221,6 @@ pub fn log(
 pub fn mainSimple() anyerror!void {
     // is the backend capable of printing to stderr?
     const enable_print = switch (builtin.zig_backend) {
-        .stage2_riscv64 => true,
         else => false,
     };
     // is the backend capable of using std.fmt.format to print a summary at the end?
