@@ -54,7 +54,7 @@ const CAllocator = struct {
     };
 
     fn getHeader(ptr: [*]u8) *[*]u8 {
-        return @as(*[*]u8, @ptrFromInt(@intFromPtr(ptr) - @sizeOf(usize)));
+        return @ptrCast(@alignCast(ptr - @sizeOf(usize)));
     }
 
     fn alignedAlloc(len: usize, log2_align: u8) ?[*]u8 {
@@ -98,7 +98,7 @@ const CAllocator = struct {
         }
 
         const unaligned_ptr = getHeader(ptr).*;
-        const delta = @intFromPtr(ptr) - @intFromPtr(unaligned_ptr);
+        const delta = ptr - unaligned_ptr;
         return CAllocator.malloc_size(unaligned_ptr) - delta;
     }
 
@@ -292,7 +292,7 @@ pub const HeapAllocator = switch (builtin.os.tag) {
         }
 
         fn getRecordPtr(buf: []u8) *align(1) usize {
-            return @as(*align(1) usize, @ptrFromInt(@intFromPtr(buf.ptr) + buf.len));
+            return @ptrCast(@alignCast(buf.ptr + buf.len));
         }
 
         fn alloc(
@@ -363,11 +363,30 @@ pub const HeapAllocator = switch (builtin.os.tag) {
 };
 
 fn sliceContainsPtr(container: []u8, ptr: [*]u8) bool {
+    // TODO: refactor for a single, efficient solution for
+    // both comptime and runtime once a way to safely compare
+    // pointers at comptime is implemented
+
+    if (@inComptime()) {
+        for (container) |*item| {
+            if (item == &ptr[0]) return true;
+        }
+        return false;
+    }
+
     return @intFromPtr(ptr) >= @intFromPtr(container.ptr) and
         @intFromPtr(ptr) < (@intFromPtr(container.ptr) + container.len);
 }
 
 fn sliceContainsSlice(container: []u8, slice: []u8) bool {
+    // TODO: refactor for a single, efficient solution for
+    // both comptime and runtime once a way to safely compare
+    // pointers at comptime is implemented
+
+    if (@inComptime()) {
+        return sliceContainsPtr(container, slice.ptr) and sliceContainsPtr(container, slice.ptr + slice.len - 1);
+    }
+
     return @intFromPtr(slice.ptr) >= @intFromPtr(container.ptr) and
         (@intFromPtr(slice.ptr) + slice.len) <= (@intFromPtr(container.ptr) + container.len);
 }
