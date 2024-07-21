@@ -1890,17 +1890,14 @@ pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: u32) usi
 }
 
 pub fn statx(dirfd: i32, path: [*:0]const u8, flags: u32, mask: u32, statx_buf: *Statx) usize {
-    if (@hasField(SYS, "statx")) {
-        return syscall5(
-            .statx,
-            @as(usize, @bitCast(@as(isize, dirfd))),
-            @intFromPtr(path),
-            flags,
-            mask,
-            @intFromPtr(statx_buf),
-        );
-    }
-    return @as(usize, @bitCast(-@as(isize, @intFromEnum(E.NOSYS))));
+    return syscall5(
+        .statx,
+        @as(usize, @bitCast(@as(isize, dirfd))),
+        @intFromPtr(path),
+        flags,
+        mask,
+        @intFromPtr(statx_buf),
+    );
 }
 
 pub fn listxattr(path: [*:0]const u8, list: [*]u8, size: usize) usize {

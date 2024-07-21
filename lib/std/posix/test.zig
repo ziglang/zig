@@ -580,11 +580,7 @@ test "memfd_create" {
         else => return error.SkipZigTest,
     }
 
-    const fd = posix.memfd_create("test", 0) catch |err| switch (err) {
-        // Related: https://github.com/ziglang/zig/issues/4019
-        error.SystemOutdated => return error.SkipZigTest,
-        else => |e| return e,
-    };
+    const fd = try posix.memfd_create("test", 0);
     defer posix.close(fd);
     try expect((try posix.write(fd, "test")) == 4);
     try posix.lseek_SET(fd, 0);

@@ -731,7 +731,7 @@ pub const Metadata = struct {
 
     /// Returns the time the file was created in nanoseconds since UTC 1970-01-01
     /// On Windows, this cannot return null
-    /// On Linux, this returns null if the filesystem does not support creation times, or if the kernel is older than 4.11
+    /// On Linux, this returns null if the filesystem does not support creation times
     /// On Unices, this returns null if the filesystem or OS does not support creation times
     /// On MacOS, this returns the ctime if the filesystem does not support creation times; this is insanity, and yet another reason to hate on Apple
     pub fn created(self: Self) ?i128 {
@@ -822,7 +822,6 @@ pub const MetadataUnix = struct {
 };
 
 /// `MetadataUnix`, but using Linux's `statx` syscall.
-/// On Linux versions below 4.11, `statx` will be filled with data from stat.
 pub const MetadataLinux = struct {
     statx: std.os.linux.Statx,
 
@@ -1017,24 +1016,6 @@ pub fn metadata(self: File) MetadataError!Metadata {
 
                 switch (posix.errno(rcx)) {
                     .SUCCESS => {},
-                    // NOSYS happens when `statx` is unsupported, which is the case on kernel versions before 4.11
-                    // Here, we call `fstat` and fill `stx` with the data we need
-                    .NOSYS => {
-                        const st = try posix.fstat(self.handle);
-
-                        stx.mode = @as(u16, @intCast(st.mode));
-
-                        // Hacky conversion from timespec to statx_timestamp
-                        stx.atime = std.mem.zeroes(l.statx_timestamp);
-                        stx.atime.sec = st.atim.sec;
-                        stx.atime.nsec = @as(u32, @intCast(st.atim.nsec)); // Guaranteed to succeed (nsec is always below 10^9)
-
-                        stx.mtime = std.mem.zeroes(l.statx_timestamp);
-                        stx.mtime.sec = st.mtim.sec;
-                        stx.mtime.nsec = @as(u32, @intCast(st.mtim.nsec));
-
-                        stx.mask = l.STATX_BASIC_STATS | l.STATX_MTIME;
-                    },
                     .BADF => unreachable,
                     .FAULT => unreachable,
                     .NOMEM => return error.SystemResources,

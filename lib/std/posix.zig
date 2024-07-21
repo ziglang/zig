@@ -615,7 +615,6 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
                 .INVAL => unreachable,
                 .FAULT => unreachable,
                 .INTR => continue,
-                .NOSYS => return getRandomBytesDevURandom(buf),
                 else => return unexpectedErrno(err),
             }
         }
@@ -4534,7 +4533,6 @@ pub const FanotifyInitError = error{
     ProcessFdQuotaExceeded,
     SystemFdQuotaExceeded,
     SystemResources,
-    OperationNotSupported,
     PermissionDenied,
 } || UnexpectedError;
 
@@ -4546,7 +4544,6 @@ pub fn fanotify_init(flags: std.os.linux.fanotify.InitFlags, event_f_flags: u32)
         .MFILE => return error.ProcessFdQuotaExceeded,
         .NFILE => return error.SystemFdQuotaExceeded,
         .NOMEM => return error.SystemResources,
-        .NOSYS => return error.OperationNotSupported,
         .PERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
     }
@@ -4559,7 +4556,6 @@ pub const FanotifyMarkError = error{
     FileNotFound,
     SystemResources,
     UserMarkQuotaExceeded,
-    NotImplemented,
     NotDir,
     OperationNotSupported,
     PermissionDenied,
@@ -4600,7 +4596,6 @@ pub fn fanotify_markZ(
         .NOENT => return error.FileNotFound,
         .NOMEM => return error.SystemResources,
         .NOSPC => return error.UserMarkQuotaExceeded,
-        .NOSYS => return error.NotImplemented,
         .NOTDIR => return error.NotDir,
         .OPNOTSUPP => return error.OperationNotSupported,
         .PERM => return error.PermissionDenied,
@@ -6183,13 +6178,6 @@ pub fn sendfile(
 
     switch (native_os) {
         .linux => sf: {
-            // sendfile() first appeared in Linux 2.2, glibc 2.1.
-            const call_sf = comptime if (builtin.link_libc)
-                std.c.versionCheck(.{ .major = 2, .minor = 1, .patch = 0 })
-            else
-                builtin.os.version_range.linux.range.max.order(.{ .major = 2, .minor = 2, .patch = 0 }) != .lt;
-            if (!call_sf) break :sf;
-
             if (headers.len != 0) {
                 const amt = try writev(out_fd, headers);
                 total_written += amt;
@@ -6223,14 +6211,14 @@ pub fn sendfile(
                     .OVERFLOW => unreachable, // We avoid passing too large of a `count`.
                     .NOTCONN => return error.BrokenPipe, // `out_fd` is an unconnected socket
 
-                    .INVAL, .NOSYS => {
+                    .INVAL => {
                         // EINVAL could be any of the following situations:
                         // * Descriptor is not valid or locked
                         // * an mmap(2)-like operation is  not  available  for in_fd
                         // * count is negative
                         // * out_fd has the APPEND flag set
                         // Because of the "mmap(2)-like operation" possibility, we fall back to doing read/write
-                        // manually, the same as ENOSYS.
+                        // manually.
                         break :sf;
                     },
                     .AGAIN => return error.WouldBlock,
@@ -6456,21 +6444,15 @@ pub const CopyFileRangeError = error{
 /// `flags` has different meanings per operating system; refer to the respective man pages.
 ///
 /// These systems support in-kernel data copying:
-/// * Linux 4.5 (cross-filesystem 5.3)
+/// * Linux (cross-filesystem from version 5.3)
 /// * FreeBSD 13.0
 ///
 /// Other systems fall back to calling `pread` / `pwrite`.
 ///
 /// Maximum offsets on Linux and FreeBSD are `maxInt(i64)`.
 pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len: usize, flags: u32) CopyFileRangeError!usize {
-    const global = struct {
-        var has_copy_file_range = true;
-    };
-
     if ((comptime builtin.os.isAtLeast(.freebsd, .{ .major = 13, .minor = 0, .patch = 0 }) orelse false) or
-        ((comptime builtin.os.isAtLeast(.linux, .{ .major = 4, .minor = 5, .patch = 0 }) orelse false and
-        std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 })) and
-        @atomicLoad(bool, &global.has_copy_file_range, .monotonic)))
+        (comptime builtin.os.tag == .linux and std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 })))
     {
         var off_in_copy: i64 = @bitCast(off_in);
         var off_out_copy: i64 = @bitCast(off_out);
@@ -6504,10 +6486,6 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
                     .PERM => return error.PermissionDenied,
                     .TXTBSY => return error.SwapFile,
                     .XDEV => break, // support for cross-filesystem copy added in Linux 5.3, use fallback
-                    .NOSYS => {
-                        @atomicStore(bool, &global.has_copy_file_range, false, .monotonic);
-                        break;
-                    },
                     else => |err| return unexpectedErrno(err),
                 }
             }
@@ -6775,10 +6753,6 @@ pub const MemFdCreateError = error{
     OutOfMemory,
     /// Either the name provided exceeded `NAME_MAX`, or invalid flags were passed.
     NameTooLong,
-
-    /// memfd_create is available in Linux 3.17 and later. This error is returned
-    /// for older kernel versions.
-    SystemOutdated,
 } || UnexpectedError;
 
 pub fn memfd_createZ(name: [*:0]const u8, flags: u32) MemFdCreateError!fd_t {
@@ -6795,7 +6769,6 @@ pub fn memfd_createZ(name: [*:0]const u8, flags: u32) MemFdCreateError!fd_t {
                 .NFILE => return error.SystemFdQuotaExceeded,
                 .MFILE => return error.ProcessFdQuotaExceeded,
                 .NOMEM => return error.OutOfMemory,
-                .NOSYS => return error.SystemOutdated,
                 else => |err| return unexpectedErrno(err),
             }
         },
@@ -6915,7 +6888,6 @@ pub fn signalfd(fd: fd_t, mask: *const sigset_t, flags: u32) !fd_t {
         .NOMEM => return error.SystemResources,
         .MFILE => return error.ProcessResources,
         .NODEV => return error.InodeMountFail,
-        .NOSYS => return error.SystemOutdated,
         else => |err| return unexpectedErrno(err),
     }
 }
