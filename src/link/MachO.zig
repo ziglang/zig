@@ -2387,6 +2387,9 @@ fn resizeSections(self: *MachO) !void {
 }
 
 fn writeSectionsAndUpdateLinkeditSizes(self: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const gpa = self.base.comp.gpa;
 
     const cmd = self.symtab_cmd;
@@ -3513,6 +3516,8 @@ pub fn getTarget(self: MachO) std.Target {
 /// the original file. This is super messy, but there doesn't seem any other
 /// way to please the XNU.
 pub fn invalidateKernelCache(dir: fs.Dir, sub_path: []const u8) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
     if (comptime builtin.target.isDarwin() and builtin.target.cpu.arch == .aarch64) {
         try dir.copyFile(sub_path, dir, sub_path, .{});
     }
