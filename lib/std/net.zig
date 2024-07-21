@@ -1737,19 +1737,19 @@ fn dnsParse(
     if (qdcount + ancount > 64) return error.InvalidDnsPacket;
     while (qdcount != 0) {
         qdcount -= 1;
-        while (@intFromPtr(p) - @intFromPtr(r.ptr) < r.len and p[0] -% 1 < 127) p += 1;
-        if (p[0] > 193 or (p[0] == 193 and p[1] > 254) or @intFromPtr(p) > @intFromPtr(r.ptr) + r.len - 6)
+        while (p - r.ptr < r.len and p[0] -% 1 < 127) p += 1;
+        if (p[0] > 193 or (p[0] == 193 and p[1] > 254) or p - r.ptr > r.len - 6)
             return error.InvalidDnsPacket;
         p += @as(usize, 5) + @intFromBool(p[0] != 0);
     }
     while (ancount != 0) {
         ancount -= 1;
-        while (@intFromPtr(p) - @intFromPtr(r.ptr) < r.len and p[0] -% 1 < 127) p += 1;
-        if (p[0] > 193 or (p[0] == 193 and p[1] > 254) or @intFromPtr(p) > @intFromPtr(r.ptr) + r.len - 6)
+        while (p - r.ptr < r.len and p[0] -% 1 < 127) p += 1;
+        if (p[0] > 193 or (p[0] == 193 and p[1] > 254) or p - r.ptr > r.len - 6)
             return error.InvalidDnsPacket;
         p += @as(usize, 1) + @intFromBool(p[0] != 0);
         const len = p[8] * @as(usize, 256) + p[9];
-        if (@intFromPtr(p) + len > @intFromPtr(r.ptr) + r.len) return error.InvalidDnsPacket;
+        if (p - r.ptr + len > r.len) return error.InvalidDnsPacket;
         try callback(ctx, p[1], p[10..][0..len], r);
         p += 10 + len;
     }
