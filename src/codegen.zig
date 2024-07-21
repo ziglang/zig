@@ -22,6 +22,7 @@ const Type = @import("Type.zig");
 const Value = @import("Value.zig");
 const Zir = std.zig.Zir;
 const Alignment = InternPool.Alignment;
+const dev = @import("dev.zig");
 
 pub const Result = union(enum) {
     /// The `code` parameter passed to `generateSymbol` has the value ok.
@@ -43,6 +44,23 @@ pub const DebugInfoOutput = union(enum) {
     none,
 };
 
+fn devFeatureForBackend(comptime backend: std.builtin.CompilerBackend) dev.Feature {
+    comptime assert(mem.startsWith(u8, @tagName(backend), "stage2_"));
+    return @field(dev.Feature, @tagName(backend)["stage2_".len..] ++ "_backend");
+}
+
+fn importBackend(comptime backend: std.builtin.CompilerBackend) type {
+    return switch (backend) {
+        .stage2_aarch64 => @import("arch/aarch64/CodeGen.zig"),
+        .stage2_arm => @import("arch/arm/CodeGen.zig"),
+        .stage2_riscv64 => @import("arch/riscv64/CodeGen.zig"),
+        .stage2_sparc64 => @import("arch/sparc64/CodeGen.zig"),
+        .stage2_wasm => @import("arch/wasm/CodeGen.zig"),
+        .stage2_x86_64 => @import("arch/x86_64/CodeGen.zig"),
+        else => unreachable,
+    };
+}
+
 pub fn generateFunction(
     lf: *link.File,
     pt: Zcu.PerThread,
@@ -58,21 +76,18 @@ pub fn generateFunction(
     const decl = zcu.declPtr(func.owner_decl);
     const namespace = zcu.namespacePtr(decl.src_namespace);
     const target = namespace.fileScope(zcu).mod.resolved_target.result;
-    switch (target.cpu.arch) {
-        .arm,
-        .armeb,
-        => return @import("arch/arm/CodeGen.zig").generate(lf, pt, src_loc, func_index, air, liveness, code, debug_output),
-        .aarch64,
-        .aarch64_be,
-        .aarch64_32,
-        => return @import("arch/aarch64/CodeGen.zig").generate(lf, pt, src_loc, func_index, air, liveness, code, debug_output),
-        .riscv64 => return @import("arch/riscv64/CodeGen.zig").generate(lf, pt, src_loc, func_index, air, liveness, code, debug_output),
-        .sparc64 => return @import("arch/sparc64/CodeGen.zig").generate(lf, pt, src_loc, func_index, air, liveness, code, debug_output),
-        .x86_64 => return @import("arch/x86_64/CodeGen.zig").generate(lf, pt, src_loc, func_index, air, liveness, code, debug_output),
-        .wasm32,
-        .wasm64,
-        => return @import("arch/wasm/CodeGen.zig").generate(lf, pt, src_loc, func_index, air, liveness, code, debug_output),
+    switch (target_util.zigBackend(target, false)) {
         else => unreachable,
+        inline .stage2_aarch64,
+        .stage2_arm,
+        .stage2_riscv64,
+        .stage2_sparc64,
+        .stage2_wasm,
+        .stage2_x86_64,
+        => |backend| {
+            dev.check(devFeatureForBackend(backend));
+            return importBackend(backend).generate(lf, pt, src_loc, func_index, air, liveness, code, debug_output);
+        },
     }
 }
 
@@ -89,9 +104,12 @@ pub fn generateLazyFunction(
     const decl = zcu.declPtr(decl_index);
     const namespace = zcu.namespacePtr(decl.src_namespace);
     const target = namespace.fileScope(zcu).mod.resolved_target.result;
-    switch (target.cpu.arch) {
-        .x86_64 => return @import("arch/x86_64/CodeGen.zig").generateLazy(lf, pt, src_loc, lazy_sym, code, debug_output),
+    switch (target_util.zigBackend(target, false)) {
         else => unreachable,
+        inline .stage2_x86_64 => |backend| {
+            dev.check(devFeatureForBackend(backend));
+            return importBackend(backend).generateLazy(lf, pt, src_loc, lazy_sym, code, debug_output);
+        },
     }
 }
 
@@ -188,7 +206,7 @@ pub fn generateSymbol(
     const target = mod.getTarget();
     const endian = target.cpu.arch.endian();
 
-    log.debug("generateSymbol: val = {}", .{val.fmtValue(pt, null)});
+    log.debug("generateSymbol: val = {}", .{val.fmtValue(pt)});
 
     if (val.isUndefDeep(mod)) {
         const abi_size = math.cast(usize, ty.abiSize(pt)) orelse return error.Overflow;
@@ -838,7 +856,7 @@ fn genDeclRef(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const ty = val.typeOf(zcu);
-    log.debug("genDeclRef: val = {}", .{val.fmtValue(pt, null)});
+    log.debug("genDeclRef: val = {}", .{val.fmtValue(pt)});
 
     const ptr_decl = zcu.declPtr(ptr_decl_index);
     const namespace = zcu.namespacePtr(ptr_decl.src_namespace);
@@ -901,15 +919,16 @@ fn genDeclRef(
         }
         return GenResult.mcv(.{ .load_symbol = sym.esym_index });
     } else if (lf.cast(link.File.MachO)) |macho_file| {
+        const zo = macho_file.getZigObject().?;
         if (is_extern) {
             const name = decl.name.toSlice(ip);
             const lib_name = if (decl.getOwnedVariable(zcu)) |ov| ov.lib_name.toSlice(ip) else null;
             const sym_index = try macho_file.getGlobalSymbol(name, lib_name);
-            macho_file.getSymbol(macho_file.getZigObject().?.symbols.items[sym_index]).flags.needs_got = true;
+            zo.symbols.items[sym_index].flags.needs_got = true;
             return GenResult.mcv(.{ .load_symbol = sym_index });
         }
-        const sym_index = try macho_file.getZigObject().?.getOrCreateMetadataForDecl(macho_file, decl_index);
-        const sym = macho_file.getSymbol(sym_index);
+        const sym_index = try zo.getOrCreateMetadataForDecl(macho_file, decl_index);
+        const sym = zo.symbols.items[sym_index];
         if (is_threadlocal) {
             return GenResult.mcv(.{ .load_tlv = sym.nlist_idx });
         }
@@ -943,7 +962,7 @@ fn genUnnamedConst(
     owner_decl_index: InternPool.DeclIndex,
 ) CodeGenError!GenResult {
     const gpa = lf.comp.gpa;
-    log.debug("genUnnamedConst: val = {}", .{val.fmtValue(pt, null)});
+    log.debug("genUnnamedConst: val = {}", .{val.fmtValue(pt)});
 
     const local_sym_index = lf.lowerUnnamedConst(pt, val, owner_decl_index) catch |err| {
         return GenResult.fail(gpa, src_loc, "lowering unnamed constant failed: {s}", .{@errorName(err)});
@@ -956,7 +975,7 @@ fn genUnnamedConst(
         },
         .macho => {
             const macho_file = lf.cast(link.File.MachO).?;
-            const local = macho_file.getSymbol(local_sym_index);
+            const local = macho_file.getZigObject().?.symbols.items[local_sym_index];
             return GenResult.mcv(.{ .load_symbol = local.nlist_idx });
         },
         .coff => {
@@ -985,10 +1004,11 @@ pub fn genTypedValue(
     const ip = &zcu.intern_pool;
     const ty = val.typeOf(zcu);
 
-    log.debug("genTypedValue: val = {}", .{val.fmtValue(pt, null)});
+    log.debug("genTypedValue: val = {}", .{val.fmtValue(pt)});
 
-    if (val.isUndef(zcu))
+    if (val.isUndef(zcu)) {
         return GenResult.mcv(.undef);
+    }
 
     const owner_decl = zcu.declPtr(owner_decl_index);
     const namespace = zcu.namespacePtr(owner_decl.src_namespace);

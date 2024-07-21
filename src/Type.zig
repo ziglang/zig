@@ -194,8 +194,8 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
 
             if (info.sentinel != .none) switch (info.flags.size) {
                 .One, .C => unreachable,
-                .Many => try writer.print("[*:{}]", .{Value.fromInterned(info.sentinel).fmtValue(pt, null)}),
-                .Slice => try writer.print("[:{}]", .{Value.fromInterned(info.sentinel).fmtValue(pt, null)}),
+                .Many => try writer.print("[*:{}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
+                .Slice => try writer.print("[:{}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
             } else switch (info.flags.size) {
                 .One => try writer.writeAll("*"),
                 .Many => try writer.writeAll("[*]"),
@@ -241,7 +241,7 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
             } else {
                 try writer.print("[{d}:{}]", .{
                     array_type.len,
-                    Value.fromInterned(array_type.sentinel).fmtValue(pt, null),
+                    Value.fromInterned(array_type.sentinel).fmtValue(pt),
                 });
                 try print(Type.fromInterned(array_type.child), writer, pt);
             }
@@ -359,7 +359,7 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
                 try print(Type.fromInterned(field_ty), writer, pt);
 
                 if (val != .none) {
-                    try writer.print(" = {}", .{Value.fromInterned(val).fmtValue(pt, null)});
+                    try writer.print(" = {}", .{Value.fromInterned(val).fmtValue(pt)});
                 }
             }
             try writer.writeAll("}");
@@ -478,7 +478,7 @@ pub fn hasRuntimeBitsAdvanced(
     ty: Type,
     pt: Zcu.PerThread,
     ignore_comptime_only: bool,
-    strat: ResolveStratLazy,
+    comptime strat: ResolveStratLazy,
 ) RuntimeBitsError!bool {
     const mod = pt.zcu;
     const ip = &mod.intern_pool;
@@ -792,7 +792,7 @@ pub fn fnHasRuntimeBits(ty: Type, pt: Zcu.PerThread) bool {
 /// Determines whether a function type has runtime bits, i.e. whether a
 /// function with this type can exist at runtime.
 /// Asserts that `ty` is a function type.
-pub fn fnHasRuntimeBitsAdvanced(ty: Type, pt: Zcu.PerThread, strat: ResolveStrat) SemaError!bool {
+pub fn fnHasRuntimeBitsAdvanced(ty: Type, pt: Zcu.PerThread, comptime strat: ResolveStrat) SemaError!bool {
     const fn_info = pt.zcu.typeToFunc(ty).?;
     if (fn_info.is_generic) return false;
     if (fn_info.is_var_args) return true;
@@ -824,7 +824,7 @@ pub fn ptrAlignment(ty: Type, pt: Zcu.PerThread) Alignment {
     return ptrAlignmentAdvanced(ty, pt, .normal) catch unreachable;
 }
 
-pub fn ptrAlignmentAdvanced(ty: Type, pt: Zcu.PerThread, strat: ResolveStrat) !Alignment {
+pub fn ptrAlignmentAdvanced(ty: Type, pt: Zcu.PerThread, comptime strat: ResolveStrat) !Alignment {
     return switch (pt.zcu.intern_pool.indexToKey(ty.toIntern())) {
         .ptr_type => |ptr_type| {
             if (ptr_type.flags.alignment != .none)
@@ -891,7 +891,7 @@ pub const ResolveStrat = enum {
     /// This should typically be used from semantic analysis.
     sema,
 
-    pub fn toLazy(strat: ResolveStrat) ResolveStratLazy {
+    pub inline fn toLazy(strat: ResolveStrat) ResolveStratLazy {
         return switch (strat) {
             .normal => .eager,
             .sema => .sema,
@@ -908,7 +908,7 @@ pub const ResolveStrat = enum {
 pub fn abiAlignmentAdvanced(
     ty: Type,
     pt: Zcu.PerThread,
-    strat: ResolveStratLazy,
+    comptime strat: ResolveStratLazy,
 ) SemaError!AbiAlignmentAdvanced {
     const mod = pt.zcu;
     const target = mod.getTarget();
@@ -932,7 +932,9 @@ pub fn abiAlignmentAdvanced(
                 if (vector_type.len == 0) return .{ .scalar = .@"1" };
                 switch (mod.comp.getZigBackend()) {
                     else => {
-                        const elem_bits: u32 = @intCast(try Type.fromInterned(vector_type.child).bitSizeAdvanced(pt, .sema));
+                        // This is fine because the child type of a vector always has a bit-size known
+                        // without needing any type resolution.
+                        const elem_bits: u32 = @intCast(Type.fromInterned(vector_type.child).bitSize(pt));
                         if (elem_bits == 0) return .{ .scalar = .@"1" };
                         const bytes = ((elem_bits * vector_type.len) + 7) / 8;
                         const alignment = std.math.ceilPowerOfTwoAssert(u32, bytes);
@@ -1130,7 +1132,7 @@ pub fn abiAlignmentAdvanced(
 fn abiAlignmentAdvancedErrorUnion(
     ty: Type,
     pt: Zcu.PerThread,
-    strat: ResolveStratLazy,
+    comptime strat: ResolveStratLazy,
     payload_ty: Type,
 ) SemaError!AbiAlignmentAdvanced {
     // This code needs to be kept in sync with the equivalent switch prong
@@ -1167,7 +1169,7 @@ fn abiAlignmentAdvancedErrorUnion(
 fn abiAlignmentAdvancedOptional(
     ty: Type,
     pt: Zcu.PerThread,
-    strat: ResolveStratLazy,
+    comptime strat: ResolveStratLazy,
 ) SemaError!AbiAlignmentAdvanced {
     const mod = pt.zcu;
     const target = mod.getTarget();
@@ -1231,7 +1233,7 @@ const AbiSizeAdvanced = union(enum) {
 pub fn abiSizeAdvanced(
     ty: Type,
     pt: Zcu.PerThread,
-    strat: ResolveStratLazy,
+    comptime strat: ResolveStratLazy,
 ) SemaError!AbiSizeAdvanced {
     const mod = pt.zcu;
     const target = mod.getTarget();
@@ -1505,7 +1507,7 @@ pub fn abiSizeAdvanced(
 fn abiSizeAdvancedOptional(
     ty: Type,
     pt: Zcu.PerThread,
-    strat: ResolveStratLazy,
+    comptime strat: ResolveStratLazy,
 ) SemaError!AbiSizeAdvanced {
     const mod = pt.zcu;
     const child_ty = ty.optionalChild(mod);
@@ -1649,7 +1651,6 @@ pub fn maxIntAlignment(target: std.Target, use_llvm: bool) u16 {
         .m68k,
         .tce,
         .tcele,
-        .le32,
         .amdil,
         .hsail,
         .spir,
@@ -1658,7 +1659,6 @@ pub fn maxIntAlignment(target: std.Target, use_llvm: bool) u16 {
         .spirv,
         .spirv32,
         .shave,
-        .le64,
         .amdil64,
         .hsail64,
         .spir64,
@@ -1680,7 +1680,7 @@ pub fn bitSize(ty: Type, pt: Zcu.PerThread) u64 {
 pub fn bitSizeAdvanced(
     ty: Type,
     pt: Zcu.PerThread,
-    strat: ResolveStrat,
+    comptime strat: ResolveStrat,
 ) SemaError!u64 {
     const mod = pt.zcu;
     const target = mod.getTarget();
@@ -2739,7 +2739,7 @@ pub fn comptimeOnly(ty: Type, pt: Zcu.PerThread) bool {
 
 /// `generic_poison` will return false.
 /// May return false negatives when structs and unions are having their field types resolved.
-pub fn comptimeOnlyAdvanced(ty: Type, pt: Zcu.PerThread, strat: ResolveStrat) SemaError!bool {
+pub fn comptimeOnlyAdvanced(ty: Type, pt: Zcu.PerThread, comptime strat: ResolveStrat) SemaError!bool {
     const mod = pt.zcu;
     const ip = &mod.intern_pool;
     return switch (ty.toIntern()) {
@@ -2829,7 +2829,8 @@ pub fn comptimeOnlyAdvanced(ty: Type, pt: Zcu.PerThread, strat: ResolveStrat) Se
                     .no, .wip => false,
                     .yes => true,
                     .unknown => {
-                        assert(strat == .sema);
+                        // Inlined `assert` so that the resolution calls below are not statically reachable.
+                        if (strat != .sema) unreachable;
 
                         if (struct_type.flagsUnordered(ip).field_types_wip) {
                             struct_type.setRequiresComptime(ip, .unknown);
@@ -2874,7 +2875,8 @@ pub fn comptimeOnlyAdvanced(ty: Type, pt: Zcu.PerThread, strat: ResolveStrat) Se
                     .no, .wip => return false,
                     .yes => return true,
                     .unknown => {
-                        assert(strat == .sema);
+                        // Inlined `assert` so that the resolution calls below are not statically reachable.
+                        if (strat != .sema) unreachable;
 
                         if (union_type.flagsUnordered(ip).status == .field_types_wip) {
                             union_type.setRequiresComptime(ip, .unknown);
@@ -3198,7 +3200,7 @@ pub fn structFieldAlign(ty: Type, index: usize, pt: Zcu.PerThread) Alignment {
     return ty.structFieldAlignAdvanced(index, pt, .normal) catch unreachable;
 }
 
-pub fn structFieldAlignAdvanced(ty: Type, index: usize, pt: Zcu.PerThread, strat: ResolveStrat) !Alignment {
+pub fn structFieldAlignAdvanced(ty: Type, index: usize, pt: Zcu.PerThread, comptime strat: ResolveStrat) !Alignment {
     const ip = &pt.zcu.intern_pool;
     switch (ip.indexToKey(ty.toIntern())) {
         .struct_type => {

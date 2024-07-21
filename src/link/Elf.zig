@@ -30,7 +30,7 @@ entry_name: ?[]const u8,
 ptr_width: PtrWidth,
 
 /// If this is not null, an object file is created by LLVM and emitted to zcu_object_sub_path.
-llvm_object: ?*LlvmObject = null,
+llvm_object: ?LlvmObject.Ptr = null,
 
 /// A list of all input files.
 /// Index of each input file also encodes the priority or precedence of one input file
@@ -2148,6 +2148,8 @@ fn scanRelocs(self: *Elf) !void {
 }
 
 fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
+    dev.check(.lld_linker);
+
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -6430,6 +6432,7 @@ const math = std.math;
 const mem = std.mem;
 
 const codegen = @import("../codegen.zig");
+const dev = @import("../dev.zig");
 const eh_frame = @import("Elf/eh_frame.zig");
 const gc = @import("Elf/gc.zig");
 const glibc = @import("../glibc.zig");

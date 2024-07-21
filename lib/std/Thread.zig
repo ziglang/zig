@@ -554,7 +554,7 @@ const WindowsThreadImpl = struct {
             0,
             null,
         ) orelse {
-            const errno = windows.kernel32.GetLastError();
+            const errno = windows.GetLastError();
             return windows.unexpectedError(errno);
         };
 

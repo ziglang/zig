@@ -65,6 +65,8 @@ pub const Reloc = struct {
     };
 };
 
+const Options = struct { allow_frame_locs: bool };
+
 /// The returned slice is overwritten by the next call to lowerMir.
 pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
     insts: []const Instruction,
@@ -423,8 +425,8 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             else => unreachable,
                         };
                     } else if (lower.bin_file.cast(link.File.MachO)) |macho_file| {
-                        const sym_index = macho_file.getZigObject().?.symbols.items[sym.sym_index];
-                        const macho_sym = macho_file.getSymbol(sym_index);
+                        const zo = macho_file.getZigObject().?;
+                        const macho_sym = zo.symbols.items[sym.sym_index];
 
                         if (macho_sym.flags.tlv) {
                             _ = lower.reloc(.{ .linker_reloc = sym });

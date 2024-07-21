@@ -9,6 +9,7 @@ const builtin = @import("builtin");
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 const Cache = std.Build.Cache;
+const dev = @import("dev.zig");
 
 pub const CRTFile = enum {
     crt2_o,
@@ -157,7 +158,8 @@ fn add_cc_args(
 }
 
 pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
-    if (build_options.only_c) @compileError("building import libs not included in core functionality");
+    dev.check(.build_import_lib);
+
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();

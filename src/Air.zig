@@ -1,4 +1,5 @@
 //! Analyzed Intermediate Representation.
+//!
 //! This data is produced by Sema and consumed by codegen.
 //! Unlike ZIR where there is one instance for an entire source file, each function
 //! gets its own `Air` instance.
@@ -12,8 +13,6 @@ const Value = @import("Value.zig");
 const Type = @import("Type.zig");
 const InternPool = @import("InternPool.zig");
 const Zcu = @import("Zcu.zig");
-/// Deprecated.
-const Module = Zcu;
 
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
@@ -272,7 +271,7 @@ pub const Inst = struct {
         /// Uses the `ty_pl` field with payload `Block`.  A block runs its body which always ends
         /// with a `noreturn` instruction, so the only way to proceed to the code after the `block`
         /// is to encounter a `br` that targets this `block`.  If the `block` type is `noreturn`,
-        /// then there do not exist any `br` instructions targetting this `block`.
+        /// then there do not exist any `br` instructions targeting this `block`.
         block,
         /// A labeled block of code that loops forever. At the end of the body it is implied
         /// to repeat; no explicit "repeat" instruction terminates loop bodies.
@@ -358,7 +357,7 @@ pub const Inst = struct {
         /// Base 10 logarithm of a floating point number.
         /// Uses the `un_op` field.
         log10,
-        /// Aboslute value of an integer, floating point number or vector.
+        /// Absolute value of an integer, floating point number or vector.
         /// Result type is always unsigned if the operand is an integer.
         /// Uses the `ty_op` field.
         abs,

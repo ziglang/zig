@@ -40,7 +40,9 @@ pub const Reloc = struct {
 };
 
 /// The returned slice is overwritten by the next call to lowerMir.
-pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
+pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index, options: struct {
+    allow_frame_locs: bool,
+}) Error!struct {
     insts: []const Instruction,
     relocs: []const Reloc,
 } {
@@ -69,64 +71,102 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             .pseudo_load_rm, .pseudo_store_rm => {
                 const rm = inst.data.rm;
 
-                const frame_loc = rm.m.toFrameLoc(lower.mir);
+                const frame_loc: Mir.FrameLoc = if (options.allow_frame_locs)
+                    rm.m.toFrameLoc(lower.mir)
+                else
+                    .{ .base = .s0, .disp = 0 };
 
                 switch (inst.ops) {
                     .pseudo_load_rm => {
                         const dest_reg = rm.r;
                         const dest_reg_class = dest_reg.class();
-                        const float = dest_reg_class == .float;
 
                         const src_size = rm.m.mod.size;
                         const unsigned = rm.m.mod.unsigned;
 
-                        const tag: Encoding.Mnemonic = if (!float)
-                            switch (src_size) {
+                        const tag: Encoding.Mnemonic = switch (dest_reg_class) {
+                            .int => switch (src_size) {
                                 .byte => if (unsigned) .lbu else .lb,
                                 .hword => if (unsigned) .lhu else .lh,
                                 .word => if (unsigned) .lwu else .lw,
                                 .dword => .ld,
-                            }
-                        else switch (src_size) {
-                            .byte => unreachable, // Zig does not support 8-bit floats
-                            .hword => return lower.fail("TODO: lowerMir pseudo_load_rm support 16-bit floats", .{}),
-                            .word => .flw,
-                            .dword => .fld,
+                            },
+                            .float => switch (src_size) {
+                                .byte => unreachable, // Zig does not support 8-bit floats
+                                .hword => return lower.fail("TODO: lowerMir pseudo_load_rm support 16-bit floats", .{}),
+                                .word => .flw,
+                                .dword => .fld,
+                            },
+                            .vector => switch (src_size) {
+                                .byte => .vle8v,
+                                .hword => .vle32v,
+                                .word => .vle32v,
+                                .dword => .vle64v,
+                            },
                         };
 
-                        try lower.emit(tag, &.{
-                            .{ .reg = rm.r },
-                            .{ .reg = frame_loc.base },
-                            .{ .imm = Immediate.s(frame_loc.disp) },
-                        });
+                        switch (dest_reg_class) {
+                            .int, .float => {
+                                try lower.emit(tag, &.{
+                                    .{ .reg = rm.r },
+                                    .{ .reg = frame_loc.base },
+                                    .{ .imm = Immediate.s(frame_loc.disp) },
+                                });
+                            },
+                            .vector => {
+                                assert(frame_loc.disp == 0);
+                                try lower.emit(tag, &.{
+                                    .{ .reg = rm.r },
+                                    .{ .reg = frame_loc.base },
+                                    .{ .reg = .zero },
+                                });
+                            },
+                        }
                     },
                     .pseudo_store_rm => {
                         const src_reg = rm.r;
                         const src_reg_class = src_reg.class();
-                        const float = src_reg_class == .float;
 
-                        // TODO: do we actually need this? are all stores not usize?
                         const dest_size = rm.m.mod.size;
 
-                        const tag: Encoding.Mnemonic = if (!float)
-                            switch (dest_size) {
+                        const tag: Encoding.Mnemonic = switch (src_reg_class) {
+                            .int => switch (dest_size) {
                                 .byte => .sb,
                                 .hword => .sh,
                                 .word => .sw,
                                 .dword => .sd,
-                            }
-                        else switch (dest_size) {
-                            .byte => unreachable, // Zig does not support 8-bit floats
-                            .hword => return lower.fail("TODO: lowerMir pseudo_load_rm support 16-bit floats", .{}),
-                            .word => .fsw,
-                            .dword => .fsd,
+                            },
+                            .float => switch (dest_size) {
+                                .byte => unreachable, // Zig does not support 8-bit floats
+                                .hword => return lower.fail("TODO: lowerMir pseudo_store_rm support 16-bit floats", .{}),
+                                .word => .fsw,
+                                .dword => .fsd,
+                            },
+                            .vector => switch (dest_size) {
+                                .byte => .vse8v,
+                                .hword => .vse16v,
+                                .word => .vse32v,
+                                .dword => .vse64v,
+                            },
                         };
 
-                        try lower.emit(tag, &.{
-                            .{ .reg = frame_loc.base },
-                            .{ .reg = rm.r },
-                            .{ .imm = Immediate.s(frame_loc.disp) },
-                        });
+                        switch (src_reg_class) {
+                            .int, .float => {
+                                try lower.emit(tag, &.{
+                                    .{ .reg = frame_loc.base },
+                                    .{ .reg = rm.r },
+                                    .{ .imm = Immediate.s(frame_loc.disp) },
+                                });
+                            },
+                            .vector => {
+                                assert(frame_loc.disp == 0);
+                                try lower.emit(tag, &.{
+                                    .{ .reg = rm.r },
+                                    .{ .reg = frame_loc.base },
+                                    .{ .reg = .zero },
+                                });
+                            },
+                        }
                     },
                     else => unreachable,
                 }
@@ -138,32 +178,45 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 const dst_class = rr.rd.class();
                 const src_class = rr.rs.class();
 
-                assert(dst_class == src_class);
-
-                switch (dst_class) {
-                    .float => {
-                        try lower.emit(if (lower.hasFeature(.d)) .fsgnjnd else .fsgnjns, &.{
-                            .{ .reg = rr.rd },
-                            .{ .reg = rr.rs },
-                            .{ .reg = rr.rs },
-                        });
+                switch (src_class) {
+                    .float => switch (dst_class) {
+                        .float => {
+                            try lower.emit(if (lower.hasFeature(.d)) .fsgnjnd else .fsgnjns, &.{
+                                .{ .reg = rr.rd },
+                                .{ .reg = rr.rs },
+                                .{ .reg = rr.rs },
+                            });
+                        },
+                        .int, .vector => return lower.fail("TODO: lowerMir pseudo_mv float -> {s}", .{@tagName(dst_class)}),
                     },
-                    .int => {
-                        try lower.emit(.addi, &.{
-                            .{ .reg = rr.rd },
-                            .{ .reg = rr.rs },
-                            .{ .imm = Immediate.s(0) },
-                        });
+                    .int => switch (dst_class) {
+                        .int => {
+                            try lower.emit(.addi, &.{
+                                .{ .reg = rr.rd },
+                                .{ .reg = rr.rs },
+                                .{ .imm = Immediate.s(0) },
+                            });
+                        },
+                        .vector => {
+                            try lower.emit(.vmvvx, &.{
+                                .{ .reg = rr.rd },
+                                .{ .reg = rr.rs },
+                                .{ .reg = .x0 },
+                            });
+                        },
+                        .float => return lower.fail("TODO: lowerMir pseudo_mv int -> {s}", .{@tagName(dst_class)}),
+                    },
+                    .vector => switch (dst_class) {
+                        .int => {
+                            try lower.emit(.vadcvv, &.{
+                                .{ .reg = rr.rd },
+                                .{ .reg = .zero },
+                                .{ .reg = rr.rs },
+                            });
+                        },
+                        .float, .vector => return lower.fail("TODO: lowerMir pseudo_mv vector -> {s}", .{@tagName(dst_class)}),
                     },
                 }
-            },
-
-            .pseudo_ret => {
-                try lower.emit(.jalr, &.{
-                    .{ .reg = .zero },
-                    .{ .reg = .ra },
-                    .{ .imm = Immediate.s(0) },
-                });
             },
 
             .pseudo_j => {
@@ -204,7 +257,10 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 const rm = inst.data.rm;
                 assert(rm.r.class() == .int);
 
-                const frame = rm.m.toFrameLoc(lower.mir);
+                const frame: Mir.FrameLoc = if (options.allow_frame_locs)
+                    rm.m.toFrameLoc(lower.mir)
+                else
+                    .{ .base = .s0, .disp = 0 };
 
                 try lower.emit(.addi, &.{
                     .{ .reg = rm.r },
@@ -371,6 +427,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                             });
                         },
                     },
+                    .vector => return lower.fail("TODO: lowerMir pseudo_cmp vector", .{}),
                 }
             },
 
@@ -378,7 +435,14 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 const rr = inst.data.rr;
                 assert(rr.rs.class() == .int and rr.rd.class() == .int);
 
-                try lower.emit(.xori, &.{
+                // mask out any other bits that aren't the boolean
+                try lower.emit(.andi, &.{
+                    .{ .reg = rr.rs },
+                    .{ .reg = rr.rs },
+                    .{ .imm = Immediate.s(1) },
+                });
+
+                try lower.emit(.sltiu, &.{
                     .{ .reg = rr.rd },
                     .{ .reg = rr.rs },
                     .{ .imm = Immediate.s(1) },
@@ -402,6 +466,44 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     .{ .reg = .ra },
                     .{ .reg = .ra },
                     .{ .imm = Immediate.s(0) },
+                });
+            },
+
+            .pseudo_amo => {
+                const amo = inst.data.amo;
+                const is_d = amo.ty.abiSize(pt) == 8;
+                const is_un = amo.ty.isUnsignedInt(pt.zcu);
+
+                const mnem: Encoding.Mnemonic = switch (amo.op) {
+                    // zig fmt: off
+                    .SWAP => if (is_d) .amoswapd  else .amoswapw,
+                    .ADD  => if (is_d) .amoaddd   else .amoaddw,
+                    .AND  => if (is_d) .amoandd   else .amoandw,
+                    .OR   => if (is_d) .amoord    else .amoorw,
+                    .XOR  => if (is_d) .amoxord   else .amoxorw,
+                    .MAX  => if (is_d) if (is_un) .amomaxud else .amomaxd else if (is_un) .amomaxuw else .amomaxw,
+                    .MIN  => if (is_d) if (is_un) .amominud else .amomind else if (is_un) .amominuw else .amominw,
+                    // zig fmt: on
+                };
+
+                try lower.emit(mnem, &.{
+                    .{ .reg = inst.data.amo.rd },
+                    .{ .reg = inst.data.amo.rs1 },
+                    .{ .reg = inst.data.amo.rs2 },
+                    .{ .barrier = inst.data.amo.rl },
+                    .{ .barrier = inst.data.amo.aq },
+                });
+            },
+
+            .pseudo_fence => {
+                const fence = inst.data.fence;
+
+                try lower.emit(switch (fence.fm) {
+                    .tso => .fencetso,
+                    .none => .fence,
+                }, &.{
+                    .{ .barrier = fence.succ },
+                    .{ .barrier = fence.pred },
                 });
             },
 
@@ -447,6 +549,11 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .reg = inst.data.r_type.rs1 },
             .{ .reg = inst.data.r_type.rs2 },
         },
+        .csr => &.{
+            .{ .csr = inst.data.csr.csr },
+            .{ .reg = inst.data.csr.rs1 },
+            .{ .reg = inst.data.csr.rd },
+        },
         else => return lower.fail("TODO: generic lower ops {s}", .{@tagName(inst.ops)}),
     });
 }
@@ -473,17 +580,22 @@ fn pushPopRegList(lower: *Lower, comptime spilling: bool, reg_list: Mir.Register
     while (it.next()) |i| {
         const frame = lower.mir.frame_locs.get(@intFromEnum(bits.FrameIndex.spill_frame));
         const reg = abi.Registers.all_preserved[i];
+
         const reg_class = reg.class();
-        const is_float_reg = reg_class == .float;
+        const load_inst: Encoding.Mnemonic, const store_inst: Encoding.Mnemonic = switch (reg_class) {
+            .int => .{ .ld, .sd },
+            .float => .{ .fld, .fsd },
+            .vector => unreachable,
+        };
 
         if (spilling) {
-            try lower.emit(if (is_float_reg) .fsd else .sd, &.{
+            try lower.emit(store_inst, &.{
                 .{ .reg = frame.base },
                 .{ .reg = abi.Registers.all_preserved[i] },
                 .{ .imm = Immediate.s(frame.disp + reg_i) },
             });
         } else {
-            try lower.emit(if (is_float_reg) .fld else .ld, &.{
+            try lower.emit(load_inst, &.{
                 .{ .reg = abi.Registers.all_preserved[i] },
                 .{ .reg = frame.base },
                 .{ .imm = Immediate.s(frame.disp + reg_i) },

@@ -892,7 +892,7 @@ const DeclGen = struct {
         const result_ty_id = try self.resolveType(ty, repr);
         const ip = &mod.intern_pool;
 
-        log.debug("lowering constant: ty = {}, val = {}", .{ ty.fmt(pt), val.fmtValue(pt, null) });
+        log.debug("lowering constant: ty = {}, val = {}", .{ ty.fmt(pt), val.fmtValue(pt) });
         if (val.isUndefDeep(mod)) {
             return self.spv.constUndef(result_ty_id);
         }
@@ -3845,7 +3845,7 @@ const DeclGen = struct {
                     const result = try self.normalize(low_bits, info);
 
                     // Now, we need to check the overflow bits AND the sign
-                    // bit for the expceted overflow bits.
+                    // bit for the expected overflow bits.
                     // To do that, shift out everything bit the sign bit and
                     // then check what remains.
                     const shift = Temporary.init(full_result.ty, try self.constInt(full_result.ty, info.bits - 1, .direct));

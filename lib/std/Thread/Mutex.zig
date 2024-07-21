@@ -103,8 +103,8 @@ const SingleThreadedImpl = struct {
     }
 };
 
-// SRWLOCK on windows is almost always faster than Futex solution.
-// It also implements an efficient Condition with requeue support for us.
+/// SRWLOCK on windows is almost always faster than Futex solution.
+/// It also implements an efficient Condition with requeue support for us.
 const WindowsImpl = struct {
     srwlock: windows.SRWLOCK = .{},
 
@@ -123,7 +123,7 @@ const WindowsImpl = struct {
     const windows = std.os.windows;
 };
 
-// os_unfair_lock on darwin supports priority inheritance and is generally faster than Futex solutions.
+/// os_unfair_lock on darwin supports priority inheritance and is generally faster than Futex solutions.
 const DarwinImpl = struct {
     oul: c.os_unfair_lock = .{},
 

@@ -2261,7 +2261,7 @@ test "timeout (after a relative time)" {
 
     const ms = 10;
     const margin = 5;
-    const ts: linux.kernel_timespec = .{ .tv_sec = 0, .tv_nsec = ms * 1000000 };
+    const ts: linux.kernel_timespec = .{ .sec = 0, .nsec = ms * 1000000 };
 
     const started = std.time.milliTimestamp();
     const sqe = try ring.timeout(0x55555555, &ts, 0, 0);
@@ -2290,7 +2290,7 @@ test "timeout (after a number of completions)" {
     };
     defer ring.deinit();
 
-    const ts: linux.kernel_timespec = .{ .tv_sec = 3, .tv_nsec = 0 };
+    const ts: linux.kernel_timespec = .{ .sec = 3, .nsec = 0 };
     const count_completions: u64 = 1;
     const sqe_timeout = try ring.timeout(0x66666666, &ts, count_completions, 0);
     try testing.expectEqual(linux.IORING_OP.TIMEOUT, sqe_timeout.opcode);
@@ -2323,7 +2323,7 @@ test "timeout_remove" {
     };
     defer ring.deinit();
 
-    const ts: linux.kernel_timespec = .{ .tv_sec = 3, .tv_nsec = 0 };
+    const ts: linux.kernel_timespec = .{ .sec = 3, .nsec = 0 };
     const sqe_timeout = try ring.timeout(0x88888888, &ts, 0, 0);
     try testing.expectEqual(linux.IORING_OP.TIMEOUT, sqe_timeout.opcode);
     try testing.expectEqual(@as(u64, 0x88888888), sqe_timeout.user_data);
@@ -2391,7 +2391,7 @@ test "accept/connect/recv/link_timeout" {
     const sqe_recv = try ring.recv(0xffffffff, socket_test_harness.server, .{ .buffer = buffer_recv[0..] }, 0);
     sqe_recv.flags |= linux.IOSQE_IO_LINK;
 
-    const ts = linux.kernel_timespec{ .tv_sec = 0, .tv_nsec = 1000000 };
+    const ts = linux.kernel_timespec{ .sec = 0, .nsec = 1000000 };
     _ = try ring.link_timeout(0x22222222, &ts, 0);
 
     const nr_wait = try ring.submit();
@@ -4248,7 +4248,7 @@ test "copy_cqes with wrapping sq.cqes buffer" {
     {
         for (0..2) |_| {
             const sqe = try ring.get_sqe();
-            sqe.prep_timeout(&.{ .tv_sec = 0, .tv_nsec = 10000 }, 0, 0);
+            sqe.prep_timeout(&.{ .sec = 0, .nsec = 10000 }, 0, 0);
             try testing.expect(try ring.submit() == 1);
         }
         var cqe_count: u32 = 0;
@@ -4265,7 +4265,7 @@ test "copy_cqes with wrapping sq.cqes buffer" {
     for (1..1024) |i| {
         for (0..4) |_| {
             const sqe = try ring.get_sqe();
-            sqe.prep_timeout(&.{ .tv_sec = 0, .tv_nsec = 10000 }, 0, 0);
+            sqe.prep_timeout(&.{ .sec = 0, .nsec = 10000 }, 0, 0);
             try testing.expect(try ring.submit() == 1);
         }
         var cqe_count: u32 = 0;

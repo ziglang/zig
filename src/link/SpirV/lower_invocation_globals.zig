@@ -403,7 +403,7 @@ const ModuleBuilder = struct {
                 .OpTypeFunction => {
                     // Re-emitted in `emitFunctionTypes()`. We can do this because
                     // OpTypeFunction's may not currently be used anywhere that is not
-                    // directly with an OpFunction. For now we igore Intels function
+                    // directly with an OpFunction. For now we ignore Intels function
                     // pointers extension, that is not a problem with a generalized
                     // pass anyway.
                     continue;

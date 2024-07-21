@@ -6,6 +6,7 @@ const assert = std.debug.assert;
 const build_options = @import("build_options");
 const builtin = @import("builtin");
 const codegen = @import("../codegen.zig");
+const dev = @import("../dev.zig");
 const fs = std.fs;
 const leb = std.leb;
 const link = @import("../link.zig");
@@ -60,7 +61,7 @@ export_table: bool,
 /// Output name of the file
 name: []const u8,
 /// If this is not null, an object file is created by LLVM and linked with LLD afterwards.
-llvm_object: ?*LlvmObject = null,
+llvm_object: ?LlvmObject.Ptr = null,
 /// The file index of a `ZigObject`. This will only contain a valid index when a zcu exists,
 /// and the chosen backend is the Wasm backend.
 zig_object_index: File.Index = .null,
@@ -1313,7 +1314,7 @@ fn validateFeatures(
 /// Creates synthetic linker-symbols, but only if they are being referenced from
 /// any object file. For instance, the `__heap_base` symbol will only be created,
 /// if one or multiple undefined references exist. When none exist, the symbol will
-/// not be created, ensuring we don't unneccesarily emit unreferenced symbols.
+/// not be created, ensuring we don't unnecessarily emit unreferenced symbols.
 fn resolveLazySymbols(wasm: *Wasm) !void {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
@@ -2339,10 +2340,10 @@ fn setupMemory(wasm: *Wasm) !void {
             try wasm.addErrorWithoutNotes("Maximum memory must be {d}-byte aligned", .{page_size});
         }
         if (memory_ptr > max_memory) {
-            try wasm.addErrorWithoutNotes("Maxmimum memory too small, must be at least {d} bytes", .{memory_ptr});
+            try wasm.addErrorWithoutNotes("Maximum memory too small, must be at least {d} bytes", .{memory_ptr});
         }
         if (max_memory > max_memory_allowed) {
-            try wasm.addErrorWithoutNotes("Maximum memory exceeds maxmium amount {d}", .{max_memory_allowed});
+            try wasm.addErrorWithoutNotes("Maximum memory exceeds maximum amount {d}", .{max_memory_allowed});
         }
         wasm.memories.limits.max = @as(u32, @intCast(max_memory / page_size));
         wasm.memories.limits.setFlag(.WASM_LIMITS_FLAG_HAS_MAX);
@@ -3325,6 +3326,8 @@ fn emitImport(wasm: *Wasm, writer: anytype, import: types.Import) !void {
 }
 
 fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
+    dev.check(.lld_linker);
+
     const tracy = trace(@src());
     defer tracy.end();
 

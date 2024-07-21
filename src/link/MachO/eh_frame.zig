@@ -68,7 +68,8 @@ pub const Cie = struct {
 
     pub fn getPersonality(cie: Cie, macho_file: *MachO) ?*Symbol {
         const personality = cie.personality orelse return null;
-        return macho_file.getSymbol(personality.index);
+        const object = cie.getObject(macho_file);
+        return object.getSymbolRef(personality.index, macho_file).getSymbol(macho_file);
     }
 
     pub fn eql(cie: Cie, other: Cie, macho_file: *MachO) bool {
@@ -223,11 +224,11 @@ pub const Fde = struct {
     }
 
     pub fn getAtom(fde: Fde, macho_file: *MachO) *Atom {
-        return macho_file.getAtom(fde.atom).?;
+        return fde.getObject(macho_file).getAtom(fde.atom).?;
     }
 
     pub fn getLsdaAtom(fde: Fde, macho_file: *MachO) ?*Atom {
-        return macho_file.getAtom(fde.lsda);
+        return fde.getObject(macho_file).getAtom(fde.lsda);
     }
 
     pub fn format(
@@ -448,7 +449,7 @@ pub fn write(macho_file: *MachO, buffer: []u8) void {
     }
 }
 
-pub fn writeRelocs(macho_file: *MachO, code: []u8, relocs: *std.ArrayList(macho.relocation_info)) error{Overflow}!void {
+pub fn writeRelocs(macho_file: *MachO, code: []u8, relocs: []macho.relocation_info) error{Overflow}!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -459,6 +460,7 @@ pub fn writeRelocs(macho_file: *MachO, code: []u8, relocs: *std.ArrayList(macho.
         else => 0,
     };
 
+    var i: usize = 0;
     for (macho_file.objects.items) |index| {
         const object = macho_file.getFile(index).?.object;
         for (object.cies.items) |cie| {
@@ -469,7 +471,7 @@ pub fn writeRelocs(macho_file: *MachO, code: []u8, relocs: *std.ArrayList(macho.
             if (cie.getPersonality(macho_file)) |sym| {
                 const r_address = math.cast(i32, cie.out_offset + cie.personality.?.offset) orelse return error.Overflow;
                 const r_symbolnum = math.cast(u24, sym.getOutputSymtabIndex(macho_file).?) orelse return error.Overflow;
-                relocs.appendAssumeCapacity(.{
+                relocs[i] = .{
                     .r_address = r_address,
                     .r_symbolnum = r_symbolnum,
                     .r_length = 2,
@@ -480,7 +482,8 @@ pub fn writeRelocs(macho_file: *MachO, code: []u8, relocs: *std.ArrayList(macho.
                         .x86_64 => @intFromEnum(macho.reloc_type_x86_64.X86_64_RELOC_GOT),
                         else => unreachable,
                     },
-                });
+                };
+                i += 1;
             }
         }
     }
@@ -531,6 +534,8 @@ pub fn writeRelocs(macho_file: *MachO, code: []u8, relocs: *std.ArrayList(macho.
             }
         }
     }
+
+    assert(relocs.len == i);
 }
 
 pub const EH_PE = struct {

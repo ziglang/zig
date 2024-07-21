@@ -67,9 +67,9 @@ pub fn parse(self: *Archive, macho_file: *MachO, path: []const u8, handle_index:
             mem.eql(u8, name, SYMDEF64_SORTED)) continue;
 
         const object = Object{
-            .archive = .{
+            .offset = pos,
+            .in_archive = .{
                 .path = try gpa.dupe(u8, path),
-                .offset = pos,
                 .size = hdr_size,
             },
             .path = try gpa.dupe(u8, name),

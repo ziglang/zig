@@ -8,6 +8,7 @@ const io = std.io;
 const fs = std.fs;
 const InstallDirectoryOptions = std.Build.InstallDirectoryOptions;
 const assert = std.debug.assert;
+const DevEnv = @import("src/dev.zig").Env;
 
 const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 14, .patch = 0 };
 const stack_size = 32 * 1024 * 1024;
@@ -174,6 +175,7 @@ pub fn build(b: *std.Build) !void {
     const link_libc = b.option(bool, "force-link-libc", "Force self-hosted compiler to link libc") orelse (enable_llvm or only_c);
     const sanitize_thread = b.option(bool, "sanitize-thread", "Enable thread-sanitization") orelse false;
     const strip = b.option(bool, "strip", "Omit debug information");
+    const valgrind = b.option(bool, "valgrind", "Enable valgrind integration");
     const pie = b.option(bool, "pie", "Produce a Position Independent Executable");
     const value_tracing = b.option(bool, "value-tracing", "Enable extra state tracking to help troubleshoot bugs in the compiler (using the std.debug.Trace API)") orelse false;
 
@@ -187,6 +189,7 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
         .target = target,
         .strip = strip,
+        .valgrind = valgrind,
         .sanitize_thread = sanitize_thread,
         .single_threaded = single_threaded,
     });
@@ -230,8 +233,7 @@ pub fn build(b: *std.Build) !void {
     exe_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
     exe_options.addOption(bool, "llvm_has_xtensa", llvm_has_xtensa);
     exe_options.addOption(bool, "force_gpa", force_gpa);
-    exe_options.addOption(bool, "only_c", only_c);
-    exe_options.addOption(bool, "only_core_functionality", only_c);
+    exe_options.addOption(DevEnv, "dev", b.option(DevEnv, "dev", "Build a compiler with a reduced feature set for development of specific features") orelse if (only_c) .bootstrap else .full);
 
     if (link_libc) {
         exe.linkLibC();
@@ -391,8 +393,6 @@ pub fn build(b: *std.Build) !void {
     test_cases_options.addOption(bool, "llvm_has_arc", llvm_has_arc);
     test_cases_options.addOption(bool, "llvm_has_xtensa", llvm_has_xtensa);
     test_cases_options.addOption(bool, "force_gpa", force_gpa);
-    test_cases_options.addOption(bool, "only_c", only_c);
-    test_cases_options.addOption(bool, "only_core_functionality", true);
     test_cases_options.addOption(bool, "enable_qemu", b.enable_qemu);
     test_cases_options.addOption(bool, "enable_wine", b.enable_wine);
     test_cases_options.addOption(bool, "enable_wasmtime", b.enable_wasmtime);
@@ -404,6 +404,7 @@ pub fn build(b: *std.Build) !void {
     test_cases_options.addOption([:0]const u8, "version", version);
     test_cases_options.addOption(std.SemanticVersion, "semver", semver);
     test_cases_options.addOption([]const []const u8, "test_filters", test_filters);
+    test_cases_options.addOption(DevEnv, "dev", if (only_c) .bootstrap else .core);
 
     var chosen_opt_modes_buf: [4]builtin.OptimizeMode = undefined;
     var chosen_mode_index: usize = 0;
@@ -573,7 +574,6 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     exe_options.addOption(u32, "mem_leak_frames", 0);
     exe_options.addOption(bool, "have_llvm", false);
     exe_options.addOption(bool, "force_gpa", false);
-    exe_options.addOption(bool, "only_c", true);
     exe_options.addOption([:0]const u8, "version", version);
     exe_options.addOption(std.SemanticVersion, "semver", semver);
     exe_options.addOption(bool, "enable_debug_extensions", false);
@@ -583,7 +583,7 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     exe_options.addOption(bool, "enable_tracy_callstack", false);
     exe_options.addOption(bool, "enable_tracy_allocation", false);
     exe_options.addOption(bool, "value_tracing", false);
-    exe_options.addOption(bool, "only_core_functionality", true);
+    exe_options.addOption(DevEnv, "dev", .bootstrap);
 
     const run_opt = b.addSystemCommand(&.{
         "wasm-opt",
@@ -607,6 +607,7 @@ const AddCompilerStepOptions = struct {
     optimize: std.builtin.OptimizeMode,
     target: std.Build.ResolvedTarget,
     strip: ?bool = null,
+    valgrind: ?bool = null,
     sanitize_thread: ?bool = null,
     single_threaded: ?bool = null,
 };
@@ -617,11 +618,12 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.St
         .root_source_file = b.path("src/main.zig"),
         .target = options.target,
         .optimize = options.optimize,
-        .max_rss = 7_000_000_000,
+        .max_rss = 7_100_000_000,
         .strip = options.strip,
         .sanitize_thread = options.sanitize_thread,
         .single_threaded = options.single_threaded,
     });
+    exe.root_module.valgrind = options.valgrind;
     exe.stack_size = stack_size;
 
     const aro_module = b.createModule(.{

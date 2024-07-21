@@ -30,6 +30,7 @@ const Zcu = @import("Zcu.zig");
 const AstGen = std.zig.AstGen;
 const mingw = @import("mingw.zig");
 const Server = std.zig.Server;
+const dev = @import("dev.zig");
 
 pub const std_options = .{
     .wasiCwd = wasi_cwd,
@@ -195,17 +196,6 @@ pub fn main() anyerror!void {
         wasi_preopens = try fs.wasi.preopensAlloc(arena);
     }
 
-    // Short circuit some of the other logic for bootstrapping.
-    if (build_options.only_c) {
-        if (mem.eql(u8, args[1], "build-exe")) {
-            return buildOutputType(gpa, arena, args, .{ .build = .Exe });
-        } else if (mem.eql(u8, args[1], "build-obj")) {
-            return buildOutputType(gpa, arena, args, .{ .build = .Obj });
-        } else {
-            @panic("only build-exe or build-obj is supported in a -Donly-c build");
-        }
-    }
-
     return mainArgs(gpa, arena, args);
 }
 
@@ -227,6 +217,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     }
 
     if (process.can_execv and std.posix.getenvZ("ZIG_IS_DETECTING_LIBC_PATHS") != null) {
+        dev.check(.cc_command);
         // In this case we have accidentally invoked ourselves as "the system C compiler"
         // to figure out where libc is installed. This is essentially infinite recursion
         // via child process execution due to the CC environment variable pointing to Zig.
@@ -260,39 +251,49 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     const cmd = args[1];
     const cmd_args = args[2..];
     if (mem.eql(u8, cmd, "build-exe")) {
+        dev.check(.build_exe_command);
         return buildOutputType(gpa, arena, args, .{ .build = .Exe });
     } else if (mem.eql(u8, cmd, "build-lib")) {
+        dev.check(.build_lib_command);
         return buildOutputType(gpa, arena, args, .{ .build = .Lib });
     } else if (mem.eql(u8, cmd, "build-obj")) {
+        dev.check(.build_obj_command);
         return buildOutputType(gpa, arena, args, .{ .build = .Obj });
     } else if (mem.eql(u8, cmd, "test")) {
+        dev.check(.test_command);
         return buildOutputType(gpa, arena, args, .zig_test);
     } else if (mem.eql(u8, cmd, "run")) {
+        dev.check(.run_command);
         return buildOutputType(gpa, arena, args, .run);
     } else if (mem.eql(u8, cmd, "dlltool") or
         mem.eql(u8, cmd, "ranlib") or
         mem.eql(u8, cmd, "lib") or
         mem.eql(u8, cmd, "ar"))
     {
+        dev.check(.ar_command);
         return process.exit(try llvmArMain(arena, args));
     } else if (mem.eql(u8, cmd, "build")) {
+        dev.check(.build_command);
         return cmdBuild(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "clang") or
         mem.eql(u8, cmd, "-cc1") or mem.eql(u8, cmd, "-cc1as"))
     {
+        dev.check(.clang_command);
         return process.exit(try clangMain(arena, args));
     } else if (mem.eql(u8, cmd, "ld.lld") or
         mem.eql(u8, cmd, "lld-link") or
         mem.eql(u8, cmd, "wasm-ld"))
     {
+        dev.check(.lld_linker);
         return process.exit(try lldMain(arena, args, true));
-    } else if (build_options.only_core_functionality) {
-        @panic("only a few subcommands are supported in a zig2.c build");
     } else if (mem.eql(u8, cmd, "cc")) {
+        dev.check(.cc_command);
         return buildOutputType(gpa, arena, args, .cc);
     } else if (mem.eql(u8, cmd, "c++")) {
+        dev.check(.cc_command);
         return buildOutputType(gpa, arena, args, .cpp);
     } else if (mem.eql(u8, cmd, "translate-c")) {
+        dev.check(.translate_c_command);
         return buildOutputType(gpa, arena, args, .translate_c);
     } else if (mem.eql(u8, cmd, "rc")) {
         const use_server = cmd_args.len > 0 and std.mem.eql(u8, cmd_args[0], "--zig-integration");
@@ -332,16 +333,19 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     } else if (mem.eql(u8, cmd, "init")) {
         return cmdInit(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "targets")) {
+        dev.check(.targets_command);
         const host = std.zig.resolveTargetQueryOrFatal(.{});
         const stdout = io.getStdOut().writer();
         return @import("print_targets.zig").cmdTargets(arena, cmd_args, stdout, host);
     } else if (mem.eql(u8, cmd, "version")) {
+        dev.check(.version_command);
         try std.io.getStdOut().writeAll(build_options.version ++ "\n");
         // Check libc++ linkage to make sure Zig was built correctly, but only
         // for "env" and "version" to avoid affecting the startup time for
         // build-critical commands (check takes about ~10 μs)
         return verifyLibcxxCorrectlyLinked();
     } else if (mem.eql(u8, cmd, "env")) {
+        dev.check(.env_command);
         verifyLibcxxCorrectlyLinked();
         return @import("print_env.zig").cmdEnv(arena, cmd_args, io.getStdOut().writer());
     } else if (mem.eql(u8, cmd, "reduce")) {
@@ -350,8 +354,10 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             .root_src_path = "reduce.zig",
         });
     } else if (mem.eql(u8, cmd, "zen")) {
+        dev.check(.zen_command);
         return io.getStdOut().writeAll(info_zen);
     } else if (mem.eql(u8, cmd, "help") or mem.eql(u8, cmd, "-h") or mem.eql(u8, cmd, "--help")) {
+        dev.check(.help_command);
         return io.getStdOut().writeAll(usage);
     } else if (mem.eql(u8, cmd, "ast-check")) {
         return cmdAstCheck(gpa, arena, cmd_args);
@@ -726,14 +732,10 @@ const ArgMode = union(enum) {
     run,
 };
 
-/// Avoid dragging networking into zig2.c because it adds dependencies on some
-/// linker symbols that are annoying to satisfy while bootstrapping.
-const Ip4Address = if (build_options.only_core_functionality) void else std.net.Ip4Address;
-
 const Listen = union(enum) {
     none,
-    ip4: Ip4Address,
-    stdio,
+    stdio: if (dev.env.supports(.stdio_listen)) void else noreturn,
+    ip4: if (dev.env.supports(.network_listen)) std.net.Ip4Address else noreturn,
 };
 
 const ArgsIterator = struct {
@@ -1338,9 +1340,10 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "--listen")) {
                         const next_arg = args_iter.nextOrFatal();
                         if (mem.eql(u8, next_arg, "-")) {
+                            dev.check(.stdio_listen);
                             listen = .stdio;
                         } else {
-                            if (build_options.only_core_functionality) unreachable;
+                            dev.check(.network_listen);
                             // example: --listen 127.0.0.1:9000
                             var it = std.mem.splitScalar(u8, next_arg, ':');
                             const host = it.next().?;
@@ -1351,6 +1354,7 @@ fn buildOutputType(
                                 fatal("invalid host: '{s}': {s}", .{ host, @errorName(err) }) };
                         }
                     } else if (mem.eql(u8, arg, "--listen=-")) {
+                        dev.check(.stdio_listen);
                         listen = .stdio;
                     } else if (mem.eql(u8, arg, "--debug-link-snapshot")) {
                         if (!build_options.enable_link_snapshots) {
@@ -1359,6 +1363,7 @@ fn buildOutputType(
                             enable_link_snapshots = true;
                         }
                     } else if (mem.eql(u8, arg, "-fincremental")) {
+                        dev.check(.incremental);
                         opt_incremental = true;
                     } else if (mem.eql(u8, arg, "-fno-incremental")) {
                         opt_incremental = false;
@@ -1762,7 +1767,7 @@ fn buildOutputType(
             }
         },
         .cc, .cpp => {
-            if (build_options.only_c) unreachable;
+            dev.check(.cc_command);
 
             emit_h = .no;
             soname = .no;
@@ -3110,7 +3115,7 @@ fn buildOutputType(
     var thread_pool: ThreadPool = undefined;
     try thread_pool.init(.{
         .allocator = gpa,
-        .n_jobs = @min(@max(n_jobs orelse std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(u8)),
+        .n_jobs = @min(@max(n_jobs orelse std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(Zcu.PerThread.IdBacking)),
         .track_ids = true,
     });
     defer thread_pool.deinit();
@@ -3395,7 +3400,6 @@ fn buildOutputType(
     switch (listen) {
         .none => {},
         .stdio => {
-            if (build_options.only_c) unreachable;
             try serve(
                 comp,
                 std.io.getStdIn(),
@@ -3409,8 +3413,6 @@ fn buildOutputType(
             return cleanExit();
         },
         .ip4 => |ip4_addr| {
-            if (build_options.only_core_functionality) unreachable;
-
             const addr: std.net.Address = .{ .in = ip4_addr };
 
             var server = try addr.listen(.{
@@ -3454,50 +3456,50 @@ fn buildOutputType(
             else => |e| return e,
         };
     }
-    if (build_options.only_c) return cleanExit();
     try comp.makeBinFileExecutable();
     saveState(comp, incremental);
 
-    if (test_exec_args.items.len == 0 and target.ofmt == .c) default_exec_args: {
-        // Default to using `zig run` to execute the produced .c code from `zig test`.
-        const c_code_loc = emit_bin_loc orelse break :default_exec_args;
-        const c_code_directory = c_code_loc.directory orelse comp.bin_file.?.emit.directory;
-        const c_code_path = try fs.path.join(arena, &[_][]const u8{
-            c_code_directory.path orelse ".", c_code_loc.basename,
-        });
-        try test_exec_args.appendSlice(arena, &.{ self_exe_path, "run" });
-        if (zig_lib_directory.path) |p| {
-            try test_exec_args.appendSlice(arena, &.{ "-I", p });
-        }
-
-        if (create_module.resolved_options.link_libc) {
-            try test_exec_args.append(arena, "-lc");
-        } else if (target.os.tag == .windows) {
-            try test_exec_args.appendSlice(arena, &.{
-                "--subsystem", "console",
-                "-lkernel32",  "-lntdll",
-            });
-        }
-
-        const first_cli_mod = create_module.modules.values()[0];
-        if (first_cli_mod.target_arch_os_abi) |triple| {
-            try test_exec_args.appendSlice(arena, &.{ "-target", triple });
-        }
-        if (first_cli_mod.target_mcpu) |mcpu| {
-            try test_exec_args.append(arena, try std.fmt.allocPrint(arena, "-mcpu={s}", .{mcpu}));
-        }
-        if (create_module.dynamic_linker) |dl| {
-            try test_exec_args.appendSlice(arena, &.{ "--dynamic-linker", dl });
-        }
-        try test_exec_args.append(arena, c_code_path);
-    }
-
-    const run_or_test = switch (arg_mode) {
+    if (switch (arg_mode) {
         .run => true,
         .zig_test => !test_no_exec,
         else => false,
-    };
-    if (run_or_test) {
+    }) {
+        dev.checkAny(&.{ .run_command, .test_command });
+
+        if (test_exec_args.items.len == 0 and target.ofmt == .c) default_exec_args: {
+            // Default to using `zig run` to execute the produced .c code from `zig test`.
+            const c_code_loc = emit_bin_loc orelse break :default_exec_args;
+            const c_code_directory = c_code_loc.directory orelse comp.bin_file.?.emit.directory;
+            const c_code_path = try fs.path.join(arena, &[_][]const u8{
+                c_code_directory.path orelse ".", c_code_loc.basename,
+            });
+            try test_exec_args.appendSlice(arena, &.{ self_exe_path, "run" });
+            if (zig_lib_directory.path) |p| {
+                try test_exec_args.appendSlice(arena, &.{ "-I", p });
+            }
+
+            if (create_module.resolved_options.link_libc) {
+                try test_exec_args.append(arena, "-lc");
+            } else if (target.os.tag == .windows) {
+                try test_exec_args.appendSlice(arena, &.{
+                    "--subsystem", "console",
+                    "-lkernel32",  "-lntdll",
+                });
+            }
+
+            const first_cli_mod = create_module.modules.values()[0];
+            if (first_cli_mod.target_arch_os_abi) |triple| {
+                try test_exec_args.appendSlice(arena, &.{ "-target", triple });
+            }
+            if (first_cli_mod.target_mcpu) |mcpu| {
+                try test_exec_args.append(arena, try std.fmt.allocPrint(arena, "-mcpu={s}", .{mcpu}));
+            }
+            if (create_module.dynamic_linker) |dl| {
+                try test_exec_args.appendSlice(arena, &.{ "--dynamic-linker", dl });
+            }
+            try test_exec_args.append(arena, c_code_path);
+        }
+
         try runOrTest(
             comp,
             gpa,
@@ -4230,6 +4232,9 @@ fn serveUpdateResults(s: *Server, comp: *Compilation) !void {
         });
         return;
     }
+
+    // Serve empty error bundle to indicate the update is done.
+    try s.serveErrorBundle(std.zig.ErrorBundle.empty);
 }
 
 fn runOrTest(
@@ -4456,7 +4461,8 @@ fn cmdTranslateC(
     file_system_inputs: ?*std.ArrayListUnmanaged(u8),
     prog_node: std.Progress.Node,
 ) !void {
-    if (build_options.only_core_functionality) @panic("@translate-c is not available in a zig2.c build");
+    dev.check(.translate_c_command);
+
     const color: Color = .auto;
     assert(comp.c_source_files.len == 1);
     const c_source_file = comp.c_source_files[0];
@@ -4624,6 +4630,8 @@ const usage_init =
 ;
 
 fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
+    dev.check(.init_command);
+
     {
         var i: usize = 0;
         while (i < args.len) : (i += 1) {
@@ -4675,6 +4683,8 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 }
 
 fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
+    dev.check(.build_command);
+
     var build_file: ?[]const u8 = null;
     var override_lib_dir: ?[]const u8 = try EnvVar.ZIG_LIB_DIR.get(arena);
     var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
@@ -4736,7 +4746,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     // the strategy is to choose a temporary file name ahead of time, and then
     // read this file in the parent to obtain the results, in the case the child
     // exits with code 3.
-    const results_tmp_file_nonce = Package.Manifest.hex64(std.crypto.random.int(u64));
+    const results_tmp_file_nonce = std.fmt.hex(std.crypto.random.int(u64));
     try child_argv.append("-Z" ++ results_tmp_file_nonce);
 
     var color: Color = .auto;
@@ -4961,21 +4971,17 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var thread_pool: ThreadPool = undefined;
     try thread_pool.init(.{
         .allocator = gpa,
-        .n_jobs = @min(@max(n_jobs orelse std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(u8)),
+        .n_jobs = @min(@max(n_jobs orelse std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(Zcu.PerThread.IdBacking)),
         .track_ids = true,
     });
     defer thread_pool.deinit();
 
-    // Dummy http client that is not actually used when only_core_functionality is enabled.
+    // Dummy http client that is not actually used when fetch_command is unsupported.
     // Prevents bootstrap from depending on a bunch of unnecessary stuff.
-    const HttpClient = if (build_options.only_core_functionality) struct {
+    var http_client: if (dev.env.supports(.fetch_command)) std.http.Client else struct {
         allocator: Allocator,
-        fn deinit(self: *@This()) void {
-            _ = self;
-        }
-    } else std.http.Client;
-
-    var http_client: HttpClient = .{ .allocator = gpa };
+        fn deinit(_: @This()) void {}
+    } = .{ .allocator = gpa };
     defer http_client.deinit();
 
     var unlazy_set: Package.Fetch.JobQueue.UnlazySet = .{};
@@ -5042,16 +5048,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             var cleanup_build_dir: ?fs.Dir = null;
             defer if (cleanup_build_dir) |*dir| dir.close();
 
-            if (build_options.only_core_functionality) {
-                try createEmptyDependenciesModule(
-                    arena,
-                    root_mod,
-                    global_cache_directory,
-                    local_cache_directory,
-                    builtin_mod,
-                    config,
-                );
-            } else {
+            if (dev.env.supports(.fetch_command)) {
                 const fetch_prog_node = root_prog_node.start("Fetch Packages", 0);
                 defer fetch_prog_node.end();
 
@@ -5200,7 +5197,14 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                         }
                     }
                 }
-            }
+            } else try createEmptyDependenciesModule(
+                arena,
+                root_mod,
+                global_cache_directory,
+                local_cache_directory,
+                builtin_mod,
+                config,
+            );
 
             try root_mod.deps.put(arena, "@build", build_mod);
 
@@ -5266,7 +5270,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     if (code == 2) process.exit(2);
 
                     if (code == 3) {
-                        if (build_options.only_core_functionality) process.exit(3);
+                        if (!dev.env.supports(.fetch_command)) process.exit(3);
                         // Indicates the configure phase failed due to missing lazy
                         // dependencies and stdout contains the hashes of the ones
                         // that are missing.
@@ -5343,6 +5347,8 @@ fn jitCmd(
     args: []const []const u8,
     options: JitCmdOptions,
 ) !void {
+    dev.check(.jit_command);
+
     const color: Color = .auto;
     const root_prog_node = if (options.progress_node) |node| node else std.Progress.start(.{
         .disable_printing = (color == .off),
@@ -5399,7 +5405,7 @@ fn jitCmd(
     var thread_pool: ThreadPool = undefined;
     try thread_pool.init(.{
         .allocator = gpa,
-        .n_jobs = @min(@max(std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(u8)),
+        .n_jobs = @min(@max(std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(Zcu.PerThread.IdBacking)),
         .track_ids = true,
     });
     defer thread_pool.deinit();
@@ -5992,6 +5998,8 @@ fn cmdAstCheck(
     arena: Allocator,
     args: []const []const u8,
 ) !void {
+    dev.check(.ast_check_command);
+
     const Zir = std.zig.Zir;
 
     var color: Color = .auto;
@@ -6151,6 +6159,8 @@ fn cmdDetectCpu(
     arena: Allocator,
     args: []const []const u8,
 ) !void {
+    dev.check(.detect_cpu_command);
+
     _ = gpa;
     _ = arena;
 
@@ -6290,6 +6300,8 @@ fn cmdDumpLlvmInts(
     arena: Allocator,
     args: []const []const u8,
 ) !void {
+    dev.check(.llvm_ints_command);
+
     _ = gpa;
 
     if (!build_options.have_llvm)
@@ -6333,6 +6345,8 @@ fn cmdDumpZir(
     arena: Allocator,
     args: []const []const u8,
 ) !void {
+    dev.check(.dump_zir_command);
+
     _ = arena;
     const Zir = std.zig.Zir;
 
@@ -6392,6 +6406,8 @@ fn cmdChangelist(
     arena: Allocator,
     args: []const []const u8,
 ) !void {
+    dev.check(.changelist_command);
+
     const color: Color = .auto;
     const Zir = std.zig.Zir;
 
@@ -6892,6 +6908,8 @@ fn cmdFetch(
     arena: Allocator,
     args: []const []const u8,
 ) !void {
+    dev.check(.fetch_command);
+
     const color: Color = .auto;
     const work_around_btrfs_bug = native_os == .linux and
         EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
@@ -7178,8 +7196,7 @@ fn createDependenciesModule(
     // Atomically create the file in a directory named after the hash of its contents.
     const basename = "dependencies.zig";
     const rand_int = std.crypto.random.int(u64);
-    const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++
-        Package.Manifest.hex64(rand_int);
+    const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(rand_int);
     {
         var tmp_dir = try local_cache_directory.handle.makeOpenPath(tmp_dir_sub_path, .{});
         defer tmp_dir.close();

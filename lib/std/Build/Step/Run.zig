@@ -743,7 +743,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
     // We do not know the final output paths yet, use temp paths to run the command.
     const rand_int = std.crypto.random.int(u64);
-    const tmp_dir_path = "tmp" ++ fs.path.sep_str ++ std.Build.hex64(rand_int);
+    const tmp_dir_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(rand_int);
 
     for (output_placeholders.items) |placeholder| {
         const output_components = .{ tmp_dir_path, placeholder.output.basename };

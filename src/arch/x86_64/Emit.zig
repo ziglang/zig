@@ -51,12 +51,12 @@ pub fn emitMir(emit: *Emit) Error!void {
                     });
                 } else if (emit.lower.bin_file.cast(link.File.MachO)) |macho_file| {
                     // Add relocation to the decl.
-                    const atom = macho_file.getSymbol(symbol.atom_index).getAtom(macho_file).?;
-                    const sym_index = macho_file.getZigObject().?.symbols.items[symbol.sym_index];
+                    const zo = macho_file.getZigObject().?;
+                    const atom = zo.symbols.items[symbol.atom_index].getAtom(macho_file).?;
                     try atom.addReloc(macho_file, .{
                         .tag = .@"extern",
                         .offset = end_offset - 4,
-                        .target = sym_index,
+                        .target = symbol.sym_index,
                         .addend = 0,
                         .type = .branch,
                         .meta = .{
@@ -160,11 +160,11 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .Obj => true,
                         .Lib => emit.lower.link_mode == .static,
                     };
-                    const atom = macho_file.getSymbol(data.atom_index).getAtom(macho_file).?;
-                    const sym_index = macho_file.getZigObject().?.symbols.items[data.sym_index];
-                    const sym = macho_file.getSymbol(sym_index);
+                    const zo = macho_file.getZigObject().?;
+                    const atom = zo.symbols.items[data.atom_index].getAtom(macho_file).?;
+                    const sym = &zo.symbols.items[data.sym_index];
                     if (sym.flags.needs_zig_got and !is_obj_or_static_lib) {
-                        _ = try sym.getOrCreateZigGotEntry(sym_index, macho_file);
+                        _ = try sym.getOrCreateZigGotEntry(data.sym_index, macho_file);
                     }
                     const @"type": link.File.MachO.Relocation.Type = if (sym.flags.needs_zig_got and !is_obj_or_static_lib)
                         .zig_got_load
@@ -179,7 +179,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     try atom.addReloc(macho_file, .{
                         .tag = .@"extern",
                         .offset = @intCast(end_offset - 4),
-                        .target = sym_index,
+                        .target = data.sym_index,
                         .addend = 0,
                         .type = @"type",
                         .meta = .{

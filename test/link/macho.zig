@@ -25,9 +25,12 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testLinkingStaticLib(b, .{ .use_llvm = false, .target = x86_64_target }));
     macho_step.dependOn(testReexportsZig(b, .{ .use_llvm = false, .target = x86_64_target }));
     macho_step.dependOn(testRelocatableZig(b, .{ .use_llvm = false, .target = x86_64_target }));
+    macho_step.dependOn(testTlsZig(b, .{ .use_llvm = false, .target = x86_64_target }));
+    macho_step.dependOn(testUnresolvedError(b, .{ .use_llvm = false, .target = x86_64_target }));
 
     // Exercise linker with LLVM backend
     macho_step.dependOn(testDeadStrip(b, .{ .target = default_target }));
+    macho_step.dependOn(testDuplicateDefinitions(b, .{ .target = default_target }));
     macho_step.dependOn(testEmptyObject(b, .{ .target = default_target }));
     macho_step.dependOn(testEmptyZig(b, .{ .target = default_target }));
     macho_step.dependOn(testEntryPoint(b, .{ .target = default_target }));
@@ -56,7 +59,9 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testTentative(b, .{ .target = default_target }));
     macho_step.dependOn(testThunks(b, .{ .target = aarch64_target }));
     macho_step.dependOn(testTlsLargeTbss(b, .{ .target = default_target }));
+    macho_step.dependOn(testTlsZig(b, .{ .target = default_target }));
     macho_step.dependOn(testUndefinedFlag(b, .{ .target = default_target }));
+    macho_step.dependOn(testUnresolvedError(b, .{ .target = default_target }));
     macho_step.dependOn(testUnwindInfo(b, .{ .target = default_target }));
     macho_step.dependOn(testUnwindInfoNoSubsectionsX64(b, .{ .target = x86_64_target }));
     macho_step.dependOn(testUnwindInfoNoSubsectionsArm64(b, .{ .target = aarch64_target }));
@@ -174,6 +179,37 @@ fn testDeadStrip(b: *Build, opts: Options) *Step {
         run.expectStdOutEqual("1 2\n");
         test_step.dependOn(&run.step);
     }
+
+    return test_step;
+}
+
+fn testDuplicateDefinitions(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "duplicate-definitions", opts);
+
+    const obj = addObject(b, opts, .{ .name = "a", .zig_source_bytes = 
+    \\var x: usize = 1;
+    \\export fn strong() void { x += 1; }
+    \\export fn weak() void { x += 1; }
+    });
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .zig_source_bytes = 
+    \\var x: usize = 1;
+    \\export fn strong() void { x += 1; }
+    \\comptime { @export(weakImpl, .{ .name = "weak", .linkage = .weak }); }
+    \\fn weakImpl() callconv(.C) void { x += 1; }
+    \\extern fn weak() void;
+    \\pub fn main() void {
+    \\    weak();
+    \\    strong();
+    \\}
+    });
+    exe.addObject(obj);
+
+    expectLinkErrors(exe, test_step, .{ .exact = &.{
+        "error: duplicate symbol definition: _strong",
+        "note: defined by /?/a.o",
+        "note: defined by /?/main.o",
+    } });
 
     return test_step;
 }
@@ -912,7 +948,7 @@ fn testLinksection(b: *Build, opts: Options) *Step {
 
     if (opts.optimize == .Debug) {
         check.checkInSymtab();
-        check.checkContains("(__TEXT,__TestGenFnA) _a.testGenericFn__anon_");
+        check.checkContains("(__TEXT,__TestGenFnA) _main.testGenericFn__anon_");
     }
 
     test_step.dependOn(&check.step);
@@ -2274,6 +2310,32 @@ fn testTlsLargeTbss(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
+fn testTlsZig(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "tls-zig", opts);
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .zig_source_bytes = 
+    \\const std = @import("std");
+    \\threadlocal var x: i32 = 0;
+    \\threadlocal var y: i32 = -1;
+    \\pub fn main() void {
+    \\    std.io.getStdOut().writer().print("{d} {d}\n", .{x, y}) catch unreachable;
+    \\    x -= 1;
+    \\    y += 1;
+    \\    std.io.getStdOut().writer().print("{d} {d}\n", .{x, y}) catch unreachable;
+    \\}
+    });
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual(
+        \\0 -1
+        \\-1 0
+        \\
+    );
+    test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
 fn testTwoLevelNamespace(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "two-level-namespace", opts);
 
@@ -2466,6 +2528,42 @@ fn testUndefinedFlag(b: *Build, opts: Options) *Step {
         check.checkInSymtab();
         check.checkNotPresent("_foo");
         test_step.dependOn(&check.step);
+    }
+
+    return test_step;
+}
+
+fn testUnresolvedError(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "unresolved-error", opts);
+
+    const obj = addObject(b, opts, .{ .name = "a", .zig_source_bytes = 
+    \\extern fn foo() i32;
+    \\export fn bar() i32 { return foo() + 1; }
+    });
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .zig_source_bytes = 
+    \\const std = @import("std");
+    \\extern fn foo() i32;
+    \\extern fn bar() i32;
+    \\pub fn main() void {
+    \\    std.debug.print("foo() + bar() = {d}", .{foo() + bar()});
+    \\}
+    });
+    exe.addObject(obj);
+
+    // TODO order should match across backends if possible
+    if (opts.use_llvm) {
+        expectLinkErrors(exe, test_step, .{ .exact = &.{
+            "error: undefined symbol: _foo",
+            "note: referenced by /?/a.o:_bar",
+            "note: referenced by /?/main.o:_main.main",
+        } });
+    } else {
+        expectLinkErrors(exe, test_step, .{ .exact = &.{
+            "error: undefined symbol: _foo",
+            "note: referenced by /?/main.o:_main.main",
+            "note: referenced by /?/a.o:__TEXT$__text_zig",
+        } });
     }
 
     return test_step;

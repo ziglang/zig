@@ -20,6 +20,7 @@ const is_ppc64 = native_arch.isPPC64();
 const is_sparc = native_arch.isSPARC();
 const iovec = std.posix.iovec;
 const iovec_const = std.posix.iovec_const;
+const winsize = std.posix.winsize;
 const ACCMODE = std.posix.ACCMODE;
 
 test {
@@ -44,7 +45,10 @@ const arch_bits = switch (native_arch) {
     .mips64, .mips64el => @import("linux/mips64.zig"),
     .powerpc, .powerpcle => @import("linux/powerpc.zig"),
     .powerpc64, .powerpc64le => @import("linux/powerpc64.zig"),
-    else => struct {},
+    else => struct {
+        pub const ucontext_t = void;
+        pub const getcontext = {};
+    },
 };
 pub const syscall0 = syscall_bits.syscall0;
 pub const syscall1 = syscall_bits.syscall1;
@@ -65,7 +69,6 @@ pub const Elf_Symndx = arch_bits.Elf_Symndx;
 pub const F = arch_bits.F;
 pub const Flock = arch_bits.Flock;
 pub const HWCAP = arch_bits.HWCAP;
-pub const LOCK = arch_bits.LOCK;
 pub const MMAP2_UNIT = arch_bits.MMAP2_UNIT;
 pub const REG = arch_bits.REG;
 pub const SC = arch_bits.SC;
@@ -586,7 +589,7 @@ pub fn futex2_waitv(
     /// Optional absolute timeout.
     timeout: ?*const timespec,
     /// Clock to be used for the timeout, realtime or monotonic.
-    clockid: i32,
+    clockid: clockid_t,
 ) usize {
     return syscall5(
         .futex_waitv,
@@ -612,7 +615,7 @@ pub fn futex2_wait(
     /// Optional absolute timeout.
     timeout: *const timespec,
     /// Clock to be used for the timeout, realtime or monotonic.
-    clockid: i32,
+    clockid: clockid_t,
 ) usize {
     return syscall6(
         .futex_wait,
@@ -712,14 +715,27 @@ pub fn fanotify_mark(
     dirfd: fd_t,
     pathname: ?[*:0]const u8,
 ) usize {
-    return syscall5(
-        .fanotify_mark,
-        @bitCast(@as(isize, fd)),
-        @as(u32, @bitCast(flags)),
-        @bitCast(mask),
-        @bitCast(@as(isize, dirfd)),
-        @intFromPtr(pathname),
-    );
+    if (usize_bits < 64) {
+        const mask_halves = splitValue64(@bitCast(mask));
+        return syscall6(
+            .fanotify_mark,
+            @bitCast(@as(isize, fd)),
+            @as(u32, @bitCast(flags)),
+            mask_halves[0],
+            mask_halves[1],
+            @bitCast(@as(isize, dirfd)),
+            @intFromPtr(pathname),
+        );
+    } else {
+        return syscall5(
+            .fanotify_mark,
+            @bitCast(@as(isize, fd)),
+            @as(u32, @bitCast(flags)),
+            @bitCast(mask),
+            @bitCast(@as(isize, dirfd)),
+            @intFromPtr(pathname),
+        );
+    }
 }
 
 pub fn name_to_handle_at(
@@ -843,8 +859,8 @@ pub fn poll(fds: [*]pollfd, n: nfds_t, timeout: i32) usize {
             n,
             @intFromPtr(if (timeout >= 0)
                 &timespec{
-                    .tv_sec = @divTrunc(timeout, 1000),
-                    .tv_nsec = @rem(timeout, 1000) * 1000000,
+                    .sec = @divTrunc(timeout, 1000),
+                    .nsec = @rem(timeout, 1000) * 1000000,
                 }
             else
                 null),
@@ -1362,10 +1378,10 @@ pub fn flock(fd: fd_t, operation: i32) usize {
 }
 
 // We must follow the C calling convention when we call into the VDSO
-const VdsoClockGettime = *align(1) const fn (i32, *timespec) callconv(.C) usize;
+const VdsoClockGettime = *align(1) const fn (clockid_t, *timespec) callconv(.C) usize;
 var vdso_clock_gettime: ?VdsoClockGettime = &init_vdso_clock_gettime;
 
-pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
+pub fn clock_gettime(clk_id: clockid_t, tp: *timespec) usize {
     if (@hasDecl(VDSO, "CGT_SYM")) {
         const ptr = @atomicLoad(?VdsoClockGettime, &vdso_clock_gettime, .unordered);
         if (ptr) |f| {
@@ -1376,10 +1392,10 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
             }
         }
     }
-    return syscall2(.clock_gettime, @as(usize, @bitCast(@as(isize, clk_id))), @intFromPtr(tp));
+    return syscall2(.clock_gettime, @intFromEnum(clk_id), @intFromPtr(tp));
 }
 
-fn init_vdso_clock_gettime(clk: i32, ts: *timespec) callconv(.C) usize {
+fn init_vdso_clock_gettime(clk: clockid_t, ts: *timespec) callconv(.C) usize {
     const ptr: ?VdsoClockGettime = @ptrFromInt(vdso.lookup(VDSO.CGT_VER, VDSO.CGT_SYM));
     // Note that we may not have a VDSO at all, update the stub address anyway
     // so that clock_gettime will fall back on the good old (and slow) syscall
@@ -1962,8 +1978,12 @@ pub fn eventfd(count: u32, flags: u32) usize {
     return syscall2(.eventfd2, count, flags);
 }
 
-pub fn timerfd_create(clockid: i32, flags: TFD) usize {
-    return syscall2(.timerfd_create, @bitCast(@as(isize, clockid)), @as(u32, @bitCast(flags)));
+pub fn timerfd_create(clockid: clockid_t, flags: TFD) usize {
+    return syscall2(
+        .timerfd_create,
+        @intFromEnum(clockid),
+        @as(u32, @bitCast(flags)),
+    );
 }
 
 pub const itimerspec = extern struct {
@@ -4029,19 +4049,22 @@ pub const EPOLL = struct {
     pub const ET = (@as(u32, 1) << 31);
 };
 
-pub const CLOCK = struct {
-    pub const REALTIME = 0;
-    pub const MONOTONIC = 1;
-    pub const PROCESS_CPUTIME_ID = 2;
-    pub const THREAD_CPUTIME_ID = 3;
-    pub const MONOTONIC_RAW = 4;
-    pub const REALTIME_COARSE = 5;
-    pub const MONOTONIC_COARSE = 6;
-    pub const BOOTTIME = 7;
-    pub const REALTIME_ALARM = 8;
-    pub const BOOTTIME_ALARM = 9;
-    pub const SGI_CYCLE = 10;
-    pub const TAI = 11;
+pub const CLOCK = clockid_t;
+
+pub const clockid_t = enum(u32) {
+    REALTIME = 0,
+    MONOTONIC = 1,
+    PROCESS_CPUTIME_ID = 2,
+    THREAD_CPUTIME_ID = 3,
+    MONOTONIC_RAW = 4,
+    REALTIME_COARSE = 5,
+    MONOTONIC_COARSE = 6,
+    BOOTTIME = 7,
+    REALTIME_ALARM = 8,
+    BOOTTIME_ALARM = 9,
+    SGI_CYCLE = 10,
+    TAI = 11,
+    _,
 };
 
 pub const CSIGNAL = 0x000000ff;
@@ -4417,13 +4440,6 @@ pub const TFD = switch (native_arch) {
     },
 };
 
-pub const winsize = extern struct {
-    ws_row: u16,
-    ws_col: u16,
-    ws_xpixel: u16,
-    ws_ypixel: u16,
-};
-
 /// NSIG is the total number of signals defined.
 /// As signal numbers are sequential, NSIG is one greater than the largest defined signal number.
 pub const NSIG = if (is_mips) 128 else 65;
@@ -4597,13 +4613,13 @@ pub const sockaddr = extern struct {
 };
 
 pub const mmsghdr = extern struct {
-    msg_hdr: msghdr,
-    msg_len: u32,
+    hdr: msghdr,
+    len: u32,
 };
 
 pub const mmsghdr_const = extern struct {
-    msg_hdr: msghdr_const,
-    msg_len: u32,
+    hdr: msghdr_const,
+    len: u32,
 };
 
 pub const epoll_data = extern union {
@@ -4748,10 +4764,10 @@ pub const dirent64 = extern struct {
 };
 
 pub const dl_phdr_info = extern struct {
-    dlpi_addr: usize,
-    dlpi_name: ?[*:0]const u8,
-    dlpi_phdr: [*]std.elf.Phdr,
-    dlpi_phnum: u16,
+    addr: usize,
+    name: ?[*:0]const u8,
+    phdr: [*]std.elf.Phdr,
+    phnum: u16,
 };
 
 pub const CPU_SETSIZE = 128;
@@ -4777,9 +4793,11 @@ pub const SIGSTKSZ = switch (native_arch) {
     else => @compileError("SIGSTKSZ not defined for this architecture"),
 };
 
-pub const SS_ONSTACK = 1;
-pub const SS_DISABLE = 2;
-pub const SS_AUTODISARM = 1 << 31;
+pub const SS = struct {
+    pub const ONSTACK = 1;
+    pub const DISABLE = 2;
+    pub const AUTODISARM = 1 << 31;
+};
 
 pub const stack_t = if (is_mips)
     // IRIX compatible stack_t
@@ -5493,8 +5511,8 @@ pub const STATX_ATTR_ENCRYPTED = 0x0800;
 pub const STATX_ATTR_AUTOMOUNT = 0x1000;
 
 pub const statx_timestamp = extern struct {
-    tv_sec: i64,
-    tv_nsec: u32,
+    sec: i64,
+    nsec: u32,
     __pad1: u32,
 };
 
@@ -5562,7 +5580,7 @@ pub const Statx = extern struct {
 };
 
 pub const addrinfo = extern struct {
-    flags: i32,
+    flags: AI,
     family: i32,
     socktype: i32,
     protocol: i32,
@@ -5570,6 +5588,18 @@ pub const addrinfo = extern struct {
     addr: ?*sockaddr,
     canonname: ?[*:0]u8,
     next: ?*addrinfo,
+};
+
+pub const AI = packed struct(u32) {
+    PASSIVE: bool = false,
+    CANONNAME: bool = false,
+    NUMERICHOST: bool = false,
+    V4MAPPED: bool = false,
+    ALL: bool = false,
+    ADDRCONFIG: bool = false,
+    _6: u4 = 0,
+    NUMERICSERV: bool = false,
+    _: u21 = 0,
 };
 
 pub const IPPORT_RESERVED = 1024;
@@ -6028,12 +6058,7 @@ pub const V = switch (native_arch) {
     },
 };
 
-pub const TCSA = enum(c_uint) {
-    NOW,
-    DRAIN,
-    FLUSH,
-    _,
-};
+pub const TCSA = std.posix.TCSA;
 
 pub const termios = switch (native_arch) {
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => extern struct {
@@ -6097,55 +6122,40 @@ else
     enum(c_int) {
         /// Per-process CPU limit, in seconds.
         CPU,
-
         /// Largest file that can be created, in bytes.
         FSIZE,
-
         /// Maximum size of data segment, in bytes.
         DATA,
-
         /// Maximum size of stack segment, in bytes.
         STACK,
-
         /// Largest core file that can be created, in bytes.
         CORE,
-
         /// Largest resident set size, in bytes.
         /// This affects swapping; processes that are exceeding their
         /// resident set size will be more likely to have physical memory
         /// taken from them.
         RSS,
-
         /// Number of processes.
         NPROC,
-
         /// Number of open files.
         NOFILE,
-
         /// Locked-in-memory address space.
         MEMLOCK,
-
         /// Address space limit.
         AS,
-
         /// Maximum number of file locks.
         LOCKS,
-
         /// Maximum number of pending signals.
         SIGPENDING,
-
         /// Maximum bytes in POSIX message queues.
         MSGQUEUE,
-
         /// Maximum nice priority allowed to raise to.
         /// Nice levels 19 .. -20 correspond to 0 .. 39
         /// values of this resource limit.
         NICE,
-
         /// Maximum realtime priority allowed for non-privileged
         /// processes.
         RTPRIO,
-
         /// Maximum CPU time in µs that a process scheduled under a real-time
         /// scheduling policy may consume without making a blocking system
         /// call before being forcibly descheduled.
@@ -6223,13 +6233,13 @@ pub const POSIX_FADV = switch (native_arch) {
 
 /// The timespec struct used by the kernel.
 pub const kernel_timespec = if (@sizeOf(usize) >= 8) timespec else extern struct {
-    tv_sec: i64,
-    tv_nsec: i64,
+    sec: i64,
+    nsec: i64,
 };
 
 pub const timespec = extern struct {
-    tv_sec: isize,
-    tv_nsec: isize,
+    sec: isize,
+    nsec: isize,
 };
 
 pub const XDP = struct {
@@ -7102,7 +7112,7 @@ pub const perf_event_attr = extern struct {
     /// Defines size of the user stack to dump on samples.
     sample_stack_user: u32 = 0,
 
-    clockid: i32 = 0,
+    clockid: clockid_t = 0,
     /// Defines set of regs to dump for each sample
     /// state captured on:
     ///  - precise = 0: PMU interrupt

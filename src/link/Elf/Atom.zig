@@ -1113,6 +1113,7 @@ const x86_64 = struct {
         code: ?[]const u8,
         it: *RelocsIterator,
     ) !void {
+        dev.check(.x86_64_backend);
         const is_static = elf_file.base.isStatic();
         const is_dyn_lib = elf_file.isEffectivelyDynLib();
 
@@ -1235,6 +1236,7 @@ const x86_64 = struct {
         code: []u8,
         stream: anytype,
     ) (error{ InvalidInstruction, CannotEncode } || RelocError)!void {
+        dev.check(.x86_64_backend);
         const r_type: elf.R_X86_64 = @enumFromInt(rel.r_type());
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
 
@@ -1380,6 +1382,7 @@ const x86_64 = struct {
         code: []u8,
         stream: anytype,
     ) !void {
+        dev.check(.x86_64_backend);
         _ = code;
         _ = it;
         const r_type: elf.R_X86_64 = @enumFromInt(rel.r_type());
@@ -1420,6 +1423,7 @@ const x86_64 = struct {
     }
 
     fn relaxGotpcrelx(code: []u8) !void {
+        dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse return error.RelaxFailure;
         const inst = switch (old_inst.encoding.mnemonic) {
             .call => try Instruction.new(old_inst.prefix, .call, &.{
@@ -1438,6 +1442,7 @@ const x86_64 = struct {
     }
 
     fn relaxRexGotpcrelx(code: []u8) !void {
+        dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse return error.RelaxFailure;
         switch (old_inst.encoding.mnemonic) {
             .mov => {
@@ -1456,6 +1461,7 @@ const x86_64 = struct {
         elf_file: *Elf,
         stream: anytype,
     ) !void {
+        dev.check(.x86_64_backend);
         assert(rels.len == 2);
         const writer = stream.writer();
         const rel: elf.R_X86_64 = @enumFromInt(rels[1].r_type());
@@ -1495,6 +1501,7 @@ const x86_64 = struct {
         elf_file: *Elf,
         stream: anytype,
     ) !void {
+        dev.check(.x86_64_backend);
         assert(rels.len == 2);
         const writer = stream.writer();
         const rel: elf.R_X86_64 = @enumFromInt(rels[1].r_type());
@@ -1543,6 +1550,7 @@ const x86_64 = struct {
     }
 
     fn canRelaxGotTpOff(code: []const u8) bool {
+        dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse return false;
         switch (old_inst.encoding.mnemonic) {
             .mov => if (Instruction.new(old_inst.prefix, .mov, &.{
@@ -1558,6 +1566,7 @@ const x86_64 = struct {
     }
 
     fn relaxGotTpOff(code: []u8) void {
+        dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse unreachable;
         switch (old_inst.encoding.mnemonic) {
             .mov => {
@@ -1574,6 +1583,7 @@ const x86_64 = struct {
     }
 
     fn relaxGotPcTlsDesc(code: []u8) !void {
+        dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse return error.RelaxFailure;
         switch (old_inst.encoding.mnemonic) {
             .lea => {
@@ -1596,6 +1606,7 @@ const x86_64 = struct {
         elf_file: *Elf,
         stream: anytype,
     ) !void {
+        dev.check(.x86_64_backend);
         assert(rels.len == 2);
         const writer = stream.writer();
         const rel: elf.R_X86_64 = @enumFromInt(rels[1].r_type());
@@ -2312,3 +2323,4 @@ const File = @import("file.zig").File;
 const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");
 const Thunk = @import("thunks.zig").Thunk;
+const dev = @import("../../dev.zig");

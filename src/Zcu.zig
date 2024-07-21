@@ -1,5 +1,8 @@
-//! Compilation of all Zig source code is represented by one `Module`.
-//! Each `Compilation` has exactly one or zero `Module`, depending on whether
+//! Zig Compilation Unit
+//!
+//! Compilation of all Zig source code is represented by one `Zcu`.
+//!
+//! Each `Compilation` has exactly one or zero `Zcu`, depending on whether
 //! there is or is not any zig source code, respectively.
 
 const std = @import("std");
@@ -13,8 +16,6 @@ const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Ast = std.zig.Ast;
 
-/// Deprecated, use `Zcu`.
-const Module = Zcu;
 const Zcu = @This();
 const Compilation = @import("Compilation.zig");
 const Cache = std.Build.Cache;
@@ -37,6 +38,7 @@ const Alignment = InternPool.Alignment;
 const AnalUnit = InternPool.AnalUnit;
 const BuiltinFn = std.zig.BuiltinFn;
 const LlvmObject = @import("codegen/llvm.zig").Object;
+const dev = @import("dev.zig");
 
 comptime {
     @setEvalBranchQuota(4000);
@@ -56,7 +58,7 @@ comp: *Compilation,
 /// Usually, the LlvmObject is managed by linker code, however, in the case
 /// that -fno-emit-bin is specified, the linker code never executes, so we
 /// store the LlvmObject here.
-llvm_object: ?*LlvmObject,
+llvm_object: ?LlvmObject.Ptr,
 
 /// Pointer to externally managed resource.
 root_mod: *Package.Module,
@@ -2393,7 +2395,7 @@ pub const CompileError = error{
     ComptimeBreak,
 };
 
-pub fn init(mod: *Module, thread_count: usize) !void {
+pub fn init(mod: *Zcu, thread_count: usize) !void {
     const gpa = mod.gpa;
     try mod.intern_pool.init(gpa, thread_count);
 }
@@ -2402,10 +2404,7 @@ pub fn deinit(zcu: *Zcu) void {
     const pt: Zcu.PerThread = .{ .tid = .main, .zcu = zcu };
     const gpa = zcu.gpa;
 
-    if (zcu.llvm_object) |llvm_object| {
-        if (build_options.only_c) unreachable;
-        llvm_object.deinit();
-    }
+    if (zcu.llvm_object) |llvm_object| llvm_object.deinit();
 
     for (zcu.import_table.keys()) |key| {
         gpa.free(key);
@@ -2487,20 +2486,20 @@ pub fn deinit(zcu: *Zcu) void {
     zcu.intern_pool.deinit(gpa);
 }
 
-pub fn declPtr(mod: *Module, index: Decl.Index) *Decl {
+pub fn declPtr(mod: *Zcu, index: Decl.Index) *Decl {
     return mod.intern_pool.declPtr(index);
 }
 
-pub fn namespacePtr(mod: *Module, index: Namespace.Index) *Namespace {
+pub fn namespacePtr(mod: *Zcu, index: Namespace.Index) *Namespace {
     return mod.intern_pool.namespacePtr(index);
 }
 
-pub fn namespacePtrUnwrap(mod: *Module, index: Namespace.OptionalIndex) ?*Namespace {
+pub fn namespacePtrUnwrap(mod: *Zcu, index: Namespace.OptionalIndex) ?*Namespace {
     return mod.namespacePtr(index.unwrap() orelse return null);
 }
 
 /// Returns true if and only if the Decl is the top level struct associated with a File.
-pub fn declIsRoot(mod: *Module, decl_index: Decl.Index) bool {
+pub fn declIsRoot(mod: *Zcu, decl_index: Decl.Index) bool {
     const decl = mod.declPtr(decl_index);
     const namespace = mod.namespacePtr(decl.src_namespace);
     if (namespace.parent != .none) return false;
@@ -2940,7 +2939,7 @@ pub fn mapOldZirToNew(
 /// analyzed, and for ensuring it can exist at runtime (see
 /// `sema.fnHasRuntimeBits`). This function does *not* guarantee that the body
 /// will be analyzed when it returns: for that, see `ensureFuncBodyAnalyzed`.
-pub fn ensureFuncBodyAnalysisQueued(mod: *Module, func_index: InternPool.Index) !void {
+pub fn ensureFuncBodyAnalysisQueued(mod: *Zcu, func_index: InternPool.Index) !void {
     const ip = &mod.intern_pool;
     const func = mod.funcInfo(func_index);
     const decl_index = func.owner_decl;
@@ -3040,7 +3039,7 @@ pub fn deleteUnitExports(zcu: *Zcu, anal_unit: AnalUnit) void {
     // `updateExports` on flush).
     // This case is needed because in some rare edge cases, `Sema` wants to add and delete exports
     // within a single update.
-    if (!build_options.only_c) {
+    if (dev.env.supports(.incremental)) {
         for (exports, exports_base..) |exp, export_idx| {
             if (zcu.comp.bin_file) |lf| {
                 lf.deleteExport(exp.exported, exp.opts.name);
@@ -3102,13 +3101,13 @@ pub fn addUnitReference(zcu: *Zcu, src_unit: AnalUnit, referenced_unit: AnalUnit
     gop.value_ptr.* = @intCast(ref_idx);
 }
 
-pub fn errorSetBits(mod: *Module) u16 {
+pub fn errorSetBits(mod: *Zcu) u16 {
     if (mod.error_limit == 0) return 0;
     return std.math.log2_int_ceil(ErrorInt, mod.error_limit + 1); // +1 for no error
 }
 
 pub fn errNote(
-    mod: *Module,
+    mod: *Zcu,
     src_loc: LazySrcLoc,
     parent: *ErrorMsg,
     comptime format: []const u8,
@@ -3138,7 +3137,7 @@ pub fn optimizeMode(zcu: *const Zcu) std.builtin.OptimizeMode {
     return zcu.root_mod.optimize_mode;
 }
 
-fn lockAndClearFileCompileError(mod: *Module, file: *File) void {
+fn lockAndClearFileCompileError(mod: *Zcu, file: *File) void {
     switch (file.status) {
         .success_zir, .retryable_failure => {},
         .never_loaded, .parse_failure, .astgen_failure => {
@@ -3172,7 +3171,7 @@ pub fn handleUpdateExports(
     };
 }
 
-pub fn addGlobalAssembly(mod: *Module, decl_index: Decl.Index, source: []const u8) !void {
+pub fn addGlobalAssembly(mod: *Zcu, decl_index: Decl.Index, source: []const u8) !void {
     const gop = try mod.global_assembly.getOrPut(mod.gpa, decl_index);
     if (gop.found_existing) {
         const new_value = try std.fmt.allocPrint(mod.gpa, "{s}\n{s}", .{ gop.value_ptr.*, source });
@@ -3226,7 +3225,7 @@ pub const AtomicPtrAlignmentDiagnostics = struct {
 // TODO this function does not take into account CPU features, which can affect
 // this value. Audit this!
 pub fn atomicPtrAlignment(
-    mod: *Module,
+    mod: *Zcu,
     ty: Type,
     diags: *AtomicPtrAlignmentDiagnostics,
 ) AtomicPtrAlignmentError!Alignment {
@@ -3242,7 +3241,6 @@ pub fn atomicPtrAlignment(
         .armeb,
         .hexagon,
         .m68k,
-        .le32,
         .mips,
         .mipsel,
         .nvptx,
@@ -3276,7 +3274,6 @@ pub fn atomicPtrAlignment(
         .amdgcn,
         .bpfel,
         .bpfeb,
-        .le64,
         .mips64,
         .mips64el,
         .nvptx64,
@@ -3332,7 +3329,7 @@ pub fn atomicPtrAlignment(
     return error.BadType;
 }
 
-pub fn declFileScope(mod: *Module, decl_index: Decl.Index) *File {
+pub fn declFileScope(mod: *Zcu, decl_index: Decl.Index) *File {
     return mod.declPtr(decl_index).getFileScope(mod);
 }
 
@@ -3340,7 +3337,7 @@ pub fn declFileScope(mod: *Module, decl_index: Decl.Index) *File {
 /// * `@TypeOf(.{})`
 /// * A struct which has no fields (`struct {}`).
 /// * Not a struct.
-pub fn typeToStruct(mod: *Module, ty: Type) ?InternPool.LoadedStructType {
+pub fn typeToStruct(mod: *Zcu, ty: Type) ?InternPool.LoadedStructType {
     if (ty.ip_index == .none) return null;
     const ip = &mod.intern_pool;
     return switch (ip.indexToKey(ty.ip_index)) {
@@ -3349,13 +3346,13 @@ pub fn typeToStruct(mod: *Module, ty: Type) ?InternPool.LoadedStructType {
     };
 }
 
-pub fn typeToPackedStruct(mod: *Module, ty: Type) ?InternPool.LoadedStructType {
+pub fn typeToPackedStruct(mod: *Zcu, ty: Type) ?InternPool.LoadedStructType {
     const s = mod.typeToStruct(ty) orelse return null;
     if (s.layout != .@"packed") return null;
     return s;
 }
 
-pub fn typeToUnion(mod: *Module, ty: Type) ?InternPool.LoadedUnionType {
+pub fn typeToUnion(mod: *Zcu, ty: Type) ?InternPool.LoadedUnionType {
     if (ty.ip_index == .none) return null;
     const ip = &mod.intern_pool;
     return switch (ip.indexToKey(ty.ip_index)) {
@@ -3364,32 +3361,32 @@ pub fn typeToUnion(mod: *Module, ty: Type) ?InternPool.LoadedUnionType {
     };
 }
 
-pub fn typeToFunc(mod: *Module, ty: Type) ?InternPool.Key.FuncType {
+pub fn typeToFunc(mod: *Zcu, ty: Type) ?InternPool.Key.FuncType {
     if (ty.ip_index == .none) return null;
     return mod.intern_pool.indexToFuncType(ty.toIntern());
 }
 
-pub fn funcOwnerDeclPtr(mod: *Module, func_index: InternPool.Index) *Decl {
+pub fn funcOwnerDeclPtr(mod: *Zcu, func_index: InternPool.Index) *Decl {
     return mod.declPtr(mod.funcOwnerDeclIndex(func_index));
 }
 
-pub fn funcOwnerDeclIndex(mod: *Module, func_index: InternPool.Index) Decl.Index {
+pub fn funcOwnerDeclIndex(mod: *Zcu, func_index: InternPool.Index) Decl.Index {
     return mod.funcInfo(func_index).owner_decl;
 }
 
-pub fn iesFuncIndex(mod: *const Module, ies_index: InternPool.Index) InternPool.Index {
+pub fn iesFuncIndex(mod: *const Zcu, ies_index: InternPool.Index) InternPool.Index {
     return mod.intern_pool.iesFuncIndex(ies_index);
 }
 
-pub fn funcInfo(mod: *Module, func_index: InternPool.Index) InternPool.Key.Func {
+pub fn funcInfo(mod: *Zcu, func_index: InternPool.Index) InternPool.Key.Func {
     return mod.intern_pool.indexToKey(func_index).func;
 }
 
-pub fn toEnum(mod: *Module, comptime E: type, val: Value) E {
+pub fn toEnum(mod: *Zcu, comptime E: type, val: Value) E {
     return mod.intern_pool.toEnum(E, val.toIntern());
 }
 
-pub fn isAnytypeParam(mod: *Module, func: InternPool.Index, index: u32) bool {
+pub fn isAnytypeParam(mod: *Zcu, func: InternPool.Index, index: u32) bool {
     const file = mod.declPtr(func.owner_decl).getFileScope(mod);
 
     const tags = file.zir.instructions.items(.tag);
@@ -3404,7 +3401,7 @@ pub fn isAnytypeParam(mod: *Module, func: InternPool.Index, index: u32) bool {
     };
 }
 
-pub fn getParamName(mod: *Module, func_index: InternPool.Index, index: u32) [:0]const u8 {
+pub fn getParamName(mod: *Zcu, func_index: InternPool.Index, index: u32) [:0]const u8 {
     const func = mod.funcInfo(func_index);
     const file = mod.declPtr(func.owner_decl).getFileScope(mod);
 
@@ -3441,7 +3438,7 @@ pub const UnionLayout = struct {
 };
 
 /// Returns the index of the active field, given the current tag value
-pub fn unionTagFieldIndex(mod: *Module, loaded_union: InternPool.LoadedUnionType, enum_tag: Value) ?u32 {
+pub fn unionTagFieldIndex(mod: *Zcu, loaded_union: InternPool.LoadedUnionType, enum_tag: Value) ?u32 {
     const ip = &mod.intern_pool;
     if (enum_tag.toIntern() == .none) return null;
     assert(ip.typeOf(enum_tag.toIntern()) == loaded_union.enum_tag_ty);
