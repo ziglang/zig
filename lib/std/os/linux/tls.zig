@@ -81,7 +81,7 @@ const tls_tcb_size = switch (native_arch) {
 
 // Controls if the TP points to the end of the TCB instead of its beginning
 const tls_tp_points_past_tcb = switch (native_arch) {
-    .riscv32, .riscv64, .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpc64, .powerpc64le => true,
+    .riscv32, .riscv64, .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle, .powerpc64, .powerpc64le => true,
     else => false,
 };
 
@@ -89,12 +89,12 @@ const tls_tp_points_past_tcb = switch (native_arch) {
 // make the generated code more efficient
 
 const tls_tp_offset = switch (native_arch) {
-    .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpc64, .powerpc64le => 0x7000,
+    .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle, .powerpc64, .powerpc64le => 0x7000,
     else => 0,
 };
 
 const tls_dtv_offset = switch (native_arch) {
-    .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpc64, .powerpc64le => 0x8000,
+    .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle, .powerpc64, .powerpc64le => 0x8000,
     .riscv32, .riscv64 => 0x800,
     else => 0,
 };
