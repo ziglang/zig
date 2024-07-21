@@ -9,8 +9,6 @@ const elf = std.elf;
 const native_arch = builtin.cpu.arch;
 const native_os = builtin.os.tag;
 
-var argc_argv_ptr: [*]usize = undefined;
-
 const start_sym_name = if (native_arch.isMIPS()) "__start" else "_start";
 
 // The self-hosted compiler is not fully capable of handling all of this start.zig file.
@@ -277,41 +275,42 @@ fn _start() callconv(.Naked) noreturn {
     asm volatile (switch (native_arch) {
             .x86_64 =>
             \\ xorl %%ebp, %%ebp
-            \\ movq %%rsp, %[argc_argv_ptr]
+            \\ movq %%rsp, %%rdi
             \\ andq $-16, %%rsp
             \\ callq %[posixCallMainAndExit:P]
             ,
             .x86 =>
             \\ xorl %%ebp, %%ebp
-            \\ movl %%esp, %[argc_argv_ptr]
+            \\ movl %%esp, %%eax
             \\ andl $-16, %%esp
+            \\ subl $12, %%esp
+            \\ pushl %%eax
             \\ calll %[posixCallMainAndExit:P]
             ,
             .aarch64, .aarch64_be =>
             \\ mov fp, #0
             \\ mov lr, #0
             \\ mov x0, sp
-            \\ str x0, %[argc_argv_ptr]
             \\ b %[posixCallMainAndExit]
             ,
             .arm, .armeb, .thumb, .thumbeb =>
             \\ mov fp, #0
             \\ mov lr, #0
-            \\ str sp, %[argc_argv_ptr]
+            \\ mov a1, sp
             \\ and sp, #-16
             \\ b %[posixCallMainAndExit]
             ,
             .riscv64 =>
             \\ li s0, 0
             \\ li ra, 0
-            \\ sd sp, %[argc_argv_ptr]
+            \\ mv a0, sp
             \\ andi sp, sp, -16
             \\ tail %[posixCallMainAndExit]@plt
             ,
             .mips, .mipsel =>
             // The lr is already zeroed on entry, as specified by the ABI.
             \\ addiu $fp, $zero, 0
-            \\ sw $sp, %[argc_argv_ptr]
+            \\ move $a0, $sp
             \\ .set push
             \\ .set noat
             \\ addiu $1, $zero, -16
@@ -322,7 +321,7 @@ fn _start() callconv(.Naked) noreturn {
             .mips64, .mips64el =>
             // The lr is already zeroed on entry, as specified by the ABI.
             \\ addiu $fp, $zero, 0
-            \\ sd $sp, %[argc_argv_ptr]
+            \\ move $a0, $sp
             \\ .set push
             \\ .set noat
             \\ daddiu $1, $zero, -16
@@ -332,7 +331,7 @@ fn _start() callconv(.Naked) noreturn {
             ,
             .powerpc, .powerpcle =>
             // Setup the initial stack frame and clear the back chain pointer.
-            \\ stw 1, %[argc_argv_ptr]
+            \\ mr 3, 1
             \\ li 0, 0
             \\ stwu 1, -16(1)
             \\ stw 0, 0(1)
@@ -342,7 +341,7 @@ fn _start() callconv(.Naked) noreturn {
             .powerpc64, .powerpc64le =>
             // Setup the initial stack frame and clear the back chain pointer.
             // TODO: Support powerpc64 (big endian) on ELFv2.
-            \\ std 1, %[argc_argv_ptr]
+            \\ mr 3, 1
             \\ li 0, 0
             \\ stdu 0, -32(1)
             \\ mtlr 0
@@ -352,12 +351,12 @@ fn _start() callconv(.Naked) noreturn {
             // argc is stored after a register window (16 registers) plus stack bias
             \\ mov %%g0, %%i6
             \\ add %%o6, 2175, %%l0
-            \\ ba %[posixCallMainAndExit]
-            \\  stx %%l0, %[argc_argv_ptr]
+            \\ mov %%l0, %%o0
+            \\ ba,a %[posixCallMainAndExit]
             ,
             else => @compileError("unsupported arch"),
         }
-        : [argc_argv_ptr] "=m" (argc_argv_ptr),
+        :
         : [posixCallMainAndExit] "X" (&posixCallMainAndExit),
     );
 }
@@ -385,7 +384,7 @@ fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
     std.os.windows.ntdll.RtlExitUserProcess(@as(std.os.windows.UINT, @bitCast(result)));
 }
 
-fn posixCallMainAndExit() callconv(.C) noreturn {
+fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
     const argc = argc_argv_ptr[0];
     const argv = @as([*][*:0]u8, @ptrCast(argc_argv_ptr + 1));
 
