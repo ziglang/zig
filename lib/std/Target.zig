@@ -63,6 +63,11 @@ pub const Os = struct {
         illumos,
         other,
 
+        // LLVM tags deliberately omitted:
+        // - kfreebsd
+        // - darwin
+        // - nacl
+
         pub inline fn isDarwin(tag: Tag) bool {
             return switch (tag) {
                 .ios, .macos, .watchos, .tvos, .visionos => true,
@@ -653,6 +658,10 @@ pub const Abi = enum {
     amplification,
     ohos,
 
+    // LLVM tags deliberately omitted:
+    // - gnuf64
+    // - coreclr
+
     pub fn default(arch: Cpu.Arch, os: Os) Abi {
         return if (arch.isWasm()) .musl else switch (os.tag) {
             .freestanding,
@@ -1020,6 +1029,18 @@ pub const Cpu = struct {
         wasm64,
         ve,
         spu_2,
+
+        // LLVM tags deliberately omitted:
+        // - r600
+        // - le32
+        // - le64
+        // - amdil
+        // - amdil64
+        // - hsail
+        // - hsail64
+        // - shave
+        // - renderscript32
+        // - renderscript64
 
         pub inline fn isX86(arch: Arch) bool {
             return switch (arch) {
