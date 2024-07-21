@@ -7353,7 +7353,7 @@ pub const AUDIT = struct {
         ARMEB = toAudit(.armeb),
         CSKY = toAudit(.csky),
         HEXAGON = @intFromEnum(std.elf.EM.HEXAGON),
-        X86 = toAudit(.x86),
+        LOONGARCH64 = toAudit(.loongarch64),
         M68K = toAudit(.m68k),
         MIPS = toAudit(.mips),
         MIPSEL = toAudit(.mips) | LE,
@@ -7367,18 +7367,22 @@ pub const AUDIT = struct {
         S390X = toAudit(.s390x),
         SPARC = toAudit(.sparc),
         SPARC64 = toAudit(.sparc64),
+        X86 = toAudit(.x86),
         X86_64 = toAudit(.x86_64),
+        XTENSA = toAudit(.xtensa),
 
         fn toAudit(arch: std.Target.Cpu.Arch) u32 {
             var res: u32 = @intFromEnum(arch.toElfMachine());
             if (arch.endian() == .little) res |= LE;
             switch (arch) {
                 .aarch64,
+                .loongarch64,
                 .mips64,
                 .mips64el,
                 .powerpc64,
                 .powerpc64le,
                 .riscv64,
+                .s390x,
                 .sparc64,
                 .x86_64,
                 => res |= @"64BIT",
