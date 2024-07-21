@@ -1321,6 +1321,8 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .sub,
             .sub_wrap,
 
+            .add_sat,
+
             .mul,
             .mul_wrap,
             .div_trunc, 
@@ -1372,7 +1374,6 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .shl_with_overflow => try func.airShlWithOverflow(inst),
 
 
-            .add_sat         => try func.airAddSat(inst),
             .sub_sat         => try func.airSubSat(inst),
             .mul_sat         => try func.airMulSat(inst),
             .shl_sat         => try func.airShlSat(inst),
@@ -1578,7 +1579,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
                     for (tracking.getRegs()) |reg| {
                         if (RegisterManager.indexOfRegIntoTracked(reg).? == index) break;
                     } else return std.debug.panic(
-                        \\%{} takes up these regs: {any}, however these regs {any}, don't use it
+                        \\%{} takes up these regs: {any}, however this regs {any}, don't use it
                     , .{ tracked_inst, tracking.getRegs(), RegisterManager.regAtTrackedIndex(@intCast(index)) });
                 }
             }
@@ -2532,6 +2533,57 @@ fn genBinOp(
             }
         },
 
+        .add_sat,
+        => {
+            if (bit_size != 64 or !is_unsigned)
+                return func.fail("TODO: genBinOp ty: {}", .{lhs_ty.fmt(pt)});
+
+            const tmp_reg = try func.copyToTmpRegister(rhs_ty, .{ .register = rhs_reg });
+            const tmp_lock = func.register_manager.lockRegAssumeUnused(tmp_reg);
+            defer func.register_manager.unlockReg(tmp_lock);
+
+            _ = try func.addInst(.{
+                .tag = .add,
+                .ops = .rrr,
+                .data = .{ .r_type = .{
+                    .rd = tmp_reg,
+                    .rs1 = rhs_reg,
+                    .rs2 = lhs_reg,
+                } },
+            });
+
+            _ = try func.addInst(.{
+                .tag = .sltu,
+                .ops = .rrr,
+                .data = .{ .r_type = .{
+                    .rd = dst_reg,
+                    .rs1 = tmp_reg,
+                    .rs2 = lhs_reg,
+                } },
+            });
+
+            // neg dst_reg, dst_reg
+            _ = try func.addInst(.{
+                .tag = .sub,
+                .ops = .rrr,
+                .data = .{ .r_type = .{
+                    .rd = dst_reg,
+                    .rs1 = .zero,
+                    .rs2 = dst_reg,
+                } },
+            });
+
+            _ = try func.addInst(.{
+                .tag = .@"or",
+                .ops = .rrr,
+                .data = .{ .r_type = .{
+                    .rd = dst_reg,
+                    .rs1 = dst_reg,
+                    .rs2 = tmp_reg,
+                } },
+            });
+        },
+
         .ptr_add,
         .ptr_sub,
         => {
@@ -3096,12 +3148,6 @@ fn airShlWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
     return func.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
-fn airAddSat(func: *Func, inst: Air.Inst.Index) !void {
-    const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement airAddSat", .{});
-    return func.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
-}
-
 fn airSubSat(func: *Func, inst: Air.Inst.Index) !void {
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
     const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement airSubSat", .{});
@@ -3495,7 +3541,16 @@ fn airSliceLen(func: *Func, inst: Air.Inst.Index) !void {
 
 fn airPtrSliceLenPtr(func: *Func, inst: Air.Inst.Index) !void {
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement ptr_slice_len_ptr for {}", .{func.target.cpu.arch});
+    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
+        const src_mcv = try func.resolveInst(ty_op.operand);
+
+        const dst_reg, const dst_lock = try func.allocReg(.int);
+        defer func.register_manager.unlockReg(dst_lock);
+        const dst_mcv: MCValue = .{ .register = dst_reg };
+
+        try func.genCopy(Type.u64, dst_mcv, src_mcv.offset(8));
+        break :result dst_mcv;
+    };
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -5838,6 +5893,17 @@ fn genInlineMemcpy(
     try func.genSetReg(Type.usize, src, src_ptr);
     try func.genSetReg(Type.usize, dst, dst_ptr);
 
+    // if count is 0, there's nothing to copy
+    _ = try func.addInst(.{
+        .tag = .beq,
+        .ops = .rr_inst,
+        .data = .{ .b_type = .{
+            .rs1 = count,
+            .rs2 = .zero,
+            .inst = @intCast(func.mir_instructions.len + 9),
+        } },
+    });
+
     // lb tmp, 0(src)
     const first_inst = try func.addInst(.{
         .tag = .lb,
@@ -6145,7 +6211,9 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
                 } },
             });
         },
-        .register_pair => return func.fail("genSetReg should we allow reg -> reg_pair?", .{}),
+        // useful in cases like slice_ptr, which can easily reuse the operand
+        // but we need to get only the pointer out.
+        .register_pair => |pair| try func.genSetReg(ty, reg, .{ .register = pair[0] }),
         .load_frame => |frame| {
             if (reg.class() == .vector) {
                 // vectors don't support an offset memory load so we need to put the true
@@ -6507,7 +6575,7 @@ fn airBitCast(func: *Func, inst: Air.Inst.Index) !void {
         const src_lock = if (src_mcv.getReg()) |reg| func.register_manager.lockReg(reg) else null;
         defer if (src_lock) |lock| func.register_manager.unlockReg(lock);
 
-        const dst_mcv = if (dst_ty.abiSize(pt) <= src_ty.abiSize(pt) and
+        const dst_mcv = if (dst_ty.abiSize(pt) <= src_ty.abiSize(pt) and src_mcv != .register_pair and
             func.reuseOperand(inst, ty_op.operand, 0, src_mcv)) src_mcv else dst: {
             const dst_mcv = try func.allocRegOrMem(dst_ty, inst, true);
             try func.genCopy(switch (math.order(dst_ty.abiSize(pt), src_ty.abiSize(pt))) {
@@ -6827,8 +6895,42 @@ fn airMemset(func: *Func, inst: Air.Inst.Index, safety: bool) !void {
 }
 
 fn airMemcpy(func: *Func, inst: Air.Inst.Index) !void {
-    _ = inst;
-    return func.fail("TODO implement airMemcpy for {}", .{func.target.cpu.arch});
+    const pt = func.pt;
+    const zcu = pt.zcu;
+    const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+
+    const dst_ptr = try func.resolveInst(bin_op.lhs);
+    const src_ptr = try func.resolveInst(bin_op.rhs);
+
+    const dst_ty = func.typeOf(bin_op.lhs);
+
+    const len_mcv: MCValue = switch (dst_ty.ptrSize(zcu)) {
+        .Slice => len: {
+            const len_reg, const len_lock = try func.allocReg(.int);
+            defer func.register_manager.unlockReg(len_lock);
+
+            const elem_size = dst_ty.childType(zcu).abiSize(pt);
+            try func.genBinOp(
+                .mul,
+                .{ .immediate = elem_size },
+                Type.u64,
+                dst_ptr.address().offset(8).deref(),
+                Type.u64,
+                len_reg,
+            );
+            break :len .{ .register = len_reg };
+        },
+        else => |size| return func.fail("TODO: airMemcpy size {s}", .{@tagName(size)}),
+    };
+    const len_lock: ?RegisterLock = switch (len_mcv) {
+        .register => |reg| func.register_manager.lockRegAssumeUnused(reg),
+        else => null,
+    };
+    defer if (len_lock) |lock| func.register_manager.unlockReg(lock);
+
+    try func.genInlineMemcpy(dst_ptr, src_ptr, len_mcv);
+
+    return func.finishAir(inst, .unreach, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airTagName(func: *Func, inst: Air.Inst.Index) !void {
