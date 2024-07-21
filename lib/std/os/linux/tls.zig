@@ -166,7 +166,7 @@ pub fn setThreadPointer(addr: usize) void {
                 : [addr] "r" (addr),
             );
         },
-        .arm, .thumb => {
+        .arm, .armeb, .thumb, .thumbeb => {
             const rc = @call(.always_inline, linux.syscall1, .{ .set_tls, addr });
             assert(rc == 0);
         },
