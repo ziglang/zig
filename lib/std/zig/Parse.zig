@@ -1905,8 +1905,8 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
         },
         .l_bracket => switch (p.token_tags[p.tok_i + 1]) {
             .asterisk => {
+                const l_bracket = p.nextToken();
                 _ = p.nextToken();
-                const asterisk = p.nextToken();
                 var sentinel: Node.Index = 0;
                 if (p.eatToken(.identifier)) |ident| {
                     const ident_slice = p.source[p.token_starts[ident]..p.token_starts[ident + 1]];
@@ -1923,7 +1923,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                     if (sentinel == 0 and mods.addrspace_node == 0) {
                         return p.addNode(.{
                             .tag = .ptr_type_aligned,
-                            .main_token = asterisk,
+                            .main_token = l_bracket,
                             .data = .{
                                 .lhs = mods.align_node,
                                 .rhs = elem_type,
@@ -1932,7 +1932,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                     } else if (mods.align_node == 0 and mods.addrspace_node == 0) {
                         return p.addNode(.{
                             .tag = .ptr_type_sentinel,
-                            .main_token = asterisk,
+                            .main_token = l_bracket,
                             .data = .{
                                 .lhs = sentinel,
                                 .rhs = elem_type,
@@ -1941,7 +1941,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                     } else {
                         return p.addNode(.{
                             .tag = .ptr_type,
-                            .main_token = asterisk,
+                            .main_token = l_bracket,
                             .data = .{
                                 .lhs = try p.addExtra(Node.PtrType{
                                     .sentinel = sentinel,
@@ -1955,7 +1955,7 @@ fn parseTypeExpr(p: *Parse) Error!Node.Index {
                 } else {
                     return p.addNode(.{
                         .tag = .ptr_type_bit_range,
-                        .main_token = asterisk,
+                        .main_token = l_bracket,
                         .data = .{
                             .lhs = try p.addExtra(Node.PtrTypeBitRange{
                                 .sentinel = sentinel,
