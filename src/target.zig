@@ -152,8 +152,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .xtensa,
         .nvptx,
         .nvptx64,
-        .amdil,
-        .amdil64,
         .hsail,
         .hsail64,
         .spir,

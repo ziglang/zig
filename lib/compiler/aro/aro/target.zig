@@ -480,7 +480,6 @@ pub fn get32BitArchVariant(target: std.Target) ?std.Target {
         .x86,
         .xcore,
         .nvptx,
-        .amdil,
         .hsail,
         .spir,
         .kalimba,
@@ -496,7 +495,6 @@ pub fn get32BitArchVariant(target: std.Target) ?std.Target {
 
         .aarch64 => copy.cpu.arch = .arm,
         .aarch64_be => copy.cpu.arch = .armeb,
-        .amdil64 => copy.cpu.arch = .amdil,
         .nvptx64 => copy.cpu.arch = .nvptx,
         .wasm64 => copy.cpu.arch = .wasm32,
         .hsail64 => copy.cpu.arch = .hsail,
@@ -540,7 +538,6 @@ pub fn get64BitArchVariant(target: std.Target) ?std.Target {
         .amdgcn,
         .bpfeb,
         .bpfel,
-        .amdil64,
         .nvptx64,
         .wasm64,
         .hsail64,
@@ -559,7 +556,6 @@ pub fn get64BitArchVariant(target: std.Target) ?std.Target {
         => {}, // Already 64 bit
 
         .aarch64_32 => copy.cpu.arch = .aarch64,
-        .amdil => copy.cpu.arch = .amdil64,
         .arm => copy.cpu.arch = .aarch64,
         .armeb => copy.cpu.arch = .aarch64_be,
         .hsail => copy.cpu.arch = .hsail64,
@@ -631,8 +627,6 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .xtensa => "xtensa",
         .nvptx => "nvptx",
         .nvptx64 => "nvptx64",
-        .amdil => "amdil",
-        .amdil64 => "amdil64",
         .hsail => "hsail",
         .hsail64 => "hsail64",
         .spir => "spir",
