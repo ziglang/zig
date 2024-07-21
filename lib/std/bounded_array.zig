@@ -8,13 +8,6 @@ const testing = std.testing;
 /// Useful to pass around small arrays whose exact size is only known at
 /// runtime, but whose maximum size is known at comptime, without requiring
 /// an `Allocator`.
-///
-/// ```zig
-/// var actual_size = 32;
-/// var a = try BoundedArray(u8, 64).init(actual_size);
-/// var slice = a.slice(); // a slice of the 64-byte array
-/// var a_clone = a; // creates a copy - the structure doesn't use any internal pointers
-/// ```
 pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
     return BoundedArrayAligned(T, @alignOf(T), buffer_capacity);
 }
@@ -25,13 +18,6 @@ pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
 /// Useful to pass around small explicitly-aligned arrays whose exact size is
 /// only known at runtime, but whose maximum size is known at comptime, without
 /// requiring an `Allocator`.
-/// ```zig
-//  var a = BoundedArrayAligned(u8, 16, 2){};
-//  try a.append(255);
-//  try a.append(255);
-//  const b = @ptrCast(*const [1]u16, a.constSlice().ptr);
-//  try testing.expectEqual(@as(u16, 65535), b[0]);
-/// ```
 pub fn BoundedArrayAligned(
     comptime T: type,
     comptime alignment: u29,
@@ -314,6 +300,7 @@ test BoundedArray {
     try testing.expectEqualSlices(u8, a.constSlice(), a2.constSlice());
     a2.set(0, 0);
     try testing.expect(a.get(0) != a2.get(0));
+    try testing.expect(a2.slice().ptr != a.slice().ptr); // they are different buffers
 
     try testing.expectError(error.Overflow, a.resize(100));
     try testing.expectError(error.Overflow, BoundedArray(u8, x.len - 1).fromSlice(&x));
@@ -414,8 +401,8 @@ test "BoundedArray sizeOf" {
     try testing.expectEqual(@TypeOf(@as(BoundedArray(u8, 16), undefined).len), u5);
 }
 
-test "BoundedArrayAligned" {
-    var a = BoundedArrayAligned(u8, 16, 4){};
+test BoundedArrayAligned {
+    var a = BoundedArrayAligned(u8, @alignOf(u16), 4){};
     try a.append(0);
     try a.append(0);
     try a.append(255);
