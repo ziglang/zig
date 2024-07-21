@@ -341,6 +341,8 @@ fn _start() callconv(.Naked) noreturn {
             .powerpc64, .powerpc64le =>
             // Setup the initial stack frame and clear the back chain pointer.
             // TODO: Support powerpc64 (big endian) on ELFv2.
+            \\ addis 2, 12, .TOC. - _start@ha
+            \\ addi 2, 2, .TOC. - _start@l
             \\ mr 3, 1
             \\ li 0, 0
             \\ stdu 0, -32(1)
