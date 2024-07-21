@@ -500,7 +500,6 @@ test "union in struct captures argument" {
 test "function argument tuple used as struct field" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn DeleagateWithContext(comptime Function: type) type {

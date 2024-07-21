@@ -1133,7 +1133,6 @@ test "packed struct with undefined initializers" {
 test "for loop over pointers to struct, getting field from struct pointer" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         const Foo = struct {
