@@ -87,7 +87,7 @@ const CheckOutputCaching = struct {
         return check;
     }
 
-    fn make(step: *std.Build.Step, _: std.Progress.Node) !void {
+    fn make(step: *std.Build.Step, _: std.Build.Step.MakeOptions) !void {
         const check: *CheckOutputCaching = @fieldParentPtr("step", step);
 
         for (step.dependencies.items) |dependency| {
@@ -125,7 +125,7 @@ const CheckPathEquality = struct {
         return check;
     }
 
-    fn make(step: *std.Build.Step, _: std.Progress.Node) !void {
+    fn make(step: *std.Build.Step, _: std.Build.Step.MakeOptions) !void {
         const check: *CheckPathEquality = @fieldParentPtr("step", step);
         std.debug.assert(check.output_paths.len != 0);
         for (check.output_paths[0 .. check.output_paths.len - 1], check.output_paths[1..]) |a, b| {
