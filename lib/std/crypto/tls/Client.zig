@@ -468,7 +468,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                         read_seq += 1;
                         P.AEAD.decrypt(cleartext, ciphertext, auth_tag, record_header, nonce, p.server_handshake_key) catch
                             return error.TlsBadRecordMac;
-                        break :c cleartext;
+                        break :c @constCast(mem.trimRight(u8, cleartext, "\x00"));
                     },
                 };
 
@@ -1146,7 +1146,7 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.posix.iove
                         const cleartext = cleartext_buf[0..ciphertext.len];
                         P.AEAD.decrypt(cleartext, ciphertext, auth_tag, ad, nonce, p.server_key) catch
                             return error.TlsBadRecordMac;
-                        break :c cleartext;
+                        break :c mem.trimRight(u8, cleartext, "\x00");
                     },
                 };
 
