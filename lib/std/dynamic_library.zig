@@ -171,7 +171,7 @@ pub const ElfDynLib = struct {
         if (!mem.eql(u8, eh.e_ident[0..4], elf.MAGIC)) return error.NotElfFile;
         if (eh.e_type != elf.ET.DYN) return error.NotDynamicLibrary;
 
-        const elf_addr = @intFromPtr(file_bytes.ptr);
+        const elf_addr: [*]u8 = file_bytes.ptr;
 
         // Iterate over the program header entries to find out the
         // dynamic vector as well as the total size of the virtual memory.
@@ -179,15 +179,15 @@ pub const ElfDynLib = struct {
         var virt_addr_end: usize = 0;
         {
             var i: usize = 0;
-            var ph_addr: usize = elf_addr + eh.e_phoff;
+            var ph_addr: [*]u8 = elf_addr + eh.e_phoff;
             while (i < eh.e_phnum) : ({
                 i += 1;
                 ph_addr += eh.e_phentsize;
             }) {
-                const ph = @as(*elf.Phdr, @ptrFromInt(ph_addr));
+                const ph: *elf.Phdr = @ptrCast(@alignCast(ph_addr));
                 switch (ph.p_type) {
                     elf.PT_LOAD => virt_addr_end = @max(virt_addr_end, ph.p_vaddr + ph.p_memsz),
-                    elf.PT_DYNAMIC => maybe_dynv = @as([*]usize, @ptrFromInt(elf_addr + ph.p_offset)),
+                    elf.PT_DYNAMIC => maybe_dynv = @as([*]usize, @ptrCast(@alignCast(elf_addr + ph.p_offset))),
                     else => {},
                 }
             }
@@ -210,12 +210,12 @@ pub const ElfDynLib = struct {
         // Now iterate again and actually load all the program sections.
         {
             var i: usize = 0;
-            var ph_addr: usize = elf_addr + eh.e_phoff;
+            var ph_addr: [*]u8 = elf_addr + eh.e_phoff;
             while (i < eh.e_phnum) : ({
                 i += 1;
                 ph_addr += eh.e_phentsize;
             }) {
-                const ph = @as(*elf.Phdr, @ptrFromInt(ph_addr));
+                const ph: *elf.Phdr = @ptrCast(@alignCast(ph_addr));
                 switch (ph.p_type) {
                     elf.PT_LOAD => {
                         // The VirtAddr may not be page-aligned; in such case there will be
@@ -343,9 +343,9 @@ fn checkver(def_arg: *elf.Verdef, vsym_arg: i32, vername: []const u8, strings: [
             break;
         if (def.vd_next == 0)
             return false;
-        def = @as(*elf.Verdef, @ptrFromInt(@intFromPtr(def) + def.vd_next));
+        def = @ptrCast(@as([*]elf.Verdef, @ptrCast(def)) + def.vd_next);
     }
-    const aux = @as(*elf.Verdaux, @ptrFromInt(@intFromPtr(def) + def.vd_aux));
+    const aux: *elf.Verdaux = @ptrCast(@as([*]elf.Verdef, @ptrCast(def)) + def.vd_aux);
     return mem.eql(u8, vername, mem.sliceTo(strings + aux.vda_name, 0));
 }
 
