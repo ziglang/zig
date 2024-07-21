@@ -2739,18 +2739,9 @@ pub const Object = struct {
                     break :res debug_opaque_type;
                 },
                 .@"struct" => res: {
-                    if (zcu.typeToPackedStruct(ty)) |struct_type| {
-                        const backing_int_ty = struct_type.backingIntTypeUnordered(ip);
-                        if (backing_int_ty != .none) {
-                            const info = Type.fromInterned(backing_int_ty).intInfo(zcu);
-                            const builder_name = try o.builder.metadataString(name);
-                            const debug_int_type = switch (info.signedness) {
-                                .signed => try o.builder.debugSignedType(builder_name, ty.abiSize(zcu) * 8),
-                                .unsigned => try o.builder.debugUnsignedType(builder_name, ty.abiSize(zcu) * 8),
-                            };
-                            break :res debug_int_type;
-                        }
-                    }
+                    const is_packed = zcu.typeToPackedStruct(ty) != null;
+                    const packed_big_endian = is_packed and o.target.cpu.arch.endian() == .big;
+                    const big_endian_byte_size = if (packed_big_endian) ty.abiSize(zcu) else 0;
 
                     switch (ip.indexToKey(ty.toIntern())) {
                         .tuple_type => |tuple| {
@@ -2762,10 +2753,31 @@ pub const Object = struct {
                             for (tuple.types.get(ip), tuple.values.get(ip), 0..) |field_ty, field_val, i| {
                                 if (field_val != .none or !Type.fromInterned(field_ty).hasRuntimeBits(zcu)) continue;
 
-                                const field_size = Type.fromInterned(field_ty).abiSize(zcu);
-                                const field_align = Type.fromInterned(field_ty).abiAlignment(zcu);
-                                const field_offset = field_align.forward(offset);
-                                offset = field_offset + field_size;
+                                const field_size, const field_align, const field_offset = if (is_packed) blk: {
+                                    const bit_size = Type.fromInterned(field_ty).bitSize(zcu);
+
+                                    const bit_offset = if (packed_big_endian)
+                                        (offset % 8) + 8 * (big_endian_byte_size - 1 - (offset / 8))
+                                    else
+                                        offset;
+
+                                    offset += bit_size;
+                                    break :blk .{
+                                        bit_size,
+                                        1,
+                                        bit_offset,
+                                    };
+                                } else blk: {
+                                    const byte_size = Type.fromInterned(field_ty).abiSize(zcu);
+                                    const byte_alignment = Type.fromInterned(field_ty).abiAlignment(zcu);
+                                    const byte_offset = byte_alignment.forward(offset);
+                                    offset = byte_offset + byte_size;
+                                    break :blk .{
+                                        byte_size * 8,
+                                        (byte_alignment.toByteUnits() orelse 0) * 8,
+                                        byte_offset * 8,
+                                    };
+                                };
 
                                 var name_buf: [32]u8 = undefined;
                                 const field_name = std.fmt.bufPrint(&name_buf, "{d}", .{i}) catch unreachable;
@@ -2776,9 +2788,9 @@ pub const Object = struct {
                                     fwd_ref,
                                     0,
                                     try o.lowerDebugType(Type.fromInterned(field_ty), required_by_runtime),
-                                    field_size * 8,
-                                    (field_align.toByteUnits() orelse 0) * 8,
-                                    field_offset * 8,
+                                    field_size,
+                                    field_align,
+                                    field_offset,
                                 ));
                             }
 
@@ -2811,27 +2823,54 @@ pub const Object = struct {
                     try fields.ensureUnusedCapacity(gpa, struct_type.field_types.len);
 
                     comptime assert(struct_layout_version == 2);
-                    var it = struct_type.iterateRuntimeOrder(ip);
-                    while (it.next()) |field_index| {
-                        const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
-                        if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
-                        const field_size = field_ty.abiSize(zcu);
-                        const field_align = ty.fieldAlignment(field_index, zcu);
-                        const field_offset = ty.structFieldOffset(field_index, zcu);
+                    if (is_packed) {
+                        var offset: u64 = 0;
+                        for (struct_type.field_types.get(ip), 0..) |field_ty_index, field_index| {
+                            const field_ty = Type.fromInterned(field_ty_index);
+                            const bit_size = field_ty.bitSize(zcu);
+                            const bit_offset = if (packed_big_endian)
+                                (offset % 8) + 8 * (big_endian_byte_size - 1 - (offset / 8))
+                            else
+                                offset;
 
-                        const field_name = struct_type.fieldName(ip, field_index).unwrap() orelse
-                            try ip.getOrPutStringFmt(gpa, pt.tid, "{d}", .{field_index}, .no_embedded_nulls);
+                            offset += bit_size;
 
-                        fields.appendAssumeCapacity(try o.builder.debugMemberType(
-                            try o.builder.metadataString(field_name.toSlice(ip)),
-                            file,
-                            fwd_ref,
-                            0, // Line
-                            try o.lowerDebugType(field_ty, required_by_runtime),
-                            field_size * 8,
-                            (field_align.toByteUnits() orelse 0) * 8,
-                            field_offset * 8,
-                        ));
+                            const field_name = struct_type.fieldName(ip, field_index).unwrap() orelse
+                                try ip.getOrPutStringFmt(gpa, pt.tid, "{d}", .{field_index}, .no_embedded_nulls);
+
+                            fields.appendAssumeCapacity(try o.builder.debugMemberType(
+                                try o.builder.metadataString(field_name.toSlice(ip)),
+                                file,
+                                fwd_ref,
+                                0, // Line
+                                try o.lowerDebugType(field_ty, required_by_runtime),
+                                bit_size,
+                                1,
+                                bit_offset,
+                            ));
+                        }
+                    } else {
+                        var it = struct_type.iterateRuntimeOrder(ip);
+                        while (it.next()) |field_index| {
+                            const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
+                            if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
+
+                            const byte_alignment = ty.fieldAlignment(field_index, zcu);
+
+                            const field_name = struct_type.fieldName(ip, field_index).unwrap() orelse
+                                try ip.getOrPutStringFmt(gpa, pt.tid, "{d}", .{field_index}, .no_embedded_nulls);
+
+                            fields.appendAssumeCapacity(try o.builder.debugMemberType(
+                                try o.builder.metadataString(field_name.toSlice(ip)),
+                                file,
+                                fwd_ref,
+                                0, // Line
+                                try o.lowerDebugType(field_ty, required_by_runtime),
+                                field_ty.abiSize(zcu) * 8,
+                                (byte_alignment.toByteUnits() orelse 0) * 8,
+                                ty.structFieldOffset(field_index, zcu) * 8,
+                            ));
+                        }
                     }
 
                     const debug_struct_type = try o.builder.debugStructType(
