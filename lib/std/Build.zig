@@ -668,6 +668,7 @@ pub const ExecutableOptions = struct {
     /// Can be set regardless of target. The `.manifest` file will be ignored
     /// if the target object format does not support embedded manifests.
     win32_manifest: ?LazyPath = null,
+    imports: []const Module.Import = &.{},
 };
 
 pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
@@ -686,6 +687,7 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
             .code_model = options.code_model,
+            .imports = options.imports,
         },
         .version = options.version,
         .kind = .exe,
@@ -718,6 +720,7 @@ pub const ObjectOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    imports: []const Module.Import = &.{},
 };
 
 pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
@@ -736,6 +739,7 @@ pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
             .code_model = options.code_model,
+            .imports = options.imports,
         },
         .kind = .obj,
         .max_rss = options.max_rss,
@@ -772,6 +776,7 @@ pub const SharedLibraryOptions = struct {
     /// Can be set regardless of target. The `.manifest` file will be ignored
     /// if the target object format does not support embedded manifests.
     win32_manifest: ?LazyPath = null,
+    imports: []const Module.Import = &.{},
 };
 
 pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile {
@@ -790,6 +795,7 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile 
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
             .code_model = options.code_model,
+            .imports = options.imports,
         },
         .kind = .lib,
         .linkage = .dynamic,
@@ -823,6 +829,7 @@ pub const StaticLibraryOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    imports: []const Module.Import = &.{},
 };
 
 pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile {
@@ -841,6 +848,7 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile 
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
             .code_model = options.code_model,
+            .imports = options.imports,
         },
         .kind = .lib,
         .linkage = .static,
@@ -874,6 +882,7 @@ pub const TestOptions = struct {
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    imports: []const Module.Import = &.{},
 };
 
 /// Creates an executable containing unit tests.
@@ -900,6 +909,7 @@ pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
             .omit_frame_pointer = options.omit_frame_pointer,
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
+            .imports = options.imports,
         },
         .max_rss = options.max_rss,
         .filters = if (options.filter != null and options.filters.len > 0) filters: {
