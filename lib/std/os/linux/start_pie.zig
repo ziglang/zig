@@ -7,6 +7,7 @@ const R_AMD64_RELATIVE = 8;
 const R_386_RELATIVE = 8;
 const R_ARM_RELATIVE = 23;
 const R_AARCH64_RELATIVE = 1027;
+const R_LARCH_RELATIVE = 3;
 const R_RISCV_RELATIVE = 3;
 const R_SPARC_RELATIVE = 22;
 
@@ -15,6 +16,7 @@ const R_RELATIVE = switch (builtin.cpu.arch) {
     .x86_64 => R_AMD64_RELATIVE,
     .arm => R_ARM_RELATIVE,
     .aarch64 => R_AARCH64_RELATIVE,
+    .loongarch32, .loongarch64 => R_LARCH_RELATIVE,
     .riscv64 => R_RISCV_RELATIVE,
     else => @compileError("Missing R_RELATIVE definition for this target"),
 };
@@ -55,6 +57,12 @@ fn getDynamicSymbol() [*]elf.Dyn {
             \\ .hidden _DYNAMIC
             \\ adrp %[ret], _DYNAMIC
             \\ add %[ret], %[ret], #:lo12:_DYNAMIC
+            : [ret] "=r" (-> [*]elf.Dyn),
+        ),
+        .loongarch32, .loongarch64 => asm volatile (
+            \\ .weak _DYNAMIC
+            \\ .hidden _DYNAMIC
+            \\ la.local %[ret], _DYNAMIC
             : [ret] "=r" (-> [*]elf.Dyn),
         ),
         .riscv64 => asm volatile (
