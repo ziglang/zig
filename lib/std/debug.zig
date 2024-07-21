@@ -1750,7 +1750,7 @@ pub const WindowsModuleInfo = struct {
         section_view: []const u8,
 
         pub fn deinit(self: @This()) void {
-            const process_handle = windows.kernel32.GetCurrentProcess();
+            const process_handle = windows.GetCurrentProcess();
             assert(windows.ntdll.NtUnmapViewOfSection(process_handle, @constCast(@ptrCast(self.section_view.ptr))) == .SUCCESS);
             windows.CloseHandle(self.section_handle);
             self.file.close();
@@ -1980,7 +1980,7 @@ pub const DebugInfo = struct {
                     // openFileAbsoluteW requires the prefix to be present
                     @memcpy(name_buffer[0..4], &[_]u16{ '\\', '?', '?', '\\' });
 
-                    const process_handle = windows.kernel32.GetCurrentProcess();
+                    const process_handle = windows.GetCurrentProcess();
                     const len = windows.kernel32.GetModuleFileNameExW(
                         process_handle,
                         module.handle,
