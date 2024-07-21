@@ -1967,7 +1967,6 @@ pub fn stackAlignment(target: Target) u16 {
         .bpfel,
         .mips64,
         .mips64el,
-        .riscv32,
         .riscv64,
         .sparc64,
         .x86_64,
@@ -1976,6 +1975,8 @@ pub fn stackAlignment(target: Target) u16 {
         .wasm64,
         .loongarch64,
         => 16,
+        .riscv32,
+        => if (Target.riscv.featureSetHas(target.cpu.features, .e)) 4 else 16,
         .powerpc64,
         .powerpc64le,
         => switch (target.os.tag) {
