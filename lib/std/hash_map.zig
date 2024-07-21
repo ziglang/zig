@@ -1483,15 +1483,10 @@ pub fn HashMapUnmanaged(
         /// key_ptr is assumed to be a valid pointer to a key that is present
         /// in the hash map.
         pub fn removeByPtr(self: *Self, key_ptr: *K) void {
-            // TODO: replace with pointer subtraction once supported by zig
             // if @sizeOf(K) == 0 then there is at most one item in the hash
             // map, which is assumed to exist as key_ptr must be valid.  This
             // item must be at index 0.
-            const idx = if (@sizeOf(K) > 0)
-                (@intFromPtr(key_ptr) - @intFromPtr(self.keys())) / @sizeOf(K)
-            else
-                0;
-
+            const idx = if (@sizeOf(K) == 0) 0 else key_ptr - self.keys();
             self.removeByIndex(idx);
         }
 
