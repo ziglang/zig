@@ -32,7 +32,6 @@ pub fn BoundedArrayAligned(
 
         /// Set the actual length of the slice.
         /// Returns error.Overflow if it exceeds the length of the backing array.
-        /// Use std.BoundedArray(T, N){} to initialize an empty BoundedArray
         pub fn init(len: usize) error{Overflow}!Self {
             if (len > buffer_capacity) return error.Overflow;
             return Self{ .len = @intCast(len) };
@@ -283,6 +282,11 @@ pub fn BoundedArrayAligned(
 }
 
 test BoundedArray {
+    const empty = BoundedArray(u8, 8){}; // empty bounded array with capacity 8
+    try testing.expectEqual(empty.capacity(), 8);
+    try testing.expectEqual(empty.slice().len, 0);
+    try testing.expectEqual(empty.constSlice().len, 0);
+
     var a = try BoundedArray(u8, 64).init(32);
 
     try testing.expectEqual(a.capacity(), 64);
