@@ -97,8 +97,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .lanai => "lanai",
         .wasm32 => "wasm32",
         .wasm64 => "wasm64",
-        .renderscript32 => "renderscript32",
-        .renderscript64 => "renderscript64",
         .ve => "ve",
         .spu_2 => return error.@"LLVM backend does not support SPU Mark II",
     };
@@ -321,8 +319,6 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .lanai => .lanai,
         .wasm32 => .wasm32,
         .wasm64 => .wasm64,
-        .renderscript32 => .renderscript32,
-        .renderscript64 => .renderscript64,
         .ve => .ve,
         .spu_2 => .UnknownArch,
     };
@@ -12106,8 +12102,6 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         .spirv32,
         .spirv64,
         .kalimba,
-        .renderscript32,
-        .renderscript64,
         .dxil,
         => {},
 

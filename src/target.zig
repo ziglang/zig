@@ -167,8 +167,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .lanai,
         .wasm32,
         .wasm64,
-        .renderscript32,
-        .renderscript64,
         .ve,
         => true,
 
