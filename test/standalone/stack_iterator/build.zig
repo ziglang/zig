@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test it");
@@ -92,5 +93,31 @@ pub fn build(b: *std.Build) void {
 
         const run_cmd = b.addRunArtifact(exe);
         test_step.dependOn(&run_cmd.step);
+    }
+
+    // Unwinding without libc/posix
+    //
+    // No "getcontext" or "ucontext_t"
+    {
+        const exe = b.addExecutable(.{
+            .name = "unwind_freestanding",
+            .root_source_file = b.path("unwind_freestanding.zig"),
+            .target = b.resolveTargetQuery(.{
+                .cpu_arch = .x86_64,
+                .os_tag = .freestanding,
+            }),
+            .optimize = optimize,
+            .unwind_tables = null,
+            .omit_frame_pointer = false,
+        });
+
+        // This "freestanding" binary is runnable because it invokes the
+        // Linux exit syscall directly.
+        if (builtin.os.tag == .linux and builtin.cpu.arch == .x86_64) {
+            const run_cmd = b.addRunArtifact(exe);
+            test_step.dependOn(&run_cmd.step);
+        } else {
+            test_step.dependOn(&exe.step);
+        }
     }
 }
