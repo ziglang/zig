@@ -126,14 +126,14 @@ pub fn SbrkAllocator(comptime sbrk: *const fn (n: usize) usize) type {
             const class = math.log2(slot_size) - min_class;
             const addr = @intFromPtr(buf.ptr);
             if (class < size_class_count) {
-                const node = @as(*usize, @ptrFromInt(addr + (slot_size - @sizeOf(usize))));
+                const node: *usize = @ptrCast(@alignCast(buf.ptr + slot_size - @sizeOf(usize)));
                 node.* = frees[class];
                 frees[class] = addr;
             } else {
                 const bigpages_needed = bigPagesNeeded(actual_len);
                 const pow2_pages = math.ceilPowerOfTwoAssert(usize, bigpages_needed);
                 const big_slot_size_bytes = pow2_pages * bigpage_size;
-                const node = @as(*usize, @ptrFromInt(addr + (big_slot_size_bytes - @sizeOf(usize))));
+                const node: *usize = @ptrCast(@alignCast(buf.ptr + big_slot_size_bytes - @sizeOf(usize)));
                 const big_class = math.log2(pow2_pages);
                 node.* = big_frees[big_class];
                 big_frees[big_class] = addr;
