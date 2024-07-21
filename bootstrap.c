@@ -8,7 +8,13 @@ static const char *get_c_compiler(void) {
     return (cc == NULL) ? "cc" : cc;
 }
 
-static void panic(const char *reason) {
+#if defined(__GNUC__) || defined(__clang__)
+    #define NORETURN __attribute__((noreturn))
+#else
+    #define NORETURN
+#endif
+
+static NORETURN void panic(const char *reason) {
     fprintf(stderr, "%s\n", reason);
     abort();
 }
@@ -51,6 +57,94 @@ static void print_and_run(const char **argv) {
     }
     fprintf(stderr, "\n");
     run((char **)argv);
+}
+
+static int count_char_in_string(char str[], const char c) {
+    int count = 0;
+    for (int i = 0; i < strlen(str); i++) {
+        if (str[i] == c)
+            count++;
+    }
+    return count;
+}
+
+const char ZIG_VERSION[] = "0.14.0";
+static char *get_zig_version(void) {
+    char *version_string;
+    char *split;
+
+    FILE *fp = popen(
+        "git -C . describe --match='*.*.*' --tags --abbrev=9",
+        "r"
+    );
+
+    if (fp == NULL) {
+        fprintf(stderr, "Unable to run `git describe`");
+        goto return_default;
+    }
+
+    // Get the output of the command
+    char buf[100];
+    if (fgets(buf, sizeof(buf), fp) != NULL) {
+        pclose(fp);
+
+        char *git_describe = strtok(buf, " \r\n");
+        switch (count_char_in_string(git_describe, '-')) {
+            case 0:
+                // Tagged release version (e.g. 0.10.0-bootstrap).
+                if (strcmp(git_describe, ZIG_VERSION) != 0) {
+                    fprintf(stderr, "Zig version '%s' does not match Git tag '%s'\n", ZIG_VERSION, git_describe);
+                    exit(1);
+                }
+
+                version_string = malloc(sizeof(ZIG_VERSION) + sizeof("-bootstrap"));
+                if (version_string == NULL) goto malloc_error;
+
+                sprintf(version_string, "%s-bootstrap", ZIG_VERSION);
+
+                return version_string;
+            case 2:
+                // Untagged development build (e.g. 0.10.0-dev.2025+ecf0050a9-bootstrap).
+                split = strtok(git_describe, "-");
+                char *info[3];  // info[0] = tagged ancestor
+                                // info[1] = commit height
+                                // info[2] = commit id
+
+                int i = 0;
+                while (split != NULL) {
+                    info[i] = split;
+                    split = strtok(NULL, "-");
+                    i++;
+                }
+
+                if (sizeof(info[2]) < 1 || info[2][0] != 'g')
+                    goto unexpected_git_describe;
+
+                version_string = malloc(sizeof(ZIG_VERSION) + sizeof(info[1]) + sizeof(info[2]+1) + sizeof("-dev.+-bootstrap"));
+                if (version_string == NULL) goto malloc_error;
+
+                sprintf(version_string, "%s-dev.%s+%s-bootstrap", ZIG_VERSION, info[1], info[2]+1);
+
+                return version_string;
+            default:
+                goto unexpected_git_describe;
+        }
+    }
+    pclose(fp);
+    goto return_default;
+
+unexpected_git_describe:
+    fprintf(stderr, "Unexpected `git describe` output: %s", buf);
+return_default:
+    version_string = malloc(sizeof(ZIG_VERSION) + sizeof("-dev-bootstrap"));
+    if (version_string == NULL) goto malloc_error;
+
+    sprintf(version_string, "%s-dev-bootstrap", ZIG_VERSION);
+
+    return version_string;
+
+malloc_error:
+    panic("Error when allocating memory!");
 }
 
 static const char *get_host_os(void) {
@@ -119,11 +213,11 @@ int main(int argc, char **argv) {
         print_and_run(child_argv);
     }
     {
+        char *zig_version = get_zig_version();
+
         FILE *f = fopen("config.zig", "wb");
         if (f == NULL)
             panic("unable to open config.zig for writing");
-
-        const char *zig_version = "0.12.0-dev.bootstrap";
 
         int written = fprintf(f,
             "pub const have_llvm = false;\n"
@@ -142,6 +236,8 @@ int main(int argc, char **argv) {
             "pub const force_gpa = false;\n"
             "pub const dev = .core;\n"
         , zig_version);
+        free(zig_version);
+
         if (written < 100)
             panic("unable to write to config.zig file");
         if (fclose(f) != 0)
