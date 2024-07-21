@@ -28023,6 +28023,10 @@ fn fieldCallBind(
         if (concrete_ty.zigTypeTag(mod) == .ErrorUnion) {
             try sema.errNote(src, msg, "consider using 'try', 'catch', or 'if'", .{});
         }
+        if (is_double_ptr) {
+            try sema.errNote(src, msg, "method invocation only supports up to one level of implicit pointer dereferencing", .{});
+            try sema.errNote(src, msg, "use '.*' to dereference pointer", .{});
+        }
         break :msg msg;
     };
     return sema.failWithOwnedErrorMsg(block, msg);
