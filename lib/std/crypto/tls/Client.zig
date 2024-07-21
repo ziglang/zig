@@ -468,7 +468,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                         read_seq += 1;
                         P.AEAD.decrypt(cleartext, ciphertext, auth_tag, record_header, nonce, p.server_handshake_key) catch
                             return error.TlsBadRecordMac;
-                        break :c cleartext;
+                        break :c @constCast(mem.trimRight(u8, cleartext, "\x00"));
                     },
                 };
 
@@ -819,7 +819,7 @@ fn prepareCiphertextRecord(
             const close_notify_alert_reserved = tls.close_notify_alert.len + overhead_len;
             while (true) {
                 const encrypted_content_len: u16 = @intCast(@min(
-                    @min(bytes.len - bytes_i, tls.max_cipertext_inner_record_len),
+                    @min(bytes.len - bytes_i, tls.max_ciphertext_inner_record_len),
                     ciphertext_buf.len -|
                         (close_notify_alert_reserved + overhead_len + ciphertext_end),
                 ));
@@ -1012,7 +1012,7 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.posix.iove
     // Cleartext capacity of output buffer, in records. Minimum one full record.
     const buf_cap = @max(cleartext_buf_len / max_ciphertext_len, 1);
     const wanted_read_len = buf_cap * (max_ciphertext_len + tls.record_header_len);
-    const ask_len = @max(wanted_read_len, cleartext_stack_buffer.len);
+    const ask_len = @max(wanted_read_len, cleartext_stack_buffer.len) - c.partial_ciphertext_end;
     const ask_iovecs = limitVecs(&ask_iovecs_buf, ask_len);
     const actual_read_len = try stream.readv(ask_iovecs);
     if (actual_read_len == 0) {
@@ -1146,7 +1146,7 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.posix.iove
                         const cleartext = cleartext_buf[0..ciphertext.len];
                         P.AEAD.decrypt(cleartext, ciphertext, auth_tag, ad, nonce, p.server_key) catch
                             return error.TlsBadRecordMac;
-                        break :c cleartext;
+                        break :c mem.trimRight(u8, cleartext, "\x00");
                     },
                 };
 

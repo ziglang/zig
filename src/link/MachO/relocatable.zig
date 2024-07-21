@@ -44,8 +44,8 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]c
 
     if (comp.link_errors.items.len > 0) return error.FlushFailure;
 
-    try macho_file.addUndefinedGlobals();
     try macho_file.resolveSymbols();
+    try macho_file.dedupLiterals();
     markExports(macho_file);
     claimUnresolved(macho_file);
     try initOutputSections(macho_file);
@@ -57,28 +57,13 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]c
     try allocateSections(macho_file);
     allocateSegment(macho_file);
 
-    var off = off: {
-        const seg = macho_file.segments.items[0];
-        const off = math.cast(u32, seg.fileoff + seg.filesize) orelse return error.Overflow;
-        break :off mem.alignForward(u32, off, @alignOf(macho.relocation_info));
-    };
-    off = allocateSectionsRelocs(macho_file, off);
-
     if (build_options.enable_logging) {
         state_log.debug("{}", .{macho_file.dumpState()});
     }
 
-    try macho_file.calcSymtabSize();
-    try writeAtoms(macho_file);
-    try writeCompactUnwind(macho_file);
-    try writeEhFrame(macho_file);
-
-    off = mem.alignForward(u32, off, @alignOf(u64));
-    off = try macho_file.writeDataInCode(0, off);
-    off = mem.alignForward(u32, off, @alignOf(u64));
-    off = try macho_file.writeSymtab(off);
-    off = mem.alignForward(u32, off, @alignOf(u64));
-    off = try macho_file.writeStrtab(off);
+    try writeSections(macho_file);
+    sortRelocs(macho_file);
+    try writeSectionsToFile(macho_file);
 
     // In order to please Apple ld (and possibly other MachO linkers in the wild),
     // we will now sanitize segment names of Zig-specific segments.
@@ -127,7 +112,7 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
 
     // First, we flush relocatable object file generated with our backends.
     if (macho_file.getZigObject()) |zo| {
-        zo.resolveSymbols(macho_file);
+        try zo.resolveSymbols(macho_file);
         zo.asFile().markExportsRelocatable(macho_file);
         zo.asFile().claimUnresolvedRelocatable(macho_file);
         try macho_file.sortSections();
@@ -137,26 +122,13 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
         try allocateSections(macho_file);
         allocateSegment(macho_file);
 
-        var off = off: {
-            const seg = macho_file.segments.items[0];
-            const off = math.cast(u32, seg.fileoff + seg.filesize) orelse return error.Overflow;
-            break :off mem.alignForward(u32, off, @alignOf(macho.relocation_info));
-        };
-        off = allocateSectionsRelocs(macho_file, off);
-
         if (build_options.enable_logging) {
             state_log.debug("{}", .{macho_file.dumpState()});
         }
 
-        try macho_file.calcSymtabSize();
-        try writeAtoms(macho_file);
-
-        off = mem.alignForward(u32, off, @alignOf(u64));
-        off = try macho_file.writeDataInCode(0, off);
-        off = mem.alignForward(u32, off, @alignOf(u64));
-        off = try macho_file.writeSymtab(off);
-        off = mem.alignForward(u32, off, @alignOf(u64));
-        off = try macho_file.writeStrtab(off);
+        try writeSections(macho_file);
+        sortRelocs(macho_file);
+        try writeSectionsToFile(macho_file);
 
         // In order to please Apple ld (and possibly other MachO linkers in the wild),
         // we will now sanitize segment names of Zig-specific segments.
@@ -167,7 +139,7 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
 
         // TODO we can avoid reading in the file contents we just wrote if we give the linker
         // ability to write directly to a buffer.
-        try zo.readFileContents(off, macho_file);
+        try zo.readFileContents(macho_file);
     }
 
     var files = std.ArrayList(File.Index).init(gpa);
@@ -284,12 +256,15 @@ fn parseObject(macho_file: *MachO, path: []const u8) MachO.ParseError!void {
         break :mtime @as(u64, @intCast(@divFloor(stat.mtime, 1_000_000_000)));
     };
     const index = @as(File.Index, @intCast(try macho_file.files.addOne(gpa)));
-    macho_file.files.set(index, .{ .object = .{
-        .path = try gpa.dupe(u8, path),
-        .file_handle = handle,
-        .mtime = mtime,
-        .index = index,
-    } });
+    macho_file.files.set(index, .{
+        .object = .{
+            .offset = 0, // TODO FAT objects
+            .path = try gpa.dupe(u8, path),
+            .file_handle = handle,
+            .mtime = mtime,
+            .index = index,
+        },
+    });
     try macho_file.objects.append(gpa, index);
 
     const object = macho_file.getFile(index).?.object;
@@ -345,9 +320,9 @@ pub fn claimUnresolved(macho_file: *MachO) void {
 
 fn initOutputSections(macho_file: *MachO) !void {
     for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
-        for (object.atoms.items) |atom_index| {
-            const atom = macho_file.getAtom(atom_index) orelse continue;
+        const file = macho_file.getFile(index).?;
+        for (file.getAtoms()) |atom_index| {
+            const atom = file.getAtom(atom_index) orelse continue;
             if (!atom.flags.alive) continue;
             atom.out_n_sect = try Atom.initOutputSection(atom.getInputSection(macho_file), macho_file);
         }
@@ -375,67 +350,145 @@ fn calcSectionSizes(macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const slice = macho_file.sections.slice();
-    for (slice.items(.header), slice.items(.atoms)) |*header, atoms| {
+    for (macho_file.sections.items(.atoms), 0..) |atoms, i| {
         if (atoms.items.len == 0) continue;
-        for (atoms.items) |atom_index| {
-            const atom = macho_file.getAtom(atom_index).?;
-            const atom_alignment = atom.alignment.toByteUnits() orelse 1;
-            const offset = mem.alignForward(u64, header.size, atom_alignment);
-            const padding = offset - header.size;
-            atom.value = offset;
-            header.size += padding + atom.size;
-            header.@"align" = @max(header.@"align", atom.alignment.toLog2Units());
-            header.nreloc += atom.calcNumRelocs(macho_file);
-        }
-    }
-
-    if (macho_file.unwind_info_sect_index) |index| {
-        calcCompactUnwindSize(macho_file, index);
-    }
-
-    if (macho_file.eh_frame_sect_index) |index| {
-        const sect = &macho_file.sections.items(.header)[index];
-        sect.size = try eh_frame.calcSize(macho_file);
-        sect.@"align" = 3;
-        sect.nreloc = eh_frame.calcNumRelocs(macho_file);
+        calcSectionSize(macho_file, @intCast(i));
     }
 
     if (macho_file.getZigObject()) |zo| {
-        for (zo.atoms.items) |atom_index| {
-            const atom = macho_file.getAtom(atom_index) orelse continue;
-            if (!atom.flags.alive) continue;
-            const header = &macho_file.sections.items(.header)[atom.out_n_sect];
-            if (!macho_file.isZigSection(atom.out_n_sect) and !macho_file.isDebugSection(atom.out_n_sect)) continue;
-            header.nreloc += atom.calcNumRelocs(macho_file);
+        // TODO this will create a race
+        zo.calcNumRelocs(macho_file);
+        zo.calcSymtabSize(macho_file);
+    }
+
+    if (macho_file.eh_frame_sect_index) |_| {
+        try calcEhFrameSize(macho_file);
+    }
+
+    for (macho_file.objects.items) |index| {
+        if (macho_file.unwind_info_sect_index) |_| {
+            macho_file.getFile(index).?.object.calcCompactUnwindSizeRelocatable(macho_file);
         }
+        macho_file.getFile(index).?.calcSymtabSize(macho_file);
+    }
+
+    try macho_file.data_in_code.updateSize(macho_file);
+
+    if (macho_file.unwind_info_sect_index) |_| {
+        calcCompactUnwindSize(macho_file);
+    }
+    try calcSymtabSize(macho_file);
+}
+
+fn calcSectionSize(macho_file: *MachO, sect_id: u8) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const slice = macho_file.sections.slice();
+    const header = &slice.items(.header)[sect_id];
+    const atoms = slice.items(.atoms)[sect_id].items;
+    for (atoms) |ref| {
+        const atom = ref.getAtom(macho_file).?;
+        const atom_alignment = atom.alignment.toByteUnits() orelse 1;
+        const offset = mem.alignForward(u64, header.size, atom_alignment);
+        const padding = offset - header.size;
+        atom.value = offset;
+        header.size += padding + atom.size;
+        header.@"align" = @max(header.@"align", atom.alignment.toLog2Units());
+        const nreloc = atom.calcNumRelocs(macho_file);
+        atom.addExtra(.{ .rel_out_index = header.nreloc, .rel_out_count = nreloc }, macho_file);
+        header.nreloc += nreloc;
     }
 }
 
-fn calcCompactUnwindSize(macho_file: *MachO, sect_index: u8) void {
-    var size: u32 = 0;
+fn calcEhFrameSize(macho_file: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const header = &macho_file.sections.items(.header)[macho_file.eh_frame_sect_index.?];
+    header.size = try eh_frame.calcSize(macho_file);
+    header.@"align" = 3;
+    header.nreloc = eh_frame.calcNumRelocs(macho_file);
+}
+
+fn calcCompactUnwindSize(macho_file: *MachO) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    var nrec: u32 = 0;
     var nreloc: u32 = 0;
 
     for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
-        for (object.unwind_records.items) |irec| {
-            const rec = macho_file.getUnwindRecord(irec);
-            if (!rec.alive) continue;
-            size += @sizeOf(macho.compact_unwind_entry);
-            nreloc += 1;
-            if (rec.getPersonality(macho_file)) |_| {
-                nreloc += 1;
-            }
-            if (rec.getLsdaAtom(macho_file)) |_| {
-                nreloc += 1;
-            }
-        }
+        const ctx = &macho_file.getFile(index).?.object.compact_unwind_ctx;
+        ctx.rec_index = nrec;
+        ctx.reloc_index = nreloc;
+        nrec += ctx.rec_count;
+        nreloc += ctx.reloc_count;
     }
 
-    const sect = &macho_file.sections.items(.header)[sect_index];
-    sect.size = size;
+    const sect = &macho_file.sections.items(.header)[macho_file.unwind_info_sect_index.?];
+    sect.size = nrec * @sizeOf(macho.compact_unwind_entry);
     sect.nreloc = nreloc;
     sect.@"align" = 3;
+}
+
+fn calcSymtabSize(macho_file: *MachO) error{OutOfMemory}!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = macho_file.base.comp.gpa;
+
+    var nlocals: u32 = 0;
+    var nstabs: u32 = 0;
+    var nexports: u32 = 0;
+    var nimports: u32 = 0;
+    var strsize: u32 = 1;
+
+    var objects = try std.ArrayList(File.Index).initCapacity(gpa, macho_file.objects.items.len + 1);
+    defer objects.deinit();
+    if (macho_file.getZigObject()) |zo| objects.appendAssumeCapacity(zo.index);
+    objects.appendSliceAssumeCapacity(macho_file.objects.items);
+
+    for (objects.items) |index| {
+        const ctx = switch (macho_file.getFile(index).?) {
+            inline else => |x| &x.output_symtab_ctx,
+        };
+        ctx.ilocal = nlocals;
+        ctx.istab = nstabs;
+        ctx.iexport = nexports;
+        ctx.iimport = nimports;
+        ctx.stroff = strsize;
+        nlocals += ctx.nlocals;
+        nstabs += ctx.nstabs;
+        nexports += ctx.nexports;
+        nimports += ctx.nimports;
+        strsize += ctx.strsize;
+    }
+
+    for (objects.items) |index| {
+        const ctx = switch (macho_file.getFile(index).?) {
+            inline else => |x| &x.output_symtab_ctx,
+        };
+        ctx.istab += nlocals;
+        ctx.iexport += nlocals + nstabs;
+        ctx.iimport += nlocals + nstabs + nexports;
+    }
+
+    {
+        const cmd = &macho_file.symtab_cmd;
+        cmd.nsyms = nlocals + nstabs + nexports + nimports;
+        cmd.strsize = strsize;
+    }
+
+    {
+        const cmd = &macho_file.dysymtab_cmd;
+        cmd.ilocalsym = 0;
+        cmd.nlocalsym = nlocals + nstabs;
+        cmd.iextdefsym = nlocals + nstabs;
+        cmd.nextdefsym = nexports;
+        cmd.iundefsym = nlocals + nstabs + nexports;
+        cmd.nundefsym = nimports;
+    }
 }
 
 fn allocateSections(macho_file: *MachO) !void {
@@ -454,6 +507,37 @@ fn allocateSections(macho_file: *MachO) !void {
             header.addr = macho_file.findFreeSpaceVirtual(needed_size, alignment);
         }
         header.size = needed_size;
+    }
+
+    var fileoff: u32 = 0;
+    for (slice.items(.header)) |header| {
+        fileoff = @max(fileoff, header.offset + @as(u32, @intCast(header.size)));
+    }
+
+    for (slice.items(.header)) |*header| {
+        if (header.nreloc == 0) continue;
+        header.reloff = mem.alignForward(u32, fileoff, @alignOf(macho.relocation_info));
+        fileoff = header.reloff + header.nreloc * @sizeOf(macho.relocation_info);
+    }
+
+    // In -r mode, there is no LINKEDIT segment and so we allocate required LINKEDIT commands
+    // as if they were detached or part of the single segment.
+
+    // DATA_IN_CODE
+    {
+        const cmd = &macho_file.data_in_code_cmd;
+        cmd.dataoff = fileoff;
+        fileoff += cmd.datasize;
+        fileoff = mem.alignForward(u32, fileoff, @alignOf(u64));
+    }
+
+    // SYMTAB
+    {
+        const cmd = &macho_file.symtab_cmd;
+        cmd.symoff = fileoff;
+        fileoff += cmd.nsyms * @sizeOf(macho.nlist_64);
+        fileoff = mem.alignForward(u32, fileoff, @alignOf(u32));
+        cmd.stroff = fileoff;
     }
 }
 
@@ -517,228 +601,86 @@ fn allocateSegment(macho_file: *MachO) void {
     seg.filesize = fileoff - seg.fileoff;
 }
 
-fn allocateSectionsRelocs(macho_file: *MachO, off: u32) u32 {
-    var fileoff = off;
-    const slice = macho_file.sections.slice();
-    for (slice.items(.header)) |*header| {
-        if (header.nreloc == 0) continue;
-        header.reloff = mem.alignForward(u32, fileoff, @alignOf(macho.relocation_info));
-        fileoff = header.reloff + header.nreloc * @sizeOf(macho.relocation_info);
-    }
-    return fileoff;
-}
-
 // We need to sort relocations in descending order to be compatible with Apple's linker.
 fn sortReloc(ctx: void, lhs: macho.relocation_info, rhs: macho.relocation_info) bool {
     _ = ctx;
     return lhs.r_address > rhs.r_address;
 }
 
-fn writeAtoms(macho_file: *MachO) !void {
+fn sortRelocs(macho_file: *MachO) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    for (macho_file.sections.items(.relocs)) |*relocs| {
+        mem.sort(macho.relocation_info, relocs.items, {}, sortReloc);
+    }
+}
+
+fn writeSections(macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = macho_file.base.comp.gpa;
     const cpu_arch = macho_file.getTarget().cpu.arch;
     const slice = macho_file.sections.slice();
-
-    for (slice.items(.header), slice.items(.atoms), 0..) |header, atoms, i| {
-        if (atoms.items.len == 0) continue;
+    for (slice.items(.header), slice.items(.out), slice.items(.relocs), 0..) |header, *out, *relocs, n_sect| {
         if (header.isZerofill()) continue;
-        if (macho_file.isZigSection(@intCast(i)) or macho_file.isDebugSection(@intCast(i))) continue;
-
-        const size = math.cast(usize, header.size) orelse return error.Overflow;
-        const code = try gpa.alloc(u8, size);
-        defer gpa.free(code);
-        const padding_byte: u8 = if (header.isCode() and cpu_arch == .x86_64) 0xcc else 0;
-        @memset(code, padding_byte);
-
-        var relocs = try std.ArrayList(macho.relocation_info).initCapacity(gpa, header.nreloc);
-        defer relocs.deinit();
-
-        for (atoms.items) |atom_index| {
-            const atom = macho_file.getAtom(atom_index).?;
-            assert(atom.flags.alive);
-            const off = math.cast(usize, atom.value) orelse return error.Overflow;
-            const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
-            try atom.getData(macho_file, code[off..][0..atom_size]);
-            try atom.writeRelocs(macho_file, code[off..][0..atom_size], &relocs);
+        if (!macho_file.isZigSection(@intCast(n_sect))) { // TODO this is wrong; what about debug sections?
+            const size = math.cast(usize, header.size) orelse return error.Overflow;
+            try out.resize(gpa, size);
+            const padding_byte: u8 = if (header.isCode() and cpu_arch == .x86_64) 0xcc else 0;
+            @memset(out.items, padding_byte);
         }
+        try relocs.resize(gpa, header.nreloc);
+    }
 
-        assert(relocs.items.len == header.nreloc);
+    const cmd = macho_file.symtab_cmd;
+    try macho_file.symtab.resize(gpa, cmd.nsyms);
+    try macho_file.strtab.resize(gpa, cmd.strsize);
+    macho_file.strtab.items[0] = 0;
 
-        mem.sort(macho.relocation_info, relocs.items, {}, sortReloc);
-
-        // TODO scattered writes?
-        try macho_file.base.file.?.pwriteAll(code, header.offset);
-        try macho_file.base.file.?.pwriteAll(mem.sliceAsBytes(relocs.items), header.reloff);
+    for (macho_file.objects.items) |index| {
+        try macho_file.getFile(index).?.object.writeAtomsRelocatable(macho_file);
+        macho_file.getFile(index).?.writeSymtab(macho_file, macho_file);
     }
 
     if (macho_file.getZigObject()) |zo| {
-        // TODO: this is ugly; perhaps we should aggregrate before?
-        var relocs = std.AutoArrayHashMap(u8, std.ArrayList(macho.relocation_info)).init(gpa);
-        defer {
-            for (relocs.values()) |*list| {
-                list.deinit();
-            }
-            relocs.deinit();
-        }
-
-        for (macho_file.sections.items(.header), 0..) |header, n_sect| {
-            if (header.isZerofill()) continue;
-            if (!macho_file.isZigSection(@intCast(n_sect)) and !macho_file.isDebugSection(@intCast(n_sect))) continue;
-            const gop = try relocs.getOrPut(@intCast(n_sect));
-            if (gop.found_existing) continue;
-            gop.value_ptr.* = try std.ArrayList(macho.relocation_info).initCapacity(gpa, header.nreloc);
-        }
-
-        for (zo.atoms.items) |atom_index| {
-            const atom = macho_file.getAtom(atom_index) orelse continue;
-            if (!atom.flags.alive) continue;
-            const header = macho_file.sections.items(.header)[atom.out_n_sect];
-            if (header.isZerofill()) continue;
-            if (!macho_file.isZigSection(atom.out_n_sect) and !macho_file.isDebugSection(atom.out_n_sect)) continue;
-            if (atom.getRelocs(macho_file).len == 0) continue;
-            const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
-            const code = try gpa.alloc(u8, atom_size);
-            defer gpa.free(code);
-            atom.getData(macho_file, code) catch |err| switch (err) {
-                error.InputOutput => {
-                    try macho_file.reportUnexpectedError("fetching code for '{s}' failed", .{
-                        atom.getName(macho_file),
-                    });
-                    return error.FlushFailure;
-                },
-                else => |e| {
-                    try macho_file.reportUnexpectedError("unexpected error while fetching code for '{s}': {s}", .{
-                        atom.getName(macho_file),
-                        @errorName(e),
-                    });
-                    return error.FlushFailure;
-                },
-            };
-            const file_offset = header.offset + atom.value;
-            const rels = relocs.getPtr(atom.out_n_sect).?;
-            try atom.writeRelocs(macho_file, code, rels);
-            try macho_file.base.file.?.pwriteAll(code, file_offset);
-        }
-
-        for (relocs.keys(), relocs.values()) |sect_id, rels| {
-            const header = macho_file.sections.items(.header)[sect_id];
-            assert(rels.items.len == header.nreloc);
-            mem.sort(macho.relocation_info, rels.items, {}, sortReloc);
-            try macho_file.base.file.?.pwriteAll(mem.sliceAsBytes(rels.items), header.reloff);
-        }
-    }
-}
-
-fn writeCompactUnwind(macho_file: *MachO) !void {
-    const sect_index = macho_file.unwind_info_sect_index orelse return;
-    const gpa = macho_file.base.comp.gpa;
-    const header = macho_file.sections.items(.header)[sect_index];
-
-    const nrecs = math.cast(usize, @divExact(header.size, @sizeOf(macho.compact_unwind_entry))) orelse return error.Overflow;
-    var entries = try std.ArrayList(macho.compact_unwind_entry).initCapacity(gpa, nrecs);
-    defer entries.deinit();
-
-    var relocs = try std.ArrayList(macho.relocation_info).initCapacity(gpa, header.nreloc);
-    defer relocs.deinit();
-
-    const addReloc = struct {
-        fn addReloc(offset: i32, cpu_arch: std.Target.Cpu.Arch) macho.relocation_info {
-            return .{
-                .r_address = offset,
-                .r_symbolnum = 0,
-                .r_pcrel = 0,
-                .r_length = 3,
-                .r_extern = 0,
-                .r_type = switch (cpu_arch) {
-                    .aarch64 => @intFromEnum(macho.reloc_type_arm64.ARM64_RELOC_UNSIGNED),
-                    .x86_64 => @intFromEnum(macho.reloc_type_x86_64.X86_64_RELOC_UNSIGNED),
-                    else => unreachable,
-                },
-            };
-        }
-    }.addReloc;
-
-    var offset: i32 = 0;
-    for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
-        for (object.unwind_records.items) |irec| {
-            const rec = macho_file.getUnwindRecord(irec);
-            if (!rec.alive) continue;
-
-            var out: macho.compact_unwind_entry = .{
-                .rangeStart = 0,
-                .rangeLength = rec.length,
-                .compactUnwindEncoding = rec.enc.enc,
-                .personalityFunction = 0,
-                .lsda = 0,
-            };
-
-            {
-                // Function address
-                const atom = rec.getAtom(macho_file);
-                const addr = rec.getAtomAddress(macho_file);
-                out.rangeStart = addr;
-                var reloc = addReloc(offset, macho_file.getTarget().cpu.arch);
-                reloc.r_symbolnum = atom.out_n_sect + 1;
-                relocs.appendAssumeCapacity(reloc);
-            }
-
-            // Personality function
-            if (rec.getPersonality(macho_file)) |sym| {
-                const r_symbolnum = math.cast(u24, sym.getOutputSymtabIndex(macho_file).?) orelse return error.Overflow;
-                var reloc = addReloc(offset + 16, macho_file.getTarget().cpu.arch);
-                reloc.r_symbolnum = r_symbolnum;
-                reloc.r_extern = 1;
-                relocs.appendAssumeCapacity(reloc);
-            }
-
-            // LSDA address
-            if (rec.getLsdaAtom(macho_file)) |atom| {
-                const addr = rec.getLsdaAddress(macho_file);
-                out.lsda = addr;
-                var reloc = addReloc(offset + 24, macho_file.getTarget().cpu.arch);
-                reloc.r_symbolnum = atom.out_n_sect + 1;
-                relocs.appendAssumeCapacity(reloc);
-            }
-
-            entries.appendAssumeCapacity(out);
-            offset += @sizeOf(macho.compact_unwind_entry);
-        }
+        try zo.writeRelocs(macho_file);
+        try zo.writeAtomsRelocatable(macho_file);
+        zo.writeSymtab(macho_file, macho_file);
     }
 
-    assert(entries.items.len == nrecs);
-    assert(relocs.items.len == header.nreloc);
+    if (macho_file.eh_frame_sect_index) |_| {
+        try writeEhFrame(macho_file);
+    }
 
-    mem.sort(macho.relocation_info, relocs.items, {}, sortReloc);
-
-    // TODO scattered writes?
-    try macho_file.base.file.?.pwriteAll(mem.sliceAsBytes(entries.items), header.offset);
-    try macho_file.base.file.?.pwriteAll(mem.sliceAsBytes(relocs.items), header.reloff);
+    if (macho_file.unwind_info_sect_index) |_| {
+        for (macho_file.objects.items) |index| {
+            try macho_file.getFile(index).?.object.writeCompactUnwindRelocatable(macho_file);
+        }
+    }
 }
 
 fn writeEhFrame(macho_file: *MachO) !void {
-    const sect_index = macho_file.eh_frame_sect_index orelse return;
-    const gpa = macho_file.base.comp.gpa;
-    const header = macho_file.sections.items(.header)[sect_index];
-    const size = math.cast(usize, header.size) orelse return error.Overflow;
+    const sect_index = macho_file.eh_frame_sect_index.?;
+    const buffer = macho_file.sections.items(.out)[sect_index];
+    const relocs = macho_file.sections.items(.relocs)[sect_index];
+    try eh_frame.writeRelocs(macho_file, buffer.items, relocs.items);
+}
 
-    const code = try gpa.alloc(u8, size);
-    defer gpa.free(code);
+fn writeSectionsToFile(macho_file: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
 
-    var relocs = try std.ArrayList(macho.relocation_info).initCapacity(gpa, header.nreloc);
-    defer relocs.deinit();
+    const slice = macho_file.sections.slice();
+    for (slice.items(.header), slice.items(.out), slice.items(.relocs)) |header, out, relocs| {
+        try macho_file.base.file.?.pwriteAll(out.items, header.offset);
+        try macho_file.base.file.?.pwriteAll(mem.sliceAsBytes(relocs.items), header.reloff);
+    }
 
-    try eh_frame.writeRelocs(macho_file, code, &relocs);
-    assert(relocs.items.len == header.nreloc);
-
-    mem.sort(macho.relocation_info, relocs.items, {}, sortReloc);
-
-    // TODO scattered writes?
-    try macho_file.base.file.?.pwriteAll(code, header.offset);
-    try macho_file.base.file.?.pwriteAll(mem.sliceAsBytes(relocs.items), header.reloff);
+    try macho_file.writeDataInCode();
+    try macho_file.base.file.?.pwriteAll(mem.sliceAsBytes(macho_file.symtab.items), macho_file.symtab_cmd.symoff);
+    try macho_file.base.file.?.pwriteAll(macho_file.strtab.items, macho_file.symtab_cmd.stroff);
 }
 
 fn writeLoadCommands(macho_file: *MachO) !struct { usize, usize } {

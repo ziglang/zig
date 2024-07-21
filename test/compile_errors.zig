@@ -4,7 +4,7 @@ const Cases = @import("src/Cases.zig");
 
 pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     {
-        const case = ctx.obj("multiline error messages", b.host);
+        const case = ctx.obj("multiline error messages", b.graph.host);
 
         case.addError(
             \\comptime {
@@ -39,16 +39,16 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     }
 
     {
-        const case = ctx.obj("isolated carriage return in multiline string literal", b.host);
+        const case = ctx.obj("isolated carriage return in multiline string literal", b.graph.host);
 
         case.addError("const foo = \\\\\test\r\r rogue carriage return\n;", &[_][]const u8{
-            ":1:19: error: expected ';' after declaration",
-            ":1:20: note: invalid byte: '\\r'",
+            ":1:13: error: expected expression, found 'invalid bytes'",
+            ":1:19: note: invalid byte: '\\r'",
         });
     }
 
     {
-        const case = ctx.obj("missing semicolon at EOF", b.host);
+        const case = ctx.obj("missing semicolon at EOF", b.graph.host);
         case.addError(
             \\const foo = 1
         , &[_][]const u8{
@@ -57,7 +57,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     }
 
     {
-        const case = ctx.obj("argument causes error", b.host);
+        const case = ctx.obj("argument causes error", b.graph.host);
 
         case.addError(
             \\pub export fn entry() void {
@@ -80,7 +80,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     }
 
     {
-        const case = ctx.obj("astgen failure in file struct", b.host);
+        const case = ctx.obj("astgen failure in file struct", b.graph.host);
 
         case.addError(
             \\pub export fn entry() void {
@@ -95,7 +95,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     }
 
     {
-        const case = ctx.obj("invalid store to comptime field", b.host);
+        const case = ctx.obj("invalid store to comptime field", b.graph.host);
 
         case.addError(
             \\const a = @import("a.zig");
@@ -119,7 +119,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     }
 
     {
-        const case = ctx.obj("file in multiple modules", b.host);
+        const case = ctx.obj("file in multiple modules", b.graph.host);
         case.addDepModule("foo", "foo.zig");
 
         case.addError(
@@ -138,7 +138,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     }
 
     {
-        const case = ctx.obj("wrong same named struct", b.host);
+        const case = ctx.obj("wrong same named struct", b.graph.host);
 
         case.addError(
             \\const a = @import("a.zig");
@@ -172,7 +172,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     }
 
     {
-        const case = ctx.obj("non-printable invalid character", b.host);
+        const case = ctx.obj("non-printable invalid character", b.graph.host);
 
         case.addError("\xff\xfe" ++
             \\export fn foo() bool {
@@ -185,7 +185,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     }
 
     {
-        const case = ctx.obj("imported generic method call with invalid param", b.host);
+        const case = ctx.obj("imported generic method call with invalid param", b.graph.host);
 
         case.addError(
             \\pub const import = @import("import.zig");
@@ -216,5 +216,41 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             \\pub fn comptimeAnytypeFunction(comptime _: anytype) void {}
             \\pub fn anytypeFunction(_: anytype) void {}
         );
+    }
+
+    {
+        const case = ctx.obj("invalid byte in string", b.graph.host);
+
+        case.addError("_ = \"\x01Q\";", &[_][]const u8{
+            ":1:5: error: expected expression, found 'invalid bytes'",
+            ":1:6: note: invalid byte: '\\x01'",
+        });
+    }
+
+    {
+        const case = ctx.obj("invalid byte in comment", b.graph.host);
+
+        case.addError("//\x01Q", &[_][]const u8{
+            ":1:1: error: expected type expression, found 'invalid bytes'",
+            ":1:3: note: invalid byte: '\\x01'",
+        });
+    }
+
+    {
+        const case = ctx.obj("control character in character literal", b.graph.host);
+
+        case.addError("const c = '\x01';", &[_][]const u8{
+            ":1:11: error: expected expression, found 'invalid bytes'",
+            ":1:12: note: invalid byte: '\\x01'",
+        });
+    }
+
+    {
+        const case = ctx.obj("invalid byte at start of token", b.graph.host);
+
+        case.addError("x = \x00Q", &[_][]const u8{
+            ":1:5: error: expected expression, found 'invalid bytes'",
+            ":1:5: note: invalid byte: '\\x00'",
+        });
     }
 }

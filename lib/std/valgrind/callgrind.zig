@@ -54,7 +54,7 @@ pub fn startInstrumentation() void {
 
 /// Stop full callgrind instrumentation if not already switched off.
 /// This flushes Valgrinds translation cache, and does no additional
-/// instrumentation afterwards, which effectivly will run at the same
+/// instrumentation afterwards, which effectively will run at the same
 /// speed as the "none" tool (ie. at minimal slowdown).
 /// Use this to bypass Callgrind aggregation for uninteresting code parts.
 /// To start Callgrind in this mode to ignore the setup phase, use

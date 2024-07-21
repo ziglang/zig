@@ -140,8 +140,7 @@ int main(int argc, char **argv) {
             "pub const value_tracing = false;\n"
             "pub const skip_non_native = false;\n"
             "pub const force_gpa = false;\n"
-            "pub const only_c = false;\n"
-            "pub const only_core_functionality = true;\n"
+            "pub const dev = .core;\n"
         , zig_version);
         if (written < 100)
             panic("unable to write to config.zig file");

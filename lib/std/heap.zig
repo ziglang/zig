@@ -40,15 +40,18 @@ const CAllocator = struct {
     }
 
     pub const supports_malloc_size = @TypeOf(malloc_size) != void;
-    pub const malloc_size = if (@hasDecl(c, "malloc_size"))
+    pub const malloc_size = if (@TypeOf(c.malloc_size) != void)
         c.malloc_size
-    else if (@hasDecl(c, "malloc_usable_size"))
+    else if (@TypeOf(c.malloc_usable_size) != void)
         c.malloc_usable_size
-    else if (@hasDecl(c, "_msize"))
+    else if (@TypeOf(c._msize) != void)
         c._msize
     else {};
 
-    pub const supports_posix_memalign = @hasDecl(c, "posix_memalign");
+    pub const supports_posix_memalign = switch (builtin.os.tag) {
+        .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .linux, .macos, .ios, .tvos, .watchos, .visionos => true,
+        else => false,
+    };
 
     fn getHeader(ptr: [*]u8) *[*]u8 {
         return @as(*[*]u8, @ptrFromInt(@intFromPtr(ptr) - @sizeOf(usize)));

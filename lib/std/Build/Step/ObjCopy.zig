@@ -33,7 +33,7 @@ output_file: std.Build.GeneratedFile,
 output_file_debug: ?std.Build.GeneratedFile,
 
 format: ?RawFormat,
-only_sections: ?[]const []const u8,
+only_section: ?[]const u8,
 pad_to: ?u64,
 strip: Strip,
 compress_debug: bool,
@@ -41,7 +41,7 @@ compress_debug: bool,
 pub const Options = struct {
     basename: ?[]const u8 = null,
     format: ?RawFormat = null,
-    only_sections: ?[]const []const u8 = null,
+    only_section: ?[]const u8 = null,
     pad_to: ?u64 = null,
 
     compress_debug: bool = false,
@@ -71,7 +71,7 @@ pub fn create(
         .output_file = std.Build.GeneratedFile{ .step = &objcopy.step },
         .output_file_debug = if (options.strip != .none and options.extract_to_separate_file) std.Build.GeneratedFile{ .step = &objcopy.step } else null,
         .format = options.format,
-        .only_sections = options.only_sections,
+        .only_section = options.only_section,
         .pad_to = options.pad_to,
         .strip = options.strip,
         .compress_debug = options.compress_debug,
@@ -90,20 +90,18 @@ pub fn getOutputSeparatedDebug(objcopy: *const ObjCopy) ?std.Build.LazyPath {
     return if (objcopy.output_file_debug) |*file| .{ .generated = .{ .file = file } } else null;
 }
 
-fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+fn make(step: *Step, options: Step.MakeOptions) !void {
+    const prog_node = options.progress_node;
     const b = step.owner;
     const objcopy: *ObjCopy = @fieldParentPtr("step", step);
+    try step.singleUnchangingWatchInput(objcopy.input_file);
 
     var man = b.graph.cache.obtain();
     defer man.deinit();
 
-    // Random bytes to make ObjCopy unique. Refresh this with new random
-    // bytes when ObjCopy implementation is modified incompatibly.
-    man.hash.add(@as(u32, 0xe18b7baf));
-
     const full_src_path = objcopy.input_file.getPath2(b, step);
     _ = try man.addFile(full_src_path, null);
-    man.hash.addOptionalListOfBytes(objcopy.only_sections);
+    man.hash.addOptionalBytes(objcopy.only_section);
     man.hash.addOptional(objcopy.pad_to);
     man.hash.addOptional(objcopy.format);
     man.hash.add(objcopy.compress_debug);
@@ -135,10 +133,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     var argv = std.ArrayList([]const u8).init(b.allocator);
     try argv.appendSlice(&.{ b.graph.zig_exe, "objcopy" });
 
-    if (objcopy.only_sections) |only_sections| {
-        for (only_sections) |only_section| {
-            try argv.appendSlice(&.{ "-j", only_section });
-        }
+    if (objcopy.only_section) |only_section| {
+        try argv.appendSlice(&.{ "-j", only_section });
     }
     switch (objcopy.strip) {
         .none => {},
@@ -163,7 +159,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     try argv.appendSlice(&.{ full_src_path, full_dest_path });
 
     try argv.append("--listen=-");
-    _ = try step.evalZigProcess(argv.items, prog_node);
+    _ = try step.evalZigProcess(argv.items, prog_node, false);
 
     objcopy.output_file.path = full_dest_path;
     if (objcopy.output_file_debug) |*file| file.path = full_dest_path_debug;

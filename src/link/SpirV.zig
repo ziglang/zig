@@ -27,7 +27,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const log = std.log.scoped(.link);
 
-const Module = @import("../Module.zig");
+const Zcu = @import("../Zcu.zig");
 const InternPool = @import("../InternPool.zig");
 const Compilation = @import("../Compilation.zig");
 const link = @import("../link.zig");
@@ -123,35 +123,36 @@ pub fn deinit(self: *SpirV) void {
     self.object.deinit();
 }
 
-pub fn updateFunc(self: *SpirV, module: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(self: *SpirV, pt: Zcu.PerThread, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
 
-    const func = module.funcInfo(func_index);
-    const decl = module.declPtr(func.owner_decl);
-    log.debug("lowering function {}", .{decl.name.fmt(&module.intern_pool)});
+    const func = pt.zcu.funcInfo(func_index);
+    const decl = pt.zcu.declPtr(func.owner_decl);
+    log.debug("lowering function {}", .{decl.name.fmt(&pt.zcu.intern_pool)});
 
-    try self.object.updateFunc(module, func_index, air, liveness);
+    try self.object.updateFunc(pt, func_index, air, liveness);
 }
 
-pub fn updateDecl(self: *SpirV, module: *Module, decl_index: InternPool.DeclIndex) !void {
+pub fn updateDecl(self: *SpirV, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
 
-    const decl = module.declPtr(decl_index);
-    log.debug("lowering declaration {}", .{decl.name.fmt(&module.intern_pool)});
+    const decl = pt.zcu.declPtr(decl_index);
+    log.debug("lowering declaration {}", .{decl.name.fmt(&pt.zcu.intern_pool)});
 
-    try self.object.updateDecl(module, decl_index);
+    try self.object.updateDecl(pt, decl_index);
 }
 
 pub fn updateExports(
     self: *SpirV,
-    mod: *Module,
-    exported: Module.Exported,
-    exports: []const *Module.Export,
+    pt: Zcu.PerThread,
+    exported: Zcu.Exported,
+    export_indices: []const u32,
 ) !void {
+    const mod = pt.zcu;
     const decl_index = switch (exported) {
         .decl_index => |i| i,
         .value => |val| {
@@ -175,7 +176,8 @@ pub fn updateExports(
         if ((!is_vulkan and execution_model == .Kernel) or
             (is_vulkan and (execution_model == .Fragment or execution_model == .Vertex)))
         {
-            for (exports) |exp| {
+            for (export_indices) |export_idx| {
+                const exp = mod.all_exports.items[export_idx];
                 try self.object.spv.declareEntryPoint(
                     spv_decl_index,
                     exp.opts.name.toSlice(&mod.intern_pool),
@@ -193,11 +195,11 @@ pub fn freeDecl(self: *SpirV, decl_index: InternPool.DeclIndex) void {
     _ = decl_index;
 }
 
-pub fn flush(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
-    return self.flushModule(arena, prog_node);
+pub fn flush(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
+    return self.flushModule(arena, tid, prog_node);
 }
 
-pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
@@ -205,8 +207,7 @@ pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node
     const tracy = trace(@src());
     defer tracy.end();
 
-    var sub_prog_node = prog_node.start("Flush Module", 0);
-    sub_prog_node.activate();
+    const sub_prog_node = prog_node.start("Flush Module", 0);
     defer sub_prog_node.end();
 
     const spv = &self.object.spv;
@@ -214,6 +215,7 @@ pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node
     const comp = self.base.comp;
     const gpa = comp.gpa;
     const target = comp.getTarget();
+    _ = tid;
 
     try writeCapabilities(spv, target);
     try writeMemoryModel(spv, target);
@@ -225,17 +227,18 @@ pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node
     var error_info = std.ArrayList(u8).init(self.object.gpa);
     defer error_info.deinit();
 
-    try error_info.appendSlice("zig_errors");
-    const mod = self.base.comp.module.?;
-    for (mod.global_error_set.keys()) |name| {
+    try error_info.appendSlice("zig_errors:");
+    const ip = &self.base.comp.module.?.intern_pool;
+    for (ip.global_error_set.getNamesFromMainThread()) |name| {
         // Errors can contain pretty much any character - to encode them in a string we must escape
         // them somehow. Easiest here is to use some established scheme, one which also preseves the
         // name if it contains no strange characters is nice for debugging. URI encoding fits the bill.
         // We're using : as separator, which is a reserved character.
 
+        try error_info.append(':');
         try std.Uri.Component.percentEncode(
             error_info.writer(),
-            name.toSlice(&mod.intern_pool),
+            name.toSlice(ip),
             struct {
                 fn isValidChar(c: u8) bool {
                     return switch (c) {
@@ -253,7 +256,7 @@ pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node
     const module = try spv.finalize(arena, target);
     errdefer arena.free(module);
 
-    const linked_module = self.linkModule(arena, module, &sub_prog_node) catch |err| switch (err) {
+    const linked_module = self.linkModule(arena, module, sub_prog_node) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => |other| {
             log.err("error while linking: {s}\n", .{@errorName(other)});
@@ -264,7 +267,7 @@ pub fn flushModule(self: *SpirV, arena: Allocator, prog_node: *std.Progress.Node
     try self.base.file.?.writeAll(std.mem.sliceAsBytes(linked_module));
 }
 
-fn linkModule(self: *SpirV, a: Allocator, module: []Word, progress: *std.Progress.Node) ![]Word {
+fn linkModule(self: *SpirV, a: Allocator, module: []Word, progress: std.Progress.Node) ![]Word {
     _ = self;
 
     const lower_invocation_globals = @import("SpirV/lower_invocation_globals.zig");

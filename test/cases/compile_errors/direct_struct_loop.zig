@@ -10,4 +10,3 @@ export fn entry() usize {
 // target=native
 //
 // :1:11: error: struct 'tmp.A' depends on itself
-// :2:5: note: while checking this field

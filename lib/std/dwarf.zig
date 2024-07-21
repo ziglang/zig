@@ -475,8 +475,8 @@ const UnitHeader = struct {
     header_length: u4,
     unit_length: u64,
 };
-fn readUnitHeader(fbr: *FixedBufferReader) !UnitHeader {
-    return switch (try fbr.readInt(u32)) {
+fn readUnitHeader(fbr: *FixedBufferReader, opt_ma: ?*debug.StackIterator.MemoryAccessor) !UnitHeader {
+    return switch (try if (opt_ma) |ma| fbr.readIntChecked(u32, ma) else fbr.readInt(u32)) {
         0...0xfffffff0 - 1 => |unit_length| .{
             .format = .@"32",
             .header_length = 4,
@@ -486,7 +486,7 @@ fn readUnitHeader(fbr: *FixedBufferReader) !UnitHeader {
         0xffffffff => .{
             .format = .@"64",
             .header_length = 12,
-            .unit_length = try fbr.readInt(u64),
+            .unit_length = try if (opt_ma) |ma| fbr.readIntChecked(u64, ma) else fbr.readInt(u64),
         },
     };
 }
@@ -663,7 +663,7 @@ pub const DwarfInfo = struct {
         while (this_unit_offset < fbr.buf.len) {
             try fbr.seekTo(this_unit_offset);
 
-            const unit_header = try readUnitHeader(&fbr);
+            const unit_header = try readUnitHeader(&fbr, null);
             if (unit_header.unit_length == 0) return;
             const next_offset = unit_header.header_length + unit_header.unit_length;
 
@@ -853,7 +853,7 @@ pub const DwarfInfo = struct {
         while (this_unit_offset < fbr.buf.len) {
             try fbr.seekTo(this_unit_offset);
 
-            const unit_header = try readUnitHeader(&fbr);
+            const unit_header = try readUnitHeader(&fbr, null);
             if (unit_header.unit_length == 0) return;
             const next_offset = unit_header.header_length + unit_header.unit_length;
 
@@ -1200,7 +1200,7 @@ pub const DwarfInfo = struct {
         var fbr: FixedBufferReader = .{ .buf = di.section(.debug_line).?, .endian = di.endian };
         try fbr.seekTo(line_info_offset);
 
-        const unit_header = try readUnitHeader(&fbr);
+        const unit_header = try readUnitHeader(&fbr, null);
         if (unit_header.unit_length == 0) return missingDwarf();
         const next_offset = unit_header.header_length + unit_header.unit_length;
 
@@ -1236,15 +1236,7 @@ pub const DwarfInfo = struct {
 
         const opcode_base = try fbr.readByte();
 
-        const standard_opcode_lengths = try allocator.alloc(u8, opcode_base - 1);
-        defer allocator.free(standard_opcode_lengths);
-
-        {
-            var i: usize = 0;
-            while (i < opcode_base - 1) : (i += 1) {
-                standard_opcode_lengths[i] = try fbr.readByte();
-            }
-        }
+        const standard_opcode_lengths = try fbr.readBytes(opcode_base - 1);
 
         var include_directories = std.ArrayList(FileEntry).init(allocator);
         defer include_directories.deinit();
@@ -1540,7 +1532,7 @@ pub const DwarfInfo = struct {
             if (di.section(frame_section)) |section_data| {
                 var fbr: FixedBufferReader = .{ .buf = section_data, .endian = di.endian };
                 while (fbr.pos < fbr.buf.len) {
-                    const entry_header = try EntryHeader.read(&fbr, frame_section);
+                    const entry_header = try EntryHeader.read(&fbr, null, frame_section);
                     switch (entry_header.type) {
                         .cie => {
                             const cie = try CommonInformationEntry.parse(
@@ -1588,7 +1580,7 @@ pub const DwarfInfo = struct {
     ///
     /// `explicit_fde_offset` is for cases where the FDE offset is known, such as when __unwind_info
     /// defers unwinding to DWARF. This is an offset into the `.eh_frame` section.
-    pub fn unwindFrame(di: *const DwarfInfo, context: *UnwindContext, explicit_fde_offset: ?usize) !usize {
+    pub fn unwindFrame(di: *const DwarfInfo, context: *UnwindContext, ma: *debug.StackIterator.MemoryAccessor, explicit_fde_offset: ?usize) !usize {
         if (!comptime abi.supportsUnwinding(builtin.target)) return error.UnsupportedCpuArchitecture;
         if (context.pc == 0) return 0;
 
@@ -1607,14 +1599,14 @@ pub const DwarfInfo = struct {
                 .endian = di.endian,
             };
 
-            const fde_entry_header = try EntryHeader.read(&fbr, dwarf_section);
+            const fde_entry_header = try EntryHeader.read(&fbr, null, dwarf_section);
             if (fde_entry_header.type != .fde) return error.MissingFDE;
 
             const cie_offset = fde_entry_header.type.fde;
             try fbr.seekTo(cie_offset);
 
             fbr.endian = native_endian;
-            const cie_entry_header = try EntryHeader.read(&fbr, dwarf_section);
+            const cie_entry_header = try EntryHeader.read(&fbr, null, dwarf_section);
             if (cie_entry_header.type != .cie) return badDwarf();
 
             cie = try CommonInformationEntry.parse(
@@ -1639,7 +1631,7 @@ pub const DwarfInfo = struct {
         } else if (di.eh_frame_hdr) |header| {
             const eh_frame_len = if (di.section(.eh_frame)) |eh_frame| eh_frame.len else null;
             try header.findEntry(
-                context.isValidMemory,
+                ma,
                 eh_frame_len,
                 @intFromPtr(di.section(.eh_frame_hdr).?.ptr),
                 context.pc,
@@ -1664,7 +1656,7 @@ pub const DwarfInfo = struct {
 
         var expression_context: expressions.ExpressionContext = .{
             .format = cie.format,
-            .isValidMemory = context.isValidMemory,
+            .memory_accessor = ma,
             .compile_unit = di.findCompileUnit(fde.pc_begin) catch null,
             .thread_context = context.thread_context,
             .reg_context = context.reg_context,
@@ -1699,7 +1691,7 @@ pub const DwarfInfo = struct {
             else => return error.InvalidCFARule,
         };
 
-        if (!context.isValidMemory(context.cfa.?)) return error.InvalidCFA;
+        if (ma.load(usize, context.cfa.?) == null) return error.InvalidCFA;
         expression_context.cfa = context.cfa;
 
         // Buffering the modifications is done because copying the thread context is not portable,
@@ -1738,6 +1730,7 @@ pub const DwarfInfo = struct {
                 try column.resolveValue(
                     context,
                     expression_context,
+                    ma,
                     src,
                 );
             }
@@ -1796,7 +1789,13 @@ const macho = std.macho;
 /// Unwind a frame using MachO compact unwind info (from __unwind_info).
 /// If the compact encoding can't encode a way to unwind a frame, it will
 /// defer unwinding to DWARF, in which case `.eh_frame` will be used if available.
-pub fn unwindFrameMachO(context: *UnwindContext, unwind_info: []const u8, eh_frame: ?[]const u8, module_base_address: usize) !usize {
+pub fn unwindFrameMachO(
+    context: *UnwindContext,
+    ma: *debug.StackIterator.MemoryAccessor,
+    unwind_info: []const u8,
+    eh_frame: ?[]const u8,
+    module_base_address: usize,
+) !usize {
     const header = mem.bytesAsValue(
         macho.unwind_info_section_header,
         unwind_info[0..@sizeOf(macho.unwind_info_section_header)],
@@ -1958,7 +1957,7 @@ pub fn unwindFrameMachO(context: *UnwindContext, unwind_info: []const u8, eh_fra
                 const new_sp = fp + 2 * @sizeOf(usize);
 
                 // Verify the stack range we're about to read register values from
-                if (!context.isValidMemory(new_sp) or !context.isValidMemory(fp - frame_offset + max_reg * @sizeOf(usize))) return error.InvalidUnwindInfo;
+                if (ma.load(usize, new_sp) == null or ma.load(usize, fp - frame_offset + max_reg * @sizeOf(usize)) == null) return error.InvalidUnwindInfo;
 
                 const ip_ptr = fp + @sizeOf(usize);
                 const new_ip = @as(*const usize, @ptrFromInt(ip_ptr)).*;
@@ -1989,7 +1988,7 @@ pub fn unwindFrameMachO(context: *UnwindContext, unwind_info: []const u8, eh_fra
                         module_base_address +
                         entry.function_offset +
                         encoding.value.x86_64.frameless.stack.indirect.sub_offset;
-                    if (!context.isValidMemory(sub_offset_addr)) return error.InvalidUnwindInfo;
+                    if (ma.load(usize, sub_offset_addr) == null) return error.InvalidUnwindInfo;
 
                     // `sub_offset_addr` points to the offset of the literal within the instruction
                     const sub_operand = @as(*align(1) const u32, @ptrFromInt(sub_offset_addr)).*;
@@ -2031,7 +2030,7 @@ pub fn unwindFrameMachO(context: *UnwindContext, unwind_info: []const u8, eh_fra
                     }
 
                     var reg_addr = sp + stack_size - @sizeOf(usize) * @as(usize, reg_count + 1);
-                    if (!context.isValidMemory(reg_addr)) return error.InvalidUnwindInfo;
+                    if (ma.load(usize, reg_addr) == null) return error.InvalidUnwindInfo;
                     for (0..reg_count) |i| {
                         const reg_number = try compactUnwindToDwarfRegNumber(registers[i]);
                         (try abi.regValueNative(usize, context.thread_context, reg_number, reg_context)).* = @as(*const usize, @ptrFromInt(reg_addr)).*;
@@ -2043,7 +2042,7 @@ pub fn unwindFrameMachO(context: *UnwindContext, unwind_info: []const u8, eh_fra
 
                 const new_ip = @as(*const usize, @ptrFromInt(ip_ptr)).*;
                 const new_sp = ip_ptr + @sizeOf(usize);
-                if (!context.isValidMemory(new_sp)) return error.InvalidUnwindInfo;
+                if (ma.load(usize, new_sp) == null) return error.InvalidUnwindInfo;
 
                 (try abi.regValueNative(usize, context.thread_context, abi.spRegNum(reg_context), reg_context)).* = new_sp;
                 (try abi.regValueNative(usize, context.thread_context, abi.ipRegNum(), reg_context)).* = new_ip;
@@ -2051,7 +2050,7 @@ pub fn unwindFrameMachO(context: *UnwindContext, unwind_info: []const u8, eh_fra
                 break :blk new_ip;
             },
             .DWARF => {
-                return unwindFrameMachODwarf(context, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.x86_64.dwarf));
+                return unwindFrameMachODwarf(context, ma, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.x86_64.dwarf));
             },
         },
         .aarch64 => switch (encoding.mode.arm64) {
@@ -2060,12 +2059,12 @@ pub fn unwindFrameMachO(context: *UnwindContext, unwind_info: []const u8, eh_fra
                 const sp = (try abi.regValueNative(usize, context.thread_context, abi.spRegNum(reg_context), reg_context)).*;
                 const new_sp = sp + encoding.value.arm64.frameless.stack_size * 16;
                 const new_ip = (try abi.regValueNative(usize, context.thread_context, 30, reg_context)).*;
-                if (!context.isValidMemory(new_sp)) return error.InvalidUnwindInfo;
+                if (ma.load(usize, new_sp) == null) return error.InvalidUnwindInfo;
                 (try abi.regValueNative(usize, context.thread_context, abi.spRegNum(reg_context), reg_context)).* = new_sp;
                 break :blk new_ip;
             },
             .DWARF => {
-                return unwindFrameMachODwarf(context, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.arm64.dwarf));
+                return unwindFrameMachODwarf(context, ma, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.arm64.dwarf));
             },
             .FRAME => blk: {
                 const fp = (try abi.regValueNative(usize, context.thread_context, abi.fpRegNum(reg_context), reg_context)).*;
@@ -2077,7 +2076,7 @@ pub fn unwindFrameMachO(context: *UnwindContext, unwind_info: []const u8, eh_fra
                     @popCount(@as(u4, @bitCast(encoding.value.arm64.frame.d_reg_pairs)));
                 const min_reg_addr = fp - num_restored_pairs * 2 * @sizeOf(usize);
 
-                if (!context.isValidMemory(new_sp) or !context.isValidMemory(min_reg_addr)) return error.InvalidUnwindInfo;
+                if (ma.load(usize, new_sp) == null or ma.load(usize, min_reg_addr) == null) return error.InvalidUnwindInfo;
 
                 var reg_addr = fp - @sizeOf(usize);
                 inline for (@typeInfo(@TypeOf(encoding.value.arm64.frame.x_reg_pairs)).Struct.fields, 0..) |field, i| {
@@ -2122,7 +2121,7 @@ pub fn unwindFrameMachO(context: *UnwindContext, unwind_info: []const u8, eh_fra
     return new_ip;
 }
 
-fn unwindFrameMachODwarf(context: *UnwindContext, eh_frame: []const u8, fde_offset: usize) !usize {
+fn unwindFrameMachODwarf(context: *UnwindContext, ma: *debug.StackIterator.MemoryAccessor, eh_frame: []const u8, fde_offset: usize) !usize {
     var di = DwarfInfo{
         .endian = native_endian,
         .is_macho = true,
@@ -2134,7 +2133,7 @@ fn unwindFrameMachODwarf(context: *UnwindContext, eh_frame: []const u8, fde_offs
         .owned = false,
     };
 
-    return di.unwindFrame(context, fde_offset);
+    return di.unwindFrame(context, ma, fde_offset);
 }
 
 pub const UnwindContext = struct {
@@ -2143,12 +2142,21 @@ pub const UnwindContext = struct {
     pc: usize,
     thread_context: *debug.ThreadContext,
     reg_context: abi.RegisterContext,
-    isValidMemory: *const fn (address: usize) bool,
     vm: call_frame.VirtualMachine,
     stack_machine: expressions.StackMachine(.{ .call_frame_context = true }),
 
-    pub fn init(allocator: mem.Allocator, thread_context: *const debug.ThreadContext, isValidMemory: *const fn (address: usize) bool) !UnwindContext {
-        const pc = abi.stripInstructionPtrAuthCode((try abi.regValueNative(usize, thread_context, abi.ipRegNum(), null)).*);
+    pub fn init(
+        allocator: mem.Allocator,
+        thread_context: *const debug.ThreadContext,
+    ) !UnwindContext {
+        const pc = abi.stripInstructionPtrAuthCode(
+            (try abi.regValueNative(
+                usize,
+                thread_context,
+                abi.ipRegNum(),
+                null,
+            )).*,
+        );
 
         const context_copy = try allocator.create(debug.ThreadContext);
         debug.copyContext(thread_context, context_copy);
@@ -2159,7 +2167,6 @@ pub const UnwindContext = struct {
             .pc = pc,
             .thread_context = context_copy,
             .reg_context = undefined,
-            .isValidMemory = isValidMemory,
             .vm = .{},
             .stack_machine = .{},
         };
@@ -2305,25 +2312,26 @@ pub const ExceptionFrameHeader = struct {
 
     fn isValidPtr(
         self: ExceptionFrameHeader,
+        comptime T: type,
         ptr: usize,
-        isValidMemory: *const fn (address: usize) bool,
+        ma: *debug.StackIterator.MemoryAccessor,
         eh_frame_len: ?usize,
     ) bool {
         if (eh_frame_len) |len| {
-            return ptr >= self.eh_frame_ptr and ptr < self.eh_frame_ptr + len;
+            return ptr >= self.eh_frame_ptr and ptr <= self.eh_frame_ptr + len - @sizeOf(T);
         } else {
-            return isValidMemory(ptr);
+            return ma.load(T, ptr) != null;
         }
     }
 
     /// Find an entry by binary searching the eh_frame_hdr section.
     ///
     /// Since the length of the eh_frame section (`eh_frame_len`) may not be known by the caller,
-    /// `isValidMemory` will be called before accessing any memory referenced by
-    /// the header entries. If `eh_frame_len` is provided, then these checks can be skipped.
+    /// MemoryAccessor will be used to verify readability of the header entries.
+    /// If `eh_frame_len` is provided, then these checks can be skipped.
     pub fn findEntry(
         self: ExceptionFrameHeader,
-        isValidMemory: *const fn (address: usize) bool,
+        ma: *debug.StackIterator.MemoryAccessor,
         eh_frame_len: ?usize,
         eh_frame_hdr_ptr: usize,
         pc: usize,
@@ -2372,14 +2380,9 @@ pub const ExceptionFrameHeader = struct {
             .data_rel_base = eh_frame_hdr_ptr,
         }) orelse return badDwarf()) orelse return badDwarf();
 
-        // Verify the length fields of the FDE header are readable
-        if (!self.isValidPtr(fde_ptr, isValidMemory, eh_frame_len) or fde_ptr < self.eh_frame_ptr) return badDwarf();
+        if (fde_ptr < self.eh_frame_ptr) return badDwarf();
 
-        var fde_entry_header_len: usize = 4;
-        if (!self.isValidPtr(fde_ptr + 3, isValidMemory, eh_frame_len)) return badDwarf();
-        if (self.isValidPtr(fde_ptr + 11, isValidMemory, eh_frame_len)) fde_entry_header_len = 12;
-
-        // Even if eh_frame_len is not specified, all ranges accssed are checked by isValidPtr
+        // Even if eh_frame_len is not specified, all ranges accssed are checked via MemoryAccessor
         const eh_frame = @as([*]const u8, @ptrFromInt(self.eh_frame_ptr))[0 .. eh_frame_len orelse math.maxInt(u32)];
 
         const fde_offset = fde_ptr - self.eh_frame_ptr;
@@ -2389,15 +2392,15 @@ pub const ExceptionFrameHeader = struct {
             .endian = native_endian,
         };
 
-        const fde_entry_header = try EntryHeader.read(&eh_frame_fbr, .eh_frame);
-        if (!self.isValidPtr(@intFromPtr(&fde_entry_header.entry_bytes[fde_entry_header.entry_bytes.len - 1]), isValidMemory, eh_frame_len)) return badDwarf();
+        const fde_entry_header = try EntryHeader.read(&eh_frame_fbr, if (eh_frame_len == null) ma else null, .eh_frame);
+        if (!self.isValidPtr(u8, @intFromPtr(&fde_entry_header.entry_bytes[fde_entry_header.entry_bytes.len - 1]), ma, eh_frame_len)) return badDwarf();
         if (fde_entry_header.type != .fde) return badDwarf();
 
         // CIEs always come before FDEs (the offset is a subtraction), so we can assume this memory is readable
         const cie_offset = fde_entry_header.type.fde;
         try eh_frame_fbr.seekTo(cie_offset);
-        const cie_entry_header = try EntryHeader.read(&eh_frame_fbr, .eh_frame);
-        if (!self.isValidPtr(@intFromPtr(&cie_entry_header.entry_bytes[cie_entry_header.entry_bytes.len - 1]), isValidMemory, eh_frame_len)) return badDwarf();
+        const cie_entry_header = try EntryHeader.read(&eh_frame_fbr, if (eh_frame_len == null) ma else null, .eh_frame);
+        if (!self.isValidPtr(u8, @intFromPtr(&cie_entry_header.entry_bytes[cie_entry_header.entry_bytes.len - 1]), ma, eh_frame_len)) return badDwarf();
         if (cie_entry_header.type != .cie) return badDwarf();
 
         cie.* = try CommonInformationEntry.parse(
@@ -2442,11 +2445,15 @@ pub const EntryHeader = struct {
 
     /// Reads a header for either an FDE or a CIE, then advances the fbr to the position after the trailing structure.
     /// `fbr` must be a FixedBufferReader backed by either the .eh_frame or .debug_frame sections.
-    pub fn read(fbr: *FixedBufferReader, dwarf_section: DwarfSection) !EntryHeader {
+    pub fn read(
+        fbr: *FixedBufferReader,
+        opt_ma: ?*debug.StackIterator.MemoryAccessor,
+        dwarf_section: DwarfSection,
+    ) !EntryHeader {
         assert(dwarf_section == .eh_frame or dwarf_section == .debug_frame);
 
         const length_offset = fbr.pos;
-        const unit_header = try readUnitHeader(fbr);
+        const unit_header = try readUnitHeader(fbr, opt_ma);
         const unit_length = math.cast(usize, unit_header.unit_length) orelse return badDwarf();
         if (unit_length == 0) return .{
             .length_offset = length_offset,
@@ -2458,7 +2465,10 @@ pub const EntryHeader = struct {
         const end_offset = start_offset + unit_length;
         defer fbr.pos = end_offset;
 
-        const id = try fbr.readAddress(unit_header.format);
+        const id = try if (opt_ma) |ma|
+            fbr.readAddressChecked(unit_header.format, ma)
+        else
+            fbr.readAddress(unit_header.format);
         const entry_bytes = fbr.buf[fbr.pos..end_offset];
         const cie_id: u64 = switch (dwarf_section) {
             .eh_frame => CommonInformationEntry.eh_id,
@@ -2740,7 +2750,7 @@ pub const FixedBufferReader = struct {
     pos: usize = 0,
     endian: std.builtin.Endian,
 
-    pub const Error = error{ EndOfBuffer, Overflow };
+    pub const Error = error{ EndOfBuffer, Overflow, InvalidBuffer };
 
     fn seekTo(fbr: *FixedBufferReader, pos: u64) Error!void {
         if (pos > fbr.buf.len) return error.EndOfBuffer;
@@ -2769,18 +2779,40 @@ pub const FixedBufferReader = struct {
         return mem.readInt(T, fbr.buf[fbr.pos..][0..size], fbr.endian);
     }
 
+    fn readIntChecked(
+        fbr: *FixedBufferReader,
+        comptime T: type,
+        ma: *debug.StackIterator.MemoryAccessor,
+    ) Error!T {
+        if (ma.load(T, @intFromPtr(fbr.buf[fbr.pos..].ptr)) == null)
+            return error.InvalidBuffer;
+
+        return readInt(fbr, T);
+    }
+
     fn readUleb128(fbr: *FixedBufferReader, comptime T: type) Error!T {
-        return std.leb.readULEB128(T, fbr);
+        return std.leb.readUleb128(T, fbr);
     }
 
     fn readIleb128(fbr: *FixedBufferReader, comptime T: type) Error!T {
-        return std.leb.readILEB128(T, fbr);
+        return std.leb.readIleb128(T, fbr);
     }
 
     fn readAddress(fbr: *FixedBufferReader, format: Format) Error!u64 {
         return switch (format) {
             .@"32" => try fbr.readInt(u32),
             .@"64" => try fbr.readInt(u64),
+        };
+    }
+
+    fn readAddressChecked(
+        fbr: *FixedBufferReader,
+        format: Format,
+        ma: *debug.StackIterator.MemoryAccessor,
+    ) Error!u64 {
+        return switch (format) {
+            .@"32" => try fbr.readIntChecked(u32, ma),
+            .@"64" => try fbr.readIntChecked(u64, ma),
         };
     }
 

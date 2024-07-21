@@ -542,7 +542,7 @@ pub const SectionHeader = extern struct {
 
     pub fn setAlignment(self: *SectionHeader, new_alignment: u16) void {
         assert(new_alignment > 0 and new_alignment <= 8192);
-        self.flags.ALIGN = std.math.log2(new_alignment);
+        self.flags.ALIGN = @intCast(std.math.log2(new_alignment));
     }
 
     pub fn isCode(self: SectionHeader) bool {
@@ -581,7 +581,7 @@ pub const SectionHeaderFlags = packed struct {
     /// This is valid for object files only.
     LNK_INFO: u1 = 0,
 
-    _reserverd_2: u1 = 0,
+    _reserved_2: u1 = 0,
 
     /// The section will not become part of the image.
     /// This is valid only for object files.
@@ -1002,6 +1002,10 @@ pub const MachineType = enum(u16) {
     I386 = 0x14c,
     /// Intel Itanium processor family
     IA64 = 0x200,
+    /// LoongArch32
+    LOONGARCH32 = 0x6232,
+    /// LoongArch64
+    LOONGARCH64 = 0x6264,
     /// Mitsubishi M32R little endian
     M32R = 0x9041,
     /// MIPS16
@@ -1047,6 +1051,8 @@ pub const MachineType = enum(u16) {
             .aarch64 => .ARM64,
             .riscv64 => .RISCV64,
             .x86_64 => .X64,
+            .loongarch32 => .LOONGARCH32,
+            .loongarch64 => .LOONGARCH64,
             // there's cases we don't (yet) handle
             else => unreachable,
         };
@@ -1062,6 +1068,8 @@ pub const MachineType = enum(u16) {
             .ARM64 => .aarch64,
             .RISCV64 => .riscv64,
             .X64 => .x86_64,
+            .LOONGARCH32 => .loongarch32,
+            .LOONGARCH64 => .loongarch64,
             // there's cases we don't (yet) handle
             else => null,
         };

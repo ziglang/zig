@@ -41,8 +41,8 @@ test "timer" {
     try expect(linux.E.init(timer_fd) == .SUCCESS);
 
     const time_interval = linux.timespec{
-        .tv_sec = 0,
-        .tv_nsec = 2000000,
+        .sec = 0,
+        .nsec = 2000000,
     };
 
     const new_time = linux.itimerspec{

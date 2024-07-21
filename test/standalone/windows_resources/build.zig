@@ -12,10 +12,10 @@ pub fn build(b: *std.Build) void {
 
     const generated_h_step = b.addWriteFile("generated.h", "#define GENERATED_DEFINE \"foo\"");
 
-    add(b, b.host, .any, test_step, generated_h_step);
+    add(b, b.graph.host, .any, test_step, generated_h_step);
     add(b, target, .any, test_step, generated_h_step);
 
-    add(b, b.host, .gnu, test_step, generated_h_step);
+    add(b, b.graph.host, .gnu, test_step, generated_h_step);
     add(b, target, .gnu, test_step, generated_h_step);
 }
 

@@ -23,6 +23,11 @@ cwd: ?Build.LazyPath,
 /// Override this field to modify the environment, or use setEnvironmentVariable
 env_map: ?*EnvMap,
 
+/// When `true` prevents `ZIG_PROGRESS` environment variable from being passed
+/// to the child process, which otherwise would be used for the child to send
+/// progress updates to the parent.
+disable_zig_progress: bool,
+
 /// Configures whether the Run step is considered to have side-effects, and also
 /// whether the Run step will inherit stdio streams, forwarding them to the
 /// parent process, in which case will require a global lock to prevent other
@@ -121,12 +126,17 @@ pub const StdIo = union(enum) {
 };
 
 pub const Arg = union(enum) {
-    artifact: *Step.Compile,
+    artifact: PrefixedArtifact,
     lazy_path: PrefixedLazyPath,
     directory_source: PrefixedLazyPath,
     bytes: []u8,
     output_file: *Output,
     output_directory: *Output,
+};
+
+pub const PrefixedArtifact = struct {
+    prefix: []const u8,
+    artifact: *Step.Compile,
 };
 
 pub const PrefixedLazyPath = struct {
@@ -152,6 +162,7 @@ pub fn create(owner: *std.Build, name: []const u8) *Run {
         .argv = .{},
         .cwd = null,
         .env_map = null,
+        .disable_zig_progress = false,
         .stdio = .infer_from_args,
         .stdin = .none,
         .extra_file_dependencies = &.{},
@@ -179,10 +190,20 @@ pub fn enableTestRunnerMode(run: *Run) void {
 }
 
 pub fn addArtifactArg(run: *Run, artifact: *Step.Compile) void {
+    run.addPrefixedArtifactArg("", artifact);
+}
+
+pub fn addPrefixedArtifactArg(run: *Run, prefix: []const u8, artifact: *Step.Compile) void {
     const b = run.step.owner;
+
+    const prefixed_artifact: PrefixedArtifact = .{
+        .prefix = b.dupe(prefix),
+        .artifact = artifact,
+    };
+    run.argv.append(b.allocator, .{ .artifact = prefixed_artifact }) catch @panic("OOM");
+
     const bin_file = artifact.getEmittedBin();
     bin_file.addStepDependencies(&run.step);
-    run.argv.append(b.allocator, Arg{ .artifact = artifact }) catch @panic("OOM");
 }
 
 /// Provides a file path as a command line argument to the command being run.
@@ -574,7 +595,8 @@ const IndexedOutput = struct {
     tag: @typeInfo(Arg).Union.tag_type.?,
     output: *Output,
 };
-fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+fn make(step: *Step, options: Step.MakeOptions) !void {
+    const prog_node = options.progress_node;
     const b = step.owner;
     const arena = b.allocator;
     const run: *Run = @fieldParentPtr("step", step);
@@ -604,14 +626,16 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 man.hash.addBytes(file.prefix);
                 man.hash.addBytes(file_path);
             },
-            .artifact => |artifact| {
+            .artifact => |pa| {
+                const artifact = pa.artifact;
+
                 if (artifact.rootModuleTarget().os.tag == .windows) {
                     // On Windows we don't have rpaths so we have to add .dll search paths to PATH
                     run.addPathForDynLibs(artifact);
                 }
-                const file_path = artifact.installed_path orelse artifact.generated_bin.?.path.?; // the path is guaranteed to be set
+                const file_path = artifact.installed_path orelse artifact.generated_bin.?.path.?;
 
-                try argv_list.append(file_path);
+                try argv_list.append(b.fmt("{s}{s}", .{ pa.prefix, file_path }));
 
                 _ = try man.addFile(file_path, null);
             },
@@ -659,7 +683,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         _ = try man.addFile(lazy_path.getPath2(b, step), null);
     }
 
-    if (try step.cacheHit(&man) and !has_side_effects) {
+    if (!has_side_effects and try step.cacheHitAndWatch(&man)) {
         // cache hit, skip running command
         const digest = man.final();
 
@@ -678,7 +702,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     const dep_output_file = run.dep_output_file orelse {
         // We already know the final output paths, use them directly.
-        const digest = man.final();
+        const digest = if (has_side_effects)
+            man.hash.final()
+        else
+            man.final();
 
         try populateGeneratedPaths(
             arena,
@@ -709,12 +736,14 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 b.fmt("{s}{s}", .{ placeholder.output.prefix, output_path });
         }
 
-        return runCommand(run, argv_list.items, has_side_effects, output_dir_path, prog_node);
+        try runCommand(run, argv_list.items, has_side_effects, output_dir_path, prog_node);
+        if (!has_side_effects) try step.writeManifestAndWatch(&man);
+        return;
     };
 
     // We do not know the final output paths yet, use temp paths to run the command.
     const rand_int = std.crypto.random.int(u64);
-    const tmp_dir_path = "tmp" ++ fs.path.sep_str ++ std.Build.hex64(rand_int);
+    const tmp_dir_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(rand_int);
 
     for (output_placeholders.items) |placeholder| {
         const output_components = .{ tmp_dir_path, placeholder.output.basename };
@@ -739,9 +768,17 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     try runCommand(run, argv_list.items, has_side_effects, tmp_dir_path, prog_node);
 
-    try man.addDepFilePost(std.fs.cwd(), dep_output_file.generated_file.getPath());
+    const dep_file_dir = std.fs.cwd();
+    const dep_file_basename = dep_output_file.generated_file.getPath();
+    if (has_side_effects)
+        try man.addDepFile(dep_file_dir, dep_file_basename)
+    else
+        try man.addDepFilePost(dep_file_dir, dep_file_basename);
 
-    const digest = man.final();
+    const digest = if (has_side_effects)
+        man.hash.final()
+    else
+        man.final();
 
     const any_output = output_placeholders.items.len > 0 or
         run.captured_stdout != null or run.captured_stderr != null;
@@ -776,7 +813,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         };
     }
 
-    try step.writeManifest(&man);
+    if (!has_side_effects) try step.writeManifestAndWatch(&man);
 
     try populateGeneratedPaths(
         arena,
@@ -865,7 +902,7 @@ fn runCommand(
     argv: []const []const u8,
     has_side_effects: bool,
     output_dir_path: []const u8,
-    prog_node: *std.Progress.Node,
+    prog_node: std.Progress.Node,
 ) !void {
     const step = &run.step;
     const b = step.owner;
@@ -893,7 +930,7 @@ fn runCommand(
             // work even for the edge case that the binary was produced by a
             // third party.
             const exe = switch (run.argv.items[0]) {
-                .artifact => |exe| exe,
+                .artifact => |exe| exe.artifact,
                 else => break :interpret,
             };
             switch (exe.kind) {
@@ -904,7 +941,7 @@ fn runCommand(
             const need_cross_glibc = exe.rootModuleTarget().isGnuLibC() and
                 exe.is_linking_libc;
             const other_target = exe.root_module.resolved_target.?.result;
-            switch (std.zig.system.getExternalExecutor(b.host.result, &other_target, .{
+            switch (std.zig.system.getExternalExecutor(b.graph.host.result, &other_target, .{
                 .qemu_fixes_dl = need_cross_glibc and b.glibc_runtimes_dir != null,
                 .link_libc = exe.is_linking_libc,
             })) {
@@ -977,7 +1014,7 @@ fn runCommand(
                 .bad_dl => |foreign_dl| {
                     if (allow_skip) return error.MakeSkipped;
 
-                    const host_dl = b.host.result.dynamic_linker.get() orelse "(none)";
+                    const host_dl = b.graph.host.result.dynamic_linker.get() orelse "(none)";
 
                     return step.fail(
                         \\the host system is unable to execute binaries from the target
@@ -989,7 +1026,7 @@ fn runCommand(
                 .bad_os_or_cpu => {
                     if (allow_skip) return error.MakeSkipped;
 
-                    const host_name = try b.host.result.zigTriple(b.allocator);
+                    const host_name = try b.graph.host.result.zigTriple(b.allocator);
                     const foreign_name = try exe.rootModuleTarget().zigTriple(b.allocator);
 
                     return step.fail("the host system ({s}) is unable to execute binaries from the target ({s})", .{
@@ -1182,7 +1219,7 @@ fn spawnChildAndCollect(
     run: *Run,
     argv: []const []const u8,
     has_side_effects: bool,
-    prog_node: *std.Progress.Node,
+    prog_node: std.Progress.Node,
 ) !ChildProcResult {
     const b = run.step.owner;
     const arena = b.allocator;
@@ -1222,16 +1259,26 @@ fn spawnChildAndCollect(
         child.stdin_behavior = .Pipe;
     }
 
-    try child.spawn();
-    var timer = try std.time.Timer.start();
+    const inherit = child.stdout_behavior == .Inherit or child.stderr_behavior == .Inherit;
 
-    const result = if (run.stdio == .zig_test)
-        evalZigTest(run, &child, prog_node)
-    else
-        evalGeneric(run, &child);
+    if (run.stdio != .zig_test and !run.disable_zig_progress and !inherit) {
+        child.progress_node = prog_node;
+    }
 
-    const term = try child.wait();
-    const elapsed_ns = timer.read();
+    const term, const result, const elapsed_ns = t: {
+        if (inherit) std.debug.lockStdErr();
+        defer if (inherit) std.debug.unlockStdErr();
+
+        try child.spawn();
+        var timer = try std.time.Timer.start();
+
+        const result = if (run.stdio == .zig_test)
+            evalZigTest(run, &child, prog_node)
+        else
+            evalGeneric(run, &child);
+
+        break :t .{ try child.wait(), result, timer.read() };
+    };
 
     return .{
         .stdio = try result,
@@ -1251,7 +1298,7 @@ const StdIoResult = struct {
 fn evalZigTest(
     run: *Run,
     child: *std.process.Child,
-    prog_node: *std.Progress.Node,
+    prog_node: std.Progress.Node,
 ) !StdIoResult {
     const gpa = run.step.owner.allocator;
     const arena = run.step.owner.allocator;
@@ -1278,7 +1325,7 @@ fn evalZigTest(
     var metadata: ?TestMetadata = null;
 
     var sub_prog_node: ?std.Progress.Node = null;
-    defer if (sub_prog_node) |*n| n.end();
+    defer if (sub_prog_node) |n| n.end();
 
     poll: while (true) {
         while (stdout.readableLength() < @sizeOf(Header)) {
@@ -1393,7 +1440,7 @@ const TestMetadata = struct {
     expected_panic_msgs: []const u32,
     string_bytes: []const u8,
     next_index: u32,
-    prog_node: *std.Progress.Node,
+    prog_node: std.Progress.Node,
 
     fn testName(tm: TestMetadata, index: u32) []const u8 {
         return std.mem.sliceTo(tm.string_bytes[tm.names[index]..], 0);
@@ -1408,7 +1455,7 @@ fn requestNextTest(in: fs.File, metadata: *TestMetadata, sub_prog_node: *?std.Pr
         if (metadata.expected_panic_msgs[i] != 0) continue;
 
         const name = metadata.testName(i);
-        if (sub_prog_node.*) |*n| n.end();
+        if (sub_prog_node.*) |n| n.end();
         sub_prog_node.* = metadata.prog_node.start(name, 0);
 
         try sendRunTestMessage(in, i);
@@ -1535,7 +1582,7 @@ fn failForeign(
                 return error.MakeSkipped;
 
             const b = run.step.owner;
-            const host_name = try b.host.result.zigTriple(b.allocator);
+            const host_name = try b.graph.host.result.zigTriple(b.allocator);
             const foreign_name = try exe.rootModuleTarget().zigTriple(b.allocator);
 
             return run.step.fail(

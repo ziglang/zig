@@ -1,14 +1,14 @@
 const std = @import("std");
-const Type = @import("type.zig").Type;
+const Type = @import("Type.zig");
 const AddressSpace = std.builtin.AddressSpace;
 const Alignment = @import("InternPool.zig").Alignment;
-const Feature = @import("Module.zig").Feature;
+const Feature = @import("Zcu.zig").Feature;
 
 pub const default_stack_protector_buffer_size = 4;
 
 pub fn cannotDynamicLink(target: std.Target) bool {
     return switch (target.os.tag) {
-        .freestanding, .other => true,
+        .freestanding => true,
         else => target.isSpirV(),
     };
 }
@@ -45,7 +45,8 @@ pub fn requiresPIC(target: std.Target, linking_libc: bool) bool {
     return target.isAndroid() or
         target.os.tag == .windows or target.os.tag == .uefi or
         osRequiresLibC(target) or
-        (linking_libc and target.isGnuLibC());
+        (linking_libc and target.isGnuLibC()) or
+        (target.abi == .ohos and target.cpu.arch == .aarch64);
 }
 
 /// This is not whether the target supports Position Independent Code, but whether the -fPIC
@@ -152,8 +153,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .xtensa,
         .nvptx,
         .nvptx64,
-        .le32,
-        .le64,
         .amdil,
         .amdil64,
         .hsail,
@@ -430,6 +429,23 @@ pub fn defaultFunctionAlignment(target: std.Target) Alignment {
     };
 }
 
+pub fn minFunctionAlignment(target: std.Target) Alignment {
+    return switch (target.cpu.arch) {
+        .arm,
+        .armeb,
+        .aarch64,
+        .aarch64_32,
+        .aarch64_be,
+        .riscv32,
+        .riscv64,
+        .sparc,
+        .sparcel,
+        .sparc64,
+        => .@"2",
+        else => .@"1",
+    };
+}
+
 pub fn supportsFunctionAlignment(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .wasm32, .wasm64 => false,
@@ -507,7 +523,7 @@ pub fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBacken
     if (use_llvm) return .stage2_llvm;
     if (target.ofmt == .c) return .stage2_c;
     return switch (target.cpu.arch) {
-        .wasm32, .wasm64 => std.builtin.CompilerBackend.stage2_wasm,
+        .wasm32, .wasm64 => .stage2_wasm,
         .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
         .x86_64 => .stage2_x86_64,
         .x86 => .stage2_x86,
@@ -519,20 +535,43 @@ pub fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBacken
     };
 }
 
-pub fn backendSupportsFeature(
-    cpu_arch: std.Target.Cpu.Arch,
-    ofmt: std.Target.ObjectFormat,
-    use_llvm: bool,
-    feature: Feature,
-) bool {
+pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, comptime feature: Feature) bool {
     return switch (feature) {
-        .panic_fn => ofmt == .c or use_llvm or cpu_arch == .x86_64,
-        .panic_unwrap_error => ofmt == .c or use_llvm,
-        .safety_check_formatted => ofmt == .c or use_llvm,
-        .error_return_trace => use_llvm,
-        .is_named_enum_value => use_llvm,
-        .error_set_has_value => use_llvm or cpu_arch.isWasm(),
-        .field_reordering => ofmt == .c or use_llvm,
-        .safety_checked_instructions => use_llvm,
+        .panic_fn => switch (backend) {
+            .stage2_c, .stage2_llvm, .stage2_x86_64, .stage2_riscv64 => true,
+            else => false,
+        },
+        .panic_unwrap_error => switch (backend) {
+            .stage2_c, .stage2_llvm => true,
+            else => false,
+        },
+        .safety_check_formatted => switch (backend) {
+            .stage2_c, .stage2_llvm => true,
+            else => false,
+        },
+        .error_return_trace => switch (backend) {
+            .stage2_llvm => true,
+            else => false,
+        },
+        .is_named_enum_value => switch (backend) {
+            .stage2_llvm => true,
+            else => false,
+        },
+        .error_set_has_value => switch (backend) {
+            .stage2_llvm, .stage2_wasm => true,
+            else => false,
+        },
+        .field_reordering => switch (backend) {
+            .stage2_c, .stage2_llvm => true,
+            else => false,
+        },
+        .safety_checked_instructions => switch (backend) {
+            .stage2_llvm => true,
+            else => false,
+        },
+        .separate_thread => switch (backend) {
+            .stage2_llvm => false,
+            else => true,
+        },
     };
 }

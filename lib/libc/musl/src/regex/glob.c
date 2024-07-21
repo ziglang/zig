@@ -265,7 +265,7 @@ int glob(const char *restrict pat, int flags, int (*errfunc)(const char *path, i
 			if (append(&tail, pat, strlen(pat), 0))
 				return GLOB_NOSPACE;
 			cnt++;
-		} else
+		} else if (!error)
 			return GLOB_NOMATCH;
 	}
 

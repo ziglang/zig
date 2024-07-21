@@ -134,13 +134,6 @@ pub const F = struct {
     pub const GETOWNER_UIDS = 17;
 };
 
-pub const LOCK = struct {
-    pub const SH = 1;
-    pub const EX = 2;
-    pub const UN = 8;
-    pub const NB = 4;
-};
-
 pub const blksize_t = i32;
 pub const nlink_t = u32;
 pub const time_t = isize;
@@ -151,8 +144,8 @@ pub const dev_t = usize;
 pub const blkcnt_t = isize;
 
 pub const timeval = extern struct {
-    tv_sec: time_t,
-    tv_usec: i64,
+    sec: time_t,
+    usec: i64,
 };
 
 pub const Flock = extern struct {
@@ -223,3 +216,9 @@ pub const Stat = extern struct {
 pub const Elf_Symndx = u32;
 
 pub const VDSO = struct {};
+
+/// TODO
+pub const ucontext_t = void;
+
+/// TODO
+pub const getcontext = {};

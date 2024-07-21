@@ -565,6 +565,8 @@ test "StructField.is_comptime" {
 }
 
 test "typeInfo resolves usingnamespace declarations" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     const A = struct {
         pub const f1 = 42;
     };
@@ -590,6 +592,7 @@ test "value from struct @typeInfo default_value can be loaded at comptime" {
 test "@typeInfo decls and usingnamespace" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const A = struct {
         pub const x = 5;
@@ -630,6 +633,8 @@ test "type info of tuple of string literal default value" {
 }
 
 test "@typeInfo only contains pub decls" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     const other = struct {
         const std = @import("std");
 

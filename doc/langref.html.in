@@ -315,6 +315,7 @@
           <a href="https://ziglang.org/documentation/0.10.1/">0.10.1</a> |
           <a href="https://ziglang.org/documentation/0.11.0/">0.11.0</a> |
           <a href="https://ziglang.org/documentation/0.12.0/">0.12.0</a> |
+          <a href="https://ziglang.org/documentation/0.13.0/">0.13.0</a> |
           master
         </nav>
         <nav aria-labelledby="table-of-contents">
@@ -727,12 +728,12 @@
         </tr>
         <tr>
             <th scope="row"><code>\u{NNNNNN}</code></th>
-          <td>hexadecimal Unicode code point UTF-8 encoded (1 or more digits)</td>
+          <td>hexadecimal Unicode scalar value UTF-8 encoded (1 or more digits)</td>
         </tr>
         </tbody>
       </table>
       </div>
-      <p>Note that the maximum valid Unicode point is {#syntax#}0x10ffff{#endsyntax#}.</p>
+      <p>Note that the maximum valid Unicode scalar value is {#syntax#}0x10ffff{#endsyntax#}.</p>
       {#header_close#}
       {#header_open|Multiline String Literals#}
       <p>
@@ -799,7 +800,7 @@
       </p>
       <aside>
         This documentation discusses the features of the default test runner as provided by the Zig Standard Library.
-        Its source code is located in <code class="file">lib/test_runner.zig</code>.
+        Its source code is located in <code class="file">lib/compiler/test_runner.zig</code>.
       </aside>
       <p>
         The shell output shown above displays two lines after the <kbd>zig test</kbd> command. These lines are
@@ -1934,16 +1935,19 @@ or
           <li>{#syntax#}*T{#endsyntax#} - single-item pointer to exactly one item.
             <ul>
               <li>Supports deref syntax: {#syntax#}ptr.*{#endsyntax#}</li>
+              <li>Supports slice syntax: {#syntax#}ptr[0..1]{#endsyntax#}</li>
+              <li>Supports pointer subtraction: {#syntax#}ptr - ptr{#endsyntax#}</li>
             </ul>
           </li>
           <li>{#syntax#}[*]T{#endsyntax#} - many-item pointer to unknown number of items.
             <ul>
               <li>Supports index syntax: {#syntax#}ptr[i]{#endsyntax#}</li>
               <li>Supports slice syntax: {#syntax#}ptr[start..end]{#endsyntax#} and {#syntax#}ptr[start..]{#endsyntax#}</li>
-              <li>Supports pointer arithmetic: {#syntax#}ptr + x{#endsyntax#}, {#syntax#}ptr - x{#endsyntax#}</li>
-              <li>{#syntax#}T{#endsyntax#} must have a known size, which means that it cannot be
-              {#syntax#}anyopaque{#endsyntax#} or any other {#link|opaque type|opaque#}.</li>
+              <li>Supports pointer-integer arithmetic: {#syntax#}ptr + int{#endsyntax#}, {#syntax#}ptr - int{#endsyntax#}</li>
+              <li>Supports pointer subtraction: {#syntax#}ptr - ptr{#endsyntax#}</li>
             </ul>
+            {#syntax#}T{#endsyntax#} must have a known size, which means that it cannot be
+            {#syntax#}anyopaque{#endsyntax#} or any other {#link|opaque type|opaque#}.
           </li>
       </ul>
       <p>These types are closely related to {#link|Arrays#} and {#link|Slices#}:</p>
@@ -1953,6 +1957,7 @@ or
                 <li>Supports index syntax: {#syntax#}array_ptr[i]{#endsyntax#}</li>
                 <li>Supports slice syntax: {#syntax#}array_ptr[start..end]{#endsyntax#}</li>
                 <li>Supports len property: {#syntax#}array_ptr.len{#endsyntax#}</li>
+                <li>Supports pointer subtraction: {#syntax#}array_ptr - array_ptr{#endsyntax#}</li>
             </ul>
             </li>
         </ul>
@@ -2086,7 +2091,7 @@ or
       A slice is a pointer and a length. The difference between an array and
       a slice is that the array's length is part of the type and known at
       compile-time, whereas the slice's length is known at runtime.
-      Both can be accessed with the `len` field.
+      Both can be accessed with the {#syntax#}len{#endsyntax#} field.
       </p>
       {#code|test_basic_slices.zig#}
 
@@ -2987,6 +2992,10 @@ fn createFoo(param: i32) !Foo {
       the verbosity and cognitive overhead of trying to make sure every exit path
       is covered. The deallocation code is always directly following the allocation code.
       </p>
+      <p>
+      The {#syntax#}errdefer{#endsyntax#} statement can optionally capture the error:
+      </p>
+      {#code|test_errdefer_capture.zig#}
       {#header_close#}
       {#header_open|Common errdefer Slip-Ups#}
       <p>
@@ -3497,7 +3506,7 @@ void do_a_thing(struct Foo *foo) {
       <p>
       As a motivating example, consider the statement {#syntax#}const x: u32 = 42;{#endsyntax#}. The type
       annotation here provides a result type of {#syntax#}u32{#endsyntax#} to the initialization expression
-      {#syntax#}42{#endsyntax#}, instructing the compiler to coerce this integer (initally of type
+      {#syntax#}42{#endsyntax#}, instructing the compiler to coerce this integer (initially of type
       {#syntax#}comptime_int{#endsyntax#}) to this type. We will see more examples shortly.
       </p>
       <p>
@@ -4701,8 +4710,11 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       Converts an integer into an {#link|enum#} value. The return type is the inferred result type.
       </p>
       <p>
-      Attempting to convert an integer which represents no value in the chosen enum type invokes
+      Attempting to convert an integer with no corresponding value in the enum invokes 
       safety-checked {#link|Undefined Behavior#}.
+      Note that a {#link|non-exhaustive enum|Non-exhaustive enum#} has corresponding values for all
+      integers in the enum's integer tag type: the {#syntax#}_{#endsyntax#} value represents all 
+      the remaining unnamed integers in the enum's tag type.
       </p>
       {#see_also|@intFromEnum#}
       {#header_close#}
@@ -5056,7 +5068,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@wasmMemorySize#}
-      <pre>{#syntax#}@wasmMemorySize(index: u32) u32{#endsyntax#}</pre>
+      <pre>{#syntax#}@wasmMemorySize(index: u32) usize{#endsyntax#}</pre>
       <p>
       This function returns the size of the Wasm memory identified by {#syntax#}index{#endsyntax#} as
       an unsigned value in units of Wasm pages. Note that each Wasm page is 64KB in size.
@@ -5070,7 +5082,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@wasmMemoryGrow#}
-      <pre>{#syntax#}@wasmMemoryGrow(index: u32, delta: u32) i32{#endsyntax#}</pre>
+      <pre>{#syntax#}@wasmMemoryGrow(index: u32, delta: usize) isize{#endsyntax#}</pre>
       <p>
       This function increases the size of the Wasm memory identified by {#syntax#}index{#endsyntax#} by
       {#syntax#}delta{#endsyntax#} in units of unsigned number of Wasm pages. Note that each Wasm page
@@ -6832,7 +6844,7 @@ coding style.
         <li>utils, misc, or somebody's initials</li>
       </ul>
       <p>Everything is a value, all types are data, everything is context, all logic manages state.
-      Nothing is communicated by using a word that applies to all types.</p> 
+      Nothing is communicated by using a word that applies to all types.</p>
       <p>Temptation to use "utilities", "miscellaneous", or somebody's initials
       is a failure to categorize, or more commonly, overcategorization. Such
       declarations can live at the root of a module that needs them with no

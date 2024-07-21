@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2023 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -190,6 +190,11 @@ struct ip_timestamp
  * Voice-Admit DSCP code point from RFC-5865, Section 4.
  */
 #define	IPTOS_DSCP_VA		0xb0
+
+/*
+ * Lower-Effort Per-Hop Behavior DSCP code point from RFC-8622, Section 12.
+ */
+#define	IPTOS_DSCP_LE		0x04
 
 /*
  * In RFC 2474, Section 4.2.2.1, the Class Selector Codepoints subsume

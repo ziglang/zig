@@ -7,14 +7,16 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 comptime {
-    assert(@alignOf(i8) == 1);
-    assert(@alignOf(u8) == 1);
-    assert(@alignOf(i16) == 2);
-    assert(@alignOf(u16) == 2);
-    assert(@alignOf(i32) == 4);
-    assert(@alignOf(u32) == 4);
-    // assert(@alignOf(i64) == 8);
-    // assert(@alignOf(u64) == 8);
+    if (builtin.os.tag == .wasi) {
+        assert(@alignOf(i8) == 1);
+        assert(@alignOf(u8) == 1);
+        assert(@alignOf(i16) == 2);
+        assert(@alignOf(u16) == 2);
+        assert(@alignOf(i32) == 4);
+        assert(@alignOf(u32) == 4);
+        assert(@alignOf(i64) == 8);
+        assert(@alignOf(u64) == 8);
+    }
 }
 
 pub const iovec_t = std.posix.iovec;

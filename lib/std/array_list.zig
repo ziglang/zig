@@ -170,7 +170,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// operations.
         /// Invalidates pre-existing pointers to elements at and after `index`.
         /// Invalidates all pre-existing element pointers if capacity must be
-        /// increased to accomodate the new elements.
+        /// increased to accommodate the new elements.
         /// Asserts that the index is in bounds or equal to the length.
         pub fn addManyAt(self: *Self, index: usize, count: usize) Allocator.Error![]T {
             const new_len = try addOrOom(self.items.len, count);
@@ -227,7 +227,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// This operation is O(N).
         /// Invalidates pre-existing pointers to elements at and after `index`.
         /// Invalidates all pre-existing element pointers if capacity must be
-        /// increased to accomodate the new elements.
+        /// increased to accommodate the new elements.
         /// Asserts that the index is in bounds or equal to the length.
         pub fn insertSlice(
             self: *Self,
@@ -566,7 +566,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// This can be useful for writing directly into an ArrayList.
         /// Note that such an operation must be followed up with a direct
         /// modification of `self.items.len`.
-        pub fn unusedCapacitySlice(self: Self) Slice {
+        pub fn unusedCapacitySlice(self: Self) []T {
             return self.allocatedSlice()[self.items.len..];
         }
 
@@ -740,7 +740,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// operations.
         /// Invalidates pre-existing pointers to elements at and after `index`.
         /// Invalidates all pre-existing element pointers if capacity must be
-        /// increased to accomodate the new elements.
+        /// increased to accommodate the new elements.
         /// Asserts that the index is in bounds or equal to the length.
         pub fn addManyAt(
             self: *Self,
@@ -776,7 +776,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// This operation is O(N).
         /// Invalidates pre-existing pointers to elements at and after `index`.
         /// Invalidates all pre-existing element pointers if capacity must be
-        /// increased to accomodate the new elements.
+        /// increased to accommodate the new elements.
         /// Asserts that the index is in bounds or equal to the length.
         pub fn insertSlice(
             self: *Self,
@@ -1193,7 +1193,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// This can be useful for writing directly into an ArrayList.
         /// Note that such an operation must be followed up with a direct
         /// modification of `self.items.len`.
-        pub fn unusedCapacitySlice(self: Self) Slice {
+        pub fn unusedCapacitySlice(self: Self) []T {
             return self.allocatedSlice()[self.items.len..];
         }
 
@@ -2241,4 +2241,11 @@ test "return OutOfMemory when capacity would exceed maximum usize integer value"
         try testing.expectError(error.OutOfMemory, list.insertSlice(0, items));
         try testing.expectError(error.OutOfMemory, list.ensureUnusedCapacity(2));
     }
+}
+
+test "ArrayListAligned with non-native alignment compiles unusedCapabitySlice" {
+    var list = ArrayListAligned(u8, 4).init(testing.allocator);
+    defer list.deinit();
+    try list.appendNTimes(1, 4);
+    _ = list.unusedCapacitySlice();
 }

@@ -20,10 +20,10 @@ pub const simplified_logic =
     builtin.zig_backend == .stage2_x86 or
     builtin.zig_backend == .stage2_aarch64 or
     builtin.zig_backend == .stage2_arm or
-    builtin.zig_backend == .stage2_riscv64 or
     builtin.zig_backend == .stage2_sparc64 or
     builtin.cpu.arch == .spirv32 or
-    builtin.cpu.arch == .spirv64;
+    builtin.cpu.arch == .spirv64 or
+    builtin.zig_backend == .stage2_riscv64;
 
 comptime {
     // No matter what, we import the root file, so that any export, test, comptime
@@ -43,6 +43,10 @@ comptime {
             } else if (builtin.os.tag == .opencl) {
                 if (@hasDecl(root, "main"))
                     @export(spirvMain2, .{ .name = "main" });
+            } else if (native_arch.isRISCV()) {
+                if (!@hasDecl(root, "_start")) {
+                    @export(riscv_start, .{ .name = "_start" });
+                }
             } else {
                 if (!@hasDecl(root, "_start")) {
                     @export(_start2, .{ .name = "_start" });
@@ -151,14 +155,6 @@ fn exit2(code: usize) noreturn {
                     : "memory", "cc"
                 );
             },
-            .riscv64 => {
-                asm volatile ("ecall"
-                    :
-                    : [number] "{a7}" (94),
-                      [arg1] "{a0}" (0),
-                    : "rcx", "r11", "memory"
-                );
-            },
             .sparc64 => {
                 asm volatile ("ta 0x6d"
                     :
@@ -212,6 +208,42 @@ fn wasi_start() callconv(.C) void {
     }
 }
 
+fn riscv_start() callconv(.C) noreturn {
+    std.process.exit(switch (@typeInfo(@typeInfo(@TypeOf(root.main)).Fn.return_type.?)) {
+        .NoReturn => root.main(),
+        .Void => ret: {
+            root.main();
+            break :ret 0;
+        },
+        .Int => |info| ret: {
+            if (info.bits != 8 or info.signedness == .signed) {
+                @compileError(bad_main_ret);
+            }
+            break :ret root.main();
+        },
+        .ErrorUnion => ret: {
+            const result = root.main() catch {
+                const stderr = std.io.getStdErr().writer();
+                stderr.writeAll("failed with error\n") catch {
+                    @panic("failed to print when main returned error");
+                };
+                break :ret 1;
+            };
+            switch (@typeInfo(@TypeOf(result))) {
+                .Void => break :ret 0,
+                .Int => |info| {
+                    if (info.bits != 8 or info.signedness == .signed) {
+                        @compileError(bad_main_ret);
+                    }
+                    return result;
+                },
+                else => @compileError(bad_main_ret),
+            }
+        },
+        else => @compileError(bad_main_ret),
+    });
+}
+
 fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv(.C) usize {
     uefi.handle = handle;
     uefi.system_table = system_table;
@@ -241,14 +273,6 @@ fn _start() callconv(.Naked) noreturn {
         std.os.plan9.tos = asm volatile (""
             : [tos] "={rax}" (-> *std.os.plan9.Tos),
         );
-    }
-    switch (native_arch) {
-        // https://github.com/ziglang/zig/issues/16799
-        .riscv64 => @export(argc_argv_ptr, .{
-            .name = "__zig_argc_argv_ptr",
-            .visibility = .hidden,
-        }),
-        else => {},
     }
     asm volatile (switch (native_arch) {
             .x86_64 =>
@@ -280,8 +304,7 @@ fn _start() callconv(.Naked) noreturn {
             .riscv64 =>
             \\ li s0, 0
             \\ li ra, 0
-            \\ lui a0, %hi(__zig_argc_argv_ptr)
-            \\ sd sp, %lo(__zig_argc_argv_ptr)(a0)
+            \\ sd sp, %[argc_argv_ptr]
             \\ andi sp, sp, -16
             \\ tail %[posixCallMainAndExit]@plt
             ,
@@ -493,21 +516,19 @@ fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.C) c_int {
 const bad_main_ret = "expected return type of main to be 'void', '!void', 'noreturn', 'u8', or '!u8'";
 
 pub inline fn callMain() u8 {
-    switch (@typeInfo(@typeInfo(@TypeOf(root.main)).Fn.return_type.?)) {
-        .NoReturn => {
-            root.main();
-        },
-        .Void => {
+    const ReturnType = @typeInfo(@TypeOf(root.main)).Fn.return_type.?;
+
+    switch (ReturnType) {
+        void => {
             root.main();
             return 0;
         },
-        .Int => |info| {
-            if (info.bits != 8 or info.signedness == .signed) {
-                @compileError(bad_main_ret);
-            }
+        noreturn, u8 => {
             return root.main();
         },
-        .ErrorUnion => {
+        else => {
+            if (@typeInfo(ReturnType) != .ErrorUnion) @compileError(bad_main_ret);
+
             const result = root.main() catch |err| {
                 std.log.err("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
@@ -515,18 +536,13 @@ pub inline fn callMain() u8 {
                 }
                 return 1;
             };
-            switch (@typeInfo(@TypeOf(result))) {
-                .Void => return 0,
-                .Int => |info| {
-                    if (info.bits != 8 or info.signedness == .signed) {
-                        @compileError(bad_main_ret);
-                    }
-                    return result;
-                },
+
+            return switch (@TypeOf(result)) {
+                void => 0,
+                u8 => result,
                 else => @compileError(bad_main_ret),
-            }
+            };
         },
-        else => @compileError(bad_main_ret),
     }
 }
 

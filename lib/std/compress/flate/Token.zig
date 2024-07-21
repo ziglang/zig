@@ -110,7 +110,7 @@ pub fn show(t: Token) void {
     }
 }
 
-// Retruns index in match_lengths table for each length in range 0-255.
+// Returns index in match_lengths table for each length in range 0-255.
 const match_lengths_index = [_]u8{
     0,  1,  2,  3,  4,  5,  6,  7,  8,  8,
     9,  9,  10, 10, 11, 11, 12, 12, 12, 12,

@@ -2066,6 +2066,23 @@ test "shift-right negative" {
     defer arg3.deinit();
     try a.shiftRight(&arg3, 1232);
     try testing.expect((try a.to(i32)) == -1); // -10 >> 1232 == -1
+
+    var arg4 = try Managed.initSet(testing.allocator, -5);
+    defer arg4.deinit();
+    try a.shiftRight(&arg4, 2);
+    try testing.expect(try a.to(i32) == -2); // -5 >> 2 == -2
+
+    var arg5 = try Managed.initSet(testing.allocator, -0xffff0000eeee1111dddd2222cccc3333);
+    defer arg5.deinit();
+    try a.shiftRight(&arg5, 67);
+    try testing.expect(try a.to(i64) == -0x1fffe0001dddc223);
+
+    var arg6 = try Managed.initSet(testing.allocator, -0x1ffffffffffffffff);
+    defer arg6.deinit();
+    try a.shiftRight(&arg6, 1);
+    try a.shiftRight(&a, 1);
+    a.setSign(true);
+    try testing.expect(try a.to(u64) == 0x8000000000000000);
 }
 
 test "sat shift-left simple unsigned" {
@@ -3231,4 +3248,53 @@ test "Managed sqrt(n) succeed with res.bitCountAbs() >= usize bits" {
     defer expected.deinit();
     try expected.setString(10, "11663466984815033033");
     try std.testing.expectEqual(std.math.Order.eq, expected.order(res));
+}
+
+test "(BigInt) positive" {
+    var a = try Managed.initSet(testing.allocator, 2);
+    defer a.deinit();
+
+    var b = try Managed.init(testing.allocator);
+    defer b.deinit();
+
+    var c = try Managed.initSet(testing.allocator, 1);
+    defer c.deinit();
+
+    // a = pow(2, 64 * @sizeOf(usize) * 8), b = a - 1
+    try a.pow(&a, 64 * @sizeOf(Limb) * 8);
+    try b.sub(&a, &c);
+
+    const a_fmt = try std.fmt.allocPrintZ(testing.allocator, "{d}", .{a});
+    defer testing.allocator.free(a_fmt);
+
+    const b_fmt = try std.fmt.allocPrintZ(testing.allocator, "{d}", .{b});
+    defer testing.allocator.free(b_fmt);
+
+    try testing.expect(mem.eql(u8, a_fmt, "(BigInt)"));
+    try testing.expect(!mem.eql(u8, b_fmt, "(BigInt)"));
+}
+
+test "(BigInt) negative" {
+    var a = try Managed.initSet(testing.allocator, 2);
+    defer a.deinit();
+
+    var b = try Managed.init(testing.allocator);
+    defer b.deinit();
+
+    var c = try Managed.initSet(testing.allocator, 1);
+    defer c.deinit();
+
+    // a = -pow(2, 64 * @sizeOf(usize) * 8), b = a + 1
+    try a.pow(&a, 64 * @sizeOf(Limb) * 8);
+    a.negate();
+    try b.add(&a, &c);
+
+    const a_fmt = try std.fmt.allocPrintZ(testing.allocator, "{d}", .{a});
+    defer testing.allocator.free(a_fmt);
+
+    const b_fmt = try std.fmt.allocPrintZ(testing.allocator, "{d}", .{b});
+    defer testing.allocator.free(b_fmt);
+
+    try testing.expect(mem.eql(u8, a_fmt, "(BigInt)"));
+    try testing.expect(!mem.eql(u8, b_fmt, "(BigInt)"));
 }

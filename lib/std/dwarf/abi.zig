@@ -38,7 +38,7 @@ pub fn ipRegNum() u8 {
 
 pub fn fpRegNum(reg_context: RegisterContext) u8 {
     return switch (builtin.cpu.arch) {
-        // GCC on OS X historicaly did the opposite of ELF for these registers (only in .eh_frame), and that is now the convention for MachO
+        // GCC on OS X historically did the opposite of ELF for these registers (only in .eh_frame), and that is now the convention for MachO
         .x86 => if (reg_context.eh_frame and reg_context.is_macho) 4 else 5,
         .x86_64 => 6,
         .arm => 11,
