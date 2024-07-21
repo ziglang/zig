@@ -681,7 +681,7 @@ fn runStepNames(
     if (run.prominent_compile_errors and total_compile_errors > 0) {
         for (step_stack.keys()) |s| {
             if (s.result_error_bundle.errorMessageCount() > 0) {
-                s.result_error_bundle.renderToStdErr(renderOptions(ttyconf));
+                s.result_error_bundle.renderToStdErr(b.renderOptions(ttyconf));
             }
         }
 
@@ -1154,7 +1154,7 @@ fn printErrorMessages(b: *std.Build, failing_step: *Step, run: *const Run) !void
     }
 
     if (!run.prominent_compile_errors and failing_step.result_error_bundle.errorMessageCount() > 0)
-        try failing_step.result_error_bundle.renderToWriter(renderOptions(ttyconf), stderr.writer());
+        try failing_step.result_error_bundle.renderToWriter(b.renderOptions(ttyconf), stderr.writer());
 
     for (failing_step.result_error_msgs.items) |msg| {
         try ttyconf.setColor(stderr, .red);
@@ -1348,14 +1348,6 @@ fn get_tty_conf(color: Color, stderr: File) std.io.tty.Config {
         .auto => std.io.tty.detectConfig(stderr),
         .on => .escape_codes,
         .off => .no_color,
-    };
-}
-
-fn renderOptions(ttyconf: std.io.tty.Config) std.zig.ErrorBundle.RenderOptions {
-    return .{
-        .ttyconf = ttyconf,
-        .include_source_line = ttyconf != .no_color,
-        .include_reference_trace = ttyconf != .no_color,
     };
 }
 
