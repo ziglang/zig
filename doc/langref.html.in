@@ -379,9 +379,9 @@
 
       <p>
       In this case, the {#syntax#}!{#endsyntax#} may be omitted from the return
-      type because no errors are returned from the function.
+      type of <code>main</code> because no errors are returned from the function.
       </p>
-      {#see_also|Values|@import|Errors|Root Source File|Source Encoding#}
+      {#see_also|Values|Tuples|@import|Errors|Root Source File|Source Encoding|try#}
       {#header_close#}
       {#header_open|Comments#}
       <p>
@@ -2295,7 +2295,7 @@ or
 
       {#header_open|Tuples#}
       <p>
-      Anonymous structs can be created without specifying field names, and are referred to as "tuples".
+      Anonymous structs can be created without specifying field names, and are referred to as "tuples". An empty tuple looks like <code>.{}</code> and can be seen in one of the {#link|Hello World examples|Hello World#}.
       </p>
       <p>
       The fields are implicitly named using numbers starting from 0. Because their names are integers,
