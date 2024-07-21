@@ -142,8 +142,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .sparc64,
         .sparcel,
         .s390x,
-        .tce,
-        .tcele,
         .thumb,
         .thumbeb,
         .x86,

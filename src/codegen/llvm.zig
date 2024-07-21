@@ -72,8 +72,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .sparc64 => "sparc64",
         .sparcel => "sparcel",
         .s390x => "s390x",
-        .tce => "tce",
-        .tcele => "tcele",
         .thumb => "thumb",
         .thumbeb => "thumbeb",
         .x86 => "i386",
@@ -288,8 +286,6 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .sparc64 => .sparcv9, // In LLVM, sparc64 == sparcv9.
         .sparcel => .sparcel,
         .s390x => .systemz,
-        .tce => .tce,
-        .tcele => .tcele,
         .thumb => .thumb,
         .thumbeb => .thumbeb,
         .x86 => .x86,
@@ -12076,8 +12072,6 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         },
 
         // LLVM backends that have no initialization functions.
-        .tce,
-        .tcele,
         .spir,
         .spir64,
         .spirv,

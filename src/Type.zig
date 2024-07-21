@@ -1648,8 +1648,6 @@ pub fn maxIntAlignment(target: std.Target, use_llvm: bool) u16 {
         .csky,
         .arc,
         .m68k,
-        .tce,
-        .tcele,
         .spir,
         .kalimba,
         .spirv,

@@ -17,8 +17,6 @@ pub fn intMaxType(target: std.Target) Type {
         .riscv64,
         .powerpc64,
         .powerpc64le,
-        .tce,
-        .tcele,
         .ve,
         => return .{ .specifier = .long },
 
@@ -54,8 +52,6 @@ pub fn intPtrType(target: std.Target) Type {
         .riscv32,
         .xcore,
         .hexagon,
-        .tce,
-        .tcele,
         .m68k,
         .spir,
         .spirv32,
@@ -153,7 +149,7 @@ pub fn isTlsSupported(target: std.Target) bool {
         return supported;
     }
     return switch (target.cpu.arch) {
-        .tce, .tcele, .bpfel, .bpfeb, .msp430, .nvptx, .nvptx64, .x86, .arm, .armeb, .thumb, .thumbeb => false,
+        .bpfel, .bpfeb, .msp430, .nvptx, .nvptx64, .x86, .arm, .armeb, .thumb, .thumbeb => false,
         else => true,
     };
 }
@@ -473,8 +469,6 @@ pub fn get32BitArchVariant(target: std.Target) ?std.Target {
         .riscv32,
         .sparc,
         .sparcel,
-        .tce,
-        .tcele,
         .thumb,
         .thumbeb,
         .x86,
@@ -523,8 +517,6 @@ pub fn get64BitArchVariant(target: std.Target) ?std.Target {
         .msp430,
         .sparcel,
         .spu_2,
-        .tce,
-        .tcele,
         .xcore,
         .xtensa,
         => return null,
@@ -611,8 +603,6 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .sparc64 => "sparc64",
         .sparcel => "sparcel",
         .s390x => "s390x",
-        .tce => "tce",
-        .tcele => "tcele",
         .thumb => "thumb",
         .thumbeb => "thumbeb",
         .x86 => "i386",

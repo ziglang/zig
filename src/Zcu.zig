@@ -3249,8 +3249,6 @@ pub fn atomicPtrAlignment(
         .riscv32,
         .sparc,
         .sparcel,
-        .tce,
-        .tcele,
         .thumb,
         .thumbeb,
         .x86,
