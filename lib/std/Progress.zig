@@ -414,9 +414,7 @@ pub fn start(options: Options) Node {
                     .mask = posix.empty_sigset,
                     .flags = (posix.SA.SIGINFO | posix.SA.RESTART),
                 };
-                posix.sigaction(posix.SIG.WINCH, &act, null) catch |err| {
-                    std.log.warn("failed to install SIGWINCH signal handler for noticing terminal resizes: {s}", .{@errorName(err)});
-                };
+                posix.sigaction(posix.SIG.WINCH, &act, null);
             }
 
             if (switch (global_progress.terminal_mode) {

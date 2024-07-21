@@ -862,10 +862,10 @@ test "sigaction" {
     var old_sa: posix.Sigaction = undefined;
 
     // Install the new signal handler.
-    try posix.sigaction(posix.SIG.USR1, &sa, null);
+    posix.sigaction(posix.SIG.USR1, &sa, null);
 
     // Check that we can read it back correctly.
-    try posix.sigaction(posix.SIG.USR1, null, &old_sa);
+    posix.sigaction(posix.SIG.USR1, null, &old_sa);
     try testing.expectEqual(&S.handler, old_sa.handler.sigaction.?);
     try testing.expect((old_sa.flags & posix.SA.SIGINFO) != 0);
 
@@ -874,26 +874,26 @@ test "sigaction" {
     try testing.expect(S.handler_called_count == 1);
 
     // Check if passing RESETHAND correctly reset the handler to SIG_DFL
-    try posix.sigaction(posix.SIG.USR1, null, &old_sa);
+    posix.sigaction(posix.SIG.USR1, null, &old_sa);
     try testing.expectEqual(posix.SIG.DFL, old_sa.handler.handler);
 
     // Reinstall the signal w/o RESETHAND and re-raise
     sa.flags = posix.SA.SIGINFO;
-    try posix.sigaction(posix.SIG.USR1, &sa, null);
+    posix.sigaction(posix.SIG.USR1, &sa, null);
     try posix.raise(posix.SIG.USR1);
     try testing.expect(S.handler_called_count == 2);
 
     // Now set the signal to ignored
     sa.handler = .{ .handler = posix.SIG.IGN };
     sa.flags = 0;
-    try posix.sigaction(posix.SIG.USR1, &sa, null);
+    posix.sigaction(posix.SIG.USR1, &sa, null);
 
     // Re-raise to ensure handler is actually ignored
     try posix.raise(posix.SIG.USR1);
     try testing.expect(S.handler_called_count == 2);
 
     // Ensure that ignored state is returned when querying
-    try posix.sigaction(posix.SIG.USR1, null, &old_sa);
+    posix.sigaction(posix.SIG.USR1, null, &old_sa);
     try testing.expectEqual(posix.SIG.IGN, old_sa.handler.handler.?);
 }
 

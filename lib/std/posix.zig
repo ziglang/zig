@@ -683,9 +683,7 @@ pub fn abort() noreturn {
             .mask = empty_sigset,
             .flags = 0,
         };
-        sigaction(SIG.ABRT, &sigact, null) catch |err| switch (err) {
-            error.OperationNotSupported => unreachable,
-        };
+        sigaction(SIG.ABRT, &sigact, null);
 
         _ = linux.tkill(linux.gettid(), SIG.ABRT);
 
@@ -5658,10 +5656,13 @@ pub fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) SigaltstackError!void {
 }
 
 /// Examine and change a signal action.
-pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) error{OperationNotSupported}!void {
+pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) void {
     switch (errno(system.sigaction(sig, act, oact))) {
         .SUCCESS => return,
-        .INVAL => return error.OperationNotSupported,
+        // EINVAL means the signal is either invalid or some signal that cannot have its action
+        // changed. For POSIX, this means SIGKILL/SIGSTOP. For e.g. Solaris, this also includes the
+        // non-standard SIGWAITING, SIGCANCEL, and SIGLWP. Either way, programmer error.
+        .INVAL => unreachable,
         else => unreachable,
     }
 }
