@@ -1654,7 +1654,6 @@ pub fn maxIntAlignment(target: std.Target, use_llvm: bool) u16 {
         .kalimba,
         .spirv,
         .spirv32,
-        .shave,
         .spir64,
         .ve,
         .spirv64,

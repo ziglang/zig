@@ -3258,7 +3258,6 @@ pub fn atomicPtrAlignment(
         .spir,
         .kalimba,
         .lanai,
-        .shave,
         .wasm32,
         .csky,
         .spirv32,

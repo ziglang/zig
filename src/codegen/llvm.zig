@@ -88,7 +88,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .spirv32 => "spirv32",
         .spirv64 => "spirv64",
         .kalimba => "kalimba",
-        .shave => "shave",
         .lanai => "lanai",
         .wasm32 => "wasm32",
         .wasm64 => "wasm64",
@@ -305,7 +304,6 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .spirv32 => .spirv32,
         .spirv64 => .spirv64,
         .kalimba => .kalimba,
-        .shave => .shave,
         .lanai => .lanai,
         .wasm32 => .wasm32,
         .wasm64 => .wasm64,
@@ -12080,7 +12078,6 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         // LLVM backends that have no initialization functions.
         .tce,
         .tcele,
-        .shave,
         .spir,
         .spir64,
         .spirv,
