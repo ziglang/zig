@@ -113,7 +113,7 @@ pub fn relocate(phdrs: []elf.Phdr) void {
         const rela = std.mem.bytesAsSlice(elf.Rela, @as([*]u8, @ptrFromInt(rela_addr))[0..rela_size]);
         for (rela) |r| {
             if (r.r_type() != R_RELATIVE) continue;
-            @as(*usize, @ptrFromInt(base_addr + r.r_offset)).* += base_addr + @as(usize, @bitCast(r.r_addend));
+            @as(*usize, @ptrFromInt(base_addr + r.r_offset)).* = base_addr + @as(usize, @bitCast(r.r_addend));
         }
     }
 }

@@ -379,7 +379,7 @@ fn Kyber(comptime p: Params) type {
 
             /// Create a new key pair.
             /// If seed is null, a random seed will be generated.
-            /// If a seed is provided, the key pair will be determinsitic.
+            /// If a seed is provided, the key pair will be deterministic.
             pub fn create(seed_: ?[seed_length]u8) !KeyPair {
                 const seed = seed_ orelse sk: {
                     var random_seed: [seed_length]u8 = undefined;
@@ -1253,7 +1253,7 @@ const Poly = struct {
                 t |= @as(T, buf[batch_bytes * i + j]) << (8 * j);
             }
 
-            // Accumelate `a's and `b's together by masking them out, shifting
+            // Accumulate `a's and `b's together by masking them out, shifting
             // and adding. For η=3, we have  d = a₁ + a₂ + a₃ + 8(b₁ + b₂ + b₃) + …
             var d: T = 0;
             inline for (0..eta) |j| {

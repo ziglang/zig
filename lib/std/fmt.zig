@@ -9,7 +9,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const unicode = std.unicode;
 const meta = std.meta;
-const lossyCast = std.math.lossyCast;
+const lossyCast = math.lossyCast;
 const expectFmt = std.testing.expectFmt;
 
 pub const default_max_depth = 3;
@@ -20,11 +20,14 @@ pub const Alignment = enum {
     right,
 };
 
+const default_alignment = .right;
+const default_fill_char = ' ';
+
 pub const FormatOptions = struct {
     precision: ?usize = null,
     width: ?usize = null,
-    alignment: Alignment = .right,
-    fill: u21 = ' ',
+    alignment: Alignment = default_alignment,
+    fill: u21 = default_fill_char,
 };
 
 /// Renders fmt string with args, calling `writer` with slices of bytes.
@@ -48,8 +51,8 @@ pub const FormatOptions = struct {
 ///
 /// Note that most of the parameters are optional and may be omitted. Also you can leave out separators like `:` and `.` when
 /// all parameters after the separator are omitted.
-/// Only exception is the *fill* parameter. If *fill* is required, one has to specify *alignment* as well, as otherwise
-/// the digits after `:` is interpreted as *width*, not *fill*.
+/// Only exception is the *fill* parameter. If a non-zero *fill* character is required at the same time as *width* is specified,
+/// one has to specify *alignment* as well, as otherwise the digit following `:` is interpreted as *width*, not *fill*.
 ///
 /// The *specifier* has several options for types:
 /// - `x` and `X`: output numeric value in hexadecimal notation
@@ -239,29 +242,38 @@ pub const Placeholder = struct {
             }
         }
 
-        // Parse the fill character
-        // The fill parameter requires the alignment parameter to be specified
-        // too
-        const fill = comptime if (parser.peek(1)) |ch|
+        // Parse the fill character, if present.
+        // When the width field is also specified, the fill character must
+        // be followed by an alignment specifier, unless it's '0' (zero)
+        // (in which case it's handled as part of the width specifier)
+        var fill: ?u21 = comptime if (parser.peek(1)) |ch|
             switch (ch) {
-                '<', '^', '>' => parser.char().?,
-                else => ' ',
+                '<', '^', '>' => parser.char(),
+                else => null,
             }
         else
-            ' ';
+            null;
 
         // Parse the alignment parameter
-        const alignment: Alignment = comptime if (parser.peek(0)) |ch| init: {
+        const alignment: ?Alignment = comptime if (parser.peek(0)) |ch| init: {
             switch (ch) {
-                '<', '^', '>' => _ = parser.char(),
-                else => {},
+                '<', '^', '>' => {
+                    // consume the character
+                    break :init switch (parser.char().?) {
+                        '<' => .left,
+                        '^' => .center,
+                        else => .right,
+                    };
+                },
+                else => break :init null,
             }
-            break :init switch (ch) {
-                '<' => .left,
-                '^' => .center,
-                else => .right,
-            };
-        } else .right;
+        } else null;
+
+        // When none of the fill character and the alignment specifier have
+        // been provided, check whether the width starts with a zero.
+        if (fill == null and alignment == null) {
+            fill = comptime if (parser.peek(0) == '0') '0' else null;
+        }
 
         // Parse the width parameter
         const width = comptime parser.specifier() catch |err|
@@ -284,8 +296,8 @@ pub const Placeholder = struct {
 
         return Placeholder{
             .specifier_arg = cacheString(specifier_arg[0..specifier_arg.len].*),
-            .fill = fill,
-            .alignment = alignment,
+            .fill = fill orelse default_fill_char,
+            .alignment = alignment orelse default_alignment,
             .arg = arg,
             .width = width,
             .precision = precision,
@@ -1494,10 +1506,20 @@ pub fn Formatter(comptime format_fn: anytype) type {
 /// Ignores '_' character in `buf`.
 /// See also `parseUnsigned`.
 pub fn parseInt(comptime T: type, buf: []const u8, base: u8) ParseIntError!T {
+    return parseIntWithGenericCharacter(T, u8, buf, base);
+}
+
+/// Like `parseInt`, but with a generic `Character` type.
+pub fn parseIntWithGenericCharacter(
+    comptime Result: type,
+    comptime Character: type,
+    buf: []const Character,
+    base: u8,
+) ParseIntError!Result {
     if (buf.len == 0) return error.InvalidCharacter;
-    if (buf[0] == '+') return parseWithSign(T, buf[1..], base, .pos);
-    if (buf[0] == '-') return parseWithSign(T, buf[1..], base, .neg);
-    return parseWithSign(T, buf, base, .pos);
+    if (buf[0] == '+') return parseIntWithSign(Result, Character, buf[1..], base, .pos);
+    if (buf[0] == '-') return parseIntWithSign(Result, Character, buf[1..], base, .neg);
+    return parseIntWithSign(Result, Character, buf, base, .pos);
 }
 
 test parseInt {
@@ -1560,12 +1582,13 @@ test parseInt {
     try std.testing.expectEqual(@as(i5, -16), try std.fmt.parseInt(i5, "-10", 16));
 }
 
-fn parseWithSign(
-    comptime T: type,
-    buf: []const u8,
+fn parseIntWithSign(
+    comptime Result: type,
+    comptime Character: type,
+    buf: []const Character,
     base: u8,
     comptime sign: enum { pos, neg },
-) ParseIntError!T {
+) ParseIntError!Result {
     if (buf.len == 0) return error.InvalidCharacter;
 
     var buf_base = base;
@@ -1575,7 +1598,7 @@ fn parseWithSign(
         buf_base = 10;
         // Detect the base by looking at buf prefix.
         if (buf.len > 2 and buf[0] == '0') {
-            switch (std.ascii.toLower(buf[1])) {
+            if (math.cast(u8, buf[1])) |c| switch (std.ascii.toLower(c)) {
                 'b' => {
                     buf_base = 2;
                     buf_start = buf[2..];
@@ -1589,7 +1612,7 @@ fn parseWithSign(
                     buf_start = buf[2..];
                 },
                 else => {},
-            }
+            };
         }
     }
 
@@ -1598,33 +1621,33 @@ fn parseWithSign(
         .neg => math.sub,
     };
 
-    // accumulate into U which is always 8 bits or larger.  this prevents
-    // `buf_base` from overflowing T.
-    const info = @typeInfo(T);
-    const U = std.meta.Int(info.Int.signedness, @max(8, info.Int.bits));
-    var x: U = 0;
+    // accumulate into Accumulate which is always 8 bits or larger.  this prevents
+    // `buf_base` from overflowing Result.
+    const info = @typeInfo(Result);
+    const Accumulate = std.meta.Int(info.Int.signedness, @max(8, info.Int.bits));
+    var accumulate: Accumulate = 0;
 
     if (buf_start[0] == '_' or buf_start[buf_start.len - 1] == '_') return error.InvalidCharacter;
 
     for (buf_start) |c| {
         if (c == '_') continue;
-        const digit = try charToDigit(c, buf_base);
-        if (x != 0) {
-            x = try math.mul(U, x, math.cast(U, buf_base) orelse return error.Overflow);
+        const digit = try charToDigit(math.cast(u8, c) orelse return error.InvalidCharacter, buf_base);
+        if (accumulate != 0) {
+            accumulate = try math.mul(Accumulate, accumulate, math.cast(Accumulate, buf_base) orelse return error.Overflow);
         } else if (sign == .neg) {
             // The first digit of a negative number.
             // Consider parsing "-4" as an i3.
             // This should work, but positive 4 overflows i3, so we can't cast the digit to T and subtract.
-            x = math.cast(U, -@as(i8, @intCast(digit))) orelse return error.Overflow;
+            accumulate = math.cast(Accumulate, -@as(i8, @intCast(digit))) orelse return error.Overflow;
             continue;
         }
-        x = try add(U, x, math.cast(U, digit) orelse return error.Overflow);
+        accumulate = try add(Accumulate, accumulate, math.cast(Accumulate, digit) orelse return error.Overflow);
     }
 
-    return if (T == U)
-        x
+    return if (Result == Accumulate)
+        accumulate
     else
-        math.cast(T, x) orelse return error.Overflow;
+        math.cast(Result, accumulate) orelse return error.Overflow;
 }
 
 /// Parses the string `buf` as unsigned representation in the specified base
@@ -1639,7 +1662,7 @@ fn parseWithSign(
 /// Ignores '_' character in `buf`.
 /// See also `parseInt`.
 pub fn parseUnsigned(comptime T: type, buf: []const u8, base: u8) ParseIntError!T {
-    return parseWithSign(T, buf, base, .pos);
+    return parseIntWithSign(T, u8, buf, base, .pos);
 }
 
 test parseUnsigned {
@@ -2637,6 +2660,15 @@ test "sci float padding" {
     try expectFmt("right-pad:  3.142e0****\n", "right-pad:  {e:*<11.3}\n", .{number});
 }
 
+test "padding.zero" {
+    try expectFmt("zero-pad: '0042'", "zero-pad: '{:04}'", .{42});
+    try expectFmt("std-pad: '        42'", "std-pad: '{:10}'", .{42});
+    try expectFmt("std-pad-1: '001'", "std-pad-1: '{:0>3}'", .{1});
+    try expectFmt("std-pad-2: '911'", "std-pad-2: '{:1<03}'", .{9});
+    try expectFmt("std-pad-3: '  1'", "std-pad-3: '{:>03}'", .{1});
+    try expectFmt("center-pad: '515'", "center-pad: '{:5^03}'", .{1});
+}
+
 test "null" {
     const inst = null;
     try expectFmt("null", "{}", .{inst});
@@ -2685,4 +2717,33 @@ test "recursive format function" {
 
     var r = R{ .Leaf = 1 };
     try expectFmt("Leaf(1)\n", "{}\n", .{&r});
+}
+
+pub const hex_charset = "0123456789abcdef";
+
+/// Converts an unsigned integer of any multiple of u8 to an array of lowercase
+/// hex bytes, little endian.
+pub fn hex(x: anytype) [@sizeOf(@TypeOf(x)) * 2]u8 {
+    comptime assert(@typeInfo(@TypeOf(x)).Int.signedness == .unsigned);
+    var result: [@sizeOf(@TypeOf(x)) * 2]u8 = undefined;
+    var i: usize = 0;
+    while (i < result.len / 2) : (i += 1) {
+        const byte: u8 = @truncate(x >> @intCast(8 * i));
+        result[i * 2 + 0] = hex_charset[byte >> 4];
+        result[i * 2 + 1] = hex_charset[byte & 15];
+    }
+    return result;
+}
+
+test hex {
+    {
+        const x = hex(@as(u32, 0xdeadbeef));
+        try std.testing.expect(x.len == 8);
+        try std.testing.expectEqualStrings("efbeadde", &x);
+    }
+    {
+        const s = "[" ++ hex(@as(u64, 0x12345678_abcdef00)) ++ "]";
+        try std.testing.expect(s.len == 18);
+        try std.testing.expectEqualStrings("[00efcdab78563412]", s);
+    }
 }

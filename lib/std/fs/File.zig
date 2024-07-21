@@ -188,7 +188,7 @@ pub fn sync(self: File) SyncError!void {
 }
 
 /// Test whether the file refers to a terminal.
-/// See also `supportsAnsiEscapeCodes`.
+/// See also `getOrEnableAnsiEscapeSupport` and `supportsAnsiEscapeCodes`.
 pub fn isTty(self: File) bool {
     return posix.isatty(self.handle);
 }
@@ -245,7 +245,48 @@ pub fn isCygwinPty(file: File) bool {
         std.mem.indexOf(u16, name_wide, &[_]u16{ '-', 'p', 't', 'y' }) != null;
 }
 
-/// Test whether ANSI escape codes will be treated as such.
+/// Returns whether or not ANSI escape codes will be treated as such,
+/// and attempts to enable support for ANSI escape codes if necessary
+/// (on Windows).
+///
+/// Returns `true` if ANSI escape codes are supported or support was
+/// successfully enabled. Returns false if ANSI escape codes are not
+/// supported or support was unable to be enabled.
+///
+/// See also `supportsAnsiEscapeCodes`.
+pub fn getOrEnableAnsiEscapeSupport(self: File) bool {
+    if (builtin.os.tag == .windows) {
+        var original_console_mode: windows.DWORD = 0;
+
+        // For Windows Terminal, VT Sequences processing is enabled by default.
+        if (windows.kernel32.GetConsoleMode(self.handle, &original_console_mode) != 0) {
+            if (original_console_mode & windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0) return true;
+
+            // For Windows Console, VT Sequences processing support was added in Windows 10 build 14361, but disabled by default.
+            // https://devblogs.microsoft.com/commandline/tmux-support-arrives-for-bash-on-ubuntu-on-windows/
+            //
+            // Note: In Microsoft's example for enabling virtual terminal processing, it
+            // shows attempting to enable `DISABLE_NEWLINE_AUTO_RETURN` as well:
+            // https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences#example-of-enabling-virtual-terminal-processing
+            // This is avoided because in the old Windows Console, that flag causes \n (as opposed to \r\n)
+            // to behave unexpectedly (the cursor moves down 1 row but remains on the same column).
+            // Additionally, the default console mode in Windows Terminal does not have
+            // `DISABLE_NEWLINE_AUTO_RETURN` set, so by only enabling `ENABLE_VIRTUAL_TERMINAL_PROCESSING`
+            // we end up matching the mode of Windows Terminal.
+            const requested_console_modes = windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+            const console_mode = original_console_mode | requested_console_modes;
+            if (windows.kernel32.SetConsoleMode(self.handle, console_mode) != 0) return true;
+        }
+
+        return self.isCygwinPty();
+    }
+    return self.supportsAnsiEscapeCodes();
+}
+
+/// Test whether ANSI escape codes will be treated as such without
+/// attempting to enable support for ANSI escape codes.
+///
+/// See also `getOrEnableAnsiEscapeSupport`.
 pub fn supportsAnsiEscapeCodes(self: File) bool {
     if (builtin.os.tag == .windows) {
         var console_mode: windows.DWORD = 0;
@@ -379,9 +420,9 @@ pub const Stat = struct {
 
                 break :k .unknown;
             },
-            .atime = @as(i128, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
-            .mtime = @as(i128, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
-            .ctime = @as(i128, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
+            .atime = @as(i128, atime.sec) * std.time.ns_per_s + atime.nsec,
+            .mtime = @as(i128, mtime.sec) * std.time.ns_per_s + mtime.nsec,
+            .ctime = @as(i128, ctime.sec) * std.time.ns_per_s + ctime.nsec,
         };
     }
 
@@ -750,13 +791,13 @@ pub const MetadataUnix = struct {
     /// Returns the last time the file was accessed in nanoseconds since UTC 1970-01-01
     pub fn accessed(self: Self) i128 {
         const atime = self.stat.atime();
-        return @as(i128, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec;
+        return @as(i128, atime.sec) * std.time.ns_per_s + atime.nsec;
     }
 
     /// Returns the last time the file was modified in nanoseconds since UTC 1970-01-01
     pub fn modified(self: Self) i128 {
         const mtime = self.stat.mtime();
-        return @as(i128, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec;
+        return @as(i128, mtime.sec) * std.time.ns_per_s + mtime.nsec;
     }
 
     /// Returns the time the file was created in nanoseconds since UTC 1970-01-01.
@@ -766,17 +807,17 @@ pub const MetadataUnix = struct {
         const birthtime = self.stat.birthtime();
 
         // If the filesystem doesn't support this the value *should* be:
-        // On FreeBSD: tv_nsec = 0, tv_sec = -1
-        // On NetBSD and OpenBSD: tv_nsec = 0, tv_sec = 0
+        // On FreeBSD: nsec = 0, sec = -1
+        // On NetBSD and OpenBSD: nsec = 0, sec = 0
         // On MacOS, it is set to ctime -- we cannot detect this!!
         switch (builtin.os.tag) {
-            .freebsd => if (birthtime.tv_sec == -1 and birthtime.tv_nsec == 0) return null,
-            .netbsd, .openbsd => if (birthtime.tv_sec == 0 and birthtime.tv_nsec == 0) return null,
+            .freebsd => if (birthtime.sec == -1 and birthtime.nsec == 0) return null,
+            .netbsd, .openbsd => if (birthtime.sec == 0 and birthtime.nsec == 0) return null,
             .macos => {},
             else => @compileError("Creation time detection not implemented for OS"),
         }
 
-        return @as(i128, birthtime.tv_sec) * std.time.ns_per_s + birthtime.tv_nsec;
+        return @as(i128, birthtime.sec) * std.time.ns_per_s + birthtime.nsec;
     }
 };
 
@@ -817,19 +858,19 @@ pub const MetadataLinux = struct {
 
     /// Returns the last time the file was accessed in nanoseconds since UTC 1970-01-01
     pub fn accessed(self: Self) i128 {
-        return @as(i128, self.statx.atime.tv_sec) * std.time.ns_per_s + self.statx.atime.tv_nsec;
+        return @as(i128, self.statx.atime.sec) * std.time.ns_per_s + self.statx.atime.nsec;
     }
 
     /// Returns the last time the file was modified in nanoseconds since UTC 1970-01-01
     pub fn modified(self: Self) i128 {
-        return @as(i128, self.statx.mtime.tv_sec) * std.time.ns_per_s + self.statx.mtime.tv_nsec;
+        return @as(i128, self.statx.mtime.sec) * std.time.ns_per_s + self.statx.mtime.nsec;
     }
 
     /// Returns the time the file was created in nanoseconds since UTC 1970-01-01.
     /// Returns null if this is not supported by the filesystem, or on kernels before than version 4.11
     pub fn created(self: Self) ?i128 {
         if (self.statx.mask & std.os.linux.STATX_BTIME == 0) return null;
-        return @as(i128, self.statx.btime.tv_sec) * std.time.ns_per_s + self.statx.btime.tv_nsec;
+        return @as(i128, self.statx.btime.sec) * std.time.ns_per_s + self.statx.btime.nsec;
     }
 };
 
@@ -985,12 +1026,12 @@ pub fn metadata(self: File) MetadataError!Metadata {
 
                         // Hacky conversion from timespec to statx_timestamp
                         stx.atime = std.mem.zeroes(l.statx_timestamp);
-                        stx.atime.tv_sec = st.atim.tv_sec;
-                        stx.atime.tv_nsec = @as(u32, @intCast(st.atim.tv_nsec)); // Guaranteed to succeed (tv_nsec is always below 10^9)
+                        stx.atime.sec = st.atim.sec;
+                        stx.atime.nsec = @as(u32, @intCast(st.atim.nsec)); // Guaranteed to succeed (nsec is always below 10^9)
 
                         stx.mtime = std.mem.zeroes(l.statx_timestamp);
-                        stx.mtime.tv_sec = st.mtim.tv_sec;
-                        stx.mtime.tv_nsec = @as(u32, @intCast(st.mtim.tv_nsec));
+                        stx.mtime.sec = st.mtim.sec;
+                        stx.mtime.nsec = @as(u32, @intCast(st.mtim.nsec));
 
                         stx.mask = l.STATX_BASIC_STATS | l.STATX_MTIME;
                     },
@@ -1031,12 +1072,12 @@ pub fn updateTimes(
     }
     const times = [2]posix.timespec{
         posix.timespec{
-            .tv_sec = math.cast(isize, @divFloor(atime, std.time.ns_per_s)) orelse maxInt(isize),
-            .tv_nsec = math.cast(isize, @mod(atime, std.time.ns_per_s)) orelse maxInt(isize),
+            .sec = math.cast(isize, @divFloor(atime, std.time.ns_per_s)) orelse maxInt(isize),
+            .nsec = math.cast(isize, @mod(atime, std.time.ns_per_s)) orelse maxInt(isize),
         },
         posix.timespec{
-            .tv_sec = math.cast(isize, @divFloor(mtime, std.time.ns_per_s)) orelse maxInt(isize),
-            .tv_nsec = math.cast(isize, @mod(mtime, std.time.ns_per_s)) orelse maxInt(isize),
+            .sec = math.cast(isize, @divFloor(mtime, std.time.ns_per_s)) orelse maxInt(isize),
+            .nsec = math.cast(isize, @mod(mtime, std.time.ns_per_s)) orelse maxInt(isize),
         },
     };
     try posix.futimens(self.handle, &times);

@@ -218,13 +218,6 @@ pub const F = struct {
     pub const GETOWNER_UIDS = 17;
 };
 
-pub const LOCK = struct {
-    pub const SH = 1;
-    pub const EX = 2;
-    pub const NB = 4;
-    pub const UN = 8;
-};
-
 pub const VDSO = struct {
     pub const CGT_SYM = "__vdso_clock_gettime";
     pub const CGT_VER = "LINUX_2.6";
@@ -301,13 +294,13 @@ pub const Stat = extern struct {
 };
 
 pub const timeval = extern struct {
-    tv_sec: isize,
-    tv_usec: i32,
+    sec: isize,
+    usec: i32,
 };
 
 pub const timezone = extern struct {
-    tz_minuteswest: i32,
-    tz_dsttime: i32,
+    minuteswest: i32,
+    dsttime: i32,
 };
 
 // TODO I'm not sure if the code below is correct, need someone with more
@@ -412,6 +405,9 @@ pub const ucontext_t = extern struct {
     sigset: sigset_t,
 };
 
+/// TODO
+pub const getcontext = {};
+
 pub const rlimit_resource = enum(c_int) {
     /// Per-process CPU limit, in seconds.
     CPU,
@@ -460,7 +456,7 @@ pub const rlimit_resource = enum(c_int) {
     /// values of this resource limit.
     NICE,
 
-    /// Maximum realtime priority allowed for non-priviledged
+    /// Maximum realtime priority allowed for non-privileged
     /// processes.
     RTPRIO,
 

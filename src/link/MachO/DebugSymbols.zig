@@ -175,8 +175,9 @@ fn findFreeSpace(self: *DebugSymbols, object_size: u64, min_alignment: u64) u64 
 }
 
 pub fn flushModule(self: *DebugSymbols, macho_file: *MachO) !void {
+    const zo = macho_file.getZigObject().?;
     for (self.relocs.items) |*reloc| {
-        const sym = macho_file.getSymbol(reloc.target);
+        const sym = zo.symbols.items[reloc.target];
         const sym_name = sym.getName(macho_file);
         const addr = switch (reloc.type) {
             .direct_load => sym.getAddress(.{}, macho_file),
@@ -382,22 +383,21 @@ pub fn writeSymtab(self: *DebugSymbols, off: u32, macho_file: *MachO) !u32 {
     cmd.symoff = off;
 
     try self.symtab.resize(gpa, cmd.nsyms);
-    try self.strtab.ensureUnusedCapacity(gpa, cmd.strsize - 1);
+    try self.strtab.resize(gpa, cmd.strsize);
+    self.strtab.items[0] = 0;
 
     if (macho_file.getZigObject()) |zo| {
         zo.writeSymtab(macho_file, self);
     }
     for (macho_file.objects.items) |index| {
-        try macho_file.getFile(index).?.writeSymtab(macho_file, self);
+        macho_file.getFile(index).?.writeSymtab(macho_file, self);
     }
     for (macho_file.dylibs.items) |index| {
-        try macho_file.getFile(index).?.writeSymtab(macho_file, self);
+        macho_file.getFile(index).?.writeSymtab(macho_file, self);
     }
     if (macho_file.getInternalObject()) |internal| {
         internal.writeSymtab(macho_file, self);
     }
-
-    assert(self.strtab.items.len == cmd.strsize);
 
     try self.file.pwriteAll(mem.sliceAsBytes(self.symtab.items), cmd.symoff);
 
@@ -459,4 +459,4 @@ const trace = @import("../../tracy.zig").trace;
 const Allocator = mem.Allocator;
 const MachO = @import("../MachO.zig");
 const StringTable = @import("../StringTable.zig");
-const Type = @import("../../type.zig").Type;
+const Type = @import("../../Type.zig");

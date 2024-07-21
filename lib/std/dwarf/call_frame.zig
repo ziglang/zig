@@ -53,7 +53,7 @@ const Opcode = enum(u8) {
 
 fn readBlock(stream: *std.io.FixedBufferStream([]const u8)) ![]const u8 {
     const reader = stream.reader();
-    const block_len = try leb.readULEB128(usize, reader);
+    const block_len = try leb.readUleb128(usize, reader);
     if (stream.pos + block_len > stream.buffer.len) return error.InvalidOperand;
 
     const block = stream.buffer[stream.pos..][0..block_len];
@@ -163,7 +163,7 @@ pub const Instruction = union(Opcode) {
                     .offset => .{
                         .offset = .{
                             .register = value,
-                            .offset = try leb.readULEB128(u64, reader),
+                            .offset = try leb.readUleb128(u64, reader),
                         },
                     },
                     .restore => .{
@@ -201,47 +201,47 @@ pub const Instruction = union(Opcode) {
                     },
                     .offset_extended => .{
                         .offset_extended = .{
-                            .register = try leb.readULEB128(u8, reader),
-                            .offset = try leb.readULEB128(u64, reader),
+                            .register = try leb.readUleb128(u8, reader),
+                            .offset = try leb.readUleb128(u64, reader),
                         },
                     },
                     .restore_extended => .{
                         .restore_extended = .{
-                            .register = try leb.readULEB128(u8, reader),
+                            .register = try leb.readUleb128(u8, reader),
                         },
                     },
                     .undefined => .{
                         .undefined = .{
-                            .register = try leb.readULEB128(u8, reader),
+                            .register = try leb.readUleb128(u8, reader),
                         },
                     },
                     .same_value => .{
                         .same_value = .{
-                            .register = try leb.readULEB128(u8, reader),
+                            .register = try leb.readUleb128(u8, reader),
                         },
                     },
                     .register => .{
                         .register = .{
-                            .register = try leb.readULEB128(u8, reader),
-                            .target_register = try leb.readULEB128(u8, reader),
+                            .register = try leb.readUleb128(u8, reader),
+                            .target_register = try leb.readUleb128(u8, reader),
                         },
                     },
                     .remember_state => .{ .remember_state = {} },
                     .restore_state => .{ .restore_state = {} },
                     .def_cfa => .{
                         .def_cfa = .{
-                            .register = try leb.readULEB128(u8, reader),
-                            .offset = try leb.readULEB128(u64, reader),
+                            .register = try leb.readUleb128(u8, reader),
+                            .offset = try leb.readUleb128(u64, reader),
                         },
                     },
                     .def_cfa_register => .{
                         .def_cfa_register = .{
-                            .register = try leb.readULEB128(u8, reader),
+                            .register = try leb.readUleb128(u8, reader),
                         },
                     },
                     .def_cfa_offset => .{
                         .def_cfa_offset = .{
-                            .offset = try leb.readULEB128(u64, reader),
+                            .offset = try leb.readUleb128(u64, reader),
                         },
                     },
                     .def_cfa_expression => .{
@@ -251,42 +251,42 @@ pub const Instruction = union(Opcode) {
                     },
                     .expression => .{
                         .expression = .{
-                            .register = try leb.readULEB128(u8, reader),
+                            .register = try leb.readUleb128(u8, reader),
                             .block = try readBlock(stream),
                         },
                     },
                     .offset_extended_sf => .{
                         .offset_extended_sf = .{
-                            .register = try leb.readULEB128(u8, reader),
-                            .offset = try leb.readILEB128(i64, reader),
+                            .register = try leb.readUleb128(u8, reader),
+                            .offset = try leb.readIleb128(i64, reader),
                         },
                     },
                     .def_cfa_sf => .{
                         .def_cfa_sf = .{
-                            .register = try leb.readULEB128(u8, reader),
-                            .offset = try leb.readILEB128(i64, reader),
+                            .register = try leb.readUleb128(u8, reader),
+                            .offset = try leb.readIleb128(i64, reader),
                         },
                     },
                     .def_cfa_offset_sf => .{
                         .def_cfa_offset_sf = .{
-                            .offset = try leb.readILEB128(i64, reader),
+                            .offset = try leb.readIleb128(i64, reader),
                         },
                     },
                     .val_offset => .{
                         .val_offset = .{
-                            .register = try leb.readULEB128(u8, reader),
-                            .offset = try leb.readULEB128(u64, reader),
+                            .register = try leb.readUleb128(u8, reader),
+                            .offset = try leb.readUleb128(u64, reader),
                         },
                     },
                     .val_offset_sf => .{
                         .val_offset_sf = .{
-                            .register = try leb.readULEB128(u8, reader),
-                            .offset = try leb.readILEB128(i64, reader),
+                            .register = try leb.readUleb128(u8, reader),
+                            .offset = try leb.readIleb128(i64, reader),
                         },
                     },
                     .val_expression => .{
                         .val_expression = .{
-                            .register = try leb.readULEB128(u8, reader),
+                            .register = try leb.readUleb128(u8, reader),
                             .block = try readBlock(stream),
                         },
                     },
@@ -365,6 +365,7 @@ pub const VirtualMachine = struct {
             self: Column,
             context: *dwarf.UnwindContext,
             expression_context: dwarf.expressions.ExpressionContext,
+            ma: *debug.StackIterator.MemoryAccessor,
             out: []u8,
         ) !void {
             switch (self.rule) {
@@ -385,7 +386,7 @@ pub const VirtualMachine = struct {
                 .offset => |offset| {
                     if (context.cfa) |cfa| {
                         const addr = try applyOffset(cfa, offset);
-                        if (expression_context.isValidMemory) |isValidMemory| if (!isValidMemory(addr)) return error.InvalidAddress;
+                        if (ma.load(usize, addr) == null) return error.InvalidAddress;
                         const ptr: *const usize = @ptrFromInt(addr);
                         mem.writeInt(usize, out[0..@sizeOf(usize)], ptr.*, native_endian);
                     } else return error.InvalidCFA;
@@ -408,7 +409,7 @@ pub const VirtualMachine = struct {
                         break :blk v.generic;
                     } else return error.NoExpressionValue;
 
-                    if (!context.isValidMemory(addr)) return error.InvalidExpressionAddress;
+                    if (ma.load(usize, addr) == null) return error.InvalidExpressionAddress;
                     const ptr: *usize = @ptrFromInt(addr);
                     mem.writeInt(usize, out[0..@sizeOf(usize)], ptr.*, native_endian);
                 },

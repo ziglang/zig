@@ -483,7 +483,6 @@ fn testStructInFn() !void {
 
 test "fn call returning scalar optional in equality expression" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     try expect(getNull() == null);
 }
 
@@ -494,7 +493,6 @@ fn getNull() ?*i32 {
 test "global variable assignment with optional unwrapping with var initialized to undefined" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         var data: i32 = 1234;
@@ -513,7 +511,6 @@ var global_foo: *i32 = undefined;
 test "peer result location with typed parent, runtime condition, comptime prongs" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest(arg: i32) i32 {
@@ -593,7 +590,6 @@ test "equality compare fn ptrs" {
 
 test "self reference through fn ptr field" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         const A = struct {
@@ -690,7 +686,6 @@ test "string concatenation" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const a = "OK" ++ " IT " ++ "WORKED";
     const b = "OK IT WORKED";
@@ -714,7 +709,6 @@ test "result location is optional inside error union" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const x = maybe(true) catch unreachable;
     try expect(x.? == 42);
@@ -730,7 +724,6 @@ fn maybe(x: bool) anyerror!?u32 {
 test "auto created variables have correct alignment" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn foo(str: [*]const u8) u32 {
@@ -838,7 +831,6 @@ test "labeled block implicitly ends in a break" {
 test "catch in block has correct result location" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn open() error{A}!@This() {
@@ -870,7 +862,6 @@ test "labeled block with runtime branch forwards its result location type to bre
 
 test "try in labeled block doesn't cast to wrong type" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         a: u32,
@@ -897,7 +888,6 @@ test "weird array and tuple initializations" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const E = enum { a, b };
     const S = struct { e: E };
@@ -1016,7 +1006,6 @@ comptime {
 
 test "switch inside @as gets correct type" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var a: u32 = 0;
     _ = &a;
@@ -1101,8 +1090,6 @@ test "orelse coercion as function argument" {
 }
 
 test "runtime-known globals initialized with undefined" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         var array: [10]u32 = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
         var vp: [*]u32 = undefined;
@@ -1147,55 +1134,80 @@ test "pointer to struct literal with runtime field is constant" {
     try expect(@typeInfo(@TypeOf(ptr)).Pointer.is_const);
 }
 
-test "integer compare" {
+fn testSignedCmp(comptime T: type) !void {
+    var z: T = 0;
+    var p: T = 123;
+    var n: T = -123;
+    var min: T = std.math.minInt(T);
+    var max: T = std.math.maxInt(T);
+    var half_min: T = std.math.minInt(T) / 2;
+    var half_max: T = std.math.minInt(T) / 2;
+    _ = .{ &z, &p, &n, &min, &max, &half_min, &half_max };
+    try expect(z == z and z != p and z != n);
+    try expect(p == p and p != n and n == n);
+    try expect(z > n and z < p and z >= n and z <= p);
+    try expect(!(z < n or z > p or z <= n or z >= p or z > z or z < z));
+    try expect(p > n and n < p and p >= n and n <= p and p >= p and p <= p and n >= n and n <= n);
+    try expect(!(p < n or n > p or p <= n or n >= p or p > p or p < p or n > n or n < n));
+    try expect(z == 0 and z != 123 and z != -123 and 0 == z and 0 != p and 0 != n);
+    try expect(z > -123 and p > -123 and !(n > 123));
+    try expect(z < 123 and !(p < 123) and n < 123);
+    try expect(-123 <= z and -123 <= p and -123 <= n);
+    try expect(123 >= z and 123 >= p and 123 >= n);
+    try expect(!(0 != z or 123 != p or -123 != n));
+    try expect(!(z > 0 or -123 > p or 123 < n));
+
+    try expect(min <= max and z <= max and p <= max and n <= max and half_max <= max and half_min <= max);
+    try expect(min <= max and min <= z and min <= p and min <= n and min <= half_min and min <= half_max);
+}
+
+fn testUnsignedCmp(comptime T: type) !void {
+    var z: T = 0;
+    var p: T = 123;
+    var max: T = std.math.maxInt(T);
+    var half_max: T = std.math.minInt(T) / 2;
+    _ = .{ &z, &p, &max, &half_max };
+    try expect(z == z and z != p);
+    try expect(p == p);
+    try expect(z < p and z <= p);
+    try expect(!(z > p or z >= p or z > z or z < z));
+    try expect(p >= p and p <= p);
+    try expect(!(p > p or p < p));
+    try expect(z == 0 and z != 123 and z != -123 and 0 == z and 0 != p);
+    try expect(z > -123 and p > -123);
+    try expect(z < 123 and !(p < 123));
+    try expect(-123 <= z and -123 <= p);
+    try expect(123 >= z and 123 >= p);
+    try expect(!(0 != z or 123 != p));
+    try expect(!(z > 0 or -123 > p));
+
+    try expect(z <= max and p <= max and half_max <= max);
+    try expect(half_max != max);
+}
+
+test "integer compare <= 64 bits" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    const S = struct {
-        fn doTheTestSigned(comptime T: type) !void {
-            var z: T = 0;
-            var p: T = 123;
-            var n: T = -123;
-            _ = .{ &z, &p, &n };
-            try expect(z == z and z != p and z != n);
-            try expect(p == p and p != n and n == n);
-            try expect(z > n and z < p and z >= n and z <= p);
-            try expect(!(z < n or z > p or z <= n or z >= p or z > z or z < z));
-            try expect(p > n and n < p and p >= n and n <= p and p >= p and p <= p and n >= n and n <= n);
-            try expect(!(p < n or n > p or p <= n or n >= p or p > p or p < p or n > n or n < n));
-            try expect(z == 0 and z != 123 and z != -123 and 0 == z and 0 != p and 0 != n);
-            try expect(z > -123 and p > -123 and !(n > 123));
-            try expect(z < 123 and !(p < 123) and n < 123);
-            try expect(-123 <= z and -123 <= p and -123 <= n);
-            try expect(123 >= z and 123 >= p and 123 >= n);
-            try expect(!(0 != z or 123 != p or -123 != n));
-            try expect(!(z > 0 or -123 > p or 123 < n));
-        }
-        fn doTheTestUnsigned(comptime T: type) !void {
-            var z: T = 0;
-            var p: T = 123;
-            _ = .{ &z, &p };
-            try expect(z == z and z != p);
-            try expect(p == p);
-            try expect(z < p and z <= p);
-            try expect(!(z > p or z >= p or z > z or z < z));
-            try expect(p >= p and p <= p);
-            try expect(!(p > p or p < p));
-            try expect(z == 0 and z != 123 and z != -123 and 0 == z and 0 != p);
-            try expect(z > -123 and p > -123);
-            try expect(z < 123 and !(p < 123));
-            try expect(-123 <= z and -123 <= p);
-            try expect(123 >= z and 123 >= p);
-            try expect(!(0 != z or 123 != p));
-            try expect(!(z > 0 or -123 > p));
-        }
-    };
     inline for (.{ u8, u16, u32, u64, usize, u10, u20, u30, u60 }) |T| {
-        try S.doTheTestUnsigned(T);
-        try comptime S.doTheTestUnsigned(T);
+        try testUnsignedCmp(T);
+        try comptime testUnsignedCmp(T);
     }
     inline for (.{ i8, i16, i32, i64, isize, i10, i20, i30, i60 }) |T| {
-        try S.doTheTestSigned(T);
-        try comptime S.doTheTestSigned(T);
+        try testSignedCmp(T);
+        try comptime testSignedCmp(T);
+    }
+}
+
+test "integer compare <= 128 bits" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    inline for (.{ u65, u96, u127, u128 }) |T| {
+        try testUnsignedCmp(T);
+        try comptime testUnsignedCmp(T);
+    }
+    inline for (.{ i65, i96, i127, i128 }) |T| {
+        try testSignedCmp(T);
+        try comptime testSignedCmp(T);
     }
 }
 
@@ -1246,8 +1258,6 @@ test "pointer to tuple field can be dereferenced at comptime" {
 }
 
 test "proper value is returned from labeled block" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         fn hash(v: *u32, key: anytype) void {
             const Key = @TypeOf(key);
@@ -1385,8 +1395,6 @@ test "allocation and looping over 3-byte integer" {
 }
 
 test "loading array from struct is not optimized away" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         arr: [1]u32 = .{0},
         fn doTheTest(self: *@This()) !void {

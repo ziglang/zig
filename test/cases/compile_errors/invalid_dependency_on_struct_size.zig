@@ -16,4 +16,3 @@ comptime {
 // target=native
 //
 // :6:21: error: struct layout depends on it having runtime bits
-// :4:13: note: while checking this field

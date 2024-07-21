@@ -184,7 +184,7 @@ pub const SIG = struct {
 pub const sigset_t = c_long;
 pub const empty_sigset = 0;
 pub const siginfo_t = c_long;
-// TODO plan9 doesn't have sigaction_fn. Sigaction is not a union, but we incude it here to be compatible.
+// TODO plan9 doesn't have sigaction_fn. Sigaction is not a union, but we include it here to be compatible.
 pub const Sigaction = extern struct {
     pub const handler_fn = *const fn (i32) callconv(.C) void;
     pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
@@ -285,16 +285,16 @@ pub fn openat(dirfd: i32, path: [*:0]const u8, flags: u32, _: mode_t) usize {
     if (dirfd == AT.FDCWD) { // openat(AT_FDCWD, ...) == open(...)
         return open(path, flags);
     }
-    var dir_path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    var total_path_buf: [std.fs.MAX_PATH_BYTES + 1]u8 = undefined;
-    const rc = fd2path(dirfd, &dir_path_buf, std.fs.MAX_PATH_BYTES);
+    var dir_path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    var total_path_buf: [std.fs.max_path_bytes + 1]u8 = undefined;
+    const rc = fd2path(dirfd, &dir_path_buf, std.fs.max_path_bytes);
     if (rc != 0) return rc;
     var fba = std.heap.FixedBufferAllocator.init(&total_path_buf);
     var alloc = fba.allocator();
     const dir_path = std.mem.span(@as([*:0]u8, @ptrCast(&dir_path_buf)));
-    const total_path = std.fs.path.join(alloc, &.{ dir_path, std.mem.span(path) }) catch unreachable; // the allocation shouldn't fail because it should not exceed MAX_PATH_BYTES
+    const total_path = std.fs.path.join(alloc, &.{ dir_path, std.mem.span(path) }) catch unreachable; // the allocation shouldn't fail because it should not exceed max_path_bytes
     fba.reset();
-    const total_path_z = alloc.dupeZ(u8, total_path) catch unreachable; // should not exceed MAX_PATH_BYTES + 1
+    const total_path_z = alloc.dupeZ(u8, total_path) catch unreachable; // should not exceed max_path_bytes + 1
     return open(total_path_z.ptr, flags);
 }
 

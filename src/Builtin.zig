@@ -266,7 +266,7 @@ pub fn populateFile(comp: *Compilation, mod: *Module, file: *File) !void {
 }
 
 fn writeFile(file: *File, mod: *Module) !void {
-    var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
     var af = try mod.root.atomicFile(mod.root_src_path, .{ .make_path = true }, &buf);
     defer af.deinit();
     try af.file.writeAll(file.source);
@@ -296,6 +296,6 @@ const build_options = @import("build_options");
 const Module = @import("Package/Module.zig");
 const assert = std.debug.assert;
 const AstGen = std.zig.AstGen;
-const File = @import("Module.zig").File;
+const File = @import("Zcu.zig").File;
 const Compilation = @import("Compilation.zig");
 const log = std.log.scoped(.builtin);

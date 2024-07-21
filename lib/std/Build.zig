@@ -20,6 +20,7 @@ const Build = @This();
 pub const Cache = @import("Build/Cache.zig");
 pub const Step = @import("Build/Step.zig");
 pub const Module = @import("Build/Module.zig");
+pub const Watch = @import("Build/Watch.zig");
 
 /// Shared state among all Build instances.
 graph: *Graph,
@@ -50,13 +51,11 @@ install_path: []const u8,
 sysroot: ?[]const u8 = null,
 search_prefixes: std.ArrayListUnmanaged([]const u8),
 libc_file: ?[]const u8 = null,
-installed_files: ArrayList(InstalledFile),
 /// Path to the directory containing build.zig.
 build_root: Cache.Directory,
 cache_root: Cache.Directory,
-zig_lib_dir: ?LazyPath,
 pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
-args: ?[][]const u8 = null,
+args: ?[]const []const u8 = null,
 debug_log_scopes: []const []const u8 = &.{},
 debug_compile_errors: bool = false,
 debug_pkg_config: bool = false,
@@ -117,9 +116,11 @@ pub const Graph = struct {
     zig_exe: [:0]const u8,
     env_map: EnvMap,
     global_cache_root: Cache.Directory,
+    zig_lib_directory: Cache.Directory,
     needed_lazy_dependencies: std.StringArrayHashMapUnmanaged(void) = .{},
     /// Information about the native target. Computed before build() is invoked.
     host: ResolvedTarget,
+    incremental: ?bool = null,
 };
 
 const AvailableDeps = []const struct { []const u8, []const u8 };
@@ -178,7 +179,7 @@ pub const RunError = error{
     ExitCodeFailure,
     ProcessTerminated,
     ExecNotSupported,
-} || std.ChildProcess.SpawnError;
+} || std.process.Child.SpawnError;
 
 pub const PkgConfigError = error{
     PkgConfigCrashed,
@@ -199,7 +200,7 @@ const AvailableOption = struct {
     name: []const u8,
     type_id: TypeId,
     description: []const u8,
-    /// If the `type_id` is `enum` this provides the list of enum options
+    /// If the `type_id` is `enum` or `enum_list` this provides the list of enum options
     enum_options: ?[]const []const u8,
 };
 
@@ -221,6 +222,7 @@ const TypeId = enum {
     int,
     float,
     @"enum",
+    enum_list,
     string,
     list,
     build_id,
@@ -275,7 +277,6 @@ pub fn create(
         .exe_dir = undefined,
         .h_dir = undefined,
         .dest_dir = graph.env_map.get("DESTDIR"),
-        .installed_files = ArrayList(InstalledFile).init(arena),
         .install_tls = .{
             .step = Step.init(.{
                 .id = TopLevelStep.base_id,
@@ -293,7 +294,6 @@ pub fn create(
             }),
             .description = "Remove build artifacts from prefix path",
         },
-        .zig_lib_dir = null,
         .install_path = undefined,
         .args = null,
         .host = graph.host,
@@ -377,10 +377,8 @@ fn createChildOnly(
         .sysroot = parent.sysroot,
         .search_prefixes = parent.search_prefixes,
         .libc_file = parent.libc_file,
-        .installed_files = ArrayList(InstalledFile).init(allocator),
         .build_root = build_root,
         .cache_root = parent.cache_root,
-        .zig_lib_dir = parent.zig_lib_dir,
         .debug_log_scopes = parent.debug_log_scopes,
         .debug_compile_errors = parent.debug_compile_errors,
         .debug_pkg_config = parent.debug_pkg_config,
@@ -467,10 +465,17 @@ fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOption
                         .used = false,
                     }) catch @panic("OOM");
                 },
-                .Int => {
+                .ComptimeInt, .Int => {
                     user_input_options.put(field.name, .{
                         .name = field.name,
                         .value = .{ .scalar = std.fmt.allocPrint(allocator, "{d}", .{v}) catch @panic("OOM") },
+                        .used = false,
+                    }) catch @panic("OOM");
+                },
+                .ComptimeFloat, .Float => {
+                    user_input_options.put(field.name, .{
+                        .name = field.name,
+                        .value = .{ .scalar = std.fmt.allocPrint(allocator, "{e}", .{v}) catch @panic("OOM") },
                         .used = false,
                     }) catch @panic("OOM");
                 },
@@ -688,7 +693,7 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
         .max_rss = options.max_rss,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
-        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .zig_lib_dir = options.zig_lib_dir,
         .win32_manifest = options.win32_manifest,
     });
 }
@@ -736,7 +741,7 @@ pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
         .max_rss = options.max_rss,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
-        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .zig_lib_dir = options.zig_lib_dir,
     });
 }
 
@@ -792,7 +797,7 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile 
         .max_rss = options.max_rss,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
-        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .zig_lib_dir = options.zig_lib_dir,
         .win32_manifest = options.win32_manifest,
     });
 }
@@ -843,7 +848,7 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile 
         .max_rss = options.max_rss,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
-        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .zig_lib_dir = options.zig_lib_dir,
     });
 }
 
@@ -885,7 +890,7 @@ pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
         .kind = .@"test",
         .root_module = .{
             .root_source_file = options.root_source_file,
-            .target = options.target orelse b.host,
+            .target = options.target orelse b.graph.host,
             .optimize = options.optimize,
             .link_libc = options.link_libc,
             .single_threaded = options.single_threaded,
@@ -906,7 +911,7 @@ pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
         .test_runner = options.test_runner,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
-        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .zig_lib_dir = options.zig_lib_dir,
     });
 }
 
@@ -930,7 +935,7 @@ pub fn addAssembly(b: *Build, options: AssemblyOptions) *Step.Compile {
             .optimize = options.optimize,
         },
         .max_rss = options.max_rss,
-        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .zig_lib_dir = options.zig_lib_dir,
     });
     obj_step.addAssemblyFile(options.source_file);
     return obj_step;
@@ -971,10 +976,24 @@ pub fn addRunArtifact(b: *Build, exe: *Step.Compile) *Step.Run {
     // Consider that this is declarative; the run step may not be run unless a user
     // option is supplied.
     const run_step = Step.Run.create(b, b.fmt("run {s}", .{exe.name}));
-    run_step.addArtifactArg(exe);
+    if (exe.kind == .@"test") {
+        if (exe.exec_cmd_args) |exec_cmd_args| {
+            for (exec_cmd_args) |cmd_arg| {
+                if (cmd_arg) |arg| {
+                    run_step.addArg(arg);
+                } else {
+                    run_step.addArtifactArg(exe);
+                }
+            }
+        } else {
+            run_step.addArtifactArg(exe);
+        }
 
-    if (exe.kind == .@"test" and exe.test_server_mode) {
-        run_step.enableTestRunnerMode();
+        if (exe.test_server_mode) {
+            run_step.enableTestRunnerMode();
+        }
+    } else {
+        run_step.addArtifactArg(exe);
     }
 
     return run_step;
@@ -1039,8 +1058,16 @@ pub fn addWriteFiles(b: *Build) *Step.WriteFile {
     return Step.WriteFile.create(b);
 }
 
-pub fn addRemoveDirTree(b: *Build, dir_path: []const u8) *Step.RemoveDir {
+pub fn addUpdateSourceFiles(b: *Build) *Step.UpdateSourceFiles {
+    return Step.UpdateSourceFiles.create(b);
+}
+
+pub fn addRemoveDirTree(b: *Build, dir_path: LazyPath) *Step.RemoveDir {
     return Step.RemoveDir.create(b, dir_path);
+}
+
+pub fn addFail(b: *Build, error_msg: []const u8) *Step.Fail {
+    return Step.Fail.create(b, error_msg);
 }
 
 pub fn addFmt(b: *Build, options: Step.Fmt.Options) *Step.Fmt {
@@ -1059,20 +1086,13 @@ pub fn getUninstallStep(b: *Build) *Step {
     return &b.uninstall_tls.step;
 }
 
-fn makeUninstall(uninstall_step: *Step, prog_node: *std.Progress.Node) anyerror!void {
-    _ = prog_node;
+fn makeUninstall(uninstall_step: *Step, options: Step.MakeOptions) anyerror!void {
+    _ = options;
     const uninstall_tls: *TopLevelStep = @fieldParentPtr("step", uninstall_step);
     const b: *Build = @fieldParentPtr("uninstall_tls", uninstall_tls);
 
-    for (b.installed_files.items) |installed_file| {
-        const full_path = b.getInstallPath(installed_file.dir, installed_file.path);
-        if (b.verbose) {
-            log.info("rm {s}", .{full_path});
-        }
-        fs.cwd().deleteTree(full_path) catch {};
-    }
-
-    // TODO remove empty directories
+    _ = b;
+    @panic("TODO implement https://github.com/ziglang/zig/issues/14943");
 }
 
 /// Creates a configuration option to be passed to the build.zig script.
@@ -1084,8 +1104,9 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
     const name = b.dupe(name_raw);
     const description = b.dupe(description_raw);
     const type_id = comptime typeToEnum(T);
-    const enum_options = if (type_id == .@"enum") blk: {
-        const fields = comptime std.meta.fields(T);
+    const enum_options = if (type_id == .@"enum" or type_id == .enum_list) blk: {
+        const EnumType = if (type_id == .enum_list) @typeInfo(T).Pointer.child else T;
+        const fields = comptime std.meta.fields(EnumType);
         var options = ArrayList([]const u8).initCapacity(b.allocator, fields.len) catch @panic("OOM");
 
         inline for (fields) |field| {
@@ -1228,6 +1249,38 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
                 return b.allocator.dupe([]const u8, &[_][]const u8{s}) catch @panic("OOM");
             },
             .list => |lst| return lst.items,
+        },
+        .enum_list => switch (option_ptr.value) {
+            .flag, .map => {
+                log.err("Expected -D{s} to be a list, but received a {s}.", .{
+                    name, @tagName(option_ptr.value),
+                });
+                b.markInvalidUserInput();
+                return null;
+            },
+            .scalar => |s| {
+                const Child = @typeInfo(T).Pointer.child;
+                const value = std.meta.stringToEnum(Child, s) orelse {
+                    log.err("Expected -D{s} to be of type {s}.", .{ name, @typeName(Child) });
+                    b.markInvalidUserInput();
+                    return null;
+                };
+                return b.allocator.dupe(Child, &[_]Child{value}) catch @panic("OOM");
+            },
+            .list => |lst| {
+                const Child = @typeInfo(T).Pointer.child;
+                var new_list = b.allocator.alloc(Child, lst.items.len) catch @panic("OOM");
+                for (lst.items, 0..) |str, i| {
+                    const value = std.meta.stringToEnum(Child, str) orelse {
+                        log.err("Expected -D{s} to be of type {s}.", .{ name, @typeName(Child) });
+                        b.markInvalidUserInput();
+                        b.allocator.free(new_list);
+                        return null;
+                    };
+                    new_list[i] = value;
+                }
+                return new_list;
+            },
         },
     }
 }
@@ -1487,11 +1540,15 @@ fn typeToEnum(comptime T: type) TypeId {
             .Float => .float,
             .Bool => .bool,
             .Enum => .@"enum",
-            else => switch (T) {
-                []const u8 => .string,
-                []const []const u8 => .list,
-                else => @compileError("Unsupported type: " ++ @typeName(T)),
+            .Pointer => |pointer| switch (pointer.child) {
+                u8 => .string,
+                []const u8 => .list,
+                else => switch (@typeInfo(pointer.child)) {
+                    .Enum => .enum_list,
+                    else => @compileError("Unsupported type: " ++ @typeName(T)),
+                },
             },
+            else => @compileError("Unsupported type: " ++ @typeName(T)),
         },
     };
 }
@@ -1608,15 +1665,6 @@ pub fn addCheckFile(
     return Step.CheckFile.create(b, file_source, options);
 }
 
-/// deprecated: https://github.com/ziglang/zig/issues/14943
-pub fn pushInstalledFile(b: *Build, dir: InstallDir, dest_rel_path: []const u8) void {
-    const file = InstalledFile{
-        .dir = dir,
-        .path = dest_rel_path,
-    };
-    b.installed_files.append(file.dupe(b)) catch @panic("OOM");
-}
-
 pub fn truncateFile(b: *Build, dest_path: []const u8) !void {
     if (b.verbose) {
         log.info("truncate {s}", .{dest_path});
@@ -1671,20 +1719,47 @@ pub fn fmt(b: *Build, comptime format: []const u8, args: anytype) []u8 {
     return std.fmt.allocPrint(b.allocator, format, args) catch @panic("OOM");
 }
 
+fn supportedWindowsProgramExtension(ext: []const u8) bool {
+    inline for (@typeInfo(std.process.Child.WindowsExtension).Enum.fields) |field| {
+        if (std.ascii.eqlIgnoreCase(ext, "." ++ field.name)) return true;
+    }
+    return false;
+}
+
+fn tryFindProgram(b: *Build, full_path: []const u8) ?[]const u8 {
+    if (fs.realpathAlloc(b.allocator, full_path)) |p| {
+        return p;
+    } else |err| switch (err) {
+        error.OutOfMemory => @panic("OOM"),
+        else => {},
+    }
+
+    if (builtin.os.tag == .windows) {
+        if (b.graph.env_map.get("PATHEXT")) |PATHEXT| {
+            var it = mem.tokenizeScalar(u8, PATHEXT, fs.path.delimiter);
+
+            while (it.next()) |ext| {
+                if (!supportedWindowsProgramExtension(ext)) continue;
+
+                return fs.realpathAlloc(b.allocator, b.fmt("{s}{s}", .{ full_path, ext })) catch |err| switch (err) {
+                    error.OutOfMemory => @panic("OOM"),
+                    else => continue,
+                };
+            }
+        }
+    }
+
+    return null;
+}
+
 pub fn findProgram(b: *Build, names: []const []const u8, paths: []const []const u8) ![]const u8 {
     // TODO report error for ambiguous situations
-    const exe_extension = b.host.result.exeFileExt();
     for (b.search_prefixes.items) |search_prefix| {
         for (names) |name| {
             if (fs.path.isAbsolute(name)) {
                 return name;
             }
-            const full_path = b.pathJoin(&.{
-                search_prefix,
-                "bin",
-                b.fmt("{s}{s}", .{ name, exe_extension }),
-            });
-            return fs.realpathAlloc(b.allocator, full_path) catch continue;
+            return tryFindProgram(b, b.pathJoin(&.{ search_prefix, "bin", name })) orelse continue;
         }
     }
     if (b.graph.env_map.get("PATH")) |PATH| {
@@ -1694,10 +1769,7 @@ pub fn findProgram(b: *Build, names: []const []const u8, paths: []const []const 
             }
             var it = mem.tokenizeScalar(u8, PATH, fs.path.delimiter);
             while (it.next()) |p| {
-                const full_path = b.pathJoin(&.{
-                    p, b.fmt("{s}{s}", .{ name, exe_extension }),
-                });
-                return fs.realpathAlloc(b.allocator, full_path) catch continue;
+                return tryFindProgram(b, b.pathJoin(&.{ p, name })) orelse continue;
             }
         }
     }
@@ -1706,10 +1778,7 @@ pub fn findProgram(b: *Build, names: []const []const u8, paths: []const []const 
             return name;
         }
         for (paths) |p| {
-            const full_path = b.pathJoin(&.{
-                p, b.fmt("{s}{s}", .{ name, exe_extension }),
-            });
-            return fs.realpathAlloc(b.allocator, full_path) catch continue;
+            return tryFindProgram(b, b.pathJoin(&.{ p, name })) orelse continue;
         }
     }
     return error.FileNotFound;
@@ -1719,7 +1788,7 @@ pub fn runAllowFail(
     b: *Build,
     argv: []const []const u8,
     out_code: *u8,
-    stderr_behavior: std.ChildProcess.StdIo,
+    stderr_behavior: std.process.Child.StdIo,
 ) RunError![]u8 {
     assert(argv.len != 0);
 
@@ -1727,7 +1796,7 @@ pub fn runAllowFail(
         return error.ExecNotSupported;
 
     const max_output_size = 400 * 1024;
-    var child = std.ChildProcess.init(argv, b.allocator);
+    var child = std.process.Child.init(argv, b.allocator);
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = stderr_behavior;
@@ -1978,7 +2047,7 @@ pub fn dependencyFromBuildZig(
     }
 
     const full_path = b.pathFromRoot("build.zig.zon");
-    debug.panic("'{}' is not a build.zig struct of a dependecy in '{s}'", .{ build_zig, full_path });
+    debug.panic("'{}' is not a build.zig struct of a dependency in '{s}'", .{ build_zig, full_path });
 }
 
 fn userValuesAreSame(lhs: UserValue, rhs: UserValue) bool {
@@ -2264,36 +2333,52 @@ pub const LazyPath = union(enum) {
         }
     }
 
-    /// Returns an absolute path.
-    /// Intended to be used during the make phase only.
+    /// Deprecated, see `getPath3`.
     pub fn getPath(lazy_path: LazyPath, src_builder: *Build) []const u8 {
         return getPath2(lazy_path, src_builder, null);
     }
 
-    /// Returns an absolute path.
+    /// Deprecated, see `getPath3`.
+    pub fn getPath2(lazy_path: LazyPath, src_builder: *Build, asking_step: ?*Step) []const u8 {
+        const p = getPath3(lazy_path, src_builder, asking_step);
+        return src_builder.pathResolve(&.{ p.root_dir.path orelse ".", p.sub_path });
+    }
+
     /// Intended to be used during the make phase only.
     ///
     /// `asking_step` is only used for debugging purposes; it's the step being
     /// run that is asking for the path.
-    pub fn getPath2(lazy_path: LazyPath, src_builder: *Build, asking_step: ?*Step) []const u8 {
+    pub fn getPath3(lazy_path: LazyPath, src_builder: *Build, asking_step: ?*Step) Cache.Path {
         switch (lazy_path) {
-            .src_path => |sp| return sp.owner.pathFromRoot(sp.sub_path),
-            .cwd_relative => |p| return src_builder.pathFromCwd(p),
+            .src_path => |sp| return .{
+                .root_dir = sp.owner.build_root,
+                .sub_path = sp.sub_path,
+            },
+            .cwd_relative => |sub_path| return .{
+                .root_dir = Cache.Directory.cwd(),
+                .sub_path = sub_path,
+            },
             .generated => |gen| {
-                var file_path: []const u8 = gen.file.step.owner.pathFromRoot(gen.file.path orelse {
-                    std.debug.getStderrMutex().lock();
-                    const stderr = std.io.getStdErr();
-                    dumpBadGetPathHelp(gen.file.step, stderr, src_builder, asking_step) catch {};
-                    std.debug.getStderrMutex().unlock();
-                    @panic("misconfigured build script");
-                });
+                // TODO make gen.file.path not be absolute and use that as the
+                // basis for not traversing up too many directories.
+
+                var file_path: Cache.Path = .{
+                    .root_dir = gen.file.step.owner.build_root,
+                    .sub_path = gen.file.path orelse {
+                        std.debug.lockStdErr();
+                        const stderr = std.io.getStdErr();
+                        dumpBadGetPathHelp(gen.file.step, stderr, src_builder, asking_step) catch {};
+                        std.debug.unlockStdErr();
+                        @panic("misconfigured build script");
+                    },
+                };
 
                 if (gen.up > 0) {
                     const cache_root_path = src_builder.cache_root.path orelse
                         (src_builder.cache_root.join(src_builder.allocator, &.{"."}) catch @panic("OOM"));
 
                     for (0..gen.up) |_| {
-                        if (mem.eql(u8, file_path, cache_root_path)) {
+                        if (mem.eql(u8, file_path.sub_path, cache_root_path)) {
                             // If we hit the cache root and there's still more to go,
                             // the script attempted to go too far.
                             dumpBadDirnameHelp(gen.file.step, asking_step,
@@ -2307,7 +2392,7 @@ pub const LazyPath = union(enum) {
                         // path is absolute.
                         // dirname will return null only if we're at root.
                         // Typically, we'll stop well before that at the cache root.
-                        file_path = fs.path.dirname(file_path) orelse {
+                        file_path.sub_path = fs.path.dirname(file_path.sub_path) orelse {
                             dumpBadDirnameHelp(gen.file.step, asking_step,
                                 \\dirname() reached root.
                                 \\No more directories left to go up.
@@ -2318,9 +2403,12 @@ pub const LazyPath = union(enum) {
                     }
                 }
 
-                return src_builder.pathResolve(&.{ file_path, gen.sub_path });
+                return file_path.join(src_builder.allocator, gen.sub_path) catch @panic("OOM");
             },
-            .dependency => |dep| return dep.dependency.builder.pathFromRoot(dep.sub_path),
+            .dependency => |dep| return .{
+                .root_dir = dep.dependency.builder.build_root,
+                .sub_path = dep.sub_path,
+            },
         }
     }
 
@@ -2351,8 +2439,8 @@ fn dumpBadDirnameHelp(
     comptime msg: []const u8,
     args: anytype,
 ) anyerror!void {
-    debug.getStderrMutex().lock();
-    defer debug.getStderrMutex().unlock();
+    debug.lockStdErr();
+    defer debug.unlockStdErr();
 
     const stderr = io.getStdErr();
     const w = stderr.writer();
@@ -2435,26 +2523,13 @@ pub const InstallDir = union(enum) {
     }
 };
 
-pub const InstalledFile = struct {
-    dir: InstallDir,
-    path: []const u8,
-
-    /// Duplicates the installed file path and directory.
-    pub fn dupe(file: InstalledFile, builder: *Build) InstalledFile {
-        return .{
-            .dir = file.dir.dupe(builder),
-            .path = builder.dupe(file.path),
-        };
-    }
-};
-
 /// This function is intended to be called in the `configure` phase only.
 /// It returns an absolute directory path, which is potentially going to be a
 /// source of API breakage in the future, so keep that in mind when using this
 /// function.
 pub fn makeTempPath(b: *Build) []const u8 {
     const rand_int = std.crypto.random.int(u64);
-    const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ hex64(rand_int);
+    const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(rand_int);
     const result_path = b.cache_root.join(b.allocator, &.{tmp_dir_sub_path}) catch @panic("OOM");
     b.cache_root.handle.makePath(tmp_dir_sub_path) catch |err| {
         std.debug.print("unable to make tmp path '{s}': {s}\n", .{
@@ -2464,18 +2539,9 @@ pub fn makeTempPath(b: *Build) []const u8 {
     return result_path;
 }
 
-/// There are a few copies of this function in miscellaneous places. Would be nice to find
-/// a home for them.
+/// Deprecated; use `std.fmt.hex` instead.
 pub fn hex64(x: u64) [16]u8 {
-    const hex_charset = "0123456789abcdef";
-    var result: [16]u8 = undefined;
-    var i: usize = 0;
-    while (i < 8) : (i += 1) {
-        const byte: u8 = @truncate(x >> @as(u6, @intCast(8 * i)));
-        result[i * 2 + 0] = hex_charset[byte >> 4];
-        result[i * 2 + 1] = hex_charset[byte & 15];
-    }
-    return result;
+    return std.fmt.hex(x);
 }
 
 /// A pair of target query and fully resolved target.

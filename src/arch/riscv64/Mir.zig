@@ -20,89 +20,132 @@ pub const Inst = struct {
     pub const Index = u32;
 
     pub const Tag = enum(u16) {
-        /// Add immediate. Uses i_type payload.
-        addi,
 
-        /// Add immediate and produce a sign-extended result.
-        ///
-        /// Uses i-type payload.
+        // base extension
+        addi,
         addiw,
 
         jalr,
         lui,
-        mv,
 
         @"and",
+        andi,
+
+        xori,
         xor,
+        @"or",
 
         ebreak,
         ecall,
         unimp,
 
-        /// OR instruction. Uses r_type payload.
-        @"or",
-
-        /// Addition
         add,
-        /// Subtraction
+        addw,
         sub,
-        /// Multiply, uses r_type. Needs the M extension.
-        mul,
-
-        /// Absolute Value, uses i_type payload.
-        abs,
+        subw,
 
         sltu,
         slt,
 
-        /// Immediate Logical Right Shift, uses i_type payload
-        srli,
-        /// Immediate Logical Left Shift, uses i_type payload
         slli,
-        /// Immediate Arithmetic Right Shift, uses i_type payload.
+        srli,
         srai,
-        /// Register Logical Left Shift, uses r_type payload
-        sllw,
-        /// Register Logical Right Shit, uses r_type payload
-        srlw,
 
-        /// Jumps, but stores the address of the instruction following the
-        /// jump in `rd`.
-        ///
-        /// Uses j_type payload.
+        slliw,
+        srliw,
+        sraiw,
+
+        sll,
+        srl,
+        sra,
+
+        sllw,
+        srlw,
+        sraw,
+
         jal,
 
-        /// Immediate AND, uses i_type payload
-        andi,
-
-        /// Branch if equal, Uses b_type
         beq,
-        /// Branch if not equal, Uses b_type
         bne,
 
-        /// Boolean NOT, Uses rr payload
-        not,
-
-        /// Generates a NO-OP, uses nop payload
         nop,
 
-        /// Load double (64 bits), uses i_type payload
         ld,
-        /// Load word (32 bits), uses i_type payload
         lw,
-        /// Load half (16 bits), uses i_type payload
         lh,
-        /// Load byte (8 bits), uses i_type payload
         lb,
 
-        /// Store double (64 bits), uses s_type payload
         sd,
-        /// Store word (32 bits), uses s_type payload
         sw,
-        /// Store half (16 bits), uses s_type payload
         sh,
-        /// Store byte (8 bits), uses s_type payload
         sb,
+
+        // M extension
+        mul,
+        mulw,
+
+        div,
+        divu,
+        divw,
+        divuw,
+
+        rem,
+        remu,
+        remw,
+        remuw,
+
+        // F extension (32-bit float)
+        fadds,
+        fsubs,
+        fmuls,
+        fdivs,
+
+        fabss,
+
+        fmins,
+        fmaxs,
+
+        fsqrts,
+
+        flw,
+        fsw,
+
+        feqs,
+        flts,
+        fles,
+
+        // D extension (64-bit float)
+        faddd,
+        fsubd,
+        fmuld,
+        fdivd,
+
+        fabsd,
+
+        fmind,
+        fmaxd,
+
+        fsqrtd,
+
+        fld,
+        fsd,
+
+        feqd,
+        fltd,
+        fled,
+
+        // Zicsr Extension Instructions
+        csrrs,
+
+        // V Extension Instructions
+        vsetvli,
+        vsetivli,
+        vsetvl,
+        vaddvv,
+        vfaddvv,
+        vsubvv,
+        vfsubvv,
+        vslidedownvx,
 
         /// A pseudo-instruction. Used for anything that isn't 1:1 with an
         /// assembly instruction.
@@ -113,85 +156,57 @@ pub const Inst = struct {
     /// this union. `Ops` determines which union field is active, as well as
     /// how to interpret the data within.
     pub const Data = union {
-        /// No additional data
-        ///
-        /// Used by e.g. ebreak
         nop: void,
-        /// Another instruction.
-        ///
-        /// Used by e.g. b
         inst: Index,
-        /// Index into `extra`. Meaning of what can be found there is context-dependent.
-        ///
-        /// Used by e.g. load_memory
         payload: u32,
-
         r_type: struct {
             rd: Register,
             rs1: Register,
             rs2: Register,
         },
-
         i_type: struct {
             rd: Register,
             rs1: Register,
             imm12: Immediate,
         },
-
         s_type: struct {
             rs1: Register,
             rs2: Register,
             imm5: Immediate,
             imm7: Immediate,
         },
-
         b_type: struct {
             rs1: Register,
             rs2: Register,
             inst: Inst.Index,
         },
-
         u_type: struct {
             rd: Register,
             imm20: Immediate,
         },
-
         j_type: struct {
             rd: Register,
             inst: Inst.Index,
         },
-
-        /// Debug info: line and column
-        ///
-        /// Used by e.g. pseudo_dbg_line
         pseudo_dbg_line_column: struct {
             line: u32,
             column: u32,
         },
-
-        // Custom types to be lowered
-
-        /// Register + Memory
         rm: struct {
             r: Register,
             m: Memory,
         },
-
         reg_list: Mir.RegisterList,
-
-        /// A register
-        ///
-        /// Used by e.g. blr
         reg: Register,
-
-        /// Two registers
-        ///
-        /// Used by e.g. mv
         rr: struct {
             rd: Register,
             rs: Register,
         },
-
+        fabs: struct {
+            rd: Register,
+            rs: Register,
+            bits: u16,
+        },
         compare: struct {
             rd: Register,
             rs1: Register,
@@ -204,6 +219,33 @@ pub const Inst = struct {
                 lt,
                 lte,
             },
+            ty: Type,
+        },
+        reloc: struct {
+            atom_index: u32,
+            sym_index: u32,
+        },
+        fence: struct {
+            pred: Barrier,
+            succ: Barrier,
+            fm: enum {
+                none,
+                tso,
+            },
+        },
+        amo: struct {
+            rd: Register,
+            rs1: Register,
+            rs2: Register,
+            aq: Barrier,
+            rl: Barrier,
+            op: AmoOp,
+            ty: Type,
+        },
+        csr: struct {
+            csr: CSR,
+            rs1: Register,
+            rd: Register,
         },
     };
 
@@ -217,10 +259,7 @@ pub const Inst = struct {
 
         /// Two registers + immediate, uses the i_type payload.
         rri,
-        /// Two registers + Two Immediates
-        rrii,
-
-        /// Two registers + another instruction.
+        //extern_fn_reloc/ Two registers + another instruction.
         rr_inst,
 
         /// Register + Memory
@@ -231,6 +270,9 @@ pub const Inst = struct {
 
         /// Another instruction.
         inst,
+
+        /// Control and Status Register Instruction.
+        csr,
 
         /// Pseudo-instruction that will generate a backpatched
         /// function prologue.
@@ -260,13 +302,11 @@ pub const Inst = struct {
         /// Uses `rm` payload.
         pseudo_lea_rm,
 
-        /// Shorthand for returning, aka jumping to ra register.
-        ///
-        /// Uses nop payload.
-        pseudo_ret,
-
         /// Jumps. Uses `inst` payload.
         pseudo_j,
+
+        /// Floating point absolute value.
+        pseudo_fabs,
 
         /// Dead inst, ignored by the emitter.
         pseudo_dead,
@@ -285,16 +325,19 @@ pub const Inst = struct {
         pseudo_spill_regs,
 
         pseudo_compare,
-        pseudo_not,
-    };
 
-    // Make sure we don't accidentally make instructions bigger than expected.
-    // Note that in Debug builds, Zig is allowed to insert a secret field for safety checks.
-    // comptime {
-    //     if (builtin.mode != .Debug) {
-    //         assert(@sizeOf(Inst) == 8);
-    //     }
-    // }
+        /// NOT operation on booleans. Does an `andi reg, reg, 1` to mask out any other bits from the boolean.
+        pseudo_not,
+
+        /// Generates an auipc + jalr pair, with a R_RISCV_CALL_PLT reloc
+        pseudo_extern_fn_reloc,
+
+        /// IORW, IORW
+        pseudo_fence,
+
+        /// Ordering, Src, Addr, Dest
+        pseudo_amo,
+    };
 
     pub fn format(
         inst: Inst,
@@ -319,6 +362,28 @@ pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
 pub const FrameLoc = struct {
     base: Register,
     disp: i32,
+};
+
+pub const Barrier = enum(u4) {
+    // Fence
+    w = 0b0001,
+    r = 0b0010,
+    rw = 0b0011,
+
+    // Amo
+    none,
+    aq,
+    rl,
+};
+
+pub const AmoOp = enum(u5) {
+    SWAP,
+    ADD,
+    AND,
+    OR,
+    XOR,
+    MAX,
+    MIN,
 };
 
 /// Returns the requested data, as well as the new index which is at the start of the
@@ -387,10 +452,13 @@ pub const RegisterList = struct {
 const Mir = @This();
 const std = @import("std");
 const builtin = @import("builtin");
+const Type = @import("../../Type.zig");
+
 const assert = std.debug.assert;
 
 const bits = @import("bits.zig");
 const Register = bits.Register;
+const CSR = bits.CSR;
 const Immediate = bits.Immediate;
 const Memory = bits.Memory;
 const FrameIndex = bits.FrameIndex;

@@ -211,6 +211,12 @@ is_linking_libc: bool = false,
 /// Computed during make().
 is_linking_libcpp: bool = false,
 
+no_builtin: bool = false,
+
+/// Populated during the make phase when there is a long-lived compiler process.
+/// Managed by the build runner, not user build script.
+zig_process: ?*Step.ZigProcess,
+
 pub const ExpectedCompileErrors = union(enum) {
     contains: []const u8,
     exact: []const []const u8,
@@ -396,6 +402,8 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
+
+        .zig_process = null,
     };
 
     compile.root_module.init(owner, options.root_module, compile);
@@ -583,7 +591,7 @@ pub fn dependsOnSystemLibrary(compile: *const Compile, name: []const u8) bool {
                 else => continue,
             }
         }
-        is_linking_libc = is_linking_libc or module.link_libcpp == true;
+        is_linking_libc = is_linking_libc or module.link_libc == true;
         is_linking_libcpp = is_linking_libcpp or module.link_libcpp == true;
     }
 
@@ -699,8 +707,9 @@ fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
     };
 
     var code: u8 = undefined;
+    const pkg_config_exe = b.graph.env_map.get("PKG_CONFIG") orelse "pkg-config";
     const stdout = if (b.runAllowFail(&[_][]const u8{
-        "pkg-config",
+        pkg_config_exe,
         pkg_name,
         "--cflags",
         "--libs",
@@ -967,7 +976,7 @@ fn getGeneratedFilePath(compile: *Compile, comptime tag_name: []const u8, asking
     const maybe_path: ?*GeneratedFile = @field(compile, tag_name);
 
     const generated_file = maybe_path orelse {
-        std.debug.getStderrMutex().lock();
+        std.debug.lockStdErr();
         const stderr = std.io.getStdErr();
 
         std.Build.dumpBadGetPathHelp(&compile.step, stderr, compile.step.owner, asking_step) catch {};
@@ -976,7 +985,7 @@ fn getGeneratedFilePath(compile: *Compile, comptime tag_name: []const u8, asking
     };
 
     const path = generated_file.path orelse {
-        std.debug.getStderrMutex().lock();
+        std.debug.lockStdErr();
         const stderr = std.io.getStdErr();
 
         std.Build.dumpBadGetPathHelp(&compile.step, stderr, compile.step.owner, asking_step) catch {};
@@ -987,10 +996,10 @@ fn getGeneratedFilePath(compile: *Compile, comptime tag_name: []const u8, asking
     return path;
 }
 
-fn make(step: *Step, prog_node: *std.Progress.Node) !void {
+fn getZigArgs(compile: *Compile) ![][]const u8 {
+    const step = &compile.step;
     const b = step.owner;
     const arena = b.allocator;
-    const compile: *Compile = @fieldParentPtr("step", step);
 
     var zig_args = ArrayList([]const u8).init(arena);
     defer zig_args.deinit();
@@ -1296,6 +1305,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
             // We need to emit the --mod argument here so that the above link objects
             // have the correct parent module, but only if the module is part of
             // this compilation.
+            if (!my_responsibility) continue;
             if (cli_named_modules.modules.getIndex(dep.module)) |module_cli_index| {
                 const module_cli_name = cli_named_modules.names.keys()[module_cli_index];
                 try dep.module.appendZigProcessFlags(&zig_args, step);
@@ -1572,6 +1582,10 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         }
     }
 
+    if (compile.no_builtin) {
+        try zig_args.append("-fno-builtin");
+    }
+
     if (b.sysroot) |sysroot| {
         try zig_args.appendSlice(&[_][]const u8{ "--sysroot", sysroot });
     }
@@ -1628,9 +1642,16 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         });
     }
 
-    if (compile.zig_lib_dir) |dir| {
+    const opt_zig_lib_dir = if (compile.zig_lib_dir) |dir|
+        dir.getPath2(b, step)
+    else if (b.graph.zig_lib_directory.path) |_|
+        b.fmt("{}", .{b.graph.zig_lib_directory})
+    else
+        null;
+
+    if (opt_zig_lib_dir) |zig_lib_dir| {
         try zig_args.append("--zig-lib-dir");
-        try zig_args.append(dir.getPath2(b, step));
+        try zig_args.append(zig_lib_dir);
     }
 
     try addFlag(&zig_args, "PIE", compile.pie);
@@ -1658,6 +1679,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         "--error-limit",
         b.fmt("{}", .{err_limit}),
     });
+
+    try addFlag(&zig_args, "incremental", b.graph.incremental);
 
     try zig_args.append("--listen=-");
 
@@ -1718,7 +1741,20 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         try zig_args.append(resolved_args_file);
     }
 
-    const maybe_output_bin_path = step.evalZigProcess(zig_args.items, prog_node) catch |err| switch (err) {
+    return try zig_args.toOwnedSlice();
+}
+
+fn make(step: *Step, options: Step.MakeOptions) !void {
+    const b = step.owner;
+    const compile: *Compile = @fieldParentPtr("step", step);
+
+    const zig_args = try getZigArgs(compile);
+
+    const maybe_output_bin_path = step.evalZigProcess(
+        zig_args,
+        options.progress_node,
+        (b.graph.incremental == true) and options.watch,
+    ) catch |err| switch (err) {
         error.NeedCompileErrorCheck => {
             assert(compile.expect_errors != null);
             try checkCompileErrors(compile);
@@ -1817,7 +1853,8 @@ pub fn doAtomicSymLinks(
 }
 
 fn execPkgConfigList(compile: *std.Build, out_code: *u8) (PkgConfigError || RunError)![]const PkgConfigPkg {
-    const stdout = try compile.runAllowFail(&[_][]const u8{ "pkg-config", "--list-all" }, out_code, .Ignore);
+    const pkg_config_exe = compile.graph.env_map.get("PKG_CONFIG") orelse "pkg-config";
+    const stdout = try compile.runAllowFail(&[_][]const u8{ pkg_config_exe, "--list-all" }, out_code, .Ignore);
     var list = ArrayList(PkgConfigPkg).init(compile.allocator);
     errdefer list.deinit();
     var line_it = mem.tokenizeAny(u8, stdout, "\r\n");

@@ -1277,6 +1277,12 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
             /// struct itself is given this name.
             pub const static_inner_name = "static";
 
+            /// C extern variables declared within a block are wrapped in a block-local
+            /// struct. The struct is named ExternLocal_[variable_name], the Zig variable
+            /// within the struct itself is [variable_name] by neccessity since it's an
+            /// extern reference to an existing symbol.
+            pub const extern_inner_prepend = "ExternLocal";
+
             pub fn init(c: *ScopeExtraContext, parent: *ScopeExtraScope, labeled: bool) !Block {
                 var blk = Block{
                     .base = .{
@@ -1356,6 +1362,24 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
                 return scope.base.parent.?.getAlias(name);
             }
 
+            /// Finds the (potentially) mangled struct name for a locally scoped extern variable given the original declaration name.
+            ///
+            /// Block scoped extern declarations translate to:
+            ///     const MangledStructName = struct {extern [qualifiers] original_extern_variable_name: [type]};
+            /// This finds MangledStructName given original_extern_variable_name for referencing correctly in transDeclRefExpr()
+            pub fn getLocalExternAlias(scope: *Block, name: []const u8) ?[]const u8 {
+                for (scope.statements.items) |node| {
+                    if (node.tag() == .extern_local_var) {
+                        const parent_node = node.castTag(.extern_local_var).?;
+                        const init_node = parent_node.data.init.castTag(.var_decl).?;
+                        if (std.mem.eql(u8, init_node.data.name, name)) {
+                            return parent_node.data.name;
+                        }
+                    }
+                }
+                return null;
+            }
+
             pub fn localContains(scope: *Block, name: []const u8) bool {
                 for (scope.variables.items) |p| {
                     if (std.mem.eql(u8, p.alias, name))
@@ -1381,7 +1405,6 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
         pub const Root = struct {
             base: ScopeExtraScope,
             sym_table: SymbolTable,
-            macro_table: SymbolTable,
             blank_macros: std.StringArrayHashMap(void),
             context: *ScopeExtraContext,
             nodes: std.ArrayList(ast.Node),
@@ -1393,7 +1416,6 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
                         .parent = null,
                     },
                     .sym_table = SymbolTable.init(c.gpa),
-                    .macro_table = SymbolTable.init(c.gpa),
                     .blank_macros = std.StringArrayHashMap(void).init(c.gpa),
                     .context = c,
                     .nodes = std.ArrayList(ast.Node).init(c.gpa),
@@ -1402,7 +1424,6 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
 
             pub fn deinit(scope: *Root) void {
                 scope.sym_table.deinit();
-                scope.macro_table.deinit();
                 scope.blank_macros.deinit();
                 scope.nodes.deinit();
             }
@@ -1410,7 +1431,7 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
             /// Check if the global scope contains this name, without looking into the "future", e.g.
             /// ignore the preprocessed decl and macro names.
             pub fn containsNow(scope: *Root, name: []const u8) bool {
-                return scope.sym_table.contains(name) or scope.macro_table.contains(name);
+                return scope.sym_table.contains(name);
             }
 
             /// Check if the global scope contains the name, includes all decls that haven't been translated yet.
@@ -1451,6 +1472,16 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
                 .root => return name,
                 .block => @as(*Block, @fieldParentPtr("base", scope)).getAlias(name),
                 .loop, .do_loop, .condition => scope.parent.?.getAlias(name),
+            };
+        }
+
+        pub fn getLocalExternAlias(scope: *ScopeExtraScope, name: []const u8) ?[]const u8 {
+            return switch (scope.id) {
+                .block => ret: {
+                    const block = @as(*Block, @fieldParentPtr("base", scope));
+                    break :ret block.getLocalExternAlias(name);
+                },
+                .root, .loop, .do_loop, .condition => null,
             };
         }
 

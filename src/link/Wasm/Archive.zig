@@ -192,7 +192,7 @@ pub fn parseObject(archive: Archive, wasm_file: *const Wasm, file_offset: u32) !
 
     const object_name = try archive.parseName(header);
     const name = name: {
-        var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        var buffer: [std.fs.max_path_bytes]u8 = undefined;
         const path = try std.posix.realpath(archive.name, &buffer);
         break :name try std.fmt.allocPrint(gpa, "{s}({s})", .{ path, object_name });
     };
