@@ -5661,7 +5661,7 @@ pub fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) SigaltstackError!void {
 pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) error{OperationNotSupported}!void {
     switch (errno(system.sigaction(sig, act, oact))) {
         .SUCCESS => return,
-        .INVAL, .NOSYS => return error.OperationNotSupported,
+        .INVAL => return error.OperationNotSupported,
         else => unreachable,
     }
 }
