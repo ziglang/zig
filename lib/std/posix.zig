@@ -45,7 +45,9 @@ pub const system = if (use_libc)
 else switch (native_os) {
     .linux => linux,
     .plan9 => std.os.plan9,
-    else => struct {},
+    else => struct {
+        pub const ucontext_t = void;
+    },
 };
 
 pub const AF = system.AF;
