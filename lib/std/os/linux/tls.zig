@@ -74,7 +74,7 @@ const tls_variant = switch (native_arch) {
 const tls_tcb_size = switch (native_arch) {
     // ARM EABI mandates enough space for two pointers: the first one points to
     // the DTV while the second one is unspecified but reserved
-    .arm, .armeb, .thumb, .aarch64, .aarch64_be => 2 * @sizeOf(usize),
+    .arm, .armeb, .thumb, .thumbeb, .aarch64, .aarch64_be => 2 * @sizeOf(usize),
     // One pointer-sized word that points either to the DTV or the TCB itself
     else => @sizeOf(usize),
 };
