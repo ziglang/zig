@@ -1599,7 +1599,6 @@ pub fn maxIntAlignment(target: std.Target, use_llvm: bool) u16 {
         .mipsel,
         .powerpc,
         .powerpcle,
-        .r600,
         .amdgcn,
         .riscv32,
         .sparc,

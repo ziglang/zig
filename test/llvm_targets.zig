@@ -76,7 +76,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .powerpc64le, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .powerpc64le, .os_tag = .linux, .abi = .musl },
     .{ .cpu_arch = .powerpc64le, .os_tag = .linux, .abi = .none },
-    //.{ .cpu_arch = .r600, .os_tag = .mesa3d, .abi = .none },
     .{ .cpu_arch = .riscv32, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .riscv32, .os_tag = .linux, .abi = .none },
     .{ .cpu_arch = .riscv64, .os_tag = .freestanding, .abi = .none },

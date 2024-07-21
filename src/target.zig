@@ -135,7 +135,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .powerpcle,
         .powerpc64,
         .powerpc64le,
-        .r600,
         .amdgcn,
         .riscv32,
         .riscv64,

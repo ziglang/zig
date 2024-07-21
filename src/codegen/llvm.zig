@@ -65,7 +65,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .powerpcle => "powerpcle",
         .powerpc64 => "powerpc64",
         .powerpc64le => "powerpc64le",
-        .r600 => "r600",
         .amdgcn => "amdgcn",
         .riscv32 => "riscv32",
         .riscv64 => "riscv64",
@@ -287,7 +286,6 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .powerpcle => .ppcle,
         .powerpc64 => .ppc64,
         .powerpc64le => .ppc64le,
-        .r600 => .r600,
         .amdgcn => .amdgcn,
         .riscv32 => .riscv32,
         .riscv64 => .riscv64,
@@ -12090,7 +12088,6 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         // LLVM backends that have no initialization functions.
         .tce,
         .tcele,
-        .r600,
         .amdil,
         .amdil64,
         .hsail,

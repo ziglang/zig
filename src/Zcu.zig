@@ -3246,7 +3246,6 @@ pub fn atomicPtrAlignment(
         .nvptx,
         .powerpc,
         .powerpcle,
-        .r600,
         .riscv32,
         .sparc,
         .sparcel,
