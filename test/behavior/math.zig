@@ -828,56 +828,72 @@ test "128-bit multiplication" {
     }
 }
 
+fn testAddWithOverflow(comptime T: type, a: T, b: T, add: T, bit: u1) !void {
+    const ov = @addWithOverflow(a, b);
+    try expect(ov[0] == add);
+    try expect(ov[1] == bit);
+}
+
 test "@addWithOverflow" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    {
-        var a: u8 = 250;
-        _ = &a;
-        const ov = @addWithOverflow(a, 100);
-        try expect(ov[0] == 94);
-        try expect(ov[1] == 1);
-    }
-    {
-        var a: u8 = 100;
-        _ = &a;
-        const ov = @addWithOverflow(a, 150);
-        try expect(ov[0] == 250);
-        try expect(ov[1] == 0);
-    }
-    {
-        var a: u8 = 200;
-        _ = &a;
-        var b: u8 = 99;
-        var ov = @addWithOverflow(a, b);
-        try expect(ov[0] == 43);
-        try expect(ov[1] == 1);
-        b = 55;
-        ov = @addWithOverflow(a, b);
-        try expect(ov[0] == 255);
-        try expect(ov[1] == 0);
-    }
+    try testAddWithOverflow(u8, 250, 100, 94, 1);
+    try testAddWithOverflow(u8, 100, 150, 250, 0);
 
-    {
-        var a: usize = 6;
-        var b: usize = 6;
-        _ = .{ &a, &b };
-        const ov = @addWithOverflow(a, b);
-        try expect(ov[0] == 12);
-        try expect(ov[1] == 0);
-    }
+    try testAddWithOverflow(u8, 200, 99, 43, 1);
+    try testAddWithOverflow(u8, 200, 55, 255, 0);
 
-    {
-        var a: isize = -6;
-        var b: isize = -6;
-        _ = .{ &a, &b };
-        const ov = @addWithOverflow(a, b);
-        try expect(ov[0] == -12);
-        try expect(ov[1] == 0);
-    }
+    try testAddWithOverflow(usize, 6, 6, 12, 0);
+    try testAddWithOverflow(usize, maxInt(usize), 6, 5, 1);
+
+    try testAddWithOverflow(isize, -6, -6, -12, 0);
+    try testAddWithOverflow(isize, minInt(isize), -6, maxInt(isize) - 5, 1);
+}
+
+test "@addWithOverflow > 64 bits" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    try testAddWithOverflow(u65, 4, 105, 109, 0);
+    try testAddWithOverflow(u65, 1000, 100, 1100, 0);
+    try testAddWithOverflow(u65, 100, maxInt(u65) - 99, 0, 1);
+    try testAddWithOverflow(u65, maxInt(u65), maxInt(u65), maxInt(u65) - 1, 1);
+    try testAddWithOverflow(u65, maxInt(u65) - 1, maxInt(u65), maxInt(u65) - 2, 1);
+    try testAddWithOverflow(u65, maxInt(u65), maxInt(u65) - 1, maxInt(u65) - 2, 1);
+
+    try testAddWithOverflow(u128, 4, 105, 109, 0);
+    try testAddWithOverflow(u128, 1000, 100, 1100, 0);
+    try testAddWithOverflow(u128, 100, maxInt(u128) - 99, 0, 1);
+    try testAddWithOverflow(u128, maxInt(u128), maxInt(u128), maxInt(u128) - 1, 1);
+    try testAddWithOverflow(u128, maxInt(u128) - 1, maxInt(u128), maxInt(u128) - 2, 1);
+    try testAddWithOverflow(u128, maxInt(u128), maxInt(u128) - 1, maxInt(u128) - 2, 1);
+
+    try testAddWithOverflow(i65, 4, -105, -101, 0);
+    try testAddWithOverflow(i65, 1000, 100, 1100, 0);
+    try testAddWithOverflow(i65, minInt(i65), 1, minInt(i65) + 1, 0);
+    try testAddWithOverflow(i65, maxInt(i65), minInt(i65), -1, 0);
+    try testAddWithOverflow(i65, minInt(i65), maxInt(i65), -1, 0);
+    try testAddWithOverflow(i65, maxInt(i65), -2, maxInt(i65) - 2, 0);
+    try testAddWithOverflow(i65, maxInt(i65), maxInt(i65), -2, 1);
+    try testAddWithOverflow(i65, minInt(i65), minInt(i65), 0, 1);
+    try testAddWithOverflow(i65, maxInt(i65) - 1, maxInt(i65), -3, 1);
+    try testAddWithOverflow(i65, maxInt(i65), maxInt(i65) - 1, -3, 1);
+
+    try testAddWithOverflow(i128, 4, -105, -101, 0);
+    try testAddWithOverflow(i128, 1000, 100, 1100, 0);
+    try testAddWithOverflow(i128, minInt(i128), 1, minInt(i128) + 1, 0);
+    try testAddWithOverflow(i128, maxInt(i128), minInt(i128), -1, 0);
+    try testAddWithOverflow(i128, minInt(i128), maxInt(i128), -1, 0);
+    try testAddWithOverflow(i128, maxInt(i128), -2, maxInt(i128) - 2, 0);
+    try testAddWithOverflow(i128, maxInt(i128), maxInt(i128), -2, 1);
+    try testAddWithOverflow(i128, minInt(i128), minInt(i128), 0, 1);
+    try testAddWithOverflow(i128, maxInt(i128) - 1, maxInt(i128), -3, 1);
+    try testAddWithOverflow(i128, maxInt(i128), maxInt(i128) - 1, -3, 1);
 }
 
 test "small int addition" {
@@ -902,37 +918,22 @@ test "small int addition" {
     try expect(ov[1] == 1);
 }
 
+fn testMulWithOverflow(comptime T: type, a: T, b: T, mul: T, bit: u1) !void {
+    const ov = @mulWithOverflow(a, b);
+    try expect(ov[0] == mul);
+    try expect(ov[1] == bit);
+}
+
 test "basic @mulWithOverflow" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    {
-        var a: u8 = 86;
-        _ = &a;
-        const ov = @mulWithOverflow(a, 3);
-        try expect(ov[0] == 2);
-        try expect(ov[1] == 1);
-    }
-    {
-        var a: u8 = 85;
-        _ = &a;
-        const ov = @mulWithOverflow(a, 3);
-        try expect(ov[0] == 255);
-        try expect(ov[1] == 0);
-    }
+    try testMulWithOverflow(u8, 86, 3, 2, 1);
+    try testMulWithOverflow(u8, 85, 3, 255, 0);
 
-    var a: u8 = 123;
-    _ = &a;
-    var b: u8 = 2;
-    var ov = @mulWithOverflow(a, b);
-    try expect(ov[0] == 246);
-    try expect(ov[1] == 0);
-
-    b = 4;
-    ov = @mulWithOverflow(a, b);
-    try expect(ov[0] == 236);
-    try expect(ov[1] == 1);
+    try testMulWithOverflow(u8, 123, 2, 246, 0);
+    try testMulWithOverflow(u8, 123, 4, 236, 1);
 }
 
 test "extensive @mulWithOverflow" {
@@ -940,173 +941,38 @@ test "extensive @mulWithOverflow" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    {
-        var a: u5 = 3;
-        _ = &a;
-        var b: u5 = 10;
-        var ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 30);
-        try expect(ov[1] == 0);
+    try testMulWithOverflow(u5, 3, 10, 30, 0);
+    try testMulWithOverflow(u5, 3, 11, 1, 1);
+    try testMulWithOverflow(i5, 3, -5, -15, 0);
+    try testMulWithOverflow(i5, 3, -6, 14, 1);
 
-        b = 11;
-        ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 1);
-        try expect(ov[1] == 1);
-    }
+    try testMulWithOverflow(u8, 3, 85, 255, 0);
+    try testMulWithOverflow(u8, 3, 86, 2, 1);
+    try testMulWithOverflow(i8, 3, -42, -126, 0);
+    try testMulWithOverflow(i8, 3, -43, 127, 1);
 
-    {
-        var a: i5 = 3;
-        _ = &a;
-        var b: i5 = -5;
-        var ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == -15);
-        try expect(ov[1] == 0);
+    try testMulWithOverflow(u14, 3, 0x1555, 0x3fff, 0);
+    try testMulWithOverflow(u14, 3, 0x1556, 2, 1);
+    try testMulWithOverflow(i14, 3, -0xaaa, -0x1ffe, 0);
+    try testMulWithOverflow(i14, 3, -0xaab, 0x1fff, 1);
 
-        b = -6;
-        ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 14);
-        try expect(ov[1] == 1);
-    }
+    try testMulWithOverflow(u16, 3, 0x5555, 0xffff, 0);
+    try testMulWithOverflow(u16, 3, 0x5556, 2, 1);
+    try testMulWithOverflow(i16, 3, -0x2aaa, -0x7ffe, 0);
+    try testMulWithOverflow(i16, 3, -0x2aab, 0x7fff, 1);
 
-    {
-        var a: u8 = 3;
-        _ = &a;
-        var b: u8 = 85;
+    try testMulWithOverflow(u30, 3, 0x15555555, 0x3fffffff, 0);
+    try testMulWithOverflow(u30, 3, 0x15555556, 2, 1);
+    try testMulWithOverflow(i30, 3, -0xaaaaaaa, -0x1ffffffe, 0);
+    try testMulWithOverflow(i30, 3, -0xaaaaaab, 0x1fffffff, 1);
 
-        var ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 255);
-        try expect(ov[1] == 0);
+    try testMulWithOverflow(u32, 3, 0x55555555, 0xffffffff, 0);
+    try testMulWithOverflow(u32, 3, 0x55555556, 2, 1);
+    try testMulWithOverflow(i32, 3, -0x2aaaaaaa, -0x7ffffffe, 0);
+    try testMulWithOverflow(i32, 3, -0x2aaaaaab, 0x7fffffff, 1);
 
-        b = 86;
-        ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 2);
-        try expect(ov[1] == 1);
-    }
-
-    {
-        var a: i8 = 3;
-        _ = &a;
-        var b: i8 = -42;
-        var ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == -126);
-        try expect(ov[1] == 0);
-
-        b = -43;
-        ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 127);
-        try expect(ov[1] == 1);
-    }
-
-    {
-        var a: u14 = 3;
-        _ = &a;
-        var b: u14 = 0x1555;
-        var ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 0x3fff);
-        try expect(ov[1] == 0);
-
-        b = 0x1556;
-        ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 2);
-        try expect(ov[1] == 1);
-    }
-
-    {
-        var a: i14 = 3;
-        _ = &a;
-        var b: i14 = -0xaaa;
-        var ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == -0x1ffe);
-        try expect(ov[1] == 0);
-
-        b = -0xaab;
-        ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 0x1fff);
-    }
-
-    {
-        var a: u16 = 3;
-        _ = &a;
-        var b: u16 = 0x5555;
-        var ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 0xffff);
-        try expect(ov[1] == 0);
-
-        b = 0x5556;
-        ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 2);
-        try expect(ov[1] == 1);
-    }
-
-    {
-        var a: i16 = 3;
-        _ = &a;
-        var b: i16 = -0x2aaa;
-        var ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == -0x7ffe);
-        try expect(ov[1] == 0);
-
-        b = -0x2aab;
-        ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 0x7fff);
-        try expect(ov[1] == 1);
-    }
-
-    {
-        var a: u30 = 3;
-        _ = &a;
-        var b: u30 = 0x15555555;
-        var ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 0x3fffffff);
-        try expect(ov[1] == 0);
-
-        b = 0x15555556;
-        ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 2);
-        try expect(ov[1] == 1);
-    }
-
-    {
-        var a: i30 = 3;
-        _ = &a;
-        var b: i30 = -0xaaaaaaa;
-        var ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == -0x1ffffffe);
-        try expect(ov[1] == 0);
-
-        b = -0xaaaaaab;
-        ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 0x1fffffff);
-        try expect(ov[1] == 1);
-    }
-
-    {
-        var a: u32 = 3;
-        _ = &a;
-        var b: u32 = 0x55555555;
-        var ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 0xffffffff);
-        try expect(ov[1] == 0);
-
-        b = 0x55555556;
-        ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 2);
-        try expect(ov[1] == 1);
-    }
-
-    {
-        var a: i32 = 3;
-        _ = &a;
-        var b: i32 = -0x2aaaaaaa;
-        var ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == -0x7ffffffe);
-        try expect(ov[1] == 0);
-
-        b = -0x2aaaaaab;
-        ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 0x7fffffff);
-        try expect(ov[1] == 1);
-    }
+    try testMulWithOverflow(u31, 1 << 30, 1 << 30, 0, 1);
+    try testMulWithOverflow(i31, minInt(i31), minInt(i31), 0, 1);
 }
 
 test "@mulWithOverflow bitsize > 32" {
@@ -1115,118 +981,51 @@ test "@mulWithOverflow bitsize > 32" {
     // aarch64 fails on a release build of the compiler.
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    {
-        var a: u40 = 3;
-        var b: u40 = 0x55_5555_5555;
-        var ov = @mulWithOverflow(a, b);
+    try testMulWithOverflow(u40, 3, 0x55_5555_5555, 0xff_ffff_ffff, 0);
+    try testMulWithOverflow(u40, 3, 0x55_5555_5556, 2, 1);
+    try testMulWithOverflow(u40, 0x10_0000_0000, 0x10_0000_0000, 0, 1);
 
-        try expect(ov[0] == 0xff_ffff_ffff);
-        try expect(ov[1] == 0);
+    try testMulWithOverflow(i40, 3, -0x2a_aaaa_aaaa, -0x7f_ffff_fffe, 0);
+    try testMulWithOverflow(i40, 3, -0x2a_aaaa_aaab, 0x7f_ffff_ffff, 1);
+    try testMulWithOverflow(i40, 6, -0x2a_aaaa_aaab, -2, 1);
+    try testMulWithOverflow(i40, 0x08_0000_0000, -0x08_0000_0001, -0x8_0000_0000, 1);
 
-        // Check that overflow bits in the low-word of wide-multiplications are checked too.
-        // Intermediate result is less than 2**64
-        b = 0x55_5555_5556;
-        ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 2);
-        try expect(ov[1] == 1);
+    try testMulWithOverflow(u62, 3, 0x1555555555555555, 0x3fffffffffffffff, 0);
+    try testMulWithOverflow(u62, 3, 0x1555555555555556, 2, 1);
+    try testMulWithOverflow(i62, 3, -0xaaaaaaaaaaaaaaa, -0x1ffffffffffffffe, 0);
+    try testMulWithOverflow(i62, 3, -0xaaaaaaaaaaaaaab, 0x1fffffffffffffff, 1);
 
-        // Check that overflow bits in the high-word of wide-multiplications are checked too.
-        // Intermediate result is more than 2**64 and bits 40..64 are not set.
-        a = 0x10_0000_0000;
-        b = 0x10_0000_0000;
-        ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 0);
-        try expect(ov[1] == 1);
-    }
+    try testMulWithOverflow(u64, 3, 0x5555555555555555, 0xffffffffffffffff, 0);
+    try testMulWithOverflow(u64, 3, 0x5555555555555556, 2, 1);
+    try testMulWithOverflow(i64, 3, -0x2aaaaaaaaaaaaaaa, -0x7ffffffffffffffe, 0);
+    try testMulWithOverflow(i64, 3, -0x2aaaaaaaaaaaaaab, 0x7fffffffffffffff, 1);
 
-    {
-        var a: i40 = 3;
-        var b: i40 = -0x2a_aaaa_aaaa;
-        var ov = @mulWithOverflow(a, b);
+    try testMulWithOverflow(u63, 1 << 62, 1 << 62, 0, 1);
+    try testMulWithOverflow(i63, minInt(i63), minInt(i63), 0, 1);
+}
 
-        try expect(ov[0] == -0x7f_ffff_fffe);
-        try expect(ov[1] == 0);
+test "@mulWithOverflow bitsize 128 bits" {
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-        // Check that the sign bit is properly checked
-        b = -0x2a_aaaa_aaab;
-        ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 0x7f_ffff_ffff);
-        try expect(ov[1] == 1);
+    try testMulWithOverflow(u128, 3, 0x5555555555555555_5555555555555555, 0xffffffffffffffff_ffffffffffffffff, 0);
+    try testMulWithOverflow(u128, 3, 0x5555555555555555_5555555555555556, 2, 1);
 
-        // Check that the low-order bits above the sign are checked.
-        a = 6;
-        ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == -2);
-        try expect(ov[1] == 1);
+    try testMulWithOverflow(u128, 1 << 100, 1 << 27, 1 << 127, 0);
+    try testMulWithOverflow(u128, maxInt(u128), maxInt(u128), 1, 1);
+    try testMulWithOverflow(u128, 1 << 100, 1 << 28, 0, 1);
+    try testMulWithOverflow(u128, 1 << 127, 1 << 127, 0, 1);
 
-        // Check that overflow bits in the high-word of wide-multiplications are checked too.
-        // high parts and sign of low-order bits are all 1.
-        a = 0x08_0000_0000;
-        b = -0x08_0000_0001;
-        ov = @mulWithOverflow(a, b);
-
-        try expect(ov[0] == -0x8_0000_0000);
-        try expect(ov[1] == 1);
-    }
-
-    {
-        var a: u62 = 3;
-        _ = &a;
-        var b: u62 = 0x1555555555555555;
-        var ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 0x3fffffffffffffff);
-        try expect(ov[1] == 0);
-
-        b = 0x1555555555555556;
-        ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 2);
-        try expect(ov[1] == 1);
-    }
-
-    {
-        var a: i62 = 3;
-        _ = &a;
-        var b: i62 = -0xaaaaaaaaaaaaaaa;
-        var ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == -0x1ffffffffffffffe);
-        try expect(ov[1] == 0);
-
-        b = -0xaaaaaaaaaaaaaab;
-        ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 0x1fffffffffffffff);
-        try expect(ov[1] == 1);
-    }
-
-    {
-        var a: u64 = 3;
-        _ = &a;
-        var b: u64 = 0x5555555555555555;
-        var ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 0xffffffffffffffff);
-        try expect(ov[1] == 0);
-
-        b = 0x5555555555555556;
-        ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 2);
-        try expect(ov[1] == 1);
-    }
-
-    {
-        var a: i64 = 3;
-        _ = &a;
-        var b: i64 = -0x2aaaaaaaaaaaaaaa;
-        var ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == -0x7ffffffffffffffe);
-        try expect(ov[1] == 0);
-
-        b = -0x2aaaaaaaaaaaaaab;
-        ov = @mulWithOverflow(a, b);
-        try expect(ov[0] == 0x7fffffffffffffff);
-        try expect(ov[1] == 1);
-    }
+    try testMulWithOverflow(i128, 3, -0x2aaaaaaaaaaaaaaa_aaaaaaaaaaaaaaaa, -0x7fffffffffffffff_fffffffffffffffe, 0);
+    try testMulWithOverflow(i128, 3, -0x2aaaaaaaaaaaaaaa_aaaaaaaaaaaaaaab, 0x7fffffffffffffff_ffffffffffffffff, 1);
+    try testMulWithOverflow(i128, -1, -1, 1, 0);
+    try testMulWithOverflow(i128, minInt(i128), minInt(i128), 0, 1);
 }
 
 test "@mulWithOverflow u256" {
@@ -1265,56 +1064,74 @@ test "@mulWithOverflow u256" {
     }
 }
 
+fn testSubWithOverflow(comptime T: type, a: T, b: T, sub: T, bit: u1) !void {
+    const ov = @subWithOverflow(a, b);
+    try expect(ov[0] == sub);
+    try expect(ov[1] == bit);
+}
+
 test "@subWithOverflow" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    {
-        var a: u8 = 1;
-        _ = &a;
-        const ov = @subWithOverflow(a, 2);
-        try expect(ov[0] == 255);
-        try expect(ov[1] == 1);
-    }
-    {
-        var a: u8 = 1;
-        _ = &a;
-        const ov = @subWithOverflow(a, 1);
-        try expect(ov[0] == 0);
-        try expect(ov[1] == 0);
-    }
+    try testSubWithOverflow(u8, 1, 2, 255, 1);
+    try testSubWithOverflow(u8, 1, 1, 0, 0);
 
-    {
-        var a: u8 = 1;
-        _ = &a;
-        var b: u8 = 2;
-        var ov = @subWithOverflow(a, b);
-        try expect(ov[0] == 255);
-        try expect(ov[1] == 1);
-        b = 1;
-        ov = @subWithOverflow(a, b);
-        try expect(ov[0] == 0);
-        try expect(ov[1] == 0);
-    }
+    try testSubWithOverflow(u16, 10000, 10002, 65534, 1);
+    try testSubWithOverflow(u16, 10000, 9999, 1, 0);
 
-    {
-        var a: usize = 6;
-        var b: usize = 6;
-        _ = .{ &a, &b };
-        const ov = @subWithOverflow(a, b);
-        try expect(ov[0] == 0);
-        try expect(ov[1] == 0);
-    }
+    try testSubWithOverflow(usize, 6, 6, 0, 0);
+    try testSubWithOverflow(usize, 6, 7, maxInt(usize), 1);
+    try testSubWithOverflow(isize, -6, -6, 0, 0);
+    try testSubWithOverflow(isize, minInt(isize), 6, maxInt(isize) - 5, 1);
+}
 
-    {
-        var a: isize = -6;
-        var b: isize = -6;
-        _ = .{ &a, &b };
-        const ov = @subWithOverflow(a, b);
-        try expect(ov[0] == 0);
-        try expect(ov[1] == 0);
-    }
+test "@subWithOverflow > 64 bits" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    try testSubWithOverflow(u65, 4, 105, maxInt(u65) - 100, 1);
+    try testSubWithOverflow(u65, 1000, 100, 900, 0);
+    try testSubWithOverflow(u65, maxInt(u65), maxInt(u65), 0, 0);
+    try testSubWithOverflow(u65, maxInt(u65) - 1, maxInt(u65), maxInt(u65), 1);
+    try testSubWithOverflow(u65, maxInt(u65), maxInt(u65) - 1, 1, 0);
+
+    try testSubWithOverflow(u128, 4, 105, maxInt(u128) - 100, 1);
+    try testSubWithOverflow(u128, 1000, 100, 900, 0);
+    try testSubWithOverflow(u128, maxInt(u128), maxInt(u128), 0, 0);
+    try testSubWithOverflow(u128, maxInt(u128) - 1, maxInt(u128), maxInt(u128), 1);
+    try testSubWithOverflow(u128, maxInt(u128), maxInt(u128) - 1, 1, 0);
+
+    try testSubWithOverflow(i65, 4, 105, -101, 0);
+    try testSubWithOverflow(i65, 1000, 100, 900, 0);
+    try testSubWithOverflow(i65, maxInt(i65), maxInt(i65), 0, 0);
+    try testSubWithOverflow(i65, minInt(i65), minInt(i65), 0, 0);
+    try testSubWithOverflow(i65, maxInt(i65) - 1, maxInt(i65), -1, 0);
+    try testSubWithOverflow(i65, maxInt(i65), maxInt(i65) - 1, 1, 0);
+    try testSubWithOverflow(i65, minInt(i65), 1, maxInt(i65), 1);
+    try testSubWithOverflow(i65, maxInt(i65), minInt(i65), -1, 1);
+    try testSubWithOverflow(i65, minInt(i65), maxInt(i65), 1, 1);
+    try testSubWithOverflow(i65, maxInt(i65), -2, minInt(i65) + 1, 1);
+
+    try testSubWithOverflow(i128, 4, 105, -101, 0);
+    try testSubWithOverflow(i128, 1000, 100, 900, 0);
+    try testSubWithOverflow(i128, maxInt(i128), maxInt(i128), 0, 0);
+    try testSubWithOverflow(i128, minInt(i128), minInt(i128), 0, 0);
+    try testSubWithOverflow(i128, maxInt(i128) - 1, maxInt(i128), -1, 0);
+    try testSubWithOverflow(i128, maxInt(i128), maxInt(i128) - 1, 1, 0);
+    try testSubWithOverflow(i128, minInt(i128), 1, maxInt(i128), 1);
+    try testSubWithOverflow(i128, maxInt(i128), minInt(i128), -1, 1);
+    try testSubWithOverflow(i128, minInt(i128), maxInt(i128), 1, 1);
+    try testSubWithOverflow(i128, maxInt(i128), -2, minInt(i128) + 1, 1);
+}
+
+fn testShlWithOverflow(comptime T: type, a: T, b: math.Log2Int(T), shl: T, bit: u1) !void {
+    const ov = @shlWithOverflow(a, b);
+    try expect(ov[0] == shl);
+    try expect(ov[1] == bit);
 }
 
 test "@shlWithOverflow" {
@@ -1323,56 +1140,44 @@ test "@shlWithOverflow" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    {
-        var a: u4 = 2;
-        _ = &a;
-        var b: u2 = 1;
-        var ov = @shlWithOverflow(a, b);
-        try expect(ov[0] == 4);
-        try expect(ov[1] == 0);
+    try testShlWithOverflow(u4, 2, 1, 4, 0);
+    try testShlWithOverflow(u4, 2, 3, 0, 1);
 
-        b = 3;
-        ov = @shlWithOverflow(a, b);
-        try expect(ov[0] == 0);
-        try expect(ov[1] == 1);
-    }
+    try testShlWithOverflow(i9, 127, 1, 254, 0);
+    try testShlWithOverflow(i9, 127, 2, -4, 1);
 
-    {
-        var a: i9 = 127;
-        _ = &a;
-        var b: u4 = 1;
-        var ov = @shlWithOverflow(a, b);
-        try expect(ov[0] == 254);
-        try expect(ov[1] == 0);
+    try testShlWithOverflow(u16, 0b0010111111111111, 3, 0b0111111111111000, 1);
+    try testShlWithOverflow(u16, 0b0010111111111111, 2, 0b1011111111111100, 0);
 
-        b = 2;
-        ov = @shlWithOverflow(a, b);
-        try expect(ov[0] == -4);
-        try expect(ov[1] == 1);
-    }
+    try testShlWithOverflow(u16, 0b0000_0000_0000_0011, 15, 0b1000_0000_0000_0000, 1);
+    try testShlWithOverflow(u16, 0b0000_0000_0000_0011, 14, 0b1100_0000_0000_0000, 0);
+}
 
-    {
-        const ov = @shlWithOverflow(@as(u16, 0b0010111111111111), 3);
-        try expect(ov[0] == 0b0111111111111000);
-        try expect(ov[1] == 1);
-    }
-    {
-        const ov = @shlWithOverflow(@as(u16, 0b0010111111111111), 2);
-        try expect(ov[0] == 0b1011111111111100);
-        try expect(ov[1] == 0);
-    }
-    {
-        var a: u16 = 0b0000_0000_0000_0011;
-        _ = &a;
-        var b: u4 = 15;
-        var ov = @shlWithOverflow(a, b);
-        try expect(ov[0] == 0b1000_0000_0000_0000);
-        try expect(ov[1] == 1);
-        b = 14;
-        ov = @shlWithOverflow(a, b);
-        try expect(ov[0] == 0b1100_0000_0000_0000);
-        try expect(ov[1] == 0);
-    }
+test "@shlWithOverflow > 64 bits" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    try testShlWithOverflow(u65, 0x0_0100_0000_0000_0000, 7, 0x0_8000_0000_0000_0000, 0);
+    try testShlWithOverflow(u65, 0x0_0100_0000_0000_0000, 8, 0x1_0000_0000_0000_0000, 0);
+    try testShlWithOverflow(u65, 0x0_0100_0000_0000_0000, 9, 0, 1);
+    try testShlWithOverflow(u65, 0x0_0100_0000_0000_0000, 10, 0, 1);
+
+    try testShlWithOverflow(u128, 0x0100_0000_0000_0000_0000000000000000, 6, 0x4000_0000_0000_0000_0000000000000000, 0);
+    try testShlWithOverflow(u128, 0x0100_0000_0000_0000_0000000000000000, 7, 0x8000_0000_0000_0000_0000000000000000, 0);
+    try testShlWithOverflow(u128, 0x0100_0000_0000_0000_0000000000000000, 8, 0, 1);
+    try testShlWithOverflow(u128, 0x0100_0000_0000_0000_0000000000000000, 9, 0, 1);
+
+    try testShlWithOverflow(i65, 0x0_0100_0000_0000_0000, 7, 0x0_8000_0000_0000_0000, 0);
+    try testShlWithOverflow(i65, 0x0_0100_0000_0000_0000, 8, minInt(i65), 1);
+    try testShlWithOverflow(i65, 0x0_0100_0000_0000_0000, 9, 0, 1);
+    try testShlWithOverflow(i65, 0x0_0100_0000_0000_0000, 10, 0, 1);
+
+    try testShlWithOverflow(i128, 0x0100_0000_0000_0000_0000000000000000, 6, 0x4000_0000_0000_0000_0000000000000000, 0);
+    try testShlWithOverflow(i128, 0x0100_0000_0000_0000_0000000000000000, 7, minInt(i128), 1);
+    try testShlWithOverflow(i128, 0x0100_0000_0000_0000_0000000000000000, 8, 0, 1);
+    try testShlWithOverflow(i128, 0x0100_0000_0000_0000_0000000000000000, 9, 0, 1);
 }
 
 test "overflow arithmetic with u0 values" {
