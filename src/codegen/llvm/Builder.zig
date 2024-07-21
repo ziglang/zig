@@ -7651,8 +7651,6 @@ pub const Metadata = enum(u32) {
         composite_vector_type,
         derived_pointer_type,
         derived_member_type,
-        derived_typedef,
-        imported_declaration,
         subroutine_type,
         enumerator_unsigned,
         enumerator_signed_positive,
@@ -7698,8 +7696,6 @@ pub const Metadata = enum(u32) {
                 .composite_vector_type,
                 .derived_pointer_type,
                 .derived_member_type,
-                .derived_typedef,
-                .imported_declaration,
                 .subroutine_type,
                 .enumerator_unsigned,
                 .enumerator_signed_positive,
@@ -7816,7 +7812,6 @@ pub const Metadata = enum(u32) {
         producer: MetadataString,
         enums: Metadata,
         globals: Metadata,
-        imports: Metadata,
     };
 
     pub const Subprogram = struct {
@@ -7865,7 +7860,6 @@ pub const Metadata = enum(u32) {
             }
         };
 
-        scope: Metadata,
         file: Metadata,
         name: MetadataString,
         linkage_name: MetadataString,
@@ -7911,10 +7905,6 @@ pub const Metadata = enum(u32) {
         align_in_bits_lo: u32,
         align_in_bits_hi: u32,
         fields_tuple: Metadata,
-        flags: packed struct(u32) {
-            is_byref: bool,
-            pad: u31 = 0,
-        },
 
         pub fn bitSize(self: CompositeType) u64 {
             return @as(u64, self.size_in_bits_hi) << 32 | self.size_in_bits_lo;
@@ -7946,14 +7936,6 @@ pub const Metadata = enum(u32) {
         pub fn bitOffset(self: DerivedType) u64 {
             return @as(u64, self.offset_in_bits_hi) << 32 | self.offset_in_bits_lo;
         }
-    };
-
-    pub const ImportedEntity = struct {
-        name: MetadataString,
-        file: Metadata,
-        scope: Metadata,
-        line: u32,
-        entity: Metadata,
     };
 
     pub const SubroutineType = struct {
@@ -8008,6 +7990,10 @@ pub const Metadata = enum(u32) {
     };
 
     pub const GlobalVar = struct {
+        pub const Options = struct {
+            local: bool,
+        };
+
         name: MetadataString,
         linkage_name: MetadataString,
         file: Metadata,
@@ -8238,7 +8224,6 @@ pub const Metadata = enum(u32) {
                 DIBasicType,
                 DICompositeType,
                 DIDerivedType,
-                DIImportedEntity,
                 DISubroutineType,
                 DIEnumerator,
                 DISubrange,
@@ -9976,7 +9961,7 @@ pub fn printUnbuffered(
                         .enums = extra.enums,
                         .retainedTypes = null,
                         .globals = extra.globals,
-                        .imports = extra.imports,
+                        .imports = null,
                         .macros = null,
                         .dwoId = null,
                         .splitDebugInlining = false,
@@ -10000,7 +9985,7 @@ pub fn printUnbuffered(
                     try metadata_formatter.specialized(.@"distinct !", .DISubprogram, .{
                         .name = extra.name,
                         .linkageName = extra.linkage_name,
-                        .scope = extra.scope,
+                        .scope = extra.file,
                         .file = extra.file,
                         .line = extra.line,
                         .type = extra.ty,
@@ -10094,8 +10079,8 @@ pub fn printUnbuffered(
                             else => extra.name,
                         },
                         .scope = extra.scope,
-                        .file = extra.file,
-                        .line = extra.line,
+                        .file = null,
+                        .line = null,
                         .baseType = extra.underlying_type,
                         .size = extra.bitSize(),
                         .@"align" = extra.bitAlign(),
@@ -10116,18 +10101,15 @@ pub fn printUnbuffered(
                 },
                 .derived_pointer_type,
                 .derived_member_type,
-                .derived_typedef,
                 => |kind| {
                     const extra = self.metadataExtraData(Metadata.DerivedType, metadata_item.data);
                     try metadata_formatter.specialized(.@"!", .DIDerivedType, .{
                         .tag = @as(enum {
                             DW_TAG_pointer_type,
                             DW_TAG_member,
-                            DW_TAG_typedef,
                         }, switch (kind) {
                             .derived_pointer_type => .DW_TAG_pointer_type,
                             .derived_member_type => .DW_TAG_member,
-                            .derived_typedef => .DW_TAG_typedef,
                             else => unreachable,
                         }),
                         .name = switch (extra.name) {
@@ -10148,22 +10130,6 @@ pub fn printUnbuffered(
                         .extraData = null,
                         .dwarfAddressSpace = null,
                         .annotations = null,
-                    }, writer);
-                },
-                .imported_declaration => {
-                    const extra = self.metadataExtraData(Metadata.ImportedEntity, metadata_item.data);
-
-                    try metadata_formatter.specialized(.@"!", .DIImportedEntity, .{
-                        .tag = .DW_TAG_imported_declaration,
-                        .scope = extra.scope,
-                        .entity = extra.entity,
-                        .file = extra.file,
-                        .line = extra.line,
-                        .name = switch (extra.name) {
-                            .none => null,
-                            else => extra.name,
-                        },
-                        .elements = null,
                     }, writer);
                 },
                 .subroutine_type => {
@@ -10289,7 +10255,11 @@ pub fn printUnbuffered(
                         .file = extra.file,
                         .line = extra.line,
                         .type = extra.ty,
-                        .isLocal = kind != .global_var,
+                        .isLocal = switch (kind) {
+                            .global_var => false,
+                            .@"global_var local" => true,
+                            else => unreachable,
+                        },
                         .isDefinition = true,
                         .declaration = null,
                         .templateParams = null,
@@ -11642,17 +11612,7 @@ fn addMetadataExtraAssumeCapacity(self: *Builder, extra: anytype) Metadata.Item.
             u32 => value,
             MetadataString, Metadata, Variable.Index, Value => @intFromEnum(value),
             Metadata.DIFlags => @bitCast(value),
-            else => blk: {
-                switch (@typeInfo(field.type)) {
-                    .Struct => |s| {
-                        if (s.backing_integer == u32)
-                            break :blk @bitCast(value);
-                        @compileLog(s.layout, s.backing_integer);
-                    },
-                    else => {},
-                }
-                @compileError("bad field type: " ++ @typeName(field.type));
-            },
+            else => @compileError("bad field type: " ++ @typeName(field.type)),
         });
     }
     return result;
@@ -11691,7 +11651,7 @@ fn metadataExtraDataTrail(
             u32 => value,
             MetadataString, Metadata, Variable.Index, Value => @enumFromInt(value),
             Metadata.DIFlags => @bitCast(value),
-            else => @bitCast(value),
+            else => @compileError("bad field type: " ++ @typeName(field.type)),
         };
     return .{
         .data = result,
@@ -11780,17 +11740,15 @@ pub fn debugCompileUnit(
     producer: MetadataString,
     enums: Metadata,
     globals: Metadata,
-    imports: Metadata,
     options: Metadata.CompileUnit.Options,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.CompileUnit, 0);
-    return self.debugCompileUnitAssumeCapacity(file, producer, enums, globals, imports, options);
+    return self.debugCompileUnitAssumeCapacity(file, producer, enums, globals, options);
 }
 
 pub fn debugSubprogram(
     self: *Builder,
     file: Metadata,
-    scope: Metadata,
     name: MetadataString,
     linkage_name: MetadataString,
     line: u32,
@@ -11802,7 +11760,6 @@ pub fn debugSubprogram(
     try self.ensureUnusedMetadataCapacity(1, Metadata.Subprogram, 0);
     return self.debugSubprogramAssumeCapacity(
         file,
-        scope,
         name,
         linkage_name,
         line,
@@ -11858,7 +11815,6 @@ pub fn debugStructType(
     size_in_bits: u64,
     align_in_bits: u64,
     fields_tuple: Metadata,
-    is_byref: bool,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.CompositeType, 0);
     return self.debugStructTypeAssumeCapacity(
@@ -11870,7 +11826,6 @@ pub fn debugStructType(
         size_in_bits,
         align_in_bits,
         fields_tuple,
-        is_byref,
     );
 }
 
@@ -11884,7 +11839,6 @@ pub fn debugUnionType(
     size_in_bits: u64,
     align_in_bits: u64,
     fields_tuple: Metadata,
-    is_byref: bool,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.CompositeType, 0);
     return self.debugUnionTypeAssumeCapacity(
@@ -11896,7 +11850,6 @@ pub fn debugUnionType(
         size_in_bits,
         align_in_bits,
         fields_tuple,
-        is_byref,
     );
 }
 
@@ -12020,53 +11973,6 @@ pub fn debugMemberType(
     );
 }
 
-pub fn debugTypedef(
-    self: *Builder,
-    name: MetadataString,
-    file: Metadata,
-    scope: Metadata,
-    line: u32,
-    underlying_type: Metadata,
-    align_in_bits: u64,
-) Allocator.Error!Metadata {
-    try self.ensureUnusedMetadataCapacity(1, Metadata.DerivedType, 0);
-
-    assert(!self.strip);
-    return self.metadataSimpleAssumeCapacity(.derived_typedef, Metadata.DerivedType{
-        .name = name,
-        .file = file,
-        .scope = scope,
-        .line = line,
-        .underlying_type = underlying_type,
-        .size_in_bits_lo = 0,
-        .size_in_bits_hi = 0,
-        .align_in_bits_lo = @truncate(align_in_bits),
-        .align_in_bits_hi = @truncate(align_in_bits >> 32),
-        .offset_in_bits_lo = 0,
-        .offset_in_bits_hi = 0,
-    });
-}
-
-pub fn debugImportDeclaration(
-    self: *Builder,
-    name: MetadataString,
-    file: Metadata,
-    scope: Metadata,
-    line: u32,
-    entity: Metadata,
-) Allocator.Error!Metadata {
-    try self.ensureUnusedMetadataCapacity(1, Metadata.ImportedEntity, 0);
-
-    assert(!self.strip);
-    return self.metadataSimpleAssumeCapacity(.imported_declaration, Metadata.ImportedEntity{
-        .name = name,
-        .file = file,
-        .scope = scope,
-        .line = line,
-        .entity = entity,
-    });
-}
-
 pub fn debugSubroutineType(
     self: *Builder,
     types_tuple: Metadata,
@@ -12157,7 +12063,7 @@ pub fn debugGlobalVar(
     line: u32,
     ty: Metadata,
     variable: Variable.Index,
-    internal: bool,
+    options: Metadata.GlobalVar.Options,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.GlobalVar, 0);
     return self.debugGlobalVarAssumeCapacity(
@@ -12168,7 +12074,7 @@ pub fn debugGlobalVar(
         line,
         ty,
         variable,
-        internal,
+        options,
     );
 }
 
@@ -12301,7 +12207,6 @@ pub fn debugCompileUnitAssumeCapacity(
     producer: MetadataString,
     enums: Metadata,
     globals: Metadata,
-    imports: Metadata,
     options: Metadata.CompileUnit.Options,
 ) Metadata {
     assert(!self.strip);
@@ -12312,7 +12217,6 @@ pub fn debugCompileUnitAssumeCapacity(
             .producer = producer,
             .enums = enums,
             .globals = globals,
-            .imports = imports,
         },
     );
 }
@@ -12320,7 +12224,6 @@ pub fn debugCompileUnitAssumeCapacity(
 fn debugSubprogramAssumeCapacity(
     self: *Builder,
     file: Metadata,
-    scope: Metadata,
     name: MetadataString,
     linkage_name: MetadataString,
     line: u32,
@@ -12334,7 +12237,6 @@ fn debugSubprogramAssumeCapacity(
         @as(u3, @truncate(@as(u32, @bitCast(options.sp_flags)) >> 2)));
     return self.metadataDistinctAssumeCapacity(tag, Metadata.Subprogram{
         .file = file,
-        .scope = scope,
         .name = name,
         .linkage_name = linkage_name,
         .line = line,
@@ -12418,7 +12320,6 @@ fn debugStructTypeAssumeCapacity(
     size_in_bits: u64,
     align_in_bits: u64,
     fields_tuple: Metadata,
-    is_byref: bool,
 ) Metadata {
     assert(!self.strip);
     return self.debugCompositeTypeAssumeCapacity(
@@ -12431,7 +12332,6 @@ fn debugStructTypeAssumeCapacity(
         size_in_bits,
         align_in_bits,
         fields_tuple,
-        is_byref,
     );
 }
 
@@ -12445,7 +12345,6 @@ fn debugUnionTypeAssumeCapacity(
     size_in_bits: u64,
     align_in_bits: u64,
     fields_tuple: Metadata,
-    is_byref: bool,
 ) Metadata {
     assert(!self.strip);
     return self.debugCompositeTypeAssumeCapacity(
@@ -12458,7 +12357,6 @@ fn debugUnionTypeAssumeCapacity(
         size_in_bits,
         align_in_bits,
         fields_tuple,
-        is_byref,
     );
 }
 
@@ -12484,7 +12382,6 @@ fn debugEnumerationTypeAssumeCapacity(
         size_in_bits,
         align_in_bits,
         fields_tuple,
-        false, // is_byref
     );
 }
 
@@ -12510,7 +12407,6 @@ fn debugArrayTypeAssumeCapacity(
         size_in_bits,
         align_in_bits,
         fields_tuple,
-        size_in_bits > 0, // is_byref
     );
 }
 
@@ -12536,7 +12432,6 @@ fn debugVectorTypeAssumeCapacity(
         size_in_bits,
         align_in_bits,
         fields_tuple,
-        false,
     );
 }
 
@@ -12551,7 +12446,6 @@ fn debugCompositeTypeAssumeCapacity(
     size_in_bits: u64,
     align_in_bits: u64,
     fields_tuple: Metadata,
-    is_byref: bool,
 ) Metadata {
     assert(!self.strip);
     return self.metadataSimpleAssumeCapacity(tag, Metadata.CompositeType{
@@ -12565,7 +12459,6 @@ fn debugCompositeTypeAssumeCapacity(
         .align_in_bits_lo = @truncate(align_in_bits),
         .align_in_bits_hi = @truncate(align_in_bits >> 32),
         .fields_tuple = fields_tuple,
-        .flags = .{ .is_byref = is_byref },
     });
 }
 
@@ -12876,11 +12769,11 @@ fn debugGlobalVarAssumeCapacity(
     line: u32,
     ty: Metadata,
     variable: Variable.Index,
-    internal: bool,
+    options: Metadata.GlobalVar.Options,
 ) Metadata {
     assert(!self.strip);
     return self.metadataDistinctAssumeCapacity(
-        if (internal) .@"global_var local" else .global_var,
+        if (options.local) .@"global_var local" else .global_var,
         Metadata.GlobalVar{
             .name = name,
             .linkage_name = linkage_name,
@@ -13911,7 +13804,6 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             },
                             .enums = extra.enums,
                             .globals = extra.globals,
-                            .imports = extra.imports,
                         }, metadata_adapter);
                     },
                     .subprogram,
@@ -13926,7 +13818,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         const extra = self.metadataExtraData(Metadata.Subprogram, data);
 
                         try metadata_block.writeAbbrevAdapted(MetadataBlock.Subprogram{
-                            .scope = extra.scope,
+                            .scope = extra.file,
                             .name = extra.name,
                             .linkage_name = extra.linkage_name,
                             .file = extra.file,
@@ -14000,24 +13892,18 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             .underlying_type = extra.underlying_type,
                             .size_in_bits = extra.bitSize(),
                             .align_in_bits = extra.bitAlign(),
-                            .flags = .{
-                                .Vector = kind == .composite_vector_type,
-                                .EnumClass = kind == .composite_enumeration_type,
-                                .TypePassbyReference = extra.flags.is_byref,
-                            },
+                            .flags = if (kind == .composite_vector_type) .{ .Vector = true } else .{},
                             .elements = extra.fields_tuple,
                         }, metadata_adapter);
                     },
                     .derived_pointer_type,
                     .derived_member_type,
-                    .derived_typedef,
                     => |kind| {
                         const extra = self.metadataExtraData(Metadata.DerivedType, data);
                         try metadata_block.writeAbbrevAdapted(MetadataBlock.DerivedType{
                             .tag = switch (kind) {
                                 .derived_pointer_type => DW.TAG.pointer_type,
                                 .derived_member_type => DW.TAG.member,
-                                .derived_typedef => DW.TAG.typedef,
                                 else => unreachable,
                             },
                             .name = extra.name,
@@ -14028,20 +13914,6 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             .size_in_bits = extra.bitSize(),
                             .align_in_bits = extra.bitAlign(),
                             .offset_in_bits = extra.bitOffset(),
-                            .flags = .{
-                                .StaticMember = false,
-                            },
-                        }, metadata_adapter);
-                    },
-                    .imported_declaration => {
-                        const extra = self.metadataExtraData(Metadata.ImportedEntity, data);
-                        try metadata_block.writeAbbrevAdapted(MetadataBlock.ImportedEntity{
-                            .tag = DW.TAG.imported_declaration,
-                            .scope = extra.scope,
-                            .entity = extra.entity,
-                            .line = extra.line,
-                            .name = extra.name,
-                            .file = extra.file,
                         }, metadata_adapter);
                     },
                     .subroutine_type => {
