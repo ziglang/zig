@@ -3419,12 +3419,7 @@ pub fn requiresCodeSig(self: MachO) bool {
     // if (self.options.adhoc_codesign) |cs| return cs;
     const target = self.getTarget();
     return switch (target.cpu.arch) {
-        .aarch64 => switch (target.os.tag) {
-            .macos => true,
-            .watchos, .tvos, .ios, .visionos => target.abi == .simulator,
-            else => false,
-        },
-        .x86_64 => switch (target.os.tag) {
+        .aarch64, .x86_64 => switch (target.os.tag) {
             .macos => true,
             .watchos, .tvos, .ios, .visionos => target.abi == .simulator,
             else => false,
