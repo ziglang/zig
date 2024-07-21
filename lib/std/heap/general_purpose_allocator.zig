@@ -255,7 +255,9 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             used_count: SlotIndex,
 
             fn usedBits(bucket: *BucketHeader, index: usize) *u8 {
-                return @as(*u8, @ptrFromInt(@intFromPtr(bucket) + @sizeOf(BucketHeader) + index));
+                const bucket_bytes: [*]u8 = @ptrCast(bucket);
+                const after_header = bucket_bytes + @sizeOf(BucketHeader);
+                return &after_header[index];
             }
 
             fn requestedSizes(bucket: *BucketHeader, size_class: usize) []LargestSizeClassInt {
@@ -745,7 +747,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 }
                 return self.resizeLarge(old_mem, log2_old_align, new_size, ret_addr);
             };
-            const byte_offset = @intFromPtr(old_mem.ptr) - @intFromPtr(bucket.page);
+            const byte_offset = old_mem.ptr - bucket.page;
             const slot_index = @as(SlotIndex, @intCast(byte_offset / size_class));
             const used_byte_index = slot_index / 8;
             const used_bit_index = @as(u3, @intCast(slot_index % 8));
@@ -865,7 +867,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 self.freeLarge(old_mem, log2_old_align, ret_addr);
                 return;
             };
-            const byte_offset = @intFromPtr(old_mem.ptr) - @intFromPtr(bucket.page);
+            const byte_offset = old_mem.ptr - bucket.page;
             const slot_index = @as(SlotIndex, @intCast(byte_offset / size_class));
             const used_byte_index = slot_index / 8;
             const used_bit_index = @as(u3, @intCast(slot_index % 8));
