@@ -484,7 +484,7 @@ const WindowsThreadImpl = struct {
     pub const ThreadHandle = windows.HANDLE;
 
     fn getCurrentId() windows.DWORD {
-        return windows.kernel32.GetCurrentThreadId();
+        return windows.GetCurrentThreadId();
     }
 
     fn getCpuCount() !usize {
