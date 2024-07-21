@@ -2982,20 +2982,37 @@ fn renderIdentifierContents(writer: anytype, bytes: []const u8) !void {
 }
 
 /// Returns true if there exists a line comment between any of the tokens from
-/// `start_token` to `end_token`. This is used to determine if e.g. a
-/// fn_proto should be wrapped and have a trailing comma inserted even if
-/// there is none in the source.
+/// `start_token` to `end_token` that isn't within an inner block. This is used
+/// to determine if e.g. a fn_proto should be wrapped and have a trailing comma
+/// inserted even if there is none in the source.
 fn hasComment(tree: Ast, start_token: Ast.TokenIndex, end_token: Ast.TokenIndex) bool {
     const token_starts = tree.tokens.items(.start);
+    const token_tags = tree.tokens.items(.tag);
 
-    var i = start_token;
-    while (i < end_token) : (i += 1) {
-        const start = token_starts[i] + tree.tokenSlice(i).len;
+    var inner_level: u32 = 0;
+    for (start_token..end_token) |i| {
+        switch (token_tags[i + 1]) {
+            .l_brace, .l_bracket, .l_paren => {
+                inner_level += 1;
+                continue;
+            },
+            .r_brace, .r_bracket, .r_paren => switch (inner_level) {
+                0 => unreachable,
+                1 => inner_level = 0,
+                else => {
+                    inner_level -= 1;
+                    continue;
+                },
+            },
+            else => if (inner_level > 0) continue,
+        }
+
+        const start_len = tree.tokenSlice(@intCast(i)).len;
+        const start = token_starts[i] + start_len;
         const end = token_starts[i + 1];
-        if (mem.indexOf(u8, tree.source[start..end], "//") != null) return true;
-    }
-
-    return false;
+        const source = tree.source[start..end];
+        if (mem.indexOf(u8, source, "//") != null) return true;
+    } else return false;
 }
 
 /// Returns true if there exists a multiline string literal between the start
