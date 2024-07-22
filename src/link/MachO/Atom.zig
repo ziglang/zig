@@ -42,7 +42,6 @@ extra: u32 = 0,
 pub fn getName(self: Atom, macho_file: *MachO) [:0]const u8 {
     return switch (self.getFile(macho_file)) {
         .dylib => unreachable,
-        .zig_object => |x| x.strtab.buffer.items[self.name.pos..][0 .. self.name.len - 1 :0],
         inline else => |x| x.getString(self.name),
     };
 }

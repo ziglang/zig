@@ -57,7 +57,6 @@ pub fn weakRef(symbol: Symbol, macho_file: *MachO) bool {
 
 pub fn getName(symbol: Symbol, macho_file: *MachO) [:0]const u8 {
     return switch (symbol.getFile(macho_file).?) {
-        .zig_object => |x| x.strtab.buffer.items[symbol.name.pos..][0 .. symbol.name.len - 1 :0],
         inline else => |x| x.getString(symbol.name),
     };
 }

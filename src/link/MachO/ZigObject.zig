@@ -1767,6 +1767,11 @@ fn addString(self: *ZigObject, allocator: Allocator, string: []const u8) !MachO.
     return .{ .pos = off, .len = @intCast(string.len + 1) };
 }
 
+pub fn getString(self: ZigObject, string: MachO.String) [:0]const u8 {
+    if (string.len == 0) return "";
+    return self.strtab.buffer.items[string.pos..][0 .. string.len - 1 :0];
+}
+
 pub fn asFile(self: *ZigObject) File {
     return .{ .zig_object = self };
 }
