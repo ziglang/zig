@@ -94,7 +94,6 @@ test "alignment and size of structs with 128-bit fields" {
         .mipsel,
         .powerpc,
         .powerpcle,
-        .r600,
         .amdgcn,
         .riscv32,
         .sparc,
