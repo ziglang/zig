@@ -1383,6 +1383,25 @@ pub const Object = struct {
             _ = try attributes.removeFnAttr(.cold);
         }
 
+        if (owner_mod.sanitize_thread and !func_analysis.disable_instrumentation) {
+            try attributes.addFnAttr(.sanitize_thread, &o.builder);
+        } else {
+            _ = try attributes.removeFnAttr(.sanitize_thread);
+        }
+        if (owner_mod.fuzz and !func_analysis.disable_instrumentation) {
+            try attributes.addFnAttr(.optforfuzzing, &o.builder);
+            if (comp.config.any_fuzz) {
+                _ = try attributes.removeFnAttr(.skipprofile);
+                _ = try attributes.removeFnAttr(.nosanitize_coverage);
+            }
+        } else {
+            _ = try attributes.removeFnAttr(.optforfuzzing);
+            if (comp.config.any_fuzz) {
+                try attributes.addFnAttr(.skipprofile, &o.builder);
+                try attributes.addFnAttr(.nosanitize_coverage, &o.builder);
+            }
+        }
+
         // TODO: disable this if safety is off for the function scope
         const ssp_buf_size = owner_mod.stack_protector;
         if (ssp_buf_size != 0) {
@@ -2981,12 +3000,6 @@ pub const Object = struct {
         if (owner_mod.optimize_mode == .ReleaseSmall) {
             try attributes.addFnAttr(.minsize, &o.builder);
             try attributes.addFnAttr(.optsize, &o.builder);
-        }
-        if (owner_mod.sanitize_thread) {
-            try attributes.addFnAttr(.sanitize_thread, &o.builder);
-        }
-        if (owner_mod.fuzz) {
-            try attributes.addFnAttr(.optforfuzzing, &o.builder);
         }
         const target = owner_mod.resolved_target.result;
         if (target.cpu.model.llvm_name) |s| {

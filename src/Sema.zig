@@ -1316,6 +1316,11 @@ fn analyzeBodyInner(
                         i += 1;
                         continue;
                     },
+                    .disable_instrumentation => {
+                        try sema.zirDisableInstrumentation();
+                        i += 1;
+                        continue;
+                    },
                     .restore_err_ret_index => {
                         try sema.zirRestoreErrRetIndex(block, extended);
                         i += 1;
@@ -6574,6 +6579,14 @@ fn zirSetCold(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) 
     });
     if (sema.func_index == .none) return; // does nothing outside a function
     ip.funcSetCold(sema.func_index, is_cold);
+}
+
+fn zirDisableInstrumentation(sema: *Sema) CompileError!void {
+    const pt = sema.pt;
+    const mod = pt.zcu;
+    const ip = &mod.intern_pool;
+    if (sema.func_index == .none) return; // does nothing outside a function
+    ip.funcSetDisableInstrumentation(sema.func_index);
 }
 
 fn zirSetFloatMode(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {

@@ -877,6 +877,7 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         .error_return_trace,
         .frame,
         .breakpoint,
+        .disable_instrumentation,
         .in_comptime,
         .panic,
         .trap,
