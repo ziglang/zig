@@ -276,13 +276,11 @@ fn _start() callconv(.Naked) noreturn {
             .x86_64 =>
             \\ xorl %%ebp, %%ebp
             \\ movq %%rsp, %%rdi
-            \\ andq $-16, %%rsp
             \\ callq %[posixCallMainAndExit:P]
             ,
             .x86 =>
             \\ xorl %%ebp, %%ebp
             \\ movl %%esp, %%eax
-            \\ andl $-16, %%esp
             \\ subl $12, %%esp
             \\ pushl %%eax
             \\ calll %[posixCallMainAndExit:P]
@@ -307,26 +305,10 @@ fn _start() callconv(.Naked) noreturn {
             \\ andi sp, sp, -16
             \\ tail %[posixCallMainAndExit]@plt
             ,
-            .mips, .mipsel =>
+            .mips, .mipsel, .mips64, .mips64el =>
             // The lr is already zeroed on entry, as specified by the ABI.
             \\ addiu $fp, $zero, 0
             \\ move $a0, $sp
-            \\ .set push
-            \\ .set noat
-            \\ addiu $1, $zero, -16
-            \\ and $sp, $sp, $1
-            \\ .set pop
-            \\ j %[posixCallMainAndExit]
-            ,
-            .mips64, .mips64el =>
-            // The lr is already zeroed on entry, as specified by the ABI.
-            \\ addiu $fp, $zero, 0
-            \\ move $a0, $sp
-            \\ .set push
-            \\ .set noat
-            \\ daddiu $1, $zero, -16
-            \\ and $sp, $sp, $1
-            \\ .set pop
             \\ j %[posixCallMainAndExit]
             ,
             .powerpc, .powerpcle =>
@@ -343,7 +325,6 @@ fn _start() callconv(.Naked) noreturn {
             \\ addis 2, 12, .TOC. - _start@ha
             \\ addi 2, 2, .TOC. - _start@l
             \\ mr 3, 1
-            \\ clrrdi 1, 1, 4
             \\ li 0, 0
             \\ stdu 0, -32(1)
             \\ mtlr 0
