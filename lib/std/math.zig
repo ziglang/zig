@@ -1432,6 +1432,7 @@ test lerp {
 /// Returns the maximum value of integer type T.
 pub fn maxInt(comptime T: type) comptime_int {
     const info = @typeInfo(T);
+    if (info != .Int) @compileError("Expected integer type, found '" ++ @typeName(T) ++ "'");
     const bit_count = info.Int.bits;
     if (bit_count == 0) return 0;
     return (1 << (bit_count - @intFromBool(info.Int.signedness == .signed))) - 1;
@@ -1440,6 +1441,7 @@ pub fn maxInt(comptime T: type) comptime_int {
 /// Returns the minimum value of integer type T.
 pub fn minInt(comptime T: type) comptime_int {
     const info = @typeInfo(T);
+    if (info != .Int) @compileError("Expected integer type, found '" ++ @typeName(T) ++ "'");
     const bit_count = info.Int.bits;
     if (info.Int.signedness == .unsigned) return 0;
     if (bit_count == 0) return 0;
