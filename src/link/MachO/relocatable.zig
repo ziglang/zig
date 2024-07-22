@@ -605,33 +605,74 @@ fn writeSections(macho_file: *MachO) !void {
     try macho_file.strtab.resize(gpa, cmd.strsize);
     macho_file.strtab.items[0] = 0;
 
-    for (macho_file.objects.items) |index| {
-        try macho_file.getFile(index).?.object.writeAtomsRelocatable(macho_file);
-        macho_file.getFile(index).?.writeSymtab(macho_file, macho_file);
+    const tp = macho_file.base.comp.thread_pool;
+    var wg: WaitGroup = .{};
+    {
+        wg.reset();
+        defer wg.wait();
+
+        for (macho_file.objects.items) |index| {
+            tp.spawnWg(&wg, writeAtomsWorker, .{ macho_file, macho_file.getFile(index).? });
+            tp.spawnWg(&wg, File.writeSymtab, .{ macho_file.getFile(index).?, macho_file, macho_file });
+        }
+
+        if (macho_file.getZigObject()) |zo| {
+            tp.spawnWg(&wg, writeAtomsWorker, .{ macho_file, zo.asFile() });
+            tp.spawnWg(&wg, File.writeSymtab, .{ zo.asFile(), macho_file, macho_file });
+        }
+
+        if (macho_file.eh_frame_sect_index) |_| {
+            tp.spawnWg(&wg, writeEhFrameWorker, .{macho_file});
+        }
+
+        if (macho_file.unwind_info_sect_index) |_| {
+            for (macho_file.objects.items) |index| {
+                tp.spawnWg(&wg, writeCompactUnwindWorker, .{ macho_file, macho_file.getFile(index).?.object });
+            }
+        }
     }
+
+    if (macho_file.has_errors.swap(false, .seq_cst)) return error.FlushFailure;
 
     if (macho_file.getZigObject()) |zo| {
         try zo.writeRelocs(macho_file);
-        try zo.writeAtomsRelocatable(macho_file);
-        zo.writeSymtab(macho_file, macho_file);
-    }
-
-    if (macho_file.eh_frame_sect_index) |_| {
-        try writeEhFrame(macho_file);
-    }
-
-    if (macho_file.unwind_info_sect_index) |_| {
-        for (macho_file.objects.items) |index| {
-            try macho_file.getFile(index).?.object.writeCompactUnwindRelocatable(macho_file);
-        }
     }
 }
 
-fn writeEhFrame(macho_file: *MachO) !void {
+fn writeAtomsWorker(macho_file: *MachO, file: File) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+    file.writeAtomsRelocatable(macho_file) catch |err| {
+        macho_file.reportParseError2(file.getIndex(), "failed to write atoms: {s}", .{
+            @errorName(err),
+        }) catch {};
+        _ = macho_file.has_errors.swap(true, .seq_cst);
+    };
+}
+
+fn writeEhFrameWorker(macho_file: *MachO) void {
+    const tracy = trace(@src());
+    defer tracy.end();
     const sect_index = macho_file.eh_frame_sect_index.?;
     const buffer = macho_file.sections.items(.out)[sect_index];
     const relocs = macho_file.sections.items(.relocs)[sect_index];
-    try eh_frame.writeRelocs(macho_file, buffer.items, relocs.items);
+    eh_frame.writeRelocs(macho_file, buffer.items, relocs.items) catch |err| {
+        macho_file.reportUnexpectedError("failed to write '__LD,__eh_frame' section: {s}", .{
+            @errorName(err),
+        }) catch {};
+        _ = macho_file.has_errors.swap(true, .seq_cst);
+    };
+}
+
+fn writeCompactUnwindWorker(macho_file: *MachO, object: *Object) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+    object.writeCompactUnwindRelocatable(macho_file) catch |err| {
+        macho_file.reportUnexpectedError("failed to write '__LD,__eh_frame' section: {s}", .{
+            @errorName(err),
+        }) catch {};
+        _ = macho_file.has_errors.swap(true, .seq_cst);
+    };
 }
 
 fn writeSectionsToFile(macho_file: *MachO) !void {

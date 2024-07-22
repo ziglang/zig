@@ -302,6 +302,13 @@ pub const File = union(enum) {
         };
     }
 
+    pub fn writeAtomsRelocatable(file: File, macho_file: *MachO) !void {
+        return switch (file) {
+            .dylib, .internal => unreachable,
+            inline else => |x| x.writeAtomsRelocatable(macho_file),
+        };
+    }
+
     pub fn calcSymtabSize(file: File, macho_file: *MachO) void {
         return switch (file) {
             inline else => |x| x.calcSymtabSize(macho_file),
