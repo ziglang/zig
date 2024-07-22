@@ -4578,6 +4578,11 @@ pub const SymbolResolver = struct {
     pub const Index = u32;
 };
 
+pub const String = struct {
+    pos: u32 = 0,
+    len: u32 = 0,
+};
+
 const MachO = @This();
 
 const std = @import("std");
