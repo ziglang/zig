@@ -5626,15 +5626,6 @@ pub fn addCCArgs(
                 if (mod.sanitize_c) {
                     if (san_arg.items.len == 0) try san_arg.appendSlice(arena, prefix);
                     try san_arg.appendSlice(arena, "undefined,");
-                    try argv.append("-fsanitize-trap=undefined");
-                    // It is very common, and well-defined, for a pointer on one side of a C ABI
-                    // to have a different but compatible element type. Examples include:
-                    // `char*` vs `uint8_t*` on a system with 8-bit bytes
-                    // `const char*` vs `char*`
-                    // `char*` vs `unsigned char*`
-                    // Without this flag, Clang would invoke UBSAN when such an extern
-                    // function was called.
-                    try argv.append("-fno-sanitize=function");
                 }
                 if (mod.sanitize_thread) {
                     if (san_arg.items.len == 0) try san_arg.appendSlice(arena, prefix);
@@ -5645,7 +5636,23 @@ pub fn addCCArgs(
                     try san_arg.appendSlice(arena, "fuzzer-no-link,");
                 }
                 // Chop off the trailing comma and append to argv.
-                if (san_arg.popOrNull()) |_| try argv.append(san_arg.items);
+                if (san_arg.popOrNull()) |_| {
+                    try argv.append(san_arg.items);
+
+                    // These args have to be added after the `-fsanitize` arg or
+                    // they won't take effect.
+                    if (mod.sanitize_c) {
+                        try argv.append("-fsanitize-trap=undefined");
+                        // It is very common, and well-defined, for a pointer on one side of a C ABI
+                        // to have a different but compatible element type. Examples include:
+                        // `char*` vs `uint8_t*` on a system with 8-bit bytes
+                        // `const char*` vs `char*`
+                        // `char*` vs `unsigned char*`
+                        // Without this flag, Clang would invoke UBSAN when such an extern
+                        // function was called.
+                        try argv.append("-fno-sanitize=function");
+                    }
+                }
             }
 
             if (mod.red_zone) {
