@@ -1101,6 +1101,7 @@ pub const Object = struct {
         is_small: bool,
         time_report: bool,
         sanitize_thread: bool,
+        fuzz: bool,
         lto: bool,
     };
 
@@ -1287,6 +1288,7 @@ pub const Object = struct {
                 options.is_small,
                 options.time_report,
                 options.sanitize_thread,
+                options.fuzz,
                 options.lto,
                 null,
                 emit_bin_path,
@@ -1311,6 +1313,7 @@ pub const Object = struct {
             options.is_small,
             options.time_report,
             options.sanitize_thread,
+            options.fuzz,
             options.lto,
             options.asm_path,
             emit_bin_path,
@@ -2981,6 +2984,9 @@ pub const Object = struct {
         }
         if (owner_mod.sanitize_thread) {
             try attributes.addFnAttr(.sanitize_thread, &o.builder);
+        }
+        if (owner_mod.fuzz) {
+            try attributes.addFnAttr(.optforfuzzing, &o.builder);
         }
         const target = owner_mod.resolved_target.result;
         if (target.cpu.model.llvm_name) |s| {

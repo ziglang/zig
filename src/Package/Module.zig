@@ -26,6 +26,7 @@ stack_protector: u32,
 red_zone: bool,
 sanitize_c: bool,
 sanitize_thread: bool,
+fuzz: bool,
 unwind_tables: bool,
 cc_argv: []const []const u8,
 /// (SPIR-V) whether to generate a structured control flow graph or not
@@ -92,6 +93,7 @@ pub const CreateOptions = struct {
         unwind_tables: ?bool = null,
         sanitize_c: ?bool = null,
         sanitize_thread: ?bool = null,
+        fuzz: ?bool = null,
         structured_cfg: ?bool = null,
     };
 };
@@ -106,6 +108,7 @@ pub const ResolvedTarget = struct {
 /// At least one of `parent` and `resolved_target` must be non-null.
 pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     if (options.inherited.sanitize_thread == true) assert(options.global.any_sanitize_thread);
+    if (options.inherited.fuzz == true) assert(options.global.any_fuzz);
     if (options.inherited.single_threaded == false) assert(options.global.any_non_single_threaded);
     if (options.inherited.unwind_tables == true) assert(options.global.any_unwind_tables);
     if (options.inherited.error_tracing == true) assert(options.global.any_error_tracing);
@@ -207,6 +210,12 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     const sanitize_thread = b: {
         if (options.inherited.sanitize_thread) |x| break :b x;
         if (options.parent) |p| break :b p.sanitize_thread;
+        break :b false;
+    };
+
+    const fuzz = b: {
+        if (options.inherited.fuzz) |x| break :b x;
+        if (options.parent) |p| break :b p.fuzz;
         break :b false;
     };
 
@@ -337,6 +346,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         .red_zone = red_zone,
         .sanitize_c = sanitize_c,
         .sanitize_thread = sanitize_thread,
+        .fuzz = fuzz,
         .unwind_tables = unwind_tables,
         .cc_argv = options.cc_argv,
         .structured_cfg = structured_cfg,
@@ -359,6 +369,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .error_tracing = error_tracing,
             .valgrind = valgrind,
             .sanitize_thread = sanitize_thread,
+            .fuzz = fuzz,
             .pic = pic,
             .pie = options.global.pie,
             .strip = strip,
@@ -427,6 +438,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .red_zone = red_zone,
             .sanitize_c = sanitize_c,
             .sanitize_thread = sanitize_thread,
+            .fuzz = fuzz,
             .unwind_tables = unwind_tables,
             .cc_argv = &.{},
             .structured_cfg = structured_cfg,
@@ -485,6 +497,7 @@ pub fn createLimited(gpa: Allocator, options: LimitedOptions) Allocator.Error!*P
         .red_zone = undefined,
         .sanitize_c = undefined,
         .sanitize_thread = undefined,
+        .fuzz = undefined,
         .unwind_tables = undefined,
         .cc_argv = undefined,
         .structured_cfg = undefined,

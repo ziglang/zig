@@ -636,18 +636,20 @@ test lessThan {
     try testing.expect(lessThan(u8, "", "a"));
 }
 
-const backend_can_use_eql_bytes = switch (builtin.zig_backend) {
+const eqlBytes_allowed = switch (builtin.zig_backend) {
     // The SPIR-V backend does not support the optimized path yet.
     .stage2_spirv64 => false,
     // The RISC-V does not support vectors.
     .stage2_riscv64 => false,
-    else => true,
+    // The naive memory comparison implementation is more useful for fuzzers to
+    // find interesting inputs.
+    else => !builtin.fuzz,
 };
 
 /// Compares two slices and returns whether they are equal.
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     if (@sizeOf(T) == 0) return true;
-    if (!@inComptime() and std.meta.hasUniqueRepresentation(T) and backend_can_use_eql_bytes) return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
+    if (!@inComptime() and std.meta.hasUniqueRepresentation(T) and eqlBytes_allowed) return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
 
     if (a.len != b.len) return false;
     if (a.len == 0 or a.ptr == b.ptr) return true;
@@ -660,9 +662,7 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
 
 /// std.mem.eql heavily optimized for slices of bytes.
 fn eqlBytes(a: []const u8, b: []const u8) bool {
-    if (!backend_can_use_eql_bytes) {
-        return eql(u8, a, b);
-    }
+    comptime assert(eqlBytes_allowed);
 
     if (a.len != b.len) return false;
     if (a.len == 0 or a.ptr == b.ptr) return true;

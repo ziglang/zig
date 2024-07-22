@@ -54,6 +54,7 @@
 #include <llvm/Transforms/IPO.h>
 #include <llvm/Transforms/IPO/AlwaysInliner.h>
 #include <llvm/Transforms/Instrumentation/ThreadSanitizer.h>
+#include <llvm/Transforms/Instrumentation/SanitizerCoverage.h>
 #include <llvm/Transforms/Scalar.h>
 #include <llvm/Transforms/Utils.h>
 #include <llvm/Transforms/Utils/AddDiscriminators.h>
@@ -188,9 +189,10 @@ struct TimeTracerRAII {
 };
 } // end anonymous namespace
 
+
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
         char **error_message, bool is_debug,
-        bool is_small, bool time_report, bool tsan, bool lto,
+        bool is_small, bool time_report, bool tsan, bool sancov, bool lto,
         const char *asm_filename, const char *bin_filename,
         const char *llvm_ir_filename, const char *bitcode_filename)
 {
@@ -303,13 +305,18 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
         });
     }
 
-    // Thread sanitizer
-    if (tsan) {
-        pass_builder.registerOptimizerLastEPCallback([](ModulePassManager &module_pm, OptimizationLevel level) {
+    pass_builder.registerOptimizerLastEPCallback([&](ModulePassManager &module_pm, OptimizationLevel level) {
+        // Code coverage instrumentation.
+        if (sancov) {
+            module_pm.addPass(SanitizerCoveragePass());
+        }
+
+        // Thread sanitizer
+        if (tsan) {
             module_pm.addPass(ModuleThreadSanitizerPass());
             module_pm.addPass(createModuleToFunctionPassAdaptor(ThreadSanitizerPass()));
-        });
-    }
+        }
+    });
 
     ModulePassManager module_pm;
     OptimizationLevel opt_level;
