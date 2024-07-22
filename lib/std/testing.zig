@@ -1,7 +1,11 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
-
+const assert = std.debug.assert;
 const math = std.math;
+
+/// Provides deterministic randomness in unit tests.
+/// Initialized on startup. Read-only after that.
+pub var random_seed: u32 = 0;
 
 pub const FailingAllocator = @import("testing/failing_allocator.zig").FailingAllocator;
 

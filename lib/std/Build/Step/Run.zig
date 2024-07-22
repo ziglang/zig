@@ -185,8 +185,13 @@ pub fn setName(run: *Run, name: []const u8) void {
 }
 
 pub fn enableTestRunnerMode(run: *Run) void {
+    const b = run.step.owner;
+    const arena = b.allocator;
     run.stdio = .zig_test;
-    run.addArgs(&.{"--listen=-"});
+    run.addArgs(&.{
+        std.fmt.allocPrint(arena, "--seed=0x{x}", .{b.graph.random_seed}) catch @panic("OOM"),
+        "--listen=-",
+    });
 }
 
 pub fn addArtifactArg(run: *Run, artifact: *Step.Compile) void {

@@ -121,6 +121,7 @@ pub const Graph = struct {
     /// Information about the native target. Computed before build() is invoked.
     host: ResolvedTarget,
     incremental: ?bool = null,
+    random_seed: u32 = 0,
 };
 
 const AvailableDeps = []const struct { []const u8, []const u8 };

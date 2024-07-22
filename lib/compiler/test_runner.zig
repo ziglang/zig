@@ -24,6 +24,9 @@ pub fn main() void {
     for (args[1..]) |arg| {
         if (std.mem.eql(u8, arg, "--listen=-")) {
             listen = true;
+        } else if (std.mem.startsWith(u8, arg, "--seed=")) {
+            std.testing.random_seed = std.fmt.parseUnsigned(u32, arg["--seed=".len..], 0) catch
+                @panic("unable to parse --seed command line argument");
         } else {
             @panic("unrecognized command line argument");
         }
