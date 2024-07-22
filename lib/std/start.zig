@@ -340,8 +340,8 @@ fn _start() callconv(.Naked) noreturn {
             ,
             .powerpc64, .powerpc64le =>
             // Setup the initial stack frame and clear the back chain pointer.
-            \\ addis 2, 12, .TOC. - _start@ha
-            \\ addi 2, 2, .TOC. - _start@l
+            \\ addis 2, 12, .TOC. - %[_start]@ha
+            \\ addi 2, 2, .TOC. - %[_start]@l
             \\ mr 3, 1
             \\ clrrdi 1, 1, 4
             \\ li 0, 0
@@ -359,7 +359,8 @@ fn _start() callconv(.Naked) noreturn {
             else => @compileError("unsupported arch"),
         }
         :
-        : [posixCallMainAndExit] "X" (&posixCallMainAndExit),
+        : [_start] "X" (_start),
+          [posixCallMainAndExit] "X" (&posixCallMainAndExit),
     );
 }
 
