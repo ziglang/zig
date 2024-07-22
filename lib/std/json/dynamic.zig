@@ -32,22 +32,16 @@ pub const Value = union(enum) {
     array: Array,
     object: ObjectMap,
 
-    pub fn parseFromNumberSlice(s: []const u8, options: ParseOptions) Value {
+    pub fn parseFromNumberSlice(s: []const u8) Value {
         if (!isNumberFormattedLikeAnInteger(s)) {
             const f = std.fmt.parseFloat(f64, s) catch unreachable;
             if (std.math.isFinite(f)) {
-                if (options.exact_precision_floats) {
-                    return Value{ .number_string = s };
-                }
                 return Value{ .float = f };
             } else {
                 return Value{ .number_string = s };
             }
         }
         if (std.fmt.parseInt(i64, s, 10)) |i| {
-            if (options.exact_precision_integers) {
-                return Value{ .number_string = s };
-            }
             return Value{ .integer = i };
         } else |e| {
             switch (e) {
@@ -103,7 +97,7 @@ pub const Value = union(enum) {
                     return try handleCompleteValue(&stack, allocator, source, Value{ .string = s }, options) orelse continue;
                 },
                 .allocated_number => |slice| {
-                    return try handleCompleteValue(&stack, allocator, source, Value.parseFromNumberSlice(slice, options), options) orelse continue;
+                    return try handleCompleteValue(&stack, allocator, source, Value.parseFromNumberSlice(slice), options) orelse continue;
                 },
 
                 .null => return try handleCompleteValue(&stack, allocator, source, .null, options) orelse continue,

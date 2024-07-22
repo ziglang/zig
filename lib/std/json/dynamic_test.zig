@@ -149,21 +149,6 @@ test "integer after float has proper type" {
     try std.testing.expect(parsed.object.get("ints").?.array.items[0] == .integer);
 }
 
-test "exact precision integers and floats have proper type" {
-    var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena_allocator.deinit();
-    const parsed = try parseFromSliceLeaky(Value, arena_allocator.allocator(),
-        \\{
-        \\  "float": 3.14,
-        \\  "int": 3
-        \\}
-        , .{ .exact_precision_floats = true, .exact_precision_integers = true });
-    const f = parsed.object.get("float").?;
-    const i = parsed.object.get("int").?;
-    try std.testing.expect(f == .number_string);
-    try std.testing.expect(i == .number_string);
-}
-
 test "escaped characters" {
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
