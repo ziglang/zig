@@ -1730,7 +1730,7 @@ pub const DynamicLinker = struct {
                     else => "",
                 }}) catch unreachable,
 
-                .loongarch64 => init("/lib/ld-linux-loongarch-lp64d.so.1")
+                .loongarch64 => init("/lib64/ld-linux-loongarch-lp64d.so.1")
 
                 .mips,
                 .mipsel,
