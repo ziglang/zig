@@ -307,6 +307,14 @@ fn _start() callconv(.Naked) noreturn {
             \\ andi sp, sp, -16
             \\ tail %[posixCallMainAndExit]@plt
             ,
+            .m68k =>
+            // Note that the - 8 is needed because pc in the jsr instruction points into the middle
+            // of the jsr instruction. (The lea is 6 bytes, the jsr is 4 bytes.)
+            \\ suba.l %%fp, %%fp
+            \\ move.l %%sp, -(%%sp)
+            \\ lea %[posixCallMainAndExit] - . - 8, %%a0
+            \\ jsr (%%pc, %%a0)
+            ,
             .mips, .mipsel =>
             // The lr is already zeroed on entry, as specified by the ABI.
             \\ addiu $fp, $zero, 0
