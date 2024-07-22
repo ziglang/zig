@@ -300,6 +300,12 @@ fn _start() callconv(.Naked) noreturn {
             \\ and sp, #-16
             \\ b %[posixCallMainAndExit]
             ,
+            .loongarch64 =>
+            \\ move $fp, $zero
+            \\ move $a0, $sp
+            \\ bstrins.d $sp, $zero, 3, 0
+            \\ b %[posixCallMainAndExit]
+            ,
             .riscv64 =>
             \\ li s0, 0
             \\ li ra, 0
