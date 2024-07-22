@@ -2395,9 +2395,9 @@ pub const CompileError = error{
     ComptimeBreak,
 };
 
-pub fn init(mod: *Zcu, thread_count: usize) !void {
-    const gpa = mod.gpa;
-    try mod.intern_pool.init(gpa, thread_count);
+pub fn init(zcu: *Zcu, thread_count: usize) !void {
+    const gpa = zcu.gpa;
+    try zcu.intern_pool.init(gpa, thread_count);
 }
 
 pub fn deinit(zcu: *Zcu) void {

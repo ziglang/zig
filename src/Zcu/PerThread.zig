@@ -767,6 +767,9 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: Ai
     const ip = &zcu.intern_pool;
     const comp = zcu.comp;
 
+    comp.time_trace.event(.{ .codegen_func = func_index }, pt);
+    defer comp.time_trace.event(.end, pt);
+
     defer {
         var air_mut = air;
         air_mut.deinit(gpa);
@@ -1078,6 +1081,11 @@ fn semaDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) !Zcu.SemaDeclResult {
     defer tracy.end();
 
     const zcu = pt.zcu;
+    const comp = zcu.comp;
+
+    comp.time_trace.event(.{ .decl = decl_index }, pt);
+    defer comp.time_trace.event(.end, pt);
+
     const decl = zcu.declPtr(decl_index);
     const ip = &zcu.intern_pool;
 
@@ -2029,20 +2037,23 @@ pub fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index, arena: All
     const tracy = trace(@src());
     defer tracy.end();
 
-    const mod = pt.zcu;
-    const gpa = mod.gpa;
-    const ip = &mod.intern_pool;
-    const func = mod.funcInfo(func_index);
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
+    const func = zcu.funcInfo(func_index);
     const decl_index = func.owner_decl;
-    const decl = mod.declPtr(decl_index);
+    const decl = zcu.declPtr(decl_index);
+
+    zcu.comp.time_trace.event(.{ .fn_body = func_index }, pt);
+    defer zcu.comp.time_trace.event(.end, pt);
 
     log.debug("func name '{}'", .{decl.fqn.fmt(ip)});
     defer log.debug("finish func name '{}'", .{decl.fqn.fmt(ip)});
 
-    const decl_prog_node = mod.sema_prog_node.start(decl.fqn.toSlice(ip), 0);
+    const decl_prog_node = zcu.sema_prog_node.start(decl.fqn.toSlice(ip), 0);
     defer decl_prog_node.end();
 
-    mod.intern_pool.removeDependenciesForDepender(gpa, InternPool.AnalUnit.wrap(.{ .func = func_index }));
+    zcu.intern_pool.removeDependenciesForDepender(gpa, InternPool.AnalUnit.wrap(.{ .func = func_index }));
 
     var comptime_err_ret_trace = std.ArrayList(Zcu.LazySrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
@@ -2052,14 +2063,14 @@ pub fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index, arena: All
     // the runtime-known parameters only, not to be confused with the
     // generic_owner function type, which potentially has more parameters,
     // including comptime parameters.
-    const fn_ty = decl.typeOf(mod);
-    const fn_ty_info = mod.typeToFunc(fn_ty).?;
+    const fn_ty = decl.typeOf(zcu);
+    const fn_ty_info = zcu.typeToFunc(fn_ty).?;
 
     var sema: Sema = .{
         .pt = pt,
         .gpa = gpa,
         .arena = arena,
-        .code = decl.getFileScope(mod).zir,
+        .code = decl.getFileScope(zcu).zir,
         .owner_decl = decl,
         .owner_decl_index = decl_index,
         .func_index = func_index,
@@ -2102,8 +2113,8 @@ pub fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index, arena: All
             const owner_info = if (func.generic_owner == .none)
                 func
             else
-                mod.funcInfo(func.generic_owner);
-            const orig_decl = mod.declPtr(owner_info.owner_decl);
+                zcu.funcInfo(func.generic_owner);
+            const orig_decl = zcu.declPtr(owner_info.owner_decl);
             break :inst orig_decl.zir_decl_index.unwrap().?;
         },
         .type_name_ctx = decl.name,
@@ -2207,8 +2218,8 @@ pub fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index, arena: All
 
     // If we don't get an error return trace from a caller, create our own.
     if (func.analysisUnordered(ip).calls_or_awaits_errorable_fn and
-        mod.comp.config.any_error_tracing and
-        !sema.fn_ret_ty.isError(mod))
+        zcu.comp.config.any_error_tracing and
+        !sema.fn_ret_ty.isError(zcu))
     {
         sema.setupErrorReturnTrace(&inner_block, last_arg_index) catch |err| switch (err) {
             // TODO make these unreachable instead of @panic
@@ -2632,6 +2643,9 @@ pub fn populateTestFunctions(
 pub fn linkerUpdateDecl(pt: Zcu.PerThread, decl_index: Zcu.Decl.Index) !void {
     const zcu = pt.zcu;
     const comp = zcu.comp;
+
+    comp.time_trace.event(.{ .codegen_decl = decl_index }, pt);
+    defer comp.time_trace.event(.end, pt);
 
     const decl = zcu.declPtr(decl_index);
 
