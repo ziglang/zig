@@ -16,6 +16,7 @@ const Array = @import("./dynamic.zig").Array;
 /// Controls how to deal with various inconsistencies between the JSON document and the Zig struct type passed in.
 /// For duplicate fields or unknown fields, set options in this struct.
 /// For missing fields, give the Zig struct fields default values.
+/// For mismatched precision, set exact_precision to true and parse the values yourself.
 pub const ParseOptions = struct {
     /// Behaviour when a duplicate field is encountered.
     /// The default is to return `error.DuplicateField`.
@@ -42,6 +43,12 @@ pub const ParseOptions = struct {
     /// The default with a `*std.json.Reader` input is `.alloc_always`.
     /// Ignored for `parseFromValue` and `parseFromValueLeaky`.
     allocate: ?AllocWhen = null,
+
+    // Specifies whether or not integers and floats should be left as their original string representations,
+    // or parsed into their 'std.json.Value.integer' or 'std.json.Value.float' representations.
+    // Exact precision floats and integers are both represented as a 'std.json.Value.number_string';
+    exact_precision_integers: bool = false,
+    exact_precision_floats: bool = false,
 };
 
 pub fn Parsed(comptime T: type) type {
