@@ -9,17 +9,12 @@ pub const arg = @import("complex/arg.zig").arg;
 pub const asinh = @import("complex/asinh.zig").asinh;
 pub const asin = @import("complex/asin.zig").asin;
 pub const atanh = @import("complex/atanh.zig").atanh;
-pub const atan = @import("complex/atan.zig").atan;
 pub const conj = @import("complex/conj.zig").conj;
-pub const cosh = @import("complex/cosh.zig").cosh;
 pub const cos = @import("complex/cos.zig").cos;
-pub const exp = @import("complex/exp.zig").exp;
 pub const log = @import("complex/log.zig").log;
 pub const pow = @import("complex/pow.zig").pow;
 pub const proj = @import("complex/proj.zig").proj;
-pub const sinh = @import("complex/sinh.zig").sinh;
 pub const sin = @import("complex/sin.zig").sin;
-pub const sqrt = @import("complex/sqrt.zig").sqrt;
 pub const tanh = @import("complex/tanh.zig").tanh;
 pub const tan = @import("complex/tan.zig").tan;
 
@@ -210,4 +205,97 @@ test {
     _ = @import("complex/sqrt.zig");
     _ = @import("complex/tanh.zig");
     _ = @import("complex/tan.zig");
+}
+
+/// deserialize tuple to complex type
+pub fn as(comptime Z: type, z: anytype) Z {
+    return .{ .re = z[0], .im = z[1] };
+}
+
+/// compute `arctan(z.re + i*z.im) = -ilog( (1+iz)/(1-iz) ) / 2`
+pub fn atan(z: anytype) @TypeOf(z) {
+    const impl = @import("complex/atan.zig");
+    const Z = @TypeOf(z);
+    return switch (@TypeOf(z.re, z.im)) {
+        f32 => as(Z, impl.atan32(z.re, z.im)),
+        f64 => as(Z, impl.atan64(z.re, z.im)),
+        else => |S| as(Z, impl.atanFallback(S, z.re, z.im)),
+    };
+}
+
+/// Computes the even part of the complex exponential function.
+/// ```
+///    z    -z
+///  e   + e
+/// ----------- = cosh(z.re)cos(z.im) + isinh(z.re)sin(z.im)
+///      2
+/// ```
+pub fn cosh(z: anytype) @TypeOf(z) {
+    const impl = @import("complex/cosh.zig");
+    const Z = @TypeOf(z);
+    return switch (@TypeOf(z.re, z.im)) {
+        f32 => as(Z, impl.cosh32(z.re, z.im)),
+        f64 => as(Z, impl.cosh64(z.re, z.im)),
+        else => .{
+            .re = math.cosh(z.re) * @cos(z.im),
+            .im = math.sinh(z.re) * @sin(z.im),
+        },
+    };
+}
+
+/// Computes the odd part of the complex exponential function.
+/// ```
+///    z    -z
+///  e   - e
+/// ----------- = sinh(z.re)cos(z.im) + icosh(z.re)sin(z.im)
+///      2
+/// ```
+pub fn sinh(z: anytype) @TypeOf(z) {
+    const impl = @import("complex/sinh.zig");
+    const Z = @TypeOf(z);
+    return switch (@TypeOf(z.re, z.im)) {
+        f32 => as(Z, impl.sinh32(z.re, z.im)),
+        f64 => as(Z, impl.sinh64(z.re, z.im)),
+        else => .{
+            .re = math.sinh(z.re) * @cos(z.im),
+            .im = math.cosh(z.re) * @sin(z.im),
+        },
+    };
+}
+
+/// Composes a complex number from nepers and radians.
+/// ```
+///
+///    z     z.re
+///  e   = e      * ( cos(z.im) + i*sin(z.im) )
+///
+///
+/// ```
+/// Special Cases:
+/// |  re  |  im  |   real  |   imag  |
+/// |------|------|---------|---------|
+/// |  any |   0  |   e^re  |    0    |
+/// |   0  |  any | cos(im) | sin(im) |
+/// | !inf | !fin |   nan   |   nan   |
+/// | -inf | !fin |    0    |    0    |
+/// | +inf | !fin |   inf   |   nan   |
+pub fn exp(z: anytype) @TypeOf(z) {
+    const impl = @import("complex/exp.zig");
+    const Z = @TypeOf(z);
+    return switch (@TypeOf(z.re, z.im)) {
+        f32 => as(Z, impl.exp32(z.re, z.im)),
+        f64 => as(Z, impl.exp64(z.re, z.im)),
+        else => |S| as(Z, impl.expFallback(S, z.re, z.im)),
+    };
+}
+
+/// compute the geometric mean between z and unity
+pub fn sqrt(z: anytype) @TypeOf(z) {
+    const impl = @import("complex/sqrt.zig");
+    const Z = @TypeOf(z);
+    return switch (@TypeOf(z.re, z.im)) {
+        f32 => as(Z, impl.sqrt32(z.re, z.im)),
+        f64 => as(Z, impl.sqrt64(z.re, z.im)),
+        else => |S| as(Z, impl.sqrtFallback(S, z.re, z.im)),
+    };
 }
