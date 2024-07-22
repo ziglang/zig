@@ -363,6 +363,15 @@ fn _start() callconv(.Naked) noreturn {
             \\ mtlr 0
             \\ b %[posixCallMainAndExit]
             ,
+            .s390x =>
+            // Set up the stack frame (register save area and cleared back-chain slot).
+            // Note: Stack pointer is guaranteed by ABI to be 8-byte aligned as required.
+            \\ lgr %r2, %r15
+            \\ aghi %r15, -160
+            \\ lghi %r0, 0
+            \\ stg  %r0, 0(%r15)
+            \\ jg %[posixCallMainAndExit]
+            ,
             .sparc64 =>
             // argc is stored after a register window (16 registers) plus stack bias
             \\ mov %%g0, %%i6
