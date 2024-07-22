@@ -189,6 +189,27 @@ struct TimeTracerRAII {
 };
 } // end anonymous namespace
 
+static SanitizerCoverageOptions getSanCovOptions(void) {
+    SanitizerCoverageOptions o;
+    o.CoverageType = SanitizerCoverageOptions::SCK_Edge;
+    o.IndirectCalls = true;
+    o.TraceBB = false;
+    o.TraceCmp = true;
+    o.TraceDiv = false;
+    o.TraceGep = false;
+    o.Use8bitCounters = false;
+    o.TracePC = false;
+    o.TracePCGuard = false;
+    o.Inline8bitCounters = true;
+    o.InlineBoolFlag = false;
+    o.PCTable = true;
+    o.NoPrune = false;
+    o.StackDepth = true;
+    o.TraceLoads = false;
+    o.TraceStores = false;
+    o.CollectControlFlow = false;
+    return o;
+}
 
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
         char **error_message, bool is_debug,
@@ -279,42 +300,36 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     pass_builder.registerCGSCCAnalyses(cgscc_am);
     pass_builder.registerFunctionAnalyses(function_am);
     pass_builder.registerLoopAnalyses(loop_am);
-    pass_builder.crossRegisterProxies(loop_am, function_am,
-                                      cgscc_am, module_am);
+    pass_builder.crossRegisterProxies(loop_am, function_am, cgscc_am, module_am);
 
-    // IR verification
-    if (assertions_on) {
-      // Verify the input
-      pass_builder.registerPipelineStartEPCallback(
-        [](ModulePassManager &module_pm, OptimizationLevel OL) {
-          module_pm.addPass(VerifierPass());
-        });
-      // Verify the output
-      pass_builder.registerOptimizerLastEPCallback(
-        [](ModulePassManager &module_pm, OptimizationLevel OL) {
-          module_pm.addPass(VerifierPass());
-        });
-    }
+    pass_builder.registerPipelineStartEPCallback([&](ModulePassManager &module_pm, OptimizationLevel OL) {
+        // Verify the input
+        if (assertions_on) {
+            module_pm.addPass(VerifierPass());
+        }
 
-    // Passes specific for release build
-    if (!is_debug) {
-      pass_builder.registerPipelineStartEPCallback(
-        [](ModulePassManager &module_pm, OptimizationLevel OL) {
-          module_pm.addPass(
-            createModuleToFunctionPassAdaptor(AddDiscriminatorsPass()));
-        });
-    }
+        if (!is_debug) {
+            module_pm.addPass(createModuleToFunctionPassAdaptor(AddDiscriminatorsPass()));
+        }
+    });
 
-    pass_builder.registerOptimizerLastEPCallback([&](ModulePassManager &module_pm, OptimizationLevel level) {
+    pass_builder.registerOptimizerEarlyEPCallback([&](ModulePassManager &module_pm, OptimizationLevel OL) {
         // Code coverage instrumentation.
         if (sancov) {
-            module_pm.addPass(SanitizerCoveragePass());
+            module_pm.addPass(SanitizerCoveragePass(getSanCovOptions()));
         }
 
         // Thread sanitizer
         if (tsan) {
             module_pm.addPass(ModuleThreadSanitizerPass());
             module_pm.addPass(createModuleToFunctionPassAdaptor(ThreadSanitizerPass()));
+        }
+    });
+
+    pass_builder.registerOptimizerLastEPCallback([&](ModulePassManager &module_pm, OptimizationLevel level) {
+        // Verify the output
+        if (assertions_on) {
+            module_pm.addPass(VerifierPass());
         }
     });
 
