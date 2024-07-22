@@ -7863,6 +7863,7 @@ pub const Metadata = enum(u32) {
         composite_vector_type,
         derived_pointer_type,
         derived_member_type,
+        derived_member_type_bitfield,
         derived_typedef,
         imported_declaration,
         subroutine_type,
@@ -7911,6 +7912,7 @@ pub const Metadata = enum(u32) {
                 .composite_vector_type,
                 .derived_pointer_type,
                 .derived_member_type,
+                .derived_member_type_bitfield,
                 .derived_typedef,
                 .imported_declaration,
                 .subroutine_type,
@@ -10374,6 +10376,7 @@ pub fn printUnbuffered(
                 },
                 .derived_pointer_type,
                 .derived_member_type,
+                .derived_member_type_bitfield,
                 .derived_typedef,
                 => |kind| {
                     const extra = self.metadataExtraData(Metadata.DerivedType, metadata_item.data);
@@ -10384,7 +10387,7 @@ pub fn printUnbuffered(
                             DW_TAG_typedef,
                         }, switch (kind) {
                             .derived_pointer_type => .DW_TAG_pointer_type,
-                            .derived_member_type => .DW_TAG_member,
+                            .derived_member_type, .derived_member_type_bitfield => .DW_TAG_member,
                             .derived_typedef => .DW_TAG_typedef,
                             else => unreachable,
                         }),
@@ -10402,7 +10405,7 @@ pub fn printUnbuffered(
                             0 => null,
                             else => |bit_offset| bit_offset,
                         },
-                        .flags = null,
+                        .flags = Metadata.DIFlags{ .BitField = metadata_item.tag == .derived_member_type_bitfield },
                         .extraData = null,
                         .dwarfAddressSpace = null,
                         .annotations = null,
@@ -12275,6 +12278,7 @@ pub fn debugMemberType(
     size_in_bits: u64,
     align_in_bits: u64,
     offset_in_bits: u64,
+    is_bitfield: bool,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.DerivedType, 0);
     return self.debugMemberTypeAssumeCapacity(
@@ -12286,6 +12290,7 @@ pub fn debugMemberType(
         size_in_bits,
         align_in_bits,
         offset_in_bits,
+        is_bitfield,
     );
 }
 
@@ -12882,21 +12887,25 @@ fn debugMemberTypeAssumeCapacity(
     size_in_bits: u64,
     align_in_bits: u64,
     offset_in_bits: u64,
+    is_bitfield: bool,
 ) Metadata {
     assert(!self.strip);
-    return self.metadataSimpleAssumeCapacity(.derived_member_type, Metadata.DerivedType{
-        .name = name,
-        .file = file,
-        .scope = scope,
-        .line = line,
-        .underlying_type = underlying_type,
-        .size_in_bits_lo = @truncate(size_in_bits),
-        .size_in_bits_hi = @truncate(size_in_bits >> 32),
-        .align_in_bits_lo = @truncate(align_in_bits),
-        .align_in_bits_hi = @truncate(align_in_bits >> 32),
-        .offset_in_bits_lo = @truncate(offset_in_bits),
-        .offset_in_bits_hi = @truncate(offset_in_bits >> 32),
-    });
+    return self.metadataSimpleAssumeCapacity(
+        if (is_bitfield) .derived_member_type_bitfield else .derived_member_type,
+        Metadata.DerivedType{
+            .name = name,
+            .file = file,
+            .scope = scope,
+            .line = line,
+            .underlying_type = underlying_type,
+            .size_in_bits_lo = @truncate(size_in_bits),
+            .size_in_bits_hi = @truncate(size_in_bits >> 32),
+            .align_in_bits_lo = @truncate(align_in_bits),
+            .align_in_bits_hi = @truncate(align_in_bits >> 32),
+            .offset_in_bits_lo = @truncate(offset_in_bits),
+            .offset_in_bits_hi = @truncate(offset_in_bits >> 32),
+        },
+    );
 }
 
 fn debugSubroutineTypeAssumeCapacity(
@@ -14335,13 +14344,14 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     },
                     .derived_pointer_type,
                     .derived_member_type,
+                    .derived_member_type_bitfield,
                     .derived_typedef,
                     => |kind| {
                         const extra = self.metadataExtraData(Metadata.DerivedType, data);
                         try metadata_block.writeAbbrevAdapted(MetadataBlock.DerivedType{
                             .tag = switch (kind) {
                                 .derived_pointer_type => DW.TAG.pointer_type,
-                                .derived_member_type => DW.TAG.member,
+                                .derived_member_type, .derived_member_type_bitfield => DW.TAG.member,
                                 .derived_typedef => DW.TAG.typedef,
                                 else => unreachable,
                             },
@@ -14354,7 +14364,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             .align_in_bits = extra.bitAlign(),
                             .offset_in_bits = extra.bitOffset(),
                             .flags = .{
-                                .StaticMember = false,
+                                .BitField = tag == .derived_member_type_bitfield,
                             },
                         }, metadata_adapter);
                     },

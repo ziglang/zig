@@ -2233,6 +2233,7 @@ pub const Object = struct {
                         ptr_size * 8,
                         (ptr_align.toByteUnits() orelse 0) * 8,
                         0, // Offset
+                        false, // Bitfield
                     );
 
                     const debug_len_type = try o.builder.debugMemberType(
@@ -2244,6 +2245,7 @@ pub const Object = struct {
                         len_size * 8,
                         (len_align.toByteUnits() orelse 0) * 8,
                         len_offset * 8,
+                        false, // Bitfield
                     );
 
                     const debug_slice_type = try o.builder.debugStructType(
@@ -2403,6 +2405,7 @@ pub const Object = struct {
                     payload_size * 8,
                     (payload_align.toByteUnits() orelse 0) * 8,
                     0, // Offset
+                    false, // Bitfield
                 );
 
                 const debug_some_type = try o.builder.debugMemberType(
@@ -2414,6 +2417,7 @@ pub const Object = struct {
                     non_null_size * 8,
                     (non_null_align.toByteUnits() orelse 0) * 8,
                     non_null_offset * 8,
+                    false, // Bitfield
                 );
 
                 const debug_optional_type = try o.builder.debugStructType(
@@ -2484,6 +2488,7 @@ pub const Object = struct {
                     error_size * 8,
                     (error_align.toByteUnits() orelse 0) * 8,
                     error_offset * 8,
+                    false, // Bitfield
                 );
                 fields[payload_index] = try o.builder.debugMemberType(
                     try o.builder.metadataString("value"),
@@ -2494,6 +2499,7 @@ pub const Object = struct {
                     payload_size * 8,
                     (payload_align.toByteUnits() orelse 0) * 8,
                     payload_offset * 8,
+                    false, // Bitfield
                 );
 
                 const debug_error_union_type = try o.builder.debugStructType(
@@ -2791,6 +2797,7 @@ pub const Object = struct {
                                     field_size,
                                     field_align,
                                     field_offset,
+                                    is_packed,
                                 ));
                             }
 
@@ -2847,6 +2854,7 @@ pub const Object = struct {
                                 bit_size,
                                 1,
                                 bit_offset,
+                                true,
                             ));
                         }
                     } else {
@@ -2869,6 +2877,7 @@ pub const Object = struct {
                                 field_ty.abiSize(zcu) * 8,
                                 (byte_alignment.toByteUnits() orelse 0) * 8,
                                 ty.structFieldOffset(field_index, zcu) * 8,
+                                false,
                             ));
                         }
                     }
@@ -2945,6 +2954,7 @@ pub const Object = struct {
                             field_size * 8,
                             (field_align.toByteUnits() orelse 0) * 8,
                             0, // Offset
+                            false, // Bitfield
                         ));
                     }
 
@@ -2992,6 +3002,7 @@ pub const Object = struct {
                         layout.tag_size * 8,
                         (layout.tag_align.toByteUnits() orelse 0) * 8,
                         tag_offset * 8,
+                        false, // Bitfield
                     );
 
                     const debug_payload_type = try o.builder.debugMemberType(
@@ -3003,6 +3014,7 @@ pub const Object = struct {
                         layout.payload_size * 8,
                         (layout.payload_align.toByteUnits() orelse 0) * 8,
                         payload_offset * 8,
+                        false, // Bitfield
                     );
 
                     const full_fields: [2]Builder.Metadata =
