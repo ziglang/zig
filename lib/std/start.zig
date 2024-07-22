@@ -387,6 +387,10 @@ fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
 }
 
 fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
+    // We're not ready to panic until thread local storage is initialized.
+    @setRuntimeSafety(false);
+    // Code coverage instrumentation might try to use thread local variables.
+    @disableInstrumentation();
     const argc = argc_argv_ptr[0];
     const argv = @as([*][*:0]u8, @ptrCast(argc_argv_ptr + 1));
 
@@ -429,9 +433,9 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
             if (comptime native_arch.isARM()) {
                 if (at_hwcap & std.os.linux.HWCAP.TLS == 0) {
                     // FIXME: Make __aeabi_read_tp call the kernel helper kuser_get_tls
-                    // For the time being use a simple abort instead of a @panic call to
+                    // For the time being use a simple trap instead of a @panic call to
                     // keep the binary bloat under control.
-                    std.posix.abort();
+                    @trap();
                 }
             }
 
