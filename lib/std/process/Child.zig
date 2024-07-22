@@ -63,6 +63,9 @@ uid: if (native_os == .windows or native_os == .wasi) void else ?posix.uid_t,
 /// Set to change the group id when spawning the child process.
 gid: if (native_os == .windows or native_os == .wasi) void else ?posix.gid_t,
 
+/// Set to change the process group id when spawning the child process.
+pgid: if (native_os == .windows or native_os == .wasi) void else ?posix.pid_t,
+
 /// Set to change the current working directory when spawning the child process.
 cwd: ?[]const u8,
 /// Set to change the current working directory when spawning the child process.
@@ -168,6 +171,7 @@ pub const SpawnError = error{
 } ||
     posix.ExecveError ||
     posix.SetIdError ||
+    posix.SetPgidError ||
     posix.ChangeCurDirError ||
     windows.CreateProcessError ||
     windows.GetProcessMemoryInfoError ||
@@ -213,6 +217,7 @@ pub fn init(argv: []const []const u8, allocator: mem.Allocator) ChildProcess {
         .cwd = null,
         .uid = if (native_os == .windows or native_os == .wasi) {} else null,
         .gid = if (native_os == .windows or native_os == .wasi) {} else null,
+        .pgid = if (native_os == .windows or native_os == .wasi) {} else null,
         .stdin = null,
         .stdout = null,
         .stderr = null,
@@ -673,6 +678,10 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
 
         if (self.uid) |uid| {
             posix.setreuid(uid, uid) catch |err| forkChildErrReport(err_pipe[1], err);
+        }
+
+        if (self.pgid) |pid| {
+            posix.setpgid(0, pid) catch |err| forkChildErrReport(err_pipe[1], err);
         }
 
         const err = switch (self.expand_arg0) {
