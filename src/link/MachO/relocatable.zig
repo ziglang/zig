@@ -288,37 +288,54 @@ fn calcSectionSizes(macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    for (macho_file.sections.items(.atoms), 0..) |atoms, i| {
-        if (atoms.items.len == 0) continue;
-        calcSectionSize(macho_file, @intCast(i));
-    }
-
     if (macho_file.getZigObject()) |zo| {
-        // TODO this will create a race
+        // TODO this will create a race as we need to track merging of debug sections which we currently don't
         zo.calcNumRelocs(macho_file);
-        zo.calcSymtabSize(macho_file);
     }
 
-    if (macho_file.eh_frame_sect_index) |_| {
-        try calcEhFrameSize(macho_file);
-    }
+    const tp = macho_file.base.comp.thread_pool;
+    var wg: WaitGroup = .{};
+    {
+        wg.reset();
+        defer wg.wait();
 
-    for (macho_file.objects.items) |index| {
-        if (macho_file.unwind_info_sect_index) |_| {
-            macho_file.getFile(index).?.object.calcCompactUnwindSizeRelocatable(macho_file);
+        for (macho_file.sections.items(.atoms), 0..) |atoms, i| {
+            if (atoms.items.len == 0) continue;
+            tp.spawnWg(&wg, calcSectionSizeWorker, .{ macho_file, @as(u8, @intCast(i)) });
         }
-        macho_file.getFile(index).?.calcSymtabSize(macho_file);
-    }
 
-    try macho_file.data_in_code.updateSize(macho_file);
+        if (macho_file.eh_frame_sect_index) |_| {
+            tp.spawnWg(&wg, calcEhFrameSizeWorker, .{macho_file});
+        }
+
+        if (macho_file.unwind_info_sect_index) |_| {
+            for (macho_file.objects.items) |index| {
+                tp.spawnWg(&wg, Object.calcCompactUnwindSizeRelocatable, .{
+                    macho_file.getFile(index).?.object,
+                    macho_file,
+                });
+            }
+        }
+
+        for (macho_file.objects.items) |index| {
+            tp.spawnWg(&wg, File.calcSymtabSize, .{ macho_file.getFile(index).?, macho_file });
+        }
+        if (macho_file.getZigObject()) |zo| {
+            tp.spawnWg(&wg, File.calcSymtabSize, .{ zo.asFile(), macho_file });
+        }
+
+        tp.spawnWg(&wg, MachO.updateLinkeditSizeWorker, .{ macho_file, .data_in_code });
+    }
 
     if (macho_file.unwind_info_sect_index) |_| {
         calcCompactUnwindSize(macho_file);
     }
     try calcSymtabSize(macho_file);
+
+    if (macho_file.has_errors.swap(false, .seq_cst)) return error.FlushFailure;
 }
 
-fn calcSectionSize(macho_file: *MachO, sect_id: u8) void {
+fn calcSectionSizeWorker(macho_file: *MachO, sect_id: u8) void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -339,14 +356,25 @@ fn calcSectionSize(macho_file: *MachO, sect_id: u8) void {
     }
 }
 
-fn calcEhFrameSize(macho_file: *MachO) !void {
+fn calcEhFrameSizeWorker(macho_file: *MachO) void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const doWork = struct {
+        fn doWork(mfile: *MachO, header: *macho.section_64) !void {
+            header.size = try eh_frame.calcSize(mfile);
+            header.@"align" = 3;
+            header.nreloc = eh_frame.calcNumRelocs(mfile);
+        }
+    }.doWork;
+
     const header = &macho_file.sections.items(.header)[macho_file.eh_frame_sect_index.?];
-    header.size = try eh_frame.calcSize(macho_file);
-    header.@"align" = 3;
-    header.nreloc = eh_frame.calcNumRelocs(macho_file);
+    doWork(macho_file, header) catch |err| {
+        macho_file.reportUnexpectedError("failed to calculate size of section '__TEXT,__eh_frame': {s}", .{
+            @errorName(err),
+        }) catch {};
+        _ = macho_file.has_errors.swap(true, .seq_cst);
+    };
 }
 
 fn calcCompactUnwindSize(macho_file: *MachO) void {
@@ -716,3 +744,4 @@ const File = @import("file.zig").File;
 const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");
+const WaitGroup = std.Thread.WaitGroup;
