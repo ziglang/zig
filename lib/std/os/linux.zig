@@ -4784,12 +4784,13 @@ pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
 
 pub const MINSIGSTKSZ = switch (native_arch) {
     .x86, .x86_64, .arm, .mipsel => 2048,
+    .loongarch64 => 4096,
     .aarch64 => 5120,
     else => @compileError("MINSIGSTKSZ not defined for this architecture"),
 };
 pub const SIGSTKSZ = switch (native_arch) {
     .x86, .x86_64, .arm, .mipsel => 8192,
-    .aarch64 => 16384,
+    .aarch64, .loongarch64 => 16384,
     else => @compileError("SIGSTKSZ not defined for this architecture"),
 };
 
