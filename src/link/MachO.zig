@@ -389,9 +389,12 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
 
     if (module_obj_path) |path| try positionals.append(.{ .path = path });
 
-    // TSAN
     if (comp.config.any_sanitize_thread) {
         try positionals.append(.{ .path = comp.tsan_lib.?.full_object_path });
+    }
+
+    if (comp.config.any_fuzz) {
+        try positionals.append(.{ .path = comp.fuzzer_lib.?.full_object_path });
     }
 
     for (positionals.items) |obj| {
@@ -460,6 +463,11 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
                 .{@errorName(e)},
             ),
         };
+    }
+
+    if (comp.fuzzer_lib) |fuzzer_lib| {
+        _ = fuzzer_lib.full_object_path;
+        log.err("TODO macho linking code for adding libfuzzer", .{});
     }
 
     // Finally, link against compiler_rt.
