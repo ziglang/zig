@@ -2475,7 +2475,7 @@ fn writeThunkWorker(self: *MachO, thunk: Thunk) void {
     defer tracy.end();
     const doWork = struct {
         fn doWork(th: Thunk, buffer: []u8, macho_file: *MachO) !void {
-            const off = th.value;
+            const off = math.cast(usize, th.value) orelse return error.Overflow;
             const size = th.size();
             var stream = std.io.fixedBufferStream(buffer[off..][0..size]);
             try th.write(macho_file, stream.writer());
