@@ -636,6 +636,10 @@ test lessThan {
     try testing.expect(lessThan(u8, "", "a"));
 }
 
+/// Normally, we could simply use `builtin.fuzz` but this requires a zig1.wasm
+/// update. After the next zig1.wasm update, the `@hasDecl` can be removed.
+const fuzz = @hasDecl(builtin, "fuzz") and builtin.fuzz;
+
 const eqlBytes_allowed = switch (builtin.zig_backend) {
     // The SPIR-V backend does not support the optimized path yet.
     .stage2_spirv64 => false,
@@ -643,7 +647,7 @@ const eqlBytes_allowed = switch (builtin.zig_backend) {
     .stage2_riscv64 => false,
     // The naive memory comparison implementation is more useful for fuzzers to
     // find interesting inputs.
-    else => !builtin.fuzz,
+    else => !fuzz,
 };
 
 /// Compares two slices and returns whether they are equal.
