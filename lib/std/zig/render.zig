@@ -2982,17 +2982,37 @@ fn renderIdentifierContents(writer: anytype, bytes: []const u8) !void {
 }
 
 /// Returns true if there exists a line comment between any of the tokens from
-/// `start_token` to `end_token`. This is used to determine if e.g. a
-/// fn_proto should be wrapped and have a trailing comma inserted even if
-/// there is none in the source.
-fn hasComment(tree: Ast, start_token: Ast.TokenIndex, end_token: Ast.TokenIndex) bool {
+/// `start_token` to `end_token` that isn't within a nested block. This is used
+/// to determine if e.g. a fn_proto should be wrapped and have a trailing comma
+/// inserted even if there is none in the source.
+fn hasComment(tree: Ast, start_tok: Ast.TokenIndex, end_tok: Ast.TokenIndex) bool {
     const token_starts = tree.tokens.items(.start);
+    const token_tags = tree.tokens.items(.tag);
 
-    var i = start_token;
-    while (i < end_token) : (i += 1) {
-        const start = token_starts[i] + tree.tokenSlice(i).len;
-        const end = token_starts[i + 1];
-        if (mem.indexOf(u8, tree.source[start..end], "//") != null) return true;
+    var current_tok = start_tok;
+    while (current_tok < end_tok) {
+        var next_tok = current_tok + 1;
+
+        const current_tok_len = tree.tokenSlice(@intCast(current_tok)).len;
+        const src_start = token_starts[current_tok] + current_tok_len;
+        const src_end = token_starts[next_tok];
+        const source = tree.source[src_start..src_end];
+        if (mem.indexOf(u8, source, "//") != null) return true;
+
+        var nesting: u32 = switch (token_tags[next_tok]) {
+            .l_brace, .l_bracket, .l_paren => 1,
+            else => 0,
+        };
+        while (nesting > 0) {
+            next_tok += 1;
+            switch (token_tags[next_tok]) {
+                .l_brace, .l_bracket, .l_paren => nesting += 1,
+                .r_brace, .r_bracket, .r_paren => nesting -= 1,
+                else => {},
+            }
+        }
+
+        current_tok = next_tok;
     }
 
     return false;
