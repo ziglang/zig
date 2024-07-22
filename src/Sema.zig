@@ -28023,6 +28023,10 @@ fn fieldCallBind(
         if (concrete_ty.zigTypeTag(mod) == .ErrorUnion) {
             try sema.errNote(src, msg, "consider using 'try', 'catch', or 'if'", .{});
         }
+        if (is_double_ptr) {
+            try sema.errNote(src, msg, "method invocation only supports up to one level of implicit pointer dereferencing", .{});
+            try sema.errNote(src, msg, "use '.*' to dereference pointer", .{});
+        }
         break :msg msg;
     };
     return sema.failWithOwnedErrorMsg(block, msg);
@@ -30275,7 +30279,7 @@ pub fn coerceInMemoryAllowed(
 
         if ((src_info.signedness == dest_info.signedness and dest_info.bits < src_info.bits) or
             // small enough unsigned ints can get casted to large enough signed ints
-            (dest_info.signedness == .signed and (src_info.signedness == .unsigned or dest_info.bits <= src_info.bits)) or
+            (dest_info.signedness == .signed and src_info.signedness == .unsigned and dest_info.bits <= src_info.bits) or
             (dest_info.signedness == .unsigned and src_info.signedness == .signed))
         {
             return InMemoryCoercionResult{ .int_not_coercible = .{
@@ -30356,12 +30360,16 @@ pub fn coerceInMemoryAllowed(
         }
 
         const child = try sema.coerceInMemoryAllowed(block, dest_info.elem_type, src_info.elem_type, dest_is_mut, target, dest_src, src_src, null);
-        if (child != .ok) {
-            return InMemoryCoercionResult{ .array_elem = .{
-                .child = try child.dupe(sema.arena),
-                .actual = src_info.elem_type,
-                .wanted = dest_info.elem_type,
-            } };
+        switch (child) {
+            .ok => {},
+            .no_match => return child,
+            else => {
+                return InMemoryCoercionResult{ .array_elem = .{
+                    .child = try child.dupe(sema.arena),
+                    .actual = src_info.elem_type,
+                    .wanted = dest_info.elem_type,
+                } };
+            },
         }
         const ok_sent = (dest_info.sentinel == null and src_info.sentinel == null) or
             (src_info.sentinel != null and
@@ -31859,14 +31867,9 @@ fn coerceTupleToStruct(
     };
     for (0..field_count) |tuple_field_index| {
         const field_src = inst_src; // TODO better source location
-        const field_name: InternPool.NullTerminatedString = switch (ip.indexToKey(inst_ty.toIntern())) {
-            .anon_struct_type => |anon_struct_type| if (anon_struct_type.names.len > 0)
-                anon_struct_type.names.get(ip)[tuple_field_index]
-            else
-                try ip.getOrPutStringFmt(sema.gpa, pt.tid, "{d}", .{tuple_field_index}, .no_embedded_nulls),
-            .struct_type => ip.loadStructType(inst_ty.toIntern()).field_names.get(ip)[tuple_field_index],
-            else => unreachable,
-        };
+        const field_name = inst_ty.structFieldName(tuple_field_index, mod).unwrap() orelse
+            try ip.getOrPutStringFmt(sema.gpa, pt.tid, "{d}", .{tuple_field_index}, .no_embedded_nulls);
+
         const struct_field_index = try sema.structFieldIndex(block, struct_ty, field_name, field_src);
         const struct_field_ty = Type.fromInterned(struct_type.field_types.get(ip)[struct_field_index]);
         const elem_ref = try sema.tupleField(block, inst_src, inst, field_src, @intCast(tuple_field_index));
@@ -31972,21 +31975,8 @@ fn coerceTupleToTuple(
     for (0..dest_field_count) |field_index_usize| {
         const field_i: u32 = @intCast(field_index_usize);
         const field_src = inst_src; // TODO better source location
-        const field_name: InternPool.NullTerminatedString = switch (ip.indexToKey(inst_ty.toIntern())) {
-            .anon_struct_type => |anon_struct_type| if (anon_struct_type.names.len > 0)
-                anon_struct_type.names.get(ip)[field_i]
-            else
-                try ip.getOrPutStringFmt(sema.gpa, pt.tid, "{d}", .{field_i}, .no_embedded_nulls),
-            .struct_type => s: {
-                const struct_type = ip.loadStructType(inst_ty.toIntern());
-                if (struct_type.field_names.len > 0) {
-                    break :s struct_type.field_names.get(ip)[field_i];
-                } else {
-                    break :s try ip.getOrPutStringFmt(sema.gpa, pt.tid, "{d}", .{field_i}, .no_embedded_nulls);
-                }
-            },
-            else => unreachable,
-        };
+        const field_name = inst_ty.structFieldName(field_index_usize, mod).unwrap() orelse
+            try ip.getOrPutStringFmt(sema.gpa, pt.tid, "{d}", .{field_index_usize}, .no_embedded_nulls);
 
         if (field_name.eqlSlice("len", ip))
             return sema.fail(block, field_src, "cannot assign to 'len' field of tuple", .{});

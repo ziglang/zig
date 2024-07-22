@@ -1935,6 +1935,7 @@ or
           <li>{#syntax#}*T{#endsyntax#} - single-item pointer to exactly one item.
             <ul>
               <li>Supports deref syntax: {#syntax#}ptr.*{#endsyntax#}</li>
+              <li>Supports slice syntax: {#syntax#}ptr[0..1]{#endsyntax#}</li>
               <li>Supports pointer subtraction: {#syntax#}ptr - ptr{#endsyntax#}</li>
             </ul>
           </li>
@@ -2991,6 +2992,10 @@ fn createFoo(param: i32) !Foo {
       the verbosity and cognitive overhead of trying to make sure every exit path
       is covered. The deallocation code is always directly following the allocation code.
       </p>
+      <p>
+      The {#syntax#}errdefer{#endsyntax#} statement can optionally capture the error:
+      </p>
+      {#code|test_errdefer_capture.zig#}
       {#header_close#}
       {#header_open|Common errdefer Slip-Ups#}
       <p>
@@ -4705,8 +4710,11 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       Converts an integer into an {#link|enum#} value. The return type is the inferred result type.
       </p>
       <p>
-      Attempting to convert an integer which represents no value in the chosen enum type invokes
+      Attempting to convert an integer with no corresponding value in the enum invokes 
       safety-checked {#link|Undefined Behavior#}.
+      Note that a {#link|non-exhaustive enum|Non-exhaustive enum#} has corresponding values for all
+      integers in the enum's integer tag type: the {#syntax#}_{#endsyntax#} value represents all 
+      the remaining unnamed integers in the enum's tag type.
       </p>
       {#see_also|@intFromEnum#}
       {#header_close#}
