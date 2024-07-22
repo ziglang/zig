@@ -2572,6 +2572,7 @@ fn buildOutputType(
                             emit_bin = .{ .yes = p };
                             clang_preprocessor_mode = .yes;
                         } else {
+                            emit_bin = .no;
                             clang_preprocessor_mode = .stdout;
                         }
                     }
