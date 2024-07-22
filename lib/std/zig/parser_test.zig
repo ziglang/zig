@@ -4226,6 +4226,44 @@ test "zig fmt: comments at several places in struct init" {
     );
 }
 
+test "zig fmt: comment in nested struct initializers" {
+    try testTransform(
+        \\var bar: Bar = .{
+        \\    .foo = .{
+        \\        .baz = .{
+        \\            // test
+        \\            .x = .{
+        \\                .y = 10
+        \\            }
+        \\        },
+        \\    }
+        \\};
+        \\
+    ,
+        \\var bar: Bar = .{ .foo = .{
+        \\    .baz = .{
+        \\        // test
+        \\        .x = .{ .y = 10 },
+        \\    },
+        \\} };
+        \\
+    );
+
+    try testCanonical(
+        \\var bar: Bar = .{
+        \\    .foo = .{
+        \\        .baz = .{
+        \\            // test
+        \\            .x = .{
+        \\                .y = 10,
+        \\            },
+        \\        },
+        \\    },
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: container doc comments" {
     try testCanonical(
         \\//! tld 1
