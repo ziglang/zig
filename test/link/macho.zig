@@ -786,13 +786,12 @@ fn testLayout(b: *Build, opts: Options) *Step {
     check.checkExtract("nindirectsyms {dysymnsyms}");
 
     switch (opts.target.result.cpu.arch) {
-        .aarch64 => {
+        .aarch64, .x86_64 => {
             check.checkInHeaders();
             check.checkExact("cmd CODE_SIGNATURE");
             check.checkExtract("dataoff {codesigoff}");
             check.checkExtract("datasize {codesigsize}");
         },
-        .x86_64 => {},
         else => unreachable,
     }
 
@@ -829,7 +828,7 @@ fn testLayout(b: *Build, opts: Options) *Step {
     check.checkComputeCompare("dysymoff 8 %", .{ .op = .eq, .value = .{ .literal = 0 } });
 
     switch (opts.target.result.cpu.arch) {
-        .aarch64 => {
+        .aarch64, .x86_64 => {
             // LINKEDIT segment does not extend beyond, or does not include, CODE_SIGNATURE data
             check.checkComputeCompare("fileoff filesz codesigoff codesigsize + - -", .{
                 .op = .eq,
@@ -838,13 +837,6 @@ fn testLayout(b: *Build, opts: Options) *Step {
 
             // CODE_SIGNATURE data offset is 16-bytes aligned
             check.checkComputeCompare("codesigoff 16 %", .{ .op = .eq, .value = .{ .literal = 0 } });
-        },
-        .x86_64 => {
-            // LINKEDIT segment does not extend beyond, or does not include, strtab data
-            check.checkComputeCompare("fileoff filesz stroff strsize + - -", .{
-                .op = .eq,
-                .value = .{ .literal = 0 },
-            });
         },
         else => unreachable,
     }
