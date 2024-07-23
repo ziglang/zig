@@ -70,6 +70,8 @@ const current_variant: Variant = switch (native_arch) {
     .thumb,
     .thumbeb,
     => .I_original,
+    .loongarch32,
+    .loongarch64,
     .m68k,
     .mips,
     .mipsel,
@@ -242,6 +244,13 @@ pub fn setThreadPointer(addr: usize) void {
         .m68k => {
             const rc = linux.syscall1(.set_thread_area, addr);
             assert(rc == 0);
+        },
+        .loongarch32, .loongarch64 => {
+            asm volatile (
+                \\ mv tp, %[addr]
+                :
+                : [addr] "r" (addr),
+            );
         },
         .riscv32, .riscv64 => {
             asm volatile (
