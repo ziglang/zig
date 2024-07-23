@@ -89,8 +89,8 @@ CheckLastExitCode
   -femit-bin="compiler_rt-x86_64-windows-msvc.c" `
   --dep build_options `
   -target x86_64-windows-msvc `
-  --mod root ..\lib\compiler_rt.zig `
-  --mod build_options config.zig
+  -Mroot="..\lib\compiler_rt.zig" `
+  -Mbuild_options="config.zig"
 CheckLastExitCode
 
 Import-Module "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"

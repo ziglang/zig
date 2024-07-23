@@ -156,9 +156,9 @@ int main(int argc, char **argv) {
             "-target", host_triple,
             "--dep", "build_options",
             "--dep", "aro",
-            "--mod", "root", "src/main.zig",
-            "--mod", "build_options", "config.zig",
-            "--mod", "aro", "lib/compiler/aro/aro.zig",
+            "-Mroot=src/main.zig",
+            "-Mbuild_options=config.zig",
+            "-Maro=lib/compiler/aro/aro.zig",
             NULL,
         };
         print_and_run(child_argv);
@@ -171,8 +171,8 @@ int main(int argc, char **argv) {
             "--name", "compiler_rt", "-femit-bin=compiler_rt.c",
             "-target", host_triple,
             "--dep", "build_options",
-            "--mod", "root", "lib/compiler_rt.zig",
-            "--mod", "build_options", "config.zig",
+            "-Mroot=lib/compiler_rt.zig",
+            "-Mbuild_options=config.zig",
             NULL,
         };
         print_and_run(child_argv);
