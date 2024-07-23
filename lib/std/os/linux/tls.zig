@@ -70,6 +70,7 @@ const current_variant: Variant = switch (native_arch) {
     .thumb,
     .thumbeb,
     => .I_original,
+    .m68k,
     .mips,
     .mipsel,
     .mips64,
@@ -90,6 +91,7 @@ const current_variant: Variant = switch (native_arch) {
 
 /// The Offset value for the modified Variant I.
 const current_tp_offset = switch (native_arch) {
+    .m68k,
     .mips,
     .mipsel,
     .mips64,
@@ -104,6 +106,7 @@ const current_tp_offset = switch (native_arch) {
 
 /// Usually only used by the modified Variant I.
 const current_dtv_offset = switch (native_arch) {
+    .m68k,
     .mips,
     .mipsel,
     .mips64,
@@ -234,6 +237,10 @@ pub fn setThreadPointer(addr: usize) void {
         },
         .arm, .armeb, .thumb, .thumbeb => {
             const rc = @call(.always_inline, linux.syscall1, .{ .set_tls, addr });
+            assert(rc == 0);
+        },
+        .m68k => {
+            const rc = linux.syscall1(.set_thread_area, addr);
             assert(rc == 0);
         },
         .riscv32, .riscv64 => {
