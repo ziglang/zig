@@ -613,19 +613,6 @@ const AddCompilerStepOptions = struct {
 };
 
 fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.Step.Compile {
-    const exe = b.addExecutable(.{
-        .name = "zig",
-        .root_source_file = b.path("src/main.zig"),
-        .target = options.target,
-        .optimize = options.optimize,
-        .max_rss = 7_100_000_000,
-        .strip = options.strip,
-        .sanitize_thread = options.sanitize_thread,
-        .single_threaded = options.single_threaded,
-    });
-    exe.root_module.valgrind = options.valgrind;
-    exe.stack_size = stack_size;
-
     const aro_module = b.createModule(.{
         .root_source_file = b.path("lib/compiler/aro/aro.zig"),
     });
@@ -640,8 +627,22 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.St
         },
     });
 
-    exe.root_module.addImport("aro", aro_module);
-    exe.root_module.addImport("aro_translate_c", aro_translate_c_module);
+    const exe = b.addExecutable(.{
+        .name = "zig",
+        .root_source_file = b.path("src/main.zig"),
+        .target = options.target,
+        .optimize = options.optimize,
+        .max_rss = 7_100_000_000,
+        .strip = options.strip,
+        .sanitize_thread = options.sanitize_thread,
+        .single_threaded = options.single_threaded,
+        .imports = &.{
+            .{ .name = "aro", .module = aro_module },
+            .{ .name = "aro_translate_c", .module = aro_translate_c_module },
+        },
+    });
+    exe.root_module.valgrind = options.valgrind;
+    exe.stack_size = stack_size;
     return exe;
 }
 
