@@ -541,6 +541,8 @@ fn windowsApiUpdateThreadRun() void {
 ///
 /// The lock is recursive; the same thread may hold the lock multiple times.
 pub fn lockStdErr() void {
+    if (@inComptime())
+        @compileError("I/O cannot be used from comptime. Consider using @compileError() or @compileLog().");
     stderr_mutex.lock();
     clearWrittenWithEscapeCodes() catch {};
 }
