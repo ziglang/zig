@@ -26,6 +26,10 @@ pub const Env = enum {
     /// - `zig build-* -fno-llvm -fno-lld -target x86_64-linux`
     @"x86_64-linux",
 
+    /// - sema
+    /// - `zig build-* -fno-llvm -fno-lld -target riscv64-linux`
+    @"riscv64-linux",
+
     pub inline fn supports(comptime dev_env: Env, comptime feature: Feature) bool {
         return switch (dev_env) {
             .full => true,
@@ -127,6 +131,12 @@ pub const Env = enum {
             },
             .@"x86_64-linux" => switch (feature) {
                 .x86_64_backend,
+                .elf_linker,
+                => true,
+                else => Env.sema.supports(feature),
+            },
+            .@"riscv64-linux" => switch (feature) {
+                .riscv64_backend,
                 .elf_linker,
                 => true,
                 else => Env.sema.supports(feature),

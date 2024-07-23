@@ -19,7 +19,11 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]co
 
     for (positionals.items) |obj| {
         parsePositional(elf_file, obj.path) catch |err| switch (err) {
-            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => continue, // already reported
+            error.MalformedObject,
+            error.MalformedArchive,
+            error.InvalidCpuArch,
+            error.MismatchedEflags,
+            => continue, // already reported
             error.UnknownFileType => try elf_file.reportParseError(obj.path, "unknown file type for an object file", .{}),
             else => |e| try elf_file.reportParseError(
                 obj.path,
@@ -168,7 +172,11 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
 
     for (positionals.items) |obj| {
         elf_file.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
-            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => continue, // already reported
+            error.MalformedObject,
+            error.MalformedArchive,
+            error.InvalidCpuArch,
+            error.MismatchedEflags,
+            => continue, // already reported
             else => |e| try elf_file.reportParseError(
                 obj.path,
                 "unexpected error: parsing input file failed with error {s}",

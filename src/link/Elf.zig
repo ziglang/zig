@@ -229,6 +229,8 @@ comdat_groups_table: std.AutoHashMapUnmanaged(u32, ComdatGroupOwner.Index) = .{}
 /// such as `resolver` and `comdat_groups_table`.
 strings: StringTable = .{},
 
+first_eflags: ?elf.Elf64_Word = null,
+
 /// When allocating, the ideal_capacity is calculated by
 /// actual_capacity + (actual_capacity / ideal_factor)
 const ideal_factor = 3;
@@ -553,7 +555,7 @@ pub fn lowerAnonDecl(
     pt: Zcu.PerThread,
     decl_val: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
-    src_loc: Module.LazySrcLoc,
+    src_loc: Zcu.LazySrcLoc,
 ) !codegen.Result {
     return self.zigObjectPtr().?.lowerAnonDecl(self, pt, decl_val, explicit_alignment, src_loc);
 }
@@ -1161,7 +1163,11 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
 
     for (positionals.items) |obj| {
         self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
-            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => continue, // already reported
+            error.MalformedObject,
+            error.MalformedArchive,
+            error.MismatchedEflags,
+            error.InvalidCpuArch,
+            => continue, // already reported
             else => |e| try self.reportParseError(
                 obj.path,
                 "unexpected error: parsing input file failed with error {s}",
@@ -1270,7 +1276,11 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
 
     for (positionals.items) |obj| {
         self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
-            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => continue, // already reported
+            error.MalformedObject,
+            error.MalformedArchive,
+            error.MismatchedEflags,
+            error.InvalidCpuArch,
+            => continue, // already reported
             else => |e| try self.reportParseError(
                 obj.path,
                 "unexpected error: parsing input file failed with error {s}",
@@ -1700,6 +1710,7 @@ pub const ParseError = error{
     MalformedObject,
     MalformedArchive,
     InvalidCpuArch,
+    MismatchedEflags,
     OutOfMemory,
     Overflow,
     InputOutput,
@@ -1876,6 +1887,48 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
                 .{@errorName(e)},
             ),
         };
+    }
+}
+
+pub fn validateEFlags(self: *Elf, file_index: File.Index, e_flags: elf.Elf64_Word) !void {
+    const target = self.base.comp.root_mod.resolved_target.result;
+
+    if (self.first_eflags == null) {
+        self.first_eflags = e_flags;
+        return; // there isn't anything to conflict with yet
+    }
+    const self_eflags: *elf.Elf64_Word = &self.first_eflags.?;
+
+    switch (target.cpu.arch) {
+        .riscv64 => {
+            if (e_flags != self_eflags.*) {
+                const riscv_eflags: riscv.RiscvEflags = @bitCast(e_flags);
+                const self_riscv_eflags: *riscv.RiscvEflags = @ptrCast(self_eflags);
+
+                self_riscv_eflags.rvc = self_riscv_eflags.rvc or riscv_eflags.rvc;
+                self_riscv_eflags.tso = self_riscv_eflags.tso or riscv_eflags.tso;
+
+                var is_error: bool = false;
+                if (self_riscv_eflags.fabi != riscv_eflags.fabi) {
+                    is_error = true;
+                    _ = try self.reportParseError2(
+                        file_index,
+                        "cannot link object files with different float-point ABIs",
+                        .{},
+                    );
+                }
+                if (self_riscv_eflags.rve != riscv_eflags.rve) {
+                    is_error = true;
+                    _ = try self.reportParseError2(
+                        file_index,
+                        "cannot link object files with different RVEs",
+                        .{},
+                    );
+                }
+                if (is_error) return error.MismatchedEflags;
+            }
+        },
+        else => {},
     }
 }
 
@@ -3025,7 +3078,7 @@ pub fn lowerUnnamedConst(self: *Elf, pt: Zcu.PerThread, val: Value, decl_index: 
 pub fn updateExports(
     self: *Elf,
     pt: Zcu.PerThread,
-    exported: Module.Exported,
+    exported: Zcu.Exported,
     export_indices: []const u32,
 ) link.File.UpdateExportsError!void {
     if (build_options.skip_non_native and builtin.object_format != .elf) {
@@ -6432,8 +6485,6 @@ const LlvmObject = @import("../codegen/llvm.zig").Object;
 const MergeSection = merge_section.MergeSection;
 const MergeSubsection = merge_section.MergeSubsection;
 const Zcu = @import("../Zcu.zig");
-/// Deprecated.
-const Module = Zcu;
 const Object = @import("Elf/Object.zig");
 const InternPool = @import("../InternPool.zig");
 const PltSection = synthetic_sections.PltSection;
@@ -6446,3 +6497,4 @@ const Value = @import("../Value.zig");
 const VerneedSection = synthetic_sections.VerneedSection;
 const ZigGotSection = synthetic_sections.ZigGotSection;
 const ZigObject = @import("Elf/ZigObject.zig");
+const riscv = @import("riscv.zig");
