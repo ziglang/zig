@@ -93,6 +93,7 @@ fn parseCommon(self: *Object, allocator: Allocator, handle: std.fs.File, elf_fil
         );
         return error.InvalidCpuArch;
     }
+    try elf_file.validateEFlags(self.index, self.header.?.e_flags);
 
     if (self.header.?.e_shnum == 0) return;
 
