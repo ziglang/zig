@@ -33,10 +33,12 @@ pub const SerialIo = extern struct {
         return self._get_control(self, control);
     }
 
+    ///Writes data to a serial device.
     pub fn write(self: *const SerialIo, bufferSize: *usize, buffer: *anyopaque) Status {
         return self._write(self, bufferSize, buffer);
     }
 
+    ///Reads data from a serial device.
     pub fn read(self: *const SerialIo, bufferSize: *usize, buffer: *anyopaque) Status {
         return self._read(self, bufferSize, buffer);
     }
