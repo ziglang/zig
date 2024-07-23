@@ -43,9 +43,10 @@ pub const ParseOptions = struct {
     /// Ignored for `parseFromValue` and `parseFromValueLeaky`.
     allocate: ?AllocWhen = null,
 
-    // Specifies whether or not integers and floats should be left as their precise string representations,
-    // or parsed into their 'std.json.Value.integer' or 'std.json.Value.float' representations.
+    /// When true integers will be parsed and stored as `std.json.Value.integer`s.  When false, integers will be stored as `std.json.Value.number_string` without being parsed.
     parse_integers: bool = true,
+
+    /// When true floats will be parsed and stored as `std.json.Value.float`s.  When false, floats will be stored as `std.json.Value.number_string`s without being parsed.
     parse_floats: bool = true,
 };
 
