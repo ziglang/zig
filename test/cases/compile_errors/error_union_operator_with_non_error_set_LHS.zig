@@ -1,4 +1,9 @@
 comptime {
+    const z = error.Foo!i32;
+    const x: z = undefined;
+    _ = x;
+}
+comptime {
     const z = i32!i32;
     const x: z = undefined;
     _ = x;
@@ -8,4 +13,5 @@ comptime {
 // backend=stage2
 // target=native
 //
-// :2:15: error: expected error set type, found 'i32'
+// :2:15: error: expected error set type, found 'error.Foo'
+// :7:15: error: expected error set type, found 'i32'
