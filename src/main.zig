@@ -1802,10 +1802,10 @@ fn buildOutputType(
                 switch (it.zig_equivalent) {
                     .target => target_arch_os_abi = it.only_arg, // example: -target riscv64-linux-unknown
                     .o => {
-                        // We handle -o /dev/null equivalent to -fno-emit-bin because
+                        // We handle "-o /dev/null" and "-o -" equivalent to "-fno-emit-bin" because
                         // otherwise our atomic rename into place will fail. This also
                         // makes Zig do less work, avoiding pointless file system operations.
-                        if (mem.eql(u8, it.only_arg, "/dev/null")) {
+                        if (mem.eql(u8, it.only_arg, "/dev/null") or mem.eql(u8, it.only_arg, "-")) {
                             emit_bin = .no;
                         } else {
                             out_path = it.only_arg;
