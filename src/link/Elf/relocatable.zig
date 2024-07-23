@@ -29,7 +29,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]co
         };
     }
 
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+    if (elf_file.base.hasErrors()) return error.FlushFailure;
 
     // First, we flush relocatable object file generated with our backends.
     if (elf_file.zigObjectPtr()) |zig_object| {
@@ -146,7 +146,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]co
     try elf_file.base.file.?.setEndPos(total_size);
     try elf_file.base.file.?.pwriteAll(buffer.items, 0);
 
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+    if (elf_file.base.hasErrors()) return error.FlushFailure;
 }
 
 pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
@@ -177,7 +177,7 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
         };
     }
 
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+    if (elf_file.base.hasErrors()) return error.FlushFailure;
 
     // Now, we are ready to resolve the symbols across all input files.
     // We will first resolve the files in the ZigObject, next in the parsed
@@ -216,7 +216,7 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
     try elf_file.writeShdrTable();
     try elf_file.writeElfHeader();
 
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+    if (elf_file.base.hasErrors()) return error.FlushFailure;
 }
 
 fn parsePositional(elf_file: *Elf, path: []const u8) Elf.ParseError!void {

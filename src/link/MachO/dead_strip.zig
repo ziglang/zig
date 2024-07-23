@@ -82,9 +82,8 @@ fn markSymbol(sym: *Symbol, roots: *std.ArrayList(*Atom), macho_file: *MachO) !v
 }
 
 fn markAtom(atom: *Atom) bool {
-    const already_visited = atom.flags.visited;
-    atom.flags.visited = true;
-    return atom.flags.alive and !already_visited;
+    const already_visited = atom.visited.swap(true, .seq_cst);
+    return atom.isAlive() and !already_visited;
 }
 
 fn mark(roots: []*Atom, objects: []const File.Index, macho_file: *MachO) void {
@@ -105,7 +104,7 @@ fn mark(roots: []*Atom, objects: []const File.Index, macho_file: *MachO) void {
                     !(mem.eql(u8, isec.sectName(), "__eh_frame") or
                     mem.eql(u8, isec.sectName(), "__compact_unwind") or
                     isec.attrs() & macho.S_ATTR_DEBUG != 0) and
-                    !atom.flags.alive and refersLive(atom, macho_file))
+                    !atom.isAlive() and refersLive(atom, macho_file))
                 {
                     markLive(atom, macho_file);
                     loop = true;
@@ -116,8 +115,8 @@ fn mark(roots: []*Atom, objects: []const File.Index, macho_file: *MachO) void {
 }
 
 fn markLive(atom: *Atom, macho_file: *MachO) void {
-    assert(atom.flags.visited);
-    atom.flags.alive = true;
+    assert(atom.visited.load(.seq_cst));
+    atom.setAlive(true);
     track_live_log.debug("{}marking live atom({d},{s})", .{
         track_live_level,
         atom.atom_index,
@@ -170,7 +169,7 @@ fn refersLive(atom: *Atom, macho_file: *MachO) bool {
             },
         };
         if (target_atom) |ta| {
-            if (ta.flags.alive) return true;
+            if (ta.isAlive()) return true;
         }
     }
     return false;
@@ -181,9 +180,10 @@ fn prune(objects: []const File.Index, macho_file: *MachO) void {
         const file = macho_file.getFile(index).?;
         for (file.getAtoms()) |atom_index| {
             const atom = file.getAtom(atom_index) orelse continue;
-            if (atom.flags.alive and !atom.flags.visited) {
-                atom.flags.alive = false;
-                atom.markUnwindRecordsDead(macho_file);
+            if (!atom.visited.load(.seq_cst)) {
+                if (atom.alive.cmpxchgStrong(true, false, .seq_cst, .seq_cst) == null) {
+                    atom.markUnwindRecordsDead(macho_file);
+                }
             }
         }
     }

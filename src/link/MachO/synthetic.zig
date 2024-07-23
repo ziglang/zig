@@ -24,8 +24,8 @@ pub const ZigGotSection = struct {
         const entry = &zig_got.entries.items[index];
         entry.* = sym_index;
         const symbol = &zo.symbols.items[sym_index];
-        assert(symbol.flags.needs_zig_got);
-        symbol.flags.has_zig_got = true;
+        assert(symbol.getSectionFlags().needs_zig_got);
+        symbol.setSectionFlags(.{ .has_zig_got = true });
         symbol.addExtra(.{ .zig_got = index }, macho_file);
         return index;
     }
@@ -121,7 +121,7 @@ pub const GotSection = struct {
         const entry = try got.symbols.addOne(gpa);
         entry.* = ref;
         const symbol = ref.getSymbol(macho_file).?;
-        symbol.flags.has_got = true;
+        symbol.setSectionFlags(.{ .has_got = true });
         symbol.addExtra(.{ .got = index }, macho_file);
     }
 
@@ -689,7 +689,7 @@ pub const DataInCode = struct {
                     dices[next_dice].offset < end_off) : (next_dice += 1)
                 {}
 
-                if (atom.flags.alive) for (dices[start_dice..next_dice]) |d| {
+                if (atom.isAlive()) for (dices[start_dice..next_dice]) |d| {
                     dice.entries.appendAssumeCapacity(.{
                         .atom_ref = .{ .index = atom_index, .file = index },
                         .offset = @intCast(d.offset - start_off),

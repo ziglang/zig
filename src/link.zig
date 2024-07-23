@@ -439,6 +439,58 @@ pub const File = struct {
         }
     }
 
+    pub const ErrorWithNotes = struct {
+        base: *const File,
+
+        /// Allocated index in base.errors array.
+        index: usize,
+
+        /// Next available note slot.
+        note_slot: usize = 0,
+
+        pub fn addMsg(
+            err: ErrorWithNotes,
+            comptime format: []const u8,
+            args: anytype,
+        ) error{OutOfMemory}!void {
+            const gpa = err.base.comp.gpa;
+            const err_msg = &err.base.comp.link_errors.items[err.index];
+            err_msg.msg = try std.fmt.allocPrint(gpa, format, args);
+        }
+
+        pub fn addNote(
+            err: *ErrorWithNotes,
+            comptime format: []const u8,
+            args: anytype,
+        ) error{OutOfMemory}!void {
+            const gpa = err.base.comp.gpa;
+            const err_msg = &err.base.comp.link_errors.items[err.index];
+            assert(err.note_slot < err_msg.notes.len);
+            err_msg.notes[err.note_slot] = .{ .msg = try std.fmt.allocPrint(gpa, format, args) };
+            err.note_slot += 1;
+        }
+    };
+
+    pub fn addErrorWithNotes(base: *const File, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
+        base.comp.link_errors_mutex.lock();
+        defer base.comp.link_errors_mutex.unlock();
+        const gpa = base.comp.gpa;
+        try base.comp.link_errors.ensureUnusedCapacity(gpa, 1);
+        return base.addErrorWithNotesAssumeCapacity(note_count);
+    }
+
+    pub fn addErrorWithNotesAssumeCapacity(base: *const File, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
+        const gpa = base.comp.gpa;
+        const index = base.comp.link_errors.items.len;
+        const err = base.comp.link_errors.addOneAssumeCapacity();
+        err.* = .{ .msg = undefined, .notes = try gpa.alloc(ErrorMsg, note_count) };
+        return .{ .base = base, .index = index };
+    }
+
+    pub fn hasErrors(base: *const File) bool {
+        return base.comp.link_errors.items.len > 0 or base.comp.link_error_flags.isSet();
+    }
+
     pub fn releaseLock(self: *File) void {
         if (self.lock) |*lock| {
             lock.release();
@@ -874,9 +926,23 @@ pub const File = struct {
         }
     };
 
-    pub const ErrorFlags = struct {
+    pub const ErrorFlags = packed struct {
         no_entry_point_found: bool = false,
         missing_libc: bool = false,
+
+        const Int = blk: {
+            const bits = @typeInfo(@This()).Struct.fields.len;
+            break :blk @Type(.{
+                .Int = .{
+                    .signedness = .unsigned,
+                    .bits = bits,
+                },
+            });
+        };
+
+        fn isSet(ef: ErrorFlags) bool {
+            return @as(Int, @bitCast(ef)) > 0;
+        }
     };
 
     pub const ErrorMsg = struct {

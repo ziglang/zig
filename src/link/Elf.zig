@@ -995,12 +995,12 @@ pub fn growAllocSection(self: *Elf, shdr_index: u32, needed_size: u64) !void {
     if (maybe_phdr) |phdr| {
         const mem_capacity = self.allocatedVirtualSize(phdr.p_vaddr);
         if (needed_size > mem_capacity) {
-            var err = try self.addErrorWithNotes(2);
-            try err.addMsg(self, "fatal linker error: cannot expand load segment phdr({d}) in virtual memory", .{
+            var err = try self.base.addErrorWithNotes(2);
+            try err.addMsg("fatal linker error: cannot expand load segment phdr({d}) in virtual memory", .{
                 self.phdr_to_shdr_table.get(shdr_index).?,
             });
-            try err.addNote(self, "TODO: emit relocations to memory locations in self-hosted backends", .{});
-            try err.addNote(self, "as a workaround, try increasing pre-allocated virtual memory of each segment", .{});
+            try err.addNote("TODO: emit relocations to memory locations in self-hosted backends", .{});
+            try err.addNote("as a workaround, try increasing pre-allocated virtual memory of each segment", .{});
         }
 
         phdr.p_memsz = needed_size;
@@ -1276,7 +1276,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
         };
     }
 
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+    if (self.base.hasErrors()) return error.FlushFailure;
 
     // Dedup shared objects
     {
@@ -1423,7 +1423,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
         try self.writeElfHeader();
     }
 
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+    if (self.base.hasErrors()) return error.FlushFailure;
 }
 
 /// --verbose-link output
@@ -2852,9 +2852,9 @@ fn writePhdrTable(self: *Elf) !void {
 }
 
 pub fn writeElfHeader(self: *Elf) !void {
-    const comp = self.base.comp;
-    if (comp.link_errors.items.len > 0) return; // We had errors, so skip flushing to render the output unusable
+    if (self.base.hasErrors()) return; // We had errors, so skip flushing to render the output unusable
 
+    const comp = self.base.comp;
     var hdr_buf: [@sizeOf(elf.Elf64_Ehdr)]u8 = undefined;
 
     var index: usize = 0;
@@ -4298,9 +4298,9 @@ fn allocatePhdrTable(self: *Elf) error{OutOfMemory}!void {
         //    (revisit getMaxNumberOfPhdrs())
         // 2. shift everything in file to free more space for EHDR + PHDR table
         // TODO verify `getMaxNumberOfPhdrs()` is accurate and convert this into no-op
-        var err = try self.addErrorWithNotes(1);
-        try err.addMsg(self, "fatal linker error: not enough space reserved for EHDR and PHDR table", .{});
-        try err.addNote(self, "required 0x{x}, available 0x{x}", .{ needed_size, available_space });
+        var err = try self.base.addErrorWithNotes(1);
+        try err.addMsg("fatal linker error: not enough space reserved for EHDR and PHDR table", .{});
+        try err.addNote("required 0x{x}, available 0x{x}", .{ needed_size, available_space });
     }
 
     phdr_table_load.p_filesz = needed_size + ehsize;
@@ -5863,56 +5863,6 @@ pub fn tlsAddress(self: *Elf) i64 {
     return @intCast(phdr.p_vaddr);
 }
 
-const ErrorWithNotes = struct {
-    /// Allocated index in comp.link_errors array.
-    index: usize,
-
-    /// Next available note slot.
-    note_slot: usize = 0,
-
-    pub fn addMsg(
-        err: ErrorWithNotes,
-        elf_file: *Elf,
-        comptime format: []const u8,
-        args: anytype,
-    ) error{OutOfMemory}!void {
-        const comp = elf_file.base.comp;
-        const gpa = comp.gpa;
-        const err_msg = &comp.link_errors.items[err.index];
-        err_msg.msg = try std.fmt.allocPrint(gpa, format, args);
-    }
-
-    pub fn addNote(
-        err: *ErrorWithNotes,
-        elf_file: *Elf,
-        comptime format: []const u8,
-        args: anytype,
-    ) error{OutOfMemory}!void {
-        const comp = elf_file.base.comp;
-        const gpa = comp.gpa;
-        const err_msg = &comp.link_errors.items[err.index];
-        assert(err.note_slot < err_msg.notes.len);
-        err_msg.notes[err.note_slot] = .{ .msg = try std.fmt.allocPrint(gpa, format, args) };
-        err.note_slot += 1;
-    }
-};
-
-pub fn addErrorWithNotes(self: *Elf, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
-    const comp = self.base.comp;
-    const gpa = comp.gpa;
-    try comp.link_errors.ensureUnusedCapacity(gpa, 1);
-    return self.addErrorWithNotesAssumeCapacity(note_count);
-}
-
-fn addErrorWithNotesAssumeCapacity(self: *Elf, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
-    const comp = self.base.comp;
-    const gpa = comp.gpa;
-    const index = comp.link_errors.items.len;
-    const err = comp.link_errors.addOneAssumeCapacity();
-    err.* = .{ .msg = undefined, .notes = try gpa.alloc(link.File.ErrorMsg, note_count) };
-    return .{ .index = index };
-}
-
 pub fn getShString(self: Elf, off: u32) [:0]const u8 {
     assert(off < self.shstrtab.items.len);
     return mem.sliceTo(@as([*:0]const u8, @ptrCast(self.shstrtab.items.ptr + off)), 0);
@@ -5940,11 +5890,10 @@ pub fn insertDynString(self: *Elf, name: []const u8) error{OutOfMemory}!u32 {
 }
 
 fn reportUndefinedSymbols(self: *Elf, undefs: anytype) !void {
-    const comp = self.base.comp;
-    const gpa = comp.gpa;
+    const gpa = self.base.comp.gpa;
     const max_notes = 4;
 
-    try comp.link_errors.ensureUnusedCapacity(gpa, undefs.count());
+    try self.base.comp.link_errors.ensureUnusedCapacity(gpa, undefs.count());
 
     var it = undefs.iterator();
     while (it.next()) |entry| {
@@ -5953,18 +5902,18 @@ fn reportUndefinedSymbols(self: *Elf, undefs: anytype) !void {
         const natoms = @min(atoms.len, max_notes);
         const nnotes = natoms + @intFromBool(atoms.len > max_notes);
 
-        var err = try self.addErrorWithNotesAssumeCapacity(nnotes);
-        try err.addMsg(self, "undefined symbol: {s}", .{self.symbol(undef_index).name(self)});
+        var err = try self.base.addErrorWithNotesAssumeCapacity(nnotes);
+        try err.addMsg("undefined symbol: {s}", .{self.symbol(undef_index).name(self)});
 
         for (atoms[0..natoms]) |atom_index| {
             const atom_ptr = self.atom(atom_index).?;
             const file_ptr = self.file(atom_ptr.file_index).?;
-            try err.addNote(self, "referenced by {s}:{s}", .{ file_ptr.fmtPath(), atom_ptr.name(self) });
+            try err.addNote("referenced by {s}:{s}", .{ file_ptr.fmtPath(), atom_ptr.name(self) });
         }
 
         if (atoms.len > max_notes) {
             const remaining = atoms.len - max_notes;
-            try err.addNote(self, "referenced {d} more times", .{remaining});
+            try err.addNote("referenced {d} more times", .{remaining});
         }
     }
 }
@@ -5978,19 +5927,19 @@ fn reportDuplicates(self: *Elf, dupes: anytype) error{ HasDuplicates, OutOfMemor
         const notes = entry.value_ptr.*;
         const nnotes = @min(notes.items.len, max_notes) + @intFromBool(notes.items.len > max_notes);
 
-        var err = try self.addErrorWithNotes(nnotes + 1);
-        try err.addMsg(self, "duplicate symbol definition: {s}", .{sym.name(self)});
-        try err.addNote(self, "defined by {}", .{sym.file(self).?.fmtPath()});
+        var err = try self.base.addErrorWithNotes(nnotes + 1);
+        try err.addMsg("duplicate symbol definition: {s}", .{sym.name(self)});
+        try err.addNote("defined by {}", .{sym.file(self).?.fmtPath()});
 
         var inote: usize = 0;
         while (inote < @min(notes.items.len, max_notes)) : (inote += 1) {
             const file_ptr = self.file(notes.items[inote]).?;
-            try err.addNote(self, "defined by {}", .{file_ptr.fmtPath()});
+            try err.addNote("defined by {}", .{file_ptr.fmtPath()});
         }
 
         if (notes.items.len > max_notes) {
             const remaining = notes.items.len - max_notes;
-            try err.addNote(self, "defined {d} more times", .{remaining});
+            try err.addNote("defined {d} more times", .{remaining});
         }
 
         has_dupes = true;
@@ -6005,16 +5954,16 @@ fn reportMissingLibraryError(
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
-    var err = try self.addErrorWithNotes(checked_paths.len);
-    try err.addMsg(self, format, args);
+    var err = try self.base.addErrorWithNotes(checked_paths.len);
+    try err.addMsg(format, args);
     for (checked_paths) |path| {
-        try err.addNote(self, "tried {s}", .{path});
+        try err.addNote("tried {s}", .{path});
     }
 }
 
 pub fn reportUnsupportedCpuArch(self: *Elf) error{OutOfMemory}!void {
-    var err = try self.addErrorWithNotes(0);
-    try err.addMsg(self, "fatal linker error: unsupported CPU architecture {s}", .{
+    var err = try self.base.addErrorWithNotes(0);
+    try err.addMsg("fatal linker error: unsupported CPU architecture {s}", .{
         @tagName(self.getTarget().cpu.arch),
     });
 }
@@ -6025,9 +5974,9 @@ pub fn reportParseError(
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
-    var err = try self.addErrorWithNotes(1);
-    try err.addMsg(self, format, args);
-    try err.addNote(self, "while parsing {s}", .{path});
+    var err = try self.base.addErrorWithNotes(1);
+    try err.addMsg(format, args);
+    try err.addNote("while parsing {s}", .{path});
 }
 
 pub fn reportParseError2(
@@ -6036,9 +5985,9 @@ pub fn reportParseError2(
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
-    var err = try self.addErrorWithNotes(1);
-    try err.addMsg(self, format, args);
-    try err.addNote(self, "while parsing {}", .{self.file(file_index).?.fmtPath()});
+    var err = try self.base.addErrorWithNotes(1);
+    try err.addMsg(format, args);
+    try err.addNote("while parsing {}", .{self.file(file_index).?.fmtPath()});
 }
 
 const FormatShdrCtx = struct {

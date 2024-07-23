@@ -37,11 +37,10 @@ pub const File = union(enum) {
     }
 
     pub fn scanRelocs(file: File, macho_file: *MachO) !void {
-        switch (file) {
+        return switch (file) {
             .dylib => unreachable,
-            .internal => |x| x.scanRelocs(macho_file),
             inline else => |x| x.scanRelocs(macho_file),
-        }
+        };
     }
 
     /// Encodes symbol rank so that the following ordering applies:
@@ -182,19 +181,19 @@ pub const File = union(enum) {
             if (ref.getFile(macho_file) == null) continue;
             if (ref.file != file.getIndex()) continue;
             const sym = ref.getSymbol(macho_file).?;
-            if (sym.flags.needs_got) {
+            if (sym.getSectionFlags().needs_got) {
                 log.debug("'{s}' needs GOT", .{sym.getName(macho_file)});
                 try macho_file.got.addSymbol(ref, macho_file);
             }
-            if (sym.flags.stubs) {
+            if (sym.getSectionFlags().stubs) {
                 log.debug("'{s}' needs STUBS", .{sym.getName(macho_file)});
                 try macho_file.stubs.addSymbol(ref, macho_file);
             }
-            if (sym.flags.tlv_ptr) {
+            if (sym.getSectionFlags().tlv_ptr) {
                 log.debug("'{s}' needs TLV pointer", .{sym.getName(macho_file)});
                 try macho_file.tlv_ptr.addSymbol(ref, macho_file);
             }
-            if (sym.flags.objc_stubs) {
+            if (sym.getSectionFlags().objc_stubs) {
                 log.debug("'{s}' needs OBJC STUBS", .{sym.getName(macho_file)});
                 try macho_file.objc_stubs.addSymbol(ref, macho_file);
             }
@@ -268,6 +267,9 @@ pub const File = union(enum) {
             const ref_file = ref.getFile(macho_file) orelse continue;
             if (ref_file.getIndex() == file.getIndex()) continue;
 
+            macho_file.dupes_mutex.lock();
+            defer macho_file.dupes_mutex.unlock();
+
             const gop = try macho_file.dupes.getOrPut(gpa, file.getGlobals()[i]);
             if (!gop.found_existing) {
                 gop.value_ptr.* = .{};
@@ -281,7 +283,7 @@ pub const File = union(enum) {
         defer tracy.end();
         for (file.getAtoms()) |atom_index| {
             const atom = file.getAtom(atom_index) orelse continue;
-            if (!atom.flags.alive) continue;
+            if (!atom.isAlive()) continue;
             atom.out_n_sect = try Atom.initOutputSection(atom.getInputSection(macho_file), macho_file);
         }
     }
@@ -295,8 +297,15 @@ pub const File = union(enum) {
 
     pub fn writeAtoms(file: File, macho_file: *MachO) !void {
         return switch (file) {
-            .dylib, .zig_object => unreachable,
+            .dylib => unreachable,
             inline else => |x| x.writeAtoms(macho_file),
+        };
+    }
+
+    pub fn writeAtomsRelocatable(file: File, macho_file: *MachO) !void {
+        return switch (file) {
+            .dylib, .internal => unreachable,
+            inline else => |x| x.writeAtomsRelocatable(macho_file),
         };
     }
 
@@ -332,6 +341,21 @@ pub const File = union(enum) {
             .dylib, .internal => unreachable,
             .zig_object => |x| x.writeAr(ar_format, writer),
             .object => |x| x.writeAr(ar_format, macho_file, writer),
+        };
+    }
+
+    pub fn parse(file: File, macho_file: *MachO) !void {
+        return switch (file) {
+            .internal, .zig_object => unreachable,
+            .object => |x| x.parse(macho_file),
+            .dylib => |x| x.parse(macho_file),
+        };
+    }
+
+    pub fn parseAr(file: File, macho_file: *MachO) !void {
+        return switch (file) {
+            .internal, .zig_object, .dylib => unreachable,
+            .object => |x| x.parseAr(macho_file),
         };
     }
 

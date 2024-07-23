@@ -211,6 +211,9 @@ fn verifyLibcxxCorrectlyLinked() void {
 }
 
 fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
+    const tr = tracy.trace(@src());
+    defer tr.end();
+
     if (args.len <= 1) {
         std.log.info("{s}", .{usage});
         fatal("expected command argument", .{});
