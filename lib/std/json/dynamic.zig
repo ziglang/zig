@@ -34,23 +34,17 @@ pub const Value = union(enum) {
 
     pub fn parseFromNumberSlice(s: []const u8, options: ParseOptions) Value {
         if (!isNumberFormattedLikeAnInteger(s)) {
+            if (!options.parse_floats) return Value{ .number_string = s };
             const f = std.fmt.parseFloat(f64, s) catch unreachable;
             if (std.math.isFinite(f)) {
-                if (options.parse_floats) {
-                    return Value{ .float = f };
-                } else {
-                    return Value{ .number_string = s };
-                }
+                return Value{ .float = f };
             } else {
                 return Value{ .number_string = s };
             }
         }
+        if (!options.parse_integers) return Value{ .number_string = s };
         if (std.fmt.parseInt(i64, s, 10)) |i| {
-            if (options.parse_integers) {
-                return Value{ .integer = i };
-            } else {
-                return Value{ .number_string = s };
-            }
+            return Value{ .integer = i };
         } else |e| {
             switch (e) {
                 error.Overflow => return Value{ .number_string = s },
