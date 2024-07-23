@@ -1137,32 +1137,10 @@ pub fn refAllDeclsRecursive(comptime T: type) void {
     }
 }
 
-const FuzzerSlice = extern struct {
-    ptr: [*]const u8,
-    len: usize,
-
-    fn toSlice(s: FuzzerSlice) []const u8 {
-        return s.ptr[0..s.len];
-    }
-};
-
-extern fn fuzzer_next() FuzzerSlice;
-
 pub const FuzzInputOptions = struct {
     corpus: []const []const u8 = &.{},
 };
 
-pub fn fuzzInput(options: FuzzInputOptions) []const u8 {
-    @disableInstrumentation();
-    if (builtin.fuzz) {
-        return fuzzer_next().toSlice();
-    } else {
-        if (options.corpus.len == 0) {
-            return "";
-        } else {
-            var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
-            const random = prng.random();
-            return options.corpus[random.uintLessThan(usize, options.corpus.len)];
-        }
-    }
+pub inline fn fuzzInput(options: FuzzInputOptions) []const u8 {
+    return @import("root").fuzzInput(options);
 }
