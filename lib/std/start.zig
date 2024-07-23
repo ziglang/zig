@@ -300,12 +300,26 @@ fn _start() callconv(.Naked) noreturn {
             \\ and sp, #-16
             \\ b %[posixCallMainAndExit]
             ,
+            .loongarch64 =>
+            \\ move $fp, $zero
+            \\ move $a0, $sp
+            \\ bstrins.d $sp, $zero, 3, 0
+            \\ b %[posixCallMainAndExit]
+            ,
             .riscv64 =>
             \\ li s0, 0
             \\ li ra, 0
             \\ mv a0, sp
             \\ andi sp, sp, -16
             \\ tail %[posixCallMainAndExit]@plt
+            ,
+            .m68k =>
+            // Note that the - 8 is needed because pc in the jsr instruction points into the middle
+            // of the jsr instruction. (The lea is 6 bytes, the jsr is 4 bytes.)
+            \\ suba.l %%fp, %%fp
+            \\ move.l %%sp, -(%%sp)
+            \\ lea %[posixCallMainAndExit] - . - 8, %%a0
+            \\ jsr (%%pc, %%a0)
             ,
             .mips, .mipsel =>
             // The lr is already zeroed on entry, as specified by the ABI.
@@ -340,14 +354,23 @@ fn _start() callconv(.Naked) noreturn {
             ,
             .powerpc64, .powerpc64le =>
             // Setup the initial stack frame and clear the back chain pointer.
-            \\ addis 2, 12, .TOC. - _start@ha
-            \\ addi 2, 2, .TOC. - _start@l
+            \\ addis 2, 12, .TOC. - %[_start]@ha
+            \\ addi 2, 2, .TOC. - %[_start]@l
             \\ mr 3, 1
             \\ clrrdi 1, 1, 4
             \\ li 0, 0
             \\ stdu 0, -32(1)
             \\ mtlr 0
             \\ b %[posixCallMainAndExit]
+            ,
+            .s390x =>
+            // Set up the stack frame (register save area and cleared back-chain slot).
+            // Note: Stack pointer is guaranteed by ABI to be 8-byte aligned as required.
+            \\ lgr %r2, %r15
+            \\ aghi %r15, -160
+            \\ lghi %r0, 0
+            \\ stg  %r0, 0(%r15)
+            \\ jg %[posixCallMainAndExit]
             ,
             .sparc64 =>
             // argc is stored after a register window (16 registers) plus stack bias
@@ -359,7 +382,8 @@ fn _start() callconv(.Naked) noreturn {
             else => @compileError("unsupported arch"),
         }
         :
-        : [posixCallMainAndExit] "X" (&posixCallMainAndExit),
+        : [_start] "X" (_start),
+          [posixCallMainAndExit] "X" (&posixCallMainAndExit),
     );
 }
 
