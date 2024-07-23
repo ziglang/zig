@@ -638,8 +638,7 @@ fn maybeIgnoreSigpipe() void {
             .mask = posix.empty_sigset,
             .flags = 0,
         };
-        posix.sigaction(posix.SIG.PIPE, &act, null) catch |err|
-            std.debug.panic("failed to set noop SIGPIPE handler: {s}", .{@errorName(err)});
+        posix.sigaction(posix.SIG.PIPE, &act, null);
     }
 }
 
