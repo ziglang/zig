@@ -5652,6 +5652,10 @@ pub fn addCCArgs(
                         // function was called.
                         try argv.append("-fno-sanitize=function");
                     }
+
+                    if (mod.fuzz) {
+                        try argv.appendSlice(&.{ "-Xclang", "-fsanitize-coverage-trace-pc-guard" });
+                    }
                 }
             }
 
