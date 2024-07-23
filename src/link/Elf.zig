@@ -1144,9 +1144,12 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
         _ = try rpath_table.put(rpath, {});
     }
 
-    // TSAN
     if (comp.config.any_sanitize_thread) {
         try positionals.append(.{ .path = comp.tsan_lib.?.full_object_path });
+    }
+
+    if (comp.config.any_fuzz) {
+        try positionals.append(.{ .path = comp.fuzzer_lib.?.full_object_path });
     }
 
     // libc
@@ -1605,6 +1608,10 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
 
         if (comp.config.any_sanitize_thread) {
             try argv.append(comp.tsan_lib.?.full_object_path);
+        }
+
+        if (comp.config.any_fuzz) {
+            try argv.append(comp.fuzzer_lib.?.full_object_path);
         }
 
         // libc
@@ -2272,6 +2279,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         man.hash.add(self.bind_global_refs_locally);
         man.hash.add(self.compress_debug_sections);
         man.hash.add(comp.config.any_sanitize_thread);
+        man.hash.add(comp.config.any_fuzz);
         man.hash.addOptionalBytes(comp.sysroot);
 
         // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
@@ -2614,6 +2622,10 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
 
         if (comp.config.any_sanitize_thread) {
             try argv.append(comp.tsan_lib.?.full_object_path);
+        }
+
+        if (comp.config.any_fuzz) {
+            try argv.append(comp.fuzzer_lib.?.full_object_path);
         }
 
         // libc

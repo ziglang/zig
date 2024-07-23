@@ -1101,6 +1101,7 @@ pub const Object = struct {
         is_small: bool,
         time_report: bool,
         sanitize_thread: bool,
+        fuzz: bool,
         lto: bool,
     };
 
@@ -1287,6 +1288,7 @@ pub const Object = struct {
                 options.is_small,
                 options.time_report,
                 options.sanitize_thread,
+                options.fuzz,
                 options.lto,
                 null,
                 emit_bin_path,
@@ -1311,6 +1313,7 @@ pub const Object = struct {
             options.is_small,
             options.time_report,
             options.sanitize_thread,
+            options.fuzz,
             options.lto,
             options.asm_path,
             emit_bin_path,
@@ -1378,6 +1381,25 @@ pub const Object = struct {
             try attributes.addFnAttr(.cold, &o.builder);
         } else {
             _ = try attributes.removeFnAttr(.cold);
+        }
+
+        if (owner_mod.sanitize_thread and !func_analysis.disable_instrumentation) {
+            try attributes.addFnAttr(.sanitize_thread, &o.builder);
+        } else {
+            _ = try attributes.removeFnAttr(.sanitize_thread);
+        }
+        if (owner_mod.fuzz and !func_analysis.disable_instrumentation) {
+            try attributes.addFnAttr(.optforfuzzing, &o.builder);
+            if (comp.config.any_fuzz) {
+                _ = try attributes.removeFnAttr(.skipprofile);
+                _ = try attributes.removeFnAttr(.nosanitize_coverage);
+            }
+        } else {
+            _ = try attributes.removeFnAttr(.optforfuzzing);
+            if (comp.config.any_fuzz) {
+                try attributes.addFnAttr(.skipprofile, &o.builder);
+                try attributes.addFnAttr(.nosanitize_coverage, &o.builder);
+            }
         }
 
         // TODO: disable this if safety is off for the function scope
@@ -2978,9 +3000,6 @@ pub const Object = struct {
         if (owner_mod.optimize_mode == .ReleaseSmall) {
             try attributes.addFnAttr(.minsize, &o.builder);
             try attributes.addFnAttr(.optsize, &o.builder);
-        }
-        if (owner_mod.sanitize_thread) {
-            try attributes.addFnAttr(.sanitize_thread, &o.builder);
         }
         const target = owner_mod.resolved_target.result;
         if (target.cpu.model.llvm_name) |s| {

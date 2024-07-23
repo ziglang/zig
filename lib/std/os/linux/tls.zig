@@ -110,6 +110,8 @@ const TLSImage = struct {
 pub var tls_image: TLSImage = undefined;
 
 pub fn setThreadPointer(addr: usize) void {
+    @setRuntimeSafety(false);
+    @disableInstrumentation();
     switch (native_arch) {
         .x86 => {
             var user_desc: linux.user_desc = .{
@@ -125,7 +127,7 @@ pub fn setThreadPointer(addr: usize) void {
                     .useable = 1,
                 },
             };
-            const rc = linux.syscall1(.set_thread_area, @intFromPtr(&user_desc));
+            const rc = @call(.always_inline, linux.syscall1, .{ .set_thread_area, @intFromPtr(&user_desc) });
             assert(rc == 0);
 
             const gdt_entry_number = user_desc.entry_number;
@@ -138,7 +140,7 @@ pub fn setThreadPointer(addr: usize) void {
             );
         },
         .x86_64 => {
-            const rc = linux.syscall2(.arch_prctl, linux.ARCH.SET_FS, addr);
+            const rc = @call(.always_inline, linux.syscall2, .{ .arch_prctl, linux.ARCH.SET_FS, addr });
             assert(rc == 0);
         },
         .aarch64, .aarch64_be => {
@@ -149,7 +151,7 @@ pub fn setThreadPointer(addr: usize) void {
             );
         },
         .arm, .thumb => {
-            const rc = linux.syscall1(.set_tls, addr);
+            const rc = @call(.always_inline, linux.syscall1, .{ .set_tls, addr });
             assert(rc == 0);
         },
         .riscv64 => {
@@ -160,7 +162,7 @@ pub fn setThreadPointer(addr: usize) void {
             );
         },
         .mips, .mipsel, .mips64, .mips64el => {
-            const rc = linux.syscall1(.set_thread_area, addr);
+            const rc = @call(.always_inline, linux.syscall1, .{ .set_thread_area, addr });
             assert(rc == 0);
         },
         .powerpc, .powerpcle => {
@@ -189,6 +191,9 @@ pub fn setThreadPointer(addr: usize) void {
 }
 
 fn initTLS(phdrs: []elf.Phdr) void {
+    @setRuntimeSafety(false);
+    @disableInstrumentation();
+
     var tls_phdr: ?*elf.Phdr = null;
     var img_base: usize = 0;
 
@@ -236,7 +241,7 @@ fn initTLS(phdrs: []elf.Phdr) void {
                 l += tls_align_factor - delta;
             l += @sizeOf(CustomData);
             tcb_offset = l;
-            l += mem.alignForward(usize, tls_tcb_size, tls_align_factor);
+            l += alignForward(tls_tcb_size, tls_align_factor);
             data_offset = l;
             l += tls_data_alloc_size;
             break :blk l;
@@ -244,14 +249,14 @@ fn initTLS(phdrs: []elf.Phdr) void {
         .VariantII => blk: {
             var l: usize = 0;
             data_offset = l;
-            l += mem.alignForward(usize, tls_data_alloc_size, tls_align_factor);
+            l += alignForward(tls_data_alloc_size, tls_align_factor);
             // The thread pointer is aligned to p_align
             tcb_offset = l;
             l += tls_tcb_size;
             // The CustomData structure is right after the TCB with no padding
             // in between so it can be easily found
             l += @sizeOf(CustomData);
-            l = mem.alignForward(usize, l, @alignOf(DTV));
+            l = alignForward(l, @alignOf(DTV));
             dtv_offset = l;
             l += @sizeOf(DTV);
             break :blk l;
@@ -270,13 +275,28 @@ fn initTLS(phdrs: []elf.Phdr) void {
     };
 }
 
+/// Inline because TLS is not set up yet.
+inline fn alignForward(addr: usize, alignment: usize) usize {
+    return alignBackward(addr + (alignment - 1), alignment);
+}
+
+/// Inline because TLS is not set up yet.
+inline fn alignBackward(addr: usize, alignment: usize) usize {
+    return addr & ~(alignment - 1);
+}
+
+/// Inline because TLS is not set up yet.
 inline fn alignPtrCast(comptime T: type, ptr: [*]u8) *T {
     return @ptrCast(@alignCast(ptr));
 }
 
 /// Initializes all the fields of the static TLS area and returns the computed
 /// architecture-specific value of the thread-pointer register
+///
+/// This function is inline because thread local storage is not set up yet.
 pub fn prepareTLS(area: []u8) usize {
+    @setRuntimeSafety(false);
+    @disableInstrumentation();
     // Clear the area we're going to use, just to be safe
     @memset(area, 0);
     // Prepare the DTV
@@ -310,6 +330,9 @@ pub fn prepareTLS(area: []u8) usize {
 var main_thread_tls_buffer: [0x2100]u8 align(mem.page_size) = undefined;
 
 pub fn initStaticTLS(phdrs: []elf.Phdr) void {
+    @setRuntimeSafety(false);
+    @disableInstrumentation();
+
     initTLS(phdrs);
 
     const tls_area = blk: {
@@ -321,22 +344,47 @@ pub fn initStaticTLS(phdrs: []elf.Phdr) void {
             break :blk main_thread_tls_buffer[0..tls_image.alloc_size];
         }
 
-        const alloc_tls_area = posix.mmap(
+        const begin_addr = mmap(
             null,
             tls_image.alloc_size + tls_image.alloc_align - 1,
             posix.PROT.READ | posix.PROT.WRITE,
             .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
             -1,
             0,
-        ) catch posix.abort();
+        );
+        if (@as(isize, @bitCast(begin_addr)) < 0) @trap();
+        const alloc_tls_area: [*]align(mem.page_size) u8 = @ptrFromInt(begin_addr);
 
         // Make sure the slice is correctly aligned.
-        const begin_addr = @intFromPtr(alloc_tls_area.ptr);
-        const begin_aligned_addr = mem.alignForward(usize, begin_addr, tls_image.alloc_align);
+        const begin_aligned_addr = alignForward(begin_addr, tls_image.alloc_align);
         const start = begin_aligned_addr - begin_addr;
-        break :blk alloc_tls_area[start .. start + tls_image.alloc_size];
+        break :blk alloc_tls_area[start..][0..tls_image.alloc_size];
     };
 
     const tp_value = prepareTLS(tls_area);
     setThreadPointer(tp_value);
+}
+
+inline fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: linux.MAP, fd: i32, offset: i64) usize {
+    if (@hasField(linux.SYS, "mmap2")) {
+        return @call(.always_inline, linux.syscall6, .{
+            .mmap2,
+            @intFromPtr(address),
+            length,
+            prot,
+            @as(u32, @bitCast(flags)),
+            @as(usize, @bitCast(@as(isize, fd))),
+            @as(usize, @truncate(@as(u64, @bitCast(offset)) / linux.MMAP2_UNIT)),
+        });
+    } else {
+        return @call(.always_inline, linux.syscall6, .{
+            .mmap,
+            @intFromPtr(address),
+            length,
+            prot,
+            @as(u32, @bitCast(flags)),
+            @as(usize, @bitCast(@as(isize, fd))),
+            @as(u64, @bitCast(offset)),
+        });
+    }
 }

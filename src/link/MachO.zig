@@ -387,9 +387,12 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
 
     if (module_obj_path) |path| try positionals.append(.{ .path = path });
 
-    // TSAN
     if (comp.config.any_sanitize_thread) {
         try positionals.append(.{ .path = comp.tsan_lib.?.full_object_path });
+    }
+
+    if (comp.config.any_fuzz) {
+        try positionals.append(.{ .path = comp.fuzzer_lib.?.full_object_path });
     }
 
     for (positionals.items) |obj| {
@@ -723,6 +726,10 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
             const path = comp.tsan_lib.?.full_object_path;
             try argv.append(path);
             try argv.appendSlice(&.{ "-rpath", std.fs.path.dirname(path) orelse "." });
+        }
+
+        if (comp.config.any_fuzz) {
+            try argv.append(comp.fuzzer_lib.?.full_object_path);
         }
 
         for (self.lib_dirs) |lib_dir| {

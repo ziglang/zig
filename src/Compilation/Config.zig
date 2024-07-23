@@ -32,6 +32,7 @@ any_non_single_threaded: bool,
 /// per-Module setting.
 any_error_tracing: bool,
 any_sanitize_thread: bool,
+any_fuzz: bool,
 pie: bool,
 /// If this is true then linker code is responsible for making an LLVM IR
 /// Module, outputting it to an object file, and then linking that together
@@ -82,6 +83,7 @@ pub const Options = struct {
     ensure_libcpp_on_non_freestanding: bool = false,
     any_non_single_threaded: bool = false,
     any_sanitize_thread: bool = false,
+    any_fuzz: bool = false,
     any_unwind_tables: bool = false,
     any_dyn_libs: bool = false,
     any_c_source_files: bool = false,
@@ -486,6 +488,7 @@ pub fn resolve(options: Options) ResolveError!Config {
         .any_non_single_threaded = options.any_non_single_threaded,
         .any_error_tracing = any_error_tracing,
         .any_sanitize_thread = options.any_sanitize_thread,
+        .any_fuzz = options.any_fuzz,
         .root_error_tracing = root_error_tracing,
         .pie = pie,
         .lto = lto,
