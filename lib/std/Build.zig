@@ -840,12 +840,12 @@ pub const PchOptions = struct {
 pub fn addPrecompiledCHeader(b: *Build, options: PchOptions, source: Module.CSourceFile) *Step.Compile {
     const pch = Step.Compile.create(b, .{
         .name = options.name,
-        .root_module = .{
+        .root_module = b.createModule(.{
             .target = options.target,
             .optimize = options.optimize,
             .link_libc = options.link_libc,
             .link_libcpp = options.link_libcpp,
-        },
+        }),
         .kind = .pch,
         .max_rss = options.max_rss,
     });

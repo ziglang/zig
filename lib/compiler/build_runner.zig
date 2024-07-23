@@ -340,6 +340,10 @@ pub fn main() !void {
         createModuleDependencies(builder) catch @panic("OOM");
     }
 
+    for (builder.top_level_steps.values()) |s| {
+        try finalizeSteps(&s.step);
+    }
+
     if (graph.needed_lazy_dependencies.entries.len != 0) {
         var buffer: std.ArrayListUnmanaged(u8) = .empty;
         for (graph.needed_lazy_dependencies.keys()) |k| {
@@ -637,6 +641,7 @@ fn runStepNames(
         test_count += s.test_results.test_count;
 
         switch (s.state) {
+            .unfinalized => unreachable,
             .precheck_unstarted => unreachable,
             .precheck_started => unreachable,
             .running => unreachable,
@@ -782,6 +787,7 @@ fn printStepStatus(
     run: *const Run,
 ) !void {
     switch (s.state) {
+        .unfinalized => unreachable,
         .precheck_unstarted => unreachable,
         .precheck_started => unreachable,
         .precheck_done => unreachable,
@@ -979,6 +985,34 @@ fn printTreeStep(
     }
 }
 
+/// Traverse the dependency graph after the user build() call,
+/// this allows for checks and postprocessing after the steps are fully configured by the user.
+fn finalizeSteps(
+    s: *Step,
+) !void {
+    switch (s.state) {
+        .unfinalized => {
+            try s.finalize();
+            s.state = .precheck_unstarted;
+
+            for (s.dependencies.items) |dep| {
+                try finalizeSteps(dep);
+            }
+        },
+
+        .precheck_unstarted => {},
+
+        .precheck_started => unreachable,
+        .precheck_done => unreachable,
+        .dependency_failure => unreachable,
+        .running => unreachable,
+        .success => unreachable,
+        .failure => unreachable,
+        .skipped => unreachable,
+        .skipped_oom => unreachable,
+    }
+}
+
 /// Traverse the dependency graph depth-first and make it undirected by having
 /// steps know their dependants (they only know dependencies at start).
 /// Along the way, check that there is no dependency loop, and record the steps
@@ -997,6 +1031,7 @@ fn constructGraphAndCheckForDependencyLoop(
     rand: std.Random,
 ) !void {
     switch (s.state) {
+        .unfinalized => unreachable,
         .precheck_started => {
             std.debug.print("dependency loop detected:\n  {s}\n", .{s.name});
             return error.DependencyLoopDetected;
@@ -1059,6 +1094,7 @@ fn workerMakeOneStep(
                 // dependency is not finished yet.
                 return;
             },
+            .unfinalized => unreachable,
             .precheck_unstarted => unreachable,
             .precheck_started => unreachable,
         }
@@ -1508,8 +1544,14 @@ fn createModuleDependenciesForStep(step: *Step) Allocator.Error!void {
             .assembly_file => |source| source.file.addStepDependencies(step),
             .other_step => |other| step.dependOn(&other.step),
             .system_lib => {},
-            .c_source_file => |source| source.file.addStepDependencies(step),
-            .c_source_files => |source_files| source_files.root.addStepDependencies(step),
+            .c_source_file => |source| {
+                source.file.addStepDependencies(step);
+                if (source.precompiled_header) |pch| pch.addStepDependencies(step);
+            },
+            .c_source_files => |source_files| {
+                source_files.root.addStepDependencies(step);
+                if (source_files.precompiled_header) |pch| pch.addStepDependencies(step);
+            },
             .win32_resource_file => |rc_source| {
                 rc_source.file.addStepDependencies(step);
                 for (rc_source.include_paths) |lp| lp.addStepDependencies(step);

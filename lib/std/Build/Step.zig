@@ -1,6 +1,7 @@
 id: Id,
 name: []const u8,
 owner: *Build,
+finalizeFn: FinalizeFn,
 makeFn: MakeFn,
 
 dependencies: std.ArrayList(*Step),
@@ -68,6 +69,8 @@ pub const TestResults = struct {
     }
 };
 
+pub const FinalizeFn = *const fn (step: *Step) anyerror!void;
+
 pub const MakeOptions = struct {
     progress_node: std.Progress.Node,
     thread_pool: *std.Thread.Pool,
@@ -77,6 +80,7 @@ pub const MakeOptions = struct {
 pub const MakeFn = *const fn (step: *Step, options: MakeOptions) anyerror!void;
 
 pub const State = enum {
+    unfinalized,
     precheck_unstarted,
     precheck_started,
     /// This is also used to indicate "dirty" steps that have been modified
@@ -183,6 +187,7 @@ pub const StepOptions = struct {
     id: Id,
     name: []const u8,
     owner: *Build,
+    finalizeFn: FinalizeFn = finalizeNoOp,
     makeFn: MakeFn = makeNoOp,
     first_ret_addr: ?usize = null,
     max_rss: usize = 0,
@@ -195,11 +200,12 @@ pub fn init(options: StepOptions) Step {
         .id = options.id,
         .name = arena.dupe(u8, options.name) catch @panic("OOM"),
         .owner = options.owner,
+        .finalizeFn = options.finalizeFn,
         .makeFn = options.makeFn,
         .dependencies = std.ArrayList(*Step).init(arena),
         .dependants = .{},
         .inputs = Inputs.init,
-        .state = .precheck_unstarted,
+        .state = .unfinalized,
         .max_rss = options.max_rss,
         .debug_stack_trace = blk: {
             const addresses = arena.alloc(usize, options.owner.debug_stack_frames_count) catch @panic("OOM");
@@ -220,6 +226,11 @@ pub fn init(options: StepOptions) Step {
         .result_peak_rss = 0,
         .test_results = .{},
     };
+}
+
+pub fn finalize(s: *Step) !void {
+    assert(s.state == .unfinalized);
+    try s.finalizeFn(s);
 }
 
 /// If the Step's `make` function reports `error.MakeFailed`, it indicates they
@@ -264,6 +275,10 @@ pub fn getStackTrace(s: *Step) ?std.builtin.StackTrace {
         .instruction_addresses = s.debug_stack_trace,
         .index = len,
     };
+}
+
+fn finalizeNoOp(step: *Step) anyerror!void {
+    _ = step;
 }
 
 fn makeNoOp(step: *Step, options: MakeOptions) anyerror!void {

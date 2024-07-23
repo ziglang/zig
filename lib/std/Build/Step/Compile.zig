@@ -216,9 +216,9 @@ generated_h: ?*GeneratedFile,
 /// Defaults to `std.math.maxInt(u16)`
 error_limit: ?u32 = null,
 
-/// Computed during make().
+/// Computed during finalize().
 is_linking_libc: bool = false,
-/// Computed during make().
+/// Computed during finalize().
 is_linking_libcpp: bool = false,
 
 no_builtin: bool = false,
@@ -405,6 +405,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
             .id = base_id,
             .name = step_name,
             .owner = owner,
+            .finalizeFn = finalize,
             .makeFn = make,
             .max_rss = options.max_rss,
         }),
@@ -1092,23 +1093,6 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         // emitted if there is nothing to link.
         var total_linker_objects: usize = @intFromBool(compile.root_module.root_source_file != null);
 
-        // Fully recursive iteration including dynamic libraries to detect
-        // libc and libc++ linkage.
-        for (compile.getCompileDependencies(true)) |some_compile| {
-            for (some_compile.root_module.getGraph().modules) |mod| {
-                if (mod.link_libc == true) compile.is_linking_libc = true;
-                if (mod.link_libcpp == true) compile.is_linking_libcpp = true;
-            }
-        }
-
-        if (compile.kind == .pch) {
-            // precompiled headers must have a single input header file.
-            const deps = compile.getCompileDependencies(false);
-            assert(deps.len == 1);
-            const link_objects = deps[0].root_module.link_objects.items;
-            assert(link_objects.len == 1 and link_objects[0] == .c_source_file);
-        }
-
         var cli_named_modules = try CliNamedModules.init(arena, compile.root_module);
 
         // For this loop, don't chase dynamic libraries because their link
@@ -1785,6 +1769,27 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     }
 
     return try zig_args.toOwnedSlice();
+}
+
+fn finalize(step: *Step) !void {
+    const compile: *Compile = @fieldParentPtr("step", step);
+
+    // Fully recursive iteration including dynamic libraries to detect
+    // libc and libc++ linkage.
+    for (compile.getCompileDependencies(true)) |some_compile| {
+        for (some_compile.root_module.getGraph().modules) |mod| {
+            if (mod.link_libc == true) compile.is_linking_libc = true;
+            if (mod.link_libcpp == true) compile.is_linking_libcpp = true;
+        }
+    }
+
+    if (compile.kind == .pch) {
+        // precompiled headers must have a single input header file.
+        const deps = compile.getCompileDependencies(false);
+        assert(deps.len == 1);
+        const link_objects = deps[0].root_module.link_objects.items;
+        assert(link_objects.len == 1 and link_objects[0] == .c_source_file);
+    }
 }
 
 fn make(step: *Step, options: Step.MakeOptions) !void {
