@@ -1392,16 +1392,12 @@ pub const Object = struct {
         }
         if (owner_mod.fuzz and !func_analysis.disable_instrumentation) {
             try attributes.addFnAttr(.optforfuzzing, &o.builder);
-            if (comp.config.any_fuzz) {
-                _ = try attributes.removeFnAttr(.skipprofile);
-                _ = try attributes.removeFnAttr(.nosanitize_coverage);
-            }
+            _ = try attributes.removeFnAttr(.skipprofile);
+            _ = try attributes.removeFnAttr(.nosanitize_coverage);
         } else {
             _ = try attributes.removeFnAttr(.optforfuzzing);
-            if (comp.config.any_fuzz) {
-                try attributes.addFnAttr(.skipprofile, &o.builder);
-                try attributes.addFnAttr(.nosanitize_coverage, &o.builder);
-            }
+            try attributes.addFnAttr(.skipprofile, &o.builder);
+            try attributes.addFnAttr(.nosanitize_coverage, &o.builder);
         }
 
         // TODO: disable this if safety is off for the function scope
