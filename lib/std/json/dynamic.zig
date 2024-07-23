@@ -36,20 +36,20 @@ pub const Value = union(enum) {
         if (!isNumberFormattedLikeAnInteger(s)) {
             const f = std.fmt.parseFloat(f64, s) catch unreachable;
             if (std.math.isFinite(f)) {
-                if (options.exact_precision_floats) {
-                    return Value{ .number_string = s };
-                } else {
+                if (options.parse_floats) {
                     return Value{ .float = f };
+                } else {
+                    return Value{ .number_string = s };
                 }
             } else {
                 return Value{ .number_string = s };
             }
         }
         if (std.fmt.parseInt(i64, s, 10)) |i| {
-            if (options.exact_precision_integers) {
-                return Value{ .number_string = s };
-            } else {
+            if (options.parse_integers) {
                 return Value{ .integer = i };
+            } else {
+                return Value{ .number_string = s };
             }
         } else |e| {
             switch (e) {
