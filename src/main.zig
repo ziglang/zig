@@ -945,17 +945,17 @@ fn buildOutputType(
     // null means replace with the test executable binary
     var test_exec_args: std.ArrayListUnmanaged(?[]const u8) = .{};
 
-    // These get set by CLI flags and then snapshotted when a `--mod` flag is
+    // These get set by CLI flags and then snapshotted when a `-M` flag is
     // encountered.
     var mod_opts: Package.Module.CreateOptions.Inherited = .{};
 
-    // These get appended to by CLI flags and then slurped when a `--mod` flag
+    // These get appended to by CLI flags and then slurped when a `-M` flag
     // is encountered.
     var cssan: ClangSearchSanitizer = .{};
     var cc_argv: std.ArrayListUnmanaged([]const u8) = .{};
     var deps: std.ArrayListUnmanaged(CliModule.Dep) = .{};
 
-    // Contains every module specified via --mod. The dependencies are added
+    // Contains every module specified via -M. The dependencies are added
     // after argument parsing is completed. We use a StringArrayHashMap to make
     // error output consistent. "root" is special.
     var create_module: CreateModule = .{
@@ -1081,22 +1081,6 @@ fn buildOutputType(
                             .key = key,
                             .value = value,
                         });
-                    } else if (mem.eql(u8, arg, "--mod")) {
-                        // deprecated, kept around until the next zig1.wasm update
-                        try handleModArg(
-                            arena,
-                            args_iter.nextOrFatal(),
-                            args_iter.nextOrFatal(),
-                            &create_module,
-                            &mod_opts,
-                            &cc_argv,
-                            &target_arch_os_abi,
-                            &target_mcpu,
-                            &deps,
-                            &c_source_files_owner_index,
-                            &rc_source_files_owner_index,
-                            &cssan,
-                        );
                     } else if (mem.startsWith(u8, arg, "-M")) {
                         var it = mem.splitScalar(u8, arg["-M".len..], '=');
                         const mod_name = it.next().?;
@@ -2649,7 +2633,7 @@ fn buildOutputType(
         const unresolved_src_path = b: {
             if (root_src_file) |src_path| {
                 if (create_module.modules.count() != 0) {
-                    fatal("main module provided both by '--mod {s} {}{s}' and by positional argument '{s}'", .{
+                    fatal("main module provided both by '-M{s}={}{s}' and by positional argument '{s}'", .{
                         create_module.modules.keys()[0],
                         create_module.modules.values()[0].paths.root,
                         create_module.modules.values()[0].paths.root_src_path,
@@ -3409,7 +3393,7 @@ fn buildOutputType(
         .native_system_include_paths = create_module.native_system_include_paths,
         // Any leftover C compilation args (such as -I) apply globally rather
         // than to any particular module. This feature can greatly reduce CLI
-        // noise when --search-prefix and --mod are combined.
+        // noise when --search-prefix and -M are combined.
         .global_cc_argv = try cc_argv.toOwnedSlice(arena),
         .file_system_inputs = &file_system_inputs,
         .debug_compiler_runtime_libs = debug_compiler_runtime_libs,
