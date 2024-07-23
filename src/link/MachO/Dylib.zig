@@ -270,7 +270,10 @@ fn parseTbd(self: *Dylib, macho_file: *MachO) !void {
     log.debug("parsing dylib from stub: {s}", .{self.path});
 
     const file = macho_file.getFileHandle(self.file_handle);
-    var lib_stub = LibStub.loadFromFile(gpa, file) catch return error.NotLibStub;
+    var lib_stub = LibStub.loadFromFile(gpa, file) catch |err| {
+        try macho_file.reportParseError2(self.index, "failed to parse TBD file: {s}", .{@errorName(err)});
+        return error.MalformedTbd;
+    };
     defer lib_stub.deinit();
     const umbrella_lib = lib_stub.inner[0];
 

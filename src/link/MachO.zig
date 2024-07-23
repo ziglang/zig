@@ -914,6 +914,7 @@ fn parseInputFileWorker(self: *MachO, file: File) void {
         switch (err) {
             error.MalformedObject,
             error.MalformedDylib,
+            error.MalformedTbd,
             error.InvalidCpuArch,
             error.InvalidTarget,
             => {}, // already reported
@@ -4637,7 +4638,6 @@ const ObjcStubsSection = synthetic.ObjcStubsSection;
 const Object = @import("MachO/Object.zig");
 const LazyBind = bind.LazyBind;
 const LaSymbolPtrSection = synthetic.LaSymbolPtrSection;
-const LibStub = tapi.LibStub;
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Md5 = std.crypto.hash.Md5;
