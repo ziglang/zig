@@ -2666,8 +2666,8 @@ fn binOpBigInt(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) Inner
     switch (op) {
         .mul => return func.callIntrinsic("__multi3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
         .div => switch (int_info.signedness) {
-            .signed => return func.callIntrinsic("__udivti3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
-            .unsigned => return func.callIntrinsic("__divti3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
+            .signed => return func.callIntrinsic("__divti3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
+            .unsigned => return func.callIntrinsic("__udivti3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
         },
         .rem => switch (int_info.signedness) {
             .signed => return func.callIntrinsic("__modti3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
@@ -4378,7 +4378,7 @@ fn airIntcast(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     else
         try func.intcast(operand, operand_ty, ty);
 
-    return func.finishAir(inst, result, &.{});
+    return func.finishAir(inst, result, &.{ty_op.operand});
 }
 
 /// Upcasts or downcasts an integer based on the given and wanted types,
@@ -4677,10 +4677,20 @@ fn airTrunc(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try func.resolveInst(ty_op.operand);
-    const wanted_ty = ty_op.ty.toType();
+    const wanted_ty: Type = ty_op.ty.toType();
     const op_ty = func.typeOf(ty_op.operand);
+    const pt = func.pt;
+    const mod = pt.zcu;
 
-    const result = try func.trunc(operand, wanted_ty, op_ty);
+    if (wanted_ty.zigTypeTag(mod) == .Vector or op_ty.zigTypeTag(mod) == .Vector) {
+        return func.fail("TODO: trunc for vectors", .{});
+    }
+
+    const result = if (op_ty.bitSize(pt) == wanted_ty.bitSize(pt))
+        func.reuseOperand(ty_op.operand, operand)
+    else
+        try func.trunc(operand, wanted_ty, op_ty);
+
     return func.finishAir(inst, result, &.{ty_op.operand});
 }
 
