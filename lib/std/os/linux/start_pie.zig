@@ -7,6 +7,7 @@ const R_AMD64_RELATIVE = 8;
 const R_386_RELATIVE = 8;
 const R_ARM_RELATIVE = 23;
 const R_AARCH64_RELATIVE = 1027;
+const R_CSKY_RELATIVE = 9;
 const R_LARCH_RELATIVE = 3;
 const R_68K_RELATIVE = 22;
 const R_RISCV_RELATIVE = 3;
@@ -18,6 +19,7 @@ const R_RELATIVE = switch (builtin.cpu.arch) {
     .x86_64 => R_AMD64_RELATIVE,
     .arm, .armeb, .thumb, .thumbeb => R_ARM_RELATIVE,
     .aarch64, .aarch64_be => R_AARCH64_RELATIVE,
+    .csky => R_CSKY_RELATIVE,
     .loongarch32, .loongarch64 => R_LARCH_RELATIVE,
     .m68k => R_68K_RELATIVE,
     .riscv64 => R_RISCV_RELATIVE,
@@ -61,6 +63,13 @@ fn getDynamicSymbol() [*]elf.Dyn {
             \\ .hidden _DYNAMIC
             \\ adrp %[ret], _DYNAMIC
             \\ add %[ret], %[ret], #:lo12:_DYNAMIC
+            : [ret] "=r" (-> [*]elf.Dyn),
+        ),
+        // The CSKY ABI requires the gb register to point to the GOT. Additionally, the first
+        // entry in the GOT is defined to hold the address of _DYNAMIC.
+        .csky => asm volatile (
+            \\ mov %[ret], gb
+            \\ ldw %[ret], %[ret]
             : [ret] "=r" (-> [*]elf.Dyn),
         ),
         .loongarch32, .loongarch64 => asm volatile (
