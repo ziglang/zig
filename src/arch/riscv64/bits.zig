@@ -251,8 +251,7 @@ pub const FrameIndex = enum(u32) {
     /// This index referes to a frame dedicated to setting up args for function called
     /// in this function. Useful for aligning args separately.
     call_frame,
-    /// This index referes to the frame where callee saved registers are spilled and restore
-    /// from.
+    /// This index referes to the frame where callee saved registers are spilled and restored from.
     spill_frame,
     /// Other indices are used for local variable stack slots
     _,

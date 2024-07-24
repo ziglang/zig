@@ -106,7 +106,9 @@ pub fn generateLazyFunction(
     const target = namespace.fileScope(zcu).mod.resolved_target.result;
     switch (target_util.zigBackend(target, false)) {
         else => unreachable,
-        inline .stage2_x86_64 => |backend| {
+        inline .stage2_x86_64,
+        .stage2_riscv64,
+        => |backend| {
             dev.check(devFeatureForBackend(backend));
             return importBackend(backend).generateLazy(lf, pt, src_loc, lazy_sym, code, debug_output);
         },

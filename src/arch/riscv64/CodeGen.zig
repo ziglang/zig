@@ -56,7 +56,6 @@ gpa: Allocator,
 
 mod: *Package.Module,
 target: *const std.Target,
-func_index: InternPool.Index,
 debug_output: DebugInfoOutput,
 err_msg: ?*ErrorMsg,
 args: []MCValue,
@@ -67,6 +66,8 @@ src_loc: Zcu.LazySrcLoc,
 
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
 mir_extra: std.ArrayListUnmanaged(u32) = .{},
+
+owner: Owner,
 
 /// Byte offset within the source file of the ending curly.
 end_di_line: u32,
@@ -111,6 +112,34 @@ const air_bookkeeping_init = if (std.debug.runtime_safety) @as(usize, 0) else {}
 const SymbolOffset = struct { sym: u32, off: i32 = 0 };
 const RegisterOffset = struct { reg: Register, off: i32 = 0 };
 pub const FrameAddr = struct { index: FrameIndex, off: i32 = 0 };
+
+const Owner = union(enum) {
+    func_index: InternPool.Index,
+    lazy_sym: link.File.LazySymbol,
+
+    fn getDecl(owner: Owner, zcu: *Zcu) InternPool.DeclIndex {
+        return switch (owner) {
+            .func_index => |func_index| zcu.funcOwnerDeclIndex(func_index),
+            .lazy_sym => |lazy_sym| lazy_sym.ty.getOwnerDecl(zcu),
+        };
+    }
+
+    fn getSymbolIndex(owner: Owner, func: *Func) !u32 {
+        const pt = func.pt;
+        switch (owner) {
+            .func_index => |func_index| {
+                const decl_index = func.pt.zcu.funcOwnerDeclIndex(func_index);
+                const elf_file = func.bin_file.cast(link.File.Elf).?;
+                return elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, decl_index);
+            },
+            .lazy_sym => |lazy_sym| {
+                const elf_file = func.bin_file.cast(link.File.Elf).?;
+                return elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, pt, lazy_sym) catch |err|
+                    func.fail("{s} creating lazy symbol", .{@errorName(err)});
+            },
+        }
+    }
+};
 
 const MCValue = union(enum) {
     /// No runtime bits. `void` types, empty structs, u0, enums with 1 tag, etc.
@@ -739,8 +768,8 @@ pub fn generate(
         .bin_file = bin_file,
         .liveness = liveness,
         .target = target,
-        .func_index = func_index,
         .debug_output = debug_output,
+        .owner = .{ .func_index = func_index },
         .err_msg = null,
         .args = undefined, // populated after `resolveCallingConventionValues`
         .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
@@ -797,11 +826,11 @@ pub fn generate(
     function.args = call_info.args;
     function.ret_mcv = call_info.return_value;
     function.frame_allocs.set(@intFromEnum(FrameIndex.ret_addr), FrameAlloc.init(.{
-        .size = Type.usize.abiSize(pt),
-        .alignment = Type.usize.abiAlignment(pt).min(call_info.stack_align),
+        .size = Type.u64.abiSize(pt),
+        .alignment = Type.u64.abiAlignment(pt).min(call_info.stack_align),
     }));
     function.frame_allocs.set(@intFromEnum(FrameIndex.base_ptr), FrameAlloc.init(.{
-        .size = Type.usize.abiSize(pt),
+        .size = Type.u64.abiSize(pt),
         .alignment = Alignment.min(
             call_info.stack_align,
             Alignment.fromNonzeroByteUnits(function.target.stackAlignment()),
@@ -813,7 +842,7 @@ pub fn generate(
     }));
     function.frame_allocs.set(@intFromEnum(FrameIndex.spill_frame), FrameAlloc.init(.{
         .size = 0,
-        .alignment = Type.usize.abiAlignment(pt),
+        .alignment = Type.u64.abiAlignment(pt),
     }));
 
     function.gen() catch |err| switch (err) {
@@ -848,6 +877,106 @@ pub fn generate(
         .prev_di_pc = 0,
         .prev_di_line = func.lbrace_line,
         .prev_di_column = func.lbrace_column,
+    };
+    defer emit.deinit();
+
+    emit.emitMir() catch |err| switch (err) {
+        error.LowerFail, error.EmitFail => return Result{ .fail = emit.lower.err_msg.? },
+        error.InvalidInstruction => |e| {
+            const msg = switch (e) {
+                error.InvalidInstruction => "CodeGen failed to find a viable instruction.",
+            };
+            return Result{
+                .fail = try ErrorMsg.create(
+                    gpa,
+                    src_loc,
+                    "{s} This is a bug in the Zig compiler.",
+                    .{msg},
+                ),
+            };
+        },
+        else => |e| return e,
+    };
+
+    if (function.err_msg) |em| {
+        return Result{ .fail = em };
+    } else {
+        return Result.ok;
+    }
+}
+
+pub fn generateLazy(
+    bin_file: *link.File,
+    pt: Zcu.PerThread,
+    src_loc: Zcu.LazySrcLoc,
+    lazy_sym: link.File.LazySymbol,
+    code: *std.ArrayList(u8),
+    debug_output: DebugInfoOutput,
+) CodeGenError!Result {
+    const comp = bin_file.comp;
+    const gpa = comp.gpa;
+    const mod = comp.root_mod;
+
+    var function: Func = .{
+        .gpa = gpa,
+        .air = undefined,
+        .pt = pt,
+        .mod = mod,
+        .bin_file = bin_file,
+        .liveness = undefined,
+        .target = &mod.resolved_target.result,
+        .debug_output = debug_output,
+        .owner = .{ .lazy_sym = lazy_sym },
+        .err_msg = null,
+        .args = undefined, // populated after `resolveCallingConventionValues`
+        .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
+        .fn_type = undefined,
+        .arg_index = 0,
+        .branch_stack = undefined,
+        .src_loc = src_loc,
+        .end_di_line = undefined,
+        .end_di_column = undefined,
+        .scope_generation = 0,
+        .avl = null,
+        .vtype = null,
+    };
+    defer {
+        function.mir_instructions.deinit(gpa);
+        function.mir_extra.deinit(gpa);
+    }
+
+    function.genLazy(lazy_sym) catch |err| switch (err) {
+        error.CodegenFail => return Result{ .fail = function.err_msg.? },
+        error.OutOfRegisters => return Result{
+            .fail = try ErrorMsg.create(gpa, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
+        },
+        else => |e| return e,
+    };
+
+    var mir: Mir = .{
+        .instructions = function.mir_instructions.toOwnedSlice(),
+        .extra = try function.mir_extra.toOwnedSlice(gpa),
+        .frame_locs = function.frame_locs.toOwnedSlice(),
+    };
+    defer mir.deinit(gpa);
+
+    var emit: Emit = .{
+        .lower = .{
+            .pt = pt,
+            .allocator = gpa,
+            .mir = mir,
+            .cc = .Unspecified,
+            .src_loc = src_loc,
+            .output_mode = comp.config.output_mode,
+            .link_mode = comp.config.link_mode,
+            .pic = mod.pic,
+        },
+        .bin_file = bin_file,
+        .debug_output = debug_output,
+        .code = code,
+        .prev_di_pc = undefined, // no debug info yet
+        .prev_di_line = undefined, // no debug info yet
+        .prev_di_column = undefined, // no debug info yet
     };
     defer emit.deinit();
 
@@ -1050,7 +1179,7 @@ pub fn addExtraAssumeCapacity(func: *Func, extra: anytype) u32 {
 /// Caller's duty to lock the return register is needed.
 fn getCsr(func: *Func, csr: CSR) !Register {
     assert(func.hasFeature(.zicsr));
-    const dst_reg = try func.register_manager.allocReg(null, func.regTempClassForType(Type.usize));
+    const dst_reg = try func.register_manager.allocReg(null, func.regTempClassForType(Type.u64));
     _ = try func.addInst(.{
         .tag = .csrrs,
         .ops = .csr,
@@ -1103,7 +1232,7 @@ fn setVl(func: *Func, dst_reg: Register, avl: u64, options: bits.VType) !void {
             });
         } else {
             const options_int: u12 = @as(u12, 0) | @as(u8, @bitCast(options));
-            const temp_reg = try func.copyToTmpRegister(Type.usize, .{ .immediate = avl });
+            const temp_reg = try func.copyToTmpRegister(Type.u64, .{ .immediate = avl });
             _ = try func.addInst(.{
                 .tag = .vsetvli,
                 .ops = .rri,
@@ -1155,11 +1284,11 @@ fn gen(func: *Func) !void {
                 // The address where to store the return value for the caller is in a
                 // register which the callee is free to clobber. Therefore, we purposely
                 // spill it to stack immediately.
-                const frame_index = try func.allocFrameIndex(FrameAlloc.initSpill(Type.usize, pt));
+                const frame_index = try func.allocFrameIndex(FrameAlloc.initSpill(Type.u64, pt));
                 try func.genSetMem(
                     .{ .frame = frame_index },
                     0,
-                    Type.usize,
+                    Type.u64,
                     func.ret_mcv.long.address().offset(-func.ret_mcv.short.indirect.off),
                 );
                 func.ret_mcv.long = .{ .load_frame = .{ .index = frame_index } };
@@ -1298,6 +1427,102 @@ fn gen(func: *Func) !void {
             .column = func.end_di_column,
         } },
     });
+}
+
+fn genLazy(func: *Func, lazy_sym: link.File.LazySymbol) InnerError!void {
+    const pt = func.pt;
+    const mod = pt.zcu;
+    const ip = &mod.intern_pool;
+    switch (lazy_sym.ty.zigTypeTag(mod)) {
+        .Enum => {
+            const enum_ty = lazy_sym.ty;
+            wip_mir_log.debug("{}.@tagName:", .{enum_ty.fmt(pt)});
+
+            const param_regs = abi.Registers.Integer.function_arg_regs;
+            const ret_reg = param_regs[0];
+            const enum_mcv: MCValue = .{ .register = param_regs[1] };
+
+            const exitlude_jump_relocs = try func.gpa.alloc(Mir.Inst.Index, enum_ty.enumFieldCount(mod));
+            defer func.gpa.free(exitlude_jump_relocs);
+
+            const data_reg, const data_lock = try func.allocReg(.int);
+            defer func.register_manager.unlockReg(data_lock);
+
+            const elf_file = func.bin_file.cast(link.File.Elf).?;
+            const sym_index = elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, pt, .{
+                .kind = .const_data,
+                .ty = enum_ty,
+            }) catch |err|
+                return func.fail("{s} creating lazy symbol", .{@errorName(err)});
+            const sym = elf_file.symbol(sym_index);
+
+            try func.genSetReg(Type.u64, data_reg, .{ .lea_symbol = .{ .sym = sym.esym_index } });
+
+            const cmp_reg, const cmp_lock = try func.allocReg(.int);
+            defer func.register_manager.unlockReg(cmp_lock);
+
+            var data_off: i32 = 0;
+            const tag_names = enum_ty.enumFields(mod);
+            for (exitlude_jump_relocs, 0..) |*exitlude_jump_reloc, tag_index| {
+                const tag_name_len = tag_names.get(ip)[tag_index].length(ip);
+                const tag_val = try pt.enumValueFieldIndex(enum_ty, @intCast(tag_index));
+                const tag_mcv = try func.genTypedValue(tag_val);
+
+                _ = try func.genBinOp(
+                    .cmp_neq,
+                    enum_mcv,
+                    enum_ty,
+                    tag_mcv,
+                    enum_ty,
+                    cmp_reg,
+                );
+                const skip_reloc = try func.condBr(Type.bool, .{ .register = cmp_reg });
+
+                try func.genSetMem(
+                    .{ .reg = ret_reg },
+                    0,
+                    Type.u64,
+                    .{ .register_offset = .{ .reg = data_reg, .off = data_off } },
+                );
+
+                try func.genSetMem(
+                    .{ .reg = ret_reg },
+                    8,
+                    Type.u64,
+                    .{ .immediate = tag_name_len },
+                );
+
+                exitlude_jump_reloc.* = try func.addInst(.{
+                    .tag = .pseudo,
+                    .ops = .pseudo_j,
+                    .data = .{ .inst = undefined },
+                });
+                func.performReloc(skip_reloc);
+
+                data_off += @intCast(tag_name_len + 1);
+            }
+
+            try func.airTrap();
+
+            for (exitlude_jump_relocs) |reloc| func.performReloc(reloc);
+
+            _ = try func.addInst(.{
+                .tag = .jalr,
+                .ops = .rri,
+                .data = .{
+                    .i_type = .{
+                        .rd = .zero,
+                        .rs1 = .ra,
+                        .imm12 = Immediate.s(0),
+                    },
+                },
+            });
+        },
+        else => return func.fail(
+            "TODO implement {s} for {}",
+            .{ @tagName(lazy_sym.kind), lazy_sym.ty.fmt(pt) },
+        ),
+    }
 }
 
 fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
@@ -1717,8 +1942,8 @@ fn computeFrameLayout(func: *Func) !FrameLayout {
         }
         break :blk i;
     };
-    const saved_reg_size = save_reg_list.size();
 
+    const saved_reg_size = save_reg_list.size();
     frame_size[@intFromEnum(FrameIndex.spill_frame)] = @intCast(saved_reg_size);
 
     // The total frame size is calculated by the amount of s registers you need to save * 8, as each
@@ -1877,15 +2102,6 @@ fn truncateRegister(func: *Func, ty: Type, reg: Register) !void {
             }
         },
     }
-}
-
-fn symbolIndex(func: *Func) !u32 {
-    const pt = func.pt;
-    const zcu = pt.zcu;
-    const decl_index = zcu.funcOwnerDeclIndex(func.func_index);
-    const elf_file = func.bin_file.cast(link.File.Elf).?;
-    const atom_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, decl_index);
-    return atom_index;
 }
 
 fn allocFrameIndex(func: *Func, alloc: FrameAlloc) !FrameIndex {
@@ -2049,6 +2265,10 @@ pub fn spillInstruction(func: *Func, reg: Register, inst: Air.Inst.Index) !void 
     } else unreachable; // spilled reg not tracked with spilled instruciton
     try tracking.spill(func, inst);
     try tracking.trackSpill(func, inst);
+}
+
+pub fn spillRegisters(func: *Func, comptime registers: []const Register) !void {
+    inline for (registers) |reg| try func.register_manager.getKnownReg(reg, null);
 }
 
 /// Copies a value to a register without tracking the register. The register is not considered
@@ -2594,14 +2814,14 @@ fn genBinOp(
 
             // RISC-V has no immediate mul, so we copy the size to a temporary register
             const elem_size = lhs_ty.elemType2(zcu).abiSize(pt);
-            const elem_size_reg = try func.copyToTmpRegister(Type.usize, .{ .immediate = elem_size });
+            const elem_size_reg = try func.copyToTmpRegister(Type.u64, .{ .immediate = elem_size });
 
             try func.genBinOp(
                 .mul,
                 tmp_mcv,
                 rhs_ty,
                 .{ .register = elem_size_reg },
-                Type.usize,
+                Type.u64,
                 tmp_reg,
             );
 
@@ -2612,9 +2832,9 @@ fn genBinOp(
                     else => unreachable,
                 },
                 lhs_mcv,
-                Type.usize, // we know it's a pointer, so it'll be usize.
+                Type.u64, // we know it's a pointer, so it'll be usize.
                 tmp_mcv,
-                Type.usize,
+                Type.u64,
                 dst_reg,
             );
         },
@@ -2980,7 +3200,7 @@ fn airSubWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
         const rhs_reg, const rhs_lock = try func.promoteReg(rhs_ty, rhs);
         defer if (rhs_lock) |lock| func.register_manager.unlockReg(lock);
 
-        const overflow_reg = try func.copyToTmpRegister(Type.usize, .{ .immediate = 0 });
+        const overflow_reg = try func.copyToTmpRegister(Type.u64, .{ .immediate = 0 });
 
         const overflow_lock = func.register_manager.lockRegAssumeUnused(overflow_reg);
         defer func.register_manager.unlockReg(overflow_lock);
@@ -3042,9 +3262,9 @@ fn airSubWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
                         try func.genBinOp(
                             .cmp_neq,
                             .{ .register = overflow_reg },
-                            Type.usize,
+                            Type.u64,
                             .{ .register = rhs_reg },
-                            Type.usize,
+                            Type.u64,
                             overflow_reg,
                         );
 
@@ -3521,7 +3741,7 @@ fn airSliceLen(func: *Func, inst: Air.Inst.Index) !void {
                 if (func.reuseOperand(inst, ty_op.operand, 0, src_mcv)) break :result len_mcv;
 
                 const dst_mcv = try func.allocRegOrMem(ty, inst, true);
-                try func.genCopy(Type.usize, dst_mcv, len_mcv);
+                try func.genCopy(Type.u64, dst_mcv, len_mcv);
                 break :result dst_mcv;
             },
             .register_pair => |pair| {
@@ -3530,7 +3750,7 @@ fn airSliceLen(func: *Func, inst: Air.Inst.Index) !void {
                 if (func.reuseOperand(inst, ty_op.operand, 0, src_mcv)) break :result len_mcv;
 
                 const dst_mcv = try func.allocRegOrMem(ty, inst, true);
-                try func.genCopy(Type.usize, dst_mcv, len_mcv);
+                try func.genCopy(Type.u64, dst_mcv, len_mcv);
                 break :result dst_mcv;
             },
             else => return func.fail("TODO airSliceLen for {}", .{src_mcv}),
@@ -3619,7 +3839,7 @@ fn genSliceElemPtr(func: *Func, lhs: Air.Inst.Ref, rhs: Air.Inst.Ref) !MCValue {
 
     const addr_reg, const addr_lock = try func.allocReg(.int);
     defer func.register_manager.unlockReg(addr_lock);
-    try func.genSetReg(Type.usize, addr_reg, slice_mcv);
+    try func.genSetReg(Type.u64, addr_reg, slice_mcv);
 
     _ = try func.addInst(.{
         .tag = .add,
@@ -3657,12 +3877,12 @@ fn airArrayElemVal(func: *Func, inst: Air.Inst.Index) !void {
             .register => {
                 const frame_index = try func.allocFrameIndex(FrameAlloc.initType(array_ty, pt));
                 try func.genSetMem(.{ .frame = frame_index }, 0, array_ty, array_mcv);
-                try func.genSetReg(Type.usize, addr_reg, .{ .lea_frame = .{ .index = frame_index } });
+                try func.genSetReg(Type.u64, addr_reg, .{ .lea_frame = .{ .index = frame_index } });
             },
             .load_frame => |frame_addr| {
-                try func.genSetReg(Type.usize, addr_reg, .{ .lea_frame = frame_addr });
+                try func.genSetReg(Type.u64, addr_reg, .{ .lea_frame = frame_addr });
             },
-            else => try func.genSetReg(Type.usize, addr_reg, array_mcv.address()),
+            else => try func.genSetReg(Type.u64, addr_reg, array_mcv.address()),
         }
 
         const dst_mcv = try func.allocRegOrMem(result_ty, inst, false);
@@ -3683,7 +3903,7 @@ fn airArrayElemVal(func: *Func, inst: Air.Inst.Index) !void {
             // we can do a shortcut here where we don't need a vslicedown
             // and can just copy to the frame index.
             if (!(index_mcv == .immediate and index_mcv.immediate == 0)) {
-                const index_reg = try func.copyToTmpRegister(Type.usize, index_mcv);
+                const index_reg = try func.copyToTmpRegister(Type.u64, index_mcv);
 
                 _ = try func.addInst(.{
                     .tag = .vslidedownvx,
@@ -3766,7 +3986,7 @@ fn airPtrElemPtr(func: *Func, inst: Air.Inst.Index) !void {
             base_ptr_mcv,
             base_ptr_ty,
             index_mcv,
-            Type.usize,
+            Type.u64,
             result_reg,
         );
 
@@ -4371,7 +4591,7 @@ fn airStructFieldVal(func: *Func, inst: Air.Inst.Index) !void {
                 const dst_reg = if (field_off == 0)
                     (try func.copyToNewRegister(inst, src_mcv)).register
                 else
-                    try func.copyToTmpRegister(Type.usize, .{ .register = src_reg });
+                    try func.copyToTmpRegister(Type.u64, .{ .register = src_reg });
 
                 const dst_mcv: MCValue = .{ .register = dst_reg };
                 const dst_lock = func.register_manager.lockReg(dst_reg);
@@ -4431,8 +4651,8 @@ fn airStructFieldVal(func: *Func, inst: Air.Inst.Index) !void {
 
                         const hi_mcv =
                             dst_mcv.address().offset(@intCast(field_bit_size / 64 * 8)).deref();
-                        try func.genSetReg(Type.usize, tmp_reg, hi_mcv);
-                        try func.genCopy(Type.usize, hi_mcv, .{ .register = tmp_reg });
+                        try func.genSetReg(Type.u64, tmp_reg, hi_mcv);
+                        try func.genCopy(Type.u64, hi_mcv, .{ .register = tmp_reg });
                     }
                     break :result dst_mcv;
                 }
@@ -4456,7 +4676,7 @@ fn genArgDbgInfo(func: Func, inst: Air.Inst.Index, mcv: MCValue) !void {
     const zcu = pt.zcu;
     const arg = func.air.instructions.items(.data)[@intFromEnum(inst)].arg;
     const ty = arg.ty.toType();
-    const owner_decl = zcu.funcOwnerDeclIndex(func.func_index);
+    const owner_decl = func.owner.getDecl(zcu);
     if (arg.name == .none) return;
     const name = func.air.nullTerminatedString(@intFromEnum(arg.name));
 
@@ -4517,13 +4737,13 @@ fn airBreakpoint(func: *Func) !void {
 
 fn airRetAddr(func: *Func, inst: Air.Inst.Index) !void {
     const dst_mcv = try func.allocRegOrMem(func.typeOfIndex(inst), inst, true);
-    try func.genCopy(Type.usize, dst_mcv, .{ .load_frame = .{ .index = .ret_addr } });
+    try func.genCopy(Type.u64, dst_mcv, .{ .load_frame = .{ .index = .ret_addr } });
     return func.finishAir(inst, dst_mcv, .{ .none, .none, .none });
 }
 
 fn airFrameAddress(func: *Func, inst: Air.Inst.Index) !void {
     const dst_mcv = try func.allocRegOrMem(func.typeOfIndex(inst), inst, true);
-    try func.genCopy(Type.usize, dst_mcv, .{ .lea_frame = .{ .index = .base_ptr } });
+    try func.genCopy(Type.u64, dst_mcv, .{ .lea_frame = .{ .index = .base_ptr } });
     return func.finishAir(inst, dst_mcv, .{ .none, .none, .none });
 }
 
@@ -4682,7 +4902,7 @@ fn genCall(
         .indirect => |reg_off| {
             const ret_ty = Type.fromInterned(fn_info.return_type);
             const frame_index = try func.allocFrameIndex(FrameAlloc.initSpill(ret_ty, pt));
-            try func.genSetReg(Type.usize, reg_off.reg, .{
+            try func.genSetReg(Type.u64, reg_off.reg, .{
                 .lea_frame = .{ .index = frame_index, .off = -reg_off.off },
             });
             call_info.return_value.short = .{ .load_frame = .{ .index = frame_index } };
@@ -4700,7 +4920,7 @@ fn genCall(
                 dst_reg,
                 src_arg,
             ),
-            .indirect => |reg_off| try func.genSetReg(Type.usize, reg_off.reg, .{
+            .indirect => |reg_off| try func.genSetReg(Type.u64, reg_off.reg, .{
                 .lea_frame = .{ .index = frame_index, .off = -reg_off.off },
             }),
             else => return func.fail("TODO: genCall actual set {s}", .{@tagName(dst_arg)}),
@@ -4728,7 +4948,7 @@ fn genCall(
                             if (func.mod.pic) {
                                 return func.fail("TODO: genCall pic", .{});
                             } else {
-                                try func.genSetReg(Type.usize, .ra, .{ .load_symbol = .{ .sym = sym.esym_index } });
+                                try func.genSetReg(Type.u64, .ra, .{ .load_symbol = .{ .sym = sym.esym_index } });
                                 _ = try func.addInst(.{
                                     .tag = .jalr,
                                     .ops = .rri,
@@ -4745,7 +4965,7 @@ fn genCall(
                         const owner_decl = zcu.declPtr(extern_func.decl);
                         const lib_name = extern_func.lib_name.toSlice(&zcu.intern_pool);
                         const decl_name = owner_decl.name.toSlice(&zcu.intern_pool);
-                        const atom_index = try func.symbolIndex();
+                        const atom_index = try func.owner.getSymbolIndex(func);
 
                         if (func.bin_file.cast(link.File.Elf)) |elf_file| {
                             _ = try func.addInst(.{
@@ -4764,7 +4984,7 @@ fn genCall(
                 assert(func.typeOf(callee).zigTypeTag(zcu) == .Pointer);
                 const addr_reg, const addr_lock = try func.allocReg(.int);
                 defer func.register_manager.unlockReg(addr_lock);
-                try func.genSetReg(Type.usize, addr_reg, .{ .air_ref = callee });
+                try func.genSetReg(Type.u64, addr_reg, .{ .air_ref = callee });
 
                 _ = try func.addInst(.{
                     .tag = .jalr,
@@ -4829,7 +5049,7 @@ fn airRet(func: *Func, inst: Air.Inst.Index, safety: bool) !void {
             const lock = func.register_manager.lockRegAssumeUnused(reg_off.reg);
             defer func.register_manager.unlockReg(lock);
 
-            try func.genSetReg(Type.usize, reg_off.reg, func.ret_mcv.long);
+            try func.genSetReg(Type.u64, reg_off.reg, func.ret_mcv.long);
             try func.genSetMem(
                 .{ .reg = reg_off.reg },
                 reg_off.off,
@@ -4897,14 +5117,14 @@ fn airCmp(func: *Func, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
                     .Enum => lhs_ty.intTagType(zcu),
                     .Int => lhs_ty,
                     .Bool => Type.u1,
-                    .Pointer => Type.usize,
+                    .Pointer => Type.u64,
                     .ErrorSet => Type.anyerror,
                     .Optional => blk: {
                         const payload_ty = lhs_ty.optionalChild(zcu);
                         if (!payload_ty.hasRuntimeBitsIgnoreComptime(pt)) {
                             break :blk Type.u1;
                         } else if (lhs_ty.isPtrLikeOptional(zcu)) {
-                            break :blk Type.usize;
+                            break :blk Type.u64;
                         } else {
                             return func.fail("TODO riscv cmp non-pointer optionals", .{});
                         }
@@ -5014,7 +5234,7 @@ fn genVarDbgInfo(
                     break :blk .nop;
                 },
             };
-            try dw.genVarDbgInfo(name, ty, zcu.funcOwnerDeclIndex(func.func_index), is_ptr, loc);
+            try dw.genVarDbgInfo(name, ty, func.owner.getDecl(zcu), is_ptr, loc);
         },
         .plan9 => {},
         .none => {},
@@ -5837,7 +6057,7 @@ fn genCopy(func: *Func, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
             const src_info: ?struct { addr_reg: Register, addr_lock: ?RegisterLock } = switch (src_mcv) {
                 .register_pair, .memory, .indirect, .load_frame => null,
                 .load_symbol => src: {
-                    const src_addr_reg, const src_addr_lock = try func.promoteReg(Type.usize, src_mcv.address());
+                    const src_addr_reg, const src_addr_lock = try func.promoteReg(Type.u64, src_mcv.address());
                     errdefer func.register_manager.unlockReg(src_addr_lock);
 
                     break :src .{ .addr_reg = src_addr_reg, .addr_lock = src_addr_lock };
@@ -5889,9 +6109,9 @@ fn genInlineMemcpy(
     const src = regs[2];
     const dst = regs[3];
 
-    try func.genSetReg(Type.usize, count, len);
-    try func.genSetReg(Type.usize, src, src_ptr);
-    try func.genSetReg(Type.usize, dst, dst_ptr);
+    try func.genSetReg(Type.u64, count, len);
+    try func.genSetReg(Type.u64, src, src_ptr);
+    try func.genSetReg(Type.u64, dst, dst_ptr);
 
     // if count is 0, there's nothing to copy
     _ = try func.addInst(.{
@@ -6003,9 +6223,9 @@ fn genInlineMemset(
     const src = regs[1];
     const dst = regs[2];
 
-    try func.genSetReg(Type.usize, count, len);
-    try func.genSetReg(Type.usize, src, src_value);
-    try func.genSetReg(Type.usize, dst, dst_ptr);
+    try func.genSetReg(Type.u64, count, len);
+    try func.genSetReg(Type.u64, src, src_value);
+    try func.genSetReg(Type.u64, dst, dst_ptr);
 
     // sb src, 0(dst)
     const first_inst = try func.addInst(.{
@@ -6355,7 +6575,7 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
         },
         .lea_symbol => |sym_off| {
             assert(sym_off.off == 0);
-            const atom_index = try func.symbolIndex();
+            const atom_index = try func.owner.getSymbolIndex(func);
 
             _ = try func.addInst(.{
                 .tag = .pseudo,
@@ -6437,7 +6657,7 @@ fn genSetMem(
         },
         .register => |reg| {
             if (reg.class() == .vector) {
-                const addr_reg = try func.copyToTmpRegister(Type.usize, dst_ptr_mcv);
+                const addr_reg = try func.copyToTmpRegister(Type.u64, dst_ptr_mcv);
 
                 const num_elem = ty.vectorLen(zcu);
                 const elem_size = ty.childType(zcu).bitSize(pt);
@@ -6614,7 +6834,7 @@ fn airArrayToSlice(func: *Func, inst: Air.Inst.Index) !void {
     try func.genSetMem(
         .{ .frame = frame_index },
         @intCast(ptr_ty.abiSize(pt)),
-        Type.usize,
+        Type.u64,
         .{ .immediate = array_len },
     );
 
@@ -6880,8 +7100,8 @@ fn airMemset(func: *Func, inst: Air.Inst.Index, safety: bool) !void {
 
                 const second_elem_ptr_mcv: MCValue = .{ .register = second_elem_ptr_reg };
 
-                try func.genSetReg(Type.usize, second_elem_ptr_reg, .{ .register_offset = .{
-                    .reg = try func.copyToTmpRegister(Type.usize, dst_ptr),
+                try func.genSetReg(Type.u64, second_elem_ptr_reg, .{ .register_offset = .{
+                    .reg = try func.copyToTmpRegister(Type.u64, dst_ptr),
                     .off = elem_abi_size,
                 } });
 
@@ -6934,118 +7154,52 @@ fn airMemcpy(func: *Func, inst: Air.Inst.Index) !void {
 }
 
 fn airTagName(func: *Func, inst: Air.Inst.Index) !void {
+    const pt = func.pt;
+    const zcu = pt.zcu;
+
     const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const operand = try func.resolveInst(un_op);
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else {
-        _ = operand;
-        return func.fail("TODO implement airTagName for riscv64", .{});
+    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
+        const enum_ty = func.typeOf(un_op);
+
+        // TODO: work out the bugs
+        if (true) return func.fail("TODO: airTagName", .{});
+
+        const param_regs = abi.Registers.Integer.function_arg_regs;
+        const dst_mcv = try func.allocRegOrMem(Type.u64, inst, false);
+        try func.genSetReg(Type.u64, param_regs[0], dst_mcv.address());
+
+        const operand = try func.resolveInst(un_op);
+        try func.genSetReg(enum_ty, param_regs[1], operand);
+
+        const lazy_sym = link.File.LazySymbol.initDecl(.code, enum_ty.getOwnerDecl(zcu), zcu);
+        const elf_file = func.bin_file.cast(link.File.Elf).?;
+        const sym_index = elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, pt, lazy_sym) catch |err|
+            return func.fail("{s} creating lazy symbol", .{@errorName(err)});
+        const sym = elf_file.symbol(sym_index);
+
+        if (func.mod.pic) {
+            return func.fail("TODO: airTagName pic", .{});
+        } else {
+            try func.genSetReg(Type.u64, .ra, .{ .load_symbol = .{ .sym = sym.esym_index } });
+            _ = try func.addInst(.{
+                .tag = .jalr,
+                .ops = .rri,
+                .data = .{ .i_type = .{
+                    .rd = .ra,
+                    .rs1 = .ra,
+                    .imm12 = Immediate.s(0),
+                } },
+            });
+        }
+
+        break :result dst_mcv;
     };
     return func.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
 fn airErrorName(func: *Func, inst: Air.Inst.Index) !void {
-    const pt = func.pt;
-    const zcu = pt.zcu;
-    const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-
-    const err_ty = func.typeOf(un_op);
-    const err_mcv = try func.resolveInst(un_op);
-
-    const err_reg = try func.copyToTmpRegister(err_ty, err_mcv);
-    const err_lock = func.register_manager.lockRegAssumeUnused(err_reg);
-    defer func.register_manager.unlockReg(err_lock);
-
-    const addr_reg, const addr_lock = try func.allocReg(.int);
-    defer func.register_manager.unlockReg(addr_lock);
-
-    // this is now the base address of the error name table
-    const lazy_sym = link.File.LazySymbol.initDecl(.const_data, null, zcu);
-    if (func.bin_file.cast(link.File.Elf)) |elf_file| {
-        const sym_index = elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, pt, lazy_sym) catch |err|
-            return func.fail("{s} creating lazy symbol", .{@errorName(err)});
-        const sym = elf_file.symbol(sym_index);
-        try func.genSetReg(Type.usize, addr_reg, .{ .load_symbol = .{ .sym = sym.esym_index } });
-    } else {
-        return func.fail("TODO: riscv non-elf", .{});
-    }
-
-    const start_reg, const start_lock = try func.allocReg(.int);
-    defer func.register_manager.unlockReg(start_lock);
-
-    const end_reg, const end_lock = try func.allocReg(.int);
-    defer func.register_manager.unlockReg(end_lock);
-
-    // const tmp_reg, const tmp_lock = try func.allocReg(.int);
-    // defer func.register_manager.unlockReg(tmp_lock);
-
-    // we move the base address forward by the following formula: base + (errno * 8)
-
-    // shifting left by 4 is the same as multiplying by 8
-    _ = try func.addInst(.{
-        .tag = .slli,
-        .ops = .rri,
-        .data = .{ .i_type = .{
-            .imm12 = Immediate.u(4),
-            .rd = err_reg,
-            .rs1 = err_reg,
-        } },
-    });
-
-    _ = try func.addInst(.{
-        .tag = .add,
-        .ops = .rrr,
-        .data = .{ .r_type = .{
-            .rd = addr_reg,
-            .rs1 = addr_reg,
-            .rs2 = err_reg,
-        } },
-    });
-
-    _ = try func.addInst(.{
-        .tag = .pseudo,
-        .ops = .pseudo_load_rm,
-        .data = .{
-            .rm = .{
-                .r = start_reg,
-                .m = .{
-                    .base = .{ .reg = addr_reg },
-                    .mod = .{ .size = .dword, .unsigned = true },
-                },
-            },
-        },
-    });
-
-    _ = try func.addInst(.{
-        .tag = .pseudo,
-        .ops = .pseudo_load_rm,
-        .data = .{
-            .rm = .{
-                .r = end_reg,
-                .m = .{
-                    .base = .{ .reg = addr_reg },
-                    .mod = .{ .size = .dword, .unsigned = true },
-                },
-            },
-        },
-    });
-
-    const dst_mcv = try func.allocRegOrMem(func.typeOfIndex(inst), inst, false);
-    const frame = dst_mcv.load_frame;
-    try func.genSetMem(
-        .{ .frame = frame.index },
-        frame.off,
-        Type.usize,
-        .{ .register = start_reg },
-    );
-
-    try func.genSetMem(
-        .{ .frame = frame.index },
-        frame.off + 8,
-        Type.usize,
-        .{ .register = end_reg },
-    );
-
-    return func.finishAir(inst, dst_mcv, .{ un_op, .none, .none });
+    _ = inst;
+    return func.fail("TODO: airErrorName", .{});
 }
 
 fn airSplat(func: *Func, inst: Air.Inst.Index) !void {
@@ -7231,9 +7385,10 @@ fn getResolvedInstValue(func: *Func, inst: Air.Inst.Index) *InstTracking {
 
 fn genTypedValue(func: *Func, val: Value) InnerError!MCValue {
     const pt = func.pt;
+    const zcu = pt.zcu;
     const gpa = func.gpa;
 
-    const owner_decl_index = pt.zcu.funcOwnerDeclIndex(func.func_index);
+    const owner_decl_index = func.owner.getDecl(zcu);
     const lf = func.bin_file;
     const src_loc = func.src_loc;
 
