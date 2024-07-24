@@ -300,6 +300,15 @@ fn _start() callconv(.Naked) noreturn {
             \\ and sp, x0, #-16
             \\ b %[posixCallMainAndExit]
             ,
+            .arc =>
+            // The `arc` tag currently means ARCv2, which has an unusually low stack alignment
+            // requirement. ARCv3 increases it from 4 to 16, but we don't support ARCv3 yet.
+            \\ mov fp, 0
+            \\ mov blink, 0
+            \\ mov r0, sp
+            \\ and sp, sp, -4
+            \\ b %[posixCallMainAndExit]
+            ,
             .arm, .armeb, .thumb, .thumbeb =>
             \\ mov fp, #0
             \\ mov lr, #0
