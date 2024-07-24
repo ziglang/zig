@@ -55,7 +55,7 @@ pub fn exp2f(x: f32) callconv(.C) f32 {
         // x < -126
         if (u >= 0x80000000) {
             if (u >= 0xC3160000 or u & 0x000FFFF != 0) {
-                mem.doNotOptimizeAway(-0x1.0p-149 / x);
+                if (common.want_float_exceptions) mem.doNotOptimizeAway(-0x1.0p-149 / x);
             }
             // x <= -150
             if (u >= 0x3160000) {
@@ -120,7 +120,7 @@ pub fn exp2(x: f64) callconv(.C) f64 {
         if (ux >> 63 != 0) {
             // underflow
             if (x <= -1075 or x - 0x1.0p52 + 0x1.0p52 != x) {
-                mem.doNotOptimizeAway(@as(f32, @floatCast(-0x1.0p-149 / x)));
+                if (common.want_float_exceptions) mem.doNotOptimizeAway(@as(f32, @floatCast(-0x1.0p-149 / x)));
             }
             if (x <= -1075) {
                 return 0;

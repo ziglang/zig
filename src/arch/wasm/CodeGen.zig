@@ -1837,6 +1837,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .sub_sat => func.airSatBinOp(inst, .sub),
         .sub_wrap => func.airWrapBinOp(inst, .sub),
         .mul => func.airBinOp(inst, .mul),
+        .mul_sat => func.airSatMul(inst),
         .mul_wrap => func.airWrapBinOp(inst, .mul),
         .div_float, .div_exact => func.airDiv(inst),
         .div_trunc => func.airDivTrunc(inst),
@@ -2002,7 +2003,6 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .error_set_has_value => func.airErrorSetHasValue(inst),
         .frame_addr => func.airFrameAddress(inst),
 
-        .mul_sat,
         .assembly,
         .is_err_ptr,
         .is_non_err_ptr,
@@ -2666,8 +2666,8 @@ fn binOpBigInt(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) Inner
     switch (op) {
         .mul => return func.callIntrinsic("__multi3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
         .div => switch (int_info.signedness) {
-            .signed => return func.callIntrinsic("__udivti3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
-            .unsigned => return func.callIntrinsic("__divti3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
+            .signed => return func.callIntrinsic("__divti3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
+            .unsigned => return func.callIntrinsic("__udivti3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
         },
         .rem => switch (int_info.signedness) {
             .signed => return func.callIntrinsic("__modti3", &.{ ty.toIntern(), ty.toIntern() }, ty, &.{ lhs, rhs }),
@@ -4378,7 +4378,7 @@ fn airIntcast(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     else
         try func.intcast(operand, operand_ty, ty);
 
-    return func.finishAir(inst, result, &.{});
+    return func.finishAir(inst, result, &.{ty_op.operand});
 }
 
 /// Upcasts or downcasts an integer based on the given and wanted types,
@@ -4677,10 +4677,20 @@ fn airTrunc(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const operand = try func.resolveInst(ty_op.operand);
-    const wanted_ty = ty_op.ty.toType();
+    const wanted_ty: Type = ty_op.ty.toType();
     const op_ty = func.typeOf(ty_op.operand);
+    const pt = func.pt;
+    const mod = pt.zcu;
 
-    const result = try func.trunc(operand, wanted_ty, op_ty);
+    if (wanted_ty.zigTypeTag(mod) == .Vector or op_ty.zigTypeTag(mod) == .Vector) {
+        return func.fail("TODO: trunc for vectors", .{});
+    }
+
+    const result = if (op_ty.bitSize(pt) == wanted_ty.bitSize(pt))
+        func.reuseOperand(ty_op.operand, operand)
+    else
+        try func.trunc(operand, wanted_ty, op_ty);
+
     return func.finishAir(inst, result, &.{ty_op.operand});
 }
 
@@ -6780,6 +6790,106 @@ fn airMod(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         return func.fail("TODO: implement `@mod` on floating point types for {}", .{func.target.cpu.arch});
     }
 
+    return func.finishAir(inst, .stack, &.{ bin_op.lhs, bin_op.rhs });
+}
+
+fn airSatMul(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+
+    const pt = func.pt;
+    const mod = pt.zcu;
+    const ty = func.typeOfIndex(inst);
+    const int_info = ty.intInfo(mod);
+    const is_signed = int_info.signedness == .signed;
+
+    const lhs = try func.resolveInst(bin_op.lhs);
+    const rhs = try func.resolveInst(bin_op.rhs);
+    const wasm_bits = toWasmBits(int_info.bits) orelse {
+        return func.fail("TODO: mul_sat for {}", .{ty.fmt(pt)});
+    };
+
+    switch (wasm_bits) {
+        32 => {
+            const upcast_ty: Type = if (is_signed) Type.i64 else Type.u64;
+            const lhs_up = try func.intcast(lhs, ty, upcast_ty);
+            const rhs_up = try func.intcast(rhs, ty, upcast_ty);
+            var mul_res = try (try func.binOp(lhs_up, rhs_up, upcast_ty, .mul)).toLocal(func, upcast_ty);
+            defer mul_res.free(func);
+            if (is_signed) {
+                const imm_max: WValue = .{ .imm64 = ~@as(u64, 0) >> @intCast(64 - (int_info.bits - 1)) };
+                try func.emitWValue(mul_res);
+                try func.emitWValue(imm_max);
+                _ = try func.cmp(mul_res, imm_max, upcast_ty, .lt);
+                try func.addTag(.select);
+
+                var tmp = try func.allocLocal(upcast_ty);
+                defer tmp.free(func);
+                try func.addLabel(.local_set, tmp.local.value);
+
+                const imm_min: WValue = .{ .imm64 = ~@as(u64, 0) << @intCast(int_info.bits - 1) };
+                try func.emitWValue(tmp);
+                try func.emitWValue(imm_min);
+                _ = try func.cmp(tmp, imm_min, upcast_ty, .gt);
+                try func.addTag(.select);
+            } else {
+                const imm_max: WValue = .{ .imm64 = ~@as(u64, 0) >> @intCast(64 - int_info.bits) };
+                try func.emitWValue(mul_res);
+                try func.emitWValue(imm_max);
+                _ = try func.cmp(mul_res, imm_max, upcast_ty, .lt);
+                try func.addTag(.select);
+            }
+            try func.addTag(.i32_wrap_i64);
+        },
+        64 => {
+            if (!(int_info.bits == 64 and int_info.signedness == .signed)) {
+                return func.fail("TODO: mul_sat for {}", .{ty.fmt(pt)});
+            }
+            const overflow_ret = try func.allocStack(Type.i32);
+            _ = try func.callIntrinsic(
+                "__mulodi4",
+                &[_]InternPool.Index{ .i64_type, .i64_type, .usize_type },
+                Type.i64,
+                &.{ lhs, rhs, overflow_ret },
+            );
+            const xor = try func.binOp(lhs, rhs, Type.i64, .xor);
+            const sign_v = try func.binOp(xor, .{ .imm64 = 63 }, Type.i64, .shr);
+            _ = try func.binOp(sign_v, .{ .imm64 = ~@as(u63, 0) }, Type.i64, .xor);
+            _ = try func.load(overflow_ret, Type.i32, 0);
+            try func.addTag(.i32_eqz);
+            try func.addTag(.select);
+        },
+        128 => {
+            if (!(int_info.bits == 128 and int_info.signedness == .signed)) {
+                return func.fail("TODO: mul_sat for {}", .{ty.fmt(pt)});
+            }
+            const overflow_ret = try func.allocStack(Type.i32);
+            const ret = try func.callIntrinsic(
+                "__muloti4",
+                &[_]InternPool.Index{ .i128_type, .i128_type, .usize_type },
+                Type.i128,
+                &.{ lhs, rhs, overflow_ret },
+            );
+            try func.lowerToStack(ret);
+            const xor = try func.binOp(lhs, rhs, Type.i128, .xor);
+            const sign_v = try func.binOp(xor, .{ .imm32 = 127 }, Type.i128, .shr);
+
+            // xor ~@as(u127, 0)
+            try func.emitWValue(sign_v);
+            const lsb = try func.load(sign_v, Type.u64, 0);
+            _ = try func.binOp(lsb, .{ .imm64 = ~@as(u64, 0) }, Type.u64, .xor);
+            try func.store(.stack, .stack, Type.u64, sign_v.offset());
+            try func.emitWValue(sign_v);
+            const msb = try func.load(sign_v, Type.u64, 8);
+            _ = try func.binOp(msb, .{ .imm64 = ~@as(u63, 0) }, Type.u64, .xor);
+            try func.store(.stack, .stack, Type.u64, sign_v.offset() + 8);
+
+            try func.lowerToStack(sign_v);
+            _ = try func.load(overflow_ret, Type.i32, 0);
+            try func.addTag(.i32_eqz);
+            try func.addTag(.select);
+        },
+        else => unreachable,
+    }
     return func.finishAir(inst, .stack, &.{ bin_op.lhs, bin_op.rhs });
 }
 
