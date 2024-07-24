@@ -381,9 +381,8 @@ fn _start() callconv(.Naked) noreturn {
             .sparc64 =>
             // argc is stored after a register window (16 registers * 8 bytes) plus the stack bias
             // (2047 bytes).
-            \\ mov %%g0, %%i6
-            \\ add %%o6, 2175, %%l0
-            \\ mov %%l0, %%o0
+            \\ mov %%g0, %%fp
+            \\ add %%sp, 2175, %%o0
             \\ ba,a %[posixCallMainAndExit]
             ,
             else => @compileError("unsupported arch"),
