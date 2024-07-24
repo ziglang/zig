@@ -37,8 +37,8 @@ pub fn start(
     }
 
     {
-        const rebuild_node = prog_node.start("Fuzzing", count);
-        defer rebuild_node.end();
+        const fuzz_node = prog_node.start("Fuzzing", count);
+        defer fuzz_node.end();
         var wait_group: std.Thread.WaitGroup = .{};
         defer wait_group.wait();
 
@@ -46,7 +46,7 @@ pub fn start(
             const run = step.cast(Step.Run) orelse continue;
             for (run.fuzz_tests.items) |unit_test_index| {
                 assert(run.rebuilt_executable != null);
-                thread_pool.spawnWg(&wait_group, fuzzWorkerRun, .{ run, unit_test_index, ttyconf, prog_node });
+                thread_pool.spawnWg(&wait_group, fuzzWorkerRun, .{ run, unit_test_index, ttyconf, fuzz_node });
             }
         }
     }
