@@ -329,8 +329,8 @@ fn _start() callconv(.Naked) noreturn {
             \\ jsr (%%pc, %%a0)
             ,
             .mips, .mipsel =>
-            // The lr is already zeroed on entry, as specified by the ABI.
-            \\ addiu $fp, $zero, 0
+            \\ move $fp, $0
+            \\ move $ra, $0
             \\ move $a0, $sp
             \\ .set push
             \\ .set noat
@@ -340,8 +340,8 @@ fn _start() callconv(.Naked) noreturn {
             \\ j %[posixCallMainAndExit]
             ,
             .mips64, .mips64el =>
-            // The lr is already zeroed on entry, as specified by the ABI.
-            \\ addiu $fp, $zero, 0
+            \\ move $fp, $0
+            \\ move $ra, $0
             \\ move $a0, $sp
             \\ .set push
             \\ .set noat
