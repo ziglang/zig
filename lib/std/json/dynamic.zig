@@ -22,6 +22,7 @@ pub const Array = ArrayList(Value);
 /// Represents any JSON value, potentially containing other JSON values.
 /// A .float value may be an approximation of the original value.
 /// Arbitrary precision numbers can be represented by .number_string values.
+/// See also `std.json.ParseOptions.parse_numbers`.
 pub const Value = union(enum) {
     null,
     bool: bool,
