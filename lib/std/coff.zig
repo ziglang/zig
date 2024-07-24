@@ -984,6 +984,10 @@ pub const DebugInfoDefinition = struct {
 
 pub const MachineType = enum(u16) {
     Unknown = 0x0,
+    /// Alpha AXP, 32-bit address space
+    ALPHA = 0x184,
+    /// Alpha 64, 64-bit address space
+    ALPHA64 = 0x284,
     /// Matsushita AM33
     AM33 = 0x1d3,
     /// x64
@@ -994,8 +998,16 @@ pub const MachineType = enum(u16) {
     ARM64 = 0xaa64,
     /// ARM64EC
     ARM64EC = 0xa641,
+    /// ARM64X
+    ARM64X = 0xa64e,
     /// ARM Thumb-2 little endian
     ARMNT = 0x1c4,
+    /// CEE
+    CEE = 0xc0ee,
+    /// CEF
+    CEF = 0xcef,
+    /// Hybrid PE
+    CHPE_X86 = 0x3a64,
     /// EFI byte code
     EBC = 0xebc,
     /// Intel 386 or later processors and compatible processors
@@ -1019,7 +1031,11 @@ pub const MachineType = enum(u16) {
     /// Power PC with floating point support
     POWERPCFP = 0x1f1,
     /// MIPS little endian
+    R3000 = 0x162,
+    /// MIPS little endian
     R4000 = 0x166,
+    /// MIPS little endian
+    R10000 = 0x168,
     /// RISC-V 32-bit address space
     RISCV32 = 0x5032,
     /// RISC-V 64-bit address space
@@ -1030,12 +1046,16 @@ pub const MachineType = enum(u16) {
     SH3 = 0x1a2,
     /// Hitachi SH3 DSP
     SH3DSP = 0x1a3,
+    /// SH3E little-endian
+    SH3E = 0x1a4,
     /// Hitachi SH4
     SH4 = 0x1a6,
     /// Hitachi SH5
     SH5 = 0x1a8,
     /// Thumb
     Thumb = 0x1c2,
+    /// Infineon
+    TRICORE = 0x520,
     /// MIPS little-endian WCE v2
     WCEMIPSV2 = 0x169,
 
