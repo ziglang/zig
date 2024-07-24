@@ -129,6 +129,7 @@ LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Tri
 
     TargetOptions opt;
 
+    opt.UseInitArray = true;
     opt.FunctionSections = function_sections;
     opt.DataSections = data_sections;
     switch (float_abi) {
