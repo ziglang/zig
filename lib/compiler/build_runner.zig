@@ -401,7 +401,7 @@ pub fn main() !void {
             else => return err,
         };
         if (fuzz) {
-            Fuzz.start(&run.thread_pool, run.step_stack.keys(), main_progress_node);
+            Fuzz.start(&run.thread_pool, run.step_stack.keys(), run.ttyconf, main_progress_node);
         }
 
         if (!watch) return cleanExit();
@@ -1072,7 +1072,7 @@ fn workerMakeOneStep(
         std.debug.lockStdErr();
         defer std.debug.unlockStdErr();
 
-        printErrorMessages(b, s, run) catch {};
+        printErrorMessages(b, s, run.ttyconf, run.stderr, run.prominent_compile_errors) catch {};
     }
 
     handle_result: {
@@ -1125,10 +1125,14 @@ fn workerMakeOneStep(
     }
 }
 
-fn printErrorMessages(b: *std.Build, failing_step: *Step, run: *const Run) !void {
+pub fn printErrorMessages(
+    b: *std.Build,
+    failing_step: *Step,
+    ttyconf: std.io.tty.Config,
+    stderr: File,
+    prominent_compile_errors: bool,
+) !void {
     const gpa = b.allocator;
-    const stderr = run.stderr;
-    const ttyconf = run.ttyconf;
 
     // Provide context for where these error messages are coming from by
     // printing the corresponding Step subtree.
@@ -1166,7 +1170,7 @@ fn printErrorMessages(b: *std.Build, failing_step: *Step, run: *const Run) !void
         }
     }
 
-    if (!run.prominent_compile_errors and failing_step.result_error_bundle.errorMessageCount() > 0)
+    if (!prominent_compile_errors and failing_step.result_error_bundle.errorMessageCount() > 0)
         try failing_step.result_error_bundle.renderToWriter(renderOptions(ttyconf), stderr.writer());
 
     for (failing_step.result_error_msgs.items) |msg| {
