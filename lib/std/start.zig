@@ -307,6 +307,15 @@ fn _start() callconv(.Naked) noreturn {
             \\ and sp, #-16
             \\ b %[posixCallMainAndExit]
             ,
+            .hexagon =>
+            // r29 = SP, r30 = FP
+            \\ r30 = #0
+            \\ r0 = r29
+            \\ r29 = and(r29, #-16)
+            \\ memw(r29 + #-8) = r29
+            \\ r29 = add(r29, #-8)
+            \\ call %[posixCallMainAndExit]
+            ,
             .loongarch32, .loongarch64 =>
             \\ move $fp, $zero
             \\ move $a0, $sp
