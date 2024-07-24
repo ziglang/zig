@@ -19,7 +19,11 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]co
 
     for (positionals.items) |obj| {
         parsePositional(elf_file, obj.path) catch |err| switch (err) {
-            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => continue, // already reported
+            error.MalformedObject,
+            error.MalformedArchive,
+            error.InvalidCpuArch,
+            error.MismatchedEflags,
+            => continue, // already reported
             error.UnknownFileType => try elf_file.reportParseError(obj.path, "unknown file type for an object file", .{}),
             else => |e| try elf_file.reportParseError(
                 obj.path,
@@ -29,7 +33,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]co
         };
     }
 
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+    if (elf_file.base.hasErrors()) return error.FlushFailure;
 
     // First, we flush relocatable object file generated with our backends.
     if (elf_file.zigObjectPtr()) |zig_object| {
@@ -146,7 +150,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]co
     try elf_file.base.file.?.setEndPos(total_size);
     try elf_file.base.file.?.pwriteAll(buffer.items, 0);
 
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+    if (elf_file.base.hasErrors()) return error.FlushFailure;
 }
 
 pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
@@ -168,7 +172,11 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
 
     for (positionals.items) |obj| {
         elf_file.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
-            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => continue, // already reported
+            error.MalformedObject,
+            error.MalformedArchive,
+            error.InvalidCpuArch,
+            error.MismatchedEflags,
+            => continue, // already reported
             else => |e| try elf_file.reportParseError(
                 obj.path,
                 "unexpected error: parsing input file failed with error {s}",
@@ -177,7 +185,7 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
         };
     }
 
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+    if (elf_file.base.hasErrors()) return error.FlushFailure;
 
     // Now, we are ready to resolve the symbols across all input files.
     // We will first resolve the files in the ZigObject, next in the parsed
@@ -216,7 +224,7 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
     try elf_file.writeShdrTable();
     try elf_file.writeElfHeader();
 
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+    if (elf_file.base.hasErrors()) return error.FlushFailure;
 }
 
 fn parsePositional(elf_file: *Elf, path: []const u8) Elf.ParseError!void {

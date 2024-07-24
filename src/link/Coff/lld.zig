@@ -460,6 +460,10 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
             try argv.append(comp.libunwind_static_lib.?.full_object_path);
         }
 
+        if (comp.config.any_fuzz) {
+            try argv.append(comp.fuzzer_lib.?.full_object_path);
+        }
+
         if (is_exe_or_dyn_lib and !comp.skip_linker_dependencies) {
             if (!comp.config.link_libc) {
                 if (comp.libc_static_lib) |lib| {

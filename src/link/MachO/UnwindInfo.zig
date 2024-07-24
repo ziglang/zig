@@ -53,7 +53,7 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
     for (macho_file.sections.items(.atoms)) |atoms| {
         for (atoms.items) |ref| {
             const atom = ref.getAtom(macho_file) orelse continue;
-            if (!atom.flags.alive) continue;
+            if (!atom.isAlive()) continue;
             const recs = atom.getUnwindRecords(macho_file);
             const file = atom.getFile(macho_file);
             try info.records.ensureUnusedCapacity(gpa, recs.len);

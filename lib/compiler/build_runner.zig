@@ -97,7 +97,6 @@ pub fn main() !void {
     var max_rss: u64 = 0;
     var skip_oom_steps = false;
     var color: Color = .auto;
-    var seed: u32 = 0;
     var prominent_compile_errors = false;
     var help_menu = false;
     var steps_menu = false;
@@ -188,7 +187,7 @@ pub fn main() !void {
             } else if (mem.eql(u8, arg, "--seed")) {
                 const next_arg = nextArg(args, &arg_idx) orelse
                     fatalWithHint("expected u32 after '{s}'", .{arg});
-                seed = std.fmt.parseUnsigned(u32, next_arg, 0) catch |err| {
+                graph.random_seed = std.fmt.parseUnsigned(u32, next_arg, 0) catch |err| {
                     fatal("unable to parse seed '{s}' as unsigned 32-bit integer: {s}\n", .{
                         next_arg, @errorName(err),
                     });
@@ -371,7 +370,7 @@ pub fn main() !void {
     }
 
     const gpa = arena;
-    prepare(gpa, arena, builder, targets.items, &run, seed) catch |err| switch (err) {
+    prepare(gpa, arena, builder, targets.items, &run, graph.random_seed) catch |err| switch (err) {
         error.UncleanExit => process.exit(1),
         else => return err,
     };

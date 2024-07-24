@@ -71,6 +71,7 @@ fn getDynamicSymbol() [*]elf.Dyn {
 
 pub fn relocate(phdrs: []elf.Phdr) void {
     @setRuntimeSafety(false);
+    @disableInstrumentation();
 
     const dynv = getDynamicSymbol();
     // Recover the delta applied by the loader by comparing the effective and

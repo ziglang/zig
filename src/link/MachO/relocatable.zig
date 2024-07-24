@@ -27,22 +27,21 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]c
     }
 
     for (positionals.items) |obj| {
-        macho_file.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
-            error.MalformedObject,
-            error.MalformedArchive,
-            error.InvalidCpuArch,
-            error.InvalidTarget,
-            => continue, // already reported
-            error.UnknownFileType => try macho_file.reportParseError(obj.path, "unknown file type for an object file", .{}),
+        macho_file.classifyInputFile(obj.path, .{ .path = obj.path }, obj.must_link) catch |err| switch (err) {
+            error.UnknownFileType => try macho_file.reportParseError(obj.path, "unknown file type for an input file", .{}),
             else => |e| try macho_file.reportParseError(
                 obj.path,
-                "unexpected error: parsing input file failed with error {s}",
+                "unexpected error: reading input file failed with error {s}",
                 .{@errorName(e)},
             ),
         };
     }
 
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+    if (macho_file.base.hasErrors()) return error.FlushFailure;
+
+    try macho_file.parseInputFiles();
+
+    if (macho_file.base.hasErrors()) return error.FlushFailure;
 
     try macho_file.resolveSymbols();
     try macho_file.dedupLiterals();
@@ -93,22 +92,21 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
     }
 
     for (positionals.items) |obj| {
-        parsePositional(macho_file, obj.path) catch |err| switch (err) {
-            error.MalformedObject,
-            error.MalformedArchive,
-            error.InvalidCpuArch,
-            error.InvalidTarget,
-            => continue, // already reported
-            error.UnknownFileType => try macho_file.reportParseError(obj.path, "unknown file type for an object file", .{}),
+        macho_file.classifyInputFile(obj.path, .{ .path = obj.path }, obj.must_link) catch |err| switch (err) {
+            error.UnknownFileType => try macho_file.reportParseError(obj.path, "unknown file type for an input file", .{}),
             else => |e| try macho_file.reportParseError(
                 obj.path,
-                "unexpected error: parsing input file failed with error {s}",
+                "unexpected error: reading input file failed with error {s}",
                 .{@errorName(e)},
             ),
         };
     }
 
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+    if (macho_file.base.hasErrors()) return error.FlushFailure;
+
+    try parseInputFilesAr(macho_file);
+
+    if (macho_file.base.hasErrors()) return error.FlushFailure;
 
     // First, we flush relocatable object file generated with our backends.
     if (macho_file.getZigObject()) |zo| {
@@ -225,79 +223,19 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
     try macho_file.base.file.?.setEndPos(total_size);
     try macho_file.base.file.?.pwriteAll(buffer.items, 0);
 
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+    if (macho_file.base.hasErrors()) return error.FlushFailure;
 }
 
-fn parsePositional(macho_file: *MachO, path: []const u8) MachO.ParseError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-    if (try Object.isObject(path)) {
-        try parseObject(macho_file, path);
-    } else if (try fat.isFatLibrary(path)) {
-        const fat_arch = try macho_file.parseFatLibrary(path);
-        if (try Archive.isArchive(path, fat_arch)) {
-            try parseArchive(macho_file, path, fat_arch);
-        } else return error.UnknownFileType;
-    } else if (try Archive.isArchive(path, null)) {
-        try parseArchive(macho_file, path, null);
-    } else return error.UnknownFileType;
-}
-
-fn parseObject(macho_file: *MachO, path: []const u8) MachO.ParseError!void {
+fn parseInputFilesAr(macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = macho_file.base.comp.gpa;
-    const file = try std.fs.cwd().openFile(path, .{});
-    errdefer file.close();
-    const handle = try macho_file.addFileHandle(file);
-    const mtime: u64 = mtime: {
-        const stat = file.stat() catch break :mtime 0;
-        break :mtime @as(u64, @intCast(@divFloor(stat.mtime, 1_000_000_000)));
-    };
-    const index = @as(File.Index, @intCast(try macho_file.files.addOne(gpa)));
-    macho_file.files.set(index, .{
-        .object = .{
-            .offset = 0, // TODO FAT objects
-            .path = try gpa.dupe(u8, path),
-            .file_handle = handle,
-            .mtime = mtime,
-            .index = index,
-        },
-    });
-    try macho_file.objects.append(gpa, index);
-
-    const object = macho_file.getFile(index).?.object;
-    try object.parseAr(macho_file);
-}
-
-fn parseArchive(macho_file: *MachO, path: []const u8, fat_arch: ?fat.Arch) MachO.ParseError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const gpa = macho_file.base.comp.gpa;
-
-    const file = try std.fs.cwd().openFile(path, .{});
-    errdefer file.close();
-    const handle = try macho_file.addFileHandle(file);
-
-    var archive = Archive{};
-    defer archive.deinit(gpa);
-    try archive.parse(macho_file, path, handle, fat_arch);
-
-    var has_parse_error = false;
-    for (archive.objects.items) |extracted| {
-        const index = @as(File.Index, @intCast(try macho_file.files.addOne(gpa)));
-        macho_file.files.set(index, .{ .object = extracted });
-        const object = &macho_file.files.items(.data)[index].object;
-        object.index = index;
-        object.parseAr(macho_file) catch |err| switch (err) {
-            error.InvalidCpuArch => has_parse_error = true,
-            else => |e| return e,
+    for (macho_file.objects.items) |index| {
+        macho_file.getFile(index).?.parseAr(macho_file) catch |err| switch (err) {
+            error.InvalidCpuArch => {}, // already reported
+            else => |e| try macho_file.reportParseError2(index, "unexpected error: parsing input file failed with error {s}", .{@errorName(e)}),
         };
-        try macho_file.objects.append(gpa, index);
     }
-    if (has_parse_error) return error.MalformedArchive;
 }
 
 fn markExports(macho_file: *MachO) void {
@@ -323,7 +261,7 @@ fn initOutputSections(macho_file: *MachO) !void {
         const file = macho_file.getFile(index).?;
         for (file.getAtoms()) |atom_index| {
             const atom = file.getAtom(atom_index) orelse continue;
-            if (!atom.flags.alive) continue;
+            if (!atom.isAlive()) continue;
             atom.out_n_sect = try Atom.initOutputSection(atom.getInputSection(macho_file), macho_file);
         }
     }
@@ -350,37 +288,54 @@ fn calcSectionSizes(macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    for (macho_file.sections.items(.atoms), 0..) |atoms, i| {
-        if (atoms.items.len == 0) continue;
-        calcSectionSize(macho_file, @intCast(i));
-    }
-
     if (macho_file.getZigObject()) |zo| {
-        // TODO this will create a race
+        // TODO this will create a race as we need to track merging of debug sections which we currently don't
         zo.calcNumRelocs(macho_file);
-        zo.calcSymtabSize(macho_file);
     }
 
-    if (macho_file.eh_frame_sect_index) |_| {
-        try calcEhFrameSize(macho_file);
-    }
+    const tp = macho_file.base.comp.thread_pool;
+    var wg: WaitGroup = .{};
+    {
+        wg.reset();
+        defer wg.wait();
 
-    for (macho_file.objects.items) |index| {
-        if (macho_file.unwind_info_sect_index) |_| {
-            macho_file.getFile(index).?.object.calcCompactUnwindSizeRelocatable(macho_file);
+        for (macho_file.sections.items(.atoms), 0..) |atoms, i| {
+            if (atoms.items.len == 0) continue;
+            tp.spawnWg(&wg, calcSectionSizeWorker, .{ macho_file, @as(u8, @intCast(i)) });
         }
-        macho_file.getFile(index).?.calcSymtabSize(macho_file);
-    }
 
-    try macho_file.data_in_code.updateSize(macho_file);
+        if (macho_file.eh_frame_sect_index) |_| {
+            tp.spawnWg(&wg, calcEhFrameSizeWorker, .{macho_file});
+        }
+
+        if (macho_file.unwind_info_sect_index) |_| {
+            for (macho_file.objects.items) |index| {
+                tp.spawnWg(&wg, Object.calcCompactUnwindSizeRelocatable, .{
+                    macho_file.getFile(index).?.object,
+                    macho_file,
+                });
+            }
+        }
+
+        for (macho_file.objects.items) |index| {
+            tp.spawnWg(&wg, File.calcSymtabSize, .{ macho_file.getFile(index).?, macho_file });
+        }
+        if (macho_file.getZigObject()) |zo| {
+            tp.spawnWg(&wg, File.calcSymtabSize, .{ zo.asFile(), macho_file });
+        }
+
+        tp.spawnWg(&wg, MachO.updateLinkeditSizeWorker, .{ macho_file, .data_in_code });
+    }
 
     if (macho_file.unwind_info_sect_index) |_| {
         calcCompactUnwindSize(macho_file);
     }
     try calcSymtabSize(macho_file);
+
+    if (macho_file.has_errors.swap(false, .seq_cst)) return error.FlushFailure;
 }
 
-fn calcSectionSize(macho_file: *MachO, sect_id: u8) void {
+fn calcSectionSizeWorker(macho_file: *MachO, sect_id: u8) void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -401,14 +356,25 @@ fn calcSectionSize(macho_file: *MachO, sect_id: u8) void {
     }
 }
 
-fn calcEhFrameSize(macho_file: *MachO) !void {
+fn calcEhFrameSizeWorker(macho_file: *MachO) void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const doWork = struct {
+        fn doWork(mfile: *MachO, header: *macho.section_64) !void {
+            header.size = try eh_frame.calcSize(mfile);
+            header.@"align" = 3;
+            header.nreloc = eh_frame.calcNumRelocs(mfile);
+        }
+    }.doWork;
+
     const header = &macho_file.sections.items(.header)[macho_file.eh_frame_sect_index.?];
-    header.size = try eh_frame.calcSize(macho_file);
-    header.@"align" = 3;
-    header.nreloc = eh_frame.calcNumRelocs(macho_file);
+    doWork(macho_file, header) catch |err| {
+        macho_file.reportUnexpectedError("failed to calculate size of section '__TEXT,__eh_frame': {s}", .{
+            @errorName(err),
+        }) catch {};
+        _ = macho_file.has_errors.swap(true, .seq_cst);
+    };
 }
 
 fn calcCompactUnwindSize(macho_file: *MachO) void {
@@ -639,33 +605,74 @@ fn writeSections(macho_file: *MachO) !void {
     try macho_file.strtab.resize(gpa, cmd.strsize);
     macho_file.strtab.items[0] = 0;
 
-    for (macho_file.objects.items) |index| {
-        try macho_file.getFile(index).?.object.writeAtomsRelocatable(macho_file);
-        macho_file.getFile(index).?.writeSymtab(macho_file, macho_file);
+    const tp = macho_file.base.comp.thread_pool;
+    var wg: WaitGroup = .{};
+    {
+        wg.reset();
+        defer wg.wait();
+
+        for (macho_file.objects.items) |index| {
+            tp.spawnWg(&wg, writeAtomsWorker, .{ macho_file, macho_file.getFile(index).? });
+            tp.spawnWg(&wg, File.writeSymtab, .{ macho_file.getFile(index).?, macho_file, macho_file });
+        }
+
+        if (macho_file.getZigObject()) |zo| {
+            tp.spawnWg(&wg, writeAtomsWorker, .{ macho_file, zo.asFile() });
+            tp.spawnWg(&wg, File.writeSymtab, .{ zo.asFile(), macho_file, macho_file });
+        }
+
+        if (macho_file.eh_frame_sect_index) |_| {
+            tp.spawnWg(&wg, writeEhFrameWorker, .{macho_file});
+        }
+
+        if (macho_file.unwind_info_sect_index) |_| {
+            for (macho_file.objects.items) |index| {
+                tp.spawnWg(&wg, writeCompactUnwindWorker, .{ macho_file, macho_file.getFile(index).?.object });
+            }
+        }
     }
+
+    if (macho_file.has_errors.swap(false, .seq_cst)) return error.FlushFailure;
 
     if (macho_file.getZigObject()) |zo| {
         try zo.writeRelocs(macho_file);
-        try zo.writeAtomsRelocatable(macho_file);
-        zo.writeSymtab(macho_file, macho_file);
-    }
-
-    if (macho_file.eh_frame_sect_index) |_| {
-        try writeEhFrame(macho_file);
-    }
-
-    if (macho_file.unwind_info_sect_index) |_| {
-        for (macho_file.objects.items) |index| {
-            try macho_file.getFile(index).?.object.writeCompactUnwindRelocatable(macho_file);
-        }
     }
 }
 
-fn writeEhFrame(macho_file: *MachO) !void {
+fn writeAtomsWorker(macho_file: *MachO, file: File) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+    file.writeAtomsRelocatable(macho_file) catch |err| {
+        macho_file.reportParseError2(file.getIndex(), "failed to write atoms: {s}", .{
+            @errorName(err),
+        }) catch {};
+        _ = macho_file.has_errors.swap(true, .seq_cst);
+    };
+}
+
+fn writeEhFrameWorker(macho_file: *MachO) void {
+    const tracy = trace(@src());
+    defer tracy.end();
     const sect_index = macho_file.eh_frame_sect_index.?;
     const buffer = macho_file.sections.items(.out)[sect_index];
     const relocs = macho_file.sections.items(.relocs)[sect_index];
-    try eh_frame.writeRelocs(macho_file, buffer.items, relocs.items);
+    eh_frame.writeRelocs(macho_file, buffer.items, relocs.items) catch |err| {
+        macho_file.reportUnexpectedError("failed to write '__LD,__eh_frame' section: {s}", .{
+            @errorName(err),
+        }) catch {};
+        _ = macho_file.has_errors.swap(true, .seq_cst);
+    };
+}
+
+fn writeCompactUnwindWorker(macho_file: *MachO, object: *Object) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+    object.writeCompactUnwindRelocatable(macho_file) catch |err| {
+        macho_file.reportUnexpectedError("failed to write '__LD,__eh_frame' section: {s}", .{
+            @errorName(err),
+        }) catch {};
+        _ = macho_file.has_errors.swap(true, .seq_cst);
+    };
 }
 
 fn writeSectionsToFile(macho_file: *MachO) !void {
@@ -778,3 +785,4 @@ const File = @import("file.zig").File;
 const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");
+const WaitGroup = std.Thread.WaitGroup;

@@ -235,27 +235,27 @@ fn checkLegacyIndirectFunctionTable(object: *Object, wasm_file: *const Wasm) !?S
     if (object.imported_tables_count == table_count) return null;
 
     if (table_count != 0) {
-        var err = try wasm_file.addErrorWithNotes(1);
-        try err.addMsg(wasm_file, "Expected a table entry symbol for each of the {d} table(s), but instead got {d} symbols.", .{
+        var err = try wasm_file.base.addErrorWithNotes(1);
+        try err.addMsg("Expected a table entry symbol for each of the {d} table(s), but instead got {d} symbols.", .{
             object.imported_tables_count,
             table_count,
         });
-        try err.addNote(wasm_file, "defined in '{s}'", .{object.path});
+        try err.addNote("defined in '{s}'", .{object.path});
         return error.MissingTableSymbols;
     }
 
     // MVP object files cannot have any table definitions, only imports (for the indirect function table).
     if (object.tables.len > 0) {
-        var err = try wasm_file.addErrorWithNotes(1);
-        try err.addMsg(wasm_file, "Unexpected table definition without representing table symbols.", .{});
-        try err.addNote(wasm_file, "defined in '{s}'", .{object.path});
+        var err = try wasm_file.base.addErrorWithNotes(1);
+        try err.addMsg("Unexpected table definition without representing table symbols.", .{});
+        try err.addNote("defined in '{s}'", .{object.path});
         return error.UnexpectedTable;
     }
 
     if (object.imported_tables_count != 1) {
-        var err = try wasm_file.addErrorWithNotes(1);
-        try err.addMsg(wasm_file, "Found more than one table import, but no representing table symbols", .{});
-        try err.addNote(wasm_file, "defined in '{s}'", .{object.path});
+        var err = try wasm_file.base.addErrorWithNotes(1);
+        try err.addMsg("Found more than one table import, but no representing table symbols", .{});
+        try err.addNote("defined in '{s}'", .{object.path});
         return error.MissingTableSymbols;
     }
 
@@ -266,9 +266,9 @@ fn checkLegacyIndirectFunctionTable(object: *Object, wasm_file: *const Wasm) !?S
     } else unreachable;
 
     if (!std.mem.eql(u8, object.string_table.get(table_import.name), "__indirect_function_table")) {
-        var err = try wasm_file.addErrorWithNotes(1);
-        try err.addMsg(wasm_file, "Non-indirect function table import '{s}' is missing a corresponding symbol", .{object.string_table.get(table_import.name)});
-        try err.addNote(wasm_file, "defined in '{s}'", .{object.path});
+        var err = try wasm_file.base.addErrorWithNotes(1);
+        try err.addMsg("Non-indirect function table import '{s}' is missing a corresponding symbol", .{object.string_table.get(table_import.name)});
+        try err.addNote("defined in '{s}'", .{object.path});
         return error.MissingTableSymbols;
     }
 
@@ -596,9 +596,9 @@ fn Parser(comptime ReaderType: type) type {
                 try reader.readNoEof(name);
 
                 const tag = types.known_features.get(name) orelse {
-                    var err = try parser.wasm_file.addErrorWithNotes(1);
-                    try err.addMsg(parser.wasm_file, "Object file contains unknown feature: {s}", .{name});
-                    try err.addNote(parser.wasm_file, "defined in '{s}'", .{parser.object.path});
+                    var err = try parser.wasm_file.base.addErrorWithNotes(1);
+                    try err.addMsg("Object file contains unknown feature: {s}", .{name});
+                    try err.addNote("defined in '{s}'", .{parser.object.path});
                     return error.UnknownFeature;
                 };
                 feature.* = .{

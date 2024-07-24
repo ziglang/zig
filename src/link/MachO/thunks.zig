@@ -17,7 +17,7 @@ pub fn createThunks(sect_id: u8, macho_file: *MachO) !void {
     while (i < atoms.len) {
         const start = i;
         const start_atom = atoms[start].getAtom(macho_file).?;
-        assert(start_atom.flags.alive);
+        assert(start_atom.isAlive());
         start_atom.value = advance(header, start_atom.size, start_atom.alignment);
         i += 1;
 
@@ -25,7 +25,7 @@ pub fn createThunks(sect_id: u8, macho_file: *MachO) !void {
             header.size - start_atom.value < max_allowed_distance) : (i += 1)
         {
             const atom = atoms[i].getAtom(macho_file).?;
-            assert(atom.flags.alive);
+            assert(atom.isAlive());
             atom.value = advance(header, atom.size, atom.alignment);
         }
 
@@ -71,7 +71,7 @@ fn scanRelocs(thunk_index: Thunk.Index, gpa: Allocator, atoms: []const MachO.Ref
 
 fn isReachable(atom: *const Atom, rel: Relocation, macho_file: *MachO) bool {
     const target = rel.getTargetSymbol(atom.*, macho_file);
-    if (target.flags.stubs or target.flags.objc_stubs) return false;
+    if (target.getSectionFlags().stubs or target.getSectionFlags().objc_stubs) return false;
     if (atom.out_n_sect != target.getOutputSectionIndex(macho_file)) return false;
     const target_atom = target.getAtom(macho_file).?;
     if (target_atom.value == @as(u64, @bitCast(@as(i64, -1)))) return false;

@@ -105,8 +105,9 @@ win32_resource_table: if (dev.env.supports(.win32_resource)) std.AutoArrayHashMa
     pub fn deinit(_: @This(), _: Allocator) void {}
 } = .{},
 
-link_error_flags: link.File.ErrorFlags = .{},
 link_errors: std.ArrayListUnmanaged(link.File.ErrorMsg) = .{},
+link_errors_mutex: std.Thread.Mutex = .{},
+link_error_flags: link.File.ErrorFlags = .{},
 lld_errors: std.ArrayListUnmanaged(LldError) = .{},
 
 work_queues: [
@@ -190,6 +191,7 @@ debug_compile_errors: bool,
 incremental: bool,
 job_queued_compiler_rt_lib: bool = false,
 job_queued_compiler_rt_obj: bool = false,
+job_queued_fuzzer_lib: bool = false,
 job_queued_update_builtin_zig: bool,
 alloc_failure_occurred: bool = false,
 formatted_panics: bool = false,
@@ -231,6 +233,10 @@ compiler_rt_lib: ?CRTFile = null,
 /// Populated when we build the compiler_rt_obj object. A Job to build this is indicated
 /// by setting `job_queued_compiler_rt_obj` and resolved before calling linker.flush().
 compiler_rt_obj: ?CRTFile = null,
+/// Populated when we build the libfuzzer static library. A Job to build this
+/// is indicated by setting `job_queued_fuzzer_lib` and resolved before
+/// calling linker.flush().
+fuzzer_lib: ?CRTFile = null,
 
 glibc_so_files: ?glibc.BuiltSharedObjects = null,
 wasi_emulated_libs: []const wasi_libc.CRTFile,
@@ -799,6 +805,7 @@ pub const MiscTask = enum {
     libcxx,
     libcxxabi,
     libtsan,
+    libfuzzer,
     wasi_libc_crt_file,
     compiler_rt,
     zig_libc,
@@ -887,6 +894,7 @@ pub const cache_helpers = struct {
         hh.add(mod.red_zone);
         hh.add(mod.sanitize_c);
         hh.add(mod.sanitize_thread);
+        hh.add(mod.fuzz);
         hh.add(mod.unwind_tables);
         hh.add(mod.structured_cfg);
         hh.addListOfBytes(mod.cc_argv);
@@ -1302,6 +1310,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         const any_unwind_tables = options.config.any_unwind_tables or options.root_mod.unwind_tables;
         const any_non_single_threaded = options.config.any_non_single_threaded or !options.root_mod.single_threaded;
         const any_sanitize_thread = options.config.any_sanitize_thread or options.root_mod.sanitize_thread;
+        const any_fuzz = options.config.any_fuzz or options.root_mod.fuzz;
 
         const link_eh_frame_hdr = options.link_eh_frame_hdr or any_unwind_tables;
         const build_id = options.build_id orelse .none;
@@ -1563,6 +1572,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         comp.config.any_unwind_tables = any_unwind_tables;
         comp.config.any_non_single_threaded = any_non_single_threaded;
         comp.config.any_sanitize_thread = any_sanitize_thread;
+        comp.config.any_fuzz = any_fuzz;
 
         const lf_open_opts: link.File.OpenOptions = .{
             .linker_script = options.linker_script,
@@ -1908,6 +1918,13 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             }
         }
 
+        if (comp.config.any_fuzz and capable_of_building_compiler_rt) {
+            if (is_exe_or_dyn_lib) {
+                log.debug("queuing a job to build libfuzzer", .{});
+                comp.job_queued_fuzzer_lib = true;
+            }
+        }
+
         if (!comp.skip_linker_dependencies and is_exe_or_dyn_lib and
             !comp.config.link_libc and capable_of_building_zig_libc)
         {
@@ -1954,6 +1971,9 @@ pub fn destroy(comp: *Compilation) void {
         crt_file.deinit(gpa);
     }
     if (comp.compiler_rt_obj) |*crt_file| {
+        crt_file.deinit(gpa);
+    }
+    if (comp.fuzzer_lib) |*crt_file| {
         crt_file.deinit(gpa);
     }
     if (comp.libc_static_lib) |*crt_file| {
@@ -2721,6 +2741,7 @@ pub fn emitLlvmObject(
         .is_small = comp.root_mod.optimize_mode == .ReleaseSmall,
         .time_report = comp.time_report,
         .sanitize_thread = comp.config.any_sanitize_thread,
+        .fuzz = comp.config.any_fuzz,
         .lto = comp.config.lto,
     });
 }
@@ -3067,7 +3088,6 @@ pub fn totalErrorCount(comp: *Compilation) u32 {
         total += @intFromBool(comp.link_error_flags.no_entry_point_found);
     }
     total += @intFromBool(comp.link_error_flags.missing_libc);
-
     total += comp.link_errors.items.len;
 
     // Compile log errors only count if there are no other errors.
@@ -3641,15 +3661,9 @@ fn performAllTheWorkInner(
         break;
     }
 
-    if (comp.job_queued_compiler_rt_lib) {
-        comp.job_queued_compiler_rt_lib = false;
-        buildCompilerRtOneShot(comp, .Lib, &comp.compiler_rt_lib, main_progress_node);
-    }
-
-    if (comp.job_queued_compiler_rt_obj) {
-        comp.job_queued_compiler_rt_obj = false;
-        buildCompilerRtOneShot(comp, .Obj, &comp.compiler_rt_obj, main_progress_node);
-    }
+    buildCompilerRtOneShot(comp, &comp.job_queued_compiler_rt_lib, "compiler_rt.zig", .compiler_rt, .Lib, &comp.compiler_rt_lib, main_progress_node);
+    buildCompilerRtOneShot(comp, &comp.job_queued_compiler_rt_obj, "compiler_rt.zig", .compiler_rt, .Obj, &comp.compiler_rt_obj, main_progress_node);
+    buildCompilerRtOneShot(comp, &comp.job_queued_fuzzer_lib, "fuzzer.zig", .libfuzzer, .Lib, &comp.fuzzer_lib, main_progress_node);
 }
 
 const JobError = Allocator.Error;
@@ -4655,23 +4669,27 @@ fn workerUpdateWin32Resource(
 
 fn buildCompilerRtOneShot(
     comp: *Compilation,
+    job_queued: *bool,
+    root_source_name: []const u8,
+    misc_task: MiscTask,
     output_mode: std.builtin.OutputMode,
     out: *?CRTFile,
     prog_node: std.Progress.Node,
 ) void {
+    if (!job_queued.*) return;
+    job_queued.* = false;
+
     comp.buildOutputFromZig(
-        "compiler_rt.zig",
+        root_source_name,
         output_mode,
         out,
-        .compiler_rt,
+        misc_task,
         prog_node,
     ) catch |err| switch (err) {
         error.SubCompilationFailed => return, // error reported already
-        else => comp.lockAndSetMiscFailure(
-            .compiler_rt,
-            "unable to build compiler_rt: {s}",
-            .{@errorName(err)},
-        ),
+        else => comp.lockAndSetMiscFailure(misc_task, "unable to build {s}: {s}", .{
+            @tagName(misc_task), @errorName(err),
+        }),
     };
 }
 
@@ -5602,23 +5620,39 @@ pub fn addCCArgs(
                 try argv.append("-mthumb");
             }
 
-            if (mod.sanitize_c and !mod.sanitize_thread) {
-                try argv.append("-fsanitize=undefined");
-                try argv.append("-fsanitize-trap=undefined");
-                // It is very common, and well-defined, for a pointer on one side of a C ABI
-                // to have a different but compatible element type. Examples include:
-                // `char*` vs `uint8_t*` on a system with 8-bit bytes
-                // `const char*` vs `char*`
-                // `char*` vs `unsigned char*`
-                // Without this flag, Clang would invoke UBSAN when such an extern
-                // function was called.
-                try argv.append("-fno-sanitize=function");
-            } else if (mod.sanitize_c and mod.sanitize_thread) {
-                try argv.append("-fsanitize=undefined,thread");
-                try argv.append("-fsanitize-trap=undefined");
-                try argv.append("-fno-sanitize=function");
-            } else if (!mod.sanitize_c and mod.sanitize_thread) {
-                try argv.append("-fsanitize=thread");
+            {
+                var san_arg: std.ArrayListUnmanaged(u8) = .{};
+                const prefix = "-fsanitize=";
+                if (mod.sanitize_c) {
+                    if (san_arg.items.len == 0) try san_arg.appendSlice(arena, prefix);
+                    try san_arg.appendSlice(arena, "undefined,");
+                }
+                if (mod.sanitize_thread) {
+                    if (san_arg.items.len == 0) try san_arg.appendSlice(arena, prefix);
+                    try san_arg.appendSlice(arena, "thread,");
+                }
+                if (mod.fuzz) {
+                    if (san_arg.items.len == 0) try san_arg.appendSlice(arena, prefix);
+                    try san_arg.appendSlice(arena, "fuzzer-no-link,");
+                }
+                // Chop off the trailing comma and append to argv.
+                if (san_arg.popOrNull()) |_| {
+                    try argv.append(san_arg.items);
+
+                    // These args have to be added after the `-fsanitize` arg or
+                    // they won't take effect.
+                    if (mod.sanitize_c) {
+                        try argv.append("-fsanitize-trap=undefined");
+                        // It is very common, and well-defined, for a pointer on one side of a C ABI
+                        // to have a different but compatible element type. Examples include:
+                        // `char*` vs `uint8_t*` on a system with 8-bit bytes
+                        // `const char*` vs `char*`
+                        // `char*` vs `unsigned char*`
+                        // Without this flag, Clang would invoke UBSAN when such an extern
+                        // function was called.
+                        try argv.append("-fno-sanitize=function");
+                    }
+                }
             }
 
             if (mod.red_zone) {

@@ -41,7 +41,7 @@ pub fn cosf(x: f32) callconv(.C) f32 {
     if (ix <= 0x3f490fda) { // |x| ~<= pi/4
         if (ix < 0x39800000) { // |x| < 2**-12
             // raise inexact if x != 0
-            mem.doNotOptimizeAway(x + 0x1p120);
+            if (common.want_float_exceptions) mem.doNotOptimizeAway(x + 0x1p120);
             return 1.0;
         }
         return trig.__cosdf(x);
@@ -92,7 +92,7 @@ pub fn cos(x: f64) callconv(.C) f64 {
     if (ix <= 0x3fe921fb) {
         if (ix < 0x3e46a09e) { // |x| < 2**-27 * sqrt(2)
             // raise inexact if x!=0
-            mem.doNotOptimizeAway(x + 0x1p120);
+            if (common.want_float_exceptions) mem.doNotOptimizeAway(x + 0x1p120);
             return 1.0;
         }
         return trig.__cos(x, 0);

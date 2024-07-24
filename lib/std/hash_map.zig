@@ -1935,7 +1935,7 @@ test "put and remove loop in random order" {
     while (i < size) : (i += 1) {
         try keys.append(i);
     }
-    var prng = std.Random.DefaultPrng.init(0);
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     const random = prng.random();
 
     while (i < iterations) : (i += 1) {
@@ -1967,7 +1967,7 @@ test "remove one million elements in random order" {
         keys.append(i) catch unreachable;
     }
 
-    var prng = std.Random.DefaultPrng.init(0);
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     const random = prng.random();
     random.shuffle(u32, keys.items);
 

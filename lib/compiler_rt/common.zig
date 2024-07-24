@@ -24,6 +24,8 @@ pub const want_aeabi = switch (builtin.abi) {
 };
 pub const want_ppc_abi = builtin.cpu.arch.isPPC() or builtin.cpu.arch.isPPC64();
 
+pub const want_float_exceptions = !builtin.cpu.arch.isWasm();
+
 // Libcalls that involve u128 on Windows x86-64 are expected by LLVM to use the
 // calling convention of @Vector(2, u64), rather than what's standard.
 pub const want_windows_v2u64_abi = builtin.os.tag == .windows and builtin.cpu.arch == .x86_64 and @import("builtin").object_format != .c;

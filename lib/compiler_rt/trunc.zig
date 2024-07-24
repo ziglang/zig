@@ -47,7 +47,7 @@ pub fn truncf(x: f32) callconv(.C) f32 {
     if (u & m == 0) {
         return x;
     } else {
-        mem.doNotOptimizeAway(x + 0x1p120);
+        if (common.want_float_exceptions) mem.doNotOptimizeAway(x + 0x1p120);
         return @bitCast(u & ~m);
     }
 }
@@ -68,7 +68,7 @@ pub fn trunc(x: f64) callconv(.C) f64 {
     if (u & m == 0) {
         return x;
     } else {
-        mem.doNotOptimizeAway(x + 0x1p120);
+        if (common.want_float_exceptions) mem.doNotOptimizeAway(x + 0x1p120);
         return @bitCast(u & ~m);
     }
 }
@@ -94,7 +94,7 @@ pub fn truncq(x: f128) callconv(.C) f128 {
     if (u & m == 0) {
         return x;
     } else {
-        mem.doNotOptimizeAway(x + 0x1p120);
+        if (common.want_float_exceptions) mem.doNotOptimizeAway(x + 0x1p120);
         return @bitCast(u & ~m);
     }
 }

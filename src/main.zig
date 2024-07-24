@@ -211,6 +211,9 @@ fn verifyLibcxxCorrectlyLinked() void {
 }
 
 fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
+    const tr = tracy.trace(@src());
+    defer tr.end();
+
     if (args.len <= 1) {
         std.log.info("{s}", .{usage});
         fatal("expected command argument", .{});
@@ -499,12 +502,14 @@ const usage_build_generic =
     \\  -fno-stack-check          Disable stack probing in safe builds
     \\  -fstack-protector         Enable stack protection in unsafe builds
     \\  -fno-stack-protector      Disable stack protection in safe builds
-    \\  -fsanitize-c              Enable C undefined behavior detection in unsafe builds
-    \\  -fno-sanitize-c           Disable C undefined behavior detection in safe builds
     \\  -fvalgrind                Include valgrind client requests in release builds
     \\  -fno-valgrind             Omit valgrind client requests in debug builds
+    \\  -fsanitize-c              Enable C undefined behavior detection in unsafe builds
+    \\  -fno-sanitize-c           Disable C undefined behavior detection in safe builds
     \\  -fsanitize-thread         Enable Thread Sanitizer
     \\  -fno-sanitize-thread      Disable Thread Sanitizer
+    \\  -ffuzz                    Enable fuzz testing instrumentation
+    \\  -fno-fuzz                 Disable fuzz testing instrumentation
     \\  -funwind-tables           Always produce unwind table entries for all functions
     \\  -fno-unwind-tables        Never produce unwind table entries
     \\  -ferror-tracing           Enable error tracing in ReleaseFast mode
@@ -1429,6 +1434,10 @@ fn buildOutputType(
                         mod_opts.sanitize_thread = true;
                     } else if (mem.eql(u8, arg, "-fno-sanitize-thread")) {
                         mod_opts.sanitize_thread = false;
+                    } else if (mem.eql(u8, arg, "-ffuzz")) {
+                        mod_opts.fuzz = true;
+                    } else if (mem.eql(u8, arg, "-fno-fuzz")) {
+                        mod_opts.fuzz = false;
                     } else if (mem.eql(u8, arg, "-fllvm")) {
                         create_module.opts.use_llvm = true;
                     } else if (mem.eql(u8, arg, "-fno-llvm")) {
@@ -2060,11 +2069,21 @@ fn buildOutputType(
                         create_module.opts.debug_format = .{ .dwarf = .@"64" };
                     },
                     .sanitize => {
-                        if (mem.eql(u8, it.only_arg, "undefined")) {
-                            mod_opts.sanitize_c = true;
-                        } else if (mem.eql(u8, it.only_arg, "thread")) {
-                            mod_opts.sanitize_thread = true;
-                        } else {
+                        var san_it = std.mem.splitScalar(u8, it.only_arg, ',');
+                        var recognized_any = false;
+                        while (san_it.next()) |sub_arg| {
+                            if (mem.eql(u8, sub_arg, "undefined")) {
+                                mod_opts.sanitize_c = true;
+                                recognized_any = true;
+                            } else if (mem.eql(u8, sub_arg, "thread")) {
+                                mod_opts.sanitize_thread = true;
+                                recognized_any = true;
+                            } else if (mem.eql(u8, sub_arg, "fuzzer") or mem.eql(u8, sub_arg, "fuzzer-no-link")) {
+                                mod_opts.fuzz = true;
+                                recognized_any = true;
+                            }
+                        }
+                        if (!recognized_any) {
                             try cc_argv.appendSlice(arena, it.other_args);
                         }
                     },
@@ -2642,6 +2661,8 @@ fn buildOutputType(
             create_module.opts.any_non_single_threaded = true;
         if (mod_opts.sanitize_thread == true)
             create_module.opts.any_sanitize_thread = true;
+        if (mod_opts.fuzz == true)
+            create_module.opts.any_fuzz = true;
         if (mod_opts.unwind_tables == true)
             create_module.opts.any_unwind_tables = true;
         if (mod_opts.strip == false)
@@ -4261,7 +4282,10 @@ fn runOrTest(
     defer argv.deinit();
 
     if (test_exec_args.len == 0) {
-        try argv.append(exe_path);
+        try argv.appendSlice(&.{
+            exe_path,
+            try std.fmt.allocPrint(arena, "--seed=0x{x}", .{std.crypto.random.int(u32)}),
+        });
     } else {
         for (test_exec_args) |arg| {
             try argv.append(arg orelse exe_path);
@@ -7491,6 +7515,8 @@ fn handleModArg(
         create_module.opts.any_non_single_threaded = true;
     if (mod_opts.sanitize_thread == true)
         create_module.opts.any_sanitize_thread = true;
+    if (mod_opts.fuzz == true)
+        create_module.opts.any_fuzz = true;
     if (mod_opts.unwind_tables == true)
         create_module.opts.any_unwind_tables = true;
     if (mod_opts.strip == false)

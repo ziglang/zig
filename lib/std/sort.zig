@@ -223,7 +223,7 @@ test "stable sort" {
 }
 
 test "stable sort fuzz testing" {
-    var prng = std.Random.DefaultPrng.init(0x12345678);
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     const random = prng.random();
     const test_case_count = 10;
 
@@ -408,7 +408,7 @@ test "sort with context in the middle of a slice" {
 }
 
 test "sort fuzz testing" {
-    var prng = std.Random.DefaultPrng.init(0x12345678);
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     const random = prng.random();
     const test_case_count = 10;
 

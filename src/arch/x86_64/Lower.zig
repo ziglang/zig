@@ -451,7 +451,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                 break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
                             },
                             .mov => {
-                                if (is_obj_or_static_lib and macho_sym.flags.needs_zig_got) emit_mnemonic = .lea;
+                                if (is_obj_or_static_lib and macho_sym.getSectionFlags().needs_zig_got) emit_mnemonic = .lea;
                                 break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
                             },
                             else => unreachable,

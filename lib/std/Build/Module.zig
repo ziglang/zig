@@ -28,6 +28,7 @@ stack_protector: ?bool,
 stack_check: ?bool,
 sanitize_c: ?bool,
 sanitize_thread: ?bool,
+fuzz: ?bool,
 code_model: std.builtin.CodeModel,
 valgrind: ?bool,
 pic: ?bool,
@@ -186,6 +187,7 @@ pub const CreateOptions = struct {
     stack_check: ?bool = null,
     sanitize_c: ?bool = null,
     sanitize_thread: ?bool = null,
+    fuzz: ?bool = null,
     /// Whether to emit machine code that integrates with Valgrind.
     valgrind: ?bool = null,
     /// Position Independent Code
@@ -228,6 +230,7 @@ pub fn init(m: *Module, owner: *std.Build, options: CreateOptions, compile: ?*St
         .stack_check = options.stack_check,
         .sanitize_c = options.sanitize_c,
         .sanitize_thread = options.sanitize_thread,
+        .fuzz = options.fuzz,
         .code_model = options.code_model,
         .valgrind = options.valgrind,
         .pic = options.pic,
@@ -642,6 +645,7 @@ pub fn appendZigProcessFlags(
     try addFlag(zig_args, m.error_tracing, "-ferror-tracing", "-fno-error-tracing");
     try addFlag(zig_args, m.sanitize_c, "-fsanitize-c", "-fno-sanitize-c");
     try addFlag(zig_args, m.sanitize_thread, "-fsanitize-thread", "-fno-sanitize-thread");
+    try addFlag(zig_args, m.fuzz, "-ffuzz", "-fno-fuzz");
     try addFlag(zig_args, m.valgrind, "-fvalgrind", "-fno-valgrind");
     try addFlag(zig_args, m.pic, "-fPIC", "-fno-PIC");
     try addFlag(zig_args, m.red_zone, "-mred-zone", "-mno-red-zone");

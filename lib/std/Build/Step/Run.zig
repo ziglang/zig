@@ -185,8 +185,13 @@ pub fn setName(run: *Run, name: []const u8) void {
 }
 
 pub fn enableTestRunnerMode(run: *Run) void {
+    const b = run.step.owner;
+    const arena = b.allocator;
     run.stdio = .zig_test;
-    run.addArgs(&.{"--listen=-"});
+    run.addArgs(&.{
+        std.fmt.allocPrint(arena, "--seed=0x{x}", .{b.graph.random_seed}) catch @panic("OOM"),
+        "--listen=-",
+    });
 }
 
 pub fn addArtifactArg(run: *Run, artifact: *Step.Compile) void {
@@ -1002,10 +1007,25 @@ fn runCommand(
                 },
                 .wasmtime => |bin_name| {
                     if (b.enable_wasmtime) {
+                        // https://github.com/bytecodealliance/wasmtime/issues/7384
+                        //
+                        // In Wasmtime versions prior to 14, options passed after the module name
+                        // could be interpreted by Wasmtime if it recognized them. As with many CLI
+                        // tools, the `--` token is used to stop that behavior and indicate that the
+                        // remaining arguments are for the WASM program being executed. Historically,
+                        // we passed `--` after the module name here.
+                        //
+                        // After version 14, the `--` can no longer be passed after the module name,
+                        // but is also not necessary as Wasmtime will no longer try to interpret
+                        // options after the module name. So, we could just simply omit `--` for
+                        // newer Wasmtime versions. But to maintain compatibility for older versions
+                        // that still try to interpret options after the module name, we have moved
+                        // the `--` before the module name. This appears to work for both old and
+                        // new Wasmtime versions.
                         try interp_argv.append(bin_name);
                         try interp_argv.append("--dir=.");
-                        try interp_argv.append(argv[0]);
                         try interp_argv.append("--");
+                        try interp_argv.append(argv[0]);
                         try interp_argv.appendSlice(argv[1..]);
                     } else {
                         return failForeign(run, "-fwasmtime", argv[0], exe);

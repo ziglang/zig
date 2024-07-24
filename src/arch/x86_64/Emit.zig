@@ -163,12 +163,12 @@ pub fn emitMir(emit: *Emit) Error!void {
                     const zo = macho_file.getZigObject().?;
                     const atom = zo.symbols.items[data.atom_index].getAtom(macho_file).?;
                     const sym = &zo.symbols.items[data.sym_index];
-                    if (sym.flags.needs_zig_got and !is_obj_or_static_lib) {
+                    if (sym.getSectionFlags().needs_zig_got and !is_obj_or_static_lib) {
                         _ = try sym.getOrCreateZigGotEntry(data.sym_index, macho_file);
                     }
-                    const @"type": link.File.MachO.Relocation.Type = if (sym.flags.needs_zig_got and !is_obj_or_static_lib)
+                    const @"type": link.File.MachO.Relocation.Type = if (sym.getSectionFlags().needs_zig_got and !is_obj_or_static_lib)
                         .zig_got_load
-                    else if (sym.flags.needs_got)
+                    else if (sym.getSectionFlags().needs_got)
                         // TODO: it is possible to emit .got_load here that can potentially be relaxed
                         // however this requires always to use a MOVQ mnemonic
                         .got

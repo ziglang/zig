@@ -594,7 +594,7 @@ test "toFloat" {
 test "set/to Float round-trip" {
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
-    var prng = std.Random.DefaultPrng.init(0x5EED);
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     const random = prng.random();
     var i: usize = 0;
     while (i < 512) : (i += 1) {
