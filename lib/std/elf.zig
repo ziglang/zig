@@ -1531,6 +1531,9 @@ pub const EM = enum(u16) {
     /// Tilera TILEPro multicore architecture family
     TILEPRO = 188,
 
+    /// Xilinx MicroBlaze
+    MICROBLAZE = 189,
+
     /// NVIDIA CUDA architecture
     CUDA = 190,
 
