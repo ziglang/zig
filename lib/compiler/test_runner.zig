@@ -128,6 +128,28 @@ fn mainServer() !void {
                     },
                 });
             },
+            .start_fuzzing => {
+                const index = try server.receiveBody_u32();
+                const test_fn = builtin.test_functions[index];
+                while (true) {
+                    testing.allocator_instance = .{};
+                    defer if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);
+                    log_err_count = 0;
+                    is_fuzz_test = false;
+                    test_fn.func() catch |err| switch (err) {
+                        error.SkipZigTest => continue,
+                        else => {
+                            if (@errorReturnTrace()) |trace| {
+                                std.debug.dumpStackTrace(trace.*);
+                            }
+                            std.debug.print("failed with error.{s}\n", .{@errorName(err)});
+                            std.process.exit(1);
+                        },
+                    };
+                    if (!is_fuzz_test) @panic("missed call to std.testing.fuzzInput");
+                    if (log_err_count != 0) @panic("error logs detected");
+                }
+            },
 
             else => {
                 std.debug.print("unsupported message: {x}\n", .{@intFromEnum(hdr.tag)});
