@@ -378,6 +378,9 @@ fn _start() callconv(.Naked) noreturn {
             // (2047 bytes).
             \\ mov %%g0, %%fp
             \\ add %%sp, 2175, %%o0
+            \\ add %%sp, 2047, %%sp
+            \\ and %%sp, -16, %%sp
+            \\ sub %%sp, 2047, %%sp
             \\ ba,a %[posixCallMainAndExit]
             ,
             else => @compileError("unsupported arch"),
