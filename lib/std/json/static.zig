@@ -43,11 +43,11 @@ pub const ParseOptions = struct {
     /// Ignored for `parseFromValue` and `parseFromValueLeaky`.
     allocate: ?AllocWhen = null,
 
-    /// When true integers will be parsed and stored as `std.json.Value.integer`s.  When false, integers will be stored as `std.json.Value.number_string` without being parsed.
-    parse_integers: bool = true,
-
-    /// When true floats will be parsed and stored as `std.json.Value.float`s.  When false, floats will be stored as `std.json.Value.number_string`s without being parsed.
-    parse_floats: bool = true,
+    /// Determines whether or not `std.json.Token.number` and `std.json.Token.allocated_number`, values are parsed.
+    /// When parsing to a `std.json.Value`; if this boolean is false,
+    /// then numbers that would otherwise be parsed into either a `std.json.Value.integer`
+    /// or `std.json.Value.float` will remain unparsed as a `std.json.Value.number_string`.
+    parse_numbers: bool = true,
 };
 
 pub fn Parsed(comptime T: type) type {

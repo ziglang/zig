@@ -149,7 +149,7 @@ test "integer after float has proper type" {
     try std.testing.expect(parsed.object.get("ints").?.array.items[0] == .integer);
 }
 
-test "non-parsed integers remain non-parsed" {
+test "ParseOptions.parse_numbers prevents parsing when false" {
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
     const parsed = try parseFromSliceLeaky(Value, arena_allocator.allocator(),
@@ -157,11 +157,9 @@ test "non-parsed integers remain non-parsed" {
         \\  "float": 3.14,
         \\  "int": 3
         \\}
-        , .{ .parse_floats = false, .parse_integers = false });
-    const f = parsed.object.get("float").?;
-    const i = parsed.object.get("int").?;
-    try std.testing.expect(f == .number_string);
-    try std.testing.expect(i == .number_string);
+        , .{ .parse_numbers = false });
+    try std.testing.expect(parsed.object.get("float").? == .number_string);
+    try std.testing.expect(parsed.object.get("int").? == .number_string);
 }
 
 test "escaped characters" {
