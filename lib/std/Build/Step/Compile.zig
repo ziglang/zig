@@ -217,6 +217,14 @@ no_builtin: bool = false,
 /// Managed by the build runner, not user build script.
 zig_process: ?*Step.ZigProcess,
 
+/// Enables deprecated coverage instrumentation that is only useful if you
+/// are using third party fuzzers that depend on it. Otherwise, slows down
+/// the instrumented binary with unnecessary function calls.
+///
+/// To enable fuzz testing instrumentation on a compilation, see the `fuzz`
+/// flag in `Module`.
+sanitize_coverage_trace_pc_guard: ?bool = null,
+
 pub const ExpectedCompileErrors = union(enum) {
     contains: []const u8,
     exact: []const []const u8,
@@ -1656,6 +1664,7 @@ fn getZigArgs(compile: *Compile) ![][]const u8 {
 
     try addFlag(&zig_args, "PIE", compile.pie);
     try addFlag(&zig_args, "lto", compile.want_lto);
+    try addFlag(&zig_args, "sanitize-coverage-trace-pc-guard", compile.sanitize_coverage_trace_pc_guard);
 
     if (compile.subsystem) |subsystem| {
         try zig_args.append("--subsystem");

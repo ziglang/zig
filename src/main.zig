@@ -1454,6 +1454,10 @@ fn buildOutputType(
                         create_module.opts.use_clang = true;
                     } else if (mem.eql(u8, arg, "-fno-clang")) {
                         create_module.opts.use_clang = false;
+                    } else if (mem.eql(u8, arg, "-fsanitize-coverage-trace-pc-guard")) {
+                        create_module.opts.san_cov_trace_pc_guard = true;
+                    } else if (mem.eql(u8, arg, "-fno-sanitize-coverage-trace-pc-guard")) {
+                        create_module.opts.san_cov_trace_pc_guard = false;
                     } else if (mem.eql(u8, arg, "-freference-trace")) {
                         reference_trace = 256;
                     } else if (mem.startsWith(u8, arg, "-freference-trace=")) {
@@ -2024,6 +2028,25 @@ fn buildOutputType(
                                 try linker_args.append(linker_arg);
                             }
                         }
+                    },
+                    .san_cov_trace_pc_guard => create_module.opts.san_cov_trace_pc_guard = true,
+                    .san_cov => {
+                        var split_it = mem.splitScalar(u8, it.only_arg, ',');
+                        while (split_it.next()) |san_arg| {
+                            if (std.mem.eql(u8, san_arg, "trace-pc-guard")) {
+                                create_module.opts.san_cov_trace_pc_guard = true;
+                            }
+                        }
+                        try cc_argv.appendSlice(arena, it.other_args);
+                    },
+                    .no_san_cov => {
+                        var split_it = mem.splitScalar(u8, it.only_arg, ',');
+                        while (split_it.next()) |san_arg| {
+                            if (std.mem.eql(u8, san_arg, "trace-pc-guard")) {
+                                create_module.opts.san_cov_trace_pc_guard = false;
+                            }
+                        }
+                        try cc_argv.appendSlice(arena, it.other_args);
                     },
                     .optimize => {
                         // Alright, what release mode do they want?
@@ -5803,6 +5826,9 @@ pub const ClangArgIterator = struct {
         undefined,
         force_load_objc,
         mingw_unicode_entry_point,
+        san_cov_trace_pc_guard,
+        san_cov,
+        no_san_cov,
     };
 
     const Args = struct {

@@ -1278,50 +1278,52 @@ pub const Object = struct {
         // Unfortunately, LLVM shits the bed when we ask for both binary and assembly.
         // So we call the entire pipeline multiple times if this is requested.
         // var error_message: [*:0]const u8 = undefined;
-        var emit_bin_path = options.bin_path;
-        var post_ir_path = options.post_ir_path;
+        var lowered_options: llvm.TargetMachine.EmitOptions = .{
+            .is_debug = options.is_debug,
+            .is_small = options.is_small,
+            .time_report = options.time_report,
+            .tsan = options.sanitize_thread,
+            .sancov = options.fuzz,
+            .lto = options.lto,
+            .asm_filename = null,
+            .bin_filename = options.bin_path,
+            .llvm_ir_filename = options.post_ir_path,
+            .bitcode_filename = null,
+            .coverage = .{
+                .CoverageType = .Edge,
+                .IndirectCalls = true,
+                .TraceBB = false,
+                .TraceCmp = true,
+                .TraceDiv = false,
+                .TraceGep = false,
+                .Use8bitCounters = false,
+                .TracePC = false,
+                .TracePCGuard = comp.config.san_cov_trace_pc_guard,
+                .Inline8bitCounters = true,
+                .InlineBoolFlag = false,
+                .PCTable = true,
+                .NoPrune = false,
+                .StackDepth = true,
+                .TraceLoads = false,
+                .TraceStores = false,
+                .CollectControlFlow = false,
+            },
+        };
         if (options.asm_path != null and options.bin_path != null) {
-            if (target_machine.emitToFile(
-                module,
-                &error_message,
-                options.is_debug,
-                options.is_small,
-                options.time_report,
-                options.sanitize_thread,
-                options.fuzz,
-                options.lto,
-                null,
-                emit_bin_path,
-                post_ir_path,
-                null,
-            )) {
+            if (target_machine.emitToFile(module, &error_message, lowered_options)) {
                 defer llvm.disposeMessage(error_message);
-
                 log.err("LLVM failed to emit bin={s} ir={s}: {s}", .{
                     emit_bin_msg, post_llvm_ir_msg, error_message,
                 });
                 return error.FailedToEmit;
             }
-            emit_bin_path = null;
-            post_ir_path = null;
+            lowered_options.bin_filename = null;
+            lowered_options.llvm_ir_filename = null;
         }
 
-        if (target_machine.emitToFile(
-            module,
-            &error_message,
-            options.is_debug,
-            options.is_small,
-            options.time_report,
-            options.sanitize_thread,
-            options.fuzz,
-            options.lto,
-            options.asm_path,
-            emit_bin_path,
-            post_ir_path,
-            null,
-        )) {
+        lowered_options.asm_filename = options.asm_path;
+        if (target_machine.emitToFile(module, &error_message, lowered_options)) {
             defer llvm.disposeMessage(error_message);
-
             log.err("LLVM failed to emit asm={s} bin={s} ir={s} bc={s}: {s}", .{
                 emit_asm_msg,  emit_bin_msg, post_llvm_ir_msg, post_llvm_bc_msg,
                 error_message,

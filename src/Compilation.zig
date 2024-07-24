@@ -1412,6 +1412,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         cache_helpers.addOptionalEmitLoc(&cache.hash, options.emit_docs);
         cache.hash.addBytes(options.root_name);
         cache.hash.add(options.config.wasi_exec_model);
+        cache.hash.add(options.config.san_cov_trace_pc_guard);
         // TODO audit this and make sure everything is in it
 
         const main_mod = options.main_mod orelse options.root_mod;
@@ -5651,6 +5652,10 @@ pub fn addCCArgs(
                         // Without this flag, Clang would invoke UBSAN when such an extern
                         // function was called.
                         try argv.append("-fno-sanitize=function");
+                    }
+
+                    if (comp.config.san_cov_trace_pc_guard) {
+                        try argv.appendSlice(&.{ "-Xclang", "-fsanitize-coverage-trace-pc-guard" });
                     }
                 }
             }

@@ -189,59 +189,56 @@ struct TimeTracerRAII {
 };
 } // end anonymous namespace
 
-static SanitizerCoverageOptions getSanCovOptions(void) {
+static SanitizerCoverageOptions getSanCovOptions(ZigLLVMCoverageOptions z) {
     SanitizerCoverageOptions o;
-    o.CoverageType = SanitizerCoverageOptions::SCK_Edge;
-    o.IndirectCalls = true;
-    o.TraceBB = false;
-    o.TraceCmp = true;
-    o.TraceDiv = false;
-    o.TraceGep = false;
-    o.Use8bitCounters = false;
-    o.TracePC = false;
-    o.TracePCGuard = false;
-    o.Inline8bitCounters = true;
-    o.InlineBoolFlag = false;
-    o.PCTable = true;
-    o.NoPrune = false;
-    o.StackDepth = true;
-    o.TraceLoads = false;
-    o.TraceStores = false;
-    o.CollectControlFlow = false;
+    o.CoverageType = (SanitizerCoverageOptions::Type)z.CoverageType;
+    o.IndirectCalls = z.IndirectCalls;
+    o.TraceBB = z.TraceBB;
+    o.TraceCmp = z.TraceCmp;
+    o.TraceDiv = z.TraceDiv;
+    o.TraceGep = z.TraceGep;
+    o.Use8bitCounters = z.Use8bitCounters;
+    o.TracePC = z.TracePC;
+    o.TracePCGuard = z.TracePCGuard;
+    o.Inline8bitCounters = z.Inline8bitCounters;
+    o.InlineBoolFlag = z.InlineBoolFlag;
+    o.PCTable = z.PCTable;
+    o.NoPrune = z.NoPrune;
+    o.StackDepth = z.StackDepth;
+    o.TraceLoads = z.TraceLoads;
+    o.TraceStores = z.TraceStores;
+    o.CollectControlFlow = z.CollectControlFlow;
     return o;
 }
 
-bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
-        char **error_message, bool is_debug,
-        bool is_small, bool time_report, bool tsan, bool sancov, bool lto,
-        const char *asm_filename, const char *bin_filename,
-        const char *llvm_ir_filename, const char *bitcode_filename)
+ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
+        char **error_message, struct ZigLLVMEmitOptions options)
 {
-    TimePassesIsEnabled = time_report;
+    TimePassesIsEnabled = options.time_report;
 
     raw_fd_ostream *dest_asm_ptr = nullptr;
     raw_fd_ostream *dest_bin_ptr = nullptr;
     raw_fd_ostream *dest_bitcode_ptr = nullptr;
 
-    if (asm_filename) {
+    if (options.asm_filename) {
         std::error_code EC;
-        dest_asm_ptr = new(std::nothrow) raw_fd_ostream(asm_filename, EC, sys::fs::OF_None);
+        dest_asm_ptr = new(std::nothrow) raw_fd_ostream(options.asm_filename, EC, sys::fs::OF_None);
         if (EC) {
             *error_message = strdup((const char *)StringRef(EC.message()).bytes_begin());
             return true;
         }
     }
-    if (bin_filename) {
+    if (options.bin_filename) {
         std::error_code EC;
-        dest_bin_ptr = new(std::nothrow) raw_fd_ostream(bin_filename, EC, sys::fs::OF_None);
+        dest_bin_ptr = new(std::nothrow) raw_fd_ostream(options.bin_filename, EC, sys::fs::OF_None);
         if (EC) {
             *error_message = strdup((const char *)StringRef(EC.message()).bytes_begin());
             return true;
         }
     }
-    if (bitcode_filename) {
+    if (options.bitcode_filename) {
         std::error_code EC;
-        dest_bitcode_ptr = new(std::nothrow) raw_fd_ostream(bitcode_filename, EC, sys::fs::OF_None);
+        dest_bitcode_ptr = new(std::nothrow) raw_fd_ostream(options.bitcode_filename, EC, sys::fs::OF_None);
         if (EC) {
             *error_message = strdup((const char *)StringRef(EC.message()).bytes_begin());
             return true;
@@ -257,7 +254,7 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     std::string ProcName = "zig-";
     ProcName += std::to_string(PID);
     TimeTracerRAII TimeTracer(ProcName,
-                              bin_filename? bin_filename : asm_filename);
+                              options.bin_filename? options.bin_filename : options.asm_filename);
 
     TargetMachine &target_machine = *reinterpret_cast<TargetMachine*>(targ_machine_ref);
     target_machine.setO0WantsFastISel(true);
@@ -266,11 +263,11 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
 
     // Pipeline configurations
     PipelineTuningOptions pipeline_opts;
-    pipeline_opts.LoopUnrolling = !is_debug;
-    pipeline_opts.SLPVectorization = !is_debug;
-    pipeline_opts.LoopVectorization = !is_debug;
-    pipeline_opts.LoopInterleaving = !is_debug;
-    pipeline_opts.MergeFunctions = !is_debug;
+    pipeline_opts.LoopUnrolling = !options.is_debug;
+    pipeline_opts.SLPVectorization = !options.is_debug;
+    pipeline_opts.LoopVectorization = !options.is_debug;
+    pipeline_opts.LoopInterleaving = !options.is_debug;
+    pipeline_opts.MergeFunctions = !options.is_debug;
 
     // Instrumentations
     PassInstrumentationCallbacks instr_callbacks;
@@ -308,19 +305,19 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
             module_pm.addPass(VerifierPass());
         }
 
-        if (!is_debug) {
+        if (!options.is_debug) {
             module_pm.addPass(createModuleToFunctionPassAdaptor(AddDiscriminatorsPass()));
         }
     });
 
     pass_builder.registerOptimizerEarlyEPCallback([&](ModulePassManager &module_pm, OptimizationLevel OL) {
         // Code coverage instrumentation.
-        if (sancov) {
-            module_pm.addPass(SanitizerCoveragePass(getSanCovOptions()));
+        if (options.sancov) {
+            module_pm.addPass(SanitizerCoveragePass(getSanCovOptions(options.coverage)));
         }
 
         // Thread sanitizer
-        if (tsan) {
+        if (options.tsan) {
             module_pm.addPass(ModuleThreadSanitizerPass());
             module_pm.addPass(createModuleToFunctionPassAdaptor(ThreadSanitizerPass()));
         }
@@ -336,17 +333,17 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     ModulePassManager module_pm;
     OptimizationLevel opt_level;
     // Setting up the optimization level
-    if (is_debug)
+    if (options.is_debug)
       opt_level = OptimizationLevel::O0;
-    else if (is_small)
+    else if (options.is_small)
       opt_level = OptimizationLevel::Oz;
     else
       opt_level = OptimizationLevel::O3;
 
     // Initialize the PassManager
     if (opt_level == OptimizationLevel::O0) {
-      module_pm = pass_builder.buildO0DefaultPipeline(opt_level, lto);
-    } else if (lto) {
+      module_pm = pass_builder.buildO0DefaultPipeline(opt_level, options.lto);
+    } else if (options.lto) {
       module_pm = pass_builder.buildLTOPreLinkDefaultPipeline(opt_level);
     } else {
       module_pm = pass_builder.buildPerModuleDefaultPipeline(opt_level);
@@ -357,7 +354,7 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     codegen_pm.add(
       createTargetTransformInfoWrapperPass(target_machine.getTargetIRAnalysis()));
 
-    if (dest_bin && !lto) {
+    if (dest_bin && !options.lto) {
         if (target_machine.addPassesToEmitFile(codegen_pm, *dest_bin, nullptr, CodeGenFileType::ObjectFile)) {
             *error_message = strdup("TargetMachine can't emit an object file");
             return true;
@@ -376,20 +373,20 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     // Code generation phase
     codegen_pm.run(llvm_module);
 
-    if (llvm_ir_filename) {
-        if (LLVMPrintModuleToFile(module_ref, llvm_ir_filename, error_message)) {
+    if (options.llvm_ir_filename) {
+        if (LLVMPrintModuleToFile(module_ref, options.llvm_ir_filename, error_message)) {
             return true;
         }
     }
 
-    if (dest_bin && lto) {
+    if (dest_bin && options.lto) {
         WriteBitcodeToFile(llvm_module, *dest_bin);
     }
     if (dest_bitcode) {
         WriteBitcodeToFile(llvm_module, *dest_bitcode);
     }
 
-    if (time_report) {
+    if (options.time_report) {
         TimerGroup::printAll(errs());
     }
 
