@@ -13,6 +13,7 @@ const elf = std.elf;
 const vdso = @import("linux/vdso.zig");
 const dl = @import("../dynamic_library.zig");
 const native_arch = builtin.cpu.arch;
+const native_abi = builtin.abi;
 const native_endian = native_arch.endian();
 const is_mips = native_arch.isMIPS();
 const is_ppc = native_arch.isPPC();
@@ -7353,67 +7354,101 @@ pub const PERF = struct {
 // TODO: Add the rest of the AUDIT defines?
 pub const AUDIT = struct {
     pub const ARCH = enum(u32) {
+        const CONVENTION_MIPS64_N32 = 0x20000000;
         const @"64BIT" = 0x80000000;
         const LE = 0x40000000;
 
+        AARCH64 = toAudit(.AARCH64, @"64BIT" | LE),
+        ALPHA = toAudit(.ALPHA, @"64BIT" | LE),
+        ARCOMPACT = toAudit(.ARC_COMPACT, LE),
+        ARCOMPACTBE = toAudit(.ARC_COMPACT, 0),
+        ARCV2 = toAudit(.ARC_COMPACT2, LE),
+        ARCV2BE = toAudit(.ARC_COMPACT2, 0),
+        ARM = toAudit(.ARM, LE),
+        ARMEB = toAudit(.ARM, 0),
+        C6X = toAudit(.TI_C6000, LE),
+        C6XBE = toAudit(.TI_C6000, 0),
+        CRIS = toAudit(.CRIS, LE),
+        CSKY = toAudit(.CSKY, LE),
+        FRV = toAudit(.FRV, 0),
+        H8300 = toAudit(.H8_300, 0),
+        HEXAGON = toAudit(.HEXAGON, 0),
+        I386 = toAudit(.@"386", LE),
+        IA64 = toAudit(.IA_64, @"64BIT" | LE),
+        M32R = toAudit(.M32R, 0),
+        M68K = toAudit(.@"68K", 0),
+        MICROBLAZE = toAudit(.MICROBLAZE, 0),
+        MIPS = toAudit(.MIPS, 0),
+        MIPSEL = toAudit(.MIPS, LE),
+        MIPS64 = toAudit(.MIPS, @"64BIT"),
+        MIPS64N32 = toAudit(.MIPS, @"64BIT" | CONVENTION_MIPS64_N32),
+        MIPSEL64 = toAudit(.MIPS, @"64BIT" | LE),
+        MIPSEL64N32 = toAudit(.MIPS, @"64BIT" | LE | CONVENTION_MIPS64_N32),
+        NDS32 = toAudit(.NDS32, LE),
+        NDS32BE = toAudit(.NDS32, 0),
+        NIOS2 = toAudit(.ALTERA_NIOS2, LE),
+        OPENRISC = toAudit(.OPENRISC, 0),
+        PARISC = toAudit(.PARISC, 0),
+        PARISC64 = toAudit(.PARISC, @"64BIT"),
+        PPC = toAudit(.PPC, 0),
+        PPC64 = toAudit(.PPC64, @"64BIT"),
+        PPC64LE = toAudit(.PPC64, @"64BIT" | LE),
+        RISCV32 = toAudit(.RISCV, LE),
+        RISCV64 = toAudit(.RISCV, @"64BIT" | LE),
+        S390 = toAudit(.S390, 0),
+        S390X = toAudit(.S390, @"64BIT"),
+        SH = toAudit(.SH, 0),
+        SHEL = toAudit(.SH, LE),
+        SH64 = toAudit(.SH, @"64BIT"),
+        SHEL64 = toAudit(.SH, @"64BIT" | LE),
+        SPARC = toAudit(.SPARC, 0),
+        SPARC64 = toAudit(.SPARCV9, @"64BIT"),
+        TILEGX = toAudit(.TILEGX, @"64BIT" | LE),
+        TILEGX32 = toAudit(.TILEGX, LE),
+        TILEPRO = toAudit(.TILEPRO, LE),
+        UNICORE = toAudit(.UNICORE, LE),
+        X86_64 = toAudit(.X86_64, @"64BIT" | LE),
+        XTENSA = toAudit(.XTENSA, 0),
+        LOONGARCH32 = toAudit(.LOONGARCH, LE),
+        LOONGARCH64 = toAudit(.LOONGARCH, @"64BIT" | LE),
+
+        fn toAudit(em: elf.EM, flags: u32) u32 {
+            return @intFromEnum(em) | flags;
+        }
+
         pub const current: AUDIT.ARCH = switch (native_arch) {
-            .x86 => .X86,
-            .x86_64 => .X86_64,
-            .aarch64 => .AARCH64,
             .arm, .thumb => .ARM,
-            .riscv32 => .RISCV32,
-            .riscv64 => .RISCV64,
-            .sparc64 => .SPARC64,
+            .armeb, .thumbeb => .ARMEB,
+            .aarch64 => .AARCH64,
+            .arc => .ARCV2,
+            .csky => .CSKY,
+            .hexagon => .HEXAGON,
+            .loongarch32 => .LOONGARCH32,
+            .loongarch64 => .LOONGARCH64,
+            .m68k => .M68K,
             .mips => .MIPS,
             .mipsel => .MIPSEL,
+            .mips64 => switch (native_abi) {
+                .gnuabin32 => .MIPS64N32,
+                else => .MIPS64,
+            },
+            .mips64el => switch (native_abi) {
+                .gnuabin32 => .MIPSEL64N32,
+                else => .MIPSEL64,
+            },
             .powerpc => .PPC,
             .powerpc64 => .PPC64,
             .powerpc64le => .PPC64LE,
+            .riscv32 => .RISCV32,
+            .riscv64 => .RISCV64,
+            .sparc => .SPARC,
+            .sparc64 => .SPARC64,
+            .s390x => .S390X,
+            .x86 => .I386,
+            .x86_64 => .X86_64,
+            .xtensa => .XTENSA,
             else => @compileError("unsupported architecture"),
         };
-
-        AARCH64 = toAudit(.aarch64),
-        ARM = toAudit(.arm),
-        ARMEB = toAudit(.armeb),
-        CSKY = toAudit(.csky),
-        HEXAGON = @intFromEnum(std.elf.EM.HEXAGON),
-        LOONGARCH64 = toAudit(.loongarch64),
-        M68K = toAudit(.m68k),
-        MIPS = toAudit(.mips),
-        MIPSEL = toAudit(.mips) | LE,
-        MIPS64 = toAudit(.mips64),
-        MIPSEL64 = toAudit(.mips64) | LE,
-        PPC = toAudit(.powerpc),
-        PPC64 = toAudit(.powerpc64),
-        PPC64LE = toAudit(.powerpc64le),
-        RISCV32 = toAudit(.riscv32),
-        RISCV64 = toAudit(.riscv64),
-        S390X = toAudit(.s390x),
-        SPARC = toAudit(.sparc),
-        SPARC64 = toAudit(.sparc64),
-        X86 = toAudit(.x86),
-        X86_64 = toAudit(.x86_64),
-        XTENSA = toAudit(.xtensa),
-
-        fn toAudit(arch: std.Target.Cpu.Arch) u32 {
-            var res: u32 = @intFromEnum(arch.toElfMachine());
-            if (arch.endian() == .little) res |= LE;
-            switch (arch) {
-                .aarch64,
-                .loongarch64,
-                .mips64,
-                .mips64el,
-                .powerpc64,
-                .powerpc64le,
-                .riscv64,
-                .s390x,
-                .sparc64,
-                .x86_64,
-                => res |= @"64BIT",
-                else => {},
-            }
-            return res;
-        }
     };
 };
 
