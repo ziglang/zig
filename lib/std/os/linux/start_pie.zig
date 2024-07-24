@@ -16,8 +16,8 @@ const R_SPARC_RELATIVE = 22;
 const R_RELATIVE = switch (builtin.cpu.arch) {
     .x86 => R_386_RELATIVE,
     .x86_64 => R_AMD64_RELATIVE,
-    .arm => R_ARM_RELATIVE,
-    .aarch64 => R_AARCH64_RELATIVE,
+    .arm, .armeb, .thumb, .thumbeb => R_ARM_RELATIVE,
+    .aarch64, .aarch64_be => R_AARCH64_RELATIVE,
     .loongarch32, .loongarch64 => R_LARCH_RELATIVE,
     .m68k => R_68K_RELATIVE,
     .riscv64 => R_RISCV_RELATIVE,
@@ -45,7 +45,7 @@ fn getDynamicSymbol() [*]elf.Dyn {
             : [ret] "=r" (-> [*]elf.Dyn),
         ),
         // Work around the limited offset range of `ldr`
-        .arm => asm volatile (
+        .arm, .armeb, .thumb, .thumbeb => asm volatile (
             \\ .weak _DYNAMIC
             \\ .hidden _DYNAMIC
             \\ ldr %[ret], 1f
@@ -56,7 +56,7 @@ fn getDynamicSymbol() [*]elf.Dyn {
             : [ret] "=r" (-> [*]elf.Dyn),
         ),
         // A simple `adr` is not enough as it has a limited offset range
-        .aarch64 => asm volatile (
+        .aarch64, .aarch64_be => asm volatile (
             \\ .weak _DYNAMIC
             \\ .hidden _DYNAMIC
             \\ adrp %[ret], _DYNAMIC
