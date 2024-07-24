@@ -9,6 +9,7 @@ const ArrayList = std.ArrayList;
 const File = std.fs.File;
 const Step = std.Build.Step;
 const Watch = std.Build.Watch;
+const Fuzz = std.Build.Fuzz;
 const Allocator = std.mem.Allocator;
 const fatal = std.process.fatal;
 const runner = @This();
@@ -400,7 +401,7 @@ pub fn main() !void {
             else => return err,
         };
         if (fuzz) {
-            startFuzzing(&run.thread_pool, run.step_stack.keys(), main_progress_node);
+            Fuzz.start(&run.thread_pool, run.step_stack.keys(), main_progress_node);
         }
 
         if (!watch) return cleanExit();
@@ -437,43 +438,6 @@ pub fn main() !void {
             .clean => {},
         };
     }
-}
-
-fn startFuzzing(thread_pool: *std.Thread.Pool, all_steps: []const *Step, prog_node: std.Progress.Node) void {
-    {
-        const rebuild_node = prog_node.start("Rebuilding Unit Tests", 0);
-        defer rebuild_node.end();
-        var count: usize = 0;
-        var wait_group: std.Thread.WaitGroup = .{};
-        defer wait_group.wait();
-        for (all_steps) |step| {
-            const run = step.cast(Step.Run) orelse continue;
-            if (run.fuzz_tests.items.len > 0 and run.producer != null) {
-                thread_pool.spawnWg(&wait_group, rebuildTestsWorkerRun, .{ run, prog_node });
-                count += 1;
-            }
-        }
-        if (count == 0) {
-            std.debug.lockStdErr();
-            std.debug.print("no fuzz tests found\n", .{});
-            process.exit(2);
-        }
-        rebuild_node.setEstimatedTotalItems(count);
-    }
-    @panic("TODO do something with the rebuilt unit tests");
-}
-
-fn rebuildTestsWorkerRun(run: *Step.Run, parent_prog_node: std.Progress.Node) void {
-    const compile_step = run.producer.?;
-    const prog_node = parent_prog_node.start(compile_step.step.name, 0);
-    defer prog_node.end();
-    const rebuilt_bin_path = compile_step.rebuildInFuzzMode(prog_node) catch |err| {
-        std.debug.print("failed to rebuild {s} in fuzz mode: {s}", .{
-            compile_step.step.name, @errorName(err),
-        });
-        return;
-    };
-    std.debug.print("rebuilt binary: '{s}'\n", .{rebuilt_bin_path});
 }
 
 fn markFailedStepsDirty(gpa: Allocator, all_steps: []const *Step) void {

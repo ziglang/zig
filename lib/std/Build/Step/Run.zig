@@ -89,6 +89,9 @@ has_side_effects: bool,
 /// If this is a Zig unit test binary, this tracks the indexes of the unit
 /// tests that are also fuzz tests.
 fuzz_tests: std.ArrayListUnmanaged(u32),
+/// Populated during the fuzz phase if this run step corresponds to a unit test
+/// executable that contains fuzz tests.
+rebuilt_executable: ?[]const u8,
 
 /// If this Run step was produced by a Compile step, it is tracked here.
 producer: ?*Step.Compile,
@@ -183,6 +186,7 @@ pub fn create(owner: *std.Build, name: []const u8) *Run {
         .dep_output_file = null,
         .has_side_effects = false,
         .fuzz_tests = .{},
+        .rebuilt_executable = null,
         .producer = null,
     };
     return run;

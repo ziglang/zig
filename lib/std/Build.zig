@@ -21,6 +21,7 @@ pub const Cache = @import("Build/Cache.zig");
 pub const Step = @import("Build/Step.zig");
 pub const Module = @import("Build/Module.zig");
 pub const Watch = @import("Build/Watch.zig");
+pub const Fuzz = @import("Build/Fuzz.zig");
 
 /// Shared state among all Build instances.
 graph: *Graph,
