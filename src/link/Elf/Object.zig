@@ -11,9 +11,10 @@ strtab: std.ArrayListUnmanaged(u8) = .{},
 first_global: ?Symbol.Index = null,
 symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
-comdat_groups: std.ArrayListUnmanaged(Elf.ComdatGroup.Index) = .{},
-comdat_group_data: std.ArrayListUnmanaged(u32) = .{},
 relocs: std.ArrayListUnmanaged(elf.Elf64_Rela) = .{},
+
+comdat_groups: std.ArrayListUnmanaged(Elf.ComdatGroup) = .{},
+comdat_group_data: std.ArrayListUnmanaged(u32) = .{},
 
 input_merge_sections: std.ArrayListUnmanaged(InputMergeSection) = .{},
 input_merge_sections_indexes: std.ArrayListUnmanaged(InputMergeSection.Index) = .{},
@@ -218,8 +219,8 @@ fn initAtoms(self: *Object, allocator: Allocator, handle: std.fs.File, elf_file:
                 try self.comdat_group_data.appendUnalignedSlice(allocator, group_members[1..]);
 
                 const gop = try elf_file.getOrCreateComdatGroupOwner(group_signature);
-                const comdat_group_index = try elf_file.addComdatGroup();
-                const comdat_group = elf_file.comdatGroup(comdat_group_index);
+                const comdat_group_index = try self.addComdatGroup(allocator);
+                const comdat_group = self.comdatGroup(comdat_group_index);
                 comdat_group.* = .{
                     .owner = gop.index,
                     .file = self.index,
@@ -227,7 +228,6 @@ fn initAtoms(self: *Object, allocator: Allocator, handle: std.fs.File, elf_file:
                     .members_start = group_start,
                     .members_len = @intCast(group_nmembers - 1),
                 };
-                try self.comdat_groups.append(allocator, comdat_group_index);
             },
 
             elf.SHT_SYMTAB_SHNDX => @panic("TODO SHT_SYMTAB_SHNDX"),
@@ -1206,6 +1206,17 @@ fn inputMergeSection(self: *Object, index: InputMergeSection.Index) ?*InputMerge
     return &self.input_merge_sections.items[index];
 }
 
+fn addComdatGroup(self: *Object, allocator: Allocator) !Elf.ComdatGroup.Index {
+    const index = @as(Elf.ComdatGroup.Index, @intCast(self.comdat_groups.items.len));
+    _ = try self.comdat_groups.addOne(allocator);
+    return index;
+}
+
+pub fn comdatGroup(self: *Object, index: Elf.ComdatGroup.Index) *Elf.ComdatGroup {
+    assert(index < self.comdat_groups.items.len);
+    return &self.comdat_groups.items[index];
+}
+
 pub fn format(
     self: *Object,
     comptime unused_fmt_string: []const u8,
@@ -1337,8 +1348,7 @@ fn formatComdatGroups(
     const object = ctx.object;
     const elf_file = ctx.elf_file;
     try writer.writeAll("  COMDAT groups\n");
-    for (object.comdat_groups.items) |cg_index| {
-        const cg = elf_file.comdatGroup(cg_index);
+    for (object.comdat_groups.items, 0..) |cg, cg_index| {
         const cg_owner = elf_file.comdatGroupOwner(cg.owner);
         if (cg_owner.file != object.index) continue;
         try writer.print("    COMDAT({d})\n", .{cg_index});

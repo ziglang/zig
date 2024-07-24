@@ -1670,30 +1670,35 @@ pub const VerneedSection = struct {
 
 pub const ComdatGroupSection = struct {
     shndx: u32,
-    cg_index: u32,
+    cg_ref: Elf.Ref,
 
-    fn file(cgs: ComdatGroupSection, elf_file: *Elf) ?File {
-        const cg = elf_file.comdatGroup(cgs.cg_index);
+    fn ownerFile(cgs: ComdatGroupSection, elf_file: *Elf) ?File {
+        const cg = cgs.comdatGroup(elf_file);
         const cg_owner = elf_file.comdatGroupOwner(cg.owner);
         return elf_file.file(cg_owner.file);
     }
 
+    fn comdatGroup(cgs: ComdatGroupSection, elf_file: *Elf) *Elf.ComdatGroup {
+        const cg_file = elf_file.file(cgs.cg_ref.file).?;
+        return cg_file.object.comdatGroup(cgs.cg_ref.index);
+    }
+
     pub fn symbol(cgs: ComdatGroupSection, elf_file: *Elf) Symbol.Index {
-        const cg = elf_file.comdatGroup(cgs.cg_index);
-        const object = cgs.file(elf_file).?.object;
+        const cg = cgs.comdatGroup(elf_file);
+        const object = cgs.ownerFile(elf_file).?.object;
         const shdr = object.shdrs.items[cg.shndx];
         return object.symbols.items[shdr.sh_info];
     }
 
     pub fn size(cgs: ComdatGroupSection, elf_file: *Elf) usize {
-        const cg = elf_file.comdatGroup(cgs.cg_index);
+        const cg = cgs.comdatGroup(elf_file);
         const members = cg.comdatGroupMembers(elf_file);
         return (members.len + 1) * @sizeOf(u32);
     }
 
     pub fn write(cgs: ComdatGroupSection, elf_file: *Elf, writer: anytype) !void {
-        const cg = elf_file.comdatGroup(cgs.cg_index);
-        const object = cgs.file(elf_file).?.object;
+        const cg = cgs.comdatGroup(elf_file);
+        const object = cgs.ownerFile(elf_file).?.object;
         const members = cg.comdatGroupMembers(elf_file);
         try writer.writeInt(u32, elf.GRP_COMDAT, .little);
         for (members) |shndx| {

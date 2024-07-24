@@ -319,8 +319,7 @@ fn initComdatGroups(elf_file: *Elf) !void {
     for (elf_file.objects.items) |index| {
         const object = elf_file.file(index).?.object;
 
-        for (object.comdat_groups.items) |cg_index| {
-            const cg = elf_file.comdatGroup(cg_index);
+        for (object.comdat_groups.items, 0..) |cg, cg_index| {
             const cg_owner = elf_file.comdatGroupOwner(cg.owner);
             if (cg_owner.file != index) continue;
 
@@ -333,7 +332,7 @@ fn initComdatGroups(elf_file: *Elf) !void {
                     .addralign = @alignOf(u32),
                     .offset = std.math.maxInt(u64),
                 }),
-                .cg_index = cg_index,
+                .cg_ref = .{ .index = @intCast(cg_index), .file = index },
             };
         }
     }

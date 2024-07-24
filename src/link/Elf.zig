@@ -219,7 +219,6 @@ merge_subsections: std.ArrayListUnmanaged(MergeSubsection) = .{},
 /// Table of last atom index in a section and matching atom free list if any.
 last_atom_and_free_list_table: LastAtomAndFreeListTable = .{},
 
-comdat_groups: std.ArrayListUnmanaged(ComdatGroup) = .{},
 comdat_groups_owners: std.ArrayListUnmanaged(ComdatGroupOwner) = .{},
 comdat_groups_table: std.AutoHashMapUnmanaged(u32, ComdatGroupOwner.Index) = .{},
 
@@ -516,7 +515,6 @@ pub fn deinit(self: *Elf) void {
     }
     self.last_atom_and_free_list_table.deinit(gpa);
 
-    self.comdat_groups.deinit(gpa);
     self.comdat_groups_owners.deinit(gpa);
     self.comdat_groups_table.deinit(gpa);
     self.strings.deinit(gpa);
@@ -1998,8 +1996,7 @@ pub fn resolveSymbols(self: *Elf) void {
     // Dedup comdat groups.
     for (self.objects.items) |index| {
         const object = self.file(index).?.object;
-        for (object.comdat_groups.items) |cg_index| {
-            const cg = self.comdatGroup(cg_index);
+        for (object.comdat_groups.items) |cg| {
             const cg_owner = self.comdatGroupOwner(cg.owner);
             const owner_file_index = if (self.file(cg_owner.file)) |file_ptr|
                 file_ptr.object.index
@@ -2011,8 +2008,7 @@ pub fn resolveSymbols(self: *Elf) void {
 
     for (self.objects.items) |index| {
         const object = self.file(index).?.object;
-        for (object.comdat_groups.items) |cg_index| {
-            const cg = self.comdatGroup(cg_index);
+        for (object.comdat_groups.items) |cg| {
             const cg_owner = self.comdatGroupOwner(cg.owner);
             if (cg_owner.file != index) {
                 for (cg.comdatGroupMembers(self)) |shndx| {
@@ -5822,18 +5818,6 @@ pub fn getOrCreateComdatGroupOwner(self: *Elf, name: [:0]const u8) !GetOrCreateC
     };
 }
 
-pub fn addComdatGroup(self: *Elf) !ComdatGroup.Index {
-    const gpa = self.base.comp.gpa;
-    const index = @as(ComdatGroup.Index, @intCast(self.comdat_groups.items.len));
-    _ = try self.comdat_groups.addOne(gpa);
-    return index;
-}
-
-pub fn comdatGroup(self: *Elf, index: ComdatGroup.Index) *ComdatGroup {
-    assert(index < self.comdat_groups.items.len);
-    return &self.comdat_groups.items[index];
-}
-
 pub fn comdatGroupOwner(self: *Elf, index: ComdatGroupOwner.Index) *ComdatGroupOwner {
     assert(index < self.comdat_groups_owners.items.len);
     return &self.comdat_groups_owners.items[index];
@@ -6233,7 +6217,7 @@ fn fmtDumpState(
 
     try writer.writeAll("Output COMDAT groups\n");
     for (self.comdat_group_sections.items) |cg| {
-        try writer.print("  shdr({d}) : COMDAT({d})\n", .{ cg.shndx, cg.cg_index });
+        try writer.print("  shdr({d}) : COMDAT({})\n", .{ cg.shndx, cg.cg_ref });
     }
 
     try writer.writeAll("\nOutput merge sections\n");
@@ -6374,6 +6358,22 @@ pub const null_shdr = elf.Elf64_Shdr{
 pub const SystemLib = struct {
     needed: bool = false,
     path: []const u8,
+};
+
+pub const Ref = struct {
+    index: u32,
+    file: u32,
+
+    pub fn format(
+        ref: Ref,
+        comptime unused_fmt_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = unused_fmt_string;
+        _ = options;
+        try writer.print("ref({},{})", .{ ref.index, ref.file });
+    }
 };
 
 const LastAtomAndFreeList = struct {
