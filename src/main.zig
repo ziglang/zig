@@ -4207,13 +4207,17 @@ fn serve(
 fn serveUpdateResults(s: *Server, comp: *Compilation) !void {
     const gpa = comp.gpa;
 
-    if (comp.file_system_inputs) |file_system_inputs| {
-        assert(file_system_inputs.items.len > 0);
-        try s.serveStringMessage(.file_system_inputs, file_system_inputs.items);
-    }
-
     var error_bundle = try comp.getAllErrorsAlloc();
     defer error_bundle.deinit(gpa);
+
+    if (comp.file_system_inputs) |file_system_inputs| {
+        if (file_system_inputs.items.len == 0) {
+            assert(error_bundle.errorMessageCount() > 0);
+        } else {
+            try s.serveStringMessage(.file_system_inputs, file_system_inputs.items);
+        }
+    }
+
     if (error_bundle.errorMessageCount() > 0) {
         try s.serveErrorBundle(error_bundle);
         return;
