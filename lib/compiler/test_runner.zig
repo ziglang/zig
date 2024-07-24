@@ -271,7 +271,6 @@ pub fn mainSimple() anyerror!void {
     };
     // is the backend capable of using std.fmt.format to print a summary at the end?
     const print_summary = switch (builtin.zig_backend) {
-        .stage2_riscv64 => true,
         else => false,
     };
 

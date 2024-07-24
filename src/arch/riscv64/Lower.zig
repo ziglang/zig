@@ -61,451 +61,427 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index, options: struct {
     log.debug("lowerMir {}", .{inst});
     switch (inst.tag) {
         else => try lower.generic(inst),
-        .pseudo => switch (inst.ops) {
-            .pseudo_dbg_line_column,
-            .pseudo_dbg_epilogue_begin,
-            .pseudo_dbg_prologue_end,
-            .pseudo_dead,
-            => {},
+        .pseudo_dbg_line_column,
+        .pseudo_dbg_epilogue_begin,
+        .pseudo_dbg_prologue_end,
+        .pseudo_dead,
+        => {},
 
-            .pseudo_load_rm, .pseudo_store_rm => {
-                const rm = inst.data.rm;
+        .pseudo_load_rm, .pseudo_store_rm => {
+            const rm = inst.data.rm;
 
-                const frame_loc: Mir.FrameLoc = if (options.allow_frame_locs)
-                    rm.m.toFrameLoc(lower.mir)
-                else
-                    .{ .base = .s0, .disp = 0 };
+            const frame_loc: Mir.FrameLoc = if (options.allow_frame_locs)
+                rm.m.toFrameLoc(lower.mir)
+            else
+                .{ .base = .s0, .disp = 0 };
 
-                switch (inst.ops) {
-                    .pseudo_load_rm => {
-                        const dest_reg = rm.r;
-                        const dest_reg_class = dest_reg.class();
+            switch (inst.tag) {
+                .pseudo_load_rm => {
+                    const dest_reg = rm.r;
+                    const dest_reg_class = dest_reg.class();
 
-                        const src_size = rm.m.mod.size;
-                        const unsigned = rm.m.mod.unsigned;
+                    const src_size = rm.m.mod.size;
+                    const unsigned = rm.m.mod.unsigned;
 
-                        const tag: Encoding.Mnemonic = switch (dest_reg_class) {
-                            .int => switch (src_size) {
-                                .byte => if (unsigned) .lbu else .lb,
-                                .hword => if (unsigned) .lhu else .lh,
-                                .word => if (unsigned) .lwu else .lw,
-                                .dword => .ld,
-                            },
-                            .float => switch (src_size) {
-                                .byte => unreachable, // Zig does not support 8-bit floats
-                                .hword => return lower.fail("TODO: lowerMir pseudo_load_rm support 16-bit floats", .{}),
-                                .word => .flw,
-                                .dword => .fld,
-                            },
-                            .vector => switch (src_size) {
-                                .byte => .vle8v,
-                                .hword => .vle32v,
-                                .word => .vle32v,
-                                .dword => .vle64v,
-                            },
-                        };
-
-                        switch (dest_reg_class) {
-                            .int, .float => {
-                                try lower.emit(tag, &.{
-                                    .{ .reg = rm.r },
-                                    .{ .reg = frame_loc.base },
-                                    .{ .imm = Immediate.s(frame_loc.disp) },
-                                });
-                            },
-                            .vector => {
-                                assert(frame_loc.disp == 0);
-                                try lower.emit(tag, &.{
-                                    .{ .reg = rm.r },
-                                    .{ .reg = frame_loc.base },
-                                    .{ .reg = .zero },
-                                });
-                            },
-                        }
-                    },
-                    .pseudo_store_rm => {
-                        const src_reg = rm.r;
-                        const src_reg_class = src_reg.class();
-
-                        const dest_size = rm.m.mod.size;
-
-                        const tag: Encoding.Mnemonic = switch (src_reg_class) {
-                            .int => switch (dest_size) {
-                                .byte => .sb,
-                                .hword => .sh,
-                                .word => .sw,
-                                .dword => .sd,
-                            },
-                            .float => switch (dest_size) {
-                                .byte => unreachable, // Zig does not support 8-bit floats
-                                .hword => return lower.fail("TODO: lowerMir pseudo_store_rm support 16-bit floats", .{}),
-                                .word => .fsw,
-                                .dword => .fsd,
-                            },
-                            .vector => switch (dest_size) {
-                                .byte => .vse8v,
-                                .hword => .vse16v,
-                                .word => .vse32v,
-                                .dword => .vse64v,
-                            },
-                        };
-
-                        switch (src_reg_class) {
-                            .int, .float => {
-                                try lower.emit(tag, &.{
-                                    .{ .reg = frame_loc.base },
-                                    .{ .reg = rm.r },
-                                    .{ .imm = Immediate.s(frame_loc.disp) },
-                                });
-                            },
-                            .vector => {
-                                assert(frame_loc.disp == 0);
-                                try lower.emit(tag, &.{
-                                    .{ .reg = rm.r },
-                                    .{ .reg = frame_loc.base },
-                                    .{ .reg = .zero },
-                                });
-                            },
-                        }
-                    },
-                    else => unreachable,
-                }
-            },
-
-            .pseudo_mv => {
-                const rr = inst.data.rr;
-
-                const dst_class = rr.rd.class();
-                const src_class = rr.rs.class();
-
-                switch (src_class) {
-                    .float => switch (dst_class) {
-                        .float => {
-                            try lower.emit(if (lower.hasFeature(.d)) .fsgnjnd else .fsgnjns, &.{
-                                .{ .reg = rr.rd },
-                                .{ .reg = rr.rs },
-                                .{ .reg = rr.rs },
-                            });
+                    const mnem: Mnemonic = switch (dest_reg_class) {
+                        .int => switch (src_size) {
+                            .byte => if (unsigned) .lbu else .lb,
+                            .hword => if (unsigned) .lhu else .lh,
+                            .word => if (unsigned) .lwu else .lw,
+                            .dword => .ld,
                         },
-                        .int, .vector => return lower.fail("TODO: lowerMir pseudo_mv float -> {s}", .{@tagName(dst_class)}),
-                    },
-                    .int => switch (dst_class) {
-                        .int => {
-                            try lower.emit(.addi, &.{
-                                .{ .reg = rr.rd },
-                                .{ .reg = rr.rs },
-                                .{ .imm = Immediate.s(0) },
+                        .float => switch (src_size) {
+                            .byte => unreachable, // Zig does not support 8-bit floats
+                            .hword => return lower.fail("TODO: lowerMir pseudo_load_rm support 16-bit floats", .{}),
+                            .word => .flw,
+                            .dword => .fld,
+                        },
+                        .vector => switch (src_size) {
+                            .byte => .vle8v,
+                            .hword => .vle32v,
+                            .word => .vle32v,
+                            .dword => .vle64v,
+                        },
+                    };
+
+                    switch (dest_reg_class) {
+                        .int, .float => {
+                            try lower.emit(mnem, &.{
+                                .{ .reg = rm.r },
+                                .{ .reg = frame_loc.base },
+                                .{ .imm = Immediate.s(frame_loc.disp) },
                             });
                         },
                         .vector => {
-                            try lower.emit(.vmvvx, &.{
-                                .{ .reg = rr.rd },
-                                .{ .reg = rr.rs },
-                                .{ .reg = .x0 },
-                            });
-                        },
-                        .float => return lower.fail("TODO: lowerMir pseudo_mv int -> {s}", .{@tagName(dst_class)}),
-                    },
-                    .vector => switch (dst_class) {
-                        .int => {
-                            try lower.emit(.vadcvv, &.{
-                                .{ .reg = rr.rd },
+                            assert(frame_loc.disp == 0);
+                            try lower.emit(mnem, &.{
+                                .{ .reg = rm.r },
+                                .{ .reg = frame_loc.base },
                                 .{ .reg = .zero },
-                                .{ .reg = rr.rs },
                             });
                         },
-                        .float, .vector => return lower.fail("TODO: lowerMir pseudo_mv vector -> {s}", .{@tagName(dst_class)}),
-                    },
-                }
-            },
+                    }
+                },
+                .pseudo_store_rm => {
+                    const src_reg = rm.r;
+                    const src_reg_class = src_reg.class();
 
-            .pseudo_j => {
-                try lower.emit(.jal, &.{
-                    .{ .reg = .zero },
-                    .{ .imm = lower.reloc(.{ .inst = inst.data.inst }) },
-                });
-            },
+                    const dest_size = rm.m.mod.size;
 
-            .pseudo_spill_regs => try lower.pushPopRegList(true, inst.data.reg_list),
-            .pseudo_restore_regs => try lower.pushPopRegList(false, inst.data.reg_list),
-
-            .pseudo_load_symbol => {
-                const payload = inst.data.payload;
-                const data = lower.mir.extraData(Mir.LoadSymbolPayload, payload).data;
-                const dst_reg: bits.Register = @enumFromInt(data.register);
-                assert(dst_reg.class() == .int);
-
-                try lower.emit(.lui, &.{
-                    .{ .reg = dst_reg },
-                    .{ .imm = lower.reloc(.{
-                        .load_symbol_reloc = .{
-                            .atom_index = data.atom_index,
-                            .sym_index = data.sym_index,
+                    const mnem: Mnemonic = switch (src_reg_class) {
+                        .int => switch (dest_size) {
+                            .byte => .sb,
+                            .hword => .sh,
+                            .word => .sw,
+                            .dword => .sd,
                         },
-                    }) },
-                });
+                        .float => switch (dest_size) {
+                            .byte => unreachable, // Zig does not support 8-bit floats
+                            .hword => return lower.fail("TODO: lowerMir pseudo_store_rm support 16-bit floats", .{}),
+                            .word => .fsw,
+                            .dword => .fsd,
+                        },
+                        .vector => switch (dest_size) {
+                            .byte => .vse8v,
+                            .hword => .vse16v,
+                            .word => .vse32v,
+                            .dword => .vse64v,
+                        },
+                    };
 
-                // the above reloc implies this one
-                try lower.emit(.addi, &.{
-                    .{ .reg = dst_reg },
-                    .{ .reg = dst_reg },
-                    .{ .imm = Immediate.s(0) },
-                });
-            },
-
-            .pseudo_lea_rm => {
-                const rm = inst.data.rm;
-                assert(rm.r.class() == .int);
-
-                const frame: Mir.FrameLoc = if (options.allow_frame_locs)
-                    rm.m.toFrameLoc(lower.mir)
-                else
-                    .{ .base = .s0, .disp = 0 };
-
-                try lower.emit(.addi, &.{
-                    .{ .reg = rm.r },
-                    .{ .reg = frame.base },
-                    .{ .imm = Immediate.s(frame.disp) },
-                });
-            },
-
-            .pseudo_fabs => {
-                const fabs = inst.data.fabs;
-                assert(fabs.rs.class() == .float and fabs.rd.class() == .float);
-
-                const mnem: Encoding.Mnemonic = switch (fabs.bits) {
-                    16 => return lower.fail("TODO: airAbs Float 16", .{}),
-                    32 => .fsgnjxs,
-                    64 => .fsgnjxd,
-                    80 => return lower.fail("TODO: airAbs Float 80", .{}),
-                    128 => return lower.fail("TODO: airAbs Float 128", .{}),
-                    else => unreachable,
-                };
-
-                try lower.emit(mnem, &.{
-                    .{ .reg = fabs.rs },
-                    .{ .reg = fabs.rd },
-                    .{ .reg = fabs.rd },
-                });
-            },
-
-            .pseudo_compare => {
-                const compare = inst.data.compare;
-                const op = compare.op;
-
-                const rd = compare.rd;
-                const rs1 = compare.rs1;
-                const rs2 = compare.rs2;
-
-                const class = rs1.class();
-                const ty = compare.ty;
-                const size = std.math.ceilPowerOfTwo(u64, ty.bitSize(pt)) catch {
-                    return lower.fail("pseudo_compare size {}", .{ty.bitSize(pt)});
-                };
-
-                const is_unsigned = ty.isUnsignedInt(pt.zcu);
-                const less_than: Encoding.Mnemonic = if (is_unsigned) .sltu else .slt;
-
-                switch (class) {
-                    .int => switch (op) {
-                        .eq => {
-                            try lower.emit(.xor, &.{
-                                .{ .reg = rd },
-                                .{ .reg = rs1 },
-                                .{ .reg = rs2 },
-                            });
-
-                            try lower.emit(.sltiu, &.{
-                                .{ .reg = rd },
-                                .{ .reg = rd },
-                                .{ .imm = Immediate.s(1) },
+                    switch (src_reg_class) {
+                        .int, .float => {
+                            try lower.emit(mnem, &.{
+                                .{ .reg = frame_loc.base },
+                                .{ .reg = rm.r },
+                                .{ .imm = Immediate.s(frame_loc.disp) },
                             });
                         },
-                        .neq => {
-                            try lower.emit(.xor, &.{
-                                .{ .reg = rd },
-                                .{ .reg = rs1 },
-                                .{ .reg = rs2 },
-                            });
-
-                            try lower.emit(.sltu, &.{
-                                .{ .reg = rd },
+                        .vector => {
+                            assert(frame_loc.disp == 0);
+                            try lower.emit(mnem, &.{
+                                .{ .reg = rm.r },
+                                .{ .reg = frame_loc.base },
                                 .{ .reg = .zero },
-                                .{ .reg = rd },
                             });
                         },
-                        .gt => {
-                            try lower.emit(less_than, &.{
-                                .{ .reg = rd },
-                                .{ .reg = rs2 },
-                                .{ .reg = rs1 },
-                            });
-                        },
-                        .gte => {
-                            try lower.emit(less_than, &.{
-                                .{ .reg = rd },
-                                .{ .reg = rs1 },
-                                .{ .reg = rs2 },
-                            });
-                            try lower.emit(.xori, &.{
-                                .{ .reg = rd },
-                                .{ .reg = rd },
-                                .{ .imm = Immediate.s(1) },
-                            });
-                        },
-                        .lt => {
-                            try lower.emit(less_than, &.{
-                                .{ .reg = rd },
-                                .{ .reg = rs1 },
-                                .{ .reg = rs2 },
-                            });
-                        },
-                        .lte => {
-                            try lower.emit(less_than, &.{
-                                .{ .reg = rd },
-                                .{ .reg = rs2 },
-                                .{ .reg = rs1 },
-                            });
+                    }
+                },
+                else => unreachable,
+            }
+        },
 
-                            try lower.emit(.xori, &.{
-                                .{ .reg = rd },
-                                .{ .reg = rd },
-                                .{ .imm = Immediate.s(1) },
-                            });
-                        },
+        .pseudo_mv => {
+            const rr = inst.data.rr;
+
+            const dst_class = rr.rd.class();
+            const src_class = rr.rs.class();
+
+            switch (src_class) {
+                .float => switch (dst_class) {
+                    .float => {
+                        try lower.emit(if (lower.hasFeature(.d)) .fsgnjnd else .fsgnjns, &.{
+                            .{ .reg = rr.rd },
+                            .{ .reg = rr.rs },
+                            .{ .reg = rr.rs },
+                        });
                     },
-                    .float => switch (op) {
-                        // eq
-                        .eq => {
-                            try lower.emit(if (size == 64) .feqd else .feqs, &.{
-                                .{ .reg = rd },
-                                .{ .reg = rs1 },
-                                .{ .reg = rs2 },
-                            });
-                        },
-                        // !(eq)
-                        .neq => {
-                            try lower.emit(if (size == 64) .feqd else .feqs, &.{
-                                .{ .reg = rd },
-                                .{ .reg = rs1 },
-                                .{ .reg = rs2 },
-                            });
-                            try lower.emit(.xori, &.{
-                                .{ .reg = rd },
-                                .{ .reg = rd },
-                                .{ .imm = Immediate.s(1) },
-                            });
-                        },
-                        .lt => {
-                            try lower.emit(if (size == 64) .fltd else .flts, &.{
-                                .{ .reg = rd },
-                                .{ .reg = rs1 },
-                                .{ .reg = rs2 },
-                            });
-                        },
-                        .lte => {
-                            try lower.emit(if (size == 64) .fled else .fles, &.{
-                                .{ .reg = rd },
-                                .{ .reg = rs1 },
-                                .{ .reg = rs2 },
-                            });
-                        },
-                        .gt => {
-                            try lower.emit(if (size == 64) .fltd else .flts, &.{
-                                .{ .reg = rd },
-                                .{ .reg = rs2 },
-                                .{ .reg = rs1 },
-                            });
-                        },
-                        .gte => {
-                            try lower.emit(if (size == 64) .fled else .fles, &.{
-                                .{ .reg = rd },
-                                .{ .reg = rs2 },
-                                .{ .reg = rs1 },
-                            });
-                        },
+                    .int, .vector => return lower.fail("TODO: lowerMir pseudo_mv float -> {s}", .{@tagName(dst_class)}),
+                },
+                .int => switch (dst_class) {
+                    .int => {
+                        try lower.emit(.addi, &.{
+                            .{ .reg = rr.rd },
+                            .{ .reg = rr.rs },
+                            .{ .imm = Immediate.s(0) },
+                        });
                     },
-                    .vector => return lower.fail("TODO: lowerMir pseudo_cmp vector", .{}),
-                }
-            },
+                    .vector => {
+                        try lower.emit(.vmvvx, &.{
+                            .{ .reg = rr.rd },
+                            .{ .reg = rr.rs },
+                            .{ .reg = .x0 },
+                        });
+                    },
+                    .float => return lower.fail("TODO: lowerMir pseudo_mv int -> {s}", .{@tagName(dst_class)}),
+                },
+                .vector => switch (dst_class) {
+                    .int => {
+                        try lower.emit(.vadcvv, &.{
+                            .{ .reg = rr.rd },
+                            .{ .reg = .zero },
+                            .{ .reg = rr.rs },
+                        });
+                    },
+                    .float, .vector => return lower.fail("TODO: lowerMir pseudo_mv vector -> {s}", .{@tagName(dst_class)}),
+                },
+            }
+        },
 
-            .pseudo_not => {
-                const rr = inst.data.rr;
-                assert(rr.rs.class() == .int and rr.rd.class() == .int);
+        .pseudo_j => {
+            const j_type = inst.data.j_type;
+            try lower.emit(.jal, &.{
+                .{ .reg = j_type.rd },
+                .{ .imm = lower.reloc(.{ .inst = j_type.inst }) },
+            });
+        },
 
-                // mask out any other bits that aren't the boolean
-                try lower.emit(.andi, &.{
-                    .{ .reg = rr.rs },
-                    .{ .reg = rr.rs },
-                    .{ .imm = Immediate.s(1) },
-                });
+        .pseudo_spill_regs => try lower.pushPopRegList(true, inst.data.reg_list),
+        .pseudo_restore_regs => try lower.pushPopRegList(false, inst.data.reg_list),
 
-                try lower.emit(.sltiu, &.{
-                    .{ .reg = rr.rd },
-                    .{ .reg = rr.rs },
-                    .{ .imm = Immediate.s(1) },
-                });
-            },
+        .pseudo_load_symbol => {
+            const payload = inst.data.reloc;
+            const dst_reg = payload.register;
+            assert(dst_reg.class() == .int);
 
-            .pseudo_extern_fn_reloc => {
-                const inst_reloc = inst.data.reloc;
+            try lower.emit(.lui, &.{
+                .{ .reg = dst_reg },
+                .{ .imm = lower.reloc(.{
+                    .load_symbol_reloc = .{
+                        .atom_index = payload.atom_index,
+                        .sym_index = payload.sym_index,
+                    },
+                }) },
+            });
 
-                try lower.emit(.auipc, &.{
-                    .{ .reg = .ra },
-                    .{ .imm = lower.reloc(
-                        .{ .call_extern_fn_reloc = .{
-                            .atom_index = inst_reloc.atom_index,
-                            .sym_index = inst_reloc.sym_index,
-                        } },
-                    ) },
-                });
+            // the reloc above implies this one
+            try lower.emit(.addi, &.{
+                .{ .reg = dst_reg },
+                .{ .reg = dst_reg },
+                .{ .imm = Immediate.s(0) },
+            });
+        },
 
-                try lower.emit(.jalr, &.{
-                    .{ .reg = .ra },
-                    .{ .reg = .ra },
-                    .{ .imm = Immediate.s(0) },
-                });
-            },
+        .pseudo_lea_rm => {
+            const rm = inst.data.rm;
+            assert(rm.r.class() == .int);
 
-            .pseudo_amo => {
-                const amo = inst.data.amo;
-                const is_d = amo.ty.abiSize(pt) == 8;
-                const is_un = amo.ty.isUnsignedInt(pt.zcu);
+            const frame: Mir.FrameLoc = if (options.allow_frame_locs)
+                rm.m.toFrameLoc(lower.mir)
+            else
+                .{ .base = .s0, .disp = 0 };
 
-                const mnem: Encoding.Mnemonic = switch (amo.op) {
-                    // zig fmt: off
-                    .SWAP => if (is_d) .amoswapd  else .amoswapw,
-                    .ADD  => if (is_d) .amoaddd   else .amoaddw,
-                    .AND  => if (is_d) .amoandd   else .amoandw,
-                    .OR   => if (is_d) .amoord    else .amoorw,
-                    .XOR  => if (is_d) .amoxord   else .amoxorw,
-                    .MAX  => if (is_d) if (is_un) .amomaxud else .amomaxd else if (is_un) .amomaxuw else .amomaxw,
-                    .MIN  => if (is_d) if (is_un) .amominud else .amomind else if (is_un) .amominuw else .amominw,
-                    // zig fmt: on
-                };
+            try lower.emit(.addi, &.{
+                .{ .reg = rm.r },
+                .{ .reg = frame.base },
+                .{ .imm = Immediate.s(frame.disp) },
+            });
+        },
 
-                try lower.emit(mnem, &.{
-                    .{ .reg = inst.data.amo.rd },
-                    .{ .reg = inst.data.amo.rs1 },
-                    .{ .reg = inst.data.amo.rs2 },
-                    .{ .barrier = inst.data.amo.rl },
-                    .{ .barrier = inst.data.amo.aq },
-                });
-            },
+        .pseudo_compare => {
+            const compare = inst.data.compare;
+            const op = compare.op;
 
-            .pseudo_fence => {
-                const fence = inst.data.fence;
+            const rd = compare.rd;
+            const rs1 = compare.rs1;
+            const rs2 = compare.rs2;
 
-                try lower.emit(switch (fence.fm) {
-                    .tso => .fencetso,
-                    .none => .fence,
-                }, &.{
-                    .{ .barrier = fence.succ },
-                    .{ .barrier = fence.pred },
-                });
-            },
+            const class = rs1.class();
+            const ty = compare.ty;
+            const size = std.math.ceilPowerOfTwo(u64, ty.bitSize(pt)) catch {
+                return lower.fail("pseudo_compare size {}", .{ty.bitSize(pt)});
+            };
 
-            else => return lower.fail("TODO lower: psuedo {s}", .{@tagName(inst.ops)}),
+            const is_unsigned = ty.isUnsignedInt(pt.zcu);
+            const less_than: Mnemonic = if (is_unsigned) .sltu else .slt;
+
+            switch (class) {
+                .int => switch (op) {
+                    .eq => {
+                        try lower.emit(.xor, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rs1 },
+                            .{ .reg = rs2 },
+                        });
+
+                        try lower.emit(.sltiu, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rd },
+                            .{ .imm = Immediate.s(1) },
+                        });
+                    },
+                    .neq => {
+                        try lower.emit(.xor, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rs1 },
+                            .{ .reg = rs2 },
+                        });
+
+                        try lower.emit(.sltu, &.{
+                            .{ .reg = rd },
+                            .{ .reg = .zero },
+                            .{ .reg = rd },
+                        });
+                    },
+                    .gt => {
+                        try lower.emit(less_than, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rs2 },
+                            .{ .reg = rs1 },
+                        });
+                    },
+                    .gte => {
+                        try lower.emit(less_than, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rs1 },
+                            .{ .reg = rs2 },
+                        });
+                        try lower.emit(.xori, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rd },
+                            .{ .imm = Immediate.s(1) },
+                        });
+                    },
+                    .lt => {
+                        try lower.emit(less_than, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rs1 },
+                            .{ .reg = rs2 },
+                        });
+                    },
+                    .lte => {
+                        try lower.emit(less_than, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rs2 },
+                            .{ .reg = rs1 },
+                        });
+
+                        try lower.emit(.xori, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rd },
+                            .{ .imm = Immediate.s(1) },
+                        });
+                    },
+                },
+                .float => switch (op) {
+                    // eq
+                    .eq => {
+                        try lower.emit(if (size == 64) .feqd else .feqs, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rs1 },
+                            .{ .reg = rs2 },
+                        });
+                    },
+                    // !(eq)
+                    .neq => {
+                        try lower.emit(if (size == 64) .feqd else .feqs, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rs1 },
+                            .{ .reg = rs2 },
+                        });
+                        try lower.emit(.xori, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rd },
+                            .{ .imm = Immediate.s(1) },
+                        });
+                    },
+                    .lt => {
+                        try lower.emit(if (size == 64) .fltd else .flts, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rs1 },
+                            .{ .reg = rs2 },
+                        });
+                    },
+                    .lte => {
+                        try lower.emit(if (size == 64) .fled else .fles, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rs1 },
+                            .{ .reg = rs2 },
+                        });
+                    },
+                    .gt => {
+                        try lower.emit(if (size == 64) .fltd else .flts, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rs2 },
+                            .{ .reg = rs1 },
+                        });
+                    },
+                    .gte => {
+                        try lower.emit(if (size == 64) .fled else .fles, &.{
+                            .{ .reg = rd },
+                            .{ .reg = rs2 },
+                            .{ .reg = rs1 },
+                        });
+                    },
+                },
+                .vector => return lower.fail("TODO: lowerMir pseudo_cmp vector", .{}),
+            }
+        },
+
+        .pseudo_not => {
+            const rr = inst.data.rr;
+            assert(rr.rs.class() == .int and rr.rd.class() == .int);
+
+            // mask out any other bits that aren't the boolean
+            try lower.emit(.andi, &.{
+                .{ .reg = rr.rs },
+                .{ .reg = rr.rs },
+                .{ .imm = Immediate.s(1) },
+            });
+
+            try lower.emit(.sltiu, &.{
+                .{ .reg = rr.rd },
+                .{ .reg = rr.rs },
+                .{ .imm = Immediate.s(1) },
+            });
+        },
+
+        .pseudo_extern_fn_reloc => {
+            const inst_reloc = inst.data.reloc;
+
+            try lower.emit(.auipc, &.{
+                .{ .reg = .ra },
+                .{ .imm = lower.reloc(
+                    .{ .call_extern_fn_reloc = .{
+                        .atom_index = inst_reloc.atom_index,
+                        .sym_index = inst_reloc.sym_index,
+                    } },
+                ) },
+            });
+
+            try lower.emit(.jalr, &.{
+                .{ .reg = .ra },
+                .{ .reg = .ra },
+                .{ .imm = Immediate.s(0) },
+            });
+        },
+
+        .pseudo_amo => {
+            const amo = inst.data.amo;
+            const is_d = amo.ty.abiSize(pt) == 8;
+            const is_un = amo.ty.isUnsignedInt(pt.zcu);
+
+            const mnem: Mnemonic = switch (amo.op) {
+                // zig fmt: off
+                .SWAP => if (is_d) .amoswapd  else .amoswapw,
+                .ADD  => if (is_d) .amoaddd   else .amoaddw,
+                .AND  => if (is_d) .amoandd   else .amoandw,
+                .OR   => if (is_d) .amoord    else .amoorw,
+                .XOR  => if (is_d) .amoxord   else .amoxorw,
+                .MAX  => if (is_d) if (is_un) .amomaxud else .amomaxd else if (is_un) .amomaxuw else .amomaxw,
+                .MIN  => if (is_d) if (is_un) .amominud else .amomind else if (is_un) .amominuw else .amominw,
+                // zig fmt: on
+            };
+
+            try lower.emit(mnem, &.{
+                .{ .reg = inst.data.amo.rd },
+                .{ .reg = inst.data.amo.rs1 },
+                .{ .reg = inst.data.amo.rs2 },
+                .{ .barrier = inst.data.amo.rl },
+                .{ .barrier = inst.data.amo.aq },
+            });
+        },
+
+        .pseudo_fence => {
+            const fence = inst.data.fence;
+
+            try lower.emit(switch (fence.fm) {
+                .tso => .fencetso,
+                .none => .fence,
+            }, &.{
+                .{ .barrier = fence.succ },
+                .{ .barrier = fence.pred },
+            });
         },
     }
 
@@ -516,49 +492,46 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index, options: struct {
 }
 
 fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
-    const mnemonic = std.meta.stringToEnum(Encoding.Mnemonic, @tagName(inst.tag)) orelse {
-        return lower.fail("generic inst name '{s}' with op {s} doesn't match with a mnemonic", .{
-            @tagName(inst.tag),
-            @tagName(inst.ops),
-        });
-    };
-    try lower.emit(mnemonic, switch (inst.ops) {
+    const mnemonic = inst.tag;
+    try lower.emit(mnemonic, switch (inst.data) {
         .none => &.{},
-        .ri => &.{
-            .{ .reg = inst.data.u_type.rd },
-            .{ .imm = inst.data.u_type.imm20 },
+        .u_type => |u| &.{
+            .{ .reg = u.rd },
+            .{ .imm = u.imm20 },
         },
-        .rr => &.{
-            .{ .reg = inst.data.rr.rd },
-            .{ .reg = inst.data.rr.rs },
+        .i_type => |i| &.{
+            .{ .reg = i.rd },
+            .{ .reg = i.rs1 },
+            .{ .imm = i.imm12 },
         },
-        .rri => &.{
-            .{ .reg = inst.data.i_type.rd },
-            .{ .reg = inst.data.i_type.rs1 },
-            .{ .imm = inst.data.i_type.imm12 },
+        .rr => |rr| &.{
+            .{ .reg = rr.rd },
+            .{ .reg = rr.rs },
         },
-        .rr_inst => &.{
-            .{ .reg = inst.data.b_type.rs1 },
-            .{ .reg = inst.data.b_type.rs2 },
-            .{ .imm = lower.reloc(.{ .inst = inst.data.b_type.inst }) },
+        .b_type => |b| &.{
+            .{ .reg = b.rs1 },
+            .{ .reg = b.rs2 },
+            .{ .imm = lower.reloc(.{ .inst = b.inst }) },
         },
-        .rrr => &.{
-            .{ .reg = inst.data.r_type.rd },
-            .{ .reg = inst.data.r_type.rs1 },
-            .{ .reg = inst.data.r_type.rs2 },
+        .r_type => |r| &.{
+            .{ .reg = r.rd },
+            .{ .reg = r.rs1 },
+            .{ .reg = r.rs2 },
         },
-        .csr => &.{
-            .{ .csr = inst.data.csr.csr },
-            .{ .reg = inst.data.csr.rs1 },
-            .{ .reg = inst.data.csr.rd },
+        .csr => |csr| &.{
+            .{ .csr = csr.csr },
+            .{ .reg = csr.rs1 },
+            .{ .reg = csr.rd },
         },
-        else => return lower.fail("TODO: generic lower ops {s}", .{@tagName(inst.ops)}),
+        else => return lower.fail("TODO: generic lower {s}", .{@tagName(mnemonic)}),
     });
 }
 
-fn emit(lower: *Lower, mnemonic: Encoding.Mnemonic, ops: []const Instruction.Operand) !void {
-    lower.result_insts[lower.result_insts_len] =
-        try Instruction.new(mnemonic, ops);
+fn emit(lower: *Lower, mnemonic: Mnemonic, ops: []const Instruction.Operand) !void {
+    const lir = encoding.Lir.fromMnem(mnemonic);
+    const inst = Instruction.fromLir(lir, ops);
+
+    lower.result_insts[lower.result_insts_len] = inst;
     lower.result_insts_len += 1;
 }
 
@@ -580,7 +553,7 @@ fn pushPopRegList(lower: *Lower, comptime spilling: bool, reg_list: Mir.Register
         const reg = abi.Registers.all_preserved[i];
 
         const reg_class = reg.class();
-        const load_inst: Encoding.Mnemonic, const store_inst: Encoding.Mnemonic = switch (reg_class) {
+        const load_inst: Mnemonic, const store_inst: Mnemonic = switch (reg_class) {
             .int => .{ .ld, .sd },
             .float => .{ .fld, .fsd },
             .vector => unreachable,
@@ -618,20 +591,22 @@ fn hasFeature(lower: *Lower, feature: std.Target.riscv.Feature) bool {
 }
 
 const Lower = @This();
-
-const abi = @import("abi.zig");
-const assert = std.debug.assert;
-const bits = @import("bits.zig");
-const encoder = @import("encoder.zig");
-const link = @import("../../link.zig");
-const Encoding = @import("Encoding.zig");
 const std = @import("std");
+const assert = std.debug.assert;
 const log = std.log.scoped(.lower);
 
-const Air = @import("../../Air.zig");
 const Allocator = std.mem.Allocator;
 const ErrorMsg = Zcu.ErrorMsg;
-const Mir = @import("Mir.zig");
+
+const link = @import("../../link.zig");
+const Air = @import("../../Air.zig");
 const Zcu = @import("../../Zcu.zig");
-const Instruction = encoder.Instruction;
+
+const Mir = @import("Mir.zig");
+const abi = @import("abi.zig");
+const bits = @import("bits.zig");
+const encoding = @import("encoding.zig");
+
+const Mnemonic = @import("mnem.zig").Mnemonic;
 const Immediate = bits.Immediate;
+const Instruction = encoding.Instruction;

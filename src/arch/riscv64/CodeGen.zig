@@ -20,6 +20,7 @@ const InternPool = @import("../../InternPool.zig");
 const Compilation = @import("../../Compilation.zig");
 const trace = @import("../../tracy.zig").trace;
 const codegen = @import("../../codegen.zig");
+const Mnemonic = @import("mnem.zig").Mnemonic;
 
 const ErrorMsg = Zcu.ErrorMsg;
 const Target = std.Target;
@@ -65,7 +66,6 @@ arg_index: usize,
 src_loc: Zcu.LazySrcLoc,
 
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
-mir_extra: std.ArrayListUnmanaged(u32) = .{},
 
 owner: Owner,
 
@@ -794,7 +794,6 @@ pub fn generate(
         function.const_tracking.deinit(gpa);
         function.exitlude_jump_relocs.deinit(gpa);
         function.mir_instructions.deinit(gpa);
-        function.mir_extra.deinit(gpa);
     }
 
     wip_mir_log.debug("{}:", .{function.fmtDecl(func.owner_decl)});
@@ -855,7 +854,6 @@ pub fn generate(
 
     var mir: Mir = .{
         .instructions = function.mir_instructions.toOwnedSlice(),
-        .extra = try function.mir_extra.toOwnedSlice(gpa),
         .frame_locs = function.frame_locs.toOwnedSlice(),
     };
     defer mir.deinit(gpa);
@@ -940,10 +938,7 @@ pub fn generateLazy(
         .avl = null,
         .vtype = null,
     };
-    defer {
-        function.mir_instructions.deinit(gpa);
-        function.mir_extra.deinit(gpa);
-    }
+    defer function.mir_instructions.deinit(gpa);
 
     function.genLazy(lazy_sym) catch |err| switch (err) {
         error.CodegenFail => return Result{ .fail = function.err_msg.? },
@@ -955,7 +950,6 @@ pub fn generateLazy(
 
     var mir: Mir = .{
         .instructions = function.mir_instructions.toOwnedSlice(),
-        .extra = try function.mir_extra.toOwnedSlice(gpa),
         .frame_locs = function.frame_locs.toOwnedSlice(),
     };
     defer mir.deinit(gpa);
@@ -1022,7 +1016,6 @@ fn formatWipMir(
         .allocator = data.func.gpa,
         .mir = .{
             .instructions = data.func.mir_instructions.slice(),
-            .extra = data.func.mir_extra.items,
             .frame_locs = data.func.frame_locs.slice(),
         },
         .cc = .Unspecified,
@@ -1120,7 +1113,7 @@ fn addInst(func: *Func, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
     try func.mir_instructions.ensureUnusedCapacity(gpa, 1);
     const result_index: Mir.Inst.Index = @intCast(func.mir_instructions.len);
     func.mir_instructions.appendAssumeCapacity(inst);
-    if (inst.tag != .pseudo or switch (inst.ops) {
+    if (switch (inst.tag) {
         else => true,
         .pseudo_dbg_prologue_end,
         .pseudo_dbg_line_column,
@@ -1131,47 +1124,11 @@ fn addInst(func: *Func, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
     return result_index;
 }
 
-fn addNop(func: *Func) error{OutOfMemory}!Mir.Inst.Index {
+fn addPseudo(func: *Func, mnem: Mnemonic) error{OutOfMemory}!Mir.Inst.Index {
     return func.addInst(.{
-        .tag = .nop,
-        .ops = .none,
-        .data = undefined,
+        .tag = mnem,
+        .data = .none,
     });
-}
-
-fn addPseudoNone(func: *Func, ops: Mir.Inst.Ops) !void {
-    _ = try func.addInst(.{
-        .tag = .pseudo,
-        .ops = ops,
-        .data = undefined,
-    });
-}
-
-fn addPseudo(func: *Func, ops: Mir.Inst.Ops) !Mir.Inst.Index {
-    return func.addInst(.{
-        .tag = .pseudo,
-        .ops = ops,
-        .data = undefined,
-    });
-}
-
-pub fn addExtra(func: *Func, extra: anytype) Allocator.Error!u32 {
-    const fields = std.meta.fields(@TypeOf(extra));
-    try func.mir_extra.ensureUnusedCapacity(func.gpa, fields.len);
-    return func.addExtraAssumeCapacity(extra);
-}
-
-pub fn addExtraAssumeCapacity(func: *Func, extra: anytype) u32 {
-    const fields = std.meta.fields(@TypeOf(extra));
-    const result: u32 = @intCast(func.mir_extra.items.len);
-    inline for (fields) |field| {
-        func.mir_extra.appendAssumeCapacity(switch (field.type) {
-            u32 => @field(extra, field.name),
-            i32 => @bitCast(@field(extra, field.name)),
-            else => @compileError("bad field type"),
-        });
-    }
-    return result;
 }
 
 /// Returns a temporary register that contains the value of the `reg` csr.
@@ -1182,14 +1139,11 @@ fn getCsr(func: *Func, csr: CSR) !Register {
     const dst_reg = try func.register_manager.allocReg(null, func.regTempClassForType(Type.u64));
     _ = try func.addInst(.{
         .tag = .csrrs,
-        .ops = .csr,
-        .data = .{
-            .csr = .{
-                .csr = csr,
-                .rd = dst_reg,
-                .rs1 = .x0,
-            },
-        },
+        .data = .{ .csr = .{
+            .csr = csr,
+            .rd = dst_reg,
+            .rs1 = .x0,
+        } },
     });
     return dst_reg;
 }
@@ -1208,7 +1162,6 @@ fn setVl(func: *Func, dst_reg: Register, avl: u64, options: bits.VType) !void {
         const options_int: u12 = @as(u12, 0) | @as(u8, @bitCast(options));
         _ = try func.addInst(.{
             .tag = .vsetvli,
-            .ops = .rri,
             .data = .{ .i_type = .{
                 .rd = dst_reg,
                 .rs1 = .zero,
@@ -1221,7 +1174,6 @@ fn setVl(func: *Func, dst_reg: Register, avl: u64, options: bits.VType) !void {
             const options_int: u12 = (~@as(u12, 0) << 10) | @as(u8, @bitCast(options));
             _ = try func.addInst(.{
                 .tag = .vsetivli,
-                .ops = .rri,
                 .data = .{
                     .i_type = .{
                         .rd = dst_reg,
@@ -1235,7 +1187,6 @@ fn setVl(func: *Func, dst_reg: Register, avl: u64, options: bits.VType) !void {
             const temp_reg = try func.copyToTmpRegister(Type.u64, .{ .immediate = avl });
             _ = try func.addInst(.{
                 .tag = .vsetvli,
-                .ops = .rri,
                 .data = .{ .i_type = .{
                     .rd = dst_reg,
                     .rs1 = temp_reg,
@@ -1270,7 +1221,7 @@ fn gen(func: *Func) !void {
     }
 
     if (fn_info.cc != .Naked) {
-        try func.addPseudoNone(.pseudo_dbg_prologue_end);
+        _ = try func.addPseudo(.pseudo_dbg_prologue_end);
 
         const backpatch_stack_alloc = try func.addPseudo(.pseudo_dead);
         const backpatch_ra_spill = try func.addPseudo(.pseudo_dead);
@@ -1300,11 +1251,11 @@ fn gen(func: *Func) !void {
         try func.genBody(func.air.getMainBody());
 
         for (func.exitlude_jump_relocs.items) |jmp_reloc| {
-            func.mir_instructions.items(.data)[jmp_reloc].inst =
+            func.mir_instructions.items(.data)[jmp_reloc].j_type.inst =
                 @intCast(func.mir_instructions.len);
         }
 
-        try func.addPseudoNone(.pseudo_dbg_epilogue_begin);
+        _ = try func.addPseudo(.pseudo_dbg_epilogue_begin);
 
         const backpatch_restore_callee_preserved_regs = try func.addPseudo(.pseudo_dead);
         const backpatch_ra_restore = try func.addPseudo(.pseudo_dead);
@@ -1314,7 +1265,6 @@ fn gen(func: *Func) !void {
         // ret
         _ = try func.addInst(.{
             .tag = .jalr,
-            .ops = .rri,
             .data = .{
                 .i_type = .{
                     .rd = .zero,
@@ -1329,7 +1279,6 @@ fn gen(func: *Func) !void {
 
         func.mir_instructions.set(backpatch_stack_alloc, .{
             .tag = .addi,
-            .ops = .rri,
             .data = .{ .i_type = .{
                 .rd = .sp,
                 .rs1 = .sp,
@@ -1337,8 +1286,7 @@ fn gen(func: *Func) !void {
             } },
         });
         func.mir_instructions.set(backpatch_ra_spill, .{
-            .tag = .pseudo,
-            .ops = .pseudo_store_rm,
+            .tag = .pseudo_store_rm,
             .data = .{ .rm = .{
                 .r = .ra,
                 .m = .{
@@ -1348,8 +1296,7 @@ fn gen(func: *Func) !void {
             } },
         });
         func.mir_instructions.set(backpatch_ra_restore, .{
-            .tag = .pseudo,
-            .ops = .pseudo_load_rm,
+            .tag = .pseudo_load_rm,
             .data = .{ .rm = .{
                 .r = .ra,
                 .m = .{
@@ -1359,8 +1306,7 @@ fn gen(func: *Func) !void {
             } },
         });
         func.mir_instructions.set(backpatch_fp_spill, .{
-            .tag = .pseudo,
-            .ops = .pseudo_store_rm,
+            .tag = .pseudo_store_rm,
             .data = .{ .rm = .{
                 .r = .s0,
                 .m = .{
@@ -1370,8 +1316,7 @@ fn gen(func: *Func) !void {
             } },
         });
         func.mir_instructions.set(backpatch_fp_restore, .{
-            .tag = .pseudo,
-            .ops = .pseudo_load_rm,
+            .tag = .pseudo_load_rm,
             .data = .{ .rm = .{
                 .r = .s0,
                 .m = .{
@@ -1382,7 +1327,6 @@ fn gen(func: *Func) !void {
         });
         func.mir_instructions.set(backpatch_fp_add, .{
             .tag = .addi,
-            .ops = .rri,
             .data = .{ .i_type = .{
                 .rd = .s0,
                 .rs1 = .sp,
@@ -1391,7 +1335,6 @@ fn gen(func: *Func) !void {
         });
         func.mir_instructions.set(backpatch_stack_alloc_restore, .{
             .tag = .addi,
-            .ops = .rri,
             .data = .{ .i_type = .{
                 .rd = .sp,
                 .rs1 = .sp,
@@ -1401,27 +1344,24 @@ fn gen(func: *Func) !void {
 
         if (need_save_reg) {
             func.mir_instructions.set(backpatch_spill_callee_preserved_regs, .{
-                .tag = .pseudo,
-                .ops = .pseudo_spill_regs,
+                .tag = .pseudo_spill_regs,
                 .data = .{ .reg_list = frame_layout.save_reg_list },
             });
 
             func.mir_instructions.set(backpatch_restore_callee_preserved_regs, .{
-                .tag = .pseudo,
-                .ops = .pseudo_restore_regs,
+                .tag = .pseudo_restore_regs,
                 .data = .{ .reg_list = frame_layout.save_reg_list },
             });
         }
     } else {
-        try func.addPseudoNone(.pseudo_dbg_prologue_end);
+        _ = try func.addPseudo(.pseudo_dbg_prologue_end);
         try func.genBody(func.air.getMainBody());
-        try func.addPseudoNone(.pseudo_dbg_epilogue_begin);
+        _ = try func.addPseudo(.pseudo_dbg_epilogue_begin);
     }
 
     // Drop them off at the rbrace.
     _ = try func.addInst(.{
-        .tag = .pseudo,
-        .ops = .pseudo_dbg_line_column,
+        .tag = .pseudo_dbg_line_column,
         .data = .{ .pseudo_dbg_line_column = .{
             .line = func.end_di_line,
             .column = func.end_di_column,
@@ -1493,9 +1433,11 @@ fn genLazy(func: *Func, lazy_sym: link.File.LazySymbol) InnerError!void {
                 );
 
                 exitlude_jump_reloc.* = try func.addInst(.{
-                    .tag = .pseudo,
-                    .ops = .pseudo_j,
-                    .data = .{ .inst = undefined },
+                    .tag = .pseudo_j,
+                    .data = .{ .j_type = .{
+                        .rd = .zero,
+                        .inst = undefined,
+                    } },
                 });
                 func.performReloc(skip_reloc);
 
@@ -1508,7 +1450,7 @@ fn genLazy(func: *Func, lazy_sym: link.File.LazySymbol) InnerError!void {
 
             _ = try func.addInst(.{
                 .tag = .jalr,
-                .ops = .rri,
+
                 .data = .{
                     .i_type = .{
                         .rd = .zero,
@@ -2041,7 +1983,7 @@ fn truncateRegister(func: *Func, ty: Type, reg: Register) !void {
         .signed => {
             _ = try func.addInst(.{
                 .tag = .slli,
-                .ops = .rri,
+
                 .data = .{
                     .i_type = .{
                         .rd = reg,
@@ -2052,7 +1994,7 @@ fn truncateRegister(func: *Func, ty: Type, reg: Register) !void {
             });
             _ = try func.addInst(.{
                 .tag = .srai,
-                .ops = .rri,
+
                 .data = .{
                     .i_type = .{
                         .rd = reg,
@@ -2067,7 +2009,7 @@ fn truncateRegister(func: *Func, ty: Type, reg: Register) !void {
             if (mask < 256) {
                 _ = try func.addInst(.{
                     .tag = .andi,
-                    .ops = .rri,
+
                     .data = .{
                         .i_type = .{
                             .rd = reg,
@@ -2079,7 +2021,7 @@ fn truncateRegister(func: *Func, ty: Type, reg: Register) !void {
             } else {
                 _ = try func.addInst(.{
                     .tag = .slli,
-                    .ops = .rri,
+
                     .data = .{
                         .i_type = .{
                             .rd = reg,
@@ -2090,7 +2032,7 @@ fn truncateRegister(func: *Func, ty: Type, reg: Register) !void {
                 });
                 _ = try func.addInst(.{
                     .tag = .srli,
-                    .ops = .rri,
+
                     .data = .{
                         .i_type = .{
                             .rd = reg,
@@ -2411,8 +2353,7 @@ fn airNot(func: *Func, inst: Air.Inst.Index) !void {
         switch (ty.zigTypeTag(zcu)) {
             .Bool => {
                 _ = try func.addInst(.{
-                    .tag = .pseudo,
-                    .ops = .pseudo_not,
+                    .tag = .pseudo_not,
                     .data = .{
                         .rr = .{
                             .rs = operand_reg,
@@ -2430,7 +2371,6 @@ fn airNot(func: *Func, inst: Air.Inst.Index) !void {
                     32, 64 => {
                         _ = try func.addInst(.{
                             .tag = .xori,
-                            .ops = .rri,
                             .data = .{
                                 .i_type = .{
                                     .rd = dst_reg,
@@ -2628,7 +2568,7 @@ fn genBinOp(
 
             switch (lhs_ty.zigTypeTag(zcu)) {
                 .Int => {
-                    const mir_tag: Mir.Inst.Tag = switch (tag) {
+                    const mnem: Mnemonic = switch (tag) {
                         .add, .add_wrap => switch (bit_size) {
                             8, 16, 64 => .add,
                             32 => .addw,
@@ -2656,8 +2596,7 @@ fn genBinOp(
                     };
 
                     _ = try func.addInst(.{
-                        .tag = mir_tag,
-                        .ops = .rrr,
+                        .tag = mnem,
                         .data = .{
                             .r_type = .{
                                 .rd = dst_reg,
@@ -2668,7 +2607,7 @@ fn genBinOp(
                     });
                 },
                 .Float => {
-                    const mir_tag: Mir.Inst.Tag = switch (tag) {
+                    const mir_tag: Mnemonic = switch (tag) {
                         .add => switch (bit_size) {
                             32 => .fadds,
                             64 => .faddd,
@@ -2689,7 +2628,6 @@ fn genBinOp(
 
                     _ = try func.addInst(.{
                         .tag = mir_tag,
-                        .ops = .rrr,
                         .data = .{
                             .r_type = .{
                                 .rd = dst_reg,
@@ -2705,7 +2643,7 @@ fn genBinOp(
 
                     const child_ty = lhs_ty.childType(zcu);
 
-                    const mir_tag: Mir.Inst.Tag = switch (tag) {
+                    const mir_tag: Mnemonic = switch (tag) {
                         .add => switch (child_ty.zigTypeTag(zcu)) {
                             .Int => .vaddvv,
                             .Float => .vfaddvv,
@@ -2739,7 +2677,6 @@ fn genBinOp(
 
                     _ = try func.addInst(.{
                         .tag = mir_tag,
-                        .ops = .rrr,
                         .data = .{
                             .r_type = .{
                                 .rd = dst_reg,
@@ -2764,7 +2701,6 @@ fn genBinOp(
 
             _ = try func.addInst(.{
                 .tag = .add,
-                .ops = .rrr,
                 .data = .{ .r_type = .{
                     .rd = tmp_reg,
                     .rs1 = rhs_reg,
@@ -2774,7 +2710,6 @@ fn genBinOp(
 
             _ = try func.addInst(.{
                 .tag = .sltu,
-                .ops = .rrr,
                 .data = .{ .r_type = .{
                     .rd = dst_reg,
                     .rs1 = tmp_reg,
@@ -2785,7 +2720,6 @@ fn genBinOp(
             // neg dst_reg, dst_reg
             _ = try func.addInst(.{
                 .tag = .sub,
-                .ops = .rrr,
                 .data = .{ .r_type = .{
                     .rd = dst_reg,
                     .rs1 = .zero,
@@ -2795,7 +2729,6 @@ fn genBinOp(
 
             _ = try func.addInst(.{
                 .tag = .@"or",
-                .ops = .rrr,
                 .data = .{ .r_type = .{
                     .rd = dst_reg,
                     .rs1 = dst_reg,
@@ -2850,7 +2783,6 @@ fn genBinOp(
                     .bit_or, .bool_or => .@"or",
                     else => unreachable,
                 },
-                .ops = .rrr,
                 .data = .{
                     .r_type = .{
                         .rd = dst_reg,
@@ -2876,7 +2808,7 @@ fn genBinOp(
             if (bit_size > 64) return func.fail("TODO: genBinOp shift > 64 bits, {}", .{bit_size});
             try func.truncateRegister(rhs_ty, rhs_reg);
 
-            const mir_tag: Mir.Inst.Tag = switch (tag) {
+            const mir_tag: Mnemonic = switch (tag) {
                 .shl, .shl_exact => switch (bit_size) {
                     1...31, 33...64 => .sll,
                     32 => .sllw,
@@ -2892,7 +2824,6 @@ fn genBinOp(
 
             _ = try func.addInst(.{
                 .tag = mir_tag,
-                .ops = .rrr,
                 .data = .{ .r_type = .{
                     .rd = dst_reg,
                     .rs1 = lhs_reg,
@@ -2910,8 +2841,7 @@ fn genBinOp(
         .cmp_gte,
         => {
             _ = try func.addInst(.{
-                .tag = .pseudo,
-                .ops = .pseudo_compare,
+                .tag = .pseudo_compare,
                 .data = .{
                     .compare = .{
                         .op = switch (tag) {
@@ -2966,7 +2896,6 @@ fn genBinOp(
 
                     _ = try func.addInst(.{
                         .tag = if (int_info.signedness == .unsigned) .sltu else .slt,
-                        .ops = .rrr,
                         .data = .{ .r_type = .{
                             .rd = mask_reg,
                             .rs1 = lhs_reg,
@@ -2976,7 +2905,6 @@ fn genBinOp(
 
                     _ = try func.addInst(.{
                         .tag = .sub,
-                        .ops = .rrr,
                         .data = .{ .r_type = .{
                             .rd = mask_reg,
                             .rs1 = .zero,
@@ -2986,7 +2914,6 @@ fn genBinOp(
 
                     _ = try func.addInst(.{
                         .tag = .xor,
-                        .ops = .rrr,
                         .data = .{ .r_type = .{
                             .rd = dst_reg,
                             .rs1 = lhs_reg,
@@ -2996,7 +2923,6 @@ fn genBinOp(
 
                     _ = try func.addInst(.{
                         .tag = .@"and",
-                        .ops = .rrr,
                         .data = .{ .r_type = .{
                             .rd = mask_reg,
                             .rs1 = dst_reg,
@@ -3006,7 +2932,6 @@ fn genBinOp(
 
                     _ = try func.addInst(.{
                         .tag = .xor,
-                        .ops = .rrr,
                         .data = .{ .r_type = .{
                             .rd = dst_reg,
                             .rs1 = if (tag == .min) rhs_reg else lhs_reg,
@@ -3103,7 +3028,6 @@ fn airAddWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
 
                     _ = try func.addInst(.{
                         .tag = .add,
-                        .ops = .rrr,
                         .data = .{ .r_type = .{
                             .rs1 = rhs_reg,
                             .rs2 = lhs_reg,
@@ -3209,7 +3133,6 @@ fn airSubWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
             .unsigned => {
                 _ = try func.addInst(.{
                     .tag = .sltu,
-                    .ops = .rrr,
                     .data = .{ .r_type = .{
                         .rd = overflow_reg,
                         .rs1 = lhs_reg,
@@ -3231,7 +3154,6 @@ fn airSubWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
                     64 => {
                         _ = try func.addInst(.{
                             .tag = .slt,
-                            .ops = .rrr,
                             .data = .{ .r_type = .{
                                 .rd = overflow_reg,
                                 .rs1 = overflow_reg,
@@ -3241,7 +3163,6 @@ fn airSubWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
 
                         _ = try func.addInst(.{
                             .tag = .slt,
-                            .ops = .rrr,
                             .data = .{ .r_type = .{
                                 .rd = rhs_reg,
                                 .rs1 = rhs_reg,
@@ -3251,7 +3172,6 @@ fn airSubWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
 
                         _ = try func.addInst(.{
                             .tag = .xor,
-                            .ops = .rrr,
                             .data = .{ .r_type = .{
                                 .rd = lhs_reg,
                                 .rs1 = overflow_reg,
@@ -3843,7 +3763,6 @@ fn genSliceElemPtr(func: *Func, lhs: Air.Inst.Ref, rhs: Air.Inst.Ref) !MCValue {
 
     _ = try func.addInst(.{
         .tag = .add,
-        .ops = .rrr,
         .data = .{ .r_type = .{
             .rd = addr_reg,
             .rs1 = addr_reg,
@@ -3907,7 +3826,6 @@ fn airArrayElemVal(func: *Func, inst: Air.Inst.Index) !void {
 
                 _ = try func.addInst(.{
                     .tag = .vslidedownvx,
-                    .ops = .rrr,
                     .data = .{ .r_type = .{
                         .rd = src_reg,
                         .rs1 = index_reg,
@@ -3925,7 +3843,6 @@ fn airArrayElemVal(func: *Func, inst: Air.Inst.Index) !void {
         defer func.register_manager.unlockReg(offset_lock);
         _ = try func.addInst(.{
             .tag = .add,
-            .ops = .rrr,
             .data = .{ .r_type = .{
                 .rd = addr_reg,
                 .rs1 = addr_reg,
@@ -4080,7 +3997,6 @@ fn airClz(func: *Func, inst: Air.Inst.Index) !void {
                 32 => .clzw,
                 else => .clz,
             },
-            .ops = .rrr,
             .data = .{
                 .r_type = .{
                     .rs2 = .zero, // rs2 is 0 filled in the spec
@@ -4093,7 +4009,6 @@ fn airClz(func: *Func, inst: Air.Inst.Index) !void {
         if (!(bit_size == 32 or bit_size == 64)) {
             _ = try func.addInst(.{
                 .tag = .addi,
-                .ops = .rri,
                 .data = .{ .i_type = .{
                     .rd = dst_reg,
                     .rs1 = dst_reg,
@@ -4151,7 +4066,6 @@ fn airAbs(func: *Func, inst: Air.Inst.Index) !void {
                         64 => .srai,
                         else => unreachable,
                     },
-                    .ops = .rri,
                     .data = .{ .i_type = .{
                         .rd = temp_reg,
                         .rs1 = operand_reg,
@@ -4161,7 +4075,6 @@ fn airAbs(func: *Func, inst: Air.Inst.Index) !void {
 
                 _ = try func.addInst(.{
                     .tag = .xor,
-                    .ops = .rrr,
                     .data = .{ .r_type = .{
                         .rd = operand_reg,
                         .rs1 = operand_reg,
@@ -4175,7 +4088,6 @@ fn airAbs(func: *Func, inst: Air.Inst.Index) !void {
                         64 => .sub,
                         else => unreachable,
                     },
-                    .ops = .rrr,
                     .data = .{ .r_type = .{
                         .rd = operand_reg,
                         .rs1 = operand_reg,
@@ -4187,14 +4099,14 @@ fn airAbs(func: *Func, inst: Air.Inst.Index) !void {
             },
             .Float => {
                 const float_bits = scalar_ty.floatBits(zcu.getTarget());
-                switch (float_bits) {
+                const mnem: Mnemonic = switch (float_bits) {
                     16 => return func.fail("TODO: airAbs 16-bit float", .{}),
-                    32 => {},
-                    64 => {},
+                    32 => .fsgnjxs,
+                    64 => .fsgnjxd,
                     80 => return func.fail("TODO: airAbs 80-bit float", .{}),
                     128 => return func.fail("TODO: airAbs 128-bit float", .{}),
                     else => unreachable,
-                }
+                };
 
                 const return_mcv = try func.copyToNewRegister(inst, operand);
                 const operand_reg = return_mcv.register;
@@ -4202,13 +4114,12 @@ fn airAbs(func: *Func, inst: Air.Inst.Index) !void {
                 assert(operand_reg.class() == .float);
 
                 _ = try func.addInst(.{
-                    .tag = .pseudo,
-                    .ops = .pseudo_fabs,
+                    .tag = mnem,
                     .data = .{
-                        .fabs = .{
+                        .r_type = .{
                             .rd = operand_reg,
-                            .rs = operand_reg,
-                            .bits = float_bits,
+                            .rs1 = operand_reg,
+                            .rs2 = operand_reg,
                         },
                     },
                 });
@@ -4231,54 +4142,56 @@ fn airByteSwap(func: *Func, inst: Air.Inst.Index) !void {
         const ty = func.typeOf(ty_op.operand);
         const operand = try func.resolveInst(ty_op.operand);
 
-        const int_bits = ty.intInfo(zcu).bits;
+        switch (ty.zigTypeTag(zcu)) {
+            .Int => {
+                const int_bits = ty.intInfo(zcu).bits;
 
-        // bytes are no-op
-        if (int_bits == 8 and func.reuseOperand(inst, ty_op.operand, 0, operand)) {
-            return func.finishAir(inst, operand, .{ ty_op.operand, .none, .none });
-        }
+                // bytes are no-op
+                if (int_bits == 8 and func.reuseOperand(inst, ty_op.operand, 0, operand)) {
+                    return func.finishAir(inst, operand, .{ ty_op.operand, .none, .none });
+                }
 
-        const dest_mcv = try func.copyToNewRegister(inst, operand);
-        const dest_reg = dest_mcv.register;
+                const dest_mcv = try func.copyToNewRegister(inst, operand);
+                const dest_reg = dest_mcv.register;
 
-        switch (int_bits) {
-            16 => {
-                const temp_reg, const temp_lock = try func.allocReg(.int);
-                defer func.register_manager.unlockReg(temp_lock);
+                switch (int_bits) {
+                    16 => {
+                        const temp_reg, const temp_lock = try func.allocReg(.int);
+                        defer func.register_manager.unlockReg(temp_lock);
 
-                _ = try func.addInst(.{
-                    .tag = .srli,
-                    .ops = .rri,
-                    .data = .{ .i_type = .{
-                        .imm12 = Immediate.s(8),
-                        .rd = temp_reg,
-                        .rs1 = dest_reg,
-                    } },
-                });
+                        _ = try func.addInst(.{
+                            .tag = .srli,
+                            .data = .{ .i_type = .{
+                                .imm12 = Immediate.s(8),
+                                .rd = temp_reg,
+                                .rs1 = dest_reg,
+                            } },
+                        });
 
-                _ = try func.addInst(.{
-                    .tag = .slli,
-                    .ops = .rri,
-                    .data = .{ .i_type = .{
-                        .imm12 = Immediate.s(8),
-                        .rd = dest_reg,
-                        .rs1 = dest_reg,
-                    } },
-                });
-                _ = try func.addInst(.{
-                    .tag = .@"or",
-                    .ops = .rri,
-                    .data = .{ .r_type = .{
-                        .rd = dest_reg,
-                        .rs1 = dest_reg,
-                        .rs2 = temp_reg,
-                    } },
-                });
+                        _ = try func.addInst(.{
+                            .tag = .slli,
+                            .data = .{ .i_type = .{
+                                .imm12 = Immediate.s(8),
+                                .rd = dest_reg,
+                                .rs1 = dest_reg,
+                            } },
+                        });
+                        _ = try func.addInst(.{
+                            .tag = .@"or",
+                            .data = .{ .r_type = .{
+                                .rd = dest_reg,
+                                .rs1 = dest_reg,
+                                .rs2 = temp_reg,
+                            } },
+                        });
+                    },
+                    else => return func.fail("TODO: {d} bits for airByteSwap", .{int_bits}),
+                }
+
+                break :result dest_mcv;
             },
-            else => return func.fail("TODO: {d} bits for airByteSwap", .{int_bits}),
+            else => return func.fail("TODO: airByteSwap {}", .{ty.fmt(pt)}),
         }
-
-        break :result dest_mcv;
     };
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -4322,7 +4235,6 @@ fn airUnaryMath(func: *Func, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
                     .sqrt => {
                         _ = try func.addInst(.{
                             .tag = if (operand_bit_size == 64) .fsqrtd else .fsqrts,
-                            .ops = .rrr,
                             .data = .{
                                 .r_type = .{
                                     .rd = dst_reg,
@@ -4332,6 +4244,7 @@ fn airUnaryMath(func: *Func, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
                             },
                         });
                     },
+
                     else => return func.fail("TODO: airUnaryMath Float {s}", .{@tagName(tag)}),
                 }
             },
@@ -4538,17 +4451,14 @@ fn structFieldPtr(func: *Func, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
     const zcu = pt.zcu;
     const ptr_field_ty = func.typeOfIndex(inst);
     const ptr_container_ty = func.typeOf(operand);
-    const ptr_container_ty_info = ptr_container_ty.ptrInfo(zcu);
     const container_ty = ptr_container_ty.childType(zcu);
 
-    const field_offset: i32 = if (zcu.typeToPackedStruct(container_ty)) |struct_obj|
-        if (ptr_field_ty.ptrInfo(zcu).packed_offset.host_size == 0)
-            @divExact(pt.structPackedFieldBitOffset(struct_obj, index) +
-                ptr_container_ty_info.packed_offset.bit_offset, 8)
-        else
-            0
-    else
-        @intCast(container_ty.structFieldOffset(index, pt));
+    const field_offset: i32 = switch (container_ty.containerLayout(zcu)) {
+        .auto, .@"extern" => @intCast(container_ty.structFieldOffset(index, pt)),
+        .@"packed" => @divExact(@as(i32, ptr_container_ty.ptrInfo(zcu).packed_offset.bit_offset) +
+            (if (zcu.typeToStruct(container_ty)) |struct_obj| pt.structPackedFieldBitOffset(struct_obj, index) else 0) -
+            ptr_field_ty.ptrInfo(zcu).packed_offset.bit_offset, 8),
+    };
 
     const src_mcv = try func.resolveInst(operand);
     const dst_mcv = if (switch (src_mcv) {
@@ -4600,7 +4510,6 @@ fn airStructFieldVal(func: *Func, inst: Air.Inst.Index) !void {
                 if (field_off > 0) {
                     _ = try func.addInst(.{
                         .tag = .srli,
-                        .ops = .rri,
                         .data = .{ .i_type = .{
                             .imm12 = Immediate.u(@intCast(field_off)),
                             .rd = dst_reg,
@@ -4720,8 +4629,7 @@ fn airArg(func: *Func, inst: Air.Inst.Index) !void {
 fn airTrap(func: *Func) !void {
     _ = try func.addInst(.{
         .tag = .unimp,
-        .ops = .none,
-        .data = undefined,
+        .data = .none,
     });
     return func.finishAirBookkeeping();
 }
@@ -4729,8 +4637,7 @@ fn airTrap(func: *Func) !void {
 fn airBreakpoint(func: *Func) !void {
     _ = try func.addInst(.{
         .tag = .ebreak,
-        .ops = .none,
-        .data = undefined,
+        .data = .none,
     });
     return func.finishAirBookkeeping();
 }
@@ -4758,8 +4665,7 @@ fn airFence(func: *Func, inst: Air.Inst.Index) !void {
     };
 
     _ = try func.addInst(.{
-        .tag = .pseudo,
-        .ops = .pseudo_fence,
+        .tag = .pseudo_fence,
         .data = .{
             .fence = .{
                 .pred = pred,
@@ -4951,7 +4857,6 @@ fn genCall(
                                 try func.genSetReg(Type.u64, .ra, .{ .load_symbol = .{ .sym = sym.esym_index } });
                                 _ = try func.addInst(.{
                                     .tag = .jalr,
-                                    .ops = .rri,
                                     .data = .{ .i_type = .{
                                         .rd = .ra,
                                         .rs1 = .ra,
@@ -4967,16 +4872,15 @@ fn genCall(
                         const decl_name = owner_decl.name.toSlice(&zcu.intern_pool);
                         const atom_index = try func.owner.getSymbolIndex(func);
 
-                        if (func.bin_file.cast(link.File.Elf)) |elf_file| {
-                            _ = try func.addInst(.{
-                                .tag = .pseudo,
-                                .ops = .pseudo_extern_fn_reloc,
-                                .data = .{ .reloc = .{
-                                    .atom_index = atom_index,
-                                    .sym_index = try elf_file.getGlobalSymbol(decl_name, lib_name),
-                                } },
-                            });
-                        } else unreachable; // not a valid riscv64 format
+                        const elf_file = func.bin_file.cast(link.File.Elf).?;
+                        _ = try func.addInst(.{
+                            .tag = .pseudo_extern_fn_reloc,
+                            .data = .{ .reloc = .{
+                                .register = .ra,
+                                .atom_index = atom_index,
+                                .sym_index = try elf_file.getGlobalSymbol(decl_name, lib_name),
+                            } },
+                        });
                     },
                     else => return func.fail("TODO implement calling bitcasted functions", .{}),
                 }
@@ -4988,7 +4892,6 @@ fn genCall(
 
                 _ = try func.addInst(.{
                     .tag = .jalr,
-                    .ops = .rri,
                     .data = .{ .i_type = .{
                         .rd = .ra,
                         .rs1 = addr_reg,
@@ -5065,9 +4968,11 @@ fn airRet(func: *Func, inst: Air.Inst.Index, safety: bool) !void {
 
     // Just add space for an instruction, reloced this later
     const index = try func.addInst(.{
-        .tag = .pseudo,
-        .ops = .pseudo_j,
-        .data = .{ .inst = undefined },
+        .tag = .pseudo_j,
+        .data = .{ .j_type = .{
+            .rd = .zero,
+            .inst = undefined,
+        } },
     });
 
     try func.exitlude_jump_relocs.append(func.gpa, index);
@@ -5089,9 +4994,11 @@ fn airRetLoad(func: *Func, inst: Air.Inst.Index) !void {
 
     // Just add space for an instruction, reloced this later
     const index = try func.addInst(.{
-        .tag = .pseudo,
-        .ops = .pseudo_j,
-        .data = .{ .inst = undefined },
+        .tag = .pseudo_j,
+        .data = .{ .j_type = .{
+            .rd = .zero,
+            .inst = undefined,
+        } },
     });
 
     try func.exitlude_jump_relocs.append(func.gpa, index);
@@ -5171,8 +5078,7 @@ fn airDbgStmt(func: *Func, inst: Air.Inst.Index) !void {
     const dbg_stmt = func.air.instructions.items(.data)[@intFromEnum(inst)].dbg_stmt;
 
     _ = try func.addInst(.{
-        .tag = .pseudo,
-        .ops = .pseudo_dbg_line_column,
+        .tag = .pseudo_dbg_line_column,
         .data = .{ .pseudo_dbg_line_column = .{
             .line = dbg_stmt.line,
             .column = dbg_stmt.column,
@@ -5290,7 +5196,6 @@ fn condBr(func: *Func, cond_ty: Type, condition: MCValue) !Mir.Inst.Index {
 
     return try func.addInst(.{
         .tag = .beq,
-        .ops = .rr_inst,
         .data = .{
             .b_type = .{
                 .rs1 = cond_reg,
@@ -5332,8 +5237,7 @@ fn isNull(func: *Func, inst: Air.Inst.Index, opt_ty: Type, opt_mcv: MCValue) !MC
         .register => |opt_reg| {
             if (some_info.off == 0) {
                 _ = try func.addInst(.{
-                    .tag = .pseudo,
-                    .ops = .pseudo_compare,
+                    .tag = .pseudo_compare,
                     .data = .{
                         .compare = .{
                             .op = .eq,
@@ -5382,8 +5286,7 @@ fn isNull(func: *Func, inst: Air.Inst.Index, opt_ty: Type, opt_mcv: MCValue) !MC
             defer func.register_manager.unlockReg(opt_reg_lock);
 
             _ = try func.addInst(.{
-                .tag = .pseudo,
-                .ops = .pseudo_compare,
+                .tag = .pseudo_compare,
                 .data = .{
                     .compare = .{
                         .op = .eq,
@@ -5432,8 +5335,7 @@ fn airIsNonNull(func: *Func, inst: Air.Inst.Index) !void {
     assert(result == .register);
 
     _ = try func.addInst(.{
-        .tag = .pseudo,
-        .ops = .pseudo_not,
+        .tag = .pseudo_not,
         .data = .{
             .rr = .{
                 .rd = result.register,
@@ -5565,8 +5467,7 @@ fn isNonErr(func: *Func, inst: Air.Inst.Index, eu_ty: Type, eu_mcv: MCValue) !MC
     switch (is_err_res) {
         .register => |reg| {
             _ = try func.addInst(.{
-                .tag = .pseudo,
-                .ops = .pseudo_not,
+                .tag = .pseudo_not,
                 .data = .{
                     .rr = .{
                         .rd = reg,
@@ -5633,11 +5534,11 @@ fn airLoop(func: *Func, inst: Air.Inst.Index) !void {
 /// Send control flow to the `index` of `func.code`.
 fn jump(func: *Func, index: Mir.Inst.Index) !Mir.Inst.Index {
     return func.addInst(.{
-        .tag = .pseudo,
-        .ops = .pseudo_j,
-        .data = .{
+        .tag = .pseudo_j,
+        .data = .{ .j_type = .{
+            .rd = .zero,
             .inst = index,
-        },
+        } },
     });
 }
 
@@ -5727,8 +5628,7 @@ fn airSwitchBr(func: *Func, inst: Air.Inst.Index) !void {
 
             if (!(i < relocs.len - 1)) {
                 _ = try func.addInst(.{
-                    .tag = .pseudo,
-                    .ops = .pseudo_not,
+                    .tag = .pseudo_not,
                     .data = .{ .rr = .{
                         .rd = cmp_reg,
                         .rs = cmp_reg,
@@ -5775,18 +5675,13 @@ fn airSwitchBr(func: *Func, inst: Air.Inst.Index) !void {
 
 fn performReloc(func: *Func, inst: Mir.Inst.Index) void {
     const tag = func.mir_instructions.items(.tag)[inst];
-    const ops = func.mir_instructions.items(.ops)[inst];
     const target: Mir.Inst.Index = @intCast(func.mir_instructions.len);
 
     switch (tag) {
-        .bne,
         .beq,
         => func.mir_instructions.items(.data)[inst].b_type.inst = target,
         .jal => func.mir_instructions.items(.data)[inst].j_type.inst = target,
-        .pseudo => switch (ops) {
-            .pseudo_j => func.mir_instructions.items(.data)[inst].inst = target,
-            else => std.debug.panic("TODO: performReloc {s}", .{@tagName(ops)}),
-        },
+        .pseudo_j => func.mir_instructions.items(.data)[inst].j_type.inst = target,
         else => std.debug.panic("TODO: performReloc {s}", .{@tagName(tag)}),
     }
 }
@@ -5873,7 +5768,6 @@ fn airBoolOp(func: *Func, inst: Air.Inst.Index) !void {
 
         _ = try func.addInst(.{
             .tag = if (tag == .bool_or) .@"or" else .@"and",
-            .ops = .rrr,
             .data = .{ .r_type = .{
                 .rd = result_reg,
                 .rs1 = lhs_reg,
@@ -5885,7 +5779,6 @@ fn airBoolOp(func: *Func, inst: Air.Inst.Index) !void {
         if (func.wantSafety()) {
             _ = try func.addInst(.{
                 .tag = .andi,
-                .ops = .rri,
                 .data = .{ .i_type = .{
                     .rd = result_reg,
                     .rs1 = result_reg,
@@ -5970,11 +5863,10 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
 
         const asm_source = std.mem.sliceAsBytes(func.air.extra[extra_i..])[0..extra.data.source_len];
 
-        if (std.meta.stringToEnum(Mir.Inst.Tag, asm_source)) |tag| {
+        if (std.meta.stringToEnum(Mnemonic, asm_source)) |tag| {
             _ = try func.addInst(.{
                 .tag = tag,
-                .ops = .none,
-                .data = undefined,
+                .data = .none,
             });
         } else {
             return func.fail("TODO: asm_source {s}", .{asm_source});
@@ -6116,7 +6008,6 @@ fn genInlineMemcpy(
     // if count is 0, there's nothing to copy
     _ = try func.addInst(.{
         .tag = .beq,
-        .ops = .rr_inst,
         .data = .{ .b_type = .{
             .rs1 = count,
             .rs2 = .zero,
@@ -6127,7 +6018,6 @@ fn genInlineMemcpy(
     // lb tmp, 0(src)
     const first_inst = try func.addInst(.{
         .tag = .lb,
-        .ops = .rri,
         .data = .{
             .i_type = .{
                 .rd = tmp,
@@ -6140,7 +6030,6 @@ fn genInlineMemcpy(
     // sb tmp, 0(dst)
     _ = try func.addInst(.{
         .tag = .sb,
-        .ops = .rri,
         .data = .{
             .i_type = .{
                 .rd = dst,
@@ -6153,7 +6042,6 @@ fn genInlineMemcpy(
     // dec count by 1
     _ = try func.addInst(.{
         .tag = .addi,
-        .ops = .rri,
         .data = .{
             .i_type = .{
                 .rd = count,
@@ -6166,7 +6054,6 @@ fn genInlineMemcpy(
     // branch if count is 0
     _ = try func.addInst(.{
         .tag = .beq,
-        .ops = .rr_inst,
         .data = .{
             .b_type = .{
                 .inst = @intCast(func.mir_instructions.len + 4), // points after the last inst
@@ -6179,7 +6066,6 @@ fn genInlineMemcpy(
     // increment the pointers
     _ = try func.addInst(.{
         .tag = .addi,
-        .ops = .rri,
         .data = .{
             .i_type = .{
                 .rd = src,
@@ -6191,7 +6077,6 @@ fn genInlineMemcpy(
 
     _ = try func.addInst(.{
         .tag = .addi,
-        .ops = .rri,
         .data = .{
             .i_type = .{
                 .rd = dst,
@@ -6203,9 +6088,11 @@ fn genInlineMemcpy(
 
     // jump back to start of loop
     _ = try func.addInst(.{
-        .tag = .pseudo,
-        .ops = .pseudo_j,
-        .data = .{ .inst = first_inst },
+        .tag = .pseudo_j,
+        .data = .{ .j_type = .{
+            .rd = .zero,
+            .inst = first_inst,
+        } },
     });
 }
 
@@ -6230,7 +6117,6 @@ fn genInlineMemset(
     // sb src, 0(dst)
     const first_inst = try func.addInst(.{
         .tag = .sb,
-        .ops = .rri,
         .data = .{
             .i_type = .{
                 .rd = dst,
@@ -6243,7 +6129,6 @@ fn genInlineMemset(
     // dec count by 1
     _ = try func.addInst(.{
         .tag = .addi,
-        .ops = .rri,
         .data = .{
             .i_type = .{
                 .rd = count,
@@ -6256,7 +6141,6 @@ fn genInlineMemset(
     // branch if count is 0
     _ = try func.addInst(.{
         .tag = .beq,
-        .ops = .rr_inst,
         .data = .{
             .b_type = .{
                 .inst = @intCast(func.mir_instructions.len + 4), // points after the last inst
@@ -6269,7 +6153,6 @@ fn genInlineMemset(
     // increment the pointers
     _ = try func.addInst(.{
         .tag = .addi,
-        .ops = .rri,
         .data = .{
             .i_type = .{
                 .rd = dst,
@@ -6281,11 +6164,11 @@ fn genInlineMemset(
 
     // jump back to start of loop
     _ = try func.addInst(.{
-        .tag = .pseudo,
-        .ops = .pseudo_j,
-        .data = .{
+        .tag = .pseudo_j,
+        .data = .{ .j_type = .{
+            .rd = .zero,
             .inst = first_inst,
-        },
+        } },
     });
 }
 
@@ -6331,7 +6214,6 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
             if (math.minInt(i12) <= x and x <= math.maxInt(i12)) {
                 _ = try func.addInst(.{
                     .tag = .addi,
-                    .ops = .rri,
                     .data = .{ .i_type = .{
                         .rd = reg,
                         .rs1 = .zero,
@@ -6345,7 +6227,6 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
 
                 _ = try func.addInst(.{
                     .tag = .lui,
-                    .ops = .ri,
                     .data = .{ .u_type = .{
                         .rd = reg,
                         .imm20 = Immediate.s(hi20),
@@ -6353,7 +6234,6 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
                 });
                 _ = try func.addInst(.{
                     .tag = .addi,
-                    .ops = .rri,
                     .data = .{ .i_type = .{
                         .rd = reg,
                         .rs1 = reg,
@@ -6376,7 +6256,6 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
 
                 _ = try func.addInst(.{
                     .tag = .slli,
-                    .ops = .rri,
                     .data = .{ .i_type = .{
                         .rd = reg,
                         .rs1 = reg,
@@ -6386,7 +6265,6 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
 
                 _ = try func.addInst(.{
                     .tag = .add,
-                    .ops = .rrr,
                     .data = .{ .r_type = .{
                         .rd = reg,
                         .rs1 = reg,
@@ -6423,8 +6301,7 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
 
             // mv reg, src_reg
             _ = try func.addInst(.{
-                .tag = .pseudo,
-                .ops = .pseudo_mv,
+                .tag = .pseudo_mv,
                 .data = .{ .rr = .{
                     .rd = reg,
                     .rs = src_reg,
@@ -6445,8 +6322,7 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
                 try func.genCopy(ty, .{ .register = reg }, .{ .indirect = .{ .reg = addr_reg } });
             } else {
                 _ = try func.addInst(.{
-                    .tag = .pseudo,
-                    .ops = .pseudo_load_rm,
+                    .tag = .pseudo_load_rm,
                     .data = .{ .rm = .{
                         .r = reg,
                         .m = .{
@@ -6466,7 +6342,6 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
 
             _ = try func.addInst(.{
                 .tag = .ld,
-                .ops = .rri,
                 .data = .{ .i_type = .{
                     .rd = reg,
                     .rs1 = reg,
@@ -6476,8 +6351,7 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
         },
         .lea_frame, .register_offset => {
             _ = try func.addInst(.{
-                .tag = .pseudo,
-                .ops = .pseudo_lea_rm,
+                .tag = .pseudo_lea_rm,
                 .data = .{
                     .rm = .{
                         .r = reg,
@@ -6505,7 +6379,7 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
             });
         },
         .indirect => |reg_off| {
-            const load_tag: Mir.Inst.Tag = switch (reg.class()) {
+            const load_tag: Mnemonic = switch (reg.class()) {
                 .float => switch (abi_size) {
                     1 => unreachable, // Zig does not support 8-bit floats
                     2 => return func.fail("TODO: genSetReg indirect 16-bit float", .{}),
@@ -6544,8 +6418,7 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
                     });
 
                     _ = try func.addInst(.{
-                        .tag = .pseudo,
-                        .ops = .pseudo_load_rm,
+                        .tag = .pseudo_load_rm,
                         .data = .{ .rm = .{
                             .r = reg,
                             .m = .{
@@ -6565,7 +6438,6 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
 
             _ = try func.addInst(.{
                 .tag = load_tag,
-                .ops = .rri,
                 .data = .{ .i_type = .{
                     .rd = reg,
                     .rs1 = reg_off.reg,
@@ -6578,13 +6450,12 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
             const atom_index = try func.owner.getSymbolIndex(func);
 
             _ = try func.addInst(.{
-                .tag = .pseudo,
-                .ops = .pseudo_load_symbol,
-                .data = .{ .payload = try func.addExtra(Mir.LoadSymbolPayload{
-                    .register = reg.encodeId(),
+                .tag = .pseudo_load_symbol,
+                .data = .{ .reloc = .{
+                    .register = reg,
                     .atom_index = atom_index,
                     .sym_index = sym_off.sym,
-                }) },
+                } },
             });
         },
         .load_symbol => {
@@ -6676,8 +6547,7 @@ fn genSetMem(
                 });
 
                 _ = try func.addInst(.{
-                    .tag = .pseudo,
-                    .ops = .pseudo_store_rm,
+                    .tag = .pseudo_store_rm,
                     .data = .{ .rm = .{
                         .r = reg,
                         .m = .{
@@ -6716,8 +6586,7 @@ fn genSetMem(
                 }));
                 const frame_mcv: MCValue = .{ .load_frame = .{ .index = frame_index } };
                 _ = try func.addInst(.{
-                    .tag = .pseudo,
-                    .ops = .pseudo_store_rm,
+                    .tag = .pseudo_store_rm,
                     .data = .{ .rm = .{
                         .r = reg,
                         .m = .{
@@ -6732,8 +6601,7 @@ fn genSetMem(
                 try func.genSetMem(base, disp, ty, frame_mcv);
                 try func.freeValue(frame_mcv);
             } else _ = try func.addInst(.{
-                .tag = .pseudo,
-                .ops = .pseudo_store_rm,
+                .tag = .pseudo_store_rm,
                 .data = .{ .rm = .{
                     .r = reg,
                     .m = .{
@@ -6852,9 +6720,59 @@ fn airFloatFromInt(func: *Func, inst: Air.Inst.Index) !void {
 
 fn airIntFromFloat(func: *Func, inst: Air.Inst.Index) !void {
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement airIntFromFloat for {}", .{
-        func.target.cpu.arch,
-    });
+    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
+        const pt = func.pt;
+        const zcu = pt.zcu;
+
+        const operand = try func.resolveInst(ty_op.operand);
+        const src_ty = func.typeOf(ty_op.operand);
+        const dst_ty = func.typeOfIndex(inst);
+
+        const is_unsigned = dst_ty.isUnsignedInt(zcu);
+        const src_bits = src_ty.bitSize(pt);
+        const dst_bits = dst_ty.bitSize(pt);
+
+        const float_mod: enum { s, d } = switch (src_bits) {
+            32 => .s,
+            64 => .d,
+            else => return func.fail("TODO: airIntFromFloat src size {d}", .{src_bits}),
+        };
+
+        const int_mod: Mir.FcvtOp = switch (dst_bits) {
+            32 => if (is_unsigned) .wu else .w,
+            64 => if (is_unsigned) .lu else .l,
+            else => return func.fail("TODO: airIntFromFloat dst size: {d}", .{dst_bits}),
+        };
+
+        const src_reg, const src_lock = try func.promoteReg(src_ty, operand);
+        defer if (src_lock) |lock| func.register_manager.unlockReg(lock);
+
+        const dst_reg, const dst_lock = try func.allocReg(.int);
+        defer func.register_manager.unlockReg(dst_lock);
+
+        _ = try func.addInst(.{
+            .tag = switch (float_mod) {
+                .s => switch (int_mod) {
+                    .l => .fcvtls,
+                    .lu => .fcvtlus,
+                    .w => .fcvtws,
+                    .wu => .fcvtwus,
+                },
+                .d => switch (int_mod) {
+                    .l => .fcvtld,
+                    .lu => .fcvtlud,
+                    .w => .fcvtwd,
+                    .wu => .fcvtwud,
+                },
+            },
+            .data = .{ .rr = .{
+                .rd = dst_reg,
+                .rs = src_reg,
+            } },
+        });
+
+        break :result .{ .register = dst_reg };
+    };
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -6917,8 +6835,7 @@ fn airAtomicRmw(func: *Func, inst: Air.Inst.Index) !void {
     };
 
     _ = try func.addInst(.{
-        .tag = .pseudo,
-        .ops = .pseudo_amo,
+        .tag = .pseudo_amo,
         .data = .{ .amo = .{
             .rd = result_mcv.register,
             .rs1 = ptr_register,
@@ -6961,15 +6878,12 @@ fn airAtomicLoad(func: *Func, inst: Air.Inst.Index) !void {
 
     if (order == .seq_cst) {
         _ = try func.addInst(.{
-            .tag = .pseudo,
-            .ops = .pseudo_fence,
-            .data = .{
-                .fence = .{
-                    .pred = .rw,
-                    .succ = .rw,
-                    .fm = .none,
-                },
-            },
+            .tag = .pseudo_fence,
+            .data = .{ .fence = .{
+                .pred = .rw,
+                .succ = .rw,
+                .fm = .none,
+            } },
         });
     }
 
@@ -6982,8 +6896,7 @@ fn airAtomicLoad(func: *Func, inst: Air.Inst.Index) !void {
         // Make sure all previous reads happen before any reading or writing accurs.
         .seq_cst, .acquire => {
             _ = try func.addInst(.{
-                .tag = .pseudo,
-                .ops = .pseudo_fence,
+                .tag = .pseudo_fence,
                 .data = .{
                     .fence = .{
                         .pred = .r,
@@ -7015,8 +6928,7 @@ fn airAtomicStore(func: *Func, inst: Air.Inst.Index, order: std.builtin.AtomicOr
         .unordered, .monotonic => {},
         .release, .seq_cst => {
             _ = try func.addInst(.{
-                .tag = .pseudo,
-                .ops = .pseudo_fence,
+                .tag = .pseudo_fence,
                 .data = .{
                     .fence = .{
                         .pred = .rw,
@@ -7183,7 +7095,6 @@ fn airTagName(func: *Func, inst: Air.Inst.Index) !void {
             try func.genSetReg(Type.u64, .ra, .{ .load_symbol = .{ .sym = sym.esym_index } });
             _ = try func.addInst(.{
                 .tag = .jalr,
-                .ops = .rri,
                 .data = .{ .i_type = .{
                     .rd = .ra,
                     .rs1 = .ra,

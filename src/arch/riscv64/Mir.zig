@@ -1,170 +1,17 @@
 //! Machine Intermediate Representation.
-//! This data is produced by RISCV64 Codegen or RISCV64 assembly parsing
-//! These instructions have a 1:1 correspondence with machine code instructions
-//! for the target. MIR can be lowered to source-annotated textual assembly code
-//! instructions, or it can be lowered to machine code.
-//! The main purpose of MIR is to postpone the assignment of offsets until Isel,
-//! so that, for example, the smaller encodings of jump instructions can be used.
+//! This data is produced by CodeGen.zig
 
 instructions: std.MultiArrayList(Inst).Slice,
-/// The meaning of this data is determined by `Inst.Tag` value.
-extra: []const u32,
 frame_locs: std.MultiArrayList(FrameLoc).Slice,
 
 pub const Inst = struct {
-    tag: Tag,
+    tag: Mnemonic,
     data: Data,
-    ops: Ops,
 
-    /// The position of an MIR instruction within the `Mir` instructions array.
     pub const Index = u32;
 
-    pub const Tag = enum(u16) {
-
-        // base extension
-        addi,
-        addiw,
-
-        jalr,
-        lui,
-
-        @"and",
-        andi,
-
-        xori,
-        xor,
-        @"or",
-
-        ebreak,
-        ecall,
-        unimp,
-
-        add,
-        addw,
-        sub,
-        subw,
-
-        sltu,
-        slt,
-
-        slli,
-        srli,
-        srai,
-
-        slliw,
-        srliw,
-        sraiw,
-
-        sll,
-        srl,
-        sra,
-
-        sllw,
-        srlw,
-        sraw,
-
-        jal,
-
-        beq,
-        bne,
-
-        nop,
-
-        ld,
-        lw,
-        lh,
-        lb,
-
-        sd,
-        sw,
-        sh,
-        sb,
-
-        // M extension
-        mul,
-        mulw,
-
-        div,
-        divu,
-        divw,
-        divuw,
-
-        rem,
-        remu,
-        remw,
-        remuw,
-
-        // F extension (32-bit float)
-        fadds,
-        fsubs,
-        fmuls,
-        fdivs,
-
-        fabss,
-
-        fmins,
-        fmaxs,
-
-        fsqrts,
-
-        flw,
-        fsw,
-
-        feqs,
-        flts,
-        fles,
-
-        // D extension (64-bit float)
-        faddd,
-        fsubd,
-        fmuld,
-        fdivd,
-
-        fabsd,
-
-        fmind,
-        fmaxd,
-
-        fsqrtd,
-
-        fld,
-        fsd,
-
-        feqd,
-        fltd,
-        fled,
-
-        // Zicsr Extension Instructions
-        csrrs,
-
-        // V Extension Instructions
-        vsetvli,
-        vsetivli,
-        vsetvl,
-        vaddvv,
-        vfaddvv,
-        vsubvv,
-        vfsubvv,
-        vmulvv,
-        vfmulvv,
-        vslidedownvx,
-
-        // Zbb Extension Instructions
-        clz,
-        clzw,
-
-        /// A pseudo-instruction. Used for anything that isn't 1:1 with an
-        /// assembly instruction.
-        pseudo,
-    };
-
-    /// All instructions have a 4-byte payload, which is contained within
-    /// this union. `Ops` determines which union field is active, as well as
-    /// how to interpret the data within.
-    pub const Data = union {
-        nop: void,
-        inst: Index,
-        payload: u32,
+    pub const Data = union(enum) {
+        none: void,
         r_type: struct {
             rd: Register,
             rs1: Register,
@@ -194,10 +41,6 @@ pub const Inst = struct {
             rd: Register,
             inst: Inst.Index,
         },
-        pseudo_dbg_line_column: struct {
-            line: u32,
-            column: u32,
-        },
         rm: struct {
             r: Register,
             m: Memory,
@@ -207,11 +50,6 @@ pub const Inst = struct {
         rr: struct {
             rd: Register,
             rs: Register,
-        },
-        fabs: struct {
-            rd: Register,
-            rs: Register,
-            bits: u16,
         },
         compare: struct {
             rd: Register,
@@ -228,6 +66,7 @@ pub const Inst = struct {
             ty: Type,
         },
         reloc: struct {
+            register: Register,
             atom_index: u32,
             sym_index: u32,
         },
@@ -253,115 +92,26 @@ pub const Inst = struct {
             rs1: Register,
             rd: Register,
         },
-    };
-
-    pub const Ops = enum {
-        /// No data associated with this instruction (only mnemonic is used).
-        none,
-        /// Two registers
-        rr,
-        /// Three registers
-        rrr,
-
-        /// Two registers + immediate, uses the i_type payload.
-        rri,
-        //extern_fn_reloc/ Two registers + another instruction.
-        rr_inst,
-
-        /// Register + Memory
-        rm,
-
-        /// Register + Immediate
-        ri,
-
-        /// Another instruction.
-        inst,
-
-        /// Control and Status Register Instruction.
-        csr,
-
-        /// Pseudo-instruction that will generate a backpatched
-        /// function prologue.
-        pseudo_prologue,
-        /// Pseudo-instruction that will generate a backpatched
-        /// function epilogue
-        pseudo_epilogue,
-
-        /// Pseudo-instruction: End of prologue
-        pseudo_dbg_prologue_end,
-        /// Pseudo-instruction: Beginning of epilogue
-        pseudo_dbg_epilogue_begin,
-        /// Pseudo-instruction: Update debug line
-        pseudo_dbg_line_column,
-
-        /// Pseudo-instruction that loads from memory into a register.
-        ///
-        /// Uses `rm` payload.
-        pseudo_load_rm,
-        /// Pseudo-instruction that stores from a register into memory
-        ///
-        /// Uses `rm` payload.
-        pseudo_store_rm,
-
-        /// Pseudo-instruction that loads the address of memory into a register.
-        ///
-        /// Uses `rm` payload.
-        pseudo_lea_rm,
-
-        /// Jumps. Uses `inst` payload.
-        pseudo_j,
-
-        /// Floating point absolute value.
-        pseudo_fabs,
-
-        /// Dead inst, ignored by the emitter.
-        pseudo_dead,
-
-        /// Loads the address of a value that hasn't yet been allocated in memory.
-        ///
-        /// uses the Mir.LoadSymbolPayload payload.
-        pseudo_load_symbol,
-
-        /// Moves the value of rs1 to rd.
-        ///
-        /// uses the `rr` payload.
-        pseudo_mv,
-
-        pseudo_restore_regs,
-        pseudo_spill_regs,
-
-        pseudo_compare,
-
-        /// NOT operation on booleans. Does an `andi reg, reg, 1` to mask out any other bits from the boolean.
-        pseudo_not,
-
-        /// Generates an auipc + jalr pair, with a R_RISCV_CALL_PLT reloc
-        pseudo_extern_fn_reloc,
-
-        /// IORW, IORW
-        pseudo_fence,
-
-        /// Ordering, Src, Addr, Dest
-        pseudo_amo,
+        pseudo_dbg_line_column: struct {
+            line: u32,
+            column: u32,
+        },
     };
 
     pub fn format(
         inst: Inst,
         comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
+        _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
         assert(fmt.len == 0);
-        _ = options;
-
-        try writer.print("Tag: {s}, Ops: {s}", .{ @tagName(inst.tag), @tagName(inst.ops) });
+        try writer.print("Tag: {s}, Data: {s}", .{ @tagName(inst.tag), @tagName(inst.data) });
     }
 };
 
 pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     mir.instructions.deinit(gpa);
     mir.frame_locs.deinit(gpa);
-    gpa.free(mir.extra);
     mir.* = undefined;
 }
 
@@ -392,25 +142,12 @@ pub const AmoOp = enum(u5) {
     MIN,
 };
 
-/// Returns the requested data, as well as the new index which is at the start of the
-/// trailers for the object.
-pub fn extraData(mir: Mir, comptime T: type, index: usize) struct { data: T, end: usize } {
-    const fields = std.meta.fields(T);
-    var i: usize = index;
-    var result: T = undefined;
-    inline for (fields) |field| {
-        @field(result, field.name) = switch (field.type) {
-            u32 => mir.extra[i],
-            i32 => @as(i32, @bitCast(mir.extra[i])),
-            else => @compileError("bad field type"),
-        };
-        i += 1;
-    }
-    return .{
-        .data = result,
-        .end = i,
-    };
-}
+pub const FcvtOp = enum(u5) {
+    w = 0b00000,
+    wu = 0b00001,
+    l = 0b00010,
+    lu = 0b00011,
+};
 
 pub const LoadSymbolPayload = struct {
     register: u32,
@@ -459,10 +196,10 @@ const Mir = @This();
 const std = @import("std");
 const builtin = @import("builtin");
 const Type = @import("../../Type.zig");
+const bits = @import("bits.zig");
 
 const assert = std.debug.assert;
 
-const bits = @import("bits.zig");
 const Register = bits.Register;
 const CSR = bits.CSR;
 const Immediate = bits.Immediate;
@@ -470,3 +207,4 @@ const Memory = bits.Memory;
 const FrameIndex = bits.FrameIndex;
 const FrameAddr = @import("CodeGen.zig").FrameAddr;
 const IntegerBitSet = std.bit_set.IntegerBitSet;
+const Mnemonic = @import("mnem.zig").Mnemonic;
