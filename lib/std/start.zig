@@ -316,6 +316,24 @@ fn _start() callconv(.Naked) noreturn {
             \\ and sp, #-16
             \\ b %[posixCallMainAndExit]
             ,
+            // zig fmt: off
+            .csky =>
+            if (builtin.position_independent_code)
+                // The CSKY ABI assumes that `gb` is set to the address of the GOT in order for
+                // position-independent code to work. We depend on this in `std.os.linux.start_pie`
+                // to locate `_DYNAMIC` as well.
+                \\ grs t0, 1f
+                \\ 1:
+                \\ lrw gb, 1b@GOTPC
+                \\ addu gb, t0
+            else ""
+            ++
+            \\ movi lr, 0
+            \\ mov a0, sp
+            \\ andi sp, sp, -8
+            \\ jmpi %[posixCallMainAndExit]
+            ,
+            // zig fmt: on
             .hexagon =>
             // r29 = SP, r30 = FP
             \\ r30 = #0
