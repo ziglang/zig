@@ -5,6 +5,7 @@ const assert = std.debug.assert;
 
 const R_AMD64_RELATIVE = 8;
 const R_386_RELATIVE = 8;
+const R_ARC_RELATIVE = 56;
 const R_ARM_RELATIVE = 23;
 const R_AARCH64_RELATIVE = 1027;
 const R_CSKY_RELATIVE = 9;
@@ -17,6 +18,7 @@ const R_SPARC_RELATIVE = 22;
 const R_RELATIVE = switch (builtin.cpu.arch) {
     .x86 => R_386_RELATIVE,
     .x86_64 => R_AMD64_RELATIVE,
+    .arc => R_ARC_RELATIVE,
     .arm, .armeb, .thumb, .thumbeb => R_ARM_RELATIVE,
     .aarch64, .aarch64_be => R_AARCH64_RELATIVE,
     .csky => R_CSKY_RELATIVE,
@@ -44,6 +46,12 @@ fn getDynamicSymbol() [*]elf.Dyn {
             \\ .weak _DYNAMIC
             \\ .hidden _DYNAMIC
             \\ lea _DYNAMIC(%%rip), %[ret]
+            : [ret] "=r" (-> [*]elf.Dyn),
+        ),
+        .arc => asm volatile (
+            \\ .weak _DYNAMIC
+            \\ .hidden _DYNAMIC
+            \\ add %[ret], pcl, _DYNAMIC@pcl
             : [ret] "=r" (-> [*]elf.Dyn),
         ),
         // Work around the limited offset range of `ldr`
