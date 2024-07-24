@@ -455,7 +455,6 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
     if (native_os == .linux) {
         // Find the beginning of the auxiliary vector
         const auxv: [*]elf.Auxv = @ptrCast(@alignCast(envp.ptr + envp_count + 1));
-        std.os.linux.elf_aux_maybe = auxv;
 
         var at_hwcap: usize = 0;
         const phdrs = init: {
@@ -478,6 +477,10 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
         if (builtin.position_independent_executable) {
             std.os.linux.pie.relocate(phdrs);
         }
+
+        // This must be done after PIE relocations have been applied or we may crash
+        // while trying to access the global variable (happens on MIPS at least).
+        std.os.linux.elf_aux_maybe = auxv;
 
         if (!builtin.single_threaded) {
             // ARMv6 targets (and earlier) have no support for TLS in hardware.
