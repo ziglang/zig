@@ -400,7 +400,7 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
         }
 
         pub const Iterator = struct {
-            queue: *PriorityDequeue(T, Context, compareFn),
+            queue: *const PriorityDequeue(T, Context, compareFn),
             count: usize,
 
             pub fn next(it: *Iterator) ?T {
@@ -418,7 +418,7 @@ pub fn PriorityDequeue(comptime T: type, comptime Context: type, comptime compar
         /// Return an iterator that walks the queue without consuming
         /// it. The iteration order may differ from the priority order.
         /// Invalidated if the queue is modified.
-        pub fn iterator(self: *Self) Iterator {
+        pub fn iterator(self: *const Self) Iterator {
             return Iterator{
                 .queue = self,
                 .count = 0,
