@@ -373,12 +373,12 @@ fn _start() callconv(.Naked) noreturn {
             ,
             .s390x =>
             // Set up the stack frame (register save area and cleared back-chain slot).
-            \\ lgr %r2, %r15
-            \\ lghi %r0, -16
-            \\ ngr %r15, %r0
-            \\ aghi %r15, -160
-            \\ lghi %r0, 0
-            \\ stg  %r0, 0(%r15)
+            \\ lgr %%r2, %%r15
+            \\ lghi %%r0, -16
+            \\ ngr %%r15, %%r0
+            \\ aghi %%r15, -160
+            \\ lghi %%r0, 0
+            \\ stg  %%r0, 0(%%r15)
             \\ jg %[posixCallMainAndExit]
             ,
             .sparc64 =>
