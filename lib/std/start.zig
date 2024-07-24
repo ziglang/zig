@@ -297,6 +297,7 @@ fn _start() callconv(.Naked) noreturn {
             \\ mov fp, #0
             \\ mov lr, #0
             \\ mov x0, sp
+            \\ and sp, x0, #-16
             \\ b %[posixCallMainAndExit]
             ,
             .arm, .armeb, .thumb, .thumbeb =>
