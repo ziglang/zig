@@ -208,9 +208,9 @@ fn initAtoms(self: *Object, allocator: Allocator, handle: std.fs.File, elf_file:
                 const group_signature = blk: {
                     if (group_info_sym.st_name == 0 and group_info_sym.st_type() == elf.STT_SECTION) {
                         const sym_shdr = shdrs[group_info_sym.st_shndx];
-                        break :blk self.getString(sym_shdr.sh_name);
+                        break :blk sym_shdr.sh_name;
                     }
-                    break :blk self.getString(group_info_sym.st_name);
+                    break :blk group_info_sym.st_name;
                 };
 
                 const shndx = @as(u32, @intCast(i));
@@ -228,7 +228,10 @@ fn initAtoms(self: *Object, allocator: Allocator, handle: std.fs.File, elf_file:
                 const group_start = @as(u32, @intCast(self.comdat_group_data.items.len));
                 try self.comdat_group_data.appendUnalignedSlice(allocator, group_members[1..]);
 
-                const gop = try elf_file.getOrCreateComdatGroupOwner(group_signature);
+                const gop = try elf_file.getOrCreateComdatGroupOwner(.{
+                    .off = group_signature,
+                    .file_index = self.index,
+                });
                 const comdat_group_index = try self.addComdatGroup(allocator);
                 const comdat_group = self.comdatGroup(comdat_group_index);
                 comdat_group.* = .{

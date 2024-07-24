@@ -216,7 +216,7 @@ merge_subsections: std.ArrayListUnmanaged(MergeSubsection) = .{},
 last_atom_and_free_list_table: LastAtomAndFreeListTable = .{},
 
 comdat_groups_owners: std.ArrayListUnmanaged(ComdatGroupOwner) = .{},
-comdat_groups_table: std.AutoHashMapUnmanaged(u32, ComdatGroupOwner.Index) = .{},
+comdat_groups_table: std.ArrayHashMapUnmanaged(ComdatGroupKey, ComdatGroupOwner.Index, ComdatGroupContext, false) = .{},
 
 /// Global string table used to provide quick access to global symbol resolvers
 /// such as `resolver` and `comdat_groups_table`.
@@ -5742,10 +5742,9 @@ const GetOrCreateComdatGroupOwnerResult = struct {
     index: ComdatGroupOwner.Index,
 };
 
-pub fn getOrCreateComdatGroupOwner(self: *Elf, name: [:0]const u8) !GetOrCreateComdatGroupOwnerResult {
+pub fn getOrCreateComdatGroupOwner(self: *Elf, key: ComdatGroupKey) !GetOrCreateComdatGroupOwnerResult {
     const gpa = self.base.comp.gpa;
-    const off = try self.strings.insert(gpa, name);
-    const gop = try self.comdat_groups_table.getOrPut(gpa, off);
+    const gop = try self.comdat_groups_table.getOrPutContext(gpa, key, .{ .elf_file = self });
     if (!gop.found_existing) {
         const index: ComdatGroupOwner.Index = @intCast(self.comdat_groups_owners.items.len);
         const owner = try self.comdat_groups_owners.addOne(gpa);
@@ -6243,6 +6242,33 @@ const max_number_of_special_phdrs = 5;
 const default_entry_addr = 0x8000000;
 
 pub const base_tag: link.File.Tag = .elf;
+
+const ComdatGroupKey = struct {
+    /// String table offset.
+    off: u32,
+
+    /// File index.
+    file_index: File.Index,
+
+    pub fn get(key: ComdatGroupKey, elf_file: *Elf) [:0]const u8 {
+        const file_ptr = elf_file.file(key.file_index).?;
+        return file_ptr.getString(key.off);
+    }
+};
+
+const ComdatGroupContext = struct {
+    elf_file: *Elf,
+
+    pub fn eql(ctx: ComdatGroupContext, a: ComdatGroupKey, b: ComdatGroupKey, b_index: usize) bool {
+        _ = b_index;
+        const elf_file = ctx.elf_file;
+        return mem.eql(u8, a.get(elf_file), b.get(elf_file));
+    }
+
+    pub fn hash(ctx: ComdatGroupContext, a: ComdatGroupKey) u32 {
+        return std.array_hash_map.hashString(a.get(ctx.elf_file));
+    }
+};
 
 const ComdatGroupOwner = struct {
     file: File.Index = 0,

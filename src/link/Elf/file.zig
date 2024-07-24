@@ -157,6 +157,12 @@ pub const File = union(enum) {
         };
     }
 
+    pub fn getString(file: File, off: u32) [:0]const u8 {
+        return switch (file) {
+            inline else => |x| x.getString(off),
+        };
+    }
+
     pub fn updateSymtabSize(file: File, elf_file: *Elf) !void {
         return switch (file) {
             inline else => |x| x.updateSymtabSize(elf_file),
