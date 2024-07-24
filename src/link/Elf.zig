@@ -2673,12 +2673,14 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
             try argv.append(p);
         }
 
-        if (comp.config.any_sanitize_thread) {
-            try argv.append(comp.tsan_lib.?.full_object_path);
+        if (comp.tsan_lib) |lib| {
+            assert(comp.config.any_sanitize_thread);
+            try argv.append(lib.full_object_path);
         }
 
-        if (comp.config.any_fuzz) {
-            try argv.append(comp.fuzzer_lib.?.full_object_path);
+        if (comp.fuzzer_lib) |lib| {
+            assert(comp.config.any_fuzz);
+            try argv.append(lib.full_object_path);
         }
 
         // libc
