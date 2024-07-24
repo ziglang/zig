@@ -215,8 +215,6 @@ merge_sections: std.ArrayListUnmanaged(MergeSection) = .{},
 /// List of output merge subsections.
 /// Each subsection is akin to Atom but belongs to a MergeSection.
 merge_subsections: std.ArrayListUnmanaged(MergeSubsection) = .{},
-/// List of input merge sections as parsed from input relocatables.
-merge_input_sections: std.ArrayListUnmanaged(InputMergeSection) = .{},
 
 /// Table of last atom index in a section and matching atom free list if any.
 last_atom_and_free_list_table: LastAtomAndFreeListTable = .{},
@@ -390,8 +388,6 @@ pub fn createEmpty(
     _ = try self.addSection(.{ .name = "" });
     // Append null symbol in output symtab
     try self.symtab.append(gpa, null_sym);
-    // Append null input merge section.
-    try self.merge_input_sections.append(gpa, .{});
 
     if (!is_obj_or_ar) {
         try self.dynstrtab.append(gpa, 0);
@@ -515,10 +511,6 @@ pub fn deinit(self: *Elf) void {
     }
     self.merge_sections.deinit(gpa);
     self.merge_subsections.deinit(gpa);
-    for (self.merge_input_sections.items) |*sect| {
-        sect.deinit(gpa);
-    }
-    self.merge_input_sections.deinit(gpa);
     for (self.last_atom_and_free_list_table.values()) |*value| {
         value.free_list.deinit(gpa);
     }
@@ -5845,18 +5837,6 @@ pub fn comdatGroup(self: *Elf, index: ComdatGroup.Index) *ComdatGroup {
 pub fn comdatGroupOwner(self: *Elf, index: ComdatGroupOwner.Index) *ComdatGroupOwner {
     assert(index < self.comdat_groups_owners.items.len);
     return &self.comdat_groups_owners.items[index];
-}
-
-pub fn addInputMergeSection(self: *Elf) !InputMergeSection.Index {
-    const index: InputMergeSection.Index = @intCast(self.merge_input_sections.items.len);
-    const msec = try self.merge_input_sections.addOne(self.base.comp.gpa);
-    msec.* = .{};
-    return index;
-}
-
-pub fn inputMergeSection(self: *Elf, index: InputMergeSection.Index) ?*InputMergeSection {
-    if (index == 0) return null;
-    return &self.merge_input_sections.items[index];
 }
 
 pub fn addMergeSubsection(self: *Elf) !MergeSubsection.Index {

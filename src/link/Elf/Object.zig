@@ -15,7 +15,8 @@ comdat_groups: std.ArrayListUnmanaged(Elf.ComdatGroup.Index) = .{},
 comdat_group_data: std.ArrayListUnmanaged(u32) = .{},
 relocs: std.ArrayListUnmanaged(elf.Elf64_Rela) = .{},
 
-merge_sections: std.ArrayListUnmanaged(InputMergeSection.Index) = .{},
+input_merge_sections: std.ArrayListUnmanaged(InputMergeSection) = .{},
+input_merge_sections_indexes: std.ArrayListUnmanaged(InputMergeSection.Index) = .{},
 
 fdes: std.ArrayListUnmanaged(Fde) = .{},
 cies: std.ArrayListUnmanaged(Cie) = .{},
@@ -53,7 +54,11 @@ pub fn deinit(self: *Object, allocator: Allocator) void {
     self.fdes.deinit(allocator);
     self.cies.deinit(allocator);
     self.eh_frame_data.deinit(allocator);
-    self.merge_sections.deinit(allocator);
+    for (self.input_merge_sections.items) |*isec| {
+        isec.deinit(allocator);
+    }
+    self.input_merge_sections.deinit(allocator);
+    self.input_merge_sections_indexes.deinit(allocator);
 }
 
 pub fn parse(self: *Object, elf_file: *Elf) !void {
@@ -62,6 +67,10 @@ pub fn parse(self: *Object, elf_file: *Elf) !void {
     const handle = elf_file.fileHandle(self.file_handle);
 
     try self.parseCommon(gpa, handle, elf_file);
+
+    // Append null input merge section
+    try self.input_merge_sections.append(gpa, .{});
+
     try self.initAtoms(gpa, handle, elf_file);
     try self.initSymtab(gpa, elf_file);
 
@@ -664,8 +673,9 @@ pub fn checkDuplicates(self: *Object, dupes: anytype, elf_file: *Elf) error{OutO
 pub fn initMergeSections(self: *Object, elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
 
-    try self.merge_sections.resize(gpa, self.shdrs.items.len);
-    @memset(self.merge_sections.items, 0);
+    try self.input_merge_sections.ensureUnusedCapacity(gpa, self.shdrs.items.len);
+    try self.input_merge_sections_indexes.resize(gpa, self.shdrs.items.len);
+    @memset(self.input_merge_sections_indexes.items, 0);
 
     for (self.shdrs.items, 0..) |shdr, shndx| {
         if (shdr.sh_flags & elf.SHF_MERGE == 0) continue;
@@ -675,9 +685,9 @@ pub fn initMergeSections(self: *Object, elf_file: *Elf) !void {
         if (!atom_ptr.flags.alive) continue;
         if (atom_ptr.relocs(elf_file).len > 0) continue;
 
-        const imsec_idx = try elf_file.addInputMergeSection();
-        const imsec = elf_file.inputMergeSection(imsec_idx).?;
-        self.merge_sections.items[shndx] = imsec_idx;
+        const imsec_idx = try self.addInputMergeSection(gpa);
+        const imsec = self.inputMergeSection(imsec_idx).?;
+        self.input_merge_sections_indexes.items[shndx] = imsec_idx;
 
         imsec.merge_section_index = try elf_file.getOrCreateMergeSection(atom_ptr.name(elf_file), shdr.sh_flags, shdr.sh_type);
         imsec.atom_index = atom_index;
@@ -741,8 +751,8 @@ pub fn initMergeSections(self: *Object, elf_file: *Elf) !void {
 pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
 
-    for (self.merge_sections.items) |index| {
-        const imsec = elf_file.inputMergeSection(index) orelse continue;
+    for (self.input_merge_sections_indexes.items) |index| {
+        const imsec = self.inputMergeSection(index) orelse continue;
         if (imsec.offsets.items.len == 0) continue;
         const msec = elf_file.mergeSection(imsec.merge_section_index);
         const atom_ptr = elf_file.atom(imsec.atom_index).?;
@@ -776,8 +786,8 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) !void {
 
         if (esym.st_shndx == elf.SHN_COMMON or esym.st_shndx == elf.SHN_UNDEF or esym.st_shndx == elf.SHN_ABS) continue;
 
-        const imsec_index = self.merge_sections.items[esym.st_shndx];
-        const imsec = elf_file.inputMergeSection(imsec_index) orelse continue;
+        const imsec_index = self.input_merge_sections_indexes.items[esym.st_shndx];
+        const imsec = self.inputMergeSection(imsec_index) orelse continue;
         if (imsec.offsets.items.len == 0) continue;
         const msub_index, const offset = imsec.findSubsection(@intCast(esym.st_value)) orelse {
             var err = try elf_file.base.addErrorWithNotes(2);
@@ -801,8 +811,8 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) !void {
             const esym = self.symtab.items[rel.r_sym()];
             if (esym.st_type() != elf.STT_SECTION) continue;
 
-            const imsec_index = self.merge_sections.items[esym.st_shndx];
-            const imsec = elf_file.inputMergeSection(imsec_index) orelse continue;
+            const imsec_index = self.input_merge_sections_indexes.items[esym.st_shndx];
+            const imsec = self.inputMergeSection(imsec_index) orelse continue;
             if (imsec.offsets.items.len == 0) continue;
             const msub_index, const offset = imsec.findSubsection(@intCast(@as(i64, @intCast(esym.st_value)) + rel.r_addend)) orelse {
                 var err = try elf_file.base.addErrorWithNotes(1);
@@ -1182,6 +1192,18 @@ fn preadRelocsAlloc(self: Object, allocator: Allocator, handle: std.fs.File, shn
     const raw = try self.preadShdrContentsAlloc(allocator, handle, shndx);
     const num = @divExact(raw.len, @sizeOf(elf.Elf64_Rela));
     return @as([*]align(1) const elf.Elf64_Rela, @ptrCast(raw.ptr))[0..num];
+}
+
+fn addInputMergeSection(self: *Object, allocator: Allocator) !InputMergeSection.Index {
+    const index: InputMergeSection.Index = @intCast(self.input_merge_sections.items.len);
+    const msec = try self.input_merge_sections.addOne(allocator);
+    msec.* = .{};
+    return index;
+}
+
+fn inputMergeSection(self: *Object, index: InputMergeSection.Index) ?*InputMergeSection {
+    if (index == 0) return null;
+    return &self.input_merge_sections.items[index];
 }
 
 pub fn format(
