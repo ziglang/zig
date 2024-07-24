@@ -49,7 +49,23 @@ const TLSVariant = enum {
 };
 
 const tls_variant = switch (native_arch) {
-    .arm, .armeb, .thumb, .aarch64, .aarch64_be, .riscv32, .riscv64, .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle, .powerpc64, .powerpc64le => TLSVariant.VariantI,
+    .arm,
+    .armeb,
+    .thumb,
+    .thumbeb,
+    .aarch64,
+    .aarch64_be,
+    .riscv32,
+    .riscv64,
+    .mips,
+    .mipsel,
+    .mips64,
+    .mips64el,
+    .powerpc,
+    .powerpcle,
+    .powerpc64,
+    .powerpc64le,
+    => TLSVariant.VariantI,
     .x86_64, .x86, .sparc64 => TLSVariant.VariantII,
     else => @compileError("undefined tls_variant for this architecture"),
 };
@@ -58,14 +74,14 @@ const tls_variant = switch (native_arch) {
 const tls_tcb_size = switch (native_arch) {
     // ARM EABI mandates enough space for two pointers: the first one points to
     // the DTV while the second one is unspecified but reserved
-    .arm, .armeb, .thumb, .aarch64, .aarch64_be => 2 * @sizeOf(usize),
+    .arm, .armeb, .thumb, .thumbeb, .aarch64, .aarch64_be => 2 * @sizeOf(usize),
     // One pointer-sized word that points either to the DTV or the TCB itself
     else => @sizeOf(usize),
 };
 
 // Controls if the TP points to the end of the TCB instead of its beginning
 const tls_tp_points_past_tcb = switch (native_arch) {
-    .riscv32, .riscv64, .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpc64, .powerpc64le => true,
+    .riscv32, .riscv64, .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle, .powerpc64, .powerpc64le => true,
     else => false,
 };
 
@@ -73,12 +89,12 @@ const tls_tp_points_past_tcb = switch (native_arch) {
 // make the generated code more efficient
 
 const tls_tp_offset = switch (native_arch) {
-    .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpc64, .powerpc64le => 0x7000,
+    .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle, .powerpc64, .powerpc64le => 0x7000,
     else => 0,
 };
 
 const tls_dtv_offset = switch (native_arch) {
-    .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpc64, .powerpc64le => 0x8000,
+    .mips, .mipsel, .mips64, .mips64el, .powerpc, .powerpcle, .powerpc64, .powerpc64le => 0x8000,
     .riscv32, .riscv64 => 0x800,
     else => 0,
 };
@@ -150,7 +166,7 @@ pub fn setThreadPointer(addr: usize) void {
                 : [addr] "r" (addr),
             );
         },
-        .arm, .thumb => {
+        .arm, .armeb, .thumb, .thumbeb => {
             const rc = @call(.always_inline, linux.syscall1, .{ .set_tls, addr });
             assert(rc == 0);
         },
