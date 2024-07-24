@@ -35,7 +35,7 @@ fn collectRoots(roots: *std.ArrayList(*Atom), files: []const File.Index, elf_fil
         const file = elf_file.file(index).?;
 
         for (file.atoms()) |atom_index| {
-            const atom = elf_file.atom(atom_index) orelse continue;
+            const atom = file.atom(atom_index) orelse continue;
             if (!atom.flags.alive) continue;
 
             const shdr = atom.inputShdr(elf_file);
@@ -120,8 +120,9 @@ fn mark(roots: std.ArrayList(*Atom), elf_file: *Elf) void {
 
 fn prune(files: []const File.Index, elf_file: *Elf) void {
     for (files) |index| {
-        for (elf_file.file(index).?.atoms()) |atom_index| {
-            const atom = elf_file.atom(atom_index) orelse continue;
+        const file = elf_file.file(index).?;
+        for (file.atoms()) |atom_index| {
+            const atom = file.atom(atom_index) orelse continue;
             if (atom.flags.alive and !atom.flags.visited) {
                 atom.flags.alive = false;
                 atom.markFdesDead(elf_file);
@@ -133,8 +134,9 @@ fn prune(files: []const File.Index, elf_file: *Elf) void {
 pub fn dumpPrunedAtoms(elf_file: *Elf) !void {
     const stderr = std.io.getStdErr().writer();
     for (elf_file.objects.items) |index| {
-        for (elf_file.file(index).?.object.atoms.items) |atom_index| {
-            const atom = elf_file.atom(atom_index) orelse continue;
+        const file = elf_file.file(index).?;
+        for (file.atoms()) |atom_index| {
+            const atom = file.atom(atom_index) orelse continue;
             if (!atom.flags.alive)
                 // TODO should we simply print to stderr?
                 try stderr.print("link: removing unused section '{s}' in file '{}'\n", .{

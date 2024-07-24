@@ -42,8 +42,8 @@ pub const Fde = struct {
         const object = elf_file.file(fde.file_index).?.object;
         const rel = fde.relocs(elf_file)[0];
         const sym = object.symtab.items[rel.r_sym()];
-        const atom_index = object.atoms.items[sym.st_shndx];
-        return elf_file.atom(atom_index).?;
+        const atom_index = object.atoms_indexes.items[sym.st_shndx];
+        return object.atom(atom_index).?;
     }
 
     pub fn relocs(fde: Fde, elf_file: *Elf) []align(1) const elf.Elf64_Rela {

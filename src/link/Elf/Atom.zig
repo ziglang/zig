@@ -68,7 +68,7 @@ pub fn file(self: Atom, elf_file: *Elf) ?File {
 
 pub fn thunk(self: Atom, elf_file: *Elf) *Thunk {
     assert(self.flags.thunk);
-    const extras = self.extra(elf_file).?;
+    const extras = self.extra(elf_file);
     return elf_file.thunk(extras.thunk);
 }
 
@@ -99,7 +99,8 @@ pub fn priority(self: Atom, elf_file: *Elf) u64 {
 /// File offset relocation happens transparently, so it is not included in
 /// this calculation.
 pub fn capacity(self: Atom, elf_file: *Elf) u64 {
-    const next_addr = if (elf_file.atom(self.next_index)) |next|
+    const zo = elf_file.zigObjectPtr().?;
+    const next_addr = if (zo.atom(self.next_index)) |next|
         next.address(elf_file)
     else
         std.math.maxInt(u32);
@@ -107,8 +108,9 @@ pub fn capacity(self: Atom, elf_file: *Elf) u64 {
 }
 
 pub fn freeListEligible(self: Atom, elf_file: *Elf) bool {
+    const zo = elf_file.zigObjectPtr().?;
     // No need to keep a free list node for the last block.
-    const next = elf_file.atom(self.next_index) orelse return false;
+    const next = zo.atom(self.next_index) orelse return false;
     const cap: u64 = @intCast(next.address(elf_file) - self.address(elf_file));
     const ideal_cap = Elf.padToIdeal(self.size);
     if (cap <= ideal_cap) return false;
@@ -117,6 +119,7 @@ pub fn freeListEligible(self: Atom, elf_file: *Elf) bool {
 }
 
 pub fn allocate(self: *Atom, elf_file: *Elf) !void {
+    const zo = elf_file.zigObjectPtr().?;
     const shdr = &elf_file.shdrs.items[self.outputShndx().?];
     const meta = elf_file.last_atom_and_free_list_table.getPtr(self.outputShndx().?).?;
     const free_list = &meta.free_list;
@@ -137,7 +140,7 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
         var i: usize = if (elf_file.base.child_pid == null) 0 else free_list.items.len;
         while (i < free_list.items.len) {
             const big_atom_index = free_list.items[i];
-            const big_atom = elf_file.atom(big_atom_index).?;
+            const big_atom = zo.atom(big_atom_index).?;
             // We now have a pointer to a live atom that has too much capacity.
             // Is it enough that we could fit this new atom?
             const cap = big_atom.capacity(elf_file);
@@ -169,7 +172,7 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
                 free_list_removal = i;
             }
             break :blk @intCast(new_start_vaddr);
-        } else if (elf_file.atom(last_atom_index.*)) |last| {
+        } else if (zo.atom(last_atom_index.*)) |last| {
             const ideal_capacity = Elf.padToIdeal(last.size);
             const ideal_capacity_end_vaddr = @as(u64, @intCast(last.value)) + ideal_capacity;
             const new_start_vaddr = self.alignment.forward(ideal_capacity_end_vaddr);
@@ -189,7 +192,7 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
     });
 
     const expand_section = if (atom_placement) |placement_index|
-        elf_file.atom(placement_index).?.next_index == 0
+        zo.atom(placement_index).?.next_index == 0
     else
         true;
     if (expand_section) {
@@ -214,15 +217,15 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
     // This function can also reallocate an atom.
     // In this case we need to "unplug" it from its previous location before
     // plugging it in to its new location.
-    if (elf_file.atom(self.prev_index)) |prev| {
+    if (zo.atom(self.prev_index)) |prev| {
         prev.next_index = self.next_index;
     }
-    if (elf_file.atom(self.next_index)) |next| {
+    if (zo.atom(self.next_index)) |next| {
         next.prev_index = self.prev_index;
     }
 
     if (atom_placement) |big_atom_index| {
-        const big_atom = elf_file.atom(big_atom_index).?;
+        const big_atom = zo.atom(big_atom_index).?;
         self.prev_index = big_atom_index;
         self.next_index = big_atom.next_index;
         big_atom.next_index = self.atom_index;
@@ -250,6 +253,7 @@ pub fn grow(self: *Atom, elf_file: *Elf) !void {
 pub fn free(self: *Atom, elf_file: *Elf) void {
     log.debug("freeAtom {d} ({s})", .{ self.atom_index, self.name(elf_file) });
 
+    const zo = elf_file.zigObjectPtr().?;
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
     const shndx = self.outputShndx().?;
@@ -272,9 +276,9 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
         }
     }
 
-    if (elf_file.atom(last_atom_index.*)) |last_atom| {
+    if (zo.atom(last_atom_index.*)) |last_atom| {
         if (last_atom.atom_index == self.atom_index) {
-            if (elf_file.atom(self.prev_index)) |_| {
+            if (zo.atom(self.prev_index)) |_| {
                 // TODO shrink the section size here
                 last_atom_index.* = self.prev_index;
             } else {
@@ -283,7 +287,7 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
         }
     }
 
-    if (elf_file.atom(self.prev_index)) |prev| {
+    if (zo.atom(self.prev_index)) |prev| {
         prev.next_index = self.next_index;
         if (!already_have_free_list_node and prev.*.freeListEligible(elf_file)) {
             // The free list is heuristics, it doesn't have to be perfect, so we can
@@ -294,7 +298,7 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
         self.prev_index = 0;
     }
 
-    if (elf_file.atom(self.next_index)) |next| {
+    if (zo.atom(self.next_index)) |next| {
         next.prev_index = self.prev_index;
     } else {
         self.next_index = 0;
@@ -313,7 +317,7 @@ pub fn relocs(self: Atom, elf_file: *Elf) []const elf.Elf64_Rela {
     switch (self.file(elf_file).?) {
         .zig_object => |x| return x.relocs.items[shndx].items,
         .object => |x| {
-            const extras = self.extra(elf_file).?;
+            const extras = self.extra(elf_file);
             return x.relocs.items[extras.rel_index..][0..extras.rel_count];
         },
         else => unreachable,
@@ -367,7 +371,7 @@ pub fn writeRelocs(self: Atom, elf_file: *Elf, out_relocs: *std.ArrayList(elf.El
 
 pub fn fdes(self: Atom, elf_file: *Elf) []Fde {
     if (!self.flags.fde) return &[0]Fde{};
-    const extras = self.extra(elf_file).?;
+    const extras = self.extra(elf_file);
     const object = self.file(elf_file).?.object;
     return object.fdes.items[extras.fde_start..][0..extras.fde_count];
 }
@@ -712,9 +716,9 @@ fn reportUndefined(
     {
         const gop = try undefs.getOrPut(sym_index);
         if (!gop.found_existing) {
-            gop.value_ptr.* = std.ArrayList(Atom.Index).init(gpa);
+            gop.value_ptr.* = std.ArrayList(Elf.Ref).init(gpa);
         }
-        try gop.value_ptr.append(self.atom_index);
+        try gop.value_ptr.append(.{ .index = self.atom_index, .file = self.file_index });
         return true;
     }
 
@@ -1001,25 +1005,23 @@ const AddExtraOpts = struct {
     rel_count: ?u32 = null,
 };
 
-pub fn addExtra(atom: *Atom, opts: AddExtraOpts, elf_file: *Elf) !void {
-    if (atom.extra(elf_file) == null) {
-        atom.extra_index = try elf_file.addAtomExtra(.{});
-    }
-    var extras = atom.extra(elf_file).?;
+pub fn addExtra(atom: *Atom, opts: AddExtraOpts, elf_file: *Elf) void {
+    const file_ptr = atom.file(elf_file).?;
+    var extras = file_ptr.atomExtra(atom.extra_index);
     inline for (@typeInfo(@TypeOf(opts)).Struct.fields) |field| {
         if (@field(opts, field.name)) |x| {
             @field(extras, field.name) = x;
         }
     }
-    atom.setExtra(extras, elf_file);
+    file_ptr.setAtomExtra(atom.extra_index, extras);
 }
 
-pub inline fn extra(atom: Atom, elf_file: *Elf) ?Extra {
-    return elf_file.atomExtra(atom.extra_index);
+pub inline fn extra(atom: Atom, elf_file: *Elf) Extra {
+    return atom.file(elf_file).?.atomExtra(atom.extra_index);
 }
 
 pub inline fn setExtra(atom: Atom, extras: Extra, elf_file: *Elf) void {
-    elf_file.setAtomExtra(atom.extra_index, extras);
+    atom.file(elf_file).?.setAtomExtra(atom.extra_index, extras);
 }
 
 pub fn format(
@@ -1063,7 +1065,7 @@ fn format2(
     });
     if (atom.flags.fde) {
         try writer.writeAll(" : fdes{ ");
-        const extras = atom.extra(elf_file).?;
+        const extras = atom.extra(elf_file);
         for (atom.fdes(elf_file), extras.fde_start..) |fde, i| {
             try writer.print("{d}", .{i});
             if (!fde.alive) try writer.writeAll("([*])");

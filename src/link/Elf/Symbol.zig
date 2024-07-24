@@ -9,10 +9,9 @@ name_offset: u32 = 0,
 /// Index of file where this symbol is defined.
 file_index: File.Index = 0,
 
-/// Index of atom containing this symbol.
-/// Index of 0 means there is no associated atom with this symbol.
+/// Reference to Atom containing this symbol if any.
 /// Use `atom` to get the pointer to the atom.
-atom_index: Atom.Index = 0,
+atom_ref: Elf.Ref = .{ .index = 0, .file = 0 },
 
 /// Assigned output section index for this symbol.
 output_section_index: u32 = 0,
@@ -68,7 +67,8 @@ pub fn name(symbol: Symbol, elf_file: *Elf) [:0]const u8 {
 }
 
 pub fn atom(symbol: Symbol, elf_file: *Elf) ?*Atom {
-    return elf_file.atom(symbol.atom_index);
+    const file_ptr = elf_file.file(symbol.atom_ref.file) orelse return null;
+    return file_ptr.atom(symbol.atom_ref.index);
 }
 
 pub fn mergeSubsection(symbol: Symbol, elf_file: *Elf) ?*MergeSubsection {

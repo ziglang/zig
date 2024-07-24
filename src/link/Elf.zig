@@ -54,7 +54,7 @@ phdr_to_shdr_table: std.AutoHashMapUnmanaged(u32, u32) = .{},
 shdr_table_offset: ?u64 = null,
 /// Table of lists of atoms per output section.
 /// This table is not used to track incrementally generated atoms.
-output_sections: std.AutoArrayHashMapUnmanaged(u32, std.ArrayListUnmanaged(Atom.Index)) = .{},
+output_sections: std.AutoArrayHashMapUnmanaged(u32, std.ArrayListUnmanaged(Ref)) = .{},
 output_rela_sections: std.AutoArrayHashMapUnmanaged(u32, RelaSection) = .{},
 
 /// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
@@ -202,10 +202,6 @@ resolver: std.AutoArrayHashMapUnmanaged(u32, Symbol.Index) = .{},
 
 has_text_reloc: bool = false,
 num_ifunc_dynrelocs: usize = 0,
-
-/// List of atoms that are owned directly by the linker.
-atoms: std.ArrayListUnmanaged(Atom) = .{},
-atoms_extra: std.ArrayListUnmanaged(u32) = .{},
 
 /// List of range extension thunks.
 thunks: std.ArrayListUnmanaged(Thunk) = .{},
@@ -375,9 +371,6 @@ pub fn createEmpty(
     try self.symbols.append(gpa, .{});
     // Index 0 is always a null symbol.
     try self.symbols_extra.append(gpa, 0);
-    // Allocate atom index 0 to null atom
-    try self.atoms.append(gpa, .{});
-    try self.atoms_extra.append(gpa, 0);
     // Append null file at index 0
     try self.files.append(gpa, .null);
     // Append null byte to string tables
@@ -499,8 +492,6 @@ pub fn deinit(self: *Elf) void {
     self.resolver.deinit(gpa);
     self.start_stop_indexes.deinit(gpa);
 
-    self.atoms.deinit(gpa);
-    self.atoms_extra.deinit(gpa);
     for (self.thunks.items) |*th| {
         th.deinit(gpa);
     }
@@ -1305,6 +1296,8 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
         const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
         self.files.set(index, .{ .linker_defined = .{ .index = index } });
         self.linker_defined_index = index;
+        const object = self.file(index).?.linker_defined;
+        try object.init(gpa);
     }
 
     // Now, we are ready to resolve the symbols across all input files.
@@ -1379,15 +1372,15 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
 
     // Beyond this point, everything has been allocated a virtual address and we can resolve
     // the relocations, and commit objects to file.
-    if (self.zigObjectPtr()) |zig_object| {
+    if (self.zigObjectPtr()) |zo| {
         var has_reloc_errors = false;
-        for (zig_object.atoms.items) |atom_index| {
-            const atom_ptr = self.atom(atom_index) orelse continue;
+        for (zo.atoms_indexes.items) |atom_index| {
+            const atom_ptr = zo.atom(atom_index) orelse continue;
             if (!atom_ptr.flags.alive) continue;
             const out_shndx = atom_ptr.outputShndx() orelse continue;
             const shdr = &self.shdrs.items[out_shndx];
             if (shdr.sh_type == elf.SHT_NOBITS) continue;
-            const code = try zig_object.codeAlloc(self, atom_index);
+            const code = try zo.codeAlloc(self, atom_index);
             defer gpa.free(code);
             const file_offset = shdr.sh_offset + @as(u64, @intCast(atom_ptr.value));
             atom_ptr.resolveRelocsAlloc(self, code) catch |err| switch (err) {
@@ -2012,8 +2005,8 @@ pub fn resolveSymbols(self: *Elf) void {
             const cg_owner = self.comdatGroupOwner(cg.owner);
             if (cg_owner.file != index) {
                 for (cg.comdatGroupMembers(self)) |shndx| {
-                    const atom_index = object.atoms.items[shndx];
-                    if (self.atom(atom_index)) |atom_ptr| {
+                    const atom_index = object.atoms_indexes.items[shndx];
+                    if (object.atom(atom_index)) |atom_ptr| {
                         atom_ptr.flags.alive = false;
                         atom_ptr.markFdesDead(self);
                     }
@@ -2117,7 +2110,7 @@ fn claimUnresolved(self: *Elf) void {
 fn scanRelocs(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
 
-    var undefs = std.AutoHashMap(Symbol.Index, std.ArrayList(Atom.Index)).init(gpa);
+    var undefs = std.AutoHashMap(Symbol.Index, std.ArrayList(Ref)).init(gpa);
     defer {
         var it = undefs.iterator();
         while (it.next()) |entry| {
@@ -3721,11 +3714,11 @@ fn sortInitFini(self: *Elf) !void {
 
     const Entry = struct {
         priority: i32,
-        atom_index: Atom.Index,
+        atom_ref: Ref,
 
         pub fn lessThan(ctx: *Elf, lhs: @This(), rhs: @This()) bool {
             if (lhs.priority == rhs.priority) {
-                return ctx.atom(lhs.atom_index).?.priority(ctx) < ctx.atom(rhs.atom_index).?.priority(ctx);
+                return ctx.atom(lhs.atom_ref).?.priority(ctx) < ctx.atom(rhs.atom_ref).?.priority(ctx);
             }
             return lhs.priority < rhs.priority;
         }
@@ -3756,8 +3749,8 @@ fn sortInitFini(self: *Elf) !void {
         try entries.ensureTotalCapacityPrecise(atom_list.items.len);
         defer entries.deinit();
 
-        for (atom_list.items) |atom_index| {
-            const atom_ptr = self.atom(atom_index).?;
+        for (atom_list.items) |ref| {
+            const atom_ptr = self.atom(ref).?;
             const object = atom_ptr.file(self).?.object;
             const priority = blk: {
                 if (is_ctor_dtor) {
@@ -3770,14 +3763,14 @@ fn sortInitFini(self: *Elf) !void {
                 const priority = std.fmt.parseUnsigned(u16, it.first(), 10) catch default;
                 break :blk priority;
             };
-            entries.appendAssumeCapacity(.{ .priority = priority, .atom_index = atom_index });
+            entries.appendAssumeCapacity(.{ .priority = priority, .atom_ref = ref });
         }
 
         mem.sort(Entry, entries.items, self, Entry.lessThan);
 
         atom_list.clearRetainingCapacity();
         for (entries.items) |entry| {
-            atom_list.appendAssumeCapacity(entry.atom_index);
+            atom_list.appendAssumeCapacity(entry.atom_ref);
         }
     }
 }
@@ -4143,23 +4136,23 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) !void {
         }
     }
 
-    if (self.zigObjectPtr()) |zig_object| {
-        for (zig_object.atoms.items) |atom_index| {
-            const atom_ptr = self.atom(atom_index) orelse continue;
+    if (self.zigObjectPtr()) |zo| {
+        for (zo.atoms_indexes.items) |atom_index| {
+            const atom_ptr = zo.atom(atom_index) orelse continue;
             atom_ptr.output_section_index = backlinks[atom_ptr.output_section_index];
         }
 
-        for (zig_object.locals()) |local_index| {
+        for (zo.locals()) |local_index| {
             const local = self.symbol(local_index);
             local.output_section_index = backlinks[local.output_section_index];
         }
 
-        for (zig_object.globals()) |global_index| {
+        for (zo.globals()) |global_index| {
             const global = self.symbol(global_index);
             const atom_ptr = global.atom(self) orelse continue;
             if (!atom_ptr.flags.alive) continue;
             // TODO claim unresolved for objects
-            if (global.file(self).?.index() != zig_object.index) continue;
+            if (global.file(self).?.index() != zo.index) continue;
             const out_shndx = global.outputShndx() orelse continue;
             global.output_section_index = backlinks[out_shndx];
         }
@@ -4182,8 +4175,8 @@ fn updateSectionSizes(self: *Elf) !void {
         const shdr = &self.shdrs.items[shndx];
         if (atom_list.items.len == 0) continue;
         if (self.requiresThunks() and shdr.sh_flags & elf.SHF_EXECINSTR != 0) continue;
-        for (atom_list.items) |atom_index| {
-            const atom_ptr = self.atom(atom_index) orelse continue;
+        for (atom_list.items) |ref| {
+            const atom_ptr = self.atom(ref) orelse continue;
             if (!atom_ptr.flags.alive) continue;
             const offset = atom_ptr.alignment.forward(shdr.sh_size);
             const padding = offset - shdr.sh_size;
@@ -4618,7 +4611,7 @@ fn allocateSpecialPhdrs(self: *Elf) void {
 fn writeAtoms(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
 
-    var undefs = std.AutoHashMap(Symbol.Index, std.ArrayList(Atom.Index)).init(gpa);
+    var undefs = std.AutoHashMap(Symbol.Index, std.ArrayList(Ref)).init(gpa);
     defer {
         var it = undefs.iterator();
         while (it.next()) |entry| {
@@ -4666,21 +4659,21 @@ fn writeAtoms(self: *Elf) !void {
             0;
         @memset(buffer, padding_byte);
 
-        for (atom_list.items) |atom_index| {
-            const atom_ptr = self.atom(atom_index).?;
+        for (atom_list.items) |ref| {
+            const atom_ptr = self.atom(ref).?;
             assert(atom_ptr.flags.alive);
 
             const offset = math.cast(usize, atom_ptr.value - @as(i64, @intCast(base_offset))) orelse
                 return error.Overflow;
             const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
 
-            log.debug("writing atom({d}) at 0x{x}", .{ atom_index, sh_offset + offset });
+            log.debug("writing atom({}) at 0x{x}", .{ ref, sh_offset + offset });
 
             // TODO decompress directly into provided buffer
             const out_code = buffer[offset..][0..size];
             const in_code = switch (atom_ptr.file(self).?) {
-                .object => |x| try x.codeDecompressAlloc(self, atom_index),
-                .zig_object => |x| try x.codeAlloc(self, atom_index),
+                .object => |x| try x.codeDecompressAlloc(self, ref.index),
+                .zig_object => |x| try x.codeAlloc(self, ref.index),
                 else => unreachable,
             };
             defer gpa.free(in_code);
@@ -5598,64 +5591,6 @@ fn getStartStopBasename(self: *Elf, shdr: elf.Elf64_Shdr) ?[]const u8 {
     return null;
 }
 
-pub fn atom(self: *Elf, atom_index: Atom.Index) ?*Atom {
-    if (atom_index == 0) return null;
-    assert(atom_index < self.atoms.items.len);
-    return &self.atoms.items[atom_index];
-}
-
-pub fn addAtom(self: *Elf) !Atom.Index {
-    const gpa = self.base.comp.gpa;
-    const index = @as(Atom.Index, @intCast(self.atoms.items.len));
-    const atom_ptr = try self.atoms.addOne(gpa);
-    atom_ptr.* = .{ .atom_index = index };
-    return index;
-}
-
-pub fn addAtomExtra(self: *Elf, extra: Atom.Extra) !u32 {
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
-    try self.atoms_extra.ensureUnusedCapacity(self.base.comp.gpa, fields.len);
-    return self.addAtomExtraAssumeCapacity(extra);
-}
-
-pub fn addAtomExtraAssumeCapacity(self: *Elf, extra: Atom.Extra) u32 {
-    const index = @as(u32, @intCast(self.atoms_extra.items.len));
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
-    inline for (fields) |field| {
-        self.atoms_extra.appendAssumeCapacity(switch (field.type) {
-            u32 => @field(extra, field.name),
-            else => @compileError("bad field type"),
-        });
-    }
-    return index;
-}
-
-pub fn atomExtra(self: *Elf, index: u32) ?Atom.Extra {
-    if (index == 0) return null;
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
-    var i: usize = index;
-    var result: Atom.Extra = undefined;
-    inline for (fields) |field| {
-        @field(result, field.name) = switch (field.type) {
-            u32 => self.atoms_extra.items[i],
-            else => @compileError("bad field type"),
-        };
-        i += 1;
-    }
-    return result;
-}
-
-pub fn setAtomExtra(self: *Elf, index: u32, extra: Atom.Extra) void {
-    assert(index > 0);
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
-    inline for (fields, 0..) |field, i| {
-        self.atoms_extra.items[index + i] = switch (field.type) {
-            u32 => @field(extra, field.name),
-            else => @compileError("bad field type"),
-        };
-    }
-}
-
 pub fn addThunk(self: *Elf) !Thunk.Index {
     const index = @as(Thunk.Index, @intCast(self.thunks.items.len));
     const th = try self.thunks.addOne(self.base.comp.gpa);
@@ -5690,6 +5625,11 @@ pub fn addFileHandle(self: *Elf, handle: fs.File) !File.HandleIndex {
 pub fn fileHandle(self: Elf, index: File.HandleIndex) File.Handle {
     assert(index < self.file_handles.items.len);
     return self.file_handles.items[index];
+}
+
+pub fn atom(self: *Elf, ref: Ref) ?*Atom {
+    const file_ptr = self.file(ref.file) orelse return null;
+    return file_ptr.atom(ref.index);
 }
 
 /// Returns pointer-to-symbol described at sym_index.
@@ -5938,9 +5878,9 @@ fn reportUndefinedSymbols(self: *Elf, undefs: anytype) !void {
         var err = try self.base.addErrorWithNotesAssumeCapacity(nnotes);
         try err.addMsg("undefined symbol: {s}", .{self.symbol(undef_index).name(self)});
 
-        for (atoms[0..natoms]) |atom_index| {
-            const atom_ptr = self.atom(atom_index).?;
-            const file_ptr = self.file(atom_ptr.file_index).?;
+        for (atoms[0..natoms]) |ref| {
+            const atom_ptr = self.atom(ref).?;
+            const file_ptr = self.file(ref.file).?;
             try err.addNote("referenced by {s}:{s}", .{ file_ptr.fmtPath(), atom_ptr.name(self) });
         }
 
@@ -6401,7 +6341,7 @@ const LastAtomAndFreeListTable = std.AutoArrayHashMapUnmanaged(u32, LastAtomAndF
 
 const RelaSection = struct {
     shndx: u32,
-    atom_list: std.ArrayListUnmanaged(Atom.Index) = .{},
+    atom_list: std.ArrayListUnmanaged(Ref) = .{},
 };
 const RelaSectionTable = std.AutoArrayHashMapUnmanaged(u32, RelaSection);
 

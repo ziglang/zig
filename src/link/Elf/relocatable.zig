@@ -341,8 +341,8 @@ fn initComdatGroups(elf_file: *Elf) !void {
 fn updateSectionSizes(elf_file: *Elf) !void {
     for (elf_file.output_sections.keys(), elf_file.output_sections.values()) |shndx, atom_list| {
         const shdr = &elf_file.shdrs.items[shndx];
-        for (atom_list.items) |atom_index| {
-            const atom_ptr = elf_file.atom(atom_index) orelse continue;
+        for (atom_list.items) |ref| {
+            const atom_ptr = elf_file.atom(ref) orelse continue;
             if (!atom_ptr.flags.alive) continue;
             const offset = atom_ptr.alignment.forward(shdr.sh_size);
             const padding = offset - shdr.sh_size;
@@ -354,8 +354,8 @@ fn updateSectionSizes(elf_file: *Elf) !void {
 
     for (elf_file.output_rela_sections.values()) |sec| {
         const shdr = &elf_file.shdrs.items[sec.shndx];
-        for (sec.atom_list.items) |atom_index| {
-            const atom_ptr = elf_file.atom(atom_index) orelse continue;
+        for (sec.atom_list.items) |ref| {
+            const atom_ptr = elf_file.atom(ref) orelse continue;
             if (!atom_ptr.flags.alive) continue;
             const relocs = atom_ptr.relocs(elf_file);
             shdr.sh_size += shdr.sh_entsize * relocs.len;
@@ -448,16 +448,16 @@ fn writeAtoms(elf_file: *Elf) !void {
             0;
         @memset(buffer, padding_byte);
 
-        for (atom_list.items) |atom_index| {
-            const atom_ptr = elf_file.atom(atom_index).?;
+        for (atom_list.items) |ref| {
+            const atom_ptr = elf_file.atom(ref).?;
             assert(atom_ptr.flags.alive);
 
             const offset = math.cast(usize, atom_ptr.value - @as(i64, @intCast(shdr.sh_addr - base_offset))) orelse
                 return error.Overflow;
             const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
 
-            log.debug("writing atom({d}) from 0x{x} to 0x{x}", .{
-                atom_index,
+            log.debug("writing atom({}) from 0x{x} to 0x{x}", .{
+                ref,
                 sh_offset + offset,
                 sh_offset + offset + size,
             });
@@ -465,8 +465,8 @@ fn writeAtoms(elf_file: *Elf) !void {
             // TODO decompress directly into provided buffer
             const out_code = buffer[offset..][0..size];
             const in_code = switch (atom_ptr.file(elf_file).?) {
-                .object => |x| try x.codeDecompressAlloc(elf_file, atom_index),
-                .zig_object => |x| try x.codeAlloc(elf_file, atom_index),
+                .object => |x| try x.codeDecompressAlloc(elf_file, ref.index),
+                .zig_object => |x| try x.codeAlloc(elf_file, ref.index),
                 else => unreachable,
             };
             defer gpa.free(in_code);
@@ -490,8 +490,8 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
         var relocs = try std.ArrayList(elf.Elf64_Rela).initCapacity(gpa, num_relocs);
         defer relocs.deinit();
 
-        for (sec.atom_list.items) |atom_index| {
-            const atom_ptr = elf_file.atom(atom_index) orelse continue;
+        for (sec.atom_list.items) |ref| {
+            const atom_ptr = elf_file.atom(ref) orelse continue;
             if (!atom_ptr.flags.alive) continue;
             try atom_ptr.writeRelocs(elf_file, &relocs);
         }

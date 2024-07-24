@@ -10,8 +10,11 @@ symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
 first_global: ?Symbol.Index = null,
 symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
-atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
 relocs: std.ArrayListUnmanaged(elf.Elf64_Rela) = .{},
+
+atoms: std.ArrayListUnmanaged(Atom) = .{},
+atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .{},
+atoms_extra: std.ArrayListUnmanaged(u32) = .{},
 
 comdat_groups: std.ArrayListUnmanaged(Elf.ComdatGroup) = .{},
 comdat_group_data: std.ArrayListUnmanaged(u32) = .{},
@@ -49,6 +52,8 @@ pub fn deinit(self: *Object, allocator: Allocator) void {
     self.strtab.deinit(allocator);
     self.symbols.deinit(allocator);
     self.atoms.deinit(allocator);
+    self.atoms_indexes.deinit(allocator);
+    self.atoms_extra.deinit(allocator);
     self.comdat_groups.deinit(allocator);
     self.comdat_group_data.deinit(allocator);
     self.relocs.deinit(allocator);
@@ -71,15 +76,17 @@ pub fn parse(self: *Object, elf_file: *Elf) !void {
 
     // Append null input merge section
     try self.input_merge_sections.append(gpa, .{});
+    // Allocate atom index 0 to null atom
+    try self.atoms.append(gpa, .{ .extra_index = try self.addAtomExtra(gpa, .{}) });
 
     try self.initAtoms(gpa, handle, elf_file);
     try self.initSymtab(gpa, elf_file);
 
     for (self.shdrs.items, 0..) |shdr, i| {
-        const atom = elf_file.atom(self.atoms.items[i]) orelse continue;
-        if (!atom.flags.alive) continue;
+        const atom_ptr = self.atom(self.atoms_indexes.items[i]) orelse continue;
+        if (!atom_ptr.flags.alive) continue;
         if ((cpu_arch == .x86_64 and shdr.sh_type == elf.SHT_X86_64_UNWIND) or
-            mem.eql(u8, atom.name(elf_file), ".eh_frame"))
+            mem.eql(u8, atom_ptr.name(elf_file), ".eh_frame"))
         {
             try self.parseEhFrame(gpa, handle, @as(u32, @intCast(i)), elf_file);
         }
@@ -179,8 +186,11 @@ fn parseCommon(self: *Object, allocator: Allocator, handle: std.fs.File, elf_fil
 
 fn initAtoms(self: *Object, allocator: Allocator, handle: std.fs.File, elf_file: *Elf) !void {
     const shdrs = self.shdrs.items;
-    try self.atoms.resize(allocator, shdrs.len);
-    @memset(self.atoms.items, 0);
+    try self.atoms.ensureTotalCapacityPrecise(allocator, shdrs.len);
+    try self.atoms_extra.ensureTotalCapacityPrecise(allocator, shdrs.len * @sizeOf(Atom.Extra));
+    try self.atoms_indexes.ensureTotalCapacityPrecise(allocator, shdrs.len);
+    try self.atoms_indexes.resize(allocator, shdrs.len);
+    @memset(self.atoms_indexes.items, 0);
 
     for (shdrs, 0..) |shdr, i| {
         if (shdr.sh_flags & elf.SHF_EXCLUDE != 0 and
@@ -242,7 +252,19 @@ fn initAtoms(self: *Object, allocator: Allocator, handle: std.fs.File, elf_file:
             else => {
                 const shndx = @as(u32, @intCast(i));
                 if (self.skipShdr(shndx, elf_file)) continue;
-                try self.addAtom(allocator, handle, shdr, shndx, elf_file);
+                const size, const alignment = if (shdr.sh_flags & elf.SHF_COMPRESSED != 0) blk: {
+                    const data = try self.preadShdrContentsAlloc(allocator, handle, shndx);
+                    defer allocator.free(data);
+                    const chdr = @as(*align(1) const elf.Elf64_Chdr, @ptrCast(data.ptr)).*;
+                    break :blk .{ chdr.ch_size, Alignment.fromNonzeroByteUnits(chdr.ch_addralign) };
+                } else .{ shdr.sh_size, Alignment.fromNonzeroByteUnits(shdr.sh_addralign) };
+                const atom_index = self.addAtomAssumeCapacity(.{
+                    .name = shdr.sh_name,
+                    .shndx = shndx,
+                    .size = size,
+                    .alignment = alignment,
+                });
+                self.atoms_indexes.items[shndx] = atom_index;
             },
         }
     }
@@ -250,14 +272,14 @@ fn initAtoms(self: *Object, allocator: Allocator, handle: std.fs.File, elf_file:
     // Parse relocs sections if any.
     for (shdrs, 0..) |shdr, i| switch (shdr.sh_type) {
         elf.SHT_REL, elf.SHT_RELA => {
-            const atom_index = self.atoms.items[shdr.sh_info];
-            if (elf_file.atom(atom_index)) |atom| {
+            const atom_index = self.atoms_indexes.items[shdr.sh_info];
+            if (self.atom(atom_index)) |atom_ptr| {
                 const relocs = try self.preadRelocsAlloc(allocator, handle, @intCast(i));
                 defer allocator.free(relocs);
-                atom.relocs_section_index = @intCast(i);
+                atom_ptr.relocs_section_index = @intCast(i);
                 const rel_index: u32 = @intCast(self.relocs.items.len);
                 const rel_count: u32 = @intCast(relocs.len);
-                try atom.addExtra(.{ .rel_index = rel_index, .rel_count = rel_count }, elf_file);
+                atom_ptr.addExtra(.{ .rel_index = rel_index, .rel_count = rel_count }, elf_file);
                 try self.relocs.appendUnalignedSlice(allocator, relocs);
                 if (elf_file.getTarget().cpu.arch == .riscv64) {
                     sortRelocs(self.relocs.items[rel_index..][0..rel_count]);
@@ -266,27 +288,6 @@ fn initAtoms(self: *Object, allocator: Allocator, handle: std.fs.File, elf_file:
         },
         else => {},
     };
-}
-
-fn addAtom(self: *Object, allocator: Allocator, handle: std.fs.File, shdr: elf.Elf64_Shdr, shndx: u32, elf_file: *Elf) !void {
-    const atom_index = try elf_file.addAtom();
-    const atom = elf_file.atom(atom_index).?;
-    atom.atom_index = atom_index;
-    atom.name_offset = shdr.sh_name;
-    atom.file_index = self.index;
-    atom.input_section_index = shndx;
-    self.atoms.items[shndx] = atom_index;
-
-    if (shdr.sh_flags & elf.SHF_COMPRESSED != 0) {
-        const data = try self.preadShdrContentsAlloc(allocator, handle, shndx);
-        defer allocator.free(data);
-        const chdr = @as(*align(1) const elf.Elf64_Chdr, @ptrCast(data.ptr)).*;
-        atom.size = chdr.ch_size;
-        atom.alignment = Alignment.fromNonzeroByteUnits(chdr.ch_addralign);
-    } else {
-        atom.size = shdr.sh_size;
-        atom.alignment = Alignment.fromNonzeroByteUnits(shdr.sh_addralign);
-    }
 }
 
 fn initOutputSection(self: Object, elf_file: *Elf, shdr: elf.Elf64_Shdr) error{OutOfMemory}!u32 {
@@ -368,8 +369,10 @@ fn initSymtab(self: *Object, allocator: Allocator, elf_file: *Elf) !void {
         sym_ptr.value = @intCast(sym.st_value);
         sym_ptr.name_offset = sym.st_name;
         sym_ptr.esym_index = @as(u32, @intCast(i));
-        sym_ptr.atom_index = if (sym.st_shndx == elf.SHN_ABS) 0 else self.atoms.items[sym.st_shndx];
         sym_ptr.file_index = self.index;
+        if (sym.st_shndx != elf.SHN_ABS) {
+            sym_ptr.atom_ref = .{ .index = self.atoms_indexes.items[sym.st_shndx], .file = self.index };
+        }
     }
 
     for (self.symtab.items[first_global..]) |sym| {
@@ -456,15 +459,15 @@ fn parseEhFrame(self: *Object, allocator: Allocator, handle: std.fs.File, shndx:
     var i: u32 = @as(u32, @intCast(fdes_start));
     while (i < self.fdes.items.len) {
         const fde = self.fdes.items[i];
-        const atom = fde.atom(elf_file);
+        const atom_ptr = fde.atom(elf_file);
         const start = i;
         i += 1;
         while (i < self.fdes.items.len) : (i += 1) {
             const next_fde = self.fdes.items[i];
-            if (atom.atom_index != next_fde.atom(elf_file).atom_index) break;
+            if (atom_ptr.atom_index != next_fde.atom(elf_file).atom_index) break;
         }
-        try atom.addExtra(.{ .fde_start = start, .fde_count = i - start }, elf_file);
-        atom.flags.fde = true;
+        atom_ptr.addExtra(.{ .fde_start = start, .fde_count = i - start }, elf_file);
+        atom_ptr.flags.fde = true;
     }
 }
 
@@ -507,19 +510,19 @@ fn filterRelocs(
 pub fn scanRelocs(self: *Object, elf_file: *Elf, undefs: anytype) !void {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
-    for (self.atoms.items) |atom_index| {
-        const atom = elf_file.atom(atom_index) orelse continue;
-        if (!atom.flags.alive) continue;
-        const shdr = atom.inputShdr(elf_file);
+    for (self.atoms_indexes.items) |atom_index| {
+        const atom_ptr = self.atom(atom_index) orelse continue;
+        if (!atom_ptr.flags.alive) continue;
+        const shdr = atom_ptr.inputShdr(elf_file);
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
         if (shdr.sh_type == elf.SHT_NOBITS) continue;
-        if (atom.scanRelocsRequiresCode(elf_file)) {
+        if (atom_ptr.scanRelocsRequiresCode(elf_file)) {
             // TODO ideally, we don't have to decompress at this stage (should already be done)
             // and we just fetch the code slice.
             const code = try self.codeDecompressAlloc(elf_file, atom_index);
             defer gpa.free(code);
-            try atom.scanRelocs(elf_file, code, undefs);
-        } else try atom.scanRelocs(elf_file, null, undefs);
+            try atom_ptr.scanRelocs(elf_file, code, undefs);
+        } else try atom_ptr.scanRelocs(elf_file, null, undefs);
     }
 
     for (self.cies.items) |cie| {
@@ -547,19 +550,21 @@ pub fn resolveSymbols(self: *Object, elf_file: *Elf) void {
         if (esym.st_shndx == elf.SHN_UNDEF) continue;
 
         if (esym.st_shndx != elf.SHN_ABS and esym.st_shndx != elf.SHN_COMMON) {
-            const atom_index = self.atoms.items[esym.st_shndx];
-            const atom = elf_file.atom(atom_index) orelse continue;
-            if (!atom.flags.alive) continue;
+            const atom_index = self.atoms_indexes.items[esym.st_shndx];
+            const atom_ptr = self.atom(atom_index) orelse continue;
+            if (!atom_ptr.flags.alive) continue;
         }
 
         const global = elf_file.symbol(index);
         if (self.asFile().symbolRank(esym, !self.alive) < global.symbolRank(elf_file)) {
-            const atom_index = switch (esym.st_shndx) {
-                elf.SHN_ABS, elf.SHN_COMMON => 0,
-                else => self.atoms.items[esym.st_shndx],
-            };
+            switch (esym.st_shndx) {
+                elf.SHN_ABS, elf.SHN_COMMON => {},
+                else => global.atom_ref = .{
+                    .index = self.atoms_indexes.items[esym.st_shndx],
+                    .file = self.index,
+                },
+            }
             global.value = @intCast(esym.st_value);
-            global.atom_index = atom_index;
             global.esym_index = esym_index;
             global.file_index = self.index;
             global.version_index = elf_file.default_sym_version;
@@ -588,7 +593,7 @@ pub fn claimUnresolved(self: *Object, elf_file: *Elf) void {
         };
 
         global.value = 0;
-        global.atom_index = 0;
+        global.atom_ref = .{ .index = 0, .file = 0 };
         global.esym_index = esym_index;
         global.file_index = self.index;
         global.version_index = if (is_import) elf.VER_NDX_LOCAL else elf_file.default_sym_version;
@@ -609,7 +614,7 @@ pub fn claimUnresolvedObject(self: *Object, elf_file: *Elf) void {
         }
 
         global.value = 0;
-        global.atom_index = 0;
+        global.atom_ref = .{ .index = 0, .file = 0 };
         global.esym_index = esym_index;
         global.file_index = self.index;
     }
@@ -633,13 +638,13 @@ pub fn markLive(self: *Object, elf_file: *Elf) void {
     }
 }
 
-pub fn markEhFrameAtomsDead(self: Object, elf_file: *Elf) void {
+pub fn markEhFrameAtomsDead(self: *Object, elf_file: *Elf) void {
     const cpu_arch = elf_file.getTarget().cpu.arch;
-    for (self.atoms.items) |atom_index| {
-        const atom = elf_file.atom(atom_index) orelse continue;
-        const is_eh_frame = (cpu_arch == .x86_64 and atom.inputShdr(elf_file).sh_type == elf.SHT_X86_64_UNWIND) or
-            mem.eql(u8, atom.name(elf_file), ".eh_frame");
-        if (atom.flags.alive and is_eh_frame) atom.flags.alive = false;
+    for (self.atoms_indexes.items) |atom_index| {
+        const atom_ptr = self.atom(atom_index) orelse continue;
+        const is_eh_frame = (cpu_arch == .x86_64 and atom_ptr.inputShdr(elf_file).sh_type == elf.SHT_X86_64_UNWIND) or
+            mem.eql(u8, atom_ptr.name(elf_file), ".eh_frame");
+        if (atom_ptr.flags.alive and is_eh_frame) atom_ptr.flags.alive = false;
     }
 }
 
@@ -657,9 +662,9 @@ pub fn checkDuplicates(self: *Object, dupes: anytype, elf_file: *Elf) error{OutO
             sym.st_shndx == elf.SHN_COMMON) continue;
 
         if (sym.st_shndx != elf.SHN_ABS) {
-            const atom_index = self.atoms.items[sym.st_shndx];
-            const atom = elf_file.atom(atom_index) orelse continue;
-            if (!atom.flags.alive) continue;
+            const atom_index = self.atoms_indexes.items[sym.st_shndx];
+            const atom_ptr = self.atom(atom_index) orelse continue;
+            if (!atom_ptr.flags.alive) continue;
         }
 
         const gop = try dupes.getOrPut(index);
@@ -680,8 +685,8 @@ pub fn initMergeSections(self: *Object, elf_file: *Elf) !void {
     for (self.shdrs.items, 0..) |shdr, shndx| {
         if (shdr.sh_flags & elf.SHF_MERGE == 0) continue;
 
-        const atom_index = self.atoms.items[shndx];
-        const atom_ptr = elf_file.atom(atom_index) orelse continue;
+        const atom_index = self.atoms_indexes.items[shndx];
+        const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.flags.alive) continue;
         if (atom_ptr.relocs(elf_file).len > 0) continue;
 
@@ -755,7 +760,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) !void {
         const imsec = self.inputMergeSection(index) orelse continue;
         if (imsec.offsets.items.len == 0) continue;
         const msec = elf_file.mergeSection(imsec.merge_section_index);
-        const atom_ptr = elf_file.atom(imsec.atom_index).?;
+        const atom_ptr = self.atom(imsec.atom_index).?;
         const isec = atom_ptr.inputShdr(elf_file);
 
         try imsec.subsections.resize(gpa, imsec.strings.items.len);
@@ -802,10 +807,10 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) !void {
         sym.value = offset;
     }
 
-    for (self.atoms.items) |atom_index| {
-        const atom_ptr = elf_file.atom(atom_index) orelse continue;
+    for (self.atoms_indexes.items) |atom_index| {
+        const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.flags.alive) continue;
-        const extras = atom_ptr.extra(elf_file) orelse continue;
+        const extras = atom_ptr.extra(elf_file);
         const relocs = self.relocs.items[extras.rel_index..][0..extras.rel_count];
         for (relocs) |*rel| {
             const esym = self.symtab.items[rel.r_sym()];
@@ -867,21 +872,10 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
         const comp = elf_file.base.comp;
         const gpa = comp.gpa;
 
-        const atom_index = try elf_file.addAtom();
-        try self.atoms.append(gpa, atom_index);
-
         const is_tls = global.type(elf_file) == elf.STT_TLS;
         const name = if (is_tls) ".tls_common" else ".common";
-
-        const atom = elf_file.atom(atom_index).?;
         const name_offset = @as(u32, @intCast(self.strtab.items.len));
         try self.strtab.writer(gpa).print("{s}\x00", .{name});
-        atom.atom_index = atom_index;
-        atom.name_offset = name_offset;
-        atom.file_index = self.index;
-        atom.size = this_sym.st_size;
-        const alignment = this_sym.st_value;
-        atom.alignment = Alignment.fromNonzeroByteUnits(alignment);
 
         var sh_flags: u32 = elf.SHF_ALLOC | elf.SHF_WRITE;
         if (is_tls) sh_flags |= elf.SHF_TLS;
@@ -897,38 +891,45 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
             .sh_size = sh_size,
             .sh_link = 0,
             .sh_info = 0,
-            .sh_addralign = alignment,
+            .sh_addralign = this_sym.st_value,
             .sh_entsize = 0,
         };
-        atom.input_section_index = shndx;
+
+        const atom_index = try self.addAtom(gpa, .{
+            .name = name_offset,
+            .shndx = shndx,
+            .size = this_sym.st_size,
+            .alignment = Alignment.fromNonzeroByteUnits(this_sym.st_value),
+        });
+        try self.atoms_indexes.append(gpa, atom_index);
 
         global.value = 0;
-        global.atom_index = atom_index;
+        global.atom_ref = .{ .index = atom_index, .file = self.index };
         global.flags.weak = false;
     }
 }
 
-pub fn initOutputSections(self: Object, elf_file: *Elf) !void {
-    for (self.atoms.items) |atom_index| {
-        const atom = elf_file.atom(atom_index) orelse continue;
-        if (!atom.flags.alive) continue;
-        const shdr = atom.inputShdr(elf_file);
+pub fn initOutputSections(self: *Object, elf_file: *Elf) !void {
+    for (self.atoms_indexes.items) |atom_index| {
+        const atom_ptr = self.atom(atom_index) orelse continue;
+        if (!atom_ptr.flags.alive) continue;
+        const shdr = atom_ptr.inputShdr(elf_file);
         _ = try self.initOutputSection(elf_file, shdr);
     }
 }
 
 pub fn addAtomsToOutputSections(self: *Object, elf_file: *Elf) !void {
-    for (self.atoms.items) |atom_index| {
-        const atom = elf_file.atom(atom_index) orelse continue;
-        if (!atom.flags.alive) continue;
-        const shdr = atom.inputShdr(elf_file);
-        atom.output_section_index = self.initOutputSection(elf_file, shdr) catch unreachable;
+    for (self.atoms_indexes.items) |atom_index| {
+        const atom_ptr = self.atom(atom_index) orelse continue;
+        if (!atom_ptr.flags.alive) continue;
+        const shdr = atom_ptr.inputShdr(elf_file);
+        atom_ptr.output_section_index = self.initOutputSection(elf_file, shdr) catch unreachable;
 
         const comp = elf_file.base.comp;
         const gpa = comp.gpa;
-        const gop = try elf_file.output_sections.getOrPut(gpa, atom.output_section_index);
+        const gop = try elf_file.output_sections.getOrPut(gpa, atom_ptr.output_section_index);
         if (!gop.found_existing) gop.value_ptr.* = .{};
-        try gop.value_ptr.append(gpa, atom_index);
+        try gop.value_ptr.append(gpa, .{ .index = atom_index, .file = self.index });
     }
 
     for (self.locals()) |local_index| {
@@ -938,9 +939,9 @@ pub fn addAtomsToOutputSections(self: *Object, elf_file: *Elf) !void {
             local.output_section_index = msub.mergeSection(elf_file).output_section_index;
             continue;
         }
-        const atom = local.atom(elf_file) orelse continue;
-        if (!atom.flags.alive) continue;
-        local.output_section_index = atom.output_section_index;
+        const atom_ptr = local.atom(elf_file) orelse continue;
+        if (!atom_ptr.flags.alive) continue;
+        local.output_section_index = atom_ptr.output_section_index;
     }
 
     for (self.globals()) |global_index| {
@@ -951,9 +952,9 @@ pub fn addAtomsToOutputSections(self: *Object, elf_file: *Elf) !void {
             global.output_section_index = msub.mergeSection(elf_file).output_section_index;
             continue;
         }
-        const atom = global.atom(elf_file) orelse continue;
-        if (!atom.flags.alive) continue;
-        global.output_section_index = atom.output_section_index;
+        const atom_ptr = global.atom(elf_file) orelse continue;
+        if (!atom_ptr.flags.alive) continue;
+        global.output_section_index = atom_ptr.output_section_index;
     }
 
     for (self.symbols.items[self.symtab.items.len..]) |local_index| {
@@ -964,11 +965,11 @@ pub fn addAtomsToOutputSections(self: *Object, elf_file: *Elf) !void {
     }
 }
 
-pub fn initRelaSections(self: Object, elf_file: *Elf) !void {
-    for (self.atoms.items) |atom_index| {
-        const atom = elf_file.atom(atom_index) orelse continue;
-        if (!atom.flags.alive) continue;
-        const shndx = atom.relocsShndx() orelse continue;
+pub fn initRelaSections(self: *Object, elf_file: *Elf) !void {
+    for (self.atoms_indexes.items) |atom_index| {
+        const atom_ptr = self.atom(atom_index) orelse continue;
+        if (!atom_ptr.flags.alive) continue;
+        const shndx = atom_ptr.relocsShndx() orelse continue;
         const shdr = self.shdrs.items[shndx];
         const out_shndx = try self.initOutputSection(elf_file, shdr);
         const out_shdr = &elf_file.shdrs.items[out_shndx];
@@ -978,24 +979,24 @@ pub fn initRelaSections(self: Object, elf_file: *Elf) !void {
     }
 }
 
-pub fn addAtomsToRelaSections(self: Object, elf_file: *Elf) !void {
-    for (self.atoms.items) |atom_index| {
-        const atom = elf_file.atom(atom_index) orelse continue;
-        if (!atom.flags.alive) continue;
+pub fn addAtomsToRelaSections(self: *Object, elf_file: *Elf) !void {
+    for (self.atoms_indexes.items) |atom_index| {
+        const atom_ptr = self.atom(atom_index) orelse continue;
+        if (!atom_ptr.flags.alive) continue;
         const shndx = blk: {
-            const shndx = atom.relocsShndx() orelse continue;
+            const shndx = atom_ptr.relocsShndx() orelse continue;
             const shdr = self.shdrs.items[shndx];
             break :blk self.initOutputSection(elf_file, shdr) catch unreachable;
         };
         const shdr = &elf_file.shdrs.items[shndx];
-        shdr.sh_info = atom.outputShndx().?;
+        shdr.sh_info = atom_ptr.outputShndx().?;
         shdr.sh_link = elf_file.symtab_section_index.?;
 
         const comp = elf_file.base.comp;
         const gpa = comp.gpa;
-        const gop = try elf_file.output_rela_sections.getOrPut(gpa, atom.outputShndx().?);
+        const gop = try elf_file.output_rela_sections.getOrPut(gpa, atom_ptr.outputShndx().?);
         if (!gop.found_existing) gop.value_ptr.* = .{ .shndx = shndx };
-        try gop.value_ptr.atom_list.append(gpa, atom_index);
+        try gop.value_ptr.atom_list.append(gpa, .{ .index = atom_index, .file = self.index });
     }
 }
 
@@ -1129,11 +1130,10 @@ pub fn globals(self: Object) []const Symbol.Index {
 
 /// Returns atom's code and optionally uncompresses data if required (for compressed sections).
 /// Caller owns the memory.
-pub fn codeDecompressAlloc(self: Object, elf_file: *Elf, atom_index: Atom.Index) ![]u8 {
+pub fn codeDecompressAlloc(self: *Object, elf_file: *Elf, atom_index: Atom.Index) ![]u8 {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
-    const atom_ptr = elf_file.atom(atom_index).?;
-    assert(atom_ptr.file_index == self.index);
+    const atom_ptr = self.atom(atom_index).?;
     const shdr = atom_ptr.inputShdr(elf_file);
     const handle = elf_file.fileHandle(self.file_handle);
     const data = try self.preadShdrContentsAlloc(gpa, handle, atom_ptr.input_section_index);
@@ -1192,6 +1192,82 @@ fn preadRelocsAlloc(self: Object, allocator: Allocator, handle: std.fs.File, shn
     const raw = try self.preadShdrContentsAlloc(allocator, handle, shndx);
     const num = @divExact(raw.len, @sizeOf(elf.Elf64_Rela));
     return @as([*]align(1) const elf.Elf64_Rela, @ptrCast(raw.ptr))[0..num];
+}
+
+const AddAtomArgs = struct {
+    name: u32,
+    shndx: u32,
+    size: u64,
+    alignment: Alignment,
+};
+
+fn addAtom(self: *Object, allocator: Allocator, args: AddAtomArgs) !Atom.Index {
+    try self.atoms.ensureUnusedCapacity(allocator, 1);
+    try self.atoms_extra.ensureUnusedCapacity(allocator, @sizeOf(Atom.Extra));
+    return self.addAtomAssumeCapacity(args);
+}
+
+fn addAtomAssumeCapacity(self: *Object, args: AddAtomArgs) Atom.Index {
+    const atom_index: Atom.Index = @intCast(self.atoms.items.len);
+    const atom_ptr = self.atoms.addOneAssumeCapacity();
+    atom_ptr.* = .{
+        .atom_index = atom_index,
+        .name_offset = args.name,
+        .file_index = self.index,
+        .input_section_index = args.shndx,
+        .extra_index = self.addAtomExtraAssumeCapacity(.{}),
+        .size = args.size,
+        .alignment = args.alignment,
+    };
+    return atom_index;
+}
+
+pub fn atom(self: *Object, atom_index: Atom.Index) ?*Atom {
+    if (atom_index == 0) return null;
+    assert(atom_index < self.atoms.items.len);
+    return &self.atoms.items[atom_index];
+}
+
+pub fn addAtomExtra(self: *Object, allocator: Allocator, extra: Atom.Extra) !u32 {
+    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    try self.atoms_extra.ensureUnusedCapacity(allocator, fields.len);
+    return self.addAtomExtraAssumeCapacity(extra);
+}
+
+pub fn addAtomExtraAssumeCapacity(self: *Object, extra: Atom.Extra) u32 {
+    const index = @as(u32, @intCast(self.atoms_extra.items.len));
+    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    inline for (fields) |field| {
+        self.atoms_extra.appendAssumeCapacity(switch (field.type) {
+            u32 => @field(extra, field.name),
+            else => @compileError("bad field type"),
+        });
+    }
+    return index;
+}
+
+pub fn atomExtra(self: *Object, index: u32) Atom.Extra {
+    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    var i: usize = index;
+    var result: Atom.Extra = undefined;
+    inline for (fields) |field| {
+        @field(result, field.name) = switch (field.type) {
+            u32 => self.atoms_extra.items[i],
+            else => @compileError("bad field type"),
+        };
+        i += 1;
+    }
+    return result;
+}
+
+pub fn setAtomExtra(self: *Object, index: u32, extra: Atom.Extra) void {
+    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    inline for (fields, 0..) |field, i| {
+        self.atoms_extra.items[index + i] = switch (field.type) {
+            u32 => @field(extra, field.name),
+            else => @compileError("bad field type"),
+        };
+    }
 }
 
 fn addInputMergeSection(self: *Object, allocator: Allocator) !InputMergeSection.Index {
@@ -1280,9 +1356,9 @@ fn formatAtoms(
     _ = options;
     const object = ctx.object;
     try writer.writeAll("  atoms\n");
-    for (object.atoms.items) |atom_index| {
-        const atom = ctx.elf_file.atom(atom_index) orelse continue;
-        try writer.print("    {}\n", .{atom.fmt(ctx.elf_file)});
+    for (object.atoms_indexes.items) |atom_index| {
+        const atom_ptr = object.atom(atom_index) orelse continue;
+        try writer.print("    {}\n", .{atom_ptr.fmt(ctx.elf_file)});
     }
 }
 
@@ -1354,9 +1430,9 @@ fn formatComdatGroups(
         try writer.print("    COMDAT({d})\n", .{cg_index});
         const cg_members = cg.comdatGroupMembers(elf_file);
         for (cg_members) |shndx| {
-            const atom_index = object.atoms.items[shndx];
-            const atom = elf_file.atom(atom_index) orelse continue;
-            try writer.print("      atom({d}) : {s}\n", .{ atom_index, atom.name(elf_file) });
+            const atom_index = object.atoms_indexes.items[shndx];
+            const atom_ptr = object.atom(atom_index) orelse continue;
+            try writer.print("      atom({d}) : {s}\n", .{ atom_index, atom_ptr.name(elf_file) });
         }
     }
 }

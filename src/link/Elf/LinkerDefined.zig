@@ -1,4 +1,5 @@
 index: File.Index,
+
 symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
 symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
@@ -9,6 +10,11 @@ pub fn deinit(self: *LinkerDefined, allocator: Allocator) void {
     self.symtab.deinit(allocator);
     self.strtab.deinit(allocator);
     self.symbols.deinit(allocator);
+}
+
+pub fn init(self: *LinkerDefined, allocator: Allocator) !void {
+    // Null byte in strtab
+    try self.strtab.append(allocator, 0);
 }
 
 pub fn addGlobal(self: *LinkerDefined, name: [:0]const u8, elf_file: *Elf) !u32 {
@@ -41,7 +47,7 @@ pub fn resolveSymbols(self: *LinkerDefined, elf_file: *Elf) void {
         const global = elf_file.symbol(index);
         if (self.asFile().symbolRank(this_sym, false) < global.symbolRank(elf_file)) {
             global.value = 0;
-            global.atom_index = 0;
+            global.atom_ref = .{ .index = 0, .file = 0 };
             global.file_index = self.index;
             global.esym_index = sym_idx;
             global.version_index = elf_file.default_sym_version;
@@ -127,6 +133,7 @@ const mem = std.mem;
 const std = @import("std");
 
 const Allocator = mem.Allocator;
+const Atom = @import("Atom.zig");
 const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;
 const LinkerDefined = @This();

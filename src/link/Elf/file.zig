@@ -98,11 +98,34 @@ pub const File = union(enum) {
         }
     }
 
+    pub fn atom(file: File, atom_index: Atom.Index) ?*Atom {
+        return switch (file) {
+            .shared_object => unreachable,
+            .linker_defined => null,
+            inline else => |x| x.atom(atom_index),
+        };
+    }
+
     pub fn atoms(file: File) []const Atom.Index {
         return switch (file) {
-            .linker_defined, .shared_object => &[0]Atom.Index{},
-            .zig_object => |x| x.atoms.items,
-            .object => |x| x.atoms.items,
+            .shared_object => unreachable,
+            .linker_defined => &[0]Atom.Index{},
+            .zig_object => |x| x.atoms_indexes.items,
+            .object => |x| x.atoms_indexes.items,
+        };
+    }
+
+    pub fn atomExtra(file: File, extra_index: u32) Atom.Extra {
+        return switch (file) {
+            .shared_object, .linker_defined => unreachable,
+            inline else => |x| x.atomExtra(extra_index),
+        };
+    }
+
+    pub fn setAtomExtra(file: File, extra_index: u32, extra: Atom.Extra) void {
+        return switch (file) {
+            .shared_object, .linker_defined => unreachable,
+            inline else => |x| x.setAtomExtra(extra_index, extra),
         };
     }
 

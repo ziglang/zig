@@ -6,8 +6,8 @@ pub fn createThunks(shndx: u32, elf_file: *Elf) !void {
     const atoms = elf_file.output_sections.get(shndx).?.items;
     assert(atoms.len > 0);
 
-    for (atoms) |atom_index| {
-        elf_file.atom(atom_index).?.value = -1;
+    for (atoms) |ref| {
+        elf_file.atom(ref).?.value = -1;
     }
 
     var i: usize = 0;
@@ -19,8 +19,7 @@ pub fn createThunks(shndx: u32, elf_file: *Elf) !void {
         i += 1;
 
         while (i < atoms.len) : (i += 1) {
-            const atom_index = atoms[i];
-            const atom = elf_file.atom(atom_index).?;
+            const atom = elf_file.atom(atoms[i]).?;
             assert(atom.flags.alive);
             if (@as(i64, @intCast(atom.alignment.forward(shdr.sh_size))) - start_atom.value >= max_distance)
                 break;
@@ -33,10 +32,10 @@ pub fn createThunks(shndx: u32, elf_file: *Elf) !void {
         thunk.output_section_index = shndx;
 
         // Scan relocs in the group and create trampolines for any unreachable callsite
-        for (atoms[start..i]) |atom_index| {
-            const atom = elf_file.atom(atom_index).?;
+        for (atoms[start..i]) |ref| {
+            const atom = elf_file.atom(ref).?;
             const file = atom.file(elf_file).?;
-            log.debug("atom({d}) {s}", .{ atom_index, atom.name(elf_file) });
+            log.debug("atom({}) {s}", .{ ref, atom.name(elf_file) });
             for (atom.relocs(elf_file)) |rel| {
                 const is_reachable = switch (cpu_arch) {
                     .aarch64 => aarch64.isReachable(atom, rel, elf_file),
@@ -51,7 +50,7 @@ pub fn createThunks(shndx: u32, elf_file: *Elf) !void {
                 };
                 try thunk.symbols.put(gpa, target, {});
             }
-            try atom.addExtra(.{ .thunk = thunk_index }, elf_file);
+            atom.addExtra(.{ .thunk = thunk_index }, elf_file);
             atom.flags.thunk = true;
         }
 
