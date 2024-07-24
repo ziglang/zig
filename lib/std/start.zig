@@ -351,8 +351,9 @@ fn _start() callconv(.Naked) noreturn {
             \\ j %[posixCallMainAndExit]
             ,
             .powerpc, .powerpcle =>
-            // Setup the initial stack frame and clear the back chain pointer.
+            // Set up the initial stack frame, and clear the back chain pointer.
             \\ mr 3, 1
+            \\ clrrwi 1, 1, 4
             \\ li 0, 0
             \\ stwu 1, -16(1)
             \\ stw 0, 0(1)
@@ -360,7 +361,7 @@ fn _start() callconv(.Naked) noreturn {
             \\ b %[posixCallMainAndExit]
             ,
             .powerpc64, .powerpc64le =>
-            // Setup the initial stack frame and clear the back chain pointer.
+            // Set up the ToC and initial stack frame, and clear the back chain pointer.
             \\ addis 2, 12, .TOC. - %[_start]@ha
             \\ addi 2, 2, .TOC. - %[_start]@l
             \\ mr 3, 1
