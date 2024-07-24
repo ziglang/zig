@@ -272,6 +272,12 @@ fn _start() callconv(.Naked) noreturn {
             : [tos] "={rax}" (-> *std.os.plan9.Tos),
         );
     }
+
+    // Note that we maintain a very low level of trust with regards to ABI guarantees at this point.
+    // We will redundantly align the stack, clear the link register, etc. While e.g. the Linux
+    // kernel is usually good about upholding the ABI guarantees, the same cannot be said of dynamic
+    // linkers; musl's ldso, for example, opts to not align the stack when invoking the dynamic
+    // linker explicitly.
     asm volatile (switch (native_arch) {
             .x86_64 =>
             \\ xorl %%ebp, %%ebp
