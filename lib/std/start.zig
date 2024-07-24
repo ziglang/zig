@@ -332,7 +332,7 @@ fn _start() callconv(.Naked) noreturn {
             \\ move $fp, $0
             \\ move $ra, $0
             \\ move $a0, $sp
-            \\ and $sp, -16
+            \\ and $sp, -8
             \\ j %[posixCallMainAndExit]
             ,
             .mips64, .mips64el =>
