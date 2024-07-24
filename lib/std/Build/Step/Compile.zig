@@ -1004,7 +1004,7 @@ fn getGeneratedFilePath(compile: *Compile, comptime tag_name: []const u8, asking
     return path;
 }
 
-fn getZigArgs(compile: *Compile) ![][]const u8 {
+fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     const step = &compile.step;
     const b = step.owner;
     const arena = b.allocator;
@@ -1053,6 +1053,10 @@ fn getZigArgs(compile: *Compile) ![][]const u8 {
     if (compile.stack_size) |stack_size| {
         try zig_args.append("--stack");
         try zig_args.append(try std.fmt.allocPrint(arena, "{}", .{stack_size}));
+    }
+
+    if (fuzz) {
+        try zig_args.append("-ffuzz");
     }
 
     {
@@ -1757,7 +1761,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const b = step.owner;
     const compile: *Compile = @fieldParentPtr("step", step);
 
-    const zig_args = try getZigArgs(compile);
+    const zig_args = try getZigArgs(compile, false);
 
     const maybe_output_bin_path = step.evalZigProcess(
         zig_args,
@@ -1835,6 +1839,12 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     }
 }
 
+pub fn rebuildInFuzzMode(c: *Compile, progress_node: std.Progress.Node) ![]const u8 {
+    const zig_args = try getZigArgs(c, true);
+    const maybe_output_bin_path = try c.step.evalZigProcess(zig_args, progress_node, false);
+    return maybe_output_bin_path.?;
+}
+
 pub fn doAtomicSymLinks(
     step: *Step,
     output_path: []const u8,
@@ -1861,10 +1871,10 @@ pub fn doAtomicSymLinks(
     };
 }
 
-fn execPkgConfigList(compile: *std.Build, out_code: *u8) (PkgConfigError || RunError)![]const PkgConfigPkg {
-    const pkg_config_exe = compile.graph.env_map.get("PKG_CONFIG") orelse "pkg-config";
-    const stdout = try compile.runAllowFail(&[_][]const u8{ pkg_config_exe, "--list-all" }, out_code, .Ignore);
-    var list = ArrayList(PkgConfigPkg).init(compile.allocator);
+fn execPkgConfigList(b: *std.Build, out_code: *u8) (PkgConfigError || RunError)![]const PkgConfigPkg {
+    const pkg_config_exe = b.graph.env_map.get("PKG_CONFIG") orelse "pkg-config";
+    const stdout = try b.runAllowFail(&[_][]const u8{ pkg_config_exe, "--list-all" }, out_code, .Ignore);
+    var list = ArrayList(PkgConfigPkg).init(b.allocator);
     errdefer list.deinit();
     var line_it = mem.tokenizeAny(u8, stdout, "\r\n");
     while (line_it.next()) |line| {
@@ -1878,13 +1888,13 @@ fn execPkgConfigList(compile: *std.Build, out_code: *u8) (PkgConfigError || RunE
     return list.toOwnedSlice();
 }
 
-fn getPkgConfigList(compile: *std.Build) ![]const PkgConfigPkg {
-    if (compile.pkg_config_pkg_list) |res| {
+fn getPkgConfigList(b: *std.Build) ![]const PkgConfigPkg {
+    if (b.pkg_config_pkg_list) |res| {
         return res;
     }
     var code: u8 = undefined;
-    if (execPkgConfigList(compile, &code)) |list| {
-        compile.pkg_config_pkg_list = list;
+    if (execPkgConfigList(b, &code)) |list| {
+        b.pkg_config_pkg_list = list;
         return list;
     } else |err| {
         const result = switch (err) {
@@ -1896,7 +1906,7 @@ fn getPkgConfigList(compile: *std.Build) ![]const PkgConfigPkg {
             error.PkgConfigInvalidOutput => error.PkgConfigInvalidOutput,
             else => return err,
         };
-        compile.pkg_config_pkg_list = result;
+        b.pkg_config_pkg_list = result;
         return result;
     }
 }

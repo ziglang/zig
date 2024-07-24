@@ -86,6 +86,13 @@ dep_output_file: ?*Output,
 
 has_side_effects: bool,
 
+/// If this is a Zig unit test binary, this tracks the indexes of the unit
+/// tests that are also fuzz tests.
+fuzz_tests: std.ArrayListUnmanaged(u32),
+
+/// If this Run step was produced by a Compile step, it is tracked here.
+producer: ?*Step.Compile,
+
 pub const StdIn = union(enum) {
     none,
     bytes: []const u8,
@@ -175,6 +182,8 @@ pub fn create(owner: *std.Build, name: []const u8) *Run {
         .captured_stderr = null,
         .dep_output_file = null,
         .has_side_effects = false,
+        .fuzz_tests = .{},
+        .producer = null,
     };
     return run;
 }
@@ -1347,6 +1356,8 @@ fn evalZigTest(
     var sub_prog_node: ?std.Progress.Node = null;
     defer if (sub_prog_node) |n| n.end();
 
+    run.fuzz_tests.clearRetainingCapacity();
+
     poll: while (true) {
         while (stdout.readableLength() < @sizeOf(Header)) {
             if (!(try poller.poll())) break :poll;
@@ -1403,6 +1414,8 @@ fn evalZigTest(
                 skip_count +|= @intFromBool(tr_hdr.flags.skip);
                 leak_count +|= @intFromBool(tr_hdr.flags.leak);
                 log_err_count +|= tr_hdr.flags.log_err_count;
+
+                if (tr_hdr.flags.fuzz) try run.fuzz_tests.append(gpa, tr_hdr.index);
 
                 if (tr_hdr.flags.fail or tr_hdr.flags.leak or tr_hdr.flags.log_err_count > 0) {
                     const name = std.mem.sliceTo(md.string_bytes[md.names[tr_hdr.index]..], 0);

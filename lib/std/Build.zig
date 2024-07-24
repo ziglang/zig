@@ -977,6 +977,7 @@ pub fn addRunArtifact(b: *Build, exe: *Step.Compile) *Step.Run {
     // Consider that this is declarative; the run step may not be run unless a user
     // option is supplied.
     const run_step = Step.Run.create(b, b.fmt("run {s}", .{exe.name}));
+    run_step.producer = exe;
     if (exe.kind == .@"test") {
         if (exe.exec_cmd_args) |exec_cmd_args| {
             for (exec_cmd_args) |cmd_arg| {

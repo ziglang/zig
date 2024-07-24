@@ -143,6 +143,7 @@ fn mainTerminal() void {
     var ok_count: usize = 0;
     var skip_count: usize = 0;
     var fail_count: usize = 0;
+    var fuzz_count: usize = 0;
     const root_node = std.Progress.start(.{
         .root_name = "Test",
         .estimated_total_items = test_fn_list.len,
@@ -168,7 +169,7 @@ fn mainTerminal() void {
         if (!have_tty) {
             std.debug.print("{d}/{d} {s}...", .{ i + 1, test_fn_list.len, test_fn.name });
         }
-        // Track in a global variable so that `fuzzInput` can see it.
+        is_fuzz_test = false;
         if (test_fn.func()) |_| {
             ok_count += 1;
             test_node.end();
@@ -198,6 +199,7 @@ fn mainTerminal() void {
                 test_node.end();
             },
         }
+        fuzz_count += @intFromBool(is_fuzz_test);
     }
     root_node.end();
     if (ok_count == test_fn_list.len) {
@@ -210,6 +212,9 @@ fn mainTerminal() void {
     }
     if (leaks != 0) {
         std.debug.print("{d} tests leaked memory.\n", .{leaks});
+    }
+    if (fuzz_count != 0) {
+        std.debug.print("{d} fuzz tests found.\n", .{fuzz_count});
     }
     if (leaks != 0 or log_err_count != 0 or fail_count != 0) {
         std.process.exit(1);

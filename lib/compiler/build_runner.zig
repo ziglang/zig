@@ -10,7 +10,8 @@ const File = std.fs.File;
 const Step = std.Build.Step;
 const Watch = std.Build.Watch;
 const Allocator = std.mem.Allocator;
-const fatal = std.zig.fatal;
+const fatal = std.process.fatal;
+const runner = @This();
 
 pub const root = @import("@build");
 pub const dependencies = @import("@dependencies");
@@ -102,6 +103,7 @@ pub fn main() !void {
     var steps_menu = false;
     var output_tmp_nonce: ?[16]u8 = null;
     var watch = false;
+    var fuzz = false;
     var debounce_interval_ms: u16 = 50;
 
     while (nextArg(args, &arg_idx)) |arg| {
@@ -234,6 +236,8 @@ pub fn main() !void {
                 prominent_compile_errors = true;
             } else if (mem.eql(u8, arg, "--watch")) {
                 watch = true;
+            } else if (mem.eql(u8, arg, "--fuzz")) {
+                fuzz = true;
             } else if (mem.eql(u8, arg, "-fincremental")) {
                 graph.incremental = true;
             } else if (mem.eql(u8, arg, "-fno-incremental")) {
@@ -353,6 +357,7 @@ pub fn main() !void {
         .max_rss_mutex = .{},
         .skip_oom_steps = skip_oom_steps,
         .watch = watch,
+        .fuzz = fuzz,
         .memory_blocked_steps = std.ArrayList(*Step).init(arena),
         .step_stack = .{},
         .prominent_compile_errors = prominent_compile_errors,
@@ -394,6 +399,10 @@ pub fn main() !void {
             },
             else => return err,
         };
+        if (fuzz) {
+            startFuzzing(&run.thread_pool, run.step_stack.keys(), main_progress_node);
+        }
+
         if (!watch) return cleanExit();
 
         switch (builtin.os.tag) {
@@ -430,6 +439,43 @@ pub fn main() !void {
     }
 }
 
+fn startFuzzing(thread_pool: *std.Thread.Pool, all_steps: []const *Step, prog_node: std.Progress.Node) void {
+    {
+        const rebuild_node = prog_node.start("Rebuilding Unit Tests", 0);
+        defer rebuild_node.end();
+        var count: usize = 0;
+        var wait_group: std.Thread.WaitGroup = .{};
+        defer wait_group.wait();
+        for (all_steps) |step| {
+            const run = step.cast(Step.Run) orelse continue;
+            if (run.fuzz_tests.items.len > 0 and run.producer != null) {
+                thread_pool.spawnWg(&wait_group, rebuildTestsWorkerRun, .{ run, prog_node });
+                count += 1;
+            }
+        }
+        if (count == 0) {
+            std.debug.lockStdErr();
+            std.debug.print("no fuzz tests found\n", .{});
+            process.exit(2);
+        }
+        rebuild_node.setEstimatedTotalItems(count);
+    }
+    @panic("TODO do something with the rebuilt unit tests");
+}
+
+fn rebuildTestsWorkerRun(run: *Step.Run, parent_prog_node: std.Progress.Node) void {
+    const compile_step = run.producer.?;
+    const prog_node = parent_prog_node.start(compile_step.step.name, 0);
+    defer prog_node.end();
+    const rebuilt_bin_path = compile_step.rebuildInFuzzMode(prog_node) catch |err| {
+        std.debug.print("failed to rebuild {s} in fuzz mode: {s}", .{
+            compile_step.step.name, @errorName(err),
+        });
+        return;
+    };
+    std.debug.print("rebuilt binary: '{s}'\n", .{rebuilt_bin_path});
+}
+
 fn markFailedStepsDirty(gpa: Allocator, all_steps: []const *Step) void {
     for (all_steps) |step| switch (step.state) {
         .dependency_failure, .failure, .skipped => step.recursiveReset(gpa),
@@ -457,6 +503,7 @@ const Run = struct {
     max_rss_mutex: std.Thread.Mutex,
     skip_oom_steps: bool,
     watch: bool,
+    fuzz: bool,
     memory_blocked_steps: std.ArrayList(*Step),
     step_stack: std.AutoArrayHashMapUnmanaged(*Step, void),
     prominent_compile_errors: bool,
@@ -466,6 +513,11 @@ const Run = struct {
     summary: Summary,
     ttyconf: std.io.tty.Config,
     stderr: File,
+
+    fn cleanExit(run: Run) void {
+        if (run.watch or run.fuzz) return;
+        return runner.cleanExit();
+    }
 };
 
 fn prepare(
@@ -614,8 +666,7 @@ fn runStepNames(
         else => false,
     };
     if (failure_count == 0 and failures_only) {
-        if (!run.watch) cleanExit();
-        return;
+        return run.cleanExit();
     }
 
     const ttyconf = run.ttyconf;
@@ -672,8 +723,7 @@ fn runStepNames(
     }
 
     if (failure_count == 0) {
-        if (!run.watch) cleanExit();
-        return;
+        return run.cleanExit();
     }
 
     // Finally, render compile errors at the bottom of the terminal.
@@ -1226,6 +1276,7 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  --skip-oom-steps             Instead of failing, skip steps that would exceed --maxrss
         \\  --fetch                      Exit after fetching dependency tree
         \\  --watch                      Continuously rebuild when source files are modified
+        \\  --fuzz                       Continuously search for unit test failures
         \\  --debounce <ms>              Delay before rebuilding after changed file detected
         \\     -fincremental             Enable incremental compilation
         \\  -fno-incremental             Disable incremental compilation
