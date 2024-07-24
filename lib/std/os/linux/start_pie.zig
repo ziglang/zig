@@ -12,6 +12,7 @@ const R_CSKY_RELATIVE = 9;
 const R_HEXAGON_RELATIVE = 35;
 const R_LARCH_RELATIVE = 3;
 const R_68K_RELATIVE = 22;
+const R_MIPS_RELATIVE = 128;
 const R_RISCV_RELATIVE = 3;
 const R_390_RELATIVE = 12;
 const R_SPARC_RELATIVE = 22;
@@ -26,6 +27,7 @@ const R_RELATIVE = switch (builtin.cpu.arch) {
     .hexagon => R_HEXAGON_RELATIVE,
     .loongarch32, .loongarch64 => R_LARCH_RELATIVE,
     .m68k => R_68K_RELATIVE,
+    .mips, .mipsel, .mips64, .mips64el => R_MIPS_RELATIVE,
     .riscv32, .riscv64 => R_RISCV_RELATIVE,
     .s390x => R_390_RELATIVE,
     else => @compileError("Missing R_RELATIVE definition for this target"),
@@ -110,6 +112,31 @@ fn getDynamicSymbol() [*]elf.Dyn {
             \\ lea _DYNAMIC - . - 8, %[ret]
             \\ lea (%[ret], %%pc), %[ret]
             : [ret] "=r" (-> [*]elf.Dyn),
+        ),
+        .mips, .mipsel => asm volatile (
+            \\ .weak _DYNAMIC
+            \\ .hidden _DYNAMIC
+            \\ bal 1f
+            \\ .gpword _DYNAMIC
+            \\ 1:
+            \\ lw %[ret], 0($ra)
+            \\ addu %[ret], %[ret], $gp
+            : [ret] "=r" (-> [*]elf.Dyn),
+            :
+            : "lr"
+        ),
+        .mips64, .mips64el => asm volatile (
+            \\ .weak _DYNAMIC
+            \\ .hidden _DYNAMIC
+            \\ .balign 8
+            \\ bal 1f
+            \\ .gpdword _DYNAMIC
+            \\ 1:
+            \\ ld %[ret], 0($ra)
+            \\ daddu %[ret], %[ret], $gp
+            : [ret] "=r" (-> [*]elf.Dyn),
+            :
+            : "lr"
         ),
         .riscv32, .riscv64 => asm volatile (
             \\ .weak _DYNAMIC
