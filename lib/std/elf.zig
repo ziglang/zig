@@ -862,6 +862,8 @@ pub const Elf64_Rela = extern struct {
         return @truncate(self.r_info);
     }
 };
+pub const Elf32_Relr = Elf32_Word;
+pub const Elf64_Relr = Elf64_Xword;
 pub const Elf32_Dyn = extern struct {
     d_tag: Elf32_Sword,
     d_val: Elf32_Addr,
@@ -1053,6 +1055,11 @@ pub const Rel = switch (@sizeOf(usize)) {
 pub const Rela = switch (@sizeOf(usize)) {
     4 => Elf32_Rela,
     8 => Elf64_Rela,
+    else => @compileError("expected pointer size of 32 or 64"),
+};
+pub const Relr = switch (@sizeOf(usize)) {
+    4 => Elf32_Relr,
+    8 => Elf64_Relr,
     else => @compileError("expected pointer size of 32 or 64"),
 };
 pub const Shdr = switch (@sizeOf(usize)) {
