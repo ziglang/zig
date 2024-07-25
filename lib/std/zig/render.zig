@@ -2993,7 +2993,7 @@ fn hasComment(tree: Ast, start_tok: Ast.TokenIndex, end_tok: Ast.TokenIndex) boo
     while (current_tok < end_tok) {
         var next_tok = current_tok + 1;
 
-        const current_tok_len = tree.tokenSlice(@intCast(current_tok)).len;
+        const current_tok_len = tree.tokenSlice(current_tok).len;
         const src_start = token_starts[current_tok] + current_tok_len;
         const src_end = token_starts[next_tok];
         const source = tree.source[src_start..src_end];
