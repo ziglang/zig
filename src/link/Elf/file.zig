@@ -137,6 +137,13 @@ pub const File = union(enum) {
         };
     }
 
+    pub fn comdatGroup(file: File, ind: Elf.ComdatGroup.Index) *Elf.ComdatGroup {
+        return switch (file) {
+            .linker_defined, .shared_object, .zig_object => unreachable,
+            .object => |x| x.comdatGroup(ind),
+        };
+    }
+
     pub fn symbol(file: File, ind: Symbol.Index) Symbol.Index {
         return switch (file) {
             .zig_object => |x| x.symbol(ind),

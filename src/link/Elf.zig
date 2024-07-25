@@ -215,11 +215,8 @@ merge_subsections: std.ArrayListUnmanaged(MergeSubsection) = .{},
 /// Table of last atom index in a section and matching atom free list if any.
 last_atom_and_free_list_table: LastAtomAndFreeListTable = .{},
 
-comdat_groups_owners: std.ArrayListUnmanaged(ComdatGroupOwner) = .{},
-comdat_groups_table: std.ArrayHashMapUnmanaged(ComdatGroupKey, ComdatGroupOwner.Index, ComdatGroupContext, false) = .{},
-
 /// Global string table used to provide quick access to global symbol resolvers
-/// such as `resolver` and `comdat_groups_table`.
+/// such as `resolver`.
 strings: StringTable = .{},
 
 first_eflags: ?elf.Elf64_Word = null,
@@ -506,8 +503,6 @@ pub fn deinit(self: *Elf) void {
     }
     self.last_atom_and_free_list_table.deinit(gpa);
 
-    self.comdat_groups_owners.deinit(gpa);
-    self.comdat_groups_table.deinit(gpa);
     self.strings.deinit(gpa);
 
     self.got.deinit(gpa);
@@ -1305,7 +1300,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     // input Object files.
     // Any qualifing unresolved symbol will be upgraded to an absolute, weak
     // symbol for potential resolution at load-time.
-    self.resolveSymbols();
+    try self.resolveSymbols();
     self.markEhFrameAtomsDead();
     try self.resolveMergeSections();
 
@@ -1955,7 +1950,7 @@ fn accessLibPath(
 /// 4. Reset state of all resolved globals since we will redo this bit on the pruned set.
 /// 5. Remove references to dead objects/shared objects
 /// 6. Re-run symbol resolution on pruned objects and shared objects sets.
-pub fn resolveSymbols(self: *Elf) void {
+pub fn resolveSymbols(self: *Elf) !void {
     // Resolve symbols in the ZigObject. For now, we assume that it's always live.
     if (self.zigObjectPtr()) |zig_object| zig_object.asFile().resolveSymbols(self);
     // Resolve symbols on the set of all objects and shared objects (even if some are unneeded).
@@ -1986,32 +1981,17 @@ pub fn resolveSymbols(self: *Elf) void {
         } else i += 1;
     }
 
-    // Dedup comdat groups.
-    for (self.objects.items) |index| {
-        const object = self.file(index).?.object;
-        for (object.comdat_groups.items) |cg| {
-            const cg_owner = self.comdatGroupOwner(cg.owner);
-            const owner_file_index = if (self.file(cg_owner.file)) |file_ptr|
-                file_ptr.object.index
-            else
-                std.math.maxInt(File.Index);
-            cg_owner.file = @min(owner_file_index, index);
-        }
-    }
+    {
+        // Dedup comdat groups.
+        var table = std.StringHashMap(Ref).init(self.base.comp.gpa);
+        defer table.deinit();
 
-    for (self.objects.items) |index| {
-        const object = self.file(index).?.object;
-        for (object.comdat_groups.items) |cg| {
-            const cg_owner = self.comdatGroupOwner(cg.owner);
-            if (cg_owner.file != index) {
-                for (cg.comdatGroupMembers(self)) |shndx| {
-                    const atom_index = object.atoms_indexes.items[shndx];
-                    if (object.atom(atom_index)) |atom_ptr| {
-                        atom_ptr.flags.alive = false;
-                        atom_ptr.markFdesDead(self);
-                    }
-                }
-            }
+        for (self.objects.items) |index| {
+            try self.file(index).?.object.resolveComdatGroups(self, &table);
+        }
+
+        for (self.objects.items) |index| {
+            self.file(index).?.object.markComdatGroupsDead(self);
         }
     }
 
@@ -5632,6 +5612,10 @@ pub fn atom(self: *Elf, ref: Ref) ?*Atom {
     return file_ptr.atom(ref.index);
 }
 
+pub fn comdatGroup(self: *Elf, ref: Ref) *ComdatGroup {
+    return self.file(ref.file).?.comdatGroup(ref.index);
+}
+
 /// Returns pointer-to-symbol described at sym_index.
 pub fn symbol(self: *Elf, sym_index: Symbol.Index) *Symbol {
     return &self.symbols.items[sym_index];
@@ -5735,31 +5719,6 @@ pub fn getGlobalSymbol(self: *Elf, name: []const u8, lib_name: ?[]const u8) !u32
 pub fn zigObjectPtr(self: *Elf) ?*ZigObject {
     const index = self.zig_object_index orelse return null;
     return self.file(index).?.zig_object;
-}
-
-const GetOrCreateComdatGroupOwnerResult = struct {
-    found_existing: bool,
-    index: ComdatGroupOwner.Index,
-};
-
-pub fn getOrCreateComdatGroupOwner(self: *Elf, key: ComdatGroupKey) !GetOrCreateComdatGroupOwnerResult {
-    const gpa = self.base.comp.gpa;
-    const gop = try self.comdat_groups_table.getOrPutContext(gpa, key, .{ .elf_file = self });
-    if (!gop.found_existing) {
-        const index: ComdatGroupOwner.Index = @intCast(self.comdat_groups_owners.items.len);
-        const owner = try self.comdat_groups_owners.addOne(gpa);
-        owner.* = .{};
-        gop.value_ptr.* = index;
-    }
-    return .{
-        .found_existing = gop.found_existing,
-        .index = gop.value_ptr.*,
-    };
-}
-
-pub fn comdatGroupOwner(self: *Elf, index: ComdatGroupOwner.Index) *ComdatGroupOwner {
-    assert(index < self.comdat_groups_owners.items.len);
-    return &self.comdat_groups_owners.items[index];
 }
 
 pub fn addMergeSubsection(self: *Elf) !MergeSubsection.Index {
@@ -6243,48 +6202,24 @@ const default_entry_addr = 0x8000000;
 
 pub const base_tag: link.File.Tag = .elf;
 
-const ComdatGroupKey = struct {
-    /// String table offset.
-    off: u32,
-
-    /// File index.
-    file_index: File.Index,
-
-    pub fn get(key: ComdatGroupKey, elf_file: *Elf) [:0]const u8 {
-        const file_ptr = elf_file.file(key.file_index).?;
-        return file_ptr.getString(key.off);
-    }
-};
-
-const ComdatGroupContext = struct {
-    elf_file: *Elf,
-
-    pub fn eql(ctx: ComdatGroupContext, a: ComdatGroupKey, b: ComdatGroupKey, b_index: usize) bool {
-        _ = b_index;
-        const elf_file = ctx.elf_file;
-        return mem.eql(u8, a.get(elf_file), b.get(elf_file));
-    }
-
-    pub fn hash(ctx: ComdatGroupContext, a: ComdatGroupKey) u32 {
-        return std.array_hash_map.hashString(a.get(ctx.elf_file));
-    }
-};
-
-const ComdatGroupOwner = struct {
-    file: File.Index = 0,
-
-    const Index = u32;
-};
-
 pub const ComdatGroup = struct {
-    owner: ComdatGroupOwner.Index,
-    file: File.Index,
+    signature_off: u32,
+    file_index: File.Index,
     shndx: u32,
     members_start: u32,
     members_len: u32,
+    alive: bool = true,
+
+    pub fn file(cg: ComdatGroup, elf_file: *Elf) File {
+        return elf_file.file(cg.file_index).?;
+    }
+
+    pub fn signature(cg: ComdatGroup, elf_file: *Elf) [:0]const u8 {
+        return cg.file(elf_file).object.getString(cg.signature_off);
+    }
 
     pub fn comdatGroupMembers(cg: ComdatGroup, elf_file: *Elf) []const u32 {
-        const object = elf_file.file(cg.file).?.object;
+        const object = cg.file(elf_file).object;
         return object.comdat_group_data.items[cg.members_start..][0..cg.members_len];
     }
 

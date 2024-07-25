@@ -216,27 +216,41 @@ fn initAtoms(self: *Object, allocator: Allocator, handle: std.fs.File, elf_file:
                 const shndx = @as(u32, @intCast(i));
                 const group_raw_data = try self.preadShdrContentsAlloc(allocator, handle, shndx);
                 defer allocator.free(group_raw_data);
-                const group_nmembers = @divExact(group_raw_data.len, @sizeOf(u32));
+                const group_nmembers = math.divExact(usize, group_raw_data.len, @sizeOf(u32)) catch {
+                    try elf_file.reportParseError2(
+                        self.index,
+                        "corrupt section group: not evenly divisible ",
+                        .{},
+                    );
+                    return error.MalformedObject;
+                };
+                if (group_nmembers == 0) {
+                    try elf_file.reportParseError2(
+                        self.index,
+                        "corrupt section group: empty section",
+                        .{},
+                    );
+                    return error.MalformedObject;
+                }
                 const group_members = @as([*]align(1) const u32, @ptrCast(group_raw_data.ptr))[0..group_nmembers];
 
                 if (group_members[0] != elf.GRP_COMDAT) {
-                    // TODO convert into an error
-                    log.debug("{}: unknown SHT_GROUP format", .{self.fmtPath()});
-                    continue;
+                    try elf_file.reportParseError2(
+                        self.index,
+                        "corrupt section group: unknown SHT_GROUP format",
+                        .{},
+                    );
+                    return error.MalformedObject;
                 }
 
                 const group_start = @as(u32, @intCast(self.comdat_group_data.items.len));
                 try self.comdat_group_data.appendUnalignedSlice(allocator, group_members[1..]);
 
-                const gop = try elf_file.getOrCreateComdatGroupOwner(.{
-                    .off = group_signature,
-                    .file_index = self.index,
-                });
                 const comdat_group_index = try self.addComdatGroup(allocator);
                 const comdat_group = self.comdatGroup(comdat_group_index);
                 comdat_group.* = .{
-                    .owner = gop.index,
-                    .file = self.index,
+                    .signature_off = group_signature,
+                    .file_index = self.index,
                     .shndx = shndx,
                     .members_start = group_start,
                     .members_len = @intCast(group_nmembers - 1),
@@ -912,6 +926,37 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
     }
 }
 
+pub fn resolveComdatGroups(self: *Object, elf_file: *Elf, table: anytype) !void {
+    for (self.comdat_groups.items, 0..) |*cg, cgi| {
+        const signature = cg.signature(elf_file);
+        const gop = try table.getOrPut(signature);
+        if (!gop.found_existing) {
+            gop.value_ptr.* = .{ .index = @intCast(cgi), .file = self.index };
+            continue;
+        }
+        const current = elf_file.comdatGroup(gop.value_ptr.*);
+        cg.alive = false;
+        if (self.index < current.file_index) {
+            current.alive = false;
+            cg.alive = true;
+            gop.value_ptr.* = .{ .index = @intCast(cgi), .file = self.index };
+        }
+    }
+}
+
+pub fn markComdatGroupsDead(self: *Object, elf_file: *Elf) void {
+    for (self.comdat_groups.items) |cg| {
+        if (cg.alive) continue;
+        for (cg.comdatGroupMembers(elf_file)) |shndx| {
+            const atom_index = self.atoms_indexes.items[shndx];
+            if (self.atom(atom_index)) |atom_ptr| {
+                atom_ptr.flags.alive = false;
+                atom_ptr.markFdesDead(elf_file);
+            }
+        }
+    }
+}
+
 pub fn initOutputSections(self: *Object, elf_file: *Elf) !void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
@@ -1428,9 +1473,9 @@ fn formatComdatGroups(
     const elf_file = ctx.elf_file;
     try writer.writeAll("  COMDAT groups\n");
     for (object.comdat_groups.items, 0..) |cg, cg_index| {
-        const cg_owner = elf_file.comdatGroupOwner(cg.owner);
-        if (cg_owner.file != object.index) continue;
-        try writer.print("    COMDAT({d})\n", .{cg_index});
+        try writer.print("    COMDAT({d})", .{cg_index});
+        if (!cg.alive) try writer.writeAll(" : [*]");
+        try writer.writeByte('\n');
         const cg_members = cg.comdatGroupMembers(elf_file);
         for (cg_members) |shndx| {
             const atom_index = object.atoms_indexes.items[shndx];

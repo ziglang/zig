@@ -404,9 +404,7 @@ fn testComdatElimination(b: *Build, opts: Options) *Step {
     main_o.linkLibCpp();
 
     {
-        const exe = addExecutable(b, opts, .{
-            .name = "main1",
-        });
+        const exe = addExecutable(b, opts, .{ .name = "main1" });
         exe.addObject(a_o);
         exe.addObject(main_o);
         exe.linkLibCpp();
@@ -431,9 +429,7 @@ fn testComdatElimination(b: *Build, opts: Options) *Step {
     }
 
     {
-        const exe = addExecutable(b, opts, .{
-            .name = "main2",
-        });
+        const exe = addExecutable(b, opts, .{ .name = "main2" });
         exe.addObject(main_o);
         exe.addObject(a_o);
         exe.linkLibCpp();
@@ -455,6 +451,42 @@ fn testComdatElimination(b: *Build, opts: Options) *Step {
         check.checkContains("_Z3foov");
         check.checkNotPresent("_Z3foov");
         test_step.dependOn(&check.step);
+    }
+
+    {
+        const c_o = addObject(b, opts, .{ .name = "c" });
+        c_o.addObject(main_o);
+        c_o.addObject(a_o);
+
+        const exe = addExecutable(b, opts, .{ .name = "main3" });
+        exe.addObject(c_o);
+        exe.linkLibCpp();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(
+            \\calling foo in main
+            \\calling foo in main
+            \\
+        );
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const d_o = addObject(b, opts, .{ .name = "d" });
+        d_o.addObject(a_o);
+        d_o.addObject(main_o);
+
+        const exe = addExecutable(b, opts, .{ .name = "main4" });
+        exe.addObject(d_o);
+        exe.linkLibCpp();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(
+            \\calling foo in a
+            \\calling foo in a
+            \\
+        );
+        test_step.dependOn(&run.step);
     }
 
     return test_step;

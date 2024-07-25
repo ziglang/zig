@@ -190,7 +190,7 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
     // Now, we are ready to resolve the symbols across all input files.
     // We will first resolve the files in the ZigObject, next in the parsed
     // input Object files.
-    elf_file.resolveSymbols();
+    try elf_file.resolveSymbols();
     elf_file.markEhFrameAtomsDead();
     try elf_file.resolveMergeSections();
     try elf_file.addCommentString();
@@ -318,11 +318,8 @@ fn initComdatGroups(elf_file: *Elf) !void {
 
     for (elf_file.objects.items) |index| {
         const object = elf_file.file(index).?.object;
-
         for (object.comdat_groups.items, 0..) |cg, cg_index| {
-            const cg_owner = elf_file.comdatGroupOwner(cg.owner);
-            if (cg_owner.file != index) continue;
-
+            if (!cg.alive) continue;
             const cg_sec = try elf_file.comdat_group_sections.addOne(gpa);
             cg_sec.* = .{
                 .shndx = try elf_file.addSection(.{
