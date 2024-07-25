@@ -472,10 +472,11 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
             break :init @as([*]elf.Phdr, @ptrFromInt(at_phdr))[0..at_phnum];
         };
 
-        // Apply the initial relocations as early as possible in the startup
-        // process.
+        // Apply the initial relocations as early as possible in the startup process. We cannot
+        // make calls yet on some architectures (e.g. MIPS) *because* they haven't been applied yet,
+        // so this must be fully inlined.
         if (builtin.position_independent_executable) {
-            std.os.linux.pie.relocate(phdrs);
+            @call(.always_inline, std.os.linux.pie.relocate, .{phdrs});
         }
 
         // This must be done after PIE relocations have been applied or we may crash
