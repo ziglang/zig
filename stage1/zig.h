@@ -3828,8 +3828,18 @@ static inline void zig_msvc_atomic_store_p32(void volatile* obj, void* arg) {
     (void)_InterlockedExchangePointer(obj, arg);
 }
 
-static inline void* zig_msvc_atomic_load_p32(void volatile* obj) {
-    return (void*)_InterlockedExchangeAdd(obj, 0);
+static inline void* zig_msvc_atomic_load_zig_memory_order_relaxed_p32(void volatile* obj) {
+    return (void*)__iso_volatile_load32(obj);
+}
+
+static inline void* zig_msvc_atomic_load_zig_memory_order_acquire_p32(void volatile* obj) {
+    void* val = (void*)__iso_volatile_load32(obj);
+    _ReadWriteBarrier();
+    return val;
+}
+
+static inline void* zig_msvc_atomic_load_zig_memory_order_seq_cst_p32(void volatile* obj) {
+    return zig_msvc_atomic_load_zig_memory_order_acquire_p32(obj);
 }
 
 static inline bool zig_msvc_cmpxchg_p32(void volatile* obj, void* expected, void* desired) {
@@ -3848,8 +3858,18 @@ static inline void zig_msvc_atomic_store_p64(void volatile* obj, void* arg) {
     (void)_InterlockedExchangePointer(obj, arg);
 }
 
-static inline void* zig_msvc_atomic_load_p64(void volatile* obj) {
-    return (void*)_InterlockedExchangeAdd64(obj, 0);
+static inline void* zig_msvc_atomic_load_zig_memory_order_relaxed_p64(void volatile* obj) {
+    return (void*)__iso_volatile_load64(obj);
+}
+
+static inline void* zig_msvc_atomic_load_zig_memory_order_acquire_p64(void volatile* obj) {
+    void* val = (void*)__iso_volatile_load64(obj);
+    _ReadWriteBarrier();
+    return val;
+}
+
+static inline void* zig_msvc_atomic_load_zig_memory_order_seq_cst_p64(void volatile* obj) {
+    return zig_msvc_atomic_load_zig_memory_order_acquire_p64(obj);
 }
 
 static inline bool zig_msvc_cmpxchg_p64(void volatile* obj, void* expected, void* desired) {
