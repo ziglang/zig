@@ -59,6 +59,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         // Exercise linker with LLVM backend
         // musl tests
         elf_step.dependOn(testAbsSymbols(b, .{ .target = musl_target }));
+        elf_step.dependOn(testComdatElimination(b, .{ .target = musl_target }));
         elf_step.dependOn(testCommonSymbols(b, .{ .target = musl_target }));
         elf_step.dependOn(testCommonSymbolsInArchive(b, .{ .target = musl_target }));
         elf_step.dependOn(testCommentString(b, .{ .target = musl_target }));
@@ -364,6 +365,97 @@ fn testCanonicalPlt(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testComdatElimination(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "comdat-elimination", opts);
+
+    const a_o = addObject(b, opts, .{
+        .name = "a",
+        .cpp_source_bytes =
+        \\#include <stdio.h>
+        \\inline void foo() {
+        \\  printf("calling foo in a\n");
+        \\}
+        \\void hello() {
+        \\  foo();
+        \\}
+        ,
+    });
+    a_o.linkLibCpp();
+
+    const main_o = addObject(b, opts, .{
+        .name = "main",
+        .cpp_source_bytes =
+        \\#include <stdio.h>
+        \\inline void foo() {
+        \\  printf("calling foo in main\n");
+        \\}
+        \\void hello();
+        \\int main() {
+        \\  foo();
+        \\  hello();
+        \\  return 0;
+        \\}
+        ,
+    });
+    main_o.linkLibCpp();
+
+    {
+        const exe = addExecutable(b, opts, .{
+            .name = "main1",
+        });
+        exe.addObject(a_o);
+        exe.addObject(main_o);
+        exe.linkLibCpp();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(
+            \\calling foo in a
+            \\calling foo in a
+            \\
+        );
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.checkInSymtab();
+        // This weird looking double assertion uses the fact that once we find the symbol in
+        // the symtab, we do not reset the cursor and do subsequent checks from that point onwards.
+        // If this is the case, and COMDAT elimination works correctly we should only have one instance
+        // of foo() function.
+        check.checkContains("_Z3foov");
+        check.checkNotPresent("_Z3foov");
+        test_step.dependOn(&check.step);
+    }
+
+    {
+        const exe = addExecutable(b, opts, .{
+            .name = "main2",
+        });
+        exe.addObject(main_o);
+        exe.addObject(a_o);
+        exe.linkLibCpp();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(
+            \\calling foo in main
+            \\calling foo in main
+            \\
+        );
+        test_step.dependOn(&run.step);
+
+        const check = exe.checkObject();
+        check.checkInSymtab();
+        // This weird looking double assertion uses the fact that once we find the symbol in
+        // the symtab, we do not reset the cursor and do subsequent checks from that point onwards.
+        // If this is the case, and COMDAT elimination works correctly we should only have one instance
+        // of foo() function.
+        check.checkContains("_Z3foov");
+        check.checkNotPresent("_Z3foov");
+        test_step.dependOn(&check.step);
+    }
 
     return test_step;
 }
