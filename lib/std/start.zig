@@ -272,6 +272,12 @@ fn _start() callconv(.Naked) noreturn {
             : [tos] "={rax}" (-> *std.os.plan9.Tos),
         );
     }
+
+    // Note that we maintain a very low level of trust with regards to ABI guarantees at this point.
+    // We will redundantly align the stack, clear the link register, etc. While e.g. the Linux
+    // kernel is usually good about upholding the ABI guarantees, the same cannot be said of dynamic
+    // linkers; musl's ldso, for example, opts to not align the stack when invoking the dynamic
+    // linker explicitly.
     asm volatile (switch (native_arch) {
             .x86_64 =>
             \\ xorl %%ebp, %%ebp
@@ -291,6 +297,7 @@ fn _start() callconv(.Naked) noreturn {
             \\ mov fp, #0
             \\ mov lr, #0
             \\ mov x0, sp
+            \\ and sp, x0, #-16
             \\ b %[posixCallMainAndExit]
             ,
             .arm, .armeb, .thumb, .thumbeb =>
@@ -322,30 +329,23 @@ fn _start() callconv(.Naked) noreturn {
             \\ jsr (%%pc, %%a0)
             ,
             .mips, .mipsel =>
-            // The lr is already zeroed on entry, as specified by the ABI.
-            \\ addiu $fp, $zero, 0
+            \\ move $fp, $0
+            \\ move $ra, $0
             \\ move $a0, $sp
-            \\ .set push
-            \\ .set noat
-            \\ addiu $1, $zero, -16
-            \\ and $sp, $sp, $1
-            \\ .set pop
+            \\ and $sp, -8
             \\ j %[posixCallMainAndExit]
             ,
             .mips64, .mips64el =>
-            // The lr is already zeroed on entry, as specified by the ABI.
-            \\ addiu $fp, $zero, 0
+            \\ move $fp, $0
+            \\ move $ra, $0
             \\ move $a0, $sp
-            \\ .set push
-            \\ .set noat
-            \\ daddiu $1, $zero, -16
-            \\ and $sp, $sp, $1
-            \\ .set pop
+            \\ and $sp, -16
             \\ j %[posixCallMainAndExit]
             ,
             .powerpc, .powerpcle =>
-            // Setup the initial stack frame and clear the back chain pointer.
+            // Set up the initial stack frame, and clear the back chain pointer.
             \\ mr 3, 1
+            \\ clrrwi 1, 1, 4
             \\ li 0, 0
             \\ stwu 1, -16(1)
             \\ stw 0, 0(1)
@@ -353,7 +353,7 @@ fn _start() callconv(.Naked) noreturn {
             \\ b %[posixCallMainAndExit]
             ,
             .powerpc64, .powerpc64le =>
-            // Setup the initial stack frame and clear the back chain pointer.
+            // Set up the ToC and initial stack frame, and clear the back chain pointer.
             \\ addis 2, 12, .TOC. - %[_start]@ha
             \\ addi 2, 2, .TOC. - %[_start]@l
             \\ mr 3, 1
@@ -365,18 +365,22 @@ fn _start() callconv(.Naked) noreturn {
             ,
             .s390x =>
             // Set up the stack frame (register save area and cleared back-chain slot).
-            // Note: Stack pointer is guaranteed by ABI to be 8-byte aligned as required.
-            \\ lgr %r2, %r15
-            \\ aghi %r15, -160
-            \\ lghi %r0, 0
-            \\ stg  %r0, 0(%r15)
+            \\ lgr %%r2, %%r15
+            \\ lghi %%r0, -16
+            \\ ngr %%r15, %%r0
+            \\ aghi %%r15, -160
+            \\ lghi %%r0, 0
+            \\ stg  %%r0, 0(%%r15)
             \\ jg %[posixCallMainAndExit]
             ,
             .sparc64 =>
-            // argc is stored after a register window (16 registers) plus stack bias
-            \\ mov %%g0, %%i6
-            \\ add %%o6, 2175, %%l0
-            \\ mov %%l0, %%o0
+            // argc is stored after a register window (16 registers * 8 bytes) plus the stack bias
+            // (2047 bytes).
+            \\ mov %%g0, %%fp
+            \\ add %%sp, 2175, %%o0
+            \\ add %%sp, 2047, %%sp
+            \\ and %%sp, -16, %%sp
+            \\ sub %%sp, 2047, %%sp
             \\ ba,a %[posixCallMainAndExit]
             ,
             else => @compileError("unsupported arch"),
