@@ -94,9 +94,7 @@ export fn __sanitizer_cov_trace_pc_indir(callee: usize) void {
 }
 
 fn handleCmp(pc: usize, arg1: u64, arg2: u64) void {
-    _ = arg1;
-    _ = arg2;
-    fuzzer.visitPc(pc);
+    fuzzer.visitPc(pc ^ arg1 ^ arg2);
     //std.log.debug("0x{x}: comparison of {d} and {d}", .{ pc, arg1, arg2 });
 }
 
