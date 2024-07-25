@@ -2180,7 +2180,9 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                 comp.bin_file = try link.File.createEmpty(arena, comp, emit, whole.lf_open_opts);
             }
         },
-        .incremental => {},
+        .incremental => {
+            log.debug("Compilation.update for {s}, CacheMode.incremental", .{comp.root_name});
+        },
     }
 
     // From this point we add a preliminary set of file system inputs that

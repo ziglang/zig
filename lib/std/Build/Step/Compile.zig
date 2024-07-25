@@ -1483,6 +1483,8 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     try zig_args.append("--global-cache-dir");
     try zig_args.append(b.graph.global_cache_root.path orelse ".");
 
+    if (b.graph.debug_compiler_runtime_libs) try zig_args.append("--debug-rt");
+
     try zig_args.append("--name");
     try zig_args.append(compile.name);
 
@@ -1840,6 +1842,14 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 }
 
 pub fn rebuildInFuzzMode(c: *Compile, progress_node: std.Progress.Node) ![]const u8 {
+    const gpa = c.step.owner.allocator;
+
+    c.step.result_error_msgs.clearRetainingCapacity();
+    c.step.result_stderr = "";
+
+    c.step.result_error_bundle.deinit(gpa);
+    c.step.result_error_bundle = std.zig.ErrorBundle.empty;
+
     const zig_args = try getZigArgs(c, true);
     const maybe_output_bin_path = try c.step.evalZigProcess(zig_args, progress_node, false);
     return maybe_output_bin_path.?;

@@ -208,6 +208,8 @@ pub fn main() !void {
                 try debug_log_scopes.append(next_arg);
             } else if (mem.eql(u8, arg, "--debug-pkg-config")) {
                 builder.debug_pkg_config = true;
+            } else if (mem.eql(u8, arg, "--debug-rt")) {
+                graph.debug_compiler_runtime_libs = true;
             } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
                 builder.debug_compile_errors = true;
             } else if (mem.eql(u8, arg, "--system")) {
@@ -1072,7 +1074,8 @@ fn workerMakeOneStep(
         std.debug.lockStdErr();
         defer std.debug.unlockStdErr();
 
-        printErrorMessages(b, s, run.ttyconf, run.stderr, run.prominent_compile_errors) catch {};
+        const gpa = b.allocator;
+        printErrorMessages(gpa, s, run.ttyconf, run.stderr, run.prominent_compile_errors) catch {};
     }
 
     handle_result: {
@@ -1126,14 +1129,12 @@ fn workerMakeOneStep(
 }
 
 pub fn printErrorMessages(
-    b: *std.Build,
+    gpa: Allocator,
     failing_step: *Step,
     ttyconf: std.io.tty.Config,
     stderr: File,
     prominent_compile_errors: bool,
 ) !void {
-    const gpa = b.allocator;
-
     // Provide context for where these error messages are coming from by
     // printing the corresponding Step subtree.
 
@@ -1313,6 +1314,7 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  --seed [integer]             For shuffling dependency traversal order (default: random)
         \\  --debug-log [scope]          Enable debugging the compiler
         \\  --debug-pkg-config           Fail if unknown pkg-config flags encountered
+        \\  --debug-rt                   Debug compiler runtime libraries
         \\  --verbose-link               Enable compiler debug output for linking
         \\  --verbose-air                Enable compiler debug output for Zig AIR
         \\  --verbose-llvm-ir[=file]     Enable compiler debug output for LLVM IR

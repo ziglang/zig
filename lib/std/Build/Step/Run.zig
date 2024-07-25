@@ -865,7 +865,10 @@ pub fn rerunInFuzzMode(run: *Run, unit_test_index: u32, prog_node: std.Progress.
             },
             .artifact => |pa| {
                 const artifact = pa.artifact;
-                const file_path = artifact.installed_path orelse artifact.generated_bin.?.path.?;
+                const file_path = if (artifact == run.producer.?)
+                    run.rebuilt_executable.?
+                else
+                    (artifact.installed_path orelse artifact.generated_bin.?.path.?);
                 try argv_list.append(arena, b.fmt("{s}{s}", .{ pa.prefix, file_path }));
             },
             .output_file, .output_directory => unreachable,
