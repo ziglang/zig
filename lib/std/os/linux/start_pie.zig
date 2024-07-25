@@ -277,4 +277,28 @@ pub fn relocate(phdrs: []elf.Phdr) void {
             @as(*usize, @ptrFromInt(base_addr + r.r_offset)).* = base_addr + @as(usize, @bitCast(r.r_addend));
         }
     }
+
+    const relr = sorted_dynv[elf.DT_RELR];
+    if (relr != 0) {
+        const relrs = @call(.always_inline, std.mem.bytesAsSlice, .{
+            elf.Relr,
+            @as([*]u8, @ptrFromInt(base_addr + relr))[0..sorted_dynv[elf.DT_RELRSZ]],
+        });
+        var current: [*]usize = undefined;
+        for (relrs) |r| {
+            if ((r & 1) == 0) {
+                current = @ptrFromInt(base_addr + r);
+                current[0] += base_addr;
+                current += 1;
+            } else {
+                // Skip the first bit; there are 63 locations in the bitmap.
+                var i: if (@sizeOf(usize) == 8) u6 else u5 = 1;
+                while (i < @bitSizeOf(elf.Relr)) : (i += 1) {
+                    if (((r >> i) & 1) != 0) current[i] += base_addr;
+                }
+
+                current += @bitSizeOf(elf.Relr) - 1;
+            }
+        }
+    }
 }
