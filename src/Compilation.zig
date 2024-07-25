@@ -262,9 +262,6 @@ emit_asm: ?EmitLoc,
 emit_llvm_ir: ?EmitLoc,
 emit_llvm_bc: ?EmitLoc,
 
-work_queue_wait_group: WaitGroup = .{},
-astgen_wait_group: WaitGroup = .{},
-
 llvm_opt_bisect_limit: c_int,
 
 file_system_inputs: ?*std.ArrayListUnmanaged(u8),
@@ -3535,13 +3532,13 @@ fn performAllTheWorkInner(
     // (at least for now) single-threaded main work queue. However, C object compilation
     // only needs to be finished by the end of this function.
 
-    comp.work_queue_wait_group.reset();
-    defer comp.work_queue_wait_group.wait();
+    var work_queue_wait_group: WaitGroup = .{};
+    defer work_queue_wait_group.wait();
 
     if (comp.docs_emit != null) {
         dev.check(.docs_emit);
-        comp.thread_pool.spawnWg(&comp.work_queue_wait_group, workerDocsCopy, .{comp});
-        comp.work_queue_wait_group.spawnManager(workerDocsWasm, .{ comp, main_progress_node });
+        comp.thread_pool.spawnWg(&work_queue_wait_group, workerDocsCopy, .{comp});
+        work_queue_wait_group.spawnManager(workerDocsWasm, .{ comp, main_progress_node });
     }
 
     {
@@ -3551,8 +3548,8 @@ fn performAllTheWorkInner(
         const zir_prog_node = main_progress_node.start("AST Lowering", 0);
         defer zir_prog_node.end();
 
-        comp.astgen_wait_group.reset();
-        defer comp.astgen_wait_group.wait();
+        var astgen_wait_group: WaitGroup = .{};
+        defer astgen_wait_group.wait();
 
         // builtin.zig is handled specially for two reasons:
         // 1. to avoid race condition of zig processes truncating each other's builtin.zig files
@@ -3574,7 +3571,7 @@ fn performAllTheWorkInner(
 
                 const file = mod.builtin_file orelse continue;
 
-                comp.thread_pool.spawnWg(&comp.astgen_wait_group, workerUpdateBuiltinZigFile, .{
+                comp.thread_pool.spawnWg(&astgen_wait_group, workerUpdateBuiltinZigFile, .{
                     comp, mod, file,
                 });
             }
@@ -3594,31 +3591,35 @@ fn performAllTheWorkInner(
                     const path_digest = zcu.filePathDigest(file_index);
                     const root_decl = zcu.fileRootDecl(file_index);
                     const file = zcu.fileByIndex(file_index);
-                    comp.thread_pool.spawnWgId(&comp.astgen_wait_group, workerAstGenFile, .{
-                        comp, file, file_index, path_digest, root_decl, zir_prog_node, &comp.astgen_wait_group, .root,
+                    comp.thread_pool.spawnWgId(&astgen_wait_group, workerAstGenFile, .{
+                        comp, file, file_index, path_digest, root_decl, zir_prog_node, &astgen_wait_group, .root,
                     });
                 }
             }
 
             while (comp.embed_file_work_queue.readItem()) |embed_file| {
-                comp.thread_pool.spawnWg(&comp.astgen_wait_group, workerCheckEmbedFile, .{
+                comp.thread_pool.spawnWg(&astgen_wait_group, workerCheckEmbedFile, .{
                     comp, embed_file,
                 });
             }
         }
 
         while (comp.c_object_work_queue.readItem()) |c_object| {
-            comp.thread_pool.spawnWg(&comp.work_queue_wait_group, workerUpdateCObject, .{
+            comp.thread_pool.spawnWg(&work_queue_wait_group, workerUpdateCObject, .{
                 comp, c_object, main_progress_node,
             });
         }
 
         while (comp.win32_resource_work_queue.readItem()) |win32_resource| {
-            comp.thread_pool.spawnWg(&comp.work_queue_wait_group, workerUpdateWin32Resource, .{
+            comp.thread_pool.spawnWg(&work_queue_wait_group, workerUpdateWin32Resource, .{
                 comp, win32_resource, main_progress_node,
             });
         }
     }
+
+    if (comp.job_queued_compiler_rt_lib) work_queue_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", .compiler_rt, .Lib, &comp.compiler_rt_lib, main_progress_node });
+    if (comp.job_queued_compiler_rt_obj) work_queue_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", .compiler_rt, .Obj, &comp.compiler_rt_obj, main_progress_node });
+    if (comp.job_queued_fuzzer_lib) work_queue_wait_group.spawnManager(buildRt, .{ comp, "fuzzer.zig", .libfuzzer, .Lib, &comp.fuzzer_lib, main_progress_node });
 
     if (comp.module) |zcu| {
         const pt: Zcu.PerThread = .{ .zcu = zcu, .tid = .main };
@@ -3633,7 +3634,7 @@ fn performAllTheWorkInner(
         zcu.codegen_prog_node = main_progress_node.start("Code Generation", 0);
     }
 
-    if (!InternPool.single_threaded) comp.thread_pool.spawnWgId(&comp.work_queue_wait_group, codegenThread, .{comp});
+    if (!InternPool.single_threaded) comp.thread_pool.spawnWgId(&work_queue_wait_group, codegenThread, .{comp});
     defer if (!InternPool.single_threaded) {
         {
             comp.codegen_work.mutex.lock();
@@ -3661,10 +3662,6 @@ fn performAllTheWorkInner(
         }
         break;
     }
-
-    buildCompilerRtOneShot(comp, &comp.job_queued_compiler_rt_lib, "compiler_rt.zig", .compiler_rt, .Lib, &comp.compiler_rt_lib, main_progress_node);
-    buildCompilerRtOneShot(comp, &comp.job_queued_compiler_rt_obj, "compiler_rt.zig", .compiler_rt, .Obj, &comp.compiler_rt_obj, main_progress_node);
-    buildCompilerRtOneShot(comp, &comp.job_queued_fuzzer_lib, "fuzzer.zig", .libfuzzer, .Lib, &comp.fuzzer_lib, main_progress_node);
 }
 
 const JobError = Allocator.Error;
@@ -4668,18 +4665,14 @@ fn workerUpdateWin32Resource(
     };
 }
 
-fn buildCompilerRtOneShot(
+fn buildRt(
     comp: *Compilation,
-    job_queued: *bool,
     root_source_name: []const u8,
     misc_task: MiscTask,
     output_mode: std.builtin.OutputMode,
     out: *?CRTFile,
     prog_node: std.Progress.Node,
 ) void {
-    if (!job_queued.*) return;
-    job_queued.* = false;
-
     comp.buildOutputFromZig(
         root_source_name,
         output_mode,
