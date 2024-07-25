@@ -127,6 +127,16 @@ pub const Mnemonic = enum(u16) {
     fcvtld,
     fcvtlud,
 
+    fcvtsw,
+    fcvtswu,
+    fcvtsl,
+    fcvtslu,
+
+    fcvtdw,
+    fcvtdwu,
+    fcvtdl,
+    fcvtdlu,
+
     fsgnjns,
     fsgnjnd,
 

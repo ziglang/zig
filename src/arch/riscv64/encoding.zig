@@ -280,6 +280,16 @@ pub const Lir = struct {
             .fcvtld  => .{ .opcode = .OP_FP, .format = .R, .data = .{ .fcvt = .{ .funct5 = 0b11000, .fmt = .D, .rm = 0b111, .width = .l  } } },
             .fcvtlud => .{ .opcode = .OP_FP, .format = .R, .data = .{ .fcvt = .{ .funct5 = 0b11000, .fmt = .D, .rm = 0b111, .width = .lu } } },
 
+            .fcvtsw  => .{ .opcode = .OP_FP, .format = .R, .data = .{ .fcvt = .{ .funct5 = 0b11010, .fmt = .S, .rm = 0b111, .width = .w  } } },
+            .fcvtswu => .{ .opcode = .OP_FP, .format = .R, .data = .{ .fcvt = .{ .funct5 = 0b11010, .fmt = .S, .rm = 0b111, .width = .wu } } },
+            .fcvtsl  => .{ .opcode = .OP_FP, .format = .R, .data = .{ .fcvt = .{ .funct5 = 0b11010, .fmt = .S, .rm = 0b111, .width = .l  } } },
+            .fcvtslu => .{ .opcode = .OP_FP, .format = .R, .data = .{ .fcvt = .{ .funct5 = 0b11010, .fmt = .S, .rm = 0b111, .width = .lu } } },
+
+            .fcvtdw  => .{ .opcode = .OP_FP, .format = .R, .data = .{ .fcvt = .{ .funct5 = 0b11010, .fmt = .D, .rm = 0b111, .width = .w  } } },
+            .fcvtdwu => .{ .opcode = .OP_FP, .format = .R, .data = .{ .fcvt = .{ .funct5 = 0b11010, .fmt = .D, .rm = 0b111, .width = .wu } } },
+            .fcvtdl  => .{ .opcode = .OP_FP, .format = .R, .data = .{ .fcvt = .{ .funct5 = 0b11010, .fmt = .D, .rm = 0b111, .width = .l  } } },
+            .fcvtdlu => .{ .opcode = .OP_FP, .format = .R, .data = .{ .fcvt = .{ .funct5 = 0b11010, .fmt = .D, .rm = 0b111, .width = .lu } } },
+
             // LOAD
 
             .lb      => .{ .opcode = .LOAD, .format = .I, .data = .{ .f = .{ .funct3 = 0b000 } } },

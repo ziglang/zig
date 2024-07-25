@@ -6712,9 +6712,65 @@ fn airArrayToSlice(func: *Func, inst: Air.Inst.Index) !void {
 
 fn airFloatFromInt(func: *Func, inst: Air.Inst.Index) !void {
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement airFloatFromInt for {}", .{
-        func.target.cpu.arch,
-    });
+    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
+        const pt = func.pt;
+        const zcu = pt.zcu;
+
+        const operand = try func.resolveInst(ty_op.operand);
+
+        const src_ty = func.typeOf(ty_op.operand);
+        const dst_ty = ty_op.ty.toType();
+
+        const src_reg, const src_lock = try func.promoteReg(src_ty, operand);
+        defer if (src_lock) |lock| func.register_manager.unlockReg(lock);
+
+        const is_unsigned = dst_ty.isUnsignedInt(zcu);
+        const src_bits = src_ty.bitSize(pt);
+        const dst_bits = dst_ty.bitSize(pt);
+
+        switch (src_bits) {
+            32, 64 => {},
+            else => try func.truncateRegister(src_ty, src_reg),
+        }
+
+        const int_mod: Mir.FcvtOp = switch (src_bits) {
+            8, 16, 32 => if (is_unsigned) .wu else .w,
+            64 => if (is_unsigned) .lu else .l,
+            else => return func.fail("TODO: airFloatFromInt src size: {d}", .{src_bits}),
+        };
+
+        const float_mod: enum { s, d } = switch (dst_bits) {
+            32 => .s,
+            64 => .d,
+            else => return func.fail("TODO: airFloatFromInt dst size {d}", .{dst_bits}),
+        };
+
+        const dst_reg, const dst_lock = try func.allocReg(.int);
+        defer func.register_manager.unlockReg(dst_lock);
+
+        _ = try func.addInst(.{
+            .tag = switch (float_mod) {
+                .s => switch (int_mod) {
+                    .l => .fcvtsl,
+                    .lu => .fcvtslu,
+                    .w => .fcvtsw,
+                    .wu => .fcvtswu,
+                },
+                .d => switch (int_mod) {
+                    .l => .fcvtdl,
+                    .lu => .fcvtdlu,
+                    .w => .fcvtdw,
+                    .wu => .fcvtdwu,
+                },
+            },
+            .data = .{ .rr = .{
+                .rd = dst_reg,
+                .rs = src_reg,
+            } },
+        });
+
+        break :result .{ .register = dst_reg };
+    };
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -6726,7 +6782,7 @@ fn airIntFromFloat(func: *Func, inst: Air.Inst.Index) !void {
 
         const operand = try func.resolveInst(ty_op.operand);
         const src_ty = func.typeOf(ty_op.operand);
-        const dst_ty = func.typeOfIndex(inst);
+        const dst_ty = ty_op.ty.toType();
 
         const is_unsigned = dst_ty.isUnsignedInt(zcu);
         const src_bits = src_ty.bitSize(pt);
@@ -6740,7 +6796,7 @@ fn airIntFromFloat(func: *Func, inst: Air.Inst.Index) !void {
 
         const int_mod: Mir.FcvtOp = switch (dst_bits) {
             32 => if (is_unsigned) .wu else .w,
-            64 => if (is_unsigned) .lu else .l,
+            8, 16, 64 => if (is_unsigned) .lu else .l,
             else => return func.fail("TODO: airIntFromFloat dst size: {d}", .{dst_bits}),
         };
 
