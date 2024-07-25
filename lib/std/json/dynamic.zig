@@ -103,7 +103,6 @@ pub const Value = union(enum) {
                     } else {
                         return try handleCompleteValue(&stack, allocator, source, Value{ .number_string = slice }, options) orelse continue;
                     }
-
                 },
 
                 .null => return try handleCompleteValue(&stack, allocator, source, .null, options) orelse continue,

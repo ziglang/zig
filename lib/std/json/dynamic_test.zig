@@ -157,7 +157,7 @@ test "ParseOptions.parse_numbers prevents parsing when false" {
         \\  "float": 3.14,
         \\  "int": 3
         \\}
-        , .{ .parse_numbers = false });
+    , .{ .parse_numbers = false });
     try std.testing.expect(parsed.object.get("float").? == .number_string);
     try std.testing.expect(parsed.object.get("int").? == .number_string);
 }
