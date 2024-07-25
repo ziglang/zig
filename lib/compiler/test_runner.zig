@@ -325,18 +325,11 @@ extern fn fuzzer_next() FuzzerSlice;
 
 pub fn fuzzInput(options: testing.FuzzInputOptions) []const u8 {
     @disableInstrumentation();
-    if (crippled) {
-        return "";
-    } else if (builtin.fuzz) {
-        return fuzzer_next().toSlice();
-    } else {
-        is_fuzz_test = true;
-        if (options.corpus.len == 0) {
-            return "";
-        } else {
-            var prng = std.Random.DefaultPrng.init(testing.random_seed);
-            const random = prng.random();
-            return options.corpus[random.uintLessThan(usize, options.corpus.len)];
-        }
-    }
+    if (crippled) return "";
+    is_fuzz_test = true;
+    if (builtin.fuzz) return fuzzer_next().toSlice();
+    if (options.corpus.len == 0) return "";
+    var prng = std.Random.DefaultPrng.init(testing.random_seed);
+    const random = prng.random();
+    return options.corpus[random.uintLessThan(usize, options.corpus.len)];
 }
