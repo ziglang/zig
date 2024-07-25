@@ -222,6 +222,24 @@ pub fn relocate(phdrs: []elf.Phdr) void {
         }
     }
 
+    // Deal with the GOT relocations that MIPS uses first.
+    if (builtin.cpu.arch.isMIPS()) {
+        const count: elf.Addr = blk: {
+            // This is an architecture-specific tag, so not part of `sorted_dynv`.
+            var i: usize = 0;
+            while (dynv[i].d_tag != elf.DT_NULL) : (i += 1) {
+                if (dynv[i].d_tag == elf.DT_MIPS_LOCAL_GOTNO) break :blk dynv[i].d_val;
+            }
+
+            break :blk 0;
+        };
+
+        const got: [*]usize = @ptrFromInt(base_addr + sorted_dynv[elf.DT_PLTGOT]);
+
+        for (0..count) |i| {
+            got[i] += base_addr;
+        }
+    }
 
     // Apply normal relocations.
 
