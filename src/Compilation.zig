@@ -39,6 +39,7 @@ const Air = @import("Air.zig");
 const Builtin = @import("Builtin.zig");
 const LlvmObject = @import("codegen/llvm.zig").Object;
 const dev = @import("dev.zig");
+const TimeTrace = @import("TimeTrace.zig");
 
 pub const Config = @import("Compilation/Config.zig");
 
@@ -180,6 +181,7 @@ verbose_intern_pool: bool,
 verbose_generic_instances: bool,
 verbose_llvm_ir: ?[]const u8,
 verbose_llvm_bc: ?[]const u8,
+debug_timing: ?[]const u8,
 verbose_cimport: bool,
 verbose_llvm_cpu_features: bool,
 verbose_link: bool,
@@ -268,6 +270,8 @@ astgen_wait_group: WaitGroup = .{},
 llvm_opt_bisect_limit: c_int,
 
 file_system_inputs: ?*std.ArrayListUnmanaged(u8),
+
+time_trace: TimeTrace,
 
 pub const Emit = struct {
     /// Where the output will go.
@@ -1157,6 +1161,7 @@ pub const CreateOptions = struct {
     verbose_llvm_ir: ?[]const u8 = null,
     verbose_llvm_bc: ?[]const u8 = null,
     verbose_cimport: bool = false,
+    debug_timing: ?[]const u8 = null,
     verbose_llvm_cpu_features: bool = false,
     debug_compiler_runtime_libs: bool = false,
     debug_compile_errors: bool = false,
@@ -1533,6 +1538,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .verbose_llvm_ir = options.verbose_llvm_ir,
             .verbose_llvm_bc = options.verbose_llvm_bc,
             .verbose_cimport = options.verbose_cimport,
+            .debug_timing = options.debug_timing,
             .verbose_llvm_cpu_features = options.verbose_llvm_cpu_features,
             .verbose_link = options.verbose_link,
             .disable_c_depfile = options.disable_c_depfile,
@@ -1566,6 +1572,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .link_eh_frame_hdr = link_eh_frame_hdr,
             .global_cc_argv = options.global_cc_argv,
             .file_system_inputs = options.file_system_inputs,
+            .time_trace = TimeTrace.init(gpa),
         };
 
         // Prevent some footguns by making the "any" fields of config reflect
@@ -2016,6 +2023,8 @@ pub fn destroy(comp: *Compilation) void {
     comp.clearMiscFailures();
 
     comp.cache_parent.manifest_dir.close();
+
+    comp.time_trace.deinit();
 }
 
 pub fn clearMiscFailures(comp: *Compilation) void {
@@ -2391,6 +2400,10 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             try flush(comp, arena, .main, main_progress_node);
             if (comp.totalErrorCount() != 0) return;
         },
+    }
+
+    if (comp.debug_timing) |path| {
+        comp.time_trace.dumpReportAndClear(path);
     }
 }
 
@@ -3633,6 +3646,9 @@ fn performAllTheWorkInner(
         zcu.codegen_prog_node = main_progress_node.start("Code Generation", 0);
     }
 
+    // enable the time trace before the work begins
+    comp.time_trace.enable();
+
     if (!InternPool.single_threaded) comp.thread_pool.spawnWgId(&comp.work_queue_wait_group, codegenThread, .{comp});
     defer if (!InternPool.single_threaded) {
         {
@@ -3679,6 +3695,37 @@ pub fn queueJobs(comp: *Compilation, jobs: []const Job) !void {
 
 fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progress.Node) JobError!void {
     switch (job) {
+        .analyze_func => |func| {
+            const named_frame = tracy.namedFrame("analyze_func");
+            defer named_frame.end();
+
+            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
+            pt.ensureFuncBodyAnalyzed(func) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => return,
+            };
+        },
+        .analyze_decl => |decl_index| {
+            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
+            pt.ensureDeclAnalyzed(decl_index) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.AnalysisFail => return,
+            };
+            const decl = pt.zcu.declPtr(decl_index);
+            if (decl.kind == .@"test" and comp.config.is_test) {
+                // Tests are always emitted in test binaries. The decl_refs are created by
+                // Zcu.populateTestFunctions, but this will not queue body analysis, so do
+                // that now.
+                try pt.zcu.ensureFuncBodyAnalysisQueued(decl.val.toIntern());
+            }
+        },
+        .codegen_func => |func| {
+            // This call takes ownership of `func.air`.
+            try comp.queueCodegenJob(tid, .{ .func = .{
+                .func = func.func,
+                .air = func.air,
+            } });
+        },
         .codegen_decl => |decl_index| {
             const decl = comp.module.?.declPtr(decl_index);
 
@@ -3697,23 +3744,6 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
                     try comp.queueCodegenJob(tid, .{ .decl = decl_index });
                 },
             }
-        },
-        .codegen_func => |func| {
-            // This call takes ownership of `func.air`.
-            try comp.queueCodegenJob(tid, .{ .func = .{
-                .func = func.func,
-                .air = func.air,
-            } });
-        },
-        .analyze_func => |func| {
-            const named_frame = tracy.namedFrame("analyze_func");
-            defer named_frame.end();
-
-            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
-            pt.ensureFuncBodyAnalyzed(func) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.AnalysisFail => return,
-            };
         },
         .emit_h_decl => |decl_index| {
             if (true) @panic("regressed compiler feature: emit-h should hook into updateExports, " ++
@@ -3777,20 +3807,6 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
                         else => |e| return e,
                     };
                 },
-            }
-        },
-        .analyze_decl => |decl_index| {
-            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
-            pt.ensureDeclAnalyzed(decl_index) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.AnalysisFail => return,
-            };
-            const decl = pt.zcu.declPtr(decl_index);
-            if (decl.kind == .@"test" and comp.config.is_test) {
-                // Tests are always emitted in test binaries. The decl_refs are created by
-                // Zcu.populateTestFunctions, but this will not queue body analysis, so do
-                // that now.
-                try pt.zcu.ensureFuncBodyAnalysisQueued(decl.val.toIntern());
             }
         },
         .resolve_type_fully => |ty| {

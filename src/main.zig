@@ -655,6 +655,7 @@ const usage_build_generic =
     \\  --debug-log [scope]          Enable printing debug/info log messages for scope
     \\  --debug-compile-errors       Crash with helpful diagnostics at the first compile error
     \\  --debug-link-snapshot        Enable dumping of the linker's state in JSON format
+    \\  --debug-timing=[path]        Dumps timing information in the Spall JSON format
     \\
 ;
 
@@ -842,6 +843,7 @@ fn buildOutputType(
     var verbose_llvm_bc: ?[]const u8 = null;
     var verbose_cimport = false;
     var verbose_llvm_cpu_features = false;
+    var debug_timing: ?[]const u8 = null;
     var time_report = false;
     var stack_report = false;
     var show_builtin = false;
@@ -1367,6 +1369,9 @@ fn buildOutputType(
                         } else {
                             enable_link_snapshots = true;
                         }
+                    } else if (mem.startsWith(u8, arg, "--debug-timing=")) {
+                        debug_timing = arg["--debug-timing=".len..];
+                        if (debug_timing.?.len == 0) fatal("--debug-timing expected a path", .{});
                     } else if (mem.eql(u8, arg, "-fincremental")) {
                         dev.check(.incremental);
                         opt_incremental = true;
@@ -3378,6 +3383,7 @@ fn buildOutputType(
         .verbose_generic_instances = verbose_generic_instances,
         .verbose_llvm_ir = verbose_llvm_ir,
         .verbose_llvm_bc = verbose_llvm_bc,
+        .debug_timing = debug_timing,
         .verbose_cimport = verbose_cimport,
         .verbose_llvm_cpu_features = verbose_llvm_cpu_features,
         .time_report = time_report,
