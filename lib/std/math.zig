@@ -614,11 +614,6 @@ pub fn shl(comptime T: type, a: T, shift_amt: anytype) T {
 }
 
 test shl {
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
-        // https://github.com/ziglang/zig/issues/12012
-        return error.SkipZigTest;
-    }
-
     try testing.expect(shl(u8, 0b11111111, @as(usize, 3)) == 0b11111000);
     try testing.expect(shl(u8, 0b11111111, @as(usize, 8)) == 0);
     try testing.expect(shl(u8, 0b11111111, @as(usize, 9)) == 0);
@@ -659,11 +654,6 @@ pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
 }
 
 test shr {
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
-        // https://github.com/ziglang/zig/issues/12012
-        return error.SkipZigTest;
-    }
-
     try testing.expect(shr(u8, 0b11111111, @as(usize, 3)) == 0b00011111);
     try testing.expect(shr(u8, 0b11111111, @as(usize, 8)) == 0);
     try testing.expect(shr(u8, 0b11111111, @as(usize, 9)) == 0);
@@ -705,11 +695,6 @@ pub fn rotr(comptime T: type, x: T, r: anytype) T {
 }
 
 test rotr {
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
-        // https://github.com/ziglang/zig/issues/12012
-        return error.SkipZigTest;
-    }
-
     try testing.expect(rotr(u0, 0b0, @as(usize, 3)) == 0b0);
     try testing.expect(rotr(u5, 0b00001, @as(usize, 0)) == 0b00001);
     try testing.expect(rotr(u6, 0b000001, @as(usize, 7)) == 0b100000);
@@ -751,11 +736,6 @@ pub fn rotl(comptime T: type, x: T, r: anytype) T {
 }
 
 test rotl {
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
-        // https://github.com/ziglang/zig/issues/12012
-        return error.SkipZigTest;
-    }
-
     try testing.expect(rotl(u0, 0b0, @as(usize, 3)) == 0b0);
     try testing.expect(rotl(u5, 0b00001, @as(usize, 0)) == 0b00001);
     try testing.expect(rotl(u6, 0b000001, @as(usize, 7)) == 0b000010);
@@ -1862,10 +1842,6 @@ fn testSign() !void {
 }
 
 test sign {
-    if (builtin.zig_backend == .stage2_llvm) {
-        // https://github.com/ziglang/zig/issues/12012
-        return error.SkipZigTest;
-    }
     try testSign();
     try comptime testSign();
 }
