@@ -38,7 +38,7 @@ const R_RELATIVE = switch (builtin.cpu.arch) {
 // Obtain a pointer to the _DYNAMIC array.
 // We have to compute its address as a PC-relative quantity not to require a
 // relocation that, at this point, is not yet applied.
-fn getDynamicSymbol() [*]elf.Dyn {
+inline fn getDynamicSymbol() [*]elf.Dyn {
     return switch (builtin.cpu.arch) {
         .x86 => asm volatile (
             \\ .weak _DYNAMIC
