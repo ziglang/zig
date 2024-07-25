@@ -516,6 +516,7 @@ pub const GetQueuedCompletionStatusResult = enum {
     Aborted,
     Cancelled,
     EOF,
+    Timeout,
 };
 
 pub fn GetQueuedCompletionStatus(
@@ -536,6 +537,7 @@ pub fn GetQueuedCompletionStatus(
             .ABANDONED_WAIT_0 => return GetQueuedCompletionStatusResult.Aborted,
             .OPERATION_ABORTED => return GetQueuedCompletionStatusResult.Cancelled,
             .HANDLE_EOF => return GetQueuedCompletionStatusResult.EOF,
+            .WAIT_TIMEOUT => return GetQueuedCompletionStatusResult.Timeout,
             else => |err| {
                 if (std.debug.runtime_safety) {
                     @setEvalBranchQuota(2500);
