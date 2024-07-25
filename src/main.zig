@@ -5309,7 +5309,9 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             const term = t: {
                 std.debug.lockStdErr();
                 defer std.debug.unlockStdErr();
-                break :t try child.spawnAndWait();
+                break :t child.spawnAndWait() catch |err| {
+                    fatal("unable to spawn {s}: {s}", .{ child_argv.items[0], @errorName(err) });
+                };
             };
 
             switch (term) {

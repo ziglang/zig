@@ -201,6 +201,9 @@ c_source_files: []const CSourceFile,
 rc_source_files: []const RcSourceFile,
 global_cc_argv: []const []const u8,
 cache_parent: *Cache,
+/// Populated when a sub-Compilation is created during the `update` of its parent.
+/// In this case the child must additionally add file system inputs to this object.
+parent_whole_cache: ?ParentWholeCache,
 /// Path to own executable for invoking `zig clang`.
 self_exe_path: ?[]const u8,
 zig_lib_directory: Directory,
@@ -261,9 +264,6 @@ test_name_prefix: ?[]const u8,
 emit_asm: ?EmitLoc,
 emit_llvm_ir: ?EmitLoc,
 emit_llvm_bc: ?EmitLoc,
-
-work_queue_wait_group: WaitGroup = .{},
-astgen_wait_group: WaitGroup = .{},
 
 llvm_opt_bisect_limit: c_int,
 
@@ -973,6 +973,12 @@ pub const SystemLib = link.SystemLib;
 
 pub const CacheMode = enum { incremental, whole };
 
+pub const ParentWholeCache = struct {
+    manifest: *Cache.Manifest,
+    mutex: *std.Thread.Mutex,
+    prefix_map: [4]u8,
+};
+
 const CacheUse = union(CacheMode) {
     incremental: *Incremental,
     whole: *Whole,
@@ -1209,6 +1215,8 @@ pub const CreateOptions = struct {
 
     /// Tracks all files that can cause the Compilation to be invalidated and need a rebuild.
     file_system_inputs: ?*std.ArrayListUnmanaged(u8) = null,
+
+    parent_whole_cache: ?ParentWholeCache = null,
 
     pub const Entry = link.File.OpenOptions.Entry;
 };
@@ -1566,6 +1574,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .link_eh_frame_hdr = link_eh_frame_hdr,
             .global_cc_argv = options.global_cc_argv,
             .file_system_inputs = options.file_system_inputs,
+            .parent_whole_cache = options.parent_whole_cache,
         };
 
         // Prevent some footguns by making the "any" fields of config reflect
@@ -2109,6 +2118,11 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             if (is_hit) {
                 // In this case the cache hit contains the full set of file system inputs. Nice!
                 if (comp.file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
+                if (comp.parent_whole_cache) |pwc| {
+                    pwc.mutex.lock();
+                    defer pwc.mutex.unlock();
+                    try man.populateOtherManifest(pwc.manifest, pwc.prefix_map);
+                }
 
                 comp.last_update_was_cache_hit = true;
                 log.debug("CacheMode.whole cache hit for {s}", .{comp.root_name});
@@ -2306,6 +2320,11 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
     switch (comp.cache_use) {
         .whole => |whole| {
             if (comp.file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
+            if (comp.parent_whole_cache) |pwc| {
+                pwc.mutex.lock();
+                defer pwc.mutex.unlock();
+                try man.populateOtherManifest(pwc.manifest, pwc.prefix_map);
+            }
 
             const digest = man.final();
 
@@ -3535,13 +3554,13 @@ fn performAllTheWorkInner(
     // (at least for now) single-threaded main work queue. However, C object compilation
     // only needs to be finished by the end of this function.
 
-    comp.work_queue_wait_group.reset();
-    defer comp.work_queue_wait_group.wait();
+    var work_queue_wait_group: WaitGroup = .{};
+    defer work_queue_wait_group.wait();
 
     if (comp.docs_emit != null) {
         dev.check(.docs_emit);
-        comp.thread_pool.spawnWg(&comp.work_queue_wait_group, workerDocsCopy, .{comp});
-        comp.work_queue_wait_group.spawnManager(workerDocsWasm, .{ comp, main_progress_node });
+        comp.thread_pool.spawnWg(&work_queue_wait_group, workerDocsCopy, .{comp});
+        work_queue_wait_group.spawnManager(workerDocsWasm, .{ comp, main_progress_node });
     }
 
     {
@@ -3551,8 +3570,8 @@ fn performAllTheWorkInner(
         const zir_prog_node = main_progress_node.start("AST Lowering", 0);
         defer zir_prog_node.end();
 
-        comp.astgen_wait_group.reset();
-        defer comp.astgen_wait_group.wait();
+        var astgen_wait_group: WaitGroup = .{};
+        defer astgen_wait_group.wait();
 
         // builtin.zig is handled specially for two reasons:
         // 1. to avoid race condition of zig processes truncating each other's builtin.zig files
@@ -3574,7 +3593,7 @@ fn performAllTheWorkInner(
 
                 const file = mod.builtin_file orelse continue;
 
-                comp.thread_pool.spawnWg(&comp.astgen_wait_group, workerUpdateBuiltinZigFile, .{
+                comp.thread_pool.spawnWg(&astgen_wait_group, workerUpdateBuiltinZigFile, .{
                     comp, mod, file,
                 });
             }
@@ -3594,31 +3613,35 @@ fn performAllTheWorkInner(
                     const path_digest = zcu.filePathDigest(file_index);
                     const root_decl = zcu.fileRootDecl(file_index);
                     const file = zcu.fileByIndex(file_index);
-                    comp.thread_pool.spawnWgId(&comp.astgen_wait_group, workerAstGenFile, .{
-                        comp, file, file_index, path_digest, root_decl, zir_prog_node, &comp.astgen_wait_group, .root,
+                    comp.thread_pool.spawnWgId(&astgen_wait_group, workerAstGenFile, .{
+                        comp, file, file_index, path_digest, root_decl, zir_prog_node, &astgen_wait_group, .root,
                     });
                 }
             }
 
             while (comp.embed_file_work_queue.readItem()) |embed_file| {
-                comp.thread_pool.spawnWg(&comp.astgen_wait_group, workerCheckEmbedFile, .{
+                comp.thread_pool.spawnWg(&astgen_wait_group, workerCheckEmbedFile, .{
                     comp, embed_file,
                 });
             }
         }
 
         while (comp.c_object_work_queue.readItem()) |c_object| {
-            comp.thread_pool.spawnWg(&comp.work_queue_wait_group, workerUpdateCObject, .{
+            comp.thread_pool.spawnWg(&work_queue_wait_group, workerUpdateCObject, .{
                 comp, c_object, main_progress_node,
             });
         }
 
         while (comp.win32_resource_work_queue.readItem()) |win32_resource| {
-            comp.thread_pool.spawnWg(&comp.work_queue_wait_group, workerUpdateWin32Resource, .{
+            comp.thread_pool.spawnWg(&work_queue_wait_group, workerUpdateWin32Resource, .{
                 comp, win32_resource, main_progress_node,
             });
         }
     }
+
+    if (comp.job_queued_compiler_rt_lib) work_queue_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", .compiler_rt, .Lib, &comp.compiler_rt_lib, main_progress_node });
+    if (comp.job_queued_compiler_rt_obj) work_queue_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", .compiler_rt, .Obj, &comp.compiler_rt_obj, main_progress_node });
+    if (comp.job_queued_fuzzer_lib) work_queue_wait_group.spawnManager(buildRt, .{ comp, "fuzzer.zig", .libfuzzer, .Lib, &comp.fuzzer_lib, main_progress_node });
 
     if (comp.module) |zcu| {
         const pt: Zcu.PerThread = .{ .zcu = zcu, .tid = .main };
@@ -3633,7 +3656,7 @@ fn performAllTheWorkInner(
         zcu.codegen_prog_node = main_progress_node.start("Code Generation", 0);
     }
 
-    if (!InternPool.single_threaded) comp.thread_pool.spawnWgId(&comp.work_queue_wait_group, codegenThread, .{comp});
+    if (!InternPool.single_threaded) comp.thread_pool.spawnWgId(&work_queue_wait_group, codegenThread, .{comp});
     defer if (!InternPool.single_threaded) {
         {
             comp.codegen_work.mutex.lock();
@@ -3661,10 +3684,6 @@ fn performAllTheWorkInner(
         }
         break;
     }
-
-    buildCompilerRtOneShot(comp, &comp.job_queued_compiler_rt_lib, "compiler_rt.zig", .compiler_rt, .Lib, &comp.compiler_rt_lib, main_progress_node);
-    buildCompilerRtOneShot(comp, &comp.job_queued_compiler_rt_obj, "compiler_rt.zig", .compiler_rt, .Obj, &comp.compiler_rt_obj, main_progress_node);
-    buildCompilerRtOneShot(comp, &comp.job_queued_fuzzer_lib, "fuzzer.zig", .libfuzzer, .Lib, &comp.fuzzer_lib, main_progress_node);
 }
 
 const JobError = Allocator.Error;
@@ -4668,18 +4687,14 @@ fn workerUpdateWin32Resource(
     };
 }
 
-fn buildCompilerRtOneShot(
+fn buildRt(
     comp: *Compilation,
-    job_queued: *bool,
     root_source_name: []const u8,
     misc_task: MiscTask,
     output_mode: std.builtin.OutputMode,
     out: *?CRTFile,
     prog_node: std.Progress.Node,
 ) void {
-    if (!job_queued.*) return;
-    job_queued.* = false;
-
     comp.buildOutputFromZig(
         root_source_name,
         output_mode,
@@ -6427,14 +6442,29 @@ fn buildOutputFromZig(
         .output_mode = output_mode,
     });
 
+    const parent_whole_cache: ?ParentWholeCache = switch (comp.cache_use) {
+        .whole => |whole| .{
+            .manifest = whole.cache_manifest.?,
+            .mutex = &whole.cache_manifest_mutex,
+            .prefix_map = .{
+                0, // cwd is the same
+                1, // zig lib dir is the same
+                3, // local cache is mapped to global cache
+                3, // global cache is the same
+            },
+        },
+        .incremental => null,
+    };
+
     const sub_compilation = try Compilation.create(gpa, arena, .{
         .global_cache_directory = comp.global_cache_directory,
         .local_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
+        .cache_mode = .whole,
+        .parent_whole_cache = parent_whole_cache,
         .self_exe_path = comp.self_exe_path,
         .config = config,
         .root_mod = root_mod,
-        .cache_mode = .whole,
         .root_name = root_name,
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.libc_installation,
