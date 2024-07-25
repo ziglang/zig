@@ -20,7 +20,6 @@ const InternPool = @import("../../InternPool.zig");
 const Compilation = @import("../../Compilation.zig");
 const trace = @import("../../tracy.zig").trace;
 const codegen = @import("../../codegen.zig");
-const Mnemonic = @import("mnem.zig").Mnemonic;
 
 const ErrorMsg = Zcu.ErrorMsg;
 const Target = std.Target;
@@ -38,6 +37,10 @@ const DebugInfoOutput = codegen.DebugInfoOutput;
 const bits = @import("bits.zig");
 const abi = @import("abi.zig");
 const Lower = @import("Lower.zig");
+const mnem_import = @import("mnem.zig");
+const Mnemonic = mnem_import.Mnemonic;
+const Pseudo = mnem_import.Pseudo;
+const encoding = @import("encoding.zig");
 
 const Register = bits.Register;
 const CSR = bits.CSR;
@@ -46,6 +49,7 @@ const Memory = bits.Memory;
 const FrameIndex = bits.FrameIndex;
 const RegisterManager = abi.RegisterManager;
 const RegisterLock = RegisterManager.RegisterLock;
+const Instruction = encoding.Instruction;
 
 const InnerError = CodeGenError || error{OutOfRegisters};
 
@@ -3858,8 +3862,55 @@ fn airArrayElemVal(func: *Func, inst: Air.Inst.Index) !void {
 
 fn airPtrElemVal(func: *Func, inst: Air.Inst.Index) !void {
     const is_volatile = false; // TODO
+    const pt = func.pt;
+    const zcu = pt.zcu;
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const result: MCValue = if (!is_volatile and func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement ptr_elem_val for {}", .{func.target.cpu.arch});
+    const base_ptr_ty = func.typeOf(bin_op.lhs);
+
+    const result: MCValue = if (!is_volatile and func.liveness.isUnused(inst)) .unreach else result: {
+        const elem_ty = base_ptr_ty.elemType2(zcu);
+        if (!elem_ty.hasRuntimeBitsIgnoreComptime(pt)) break :result .none;
+
+        const base_ptr_mcv = try func.resolveInst(bin_op.lhs);
+        const base_ptr_lock: ?RegisterLock = switch (base_ptr_mcv) {
+            .register => |reg| func.register_manager.lockRegAssumeUnused(reg),
+            else => null,
+        };
+        defer if (base_ptr_lock) |lock| func.register_manager.unlockReg(lock);
+
+        const index_mcv = try func.resolveInst(bin_op.rhs);
+        const index_lock: ?RegisterLock = switch (index_mcv) {
+            .register => |reg| func.register_manager.lockRegAssumeUnused(reg),
+            else => null,
+        };
+        defer if (index_lock) |lock| func.register_manager.unlockReg(lock);
+
+        const elem_ptr_reg = if (base_ptr_mcv.isRegister() and func.liveness.operandDies(inst, 0))
+            base_ptr_mcv.register
+        else
+            try func.copyToTmpRegister(base_ptr_ty, base_ptr_mcv);
+        const elem_ptr_lock = func.register_manager.lockRegAssumeUnused(elem_ptr_reg);
+        defer func.register_manager.unlockReg(elem_ptr_lock);
+
+        try func.genBinOp(
+            .ptr_add,
+            base_ptr_mcv,
+            base_ptr_ty,
+            index_mcv,
+            Type.u64,
+            elem_ptr_reg,
+        );
+
+        const dst_mcv = try func.allocRegOrMem(func.typeOfIndex(inst), inst, true);
+        const dst_lock = switch (dst_mcv) {
+            .register => |reg| func.register_manager.lockRegAssumeUnused(reg),
+            else => null,
+        };
+        defer if (dst_lock) |lock| func.register_manager.unlockReg(lock);
+
+        try func.load(dst_mcv, .{ .register = elem_ptr_reg }, base_ptr_ty);
+        break :result dst_mcv;
+    };
     return func.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -3873,13 +3924,6 @@ fn airPtrElemPtr(func: *Func, inst: Air.Inst.Index) !void {
         const elem_ptr_ty = func.typeOfIndex(inst);
         const base_ptr_ty = func.typeOf(extra.lhs);
 
-        const base_ptr_mcv = try func.resolveInst(extra.lhs);
-        const base_ptr_lock: ?RegisterLock = switch (base_ptr_mcv) {
-            .register => |reg| func.register_manager.lockRegAssumeUnused(reg),
-            else => null,
-        };
-        defer if (base_ptr_lock) |lock| func.register_manager.unlockReg(lock);
-
         if (elem_ptr_ty.ptrInfo(zcu).flags.vector_index != .none) {
             // break :result if (func.reuseOperand(inst, extra.lhs, 0, base_ptr_mcv))
             //     base_ptr_mcv
@@ -3887,6 +3931,13 @@ fn airPtrElemPtr(func: *Func, inst: Air.Inst.Index) !void {
             //     try func.copyToNewRegister(inst, base_ptr_mcv);
             @panic("audit");
         }
+
+        const base_ptr_mcv = try func.resolveInst(extra.lhs);
+        const base_ptr_lock: ?RegisterLock = switch (base_ptr_mcv) {
+            .register => |reg| func.register_manager.lockRegAssumeUnused(reg),
+            else => null,
+        };
+        defer if (base_ptr_lock) |lock| func.register_manager.unlockReg(lock);
 
         const index_mcv = try func.resolveInst(extra.rhs);
         const index_lock: ?RegisterLock = switch (index_mcv) {
@@ -4392,15 +4443,16 @@ fn airStore(func: *Func, inst: Air.Inst.Index, safety: bool) !void {
     const ptr = try func.resolveInst(bin_op.lhs);
     const value = try func.resolveInst(bin_op.rhs);
     const ptr_ty = func.typeOf(bin_op.lhs);
-    const value_ty = func.typeOf(bin_op.rhs);
 
-    try func.store(ptr, value, ptr_ty, value_ty);
+    try func.store(ptr, value, ptr_ty);
 
     return func.finishAir(inst, .none, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 /// Loads `value` into the "payload" of `pointer`.
-fn store(func: *Func, ptr_mcv: MCValue, src_mcv: MCValue, ptr_ty: Type, src_ty: Type) !void {
+fn store(func: *Func, ptr_mcv: MCValue, src_mcv: MCValue, ptr_ty: Type) !void {
+    const zcu = func.pt.zcu;
+    const src_ty = ptr_ty.childType(zcu);
     log.debug("storing {}:{} in {}:{}", .{ src_mcv, src_ty.fmt(func.pt), ptr_mcv, ptr_ty.fmt(func.pt) });
 
     switch (ptr_mcv) {
@@ -4429,7 +4481,7 @@ fn store(func: *Func, ptr_mcv: MCValue, src_mcv: MCValue, ptr_ty: Type, src_ty: 
 
             try func.genCopy(src_ty, .{ .indirect = .{ .reg = addr_reg } }, src_mcv);
         },
-        .air_ref => |ptr_ref| try func.store(try func.resolveInst(ptr_ref), src_mcv, ptr_ty, src_ty),
+        .air_ref => |ptr_ref| try func.store(try func.resolveInst(ptr_ref), src_mcv, ptr_ty),
     }
 }
 
@@ -5795,7 +5847,6 @@ fn airBoolOp(func: *Func, inst: Air.Inst.Index) !void {
 fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = func.air.extraData(Air.Asm, ty_pl.payload);
-    const is_volatile = @as(u1, @truncate(extra.data.flags >> 31)) != 0;
     const clobbers_len: u31 = @truncate(extra.data.flags);
     var extra_i: usize = extra.end;
     const outputs: []const Air.Inst.Ref =
@@ -5804,86 +5855,300 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
     const inputs: []const Air.Inst.Ref = @ptrCast(func.air.extra[extra_i..][0..extra.data.inputs_len]);
     extra_i += inputs.len;
 
-    const dead = !is_volatile and func.liveness.isUnused(inst);
-    const result: MCValue = if (dead) .unreach else result: {
-        if (outputs.len > 1) {
-            return func.fail("TODO implement codegen for asm with more than 1 output", .{});
-        }
+    var result: MCValue = .none;
+    var args = std.ArrayList(MCValue).init(func.gpa);
+    try args.ensureTotalCapacity(outputs.len + inputs.len);
+    defer {
+        for (args.items) |arg| if (arg.getReg()) |reg| func.register_manager.unlockReg(.{
+            .tracked_index = RegisterManager.indexOfRegIntoTracked(reg) orelse continue,
+        });
+        args.deinit();
+    }
+    var arg_map = std.StringHashMap(u8).init(func.gpa);
+    try arg_map.ensureTotalCapacity(@intCast(outputs.len + inputs.len));
+    defer arg_map.deinit();
 
-        const output_constraint: ?[]const u8 = for (outputs) |output| {
-            if (output != .none) {
-                return func.fail("TODO implement codegen for non-expr asm", .{});
-            }
-            const extra_bytes = std.mem.sliceAsBytes(func.air.extra[extra_i..]);
-            const constraint = std.mem.sliceTo(std.mem.sliceAsBytes(func.air.extra[extra_i..]), 0);
-            const name = std.mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
-            // This equation accounts for the fact that even if we have exactly 4 bytes
-            // for the string, we still use the next u32 for the null terminator.
-            extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+    var outputs_extra_i = extra_i;
+    for (outputs) |output| {
+        const extra_bytes = mem.sliceAsBytes(func.air.extra[extra_i..]);
+        const constraint = mem.sliceTo(mem.sliceAsBytes(func.air.extra[extra_i..]), 0);
+        const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+        // This equation accounts for the fact that even if we have exactly 4 bytes
+        // for the string, we still use the next u32 for the null terminator.
+        extra_i += (constraint.len + name.len + (2 + 3)) / 4;
 
-            break constraint;
-        } else null;
-
-        for (inputs) |input| {
-            const input_bytes = std.mem.sliceAsBytes(func.air.extra[extra_i..]);
-            const constraint = std.mem.sliceTo(input_bytes, 0);
-            const name = std.mem.sliceTo(input_bytes[constraint.len + 1 ..], 0);
-            // This equation accounts for the fact that even if we have exactly 4 bytes
-            // for the string, we still use the next u32 for the null terminator.
-            extra_i += (constraint.len + name.len + (2 + 3)) / 4;
-
-            if (constraint.len < 3 or constraint[0] != '{' or constraint[constraint.len - 1] != '}') {
-                return func.fail("unrecognized asm input constraint: '{s}'", .{constraint});
-            }
-            const reg_name = constraint[1 .. constraint.len - 1];
-            const reg = parseRegName(reg_name) orelse
-                return func.fail("unrecognized register: '{s}'", .{reg_name});
-
-            const arg_mcv = try func.resolveInst(input);
-            try func.register_manager.getReg(reg, null);
-            try func.genSetReg(func.typeOf(input), reg, arg_mcv);
-        }
-
-        {
-            var clobber_i: u32 = 0;
-            while (clobber_i < clobbers_len) : (clobber_i += 1) {
-                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(func.air.extra[extra_i..]), 0);
-                // This equation accounts for the fact that even if we have exactly 4 bytes
-                // for the string, we still use the next u32 for the null terminator.
-                extra_i += clobber.len / 4 + 1;
-
-                if (std.mem.eql(u8, clobber, "") or std.mem.eql(u8, clobber, "memory")) {
-                    // nothing really to do
-                } else {
-                    try func.register_manager.getReg(parseRegName(clobber) orelse
-                        return func.fail("invalid clobber: '{s}'", .{clobber}), null);
+        const is_read = switch (constraint[0]) {
+            '=' => false,
+            '+' => read: {
+                if (output == .none) return func.fail(
+                    "read-write constraint unsupported for asm result: '{s}'",
+                    .{constraint},
+                );
+                break :read true;
+            },
+            else => return func.fail("invalid constraint: '{s}'", .{constraint}),
+        };
+        const is_early_clobber = constraint[1] == '&';
+        const rest = constraint[@as(usize, 1) + @intFromBool(is_early_clobber) ..];
+        const arg_mcv: MCValue = arg_mcv: {
+            const arg_maybe_reg: ?Register = if (mem.eql(u8, rest, "m"))
+                if (output != .none) null else return func.fail(
+                    "memory constraint unsupported for asm result: '{s}'",
+                    .{constraint},
+                )
+            else if (mem.startsWith(u8, rest, "{") and mem.endsWith(u8, rest, "}"))
+                parseRegName(rest["{".len .. rest.len - "}".len]) orelse
+                    return func.fail("invalid register constraint: '{s}'", .{constraint})
+            else if (rest.len == 1 and std.ascii.isDigit(rest[0])) {
+                const index = std.fmt.charToDigit(rest[0], 10) catch unreachable;
+                if (index >= args.items.len) return func.fail("constraint out of bounds: '{s}'", .{
+                    constraint,
+                });
+                break :arg_mcv args.items[index];
+            } else return func.fail("invalid constraint: '{s}'", .{constraint});
+            break :arg_mcv if (arg_maybe_reg) |reg| .{ .register = reg } else arg: {
+                const ptr_mcv = try func.resolveInst(output);
+                switch (ptr_mcv) {
+                    .immediate => |addr| if (math.cast(i32, @as(i64, @bitCast(addr)))) |_|
+                        break :arg ptr_mcv.deref(),
+                    .register, .register_offset, .lea_frame => break :arg ptr_mcv.deref(),
+                    else => {},
                 }
+                break :arg .{ .indirect = .{ .reg = try func.copyToTmpRegister(Type.usize, ptr_mcv) } };
+            };
+        };
+        if (arg_mcv.getReg()) |reg| if (RegisterManager.indexOfRegIntoTracked(reg)) |_| {
+            _ = func.register_manager.lockReg(reg);
+        };
+        if (!mem.eql(u8, name, "_"))
+            arg_map.putAssumeCapacityNoClobber(name, @intCast(args.items.len));
+        args.appendAssumeCapacity(arg_mcv);
+        if (output == .none) result = arg_mcv;
+        if (is_read) try func.load(arg_mcv, .{ .air_ref = output }, func.typeOf(output));
+    }
+
+    for (inputs) |input| {
+        const input_bytes = mem.sliceAsBytes(func.air.extra[extra_i..]);
+        const constraint = mem.sliceTo(input_bytes, 0);
+        const name = mem.sliceTo(input_bytes[constraint.len + 1 ..], 0);
+        // This equation accounts for the fact that even if we have exactly 4 bytes
+        // for the string, we still use the next u32 for the null terminator.
+        extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+
+        const ty = func.typeOf(input);
+        const input_mcv = try func.resolveInst(input);
+        const arg_mcv: MCValue = if (mem.eql(u8, constraint, "X"))
+            input_mcv
+        else if (mem.startsWith(u8, constraint, "{") and mem.endsWith(u8, constraint, "}")) arg: {
+            const reg = parseRegName(constraint["{".len .. constraint.len - "}".len]) orelse
+                return func.fail("invalid register constraint: '{s}'", .{constraint});
+            try func.register_manager.getReg(reg, null);
+            try func.genSetReg(ty, reg, input_mcv);
+            break :arg .{ .register = reg };
+        } else return func.fail("invalid constraint: '{s}'", .{constraint});
+        if (arg_mcv.getReg()) |reg| if (RegisterManager.indexOfRegIntoTracked(reg)) |_| {
+            _ = func.register_manager.lockReg(reg);
+        };
+        if (!mem.eql(u8, name, "_"))
+            arg_map.putAssumeCapacityNoClobber(name, @intCast(args.items.len));
+        args.appendAssumeCapacity(arg_mcv);
+    }
+
+    {
+        var clobber_i: u32 = 0;
+        while (clobber_i < clobbers_len) : (clobber_i += 1) {
+            const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(func.air.extra[extra_i..]), 0);
+            // This equation accounts for the fact that even if we have exactly 4 bytes
+            // for the string, we still use the next u32 for the null terminator.
+            extra_i += clobber.len / 4 + 1;
+
+            if (std.mem.eql(u8, clobber, "") or std.mem.eql(u8, clobber, "memory")) {
+                // nothing really to do
+            } else {
+                try func.register_manager.getReg(parseRegName(clobber) orelse
+                    return func.fail("invalid clobber: '{s}'", .{clobber}), null);
             }
         }
+    }
 
-        const asm_source = std.mem.sliceAsBytes(func.air.extra[extra_i..])[0..extra.data.source_len];
+    const asm_source = std.mem.sliceAsBytes(func.air.extra[extra_i..])[0..extra.data.source_len];
+    var line_it = mem.tokenizeAny(u8, asm_source, "\n\r;");
+    next_line: while (line_it.next()) |line| {
+        var mnem_it = mem.tokenizeAny(u8, line, " \t");
+        const instruction: union(enum) { mnem: Mnemonic, pseudo: Pseudo } = while (mnem_it.next()) |mnem_str| {
+            if (mem.startsWith(u8, mnem_str, "#")) continue :next_line;
+            if (mem.startsWith(u8, mnem_str, "//")) continue :next_line;
+            if (std.meta.stringToEnum(Mnemonic, mnem_str)) |mnem| {
+                break .{ .mnem = mnem };
+            } else if (std.meta.stringToEnum(Pseudo, mnem_str)) |pseudo| {
+                break .{ .pseudo = pseudo };
+            } else return func.fail("TODO: airAsm labels, found '{s}'", .{mnem_str});
+        } else continue;
 
-        if (std.meta.stringToEnum(Mnemonic, asm_source)) |tag| {
-            _ = try func.addInst(.{
-                .tag = tag,
-                .data = .none,
-            });
-        } else {
-            return func.fail("TODO: asm_source {s}", .{asm_source});
+        const Operand = union(enum) {
+            none,
+            reg: Register,
+            imm: Immediate,
+            sym: SymbolOffset,
+        };
+
+        var ops: [4]Operand = .{.none} ** 4;
+        var last_op = false;
+        var op_it = mem.splitScalar(u8, mnem_it.rest(), ',');
+        next_op: for (&ops) |*op| {
+            const op_str = while (!last_op) {
+                const full_str = op_it.next() orelse break :next_op;
+                const code_str = if (mem.indexOfScalar(u8, full_str, '#') orelse
+                    mem.indexOf(u8, full_str, "//")) |comment|
+                code: {
+                    last_op = true;
+                    break :code full_str[0..comment];
+                } else full_str;
+                const trim_str = mem.trim(u8, code_str, " \t*");
+                if (trim_str.len > 0) break trim_str;
+            } else break;
+
+            if (parseRegName(op_str)) |reg| {
+                op.* = .{ .reg = reg };
+            } else if (std.fmt.parseInt(i12, op_str, 10)) |int| {
+                op.* = .{ .imm = Immediate.s(int) };
+            } else |_| if (mem.startsWith(u8, op_str, "%[")) {
+                const mod_index = mem.indexOf(u8, op_str, "]@");
+                const modifier = if (mod_index) |index|
+                    op_str[index + "]@".len ..]
+                else
+                    "";
+
+                op.* = switch (args.items[
+                    arg_map.get(op_str["%[".len .. mod_index orelse op_str.len - "]".len]) orelse
+                        return func.fail("no matching constraint: '{s}'", .{op_str})
+                ]) {
+                    .load_symbol => |sym_off| if (mem.eql(u8, modifier, "plt")) blk: {
+                        assert(sym_off.off == 0);
+                        break :blk .{ .sym = sym_off };
+                    } else return func.fail("invalid modifier: '{s}'", .{modifier}),
+                    else => return func.fail("invalid constraint: '{s}'", .{op_str}),
+                };
+            } else return func.fail("invalid operand: '{s}'", .{op_str});
+        } else if (op_it.next()) |op_str| return func.fail("extra operand: '{s}'", .{op_str});
+
+        switch (instruction) {
+            .mnem => |mnem| {
+                _ = (switch (ops[0]) {
+                    .none => try func.addInst(.{
+                        .tag = mnem,
+                        .data = .none,
+                    }),
+                    .reg => |reg1| switch (ops[1]) {
+                        .reg => |reg2| switch (ops[2]) {
+                            .imm => |imm1| try func.addInst(.{
+                                .tag = mnem,
+                                .data = .{ .i_type = .{
+                                    .rd = reg1,
+                                    .rs1 = reg2,
+                                    .imm12 = imm1,
+                                } },
+                            }),
+                            else => error.InvalidInstruction,
+                        },
+                        else => error.InvalidInstruction,
+                    },
+                    else => error.InvalidInstruction,
+                }) catch |err| {
+                    switch (err) {
+                        error.InvalidInstruction => return func.fail(
+                            "invalid instruction: {s} {s} {s} {s} {s}",
+                            .{
+                                @tagName(mnem),
+                                @tagName(ops[0]),
+                                @tagName(ops[1]),
+                                @tagName(ops[2]),
+                                @tagName(ops[3]),
+                            },
+                        ),
+                        else => |e| return e,
+                    }
+                };
+            },
+            .pseudo => |pseudo| {
+                (@as(error{InvalidInstruction}!void, switch (pseudo) {
+                    .li => blk: {
+                        if (ops[0] != .reg or ops[1] != .imm) {
+                            break :blk error.InvalidInstruction;
+                        }
+
+                        const reg = ops[0].reg;
+                        const imm = ops[1].imm;
+
+                        try func.genSetReg(Type.usize, reg, .{ .immediate = imm.asBits(u64) });
+                    },
+                    .mv => blk: {
+                        if (ops[0] != .reg or ops[1] != .reg) {
+                            break :blk error.InvalidInstruction;
+                        }
+
+                        const dst = ops[0].reg;
+                        const src = ops[1].reg;
+
+                        if (dst.class() != .int or src.class() != .int) {
+                            return func.fail("pseudo instruction 'mv' only works on integer registers", .{});
+                        }
+
+                        try func.genSetReg(Type.usize, dst, .{ .register = src });
+                    },
+                    .tail => blk: {
+                        if (ops[0] != .sym) {
+                            break :blk error.InvalidInstruction;
+                        }
+
+                        const sym_offset = ops[0].sym;
+                        assert(sym_offset.off == 0);
+
+                        const random_link_reg, const lock = try func.allocReg(.int);
+                        defer func.register_manager.unlockReg(lock);
+
+                        _ = try func.addInst(.{
+                            .tag = .pseudo_extern_fn_reloc,
+                            .data = .{ .reloc = .{
+                                .register = random_link_reg,
+                                .atom_index = try func.owner.getSymbolIndex(func),
+                                .sym_index = sym_offset.sym,
+                            } },
+                        });
+                    },
+                })) catch |err| {
+                    switch (err) {
+                        error.InvalidInstruction => return func.fail(
+                            "invalid instruction: {s} {s} {s} {s} {s}",
+                            .{
+                                @tagName(pseudo),
+                                @tagName(ops[0]),
+                                @tagName(ops[1]),
+                                @tagName(ops[2]),
+                                @tagName(ops[3]),
+                            },
+                        ),
+                        else => |e| return e,
+                    }
+                };
+            },
         }
+    }
 
-        if (output_constraint) |output| {
-            if (output.len < 4 or output[0] != '=' or output[1] != '{' or output[output.len - 1] != '}') {
-                return func.fail("unrecognized asm output constraint: '{s}'", .{output});
-            }
-            const reg_name = output[2 .. output.len - 1];
-            const reg = parseRegName(reg_name) orelse
-                return func.fail("unrecognized register: '{s}'", .{reg_name});
-            break :result .{ .register = reg };
-        } else {
-            break :result .{ .none = {} };
-        }
-    };
+    for (outputs, args.items[0..outputs.len]) |output, arg_mcv| {
+        const extra_bytes = mem.sliceAsBytes(func.air.extra[outputs_extra_i..]);
+        const constraint =
+            mem.sliceTo(mem.sliceAsBytes(func.air.extra[outputs_extra_i..]), 0);
+        const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
+        // This equation accounts for the fact that even if we have exactly 4 bytes
+        // for the string, we still use the next u32 for the null terminator.
+        outputs_extra_i += (constraint.len + name.len + (2 + 3)) / 4;
+
+        if (output == .none) continue;
+        if (arg_mcv != .register) continue;
+        if (constraint.len == 2 and std.ascii.isDigit(constraint[1])) continue;
+        try func.store(.{ .air_ref = output }, arg_mcv, func.typeOf(output));
+    }
 
     simple: {
         var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
@@ -6867,7 +7132,7 @@ fn airAtomicRmw(func: *Func, inst: Air.Inst.Index) !void {
     }
 
     switch (val_size) {
-        1, 2 => return func.fail("TODO: airAtomicRmw Int {}", .{val_size}),
+        1, 2 => return func.fail("TODO: airAtomicRmw {s} Int {}", .{ @tagName(op), val_size }),
         4, 8 => {},
         else => unreachable,
     }
@@ -6997,7 +7262,7 @@ fn airAtomicStore(func: *Func, inst: Air.Inst.Index, order: std.builtin.AtomicOr
         else => unreachable,
     }
 
-    try func.store(ptr_mcv, val_mcv, ptr_ty, val_ty);
+    try func.store(ptr_mcv, val_mcv, ptr_ty);
     return func.finishAir(inst, .unreach, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -7061,7 +7326,7 @@ fn airMemset(func: *Func, inst: Air.Inst.Index, safety: bool) !void {
                 const len = dst_ptr_ty.childType(zcu).arrayLen(zcu);
 
                 assert(len != 0); // prevented by Sema
-                try func.store(dst_ptr, src_val, elem_ptr_ty, elem_ty);
+                try func.store(dst_ptr, src_val, elem_ptr_ty);
 
                 const second_elem_ptr_reg, const second_elem_ptr_lock = try func.allocReg(.int);
                 defer func.register_manager.unlockReg(second_elem_ptr_lock);
@@ -7107,6 +7372,10 @@ fn airMemcpy(func: *Func, inst: Air.Inst.Index) !void {
                 len_reg,
             );
             break :len .{ .register = len_reg };
+        },
+        .One => len: {
+            const array_ty = dst_ty.childType(zcu);
+            break :len .{ .immediate = array_ty.arrayLen(zcu) * array_ty.childType(zcu).abiSize(pt) };
         },
         else => |size| return func.fail("TODO: airMemcpy size {s}", .{@tagName(size)}),
     };

@@ -428,9 +428,10 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index, options: struct {
 
         .pseudo_extern_fn_reloc => {
             const inst_reloc = inst.data.reloc;
+            const link_reg = inst_reloc.register;
 
             try lower.emit(.auipc, &.{
-                .{ .reg = .ra },
+                .{ .reg = link_reg },
                 .{ .imm = lower.reloc(
                     .{ .call_extern_fn_reloc = .{
                         .atom_index = inst_reloc.atom_index,
@@ -440,8 +441,8 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index, options: struct {
             });
 
             try lower.emit(.jalr, &.{
-                .{ .reg = .ra },
-                .{ .reg = .ra },
+                .{ .reg = link_reg },
+                .{ .reg = link_reg },
                 .{ .imm = Immediate.s(0) },
             });
         },
@@ -523,7 +524,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .reg = csr.rs1 },
             .{ .reg = csr.rd },
         },
-        else => return lower.fail("TODO: generic lower {s}", .{@tagName(mnemonic)}),
+        else => return lower.fail("TODO: generic lower {s}", .{@tagName(inst.data)}),
     });
 }
 

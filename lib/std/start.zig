@@ -20,8 +20,7 @@ pub const simplified_logic =
     builtin.zig_backend == .stage2_arm or
     builtin.zig_backend == .stage2_sparc64 or
     builtin.cpu.arch == .spirv32 or
-    builtin.cpu.arch == .spirv64 or
-    builtin.zig_backend == .stage2_riscv64;
+    builtin.cpu.arch == .spirv64;
 
 comptime {
     // No matter what, we import the root file, so that any export, test, comptime
@@ -41,10 +40,6 @@ comptime {
             } else if (builtin.os.tag == .opencl) {
                 if (@hasDecl(root, "main"))
                     @export(spirvMain2, .{ .name = "main" });
-            } else if (native_arch.isRISCV()) {
-                if (!@hasDecl(root, "_start")) {
-                    @export(riscv_start, .{ .name = "_start" });
-                }
             } else {
                 if (!@hasDecl(root, "_start")) {
                     @export(_start2, .{ .name = "_start" });
@@ -204,42 +199,6 @@ fn wasi_start() callconv(.C) void {
         .reactor => _ = @call(.always_inline, callMain, .{}),
         .command => std.os.wasi.proc_exit(@call(.always_inline, callMain, .{})),
     }
-}
-
-fn riscv_start() callconv(.C) noreturn {
-    std.process.exit(switch (@typeInfo(@typeInfo(@TypeOf(root.main)).Fn.return_type.?)) {
-        .NoReturn => root.main(),
-        .Void => ret: {
-            root.main();
-            break :ret 0;
-        },
-        .Int => |info| ret: {
-            if (info.bits != 8 or info.signedness == .signed) {
-                @compileError(bad_main_ret);
-            }
-            break :ret root.main();
-        },
-        .ErrorUnion => ret: {
-            const result = root.main() catch {
-                const stderr = std.io.getStdErr().writer();
-                stderr.writeAll("failed with error\n") catch {
-                    @panic("failed to print when main returned error");
-                };
-                break :ret 1;
-            };
-            switch (@typeInfo(@TypeOf(result))) {
-                .Void => break :ret 0,
-                .Int => |info| {
-                    if (info.bits != 8 or info.signedness == .signed) {
-                        @compileError(bad_main_ret);
-                    }
-                    return result;
-                },
-                else => @compileError(bad_main_ret),
-            }
-        },
-        else => @compileError(bad_main_ret),
-    });
 }
 
 fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv(.C) usize {
@@ -519,8 +478,10 @@ inline fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
     std.os.argv = argv[0..argc];
     std.os.environ = envp;
 
-    std.debug.maybeEnableSegfaultHandler();
-    maybeIgnoreSigpipe();
+    if (builtin.zig_backend != .stage2_riscv64) {
+        std.debug.maybeEnableSegfaultHandler();
+        maybeIgnoreSigpipe();
+    }
 
     return callMain();
 }
@@ -563,6 +524,10 @@ pub inline fn callMain() u8 {
             if (@typeInfo(ReturnType) != .ErrorUnion) @compileError(bad_main_ret);
 
             const result = root.main() catch |err| {
+                if (builtin.zig_backend == .stage2_riscv64) {
+                    std.debug.print("error: failed with error\n", .{});
+                    return 1;
+                }
                 std.log.err("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);

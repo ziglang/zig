@@ -240,3 +240,9 @@ pub const Mnemonic = enum(u16) {
     pseudo_fence,
     pseudo_amo,
 };
+
+pub const Pseudo = enum(u8) {
+    li,
+    mv,
+    tail,
+};

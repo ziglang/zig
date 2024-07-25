@@ -504,7 +504,6 @@ test "packed struct fields are ordered from LSB to MSB" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var all: u64 = 0x7765443322221111;
     var bytes: [8]u8 align(@alignOf(Bitfields)) = undefined;

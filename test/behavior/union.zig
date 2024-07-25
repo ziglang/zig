@@ -100,7 +100,6 @@ const FooExtern = extern union {
 test "basic extern unions" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var foo = FooExtern{ .int = 1 };
     try expect(foo.int == 1);
