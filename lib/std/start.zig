@@ -329,31 +329,43 @@ fn _start() callconv(.Naked) noreturn {
             \\ jsr (%%pc, %%a0)
             ,
             .mips, .mipsel =>
+            \\ move $fp, $0
             \\ bal 1f
             \\ .gpword .
+            \\ .gpword %[posixCallMainAndExit]
             \\ 1:
             \\ lw $gp, 0($ra)
             \\ subu $gp, $ra, $gp
-            \\ move $fp, $0
+            \\ lw $25, 4($ra)
+            \\ addu $25, $25, $gp
             \\ move $ra, $0
             \\ move $a0, $sp
             \\ and $sp, -8
-            \\ j %[posixCallMainAndExit]
+            \\ subu $sp, $sp, 16
+            \\ jalr $25
             ,
             .mips64, .mips64el =>
+            \\ move $fp, $0
+            // This is needed because early MIPS versions don't support misaligned loads. Without
+            // this directive, the hidden `nop` inserted to fill the delay slot after `bal` would
+            // cause the two doublewords to be aligned to 4 bytes instead of 8.
+            \\ .balign 8
             \\ bal 1f
             \\ .gpdword .
+            \\ .gpdword %[posixCallMainAndExit]
             \\ 1:
             // The `gp` register on MIPS serves a similar purpose to `r2` (ToC pointer) on PPC64.
             // We need to set it up in order for dynamically-linked / position-independent code to
             // work.
             \\ ld $gp, 0($ra)
             \\ dsubu $gp, $ra, $gp
-            \\ move $fp, $0
+            \\ ld $25, 8($ra)
+            \\ daddu $25, $25, $gp
             \\ move $ra, $0
             \\ move $a0, $sp
             \\ and $sp, -16
-            \\ j %[posixCallMainAndExit]
+            \\ dsubu $sp, $sp, 16
+            \\ jalr $25
             ,
             .powerpc, .powerpcle =>
             // Set up the initial stack frame, and clear the back chain pointer.
