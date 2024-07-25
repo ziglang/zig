@@ -193,6 +193,7 @@ pub fn relocate(phdrs: []elf.Phdr) void {
     @disableInstrumentation();
 
     const dynv = getDynamicSymbol();
+
     // Recover the delta applied by the loader by comparing the effective and
     // the theoretical load addresses for the `_DYNAMIC` symbol.
     const base_addr = base: {
@@ -204,34 +205,45 @@ pub fn relocate(phdrs: []elf.Phdr) void {
         @trap();
     };
 
-    var rel_addr: usize = 0;
-    var rela_addr: usize = 0;
-    var rel_size: usize = 0;
-    var rela_size: usize = 0;
+    var sorted_dynv: [elf.DT_NUM]elf.Addr = undefined;
+
+    // Zero-initialized this way to prevent the compiler from turning this into
+    // `memcpy` or `memset` calls (which can require relocations).
+    for (&sorted_dynv) |*dyn| {
+        const pdyn: *volatile elf.Addr = @ptrCast(dyn);
+        pdyn.* = 0;
+    }
+
     {
+        // `dynv` has no defined order. Fix that.
         var i: usize = 0;
         while (dynv[i].d_tag != elf.DT_NULL) : (i += 1) {
-            switch (dynv[i].d_tag) {
-                elf.DT_REL => rel_addr = base_addr + dynv[i].d_val,
-                elf.DT_RELA => rela_addr = base_addr + dynv[i].d_val,
-                elf.DT_RELSZ => rel_size = dynv[i].d_val,
-                elf.DT_RELASZ => rela_size = dynv[i].d_val,
-                else => {},
-            }
+            if (dynv[i].d_tag < elf.DT_NUM) sorted_dynv[@bitCast(dynv[i].d_tag)] = dynv[i].d_val;
         }
     }
 
-    // Apply the relocations.
-    if (rel_addr != 0) {
-        const rel = std.mem.bytesAsSlice(elf.Rel, @as([*]u8, @ptrFromInt(rel_addr))[0..rel_size]);
-        for (rel) |r| {
+
+    // Apply normal relocations.
+
+    const rel = sorted_dynv[elf.DT_REL];
+    if (rel != 0) {
+        const rels = @call(.always_inline, std.mem.bytesAsSlice, .{
+            elf.Rel,
+            @as([*]u8, @ptrFromInt(base_addr + rel))[0..sorted_dynv[elf.DT_RELSZ]],
+        });
+        for (rels) |r| {
             if (r.r_type() != R_RELATIVE) continue;
             @as(*usize, @ptrFromInt(base_addr + r.r_offset)).* += base_addr;
         }
     }
-    if (rela_addr != 0) {
-        const rela = std.mem.bytesAsSlice(elf.Rela, @as([*]u8, @ptrFromInt(rela_addr))[0..rela_size]);
-        for (rela) |r| {
+
+    const rela = sorted_dynv[elf.DT_RELA];
+    if (rela != 0) {
+        const relas = @call(.always_inline, std.mem.bytesAsSlice, .{
+            elf.Rela,
+            @as([*]u8, @ptrFromInt(base_addr + rela))[0..sorted_dynv[elf.DT_RELASZ]],
+        });
+        for (relas) |r| {
             if (r.r_type() != R_RELATIVE) continue;
             @as(*usize, @ptrFromInt(base_addr + r.r_offset)).* = base_addr + @as(usize, @bitCast(r.r_addend));
         }
