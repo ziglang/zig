@@ -201,6 +201,9 @@ c_source_files: []const CSourceFile,
 rc_source_files: []const RcSourceFile,
 global_cc_argv: []const []const u8,
 cache_parent: *Cache,
+/// Populated when a sub-Compilation is created during the `update` of its parent.
+/// In this case the child must additionally add file system inputs to this object.
+parent_whole_cache: ?ParentWholeCache,
 /// Path to own executable for invoking `zig clang`.
 self_exe_path: ?[]const u8,
 zig_lib_directory: Directory,
@@ -970,6 +973,12 @@ pub const SystemLib = link.SystemLib;
 
 pub const CacheMode = enum { incremental, whole };
 
+pub const ParentWholeCache = struct {
+    manifest: *Cache.Manifest,
+    mutex: *std.Thread.Mutex,
+    prefix_map: [4]u8,
+};
+
 const CacheUse = union(CacheMode) {
     incremental: *Incremental,
     whole: *Whole,
@@ -1206,6 +1215,8 @@ pub const CreateOptions = struct {
 
     /// Tracks all files that can cause the Compilation to be invalidated and need a rebuild.
     file_system_inputs: ?*std.ArrayListUnmanaged(u8) = null,
+
+    parent_whole_cache: ?ParentWholeCache = null,
 
     pub const Entry = link.File.OpenOptions.Entry;
 };
@@ -1563,6 +1574,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .link_eh_frame_hdr = link_eh_frame_hdr,
             .global_cc_argv = options.global_cc_argv,
             .file_system_inputs = options.file_system_inputs,
+            .parent_whole_cache = options.parent_whole_cache,
         };
 
         // Prevent some footguns by making the "any" fields of config reflect
@@ -2106,6 +2118,11 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             if (is_hit) {
                 // In this case the cache hit contains the full set of file system inputs. Nice!
                 if (comp.file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
+                if (comp.parent_whole_cache) |pwc| {
+                    pwc.mutex.lock();
+                    defer pwc.mutex.unlock();
+                    try man.populateOtherManifest(pwc.manifest, pwc.prefix_map);
+                }
 
                 comp.last_update_was_cache_hit = true;
                 log.debug("CacheMode.whole cache hit for {s}", .{comp.root_name});
@@ -2303,6 +2320,11 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
     switch (comp.cache_use) {
         .whole => |whole| {
             if (comp.file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
+            if (comp.parent_whole_cache) |pwc| {
+                pwc.mutex.lock();
+                defer pwc.mutex.unlock();
+                try man.populateOtherManifest(pwc.manifest, pwc.prefix_map);
+            }
 
             const digest = man.final();
 
@@ -6420,14 +6442,29 @@ fn buildOutputFromZig(
         .output_mode = output_mode,
     });
 
+    const parent_whole_cache: ?ParentWholeCache = switch (comp.cache_use) {
+        .whole => |whole| .{
+            .manifest = whole.cache_manifest.?,
+            .mutex = &whole.cache_manifest_mutex,
+            .prefix_map = .{
+                0, // cwd is the same
+                1, // zig lib dir is the same
+                3, // local cache is mapped to global cache
+                3, // global cache is the same
+            },
+        },
+        .incremental => null,
+    };
+
     const sub_compilation = try Compilation.create(gpa, arena, .{
         .global_cache_directory = comp.global_cache_directory,
         .local_cache_directory = comp.global_cache_directory,
         .zig_lib_directory = comp.zig_lib_directory,
+        .cache_mode = .whole,
+        .parent_whole_cache = parent_whole_cache,
         .self_exe_path = comp.self_exe_path,
         .config = config,
         .root_mod = root_mod,
-        .cache_mode = .whole,
         .root_name = root_name,
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.libc_installation,
