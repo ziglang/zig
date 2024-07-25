@@ -8997,6 +8997,21 @@ pub const FuncGen = struct {
 
         const val_is_undef = if (try self.air.value(bin_op.rhs, pt)) |val| val.isUndefDeep(mod) else false;
         if (val_is_undef) {
+            const owner_mod = self.dg.ownerModule();
+
+            // Even if safety is disabled, we still emit a memset to undefined since it conveys
+            // extra information to LLVM, and LLVM will optimize it out. Safety makes the difference
+            // between using 0xaa or actual undefined for the fill byte.
+            //
+            // However, for Debug builds specifically, we avoid emitting the memset because LLVM
+            // will neither use the information nor get rid of the memset, thus leaving an
+            // unexpected call in the user's code. This is problematic if the code in question is
+            // not ready to correctly make calls yet, such as in our early PIE startup code, or in
+            // the early stages of a dynamic linker, etc.
+            if (!safety and owner_mod.optimize_mode == .Debug) {
+                return .none;
+            }
+
             const ptr_info = ptr_ty.ptrInfo(mod);
             const needs_bitmask = (ptr_info.packed_offset.host_size != 0);
             if (needs_bitmask) {
@@ -9006,9 +9021,6 @@ pub const FuncGen = struct {
                 return .none;
             }
 
-            // Even if safety is disabled, we still emit a memset to undefined since it conveys
-            // extra information to LLVM. However, safety makes the difference between using
-            // 0xaa or actual undefined for the fill byte.
             const len = try o.builder.intValue(try o.lowerType(Type.usize), operand_ty.abiSize(pt));
             _ = try self.wip.callMemSet(
                 dest_ptr,
@@ -9017,7 +9029,6 @@ pub const FuncGen = struct {
                 len,
                 if (ptr_ty.isVolatilePtr(mod)) .@"volatile" else .normal,
             );
-            const owner_mod = self.dg.ownerModule();
             if (safety and owner_mod.valgrind) {
                 try self.valgrindMarkUndef(dest_ptr, len);
             }
