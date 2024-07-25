@@ -37,8 +37,6 @@ test "@src used as a comptime parameter" {
 }
 
 test "@src in tuple passed to anytype function" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         fn Foo(a: anytype) u32 {
             return a[0].line;

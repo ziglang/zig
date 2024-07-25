@@ -34,7 +34,6 @@ const ptr_type_name: [*:0]const u8 = type_name;
 test "@typeName() returns a string literal" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try std.testing.expect(*const [type_name.len:0]u8 == @TypeOf(type_name));
