@@ -149,6 +149,25 @@ pub fn main() !void {
         );
     }
     {
+        try writer.writeAll("pub const Sparc = enum(usize) {\n");
+        const table = try linux_dir.readFile("arch/sparc/kernel/syscalls/syscall.tbl", buf);
+        var lines = mem.tokenizeScalar(u8, table, '\n');
+        while (lines.next()) |line| {
+            if (line[0] == '#') continue;
+
+            var fields = mem.tokenizeAny(u8, line, " \t");
+            const number = fields.next() orelse return error.Incomplete;
+            const abi = fields.next() orelse return error.Incomplete;
+            if (mem.eql(u8, abi, "64")) continue;
+            const name = fields.next() orelse return error.Incomplete;
+            const fixed_name = if (stdlib_renames.get(name)) |fixed| fixed else name;
+
+            try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), number });
+        }
+
+        try writer.writeAll("};\n\n");
+    }
+    {
         try writer.writeAll("pub const Sparc64 = enum(usize) {\n");
         const table = try linux_dir.readFile("arch/sparc/kernel/syscalls/syscall.tbl", buf);
         var lines = mem.tokenizeScalar(u8, table, '\n');
