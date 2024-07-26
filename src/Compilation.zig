@@ -1421,6 +1421,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         cache.hash.addBytes(options.root_name);
         cache.hash.add(options.config.wasi_exec_model);
         cache.hash.add(options.config.san_cov_trace_pc_guard);
+        cache.hash.add(options.debug_compiler_runtime_libs);
         // TODO audit this and make sure everything is in it
 
         const main_mod = options.main_mod orelse options.root_mod;
