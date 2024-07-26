@@ -34,20 +34,6 @@ fn alloc(_: *anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
         return @ptrCast(addr);
     }
 
-    if (builtin.zig_backend == .stage2_riscv64) {
-        const aligned_len = mem.alignForward(usize, n, mem.page_size);
-        const slice = posix.mmap(
-            null,
-            aligned_len,
-            posix.PROT.READ | posix.PROT.WRITE,
-            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
-            -1,
-            0,
-        ) catch return null;
-        assert(mem.isAligned(@intFromPtr(slice.ptr), mem.page_size));
-        return slice.ptr;
-    }
-
     const aligned_len = mem.alignForward(usize, n, mem.page_size);
     const hint = @atomicLoad(@TypeOf(std.heap.next_mmap_addr_hint), &std.heap.next_mmap_addr_hint, .unordered);
     const slice = posix.mmap(
