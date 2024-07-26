@@ -273,8 +273,8 @@ pub fn main() !void {
             "-P",
             "-nostdinc",
             // Using -I=[dir] includes the zig linux headers, which we don't want.
-            "-Iinclude",
-            "-Iinclude/uapi",
+            "-Itools/include",
+            "-Itools/include/uapi",
             // Output the syscall in a format we can easily recognize.
             "-D __SYSCALL(nr, nm)=zigsyscall nm nr",
             "arch/arm64/include/uapi/asm/unistd.h",
@@ -328,9 +328,8 @@ pub fn main() !void {
             "-dD",
             "-P",
             "-nostdinc",
-            "-Iinclude",
-            "-Iinclude/uapi",
-            "-Iarch/riscv/include/uapi",
+            "-Itools/include",
+            "-Itools/include/uapi",
             "-D __SYSCALL(nr, nm)=zigsyscall nm nr",
             "arch/riscv/include/uapi/asm/unistd.h",
         };
@@ -383,9 +382,8 @@ pub fn main() !void {
             "-dD",
             "-P",
             "-nostdinc",
-            "-Iinclude",
-            "-Iinclude/uapi",
-            "-Iarch/riscv/include/uapi",
+            "-Itools/include",
+            "-Itools/include/uapi",
             "-D __SYSCALL(nr, nm)=zigsyscall nm nr",
             "arch/riscv/include/uapi/asm/unistd.h",
         };
@@ -438,9 +436,8 @@ pub fn main() !void {
             "-dD",
             "-P",
             "-nostdinc",
-            "-Iinclude",
-            "-Iinclude/uapi",
-            "-Iarch/loongarch/include/uapi",
+            "-Itools/include",
+            "-Itools/include/uapi",
             "-D __SYSCALL(nr, nm)=zigsyscall nm nr",
             "arch/loongarch/include/uapi/asm/unistd.h",
         };
