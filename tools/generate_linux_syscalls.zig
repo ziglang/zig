@@ -338,6 +338,26 @@ pub fn main() !void {
 
         try writer.writeAll("};\n\n");
     }
+    {
+        try writer.writeAll("pub const Xtensa = enum(usize) {\n");
+
+        const table = try linux_dir.readFile("arch/xtensa/kernel/syscalls/syscall.tbl", buf);
+        var lines = mem.tokenizeScalar(u8, table, '\n');
+        while (lines.next()) |line| {
+            if (line[0] == '#') continue;
+
+            var fields = mem.tokenizeAny(u8, line, " \t");
+            const number = fields.next() orelse return error.Incomplete;
+            // abi is always common
+            _ = fields.next() orelse return error.Incomplete;
+            const name = fields.next() orelse return error.Incomplete;
+            const fixed_name = if (stdlib_renames.get(name)) |fixed| fixed else name;
+
+            try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), number });
+        }
+
+        try writer.writeAll("};\n\n");
+    }
 
     // Newer architectures (starting with aarch64 c. 2012) now use the same C
     // header file for their syscall numbers. Arch-specific headers are used to
