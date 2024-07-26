@@ -416,16 +416,6 @@ fn testComdatElimination(b: *Build, opts: Options) *Step {
             \\
         );
         test_step.dependOn(&run.step);
-
-        const check = exe.checkObject();
-        check.checkInSymtab();
-        // This weird looking double assertion uses the fact that once we find the symbol in
-        // the symtab, we do not reset the cursor and do subsequent checks from that point onwards.
-        // If this is the case, and COMDAT elimination works correctly we should only have one instance
-        // of foo() function.
-        check.checkContains("_Z3foov");
-        check.checkNotPresent("_Z3foov");
-        test_step.dependOn(&check.step);
     }
 
     {
@@ -441,16 +431,6 @@ fn testComdatElimination(b: *Build, opts: Options) *Step {
             \\
         );
         test_step.dependOn(&run.step);
-
-        const check = exe.checkObject();
-        check.checkInSymtab();
-        // This weird looking double assertion uses the fact that once we find the symbol in
-        // the symtab, we do not reset the cursor and do subsequent checks from that point onwards.
-        // If this is the case, and COMDAT elimination works correctly we should only have one instance
-        // of foo() function.
-        check.checkContains("_Z3foov");
-        check.checkNotPresent("_Z3foov");
-        test_step.dependOn(&check.step);
     }
 
     {

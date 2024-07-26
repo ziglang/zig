@@ -421,7 +421,7 @@ fn emitReloc(elf_file: *Elf, rec: anytype, sym: *const Symbol, rel: elf.Elf64_Re
     switch (sym.type(elf_file)) {
         elf.STT_SECTION => {
             r_addend += @intCast(sym.address(.{}, elf_file));
-            r_sym = elf_file.sectionSymbolOutputSymtabIndex(sym.outputShndx().?);
+            r_sym = elf_file.sectionSymbolOutputSymtabIndex(sym.outputShndx(elf_file).?);
         },
         else => {
             r_sym = sym.outputSymtabIndex(elf_file) orelse 0;

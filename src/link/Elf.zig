@@ -4121,21 +4121,6 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) !void {
             const atom_ptr = zo.atom(atom_index) orelse continue;
             atom_ptr.output_section_index = backlinks[atom_ptr.output_section_index];
         }
-
-        for (zo.locals()) |local_index| {
-            const local = self.symbol(local_index);
-            local.output_section_index = backlinks[local.output_section_index];
-        }
-
-        for (zo.globals()) |global_index| {
-            const global = self.symbol(global_index);
-            const atom_ptr = global.atom(self) orelse continue;
-            if (!atom_ptr.alive) continue;
-            // TODO claim unresolved for objects
-            if (global.file(self).?.index() != zo.index) continue;
-            const out_shndx = global.outputShndx() orelse continue;
-            global.output_section_index = backlinks[out_shndx];
-        }
     }
 
     for (self.output_rela_sections.keys(), self.output_rela_sections.values()) |shndx, sec| {

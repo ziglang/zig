@@ -33,11 +33,15 @@ pub fn isAbs(symbol: Symbol, elf_file: *Elf) bool {
     const file_ptr = symbol.file(elf_file).?;
     if (file_ptr == .shared_object) return symbol.elfSym(elf_file).st_shndx == elf.SHN_ABS;
     return !symbol.flags.import and symbol.atom(elf_file) == null and
-        symbol.mergeSubsection(elf_file) == null and symbol.outputShndx() == null and
+        symbol.mergeSubsection(elf_file) == null and symbol.outputShndx(elf_file) == null and
         file_ptr != .linker_defined;
 }
 
-pub fn outputShndx(symbol: Symbol) ?u32 {
+pub fn outputShndx(symbol: Symbol, elf_file: *Elf) ?u32 {
+    if (symbol.mergeSubsection(elf_file)) |msub|
+        return if (msub.alive) msub.mergeSection(elf_file).output_section_index else null;
+    if (symbol.atom(elf_file)) |atom_ptr|
+        return if (atom_ptr.alive) atom_ptr.output_section_index else null;
     if (symbol.output_section_index == 0) return null;
     return symbol.output_section_index;
 }
@@ -298,7 +302,7 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
         if (elf_file.base.isRelocatable() and esym.st_shndx == elf.SHN_COMMON) break :blk elf.SHN_COMMON;
         if (symbol.mergeSubsection(elf_file)) |msub| break :blk @intCast(msub.mergeSection(elf_file).output_section_index);
         if (symbol.atom(elf_file) == null and file_ptr != .linker_defined) break :blk elf.SHN_ABS;
-        break :blk @intCast(symbol.outputShndx() orelse elf.SHN_UNDEF);
+        break :blk @intCast(symbol.outputShndx(elf_file) orelse elf.SHN_UNDEF);
     };
     const st_value = blk: {
         if (symbol.flags.has_copy_rel) break :blk symbol.address(.{}, elf_file);
@@ -382,22 +386,23 @@ fn format2(
     _ = options;
     _ = unused_fmt_string;
     const symbol = ctx.symbol;
+    const elf_file = ctx.elf_file;
     try writer.print("%{d} : {s} : @{x}", .{
         symbol.esym_index,
-        symbol.fmtName(ctx.elf_file),
-        symbol.address(.{}, ctx.elf_file),
+        symbol.fmtName(elf_file),
+        symbol.address(.{}, elf_file),
     });
-    if (symbol.file(ctx.elf_file)) |file_ptr| {
-        if (symbol.isAbs(ctx.elf_file)) {
-            if (symbol.elfSym(ctx.elf_file).st_shndx == elf.SHN_UNDEF) {
+    if (symbol.file(elf_file)) |file_ptr| {
+        if (symbol.isAbs(elf_file)) {
+            if (symbol.elfSym(elf_file).st_shndx == elf.SHN_UNDEF) {
                 try writer.writeAll(" : undef");
             } else {
                 try writer.writeAll(" : absolute");
             }
-        } else if (symbol.outputShndx()) |shndx| {
+        } else if (symbol.outputShndx(elf_file)) |shndx| {
             try writer.print(" : shdr({d})", .{shndx});
         }
-        if (symbol.atom(ctx.elf_file)) |atom_ptr| {
+        if (symbol.atom(elf_file)) |atom_ptr| {
             try writer.print(" : atom({d})", .{atom_ptr.atom_index});
         }
         var buf: [2]u8 = .{'_'} ** 2;

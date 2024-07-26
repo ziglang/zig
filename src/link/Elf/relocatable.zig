@@ -382,7 +382,7 @@ fn updateComdatGroupsSizes(elf_file: *Elf) void {
 
         const sym = elf_file.symbol(cg.symbol(elf_file));
         shdr.sh_info = sym.outputSymtabIndex(elf_file) orelse
-            elf_file.sectionSymbolOutputSymtabIndex(sym.outputShndx().?);
+            elf_file.sectionSymbolOutputSymtabIndex(sym.outputShndx(elf_file).?);
     }
 }
 

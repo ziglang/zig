@@ -337,12 +337,9 @@ pub fn writeRelocs(self: Atom, elf_file: *Elf, out_relocs: *std.ArrayList(elf.El
         var r_addend = rel.r_addend;
         var r_sym: u32 = 0;
         switch (target.type(elf_file)) {
-            elf.STT_SECTION => if (target.mergeSubsection(elf_file)) |msub| {
+            elf.STT_SECTION => {
                 r_addend += @intCast(target.address(.{}, elf_file));
-                r_sym = elf_file.sectionSymbolOutputSymtabIndex(msub.mergeSection(elf_file).output_section_index);
-            } else {
-                r_addend += @intCast(target.address(.{}, elf_file));
-                r_sym = if (target.outputShndx()) |osec|
+                r_sym = if (target.outputShndx(elf_file)) |osec|
                     elf_file.sectionSymbolOutputSymtabIndex(osec)
                 else
                     0;

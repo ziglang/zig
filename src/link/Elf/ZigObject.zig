@@ -341,15 +341,10 @@ pub fn resolveSymbols(self: *ZigObject, elf_file: *Elf) void {
                 SHN_ATOM => shndx,
                 else => unreachable,
             };
-            const output_section_index = if (self.atom(atom_index)) |atom_ptr|
-                atom_ptr.output_section_index
-            else
-                elf.SHN_UNDEF;
             global.value = @intCast(esym.st_value);
             global.atom_ref = .{ .index = atom_index, .file = self.index };
             global.esym_index = esym_index;
             global.file_index = self.index;
-            global.output_section_index = output_section_index;
             global.version_index = elf_file.default_sym_version;
             if (esym.st_bind() == elf.STB_WEAK) global.flags.weak = true;
         }
@@ -492,7 +487,7 @@ pub fn updateArSymtab(self: ZigObject, ar_symtab: *Archive.ArSymtab, elf_file: *
         const global = elf_file.symbol(global_index);
         const file_ptr = global.file(elf_file).?;
         assert(file_ptr.index() == self.index);
-        if (global.outputShndx() == null) continue;
+        if (global.outputShndx(elf_file) == null) continue;
 
         const off = try ar_symtab.strtab.insert(gpa, global.name(elf_file));
         ar_symtab.symtab.appendAssumeCapacity(.{ .off = off, .file_index = self.index });
@@ -918,12 +913,10 @@ fn updateDeclCode(
     const esym = &self.local_esyms.items(.elf_sym)[sym.esym_index];
     const atom_ptr = sym.atom(elf_file).?;
 
-    sym.output_section_index = shdr_index;
-    atom_ptr.output_section_index = shdr_index;
-
-    sym.name_offset = try self.strtab.insert(gpa, decl.fqn.toSlice(ip));
     atom_ptr.alive = true;
     atom_ptr.name_offset = sym.name_offset;
+    atom_ptr.output_section_index = shdr_index;
+    sym.name_offset = try self.strtab.insert(gpa, decl.fqn.toSlice(ip));
     esym.st_name = sym.name_offset;
     esym.st_info |= stt_bits;
     esym.st_size = code.len;
@@ -1018,7 +1011,6 @@ fn updateTlv(
     const atom_ptr = sym.atom(elf_file).?;
 
     sym.value = 0;
-    sym.output_section_index = shndx;
     atom_ptr.output_section_index = shndx;
 
     sym.name_offset = try self.strtab.insert(gpa, decl.fqn.toSlice(ip));
@@ -1240,7 +1232,6 @@ fn updateLazySymbol(
     };
     const local_sym = elf_file.symbol(symbol_index);
     local_sym.name_offset = name_str_index;
-    local_sym.output_section_index = output_section_index;
     const local_esym = &self.local_esyms.items(.elf_sym)[local_sym.esym_index];
     local_esym.st_name = name_str_index;
     local_esym.st_info |= elf.STT_OBJECT;
@@ -1348,7 +1339,6 @@ fn lowerConst(
     const local_sym = elf_file.symbol(sym_index);
     const name_str_index = try self.strtab.insert(gpa, name);
     local_sym.name_offset = name_str_index;
-    local_sym.output_section_index = output_section_index;
     const local_esym = &self.local_esyms.items(.elf_sym)[local_sym.esym_index];
     local_esym.st_name = name_str_index;
     local_esym.st_info |= elf.STT_OBJECT;

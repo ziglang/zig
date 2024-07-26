@@ -978,38 +978,6 @@ pub fn addAtomsToOutputSections(self: *Object, elf_file: *Elf) !void {
         if (!gop.found_existing) gop.value_ptr.* = .{};
         try gop.value_ptr.append(gpa, .{ .index = atom_index, .file = self.index });
     }
-
-    for (self.locals()) |local_index| {
-        const local = elf_file.symbol(local_index);
-        if (local.mergeSubsection(elf_file)) |msub| {
-            if (!msub.alive) continue;
-            local.output_section_index = msub.mergeSection(elf_file).output_section_index;
-            continue;
-        }
-        const atom_ptr = local.atom(elf_file) orelse continue;
-        if (!atom_ptr.alive) continue;
-        local.output_section_index = atom_ptr.output_section_index;
-    }
-
-    for (self.globals()) |global_index| {
-        const global = elf_file.symbol(global_index);
-        if (global.file(elf_file).?.index() != self.index) continue;
-        if (global.mergeSubsection(elf_file)) |msub| {
-            if (!msub.alive) continue;
-            global.output_section_index = msub.mergeSection(elf_file).output_section_index;
-            continue;
-        }
-        const atom_ptr = global.atom(elf_file) orelse continue;
-        if (!atom_ptr.alive) continue;
-        global.output_section_index = atom_ptr.output_section_index;
-    }
-
-    for (self.symbols.items[self.symtab.items.len..]) |local_index| {
-        const local = elf_file.symbol(local_index);
-        const msub = local.mergeSubsection(elf_file).?;
-        if (!msub.alive) continue;
-        local.output_section_index = msub.mergeSection(elf_file).output_section_index;
-    }
 }
 
 pub fn initRelaSections(self: *Object, elf_file: *Elf) !void {
