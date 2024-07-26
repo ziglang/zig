@@ -1136,3 +1136,11 @@ pub fn refAllDeclsRecursive(comptime T: type) void {
         _ = &@field(T, decl.name);
     }
 }
+
+pub const FuzzInputOptions = struct {
+    corpus: []const []const u8 = &.{},
+};
+
+pub inline fn fuzzInput(options: FuzzInputOptions) []const u8 {
+    return @import("root").fuzzInput(options);
+}

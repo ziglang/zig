@@ -655,6 +655,7 @@ const usage_build_generic =
     \\  --debug-log [scope]          Enable printing debug/info log messages for scope
     \\  --debug-compile-errors       Crash with helpful diagnostics at the first compile error
     \\  --debug-link-snapshot        Enable dumping of the linker's state in JSON format
+    \\  --debug-rt                   Debug compiler runtime libraries
     \\
 ;
 
@@ -912,6 +913,7 @@ fn buildOutputType(
     var minor_subsystem_version: ?u16 = null;
     var mingw_unicode_entry_point: bool = false;
     var enable_link_snapshots: bool = false;
+    var debug_compiler_runtime_libs = false;
     var opt_incremental: ?bool = null;
     var install_name: ?[]const u8 = null;
     var hash_style: link.File.Elf.HashStyle = .both;
@@ -1367,6 +1369,8 @@ fn buildOutputType(
                         } else {
                             enable_link_snapshots = true;
                         }
+                    } else if (mem.eql(u8, arg, "--debug-rt")) {
+                        debug_compiler_runtime_libs = true;
                     } else if (mem.eql(u8, arg, "-fincremental")) {
                         dev.check(.incremental);
                         opt_incremental = true;
@@ -3408,6 +3412,7 @@ fn buildOutputType(
         // noise when --search-prefix and --mod are combined.
         .global_cc_argv = try cc_argv.toOwnedSlice(arena),
         .file_system_inputs = &file_system_inputs,
+        .debug_compiler_runtime_libs = debug_compiler_runtime_libs,
     }) catch |err| switch (err) {
         error.LibCUnavailable => {
             const triple_name = try target.zigTriple(arena);

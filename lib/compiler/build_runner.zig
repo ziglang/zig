@@ -9,8 +9,10 @@ const ArrayList = std.ArrayList;
 const File = std.fs.File;
 const Step = std.Build.Step;
 const Watch = std.Build.Watch;
+const Fuzz = std.Build.Fuzz;
 const Allocator = std.mem.Allocator;
-const fatal = std.zig.fatal;
+const fatal = std.process.fatal;
+const runner = @This();
 
 pub const root = @import("@build");
 pub const dependencies = @import("@dependencies");
@@ -102,6 +104,7 @@ pub fn main() !void {
     var steps_menu = false;
     var output_tmp_nonce: ?[16]u8 = null;
     var watch = false;
+    var fuzz = false;
     var debounce_interval_ms: u16 = 50;
 
     while (nextArg(args, &arg_idx)) |arg| {
@@ -205,6 +208,8 @@ pub fn main() !void {
                 try debug_log_scopes.append(next_arg);
             } else if (mem.eql(u8, arg, "--debug-pkg-config")) {
                 builder.debug_pkg_config = true;
+            } else if (mem.eql(u8, arg, "--debug-rt")) {
+                graph.debug_compiler_runtime_libs = true;
             } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
                 builder.debug_compile_errors = true;
             } else if (mem.eql(u8, arg, "--system")) {
@@ -234,6 +239,8 @@ pub fn main() !void {
                 prominent_compile_errors = true;
             } else if (mem.eql(u8, arg, "--watch")) {
                 watch = true;
+            } else if (mem.eql(u8, arg, "--fuzz")) {
+                fuzz = true;
             } else if (mem.eql(u8, arg, "-fincremental")) {
                 graph.incremental = true;
             } else if (mem.eql(u8, arg, "-fno-incremental")) {
@@ -353,6 +360,7 @@ pub fn main() !void {
         .max_rss_mutex = .{},
         .skip_oom_steps = skip_oom_steps,
         .watch = watch,
+        .fuzz = fuzz,
         .memory_blocked_steps = std.ArrayList(*Step).init(arena),
         .step_stack = .{},
         .prominent_compile_errors = prominent_compile_errors,
@@ -394,6 +402,10 @@ pub fn main() !void {
             },
             else => return err,
         };
+        if (fuzz) {
+            Fuzz.start(&run.thread_pool, run.step_stack.keys(), run.ttyconf, main_progress_node);
+        }
+
         if (!watch) return cleanExit();
 
         switch (builtin.os.tag) {
@@ -457,6 +469,7 @@ const Run = struct {
     max_rss_mutex: std.Thread.Mutex,
     skip_oom_steps: bool,
     watch: bool,
+    fuzz: bool,
     memory_blocked_steps: std.ArrayList(*Step),
     step_stack: std.AutoArrayHashMapUnmanaged(*Step, void),
     prominent_compile_errors: bool,
@@ -466,6 +479,11 @@ const Run = struct {
     summary: Summary,
     ttyconf: std.io.tty.Config,
     stderr: File,
+
+    fn cleanExit(run: Run) void {
+        if (run.watch or run.fuzz) return;
+        return runner.cleanExit();
+    }
 };
 
 fn prepare(
@@ -614,8 +632,7 @@ fn runStepNames(
         else => false,
     };
     if (failure_count == 0 and failures_only) {
-        if (!run.watch) cleanExit();
-        return;
+        return run.cleanExit();
     }
 
     const ttyconf = run.ttyconf;
@@ -672,8 +689,7 @@ fn runStepNames(
     }
 
     if (failure_count == 0) {
-        if (!run.watch) cleanExit();
-        return;
+        return run.cleanExit();
     }
 
     // Finally, render compile errors at the bottom of the terminal.
@@ -1058,7 +1074,8 @@ fn workerMakeOneStep(
         std.debug.lockStdErr();
         defer std.debug.unlockStdErr();
 
-        printErrorMessages(b, s, run) catch {};
+        const gpa = b.allocator;
+        printErrorMessages(gpa, s, run.ttyconf, run.stderr, run.prominent_compile_errors) catch {};
     }
 
     handle_result: {
@@ -1111,11 +1128,13 @@ fn workerMakeOneStep(
     }
 }
 
-fn printErrorMessages(b: *std.Build, failing_step: *Step, run: *const Run) !void {
-    const gpa = b.allocator;
-    const stderr = run.stderr;
-    const ttyconf = run.ttyconf;
-
+pub fn printErrorMessages(
+    gpa: Allocator,
+    failing_step: *Step,
+    ttyconf: std.io.tty.Config,
+    stderr: File,
+    prominent_compile_errors: bool,
+) !void {
     // Provide context for where these error messages are coming from by
     // printing the corresponding Step subtree.
 
@@ -1152,7 +1171,7 @@ fn printErrorMessages(b: *std.Build, failing_step: *Step, run: *const Run) !void
         }
     }
 
-    if (!run.prominent_compile_errors and failing_step.result_error_bundle.errorMessageCount() > 0)
+    if (!prominent_compile_errors and failing_step.result_error_bundle.errorMessageCount() > 0)
         try failing_step.result_error_bundle.renderToWriter(renderOptions(ttyconf), stderr.writer());
 
     for (failing_step.result_error_msgs.items) |msg| {
@@ -1226,6 +1245,7 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  --skip-oom-steps             Instead of failing, skip steps that would exceed --maxrss
         \\  --fetch                      Exit after fetching dependency tree
         \\  --watch                      Continuously rebuild when source files are modified
+        \\  --fuzz                       Continuously search for unit test failures
         \\  --debounce <ms>              Delay before rebuilding after changed file detected
         \\     -fincremental             Enable incremental compilation
         \\  -fno-incremental             Disable incremental compilation
@@ -1294,6 +1314,7 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  --seed [integer]             For shuffling dependency traversal order (default: random)
         \\  --debug-log [scope]          Enable debugging the compiler
         \\  --debug-pkg-config           Fail if unknown pkg-config flags encountered
+        \\  --debug-rt                   Debug compiler runtime libraries
         \\  --verbose-link               Enable compiler debug output for linking
         \\  --verbose-air                Enable compiler debug output for Zig AIR
         \\  --verbose-llvm-ir[=file]     Enable compiler debug output for LLVM IR

@@ -53,7 +53,7 @@ pub const Message = struct {
     ///   - null-terminated string_bytes index
     /// * expected_panic_msg: [tests_len]u32,
     ///   - null-terminated string_bytes index
-    ///   - 0 means does not expect pani
+    ///   - 0 means does not expect panic
     /// * string_bytes: [string_bytes_len]u8,
     pub const TestMetadata = extern struct {
         string_bytes_len: u32,
@@ -68,7 +68,8 @@ pub const Message = struct {
             fail: bool,
             skip: bool,
             leak: bool,
-            log_err_count: u29 = 0,
+            fuzz: bool,
+            log_err_count: u28 = 0,
         };
     };
 
