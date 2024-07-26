@@ -1372,7 +1372,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
         for (zo.atoms_indexes.items) |atom_index| {
             const atom_ptr = zo.atom(atom_index) orelse continue;
             if (!atom_ptr.alive) continue;
-            const out_shndx = atom_ptr.outputShndx() orelse continue;
+            const out_shndx = atom_ptr.output_section_index;
             const shdr = &self.shdrs.items[out_shndx];
             if (shdr.sh_type == elf.SHT_NOBITS) continue;
             const code = try zo.codeAlloc(self, atom_index);

@@ -311,7 +311,7 @@ pub fn newAtom(self: *ZigObject, elf_file: *Elf) !Symbol.Index {
 /// TODO actually create fake input shdrs and return that instead.
 pub fn inputShdr(self: *ZigObject, atom_index: Atom.Index, elf_file: *Elf) elf.Elf64_Shdr {
     const atom_ptr = self.atom(atom_index) orelse return Elf.null_shdr;
-    const shndx = atom_ptr.outputShndx() orelse return Elf.null_shdr;
+    const shndx = atom_ptr.output_section_index;
     var shdr = elf_file.shdrs.items[shndx];
     shdr.sh_addr = 0;
     shdr.sh_offset = 0;
@@ -342,7 +342,7 @@ pub fn resolveSymbols(self: *ZigObject, elf_file: *Elf) void {
                 else => unreachable,
             };
             const output_section_index = if (self.atom(atom_index)) |atom_ptr|
-                atom_ptr.outputShndx().?
+                atom_ptr.output_section_index
             else
                 elf.SHN_UNDEF;
             global.value = @intCast(esym.st_value);
@@ -523,7 +523,7 @@ pub fn addAtomsToRelaSections(self: *ZigObject, elf_file: *Elf) !void {
         const rela_shndx = atom_ptr.relocsShndx() orelse continue;
         // TODO this check will become obsolete when we rework our relocs mechanism at the ZigObject level
         if (self.relocs.items[rela_shndx].items.len == 0) continue;
-        const out_shndx = atom_ptr.outputShndx().?;
+        const out_shndx = atom_ptr.output_section_index;
         const out_shdr = elf_file.shdrs.items[out_shndx];
         if (out_shdr.sh_type == elf.SHT_NOBITS) continue;
 
@@ -623,7 +623,7 @@ pub fn asFile(self: *ZigObject) File {
 pub fn codeAlloc(self: *ZigObject, elf_file: *Elf, atom_index: Atom.Index) ![]u8 {
     const gpa = elf_file.base.comp.gpa;
     const atom_ptr = self.atom(atom_index).?;
-    const shdr = &elf_file.shdrs.items[atom_ptr.outputShndx().?];
+    const shdr = &elf_file.shdrs.items[atom_ptr.output_section_index];
 
     if (shdr.sh_flags & elf.SHF_TLS != 0) {
         const tlv = self.tls_variables.get(atom_index).?;

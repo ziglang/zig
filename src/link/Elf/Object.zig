@@ -1036,12 +1036,12 @@ pub fn addAtomsToRelaSections(self: *Object, elf_file: *Elf) !void {
             break :blk self.initOutputSection(elf_file, shdr) catch unreachable;
         };
         const shdr = &elf_file.shdrs.items[shndx];
-        shdr.sh_info = atom_ptr.outputShndx().?;
+        shdr.sh_info = atom_ptr.output_section_index;
         shdr.sh_link = elf_file.symtab_section_index.?;
 
         const comp = elf_file.base.comp;
         const gpa = comp.gpa;
-        const gop = try elf_file.output_rela_sections.getOrPut(gpa, atom_ptr.outputShndx().?);
+        const gop = try elf_file.output_rela_sections.getOrPut(gpa, atom_ptr.output_section_index);
         if (!gop.found_existing) gop.value_ptr.* = .{ .shndx = shndx };
         try gop.value_ptr.atom_list.append(gpa, .{ .index = atom_index, .file = self.index });
     }

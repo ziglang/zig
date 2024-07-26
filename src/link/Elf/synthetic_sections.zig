@@ -1701,13 +1701,13 @@ pub const ComdatGroupSection = struct {
                 elf.SHT_RELA => {
                     const atom_index = object.atoms_indexes.items[shdr.sh_info];
                     const atom = object.atom(atom_index).?;
-                    const rela = elf_file.output_rela_sections.get(atom.outputShndx().?).?;
+                    const rela = elf_file.output_rela_sections.get(atom.output_section_index).?;
                     try writer.writeInt(u32, rela.shndx, .little);
                 },
                 else => {
                     const atom_index = object.atoms_indexes.items[shndx];
                     const atom = object.atom(atom_index).?;
-                    try writer.writeInt(u32, atom.outputShndx().?, .little);
+                    try writer.writeInt(u32, atom.output_section_index, .little);
                 },
             }
         }

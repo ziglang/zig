@@ -48,8 +48,7 @@ pub fn name(self: Atom, elf_file: *Elf) []const u8 {
 }
 
 pub fn address(self: Atom, elf_file: *Elf) i64 {
-    const shndx = self.outputShndx() orelse return self.value;
-    const shdr = elf_file.shdrs.items[shndx];
+    const shdr = elf_file.shdrs.items[self.output_section_index];
     return @as(i64, @intCast(shdr.sh_addr)) + self.value;
 }
 
@@ -87,11 +86,6 @@ pub fn relocsShndx(self: Atom) ?u32 {
     return self.relocs_section_index;
 }
 
-pub fn outputShndx(self: Atom) ?u32 {
-    if (self.output_section_index == 0) return null;
-    return self.output_section_index;
-}
-
 pub fn priority(self: Atom, elf_file: *Elf) u64 {
     const index = self.file(elf_file).?.index();
     return (@as(u64, @intCast(index)) << 32) | @as(u64, @intCast(self.input_section_index));
@@ -122,8 +116,8 @@ pub fn freeListEligible(self: Atom, elf_file: *Elf) bool {
 
 pub fn allocate(self: *Atom, elf_file: *Elf) !void {
     const zo = elf_file.zigObjectPtr().?;
-    const shdr = &elf_file.shdrs.items[self.outputShndx().?];
-    const meta = elf_file.last_atom_and_free_list_table.getPtr(self.outputShndx().?).?;
+    const shdr = &elf_file.shdrs.items[self.output_section_index];
+    const meta = elf_file.last_atom_and_free_list_table.getPtr(self.output_section_index).?;
     const free_list = &meta.free_list;
     const last_atom_index = &meta.last_atom_index;
     const new_atom_ideal_capacity = Elf.padToIdeal(self.size);
@@ -199,7 +193,7 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
         true;
     if (expand_section) {
         const needed_size: u64 = @intCast(self.value + @as(i64, @intCast(self.size)));
-        try elf_file.growAllocSection(self.outputShndx().?, needed_size);
+        try elf_file.growAllocSection(self.output_section_index, needed_size);
         last_atom_index.* = self.atom_index;
 
         const zig_object = elf_file.zigObjectPtr().?;
@@ -258,7 +252,7 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
     const zo = elf_file.zigObjectPtr().?;
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
-    const shndx = self.outputShndx().?;
+    const shndx = self.output_section_index;
     const meta = elf_file.last_atom_and_free_list_table.getPtr(shndx).?;
     const free_list = &meta.free_list;
     const last_atom_index = &meta.last_atom_index;
