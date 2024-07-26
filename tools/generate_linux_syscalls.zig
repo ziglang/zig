@@ -170,7 +170,7 @@ pub fn main() !void {
     {
         try writer.writeAll(
             \\pub const Mips = enum(usize) {
-            \\    pub const Linux = 4000;
+            \\    const linux_base = 4000;
             \\
             \\
         );
@@ -188,7 +188,7 @@ pub fn main() !void {
             if (mem.startsWith(u8, name, "unused")) continue;
             const fixed_name = if (stdlib_renames.get(name)) |fixed| fixed else name;
 
-            try writer.print("    {p} = Linux + {s},\n", .{ zig.fmtId(fixed_name), number });
+            try writer.print("    {p} = linux_base + {s},\n", .{ zig.fmtId(fixed_name), number });
         }
 
         try writer.writeAll("};\n\n");
@@ -196,7 +196,7 @@ pub fn main() !void {
     {
         try writer.writeAll(
             \\pub const Mips64 = enum(usize) {
-            \\    pub const Linux = 5000;
+            \\    const linux_base = 5000;
             \\
             \\
         );
@@ -213,7 +213,7 @@ pub fn main() !void {
             const name = fields.next() orelse return error.Incomplete;
             const fixed_name = if (stdlib_renames.get(name)) |fixed| fixed else name;
 
-            try writer.print("    {p} = Linux + {s},\n", .{ zig.fmtId(fixed_name), number });
+            try writer.print("    {p} = linux_base + {s},\n", .{ zig.fmtId(fixed_name), number });
         }
 
         try writer.writeAll("};\n\n");
