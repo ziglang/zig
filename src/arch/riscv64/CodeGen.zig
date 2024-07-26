@@ -4717,14 +4717,11 @@ fn airFence(func: *Func, inst: Air.Inst.Index) !void {
     };
 
     _ = try func.addInst(.{
-        .tag = .pseudo_fence,
-        .data = .{
-            .fence = .{
-                .pred = pred,
-                .succ = succ,
-                .fm = if (order == .acq_rel) .tso else .none,
-            },
-        },
+        .tag = if (order == .acq_rel) .fencetso else .fence,
+        .data = .{ .fence = .{
+            .pred = pred,
+            .succ = succ,
+        } },
     });
     return func.finishAirBookkeeping();
 }
@@ -5278,12 +5275,12 @@ fn isNull(func: *Func, inst: Air.Inst.Index, opt_ty: Type, opt_mcv: MCValue) !MC
         .dead,
         .undef,
         .immediate,
-        .register_pair,
         .register_offset,
         .lea_frame,
         .lea_symbol,
         .reserved_frame,
         .air_ref,
+        .register_pair,
         => unreachable,
 
         .register => |opt_reg| {
@@ -7109,6 +7106,7 @@ fn airCmpxchg(func: *Func, inst: Air.Inst.Index) !void {
 
 fn airAtomicRmw(func: *Func, inst: Air.Inst.Index) !void {
     const pt = func.pt;
+    const zcu = pt.zcu;
     const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const extra = func.air.extraData(Air.AtomicRmw, pl_op.payload).data;
 
@@ -7131,11 +7129,11 @@ fn airAtomicRmw(func: *Func, inst: Air.Inst.Index) !void {
         else => unreachable,
     }
 
-    switch (val_size) {
-        1, 2 => return func.fail("TODO: airAtomicRmw {s} Int {}", .{ @tagName(op), val_size }),
-        4, 8 => {},
+    const method: enum { amo, loop } = switch (val_size) {
+        1, 2 => .loop,
+        4, 8 => .amo,
         else => unreachable,
-    }
+    };
 
     const ptr_register, const ptr_lock = try func.promoteReg(ptr_ty, ptr_mcv);
     defer if (ptr_lock) |lock| func.register_manager.unlockReg(lock);
@@ -7145,6 +7143,7 @@ fn airAtomicRmw(func: *Func, inst: Air.Inst.Index) !void {
 
     const result_mcv = try func.allocRegOrMem(val_ty, inst, true);
     assert(result_mcv == .register); // should fit into 8 bytes
+    const result_reg = result_mcv.register;
 
     const aq, const rl = switch (order) {
         .unordered => unreachable,
@@ -7155,28 +7154,96 @@ fn airAtomicRmw(func: *Func, inst: Air.Inst.Index) !void {
         .seq_cst => .{ true, true },
     };
 
-    _ = try func.addInst(.{
-        .tag = .pseudo_amo,
-        .data = .{ .amo = .{
-            .rd = result_mcv.register,
-            .rs1 = ptr_register,
-            .rs2 = val_register,
-            .aq = if (aq) .aq else .none,
-            .rl = if (rl) .rl else .none,
-            .op = switch (op) {
-                .Xchg => .SWAP,
-                .Add => .ADD,
-                .Sub => return func.fail("TODO: airAtomicRmw SUB", .{}),
-                .And => .AND,
-                .Nand => return func.fail("TODO: airAtomicRmw NAND", .{}),
-                .Or => .OR,
-                .Xor => .XOR,
-                .Max => .MAX,
-                .Min => .MIN,
-            },
-            .ty = val_ty,
-        } },
-    });
+    switch (method) {
+        .amo => {
+            const is_d = val_ty.abiSize(pt) == 8;
+            const is_un = val_ty.isUnsignedInt(zcu);
+
+            const mnem: Mnemonic = switch (op) {
+                // zig fmt: off
+                .Xchg => if (is_d) .amoswapd  else .amoswapw,
+                .Add  => if (is_d) .amoaddd   else .amoaddw,
+                .And  => if (is_d) .amoandd   else .amoandw,
+                .Or   => if (is_d) .amoord    else .amoorw,
+                .Xor  => if (is_d) .amoxord   else .amoxorw,
+                .Max  => if (is_d) if (is_un) .amomaxud else .amomaxd else if (is_un) .amomaxuw else .amomaxw,
+                .Min  => if (is_d) if (is_un) .amominud else .amomind else if (is_un) .amominuw else .amominw,
+                else => return func.fail("TODO: airAtomicRmw amo {s}", .{@tagName(op)}),
+                // zig fmt: on
+            };
+
+            _ = try func.addInst(.{
+                .tag = mnem,
+                .data = .{ .amo = .{
+                    .rd = result_reg,
+                    .rs1 = ptr_register,
+                    .rs2 = val_register,
+                    .aq = if (aq) .aq else .none,
+                    .rl = if (rl) .rl else .none,
+                } },
+            });
+        },
+        .loop => {
+            // where we'll jump back when the sc fails
+            const jump_back = try func.addInst(.{
+                .tag = .lrw,
+                .data = .{ .amo = .{
+                    .rd = result_reg,
+                    .rs1 = ptr_register,
+                    .rs2 = .zero,
+                    .aq = if (aq) .aq else .none,
+                    .rl = if (rl) .rl else .none,
+                } },
+            });
+
+            const after_reg, const after_lock = try func.allocReg(.int);
+            defer func.register_manager.unlockReg(after_lock);
+
+            switch (op) {
+                .Add => {
+                    _ = try func.genBinOp(
+                        .add,
+                        .{ .register = result_reg },
+                        val_ty,
+                        .{ .register = val_register },
+                        val_ty,
+                        after_reg,
+                    );
+                },
+                .Sub => {
+                    _ = try func.genBinOp(
+                        .sub,
+                        .{ .register = result_reg },
+                        val_ty,
+                        .{ .register = val_register },
+                        val_ty,
+                        after_reg,
+                    );
+                },
+                else => return func.fail("TODO: airAtomicRmw loop {s}", .{@tagName(op)}),
+            }
+
+            _ = try func.addInst(.{
+                .tag = .scw,
+                .data = .{ .amo = .{
+                    .rd = after_reg,
+                    .rs1 = ptr_register,
+                    .rs2 = after_reg,
+                    .aq = if (aq) .aq else .none,
+                    .rl = if (rl) .rl else .none,
+                } },
+            });
+
+            _ = try func.addInst(.{
+                .tag = .bne,
+                .data = .{ .b_type = .{
+                    .inst = jump_back,
+                    .rs1 = after_reg,
+                    .rs2 = .zero,
+                } },
+            });
+        },
+    }
 
     return func.finishAir(inst, result_mcv, .{ pl_op.operand, extra.operand, .none });
 }
@@ -7199,11 +7266,10 @@ fn airAtomicLoad(func: *Func, inst: Air.Inst.Index) !void {
 
     if (order == .seq_cst) {
         _ = try func.addInst(.{
-            .tag = .pseudo_fence,
+            .tag = .fence,
             .data = .{ .fence = .{
                 .pred = .rw,
                 .succ = .rw,
-                .fm = .none,
             } },
         });
     }
@@ -7217,14 +7283,11 @@ fn airAtomicLoad(func: *Func, inst: Air.Inst.Index) !void {
         // Make sure all previous reads happen before any reading or writing accurs.
         .seq_cst, .acquire => {
             _ = try func.addInst(.{
-                .tag = .pseudo_fence,
-                .data = .{
-                    .fence = .{
-                        .pred = .r,
-                        .succ = .rw,
-                        .fm = .none,
-                    },
-                },
+                .tag = .fence,
+                .data = .{ .fence = .{
+                    .pred = .r,
+                    .succ = .rw,
+                } },
             });
         },
         else => unreachable,
@@ -7249,14 +7312,11 @@ fn airAtomicStore(func: *Func, inst: Air.Inst.Index, order: std.builtin.AtomicOr
         .unordered, .monotonic => {},
         .release, .seq_cst => {
             _ = try func.addInst(.{
-                .tag = .pseudo_fence,
-                .data = .{
-                    .fence = .{
-                        .pred = .rw,
-                        .succ = .w,
-                        .fm = .none,
-                    },
-                },
+                .tag = .fence,
+                .data = .{ .fence = .{
+                    .pred = .rw,
+                    .succ = .w,
+                } },
             });
         },
         else => unreachable,

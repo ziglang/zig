@@ -478,10 +478,8 @@ inline fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
     std.os.argv = argv[0..argc];
     std.os.environ = envp;
 
-    if (builtin.zig_backend != .stage2_riscv64) {
-        std.debug.maybeEnableSegfaultHandler();
-        maybeIgnoreSigpipe();
-    }
+    std.debug.maybeEnableSegfaultHandler();
+    maybeIgnoreSigpipe();
 
     return callMain();
 }

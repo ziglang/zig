@@ -40,6 +40,7 @@ pub const Mnemonic = enum(u16) {
     jal,
 
     beq,
+    bne,
 
     // Memory
     lui,
@@ -178,6 +179,8 @@ pub const Mnemonic = enum(u16) {
     fence,
     fencetso,
 
+    lrw,
+    scw,
     amoswapw,
     amoaddw,
     amoandw,
@@ -188,6 +191,8 @@ pub const Mnemonic = enum(u16) {
     amomaxuw,
     amominuw,
 
+    lrd,
+    scd,
     amoswapd,
     amoaddd,
     amoandd,
@@ -237,8 +242,6 @@ pub const Mnemonic = enum(u16) {
     pseudo_compare,
     pseudo_not,
     pseudo_extern_fn_reloc,
-    pseudo_fence,
-    pseudo_amo,
 };
 
 pub const Pseudo = enum(u8) {

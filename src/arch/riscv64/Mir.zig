@@ -73,10 +73,6 @@ pub const Inst = struct {
         fence: struct {
             pred: Barrier,
             succ: Barrier,
-            fm: enum {
-                none,
-                tso,
-            },
         },
         amo: struct {
             rd: Register,
@@ -84,8 +80,6 @@ pub const Inst = struct {
             rs2: Register,
             aq: Barrier,
             rl: Barrier,
-            op: AmoOp,
-            ty: Type,
         },
         csr: struct {
             csr: CSR,

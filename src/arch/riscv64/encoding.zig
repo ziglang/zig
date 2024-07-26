@@ -353,6 +353,7 @@ pub const Lir = struct {
             // BRANCH
 
             .beq     => .{ .opcode = .BRANCH, .format = .B, .data = .{ .f = .{ .funct3 = 0b000 } } },
+            .bne     => .{ .opcode = .BRANCH, .format = .B, .data = .{ .f = .{ .funct3 = 0b001 } } },
 
 
             // SYSTEM
@@ -378,8 +379,8 @@ pub const Lir = struct {
 
             .amoaddw   => .{ .opcode = .AMO, .format = .R, .data = .{ .amo = .{ .width = .W, .funct5 = 0b00000 } } },
             .amoswapw  => .{ .opcode = .AMO, .format = .R, .data = .{ .amo = .{ .width = .W, .funct5 = 0b00001 } } },
-            // LR.W
-            // SC.W
+            .lrw       => .{ .opcode = .AMO, .format = .R, .data = .{ .amo = .{ .width = .W, .funct5 = 0b00010 } } }, 
+            .scw       => .{ .opcode = .AMO, .format = .R, .data = .{ .amo = .{ .width = .W, .funct5 = 0b00011 } } }, 
             .amoxorw   => .{ .opcode = .AMO, .format = .R, .data = .{ .amo = .{ .width = .W, .funct5 = 0b00100 } } },
             .amoandw   => .{ .opcode = .AMO, .format = .R, .data = .{ .amo = .{ .width = .W, .funct5 = 0b01100 } } },
             .amoorw    => .{ .opcode = .AMO, .format = .R, .data = .{ .amo = .{ .width = .W, .funct5 = 0b01000 } } },
@@ -388,10 +389,11 @@ pub const Lir = struct {
             .amominuw  => .{ .opcode = .AMO, .format = .R, .data = .{ .amo = .{ .width = .W, .funct5 = 0b11000 } } },
             .amomaxuw  => .{ .opcode = .AMO, .format = .R, .data = .{ .amo = .{ .width = .W, .funct5 = 0b11100 } } },
 
+        
             .amoaddd   => .{ .opcode = .AMO, .format = .R, .data = .{ .amo = .{ .width = .D, .funct5 = 0b00000 } } },
             .amoswapd  => .{ .opcode = .AMO, .format = .R, .data = .{ .amo = .{ .width = .D, .funct5 = 0b00001 } } },
-            // LR.D
-            // SC.D
+            .lrd       => .{ .opcode = .AMO, .format = .R, .data = .{ .amo = .{ .width = .D, .funct5 = 0b00010 } } }, 
+            .scd       => .{ .opcode = .AMO, .format = .R, .data = .{ .amo = .{ .width = .D, .funct5 = 0b00011 } } }, 
             .amoxord   => .{ .opcode = .AMO, .format = .R, .data = .{ .amo = .{ .width = .D, .funct5 = 0b00100 } } },
             .amoandd   => .{ .opcode = .AMO, .format = .R, .data = .{ .amo = .{ .width = .D, .funct5 = 0b01100 } } },
             .amoord    => .{ .opcode = .AMO, .format = .R, .data = .{ .amo = .{ .width = .D, .funct5 = 0b01000 } } },
@@ -434,8 +436,6 @@ pub const Lir = struct {
             .pseudo_compare,
             .pseudo_not,
             .pseudo_extern_fn_reloc,
-            .pseudo_fence,
-            .pseudo_amo,
             .nop,
             => std.debug.panic("lir: didn't catch pseudo {s}", .{@tagName(mnem)}),
             // zig fmt: on

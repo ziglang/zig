@@ -125,10 +125,7 @@ pub fn classifySystem(ty: Type, pt: Zcu.PerThread) [8]SystemClass {
                 result[0] = .integer;
                 return result;
             }
-            result[0] = .integer;
-            if (ty.optionalChild(zcu).abiSize(pt) == 0) return result;
-            result[1] = .integer;
-            return result;
+            return memory_class;
         },
         .Int, .Enum, .ErrorSet => {
             const int_bits = ty.intInfo(pt.zcu).bits;
