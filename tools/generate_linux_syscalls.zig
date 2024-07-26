@@ -478,6 +478,60 @@ pub fn main() !void {
 
         try writer.writeAll("};\n\n");
     }
+    {
+        try writer.writeAll("pub const Arc = enum(usize) {\n");
+
+        const child_args = [_][]const u8{
+            zig_exe,
+            "cc",
+            "-target",
+            "arc-freestanding-none",
+            "-E",
+            "-dD",
+            "-P",
+            "-nostdinc",
+            "-Itools/include",
+            "-Itools/include/uapi",
+            "-D __SYSCALL(nr, nm)=zigsyscall nm nr",
+            "arch/arc/include/uapi/asm/unistd.h",
+        };
+
+        const child_result = try std.process.Child.run(.{
+            .allocator = allocator,
+            .argv = &child_args,
+            .cwd = linux_path,
+            .cwd_dir = linux_dir,
+        });
+        if (child_result.stderr.len > 0) std.debug.print("{s}\n", .{child_result.stderr});
+
+        const defines = switch (child_result.term) {
+            .Exited => |code| if (code == 0) child_result.stdout else {
+                std.debug.print("zig cc exited with code {d}\n", .{code});
+                std.process.exit(1);
+            },
+            else => {
+                std.debug.print("zig cc crashed\n", .{});
+                std.process.exit(1);
+            },
+        };
+
+        var lines = mem.tokenizeScalar(u8, defines, '\n');
+        while (lines.next()) |line| {
+            var fields = mem.tokenizeAny(u8, line, " ");
+            const prefix = fields.next() orelse return error.Incomplete;
+
+            if (!mem.eql(u8, prefix, "zigsyscall")) continue;
+
+            const sys_name = fields.next() orelse return error.Incomplete;
+            const value = fields.rest();
+            const name = (getOverridenNameNew(value) orelse sys_name)["sys_".len..];
+            const fixed_name = if (stdlib_renames_new.get(name)) |f| f else if (stdlib_renames.get(name)) |f| f else name;
+
+            try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), value });
+        }
+
+        try writer.writeAll("};\n\n");
+    }
 
     try buf_out.flush();
 }
