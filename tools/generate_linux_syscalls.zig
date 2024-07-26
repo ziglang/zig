@@ -187,6 +187,26 @@ pub fn main() !void {
         try writer.writeAll("};\n\n");
     }
     {
+        try writer.writeAll("pub const M68k = enum(usize) {\n");
+
+        const table = try linux_dir.readFile("arch/m68k/kernel/syscalls/syscall.tbl", buf);
+        var lines = mem.tokenizeScalar(u8, table, '\n');
+        while (lines.next()) |line| {
+            if (line[0] == '#') continue;
+
+            var fields = mem.tokenizeAny(u8, line, " \t");
+            const number = fields.next() orelse return error.Incomplete;
+            // abi is always common
+            _ = fields.next() orelse return error.Incomplete;
+            const name = fields.next() orelse return error.Incomplete;
+            const fixed_name = if (stdlib_renames.get(name)) |fixed| fixed else name;
+
+            try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), number });
+        }
+
+        try writer.writeAll("};\n\n");
+    }
+    {
         try writer.writeAll(
             \\pub const MipsO32 = enum(usize) {
             \\    const linux_base = 4000;
