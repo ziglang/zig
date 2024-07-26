@@ -169,7 +169,7 @@ pub fn main() !void {
     }
     {
         try writer.writeAll(
-            \\pub const Mips = enum(usize) {
+            \\pub const MipsO32 = enum(usize) {
             \\    const linux_base = 4000;
             \\
             \\
@@ -195,7 +195,7 @@ pub fn main() !void {
     }
     {
         try writer.writeAll(
-            \\pub const Mips64 = enum(usize) {
+            \\pub const MipsN64 = enum(usize) {
             \\    const linux_base = 5000;
             \\
             \\
