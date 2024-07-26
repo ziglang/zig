@@ -5,8 +5,11 @@ const assert = std.debug.assert;
 
 const R_AMD64_RELATIVE = 8;
 const R_386_RELATIVE = 8;
+const R_ARC_RELATIVE = 56;
 const R_ARM_RELATIVE = 23;
 const R_AARCH64_RELATIVE = 1027;
+const R_CSKY_RELATIVE = 9;
+const R_HEXAGON_RELATIVE = 35;
 const R_LARCH_RELATIVE = 3;
 const R_68K_RELATIVE = 22;
 const R_RISCV_RELATIVE = 3;
@@ -16,8 +19,11 @@ const R_SPARC_RELATIVE = 22;
 const R_RELATIVE = switch (builtin.cpu.arch) {
     .x86 => R_386_RELATIVE,
     .x86_64 => R_AMD64_RELATIVE,
-    .arm => R_ARM_RELATIVE,
-    .aarch64 => R_AARCH64_RELATIVE,
+    .arc => R_ARC_RELATIVE,
+    .arm, .armeb, .thumb, .thumbeb => R_ARM_RELATIVE,
+    .aarch64, .aarch64_be => R_AARCH64_RELATIVE,
+    .csky => R_CSKY_RELATIVE,
+    .hexagon => R_HEXAGON_RELATIVE,
     .loongarch32, .loongarch64 => R_LARCH_RELATIVE,
     .m68k => R_68K_RELATIVE,
     .riscv64 => R_RISCV_RELATIVE,
@@ -44,8 +50,14 @@ fn getDynamicSymbol() [*]elf.Dyn {
             \\ lea _DYNAMIC(%%rip), %[ret]
             : [ret] "=r" (-> [*]elf.Dyn),
         ),
+        .arc => asm volatile (
+            \\ .weak _DYNAMIC
+            \\ .hidden _DYNAMIC
+            \\ add %[ret], pcl, _DYNAMIC@pcl
+            : [ret] "=r" (-> [*]elf.Dyn),
+        ),
         // Work around the limited offset range of `ldr`
-        .arm => asm volatile (
+        .arm, .armeb, .thumb, .thumbeb => asm volatile (
             \\ .weak _DYNAMIC
             \\ .hidden _DYNAMIC
             \\ ldr %[ret], 1f
@@ -56,12 +68,33 @@ fn getDynamicSymbol() [*]elf.Dyn {
             : [ret] "=r" (-> [*]elf.Dyn),
         ),
         // A simple `adr` is not enough as it has a limited offset range
-        .aarch64 => asm volatile (
+        .aarch64, .aarch64_be => asm volatile (
             \\ .weak _DYNAMIC
             \\ .hidden _DYNAMIC
             \\ adrp %[ret], _DYNAMIC
             \\ add %[ret], %[ret], #:lo12:_DYNAMIC
             : [ret] "=r" (-> [*]elf.Dyn),
+        ),
+        // The CSKY ABI requires the gb register to point to the GOT. Additionally, the first
+        // entry in the GOT is defined to hold the address of _DYNAMIC.
+        .csky => asm volatile (
+            \\ mov %[ret], gb
+            \\ ldw %[ret], %[ret]
+            : [ret] "=r" (-> [*]elf.Dyn),
+        ),
+        .hexagon => asm volatile (
+            \\ .weak _DYNAMIC
+            \\ .hidden _DYNAMIC
+            \\ jump 1f
+            \\ .word _DYNAMIC - .
+            \\ 1:
+            \\ r1 = pc
+            \\ r1 = add(r1, #-4)
+            \\ %[ret] = memw(r1)
+            \\ %[ret] = add(r1, %[ret])
+            : [ret] "=r" (-> [*]elf.Dyn),
+            :
+            : "r1"
         ),
         .loongarch32, .loongarch64 => asm volatile (
             \\ .weak _DYNAMIC
