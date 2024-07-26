@@ -1371,7 +1371,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
         var has_reloc_errors = false;
         for (zo.atoms_indexes.items) |atom_index| {
             const atom_ptr = zo.atom(atom_index) orelse continue;
-            if (!atom_ptr.flags.alive) continue;
+            if (!atom_ptr.alive) continue;
             const out_shndx = atom_ptr.outputShndx() orelse continue;
             const shdr = &self.shdrs.items[out_shndx];
             if (shdr.sh_type == elf.SHT_NOBITS) continue;
@@ -4130,7 +4130,7 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) !void {
         for (zo.globals()) |global_index| {
             const global = self.symbol(global_index);
             const atom_ptr = global.atom(self) orelse continue;
-            if (!atom_ptr.flags.alive) continue;
+            if (!atom_ptr.alive) continue;
             // TODO claim unresolved for objects
             if (global.file(self).?.index() != zo.index) continue;
             const out_shndx = global.outputShndx() orelse continue;
@@ -4157,7 +4157,7 @@ fn updateSectionSizes(self: *Elf) !void {
         if (self.requiresThunks() and shdr.sh_flags & elf.SHF_EXECINSTR != 0) continue;
         for (atom_list.items) |ref| {
             const atom_ptr = self.atom(ref) orelse continue;
-            if (!atom_ptr.flags.alive) continue;
+            if (!atom_ptr.alive) continue;
             const offset = atom_ptr.alignment.forward(shdr.sh_size);
             const padding = offset - shdr.sh_size;
             atom_ptr.value = @intCast(offset);
@@ -4641,7 +4641,7 @@ fn writeAtoms(self: *Elf) !void {
 
         for (atom_list.items) |ref| {
             const atom_ptr = self.atom(ref).?;
-            assert(atom_ptr.flags.alive);
+            assert(atom_ptr.alive);
 
             const offset = math.cast(usize, atom_ptr.value - @as(i64, @intCast(base_offset))) orelse
                 return error.Overflow;

@@ -84,7 +84,7 @@ pub fn parse(self: *Object, elf_file: *Elf) !void {
 
     for (self.shdrs.items, 0..) |shdr, i| {
         const atom_ptr = self.atom(self.atoms_indexes.items[i]) orelse continue;
-        if (!atom_ptr.flags.alive) continue;
+        if (!atom_ptr.alive) continue;
         if ((cpu_arch == .x86_64 and shdr.sh_type == elf.SHT_X86_64_UNWIND) or
             mem.eql(u8, atom_ptr.name(elf_file), ".eh_frame"))
         {
@@ -484,7 +484,6 @@ fn parseEhFrame(self: *Object, allocator: Allocator, handle: std.fs.File, shndx:
             if (atom_ptr.atom_index != next_fde.atom(elf_file).atom_index) break;
         }
         atom_ptr.addExtra(.{ .fde_start = start, .fde_count = i - start }, elf_file);
-        atom_ptr.flags.fde = true;
     }
 }
 
@@ -529,7 +528,7 @@ pub fn scanRelocs(self: *Object, elf_file: *Elf, undefs: anytype) !void {
     const gpa = comp.gpa;
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
-        if (!atom_ptr.flags.alive) continue;
+        if (!atom_ptr.alive) continue;
         const shdr = atom_ptr.inputShdr(elf_file);
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
         if (shdr.sh_type == elf.SHT_NOBITS) continue;
@@ -569,7 +568,7 @@ pub fn resolveSymbols(self: *Object, elf_file: *Elf) void {
         if (esym.st_shndx != elf.SHN_ABS and esym.st_shndx != elf.SHN_COMMON) {
             const atom_index = self.atoms_indexes.items[esym.st_shndx];
             const atom_ptr = self.atom(atom_index) orelse continue;
-            if (!atom_ptr.flags.alive) continue;
+            if (!atom_ptr.alive) continue;
         }
 
         const global = elf_file.symbol(index);
@@ -661,7 +660,7 @@ pub fn markEhFrameAtomsDead(self: *Object, elf_file: *Elf) void {
         const atom_ptr = self.atom(atom_index) orelse continue;
         const is_eh_frame = (cpu_arch == .x86_64 and atom_ptr.inputShdr(elf_file).sh_type == elf.SHT_X86_64_UNWIND) or
             mem.eql(u8, atom_ptr.name(elf_file), ".eh_frame");
-        if (atom_ptr.flags.alive and is_eh_frame) atom_ptr.flags.alive = false;
+        if (atom_ptr.alive and is_eh_frame) atom_ptr.alive = false;
     }
 }
 
@@ -681,7 +680,7 @@ pub fn checkDuplicates(self: *Object, dupes: anytype, elf_file: *Elf) error{OutO
         if (sym.st_shndx != elf.SHN_ABS) {
             const atom_index = self.atoms_indexes.items[sym.st_shndx];
             const atom_ptr = self.atom(atom_index) orelse continue;
-            if (!atom_ptr.flags.alive) continue;
+            if (!atom_ptr.alive) continue;
         }
 
         const gop = try dupes.getOrPut(index);
@@ -704,7 +703,7 @@ pub fn initMergeSections(self: *Object, elf_file: *Elf) !void {
 
         const atom_index = self.atoms_indexes.items[shndx];
         const atom_ptr = self.atom(atom_index) orelse continue;
-        if (!atom_ptr.flags.alive) continue;
+        if (!atom_ptr.alive) continue;
         if (atom_ptr.relocs(elf_file).len > 0) continue;
 
         const imsec_idx = try self.addInputMergeSection(gpa);
@@ -766,7 +765,7 @@ pub fn initMergeSections(self: *Object, elf_file: *Elf) !void {
             }
         }
 
-        atom_ptr.flags.alive = false;
+        atom_ptr.alive = false;
     }
 }
 
@@ -826,7 +825,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) !void {
 
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
-        if (!atom_ptr.flags.alive) continue;
+        if (!atom_ptr.alive) continue;
         const extras = atom_ptr.extra(elf_file);
         const relocs = self.relocs.items[extras.rel_index..][0..extras.rel_count];
         for (relocs) |*rel| {
@@ -950,7 +949,7 @@ pub fn markComdatGroupsDead(self: *Object, elf_file: *Elf) void {
         for (cg.comdatGroupMembers(elf_file)) |shndx| {
             const atom_index = self.atoms_indexes.items[shndx];
             if (self.atom(atom_index)) |atom_ptr| {
-                atom_ptr.flags.alive = false;
+                atom_ptr.alive = false;
                 atom_ptr.markFdesDead(elf_file);
             }
         }
@@ -960,7 +959,7 @@ pub fn markComdatGroupsDead(self: *Object, elf_file: *Elf) void {
 pub fn initOutputSections(self: *Object, elf_file: *Elf) !void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
-        if (!atom_ptr.flags.alive) continue;
+        if (!atom_ptr.alive) continue;
         const shdr = atom_ptr.inputShdr(elf_file);
         _ = try self.initOutputSection(elf_file, shdr);
     }
@@ -969,7 +968,7 @@ pub fn initOutputSections(self: *Object, elf_file: *Elf) !void {
 pub fn addAtomsToOutputSections(self: *Object, elf_file: *Elf) !void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
-        if (!atom_ptr.flags.alive) continue;
+        if (!atom_ptr.alive) continue;
         const shdr = atom_ptr.inputShdr(elf_file);
         atom_ptr.output_section_index = self.initOutputSection(elf_file, shdr) catch unreachable;
 
@@ -988,7 +987,7 @@ pub fn addAtomsToOutputSections(self: *Object, elf_file: *Elf) !void {
             continue;
         }
         const atom_ptr = local.atom(elf_file) orelse continue;
-        if (!atom_ptr.flags.alive) continue;
+        if (!atom_ptr.alive) continue;
         local.output_section_index = atom_ptr.output_section_index;
     }
 
@@ -1001,7 +1000,7 @@ pub fn addAtomsToOutputSections(self: *Object, elf_file: *Elf) !void {
             continue;
         }
         const atom_ptr = global.atom(elf_file) orelse continue;
-        if (!atom_ptr.flags.alive) continue;
+        if (!atom_ptr.alive) continue;
         global.output_section_index = atom_ptr.output_section_index;
     }
 
@@ -1016,7 +1015,7 @@ pub fn addAtomsToOutputSections(self: *Object, elf_file: *Elf) !void {
 pub fn initRelaSections(self: *Object, elf_file: *Elf) !void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
-        if (!atom_ptr.flags.alive) continue;
+        if (!atom_ptr.alive) continue;
         const shndx = atom_ptr.relocsShndx() orelse continue;
         const shdr = self.shdrs.items[shndx];
         const out_shndx = try self.initOutputSection(elf_file, shdr);
@@ -1030,7 +1029,7 @@ pub fn initRelaSections(self: *Object, elf_file: *Elf) !void {
 pub fn addAtomsToRelaSections(self: *Object, elf_file: *Elf) !void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
-        if (!atom_ptr.flags.alive) continue;
+        if (!atom_ptr.alive) continue;
         const shndx = blk: {
             const shndx = atom_ptr.relocsShndx() orelse continue;
             const shdr = self.shdrs.items[shndx];
@@ -1100,7 +1099,7 @@ pub fn updateSymtabSize(self: *Object, elf_file: *Elf) !void {
     const isAlive = struct {
         fn isAlive(sym: *const Symbol, ctx: *Elf) bool {
             if (sym.mergeSubsection(ctx)) |msub| return msub.alive;
-            if (sym.atom(ctx)) |atom_ptr| return atom_ptr.flags.alive;
+            if (sym.atom(ctx)) |atom_ptr| return atom_ptr.alive;
             return true;
         }
     }.isAlive;

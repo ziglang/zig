@@ -116,7 +116,7 @@ pub fn address(symbol: Symbol, opts: struct { plt: bool = true }, elf_file: *Elf
         return symbol.pltAddress(elf_file);
     }
     if (symbol.atom(elf_file)) |atom_ptr| {
-        if (!atom_ptr.flags.alive) {
+        if (!atom_ptr.alive) {
             if (mem.eql(u8, atom_ptr.name(elf_file), ".eh_frame")) {
                 const sym_name = symbol.name(elf_file);
                 const sh_addr, const sh_size = blk: {

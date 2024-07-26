@@ -331,7 +331,7 @@ pub fn resolveSymbols(self: *ZigObject, elf_file: *Elf) void {
         if (esym.st_shndx != elf.SHN_ABS and esym.st_shndx != elf.SHN_COMMON) {
             assert(esym.st_shndx == SHN_ATOM);
             const atom_ptr = self.atom(shndx) orelse continue;
-            if (!atom_ptr.flags.alive) continue;
+            if (!atom_ptr.alive) continue;
         }
 
         const global = elf_file.symbol(index);
@@ -407,7 +407,7 @@ pub fn scanRelocs(self: *ZigObject, elf_file: *Elf, undefs: anytype) !void {
     const gpa = elf_file.base.comp.gpa;
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
-        if (!atom_ptr.flags.alive) continue;
+        if (!atom_ptr.alive) continue;
         const shdr = atom_ptr.inputShdr(elf_file);
         if (shdr.sh_type == elf.SHT_NOBITS) continue;
         if (atom_ptr.scanRelocsRequiresCode(elf_file)) {
@@ -451,7 +451,7 @@ pub fn checkDuplicates(self: *ZigObject, dupes: anytype, elf_file: *Elf) error{O
 
         if (esym.st_shndx == SHN_ATOM) {
             const atom_ptr = self.atom(shndx) orelse continue;
-            if (!atom_ptr.flags.alive) continue;
+            if (!atom_ptr.alive) continue;
         }
 
         const gop = try dupes.getOrPut(index);
@@ -519,7 +519,7 @@ pub fn writeAr(self: ZigObject, writer: anytype) !void {
 pub fn addAtomsToRelaSections(self: *ZigObject, elf_file: *Elf) !void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
-        if (!atom_ptr.flags.alive) continue;
+        if (!atom_ptr.alive) continue;
         const rela_shndx = atom_ptr.relocsShndx() orelse continue;
         // TODO this check will become obsolete when we rework our relocs mechanism at the ZigObject level
         if (self.relocs.items[rela_shndx].items.len == 0) continue;
@@ -560,7 +560,7 @@ pub fn globals(self: ZigObject) []const Symbol.Index {
 pub fn updateSymtabSize(self: *ZigObject, elf_file: *Elf) !void {
     for (self.locals()) |local_index| {
         const local = elf_file.symbol(local_index);
-        if (local.atom(elf_file)) |atom_ptr| if (!atom_ptr.flags.alive) continue;
+        if (local.atom(elf_file)) |atom_ptr| if (!atom_ptr.alive) continue;
         const esym = local.elfSym(elf_file);
         switch (esym.st_type()) {
             elf.STT_SECTION, elf.STT_NOTYPE => continue,
@@ -576,7 +576,7 @@ pub fn updateSymtabSize(self: *ZigObject, elf_file: *Elf) !void {
         const global = elf_file.symbol(global_index);
         const file_ptr = global.file(elf_file) orelse continue;
         if (file_ptr.index() != self.index) continue;
-        if (global.atom(elf_file)) |atom_ptr| if (!atom_ptr.flags.alive) continue;
+        if (global.atom(elf_file)) |atom_ptr| if (!atom_ptr.alive) continue;
         global.flags.output_symtab = true;
         if (global.isLocal(elf_file)) {
             try global.addExtra(.{ .symtab = self.output_symtab_ctx.nlocals }, elf_file);
@@ -922,7 +922,7 @@ fn updateDeclCode(
     atom_ptr.output_section_index = shdr_index;
 
     sym.name_offset = try self.strtab.insert(gpa, decl.fqn.toSlice(ip));
-    atom_ptr.flags.alive = true;
+    atom_ptr.alive = true;
     atom_ptr.name_offset = sym.name_offset;
     esym.st_name = sym.name_offset;
     esym.st_info |= stt_bits;
@@ -1022,7 +1022,7 @@ fn updateTlv(
     atom_ptr.output_section_index = shndx;
 
     sym.name_offset = try self.strtab.insert(gpa, decl.fqn.toSlice(ip));
-    atom_ptr.flags.alive = true;
+    atom_ptr.alive = true;
     atom_ptr.name_offset = sym.name_offset;
     esym.st_value = 0;
     esym.st_name = sym.name_offset;
@@ -1246,7 +1246,7 @@ fn updateLazySymbol(
     local_esym.st_info |= elf.STT_OBJECT;
     local_esym.st_size = code.len;
     const atom_ptr = local_sym.atom(elf_file).?;
-    atom_ptr.flags.alive = true;
+    atom_ptr.alive = true;
     atom_ptr.name_offset = name_str_index;
     atom_ptr.alignment = required_alignment;
     atom_ptr.size = code.len;
@@ -1354,7 +1354,7 @@ fn lowerConst(
     local_esym.st_info |= elf.STT_OBJECT;
     local_esym.st_size = code.len;
     const atom_ptr = local_sym.atom(elf_file).?;
-    atom_ptr.flags.alive = true;
+    atom_ptr.alive = true;
     atom_ptr.name_offset = name_str_index;
     atom_ptr.alignment = required_alignment;
     atom_ptr.size = code.len;

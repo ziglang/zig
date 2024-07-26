@@ -14,13 +14,13 @@ pub fn createThunks(shndx: u32, elf_file: *Elf) !void {
     while (i < atoms.len) {
         const start = i;
         const start_atom = elf_file.atom(atoms[start]).?;
-        assert(start_atom.flags.alive);
+        assert(start_atom.alive);
         start_atom.value = try advance(shdr, start_atom.size, start_atom.alignment);
         i += 1;
 
         while (i < atoms.len) : (i += 1) {
             const atom = elf_file.atom(atoms[i]).?;
-            assert(atom.flags.alive);
+            assert(atom.alive);
             if (@as(i64, @intCast(atom.alignment.forward(shdr.sh_size))) - start_atom.value >= max_distance)
                 break;
             atom.value = try advance(shdr, atom.size, atom.alignment);
@@ -51,7 +51,6 @@ pub fn createThunks(shndx: u32, elf_file: *Elf) !void {
                 try thunk.symbols.put(gpa, target, {});
             }
             atom.addExtra(.{ .thunk = thunk_index }, elf_file);
-            atom.flags.thunk = true;
         }
 
         thunk.value = try advance(shdr, thunk.size(elf_file), Atom.Alignment.fromNonzeroByteUnits(2));

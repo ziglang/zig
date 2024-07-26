@@ -30,8 +30,11 @@ atom_index: Index = 0,
 prev_index: Index = 0,
 next_index: Index = 0,
 
-/// Flags we use for state tracking.
-flags: Flags = .{},
+/// Specifies whether this atom is alive or has been garbage collected.
+alive: bool = true,
+
+/// Specifies if the atom has been visited during garbage collection.
+visited: bool = false,
 
 extra_index: u32 = 0,
 
@@ -55,7 +58,7 @@ pub fn debugTombstoneValue(self: Atom, target: Symbol, elf_file: *Elf) ?u64 {
         if (msub.alive) return null;
     }
     if (target.atom(elf_file)) |atom_ptr| {
-        if (atom_ptr.flags.alive) return null;
+        if (atom_ptr.alive) return null;
     }
     const atom_name = self.name(elf_file);
     if (!mem.startsWith(u8, atom_name, ".debug")) return null;
@@ -67,7 +70,6 @@ pub fn file(self: Atom, elf_file: *Elf) ?File {
 }
 
 pub fn thunk(self: Atom, elf_file: *Elf) *Thunk {
-    assert(self.flags.thunk);
     const extras = self.extra(elf_file);
     return elf_file.thunk(extras.thunk);
 }
@@ -237,7 +239,7 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
         _ = free_list.swapRemove(i);
     }
 
-    self.flags.alive = true;
+    self.alive = true;
 }
 
 pub fn shrink(self: *Atom, elf_file: *Elf) void {
@@ -373,10 +375,12 @@ pub fn writeRelocs(self: Atom, elf_file: *Elf, out_relocs: *std.ArrayList(elf.El
 }
 
 pub fn fdes(self: Atom, elf_file: *Elf) []Fde {
-    if (!self.flags.fde) return &[0]Fde{};
     const extras = self.extra(elf_file);
-    const object = self.file(elf_file).?.object;
-    return object.fdes.items[extras.fde_start..][0..extras.fde_count];
+    return switch (self.file(elf_file).?) {
+        .shared_object => unreachable,
+        .linker_defined, .zig_object => &[0]Fde{},
+        .object => |x| x.fdes.items[extras.fde_start..][0..extras.fde_count],
+    };
 }
 
 pub fn markFdesDead(self: Atom, elf_file: *Elf) void {
@@ -1066,7 +1070,7 @@ fn format2(
         atom.atom_index,           atom.name(elf_file), atom.address(elf_file),
         atom.output_section_index, atom.alignment,      atom.size,
     });
-    if (atom.flags.fde) {
+    if (atom.fdes(elf_file).len > 0) {
         try writer.writeAll(" : fdes{ ");
         const extras = atom.extra(elf_file);
         for (atom.fdes(elf_file), extras.fde_start..) |fde, i| {
@@ -1076,26 +1080,12 @@ fn format2(
         }
         try writer.writeAll(" }");
     }
-    if (!atom.flags.alive) {
+    if (!atom.alive) {
         try writer.writeAll(" : [*]");
     }
 }
 
 pub const Index = u32;
-
-pub const Flags = packed struct {
-    /// Specifies whether this atom is alive or has been garbage collected.
-    alive: bool = true,
-
-    /// Specifies if the atom has been visited during garbage collection.
-    visited: bool = false,
-
-    /// Whether this atom has a range extension thunk.
-    thunk: bool = false,
-
-    /// Whether this atom has FDE records.
-    fde: bool = false,
-};
 
 const x86_64 = struct {
     fn scanReloc(

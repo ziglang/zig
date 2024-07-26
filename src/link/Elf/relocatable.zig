@@ -340,7 +340,7 @@ fn updateSectionSizes(elf_file: *Elf) !void {
         const shdr = &elf_file.shdrs.items[shndx];
         for (atom_list.items) |ref| {
             const atom_ptr = elf_file.atom(ref) orelse continue;
-            if (!atom_ptr.flags.alive) continue;
+            if (!atom_ptr.alive) continue;
             const offset = atom_ptr.alignment.forward(shdr.sh_size);
             const padding = offset - shdr.sh_size;
             atom_ptr.value = @intCast(offset);
@@ -353,7 +353,7 @@ fn updateSectionSizes(elf_file: *Elf) !void {
         const shdr = &elf_file.shdrs.items[sec.shndx];
         for (sec.atom_list.items) |ref| {
             const atom_ptr = elf_file.atom(ref) orelse continue;
-            if (!atom_ptr.flags.alive) continue;
+            if (!atom_ptr.alive) continue;
             const relocs = atom_ptr.relocs(elf_file);
             shdr.sh_size += shdr.sh_entsize * relocs.len;
         }
@@ -447,7 +447,7 @@ fn writeAtoms(elf_file: *Elf) !void {
 
         for (atom_list.items) |ref| {
             const atom_ptr = elf_file.atom(ref).?;
-            assert(atom_ptr.flags.alive);
+            assert(atom_ptr.alive);
 
             const offset = math.cast(usize, atom_ptr.value - @as(i64, @intCast(shdr.sh_addr - base_offset))) orelse
                 return error.Overflow;
@@ -489,7 +489,7 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
 
         for (sec.atom_list.items) |ref| {
             const atom_ptr = elf_file.atom(ref) orelse continue;
-            if (!atom_ptr.flags.alive) continue;
+            if (!atom_ptr.alive) continue;
             try atom_ptr.writeRelocs(elf_file, &relocs);
         }
         assert(relocs.items.len == num_relocs);
