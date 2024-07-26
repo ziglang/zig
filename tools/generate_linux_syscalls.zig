@@ -42,6 +42,12 @@ fn getOverridenNameNew(value: []const u8) ?[]const u8 {
     }
 }
 
+fn isReservedNameOld(name: []const u8) bool {
+    return std.mem.startsWith(u8, name, "available") or
+        std.mem.startsWith(u8, name, "reserved") or
+        std.mem.startsWith(u8, name, "unused");
+}
+
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -224,7 +230,7 @@ pub fn main() !void {
             // abi is always o32
             _ = fields.next() orelse return error.Incomplete;
             const name = fields.next() orelse return error.Incomplete;
-            if (mem.startsWith(u8, name, "unused")) continue;
+            if (isReservedNameOld(name)) continue;
             const fixed_name = if (stdlib_renames.get(name)) |fixed| fixed else name;
 
             try writer.print("    {p} = linux_base + {s},\n", .{ zig.fmtId(fixed_name), number });
@@ -250,6 +256,7 @@ pub fn main() !void {
             // abi is always n64
             _ = fields.next() orelse return error.Incomplete;
             const name = fields.next() orelse return error.Incomplete;
+            if (isReservedNameOld(name)) continue;
             const fixed_name = if (stdlib_renames.get(name)) |fixed| fixed else name;
 
             try writer.print("    {p} = linux_base + {s},\n", .{ zig.fmtId(fixed_name), number });
@@ -275,6 +282,7 @@ pub fn main() !void {
             // abi is always n32
             _ = fields.next() orelse return error.Incomplete;
             const name = fields.next() orelse return error.Incomplete;
+            if (isReservedNameOld(name)) continue;
             const fixed_name = if (stdlib_renames.get(name)) |fixed| fixed else name;
 
             try writer.print("    {p} = linux_base + {s},\n", .{ zig.fmtId(fixed_name), number });
@@ -351,6 +359,7 @@ pub fn main() !void {
             // abi is always common
             _ = fields.next() orelse return error.Incomplete;
             const name = fields.next() orelse return error.Incomplete;
+            if (isReservedNameOld(name)) continue;
             const fixed_name = if (stdlib_renames.get(name)) |fixed| fixed else name;
 
             try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), number });
