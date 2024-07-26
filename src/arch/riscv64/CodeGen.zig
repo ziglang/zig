@@ -2844,6 +2844,9 @@ fn genBinOp(
         .cmp_gt,
         .cmp_gte,
         => {
+            try func.truncateRegister(lhs_ty, lhs_reg);
+            try func.truncateRegister(rhs_ty, rhs_reg);
+
             _ = try func.addInst(.{
                 .tag = .pseudo_compare,
                 .data = .{
@@ -3925,10 +3928,6 @@ fn airPtrElemPtr(func: *Func, inst: Air.Inst.Index) !void {
         const base_ptr_ty = func.typeOf(extra.lhs);
 
         if (elem_ptr_ty.ptrInfo(zcu).flags.vector_index != .none) {
-            // break :result if (func.reuseOperand(inst, extra.lhs, 0, base_ptr_mcv))
-            //     base_ptr_mcv
-            // else
-            //     try func.copyToNewRegister(inst, base_ptr_mcv);
             @panic("audit");
         }
 
@@ -3992,7 +3991,7 @@ fn airGetUnionTag(func: *Func, inst: Air.Inst.Index) !void {
     defer func.register_manager.unlockReg(result_lock);
 
     switch (frame_mcv) {
-        .load_frame => |frame_addr| {
+        .load_frame => {
             if (tag_abi_size <= 8) {
                 const off: i32 = if (layout.tag_align.compare(.lt, layout.payload_align))
                     @intCast(layout.payload_size)
@@ -4002,7 +4001,7 @@ fn airGetUnionTag(func: *Func, inst: Air.Inst.Index) !void {
                 try func.genCopy(
                     tag_ty,
                     .{ .register = result_reg },
-                    .{ .load_frame = .{ .index = frame_addr.index, .off = frame_addr.off + off } },
+                    frame_mcv.offset(off),
                 );
             } else {
                 return func.fail(
@@ -4081,7 +4080,37 @@ fn airCtz(func: *Func, inst: Air.Inst.Index) !void {
 
 fn airPopcount(func: *Func, inst: Air.Inst.Index) !void {
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement airPopcount for {}", .{func.target.cpu.arch});
+    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
+        const pt = func.pt;
+
+        const operand = try func.resolveInst(ty_op.operand);
+        const src_ty = func.typeOf(ty_op.operand);
+        const operand_reg, const operand_lock = try func.promoteReg(src_ty, operand);
+        defer if (operand_lock) |lock| func.register_manager.unlockReg(lock);
+
+        const dst_reg, const dst_lock = try func.allocReg(.int);
+        defer func.register_manager.unlockReg(dst_lock);
+
+        const bit_size = src_ty.bitSize(pt);
+        switch (bit_size) {
+            32, 64 => {},
+            1...31, 33...63 => try func.truncateRegister(src_ty, operand_reg),
+            else => return func.fail("TODO: airPopcount > 64 bits", .{}),
+        }
+
+        _ = try func.addInst(.{
+            .tag = if (bit_size <= 32) .cpopw else .cpop,
+            .data = .{
+                .r_type = .{
+                    .rd = dst_reg,
+                    .rs1 = operand_reg,
+                    .rs2 = @enumFromInt(0b00010), // this is the cpop funct5
+                },
+            },
+        });
+
+        break :result .{ .register = dst_reg };
+    };
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
@@ -5630,13 +5659,14 @@ fn lowerBlock(func: *Func, inst: Air.Inst.Index, body: []const Air.Inst.Index) !
 
 fn airSwitchBr(func: *Func, inst: Air.Inst.Index) !void {
     const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const condition = try func.resolveInst(pl_op.operand);
     const condition_ty = func.typeOf(pl_op.operand);
     const switch_br = func.air.extraData(Air.SwitchBr, pl_op.payload);
     var extra_index: usize = switch_br.end;
     var case_i: u32 = 0;
     const liveness = try func.liveness.getSwitchBr(func.gpa, inst, switch_br.data.cases_len + 1);
     defer func.gpa.free(liveness.deaths);
+
+    const condition = try func.resolveInst(pl_op.operand);
 
     // If the condition dies here in this switch instruction, process
     // that death now instead of later as this has an effect on
@@ -5660,8 +5690,13 @@ fn airSwitchBr(func: *Func, inst: Air.Inst.Index) !void {
         defer func.gpa.free(relocs);
 
         for (items, relocs, 0..) |item, *reloc, i| {
-            // switch branches must be comptime-known, so this is stored in an immediate
             const item_mcv = try func.resolveInst(item);
+
+            const cond_lock = switch (condition) {
+                .register => func.register_manager.lockRegAssumeUnused(condition.register),
+                else => null,
+            };
+            defer if (cond_lock) |lock| func.register_manager.unlockReg(lock);
 
             const cmp_reg, const cmp_lock = try func.allocReg(.int);
             defer func.register_manager.unlockReg(cmp_lock);
@@ -7110,57 +7145,58 @@ fn airAtomicRmw(func: *Func, inst: Air.Inst.Index) !void {
     const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const extra = func.air.extraData(Air.AtomicRmw, pl_op.payload).data;
 
-    const op = extra.op();
-    const order = extra.ordering();
+    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
+        const op = extra.op();
+        const order = extra.ordering();
 
-    const ptr_ty = func.typeOf(pl_op.operand);
-    const ptr_mcv = try func.resolveInst(pl_op.operand);
+        const ptr_ty = func.typeOf(pl_op.operand);
+        const ptr_mcv = try func.resolveInst(pl_op.operand);
 
-    const val_ty = func.typeOf(extra.operand);
-    const val_size = val_ty.abiSize(pt);
-    const val_mcv = try func.resolveInst(extra.operand);
+        const val_ty = func.typeOf(extra.operand);
+        const val_size = val_ty.abiSize(pt);
+        const val_mcv = try func.resolveInst(extra.operand);
 
-    if (!math.isPowerOfTwo(val_size))
-        return func.fail("TODO: airAtomicRmw non-pow 2", .{});
+        if (!math.isPowerOfTwo(val_size))
+            return func.fail("TODO: airAtomicRmw non-pow 2", .{});
 
-    switch (val_ty.zigTypeTag(pt.zcu)) {
-        .Int => {},
-        inline .Bool, .Float, .Enum, .Pointer => |ty| return func.fail("TODO: airAtomicRmw {s}", .{@tagName(ty)}),
-        else => unreachable,
-    }
+        switch (val_ty.zigTypeTag(pt.zcu)) {
+            .Int => {},
+            inline .Bool, .Float, .Enum, .Pointer => |ty| return func.fail("TODO: airAtomicRmw {s}", .{@tagName(ty)}),
+            else => unreachable,
+        }
 
-    const method: enum { amo, loop } = switch (val_size) {
-        1, 2 => .loop,
-        4, 8 => .amo,
-        else => unreachable,
-    };
+        const method: enum { amo, loop } = switch (val_size) {
+            1, 2 => .loop,
+            4, 8 => .amo,
+            else => unreachable,
+        };
 
-    const ptr_register, const ptr_lock = try func.promoteReg(ptr_ty, ptr_mcv);
-    defer if (ptr_lock) |lock| func.register_manager.unlockReg(lock);
+        const ptr_register, const ptr_lock = try func.promoteReg(ptr_ty, ptr_mcv);
+        defer if (ptr_lock) |lock| func.register_manager.unlockReg(lock);
 
-    const val_register, const val_lock = try func.promoteReg(val_ty, val_mcv);
-    defer if (val_lock) |lock| func.register_manager.unlockReg(lock);
+        const val_register, const val_lock = try func.promoteReg(val_ty, val_mcv);
+        defer if (val_lock) |lock| func.register_manager.unlockReg(lock);
 
-    const result_mcv = try func.allocRegOrMem(val_ty, inst, true);
-    assert(result_mcv == .register); // should fit into 8 bytes
-    const result_reg = result_mcv.register;
+        const result_mcv = try func.allocRegOrMem(val_ty, inst, true);
+        assert(result_mcv == .register); // should fit into 8 bytes
+        const result_reg = result_mcv.register;
 
-    const aq, const rl = switch (order) {
-        .unordered => unreachable,
-        .monotonic => .{ false, false },
-        .acquire => .{ true, false },
-        .release => .{ false, true },
-        .acq_rel => .{ true, true },
-        .seq_cst => .{ true, true },
-    };
+        const aq, const rl = switch (order) {
+            .unordered => unreachable,
+            .monotonic => .{ false, false },
+            .acquire => .{ true, false },
+            .release => .{ false, true },
+            .acq_rel => .{ true, true },
+            .seq_cst => .{ true, true },
+        };
 
-    switch (method) {
-        .amo => {
-            const is_d = val_ty.abiSize(pt) == 8;
-            const is_un = val_ty.isUnsignedInt(zcu);
+        switch (method) {
+            .amo => {
+                const is_d = val_ty.abiSize(pt) == 8;
+                const is_un = val_ty.isUnsignedInt(zcu);
 
-            const mnem: Mnemonic = switch (op) {
-                // zig fmt: off
+                const mnem: Mnemonic = switch (op) {
+                    // zig fmt: off
                 .Xchg => if (is_d) .amoswapd  else .amoswapw,
                 .Add  => if (is_d) .amoaddd   else .amoaddw,
                 .And  => if (is_d) .amoandd   else .amoandw,
@@ -7170,82 +7206,79 @@ fn airAtomicRmw(func: *Func, inst: Air.Inst.Index) !void {
                 .Min  => if (is_d) if (is_un) .amominud else .amomind else if (is_un) .amominuw else .amominw,
                 else => return func.fail("TODO: airAtomicRmw amo {s}", .{@tagName(op)}),
                 // zig fmt: on
-            };
+                };
 
-            _ = try func.addInst(.{
-                .tag = mnem,
-                .data = .{ .amo = .{
-                    .rd = result_reg,
-                    .rs1 = ptr_register,
-                    .rs2 = val_register,
-                    .aq = if (aq) .aq else .none,
-                    .rl = if (rl) .rl else .none,
-                } },
-            });
-        },
-        .loop => {
-            // where we'll jump back when the sc fails
-            const jump_back = try func.addInst(.{
-                .tag = .lrw,
-                .data = .{ .amo = .{
-                    .rd = result_reg,
-                    .rs1 = ptr_register,
-                    .rs2 = .zero,
-                    .aq = if (aq) .aq else .none,
-                    .rl = if (rl) .rl else .none,
-                } },
-            });
+                _ = try func.addInst(.{
+                    .tag = mnem,
+                    .data = .{ .amo = .{
+                        .rd = result_reg,
+                        .rs1 = ptr_register,
+                        .rs2 = val_register,
+                        .aq = if (aq) .aq else .none,
+                        .rl = if (rl) .rl else .none,
+                    } },
+                });
+            },
+            .loop => {
+                // where we'll jump back when the sc fails
+                const jump_back = try func.addInst(.{
+                    .tag = .lrw,
+                    .data = .{ .amo = .{
+                        .rd = result_reg,
+                        .rs1 = ptr_register,
+                        .rs2 = .zero,
+                        .aq = if (aq) .aq else .none,
+                        .rl = if (rl) .rl else .none,
+                    } },
+                });
 
-            const after_reg, const after_lock = try func.allocReg(.int);
-            defer func.register_manager.unlockReg(after_lock);
+                const after_reg, const after_lock = try func.allocReg(.int);
+                defer func.register_manager.unlockReg(after_lock);
 
-            switch (op) {
-                .Add => {
-                    _ = try func.genBinOp(
-                        .add,
-                        .{ .register = result_reg },
-                        val_ty,
-                        .{ .register = val_register },
-                        val_ty,
-                        after_reg,
-                    );
-                },
-                .Sub => {
-                    _ = try func.genBinOp(
-                        .sub,
-                        .{ .register = result_reg },
-                        val_ty,
-                        .{ .register = val_register },
-                        val_ty,
-                        after_reg,
-                    );
-                },
-                else => return func.fail("TODO: airAtomicRmw loop {s}", .{@tagName(op)}),
-            }
+                switch (op) {
+                    .Add, .Sub => |tag| {
+                        _ = try func.genBinOp(
+                            switch (tag) {
+                                .Add => .add,
+                                .Sub => .sub,
+                                else => unreachable,
+                            },
+                            .{ .register = result_reg },
+                            val_ty,
+                            .{ .register = val_register },
+                            val_ty,
+                            after_reg,
+                        );
+                    },
 
-            _ = try func.addInst(.{
-                .tag = .scw,
-                .data = .{ .amo = .{
-                    .rd = after_reg,
-                    .rs1 = ptr_register,
-                    .rs2 = after_reg,
-                    .aq = if (aq) .aq else .none,
-                    .rl = if (rl) .rl else .none,
-                } },
-            });
+                    else => return func.fail("TODO: airAtomicRmw loop {s}", .{@tagName(op)}),
+                }
 
-            _ = try func.addInst(.{
-                .tag = .bne,
-                .data = .{ .b_type = .{
-                    .inst = jump_back,
-                    .rs1 = after_reg,
-                    .rs2 = .zero,
-                } },
-            });
-        },
-    }
+                _ = try func.addInst(.{
+                    .tag = .scw,
+                    .data = .{ .amo = .{
+                        .rd = after_reg,
+                        .rs1 = ptr_register,
+                        .rs2 = after_reg,
+                        .aq = if (aq) .aq else .none,
+                        .rl = if (rl) .rl else .none,
+                    } },
+                });
 
-    return func.finishAir(inst, result_mcv, .{ pl_op.operand, extra.operand, .none });
+                _ = try func.addInst(.{
+                    .tag = .bne,
+                    .data = .{ .b_type = .{
+                        .inst = jump_back,
+                        .rs1 = after_reg,
+                        .rs2 = .zero,
+                    } },
+                });
+            },
+        }
+        break :result result_mcv;
+    };
+
+    return func.finishAir(inst, result, .{ pl_op.operand, extra.operand, .none });
 }
 
 fn airAtomicLoad(func: *Func, inst: Air.Inst.Index) !void {

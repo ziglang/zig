@@ -206,6 +206,7 @@ pub const Lir = struct {
             .srai    => .{ .opcode = .OP_IMM, .format = .I, .data = .{ .sh = .{ .typ = 0b010000, .funct3 = 0b101, .has_5 = true } } },
 
             .clz     => .{ .opcode = .OP_IMM, .format = .R, .data = .{ .ff = .{ .funct3 = 0b001, .funct7 = 0b0110000 } } },
+            .cpop    => .{ .opcode = .OP_IMM, .format = .R, .data = .{ .ff = .{ .funct3 = 0b001, .funct7 = 0b0110000 } } },
 
             // OP_IMM_32
 
@@ -213,7 +214,8 @@ pub const Lir = struct {
             .srliw   => .{ .opcode = .OP_IMM_32, .format = .I, .data = .{ .sh = .{ .typ = 0b000000, .funct3 = 0b101, .has_5 = false } } },
             .sraiw   => .{ .opcode = .OP_IMM_32, .format = .I, .data = .{ .sh = .{ .typ = 0b010000, .funct3 = 0b101, .has_5 = false } } },
 
-            .clzw     => .{ .opcode = .OP_IMM_32, .format = .R, .data = .{ .ff = .{ .funct3 = 0b001, .funct7 = 0b0110000 } } },
+            .clzw    => .{ .opcode = .OP_IMM_32, .format = .R, .data = .{ .ff = .{ .funct3 = 0b001, .funct7 = 0b0110000 } } },
+            .cpopw   => .{ .opcode = .OP_IMM_32, .format = .R, .data = .{ .ff = .{ .funct3 = 0b001, .funct7 = 0b0110000 } } },
 
             // OP_32
 

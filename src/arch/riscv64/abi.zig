@@ -164,7 +164,7 @@ pub fn classifySystem(ty: Type, pt: Zcu.PerThread) [8]SystemClass {
 
             return memory_class;
         },
-        .Struct => {
+        .Struct, .Union => {
             const layout = ty.containerLayout(pt.zcu);
             const ty_size = ty.abiSize(pt);
 

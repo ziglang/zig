@@ -174,6 +174,8 @@ pub const Mnemonic = enum(u16) {
     // Zbb Extension Instructions
     clz,
     clzw,
+    cpop,
+    cpopw,
 
     // A Extension Instructions
     fence,
