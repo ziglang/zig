@@ -1122,6 +1122,7 @@ pub const CreateOptions = struct {
     linker_enable_new_dtags: ?bool = null,
     soname: ?[]const u8 = null,
     linker_gc_sections: ?bool = null,
+    linker_repro: ?bool = null,
     linker_allow_shlib_undefined: ?bool = null,
     linker_bind_global_refs_locally: ?bool = null,
     linker_import_symbols: bool = false,
@@ -1602,6 +1603,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .framework_dirs = options.framework_dirs,
             .rpath_list = options.rpath_list,
             .symbol_wrap_set = options.symbol_wrap_set,
+            .repro = options.linker_repro orelse (options.root_mod.optimize_mode != .Debug),
             .allow_shlib_undefined = options.linker_allow_shlib_undefined,
             .bind_global_refs_locally = options.linker_bind_global_refs_locally orelse false,
             .compress_debug_sections = options.linker_compress_debug_sections orelse .none,
@@ -2560,7 +2562,7 @@ fn prepareWholeEmitSubPath(arena: Allocator, opt_emit: ?EmitLoc) error{OutOfMemo
 /// to remind the programmer to update multiple related pieces of code that
 /// are in different locations. Bump this number when adding or deleting
 /// anything from the link cache manifest.
-pub const link_hash_implementation_version = 13;
+pub const link_hash_implementation_version = 14;
 
 fn addNonIncrementalStuffToCacheManifest(
     comp: *Compilation,
@@ -2569,7 +2571,7 @@ fn addNonIncrementalStuffToCacheManifest(
 ) !void {
     const gpa = comp.gpa;
 
-    comptime assert(link_hash_implementation_version == 13);
+    comptime assert(link_hash_implementation_version == 14);
 
     if (comp.module) |mod| {
         try addModuleTableToCacheHash(gpa, arena, &man.hash, mod.root_mod, mod.main_mod, .{ .files = man });
@@ -2660,6 +2662,7 @@ fn addNonIncrementalStuffToCacheManifest(
         }
         man.hash.addOptionalBytes(target.dynamic_linker.get());
     }
+    man.hash.add(opts.repro);
     man.hash.addOptional(opts.allow_shlib_undefined);
     man.hash.add(opts.bind_global_refs_locally);
 

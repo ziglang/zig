@@ -71,7 +71,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
         man = comp.cache_parent.obtain();
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 13);
+        comptime assert(Compilation.link_hash_implementation_version == 14);
 
         for (comp.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -110,6 +110,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
         // strip does not need to go into the linker hash because it is part of the hash namespace
         man.hash.add(self.major_subsystem_version);
         man.hash.add(self.minor_subsystem_version);
+        man.hash.add(self.repro);
         man.hash.addOptional(comp.version);
         try man.addOptionalFile(self.module_definition_file);
 
@@ -225,6 +226,10 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
 
         if (entry_name) |name| {
             try argv.append(try allocPrint(arena, "-ENTRY:{s}", .{name}));
+        }
+
+        if (self.repro) {
+            try argv.append("-BREPRO");
         }
 
         if (self.tsaware) {
