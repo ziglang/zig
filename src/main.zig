@@ -4314,10 +4314,12 @@ fn runOrTest(
     defer argv.deinit();
 
     if (test_exec_args.len == 0) {
-        try argv.appendSlice(&.{
-            exe_path,
-            try std.fmt.allocPrint(arena, "--seed=0x{x}", .{std.crypto.random.int(u32)}),
-        });
+        try argv.append(exe_path);
+        if (arg_mode == .zig_test) {
+            try argv.append(
+                try std.fmt.allocPrint(arena, "--seed=0x{x}", .{std.crypto.random.int(u32)}),
+            );
+        }
     } else {
         for (test_exec_args) |arg| {
             try argv.append(arg orelse exe_path);
