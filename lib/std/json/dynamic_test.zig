@@ -149,6 +149,19 @@ test "integer after float has proper type" {
     try std.testing.expect(parsed.object.get("ints").?.array.items[0] == .integer);
 }
 
+test "ParseOptions.parse_numbers prevents parsing when false" {
+    var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_allocator.deinit();
+    const parsed = try parseFromSliceLeaky(Value, arena_allocator.allocator(),
+        \\{
+        \\  "float": 3.14,
+        \\  "int": 3
+        \\}
+    , .{ .parse_numbers = false });
+    try std.testing.expect(parsed.object.get("float").? == .number_string);
+    try std.testing.expect(parsed.object.get("int").? == .number_string);
+}
+
 test "escaped characters" {
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_allocator.deinit();
