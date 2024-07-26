@@ -20214,7 +20214,12 @@ fn structInitEmpty(
     defer gpa.free(field_inits);
     @memset(field_inits, .none);
 
-    return sema.finishStructInit(block, init_src, dest_src, field_inits, struct_ty, struct_ty, false);
+    // Maps field index in the struct declaration to the field index in the initialization expression.
+    const field_assign_idxs = try gpa.alloc(?usize, struct_ty.structFieldCount(mod));
+    defer gpa.free(field_assign_idxs);
+    @memset(field_assign_idxs, null);
+
+    return sema.finishStructInit(block, init_src, dest_src, field_inits, field_assign_idxs, struct_ty, struct_ty, false);
 }
 
 fn arrayInitEmpty(sema: *Sema, block: *Block, src: LazySrcLoc, obj_ty: Type) CompileError!Air.Inst.Ref {
@@ -20325,6 +20330,11 @@ fn zirStructInit(
         defer gpa.free(field_inits);
         @memset(field_inits, .none);
 
+        // Maps field index in the struct declaration to the field index in the initialization expression.
+        const field_assign_idxs = try gpa.alloc(?usize, resolved_ty.structFieldCount(mod));
+        defer gpa.free(field_assign_idxs);
+        @memset(field_assign_idxs, null);
+
         var field_i: u32 = 0;
         var extra_index = extra.end;
 
@@ -20347,6 +20357,7 @@ fn zirStructInit(
             else
                 try sema.structFieldIndex(block, resolved_ty, field_name, field_src);
             assert(field_inits[field_index] == .none);
+            field_assign_idxs[field_index] = field_i;
             found_fields[field_index] = item.data.field_type;
             const uncoerced_init = try sema.resolveInst(item.data.init);
             const field_ty = resolved_ty.structFieldType(field_index, mod);
@@ -20367,7 +20378,7 @@ fn zirStructInit(
             }
         }
 
-        return sema.finishStructInit(block, src, src, field_inits, resolved_ty, result_ty, is_ref);
+        return sema.finishStructInit(block, src, src, field_inits, field_assign_idxs, resolved_ty, result_ty, is_ref);
     } else if (resolved_ty.zigTypeTag(mod) == .Union) {
         if (extra.data.fields_len != 1) {
             return sema.fail(block, src, "union initialization expects exactly one field", .{});
@@ -20452,6 +20463,7 @@ fn finishStructInit(
     init_src: LazySrcLoc,
     dest_src: LazySrcLoc,
     field_inits: []Air.Inst.Ref,
+    field_assign_idxs: []?usize,
     struct_ty: Type,
     result_ty: Type,
     is_ref: bool,
@@ -20553,9 +20565,9 @@ fn finishStructInit(
     }
 
     // Find which field forces the expression to be runtime, if any.
-    const opt_runtime_index = for (field_inits, 0..) |field_init, i| {
+    const opt_runtime_index = for (field_inits, field_assign_idxs) |field_init, field_assign| {
         if (!(try sema.isComptimeKnown(field_init))) {
-            break i;
+            break field_assign;
         }
     } else null;
 
