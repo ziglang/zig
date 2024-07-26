@@ -252,4 +252,6 @@ pub const Pseudo = enum(u8) {
     li,
     mv,
     tail,
+    beqz,
+    ret,
 };
