@@ -15,7 +15,6 @@ pub const Memory = struct {
     pub const Base = union(enum) {
         reg: Register,
         frame: FrameIndex,
-        reloc: Symbol,
     };
 
     pub const Mod = struct {
@@ -82,7 +81,6 @@ pub const Memory = struct {
                     .disp = base_loc.disp + offset,
                 };
             },
-            .reloc => unreachable,
         }
     }
 };

@@ -234,6 +234,8 @@ pub const Mnemonic = enum(u16) {
     pseudo_dead,
     /// Loads the address of a value that hasn't yet been allocated in memory.
     pseudo_load_symbol,
+    /// Loads the address of a TLV.
+    pseudo_load_tlv,
 
     /// Moves the value of rs1 to rd.
     pseudo_mv,

@@ -34,6 +34,8 @@ pub const Reloc = struct {
 
         /// Relocs the lowered_inst_index and the next instruction.
         load_symbol_reloc: bits.Symbol,
+        /// Relocs the lowered_inst_index and the next two instructions.
+        load_tlv_reloc: bits.Symbol,
         /// Relocs the lowered_inst_index and the next instruction.
         call_extern_fn_reloc: bits.Symbol,
     };
@@ -245,6 +247,34 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index, options: struct {
             });
 
             // the reloc above implies this one
+            try lower.emit(.addi, &.{
+                .{ .reg = dst_reg },
+                .{ .reg = dst_reg },
+                .{ .imm = Immediate.s(0) },
+            });
+        },
+
+        .pseudo_load_tlv => {
+            const payload = inst.data.reloc;
+            const dst_reg = payload.register;
+            assert(dst_reg.class() == .int);
+
+            try lower.emit(.lui, &.{
+                .{ .reg = dst_reg },
+                .{ .imm = lower.reloc(.{
+                    .load_tlv_reloc = .{
+                        .atom_index = payload.atom_index,
+                        .sym_index = payload.sym_index,
+                    },
+                }) },
+            });
+
+            try lower.emit(.add, &.{
+                .{ .reg = dst_reg },
+                .{ .reg = dst_reg },
+                .{ .reg = .tp },
+            });
+
             try lower.emit(.addi, &.{
                 .{ .reg = dst_reg },
                 .{ .reg = dst_reg },

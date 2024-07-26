@@ -432,6 +432,7 @@ pub const Lir = struct {
             .pseudo_j,
             .pseudo_dead,
             .pseudo_load_symbol,
+            .pseudo_load_tlv,
             .pseudo_mv,
             .pseudo_restore_regs,
             .pseudo_spill_regs,
