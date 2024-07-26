@@ -191,8 +191,6 @@ test "if value shouldn't be load-elided if used later (structs)" {
 }
 
 test "if value shouldn't be load-elided if used later (optionals)" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     var a: ?i32 = 1;
     var b: ?i32 = 1;
 

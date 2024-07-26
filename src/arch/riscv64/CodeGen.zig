@@ -1982,6 +1982,8 @@ fn truncateRegister(func: *Func, ty: Type, reg: Register) !void {
         .signedness = .unsigned,
         .bits = @intCast(ty.bitSize(pt)),
     };
+    assert(reg.class() == .int);
+
     const shift = math.cast(u6, 64 - int_info.bits % 64) orelse return;
     switch (int_info.signedness) {
         .signed => {
@@ -2844,8 +2846,11 @@ fn genBinOp(
         .cmp_gt,
         .cmp_gte,
         => {
-            try func.truncateRegister(lhs_ty, lhs_reg);
-            try func.truncateRegister(rhs_ty, rhs_reg);
+            assert(lhs_reg.class() == rhs_reg.class());
+            if (lhs_reg.class() == .int) {
+                try func.truncateRegister(lhs_ty, lhs_reg);
+                try func.truncateRegister(rhs_ty, rhs_reg);
+            }
 
             _ = try func.addInst(.{
                 .tag = .pseudo_compare,
@@ -3923,7 +3928,7 @@ fn airPtrElemPtr(func: *Func, inst: Air.Inst.Index) !void {
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = func.air.extraData(Air.Bin, ty_pl.payload).data;
 
-    const result = result: {
+    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
         const elem_ptr_ty = func.typeOfIndex(inst);
         const base_ptr_ty = func.typeOf(extra.lhs);
 
@@ -3959,6 +3964,7 @@ fn airPtrElemPtr(func: *Func, inst: Air.Inst.Index) !void {
 
         break :result MCValue{ .register = result_reg };
     };
+
     return func.finishAir(inst, result, .{ extra.lhs, extra.rhs, .none });
 }
 
@@ -4409,9 +4415,15 @@ fn airLoad(func: *Func, inst: Air.Inst.Index) !void {
         const elem_size = elem_ty.abiSize(pt);
 
         const dst_mcv: MCValue = blk: {
-            // "ptr" is 8 bytes, and if the element is more than that, we cannot reuse it.
-            if (elem_size <= 8 and func.reuseOperand(inst, ty_op.operand, 0, ptr)) {
-                // The MCValue that holds the pointer can be re-used as the value.
+            // The MCValue that holds the pointer can be re-used as the value.
+            // - "ptr" is 8 bytes, and if the element is more than that, we cannot reuse it.
+            //
+            // - "ptr" will be stored in an integer register, so the type that we're gonna
+            // load into it must also be a type that can be inside of an integer register
+            if (elem_size <= 8 and
+                (if (ptr == .register) func.typeRegClass(elem_ty) == ptr.register.class() else true) and
+                func.reuseOperand(inst, ty_op.operand, 0, ptr))
+            {
                 break :blk ptr;
             } else {
                 break :blk try func.allocRegOrMem(elem_ty, inst, true);

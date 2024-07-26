@@ -1219,8 +1219,6 @@ test "enum tag from a local variable" {
 }
 
 test "auto-numbered enum with signed tag type" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const E = enum(i32) { a, b };
 
     try std.testing.expectEqual(@as(i32, 0), @intFromEnum(E.a));
