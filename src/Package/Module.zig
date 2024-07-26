@@ -159,7 +159,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
 
         if (options.inherited.single_threaded) |x| break :b x;
         if (options.parent) |p| break :b p.single_threaded;
-        break :b target_util.defaultSingleThreaded(target, zig_backend);
+        break :b target_util.defaultSingleThreaded(target);
     };
 
     const error_tracing = b: {
