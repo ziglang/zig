@@ -427,16 +427,11 @@ pub fn main() !void {
         try writer.writeAll("};\n\n");
     }
     {
-        try writer.writeAll(
-            \\
-            \\pub const LoongArch64 = enum(usize) {
-            \\
-        );
+        try writer.writeAll("pub const LoongArch64 = enum(usize) {\n");
 
         const child_args = [_][]const u8{
             zig_exe,
             "cc",
-            "-march=loongarch64",
             "-target",
             "loongarch64-linux-gnu",
             "-E",
@@ -445,6 +440,8 @@ pub fn main() !void {
             "-nostdinc",
             "-Iinclude",
             "-Iinclude/uapi",
+            "-Iarch/loongarch/include/uapi",
+            "-D __SYSCALL(nr, nm)=zigsyscall nm nr",
             "arch/loongarch/include/uapi/asm/unistd.h",
         };
 
@@ -468,27 +465,21 @@ pub fn main() !void {
         };
 
         var lines = mem.tokenizeScalar(u8, defines, '\n');
-        loop: while (lines.next()) |line| {
-            var fields = mem.tokenizeAny(u8, line, " \t");
-            const cmd = fields.next() orelse return error.Incomplete;
-            if (!mem.eql(u8, cmd, "#define")) continue;
-            const define = fields.next() orelse return error.Incomplete;
-            const number = fields.next() orelse continue;
+        while (lines.next()) |line| {
+            var fields = mem.tokenizeAny(u8, line, " ");
+            const prefix = fields.next() orelse return error.Incomplete;
 
-            if (!std.ascii.isDigit(number[0])) continue;
-            if (!mem.startsWith(u8, define, "__NR")) continue;
-            const name = mem.trimLeft(u8, mem.trimLeft(u8, define, "__NR3264_"), "__NR_");
-            if (mem.eql(u8, name, "arch_specific_syscall")) continue;
-            if (mem.eql(u8, name, "syscalls")) break :loop;
+            if (!mem.eql(u8, prefix, "zigsyscall")) continue;
 
-            const fixed_name = if (stdlib_renames.get(name)) |fixed| fixed else name;
-            try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), number });
+            const sys_name = fields.next() orelse return error.Incomplete;
+            const value = fields.rest();
+            const name = (getOverridenNameNew(value) orelse sys_name)["sys_".len..];
+            const fixed_name = if (stdlib_renames_new.get(name)) |f| f else if (stdlib_renames.get(name)) |f| f else name;
+
+            try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), value });
         }
 
-        try writer.writeAll(
-            \\};
-            \\
-        );
+        try writer.writeAll("};\n\n");
     }
 
     try buf_out.flush();
