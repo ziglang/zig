@@ -84,7 +84,10 @@ pub const DT_ENCODING = 32;
 pub const DT_PREINIT_ARRAY = 32;
 pub const DT_PREINIT_ARRAYSZ = 33;
 pub const DT_SYMTAB_SHNDX = 34;
-pub const DT_NUM = 35;
+pub const DT_RELRSZ = 35;
+pub const DT_RELR = 36;
+pub const DT_RELRENT = 37;
+pub const DT_NUM = 38;
 pub const DT_LOOS = 0x6000000d;
 pub const DT_HIOS = 0x6ffff000;
 pub const DT_LOPROC = 0x70000000;
@@ -859,6 +862,8 @@ pub const Elf64_Rela = extern struct {
         return @truncate(self.r_info);
     }
 };
+pub const Elf32_Relr = Elf32_Word;
+pub const Elf64_Relr = Elf64_Xword;
 pub const Elf32_Dyn = extern struct {
     d_tag: Elf32_Sword,
     d_val: Elf32_Addr,
@@ -1050,6 +1055,11 @@ pub const Rel = switch (@sizeOf(usize)) {
 pub const Rela = switch (@sizeOf(usize)) {
     4 => Elf32_Rela,
     8 => Elf64_Rela,
+    else => @compileError("expected pointer size of 32 or 64"),
+};
+pub const Relr = switch (@sizeOf(usize)) {
+    4 => Elf32_Relr,
+    8 => Elf64_Relr,
     else => @compileError("expected pointer size of 32 or 64"),
 };
 pub const Shdr = switch (@sizeOf(usize)) {
