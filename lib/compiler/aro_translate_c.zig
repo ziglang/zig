@@ -1469,7 +1469,7 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
 
         pub fn getAlias(scope: *ScopeExtraScope, name: []const u8) []const u8 {
             return switch (scope.id) {
-                .root => return name,
+                .root => name,
                 .block => @as(*Block, @fieldParentPtr("base", scope)).getAlias(name),
                 .loop, .do_loop, .condition => scope.parent.?.getAlias(name),
             };
@@ -1477,11 +1477,12 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
 
         pub fn getLocalExternAlias(scope: *ScopeExtraScope, name: []const u8) ?[]const u8 {
             return switch (scope.id) {
+                .root => null,
                 .block => ret: {
                     const block = @as(*Block, @fieldParentPtr("base", scope));
                     break :ret block.getLocalExternAlias(name);
                 },
-                .root, .loop, .do_loop, .condition => null,
+                .loop, .do_loop, .condition => scope.parent.?.getLocalExternAlias(name),
             };
         }
 
