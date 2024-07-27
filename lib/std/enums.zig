@@ -527,6 +527,18 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
             return if (self.bits.isSet(index)) self.values[index] else null;
         }
 
+        /// Gets the key associated with a value.
+        /// Compares values with .eq() if defined, otherwise ==
+        /// If the value is not in the map, returns null.
+        pub fn getKey(self: Self, value: Value) ?Key {
+            for (self.values, 0..) |v, i| {
+                if ((@hasDecl(V, "eq") and v.eq(value)) or (!@hasDecl(V, "eq") and v == value)) {
+                    return Indexer.keyForIndex(i);
+                }
+            }
+            return null;
+        }
+
         /// Gets the value associated with a key, which must
         /// exist in the map.
         pub fn getAssertContains(self: Self, key: Key) Value {
