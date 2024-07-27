@@ -3929,14 +3929,21 @@ pub const FILE_ACTION_RENAMED_NEW_NAME = 0x00000005;
 
 pub const LPOVERLAPPED_COMPLETION_ROUTINE = ?*const fn (DWORD, DWORD, *OVERLAPPED) callconv(.C) void;
 
-pub const FILE_NOTIFY_CHANGE_CREATION = 64;
-pub const FILE_NOTIFY_CHANGE_SIZE = 8;
-pub const FILE_NOTIFY_CHANGE_SECURITY = 256;
-pub const FILE_NOTIFY_CHANGE_LAST_ACCESS = 32;
-pub const FILE_NOTIFY_CHANGE_LAST_WRITE = 16;
-pub const FILE_NOTIFY_CHANGE_DIR_NAME = 2;
-pub const FILE_NOTIFY_CHANGE_FILE_NAME = 1;
-pub const FILE_NOTIFY_CHANGE_ATTRIBUTES = 4;
+pub const FileNotifyChangeFilter = packed struct(DWORD) {
+    file_name: bool = false,
+    dir_name: bool = false,
+    attributes: bool = false,
+    size: bool = false,
+    last_write: bool = false,
+    last_access: bool = false,
+    creation: bool = false,
+    ea: bool = false,
+    security: bool = false,
+    stream_name: bool = false,
+    stream_size: bool = false,
+    stream_write: bool = false,
+    _pad: u20 = 0,
+};
 
 pub const CONSOLE_SCREEN_BUFFER_INFO = extern struct {
     dwSize: COORD,
