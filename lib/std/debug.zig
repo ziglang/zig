@@ -844,7 +844,7 @@ pub const StackIterator = struct {
 
 const have_msync = switch (native_os) {
     .wasi, .emscripten, .windows => false,
-    else => true,
+    else => posix.system.ucontext_t != void,
 };
 
 pub fn writeCurrentStackTrace(
