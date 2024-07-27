@@ -176,9 +176,9 @@ inline fn getDynamicSymbol() [*]elf.Dyn {
             \\ .weak _DYNAMIC
             \\ .hidden _DYNAMIC
             \\ larl %[ret], 1f
-            \\ agf %[ret], 0(%[ret])
+            \\ ag %[ret], 0(%[ret])
             \\ b 2f
-            \\ 1: .long _DYNAMIC - .
+            \\ 1: .quad _DYNAMIC - .
             \\ 2:
             : [ret] "=r" (-> [*]elf.Dyn),
         ),
