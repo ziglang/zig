@@ -1658,7 +1658,7 @@ fn initSyntheticSections(self: *MachO) !void {
                         .maxprot = prot,
                     });
                 }
-            } else if (eatPrefix(name, "segment$stop$")) |segname| {
+            } else if (eatPrefix(name, "segment$end$")) |segname| {
                 if (self.getSegmentByName(segname) == null) { // TODO check segname is valid
                     const prot = getSegmentProt(segname);
                     _ = try self.segments.append(gpa, .{
@@ -1675,7 +1675,7 @@ fn initSyntheticSections(self: *MachO) !void {
                 if (self.getSectionByName(segname, sectname) == null) {
                     _ = try self.addSection(segname, sectname, .{});
                 }
-            } else if (eatPrefix(name, "section$stop$")) |actual_name| {
+            } else if (eatPrefix(name, "section$end$")) |actual_name| {
                 const sep = mem.indexOfScalar(u8, actual_name, '$').?; // TODO error rather than a panic
                 const segname = actual_name[0..sep]; // TODO check segname is valid
                 const sectname = actual_name[sep + 1 ..]; // TODO check sectname is valid
@@ -2267,8 +2267,8 @@ fn allocateSyntheticSymbols(self: *MachO) void {
                     const seg = self.segments.items[seg_id];
                     sym.value = seg.vmaddr;
                 }
-            } else if (mem.startsWith(u8, name, "segment$stop$")) {
-                const segname = name["segment$stop$".len..];
+            } else if (mem.startsWith(u8, name, "segment$end$")) {
+                const segname = name["segment$end$".len..];
                 if (self.getSegmentByName(segname)) |seg_id| {
                     const seg = self.segments.items[seg_id];
                     sym.value = seg.vmaddr + seg.vmsize;
@@ -2283,8 +2283,8 @@ fn allocateSyntheticSymbols(self: *MachO) void {
                     sym.value = sect.addr;
                     sym.out_n_sect = sect_id;
                 }
-            } else if (mem.startsWith(u8, name, "section$stop$")) {
-                const actual_name = name["section$stop$".len..];
+            } else if (mem.startsWith(u8, name, "section$end$")) {
+                const actual_name = name["section$end$".len..];
                 const sep = mem.indexOfScalar(u8, actual_name, '$').?; // TODO error rather than a panic
                 const segname = actual_name[0..sep];
                 const sectname = actual_name[sep + 1 ..];
