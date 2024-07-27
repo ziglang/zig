@@ -531,8 +531,12 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
         /// Compares values with .eq() if defined, otherwise ==
         /// If the value is not in the map, returns null.
         pub fn getKey(self: Self, value: Value) ?Key {
+            const eq_fn_req = switch (@typeInfo(V)) {
+                .Union => true,
+                else => false,
+            };
             for (self.values, 0..) |v, i| {
-                if ((@hasDecl(V, "eq") and v.eq(value)) or (!@hasDecl(V, "eq") and v == value)) {
+                if ((eq_fn_req and v.eq(value)) or (!eq_fn_req and v == value)) {
                     return Indexer.keyForIndex(i);
                 }
             }
@@ -675,6 +679,33 @@ test EnumMap {
     try testing.expectEqual(null, some.get(.red));
     try testing.expectEqual(0xff, some.get(.green));
     try testing.expectEqual(0x80, some.get(.blue));
+    try testing.expectEqual(.blue, some.getKey(0x80));
+
+    const someUnion = union(enum) {
+        const Self = @This();
+        int: u8,
+        float: f16,
+
+        pub fn eq(self: Self, other: Self) bool {
+            return switch (self) {
+                .int => |key| switch (other) {
+                    .int => |int| key == int,
+                    else => false,
+                },
+                .float => |key| switch (other) {
+                    .float => |float| key == float,
+                    else => false,
+                },
+            };
+        }
+    };
+
+    const someEq = EnumMap(Ball, someUnion).init(.{
+        .green = someUnion{ .int = 0xff },
+        .blue = someUnion{ .float = 0.1 },
+    });
+    try testing.expectEqual(.green, someEq.getKey(someUnion{ .int = 0xff }));
+    try testing.expectEqual(.blue, someEq.getKey(someUnion{ .float = 0.1 }));
 }
 
 /// A multiset of enum elements up to a count of usize. Backed
