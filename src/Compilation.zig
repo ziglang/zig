@@ -5731,6 +5731,10 @@ pub fn addCCArgs(
                 },
             }
 
+            if (mod.optimize_mode != .Debug) {
+                try argv.append("-Werror=date-time");
+            }
+
             if (target_util.supports_fpic(target) and mod.pic) {
                 try argv.append("-fPIC");
             }
