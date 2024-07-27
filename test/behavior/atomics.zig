@@ -5,7 +5,7 @@ const expectEqual = std.testing.expectEqual;
 
 const supports_128_bit_atomics = switch (builtin.cpu.arch) {
     // TODO: Ideally this could be sync'd with the logic in Sema.
-    .aarch64, .aarch64_be, .aarch64_32 => true,
+    .aarch64, .aarch64_be => true,
     .x86_64 => std.Target.x86.featureSetHas(builtin.cpu.features, .cx16),
     else => false,
 };

@@ -6829,7 +6829,7 @@ pub const padded_pthread_spin_t = switch (native_os) {
 
 pub const pthread_spin_t = switch (native_os) {
     .netbsd => switch (builtin.cpu.arch) {
-        .aarch64, .aarch64_be, .aarch64_32 => u8,
+        .aarch64, .aarch64_be => u8,
         .mips, .mipsel, .mips64, .mips64el => u32,
         .powerpc, .powerpc64, .powerpc64le => i32,
         .x86, .x86_64 => u8,

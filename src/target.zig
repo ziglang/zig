@@ -78,7 +78,6 @@ pub fn hasValgrindSupport(target: std.Target) bool {
         .x86,
         .x86_64,
         .aarch64,
-        .aarch64_32,
         .aarch64_be,
         => {
             return target.os.tag == .linux or target.os.tag == .solaris or target.os.tag == .illumos or
@@ -115,7 +114,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .armeb,
         .aarch64,
         .aarch64_be,
-        .aarch64_32,
         .arc,
         .avr,
         .bpfel,
@@ -268,7 +266,6 @@ pub fn hasRedZone(target: std.Target) bool {
         .x86,
         .aarch64,
         .aarch64_be,
-        .aarch64_32,
         => true,
 
         else => false,
@@ -412,7 +409,7 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
 pub fn defaultFunctionAlignment(target: std.Target) Alignment {
     return switch (target.cpu.arch) {
         .arm, .armeb => .@"4",
-        .aarch64, .aarch64_32, .aarch64_be => .@"4",
+        .aarch64, .aarch64_be => .@"4",
         .sparc, .sparcel, .sparc64 => .@"4",
         .riscv64 => .@"2",
         else => .@"1",
@@ -424,7 +421,6 @@ pub fn minFunctionAlignment(target: std.Target) Alignment {
         .arm,
         .armeb,
         .aarch64,
-        .aarch64_32,
         .aarch64_be,
         .riscv32,
         .riscv64,
@@ -517,7 +513,7 @@ pub fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBacken
         .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
         .x86_64 => .stage2_x86_64,
         .x86 => .stage2_x86,
-        .aarch64, .aarch64_be, .aarch64_32 => .stage2_aarch64,
+        .aarch64, .aarch64_be => .stage2_aarch64,
         .riscv64 => .stage2_riscv64,
         .sparc64 => .stage2_sparc64,
         .spirv64 => .stage2_spirv64,

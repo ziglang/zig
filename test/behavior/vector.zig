@@ -745,7 +745,6 @@ test "vector shift operators" {
 
     switch (builtin.target.cpu.arch) {
         .aarch64_be,
-        .aarch64_32,
         .armeb,
         .thumb,
         .thumbeb,

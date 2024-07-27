@@ -43,9 +43,8 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
     const llvm_arch = switch (target.cpu.arch) {
         .arm => "arm",
         .armeb => "armeb",
-        .aarch64 => "aarch64",
+        .aarch64 => if (target.abi == .ilp32) "aarch64_32" else "aarch64",
         .aarch64_be => "aarch64_be",
-        .aarch64_32 => "aarch64_32",
         .arc => "arc",
         .avr => "avr",
         .bpfel => "bpfel",
@@ -157,7 +156,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
     try llvm_triple.append('-');
 
     const llvm_abi = switch (target.abi) {
-        .none => "unknown",
+        .none, .ilp32 => "unknown",
         .gnu => "gnu",
         .gnuabin32 => "gnuabin32",
         .gnuabi64 => "gnuabi64",
@@ -259,7 +258,6 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .armeb => .armeb,
         .aarch64 => .aarch64,
         .aarch64_be => .aarch64_be,
-        .aarch64_32 => .aarch64_32,
         .arc => .arc,
         .avr => .avr,
         .bpfel => .bpfel,
@@ -393,7 +391,6 @@ const DataLayoutBuilder = struct {
                 .pref = pref,
                 .idx = idx,
             };
-            if (self.target.cpu.arch == .aarch64_32) continue;
             if (!info.force_in_data_layout and matches_default and
                 self.target.cpu.arch != .riscv64 and
                 self.target.cpu.arch != .loongarch64 and
@@ -483,7 +480,6 @@ const DataLayoutBuilder = struct {
             => &.{32},
             .aarch64,
             .aarch64_be,
-            .aarch64_32,
             .amdgcn,
             .bpfeb,
             .bpfel,
@@ -587,7 +583,6 @@ const DataLayoutBuilder = struct {
                 switch (self.target.cpu.arch) {
                     .aarch64,
                     .aarch64_be,
-                    .aarch64_32,
                     => if (size == 128) {
                         abi = size;
                         pref = size;
@@ -705,7 +700,7 @@ const DataLayoutBuilder = struct {
                 force_pref = true;
             },
             .float => switch (self.target.cpu.arch) {
-                .aarch64_32, .amdgcn => if (size == 128) {
+                .amdgcn => if (size == 128) {
                     abi = size;
                     pref = size;
                 },
@@ -10860,7 +10855,7 @@ pub const FuncGen = struct {
                 ,
                 .constraints = "={rdx},{rax},0,~{cc},~{memory}",
             },
-            .aarch64, .aarch64_32, .aarch64_be => .{
+            .aarch64, .aarch64_be => .{
                 .template =
                 \\ror x12, x12, #3  ;  ror x12, x12, #13
                 \\ror x12, x12, #51 ;  ror x12, x12, #61
@@ -10932,7 +10927,7 @@ fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) Builder
         .Fastcall => .x86_fastcallcc,
         .Vectorcall => return switch (target.cpu.arch) {
             .x86, .x86_64 => .x86_vectorcallcc,
-            .aarch64, .aarch64_be, .aarch64_32 => .aarch64_vector_pcs,
+            .aarch64, .aarch64_be => .aarch64_vector_pcs,
             else => unreachable,
         },
         .Thiscall => .x86_thiscallcc,
@@ -11929,7 +11924,7 @@ fn constraintAllowsRegister(constraint: []const u8) bool {
 
 pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
     switch (arch) {
-        .aarch64, .aarch64_be, .aarch64_32 => {
+        .aarch64, .aarch64_be => {
             llvm.LLVMInitializeAArch64Target();
             llvm.LLVMInitializeAArch64TargetInfo();
             llvm.LLVMInitializeAArch64TargetMC();

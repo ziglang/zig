@@ -3284,7 +3284,6 @@ pub fn atomicPtrAlignment(
 
         .aarch64,
         .aarch64_be,
-        .aarch64_32,
         => 128,
 
         .x86_64 => if (std.Target.x86.featureSetHas(target.cpu.features, .cx16)) 128 else 64,

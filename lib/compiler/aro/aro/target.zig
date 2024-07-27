@@ -132,7 +132,7 @@ pub fn int64Type(target: std.Target) Type {
 pub fn defaultFunctionAlignment(target: std.Target) u8 {
     return switch (target.cpu.arch) {
         .arm, .armeb => 4,
-        .aarch64, .aarch64_32, .aarch64_be => 4,
+        .aarch64, .aarch64_be => 4,
         .sparc, .sparcel, .sparc64 => 4,
         .riscv64 => 2,
         else => 1,
@@ -322,7 +322,6 @@ pub const FPSemantics = enum {
     pub fn halfPrecisionType(target: std.Target) ?FPSemantics {
         switch (target.cpu.arch) {
             .aarch64,
-            .aarch64_32,
             .aarch64_be,
             .arm,
             .armeb,
@@ -478,7 +477,6 @@ pub fn get32BitArchVariant(target: std.Target) ?std.Target {
         .kalimba,
         .lanai,
         .wasm32,
-        .aarch64_32,
         .spirv32,
         .loongarch32,
         .dxil,
@@ -542,7 +540,6 @@ pub fn get64BitArchVariant(target: std.Target) ?std.Target {
         .x86_64,
         => {}, // Already 64 bit
 
-        .aarch64_32 => copy.cpu.arch = .aarch64,
         .arm => copy.cpu.arch = .aarch64,
         .armeb => copy.cpu.arch = .aarch64_be,
         .loongarch32 => copy.cpu.arch = .loongarch64,
@@ -574,9 +571,8 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
     const llvm_arch = switch (target.cpu.arch) {
         .arm => "arm",
         .armeb => "armeb",
-        .aarch64 => "aarch64",
+        .aarch64 => if (target.abi == .ilp32) "aarch64_32" else "aarch64",
         .aarch64_be => "aarch64_be",
-        .aarch64_32 => "aarch64_32",
         .arc => "arc",
         .avr => "avr",
         .bpfel => "bpfel",
@@ -687,7 +683,7 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
     writer.writeByte('-') catch unreachable;
 
     const llvm_abi = switch (target.abi) {
-        .none => "unknown",
+        .none, .ilp32 => "unknown",
         .gnu => "gnu",
         .gnuabin32 => "gnuabin32",
         .gnuabi64 => "gnuabi64",
