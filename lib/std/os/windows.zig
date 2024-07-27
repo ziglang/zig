@@ -452,7 +452,7 @@ pub fn WaitForSingleObjectEx(handle: HANDLE, milliseconds: DWORD, alertable: boo
 }
 
 pub fn WaitForMultipleObjectsEx(handles: []const HANDLE, waitAll: bool, milliseconds: DWORD, alertable: bool) !u32 {
-    assert(handles.len < MAXIMUM_WAIT_OBJECTS);
+    assert(handles.len > 0 and handles.len <= MAXIMUM_WAIT_OBJECTS);
     const nCount: DWORD = @as(DWORD, @intCast(handles.len));
     switch (kernel32.WaitForMultipleObjectsEx(
         nCount,
