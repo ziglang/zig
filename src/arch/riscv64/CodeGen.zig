@@ -1841,7 +1841,7 @@ fn finishAir(
 }
 
 const FrameLayout = struct {
-    stack_adjust: u32,
+    stack_adjust: i12,
     save_reg_list: Mir.RegisterList,
 };
 
@@ -1855,10 +1855,7 @@ fn setFrameLoc(
     const frame_i = @intFromEnum(frame_index);
     if (aligned) {
         const alignment: InternPool.Alignment = func.frame_allocs.items(.abi_align)[frame_i];
-        offset.* = if (math.sign(offset.*) < 0)
-            -1 * @as(i32, @intCast(alignment.backward(@intCast(@abs(offset.*)))))
-        else
-            @intCast(alignment.forward(@intCast(@abs(offset.*))));
+        offset.* = math.sign(offset.*) * @as(i32, @intCast(alignment.backward(@intCast(@abs(offset.*)))));
     }
     func.frame_locs.set(frame_i, .{ .base = base, .disp = offset.* });
     offset.* += func.frame_allocs.items(.abi_size)[frame_i];
@@ -6216,7 +6213,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
                             .jalr => try func.addInst(.{
                                 .tag = mnem,
                                 .data = .{ .i_type = .{
-                                    .rd = .zero,
+                                    .rd = .ra,
                                     .rs1 = reg1,
                                     .imm12 = Immediate.s(0),
                                 } },
@@ -7337,15 +7334,34 @@ fn airCmpxchg(func: *Func, inst: Air.Inst.Index, strength: enum { weak, strong }
         else => return func.fail("TODO: airCmpxchg Int size {}", .{val_abi_size}),
     }
 
-    const succ_order: struct { aq: Mir.Barrier, rl: Mir.Barrier } = switch (extra.successOrder()) {
+    const lr_order: struct { aq: Mir.Barrier, rl: Mir.Barrier } = switch (extra.successOrder()) {
+        .unordered,
+        => unreachable,
+
+        .monotonic,
+        .release,
+        => .{ .aq = .none, .rl = .none },
+        .acquire,
+        .acq_rel,
+        => .{ .aq = .aq, .rl = .none },
+        .seq_cst => .{ .aq = .aq, .rl = .rl },
+    };
+
+    const sc_order: struct { aq: Mir.Barrier, rl: Mir.Barrier } = switch (extra.failureOrder()) {
         .unordered,
         .release,
         .acq_rel,
         => unreachable,
 
-        .monotonic => .{ .aq = .none, .rl = .none },
-        .acquire => .{ .aq = .aq, .rl = .none },
-        .seq_cst => .{ .aq = .aq, .rl = .rl },
+        .monotonic,
+        .acquire,
+        .seq_cst,
+        => switch (extra.successOrder()) {
+            .release,
+            .seq_cst,
+            => .{ .aq = .none, .rl = .rl },
+            else => .{ .aq = .none, .rl = .none },
+        },
     };
 
     const ptr_mcv = try func.resolveInst(extra.ptr);
@@ -7371,8 +7387,8 @@ fn airCmpxchg(func: *Func, inst: Air.Inst.Index, strength: enum { weak, strong }
     const jump_back = try func.addInst(.{
         .tag = if (val_ty.bitSize(pt) <= 32) .lrw else .lrd,
         .data = .{ .amo = .{
-            .aq = succ_order.aq,
-            .rl = succ_order.rl,
+            .aq = lr_order.aq,
+            .rl = lr_order.rl,
             .rd = branch_reg,
             .rs1 = ptr_reg,
             .rs2 = .zero,
@@ -7392,8 +7408,8 @@ fn airCmpxchg(func: *Func, inst: Air.Inst.Index, strength: enum { weak, strong }
     _ = try func.addInst(.{
         .tag = if (val_ty.bitSize(pt) <= 32) .scw else .scd,
         .data = .{ .amo = .{
-            .aq = .none,
-            .rl = succ_order.rl,
+            .aq = sc_order.aq,
+            .rl = sc_order.rl,
             .rd = fallthrough_reg,
             .rs1 = ptr_reg,
             .rs2 = new_reg,
