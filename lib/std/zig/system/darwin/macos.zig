@@ -406,7 +406,7 @@ pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
 
     const current_arch = builtin.cpu.arch;
     switch (current_arch) {
-        .aarch64, .aarch64_be, .aarch64_32 => {
+        .aarch64, .aarch64_be => {
             const model = switch (cpu_family) {
                 .ARM_EVEREST_SAWTOOTH => &Target.aarch64.cpu.apple_a16,
                 .ARM_BLIZZARD_AVALANCHE => &Target.aarch64.cpu.apple_a15,

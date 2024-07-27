@@ -175,7 +175,6 @@ test "alignment and size of structs with 128-bit fields" {
         .x86,
         .aarch64,
         .aarch64_be,
-        .aarch64_32,
         .riscv64,
         .bpfel,
         .bpfeb,

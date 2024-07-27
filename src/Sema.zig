@@ -10036,11 +10036,11 @@ fn finishFunc(
             else => "x86",
         },
         .Vectorcall => switch (arch) {
-            .x86, .aarch64, .aarch64_be, .aarch64_32 => null,
+            .x86, .aarch64, .aarch64_be => null,
             else => "x86 and AArch64",
         },
         .APCS, .AAPCS, .AAPCSVFP => switch (arch) {
-            .arm, .armeb, .aarch64, .aarch64_be, .aarch64_32, .thumb, .thumbeb => null,
+            .arm, .armeb, .aarch64, .aarch64_be, .thumb, .thumbeb => null,
             else => "ARM",
         },
         .SysV, .Win64 => switch (arch) {

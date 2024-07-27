@@ -246,6 +246,7 @@ fn libCGenericName(target: std.Target) [:0]const u8 {
         .code16,
         .eabi,
         .eabihf,
+        .ilp32,
         .android,
         .msvc,
         .itanium,

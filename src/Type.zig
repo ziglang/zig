@@ -1634,7 +1634,6 @@ pub fn maxIntAlignment(target: std.Target, use_llvm: bool) u16 {
         .x86,
         .aarch64,
         .aarch64_be,
-        .aarch64_32,
         .riscv64,
         .bpfel,
         .bpfeb,
