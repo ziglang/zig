@@ -84,6 +84,7 @@ const current_variant: Variant = switch (native_arch) {
     .riscv32,
     .riscv64,
     => .I_modified,
+    .hexagon,
     .s390x,
     .sparc64,
     .x86,
@@ -245,6 +246,13 @@ pub fn setThreadPointer(addr: usize) void {
         .m68k => {
             const rc = linux.syscall1(.set_thread_area, addr);
             assert(rc == 0);
+        },
+        .hexagon => {
+            asm volatile (
+                \\ ugp = %[addr]
+                :
+                : [addr] "r" (addr),
+            );
         },
         .loongarch32, .loongarch64 => {
             asm volatile (
