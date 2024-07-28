@@ -4522,9 +4522,7 @@ comptime {
       Counts the number of most-significant (leading in a big-endian sense) zeroes in an integer - "count leading zeroes".
       </p>
       <p>
-      If {#syntax#}operand{#endsyntax#} is a {#link|comptime#}-known integer,
-      the return type is {#syntax#}comptime_int{#endsyntax#}.
-      Otherwise, the return type is an unsigned integer or vector of unsigned integers with the minimum number
+      The return type is an unsigned integer or vector of unsigned integers with the minimum number
       of bits that can represent the bit count of the integer type.
       </p>
       <p>
@@ -4635,9 +4633,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       Counts the number of least-significant (trailing in a big-endian sense) zeroes in an integer - "count trailing zeroes".
       </p>
       <p>
-      If {#syntax#}operand{#endsyntax#} is a {#link|comptime#}-known integer,
-      the return type is {#syntax#}comptime_int{#endsyntax#}.
-      Otherwise, the return type is an unsigned integer or vector of unsigned integers with the minimum number
+      The return type is an unsigned integer or vector of unsigned integers with the minimum number
       of bits that can represent the bit count of the integer type.
       </p>
       <p>
@@ -5176,9 +5172,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       Counts the number of bits set in an integer - "population count".
       </p>
       <p>
-      If {#syntax#}operand{#endsyntax#} is a {#link|comptime#}-known integer,
-      the return type is {#syntax#}comptime_int{#endsyntax#}.
-      Otherwise, the return type is an unsigned integer or vector of unsigned integers with the minimum number
+      The return type is an unsigned integer or vector of unsigned integers with the minimum number
       of bits that can represent the bit count of the integer type.
       </p>
       {#see_also|@ctz|@clz#}
