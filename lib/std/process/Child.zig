@@ -57,6 +57,9 @@ stdin_behavior: StdIo,
 stdout_behavior: StdIo,
 stderr_behavior: StdIo,
 
+/// Set to spawn a detached process.
+detached: bool,
+
 /// Set to change the user id when spawning the child process.
 uid: if (native_os == .windows or native_os == .wasi) void else ?posix.uid_t,
 
@@ -172,6 +175,7 @@ pub const SpawnError = error{
     posix.ExecveError ||
     posix.SetIdError ||
     posix.SetPgidError ||
+    posix.SetSidError ||
     posix.ChangeCurDirError ||
     windows.CreateProcessError ||
     windows.GetProcessMemoryInfoError ||
@@ -215,6 +219,7 @@ pub fn init(argv: []const []const u8, allocator: mem.Allocator) ChildProcess {
         .term = null,
         .env_map = null,
         .cwd = null,
+        .detached = false,
         .uid = if (native_os == .windows or native_os == .wasi) {} else null,
         .gid = if (native_os == .windows or native_os == .wasi) {} else null,
         .pgid = if (native_os == .windows or native_os == .wasi) {} else null,
@@ -658,6 +663,10 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
     const pid_result = try posix.fork();
     if (pid_result == 0) {
         // we are the child
+        if (self.detached) {
+            _ = posix.setsid() catch |err| forkChildErrReport(err_pipe[1], err);
+        }
+
         setUpChildIo(self.stdin_behavior, stdin_pipe[0], posix.STDIN_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
         setUpChildIo(self.stdout_behavior, stdout_pipe[1], posix.STDOUT_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
         setUpChildIo(self.stderr_behavior, stderr_pipe[1], posix.STDERR_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
@@ -844,6 +853,10 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
         .lpReserved2 = null,
     };
     var piProcInfo: windows.PROCESS_INFORMATION = undefined;
+    var dwCreationFlags: windows.DWORD = windows.CREATE_UNICODE_ENVIRONMENT;
+    if (self.detached) {
+        dwCreationFlags |= windows.DETACHED_PROCESS;
+    }
 
     const cwd_w = if (self.cwd) |cwd| try unicode.wtf8ToWtf16LeAllocZ(self.allocator, cwd) else null;
     defer if (cwd_w) |cwd| self.allocator.free(cwd);
@@ -928,7 +941,7 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
             dir_buf.shrinkRetainingCapacity(normalized_len);
         }
 
-        windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
+        windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo, dwCreationFlags) catch |no_path_err| {
             const original_err = switch (no_path_err) {
                 // argv[0] contains unsupported characters that will never resolve to a valid exe.
                 error.InvalidArg0 => return error.FileNotFound,
@@ -956,7 +969,7 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
                 const normalized_len = windows.normalizePath(u16, dir_buf.items) catch continue;
                 dir_buf.shrinkRetainingCapacity(normalized_len);
 
-                if (windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) {
+                if (windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo, dwCreationFlags)) {
                     break :run;
                 } else |err| switch (err) {
                     // argv[0] contains unsupported characters that will never resolve to a valid exe.
@@ -1057,6 +1070,7 @@ fn windowsCreateProcessPathExt(
     cwd_ptr: ?[*:0]u16,
     lpStartupInfo: *windows.STARTUPINFOW,
     lpProcessInformation: *windows.PROCESS_INFORMATION,
+    dwCreationFlags: windows.DWORD,
 ) !void {
     const app_name_len = app_buf.items.len;
     const dir_path_len = dir_buf.items.len;
@@ -1205,7 +1219,7 @@ fn windowsCreateProcessPathExt(
             else
                 full_app_name;
 
-            if (windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation)) |_| {
+            if (windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation, dwCreationFlags)) |_| {
                 return;
             } else |err| switch (err) {
                 error.FileNotFound,
@@ -1260,7 +1274,7 @@ fn windowsCreateProcessPathExt(
         else
             full_app_name;
 
-        if (windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation)) |_| {
+        if (windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation, dwCreationFlags)) |_| {
             return;
         } else |err| switch (err) {
             error.FileNotFound => continue,
@@ -1288,6 +1302,7 @@ fn windowsCreateProcess(
     cwd_ptr: ?[*:0]u16,
     lpStartupInfo: *windows.STARTUPINFOW,
     lpProcessInformation: *windows.PROCESS_INFORMATION,
+    dwCreationFlags: windows.DWORD,
 ) !void {
     // TODO the docs for environment pointer say:
     // > A pointer to the environment block for the new process. If this parameter
@@ -1312,7 +1327,7 @@ fn windowsCreateProcess(
         null,
         null,
         windows.TRUE,
-        windows.CREATE_UNICODE_ENVIRONMENT,
+        dwCreationFlags,
         @as(?*anyopaque, @ptrCast(envp_ptr)),
         cwd_ptr,
         lpStartupInfo,
@@ -1856,4 +1871,38 @@ fn argvToScriptCommandLineWindows(
     try buf.append('"');
 
     return try unicode.wtf8ToWtf16LeAllocZ(allocator, buf.items);
+}
+
+test "detached child" {
+    const cmd = if (native_os == .windows)
+        &.{ "ping", "-n", "1", "-w", "10000", "127.255.255.255" }
+    else &.{ "sleep", "10" };
+    var child = ChildProcess.init(cmd, std.testing.allocator);
+    child.stdin_behavior = .Ignore;
+    child.stderr_behavior = .Ignore;
+    child.stdout_behavior = .Pipe;
+    child.detached = true;
+    try child.spawn();
+
+    if (native_os == .windows) {
+        const child_pid = try windows.GetProcessId(child.id);
+
+        // Give the process some time to actually start doing something.
+        // If we check the process list immediately, we might be done before
+        // the new process attaches to the console.
+        var read_buffer: [1]u8 = undefined;
+        try std.testing.expectEqual(1, try child.stdout.?.read(&read_buffer));
+
+        var proc_buffer: [16]windows.DWORD = undefined;
+        const proc_count = try windows.GetConsoleProcessList(&proc_buffer);
+        if (proc_count > 16) return error.ProcessBufferTooSmall;
+
+        for (proc_buffer[0..proc_count]) |proc| {
+            if (proc == child_pid) return error.ProcessAttachedToConsole;
+        }
+    } else {
+        const current_sid = try posix.getsid(0);
+        const child_sid = try posix.getsid(child.id);
+        try std.testing.expect(current_sid != child_sid);
+    }
 }

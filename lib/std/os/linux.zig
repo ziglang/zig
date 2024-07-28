@@ -1581,6 +1581,10 @@ pub fn setsid() pid_t {
     return @bitCast(@as(u32, @truncate(syscall0(.setsid))));
 }
 
+pub fn getsid(pid: pid_t) pid_t {
+    return @bitCast(@as(u32, @truncate(syscall1(.getsid, @intCast(pid)))));
+}
+
 pub fn getpid() pid_t {
     return @bitCast(@as(u32, @truncate(syscall0(.getpid))));
 }
