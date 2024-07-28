@@ -392,9 +392,8 @@ fn addCcArgs(
     try args.appendSlice(&[_][]const u8{
         "-std=c99",
         "-ffreestanding",
-        // Musl adds these args to builds with gcc but clang does not support them.
-        //"-fexcess-precision=standard",
-        //"-frounding-math",
+        "-fexcess-precision=standard",
+        "-frounding-math",
         "-fno-strict-aliasing",
         "-Wa,--noexecstack",
         "-D_XOPEN_SOURCE=700",
