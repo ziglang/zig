@@ -60,9 +60,8 @@ pub const MergeSection = struct {
 
     /// Finalizes the merge section and clears hash table.
     /// Sorts all owned subsections.
-    pub fn finalize(msec: *MergeSection, elf_file: *Elf) !void {
-        const gpa = elf_file.base.comp.gpa;
-        try msec.finalized_subsections.ensureTotalCapacityPrecise(gpa, msec.subsections.items.len);
+    pub fn finalize(msec: *MergeSection, allocator: Allocator) !void {
+        try msec.finalized_subsections.ensureTotalCapacityPrecise(allocator, msec.subsections.items.len);
 
         var it = msec.table.iterator();
         while (it.next()) |entry| {
@@ -70,7 +69,7 @@ pub const MergeSection = struct {
             if (!msub.alive) continue;
             msec.finalized_subsections.appendAssumeCapacity(entry.value_ptr.*);
         }
-        msec.table.clearAndFree(gpa);
+        msec.table.clearAndFree(allocator);
 
         const sortFn = struct {
             pub fn sortFn(ctx: *MergeSection, lhs: MergeSubsection.Index, rhs: MergeSubsection.Index) bool {

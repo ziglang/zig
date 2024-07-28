@@ -691,7 +691,7 @@ pub fn checkDuplicates(self: *Object, dupes: anytype, elf_file: *Elf) error{OutO
     }
 }
 
-pub fn initMergeSections(self: *Object, elf_file: *Elf) !void {
+pub fn initInputMergeSections(self: *Object, elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
 
     try self.input_merge_sections.ensureUnusedCapacity(gpa, self.shdrs.items.len);
@@ -709,8 +709,6 @@ pub fn initMergeSections(self: *Object, elf_file: *Elf) !void {
         const imsec_idx = try self.addInputMergeSection(gpa);
         const imsec = self.inputMergeSection(imsec_idx).?;
         self.input_merge_sections_indexes.items[shndx] = imsec_idx;
-
-        imsec.merge_section_index = try elf_file.getOrCreateMergeSection(atom_ptr.name(elf_file), shdr.sh_flags, shdr.sh_type);
         imsec.atom_index = atom_index;
 
         const data = try self.codeDecompressAlloc(elf_file, atom_index);
@@ -766,6 +764,19 @@ pub fn initMergeSections(self: *Object, elf_file: *Elf) !void {
         }
 
         atom_ptr.alive = false;
+    }
+}
+
+pub fn initOutputMergeSections(self: *Object, elf_file: *Elf) !void {
+    for (self.input_merge_sections_indexes.items) |index| {
+        const imsec = self.inputMergeSection(index) orelse continue;
+        const atom_ptr = self.atom(imsec.atom_index).?;
+        const shdr = atom_ptr.inputShdr(elf_file);
+        imsec.merge_section_index = try elf_file.getOrCreateMergeSection(
+            atom_ptr.name(elf_file),
+            shdr.sh_flags,
+            shdr.sh_type,
+        );
     }
 }
 

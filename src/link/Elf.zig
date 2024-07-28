@@ -3308,13 +3308,19 @@ pub fn resolveMergeSections(self: *Elf) !void {
     for (self.objects.items) |index| {
         const file_ptr = self.file(index).?;
         if (!file_ptr.isAlive()) continue;
-        file_ptr.object.initMergeSections(self) catch |err| switch (err) {
+        file_ptr.object.initInputMergeSections(self) catch |err| switch (err) {
             error.MalformedObject => has_errors = true,
             else => |e| return e,
         };
     }
 
     if (has_errors) return error.FlushFailure;
+
+    for (self.objects.items) |index| {
+        const file_ptr = self.file(index).?;
+        if (!file_ptr.isAlive()) continue;
+        try file_ptr.object.initOutputMergeSections(self);
+    }
 
     for (self.objects.items) |index| {
         const file_ptr = self.file(index).?;
@@ -3330,7 +3336,7 @@ pub fn resolveMergeSections(self: *Elf) !void {
 
 pub fn finalizeMergeSections(self: *Elf) !void {
     for (self.merge_sections.items) |*msec| {
-        try msec.finalize(self);
+        try msec.finalize(self.base.comp.gpa);
     }
 }
 
