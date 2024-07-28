@@ -1849,6 +1849,33 @@ pub fn symLinkW(
 
 pub const ReadLinkError = posix.ReadLinkError;
 
+/// Same as `File.stat`, but if the path points to a symbolic link,
+/// it will stat the link rather than the file it points to.
+pub fn statLink(self: Dir, sub_path: []const u8) !Stat {
+	if(native_os == .windows) {
+		@compileError("TODO: see if it is possible on windows");
+	}
+    if (native_os == .wasi and !builtin.link_libc) {
+        const st = try std.os.fstatat_wasi(self.fd, sub_path, .{ .SYMLINK_FOLLOW = false });
+        return Stat.fromWasi(st);
+    }
+	const st = try posix.fstatat(self.fd, sub_path, posix.AT.SYMLINK_NOFOLLOW);
+	return Stat.fromSystem(st);
+}
+
+/// Same as `Dir.statLink`
+pub fn statLinkZ(self: Dir, sub_path_c: [*:0]const u8) !Stat {
+	if(native_os == .windows) {
+		@compileError("TODO: see if it possible on windows");
+	}
+    if (native_os == .wasi and !builtin.link_libc) {
+        const st = try std.os.fstatat_wasi(self.fd, mem.sliceTo(sub_path_c, 0), .{ .SYMLINK_FOLLOW = false });
+        return Stat.fromWasi(st);
+    }
+	const st = try posix.fstatatZ(self.fd, sub_path_c, posix.AT.SYMLINK_NOFOLLOW);
+	return Stat.fromSystem(st);
+}
+
 /// Read value of a symbolic link.
 /// The return value is a slice of `buffer`, from index `0`.
 /// Asserts that the path parameter has no null bytes.
