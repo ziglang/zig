@@ -1075,7 +1075,7 @@ pub const GotPltSection = struct {
         _ = got_plt;
         {
             // [0]: _DYNAMIC
-            const symbol = elf_file.symbol(elf_file.dynamic_index.?);
+            const symbol = elf_file.symbol(elf_file.linkerDefinedPtr().?.dynamic_index.?);
             try writer.writeInt(u64, @intCast(symbol.address(.{}, elf_file)), .little);
         }
         // [1]: 0x0

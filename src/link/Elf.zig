@@ -174,25 +174,6 @@ shstrtab_section_index: ?u32 = null,
 strtab_section_index: ?u32 = null,
 symtab_section_index: ?u32 = null,
 
-// Linker-defined symbols
-dynamic_index: ?Symbol.Index = null,
-ehdr_start_index: ?Symbol.Index = null,
-init_array_start_index: ?Symbol.Index = null,
-init_array_end_index: ?Symbol.Index = null,
-fini_array_start_index: ?Symbol.Index = null,
-fini_array_end_index: ?Symbol.Index = null,
-preinit_array_start_index: ?Symbol.Index = null,
-preinit_array_end_index: ?Symbol.Index = null,
-got_index: ?Symbol.Index = null,
-plt_index: ?Symbol.Index = null,
-end_index: ?Symbol.Index = null,
-gnu_eh_frame_hdr_index: ?Symbol.Index = null,
-dso_handle_index: ?Symbol.Index = null,
-rela_iplt_start_index: ?Symbol.Index = null,
-rela_iplt_end_index: ?Symbol.Index = null,
-global_pointer_index: ?Symbol.Index = null,
-start_stop_indexes: std.ArrayListUnmanaged(u32) = .{},
-
 /// An array of symbols parsed across all input files.
 symbols: std.ArrayListUnmanaged(Symbol) = .{},
 symbols_extra: std.ArrayListUnmanaged(u32) = .{},
@@ -484,7 +465,6 @@ pub fn deinit(self: *Elf) void {
     self.symbols_extra.deinit(gpa);
     self.symbols_free_list.deinit(gpa);
     self.resolver.deinit(gpa);
-    self.start_stop_indexes.deinit(gpa);
 
     for (self.thunks.items) |*th| {
         th.deinit(gpa);
@@ -1287,7 +1267,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
         const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
         self.files.set(index, .{ .linker_defined = .{ .index = index } });
         self.linker_defined_index = index;
-        const object = self.file(index).?.linker_defined;
+        const object = self.linkerDefinedPtr().?;
         try object.init(gpa);
     }
 
@@ -1327,7 +1307,9 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     try self.finalizeMergeSections();
     try self.initOutputSections();
     try self.initMergeSections();
-    try self.addLinkerDefinedSymbols();
+    if (self.linkerDefinedPtr()) |obj| {
+        try obj.initSymbols(self);
+    }
     self.claimUnresolved();
 
     // Scan and create missing synthetic entries such as GOT indirection.
@@ -1353,7 +1335,9 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     try self.sortPhdrs();
     try self.allocateNonAllocSections();
     self.allocateSpecialPhdrs();
-    self.allocateLinkerDefinedSymbols();
+    if (self.linkerDefinedPtr()) |obj| {
+        obj.allocateSymbols(self);
+    }
 
     // Dump the state for easy debugging.
     // State can be dumped via `--debug-log link_state`.
@@ -3063,205 +3047,6 @@ pub fn deleteExport(
     return self.zigObjectPtr().?.deleteExport(self, exported, name);
 }
 
-fn addLinkerDefinedSymbols(self: *Elf) !void {
-    const comp = self.base.comp;
-    const gpa = comp.gpa;
-
-    const linker_defined_index = self.linker_defined_index orelse return;
-    const linker_defined = self.file(linker_defined_index).?.linker_defined;
-    self.dynamic_index = try linker_defined.addGlobal("_DYNAMIC", self);
-    self.ehdr_start_index = try linker_defined.addGlobal("__ehdr_start", self);
-    self.init_array_start_index = try linker_defined.addGlobal("__init_array_start", self);
-    self.init_array_end_index = try linker_defined.addGlobal("__init_array_end", self);
-    self.fini_array_start_index = try linker_defined.addGlobal("__fini_array_start", self);
-    self.fini_array_end_index = try linker_defined.addGlobal("__fini_array_end", self);
-    self.preinit_array_start_index = try linker_defined.addGlobal("__preinit_array_start", self);
-    self.preinit_array_end_index = try linker_defined.addGlobal("__preinit_array_end", self);
-    self.got_index = try linker_defined.addGlobal("_GLOBAL_OFFSET_TABLE_", self);
-    self.plt_index = try linker_defined.addGlobal("_PROCEDURE_LINKAGE_TABLE_", self);
-    self.end_index = try linker_defined.addGlobal("_end", self);
-
-    if (comp.link_eh_frame_hdr) {
-        self.gnu_eh_frame_hdr_index = try linker_defined.addGlobal("__GNU_EH_FRAME_HDR", self);
-    }
-
-    if (self.globalByName("__dso_handle")) |index| {
-        if (self.symbol(index).file(self) == null)
-            self.dso_handle_index = try linker_defined.addGlobal("__dso_handle", self);
-    }
-
-    self.rela_iplt_start_index = try linker_defined.addGlobal("__rela_iplt_start", self);
-    self.rela_iplt_end_index = try linker_defined.addGlobal("__rela_iplt_end", self);
-
-    for (self.shdrs.items) |shdr| {
-        if (self.getStartStopBasename(shdr)) |name| {
-            try self.start_stop_indexes.ensureUnusedCapacity(gpa, 2);
-
-            const start = try std.fmt.allocPrintZ(gpa, "__start_{s}", .{name});
-            defer gpa.free(start);
-            const stop = try std.fmt.allocPrintZ(gpa, "__stop_{s}", .{name});
-            defer gpa.free(stop);
-
-            self.start_stop_indexes.appendAssumeCapacity(try linker_defined.addGlobal(start, self));
-            self.start_stop_indexes.appendAssumeCapacity(try linker_defined.addGlobal(stop, self));
-        }
-    }
-
-    if (self.getTarget().cpu.arch.isRISCV() and self.isEffectivelyDynLib()) {
-        self.global_pointer_index = try linker_defined.addGlobal("__global_pointer$", self);
-    }
-
-    linker_defined.resolveSymbols(self);
-}
-
-fn allocateLinkerDefinedSymbols(self: *Elf) void {
-    const comp = self.base.comp;
-    const link_mode = comp.config.link_mode;
-
-    // _DYNAMIC
-    if (self.dynamic_section_index) |shndx| {
-        const shdr = &self.shdrs.items[shndx];
-        const symbol_ptr = self.symbol(self.dynamic_index.?);
-        symbol_ptr.value = @intCast(shdr.sh_addr);
-        symbol_ptr.output_section_index = shndx;
-    }
-
-    // __ehdr_start
-    {
-        const symbol_ptr = self.symbol(self.ehdr_start_index.?);
-        symbol_ptr.value = @intCast(self.image_base);
-        symbol_ptr.output_section_index = 1;
-    }
-
-    // __init_array_start, __init_array_end
-    if (self.sectionByName(".init_array")) |shndx| {
-        const start_sym = self.symbol(self.init_array_start_index.?);
-        const end_sym = self.symbol(self.init_array_end_index.?);
-        const shdr = &self.shdrs.items[shndx];
-        start_sym.output_section_index = shndx;
-        start_sym.value = @intCast(shdr.sh_addr);
-        end_sym.output_section_index = shndx;
-        end_sym.value = @intCast(shdr.sh_addr + shdr.sh_size);
-    }
-
-    // __fini_array_start, __fini_array_end
-    if (self.sectionByName(".fini_array")) |shndx| {
-        const start_sym = self.symbol(self.fini_array_start_index.?);
-        const end_sym = self.symbol(self.fini_array_end_index.?);
-        const shdr = &self.shdrs.items[shndx];
-        start_sym.output_section_index = shndx;
-        start_sym.value = @intCast(shdr.sh_addr);
-        end_sym.output_section_index = shndx;
-        end_sym.value = @intCast(shdr.sh_addr + shdr.sh_size);
-    }
-
-    // __preinit_array_start, __preinit_array_end
-    if (self.sectionByName(".preinit_array")) |shndx| {
-        const start_sym = self.symbol(self.preinit_array_start_index.?);
-        const end_sym = self.symbol(self.preinit_array_end_index.?);
-        const shdr = &self.shdrs.items[shndx];
-        start_sym.output_section_index = shndx;
-        start_sym.value = @intCast(shdr.sh_addr);
-        end_sym.output_section_index = shndx;
-        end_sym.value = @intCast(shdr.sh_addr + shdr.sh_size);
-    }
-
-    // _GLOBAL_OFFSET_TABLE_
-    if (self.getTarget().cpu.arch == .x86_64) {
-        if (self.got_plt_section_index) |shndx| {
-            const shdr = self.shdrs.items[shndx];
-            const sym = self.symbol(self.got_index.?);
-            sym.value = @intCast(shdr.sh_addr);
-            sym.output_section_index = shndx;
-        }
-    } else {
-        if (self.got_section_index) |shndx| {
-            const shdr = self.shdrs.items[shndx];
-            const sym = self.symbol(self.got_index.?);
-            sym.value = @intCast(shdr.sh_addr);
-            sym.output_section_index = shndx;
-        }
-    }
-
-    // _PROCEDURE_LINKAGE_TABLE_
-    if (self.plt_section_index) |shndx| {
-        const shdr = &self.shdrs.items[shndx];
-        const symbol_ptr = self.symbol(self.plt_index.?);
-        symbol_ptr.value = @intCast(shdr.sh_addr);
-        symbol_ptr.output_section_index = shndx;
-    }
-
-    // __dso_handle
-    if (self.dso_handle_index) |index| {
-        const shdr = &self.shdrs.items[1];
-        const symbol_ptr = self.symbol(index);
-        symbol_ptr.value = @intCast(shdr.sh_addr);
-        symbol_ptr.output_section_index = 0;
-    }
-
-    // __GNU_EH_FRAME_HDR
-    if (self.eh_frame_hdr_section_index) |shndx| {
-        const shdr = &self.shdrs.items[shndx];
-        const symbol_ptr = self.symbol(self.gnu_eh_frame_hdr_index.?);
-        symbol_ptr.value = @intCast(shdr.sh_addr);
-        symbol_ptr.output_section_index = shndx;
-    }
-
-    // __rela_iplt_start, __rela_iplt_end
-    if (self.rela_dyn_section_index) |shndx| blk: {
-        if (link_mode != .static or comp.config.pie) break :blk;
-        const shdr = &self.shdrs.items[shndx];
-        const end_addr = shdr.sh_addr + shdr.sh_size;
-        const start_addr = end_addr - self.calcNumIRelativeRelocs() * @sizeOf(elf.Elf64_Rela);
-        const start_sym = self.symbol(self.rela_iplt_start_index.?);
-        const end_sym = self.symbol(self.rela_iplt_end_index.?);
-        start_sym.value = @intCast(start_addr);
-        start_sym.output_section_index = shndx;
-        end_sym.value = @intCast(end_addr);
-        end_sym.output_section_index = shndx;
-    }
-
-    // _end
-    {
-        const end_symbol = self.symbol(self.end_index.?);
-        for (self.shdrs.items, 0..) |shdr, shndx| {
-            if (shdr.sh_flags & elf.SHF_ALLOC != 0) {
-                end_symbol.value = @intCast(shdr.sh_addr + shdr.sh_size);
-                end_symbol.output_section_index = @intCast(shndx);
-            }
-        }
-    }
-
-    // __start_*, __stop_*
-    {
-        var index: usize = 0;
-        while (index < self.start_stop_indexes.items.len) : (index += 2) {
-            const start = self.symbol(self.start_stop_indexes.items[index]);
-            const name = start.name(self);
-            const stop = self.symbol(self.start_stop_indexes.items[index + 1]);
-            const shndx = self.sectionByName(name["__start_".len..]).?;
-            const shdr = &self.shdrs.items[shndx];
-            start.value = @intCast(shdr.sh_addr);
-            start.output_section_index = shndx;
-            stop.value = @intCast(shdr.sh_addr + shdr.sh_size);
-            stop.output_section_index = shndx;
-        }
-    }
-
-    // __global_pointer$
-    if (self.global_pointer_index) |index| {
-        const sym = self.symbol(index);
-        if (self.sectionByName(".sdata")) |shndx| {
-            const shdr = self.shdrs.items[shndx];
-            sym.value = @intCast(shdr.sh_addr + 0x800);
-            sym.output_section_index = shndx;
-        } else {
-            sym.value = 0;
-            sym.output_section_index = 0;
-        }
-    }
-}
-
 fn checkDuplicates(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
 
@@ -4964,9 +4749,8 @@ pub fn writeSymtab(self: *Elf) !void {
         file_ptr.writeSymtab(self);
     }
 
-    if (self.linker_defined_index) |index| {
-        const file_ptr = self.file(index).?;
-        file_ptr.writeSymtab(self);
+    if (self.linkerDefinedPtr()) |obj| {
+        obj.asFile().writeSymtab(self);
     }
 
     if (self.zig_got_section_index) |_| {
@@ -5529,7 +5313,7 @@ fn sortRelaDyn(self: *Elf) void {
     mem.sort(elf.Elf64_Rela, self.rela_dyn.items, self, Sort.lessThan);
 }
 
-fn calcNumIRelativeRelocs(self: *Elf) usize {
+pub fn calcNumIRelativeRelocs(self: *Elf) usize {
     var count: usize = self.num_ifunc_dynrelocs;
 
     for (self.got.entries.items) |entry| {
@@ -5551,7 +5335,7 @@ pub fn isCIdentifier(name: []const u8) bool {
     return true;
 }
 
-fn getStartStopBasename(self: *Elf, shdr: elf.Elf64_Shdr) ?[]const u8 {
+pub fn getStartStopBasename(self: *Elf, shdr: elf.Elf64_Shdr) ?[]const u8 {
     const name = self.getShString(shdr.sh_name);
     if (shdr.sh_flags & elf.SHF_ALLOC != 0 and name.len > 0) {
         if (isCIdentifier(name)) return name;
@@ -5707,6 +5491,11 @@ pub fn getGlobalSymbol(self: *Elf, name: []const u8, lib_name: ?[]const u8) !u32
 pub fn zigObjectPtr(self: *Elf) ?*ZigObject {
     const index = self.zig_object_index orelse return null;
     return self.file(index).?.zig_object;
+}
+
+pub fn linkerDefinedPtr(self: *Elf) ?*LinkerDefined {
+    const index = self.linker_defined_index orelse return null;
+    return self.file(index).?.linker_defined;
 }
 
 pub fn getOrCreateMergeSection(self: *Elf, name: [:0]const u8, flags: u64, @"type": u32) !MergeSection.Index {
