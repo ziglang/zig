@@ -395,6 +395,7 @@ fn addCcArgs(
         // Musl adds these args to builds with gcc but clang does not support them.
         //"-fexcess-precision=standard",
         //"-frounding-math",
+        "-fno-strict-aliasing",
         "-Wa,--noexecstack",
         "-D_XOPEN_SOURCE=700",
 
