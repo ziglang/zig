@@ -47,6 +47,7 @@ else switch (native_os) {
     .plan9 => std.os.plan9,
     else => struct {
         pub const ucontext_t = void;
+        pub const msync = {};
     },
 };
 
