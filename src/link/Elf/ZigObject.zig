@@ -291,7 +291,7 @@ pub fn newAtom(self: *ZigObject, elf_file: *Elf) !Symbol.Index {
 
     const symbol_ptr = elf_file.symbol(symbol_index);
     symbol_ptr.file_index = self.index;
-    symbol_ptr.atom_ref = .{ .index = atom_index, .file = self.index };
+    symbol_ptr.ref = .{ .index = atom_index, .file = self.index };
 
     self.local_esyms.items(.shndx)[esym_index] = atom_index;
     self.local_esyms.items(.elf_sym)[esym_index].st_shndx = SHN_ATOM;
@@ -342,7 +342,7 @@ pub fn resolveSymbols(self: *ZigObject, elf_file: *Elf) void {
                 else => unreachable,
             };
             global.value = @intCast(esym.st_value);
-            global.atom_ref = .{ .index = atom_index, .file = self.index };
+            global.ref = .{ .index = atom_index, .file = self.index };
             global.esym_index = esym_index;
             global.file_index = self.index;
             global.version_index = elf_file.default_sym_version;
@@ -371,7 +371,7 @@ pub fn claimUnresolved(self: ZigObject, elf_file: *Elf) void {
         };
 
         global.value = 0;
-        global.atom_ref = .{ .index = 0, .file = 0 };
+        global.ref = .{ .index = 0, .file = 0 };
         global.esym_index = esym_index;
         global.file_index = self.index;
         global.version_index = if (is_import) elf.VER_NDX_LOCAL else elf_file.default_sym_version;
@@ -392,7 +392,7 @@ pub fn claimUnresolvedObject(self: ZigObject, elf_file: *Elf) void {
         }
 
         global.value = 0;
-        global.atom_ref = .{ .index = 0, .file = 0 };
+        global.ref = .{ .index = 0, .file = 0 };
         global.esym_index = esym_index;
         global.file_index = self.index;
     }

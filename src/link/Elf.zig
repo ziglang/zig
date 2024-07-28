@@ -208,9 +208,6 @@ thunks: std.ArrayListUnmanaged(Thunk) = .{},
 
 /// List of output merge sections with deduped contents.
 merge_sections: std.ArrayListUnmanaged(MergeSection) = .{},
-/// List of output merge subsections.
-/// Each subsection is akin to Atom but belongs to a MergeSection.
-merge_subsections: std.ArrayListUnmanaged(MergeSubsection) = .{},
 
 /// Table of last atom index in a section and matching atom free list if any.
 last_atom_and_free_list_table: LastAtomAndFreeListTable = .{},
@@ -497,7 +494,6 @@ pub fn deinit(self: *Elf) void {
         sect.deinit(gpa);
     }
     self.merge_sections.deinit(gpa);
-    self.merge_subsections.deinit(gpa);
     for (self.last_atom_and_free_list_table.values()) |*value| {
         value.free_list.deinit(gpa);
     }
@@ -3288,12 +3284,13 @@ fn checkDuplicates(self: *Elf) !void {
 }
 
 pub fn addCommentString(self: *Elf) !void {
+    const gpa = self.base.comp.gpa;
     const msec_index = try self.getOrCreateMergeSection(".comment", elf.SHF_MERGE | elf.SHF_STRINGS, elf.SHT_PROGBITS);
     const msec = self.mergeSection(msec_index);
-    const res = try msec.insertZ(self.base.comp.gpa, "zig " ++ builtin.zig_version_string);
+    const res = try msec.insertZ(gpa, "zig " ++ builtin.zig_version_string);
     if (res.found_existing) return;
-    const msub_index = try self.addMergeSubsection();
-    const msub = self.mergeSubsection(msub_index);
+    const msub_index = try msec.addMergeSubsection(gpa);
+    const msub = msec.mergeSubsection(msub_index);
     msub.merge_section_index = msec_index;
     msub.string_index = res.key.pos;
     msub.alignment = .@"1";
@@ -3340,8 +3337,8 @@ pub fn finalizeMergeSections(self: *Elf) !void {
 pub fn updateMergeSectionSizes(self: *Elf) !void {
     for (self.merge_sections.items) |*msec| {
         const shdr = &self.shdrs.items[msec.output_section_index];
-        for (msec.subsections.items) |msub_index| {
-            const msub = self.mergeSubsection(msub_index);
+        for (msec.finalized_subsections.items) |msub_index| {
+            const msub = msec.mergeSubsection(msub_index);
             assert(msub.alive);
             const offset = msub.alignment.forward(shdr.sh_size);
             const padding = offset - shdr.sh_size;
@@ -3357,14 +3354,14 @@ pub fn writeMergeSections(self: *Elf) !void {
     var buffer = std.ArrayList(u8).init(gpa);
     defer buffer.deinit();
 
-    for (self.merge_sections.items) |msec| {
+    for (self.merge_sections.items) |*msec| {
         const shdr = self.shdrs.items[msec.output_section_index];
         const size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
         try buffer.ensureTotalCapacity(size);
         buffer.appendNTimesAssumeCapacity(0, size);
 
-        for (msec.subsections.items) |msub_index| {
-            const msub = self.mergeSubsection(msub_index);
+        for (msec.finalized_subsections.items) |msub_index| {
+            const msub = msec.mergeSubsection(msub_index);
             assert(msub.alive);
             const string = msub.getString(self);
             const off = math.cast(usize, msub.value) orelse return error.Overflow;
@@ -3384,7 +3381,7 @@ fn initOutputSections(self: *Elf) !void {
 
 pub fn initMergeSections(self: *Elf) !void {
     for (self.merge_sections.items) |*msec| {
-        if (msec.subsections.items.len == 0) continue;
+        if (msec.finalized_subsections.items.len == 0) continue;
         const name = msec.name(self);
         const shndx = self.sectionByName(name) orelse try self.addSection(.{
             .name = name,
@@ -3393,9 +3390,9 @@ pub fn initMergeSections(self: *Elf) !void {
         });
         msec.output_section_index = shndx;
 
-        var entsize = self.mergeSubsection(msec.subsections.items[0]).entsize;
-        for (msec.subsections.items) |index| {
-            const msub = self.mergeSubsection(index);
+        var entsize = msec.mergeSubsection(msec.finalized_subsections.items[0]).entsize;
+        for (msec.finalized_subsections.items) |msub_index| {
+            const msub = msec.mergeSubsection(msub_index);
             entsize = @min(entsize, msub.entsize);
         }
         const shdr = &self.shdrs.items[shndx];
@@ -5704,18 +5701,6 @@ pub fn getGlobalSymbol(self: *Elf, name: []const u8, lib_name: ?[]const u8) !u32
 pub fn zigObjectPtr(self: *Elf) ?*ZigObject {
     const index = self.zig_object_index orelse return null;
     return self.file(index).?.zig_object;
-}
-
-pub fn addMergeSubsection(self: *Elf) !MergeSubsection.Index {
-    const index: MergeSubsection.Index = @intCast(self.merge_subsections.items.len);
-    const msec = try self.merge_subsections.addOne(self.base.comp.gpa);
-    msec.* = .{};
-    return index;
-}
-
-pub fn mergeSubsection(self: *Elf, index: MergeSubsection.Index) *MergeSubsection {
-    assert(index < self.merge_subsections.items.len);
-    return &self.merge_subsections.items[index];
 }
 
 pub fn getOrCreateMergeSection(self: *Elf, name: []const u8, flags: u64, @"type": u32) !MergeSection.Index {

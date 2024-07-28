@@ -9,9 +9,9 @@ name_offset: u32 = 0,
 /// Index of file where this symbol is defined.
 file_index: File.Index = 0,
 
-/// Reference to Atom containing this symbol if any.
-/// Use `atom` to get the pointer to the atom.
-atom_ref: Elf.Ref = .{ .index = 0, .file = 0 },
+/// Reference to Atom or merge subsection containing this symbol if any.
+/// Use `atom` or `mergeSubsection` to get the pointer to the atom.
+ref: Elf.Ref = .{ .index = 0, .file = 0 },
 
 /// Assigned output section index for this symbol.
 output_section_index: u32 = 0,
@@ -71,14 +71,15 @@ pub fn name(symbol: Symbol, elf_file: *Elf) [:0]const u8 {
 }
 
 pub fn atom(symbol: Symbol, elf_file: *Elf) ?*Atom {
-    const file_ptr = elf_file.file(symbol.atom_ref.file) orelse return null;
-    return file_ptr.atom(symbol.atom_ref.index);
+    if (symbol.flags.merge_subsection) return null;
+    const file_ptr = elf_file.file(symbol.ref.file) orelse return null;
+    return file_ptr.atom(symbol.ref.index);
 }
 
 pub fn mergeSubsection(symbol: Symbol, elf_file: *Elf) ?*MergeSubsection {
     if (!symbol.flags.merge_subsection) return null;
-    const extras = symbol.extra(elf_file).?;
-    return elf_file.mergeSubsection(extras.subsection);
+    const msec = elf_file.mergeSection(symbol.ref.file);
+    return msec.mergeSubsection(symbol.ref.index);
 }
 
 pub fn file(symbol: Symbol, elf_file: *Elf) ?File {
@@ -262,7 +263,6 @@ const AddExtraOpts = struct {
     gottp: ?u32 = null,
     tlsdesc: ?u32 = null,
     zig_got: ?u32 = null,
-    subsection: ?u32 = null,
 };
 
 pub fn addExtra(symbol: *Symbol, opts: AddExtraOpts, elf_file: *Elf) !void {
@@ -488,7 +488,7 @@ pub const Extra = struct {
     gottp: u32 = 0,
     tlsdesc: u32 = 0,
     zig_got: u32 = 0,
-    subsection: u32 = 0,
+    merge_section: u32 = 0,
 };
 
 pub const Index = u32;

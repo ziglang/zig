@@ -47,7 +47,7 @@ pub fn resolveSymbols(self: *LinkerDefined, elf_file: *Elf) void {
         const global = elf_file.symbol(index);
         if (self.asFile().symbolRank(this_sym, false) < global.symbolRank(elf_file)) {
             global.value = 0;
-            global.atom_ref = .{ .index = 0, .file = 0 };
+            global.ref = .{ .index = 0, .file = 0 };
             global.file_index = self.index;
             global.esym_index = sym_idx;
             global.version_index = elf_file.default_sym_version;

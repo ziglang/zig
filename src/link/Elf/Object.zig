@@ -388,7 +388,7 @@ fn initSymtab(self: *Object, allocator: Allocator, elf_file: *Elf) !void {
         sym_ptr.esym_index = @as(u32, @intCast(i));
         sym_ptr.file_index = self.index;
         if (sym.st_shndx != elf.SHN_ABS) {
-            sym_ptr.atom_ref = .{ .index = self.atoms_indexes.items[sym.st_shndx], .file = self.index };
+            sym_ptr.ref = .{ .index = self.atoms_indexes.items[sym.st_shndx], .file = self.index };
         }
     }
 
@@ -575,7 +575,7 @@ pub fn resolveSymbols(self: *Object, elf_file: *Elf) void {
         if (self.asFile().symbolRank(esym, !self.alive) < global.symbolRank(elf_file)) {
             switch (esym.st_shndx) {
                 elf.SHN_ABS, elf.SHN_COMMON => {},
-                else => global.atom_ref = .{
+                else => global.ref = .{
                     .index = self.atoms_indexes.items[esym.st_shndx],
                     .file = self.index,
                 },
@@ -609,7 +609,7 @@ pub fn claimUnresolved(self: *Object, elf_file: *Elf) void {
         };
 
         global.value = 0;
-        global.atom_ref = .{ .index = 0, .file = 0 };
+        global.ref = .{ .index = 0, .file = 0 };
         global.esym_index = esym_index;
         global.file_index = self.index;
         global.version_index = if (is_import) elf.VER_NDX_LOCAL else elf_file.default_sym_version;
@@ -630,7 +630,7 @@ pub fn claimUnresolvedObject(self: *Object, elf_file: *Elf) void {
         }
 
         global.value = 0;
-        global.atom_ref = .{ .index = 0, .file = 0 };
+        global.ref = .{ .index = 0, .file = 0 };
         global.esym_index = esym_index;
         global.file_index = self.index;
     }
@@ -785,8 +785,8 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) !void {
             const string = imsec.bytes.items[str.pos..][0..str.len];
             const res = try msec.insert(gpa, string);
             if (!res.found_existing) {
-                const msub_index = try elf_file.addMergeSubsection();
-                const msub = elf_file.mergeSubsection(msub_index);
+                const msub_index = try msec.addMergeSubsection(gpa);
+                const msub = msec.mergeSubsection(msub_index);
                 msub.merge_section_index = imsec.merge_section_index;
                 msub.string_index = res.key.pos;
                 msub.alignment = atom_ptr.alignment;
@@ -810,7 +810,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) !void {
         const imsec_index = self.input_merge_sections_indexes.items[esym.st_shndx];
         const imsec = self.inputMergeSection(imsec_index) orelse continue;
         if (imsec.offsets.items.len == 0) continue;
-        const msub_index, const offset = imsec.findSubsection(@intCast(esym.st_value)) orelse {
+        const res = imsec.findSubsection(@intCast(esym.st_value)) orelse {
             var err = try elf_file.base.addErrorWithNotes(2);
             try err.addMsg("invalid symbol value: {x}", .{esym.st_value});
             try err.addNote("for symbol {s}", .{sym.name(elf_file)});
@@ -818,9 +818,9 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) !void {
             return error.MalformedObject;
         };
 
-        try sym.addExtra(.{ .subsection = msub_index }, elf_file);
+        sym.ref = .{ .index = res.msub_index, .file = imsec.merge_section_index };
         sym.flags.merge_subsection = true;
-        sym.value = offset;
+        sym.value = res.offset;
     }
 
     for (self.atoms_indexes.items) |atom_index| {
@@ -835,28 +835,27 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) !void {
             const imsec_index = self.input_merge_sections_indexes.items[esym.st_shndx];
             const imsec = self.inputMergeSection(imsec_index) orelse continue;
             if (imsec.offsets.items.len == 0) continue;
-            const msub_index, const offset = imsec.findSubsection(@intCast(@as(i64, @intCast(esym.st_value)) + rel.r_addend)) orelse {
+            const msec = elf_file.mergeSection(imsec.merge_section_index);
+            const res = imsec.findSubsection(@intCast(@as(i64, @intCast(esym.st_value)) + rel.r_addend)) orelse {
                 var err = try elf_file.base.addErrorWithNotes(1);
                 try err.addMsg("invalid relocation at offset 0x{x}", .{rel.r_offset});
                 try err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                 return error.MalformedObject;
             };
-            const msub = elf_file.mergeSubsection(msub_index);
-            const msec = msub.mergeSection(elf_file);
 
             const out_sym_idx: u64 = @intCast(self.symbols.items.len);
             try self.symbols.ensureUnusedCapacity(gpa, 1);
-            const name = try std.fmt.allocPrint(gpa, "{s}$subsection{d}", .{ msec.name(elf_file), msub_index });
+            const name = try std.fmt.allocPrint(gpa, "{s}$subsection{d}", .{ msec.name(elf_file), res.msub_index });
             defer gpa.free(name);
             const sym_index = try elf_file.addSymbol();
             const sym = elf_file.symbol(sym_index);
             sym.* = .{
-                .value = @bitCast(@as(i64, @intCast(offset)) - rel.r_addend),
+                .value = @bitCast(@as(i64, @intCast(res.offset)) - rel.r_addend),
                 .name_offset = try self.addString(gpa, name),
                 .esym_index = rel.r_sym(),
                 .file_index = self.index,
             };
-            try sym.addExtra(.{ .subsection = msub_index }, elf_file);
+            sym.ref = .{ .index = res.msub_index, .file = imsec.merge_section_index };
             sym.flags.merge_subsection = true;
             self.symbols.addOneAssumeCapacity().* = sym_index;
             rel.r_info = (out_sym_idx << 32) | rel.r_type();
@@ -920,7 +919,7 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
         try self.atoms_indexes.append(gpa, atom_index);
 
         global.value = 0;
-        global.atom_ref = .{ .index = atom_index, .file = self.index };
+        global.ref = .{ .index = atom_index, .file = self.index };
         global.flags.weak = false;
     }
 }

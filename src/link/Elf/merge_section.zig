@@ -10,12 +10,14 @@ pub const MergeSection = struct {
         IndexContext,
         std.hash_map.default_max_load_percentage,
     ) = .{},
-    subsections: std.ArrayListUnmanaged(MergeSubsection.Index) = .{},
+    subsections: std.ArrayListUnmanaged(MergeSubsection) = .{},
+    finalized_subsections: std.ArrayListUnmanaged(MergeSubsection.Index) = .{},
 
     pub fn deinit(msec: *MergeSection, allocator: Allocator) void {
         msec.bytes.deinit(allocator);
         msec.table.deinit(allocator);
         msec.subsections.deinit(allocator);
+        msec.finalized_subsections.deinit(allocator);
     }
 
     pub fn name(msec: MergeSection, elf_file: *Elf) [:0]const u8 {
@@ -60,23 +62,25 @@ pub const MergeSection = struct {
     /// Sorts all owned subsections.
     pub fn finalize(msec: *MergeSection, elf_file: *Elf) !void {
         const gpa = elf_file.base.comp.gpa;
-        try msec.subsections.ensureTotalCapacityPrecise(gpa, msec.table.count());
+        try msec.finalized_subsections.ensureTotalCapacityPrecise(gpa, msec.subsections.items.len);
 
         var it = msec.table.iterator();
         while (it.next()) |entry| {
-            const msub = elf_file.mergeSubsection(entry.value_ptr.*);
+            const msub = msec.mergeSubsection(entry.value_ptr.*);
             if (!msub.alive) continue;
-            msec.subsections.appendAssumeCapacity(entry.value_ptr.*);
+            msec.finalized_subsections.appendAssumeCapacity(entry.value_ptr.*);
         }
         msec.table.clearAndFree(gpa);
 
         const sortFn = struct {
-            pub fn sortFn(ctx: *Elf, lhs: MergeSubsection.Index, rhs: MergeSubsection.Index) bool {
+            pub fn sortFn(ctx: *MergeSection, lhs: MergeSubsection.Index, rhs: MergeSubsection.Index) bool {
                 const lhs_msub = ctx.mergeSubsection(lhs);
                 const rhs_msub = ctx.mergeSubsection(rhs);
                 if (lhs_msub.alignment.compareStrict(.eq, rhs_msub.alignment)) {
                     if (lhs_msub.size == rhs_msub.size) {
-                        return mem.order(u8, lhs_msub.getString(ctx), rhs_msub.getString(ctx)) == .lt;
+                        const lhs_string = ctx.bytes.items[lhs_msub.string_index..][0..lhs_msub.size];
+                        const rhs_string = ctx.bytes.items[rhs_msub.string_index..][0..rhs_msub.size];
+                        return mem.order(u8, lhs_string, rhs_string) == .lt;
                     }
                     return lhs_msub.size < rhs_msub.size;
                 }
@@ -84,7 +88,19 @@ pub const MergeSection = struct {
             }
         }.sortFn;
 
-        std.mem.sort(MergeSubsection.Index, msec.subsections.items, elf_file, sortFn);
+        std.mem.sort(MergeSubsection.Index, msec.finalized_subsections.items, msec, sortFn);
+    }
+
+    pub fn addMergeSubsection(msec: *MergeSection, allocator: Allocator) !MergeSubsection.Index {
+        const index: MergeSubsection.Index = @intCast(msec.subsections.items.len);
+        const msub = try msec.subsections.addOne(allocator);
+        msub.* = .{};
+        return index;
+    }
+
+    pub fn mergeSubsection(msec: *MergeSection, index: MergeSubsection.Index) *MergeSubsection {
+        assert(index < msec.subsections.items.len);
+        return &msec.subsections.items[index];
     }
 
     pub const IndexContext = struct {
@@ -154,8 +170,8 @@ pub const MergeSection = struct {
             msec.type,
             msec.flags,
         });
-        for (msec.subsections.items) |index| {
-            try writer.print("   {}\n", .{elf_file.mergeSubsection(index).fmt(elf_file)});
+        for (msec.subsections.items) |msub| {
+            try writer.print("   {}\n", .{msub.fmt(elf_file)});
         }
     }
 
@@ -250,18 +266,26 @@ pub const InputMergeSection = struct {
         // TODO: imsec.strings.clearAndFree(allocator);
     }
 
-    pub fn findSubsection(imsec: InputMergeSection, offset: u32) ?struct { MergeSubsection.Index, u32 } {
+    const FindSubsectionResult = struct {
+        msub_index: MergeSubsection.Index,
+        offset: u32,
+    };
+
+    pub fn findSubsection(imsec: InputMergeSection, offset: u32) ?FindSubsectionResult {
         // TODO: binary search
         for (imsec.offsets.items, 0..) |off, index| {
             if (offset < off) return .{
-                imsec.subsections.items[index - 1],
-                offset - imsec.offsets.items[index - 1],
+                .msub_index = imsec.subsections.items[index - 1],
+                .offset = offset - imsec.offsets.items[index - 1],
             };
         }
         const last = imsec.offsets.items.len - 1;
         const last_off = imsec.offsets.items[last];
         const last_len = imsec.strings.items[last].len;
-        if (offset < last_off + last_len) return .{ imsec.subsections.items[last], offset - last_off };
+        if (offset < last_off + last_len) return .{
+            .msub_index = imsec.subsections.items[last],
+            .offset = offset - last_off,
+        };
         return null;
     }
 
