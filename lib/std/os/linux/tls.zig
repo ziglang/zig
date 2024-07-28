@@ -84,6 +84,7 @@ const current_variant: Variant = switch (native_arch) {
     .riscv32,
     .riscv64,
     => .I_modified,
+    .s390x,
     .sparc64,
     .x86,
     .x86_64,
@@ -275,6 +276,17 @@ pub fn setThreadPointer(addr: usize) void {
                 \\ mr 13, %[addr]
                 :
                 : [addr] "r" (addr),
+            );
+        },
+        .s390x => {
+            asm volatile (
+                \\ lgr %%r0, %[addr]
+                \\ sar %%a1, %%r0
+                \\ srlg %%r0, %%r0, 32
+                \\ sar %%a0, %%r0
+                :
+                : [addr] "r" (addr),
+                : "r0"
             );
         },
         .sparc64 => {
