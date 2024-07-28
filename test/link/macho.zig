@@ -53,6 +53,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     macho_step.dependOn(testRelocatable(b, .{ .target = default_target }));
     macho_step.dependOn(testRelocatableZig(b, .{ .target = default_target }));
     macho_step.dependOn(testSectionBoundarySymbols(b, .{ .target = default_target }));
+    macho_step.dependOn(testSectionBoundarySymbols2(b, .{ .target = default_target }));
     macho_step.dependOn(testSegmentBoundarySymbols(b, .{ .target = default_target }));
     macho_step.dependOn(testSymbolStabs(b, .{ .target = default_target }));
     macho_step.dependOn(testStackSize(b, .{ .target = default_target }));
@@ -1958,6 +1959,43 @@ fn testSectionBoundarySymbols(b: *Build, opts: Options) *Step {
         check.checkNotPresent("external section$start$__DATA_CONST$__not_present");
         test_step.dependOn(&check.step);
     }
+
+    return test_step;
+}
+
+fn testSectionBoundarySymbols2(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "section-boundary-symbols-2", opts);
+
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\#include <stdio.h>
+    \\struct pair { int a; int b;  };
+    \\struct pair first __attribute__((section("__DATA,__pairs"))) = { 1, 2  };
+    \\struct pair second __attribute__((section("__DATA,__pairs"))) = { 3, 4  };
+    \\extern struct pair pairs_start __asm("section$start$__DATA$__pairs");
+    \\extern struct pair pairs_end __asm("section$end$__DATA$__pairs");
+    \\int main() {
+    \\  printf("%d,%d\n", first.a, first.b);
+    \\  printf("%d,%d\n", second.a, second.b);
+    \\  struct pair* p;
+    \\  for (p = &pairs_start; p < &pairs_end; p++) {
+    \\    p->a = 0;
+    \\  }
+    \\  printf("%d,%d\n", first.a, first.b);
+    \\  printf("%d,%d\n", second.a, second.b);
+    \\  return 0;
+    \\}
+    });
+
+    const run = b.addRunArtifact(exe);
+    run.skip_foreign_checks = true;
+    run.expectStdOutEqual(
+        \\1,2
+        \\3,4
+        \\0,2
+        \\0,4
+        \\
+    );
+    test_step.dependOn(&run.step);
 
     return test_step;
 }

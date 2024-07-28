@@ -177,9 +177,9 @@ pub fn resolveBoundarySymbols(self: *InternalObject, macho_file: *MachO) !void {
             if (ref.getFile(macho_file) != null) continue;
             const name = sym.getName(macho_file);
             if (mem.startsWith(u8, name, "segment$start$") or
-                mem.startsWith(u8, name, "segment$stop$") or
+                mem.startsWith(u8, name, "segment$end$") or
                 mem.startsWith(u8, name, "section$start$") or
-                mem.startsWith(u8, name, "section$stop$"))
+                mem.startsWith(u8, name, "section$end$"))
             {
                 const gop = try boundary_symbols.getOrPut(name);
                 if (!gop.found_existing) {
