@@ -2289,7 +2289,7 @@ fn writeHeader(self: *Coff) !void {
         flags.DLL = 1;
     }
 
-    const timestamp = std.time.timestamp();
+    const timestamp = if (self.repro) 0 else std.time.timestamp();
     const size_of_optional_header = @as(u16, @intCast(self.getOptionalHeaderSize() + self.getDataDirectoryHeadersSize()));
     var coff_header = coff.CoffHeader{
         .machine = coff.MachineType.fromTargetCpuArch(target.cpu.arch),
