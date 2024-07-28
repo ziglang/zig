@@ -2681,8 +2681,7 @@ pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
     return Stat.fromSystem(st);
 }
 
-/// Windows only. Similar to `posix.fstatat`, but returns `File.Stat`
-pub fn statFileW(self: Dir, sub_path_w: [*:0]const u16, follow_symlinks: bool) StatFileError!Stat {
+fn statFileW(self: Dir, sub_path_w: [*:0]const u16, follow_symlinks: bool) StatFileError!Stat {
     const path_len_bytes = std.math.cast(u16, mem.sliceTo(sub_path_w, 0).len * 2) orelse return error.NameTooLong;
     var nt_name = windows.UNICODE_STRING{
         .Length = path_len_bytes,
