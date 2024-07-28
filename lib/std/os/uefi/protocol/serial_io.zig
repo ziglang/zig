@@ -12,6 +12,8 @@ pub const SerialIo = extern struct {
     _get_control: *const fn (*const SerialIo, *u32) callconv(cc) Status,
     _write: *const fn (*const SerialIo, *usize, *anyopaque) callconv(cc) Status,
     _read: *const fn (*const SerialIo, *usize, *anyopaque) callconv(cc) Status,
+    mode: *Mode,
+    device_type_guid: ?*Guid,
 
     ///Resets the serial device.
     pub fn reset(self: *const SerialIo) Status {
@@ -68,5 +70,14 @@ pub const SerialIo = extern struct {
         OddParity,
         MarkParity,
         SpaceParity,
+
+    pub const Mode = extern struct {
+        control_mask: u32,
+        timeout: u32,
+        baud_rate: u64,
+        receive_fifo_depth: u32,
+        data_bits: u32,
+        parity: u32,
+        stop_bits: u32,
     };
 };
