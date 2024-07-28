@@ -299,13 +299,16 @@ fn initSections(elf_file: *Elf) !void {
     } else false;
     if (needs_eh_frame) {
         elf_file.eh_frame_section_index = try elf_file.addSection(.{
-            .name = ".eh_frame",
+            .name = try elf_file.insertShString(".eh_frame"),
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC,
             .addralign = ptr_size,
             .offset = std.math.maxInt(u64),
         });
-        elf_file.eh_frame_rela_section_index = try elf_file.addRelaShdr(".rela.eh_frame", elf_file.eh_frame_section_index.?);
+        elf_file.eh_frame_rela_section_index = try elf_file.addRelaShdr(
+            try elf_file.insertShString(".rela.eh_frame"),
+            elf_file.eh_frame_section_index.?,
+        );
     }
 
     try initComdatGroups(elf_file);
@@ -323,7 +326,7 @@ fn initComdatGroups(elf_file: *Elf) !void {
             const cg_sec = try elf_file.comdat_group_sections.addOne(gpa);
             cg_sec.* = .{
                 .shndx = try elf_file.addSection(.{
-                    .name = ".group",
+                    .name = try elf_file.insertShString(".group"),
                     .type = elf.SHT_GROUP,
                     .entsize = @sizeOf(u32),
                     .addralign = @alignOf(u32),

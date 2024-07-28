@@ -854,14 +854,14 @@ fn getDeclShdrIndex(
                     if (is_all_zeroes) break :blk elf_file.sectionByName(".tbss") orelse try elf_file.addSection(.{
                         .type = elf.SHT_NOBITS,
                         .flags = elf.SHF_ALLOC | elf.SHF_WRITE | elf.SHF_TLS,
-                        .name = ".tbss",
+                        .name = try elf_file.insertShString(".tbss"),
                         .offset = std.math.maxInt(u64),
                     });
 
                     break :blk elf_file.sectionByName(".tdata") orelse try elf_file.addSection(.{
                         .type = elf.SHT_PROGBITS,
                         .flags = elf.SHF_ALLOC | elf.SHF_WRITE | elf.SHF_TLS,
-                        .name = ".tdata",
+                        .name = try elf_file.insertShString(".tdata"),
                         .offset = std.math.maxInt(u64),
                     });
                 }

@@ -354,7 +354,7 @@ fn initOutputSection(self: Object, elf_file: *Elf, shdr: elf.Elf64_Shdr) error{O
     const out_shndx = elf_file.sectionByName(name) orelse try elf_file.addSection(.{
         .type = @"type",
         .flags = flags,
-        .name = name,
+        .name = try elf_file.insertShString(name),
     });
     return out_shndx;
 }

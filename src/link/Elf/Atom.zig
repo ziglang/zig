@@ -40,7 +40,7 @@ extra_index: u32 = 0,
 
 pub const Alignment = @import("../../InternPool.zig").Alignment;
 
-pub fn name(self: Atom, elf_file: *Elf) []const u8 {
+pub fn name(self: Atom, elf_file: *Elf) [:0]const u8 {
     const file_ptr = self.file(elf_file).?;
     return switch (file_ptr) {
         inline else => |x| x.getString(self.name_offset),

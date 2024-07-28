@@ -371,7 +371,7 @@ pub fn createEmpty(
     try self.shstrtab.append(gpa, 0);
     try self.strtab.append(gpa, 0);
     // There must always be a null shdr in index 0
-    _ = try self.addSection(.{ .name = "" });
+    _ = try self.addSection(.{});
     // Append null symbol in output symtab
     try self.symtab.append(gpa, null_sym);
 
@@ -716,7 +716,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
 
     if (self.zig_text_section_index == null) {
         self.zig_text_section_index = try self.addSection(.{
-            .name = ".text.zig",
+            .name = try self.insertShString(".text.zig"),
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
             .addralign = 1,
@@ -725,7 +725,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         const shdr = &self.shdrs.items[self.zig_text_section_index.?];
         fillSection(self, shdr, options.program_code_size_hint, self.phdr_zig_load_re_index);
         if (self.base.isRelocatable()) {
-            const rela_shndx = try self.addRelaShdr(".rela.text.zig", self.zig_text_section_index.?);
+            const rela_shndx = try self.addRelaShdr(try self.insertShString(".rela.text.zig"), self.zig_text_section_index.?);
             try self.output_rela_sections.putNoClobber(gpa, self.zig_text_section_index.?, .{
                 .shndx = rela_shndx,
             });
@@ -742,7 +742,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
 
     if (self.zig_got_section_index == null and !self.base.isRelocatable()) {
         self.zig_got_section_index = try self.addSection(.{
-            .name = ".got.zig",
+            .name = try self.insertShString(".got.zig"),
             .type = elf.SHT_PROGBITS,
             .addralign = ptr_size,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
@@ -763,7 +763,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
 
     if (self.zig_data_rel_ro_section_index == null) {
         self.zig_data_rel_ro_section_index = try self.addSection(.{
-            .name = ".data.rel.ro.zig",
+            .name = try self.insertShString(".data.rel.ro.zig"),
             .type = elf.SHT_PROGBITS,
             .addralign = 1,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
@@ -773,7 +773,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         fillSection(self, shdr, 1024, self.phdr_zig_load_ro_index);
         if (self.base.isRelocatable()) {
             const rela_shndx = try self.addRelaShdr(
-                ".rela.data.rel.ro.zig",
+                try self.insertShString(".rela.data.rel.ro.zig"),
                 self.zig_data_rel_ro_section_index.?,
             );
             try self.output_rela_sections.putNoClobber(gpa, self.zig_data_rel_ro_section_index.?, .{
@@ -792,7 +792,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
 
     if (self.zig_data_section_index == null) {
         self.zig_data_section_index = try self.addSection(.{
-            .name = ".data.zig",
+            .name = try self.insertShString(".data.zig"),
             .type = elf.SHT_PROGBITS,
             .addralign = ptr_size,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
@@ -802,7 +802,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         fillSection(self, shdr, 1024, self.phdr_zig_load_rw_index);
         if (self.base.isRelocatable()) {
             const rela_shndx = try self.addRelaShdr(
-                ".rela.data.zig",
+                try self.insertShString(".rela.data.zig"),
                 self.zig_data_section_index.?,
             );
             try self.output_rela_sections.putNoClobber(gpa, self.zig_data_section_index.?, .{
@@ -821,7 +821,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
 
     if (self.zig_bss_section_index == null) {
         self.zig_bss_section_index = try self.addSection(.{
-            .name = ".bss.zig",
+            .name = try self.insertShString(".bss.zig"),
             .type = elf.SHT_NOBITS,
             .addralign = ptr_size,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
@@ -845,7 +845,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
             assert(dw.strtab.buffer.items.len == 0);
             try dw.strtab.buffer.append(gpa, 0);
             self.debug_str_section_index = try self.addSection(.{
-                .name = ".debug_str",
+                .name = try self.insertShString(".debug_str"),
                 .flags = elf.SHF_MERGE | elf.SHF_STRINGS,
                 .entsize = 1,
                 .type = elf.SHT_PROGBITS,
@@ -863,7 +863,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
 
         if (self.debug_info_section_index == null) {
             self.debug_info_section_index = try self.addSection(.{
-                .name = ".debug_info",
+                .name = try self.insertShString(".debug_info"),
                 .type = elf.SHT_PROGBITS,
                 .addralign = 1,
                 .offset = std.math.maxInt(u64),
@@ -879,7 +879,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
 
         if (self.debug_abbrev_section_index == null) {
             self.debug_abbrev_section_index = try self.addSection(.{
-                .name = ".debug_abbrev",
+                .name = try self.insertShString(".debug_abbrev"),
                 .type = elf.SHT_PROGBITS,
                 .addralign = 1,
                 .offset = std.math.maxInt(u64),
@@ -895,7 +895,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
 
         if (self.debug_aranges_section_index == null) {
             self.debug_aranges_section_index = try self.addSection(.{
-                .name = ".debug_aranges",
+                .name = try self.insertShString(".debug_aranges"),
                 .type = elf.SHT_PROGBITS,
                 .addralign = 16,
                 .offset = std.math.maxInt(u64),
@@ -911,7 +911,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
 
         if (self.debug_line_section_index == null) {
             self.debug_line_section_index = try self.addSection(.{
-                .name = ".debug_line",
+                .name = try self.insertShString(".debug_line"),
                 .type = elf.SHT_PROGBITS,
                 .addralign = 1,
                 .offset = std.math.maxInt(u64),
@@ -3390,7 +3390,7 @@ pub fn initMergeSections(self: *Elf) !void {
         if (msec.finalized_subsections.items.len == 0) continue;
         const name = msec.name(self);
         const shndx = self.sectionByName(name) orelse try self.addSection(.{
-            .name = name,
+            .name = msec.name_offset,
             .type = msec.type,
             .flags = msec.flags,
         });
@@ -3416,7 +3416,7 @@ fn initSyntheticSections(self: *Elf) !void {
     } else false;
     if (needs_eh_frame) {
         self.eh_frame_section_index = try self.addSection(.{
-            .name = ".eh_frame",
+            .name = try self.insertShString(".eh_frame"),
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC,
             .addralign = ptr_size,
@@ -3425,7 +3425,7 @@ fn initSyntheticSections(self: *Elf) !void {
 
         if (comp.link_eh_frame_hdr) {
             self.eh_frame_hdr_section_index = try self.addSection(.{
-                .name = ".eh_frame_hdr",
+                .name = try self.insertShString(".eh_frame_hdr"),
                 .type = elf.SHT_PROGBITS,
                 .flags = elf.SHF_ALLOC,
                 .addralign = 4,
@@ -3436,7 +3436,7 @@ fn initSyntheticSections(self: *Elf) !void {
 
     if (self.got.entries.items.len > 0) {
         self.got_section_index = try self.addSection(.{
-            .name = ".got",
+            .name = try self.insertShString(".got"),
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
             .addralign = ptr_size,
@@ -3445,7 +3445,7 @@ fn initSyntheticSections(self: *Elf) !void {
     }
 
     self.got_plt_section_index = try self.addSection(.{
-        .name = ".got.plt",
+        .name = try self.insertShString(".got.plt"),
         .type = elf.SHT_PROGBITS,
         .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
         .addralign = @alignOf(u64),
@@ -3465,7 +3465,7 @@ fn initSyntheticSections(self: *Elf) !void {
     };
     if (needs_rela_dyn) {
         self.rela_dyn_section_index = try self.addSection(.{
-            .name = ".rela.dyn",
+            .name = try self.insertShString(".rela.dyn"),
             .type = elf.SHT_RELA,
             .flags = elf.SHF_ALLOC,
             .addralign = @alignOf(elf.Elf64_Rela),
@@ -3476,14 +3476,14 @@ fn initSyntheticSections(self: *Elf) !void {
 
     if (self.plt.symbols.items.len > 0) {
         self.plt_section_index = try self.addSection(.{
-            .name = ".plt",
+            .name = try self.insertShString(".plt"),
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
             .addralign = 16,
             .offset = std.math.maxInt(u64),
         });
         self.rela_plt_section_index = try self.addSection(.{
-            .name = ".rela.plt",
+            .name = try self.insertShString(".rela.plt"),
             .type = elf.SHT_RELA,
             .flags = elf.SHF_ALLOC,
             .addralign = @alignOf(elf.Elf64_Rela),
@@ -3494,7 +3494,7 @@ fn initSyntheticSections(self: *Elf) !void {
 
     if (self.plt_got.symbols.items.len > 0) {
         self.plt_got_section_index = try self.addSection(.{
-            .name = ".plt.got",
+            .name = try self.insertShString(".plt.got"),
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
             .addralign = 16,
@@ -3504,7 +3504,7 @@ fn initSyntheticSections(self: *Elf) !void {
 
     if (self.copy_rel.symbols.items.len > 0) {
         self.copy_rel_section_index = try self.addSection(.{
-            .name = ".copyrel",
+            .name = try self.insertShString(".copyrel"),
             .type = elf.SHT_NOBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
             .offset = std.math.maxInt(u64),
@@ -3522,7 +3522,7 @@ fn initSyntheticSections(self: *Elf) !void {
     };
     if (needs_interp) {
         self.interp_section_index = try self.addSection(.{
-            .name = ".interp",
+            .name = try self.insertShString(".interp"),
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC,
             .addralign = 1,
@@ -3532,7 +3532,7 @@ fn initSyntheticSections(self: *Elf) !void {
 
     if (self.isEffectivelyDynLib() or self.shared_objects.items.len > 0 or comp.config.pie) {
         self.dynstrtab_section_index = try self.addSection(.{
-            .name = ".dynstr",
+            .name = try self.insertShString(".dynstr"),
             .flags = elf.SHF_ALLOC,
             .type = elf.SHT_STRTAB,
             .entsize = 1,
@@ -3540,7 +3540,7 @@ fn initSyntheticSections(self: *Elf) !void {
             .offset = std.math.maxInt(u64),
         });
         self.dynamic_section_index = try self.addSection(.{
-            .name = ".dynamic",
+            .name = try self.insertShString(".dynamic"),
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
             .type = elf.SHT_DYNAMIC,
             .entsize = @sizeOf(elf.Elf64_Dyn),
@@ -3548,7 +3548,7 @@ fn initSyntheticSections(self: *Elf) !void {
             .offset = std.math.maxInt(u64),
         });
         self.dynsymtab_section_index = try self.addSection(.{
-            .name = ".dynsym",
+            .name = try self.insertShString(".dynsym"),
             .flags = elf.SHF_ALLOC,
             .type = elf.SHT_DYNSYM,
             .addralign = @alignOf(elf.Elf64_Sym),
@@ -3557,7 +3557,7 @@ fn initSyntheticSections(self: *Elf) !void {
             .offset = std.math.maxInt(u64),
         });
         self.hash_section_index = try self.addSection(.{
-            .name = ".hash",
+            .name = try self.insertShString(".hash"),
             .flags = elf.SHF_ALLOC,
             .type = elf.SHT_HASH,
             .addralign = 4,
@@ -3565,7 +3565,7 @@ fn initSyntheticSections(self: *Elf) !void {
             .offset = std.math.maxInt(u64),
         });
         self.gnu_hash_section_index = try self.addSection(.{
-            .name = ".gnu.hash",
+            .name = try self.insertShString(".gnu.hash"),
             .flags = elf.SHF_ALLOC,
             .type = elf.SHT_GNU_HASH,
             .addralign = 8,
@@ -3578,7 +3578,7 @@ fn initSyntheticSections(self: *Elf) !void {
         } else false;
         if (needs_versions) {
             self.versym_section_index = try self.addSection(.{
-                .name = ".gnu.version",
+                .name = try self.insertShString(".gnu.version"),
                 .flags = elf.SHF_ALLOC,
                 .type = elf.SHT_GNU_VERSYM,
                 .addralign = @alignOf(elf.Elf64_Versym),
@@ -3586,7 +3586,7 @@ fn initSyntheticSections(self: *Elf) !void {
                 .offset = std.math.maxInt(u64),
             });
             self.verneed_section_index = try self.addSection(.{
-                .name = ".gnu.version_r",
+                .name = try self.insertShString(".gnu.version_r"),
                 .flags = elf.SHF_ALLOC,
                 .type = elf.SHT_GNU_VERNEED,
                 .addralign = @alignOf(elf.Elf64_Verneed),
@@ -3606,7 +3606,7 @@ pub fn initSymtab(self: *Elf) !void {
     };
     if (self.symtab_section_index == null) {
         self.symtab_section_index = try self.addSection(.{
-            .name = ".symtab",
+            .name = try self.insertShString(".symtab"),
             .type = elf.SHT_SYMTAB,
             .addralign = if (small_ptr) @alignOf(elf.Elf32_Sym) else @alignOf(elf.Elf64_Sym),
             .entsize = if (small_ptr) @sizeOf(elf.Elf32_Sym) else @sizeOf(elf.Elf64_Sym),
@@ -3615,7 +3615,7 @@ pub fn initSymtab(self: *Elf) !void {
     }
     if (self.strtab_section_index == null) {
         self.strtab_section_index = try self.addSection(.{
-            .name = ".strtab",
+            .name = try self.insertShString(".strtab"),
             .type = elf.SHT_STRTAB,
             .entsize = 1,
             .addralign = 1,
@@ -3627,7 +3627,7 @@ pub fn initSymtab(self: *Elf) !void {
 pub fn initShStrtab(self: *Elf) !void {
     if (self.shstrtab_section_index == null) {
         self.shstrtab_section_index = try self.addSection(.{
-            .name = ".shstrtab",
+            .name = try self.insertShString(".shstrtab"),
             .type = elf.SHT_STRTAB,
             .entsize = 1,
             .addralign = 1,
@@ -5428,7 +5428,7 @@ fn addPhdr(self: *Elf, opts: struct {
     return index;
 }
 
-pub fn addRelaShdr(self: *Elf, name: [:0]const u8, shndx: u32) !u32 {
+pub fn addRelaShdr(self: *Elf, name: u32, shndx: u32) !u32 {
     const entsize: u64 = switch (self.ptr_width) {
         .p32 => @sizeOf(elf.Elf32_Rela),
         .p64 => @sizeOf(elf.Elf64_Rela),
@@ -5449,7 +5449,7 @@ pub fn addRelaShdr(self: *Elf, name: [:0]const u8, shndx: u32) !u32 {
 }
 
 pub const AddSectionOpts = struct {
-    name: [:0]const u8,
+    name: u32 = 0,
     type: u32 = elf.SHT_NULL,
     flags: u64 = 0,
     link: u32 = 0,
@@ -5464,7 +5464,7 @@ pub fn addSection(self: *Elf, opts: AddSectionOpts) !u32 {
     const index = @as(u32, @intCast(self.shdrs.items.len));
     const shdr = try self.shdrs.addOne(gpa);
     shdr.* = .{
-        .sh_name = try self.insertShString(opts.name),
+        .sh_name = opts.name,
         .sh_type = opts.type,
         .sh_flags = opts.flags,
         .sh_addr = 0,
@@ -5709,7 +5709,7 @@ pub fn zigObjectPtr(self: *Elf) ?*ZigObject {
     return self.file(index).?.zig_object;
 }
 
-pub fn getOrCreateMergeSection(self: *Elf, name: []const u8, flags: u64, @"type": u32) !MergeSection.Index {
+pub fn getOrCreateMergeSection(self: *Elf, name: [:0]const u8, flags: u64, @"type": u32) !MergeSection.Index {
     const gpa = self.base.comp.gpa;
     const out_name = name: {
         if (self.base.isRelocatable()) break :name name;
@@ -5717,11 +5717,11 @@ pub fn getOrCreateMergeSection(self: *Elf, name: []const u8, flags: u64, @"type"
             break :name if (flags & elf.SHF_STRINGS != 0) ".rodata.str" else ".rodata.cst";
         break :name name;
     };
-    const out_off = try self.strings.insert(gpa, out_name);
-    const out_flags = flags & ~@as(u64, elf.SHF_COMPRESSED | elf.SHF_GROUP);
     for (self.merge_sections.items, 0..) |msec, index| {
-        if (msec.name_offset == out_off) return @intCast(index);
+        if (mem.eql(u8, msec.name(self), out_name)) return @intCast(index);
     }
+    const out_off = try self.insertShString(out_name);
+    const out_flags = flags & ~@as(u64, elf.SHF_COMPRESSED | elf.SHF_GROUP);
     const index = @as(MergeSection.Index, @intCast(self.merge_sections.items.len));
     const msec = try self.merge_sections.addOne(gpa);
     msec.* = .{
