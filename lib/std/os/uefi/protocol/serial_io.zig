@@ -64,12 +64,11 @@ pub const SerialIo = extern struct {
     };
 
     pub const StopBitsType = enum(u32) {
-        DefaultParity,
-        NoParity,
-        EvenParity,
-        OddParity,
-        MarkParity,
-        SpaceParity,
+        DefaultStopBits,
+        OneStopBit,
+        OneFiveStopBits,
+        TwoStopBits,
+    };
 
     pub const Mode = extern struct {
         control_mask: u32,
