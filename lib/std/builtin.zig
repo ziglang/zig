@@ -781,7 +781,7 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
     }
 
     switch (builtin.os.tag) {
-        .freestanding => {
+        .freestanding, .other => {
             while (true) {
                 @breakpoint();
             }
