@@ -4801,6 +4801,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "--build-file")) {
                     if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                    try child_argv.appendSlice(args[i .. i + 2]);
                     i += 1;
                     build_file = args[i];
                     continue;
@@ -5030,6 +5031,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
     // This loop is re-evaluated when the build script exits with an indication that it
     // could not continue due to missing lazy dependencies.
+    // PROGRESS: or the buildscript changed
     while (true) {
         // We want to release all the locks before executing the child process, so we make a nice
         // big block here to ensure the cleanup gets run when we extract out our argv.
@@ -5356,6 +5358,9 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                         }
                         continue;
                     }
+
+                    // buildscript changed
+                    if (code == 4) continue;
 
                     const cmd = try std.mem.join(arena, " ", child_argv.items);
                     fatal("the following build command failed with exit code {d}:\n{s}", .{ code, cmd });

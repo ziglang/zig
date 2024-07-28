@@ -7,6 +7,7 @@ const assert = std.debug.assert;
 const fatal = std.zig.fatal;
 
 dir_table: DirTable,
+build_file: Cache.Path,
 os: Os,
 generation: Generation,
 
@@ -31,6 +32,8 @@ const Os = switch (builtin.os.tag) {
 
         /// Keyed differently but indexes correspond 1:1 with `dir_table`.
         handle_table: HandleTable,
+        /// Initialized lazily.
+        build_file_handle: ?FileHandle = null,
         poll_fds: [1]posix.pollfd,
 
         const HandleTable = std.ArrayHashMapUnmanaged(FileHandle, ReactionSet, FileHandle.Adapter, false);
@@ -103,7 +106,7 @@ const Os = switch (builtin.os.tag) {
             return stack_lfh.clone(gpa);
         }
 
-        fn markDirtySteps(w: *Watch, gpa: Allocator) !bool {
+        fn markDirtySteps(w: *Watch, gpa: Allocator) !WaitResult {
             const fan_fd = w.os.getFanFd();
             const fanotify = std.os.linux.fanotify;
             const M = fanotify.event_metadata;
@@ -111,7 +114,7 @@ const Os = switch (builtin.os.tag) {
             var any_dirty = false;
             while (true) {
                 var len = posix.read(fan_fd, &events_buf) catch |err| switch (err) {
-                    error.WouldBlock => return any_dirty,
+                    error.WouldBlock => return if (any_dirty) .dirty else .timeout,
                     else => |e| return e,
                 };
                 var meta: [*]align(1) M = @ptrCast(&events_buf);
@@ -124,7 +127,7 @@ const Os = switch (builtin.os.tag) {
                         any_dirty = true;
                         std.log.warn("file system watch queue overflowed; falling back to fstat", .{});
                         markAllFilesDirty(w, gpa);
-                        return true;
+                        return .dirty;
                     }
                     const fid: *align(1) fanotify.event_info_fid = @ptrCast(meta + 1);
                     switch (fid.hdr.info_type) {
@@ -139,6 +142,12 @@ const Os = switch (builtin.os.tag) {
                                 if (reaction_set.getPtr(file_name)) |step_set|
                                     any_dirty = markStepSetDirty(gpa, step_set, any_dirty);
                             }
+
+                            if (FileHandle.Adapter.eql(undefined, lfh, w.os.build_file_handle.?, undefined) and
+                                std.mem.eql(u8, file_name, w.build_file.sub_path))
+                            {
+                                return .build_file_changed;
+                            }
                         },
                         else => |t| std.log.warn("unexpected fanotify event '{s}'", .{@tagName(t)}),
                     }
@@ -152,6 +161,20 @@ const Os = switch (builtin.os.tag) {
 
         fn update(w: *Watch, gpa: Allocator, steps: []const *Step) !void {
             const fan_fd = w.os.getFanFd();
+
+            if (w.os.build_file_handle == null) {
+                w.os.build_file_handle = try Os.getDirHandle(gpa, .{
+                    .root_dir = w.build_file.root_dir,
+                    .sub_path = "",
+                });
+                posix.fanotify_mark(fan_fd, .{
+                    .ADD = true,
+                    .ONLYDIR = true,
+                }, fan_mask, w.build_file.root_dir.handle.fd, ".") catch |err| {
+                    fatal("unable to watch build file at {}: {s}", .{ w.build_file, @errorName(err) });
+                };
+            }
+
             // Add missing marks and note persisted ones.
             for (steps) |step| {
                 for (step.inputs.table.keys(), step.inputs.table.values()) |path, *files| {
@@ -240,7 +263,7 @@ const Os = switch (builtin.os.tag) {
     else => void,
 };
 
-pub fn init() !Watch {
+pub fn init(build_file: Cache.Path) !Watch {
     switch (builtin.os.tag) {
         .linux => {
             const fan_fd = try std.posix.fanotify_init(.{
@@ -254,6 +277,7 @@ pub fn init() !Watch {
             }, 0);
             return .{
                 .dir_table = .{},
+                .build_file = build_file,
                 .os = switch (builtin.os.tag) {
                     .linux => .{
                         .handle_table = .{},
@@ -342,6 +366,7 @@ pub const WaitResult = enum {
     /// File system watching triggered on files that were marked as inputs to at least one Step.
     /// Relevant steps have been marked dirty.
     dirty,
+    build_file_changed,
     /// File system watching triggered but none of the events were relevant to
     /// what we are listening to. There is nothing to do.
     clean,
@@ -353,10 +378,8 @@ pub fn wait(w: *Watch, gpa: Allocator, timeout: Timeout) !WaitResult {
             const events_len = try std.posix.poll(&w.os.poll_fds, timeout.to_i32_ms());
             return if (events_len == 0)
                 .timeout
-            else if (try Os.markDirtySteps(w, gpa))
-                .dirty
             else
-                .clean;
+                try Os.markDirtySteps(w, gpa);
         },
         else => @compileError("unimplemented"),
     }
