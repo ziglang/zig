@@ -21,17 +21,17 @@ pub const SerialIo = extern struct {
     }
 
     ///Sets the baud rate, receive FIFO depth, transmit/receive time out, parity, data bits, and stop bits on a serial device.
-    pub fn set_attribute(self: *const SerialIo, baudRate: u64, receiverFifoDepth: u32, timeout: u32, parity: ParityType, dataBits: u8, stopBits: StopBitsType) Status {
+    pub fn setAttribute(self: *const SerialIo, baudRate: u64, receiverFifoDepth: u32, timeout: u32, parity: ParityType, dataBits: u8, stopBits: StopBitsType) Status {
         return self._set_attribute(self, baudRate, receiverFifoDepth, timeout, parity, dataBits, stopBits);
     }
 
     ///Sets the control bits on a serial device.
-    pub fn set_control(self: *const SerialIo, control: u32) Status {
+    pub fn setControl(self: *const SerialIo, control: u32) Status {
         return self._set_control(self, control);
     }
 
     ///Retrieves the status of the control bits on a serial device.
-    pub fn get_control(self: *const SerialIo, control: *u32) Status {
+    pub fn getControl(self: *const SerialIo, control: *u32) Status {
         return self._get_control(self, control);
     }
 
