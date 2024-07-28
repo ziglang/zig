@@ -63,6 +63,7 @@ const Variant = enum {
 };
 
 const current_variant: Variant = switch (native_arch) {
+    .arc,
     .arm,
     .armeb,
     .aarch64,
@@ -238,6 +239,16 @@ pub fn setThreadPointer(addr: usize) void {
                 :
                 : [addr] "r" (addr),
             );
+        },
+        .arc => {
+            // We apparently need to both set r25 (TP) *and* inform the kernel...
+            asm volatile (
+                \\ mov r25, %[addr]
+                :
+                : [addr] "r" (addr),
+            );
+            const rc = @call(.always_inline, linux.syscall1, .{ .arc_settls, addr });
+            assert(rc == 0);
         },
         .arm, .armeb, .thumb, .thumbeb => {
             const rc = @call(.always_inline, linux.syscall1, .{ .set_tls, addr });
