@@ -49,7 +49,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .Lib => emit.lower.link_mode == .static,
                     };
 
-                    const elf_file = emit.bin_file.cast(link.File.Elf).?;
+                    const elf_file = emit.bin_file.cast(.elf).?;
 
                     const atom_ptr = elf_file.symbol(symbol.atom_index).atom(elf_file).?;
                     const sym_index = elf_file.zigObjectPtr().?.symbol(symbol.sym_index);
@@ -81,7 +81,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     });
                 },
                 .load_tlv_reloc => |symbol| {
-                    const elf_file = emit.bin_file.cast(link.File.Elf).?;
+                    const elf_file = emit.bin_file.cast(.elf).?;
 
                     const atom_ptr = elf_file.symbol(symbol.atom_index).atom(elf_file).?;
 
@@ -106,7 +106,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     });
                 },
                 .call_extern_fn_reloc => |symbol| {
-                    const elf_file = emit.bin_file.cast(link.File.Elf).?;
+                    const elf_file = emit.bin_file.cast(.elf).?;
                     const atom_ptr = elf_file.symbol(symbol.atom_index).atom(elf_file).?;
 
                     const r_type: u32 = @intFromEnum(std.elf.R_RISCV.CALL_PLT);

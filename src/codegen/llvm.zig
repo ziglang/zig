@@ -774,7 +774,7 @@ pub const Object = struct {
     debug_enums: std.ArrayListUnmanaged(Builder.Metadata),
     debug_globals: std.ArrayListUnmanaged(Builder.Metadata),
 
-    debug_file_map: std.AutoHashMapUnmanaged(*const Zcu.File, Builder.Metadata),
+    debug_file_map: std.AutoHashMapUnmanaged(Zcu.File.Index, Builder.Metadata),
     debug_type_map: std.AutoHashMapUnmanaged(Type, Builder.Metadata),
 
     debug_unresolved_namespace_scopes: std.AutoArrayHashMapUnmanaged(InternPool.NamespaceIndex, Builder.Metadata),
@@ -788,11 +788,13 @@ pub const Object = struct {
     ///   version of the name and incorrectly get function not found in the llvm module.
     /// * it works for functions not all globals.
     /// Therefore, this table keeps track of the mapping.
-    decl_map: std.AutoHashMapUnmanaged(InternPool.DeclIndex, Builder.Global.Index),
+    nav_map: std.AutoHashMapUnmanaged(InternPool.Nav.Index, Builder.Global.Index),
     /// Same deal as `decl_map` but for anonymous declarations, which are always global constants.
-    anon_decl_map: std.AutoHashMapUnmanaged(InternPool.Index, Builder.Global.Index),
-    /// Serves the same purpose as `decl_map` but only used for the `is_named_enum_value` instruction.
-    named_enum_map: std.AutoHashMapUnmanaged(InternPool.DeclIndex, Builder.Function.Index),
+    uav_map: std.AutoHashMapUnmanaged(InternPool.Index, Builder.Global.Index),
+    /// Maps enum types to their corresponding LLVM functions for implementing the `tag_name` instruction.
+    enum_tag_name_map: std.AutoHashMapUnmanaged(InternPool.Index, Builder.Global.Index),
+    /// Serves the same purpose as `enum_tag_name_map` but for the `is_named_enum_value` instruction.
+    named_enum_map: std.AutoHashMapUnmanaged(InternPool.Index, Builder.Function.Index),
     /// Maps Zig types to LLVM types. The table memory is backed by the GPA of
     /// the compiler.
     /// TODO when InternPool garbage collection is implemented, this map needs
@@ -961,8 +963,9 @@ pub const Object = struct {
             .debug_type_map = .{},
             .debug_unresolved_namespace_scopes = .{},
             .target = target,
-            .decl_map = .{},
-            .anon_decl_map = .{},
+            .nav_map = .{},
+            .uav_map = .{},
+            .enum_tag_name_map = .{},
             .named_enum_map = .{},
             .type_map = .{},
             .error_name_table = .none,
@@ -979,8 +982,9 @@ pub const Object = struct {
         self.debug_file_map.deinit(gpa);
         self.debug_type_map.deinit(gpa);
         self.debug_unresolved_namespace_scopes.deinit(gpa);
-        self.decl_map.deinit(gpa);
-        self.anon_decl_map.deinit(gpa);
+        self.nav_map.deinit(gpa);
+        self.uav_map.deinit(gpa);
+        self.enum_tag_name_map.deinit(gpa);
         self.named_enum_map.deinit(gpa);
         self.type_map.deinit(gpa);
         self.builder.deinit();
@@ -1106,7 +1110,7 @@ pub const Object = struct {
                         const fwd_ref = self.debug_unresolved_namespace_scopes.values()[i];
 
                         const namespace = zcu.namespacePtr(namespace_index);
-                        const debug_type = try self.lowerDebugType(namespace.getType(zcu));
+                        const debug_type = try self.lowerDebugType(Type.fromInterned(namespace.owner_type));
 
                         self.builder.debugForwardReferenceSetType(fwd_ref, debug_type);
                     }
@@ -1326,24 +1330,22 @@ pub const Object = struct {
         assert(std.meta.eql(pt, o.pt));
         const zcu = pt.zcu;
         const comp = zcu.comp;
-        const func = zcu.funcInfo(func_index);
-        const decl_index = func.owner_decl;
-        const decl = zcu.declPtr(decl_index);
-        const namespace = zcu.namespacePtr(decl.src_namespace);
-        const file_scope = namespace.fileScope(zcu);
-        const owner_mod = file_scope.mod;
-        const fn_info = zcu.typeToFunc(decl.typeOf(zcu)).?;
-        const target = owner_mod.resolved_target.result;
         const ip = &zcu.intern_pool;
+        const func = zcu.funcInfo(func_index);
+        const nav = ip.getNav(func.owner_nav);
+        const file_scope = zcu.navFileScopeIndex(func.owner_nav);
+        const owner_mod = zcu.fileByIndex(file_scope).mod;
+        const fn_ty = Type.fromInterned(func.ty);
+        const fn_info = zcu.typeToFunc(fn_ty).?;
+        const target = owner_mod.resolved_target.result;
 
-        var dg: DeclGen = .{
+        var ng: NavGen = .{
             .object = o,
-            .decl_index = decl_index,
-            .decl = decl,
+            .nav_index = func.owner_nav,
             .err_msg = null,
         };
 
-        const function_index = try o.resolveLlvmFunction(decl_index);
+        const function_index = try o.resolveLlvmFunction(func.owner_nav);
 
         var attributes = try function_index.ptrConst(&o.builder).attributes.toWip(&o.builder);
         defer attributes.deinit(&o.builder);
@@ -1407,7 +1409,7 @@ pub const Object = struct {
             } }, &o.builder);
         }
 
-        if (decl.@"linksection".toSlice(ip)) |section|
+        if (nav.status.resolved.@"linksection".toSlice(ip)) |section|
             function_index.setSection(try o.builder.string(section), &o.builder);
 
         var deinit_wip = true;
@@ -1420,7 +1422,7 @@ pub const Object = struct {
 
         var llvm_arg_i: u32 = 0;
 
-        // This gets the LLVM values from the function and stores them in `dg.args`.
+        // This gets the LLVM values from the function and stores them in `ng.args`.
         const sret = firstParamSRet(fn_info, pt, target);
         const ret_ptr: Builder.Value = if (sret) param: {
             const param = wip.arg(llvm_arg_i);
@@ -1620,13 +1622,13 @@ pub const Object = struct {
         const file, const subprogram = if (!wip.strip) debug_info: {
             const file = try o.getDebugFile(file_scope);
 
-            const line_number = decl.navSrcLine(zcu) + 1;
-            const is_internal_linkage = decl.val.getExternFunc(zcu) == null;
-            const debug_decl_type = try o.lowerDebugType(decl.typeOf(zcu));
+            const line_number = zcu.navSrcLine(func.owner_nav) + 1;
+            const is_internal_linkage = ip.indexToKey(nav.status.resolved.val) != .@"extern";
+            const debug_decl_type = try o.lowerDebugType(fn_ty);
 
             const subprogram = try o.builder.debugSubprogram(
                 file,
-                try o.builder.metadataString(decl.name.toSlice(ip)),
+                try o.builder.metadataString(nav.name.toSlice(ip)),
                 try o.builder.metadataStringFromStrtabString(function_index.name(&o.builder)),
                 line_number,
                 line_number + func.lbrace_line,
@@ -1652,7 +1654,7 @@ pub const Object = struct {
             .gpa = gpa,
             .air = air,
             .liveness = liveness,
-            .dg = &dg,
+            .ng = &ng,
             .wip = wip,
             .is_naked = fn_info.cc == .Naked,
             .ret_ptr = ret_ptr,
@@ -1663,7 +1665,7 @@ pub const Object = struct {
             .sync_scope = if (owner_mod.single_threaded) .singlethread else .system,
             .file = file,
             .scope = subprogram,
-            .base_line = dg.decl.navSrcLine(zcu),
+            .base_line = zcu.navSrcLine(func.owner_nav),
             .prev_dbg_line = 0,
             .prev_dbg_column = 0,
             .err_ret_trace = err_ret_trace,
@@ -1673,9 +1675,8 @@ pub const Object = struct {
 
         fg.genBody(air.getMainBody()) catch |err| switch (err) {
             error.CodegenFail => {
-                decl.analysis = .codegen_failure;
-                try zcu.failed_analysis.put(zcu.gpa, InternPool.AnalUnit.wrap(.{ .decl = decl_index }), dg.err_msg.?);
-                dg.err_msg = null;
+                try zcu.failed_codegen.put(zcu.gpa, func.owner_nav, ng.err_msg.?);
+                ng.err_msg = null;
                 return;
             },
             else => |e| return e,
@@ -1684,20 +1685,17 @@ pub const Object = struct {
         try fg.wip.finish();
     }
 
-    pub fn updateDecl(self: *Object, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
+    pub fn updateNav(self: *Object, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void {
         assert(std.meta.eql(pt, self.pt));
-        const decl = pt.zcu.declPtr(decl_index);
-        var dg: DeclGen = .{
+        var ng: NavGen = .{
             .object = self,
-            .decl = decl,
-            .decl_index = decl_index,
+            .nav_index = nav_index,
             .err_msg = null,
         };
-        dg.genDecl() catch |err| switch (err) {
+        ng.genDecl() catch |err| switch (err) {
             error.CodegenFail => {
-                decl.analysis = .codegen_failure;
-                try pt.zcu.failed_analysis.put(pt.zcu.gpa, InternPool.AnalUnit.wrap(.{ .decl = decl_index }), dg.err_msg.?);
-                dg.err_msg = null;
+                try pt.zcu.failed_codegen.put(pt.zcu.gpa, nav_index, ng.err_msg.?);
+                ng.err_msg = null;
                 return;
             },
             else => |e| return e,
@@ -1712,19 +1710,18 @@ pub const Object = struct {
     ) link.File.UpdateExportsError!void {
         assert(std.meta.eql(pt, self.pt));
         const zcu = pt.zcu;
-        const decl_index = switch (exported) {
-            .decl_index => |i| i,
-            .value => |val| return updateExportedValue(self, zcu, val, export_indices),
+        const nav_index = switch (exported) {
+            .nav => |nav| nav,
+            .uav => |uav| return updateExportedValue(self, zcu, uav, export_indices),
         };
         const ip = &zcu.intern_pool;
-        const global_index = self.decl_map.get(decl_index).?;
-        const decl = zcu.declPtr(decl_index);
+        const global_index = self.nav_map.get(nav_index).?;
         const comp = zcu.comp;
 
         if (export_indices.len != 0) {
             return updateExportedGlobal(self, zcu, global_index, export_indices);
         } else {
-            const fqn = try self.builder.strtabString(decl.fqn.toSlice(ip));
+            const fqn = try self.builder.strtabString(ip.getNav(nav_index).fqn.toSlice(ip));
             try global_index.rename(fqn, &self.builder);
             global_index.setLinkage(.internal, &self.builder);
             if (comp.config.dll_export_fns)
@@ -1743,7 +1740,7 @@ pub const Object = struct {
         const ip = &mod.intern_pool;
         const main_exp_name = try o.builder.strtabString(mod.all_exports.items[export_indices[0]].opts.name.toSlice(ip));
         const global_index = i: {
-            const gop = try o.anon_decl_map.getOrPut(gpa, exported_value);
+            const gop = try o.uav_map.getOrPut(gpa, exported_value);
             if (gop.found_existing) {
                 const global_index = gop.value_ptr.*;
                 try global_index.rename(main_exp_name, &o.builder);
@@ -1866,11 +1863,12 @@ pub const Object = struct {
         global.delete(&self.builder);
     }
 
-    fn getDebugFile(o: *Object, file: *const Zcu.File) Allocator.Error!Builder.Metadata {
+    fn getDebugFile(o: *Object, file_index: Zcu.File.Index) Allocator.Error!Builder.Metadata {
         const gpa = o.gpa;
-        const gop = try o.debug_file_map.getOrPut(gpa, file);
-        errdefer assert(o.debug_file_map.remove(file));
+        const gop = try o.debug_file_map.getOrPut(gpa, file_index);
+        errdefer assert(o.debug_file_map.remove(file_index));
         if (gop.found_existing) return gop.value_ptr.*;
+        const file = o.pt.zcu.fileByIndex(file_index);
         gop.value_ptr.* = try o.builder.debugFile(
             try o.builder.metadataString(std.fs.path.basename(file.sub_file_path)),
             dir_path: {
@@ -1928,17 +1926,13 @@ pub const Object = struct {
                 return debug_int_type;
             },
             .Enum => {
-                const owner_decl_index = ty.getOwnerDecl(zcu);
-                const owner_decl = zcu.declPtr(owner_decl_index);
-
                 if (!ty.hasRuntimeBitsIgnoreComptime(pt)) {
-                    const debug_enum_type = try o.makeEmptyNamespaceDebugType(owner_decl_index);
+                    const debug_enum_type = try o.makeEmptyNamespaceDebugType(ty);
                     try o.debug_type_map.put(gpa, ty, debug_enum_type);
                     return debug_enum_type;
                 }
 
                 const enum_type = ip.loadEnumType(ty.toIntern());
-
                 const enumerators = try gpa.alloc(Builder.Metadata, enum_type.names.len);
                 defer gpa.free(enumerators);
 
@@ -1961,9 +1955,11 @@ pub const Object = struct {
                     );
                 }
 
-                const file_scope = zcu.namespacePtr(owner_decl.src_namespace).fileScope(zcu);
-                const file = try o.getDebugFile(file_scope);
-                const scope = try o.namespaceToDebugScope(owner_decl.src_namespace);
+                const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFull(ip).file);
+                const scope = if (ty.getParentNamespace(zcu).?.unwrap()) |parent_namespace|
+                    try o.namespaceToDebugScope(parent_namespace)
+                else
+                    file;
 
                 const name = try o.allocTypeName(ty);
                 defer gpa.free(name);
@@ -1972,7 +1968,7 @@ pub const Object = struct {
                     try o.builder.metadataString(name),
                     file,
                     scope,
-                    owner_decl.typeSrcLine(zcu) + 1, // Line
+                    ty.typeDeclSrcLine(zcu).? + 1, // Line
                     try o.lowerDebugType(int_ty),
                     ty.abiSize(pt) * 8,
                     (ty.abiAlignment(pt).toByteUnits() orelse 0) * 8,
@@ -2136,14 +2132,18 @@ pub const Object = struct {
 
                 const name = try o.allocTypeName(ty);
                 defer gpa.free(name);
-                const owner_decl_index = ty.getOwnerDecl(zcu);
-                const owner_decl = zcu.declPtr(owner_decl_index);
-                const file_scope = zcu.namespacePtr(owner_decl.src_namespace).fileScope(zcu);
+
+                const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFull(ip).file);
+                const scope = if (ty.getParentNamespace(zcu).?.unwrap()) |parent_namespace|
+                    try o.namespaceToDebugScope(parent_namespace)
+                else
+                    file;
+
                 const debug_opaque_type = try o.builder.debugStructType(
                     try o.builder.metadataString(name),
-                    try o.getDebugFile(file_scope),
-                    try o.namespaceToDebugScope(owner_decl.src_namespace),
-                    owner_decl.typeSrcLine(zcu) + 1, // Line
+                    file,
+                    scope,
+                    ty.typeDeclSrcLine(zcu).? + 1, // Line
                     .none, // Underlying type
                     0, // Size
                     0, // Align
@@ -2458,8 +2458,7 @@ pub const Object = struct {
                             // into. Therefore we can satisfy this by making an empty namespace,
                             // rather than changing the frontend to unnecessarily resolve the
                             // struct field types.
-                            const owner_decl_index = ty.getOwnerDecl(zcu);
-                            const debug_struct_type = try o.makeEmptyNamespaceDebugType(owner_decl_index);
+                            const debug_struct_type = try o.makeEmptyNamespaceDebugType(ty);
                             try o.debug_type_map.put(gpa, ty, debug_struct_type);
                             return debug_struct_type;
                         }
@@ -2468,8 +2467,7 @@ pub const Object = struct {
                 }
 
                 if (!ty.hasRuntimeBitsIgnoreComptime(pt)) {
-                    const owner_decl_index = ty.getOwnerDecl(zcu);
-                    const debug_struct_type = try o.makeEmptyNamespaceDebugType(owner_decl_index);
+                    const debug_struct_type = try o.makeEmptyNamespaceDebugType(ty);
                     try o.debug_type_map.put(gpa, ty, debug_struct_type);
                     return debug_struct_type;
                 }
@@ -2534,8 +2532,6 @@ pub const Object = struct {
                 return debug_struct_type;
             },
             .Union => {
-                const owner_decl_index = ty.getOwnerDecl(zcu);
-
                 const name = try o.allocTypeName(ty);
                 defer gpa.free(name);
 
@@ -2544,7 +2540,7 @@ pub const Object = struct {
                     !ty.hasRuntimeBitsIgnoreComptime(pt) or
                     !union_type.haveLayout(ip))
                 {
-                    const debug_union_type = try o.makeEmptyNamespaceDebugType(owner_decl_index);
+                    const debug_union_type = try o.makeEmptyNamespaceDebugType(ty);
                     try o.debug_type_map.put(gpa, ty, debug_union_type);
                     return debug_union_type;
                 }
@@ -2760,8 +2756,7 @@ pub const Object = struct {
     fn namespaceToDebugScope(o: *Object, namespace_index: InternPool.NamespaceIndex) !Builder.Metadata {
         const zcu = o.pt.zcu;
         const namespace = zcu.namespacePtr(namespace_index);
-        const file_scope = namespace.fileScope(zcu);
-        if (namespace.parent == .none) return try o.getDebugFile(file_scope);
+        if (namespace.parent == .none) return try o.getDebugFile(namespace.file_scope);
 
         const gop = try o.debug_unresolved_namespace_scopes.getOrPut(o.gpa, namespace_index);
 
@@ -2770,15 +2765,19 @@ pub const Object = struct {
         return gop.value_ptr.*;
     }
 
-    fn makeEmptyNamespaceDebugType(o: *Object, decl_index: InternPool.DeclIndex) !Builder.Metadata {
+    fn makeEmptyNamespaceDebugType(o: *Object, ty: Type) !Builder.Metadata {
         const zcu = o.pt.zcu;
-        const decl = zcu.declPtr(decl_index);
-        const file_scope = zcu.namespacePtr(decl.src_namespace).fileScope(zcu);
+        const ip = &zcu.intern_pool;
+        const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFull(ip).file);
+        const scope = if (ty.getParentNamespace(zcu).?.unwrap()) |parent_namespace|
+            try o.namespaceToDebugScope(parent_namespace)
+        else
+            file;
         return o.builder.debugStructType(
-            try o.builder.metadataString(decl.name.toSlice(&zcu.intern_pool)), // TODO use fully qualified name
-            try o.getDebugFile(file_scope),
-            try o.namespaceToDebugScope(decl.src_namespace),
-            decl.typeSrcLine(zcu) + 1,
+            try o.builder.metadataString(ty.containerTypeName(ip).toSlice(ip)), // TODO use fully qualified name
+            file,
+            scope,
+            ty.typeDeclSrcLine(zcu).? + 1,
             .none,
             0,
             0,
@@ -2789,25 +2788,24 @@ pub const Object = struct {
     fn getStackTraceType(o: *Object) Allocator.Error!Type {
         const pt = o.pt;
         const zcu = pt.zcu;
+        const ip = &zcu.intern_pool;
 
         const std_mod = zcu.std_mod;
         const std_file_imported = pt.importPkg(std_mod) catch unreachable;
 
-        const builtin_str = try zcu.intern_pool.getOrPutString(zcu.gpa, pt.tid, "builtin", .no_embedded_nulls);
-        const std_file_root_decl = zcu.fileRootDecl(std_file_imported.file_index);
-        const std_namespace = zcu.namespacePtr(zcu.declPtr(std_file_root_decl.unwrap().?).src_namespace);
-        const builtin_decl = std_namespace.decls.getKeyAdapted(builtin_str, Zcu.DeclAdapter{ .zcu = zcu }).?;
+        const builtin_str = try ip.getOrPutString(zcu.gpa, pt.tid, "builtin", .no_embedded_nulls);
+        const std_file_root_type = Type.fromInterned(zcu.fileRootType(std_file_imported.file_index));
+        const std_namespace = ip.namespacePtr(std_file_root_type.getNamespaceIndex(zcu).unwrap().?);
+        const builtin_nav = std_namespace.pub_decls.getKeyAdapted(builtin_str, Zcu.Namespace.NameAdapter{ .zcu = zcu }).?;
 
-        const stack_trace_str = try zcu.intern_pool.getOrPutString(zcu.gpa, pt.tid, "StackTrace", .no_embedded_nulls);
+        const stack_trace_str = try ip.getOrPutString(zcu.gpa, pt.tid, "StackTrace", .no_embedded_nulls);
         // buffer is only used for int_type, `builtin` is a struct.
-        const builtin_ty = zcu.declPtr(builtin_decl).val.toType();
+        const builtin_ty = zcu.navValue(builtin_nav).toType();
         const builtin_namespace = zcu.namespacePtrUnwrap(builtin_ty.getNamespaceIndex(zcu)).?;
-        const stack_trace_decl_index = builtin_namespace.decls.getKeyAdapted(stack_trace_str, Zcu.DeclAdapter{ .zcu = zcu }).?;
-        const stack_trace_decl = zcu.declPtr(stack_trace_decl_index);
+        const stack_trace_nav = builtin_namespace.pub_decls.getKeyAdapted(stack_trace_str, Zcu.Namespace.NameAdapter{ .zcu = zcu }).?;
 
         // Sema should have ensured that StackTrace was analyzed.
-        assert(stack_trace_decl.has_tv);
-        return stack_trace_decl.val.toType();
+        return zcu.navValue(stack_trace_nav).toType();
     }
 
     fn allocTypeName(o: *Object, ty: Type) Allocator.Error![:0]const u8 {
@@ -2822,29 +2820,33 @@ pub const Object = struct {
     /// completed, so if any attributes rely on that, they must be done in updateFunc, not here.
     fn resolveLlvmFunction(
         o: *Object,
-        decl_index: InternPool.DeclIndex,
+        nav_index: InternPool.Nav.Index,
     ) Allocator.Error!Builder.Function.Index {
         const pt = o.pt;
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
         const gpa = o.gpa;
-        const decl = zcu.declPtr(decl_index);
-        const namespace = zcu.namespacePtr(decl.src_namespace);
-        const owner_mod = namespace.fileScope(zcu).mod;
-        const zig_fn_type = decl.typeOf(zcu);
-        const gop = try o.decl_map.getOrPut(gpa, decl_index);
+        const nav = ip.getNav(nav_index);
+        const owner_mod = zcu.navFileScope(nav_index).mod;
+        const resolved = nav.status.resolved;
+        const val = Value.fromInterned(resolved.val);
+        const ty = val.typeOf(zcu);
+        const gop = try o.nav_map.getOrPut(gpa, nav_index);
         if (gop.found_existing) return gop.value_ptr.ptr(&o.builder).kind.function;
 
-        assert(decl.has_tv);
-        const fn_info = zcu.typeToFunc(zig_fn_type).?;
+        const fn_info = zcu.typeToFunc(ty).?;
         const target = owner_mod.resolved_target.result;
         const sret = firstParamSRet(fn_info, pt, target);
 
-        const is_extern = decl.isExtern(zcu);
+        const is_extern, const lib_name = switch (ip.indexToKey(val.toIntern())) {
+            .variable => |variable| .{ false, variable.lib_name },
+            .@"extern" => |@"extern"| .{ true, @"extern".lib_name },
+            else => .{ false, .none },
+        };
         const function_index = try o.builder.addFunction(
-            try o.lowerType(zig_fn_type),
-            try o.builder.strtabString((if (is_extern) decl.name else decl.fqn).toSlice(ip)),
-            toLlvmAddressSpace(decl.@"addrspace", target),
+            try o.lowerType(ty),
+            try o.builder.strtabString((if (is_extern) nav.name else nav.fqn).toSlice(ip)),
+            toLlvmAddressSpace(resolved.@"addrspace", target),
         );
         gop.value_ptr.* = function_index.ptrConst(&o.builder).global;
 
@@ -2858,12 +2860,12 @@ pub const Object = struct {
             if (target.isWasm()) {
                 try attributes.addFnAttr(.{ .string = .{
                     .kind = try o.builder.string("wasm-import-name"),
-                    .value = try o.builder.string(decl.name.toSlice(ip)),
+                    .value = try o.builder.string(nav.name.toSlice(ip)),
                 } }, &o.builder);
-                if (decl.getOwnedExternFunc(zcu).?.lib_name.toSlice(ip)) |lib_name| {
-                    if (!std.mem.eql(u8, lib_name, "c")) try attributes.addFnAttr(.{ .string = .{
+                if (lib_name.toSlice(ip)) |lib_name_slice| {
+                    if (!std.mem.eql(u8, lib_name_slice, "c")) try attributes.addFnAttr(.{ .string = .{
                         .kind = try o.builder.string("wasm-import-module"),
-                        .value = try o.builder.string(lib_name),
+                        .value = try o.builder.string(lib_name_slice),
                     } }, &o.builder);
                 }
             }
@@ -2899,8 +2901,8 @@ pub const Object = struct {
             else => function_index.setCallConv(toLlvmCallConv(fn_info.cc, target), &o.builder),
         }
 
-        if (decl.alignment != .none)
-            function_index.setAlignment(decl.alignment.toLlvm(), &o.builder);
+        if (resolved.alignment != .none)
+            function_index.setAlignment(resolved.alignment.toLlvm(), &o.builder);
 
         // Function attributes that are independent of analysis results of the function body.
         try o.addCommonFnAttributes(&attributes, owner_mod);
@@ -3004,15 +3006,15 @@ pub const Object = struct {
         }
     }
 
-    fn resolveGlobalAnonDecl(
+    fn resolveGlobalUav(
         o: *Object,
-        decl_val: InternPool.Index,
+        uav: InternPool.Index,
         llvm_addr_space: Builder.AddrSpace,
         alignment: InternPool.Alignment,
     ) Error!Builder.Variable.Index {
         assert(alignment != .none);
         // TODO: Add address space to the anon_decl_map
-        const gop = try o.anon_decl_map.getOrPut(o.gpa, decl_val);
+        const gop = try o.uav_map.getOrPut(o.gpa, uav);
         if (gop.found_existing) {
             // Keep the greater of the two alignments.
             const variable_index = gop.value_ptr.ptr(&o.builder).kind.variable;
@@ -3021,19 +3023,19 @@ pub const Object = struct {
             variable_index.setAlignment(max_alignment.toLlvm(), &o.builder);
             return variable_index;
         }
-        errdefer assert(o.anon_decl_map.remove(decl_val));
+        errdefer assert(o.uav_map.remove(uav));
 
         const mod = o.pt.zcu;
-        const decl_ty = mod.intern_pool.typeOf(decl_val);
+        const decl_ty = mod.intern_pool.typeOf(uav);
 
         const variable_index = try o.builder.addVariable(
-            try o.builder.strtabStringFmt("__anon_{d}", .{@intFromEnum(decl_val)}),
+            try o.builder.strtabStringFmt("__anon_{d}", .{@intFromEnum(uav)}),
             try o.lowerType(Type.fromInterned(decl_ty)),
             llvm_addr_space,
         );
         gop.value_ptr.* = variable_index.ptrConst(&o.builder).global;
 
-        try variable_index.setInitializer(try o.lowerValue(decl_val), &o.builder);
+        try variable_index.setInitializer(try o.lowerValue(uav), &o.builder);
         variable_index.setLinkage(.internal, &o.builder);
         variable_index.setMutability(.constant, &o.builder);
         variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);
@@ -3041,24 +3043,29 @@ pub const Object = struct {
         return variable_index;
     }
 
-    fn resolveGlobalDecl(
+    fn resolveGlobalNav(
         o: *Object,
-        decl_index: InternPool.DeclIndex,
+        nav_index: InternPool.Nav.Index,
     ) Allocator.Error!Builder.Variable.Index {
-        const gop = try o.decl_map.getOrPut(o.gpa, decl_index);
+        const gop = try o.nav_map.getOrPut(o.gpa, nav_index);
         if (gop.found_existing) return gop.value_ptr.ptr(&o.builder).kind.variable;
-        errdefer assert(o.decl_map.remove(decl_index));
+        errdefer assert(o.nav_map.remove(nav_index));
 
         const pt = o.pt;
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
-        const decl = zcu.declPtr(decl_index);
-        const is_extern = decl.isExtern(zcu);
+        const nav = ip.getNav(nav_index);
+        const resolved = nav.status.resolved;
+        const is_extern, const is_threadlocal, const is_weak_linkage = switch (ip.indexToKey(resolved.val)) {
+            .variable => |variable| .{ false, variable.is_threadlocal, variable.is_weak_linkage },
+            .@"extern" => |@"extern"| .{ true, @"extern".is_threadlocal, @"extern".is_weak_linkage },
+            else => .{ false, false, false },
+        };
 
         const variable_index = try o.builder.addVariable(
-            try o.builder.strtabString((if (is_extern) decl.name else decl.fqn).toSlice(ip)),
-            try o.lowerType(decl.typeOf(zcu)),
-            toLlvmGlobalAddressSpace(decl.@"addrspace", zcu.getTarget()),
+            try o.builder.strtabString((if (is_extern) nav.name else nav.fqn).toSlice(ip)),
+            try o.lowerType(Type.fromInterned(nav.typeOf(ip))),
+            toLlvmGlobalAddressSpace(resolved.@"addrspace", zcu.getTarget()),
         );
         gop.value_ptr.* = variable_index.ptrConst(&o.builder).global;
 
@@ -3066,15 +3073,9 @@ pub const Object = struct {
         if (is_extern) {
             variable_index.setLinkage(.external, &o.builder);
             variable_index.setUnnamedAddr(.default, &o.builder);
-            if (decl.val.getVariable(zcu)) |decl_var| {
-                const decl_namespace = zcu.namespacePtr(decl.src_namespace);
-                const single_threaded = decl_namespace.fileScope(zcu).mod.single_threaded;
-                variable_index.setThreadLocal(
-                    if (decl_var.is_threadlocal and !single_threaded) .generaldynamic else .default,
-                    &o.builder,
-                );
-                if (decl_var.is_weak_linkage) variable_index.setLinkage(.extern_weak, &o.builder);
-            }
+            if (is_threadlocal and !zcu.navFileScope(nav_index).mod.single_threaded)
+                variable_index.setThreadLocal(.generaldynamic, &o.builder);
+            if (is_weak_linkage) variable_index.setLinkage(.extern_weak, &o.builder);
         } else {
             variable_index.setLinkage(.internal, &o.builder);
             variable_index.setUnnamedAddr(.unnamed_addr, &o.builder);
@@ -3284,8 +3285,6 @@ pub const Object = struct {
                         return int_ty;
                     }
 
-                    const decl = mod.declPtr(struct_type.decl.unwrap().?);
-
                     var llvm_field_types = std.ArrayListUnmanaged(Builder.Type){};
                     defer llvm_field_types.deinit(o.gpa);
                     // Although we can estimate how much capacity to add, these cannot be
@@ -3349,7 +3348,7 @@ pub const Object = struct {
                         );
                     }
 
-                    const ty = try o.builder.opaqueType(try o.builder.string(decl.fqn.toSlice(ip)));
+                    const ty = try o.builder.opaqueType(try o.builder.string(t.containerTypeName(ip).toSlice(ip)));
                     try o.type_map.put(o.gpa, t.toIntern(), ty);
 
                     o.builder.namedTypeSetBody(
@@ -3438,8 +3437,6 @@ pub const Object = struct {
                         return enum_tag_ty;
                     }
 
-                    const decl = mod.declPtr(union_obj.decl);
-
                     const aligned_field_ty = Type.fromInterned(union_obj.field_types.get(ip)[layout.most_aligned_field]);
                     const aligned_field_llvm_ty = try o.lowerType(aligned_field_ty);
 
@@ -3458,7 +3455,7 @@ pub const Object = struct {
                     };
 
                     if (layout.tag_size == 0) {
-                        const ty = try o.builder.opaqueType(try o.builder.string(decl.fqn.toSlice(ip)));
+                        const ty = try o.builder.opaqueType(try o.builder.string(t.containerTypeName(ip).toSlice(ip)));
                         try o.type_map.put(o.gpa, t.toIntern(), ty);
 
                         o.builder.namedTypeSetBody(
@@ -3486,7 +3483,7 @@ pub const Object = struct {
                         llvm_fields_len += 1;
                     }
 
-                    const ty = try o.builder.opaqueType(try o.builder.string(decl.fqn.toSlice(ip)));
+                    const ty = try o.builder.opaqueType(try o.builder.string(t.containerTypeName(ip).toSlice(ip)));
                     try o.type_map.put(o.gpa, t.toIntern(), ty);
 
                     o.builder.namedTypeSetBody(
@@ -3498,8 +3495,7 @@ pub const Object = struct {
                 .opaque_type => {
                     const gop = try o.type_map.getOrPut(o.gpa, t.toIntern());
                     if (!gop.found_existing) {
-                        const decl = mod.declPtr(ip.loadOpaqueType(t.toIntern()).decl);
-                        gop.value_ptr.* = try o.builder.opaqueType(try o.builder.string(decl.fqn.toSlice(ip)));
+                        gop.value_ptr.* = try o.builder.opaqueType(try o.builder.string(t.containerTypeName(ip).toSlice(ip)));
                     }
                     return gop.value_ptr.*;
                 },
@@ -3510,7 +3506,7 @@ pub const Object = struct {
                 .undef,
                 .simple_value,
                 .variable,
-                .extern_func,
+                .@"extern",
                 .func,
                 .int,
                 .err,
@@ -3630,15 +3626,13 @@ pub const Object = struct {
 
         const ty = Type.fromInterned(val_key.typeOf());
         switch (val_key) {
-            .extern_func => |extern_func| {
-                const fn_decl_index = extern_func.decl;
-                const function_index = try o.resolveLlvmFunction(fn_decl_index);
+            .@"extern" => |@"extern"| {
+                const function_index = try o.resolveLlvmFunction(@"extern".owner_nav);
                 const ptr = function_index.ptrConst(&o.builder).global.toConst();
                 return o.builder.convConst(ptr, llvm_int_ty);
             },
             .func => |func| {
-                const fn_decl_index = func.owner_decl;
-                const function_index = try o.resolveLlvmFunction(fn_decl_index);
+                const function_index = try o.resolveLlvmFunction(func.owner_nav);
                 const ptr = function_index.ptrConst(&o.builder).global.toConst();
                 return o.builder.convConst(ptr, llvm_int_ty);
             },
@@ -3781,14 +3775,12 @@ pub const Object = struct {
             .enum_literal,
             .empty_enum_value,
             => unreachable, // non-runtime values
-            .extern_func => |extern_func| {
-                const fn_decl_index = extern_func.decl;
-                const function_index = try o.resolveLlvmFunction(fn_decl_index);
+            .@"extern" => |@"extern"| {
+                const function_index = try o.resolveLlvmFunction(@"extern".owner_nav);
                 return function_index.ptrConst(&o.builder).global.toConst();
             },
             .func => |func| {
-                const fn_decl_index = func.owner_decl;
-                const function_index = try o.resolveLlvmFunction(fn_decl_index);
+                const function_index = try o.resolveLlvmFunction(func.owner_nav);
                 return function_index.ptrConst(&o.builder).global.toConst();
             },
             .int => {
@@ -4282,14 +4274,14 @@ pub const Object = struct {
         const ptr = zcu.intern_pool.indexToKey(ptr_val).ptr;
         const offset: u64 = prev_offset + ptr.byte_offset;
         return switch (ptr.base_addr) {
-            .decl => |decl| {
-                const base_ptr = try o.lowerDeclRefValue(decl);
+            .nav => |nav| {
+                const base_ptr = try o.lowerNavRefValue(nav);
                 return o.builder.gepConst(.inbounds, .i8, base_ptr, null, &.{
                     try o.builder.intConst(.i64, offset),
                 });
             },
-            .anon_decl => |ad| {
-                const base_ptr = try o.lowerAnonDeclRef(ad);
+            .uav => |uav| {
+                const base_ptr = try o.lowerUavRef(uav);
                 return o.builder.gepConst(.inbounds, .i8, base_ptr, null, &.{
                     try o.builder.intConst(.i64, offset),
                 });
@@ -4330,39 +4322,37 @@ pub const Object = struct {
         };
     }
 
-    /// This logic is very similar to `lowerDeclRefValue` but for anonymous declarations.
+    /// This logic is very similar to `lowerNavRefValue` but for anonymous declarations.
     /// Maybe the logic could be unified.
-    fn lowerAnonDeclRef(
+    fn lowerUavRef(
         o: *Object,
-        anon_decl: InternPool.Key.Ptr.BaseAddr.AnonDecl,
+        uav: InternPool.Key.Ptr.BaseAddr.Uav,
     ) Error!Builder.Constant {
         const pt = o.pt;
         const mod = pt.zcu;
         const ip = &mod.intern_pool;
-        const decl_val = anon_decl.val;
-        const decl_ty = Type.fromInterned(ip.typeOf(decl_val));
+        const uav_val = uav.val;
+        const uav_ty = Type.fromInterned(ip.typeOf(uav_val));
         const target = mod.getTarget();
 
-        if (Value.fromInterned(decl_val).getFunction(mod)) |func| {
-            _ = func;
-            @panic("TODO");
-        } else if (Value.fromInterned(decl_val).getExternFunc(mod)) |func| {
-            _ = func;
-            @panic("TODO");
+        switch (ip.indexToKey(uav_val)) {
+            .func => @panic("TODO"),
+            .@"extern" => @panic("TODO"),
+            else => {},
         }
 
-        const ptr_ty = Type.fromInterned(anon_decl.orig_ty);
+        const ptr_ty = Type.fromInterned(uav.orig_ty);
 
-        const is_fn_body = decl_ty.zigTypeTag(mod) == .Fn;
-        if ((!is_fn_body and !decl_ty.hasRuntimeBits(pt)) or
-            (is_fn_body and mod.typeToFunc(decl_ty).?.is_generic)) return o.lowerPtrToVoid(ptr_ty);
+        const is_fn_body = uav_ty.zigTypeTag(mod) == .Fn;
+        if ((!is_fn_body and !uav_ty.hasRuntimeBits(pt)) or
+            (is_fn_body and mod.typeToFunc(uav_ty).?.is_generic)) return o.lowerPtrToVoid(ptr_ty);
 
         if (is_fn_body)
             @panic("TODO");
 
         const llvm_addr_space = toLlvmAddressSpace(ptr_ty.ptrAddressSpace(mod), target);
         const alignment = ptr_ty.ptrAlignment(pt);
-        const llvm_global = (try o.resolveGlobalAnonDecl(decl_val, llvm_addr_space, alignment)).ptrConst(&o.builder).global;
+        const llvm_global = (try o.resolveGlobalUav(uav.val, llvm_addr_space, alignment)).ptrConst(&o.builder).global;
 
         const llvm_val = try o.builder.convConst(
             llvm_global.toConst(),
@@ -4372,44 +4362,41 @@ pub const Object = struct {
         return o.builder.convConst(llvm_val, try o.lowerType(ptr_ty));
     }
 
-    fn lowerDeclRefValue(o: *Object, decl_index: InternPool.DeclIndex) Allocator.Error!Builder.Constant {
+    fn lowerNavRefValue(o: *Object, nav_index: InternPool.Nav.Index) Allocator.Error!Builder.Constant {
         const pt = o.pt;
-        const mod = pt.zcu;
+        const zcu = pt.zcu;
+        const ip = &zcu.intern_pool;
 
         // In the case of something like:
         // fn foo() void {}
         // const bar = foo;
         // ... &bar;
         // `bar` is just an alias and we actually want to lower a reference to `foo`.
-        const decl = mod.declPtr(decl_index);
-        if (decl.val.getFunction(mod)) |func| {
-            if (func.owner_decl != decl_index) {
-                return o.lowerDeclRefValue(func.owner_decl);
-            }
-        } else if (decl.val.getExternFunc(mod)) |func| {
-            if (func.decl != decl_index) {
-                return o.lowerDeclRefValue(func.decl);
-            }
-        }
+        const owner_nav_index = switch (ip.indexToKey(zcu.navValue(nav_index).toIntern())) {
+            .func => |func| func.owner_nav,
+            .@"extern" => |@"extern"| @"extern".owner_nav,
+            else => nav_index,
+        };
+        const owner_nav = ip.getNav(owner_nav_index);
 
-        const decl_ty = decl.typeOf(mod);
-        const ptr_ty = try decl.declPtrType(pt);
+        const nav_ty = Type.fromInterned(owner_nav.typeOf(ip));
+        const ptr_ty = try pt.navPtrType(owner_nav_index);
 
-        const is_fn_body = decl_ty.zigTypeTag(mod) == .Fn;
-        if ((!is_fn_body and !decl_ty.hasRuntimeBits(pt)) or
-            (is_fn_body and mod.typeToFunc(decl_ty).?.is_generic))
+        const is_fn_body = nav_ty.zigTypeTag(zcu) == .Fn;
+        if ((!is_fn_body and !nav_ty.hasRuntimeBits(pt)) or
+            (is_fn_body and zcu.typeToFunc(nav_ty).?.is_generic))
         {
             return o.lowerPtrToVoid(ptr_ty);
         }
 
         const llvm_global = if (is_fn_body)
-            (try o.resolveLlvmFunction(decl_index)).ptrConst(&o.builder).global
+            (try o.resolveLlvmFunction(owner_nav_index)).ptrConst(&o.builder).global
         else
-            (try o.resolveGlobalDecl(decl_index)).ptrConst(&o.builder).global;
+            (try o.resolveGlobalNav(owner_nav_index)).ptrConst(&o.builder).global;
 
         const llvm_val = try o.builder.convConst(
             llvm_global.toConst(),
-            try o.builder.ptrType(toLlvmAddressSpace(decl.@"addrspace", mod.getTarget())),
+            try o.builder.ptrType(toLlvmAddressSpace(owner_nav.status.resolved.@"addrspace", zcu.getTarget())),
         );
 
         return o.builder.convConst(llvm_val, try o.lowerType(ptr_ty));
@@ -4551,18 +4538,16 @@ pub const Object = struct {
         const ip = &zcu.intern_pool;
         const enum_type = ip.loadEnumType(enum_ty.toIntern());
 
-        // TODO: detect when the type changes and re-emit this function.
-        const gop = try o.decl_map.getOrPut(o.gpa, enum_type.decl);
+        const gop = try o.enum_tag_name_map.getOrPut(o.gpa, enum_ty.toIntern());
         if (gop.found_existing) return gop.value_ptr.ptrConst(&o.builder).kind.function;
-        errdefer assert(o.decl_map.remove(enum_type.decl));
+        errdefer assert(o.enum_tag_name_map.remove(enum_ty.toIntern()));
 
         const usize_ty = try o.lowerType(Type.usize);
         const ret_ty = try o.lowerType(Type.slice_const_u8_sentinel_0);
-        const decl = zcu.declPtr(enum_type.decl);
         const target = zcu.root_mod.resolved_target.result;
         const function_index = try o.builder.addFunction(
             try o.builder.fnType(ret_ty, &.{try o.lowerType(Type.fromInterned(enum_type.tag_ty))}, .normal),
-            try o.builder.strtabStringFmt("__zig_tag_name_{}", .{decl.fqn.fmt(ip)}),
+            try o.builder.strtabStringFmt("__zig_tag_name_{}", .{enum_type.name.fmt(ip)}),
             toLlvmAddressSpace(.generic, target),
         );
 
@@ -4622,86 +4607,73 @@ pub const Object = struct {
     }
 };
 
-pub const DeclGen = struct {
+pub const NavGen = struct {
     object: *Object,
-    decl: *Zcu.Decl,
-    decl_index: InternPool.DeclIndex,
+    nav_index: InternPool.Nav.Index,
     err_msg: ?*Zcu.ErrorMsg,
 
-    fn ownerModule(dg: DeclGen) *Package.Module {
-        const o = dg.object;
-        const zcu = o.pt.zcu;
-        const namespace = zcu.namespacePtr(dg.decl.src_namespace);
-        const file_scope = namespace.fileScope(zcu);
-        return file_scope.mod;
+    fn ownerModule(ng: NavGen) *Package.Module {
+        return ng.object.pt.zcu.navFileScope(ng.nav_index).mod;
     }
 
-    fn todo(dg: *DeclGen, comptime format: []const u8, args: anytype) Error {
+    fn todo(ng: *NavGen, comptime format: []const u8, args: anytype) Error {
         @setCold(true);
-        assert(dg.err_msg == null);
-        const o = dg.object;
+        assert(ng.err_msg == null);
+        const o = ng.object;
         const gpa = o.gpa;
-        const src_loc = dg.decl.navSrcLoc(o.pt.zcu);
-        dg.err_msg = try Zcu.ErrorMsg.create(gpa, src_loc, "TODO (LLVM): " ++ format, args);
+        const src_loc = o.pt.zcu.navSrcLoc(ng.nav_index);
+        ng.err_msg = try Zcu.ErrorMsg.create(gpa, src_loc, "TODO (LLVM): " ++ format, args);
         return error.CodegenFail;
     }
 
-    fn genDecl(dg: *DeclGen) !void {
-        const o = dg.object;
+    fn genDecl(ng: *NavGen) !void {
+        const o = ng.object;
         const pt = o.pt;
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
-        const decl = dg.decl;
-        const decl_index = dg.decl_index;
-        assert(decl.has_tv);
+        const nav_index = ng.nav_index;
+        const nav = ip.getNav(nav_index);
+        const resolved = nav.status.resolved;
 
-        if (decl.val.getExternFunc(zcu)) |extern_func| {
-            _ = try o.resolveLlvmFunction(extern_func.decl);
+        const is_extern, const lib_name, const is_threadlocal, const is_weak_linkage, const is_const, const init_val, const owner_nav = switch (ip.indexToKey(resolved.val)) {
+            .variable => |variable| .{ false, variable.lib_name, variable.is_threadlocal, variable.is_weak_linkage, false, variable.init, variable.owner_nav },
+            .@"extern" => |@"extern"| .{ true, @"extern".lib_name, @"extern".is_threadlocal, @"extern".is_weak_linkage, @"extern".is_const, .none, @"extern".owner_nav },
+            else => .{ false, .none, false, false, true, resolved.val, nav_index },
+        };
+        const ty = Type.fromInterned(nav.typeOf(ip));
+
+        if (is_extern and ip.isFunctionType(ty.toIntern())) {
+            _ = try o.resolveLlvmFunction(owner_nav);
         } else {
-            const variable_index = try o.resolveGlobalDecl(decl_index);
-            variable_index.setAlignment(
-                decl.getAlignment(pt).toLlvm(),
-                &o.builder,
-            );
-            if (decl.@"linksection".toSlice(ip)) |section|
+            const variable_index = try o.resolveGlobalNav(nav_index);
+            variable_index.setAlignment(pt.navAlignment(nav_index).toLlvm(), &o.builder);
+            if (resolved.@"linksection".toSlice(ip)) |section|
                 variable_index.setSection(try o.builder.string(section), &o.builder);
-            assert(decl.has_tv);
-            const init_val = if (decl.val.getVariable(zcu)) |decl_var| decl_var.init else init_val: {
-                variable_index.setMutability(.constant, &o.builder);
-                break :init_val decl.val.toIntern();
-            };
+            if (is_const) variable_index.setMutability(.constant, &o.builder);
             try variable_index.setInitializer(switch (init_val) {
                 .none => .no_init,
                 else => try o.lowerValue(init_val),
             }, &o.builder);
 
-            if (decl.val.getVariable(zcu)) |decl_var| {
-                const decl_namespace = zcu.namespacePtr(decl.src_namespace);
-                const single_threaded = decl_namespace.fileScope(zcu).mod.single_threaded;
-                variable_index.setThreadLocal(
-                    if (decl_var.is_threadlocal and !single_threaded) .generaldynamic else .default,
-                    &o.builder,
-                );
-            }
+            const file_scope = zcu.navFileScopeIndex(nav_index);
+            const mod = zcu.fileByIndex(file_scope).mod;
+            if (is_threadlocal and !mod.single_threaded)
+                variable_index.setThreadLocal(.generaldynamic, &o.builder);
 
-            const line_number = decl.navSrcLine(zcu) + 1;
+            const line_number = zcu.navSrcLine(nav_index) + 1;
 
-            const namespace = zcu.namespacePtr(decl.src_namespace);
-            const file_scope = namespace.fileScope(zcu);
-            const owner_mod = file_scope.mod;
-
-            if (!owner_mod.strip) {
+            if (!mod.strip) {
                 const debug_file = try o.getDebugFile(file_scope);
 
                 const debug_global_var = try o.builder.debugGlobalVar(
-                    try o.builder.metadataString(decl.name.toSlice(ip)), // Name
+                    try o.builder.metadataString(nav.name.toSlice(ip)), // Name
                     try o.builder.metadataStringFromStrtabString(variable_index.name(&o.builder)), // Linkage name
                     debug_file, // File
                     debug_file, // Scope
                     line_number,
-                    try o.lowerDebugType(decl.typeOf(zcu)),
+                    try o.lowerDebugType(ty),
                     variable_index,
-                    .{ .local = !decl.isExtern(zcu) },
+                    .{ .local = !is_extern },
                 );
 
                 const debug_expression = try o.builder.debugExpression(&.{});
@@ -4716,18 +4688,18 @@ pub const DeclGen = struct {
             }
         }
 
-        if (decl.isExtern(zcu)) {
-            const global_index = o.decl_map.get(decl_index).?;
+        if (is_extern) {
+            const global_index = o.nav_map.get(nav_index).?;
 
             const decl_name = decl_name: {
-                if (zcu.getTarget().isWasm() and decl.typeOf(zcu).zigTypeTag(zcu) == .Fn) {
-                    if (decl.getOwnedExternFunc(zcu).?.lib_name.toSlice(ip)) |lib_name| {
-                        if (!std.mem.eql(u8, lib_name, "c")) {
-                            break :decl_name try o.builder.strtabStringFmt("{}|{s}", .{ decl.name.fmt(ip), lib_name });
+                if (zcu.getTarget().isWasm() and ty.zigTypeTag(zcu) == .Fn) {
+                    if (lib_name.toSlice(ip)) |lib_name_slice| {
+                        if (!std.mem.eql(u8, lib_name_slice, "c")) {
+                            break :decl_name try o.builder.strtabStringFmt("{}|{s}", .{ nav.name.fmt(ip), lib_name_slice });
                         }
                     }
                 }
-                break :decl_name try o.builder.strtabString(decl.name.toSlice(ip));
+                break :decl_name try o.builder.strtabString(nav.name.toSlice(ip));
             };
 
             if (o.builder.getGlobal(decl_name)) |other_global| {
@@ -4744,16 +4716,14 @@ pub const DeclGen = struct {
             if (zcu.comp.config.dll_export_fns)
                 global_index.setDllStorageClass(.default, &o.builder);
 
-            if (decl.val.getVariable(zcu)) |decl_var| {
-                if (decl_var.is_weak_linkage) global_index.setLinkage(.extern_weak, &o.builder);
-            }
+            if (is_weak_linkage) global_index.setLinkage(.extern_weak, &o.builder);
         }
     }
 };
 
 pub const FuncGen = struct {
     gpa: Allocator,
-    dg: *DeclGen,
+    ng: *NavGen,
     air: Air,
     liveness: Liveness,
     wip: Builder.WipFunction,
@@ -4813,7 +4783,7 @@ pub const FuncGen = struct {
 
     fn todo(self: *FuncGen, comptime format: []const u8, args: anytype) Error {
         @setCold(true);
-        return self.dg.todo(format, args);
+        return self.ng.todo(format, args);
     }
 
     fn resolveInst(self: *FuncGen, inst: Air.Inst.Ref) !Builder.Value {
@@ -4821,13 +4791,13 @@ pub const FuncGen = struct {
         const gop = try self.func_inst_table.getOrPut(gpa, inst);
         if (gop.found_existing) return gop.value_ptr.*;
 
-        const llvm_val = try self.resolveValue((try self.air.value(inst, self.dg.object.pt)).?);
+        const llvm_val = try self.resolveValue((try self.air.value(inst, self.ng.object.pt)).?);
         gop.value_ptr.* = llvm_val.toValue();
         return llvm_val.toValue();
     }
 
     fn resolveValue(self: *FuncGen, val: Value) Error!Builder.Constant {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const ty = val.typeOf(pt.zcu);
         const llvm_val = try o.lowerValue(val.toIntern());
@@ -4853,7 +4823,7 @@ pub const FuncGen = struct {
     }
 
     fn resolveNullOptUsize(self: *FuncGen) Error!Builder.Constant {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         if (o.null_opt_usize == .no_init) {
             o.null_opt_usize = try self.resolveValue(Value.fromInterned(try pt.intern(.{ .opt = .{
@@ -4865,7 +4835,7 @@ pub const FuncGen = struct {
     }
 
     fn genBody(self: *FuncGen, body: []const Air.Inst.Index) Error!void {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const ip = &mod.intern_pool;
         const air_tags = self.air.instructions.items(.tag);
@@ -5130,20 +5100,19 @@ pub const FuncGen = struct {
         defer self.scope = old_scope;
 
         if (maybe_inline_func) |inline_func| {
-            const o = self.dg.object;
+            const o = self.ng.object;
             const pt = o.pt;
             const zcu = pt.zcu;
+            const ip = &zcu.intern_pool;
 
             const func = zcu.funcInfo(inline_func);
-            const decl_index = func.owner_decl;
-            const decl = zcu.declPtr(decl_index);
-            const namespace = zcu.namespacePtr(decl.src_namespace);
-            const file_scope = namespace.fileScope(zcu);
-            const owner_mod = file_scope.mod;
+            const nav = ip.getNav(func.owner_nav);
+            const file_scope = zcu.navFileScopeIndex(func.owner_nav);
+            const mod = zcu.fileByIndex(file_scope).mod;
 
             self.file = try o.getDebugFile(file_scope);
 
-            const line_number = decl.navSrcLine(zcu) + 1;
+            const line_number = zcu.navSrcLine(func.owner_nav) + 1;
             self.inlined = self.wip.debug_location;
 
             const fn_ty = try pt.funcType(.{
@@ -5153,15 +5122,15 @@ pub const FuncGen = struct {
 
             self.scope = try o.builder.debugSubprogram(
                 self.file,
-                try o.builder.metadataString(decl.name.toSlice(&zcu.intern_pool)),
-                try o.builder.metadataString(decl.fqn.toSlice(&zcu.intern_pool)),
+                try o.builder.metadataString(nav.name.toSlice(&zcu.intern_pool)),
+                try o.builder.metadataString(nav.fqn.toSlice(&zcu.intern_pool)),
                 line_number,
                 line_number + func.lbrace_line,
                 try o.lowerDebugType(fn_ty),
                 .{
                     .di_flags = .{ .StaticMember = true },
                     .sp_flags = .{
-                        .Optimized = owner_mod.optimize_mode != .Debug,
+                        .Optimized = mod.optimize_mode != .Debug,
                         .Definition = true,
                         .LocalToUnit = true, // TODO: we can't know this at this point, since the function could be exported later!
                     },
@@ -5169,7 +5138,7 @@ pub const FuncGen = struct {
                 o.debug_compile_unit,
             );
 
-            self.base_line = decl.navSrcLine(zcu);
+            self.base_line = zcu.navSrcLine(func.owner_nav);
             const inlined_at_location = try self.wip.debug_location.toMetadata(&o.builder);
             self.wip.debug_location = .{
                 .location = .{
@@ -5181,7 +5150,7 @@ pub const FuncGen = struct {
             };
         }
 
-        self.scope = try self.dg.object.builder.debugLexicalBlock(
+        self.scope = try self.ng.object.builder.debugLexicalBlock(
             self.scope,
             self.file,
             self.prev_dbg_line,
@@ -5212,7 +5181,7 @@ pub const FuncGen = struct {
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const extra = self.air.extraData(Air.Call, pl_op.payload);
         const args: []const Air.Inst.Ref = @ptrCast(self.air.extra[extra.end..][0..extra.data.args_len]);
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const ip = &mod.intern_pool;
@@ -5513,14 +5482,15 @@ pub const FuncGen = struct {
     }
 
     fn buildSimplePanic(fg: *FuncGen, panic_id: Zcu.PanicId) !void {
-        const o = fg.dg.object;
-        const mod = o.pt.zcu;
-        const msg_decl_index = mod.panic_messages[@intFromEnum(panic_id)].unwrap().?;
-        const msg_decl = mod.declPtr(msg_decl_index);
-        const msg_len = msg_decl.typeOf(mod).childType(mod).arrayLen(mod);
-        const msg_ptr = try o.lowerValue(msg_decl.val.toIntern());
+        const o = fg.ng.object;
+        const zcu = o.pt.zcu;
+        const ip = &zcu.intern_pool;
+        const msg_nav_index = zcu.panic_messages[@intFromEnum(panic_id)].unwrap().?;
+        const msg_nav = ip.getNav(msg_nav_index);
+        const msg_len = Type.fromInterned(msg_nav.typeOf(ip)).childType(zcu).arrayLen(zcu);
+        const msg_ptr = try o.lowerValue(msg_nav.status.resolved.val);
         const null_opt_addr_global = try fg.resolveNullOptUsize();
-        const target = mod.getTarget();
+        const target = zcu.getTarget();
         const llvm_usize = try o.lowerType(Type.usize);
         // example:
         // call fastcc void @test2.panic(
@@ -5529,10 +5499,10 @@ pub const FuncGen = struct {
         //   ptr null,                                               ; stack trace
         //   ptr @2,                                                 ; addr (null ?usize)
         // )
-        const panic_func = mod.funcInfo(mod.panic_func_index);
-        const panic_decl = mod.declPtr(panic_func.owner_decl);
-        const fn_info = mod.typeToFunc(panic_decl.typeOf(mod)).?;
-        const panic_global = try o.resolveLlvmFunction(panic_func.owner_decl);
+        const panic_func = zcu.funcInfo(zcu.panic_func_index);
+        const panic_nav = ip.getNav(panic_func.owner_nav);
+        const fn_info = zcu.typeToFunc(Type.fromInterned(panic_nav.typeOf(ip))).?;
+        const panic_global = try o.resolveLlvmFunction(panic_func.owner_nav);
         _ = try fg.wip.call(
             .normal,
             toLlvmCallConv(fn_info.cc, target),
@@ -5551,9 +5521,10 @@ pub const FuncGen = struct {
     }
 
     fn airRet(self: *FuncGen, inst: Air.Inst.Index, safety: bool) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
+        const ip = &mod.intern_pool;
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const ret_ty = self.typeOf(un_op);
 
@@ -5579,7 +5550,7 @@ pub const FuncGen = struct {
                     len,
                     if (ptr_ty.isVolatilePtr(mod)) .@"volatile" else .normal,
                 );
-                const owner_mod = self.dg.ownerModule();
+                const owner_mod = self.ng.ownerModule();
                 if (owner_mod.valgrind) {
                     try self.valgrindMarkUndef(self.ret_ptr, len);
                 }
@@ -5600,7 +5571,7 @@ pub const FuncGen = struct {
             _ = try self.wip.retVoid();
             return .none;
         }
-        const fn_info = mod.typeToFunc(self.dg.decl.typeOf(mod)).?;
+        const fn_info = mod.typeToFunc(Type.fromInterned(ip.getNav(self.ng.nav_index).typeOf(ip))).?;
         if (!ret_ty.hasRuntimeBitsIgnoreComptime(pt)) {
             if (Type.fromInterned(fn_info.return_type).isError(mod)) {
                 // Functions with an empty error set are emitted with an error code
@@ -5629,7 +5600,7 @@ pub const FuncGen = struct {
                 len,
                 .normal,
             );
-            const owner_mod = self.dg.ownerModule();
+            const owner_mod = self.ng.ownerModule();
             if (owner_mod.valgrind) {
                 try self.valgrindMarkUndef(rp, len);
             }
@@ -5657,13 +5628,14 @@ pub const FuncGen = struct {
     }
 
     fn airRetLoad(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
+        const ip = &mod.intern_pool;
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const ptr_ty = self.typeOf(un_op);
         const ret_ty = ptr_ty.childType(mod);
-        const fn_info = mod.typeToFunc(self.dg.decl.typeOf(mod)).?;
+        const fn_info = mod.typeToFunc(Type.fromInterned(ip.getNav(self.ng.nav_index).typeOf(ip))).?;
         if (!ret_ty.hasRuntimeBitsIgnoreComptime(pt)) {
             if (Type.fromInterned(fn_info.return_type).isError(mod)) {
                 // Functions with an empty error set are emitted with an error code
@@ -5687,7 +5659,7 @@ pub const FuncGen = struct {
     }
 
     fn airCVaArg(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const list = try self.resolveInst(ty_op.operand);
         const arg_ty = ty_op.ty.toType();
@@ -5697,7 +5669,7 @@ pub const FuncGen = struct {
     }
 
     fn airCVaCopy(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const src_list = try self.resolveInst(ty_op.operand);
@@ -5723,7 +5695,7 @@ pub const FuncGen = struct {
     }
 
     fn airCVaStart(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const va_list_ty = self.typeOfIndex(inst);
         const llvm_va_list_ty = try o.lowerType(va_list_ty);
@@ -5765,7 +5737,7 @@ pub const FuncGen = struct {
     }
 
     fn airCmpLtErrorsLen(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const operand = try self.resolveInst(un_op);
         const llvm_fn = try o.getCmpLtErrorsLenFunction();
@@ -5788,7 +5760,7 @@ pub const FuncGen = struct {
         lhs: Builder.Value,
         rhs: Builder.Value,
     ) Allocator.Error!Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const scalar_ty = operand_ty.scalarType(mod);
@@ -5895,7 +5867,7 @@ pub const FuncGen = struct {
         maybe_inline_func: ?InternPool.Index,
         body: []const Air.Inst.Index,
     ) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const inst_ty = self.typeOfIndex(inst);
@@ -5946,7 +5918,7 @@ pub const FuncGen = struct {
     }
 
     fn airBr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const branch = self.air.instructions.items(.data)[@intFromEnum(inst)].br;
         const block = self.blocks.get(branch.block_inst).?;
@@ -5986,7 +5958,7 @@ pub const FuncGen = struct {
     }
 
     fn airTry(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const inst = body_tail[0];
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
@@ -6001,7 +5973,7 @@ pub const FuncGen = struct {
     }
 
     fn airTryPtr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.TryPtr, ty_pl.payload);
@@ -6021,7 +5993,7 @@ pub const FuncGen = struct {
         can_elide_load: bool,
         is_unused: bool,
     ) !Builder.Value {
-        const o = fg.dg.object;
+        const o = fg.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const payload_ty = err_union_ty.errorUnionPayload(mod);
@@ -6086,7 +6058,7 @@ pub const FuncGen = struct {
     }
 
     fn airSwitchBr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const cond = try self.resolveInst(pl_op.operand);
         const switch_br = self.air.extraData(Air.SwitchBr, pl_op.payload);
@@ -6150,7 +6122,7 @@ pub const FuncGen = struct {
     }
 
     fn airLoop(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const loop = self.air.extraData(Air.Block, ty_pl.payload);
@@ -6174,7 +6146,7 @@ pub const FuncGen = struct {
     }
 
     fn airArrayToSlice(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
@@ -6193,7 +6165,7 @@ pub const FuncGen = struct {
     }
 
     fn airFloatFromInt(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
@@ -6278,7 +6250,7 @@ pub const FuncGen = struct {
     ) !Builder.Value {
         _ = fast;
 
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const target = mod.getTarget();
@@ -6340,13 +6312,13 @@ pub const FuncGen = struct {
     }
 
     fn sliceOrArrayPtr(fg: *FuncGen, ptr: Builder.Value, ty: Type) Allocator.Error!Builder.Value {
-        const o = fg.dg.object;
+        const o = fg.ng.object;
         const mod = o.pt.zcu;
         return if (ty.isSlice(mod)) fg.wip.extractValue(ptr, &.{0}, "") else ptr;
     }
 
     fn sliceOrArrayLenInBytes(fg: *FuncGen, ptr: Builder.Value, ty: Type) Allocator.Error!Builder.Value {
-        const o = fg.dg.object;
+        const o = fg.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const llvm_usize = try o.lowerType(Type.usize);
@@ -6376,7 +6348,7 @@ pub const FuncGen = struct {
     }
 
     fn airPtrSliceFieldPtr(self: *FuncGen, inst: Air.Inst.Index, index: c_uint) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const slice_ptr = try self.resolveInst(ty_op.operand);
@@ -6387,7 +6359,7 @@ pub const FuncGen = struct {
     }
 
     fn airSliceElemVal(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const inst = body_tail[0];
@@ -6411,7 +6383,7 @@ pub const FuncGen = struct {
     }
 
     fn airSliceElemPtr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
@@ -6425,7 +6397,7 @@ pub const FuncGen = struct {
     }
 
     fn airArrayElemVal(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const inst = body_tail[0];
@@ -6458,7 +6430,7 @@ pub const FuncGen = struct {
     }
 
     fn airPtrElemVal(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const inst = body_tail[0];
@@ -6484,7 +6456,7 @@ pub const FuncGen = struct {
     }
 
     fn airPtrElemPtr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
@@ -6527,7 +6499,7 @@ pub const FuncGen = struct {
     }
 
     fn airStructFieldVal(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const inst = body_tail[0];
@@ -6633,7 +6605,7 @@ pub const FuncGen = struct {
     }
 
     fn airFieldParentPtr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
@@ -6695,7 +6667,7 @@ pub const FuncGen = struct {
     }
 
     fn airDbgVarPtr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const operand = try self.resolveInst(pl_op.operand);
@@ -6727,7 +6699,7 @@ pub const FuncGen = struct {
     }
 
     fn airDbgVarVal(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const operand = try self.resolveInst(pl_op.operand);
         const operand_ty = self.typeOf(pl_op.operand);
@@ -6744,7 +6716,7 @@ pub const FuncGen = struct {
         );
 
         const pt = o.pt;
-        const owner_mod = self.dg.ownerModule();
+        const owner_mod = self.ng.ownerModule();
         if (isByRef(operand_ty, pt)) {
             _ = try self.wip.callIntrinsic(
                 .normal,
@@ -6798,7 +6770,7 @@ pub const FuncGen = struct {
         // We don't have such an assembler implemented yet though. For now,
         // this implementation feeds the inline assembly code directly to LLVM.
 
-        const o = self.dg.object;
+        const o = self.ng.object;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.Asm, ty_pl.payload);
         const is_volatile = @as(u1, @truncate(extra.data.flags >> 31)) != 0;
@@ -7179,7 +7151,7 @@ pub const FuncGen = struct {
         operand_is_ptr: bool,
         cond: Builder.IntegerCondition,
     ) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
@@ -7224,7 +7196,7 @@ pub const FuncGen = struct {
         cond: Builder.IntegerCondition,
         operand_is_ptr: bool,
     ) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
@@ -7264,7 +7236,7 @@ pub const FuncGen = struct {
     }
 
     fn airOptionalPayloadPtr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
@@ -7286,7 +7258,7 @@ pub const FuncGen = struct {
     fn airOptionalPayloadPtrSet(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         comptime assert(optional_layout_version == 3);
 
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
@@ -7318,7 +7290,7 @@ pub const FuncGen = struct {
     }
 
     fn airOptionalPayload(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const inst = body_tail[0];
@@ -7343,7 +7315,7 @@ pub const FuncGen = struct {
         body_tail: []const Air.Inst.Index,
         operand_is_ptr: bool,
     ) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const inst = body_tail[0];
@@ -7379,7 +7351,7 @@ pub const FuncGen = struct {
         inst: Air.Inst.Index,
         operand_is_ptr: bool,
     ) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
@@ -7413,7 +7385,7 @@ pub const FuncGen = struct {
     }
 
     fn airErrUnionPayloadPtrSet(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
@@ -7454,7 +7426,7 @@ pub const FuncGen = struct {
     }
 
     fn airSaveErrReturnTraceIndex(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
 
@@ -7500,7 +7472,7 @@ pub const FuncGen = struct {
     }
 
     fn airWrapOptional(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const inst = body_tail[0];
@@ -7534,7 +7506,7 @@ pub const FuncGen = struct {
     }
 
     fn airWrapErrUnionPayload(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const inst = body_tail[0];
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
@@ -7575,7 +7547,7 @@ pub const FuncGen = struct {
     }
 
     fn airWrapErrUnionErr(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const inst = body_tail[0];
@@ -7616,7 +7588,7 @@ pub const FuncGen = struct {
     }
 
     fn airWasmMemorySize(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const index = pl_op.payload;
         const llvm_usize = try o.lowerType(Type.usize);
@@ -7626,7 +7598,7 @@ pub const FuncGen = struct {
     }
 
     fn airWasmMemoryGrow(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const index = pl_op.payload;
         const llvm_isize = try o.lowerType(Type.isize);
@@ -7636,7 +7608,7 @@ pub const FuncGen = struct {
     }
 
     fn airVectorStoreElem(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const data = self.air.instructions.items(.data)[@intFromEnum(inst)].vector_store_elem;
@@ -7659,7 +7631,7 @@ pub const FuncGen = struct {
     }
 
     fn airMin(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
@@ -7679,7 +7651,7 @@ pub const FuncGen = struct {
     }
 
     fn airMax(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
@@ -7699,7 +7671,7 @@ pub const FuncGen = struct {
     }
 
     fn airSlice(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
         const ptr = try self.resolveInst(bin_op.lhs);
@@ -7709,7 +7681,7 @@ pub const FuncGen = struct {
     }
 
     fn airAdd(self: *FuncGen, inst: Air.Inst.Index, fast: Builder.FastMathKind) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
@@ -7727,7 +7699,7 @@ pub const FuncGen = struct {
         signed_intrinsic: Builder.Intrinsic,
         unsigned_intrinsic: Builder.Intrinsic,
     ) !Builder.Value {
-        const o = fg.dg.object;
+        const o = fg.ng.object;
         const mod = o.pt.zcu;
 
         const bin_op = fg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
@@ -7775,7 +7747,7 @@ pub const FuncGen = struct {
     }
 
     fn airAddSat(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
@@ -7795,7 +7767,7 @@ pub const FuncGen = struct {
     }
 
     fn airSub(self: *FuncGen, inst: Air.Inst.Index, fast: Builder.FastMathKind) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
@@ -7816,7 +7788,7 @@ pub const FuncGen = struct {
     }
 
     fn airSubSat(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
@@ -7836,7 +7808,7 @@ pub const FuncGen = struct {
     }
 
     fn airMul(self: *FuncGen, inst: Air.Inst.Index, fast: Builder.FastMathKind) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
@@ -7857,7 +7829,7 @@ pub const FuncGen = struct {
     }
 
     fn airMulSat(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
@@ -7886,7 +7858,7 @@ pub const FuncGen = struct {
     }
 
     fn airDivTrunc(self: *FuncGen, inst: Air.Inst.Index, fast: Builder.FastMathKind) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
@@ -7902,7 +7874,7 @@ pub const FuncGen = struct {
     }
 
     fn airDivFloor(self: *FuncGen, inst: Air.Inst.Index, fast: Builder.FastMathKind) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
@@ -7934,7 +7906,7 @@ pub const FuncGen = struct {
     }
 
     fn airDivExact(self: *FuncGen, inst: Air.Inst.Index, fast: Builder.FastMathKind) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
@@ -7952,7 +7924,7 @@ pub const FuncGen = struct {
     }
 
     fn airRem(self: *FuncGen, inst: Air.Inst.Index, fast: Builder.FastMathKind) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
@@ -7969,7 +7941,7 @@ pub const FuncGen = struct {
     }
 
     fn airMod(self: *FuncGen, inst: Air.Inst.Index, fast: Builder.FastMathKind) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const lhs = try self.resolveInst(bin_op.lhs);
@@ -8005,7 +7977,7 @@ pub const FuncGen = struct {
     }
 
     fn airPtrAdd(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
@@ -8027,7 +7999,7 @@ pub const FuncGen = struct {
     }
 
     fn airPtrSub(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const bin_op = self.air.extraData(Air.Bin, ty_pl.payload).data;
@@ -8055,7 +8027,7 @@ pub const FuncGen = struct {
         signed_intrinsic: Builder.Intrinsic,
         unsigned_intrinsic: Builder.Intrinsic,
     ) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
@@ -8109,7 +8081,7 @@ pub const FuncGen = struct {
         result_vector: Builder.Value,
         vector_len: usize,
     ) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         assert(args_vectors.len <= 3);
 
         var i: usize = 0;
@@ -8141,7 +8113,7 @@ pub const FuncGen = struct {
         param_types: []const Builder.Type,
         return_type: Builder.Type,
     ) Allocator.Error!Builder.Function.Index {
-        const o = self.dg.object;
+        const o = self.ng.object;
         if (o.builder.getGlobal(fn_name)) |global| return switch (global.ptrConst(&o.builder).kind) {
             .alias => |alias| alias.getAliasee(&o.builder).ptrConst(&o.builder).kind.function,
             .function => |function| function,
@@ -8163,7 +8135,7 @@ pub const FuncGen = struct {
         ty: Type,
         params: [2]Builder.Value,
     ) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const target = mod.getTarget();
         const scalar_ty = ty.scalarType(mod);
@@ -8269,7 +8241,7 @@ pub const FuncGen = struct {
         comptime params_len: usize,
         params: [params_len]Builder.Value,
     ) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const target = mod.getTarget();
         const scalar_ty = ty.scalarType(mod);
@@ -8410,7 +8382,7 @@ pub const FuncGen = struct {
     }
 
     fn airShlWithOverflow(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
@@ -8481,7 +8453,7 @@ pub const FuncGen = struct {
     }
 
     fn airShlExact(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
@@ -8499,7 +8471,7 @@ pub const FuncGen = struct {
     }
 
     fn airShl(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
         const lhs = try self.resolveInst(bin_op.lhs);
@@ -8512,7 +8484,7 @@ pub const FuncGen = struct {
     }
 
     fn airShlSat(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
@@ -8555,7 +8527,7 @@ pub const FuncGen = struct {
     }
 
     fn airShr(self: *FuncGen, inst: Air.Inst.Index, is_exact: bool) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
@@ -8574,7 +8546,7 @@ pub const FuncGen = struct {
     }
 
     fn airAbs(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
@@ -8596,7 +8568,7 @@ pub const FuncGen = struct {
     }
 
     fn airIntCast(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const dest_ty = self.typeOfIndex(inst);
@@ -8612,7 +8584,7 @@ pub const FuncGen = struct {
     }
 
     fn airTrunc(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
         const dest_llvm_ty = try o.lowerType(self.typeOfIndex(inst));
@@ -8620,7 +8592,7 @@ pub const FuncGen = struct {
     }
 
     fn airFptrunc(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
@@ -8654,7 +8626,7 @@ pub const FuncGen = struct {
     }
 
     fn airFpext(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
@@ -8694,7 +8666,7 @@ pub const FuncGen = struct {
     }
 
     fn airIntFromPtr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const operand = try self.resolveInst(un_op);
         const ptr_ty = self.typeOf(un_op);
@@ -8712,7 +8684,7 @@ pub const FuncGen = struct {
     }
 
     fn bitCast(self: *FuncGen, operand: Builder.Value, operand_ty: Type, inst_ty: Type) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const operand_is_ref = isByRef(operand_ty, pt);
@@ -8737,7 +8709,7 @@ pub const FuncGen = struct {
         if (operand_ty.zigTypeTag(mod) == .Vector and inst_ty.zigTypeTag(mod) == .Array) {
             const elem_ty = operand_ty.childType(mod);
             if (!result_is_ref) {
-                return self.dg.todo("implement bitcast vector to non-ref array", .{});
+                return self.ng.todo("implement bitcast vector to non-ref array", .{});
             }
             const alignment = inst_ty.abiAlignment(pt).toLlvm();
             const array_ptr = try self.buildAllocaWorkaround(inst_ty, alignment);
@@ -8764,7 +8736,7 @@ pub const FuncGen = struct {
         } else if (operand_ty.zigTypeTag(mod) == .Array and inst_ty.zigTypeTag(mod) == .Vector) {
             const elem_ty = operand_ty.childType(mod);
             const llvm_vector_ty = try o.lowerType(inst_ty);
-            if (!operand_is_ref) return self.dg.todo("implement bitcast non-ref array to vector", .{});
+            if (!operand_is_ref) return self.ng.todo("implement bitcast non-ref array to vector", .{});
 
             const bitcast_ok = elem_ty.bitSize(pt) == elem_ty.abiSize(pt) * 8;
             if (bitcast_ok) {
@@ -8829,9 +8801,9 @@ pub const FuncGen = struct {
     }
 
     fn airArg(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
-        const mod = pt.zcu;
+        const zcu = pt.zcu;
         const arg_val = self.args[self.arg_index];
         self.arg_index += 1;
 
@@ -8844,9 +8816,8 @@ pub const FuncGen = struct {
         const name = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
         if (name == .none) return arg_val;
 
-        const func_index = self.dg.decl.getOwnedFunctionIndex();
-        const func = mod.funcInfo(func_index);
-        const lbrace_line = mod.declPtr(func.owner_decl).navSrcLine(mod) + func.lbrace_line + 1;
+        const func = zcu.funcInfo(zcu.navValue(self.ng.nav_index).toIntern());
+        const lbrace_line = zcu.navSrcLine(func.owner_nav) + func.lbrace_line + 1;
         const lbrace_col = func.lbrace_column + 1;
 
         const debug_parameter = try o.builder.debugParameter(
@@ -8868,7 +8839,7 @@ pub const FuncGen = struct {
             },
         };
 
-        const owner_mod = self.dg.ownerModule();
+        const mod = self.ng.ownerModule();
         if (isByRef(inst_ty, pt)) {
             _ = try self.wip.callIntrinsic(
                 .normal,
@@ -8882,7 +8853,7 @@ pub const FuncGen = struct {
                 },
                 "",
             );
-        } else if (owner_mod.optimize_mode == .Debug) {
+        } else if (mod.optimize_mode == .Debug) {
             const alignment = inst_ty.abiAlignment(pt).toLlvm();
             const alloca = try self.buildAlloca(arg_val.typeOfWip(&self.wip), alignment);
             _ = try self.wip.store(.normal, arg_val, alloca, alignment);
@@ -8918,7 +8889,7 @@ pub const FuncGen = struct {
     }
 
     fn airAlloc(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const ptr_ty = self.typeOfIndex(inst);
@@ -8932,7 +8903,7 @@ pub const FuncGen = struct {
     }
 
     fn airRetPtr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const ptr_ty = self.typeOfIndex(inst);
@@ -8952,7 +8923,7 @@ pub const FuncGen = struct {
         llvm_ty: Builder.Type,
         alignment: Builder.Alignment,
     ) Allocator.Error!Builder.Value {
-        const target = self.dg.object.pt.zcu.getTarget();
+        const target = self.ng.object.pt.zcu.getTarget();
         return buildAllocaInner(&self.wip, llvm_ty, alignment, target);
     }
 
@@ -8962,12 +8933,12 @@ pub const FuncGen = struct {
         ty: Type,
         alignment: Builder.Alignment,
     ) Allocator.Error!Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         return self.buildAlloca(try o.builder.arrayType(ty.abiSize(o.pt), .i8), alignment);
     }
 
     fn airStore(self: *FuncGen, inst: Air.Inst.Index, safety: bool) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
@@ -8977,7 +8948,7 @@ pub const FuncGen = struct {
 
         const val_is_undef = if (try self.air.value(bin_op.rhs, pt)) |val| val.isUndefDeep(mod) else false;
         if (val_is_undef) {
-            const owner_mod = self.dg.ownerModule();
+            const owner_mod = self.ng.ownerModule();
 
             // Even if safety is disabled, we still emit a memset to undefined since it conveys
             // extra information to LLVM, and LLVM will optimize it out. Safety makes the difference
@@ -9027,7 +8998,7 @@ pub const FuncGen = struct {
     ///
     /// The first instruction of `body_tail` is the one whose copy we want to elide.
     fn canElideLoad(fg: *FuncGen, body_tail: []const Air.Inst.Index) bool {
-        const o = fg.dg.object;
+        const o = fg.ng.object;
         const mod = o.pt.zcu;
         const ip = &mod.intern_pool;
         for (body_tail[1..]) |body_inst| {
@@ -9043,7 +9014,7 @@ pub const FuncGen = struct {
     }
 
     fn airLoad(fg: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
-        const o = fg.dg.object;
+        const o = fg.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const inst = body_tail[0];
@@ -9075,7 +9046,7 @@ pub const FuncGen = struct {
 
     fn airRetAddr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         _ = inst;
-        const o = self.dg.object;
+        const o = self.ng.object;
         const llvm_usize = try o.lowerType(Type.usize);
         if (!target_util.supportsReturnAddress(o.pt.zcu.getTarget())) {
             // https://github.com/ziglang/zig/issues/11946
@@ -9087,7 +9058,7 @@ pub const FuncGen = struct {
 
     fn airFrameAddress(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         _ = inst;
-        const o = self.dg.object;
+        const o = self.ng.object;
         const result = try self.wip.callIntrinsic(.normal, .none, .frameaddress, &.{.ptr}, &.{.@"0"}, "");
         return self.wip.cast(.ptrtoint, result, try o.lowerType(Type.usize), "");
     }
@@ -9104,7 +9075,7 @@ pub const FuncGen = struct {
         inst: Air.Inst.Index,
         kind: Builder.Function.Instruction.CmpXchg.Kind,
     ) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
@@ -9155,7 +9126,7 @@ pub const FuncGen = struct {
     }
 
     fn airAtomicRmw(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
@@ -9219,7 +9190,7 @@ pub const FuncGen = struct {
     }
 
     fn airAtomicLoad(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const atomic_load = self.air.instructions.items(.data)[@intFromEnum(inst)].atomic_load;
@@ -9267,7 +9238,7 @@ pub const FuncGen = struct {
         inst: Air.Inst.Index,
         ordering: Builder.AtomicOrdering,
     ) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
@@ -9292,7 +9263,7 @@ pub const FuncGen = struct {
     }
 
     fn airMemset(self: *FuncGen, inst: Air.Inst.Index, safety: bool) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
@@ -9327,7 +9298,7 @@ pub const FuncGen = struct {
                 } else {
                     _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
                 }
-                const owner_mod = self.dg.ownerModule();
+                const owner_mod = self.ng.ownerModule();
                 if (safety and owner_mod.valgrind) {
                     try self.valgrindMarkUndef(dest_ptr, len);
                 }
@@ -9433,7 +9404,7 @@ pub const FuncGen = struct {
         dest_ptr_align: Builder.Alignment,
         access_kind: Builder.MemoryAccessKind,
     ) !void {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const usize_zero = try o.builder.intValue(try o.lowerType(Type.usize), 0);
         const cond = try self.cmp(.normal, .neq, Type.usize, len, usize_zero);
         const memset_block = try self.wip.block(1, "MemsetTrapSkip");
@@ -9446,7 +9417,7 @@ pub const FuncGen = struct {
     }
 
     fn airMemcpy(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
@@ -9500,7 +9471,7 @@ pub const FuncGen = struct {
     }
 
     fn airSetUnionTag(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
@@ -9522,7 +9493,7 @@ pub const FuncGen = struct {
     }
 
     fn airGetUnionTag(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const un_ty = self.typeOf(ty_op.operand);
@@ -9561,7 +9532,7 @@ pub const FuncGen = struct {
     }
 
     fn airClzCtz(self: *FuncGen, inst: Air.Inst.Index, intrinsic: Builder.Intrinsic) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const inst_ty = self.typeOfIndex(inst);
         const operand_ty = self.typeOf(ty_op.operand);
@@ -9579,7 +9550,7 @@ pub const FuncGen = struct {
     }
 
     fn airBitOp(self: *FuncGen, inst: Air.Inst.Index, intrinsic: Builder.Intrinsic) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const inst_ty = self.typeOfIndex(inst);
         const operand_ty = self.typeOf(ty_op.operand);
@@ -9597,7 +9568,7 @@ pub const FuncGen = struct {
     }
 
     fn airByteSwap(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_ty = self.typeOf(ty_op.operand);
@@ -9631,7 +9602,7 @@ pub const FuncGen = struct {
     }
 
     fn airErrorSetHasValue(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const ip = &mod.intern_pool;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
@@ -9663,7 +9634,7 @@ pub const FuncGen = struct {
     }
 
     fn airIsNamedEnumValue(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const operand = try self.resolveInst(un_op);
         const enum_ty = self.typeOf(un_op);
@@ -9681,22 +9652,21 @@ pub const FuncGen = struct {
     }
 
     fn getIsNamedEnumValueFunction(self: *FuncGen, enum_ty: Type) !Builder.Function.Index {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
         const enum_type = ip.loadEnumType(enum_ty.toIntern());
 
         // TODO: detect when the type changes and re-emit this function.
-        const gop = try o.named_enum_map.getOrPut(o.gpa, enum_type.decl);
+        const gop = try o.named_enum_map.getOrPut(o.gpa, enum_ty.toIntern());
         if (gop.found_existing) return gop.value_ptr.*;
-        errdefer assert(o.named_enum_map.remove(enum_type.decl));
+        errdefer assert(o.named_enum_map.remove(enum_ty.toIntern()));
 
-        const decl = zcu.declPtr(enum_type.decl);
         const target = zcu.root_mod.resolved_target.result;
         const function_index = try o.builder.addFunction(
             try o.builder.fnType(.i1, &.{try o.lowerType(Type.fromInterned(enum_type.tag_ty))}, .normal),
-            try o.builder.strtabStringFmt("__zig_is_named_enum_value_{}", .{decl.fqn.fmt(ip)}),
+            try o.builder.strtabStringFmt("__zig_is_named_enum_value_{}", .{enum_type.name.fmt(ip)}),
             toLlvmAddressSpace(.generic, target),
         );
 
@@ -9739,7 +9709,7 @@ pub const FuncGen = struct {
     }
 
     fn airTagName(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const operand = try self.resolveInst(un_op);
         const enum_ty = self.typeOf(un_op);
@@ -9757,7 +9727,7 @@ pub const FuncGen = struct {
     }
 
     fn airErrorName(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const operand = try self.resolveInst(un_op);
         const slice_ty = self.typeOfIndex(inst);
@@ -9772,7 +9742,7 @@ pub const FuncGen = struct {
     }
 
     fn airSplat(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const scalar = try self.resolveInst(ty_op.operand);
         const vector_ty = self.typeOfIndex(inst);
@@ -9790,7 +9760,7 @@ pub const FuncGen = struct {
     }
 
     fn airShuffle(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
@@ -9846,7 +9816,7 @@ pub const FuncGen = struct {
         vector_len: usize,
         accum_init: Builder.Value,
     ) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const usize_ty = try o.lowerType(Type.usize);
         const llvm_vector_len = try o.builder.intValue(usize_ty, vector_len);
         const llvm_result_ty = accum_init.typeOfWip(&self.wip);
@@ -9900,7 +9870,7 @@ pub const FuncGen = struct {
     }
 
     fn airReduce(self: *FuncGen, inst: Air.Inst.Index, fast: Builder.FastMathKind) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const mod = o.pt.zcu;
         const target = mod.getTarget();
 
@@ -10010,7 +9980,7 @@ pub const FuncGen = struct {
     }
 
     fn airAggregateInit(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const ip = &mod.intern_pool;
@@ -10131,7 +10101,7 @@ pub const FuncGen = struct {
     }
 
     fn airUnionInit(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const ip = &mod.intern_pool;
@@ -10254,7 +10224,7 @@ pub const FuncGen = struct {
     }
 
     fn airPrefetch(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const prefetch = self.air.instructions.items(.data)[@intFromEnum(inst)].prefetch;
 
         comptime assert(@intFromEnum(std.builtin.PrefetchOptions.Rw.read) == 0);
@@ -10304,7 +10274,7 @@ pub const FuncGen = struct {
     }
 
     fn airAddrSpaceCast(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const inst_ty = self.typeOfIndex(inst);
         const operand = try self.resolveInst(ty_op.operand);
@@ -10322,12 +10292,12 @@ pub const FuncGen = struct {
             0 => @field(Builder.Intrinsic, basename ++ ".x"),
             1 => @field(Builder.Intrinsic, basename ++ ".y"),
             2 => @field(Builder.Intrinsic, basename ++ ".z"),
-            else => return self.dg.object.builder.intValue(.i32, default),
+            else => return self.ng.object.builder.intValue(.i32, default),
         }, &.{}, &.{}, "");
     }
 
     fn airWorkItemId(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const target = o.pt.zcu.getTarget();
         assert(target.cpu.arch == .amdgcn); // TODO is to port this function to other GPU architectures
 
@@ -10337,7 +10307,7 @@ pub const FuncGen = struct {
     }
 
     fn airWorkGroupSize(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const target = o.pt.zcu.getTarget();
         assert(target.cpu.arch == .amdgcn); // TODO is to port this function to other GPU architectures
 
@@ -10360,7 +10330,7 @@ pub const FuncGen = struct {
     }
 
     fn airWorkGroupId(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const target = o.pt.zcu.getTarget();
         assert(target.cpu.arch == .amdgcn); // TODO is to port this function to other GPU architectures
 
@@ -10370,7 +10340,7 @@ pub const FuncGen = struct {
     }
 
     fn getErrorNameTable(self: *FuncGen) Allocator.Error!Builder.Variable.Index {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
 
         const table = o.error_name_table;
@@ -10399,7 +10369,7 @@ pub const FuncGen = struct {
         opt_handle: Builder.Value,
         is_by_ref: bool,
     ) Allocator.Error!Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const field = b: {
             if (is_by_ref) {
                 const field_ptr = try self.wip.gepStruct(opt_llvm_ty, opt_handle, 1, "");
@@ -10420,7 +10390,7 @@ pub const FuncGen = struct {
         opt_ty: Type,
         can_elide_load: bool,
     ) !Builder.Value {
-        const o = fg.dg.object;
+        const o = fg.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const payload_ty = opt_ty.optionalChild(mod);
@@ -10449,7 +10419,7 @@ pub const FuncGen = struct {
         payload: Builder.Value,
         non_null_bit: Builder.Value,
     ) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const optional_llvm_ty = try o.lowerType(optional_ty);
         const non_null_field = try self.wip.cast(.zext, non_null_bit, .i8, "");
@@ -10481,7 +10451,7 @@ pub const FuncGen = struct {
         struct_ptr_ty: Type,
         field_index: u32,
     ) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const struct_ty = struct_ptr_ty.childType(mod);
@@ -10550,7 +10520,7 @@ pub const FuncGen = struct {
         // "When loading a value of a type like i20 with a size that is not an integral number of bytes, the result is undefined if the value was not originally written using a store of the same type. "
         // => so load the byte aligned value and trunc the unwanted bits.
 
-        const o = fg.dg.object;
+        const o = fg.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const payload_llvm_ty = try o.lowerType(payload_ty);
@@ -10597,7 +10567,7 @@ pub const FuncGen = struct {
         ptr_alignment: Builder.Alignment,
         access_kind: Builder.MemoryAccessKind,
     ) !Builder.Value {
-        const o = fg.dg.object;
+        const o = fg.ng.object;
         const pt = o.pt;
         //const pointee_llvm_ty = try o.lowerType(pointee_type);
         const result_align = InternPool.Alignment.fromLlvm(ptr_alignment).max(pointee_type.abiAlignment(pt)).toLlvm();
@@ -10618,7 +10588,7 @@ pub const FuncGen = struct {
     /// alloca and copies the value into it, then returns the alloca instruction.
     /// For isByRef=false types, it creates a load instruction and returns it.
     fn load(self: *FuncGen, ptr: Builder.Value, ptr_ty: Type) !Builder.Value {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const info = ptr_ty.ptrInfo(mod);
@@ -10691,7 +10661,7 @@ pub const FuncGen = struct {
         elem: Builder.Value,
         ordering: Builder.AtomicOrdering,
     ) !void {
-        const o = self.dg.object;
+        const o = self.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const info = ptr_ty.ptrInfo(mod);
@@ -10782,7 +10752,7 @@ pub const FuncGen = struct {
 
     fn valgrindMarkUndef(fg: *FuncGen, ptr: Builder.Value, len: Builder.Value) Allocator.Error!void {
         const VG_USERREQ__MAKE_MEM_UNDEFINED = 1296236545;
-        const o = fg.dg.object;
+        const o = fg.ng.object;
         const usize_ty = try o.lowerType(Type.usize);
         const zero = try o.builder.intValue(usize_ty, 0);
         const req = try o.builder.intValue(usize_ty, VG_USERREQ__MAKE_MEM_UNDEFINED);
@@ -10800,7 +10770,7 @@ pub const FuncGen = struct {
         a4: Builder.Value,
         a5: Builder.Value,
     ) Allocator.Error!Builder.Value {
-        const o = fg.dg.object;
+        const o = fg.ng.object;
         const pt = o.pt;
         const mod = pt.zcu;
         const target = mod.getTarget();
@@ -10867,13 +10837,13 @@ pub const FuncGen = struct {
     }
 
     fn typeOf(fg: *FuncGen, inst: Air.Inst.Ref) Type {
-        const o = fg.dg.object;
+        const o = fg.ng.object;
         const mod = o.pt.zcu;
         return fg.air.typeOf(inst, &mod.intern_pool);
     }
 
     fn typeOfIndex(fg: *FuncGen, inst: Air.Inst.Index) Type {
-        const o = fg.dg.object;
+        const o = fg.ng.object;
         const mod = o.pt.zcu;
         return fg.air.typeOfIndex(inst, &mod.intern_pool);
     }

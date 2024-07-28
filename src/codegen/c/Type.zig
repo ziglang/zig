@@ -449,18 +449,18 @@ pub fn info(ctype: CType, pool: *const Pool) Info {
         },
         .fwd_decl_struct => return .{ .fwd_decl = .{
             .tag = .@"struct",
-            .name = .{ .owner_decl = @enumFromInt(item.data) },
+            .name = .{ .index = @enumFromInt(item.data) },
         } },
         .fwd_decl_union => return .{ .fwd_decl = .{
             .tag = .@"union",
-            .name = .{ .owner_decl = @enumFromInt(item.data) },
+            .name = .{ .index = @enumFromInt(item.data) },
         } },
         .aggregate_struct_anon => {
             const extra_trail = pool.getExtraTrail(Pool.AggregateAnon, item.data);
             return .{ .aggregate = .{
                 .tag = .@"struct",
                 .name = .{ .anon = .{
-                    .owner_decl = extra_trail.extra.owner_decl,
+                    .index = extra_trail.extra.index,
                     .id = extra_trail.extra.id,
                 } },
                 .fields = .{
@@ -474,7 +474,7 @@ pub fn info(ctype: CType, pool: *const Pool) Info {
             return .{ .aggregate = .{
                 .tag = .@"union",
                 .name = .{ .anon = .{
-                    .owner_decl = extra_trail.extra.owner_decl,
+                    .index = extra_trail.extra.index,
                     .id = extra_trail.extra.id,
                 } },
                 .fields = .{
@@ -489,7 +489,7 @@ pub fn info(ctype: CType, pool: *const Pool) Info {
                 .tag = .@"struct",
                 .@"packed" = true,
                 .name = .{ .anon = .{
-                    .owner_decl = extra_trail.extra.owner_decl,
+                    .index = extra_trail.extra.index,
                     .id = extra_trail.extra.id,
                 } },
                 .fields = .{
@@ -504,7 +504,7 @@ pub fn info(ctype: CType, pool: *const Pool) Info {
                 .tag = .@"union",
                 .@"packed" = true,
                 .name = .{ .anon = .{
-                    .owner_decl = extra_trail.extra.owner_decl,
+                    .index = extra_trail.extra.index,
                     .id = extra_trail.extra.id,
                 } },
                 .fields = .{
@@ -834,7 +834,7 @@ pub const Info = union(enum) {
         tag: AggregateTag,
         name: union(enum) {
             anon: Field.Slice,
-            owner_decl: DeclIndex,
+            index: InternPool.Index,
         },
     };
 
@@ -843,7 +843,7 @@ pub const Info = union(enum) {
         @"packed": bool = false,
         name: union(enum) {
             anon: struct {
-                owner_decl: DeclIndex,
+                index: InternPool.Index,
                 id: u32,
             },
             fwd_decl: CType,
@@ -885,14 +885,14 @@ pub const Info = union(enum) {
                     rhs_pool,
                     pool_adapter,
                 ),
-                .owner_decl => |lhs_owner_decl| rhs_info.fwd_decl.name == .owner_decl and
-                    lhs_owner_decl == rhs_info.fwd_decl.name.owner_decl,
+                .index => |lhs_index| rhs_info.fwd_decl.name == .index and
+                    lhs_index == rhs_info.fwd_decl.name.index,
             },
             .aggregate => |lhs_aggregate_info| lhs_aggregate_info.tag == rhs_info.aggregate.tag and
                 lhs_aggregate_info.@"packed" == rhs_info.aggregate.@"packed" and
                 switch (lhs_aggregate_info.name) {
                 .anon => |lhs_anon| rhs_info.aggregate.name == .anon and
-                    lhs_anon.owner_decl == rhs_info.aggregate.name.anon.owner_decl and
+                    lhs_anon.index == rhs_info.aggregate.name.anon.index and
                     lhs_anon.id == rhs_info.aggregate.name.anon.id,
                 .fwd_decl => |lhs_fwd_decl| rhs_info.aggregate.name == .fwd_decl and
                     pool_adapter.eql(lhs_fwd_decl, rhs_info.aggregate.name.fwd_decl),
@@ -1105,7 +1105,7 @@ pub const Pool = struct {
             tag: Info.AggregateTag,
             name: union(enum) {
                 anon: []const Info.Field,
-                owner_decl: DeclIndex,
+                index: InternPool.Index,
             },
         },
     ) !CType {
@@ -1145,13 +1145,13 @@ pub const Pool = struct {
                     .@"enum" => unreachable,
                 }, extra_index);
             },
-            .owner_decl => |owner_decl| {
-                hasher.update(owner_decl);
+            .index => |index| {
+                hasher.update(index);
                 return pool.tagData(allocator, hasher, switch (fwd_decl_info.tag) {
                     .@"struct" => .fwd_decl_struct,
                     .@"union" => .fwd_decl_union,
                     .@"enum" => unreachable,
-                }, @intFromEnum(owner_decl));
+                }, @intFromEnum(index));
             },
         }
     }
@@ -1164,7 +1164,7 @@ pub const Pool = struct {
             @"packed": bool = false,
             name: union(enum) {
                 anon: struct {
-                    owner_decl: DeclIndex,
+                    index: InternPool.Index,
                     id: u32,
                 },
                 fwd_decl: CType,
@@ -1176,7 +1176,7 @@ pub const Pool = struct {
         switch (aggregate_info.name) {
             .anon => |anon| {
                 const extra: AggregateAnon = .{
-                    .owner_decl = anon.owner_decl,
+                    .index = anon.index,
                     .id = anon.id,
                     .fields_len = @intCast(aggregate_info.fields.len),
                 };
@@ -1683,7 +1683,7 @@ pub const Pool = struct {
                         .auto, .@"extern" => {
                             const fwd_decl = try pool.getFwdDecl(allocator, .{
                                 .tag = .@"struct",
-                                .name = .{ .owner_decl = loaded_struct.decl.unwrap().? },
+                                .name = .{ .index = ip_index },
                             });
                             if (kind.isForward()) return if (ty.hasRuntimeBitsIgnoreComptime(pt))
                                 fwd_decl
@@ -1822,7 +1822,7 @@ pub const Pool = struct {
                             const has_tag = loaded_union.hasTag(ip);
                             const fwd_decl = try pool.getFwdDecl(allocator, .{
                                 .tag = if (has_tag) .@"struct" else .@"union",
-                                .name = .{ .owner_decl = loaded_union.decl },
+                                .name = .{ .index = ip_index },
                             });
                             if (kind.isForward()) return if (ty.hasRuntimeBitsIgnoreComptime(pt))
                                 fwd_decl
@@ -1837,7 +1837,7 @@ pub const Pool = struct {
                             );
                             var hasher = Hasher.init;
                             var tag: Pool.Tag = .aggregate_union;
-                            var payload_align: Alignment = .@"1";
+                            var payload_align: InternPool.Alignment = .@"1";
                             for (0..loaded_union.field_types.len) |field_index| {
                                 const field_type = Type.fromInterned(
                                     loaded_union.field_types.get(ip)[field_index],
@@ -1915,7 +1915,7 @@ pub const Pool = struct {
                                         &hasher,
                                         AggregateAnon,
                                         .{
-                                            .owner_decl = loaded_union.decl,
+                                            .index = ip_index,
                                             .id = 0,
                                             .fields_len = fields_len,
                                         },
@@ -2017,7 +2017,7 @@ pub const Pool = struct {
                 .undef,
                 .simple_value,
                 .variable,
-                .extern_func,
+                .@"extern",
                 .func,
                 .int,
                 .err,
@@ -2032,7 +2032,7 @@ pub const Pool = struct {
                 .aggregate,
                 .un,
                 .memoized_call,
-                => unreachable,
+                => unreachable, // values, not types
             },
         }
     }
@@ -2123,9 +2123,9 @@ pub const Pool = struct {
                         });
                     }
                 },
-                .owner_decl => |owner_decl| pool.items.appendAssumeCapacity(.{
+                .index => |index| pool.items.appendAssumeCapacity(.{
                     .tag = tag,
-                    .data = @intFromEnum(owner_decl),
+                    .data = @intFromEnum(index),
                 }),
             },
             .aggregate => |aggregate_info| {
@@ -2133,7 +2133,7 @@ pub const Pool = struct {
                     .tag = tag,
                     .data = switch (aggregate_info.name) {
                         .anon => |anon| try pool.addExtra(allocator, AggregateAnon, .{
-                            .owner_decl = anon.owner_decl,
+                            .index = anon.index,
                             .id = anon.id,
                             .fields_len = aggregate_info.fields.len,
                         }, aggregate_info.fields.len * @typeInfo(Field).Struct.fields.len),
@@ -2221,7 +2221,7 @@ pub const Pool = struct {
                 Pool.Tag => @compileError("pass tag to final"),
                 CType, CType.Index => @compileError("hash ctype.hash(pool) instead"),
                 String, String.Index => @compileError("hash string.slice(pool) instead"),
-                u32, DeclIndex, Aligned.Flags => hasher.impl.update(std.mem.asBytes(&data)),
+                u32, InternPool.Index, Aligned.Flags => hasher.impl.update(std.mem.asBytes(&data)),
                 []const u8 => hasher.impl.update(data),
                 else => @compileError("unhandled type: " ++ @typeName(@TypeOf(data))),
             }
@@ -2426,7 +2426,7 @@ pub const Pool = struct {
     };
 
     const AggregateAnon = struct {
-        owner_decl: DeclIndex,
+        index: InternPool.Index,
         id: u32,
         fields_len: u32,
     };
@@ -2467,7 +2467,7 @@ pub const Pool = struct {
             const value = @field(extra, field.name);
             array.appendAssumeCapacity(switch (field.type) {
                 u32 => value,
-                CType.Index, String.Index, DeclIndex => @intFromEnum(value),
+                CType.Index, String.Index, InternPool.Index => @intFromEnum(value),
                 Aligned.Flags => @bitCast(value),
                 else => @compileError("bad field type: " ++ field.name ++ ": " ++
                     @typeName(field.type)),
@@ -2530,7 +2530,7 @@ pub const Pool = struct {
         inline for (fields, pool.extra.items[extra_index..][0..fields.len]) |field, value|
             @field(extra, field.name) = switch (field.type) {
                 u32 => value,
-                CType.Index, String.Index, DeclIndex => @enumFromInt(value),
+                CType.Index, String.Index, InternPool.Index => @enumFromInt(value),
                 Aligned.Flags => @bitCast(value),
                 else => @compileError("bad field type: " ++ field.name ++ ": " ++ @typeName(field.type)),
             };
@@ -2546,8 +2546,8 @@ pub const Pool = struct {
 };
 
 pub const AlignAs = packed struct {
-    @"align": Alignment,
-    abi: Alignment,
+    @"align": InternPool.Alignment,
+    abi: InternPool.Alignment,
 
     pub fn fromAlignment(alignas: AlignAs) AlignAs {
         assert(alignas.abi != .none);
@@ -2556,14 +2556,14 @@ pub const AlignAs = packed struct {
             .abi = alignas.abi,
         };
     }
-    pub fn fromAbiAlignment(abi: Alignment) AlignAs {
+    pub fn fromAbiAlignment(abi: InternPool.Alignment) AlignAs {
         assert(abi != .none);
         return .{ .@"align" = abi, .abi = abi };
     }
     pub fn fromByteUnits(@"align": u64, abi: u64) AlignAs {
         return fromAlignment(.{
-            .@"align" = Alignment.fromByteUnits(@"align"),
-            .abi = Alignment.fromNonzeroByteUnits(abi),
+            .@"align" = InternPool.Alignment.fromByteUnits(@"align"),
+            .abi = InternPool.Alignment.fromNonzeroByteUnits(abi),
         });
     }
 
@@ -2578,11 +2578,10 @@ pub const AlignAs = packed struct {
     }
 };
 
-const Alignment = @import("../../InternPool.zig").Alignment;
 const assert = std.debug.assert;
 const CType = @This();
+const InternPool = @import("../../InternPool.zig");
 const Module = @import("../../Package/Module.zig");
 const std = @import("std");
 const Type = @import("../../Type.zig");
 const Zcu = @import("../../Zcu.zig");
-const DeclIndex = @import("../../InternPool.zig").DeclIndex;

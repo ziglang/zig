@@ -9,7 +9,7 @@ src_fn_free_list: std.AutoHashMapUnmanaged(Atom.Index, void) = .{},
 src_fn_first_index: ?Atom.Index = null,
 src_fn_last_index: ?Atom.Index = null,
 src_fns: std.ArrayListUnmanaged(Atom) = .{},
-src_fn_decls: AtomTable = .{},
+src_fn_navs: AtomTable = .{},
 
 /// A list of `Atom`s whose corresponding .debug_info tags have surplus capacity.
 /// This is the same concept as `text_block_free_list`; see those doc comments.
@@ -17,7 +17,7 @@ di_atom_free_list: std.AutoHashMapUnmanaged(Atom.Index, void) = .{},
 di_atom_first_index: ?Atom.Index = null,
 di_atom_last_index: ?Atom.Index = null,
 di_atoms: std.ArrayListUnmanaged(Atom) = .{},
-di_atom_decls: AtomTable = .{},
+di_atom_navs: AtomTable = .{},
 
 dbg_line_header: DbgLineHeader,
 
@@ -27,7 +27,7 @@ abbrev_table_offset: ?u64 = null,
 /// Table of debug symbol names.
 strtab: StringTable = .{},
 
-/// Quick lookup array of all defined source files referenced by at least one Decl.
+/// Quick lookup array of all defined source files referenced by at least one Nav.
 /// They will end up in the DWARF debug_line header as two lists:
 /// * []include_directory
 /// * []file_names
@@ -35,13 +35,13 @@ di_files: std.AutoArrayHashMapUnmanaged(*const Zcu.File, void) = .{},
 
 global_abbrev_relocs: std.ArrayListUnmanaged(AbbrevRelocation) = .{},
 
-const AtomTable = std.AutoHashMapUnmanaged(InternPool.DeclIndex, Atom.Index);
+const AtomTable = std.AutoHashMapUnmanaged(InternPool.Nav.Index, Atom.Index);
 
 const Atom = struct {
-    /// Offset into .debug_info pointing to the tag for this Decl, or
+    /// Offset into .debug_info pointing to the tag for this Nav, or
     /// offset from the beginning of the Debug Line Program header that contains this function.
     off: u32,
-    /// Size of the .debug_info tag for this Decl, not including padding, or
+    /// Size of the .debug_info tag for this Nav, not including padding, or
     /// size of the line number program component belonging to this function, not
     /// including padding.
     len: u32,
@@ -61,14 +61,14 @@ const DbgLineHeader = struct {
     opcode_base: u8,
 };
 
-/// Represents state of the analysed Decl.
-/// Includes Decl's abbrev table of type Types, matching arena
+/// Represents state of the analysed Nav.
+/// Includes Nav's abbrev table of type Types, matching arena
 /// and a set of relocations that will be resolved once this
-/// Decl's inner Atom is assigned an offset within the DWARF section.
-pub const DeclState = struct {
+/// Nav's inner Atom is assigned an offset within the DWARF section.
+pub const NavState = struct {
     dwarf: *Dwarf,
     pt: Zcu.PerThread,
-    di_atom_decls: *const AtomTable,
+    di_atom_navs: *const AtomTable,
     dbg_line_func: InternPool.Index,
     dbg_line: std.ArrayList(u8),
     dbg_info: std.ArrayList(u8),
@@ -78,20 +78,20 @@ pub const DeclState = struct {
     abbrev_relocs: std.ArrayListUnmanaged(AbbrevRelocation),
     exprloc_relocs: std.ArrayListUnmanaged(ExprlocRelocation),
 
-    pub fn deinit(self: *DeclState) void {
-        const gpa = self.dwarf.allocator;
-        self.dbg_line.deinit();
-        self.dbg_info.deinit();
-        self.abbrev_type_arena.deinit();
-        self.abbrev_table.deinit(gpa);
-        self.abbrev_resolver.deinit(gpa);
-        self.abbrev_relocs.deinit(gpa);
-        self.exprloc_relocs.deinit(gpa);
+    pub fn deinit(ns: *NavState) void {
+        const gpa = ns.dwarf.allocator;
+        ns.dbg_line.deinit();
+        ns.dbg_info.deinit();
+        ns.abbrev_type_arena.deinit();
+        ns.abbrev_table.deinit(gpa);
+        ns.abbrev_resolver.deinit(gpa);
+        ns.abbrev_relocs.deinit(gpa);
+        ns.exprloc_relocs.deinit(gpa);
     }
 
     /// Adds local type relocation of the form: @offset => @this + addend
     /// @this signifies the offset within the .debug_abbrev section of the containing atom.
-    fn addTypeRelocLocal(self: *DeclState, atom_index: Atom.Index, offset: u32, addend: u32) !void {
+    fn addTypeRelocLocal(self: *NavState, atom_index: Atom.Index, offset: u32, addend: u32) !void {
         log.debug("{x}: @this + {x}", .{ offset, addend });
         try self.abbrev_relocs.append(self.dwarf.allocator, .{
             .target = null,
@@ -104,7 +104,7 @@ pub const DeclState = struct {
     /// Adds global type relocation of the form: @offset => @symbol + 0
     /// @symbol signifies a type abbreviation posititioned somewhere in the .debug_abbrev section
     /// which we use as our target of the relocation.
-    fn addTypeRelocGlobal(self: *DeclState, atom_index: Atom.Index, ty: Type, offset: u32) !void {
+    fn addTypeRelocGlobal(self: *NavState, atom_index: Atom.Index, ty: Type, offset: u32) !void {
         const gpa = self.dwarf.allocator;
         const resolv = self.abbrev_resolver.get(ty.toIntern()) orelse blk: {
             const sym_index: u32 = @intCast(self.abbrev_table.items.len);
@@ -127,7 +127,7 @@ pub const DeclState = struct {
     }
 
     fn addDbgInfoType(
-        self: *DeclState,
+        self: *NavState,
         pt: Zcu.PerThread,
         atom_index: Atom.Index,
         ty: Type,
@@ -550,15 +550,15 @@ pub const DeclState = struct {
     };
 
     pub fn genArgDbgInfo(
-        self: *DeclState,
+        self: *NavState,
         name: [:0]const u8,
         ty: Type,
-        owner_decl: InternPool.DeclIndex,
+        owner_nav: InternPool.Nav.Index,
         loc: DbgInfoLoc,
     ) error{OutOfMemory}!void {
         const pt = self.pt;
         const dbg_info = &self.dbg_info;
-        const atom_index = self.di_atom_decls.get(owner_decl).?;
+        const atom_index = self.di_atom_navs.get(owner_nav).?;
         const name_with_null = name.ptr[0 .. name.len + 1];
 
         switch (loc) {
@@ -639,6 +639,7 @@ pub const DeclState = struct {
                 leb128.writeIleb128(dbg_info.writer(), info.offset) catch unreachable;
             },
             .wasm_local => |value| {
+                @import("../dev.zig").check(.wasm_linker);
                 const leb_size = link.File.Wasm.getUleb128Size(value);
                 try dbg_info.ensureUnusedCapacity(3 + leb_size);
                 // wasm locations are encoded as follow:
@@ -665,15 +666,15 @@ pub const DeclState = struct {
     }
 
     pub fn genVarDbgInfo(
-        self: *DeclState,
+        self: *NavState,
         name: [:0]const u8,
         ty: Type,
-        owner_decl: InternPool.DeclIndex,
+        owner_nav: InternPool.Nav.Index,
         is_ptr: bool,
         loc: DbgInfoLoc,
     ) error{OutOfMemory}!void {
         const dbg_info = &self.dbg_info;
-        const atom_index = self.di_atom_decls.get(owner_decl).?;
+        const atom_index = self.di_atom_navs.get(owner_nav).?;
         const name_with_null = name.ptr[0 .. name.len + 1];
         try dbg_info.append(@intFromEnum(AbbrevCode.variable));
         const gpa = self.dwarf.allocator;
@@ -881,7 +882,7 @@ pub const DeclState = struct {
     }
 
     pub fn advancePCAndLine(
-        self: *DeclState,
+        self: *NavState,
         delta_line: i33,
         delta_pc: u64,
     ) error{OutOfMemory}!void {
@@ -921,21 +922,21 @@ pub const DeclState = struct {
         }
     }
 
-    pub fn setColumn(self: *DeclState, column: u32) error{OutOfMemory}!void {
+    pub fn setColumn(self: *NavState, column: u32) error{OutOfMemory}!void {
         try self.dbg_line.ensureUnusedCapacity(1 + 5);
         self.dbg_line.appendAssumeCapacity(DW.LNS.set_column);
         leb128.writeUleb128(self.dbg_line.writer(), column + 1) catch unreachable;
     }
 
-    pub fn setPrologueEnd(self: *DeclState) error{OutOfMemory}!void {
+    pub fn setPrologueEnd(self: *NavState) error{OutOfMemory}!void {
         try self.dbg_line.append(DW.LNS.set_prologue_end);
     }
 
-    pub fn setEpilogueBegin(self: *DeclState) error{OutOfMemory}!void {
+    pub fn setEpilogueBegin(self: *NavState) error{OutOfMemory}!void {
         try self.dbg_line.append(DW.LNS.set_epilogue_begin);
     }
 
-    pub fn setInlineFunc(self: *DeclState, func: InternPool.Index) error{OutOfMemory}!void {
+    pub fn setInlineFunc(self: *NavState, func: InternPool.Index) error{OutOfMemory}!void {
         const zcu = self.pt.zcu;
         if (self.dbg_line_func == func) return;
 
@@ -944,15 +945,15 @@ pub const DeclState = struct {
         const old_func_info = zcu.funcInfo(self.dbg_line_func);
         const new_func_info = zcu.funcInfo(func);
 
-        const old_file = try self.dwarf.addDIFile(zcu, old_func_info.owner_decl);
-        const new_file = try self.dwarf.addDIFile(zcu, new_func_info.owner_decl);
+        const old_file = try self.dwarf.addDIFile(zcu, old_func_info.owner_nav);
+        const new_file = try self.dwarf.addDIFile(zcu, new_func_info.owner_nav);
         if (old_file != new_file) {
             self.dbg_line.appendAssumeCapacity(DW.LNS.set_file);
             leb128.writeUnsignedFixed(4, self.dbg_line.addManyAsArrayAssumeCapacity(4), new_file);
         }
 
-        const old_src_line: i33 = zcu.declPtr(old_func_info.owner_decl).navSrcLine(zcu);
-        const new_src_line: i33 = zcu.declPtr(new_func_info.owner_decl).navSrcLine(zcu);
+        const old_src_line: i33 = zcu.navSrcLine(old_func_info.owner_nav);
+        const new_src_line: i33 = zcu.navSrcLine(new_func_info.owner_nav);
         if (new_src_line != old_src_line) {
             self.dbg_line.appendAssumeCapacity(DW.LNS.advance_line);
             leb128.writeSignedFixed(5, self.dbg_line.addManyAsArrayAssumeCapacity(5), new_src_line - old_src_line);
@@ -1064,31 +1065,31 @@ pub fn deinit(self: *Dwarf) void {
 
     self.src_fn_free_list.deinit(gpa);
     self.src_fns.deinit(gpa);
-    self.src_fn_decls.deinit(gpa);
+    self.src_fn_navs.deinit(gpa);
 
     self.di_atom_free_list.deinit(gpa);
     self.di_atoms.deinit(gpa);
-    self.di_atom_decls.deinit(gpa);
+    self.di_atom_navs.deinit(gpa);
 
     self.strtab.deinit(gpa);
     self.di_files.deinit(gpa);
     self.global_abbrev_relocs.deinit(gpa);
 }
 
-/// Initializes Decl's state and its matching output buffers.
-/// Call this before `commitDeclState`.
-pub fn initDeclState(self: *Dwarf, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !DeclState {
+/// Initializes Nav's state and its matching output buffers.
+/// Call this before `commitNavState`.
+pub fn initNavState(self: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !NavState {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const decl = pt.zcu.declPtr(decl_index);
-    log.debug("initDeclState {}{*}", .{ decl.fqn.fmt(&pt.zcu.intern_pool), decl });
+    const nav = pt.zcu.intern_pool.getNav(nav_index);
+    log.debug("initNavState {}", .{nav.fqn.fmt(&pt.zcu.intern_pool)});
 
     const gpa = self.allocator;
-    var decl_state: DeclState = .{
+    var nav_state: NavState = .{
         .dwarf = self,
         .pt = pt,
-        .di_atom_decls = &self.di_atom_decls,
+        .di_atom_navs = &self.di_atom_navs,
         .dbg_line_func = undefined,
         .dbg_line = std.ArrayList(u8).init(gpa),
         .dbg_info = std.ArrayList(u8).init(gpa),
@@ -1098,30 +1099,30 @@ pub fn initDeclState(self: *Dwarf, pt: Zcu.PerThread, decl_index: InternPool.Dec
         .abbrev_relocs = .{},
         .exprloc_relocs = .{},
     };
-    errdefer decl_state.deinit();
-    const dbg_line_buffer = &decl_state.dbg_line;
-    const dbg_info_buffer = &decl_state.dbg_info;
+    errdefer nav_state.deinit();
+    const dbg_line_buffer = &nav_state.dbg_line;
+    const dbg_info_buffer = &nav_state.dbg_info;
 
-    const di_atom_index = try self.getOrCreateAtomForDecl(.di_atom, decl_index);
+    const di_atom_index = try self.getOrCreateAtomForNav(.di_atom, nav_index);
 
-    assert(decl.has_tv);
+    const nav_val = Value.fromInterned(nav.status.resolved.val);
 
-    switch (decl.typeOf(pt.zcu).zigTypeTag(pt.zcu)) {
+    switch (nav_val.typeOf(pt.zcu).zigTypeTag(pt.zcu)) {
         .Fn => {
-            _ = try self.getOrCreateAtomForDecl(.src_fn, decl_index);
+            _ = try self.getOrCreateAtomForNav(.src_fn, nav_index);
 
             // For functions we need to add a prologue to the debug line program.
             const ptr_width_bytes = self.ptrWidthBytes();
             try dbg_line_buffer.ensureTotalCapacity((3 + ptr_width_bytes) + (1 + 4) + (1 + 4) + (1 + 5) + 1);
 
-            decl_state.dbg_line_func = decl.val.toIntern();
-            const func = decl.val.getFunction(pt.zcu).?;
-            log.debug("decl.src_line={d}, func.lbrace_line={d}, func.rbrace_line={d}", .{
-                decl.navSrcLine(pt.zcu),
+            nav_state.dbg_line_func = nav_val.toIntern();
+            const func = nav_val.getFunction(pt.zcu).?;
+            log.debug("src_line={d}, func.lbrace_line={d}, func.rbrace_line={d}", .{
+                pt.zcu.navSrcLine(nav_index),
                 func.lbrace_line,
                 func.rbrace_line,
             });
-            const line: u28 = @intCast(decl.navSrcLine(pt.zcu) + func.lbrace_line);
+            const line: u28 = @intCast(pt.zcu.navSrcLine(nav_index) + func.lbrace_line);
 
             dbg_line_buffer.appendSliceAssumeCapacity(&.{
                 DW.LNS.extended_op,
@@ -1143,7 +1144,7 @@ pub fn initDeclState(self: *Dwarf, pt: Zcu.PerThread, decl_index: InternPool.Dec
             assert(self.getRelocDbgFileIndex() == dbg_line_buffer.items.len);
             // Once we support more than one source file, this will have the ability to be more
             // than one possible value.
-            const file_index = try self.addDIFile(pt.zcu, decl_index);
+            const file_index = try self.addDIFile(pt.zcu, nav_index);
             leb128.writeUnsignedFixed(4, dbg_line_buffer.addManyAsArrayAssumeCapacity(4), file_index);
 
             dbg_line_buffer.appendAssumeCapacity(DW.LNS.set_column);
@@ -1154,12 +1155,12 @@ pub fn initDeclState(self: *Dwarf, pt: Zcu.PerThread, decl_index: InternPool.Dec
             dbg_line_buffer.appendAssumeCapacity(DW.LNS.copy);
 
             // .debug_info subprogram
-            const decl_name_slice = decl.name.toSlice(&pt.zcu.intern_pool);
-            const decl_linkage_name_slice = decl.fqn.toSlice(&pt.zcu.intern_pool);
+            const nav_name_slice = nav.name.toSlice(&pt.zcu.intern_pool);
+            const nav_linkage_name_slice = nav.fqn.toSlice(&pt.zcu.intern_pool);
             try dbg_info_buffer.ensureUnusedCapacity(1 + ptr_width_bytes + 4 + 4 +
-                (decl_name_slice.len + 1) + (decl_linkage_name_slice.len + 1));
+                (nav_name_slice.len + 1) + (nav_linkage_name_slice.len + 1));
 
-            const fn_ret_type = decl.typeOf(pt.zcu).fnReturnType(pt.zcu);
+            const fn_ret_type = nav_val.typeOf(pt.zcu).fnReturnType(pt.zcu);
             const fn_ret_has_bits = fn_ret_type.hasRuntimeBits(pt);
             dbg_info_buffer.appendAssumeCapacity(@intFromEnum(
                 @as(AbbrevCode, if (fn_ret_has_bits) .subprogram else .subprogram_retvoid),
@@ -1172,14 +1173,14 @@ pub fn initDeclState(self: *Dwarf, pt: Zcu.PerThread, decl_index: InternPool.Dec
             assert(self.getRelocDbgInfoSubprogramHighPC() == dbg_info_buffer.items.len);
             dbg_info_buffer.appendNTimesAssumeCapacity(0, 4); // DW.AT.high_pc, DW.FORM.data4
             if (fn_ret_has_bits) {
-                try decl_state.addTypeRelocGlobal(di_atom_index, fn_ret_type, @intCast(dbg_info_buffer.items.len));
+                try nav_state.addTypeRelocGlobal(di_atom_index, fn_ret_type, @intCast(dbg_info_buffer.items.len));
                 dbg_info_buffer.appendNTimesAssumeCapacity(0, 4); // DW.AT.type, DW.FORM.ref4
             }
             dbg_info_buffer.appendSliceAssumeCapacity(
-                decl_name_slice[0 .. decl_name_slice.len + 1],
+                nav_name_slice[0 .. nav_name_slice.len + 1],
             ); // DW.AT.name, DW.FORM.string
             dbg_info_buffer.appendSliceAssumeCapacity(
-                decl_linkage_name_slice[0 .. decl_linkage_name_slice.len + 1],
+                nav_linkage_name_slice[0 .. nav_linkage_name_slice.len + 1],
             ); // DW.AT.linkage_name, DW.FORM.string
         },
         else => {
@@ -1187,37 +1188,36 @@ pub fn initDeclState(self: *Dwarf, pt: Zcu.PerThread, decl_index: InternPool.Dec
         },
     }
 
-    return decl_state;
+    return nav_state;
 }
 
-pub fn commitDeclState(
+pub fn commitNavState(
     self: *Dwarf,
     pt: Zcu.PerThread,
-    decl_index: InternPool.DeclIndex,
+    nav_index: InternPool.Nav.Index,
     sym_addr: u64,
     sym_size: u64,
-    decl_state: *DeclState,
+    nav_state: *NavState,
 ) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.allocator;
     const zcu = pt.zcu;
-    const decl = zcu.declPtr(decl_index);
     const ip = &zcu.intern_pool;
-    const namespace = zcu.namespacePtr(decl.src_namespace);
-    const target = namespace.fileScope(zcu).mod.resolved_target.result;
+    const nav = ip.getNav(nav_index);
+    const target = zcu.navFileScope(nav_index).mod.resolved_target.result;
     const target_endian = target.cpu.arch.endian();
 
-    var dbg_line_buffer = &decl_state.dbg_line;
-    var dbg_info_buffer = &decl_state.dbg_info;
+    var dbg_line_buffer = &nav_state.dbg_line;
+    var dbg_info_buffer = &nav_state.dbg_info;
 
-    assert(decl.has_tv);
-    switch (decl.typeOf(zcu).zigTypeTag(zcu)) {
+    const nav_val = Value.fromInterned(nav.status.resolved.val);
+    switch (nav_val.typeOf(zcu).zigTypeTag(zcu)) {
         .Fn => {
-            try decl_state.setInlineFunc(decl.val.toIntern());
+            try nav_state.setInlineFunc(nav_val.toIntern());
 
-            // Since the Decl is a function, we need to update the .debug_line program.
+            // Since the Nav is a function, we need to update the .debug_line program.
             // Perform the relocations based on vaddr.
             switch (self.ptr_width) {
                 .p32 => {
@@ -1254,10 +1254,10 @@ pub fn commitDeclState(
 
             // Now we have the full contents and may allocate a region to store it.
 
-            // This logic is nearly identical to the logic below in `updateDeclDebugInfo` for
+            // This logic is nearly identical to the logic below in `updateNavDebugInfo` for
             // `TextBlock` and the .debug_info. If you are editing this logic, you
             // probably need to edit that logic too.
-            const src_fn_index = self.src_fn_decls.get(decl_index).?;
+            const src_fn_index = self.src_fn_navs.get(nav_index).?;
             const src_fn = self.getAtomPtr(.src_fn, src_fn_index);
             src_fn.len = @intCast(dbg_line_buffer.items.len);
 
@@ -1275,33 +1275,26 @@ pub fn commitDeclState(
                         next.prev_index = src_fn.prev_index;
                         src_fn.next_index = null;
                         // Populate where it used to be with NOPs.
-                        switch (self.bin_file.tag) {
-                            .elf => {
-                                const elf_file = self.bin_file.cast(File.Elf).?;
-                                const debug_line_sect = &elf_file.shdrs.items[elf_file.debug_line_section_index.?];
-                                const file_pos = debug_line_sect.sh_offset + src_fn.off;
-                                try pwriteDbgLineNops(elf_file.base.file.?, file_pos, 0, &[0]u8{}, src_fn.len);
-                            },
-                            .macho => {
-                                const macho_file = self.bin_file.cast(File.MachO).?;
-                                if (macho_file.base.isRelocatable()) {
-                                    const debug_line_sect = &macho_file.sections.items(.header)[macho_file.debug_line_sect_index.?];
-                                    const file_pos = debug_line_sect.offset + src_fn.off;
-                                    try pwriteDbgLineNops(macho_file.base.file.?, file_pos, 0, &[0]u8{}, src_fn.len);
-                                } else {
-                                    const d_sym = macho_file.getDebugSymbols().?;
-                                    const debug_line_sect = d_sym.getSectionPtr(d_sym.debug_line_section_index.?);
-                                    const file_pos = debug_line_sect.offset + src_fn.off;
-                                    try pwriteDbgLineNops(d_sym.file, file_pos, 0, &[0]u8{}, src_fn.len);
-                                }
-                            },
-                            .wasm => {
-                                // const wasm_file = self.bin_file.cast(File.Wasm).?;
-                                // const debug_line = wasm_file.getAtomPtr(wasm_file.debug_line_atom.?).code;
-                                // writeDbgLineNopsBuffered(debug_line.items, src_fn.off, 0, &.{}, src_fn.len);
-                            },
-                            else => unreachable,
-                        }
+                        if (self.bin_file.cast(.elf)) |elf_file| {
+                            const debug_line_sect = &elf_file.shdrs.items[elf_file.debug_line_section_index.?];
+                            const file_pos = debug_line_sect.sh_offset + src_fn.off;
+                            try pwriteDbgLineNops(elf_file.base.file.?, file_pos, 0, &[0]u8{}, src_fn.len);
+                        } else if (self.bin_file.cast(.macho)) |macho_file| {
+                            if (macho_file.base.isRelocatable()) {
+                                const debug_line_sect = &macho_file.sections.items(.header)[macho_file.debug_line_sect_index.?];
+                                const file_pos = debug_line_sect.offset + src_fn.off;
+                                try pwriteDbgLineNops(macho_file.base.file.?, file_pos, 0, &[0]u8{}, src_fn.len);
+                            } else {
+                                const d_sym = macho_file.getDebugSymbols().?;
+                                const debug_line_sect = d_sym.getSectionPtr(d_sym.debug_line_section_index.?);
+                                const file_pos = debug_line_sect.offset + src_fn.off;
+                                try pwriteDbgLineNops(d_sym.file, file_pos, 0, &[0]u8{}, src_fn.len);
+                            }
+                        } else if (self.bin_file.cast(.wasm)) |wasm_file| {
+                            _ = wasm_file;
+                            // const debug_line = wasm_file.getAtomPtr(wasm_file.debug_line_atom.?).code;
+                            // writeDbgLineNopsBuffered(debug_line.items, src_fn.off, 0, &.{}, src_fn.len);
+                        } else unreachable;
                         // TODO Look at the free list before appending at the end.
                         src_fn.prev_index = last_index;
                         const last = self.getAtomPtr(.src_fn, last_index);
@@ -1342,76 +1335,67 @@ pub fn commitDeclState(
 
             // We only have support for one compilation unit so far, so the offsets are directly
             // from the .debug_line section.
-            switch (self.bin_file.tag) {
-                .elf => {
-                    const elf_file = self.bin_file.cast(File.Elf).?;
-                    const shdr_index = elf_file.debug_line_section_index.?;
-                    try elf_file.growNonAllocSection(shdr_index, needed_size, 1, true);
-                    const debug_line_sect = elf_file.shdrs.items[shdr_index];
-                    const file_pos = debug_line_sect.sh_offset + src_fn.off;
+            if (self.bin_file.cast(.elf)) |elf_file| {
+                const shdr_index = elf_file.debug_line_section_index.?;
+                try elf_file.growNonAllocSection(shdr_index, needed_size, 1, true);
+                const debug_line_sect = elf_file.shdrs.items[shdr_index];
+                const file_pos = debug_line_sect.sh_offset + src_fn.off;
+                try pwriteDbgLineNops(
+                    elf_file.base.file.?,
+                    file_pos,
+                    prev_padding_size,
+                    dbg_line_buffer.items,
+                    next_padding_size,
+                );
+            } else if (self.bin_file.cast(.macho)) |macho_file| {
+                if (macho_file.base.isRelocatable()) {
+                    const sect_index = macho_file.debug_line_sect_index.?;
+                    try macho_file.growSection(sect_index, needed_size);
+                    const sect = macho_file.sections.items(.header)[sect_index];
+                    const file_pos = sect.offset + src_fn.off;
                     try pwriteDbgLineNops(
-                        elf_file.base.file.?,
+                        macho_file.base.file.?,
                         file_pos,
                         prev_padding_size,
                         dbg_line_buffer.items,
                         next_padding_size,
                     );
-                },
-
-                .macho => {
-                    const macho_file = self.bin_file.cast(File.MachO).?;
-                    if (macho_file.base.isRelocatable()) {
-                        const sect_index = macho_file.debug_line_sect_index.?;
-                        try macho_file.growSection(sect_index, needed_size);
-                        const sect = macho_file.sections.items(.header)[sect_index];
-                        const file_pos = sect.offset + src_fn.off;
-                        try pwriteDbgLineNops(
-                            macho_file.base.file.?,
-                            file_pos,
-                            prev_padding_size,
-                            dbg_line_buffer.items,
-                            next_padding_size,
-                        );
-                    } else {
-                        const d_sym = macho_file.getDebugSymbols().?;
-                        const sect_index = d_sym.debug_line_section_index.?;
-                        try d_sym.growSection(sect_index, needed_size, true, macho_file);
-                        const sect = d_sym.getSection(sect_index);
-                        const file_pos = sect.offset + src_fn.off;
-                        try pwriteDbgLineNops(
-                            d_sym.file,
-                            file_pos,
-                            prev_padding_size,
-                            dbg_line_buffer.items,
-                            next_padding_size,
-                        );
-                    }
-                },
-
-                .wasm => {
-                    // const wasm_file = self.bin_file.cast(File.Wasm).?;
-                    // const atom = wasm_file.getAtomPtr(wasm_file.debug_line_atom.?);
-                    // const debug_line = &atom.code;
-                    // const segment_size = debug_line.items.len;
-                    // if (needed_size != segment_size) {
-                    //     log.debug(" needed size does not equal allocated size: {d}", .{needed_size});
-                    //     if (needed_size > segment_size) {
-                    //         log.debug("  allocating {d} bytes for 'debug line' information", .{needed_size - segment_size});
-                    //         try debug_line.resize(self.allocator, needed_size);
-                    //         @memset(debug_line.items[segment_size..], 0);
-                    //     }
-                    //     debug_line.items.len = needed_size;
-                    // }
-                    // writeDbgLineNopsBuffered(
-                    //     debug_line.items,
-                    //     src_fn.off,
-                    //     prev_padding_size,
-                    //     dbg_line_buffer.items,
-                    //     next_padding_size,
-                    // );
-                },
-                else => unreachable,
-            }
+                } else {
+                    const d_sym = macho_file.getDebugSymbols().?;
+                    const sect_index = d_sym.debug_line_section_index.?;
+                    try d_sym.growSection(sect_index, needed_size, true, macho_file);
+                    const sect = d_sym.getSection(sect_index);
+                    const file_pos = sect.offset + src_fn.off;
+                    try pwriteDbgLineNops(
+                        d_sym.file,
+                        file_pos,
+                        prev_padding_size,
+                        dbg_line_buffer.items,
+                        next_padding_size,
+                    );
+                }
+            } else if (self.bin_file.cast(.wasm)) |wasm_file| {
+                _ = wasm_file;
+                // const atom = wasm_file.getAtomPtr(wasm_file.debug_line_atom.?);
+                // const debug_line = &atom.code;
+                // const segment_size = debug_line.items.len;
+                // if (needed_size != segment_size) {
+                //     log.debug(" needed size does not equal allocated size: {d}", .{needed_size});
+                //     if (needed_size > segment_size) {
+                //         log.debug("  allocating {d} bytes for 'debug line' information", .{needed_size - segment_size});
+                //         try debug_line.resize(self.allocator, needed_size);
+                //         @memset(debug_line.items[segment_size..], 0);
+                //     }
+                //     debug_line.items.len = needed_size;
+                // }
+                // writeDbgLineNopsBuffered(
+                //     debug_line.items,
+                //     src_fn.off,
+                //     prev_padding_size,
+                //     dbg_line_buffer.items,
+                //     next_padding_size,
+                // );
+            } else unreachable;
 
             // .debug_info - End the TAG.subprogram children.
             try dbg_info_buffer.append(0);
@@ -1422,27 +1406,27 @@ pub fn commitDeclState(
     if (dbg_info_buffer.items.len == 0)
         return;
 
-    const di_atom_index = self.di_atom_decls.get(decl_index).?;
-    if (decl_state.abbrev_table.items.len > 0) {
-        // Now we emit the .debug_info types of the Decl. These will count towards the size of
+    const di_atom_index = self.di_atom_navs.get(nav_index).?;
+    if (nav_state.abbrev_table.items.len > 0) {
+        // Now we emit the .debug_info types of the Nav. These will count towards the size of
         // the buffer, so we have to do it before computing the offset, and we can't perform the actual
         // relocations yet.
         var sym_index: usize = 0;
-        while (sym_index < decl_state.abbrev_table.items.len) : (sym_index += 1) {
-            const symbol = &decl_state.abbrev_table.items[sym_index];
+        while (sym_index < nav_state.abbrev_table.items.len) : (sym_index += 1) {
+            const symbol = &nav_state.abbrev_table.items[sym_index];
             const ty = symbol.type;
             if (ip.isErrorSetType(ty.toIntern())) continue;
 
             symbol.offset = @intCast(dbg_info_buffer.items.len);
-            try decl_state.addDbgInfoType(pt, di_atom_index, ty);
+            try nav_state.addDbgInfoType(pt, di_atom_index, ty);
         }
     }
 
-    try self.updateDeclDebugInfoAllocation(di_atom_index, @intCast(dbg_info_buffer.items.len));
+    try self.updateNavDebugInfoAllocation(di_atom_index, @intCast(dbg_info_buffer.items.len));
 
-    while (decl_state.abbrev_relocs.popOrNull()) |reloc| {
+    while (nav_state.abbrev_relocs.popOrNull()) |reloc| {
         if (reloc.target) |reloc_target| {
-            const symbol = decl_state.abbrev_table.items[reloc_target];
+            const symbol = nav_state.abbrev_table.items[reloc_target];
             const ty = symbol.type;
             if (ip.isErrorSetType(ty.toIntern())) {
                 log.debug("resolving %{d} deferred until flush", .{reloc_target});
@@ -1479,38 +1463,35 @@ pub fn commitDeclState(
         }
     }
 
-    while (decl_state.exprloc_relocs.popOrNull()) |reloc| {
-        switch (self.bin_file.tag) {
-            .macho => {
-                const macho_file = self.bin_file.cast(File.MachO).?;
-                if (macho_file.base.isRelocatable()) {
-                    // TODO
-                } else {
-                    const d_sym = macho_file.getDebugSymbols().?;
-                    try d_sym.relocs.append(d_sym.allocator, .{
-                        .type = switch (reloc.type) {
-                            .direct_load => .direct_load,
-                            .got_load => .got_load,
-                        },
-                        .target = reloc.target,
-                        .offset = reloc.offset + self.getAtom(.di_atom, di_atom_index).off,
-                        .addend = 0,
-                    });
-                }
-            },
-            .elf => {}, // TODO
-            else => unreachable,
-        }
+    while (nav_state.exprloc_relocs.popOrNull()) |reloc| {
+        if (self.bin_file.cast(.elf)) |elf_file| {
+            _ = elf_file; // TODO
+        } else if (self.bin_file.cast(.macho)) |macho_file| {
+            if (macho_file.base.isRelocatable()) {
+                // TODO
+            } else {
+                const d_sym = macho_file.getDebugSymbols().?;
+                try d_sym.relocs.append(d_sym.allocator, .{
+                    .type = switch (reloc.type) {
+                        .direct_load => .direct_load,
+                        .got_load => .got_load,
+                    },
+                    .target = reloc.target,
+                    .offset = reloc.offset + self.getAtom(.di_atom, di_atom_index).off,
+                    .addend = 0,
+                });
+            }
+        } else unreachable;
     }
 
-    try self.writeDeclDebugInfo(di_atom_index, dbg_info_buffer.items);
+    try self.writeNavDebugInfo(di_atom_index, dbg_info_buffer.items);
 }
 
-fn updateDeclDebugInfoAllocation(self: *Dwarf, atom_index: Atom.Index, len: u32) !void {
+fn updateNavDebugInfoAllocation(self: *Dwarf, atom_index: Atom.Index, len: u32) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    // This logic is nearly identical to the logic above in `updateDecl` for
+    // This logic is nearly identical to the logic above in `updateNav` for
     // `SrcFn` and the line number programs. If you are editing this logic, you
     // probably need to edit that logic too.
     const gpa = self.allocator;
@@ -1521,7 +1502,7 @@ fn updateDeclDebugInfoAllocation(self: *Dwarf, atom_index: Atom.Index, len: u32)
         if (atom_index == last_index) break :blk;
         if (atom.next_index) |next_index| {
             const next = self.getAtomPtr(.di_atom, next_index);
-            // Update existing Decl - non-last item.
+            // Update existing Nav - non-last item.
             if (atom.off + atom.len + min_nop_size > next.off) {
                 // It grew too big, so we move it to a new location.
                 if (atom.prev_index) |prev_index| {
@@ -1531,34 +1512,27 @@ fn updateDeclDebugInfoAllocation(self: *Dwarf, atom_index: Atom.Index, len: u32)
                 next.prev_index = atom.prev_index;
                 atom.next_index = null;
                 // Populate where it used to be with NOPs.
-                switch (self.bin_file.tag) {
-                    .elf => {
-                        const elf_file = self.bin_file.cast(File.Elf).?;
-                        const debug_info_sect = &elf_file.shdrs.items[elf_file.debug_info_section_index.?];
-                        const file_pos = debug_info_sect.sh_offset + atom.off;
-                        try pwriteDbgInfoNops(elf_file.base.file.?, file_pos, 0, &[0]u8{}, atom.len, false);
-                    },
-                    .macho => {
-                        const macho_file = self.bin_file.cast(File.MachO).?;
-                        if (macho_file.base.isRelocatable()) {
-                            const debug_info_sect = macho_file.sections.items(.header)[macho_file.debug_info_sect_index.?];
-                            const file_pos = debug_info_sect.offset + atom.off;
-                            try pwriteDbgInfoNops(macho_file.base.file.?, file_pos, 0, &[0]u8{}, atom.len, false);
-                        } else {
-                            const d_sym = macho_file.getDebugSymbols().?;
-                            const debug_info_sect = d_sym.getSectionPtr(d_sym.debug_info_section_index.?);
-                            const file_pos = debug_info_sect.offset + atom.off;
-                            try pwriteDbgInfoNops(d_sym.file, file_pos, 0, &[0]u8{}, atom.len, false);
-                        }
-                    },
-                    .wasm => {
-                        // const wasm_file = self.bin_file.cast(File.Wasm).?;
-                        // const debug_info_index = wasm_file.debug_info_atom.?;
-                        // const debug_info = &wasm_file.getAtomPtr(debug_info_index).code;
-                        // try writeDbgInfoNopsToArrayList(gpa, debug_info, atom.off, 0, &.{0}, atom.len, false);
-                    },
-                    else => unreachable,
-                }
+                if (self.bin_file.cast(.elf)) |elf_file| {
+                    const debug_info_sect = &elf_file.shdrs.items[elf_file.debug_info_section_index.?];
+                    const file_pos = debug_info_sect.sh_offset + atom.off;
+                    try pwriteDbgInfoNops(elf_file.base.file.?, file_pos, 0, &[0]u8{}, atom.len, false);
+                } else if (self.bin_file.cast(.macho)) |macho_file| {
+                    if (macho_file.base.isRelocatable()) {
+                        const debug_info_sect = macho_file.sections.items(.header)[macho_file.debug_info_sect_index.?];
+                        const file_pos = debug_info_sect.offset + atom.off;
+                        try pwriteDbgInfoNops(macho_file.base.file.?, file_pos, 0, &[0]u8{}, atom.len, false);
+                    } else {
+                        const d_sym = macho_file.getDebugSymbols().?;
+                        const debug_info_sect = d_sym.getSectionPtr(d_sym.debug_info_section_index.?);
+                        const file_pos = debug_info_sect.offset + atom.off;
+                        try pwriteDbgInfoNops(d_sym.file, file_pos, 0, &[0]u8{}, atom.len, false);
+                    }
+                } else if (self.bin_file.cast(.wasm)) |wasm_file| {
+                    _ = wasm_file;
+                    // const debug_info_index = wasm_file.debug_info_atom.?;
+                    // const debug_info = &wasm_file.getAtomPtr(debug_info_index).code;
+                    // try writeDbgInfoNopsToArrayList(gpa, debug_info, atom.off, 0, &.{0}, atom.len, false);
+                } else unreachable;
                 // TODO Look at the free list before appending at the end.
                 atom.prev_index = last_index;
                 const last = self.getAtomPtr(.di_atom, last_index);
@@ -1568,7 +1542,7 @@ fn updateDeclDebugInfoAllocation(self: *Dwarf, atom_index: Atom.Index, len: u32)
                 atom.off = last.off + padToIdeal(last.len);
             }
         } else if (atom.prev_index == null) {
-            // Append new Decl.
+            // Append new Nav.
             // TODO Look at the free list before appending at the end.
             atom.prev_index = last_index;
             const last = self.getAtomPtr(.di_atom, last_index);
@@ -1578,7 +1552,7 @@ fn updateDeclDebugInfoAllocation(self: *Dwarf, atom_index: Atom.Index, len: u32)
             atom.off = last.off + padToIdeal(last.len);
         }
     } else {
-        // This is the first Decl of the .debug_info
+        // This is the first Nav of the .debug_info
         self.di_atom_first_index = atom_index;
         self.di_atom_last_index = atom_index;
 
@@ -1586,19 +1560,19 @@ fn updateDeclDebugInfoAllocation(self: *Dwarf, atom_index: Atom.Index, len: u32)
     }
 }
 
-fn writeDeclDebugInfo(self: *Dwarf, atom_index: Atom.Index, dbg_info_buf: []const u8) !void {
+fn writeNavDebugInfo(self: *Dwarf, atom_index: Atom.Index, dbg_info_buf: []const u8) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    // This logic is nearly identical to the logic above in `updateDecl` for
+    // This logic is nearly identical to the logic above in `updateNav` for
     // `SrcFn` and the line number programs. If you are editing this logic, you
     // probably need to edit that logic too.
 
     const atom = self.getAtom(.di_atom, atom_index);
-    const last_decl_index = self.di_atom_last_index.?;
-    const last_decl = self.getAtom(.di_atom, last_decl_index);
-    // +1 for a trailing zero to end the children of the decl tag.
-    const needed_size = last_decl.off + last_decl.len + 1;
+    const last_nav_index = self.di_atom_last_index.?;
+    const last_nav = self.getAtom(.di_atom, last_nav_index);
+    // +1 for a trailing zero to end the children of the nav tag.
+    const needed_size = last_nav.off + last_nav.len + 1;
     const prev_padding_size: u32 = if (atom.prev_index) |prev_index| blk: {
         const prev = self.getAtom(.di_atom, prev_index);
         break :blk atom.off - (prev.off + prev.len);
@@ -1608,107 +1582,99 @@ fn writeDeclDebugInfo(self: *Dwarf, atom_index: Atom.Index, dbg_info_buf: []cons
         break :blk next.off - (atom.off + atom.len);
     } else 0;
 
-    // To end the children of the decl tag.
+    // To end the children of the nav tag.
     const trailing_zero = atom.next_index == null;
 
     // We only have support for one compilation unit so far, so the offsets are directly
     // from the .debug_info section.
-    switch (self.bin_file.tag) {
-        .elf => {
-            const elf_file = self.bin_file.cast(File.Elf).?;
-            const shdr_index = elf_file.debug_info_section_index.?;
-            try elf_file.growNonAllocSection(shdr_index, needed_size, 1, true);
-            const debug_info_sect = &elf_file.shdrs.items[shdr_index];
-            const file_pos = debug_info_sect.sh_offset + atom.off;
+    if (self.bin_file.cast(.elf)) |elf_file| {
+        const shdr_index = elf_file.debug_info_section_index.?;
+        try elf_file.growNonAllocSection(shdr_index, needed_size, 1, true);
+        const debug_info_sect = &elf_file.shdrs.items[shdr_index];
+        const file_pos = debug_info_sect.sh_offset + atom.off;
+        try pwriteDbgInfoNops(
+            elf_file.base.file.?,
+            file_pos,
+            prev_padding_size,
+            dbg_info_buf,
+            next_padding_size,
+            trailing_zero,
+        );
+    } else if (self.bin_file.cast(.macho)) |macho_file| {
+        if (macho_file.base.isRelocatable()) {
+            const sect_index = macho_file.debug_info_sect_index.?;
+            try macho_file.growSection(sect_index, needed_size);
+            const sect = macho_file.sections.items(.header)[sect_index];
+            const file_pos = sect.offset + atom.off;
             try pwriteDbgInfoNops(
-                elf_file.base.file.?,
+                macho_file.base.file.?,
                 file_pos,
                 prev_padding_size,
                 dbg_info_buf,
                 next_padding_size,
                 trailing_zero,
             );
-        },
-
-        .macho => {
-            const macho_file = self.bin_file.cast(File.MachO).?;
-            if (macho_file.base.isRelocatable()) {
-                const sect_index = macho_file.debug_info_sect_index.?;
-                try macho_file.growSection(sect_index, needed_size);
-                const sect = macho_file.sections.items(.header)[sect_index];
-                const file_pos = sect.offset + atom.off;
-                try pwriteDbgInfoNops(
-                    macho_file.base.file.?,
-                    file_pos,
-                    prev_padding_size,
-                    dbg_info_buf,
-                    next_padding_size,
-                    trailing_zero,
-                );
-            } else {
-                const d_sym = macho_file.getDebugSymbols().?;
-                const sect_index = d_sym.debug_info_section_index.?;
-                try d_sym.growSection(sect_index, needed_size, true, macho_file);
-                const sect = d_sym.getSection(sect_index);
-                const file_pos = sect.offset + atom.off;
-                try pwriteDbgInfoNops(
-                    d_sym.file,
-                    file_pos,
-                    prev_padding_size,
-                    dbg_info_buf,
-                    next_padding_size,
-                    trailing_zero,
-                );
-            }
-        },
-
-        .wasm => {
-            // const wasm_file = self.bin_file.cast(File.Wasm).?;
-            // const info_atom = wasm_file.debug_info_atom.?;
-            // const debug_info = &wasm_file.getAtomPtr(info_atom).code;
-            // const segment_size = debug_info.items.len;
-            // if (needed_size != segment_size) {
-            //     log.debug(" needed size does not equal allocated size: {d}", .{needed_size});
-            //     if (needed_size > segment_size) {
-            //         log.debug("  allocating {d} bytes for 'debug info' information", .{needed_size - segment_size});
-            //         try debug_info.resize(self.allocator, needed_size);
-            //         @memset(debug_info.items[segment_size..], 0);
-            //     }
-            //     debug_info.items.len = needed_size;
-            // }
-            // log.debug(" writeDbgInfoNopsToArrayList debug_info_len={d} offset={d} content_len={d} next_padding_size={d}", .{
-            //     debug_info.items.len, atom.off, dbg_info_buf.len, next_padding_size,
-            // });
-            // try writeDbgInfoNopsToArrayList(
-            //     gpa,
-            //     debug_info,
-            //     atom.off,
-            //     prev_padding_size,
-            //     dbg_info_buf,
-            //     next_padding_size,
-            //     trailing_zero,
-            // );
-        },
-        else => unreachable,
-    }
+        } else {
+            const d_sym = macho_file.getDebugSymbols().?;
+            const sect_index = d_sym.debug_info_section_index.?;
+            try d_sym.growSection(sect_index, needed_size, true, macho_file);
+            const sect = d_sym.getSection(sect_index);
+            const file_pos = sect.offset + atom.off;
+            try pwriteDbgInfoNops(
+                d_sym.file,
+                file_pos,
+                prev_padding_size,
+                dbg_info_buf,
+                next_padding_size,
+                trailing_zero,
+            );
+        }
+    } else if (self.bin_file.cast(.wasm)) |wasm_file| {
+        _ = wasm_file;
+        // const info_atom = wasm_file.debug_info_atom.?;
+        // const debug_info = &wasm_file.getAtomPtr(info_atom).code;
+        // const segment_size = debug_info.items.len;
+        // if (needed_size != segment_size) {
+        //     log.debug(" needed size does not equal allocated size: {d}", .{needed_size});
+        //     if (needed_size > segment_size) {
+        //         log.debug("  allocating {d} bytes for 'debug info' information", .{needed_size - segment_size});
+        //         try debug_info.resize(self.allocator, needed_size);
+        //         @memset(debug_info.items[segment_size..], 0);
+        //     }
+        //     debug_info.items.len = needed_size;
+        // }
+        // log.debug(" writeDbgInfoNopsToArrayList debug_info_len={d} offset={d} content_len={d} next_padding_size={d}", .{
+        //     debug_info.items.len, atom.off, dbg_info_buf.len, next_padding_size,
+        // });
+        // try writeDbgInfoNopsToArrayList(
+        //     gpa,
+        //     debug_info,
+        //     atom.off,
+        //     prev_padding_size,
+        //     dbg_info_buf,
+        //     next_padding_size,
+        //     trailing_zero,
+        // );
+    } else unreachable;
 }
 
-pub fn updateDeclLineNumber(self: *Dwarf, zcu: *Zcu, decl_index: InternPool.DeclIndex) !void {
+pub fn updateNavLineNumber(self: *Dwarf, zcu: *Zcu, nav_index: InternPool.Nav.Index) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const atom_index = try self.getOrCreateAtomForDecl(.src_fn, decl_index);
+    const atom_index = try self.getOrCreateAtomForNav(.src_fn, nav_index);
     const atom = self.getAtom(.src_fn, atom_index);
     if (atom.len == 0) return;
 
-    const decl = zcu.declPtr(decl_index);
-    const func = decl.val.getFunction(zcu).?;
-    log.debug("decl.src_line={d}, func.lbrace_line={d}, func.rbrace_line={d}", .{
-        decl.navSrcLine(zcu),
+    const nav = zcu.intern_pool.getNav(nav_index);
+    const nav_val = Value.fromInterned(nav.status.resolved.val);
+    const func = nav_val.getFunction(zcu).?;
+    log.debug("src_line={d}, func.lbrace_line={d}, func.rbrace_line={d}", .{
+        zcu.navSrcLine(nav_index),
         func.lbrace_line,
         func.rbrace_line,
     });
-    const line: u28 = @intCast(decl.navSrcLine(zcu) + func.lbrace_line);
+    const line: u28 = @intCast(zcu.navSrcLine(nav_index) + func.lbrace_line);
     var data: [4]u8 = undefined;
     leb128.writeUnsignedFixed(4, &data, line);
 
@@ -1742,11 +1708,11 @@ pub fn updateDeclLineNumber(self: *Dwarf, zcu: *Zcu, decl_index: InternPool.Decl
     }
 }
 
-pub fn freeDecl(self: *Dwarf, decl_index: InternPool.DeclIndex) void {
+pub fn freeNav(self: *Dwarf, nav_index: InternPool.Nav.Index) void {
     const gpa = self.allocator;
 
     // Free SrcFn atom
-    if (self.src_fn_decls.fetchRemove(decl_index)) |kv| {
+    if (self.src_fn_navs.fetchRemove(nav_index)) |kv| {
         const src_fn_index = kv.value;
         const src_fn = self.getAtom(.src_fn, src_fn_index);
         _ = self.src_fn_free_list.remove(src_fn_index);
@@ -1773,7 +1739,7 @@ pub fn freeDecl(self: *Dwarf, decl_index: InternPool.DeclIndex) void {
     }
 
     // Free DI atom
-    if (self.di_atom_decls.fetchRemove(decl_index)) |kv| {
+    if (self.di_atom_navs.fetchRemove(nav_index)) |kv| {
         const di_atom_index = kv.value;
         const di_atom = self.getAtomPtr(.di_atom, di_atom_index);
 
@@ -1930,40 +1896,33 @@ pub fn writeDbgAbbrev(self: *Dwarf) !void {
     self.abbrev_table_offset = abbrev_offset;
 
     const needed_size = abbrev_buf.len;
-    switch (self.bin_file.tag) {
-        .elf => {
-            const elf_file = self.bin_file.cast(File.Elf).?;
-            const shdr_index = elf_file.debug_abbrev_section_index.?;
-            try elf_file.growNonAllocSection(shdr_index, needed_size, 1, false);
-            const debug_abbrev_sect = &elf_file.shdrs.items[shdr_index];
-            const file_pos = debug_abbrev_sect.sh_offset + abbrev_offset;
-            try elf_file.base.file.?.pwriteAll(&abbrev_buf, file_pos);
-        },
-        .macho => {
-            const macho_file = self.bin_file.cast(File.MachO).?;
-            if (macho_file.base.isRelocatable()) {
-                const sect_index = macho_file.debug_abbrev_sect_index.?;
-                try macho_file.growSection(sect_index, needed_size);
-                const sect = macho_file.sections.items(.header)[sect_index];
-                const file_pos = sect.offset + abbrev_offset;
-                try macho_file.base.file.?.pwriteAll(&abbrev_buf, file_pos);
-            } else {
-                const d_sym = macho_file.getDebugSymbols().?;
-                const sect_index = d_sym.debug_abbrev_section_index.?;
-                try d_sym.growSection(sect_index, needed_size, false, macho_file);
-                const sect = d_sym.getSection(sect_index);
-                const file_pos = sect.offset + abbrev_offset;
-                try d_sym.file.pwriteAll(&abbrev_buf, file_pos);
-            }
-        },
-        .wasm => {
-            // const wasm_file = self.bin_file.cast(File.Wasm).?;
-            // const debug_abbrev = &wasm_file.getAtomPtr(wasm_file.debug_abbrev_atom.?).code;
-            // try debug_abbrev.resize(gpa, needed_size);
-            // debug_abbrev.items[0..abbrev_buf.len].* = abbrev_buf;
-        },
-        else => unreachable,
-    }
+    if (self.bin_file.cast(.elf)) |elf_file| {
+        const shdr_index = elf_file.debug_abbrev_section_index.?;
+        try elf_file.growNonAllocSection(shdr_index, needed_size, 1, false);
+        const debug_abbrev_sect = &elf_file.shdrs.items[shdr_index];
+        const file_pos = debug_abbrev_sect.sh_offset + abbrev_offset;
+        try elf_file.base.file.?.pwriteAll(&abbrev_buf, file_pos);
+    } else if (self.bin_file.cast(.macho)) |macho_file| {
+        if (macho_file.base.isRelocatable()) {
+            const sect_index = macho_file.debug_abbrev_sect_index.?;
+            try macho_file.growSection(sect_index, needed_size);
+            const sect = macho_file.sections.items(.header)[sect_index];
+            const file_pos = sect.offset + abbrev_offset;
+            try macho_file.base.file.?.pwriteAll(&abbrev_buf, file_pos);
+        } else {
+            const d_sym = macho_file.getDebugSymbols().?;
+            const sect_index = d_sym.debug_abbrev_section_index.?;
+            try d_sym.growSection(sect_index, needed_size, false, macho_file);
+            const sect = d_sym.getSection(sect_index);
+            const file_pos = sect.offset + abbrev_offset;
+            try d_sym.file.pwriteAll(&abbrev_buf, file_pos);
+        }
+    } else if (self.bin_file.cast(.wasm)) |wasm_file| {
+        _ = wasm_file;
+        // const debug_abbrev = &wasm_file.getAtomPtr(wasm_file.debug_abbrev_atom.?).code;
+        // try debug_abbrev.resize(gpa, needed_size);
+        // debug_abbrev.items[0..abbrev_buf.len].* = abbrev_buf;
+    } else unreachable;
 }
 
 fn dbgInfoHeaderBytes(self: *Dwarf) usize {
@@ -2027,37 +1986,30 @@ pub fn writeDbgInfoHeader(self: *Dwarf, zcu: *Zcu, low_pc: u64, high_pc: u64) !v
     mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), DW.LANG.C99, target_endian);
 
     if (di_buf.items.len > first_dbg_info_off) {
-        // Move the first N decls to the end to make more padding for the header.
+        // Move the first N navs to the end to make more padding for the header.
         @panic("TODO: handle .debug_info header exceeding its padding");
     }
     const jmp_amt = first_dbg_info_off - di_buf.items.len;
-    switch (self.bin_file.tag) {
-        .elf => {
-            const elf_file = self.bin_file.cast(File.Elf).?;
-            const debug_info_sect = &elf_file.shdrs.items[elf_file.debug_info_section_index.?];
-            const file_pos = debug_info_sect.sh_offset;
-            try pwriteDbgInfoNops(elf_file.base.file.?, file_pos, 0, di_buf.items, jmp_amt, false);
-        },
-        .macho => {
-            const macho_file = self.bin_file.cast(File.MachO).?;
-            if (macho_file.base.isRelocatable()) {
-                const debug_info_sect = macho_file.sections.items(.header)[macho_file.debug_info_sect_index.?];
-                const file_pos = debug_info_sect.offset;
-                try pwriteDbgInfoNops(macho_file.base.file.?, file_pos, 0, di_buf.items, jmp_amt, false);
-            } else {
-                const d_sym = macho_file.getDebugSymbols().?;
-                const debug_info_sect = d_sym.getSection(d_sym.debug_info_section_index.?);
-                const file_pos = debug_info_sect.offset;
-                try pwriteDbgInfoNops(d_sym.file, file_pos, 0, di_buf.items, jmp_amt, false);
-            }
-        },
-        .wasm => {
-            // const wasm_file = self.bin_file.cast(File.Wasm).?;
-            // const debug_info = &wasm_file.getAtomPtr(wasm_file.debug_info_atom.?).code;
-            // try writeDbgInfoNopsToArrayList(self.allocator, debug_info, 0, 0, di_buf.items, jmp_amt, false);
-        },
-        else => unreachable,
-    }
+    if (self.bin_file.cast(.elf)) |elf_file| {
+        const debug_info_sect = &elf_file.shdrs.items[elf_file.debug_info_section_index.?];
+        const file_pos = debug_info_sect.sh_offset;
+        try pwriteDbgInfoNops(elf_file.base.file.?, file_pos, 0, di_buf.items, jmp_amt, false);
+    } else if (self.bin_file.cast(.macho)) |macho_file| {
+        if (macho_file.base.isRelocatable()) {
+            const debug_info_sect = macho_file.sections.items(.header)[macho_file.debug_info_sect_index.?];
+            const file_pos = debug_info_sect.offset;
+            try pwriteDbgInfoNops(macho_file.base.file.?, file_pos, 0, di_buf.items, jmp_amt, false);
+        } else {
+            const d_sym = macho_file.getDebugSymbols().?;
+            const debug_info_sect = d_sym.getSection(d_sym.debug_info_section_index.?);
+            const file_pos = debug_info_sect.offset;
+            try pwriteDbgInfoNops(d_sym.file, file_pos, 0, di_buf.items, jmp_amt, false);
+        }
+    } else if (self.bin_file.cast(.wasm)) |wasm_file| {
+        _ = wasm_file;
+        // const debug_info = &wasm_file.getAtomPtr(wasm_file.debug_info_atom.?).code;
+        // try writeDbgInfoNopsToArrayList(self.allocator, debug_info, 0, 0, di_buf.items, jmp_amt, false);
+    } else unreachable;
 }
 
 fn resolveCompilationDir(zcu: *Zcu, buffer: *[std.fs.max_path_bytes]u8) []const u8 {
@@ -2360,40 +2312,33 @@ pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
     }
 
     const needed_size: u32 = @intCast(di_buf.items.len);
-    switch (self.bin_file.tag) {
-        .elf => {
-            const elf_file = self.bin_file.cast(File.Elf).?;
-            const shdr_index = elf_file.debug_aranges_section_index.?;
-            try elf_file.growNonAllocSection(shdr_index, needed_size, 16, false);
-            const debug_aranges_sect = &elf_file.shdrs.items[shdr_index];
-            const file_pos = debug_aranges_sect.sh_offset;
-            try elf_file.base.file.?.pwriteAll(di_buf.items, file_pos);
-        },
-        .macho => {
-            const macho_file = self.bin_file.cast(File.MachO).?;
-            if (macho_file.base.isRelocatable()) {
-                const sect_index = macho_file.debug_aranges_sect_index.?;
-                try macho_file.growSection(sect_index, needed_size);
-                const sect = macho_file.sections.items(.header)[sect_index];
-                const file_pos = sect.offset;
-                try macho_file.base.file.?.pwriteAll(di_buf.items, file_pos);
-            } else {
-                const d_sym = macho_file.getDebugSymbols().?;
-                const sect_index = d_sym.debug_aranges_section_index.?;
-                try d_sym.growSection(sect_index, needed_size, false, macho_file);
-                const sect = d_sym.getSection(sect_index);
-                const file_pos = sect.offset;
-                try d_sym.file.pwriteAll(di_buf.items, file_pos);
-            }
-        },
-        .wasm => {
-            // const wasm_file = self.bin_file.cast(File.Wasm).?;
-            // const debug_ranges = &wasm_file.getAtomPtr(wasm_file.debug_ranges_atom.?).code;
-            // try debug_ranges.resize(gpa, needed_size);
-            // @memcpy(debug_ranges.items[0..di_buf.items.len], di_buf.items);
-        },
-        else => unreachable,
-    }
+    if (self.bin_file.cast(.elf)) |elf_file| {
+        const shdr_index = elf_file.debug_aranges_section_index.?;
+        try elf_file.growNonAllocSection(shdr_index, needed_size, 16, false);
+        const debug_aranges_sect = &elf_file.shdrs.items[shdr_index];
+        const file_pos = debug_aranges_sect.sh_offset;
+        try elf_file.base.file.?.pwriteAll(di_buf.items, file_pos);
+    } else if (self.bin_file.cast(.macho)) |macho_file| {
+        if (macho_file.base.isRelocatable()) {
+            const sect_index = macho_file.debug_aranges_sect_index.?;
+            try macho_file.growSection(sect_index, needed_size);
+            const sect = macho_file.sections.items(.header)[sect_index];
+            const file_pos = sect.offset;
+            try macho_file.base.file.?.pwriteAll(di_buf.items, file_pos);
+        } else {
+            const d_sym = macho_file.getDebugSymbols().?;
+            const sect_index = d_sym.debug_aranges_section_index.?;
+            try d_sym.growSection(sect_index, needed_size, false, macho_file);
+            const sect = d_sym.getSection(sect_index);
+            const file_pos = sect.offset;
+            try d_sym.file.pwriteAll(di_buf.items, file_pos);
+        }
+    } else if (self.bin_file.cast(.wasm)) |wasm_file| {
+        _ = wasm_file;
+        // const debug_ranges = &wasm_file.getAtomPtr(wasm_file.debug_ranges_atom.?).code;
+        // try debug_ranges.resize(gpa, needed_size);
+        // @memcpy(debug_ranges.items[0..di_buf.items.len], di_buf.items);
+    } else unreachable;
 }
 
 pub fn writeDbgLineHeader(self: *Dwarf) !void {
@@ -2502,60 +2447,52 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
 
         var src_fn_index = first_fn_index;
 
-        var buffer = try gpa.alloc(u8, last_fn.off + last_fn.len - first_fn.off);
+        const buffer = try gpa.alloc(u8, last_fn.off + last_fn.len - first_fn.off);
         defer gpa.free(buffer);
 
-        switch (self.bin_file.tag) {
-            .elf => {
-                const elf_file = self.bin_file.cast(File.Elf).?;
-                const shdr_index = elf_file.debug_line_section_index.?;
-                const needed_size = elf_file.shdrs.items[shdr_index].sh_size + delta;
-                try elf_file.growNonAllocSection(shdr_index, needed_size, 1, true);
-                const file_pos = elf_file.shdrs.items[shdr_index].sh_offset + first_fn.off;
+        if (self.bin_file.cast(.elf)) |elf_file| {
+            const shdr_index = elf_file.debug_line_section_index.?;
+            const needed_size = elf_file.shdrs.items[shdr_index].sh_size + delta;
+            try elf_file.growNonAllocSection(shdr_index, needed_size, 1, true);
+            const file_pos = elf_file.shdrs.items[shdr_index].sh_offset + first_fn.off;
 
-                const amt = try elf_file.base.file.?.preadAll(buffer, file_pos);
+            const amt = try elf_file.base.file.?.preadAll(buffer, file_pos);
+            if (amt != buffer.len) return error.InputOutput;
+
+            try elf_file.base.file.?.pwriteAll(buffer, file_pos + delta);
+        } else if (self.bin_file.cast(.macho)) |macho_file| {
+            if (macho_file.base.isRelocatable()) {
+                const sect_index = macho_file.debug_line_sect_index.?;
+                const needed_size: u32 = @intCast(macho_file.sections.items(.header)[sect_index].size + delta);
+                try macho_file.growSection(sect_index, needed_size);
+                const file_pos = macho_file.sections.items(.header)[sect_index].offset + first_fn.off;
+
+                const amt = try macho_file.base.file.?.preadAll(buffer, file_pos);
                 if (amt != buffer.len) return error.InputOutput;
 
-                try elf_file.base.file.?.pwriteAll(buffer, file_pos + delta);
-            },
-            .macho => {
-                const macho_file = self.bin_file.cast(File.MachO).?;
-                if (macho_file.base.isRelocatable()) {
-                    const sect_index = macho_file.debug_line_sect_index.?;
-                    const needed_size: u32 = @intCast(macho_file.sections.items(.header)[sect_index].size + delta);
-                    try macho_file.growSection(sect_index, needed_size);
-                    const file_pos = macho_file.sections.items(.header)[sect_index].offset + first_fn.off;
+                try macho_file.base.file.?.pwriteAll(buffer, file_pos + delta);
+            } else {
+                const d_sym = macho_file.getDebugSymbols().?;
+                const sect_index = d_sym.debug_line_section_index.?;
+                const needed_size: u32 = @intCast(d_sym.getSection(sect_index).size + delta);
+                try d_sym.growSection(sect_index, needed_size, true, macho_file);
+                const file_pos = d_sym.getSection(sect_index).offset + first_fn.off;
 
-                    const amt = try macho_file.base.file.?.preadAll(buffer, file_pos);
-                    if (amt != buffer.len) return error.InputOutput;
+                const amt = try d_sym.file.preadAll(buffer, file_pos);
+                if (amt != buffer.len) return error.InputOutput;
 
-                    try macho_file.base.file.?.pwriteAll(buffer, file_pos + delta);
-                } else {
-                    const d_sym = macho_file.getDebugSymbols().?;
-                    const sect_index = d_sym.debug_line_section_index.?;
-                    const needed_size: u32 = @intCast(d_sym.getSection(sect_index).size + delta);
-                    try d_sym.growSection(sect_index, needed_size, true, macho_file);
-                    const file_pos = d_sym.getSection(sect_index).offset + first_fn.off;
-
-                    const amt = try d_sym.file.preadAll(buffer, file_pos);
-                    if (amt != buffer.len) return error.InputOutput;
-
-                    try d_sym.file.pwriteAll(buffer, file_pos + delta);
-                }
-            },
-            .wasm => {
-                _ = &buffer;
-                // const wasm_file = self.bin_file.cast(File.Wasm).?;
-                // const debug_line = &wasm_file.getAtomPtr(wasm_file.debug_line_atom.?).code;
-                // {
-                //     const src = debug_line.items[first_fn.off..];
-                //     @memcpy(buffer[0..src.len], src);
-                // }
-                // try debug_line.resize(self.allocator, debug_line.items.len + delta);
-                // @memcpy(debug_line.items[first_fn.off + delta ..][0..buffer.len], buffer);
-            },
-            else => unreachable,
-        }
+                try d_sym.file.pwriteAll(buffer, file_pos + delta);
+            }
+        } else if (self.bin_file.cast(.wasm)) |wasm_file| {
+            _ = wasm_file;
+            // const debug_line = &wasm_file.getAtomPtr(wasm_file.debug_line_atom.?).code;
+            // {
+            //     const src = debug_line.items[first_fn.off..];
+            //     @memcpy(buffer[0..src.len], src);
+            // }
+            // try debug_line.resize(self.allocator, debug_line.items.len + delta);
+            // @memcpy(debug_line.items[first_fn.off + delta ..][0..buffer.len], buffer);
+        } else unreachable;
 
         while (true) {
             const src_fn = self.getAtomPtr(.src_fn, src_fn_index);
@@ -2580,33 +2517,26 @@ pub fn writeDbgLineHeader(self: *Dwarf) !void {
 
     // We use NOPs because consumers empirically do not respect the header length field.
     const jmp_amt = self.getDebugLineProgramOff().? - di_buf.items.len;
-    switch (self.bin_file.tag) {
-        .elf => {
-            const elf_file = self.bin_file.cast(File.Elf).?;
-            const debug_line_sect = &elf_file.shdrs.items[elf_file.debug_line_section_index.?];
-            const file_pos = debug_line_sect.sh_offset;
-            try pwriteDbgLineNops(elf_file.base.file.?, file_pos, 0, di_buf.items, jmp_amt);
-        },
-        .macho => {
-            const macho_file = self.bin_file.cast(File.MachO).?;
-            if (macho_file.base.isRelocatable()) {
-                const debug_line_sect = macho_file.sections.items(.header)[macho_file.debug_line_sect_index.?];
-                const file_pos = debug_line_sect.offset;
-                try pwriteDbgLineNops(macho_file.base.file.?, file_pos, 0, di_buf.items, jmp_amt);
-            } else {
-                const d_sym = macho_file.getDebugSymbols().?;
-                const debug_line_sect = d_sym.getSection(d_sym.debug_line_section_index.?);
-                const file_pos = debug_line_sect.offset;
-                try pwriteDbgLineNops(d_sym.file, file_pos, 0, di_buf.items, jmp_amt);
-            }
-        },
-        .wasm => {
-            // const wasm_file = self.bin_file.cast(File.Wasm).?;
-            // const debug_line = &wasm_file.getAtomPtr(wasm_file.debug_line_atom.?).code;
-            // writeDbgLineNopsBuffered(debug_line.items, 0, 0, di_buf.items, jmp_amt);
-        },
-        else => unreachable,
-    }
+    if (self.bin_file.cast(.elf)) |elf_file| {
+        const debug_line_sect = &elf_file.shdrs.items[elf_file.debug_line_section_index.?];
+        const file_pos = debug_line_sect.sh_offset;
+        try pwriteDbgLineNops(elf_file.base.file.?, file_pos, 0, di_buf.items, jmp_amt);
+    } else if (self.bin_file.cast(.macho)) |macho_file| {
+        if (macho_file.base.isRelocatable()) {
+            const debug_line_sect = macho_file.sections.items(.header)[macho_file.debug_line_sect_index.?];
+            const file_pos = debug_line_sect.offset;
+            try pwriteDbgLineNops(macho_file.base.file.?, file_pos, 0, di_buf.items, jmp_amt);
+        } else {
+            const d_sym = macho_file.getDebugSymbols().?;
+            const debug_line_sect = d_sym.getSection(d_sym.debug_line_section_index.?);
+            const file_pos = debug_line_sect.offset;
+            try pwriteDbgLineNops(d_sym.file, file_pos, 0, di_buf.items, jmp_amt);
+        }
+    } else if (self.bin_file.cast(.wasm)) |wasm_file| {
+        _ = wasm_file;
+        // const debug_line = &wasm_file.getAtomPtr(wasm_file.debug_line_atom.?).code;
+        // writeDbgLineNopsBuffered(debug_line.items, 0, 0, di_buf.items, jmp_amt);
+    } else unreachable;
 }
 
 fn getDebugInfoOff(self: Dwarf) ?u32 {
@@ -2704,85 +2634,66 @@ pub fn flushModule(self: *Dwarf, pt: Zcu.PerThread) !void {
         );
 
         const di_atom_index = try self.createAtom(.di_atom);
-        log.debug("updateDeclDebugInfoAllocation in flushModule", .{});
-        try self.updateDeclDebugInfoAllocation(di_atom_index, @intCast(dbg_info_buffer.items.len));
-        log.debug("writeDeclDebugInfo in flushModule", .{});
-        try self.writeDeclDebugInfo(di_atom_index, dbg_info_buffer.items);
+        log.debug("updateNavDebugInfoAllocation in flushModule", .{});
+        try self.updateNavDebugInfoAllocation(di_atom_index, @intCast(dbg_info_buffer.items.len));
+        log.debug("writeNavDebugInfo in flushModule", .{});
+        try self.writeNavDebugInfo(di_atom_index, dbg_info_buffer.items);
 
-        const file_pos = switch (self.bin_file.tag) {
-            .elf => pos: {
-                const elf_file = self.bin_file.cast(File.Elf).?;
-                const debug_info_sect = &elf_file.shdrs.items[elf_file.debug_info_section_index.?];
-                break :pos debug_info_sect.sh_offset;
-            },
-            .macho => pos: {
-                const macho_file = self.bin_file.cast(File.MachO).?;
-                if (macho_file.base.isRelocatable()) {
-                    const debug_info_sect = &macho_file.sections.items(.header)[macho_file.debug_info_sect_index.?];
-                    break :pos debug_info_sect.offset;
-                } else {
-                    const d_sym = macho_file.getDebugSymbols().?;
-                    const debug_info_sect = d_sym.getSectionPtr(d_sym.debug_info_section_index.?);
-                    break :pos debug_info_sect.offset;
-                }
-            },
+        const file_pos = if (self.bin_file.cast(.elf)) |elf_file| pos: {
+            const debug_info_sect = &elf_file.shdrs.items[elf_file.debug_info_section_index.?];
+            break :pos debug_info_sect.sh_offset;
+        } else if (self.bin_file.cast(.macho)) |macho_file| pos: {
+            if (macho_file.base.isRelocatable()) {
+                const debug_info_sect = &macho_file.sections.items(.header)[macho_file.debug_info_sect_index.?];
+                break :pos debug_info_sect.offset;
+            } else {
+                const d_sym = macho_file.getDebugSymbols().?;
+                const debug_info_sect = d_sym.getSectionPtr(d_sym.debug_info_section_index.?);
+                break :pos debug_info_sect.offset;
+            }
+        } else if (self.bin_file.cast(.wasm)) |_|
             // for wasm, the offset is always 0 as we write to memory first
-            .wasm => 0,
-            else => unreachable,
-        };
+            0
+        else
+            unreachable;
 
         var buf: [@sizeOf(u32)]u8 = undefined;
         mem.writeInt(u32, &buf, self.getAtom(.di_atom, di_atom_index).off, target.cpu.arch.endian());
 
         while (self.global_abbrev_relocs.popOrNull()) |reloc| {
             const atom = self.getAtom(.di_atom, reloc.atom_index);
-            switch (self.bin_file.tag) {
-                .elf => {
-                    const elf_file = self.bin_file.cast(File.Elf).?;
-                    try elf_file.base.file.?.pwriteAll(&buf, file_pos + atom.off + reloc.offset);
-                },
-                .macho => {
-                    const macho_file = self.bin_file.cast(File.MachO).?;
-                    if (macho_file.base.isRelocatable()) {
-                        try macho_file.base.file.?.pwriteAll(&buf, file_pos + atom.off + reloc.offset);
-                    } else {
-                        const d_sym = macho_file.getDebugSymbols().?;
-                        try d_sym.file.pwriteAll(&buf, file_pos + atom.off + reloc.offset);
-                    }
-                },
-                .wasm => {
-                    // const wasm_file = self.bin_file.cast(File.Wasm).?;
-                    // const debug_info = wasm_file.getAtomPtr(wasm_file.debug_info_atom.?).code;
-                    // debug_info.items[atom.off + reloc.offset ..][0..buf.len].* = buf;
-                },
-                else => unreachable,
-            }
+            if (self.bin_file.cast(.elf)) |elf_file| {
+                try elf_file.base.file.?.pwriteAll(&buf, file_pos + atom.off + reloc.offset);
+            } else if (self.bin_file.cast(.macho)) |macho_file| {
+                if (macho_file.base.isRelocatable()) {
+                    try macho_file.base.file.?.pwriteAll(&buf, file_pos + atom.off + reloc.offset);
+                } else {
+                    const d_sym = macho_file.getDebugSymbols().?;
+                    try d_sym.file.pwriteAll(&buf, file_pos + atom.off + reloc.offset);
+                }
+            } else if (self.bin_file.cast(.wasm)) |wasm_file| {
+                _ = wasm_file;
+                // const debug_info = wasm_file.getAtomPtr(wasm_file.debug_info_atom.?).code;
+                // debug_info.items[atom.off + reloc.offset ..][0..buf.len].* = buf;
+            } else unreachable;
         }
     }
 }
 
-fn addDIFile(self: *Dwarf, zcu: *Zcu, decl_index: InternPool.DeclIndex) !u28 {
-    const decl = zcu.declPtr(decl_index);
-    const file_scope = decl.getFileScope(zcu);
+fn addDIFile(self: *Dwarf, zcu: *Zcu, nav_index: InternPool.Nav.Index) !u28 {
+    const file_scope = zcu.navFileScope(nav_index);
     const gop = try self.di_files.getOrPut(self.allocator, file_scope);
     if (!gop.found_existing) {
-        switch (self.bin_file.tag) {
-            .elf => {
-                const elf_file = self.bin_file.cast(File.Elf).?;
-                elf_file.markDirty(elf_file.debug_line_section_index.?);
-            },
-            .macho => {
-                const macho_file = self.bin_file.cast(File.MachO).?;
-                if (macho_file.base.isRelocatable()) {
-                    macho_file.markDirty(macho_file.debug_line_sect_index.?);
-                } else {
-                    const d_sym = macho_file.getDebugSymbols().?;
-                    d_sym.markDirty(d_sym.debug_line_section_index.?, macho_file);
-                }
-            },
-            .wasm => {},
-            else => unreachable,
-        }
+        if (self.bin_file.cast(.elf)) |elf_file| {
+            elf_file.markDirty(elf_file.debug_line_section_index.?);
+        } else if (self.bin_file.cast(.macho)) |macho_file| {
+            if (macho_file.base.isRelocatable()) {
+                macho_file.markDirty(macho_file.debug_line_sect_index.?);
+            } else {
+                const d_sym = macho_file.getDebugSymbols().?;
+                d_sym.markDirty(d_sym.debug_line_section_index.?, macho_file);
+            }
+        } else if (self.bin_file.cast(.wasm)) |_| {} else unreachable;
     }
     return @intCast(gop.index + 1);
 }
@@ -2909,17 +2820,17 @@ fn createAtom(self: *Dwarf, comptime kind: Kind) !Atom.Index {
     return index;
 }
 
-fn getOrCreateAtomForDecl(self: *Dwarf, comptime kind: Kind, decl_index: InternPool.DeclIndex) !Atom.Index {
+fn getOrCreateAtomForNav(self: *Dwarf, comptime kind: Kind, nav_index: InternPool.Nav.Index) !Atom.Index {
     switch (kind) {
         .src_fn => {
-            const gop = try self.src_fn_decls.getOrPut(self.allocator, decl_index);
+            const gop = try self.src_fn_navs.getOrPut(self.allocator, nav_index);
             if (!gop.found_existing) {
                 gop.value_ptr.* = try self.createAtom(kind);
             }
             return gop.value_ptr.*;
         },
         .di_atom => {
-            const gop = try self.di_atom_decls.getOrPut(self.allocator, decl_index);
+            const gop = try self.di_atom_navs.getOrPut(self.allocator, nav_index);
             if (!gop.found_existing) {
                 gop.value_ptr.* = try self.createAtom(kind);
             }

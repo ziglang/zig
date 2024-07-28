@@ -38,8 +38,8 @@ pub const CValue = union(enum) {
     /// Index into a tuple's fields
     field: usize,
     /// By-value
-    decl: InternPool.DeclIndex,
-    decl_ref: InternPool.DeclIndex,
+    nav: InternPool.Nav.Index,
+    nav_ref: InternPool.Nav.Index,
     /// An undefined value (cannot be dereferenced)
     undef: Type,
     /// Rendered as an identifier (using fmtIdent)
@@ -58,19 +58,12 @@ const BlockData = struct {
 pub const CValueMap = std.AutoHashMap(Air.Inst.Ref, CValue);
 
 pub const LazyFnKey = union(enum) {
-    tag_name: InternPool.DeclIndex,
-    never_tail: InternPool.DeclIndex,
-    never_inline: InternPool.DeclIndex,
+    tag_name: InternPool.Index,
+    never_tail: InternPool.Nav.Index,
+    never_inline: InternPool.Nav.Index,
 };
 pub const LazyFnValue = struct {
     fn_name: CType.Pool.String,
-    data: Data,
-
-    const Data = union {
-        tag_name: Type,
-        never_tail: void,
-        never_inline: void,
-    };
 };
 pub const LazyFnMap = std.AutoArrayHashMapUnmanaged(LazyFnKey, LazyFnValue);
 
@@ -498,10 +491,11 @@ pub const Function = struct {
         return f.object.dg.fmtIntLiteral(val, .Other);
     }
 
-    fn getLazyFnName(f: *Function, key: LazyFnKey, data: LazyFnValue.Data) ![]const u8 {
+    fn getLazyFnName(f: *Function, key: LazyFnKey) ![]const u8 {
         const gpa = f.object.dg.gpa;
         const pt = f.object.dg.pt;
         const zcu = pt.zcu;
+        const ip = &zcu.intern_pool;
         const ctype_pool = &f.object.dg.ctype_pool;
 
         const gop = try f.lazy_fns.getOrPut(gpa, key);
@@ -511,18 +505,18 @@ pub const Function = struct {
             gop.value_ptr.* = .{
                 .fn_name = switch (key) {
                     .tag_name,
+                    => |enum_ty| try ctype_pool.fmt(gpa, "zig_{s}_{}__{d}", .{
+                        @tagName(key),
+                        fmtIdent(ip.loadEnumType(enum_ty).name.toSlice(ip)),
+                        @intFromEnum(enum_ty),
+                    }),
                     .never_tail,
                     .never_inline,
-                    => |owner_decl| try ctype_pool.fmt(gpa, "zig_{s}_{}__{d}", .{
+                    => |owner_nav| try ctype_pool.fmt(gpa, "zig_{s}_{}__{d}", .{
                         @tagName(key),
-                        fmtIdent(zcu.declPtr(owner_decl).name.toSlice(&zcu.intern_pool)),
-                        @intFromEnum(owner_decl),
+                        fmtIdent(ip.getNav(owner_nav).name.toSlice(ip)),
+                        @intFromEnum(owner_nav),
                     }),
-                },
-                .data = switch (key) {
-                    .tag_name => .{ .tag_name = data.tag_name },
-                    .never_tail => .{ .never_tail = data.never_tail },
-                    .never_inline => .{ .never_inline = data.never_inline },
                 },
             };
         }
@@ -618,12 +612,12 @@ pub const DeclGen = struct {
     scratch: std.ArrayListUnmanaged(u32),
     /// Keeps track of anonymous decls that need to be rendered before this
     /// (named) Decl in the output C code.
-    anon_decl_deps: std.AutoArrayHashMapUnmanaged(InternPool.Index, C.DeclBlock),
-    aligned_anon_decls: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment),
+    uav_deps: std.AutoArrayHashMapUnmanaged(InternPool.Index, C.AvBlock),
+    aligned_uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment),
 
     pub const Pass = union(enum) {
-        decl: InternPool.DeclIndex,
-        anon: InternPool.Index,
+        nav: InternPool.Nav.Index,
+        uav: InternPool.Index,
         flush,
     };
 
@@ -634,39 +628,37 @@ pub const DeclGen = struct {
     fn fail(dg: *DeclGen, comptime format: []const u8, args: anytype) error{ AnalysisFail, OutOfMemory } {
         @setCold(true);
         const zcu = dg.pt.zcu;
-        const decl_index = dg.pass.decl;
-        const decl = zcu.declPtr(decl_index);
-        const src_loc = decl.navSrcLoc(zcu);
+        const src_loc = zcu.navSrcLoc(dg.pass.nav);
         dg.error_msg = try Zcu.ErrorMsg.create(dg.gpa, src_loc, format, args);
         return error.AnalysisFail;
     }
 
-    fn renderAnonDeclValue(
+    fn renderUav(
         dg: *DeclGen,
         writer: anytype,
-        anon_decl: InternPool.Key.Ptr.BaseAddr.AnonDecl,
+        uav: InternPool.Key.Ptr.BaseAddr.Uav,
         location: ValueRenderLocation,
     ) error{ OutOfMemory, AnalysisFail }!void {
         const pt = dg.pt;
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
         const ctype_pool = &dg.ctype_pool;
-        const decl_val = Value.fromInterned(anon_decl.val);
-        const decl_ty = decl_val.typeOf(zcu);
+        const uav_val = Value.fromInterned(uav.val);
+        const uav_ty = uav_val.typeOf(zcu);
 
         // Render an undefined pointer if we have a pointer to a zero-bit or comptime type.
-        const ptr_ty = Type.fromInterned(anon_decl.orig_ty);
-        if (ptr_ty.isPtrAtRuntime(zcu) and !decl_ty.isFnOrHasRuntimeBits(pt)) {
+        const ptr_ty = Type.fromInterned(uav.orig_ty);
+        if (ptr_ty.isPtrAtRuntime(zcu) and !uav_ty.isFnOrHasRuntimeBits(pt)) {
             return dg.writeCValue(writer, .{ .undef = ptr_ty });
         }
 
         // Chase function values in order to be able to reference the original function.
-        if (decl_val.getFunction(zcu)) |func|
-            return dg.renderDeclValue(writer, func.owner_decl, location);
-        if (decl_val.getExternFunc(zcu)) |extern_func|
-            return dg.renderDeclValue(writer, extern_func.decl, location);
-
-        assert(decl_val.getVariable(zcu) == null);
+        switch (ip.indexToKey(uav.val)) {
+            .variable => unreachable,
+            .func => |func| return dg.renderNav(writer, func.owner_nav, location),
+            .@"extern" => |@"extern"| return dg.renderNav(writer, @"extern".owner_nav, location),
+            else => {},
+        }
 
         // We shouldn't cast C function pointers as this is UB (when you call
         // them).  The analysis until now should ensure that the C function
@@ -674,22 +666,22 @@ pub const DeclGen = struct {
         // somewhere and we should let the C compiler tell us about it.
         const ptr_ctype = try dg.ctypeFromType(ptr_ty, .complete);
         const elem_ctype = ptr_ctype.info(ctype_pool).pointer.elem_ctype;
-        const decl_ctype = try dg.ctypeFromType(decl_ty, .complete);
-        const need_cast = !elem_ctype.eql(decl_ctype) and
-            (elem_ctype.info(ctype_pool) != .function or decl_ctype.info(ctype_pool) != .function);
+        const uav_ctype = try dg.ctypeFromType(uav_ty, .complete);
+        const need_cast = !elem_ctype.eql(uav_ctype) and
+            (elem_ctype.info(ctype_pool) != .function or uav_ctype.info(ctype_pool) != .function);
         if (need_cast) {
             try writer.writeAll("((");
             try dg.renderCType(writer, ptr_ctype);
             try writer.writeByte(')');
         }
         try writer.writeByte('&');
-        try renderAnonDeclName(writer, decl_val);
+        try renderUavName(writer, uav_val);
         if (need_cast) try writer.writeByte(')');
 
         // Indicate that the anon decl should be rendered to the output so that
         // our reference above is not undefined.
-        const ptr_type = ip.indexToKey(anon_decl.orig_ty).ptr_type;
-        const gop = try dg.anon_decl_deps.getOrPut(dg.gpa, anon_decl.val);
+        const ptr_type = ip.indexToKey(uav.orig_ty).ptr_type;
+        const gop = try dg.uav_deps.getOrPut(dg.gpa, uav.val);
         if (!gop.found_existing) gop.value_ptr.* = .{};
 
         // Only insert an alignment entry if the alignment is greater than ABI
@@ -698,7 +690,7 @@ pub const DeclGen = struct {
         if (explicit_alignment != .none) {
             const abi_alignment = Type.fromInterned(ptr_type.child).abiAlignment(pt);
             if (explicit_alignment.order(abi_alignment).compare(.gt)) {
-                const aligned_gop = try dg.aligned_anon_decls.getOrPut(dg.gpa, anon_decl.val);
+                const aligned_gop = try dg.aligned_uavs.getOrPut(dg.gpa, uav.val);
                 aligned_gop.value_ptr.* = if (aligned_gop.found_existing)
                     aligned_gop.value_ptr.maxStrict(explicit_alignment)
                 else
@@ -707,30 +699,32 @@ pub const DeclGen = struct {
         }
     }
 
-    fn renderDeclValue(
+    fn renderNav(
         dg: *DeclGen,
         writer: anytype,
-        decl_index: InternPool.DeclIndex,
+        nav_index: InternPool.Nav.Index,
         location: ValueRenderLocation,
     ) error{ OutOfMemory, AnalysisFail }!void {
+        _ = location;
         const pt = dg.pt;
         const zcu = pt.zcu;
+        const ip = &zcu.intern_pool;
         const ctype_pool = &dg.ctype_pool;
-        const decl = zcu.declPtr(decl_index);
-        assert(decl.has_tv);
-
-        // Render an undefined pointer if we have a pointer to a zero-bit or comptime type.
-        const decl_ty = decl.typeOf(zcu);
-        const ptr_ty = try decl.declPtrType(pt);
-        if (!decl_ty.isFnOrHasRuntimeBits(pt)) {
-            return dg.writeCValue(writer, .{ .undef = ptr_ty });
-        }
 
         // Chase function values in order to be able to reference the original function.
-        if (decl.val.getFunction(zcu)) |func| if (func.owner_decl != decl_index)
-            return dg.renderDeclValue(writer, func.owner_decl, location);
-        if (decl.val.getExternFunc(zcu)) |extern_func| if (extern_func.decl != decl_index)
-            return dg.renderDeclValue(writer, extern_func.decl, location);
+        const owner_nav = switch (ip.indexToKey(zcu.navValue(nav_index).toIntern())) {
+            .variable => |variable| variable.owner_nav,
+            .func => |func| func.owner_nav,
+            .@"extern" => |@"extern"| @"extern".owner_nav,
+            else => nav_index,
+        };
+
+        // Render an undefined pointer if we have a pointer to a zero-bit or comptime type.
+        const nav_ty = Type.fromInterned(ip.getNav(owner_nav).typeOf(ip));
+        const ptr_ty = try pt.navPtrType(owner_nav);
+        if (!nav_ty.isFnOrHasRuntimeBits(pt)) {
+            return dg.writeCValue(writer, .{ .undef = ptr_ty });
+        }
 
         // We shouldn't cast C function pointers as this is UB (when you call
         // them).  The analysis until now should ensure that the C function
@@ -738,16 +732,16 @@ pub const DeclGen = struct {
         // somewhere and we should let the C compiler tell us about it.
         const ctype = try dg.ctypeFromType(ptr_ty, .complete);
         const elem_ctype = ctype.info(ctype_pool).pointer.elem_ctype;
-        const decl_ctype = try dg.ctypeFromType(decl_ty, .complete);
-        const need_cast = !elem_ctype.eql(decl_ctype) and
-            (elem_ctype.info(ctype_pool) != .function or decl_ctype.info(ctype_pool) != .function);
+        const nav_ctype = try dg.ctypeFromType(nav_ty, .complete);
+        const need_cast = !elem_ctype.eql(nav_ctype) and
+            (elem_ctype.info(ctype_pool) != .function or nav_ctype.info(ctype_pool) != .function);
         if (need_cast) {
             try writer.writeAll("((");
             try dg.renderCType(writer, ctype);
             try writer.writeByte(')');
         }
         try writer.writeByte('&');
-        try dg.renderDeclName(writer, decl_index);
+        try dg.renderNavName(writer, owner_nav);
         if (need_cast) try writer.writeByte(')');
     }
 
@@ -769,8 +763,8 @@ pub const DeclGen = struct {
                 try writer.print("){x}", .{try dg.fmtIntLiteral(addr_val, .Other)});
             },
 
-            .decl_ptr => |decl| try dg.renderDeclValue(writer, decl, location),
-            .anon_decl_ptr => |ad| try dg.renderAnonDeclValue(writer, ad, location),
+            .nav_ptr => |nav| try dg.renderNav(writer, nav, location),
+            .uav_ptr => |uav| try dg.renderUav(writer, uav, location),
 
             inline .eu_payload_ptr, .opt_payload_ptr => |info| {
                 try writer.writeAll("&(");
@@ -918,7 +912,7 @@ pub const DeclGen = struct {
                 .true => try writer.writeAll("true"),
             },
             .variable,
-            .extern_func,
+            .@"extern",
             .func,
             .enum_literal,
             .empty_enum_value,
@@ -1743,7 +1737,7 @@ pub const DeclGen = struct {
                 .undef,
                 .simple_value,
                 .variable,
-                .extern_func,
+                .@"extern",
                 .func,
                 .int,
                 .err,
@@ -1758,7 +1752,7 @@ pub const DeclGen = struct {
                 .aggregate,
                 .un,
                 .memoized_call,
-                => unreachable,
+                => unreachable, // values, not types
             },
         }
     }
@@ -1770,7 +1764,7 @@ pub const DeclGen = struct {
         fn_align: InternPool.Alignment,
         kind: CType.Kind,
         name: union(enum) {
-            decl: InternPool.DeclIndex,
+            nav: InternPool.Nav.Index,
             fmt_ctype_pool_string: std.fmt.Formatter(formatCTypePoolString),
             @"export": struct {
                 main_name: InternPool.NullTerminatedString,
@@ -1805,7 +1799,7 @@ pub const DeclGen = struct {
 
         try w.print("{}", .{trailing});
         switch (name) {
-            .decl => |decl_index| try dg.renderDeclName(w, decl_index),
+            .nav => |nav| try dg.renderNavName(w, nav),
             .fmt_ctype_pool_string => |fmt| try w.print("{ }", .{fmt}),
             .@"export" => |@"export"| try w.print("{ }", .{fmtIdent(@"export".extern_name.toSlice(ip))}),
         }
@@ -1828,7 +1822,7 @@ pub const DeclGen = struct {
             .forward => {
                 if (fn_align.toByteUnits()) |a| try w.print(" zig_align_fn({})", .{a});
                 switch (name) {
-                    .decl, .fmt_ctype_pool_string => {},
+                    .nav, .fmt_ctype_pool_string => {},
                     .@"export" => |@"export"| {
                         const extern_name = @"export".extern_name.toSlice(ip);
                         const is_mangled = isMangledIdent(extern_name, true);
@@ -2069,8 +2063,8 @@ pub const DeclGen = struct {
     fn writeName(dg: *DeclGen, w: anytype, c_value: CValue) !void {
         switch (c_value) {
             .new_local, .local => |i| try w.print("t{d}", .{i}),
-            .constant => |val| try renderAnonDeclName(w, val),
-            .decl => |decl| try dg.renderDeclName(w, decl),
+            .constant => |uav| try renderUavName(w, uav),
+            .nav => |nav| try dg.renderNavName(w, nav),
             .identifier => |ident| try w.print("{ }", .{fmtIdent(ident)}),
             else => unreachable,
         }
@@ -2079,13 +2073,13 @@ pub const DeclGen = struct {
     fn writeCValue(dg: *DeclGen, w: anytype, c_value: CValue) !void {
         switch (c_value) {
             .none, .new_local, .local, .local_ref => unreachable,
-            .constant => |val| try renderAnonDeclName(w, val),
+            .constant => |uav| try renderUavName(w, uav),
             .arg, .arg_array => unreachable,
             .field => |i| try w.print("f{d}", .{i}),
-            .decl => |decl| try dg.renderDeclName(w, decl),
-            .decl_ref => |decl| {
+            .nav => |nav| try dg.renderNavName(w, nav),
+            .nav_ref => |nav| {
                 try w.writeByte('&');
-                try dg.renderDeclName(w, decl);
+                try dg.renderNavName(w, nav);
             },
             .undef => |ty| try dg.renderUndefValue(w, ty, .Other),
             .identifier => |ident| try w.print("{ }", .{fmtIdent(ident)}),
@@ -2111,12 +2105,12 @@ pub const DeclGen = struct {
             .ctype_pool_string,
             => unreachable,
             .field => |i| try w.print("f{d}", .{i}),
-            .decl => |decl| {
+            .nav => |nav| {
                 try w.writeAll("(*");
-                try dg.renderDeclName(w, decl);
+                try dg.renderNavName(w, nav);
                 try w.writeByte(')');
             },
-            .decl_ref => |decl| try dg.renderDeclName(w, decl),
+            .nav_ref => |nav| try dg.renderNavName(w, nav),
             .undef => unreachable,
             .identifier => |ident| try w.print("(*{ })", .{fmtIdent(ident)}),
             .payload_identifier => |ident| try w.print("(*{ }.{ })", .{
@@ -2150,11 +2144,11 @@ pub const DeclGen = struct {
             .arg_array,
             .ctype_pool_string,
             => unreachable,
-            .decl, .identifier, .payload_identifier => {
+            .nav, .identifier, .payload_identifier => {
                 try dg.writeCValue(writer, c_value);
                 try writer.writeAll("->");
             },
-            .decl_ref => {
+            .nav_ref => {
                 try dg.writeCValueDeref(writer, c_value);
                 try writer.writeByte('.');
             },
@@ -2164,46 +2158,53 @@ pub const DeclGen = struct {
 
     fn renderFwdDecl(
         dg: *DeclGen,
-        decl_index: InternPool.DeclIndex,
-        variable: InternPool.Key.Variable,
+        nav_index: InternPool.Nav.Index,
+        flags: struct {
+            is_extern: bool,
+            is_const: bool,
+            is_threadlocal: bool,
+            is_weak_linkage: bool,
+        },
     ) !void {
         const zcu = dg.pt.zcu;
-        const decl = zcu.declPtr(decl_index);
+        const ip = &zcu.intern_pool;
+        const nav = ip.getNav(nav_index);
         const fwd = dg.fwdDeclWriter();
-        try fwd.writeAll(if (variable.is_extern) "zig_extern " else "static ");
-        if (variable.is_weak_linkage) try fwd.writeAll("zig_weak_linkage ");
-        if (variable.is_threadlocal and !dg.mod.single_threaded) try fwd.writeAll("zig_threadlocal ");
+        try fwd.writeAll(if (flags.is_extern) "zig_extern " else "static ");
+        if (flags.is_weak_linkage) try fwd.writeAll("zig_weak_linkage ");
+        if (flags.is_threadlocal and !dg.mod.single_threaded) try fwd.writeAll("zig_threadlocal ");
         try dg.renderTypeAndName(
             fwd,
-            decl.typeOf(zcu),
-            .{ .decl = decl_index },
-            CQualifiers.init(.{ .@"const" = variable.is_const }),
-            decl.alignment,
+            Type.fromInterned(nav.typeOf(ip)),
+            .{ .nav = nav_index },
+            CQualifiers.init(.{ .@"const" = flags.is_const }),
+            nav.status.resolved.alignment,
             .complete,
         );
         try fwd.writeAll(";\n");
     }
 
-    fn renderDeclName(dg: *DeclGen, writer: anytype, decl_index: InternPool.DeclIndex) !void {
+    fn renderNavName(dg: *DeclGen, writer: anytype, nav_index: InternPool.Nav.Index) !void {
         const zcu = dg.pt.zcu;
         const ip = &zcu.intern_pool;
-        const decl = zcu.declPtr(decl_index);
-
-        if (decl.getExternDecl(zcu).unwrap()) |extern_decl_index| try writer.print("{ }", .{
-            fmtIdent(zcu.declPtr(extern_decl_index).name.toSlice(ip)),
-        }) else {
-            // MSVC has a limit of 4095 character token length limit, and fmtIdent can (worst case),
-            // expand to 3x the length of its input, but let's cut it off at a much shorter limit.
-            const fqn_slice = decl.fqn.toSlice(ip);
-            try writer.print("{}__{d}", .{
-                fmtIdent(fqn_slice[0..@min(fqn_slice.len, 100)]),
-                @intFromEnum(decl_index),
-            });
+        switch (ip.indexToKey(zcu.navValue(nav_index).toIntern())) {
+            .@"extern" => |@"extern"| try writer.print("{ }", .{
+                fmtIdent(ip.getNav(@"extern".owner_nav).name.toSlice(ip)),
+            }),
+            else => {
+                // MSVC has a limit of 4095 character token length limit, and fmtIdent can (worst case),
+                // expand to 3x the length of its input, but let's cut it off at a much shorter limit.
+                const fqn_slice = ip.getNav(nav_index).fqn.toSlice(ip);
+                try writer.print("{}__{d}", .{
+                    fmtIdent(fqn_slice[0..@min(fqn_slice.len, 100)]),
+                    @intFromEnum(nav_index),
+                });
+            },
         }
     }
 
-    fn renderAnonDeclName(writer: anytype, anon_decl_val: Value) !void {
-        try writer.print("__anon_{d}", .{@intFromEnum(anon_decl_val.toIntern())});
+    fn renderUavName(writer: anytype, uav: Value) !void {
+        try writer.print("__anon_{d}", .{@intFromEnum(uav.toIntern())});
     }
 
     fn renderTypeForBuiltinFnName(dg: *DeclGen, writer: anytype, ty: Type) !void {
@@ -2301,12 +2302,13 @@ fn renderFwdDeclTypeName(
     fwd_decl: CType.Info.FwdDecl,
     attributes: []const u8,
 ) !void {
+    const ip = &zcu.intern_pool;
     try w.print("{s} {s}", .{ @tagName(fwd_decl.tag), attributes });
     switch (fwd_decl.name) {
         .anon => try w.print("anon__lazy_{d}", .{@intFromEnum(ctype.index)}),
-        .owner_decl => |owner_decl| try w.print("{}__{d}", .{
-            fmtIdent(zcu.declPtr(owner_decl).name.toSlice(&zcu.intern_pool)),
-            @intFromEnum(owner_decl),
+        .index => |index| try w.print("{}__{d}", .{
+            fmtIdent(Type.fromInterned(index).containerTypeName(ip).toSlice(&zcu.intern_pool)),
+            @intFromEnum(index),
         }),
     }
 }
@@ -2340,11 +2342,11 @@ fn renderTypePrefix(
         },
 
         .aligned => switch (pass) {
-            .decl => |decl_index| try w.print("decl__{d}_{d}", .{
-                @intFromEnum(decl_index), @intFromEnum(ctype.index),
+            .nav => |nav| try w.print("nav__{d}_{d}", .{
+                @intFromEnum(nav), @intFromEnum(ctype.index),
             }),
-            .anon => |anon_decl| try w.print("anon__{d}_{d}", .{
-                @intFromEnum(anon_decl), @intFromEnum(ctype.index),
+            .uav => |uav| try w.print("uav__{d}_{d}", .{
+                @intFromEnum(uav), @intFromEnum(ctype.index),
             }),
             .flush => try renderAlignedTypeName(w, ctype),
         },
@@ -2370,15 +2372,15 @@ fn renderTypePrefix(
 
         .fwd_decl => |fwd_decl_info| switch (fwd_decl_info.name) {
             .anon => switch (pass) {
-                .decl => |decl_index| try w.print("decl__{d}_{d}", .{
-                    @intFromEnum(decl_index), @intFromEnum(ctype.index),
+                .nav => |nav| try w.print("nav__{d}_{d}", .{
+                    @intFromEnum(nav), @intFromEnum(ctype.index),
                 }),
-                .anon => |anon_decl| try w.print("anon__{d}_{d}", .{
-                    @intFromEnum(anon_decl), @intFromEnum(ctype.index),
+                .uav => |uav| try w.print("uav__{d}_{d}", .{
+                    @intFromEnum(uav), @intFromEnum(ctype.index),
                 }),
                 .flush => try renderFwdDeclTypeName(zcu, w, ctype, fwd_decl_info, ""),
             },
-            .owner_decl => try renderFwdDeclTypeName(zcu, w, ctype, fwd_decl_info, ""),
+            .index => try renderFwdDeclTypeName(zcu, w, ctype, fwd_decl_info, ""),
         },
 
         .aggregate => |aggregate_info| switch (aggregate_info.name) {
@@ -2557,7 +2559,7 @@ pub fn genTypeDecl(
                 try writer.writeAll(";\n");
             }
             switch (pass) {
-                .decl, .anon => {
+                .nav, .uav => {
                     try writer.writeAll("typedef ");
                     _ = try renderTypePrefix(.flush, global_ctype_pool, zcu, writer, global_ctype, .suffix, .{});
                     try writer.writeByte(' ');
@@ -2569,7 +2571,7 @@ pub fn genTypeDecl(
         },
         .fwd_decl => |fwd_decl_info| switch (fwd_decl_info.name) {
             .anon => switch (pass) {
-                .decl, .anon => {
+                .nav, .uav => {
                     try writer.writeAll("typedef ");
                     _ = try renderTypePrefix(.flush, global_ctype_pool, zcu, writer, global_ctype, .suffix, .{});
                     try writer.writeByte(' ');
@@ -2578,13 +2580,14 @@ pub fn genTypeDecl(
                 },
                 .flush => {},
             },
-            .owner_decl => |owner_decl_index| if (!found_existing) {
+            .index => |index| if (!found_existing) {
+                const ip = &zcu.intern_pool;
+                const ty = Type.fromInterned(index);
                 _ = try renderTypePrefix(.flush, global_ctype_pool, zcu, writer, global_ctype, .suffix, .{});
                 try writer.writeByte(';');
-                const owner_decl = zcu.declPtr(owner_decl_index);
-                const owner_mod = zcu.namespacePtr(owner_decl.src_namespace).fileScope(zcu).mod;
-                if (!owner_mod.strip) try writer.print(" /* {} */", .{
-                    owner_decl.fqn.fmt(&zcu.intern_pool),
+                const file_scope = ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFull(ip).file;
+                if (!zcu.fileByIndex(file_scope).mod.strip) try writer.print(" /* {} */", .{
+                    ty.containerTypeName(ip).fmt(ip),
                 });
                 try writer.writeByte('\n');
             },
@@ -2709,9 +2712,8 @@ pub fn genLazyFn(o: *Object, lazy_ctype_pool: *const CType.Pool, lazy_fn: LazyFn
     const key = lazy_fn.key_ptr.*;
     const val = lazy_fn.value_ptr;
     switch (key) {
-        .tag_name => {
-            const enum_ty = val.data.tag_name;
-
+        .tag_name => |enum_ty_ip| {
+            const enum_ty = Type.fromInterned(enum_ty_ip);
             const name_slice_ty = Type.slice_const_u8_sentinel_0;
 
             try w.writeAll("static ");
@@ -2756,25 +2758,25 @@ pub fn genLazyFn(o: *Object, lazy_ctype_pool: *const CType.Pool, lazy_fn: LazyFn
             _ = try airBreakpoint(w);
             try w.writeAll("}\n");
         },
-        .never_tail, .never_inline => |fn_decl_index| {
-            const fn_decl = zcu.declPtr(fn_decl_index);
-            const fn_ctype = try o.dg.ctypeFromType(fn_decl.typeOf(zcu), .complete);
+        .never_tail, .never_inline => |fn_nav_index| {
+            const fn_val = zcu.navValue(fn_nav_index);
+            const fn_ctype = try o.dg.ctypeFromType(fn_val.typeOf(zcu), .complete);
             const fn_info = fn_ctype.info(ctype_pool).function;
             const fn_name = fmtCTypePoolString(val.fn_name, lazy_ctype_pool);
 
             const fwd = o.dg.fwdDeclWriter();
             try fwd.print("static zig_{s} ", .{@tagName(key)});
-            try o.dg.renderFunctionSignature(fwd, fn_decl.val, fn_decl.alignment, .forward, .{
+            try o.dg.renderFunctionSignature(fwd, fn_val, ip.getNav(fn_nav_index).status.resolved.alignment, .forward, .{
                 .fmt_ctype_pool_string = fn_name,
             });
             try fwd.writeAll(";\n");
 
             try w.print("zig_{s} ", .{@tagName(key)});
-            try o.dg.renderFunctionSignature(w, fn_decl.val, .none, .complete, .{
+            try o.dg.renderFunctionSignature(w, fn_val, .none, .complete, .{
                 .fmt_ctype_pool_string = fn_name,
             });
             try w.writeAll(" {\n return ");
-            try o.dg.renderDeclName(w, fn_decl_index);
+            try o.dg.renderNavName(w, fn_nav_index);
             try w.writeByte('(');
             for (0..fn_info.param_ctypes.len) |arg| {
                 if (arg > 0) try w.writeAll(", ");
@@ -2791,9 +2793,11 @@ pub fn genFunc(f: *Function) !void {
 
     const o = &f.object;
     const zcu = o.dg.pt.zcu;
+    const ip = &zcu.intern_pool;
     const gpa = o.dg.gpa;
-    const decl_index = o.dg.pass.decl;
-    const decl = zcu.declPtr(decl_index);
+    const nav_index = o.dg.pass.nav;
+    const nav_val = zcu.navValue(nav_index);
+    const nav = ip.getNav(nav_index);
 
     o.code_header = std.ArrayList(u8).init(gpa);
     defer o.code_header.deinit();
@@ -2802,21 +2806,21 @@ pub fn genFunc(f: *Function) !void {
     try fwd.writeAll("static ");
     try o.dg.renderFunctionSignature(
         fwd,
-        decl.val,
-        decl.alignment,
+        nav_val,
+        nav.status.resolved.alignment,
         .forward,
-        .{ .decl = decl_index },
+        .{ .nav = nav_index },
     );
     try fwd.writeAll(";\n");
 
-    if (decl.@"linksection".toSlice(&zcu.intern_pool)) |s|
+    if (nav.status.resolved.@"linksection".toSlice(ip)) |s|
         try o.writer().print("zig_linksection_fn({s}) ", .{fmtStringLiteral(s, null)});
     try o.dg.renderFunctionSignature(
         o.writer(),
-        decl.val,
+        nav_val,
         .none,
         .complete,
-        .{ .decl = decl_index },
+        .{ .nav = nav_index },
     );
     try o.writer().writeByte(' ');
 
@@ -2883,44 +2887,66 @@ pub fn genDecl(o: *Object) !void {
 
     const pt = o.dg.pt;
     const zcu = pt.zcu;
-    const decl_index = o.dg.pass.decl;
-    const decl = zcu.declPtr(decl_index);
-    const decl_ty = decl.typeOf(zcu);
+    const ip = &zcu.intern_pool;
+    const nav = ip.getNav(o.dg.pass.nav);
+    const nav_ty = Type.fromInterned(nav.typeOf(ip));
 
-    if (!decl_ty.isFnOrHasRuntimeBitsIgnoreComptime(pt)) return;
-    if (decl.val.getExternFunc(zcu)) |_| {
-        const fwd = o.dg.fwdDeclWriter();
-        try fwd.writeAll("zig_extern ");
-        try o.dg.renderFunctionSignature(
-            fwd,
-            decl.val,
-            decl.alignment,
-            .forward,
-            .{ .@"export" = .{
-                .main_name = decl.name,
-                .extern_name = decl.name,
-            } },
-        );
-        try fwd.writeAll(";\n");
-    } else if (decl.val.getVariable(zcu)) |variable| {
-        try o.dg.renderFwdDecl(decl_index, variable);
+    if (!nav_ty.isFnOrHasRuntimeBitsIgnoreComptime(pt)) return;
+    switch (ip.indexToKey(nav.status.resolved.val)) {
+        .@"extern" => |@"extern"| {
+            if (!ip.isFunctionType(nav_ty.toIntern())) return o.dg.renderFwdDecl(o.dg.pass.nav, .{
+                .is_extern = true,
+                .is_const = @"extern".is_const,
+                .is_threadlocal = @"extern".is_threadlocal,
+                .is_weak_linkage = @"extern".is_weak_linkage,
+            });
 
-        if (variable.is_extern) return;
-
-        const w = o.writer();
-        if (variable.is_weak_linkage) try w.writeAll("zig_weak_linkage ");
-        if (variable.is_threadlocal and !o.dg.mod.single_threaded) try w.writeAll("zig_threadlocal ");
-        if (decl.@"linksection".toSlice(&zcu.intern_pool)) |s|
-            try w.print("zig_linksection({s}) ", .{fmtStringLiteral(s, null)});
-        const decl_c_value = .{ .decl = decl_index };
-        try o.dg.renderTypeAndName(w, decl_ty, decl_c_value, .{}, decl.alignment, .complete);
-        try w.writeAll(" = ");
-        try o.dg.renderValue(w, Value.fromInterned(variable.init), .StaticInitializer);
-        try w.writeByte(';');
-        try o.indent_writer.insertNewline();
-    } else {
-        const decl_c_value = .{ .decl = decl_index };
-        try genDeclValue(o, decl.val, decl_c_value, decl.alignment, decl.@"linksection");
+            const fwd = o.dg.fwdDeclWriter();
+            try fwd.writeAll("zig_extern ");
+            try o.dg.renderFunctionSignature(
+                fwd,
+                Value.fromInterned(nav.status.resolved.val),
+                nav.status.resolved.alignment,
+                .forward,
+                .{ .@"export" = .{
+                    .main_name = nav.name,
+                    .extern_name = nav.name,
+                } },
+            );
+            try fwd.writeAll(";\n");
+        },
+        .variable => |variable| {
+            try o.dg.renderFwdDecl(o.dg.pass.nav, .{
+                .is_extern = false,
+                .is_const = false,
+                .is_threadlocal = variable.is_threadlocal,
+                .is_weak_linkage = variable.is_weak_linkage,
+            });
+            const w = o.writer();
+            if (variable.is_weak_linkage) try w.writeAll("zig_weak_linkage ");
+            if (variable.is_threadlocal and !o.dg.mod.single_threaded) try w.writeAll("zig_threadlocal ");
+            if (nav.status.resolved.@"linksection".toSlice(&zcu.intern_pool)) |s|
+                try w.print("zig_linksection({s}) ", .{fmtStringLiteral(s, null)});
+            try o.dg.renderTypeAndName(
+                w,
+                nav_ty,
+                .{ .nav = o.dg.pass.nav },
+                .{},
+                nav.status.resolved.alignment,
+                .complete,
+            );
+            try w.writeAll(" = ");
+            try o.dg.renderValue(w, Value.fromInterned(variable.init), .StaticInitializer);
+            try w.writeByte(';');
+            try o.indent_writer.insertNewline();
+        },
+        else => try genDeclValue(
+            o,
+            Value.fromInterned(nav.status.resolved.val),
+            .{ .nav = o.dg.pass.nav },
+            nav.status.resolved.alignment,
+            nav.status.resolved.@"linksection",
+        ),
     }
 }
 
@@ -2956,31 +2982,34 @@ pub fn genExports(dg: *DeclGen, exported: Zcu.Exported, export_indices: []const 
     const main_name = zcu.all_exports.items[export_indices[0]].opts.name;
     try fwd.writeAll("#define ");
     switch (exported) {
-        .decl_index => |decl_index| try dg.renderDeclName(fwd, decl_index),
-        .value => |value| try DeclGen.renderAnonDeclName(fwd, Value.fromInterned(value)),
+        .nav => |nav| try dg.renderNavName(fwd, nav),
+        .uav => |uav| try DeclGen.renderUavName(fwd, Value.fromInterned(uav)),
     }
     try fwd.writeByte(' ');
     try fwd.print("{ }", .{fmtIdent(main_name.toSlice(ip))});
     try fwd.writeByte('\n');
 
-    const is_const = switch (ip.indexToKey(exported.getValue(zcu).toIntern())) {
-        .func, .extern_func => return for (export_indices) |export_index| {
-            const @"export" = &zcu.all_exports.items[export_index];
-            try fwd.writeAll("zig_extern ");
-            if (@"export".opts.linkage == .weak) try fwd.writeAll("zig_weak_linkage_fn ");
-            try dg.renderFunctionSignature(
-                fwd,
-                exported.getValue(zcu),
-                exported.getAlign(zcu),
-                .forward,
-                .{ .@"export" = .{
-                    .main_name = main_name,
-                    .extern_name = @"export".opts.name,
-                } },
-            );
-            try fwd.writeAll(";\n");
-        },
-        .variable => |variable| variable.is_const,
+    const exported_val = exported.getValue(zcu);
+    if (ip.isFunctionType(exported_val.typeOf(zcu).toIntern())) return for (export_indices) |export_index| {
+        const @"export" = &zcu.all_exports.items[export_index];
+        try fwd.writeAll("zig_extern ");
+        if (@"export".opts.linkage == .weak) try fwd.writeAll("zig_weak_linkage_fn ");
+        try dg.renderFunctionSignature(
+            fwd,
+            exported.getValue(zcu),
+            exported.getAlign(zcu),
+            .forward,
+            .{ .@"export" = .{
+                .main_name = main_name,
+                .extern_name = @"export".opts.name,
+            } },
+        );
+        try fwd.writeAll(";\n");
+    };
+    const is_const = switch (ip.indexToKey(exported_val.toIntern())) {
+        .func => unreachable,
+        .@"extern" => |@"extern"| @"extern".is_const,
+        .variable => false,
         else => true,
     };
     for (export_indices) |export_index| {
@@ -4474,24 +4503,19 @@ fn airCall(
 
     callee: {
         known: {
-            const fn_decl = fn_decl: {
-                const callee_val = (try f.air.value(pl_op.operand, pt)) orelse break :known;
-                break :fn_decl switch (zcu.intern_pool.indexToKey(callee_val.toIntern())) {
-                    .extern_func => |extern_func| extern_func.decl,
-                    .func => |func| func.owner_decl,
-                    .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
-                        .decl => |decl| decl,
-                        else => break :known,
-                    } else break :known,
+            const callee_val = (try f.air.value(pl_op.operand, pt)) orelse break :known;
+            const fn_nav = switch (zcu.intern_pool.indexToKey(callee_val.toIntern())) {
+                .@"extern" => |@"extern"| @"extern".owner_nav,
+                .func => |func| func.owner_nav,
+                .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
+                    .nav => |nav| nav,
                     else => break :known,
-                };
+                } else break :known,
+                else => break :known,
             };
             switch (modifier) {
-                .auto, .always_tail => try f.object.dg.renderDeclName(writer, fn_decl),
-                inline .never_tail, .never_inline => |m| try writer.writeAll(try f.getLazyFnName(
-                    @unionInit(LazyFnKey, @tagName(m), fn_decl),
-                    @unionInit(LazyFnValue.Data, @tagName(m), {}),
-                )),
+                .auto, .always_tail => try f.object.dg.renderNavName(writer, fn_nav),
+                inline .never_tail, .never_inline => |m| try writer.writeAll(try f.getLazyFnName(@unionInit(LazyFnKey, @tagName(m), fn_nav))),
                 else => unreachable,
             }
             break :callee;
@@ -4554,11 +4578,12 @@ fn airDbgStmt(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airDbgInlineBlock(f: *Function, inst: Air.Inst.Index) !CValue {
     const pt = f.object.dg.pt;
     const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
     const ty_pl = f.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = f.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
-    const owner_decl = zcu.funcOwnerDeclPtr(extra.data.func);
+    const owner_nav = ip.getNav(zcu.funcInfo(extra.data.func).owner_nav);
     const writer = f.object.writer();
-    try writer.print("/* inline:{} */\n", .{owner_decl.fqn.fmt(&zcu.intern_pool)});
+    try writer.print("/* inline:{} */\n", .{owner_nav.fqn.fmt(&zcu.intern_pool)});
     return lowerBlock(f, inst, @ptrCast(f.air.extra[extra.end..][0..extra.data.body_len]));
 }
 
@@ -5059,7 +5084,7 @@ fn asmInputNeedsLocal(f: *Function, constraint: []const u8, value: CValue) bool 
         else => switch (value) {
             .constant => |val| switch (dg.pt.zcu.intern_pool.indexToKey(val.toIntern())) {
                 .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
-                    .decl => false,
+                    .nav => false,
                     else => true,
                 } else true,
                 else => true,
@@ -6841,8 +6866,6 @@ fn airGetUnionTag(f: *Function, inst: Air.Inst.Index) !CValue {
 }
 
 fn airTagName(f: *Function, inst: Air.Inst.Index) !CValue {
-    const pt = f.object.dg.pt;
-    const zcu = pt.zcu;
     const un_op = f.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
 
     const inst_ty = f.typeOfIndex(inst);
@@ -6854,7 +6877,7 @@ fn airTagName(f: *Function, inst: Air.Inst.Index) !CValue {
     const local = try f.allocLocal(inst, inst_ty);
     try f.writeCValue(writer, local, .Other);
     try writer.print(" = {s}(", .{
-        try f.getLazyFnName(.{ .tag_name = enum_ty.getOwnerDecl(zcu) }, .{ .tag_name = enum_ty }),
+        try f.getLazyFnName(.{ .tag_name = enum_ty.toIntern() }),
     });
     try f.writeCValue(writer, operand, .Other);
     try writer.writeAll(");\n");
@@ -7390,18 +7413,17 @@ fn airCVaStart(f: *Function, inst: Air.Inst.Index) !CValue {
     const pt = f.object.dg.pt;
     const zcu = pt.zcu;
     const inst_ty = f.typeOfIndex(inst);
-    const decl_index = f.object.dg.pass.decl;
-    const decl = zcu.declPtr(decl_index);
-    const function_ctype = try f.ctypeFromType(decl.typeOf(zcu), .complete);
-    const params_len = function_ctype.info(&f.object.dg.ctype_pool).function.param_ctypes.len;
+    const function_ty = zcu.navValue(f.object.dg.pass.nav).typeOf(zcu);
+    const function_info = (try f.ctypeFromType(function_ty, .complete)).info(&f.object.dg.ctype_pool).function;
+    assert(function_info.varargs);
 
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
     try writer.writeAll("va_start(*(va_list *)&");
     try f.writeCValue(writer, local, .Other);
-    if (params_len > 0) {
+    if (function_info.param_ctypes.len > 0) {
         try writer.writeAll(", ");
-        try f.writeCValue(writer, .{ .arg = params_len - 1 }, .FunctionArgument);
+        try f.writeCValue(writer, .{ .arg = function_info.param_ctypes.len - 1 }, .FunctionArgument);
     }
     try writer.writeAll(");\n");
     return local;
@@ -7941,7 +7963,7 @@ const Materialize = struct {
 
     pub fn start(f: *Function, inst: Air.Inst.Index, ty: Type, value: CValue) !Materialize {
         return .{ .local = switch (value) {
-            .local_ref, .constant, .decl_ref, .undef => try f.moveCValue(inst, ty, value),
+            .local_ref, .constant, .nav_ref, .undef => try f.moveCValue(inst, ty, value),
             .new_local => |local| .{ .local = local },
             else => value,
         } };

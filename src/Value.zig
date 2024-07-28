@@ -227,13 +227,6 @@ pub fn getFunction(val: Value, mod: *Module) ?InternPool.Key.Func {
     };
 }
 
-pub fn getExternFunc(val: Value, mod: *Module) ?InternPool.Key.ExternFunc {
-    return switch (mod.intern_pool.indexToKey(val.toIntern())) {
-        .extern_func => |extern_func| extern_func,
-        else => null,
-    };
-}
-
 pub fn getVariable(val: Value, mod: *Module) ?InternPool.Key.Variable {
     return switch (mod.intern_pool.indexToKey(val.toIntern())) {
         .variable => |variable| variable,
@@ -319,17 +312,8 @@ pub fn toBool(val: Value) bool {
     };
 }
 
-fn ptrHasIntAddr(val: Value, mod: *Module) bool {
-    var check = val;
-    while (true) switch (mod.intern_pool.indexToKey(check.toIntern())) {
-        .ptr => |ptr| switch (ptr.base_addr) {
-            .decl, .comptime_alloc, .comptime_field, .anon_decl => return false,
-            .int => return true,
-            .eu_payload, .opt_payload => |base| check = Value.fromInterned(base),
-            .arr_elem, .field => |base_index| check = Value.fromInterned(base_index.base),
-        },
-        else => unreachable,
-    };
+fn ptrHasIntAddr(val: Value, zcu: *Zcu) bool {
+    return zcu.intern_pool.getBackingAddrTag(val.toIntern()).? == .int;
 }
 
 /// Write a Value's contents to `buffer`.
@@ -1058,7 +1042,7 @@ pub fn orderAgainstZeroAdvanced(
         .bool_true => .gt,
         else => switch (pt.zcu.intern_pool.indexToKey(lhs.toIntern())) {
             .ptr => |ptr| if (ptr.byte_offset > 0) .gt else switch (ptr.base_addr) {
-                .decl, .comptime_alloc, .comptime_field => .gt,
+                .nav, .comptime_alloc, .comptime_field => .gt,
                 .int => .eq,
                 else => unreachable,
             },
@@ -1130,11 +1114,11 @@ pub fn compareHeteroAdvanced(
     pt: Zcu.PerThread,
     comptime strat: ResolveStrat,
 ) !bool {
-    if (lhs.pointerDecl(pt.zcu)) |lhs_decl| {
-        if (rhs.pointerDecl(pt.zcu)) |rhs_decl| {
+    if (lhs.pointerNav(pt.zcu)) |lhs_nav| {
+        if (rhs.pointerNav(pt.zcu)) |rhs_nav| {
             switch (op) {
-                .eq => return lhs_decl == rhs_decl,
-                .neq => return lhs_decl != rhs_decl,
+                .eq => return lhs_nav == rhs_nav,
+                .neq => return lhs_nav != rhs_nav,
                 else => {},
             }
         } else {
@@ -1144,7 +1128,7 @@ pub fn compareHeteroAdvanced(
                 else => {},
             }
         }
-    } else if (rhs.pointerDecl(pt.zcu)) |_| {
+    } else if (rhs.pointerNav(pt.zcu)) |_| {
         switch (op) {
             .eq => return false,
             .neq => return true,
@@ -1252,12 +1236,12 @@ pub fn canMutateComptimeVarState(val: Value, zcu: *Zcu) bool {
             .payload => |payload| Value.fromInterned(payload).canMutateComptimeVarState(zcu),
         },
         .ptr => |ptr| switch (ptr.base_addr) {
-            .decl => false, // The value of a Decl can never reference a comptime alloc.
+            .nav => false, // The value of a Nav can never reference a comptime alloc.
             .int => false,
             .comptime_alloc => true, // A comptime alloc is either mutable or references comptime-mutable memory.
             .comptime_field => true, // Comptime field pointers are comptime-mutable, albeit only to the "correct" value.
             .eu_payload, .opt_payload => |base| Value.fromInterned(base).canMutateComptimeVarState(zcu),
-            .anon_decl => |anon_decl| Value.fromInterned(anon_decl.val).canMutateComptimeVarState(zcu),
+            .uav => |uav| Value.fromInterned(uav.val).canMutateComptimeVarState(zcu),
             .arr_elem, .field => |base_index| Value.fromInterned(base_index.base).canMutateComptimeVarState(zcu),
         },
         .slice => |slice| return Value.fromInterned(slice.ptr).canMutateComptimeVarState(zcu),
@@ -1273,16 +1257,17 @@ pub fn canMutateComptimeVarState(val: Value, zcu: *Zcu) bool {
     };
 }
 
-/// Gets the decl referenced by this pointer.  If the pointer does not point
-/// to a decl, or if it points to some part of a decl (like field_ptr or element_ptr),
-/// this function returns null.
-pub fn pointerDecl(val: Value, mod: *Module) ?InternPool.DeclIndex {
+/// Gets the `Nav` referenced by this pointer.  If the pointer does not point
+/// to a `Nav`, or if it points to some part of one (like a field or element),
+/// returns null.
+pub fn pointerNav(val: Value, mod: *Module) ?InternPool.Nav.Index {
     return switch (mod.intern_pool.indexToKey(val.toIntern())) {
-        .variable => |variable| variable.decl,
-        .extern_func => |extern_func| extern_func.decl,
-        .func => |func| func.owner_decl,
+        // TODO: these 3 cases are weird; these aren't pointer values!
+        .variable => |v| v.owner_nav,
+        .@"extern" => |e| e.owner_nav,
+        .func => |func| func.owner_nav,
         .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
-            .decl => |decl| decl,
+            .nav => |nav| nav,
             else => null,
         } else null,
         else => null,
@@ -1341,10 +1326,14 @@ pub fn isLazySize(val: Value, mod: *Module) bool {
     };
 }
 
-pub fn isPtrToThreadLocal(val: Value, mod: *Module) bool {
-    const backing_decl = mod.intern_pool.getBackingDecl(val.toIntern()).unwrap() orelse return false;
-    const variable = mod.declPtr(backing_decl).getOwnedVariable(mod) orelse return false;
-    return variable.is_threadlocal;
+pub fn isPtrToThreadLocal(val: Value, zcu: *Zcu) bool {
+    const ip = &zcu.intern_pool;
+    const nav = ip.getBackingNav(val.toIntern()).unwrap() orelse return false;
+    return switch (ip.indexToKey(ip.getNav(nav).status.resolved.val)) {
+        .@"extern" => |e| e.is_threadlocal,
+        .variable => |v| v.is_threadlocal,
+        else => false,
+    };
 }
 
 // Asserts that the provided start/end are in-bounds.
@@ -4031,8 +4020,8 @@ pub const PointerDeriveStep = union(enum) {
         addr: u64,
         ptr_ty: Type,
     },
-    decl_ptr: InternPool.DeclIndex,
-    anon_decl_ptr: InternPool.Key.Ptr.BaseAddr.AnonDecl,
+    nav_ptr: InternPool.Nav.Index,
+    uav_ptr: InternPool.Key.Ptr.BaseAddr.Uav,
     comptime_alloc_ptr: struct {
         val: Value,
         ptr_ty: Type,
@@ -4069,8 +4058,8 @@ pub const PointerDeriveStep = union(enum) {
     pub fn ptrType(step: PointerDeriveStep, pt: Zcu.PerThread) !Type {
         return switch (step) {
             .int => |int| int.ptr_ty,
-            .decl_ptr => |decl| try pt.zcu.declPtr(decl).declPtrType(pt),
-            .anon_decl_ptr => |ad| Type.fromInterned(ad.orig_ty),
+            .nav_ptr => |nav| try pt.navPtrType(nav),
+            .uav_ptr => |uav| Type.fromInterned(uav.orig_ty),
             .comptime_alloc_ptr => |info| info.ptr_ty,
             .comptime_field_ptr => |val| try pt.singleConstPtrType(val.typeOf(pt.zcu)),
             .offset_and_cast => |oac| oac.new_ptr_ty,
@@ -4098,17 +4087,17 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
             .addr = ptr.byte_offset,
             .ptr_ty = Type.fromInterned(ptr.ty),
         } },
-        .decl => |decl| .{ .decl_ptr = decl },
-        .anon_decl => |ad| base: {
+        .nav => |nav| .{ .nav_ptr = nav },
+        .uav => |uav| base: {
             // A slight tweak: `orig_ty` here is sometimes not `const`, but it ought to be.
             // TODO: fix this in the sites interning anon decls!
             const const_ty = try pt.ptrType(info: {
-                var info = Type.fromInterned(ad.orig_ty).ptrInfo(zcu);
+                var info = Type.fromInterned(uav.orig_ty).ptrInfo(zcu);
                 info.flags.is_const = true;
                 break :info info;
             });
-            break :base .{ .anon_decl_ptr = .{
-                .val = ad.val,
+            break :base .{ .uav_ptr = .{
+                .val = uav.val,
                 .orig_ty = const_ty.toIntern(),
             } };
         },
@@ -4357,7 +4346,7 @@ pub fn resolveLazy(val: Value, arena: Allocator, pt: Zcu.PerThread) Zcu.SemaErro
         },
         .ptr => |ptr| {
             switch (ptr.base_addr) {
-                .decl, .comptime_alloc, .anon_decl, .int => return val,
+                .nav, .comptime_alloc, .uav, .int => return val,
                 .comptime_field => |field_val| {
                     const resolved_field_val = (try Value.fromInterned(field_val).resolveLazy(arena, pt)).toIntern();
                     return if (resolved_field_val == field_val)
