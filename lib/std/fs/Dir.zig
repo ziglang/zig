@@ -1854,7 +1854,7 @@ pub const ReadLinkError = posix.ReadLinkError;
 /// Note: if the target is a regular file, this function has the same
 /// behaviour that `Dir.statFile`
 pub fn statLink(self: Dir, sub_path: []const u8) StatFileError!Stat {
-    if(native_os == .windows) {
+    if (native_os == .windows) {
         const path_w = windows.sliceToPrefixedFileW(self.fd, sub_path) catch return error.InvalidWtf8;
         return self.statFileW(path_w.span().ptr, false);
     }
@@ -1862,13 +1862,13 @@ pub fn statLink(self: Dir, sub_path: []const u8) StatFileError!Stat {
         const st = try std.os.fstatat_wasi(self.fd, sub_path, .{ .SYMLINK_FOLLOW = false });
         return Stat.fromWasi(st);
     }
-	const st = try posix.fstatat(self.fd, sub_path, posix.AT.SYMLINK_NOFOLLOW);
-	return Stat.fromSystem(st);
+    const st = try posix.fstatat(self.fd, sub_path, posix.AT.SYMLINK_NOFOLLOW);
+    return Stat.fromSystem(st);
 }
 
 /// Same as `Dir.statLink`
 pub fn statLinkZ(self: Dir, sub_path_c: [*:0]const u8) StatFileError!Stat {
-    if(native_os == .windows) {
+    if (native_os == .windows) {
         const path_w = windows.cStrToPrefixedFileW(self.fd, sub_path_c) catch return error.InvalidWtf8;
         return self.statFileW(path_w.span().ptr, false);
     }
@@ -1876,8 +1876,8 @@ pub fn statLinkZ(self: Dir, sub_path_c: [*:0]const u8) StatFileError!Stat {
         const st = try std.os.fstatat_wasi(self.fd, mem.sliceTo(sub_path_c, 0), .{ .SYMLINK_FOLLOW = false });
         return Stat.fromWasi(st);
     }
-	const st = try posix.fstatatZ(self.fd, sub_path_c, posix.AT.SYMLINK_NOFOLLOW);
-	return Stat.fromSystem(st);
+    const st = try posix.fstatatZ(self.fd, sub_path_c, posix.AT.SYMLINK_NOFOLLOW);
+    return Stat.fromSystem(st);
 }
 
 /// Windows only. Same as `Dir.statLink`
@@ -2690,7 +2690,7 @@ pub fn statFileW(self: Dir, sub_path_w: [*:0]const u16, follow_symlinks: bool) S
         .Buffer = @constCast(sub_path_w),
     };
     // windows.OBJ_OPENLINK means it opens the link directly rather than its target
-    const attributes: u32 = if(follow_symlinks) 0 else windows.OBJ_OPENLINK;
+    const attributes: u32 = if (follow_symlinks) 0 else windows.OBJ_OPENLINK;
     var attr = windows.OBJECT_ATTRIBUTES{
         .Length = @sizeOf(windows.OBJECT_ATTRIBUTES),
         .RootDirectory = if (fs.path.isAbsoluteWindowsW(sub_path_w)) null else self.fd,
@@ -2735,12 +2735,12 @@ pub fn statFileW(self: Dir, sub_path_w: [*:0]const u16, follow_symlinks: bool) S
             break :reparse_point .unknown;
         } else if (info.BasicInformation.FileAttributes & windows.FILE_ATTRIBUTE_DIRECTORY != 0)
             .directory
-                else
-                    .file,
-                    .atime = windows.fromSysTime(info.BasicInformation.LastAccessTime),
-                    .mtime = windows.fromSysTime(info.BasicInformation.LastWriteTime),
-                    .ctime = windows.fromSysTime(info.BasicInformation.ChangeTime),
-                };
+        else
+            .file,
+        .atime = windows.fromSysTime(info.BasicInformation.LastAccessTime),
+        .mtime = windows.fromSysTime(info.BasicInformation.LastWriteTime),
+        .ctime = windows.fromSysTime(info.BasicInformation.ChangeTime),
+    };
 }
 
 pub const ChmodError = File.ChmodError;
