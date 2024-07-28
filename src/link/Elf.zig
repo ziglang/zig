@@ -478,24 +478,24 @@ pub fn deinit(self: *Elf) void {
     self.comdat_group_sections.deinit(gpa);
 }
 
-pub fn getDeclVAddr(self: *Elf, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex, reloc_info: link.File.RelocInfo) !u64 {
+pub fn getNavVAddr(self: *Elf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
-    return self.zigObjectPtr().?.getDeclVAddr(self, pt, decl_index, reloc_info);
+    return self.zigObjectPtr().?.getNavVAddr(self, pt, nav_index, reloc_info);
 }
 
-pub fn lowerAnonDecl(
+pub fn lowerUav(
     self: *Elf,
     pt: Zcu.PerThread,
-    decl_val: InternPool.Index,
+    uav: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
     src_loc: Zcu.LazySrcLoc,
-) !codegen.Result {
-    return self.zigObjectPtr().?.lowerAnonDecl(self, pt, decl_val, explicit_alignment, src_loc);
+) !codegen.GenResult {
+    return self.zigObjectPtr().?.lowerUav(self, pt, uav, explicit_alignment, src_loc);
 }
 
-pub fn getAnonDeclVAddr(self: *Elf, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
+pub fn getUavVAddr(self: *Elf, uav: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
-    return self.zigObjectPtr().?.getAnonDeclVAddr(self, decl_val, reloc_info);
+    return self.zigObjectPtr().?.getUavVAddr(self, uav, reloc_info);
 }
 
 /// Returns end pos of collision, if any.
@@ -2913,9 +2913,9 @@ pub fn writeElfHeader(self: *Elf) !void {
     try self.base.file.?.pwriteAll(hdr_buf[0..index], 0);
 }
 
-pub fn freeDecl(self: *Elf, decl_index: InternPool.DeclIndex) void {
-    if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
-    return self.zigObjectPtr().?.freeDecl(self, decl_index);
+pub fn freeNav(self: *Elf, nav: InternPool.Nav.Index) void {
+    if (self.llvm_object) |llvm_object| return llvm_object.freeNav(nav);
+    return self.zigObjectPtr().?.freeNav(self, nav);
 }
 
 pub fn updateFunc(self: *Elf, pt: Zcu.PerThread, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
@@ -2926,20 +2926,16 @@ pub fn updateFunc(self: *Elf, pt: Zcu.PerThread, func_index: InternPool.Index, a
     return self.zigObjectPtr().?.updateFunc(self, pt, func_index, air, liveness);
 }
 
-pub fn updateDecl(
+pub fn updateNav(
     self: *Elf,
     pt: Zcu.PerThread,
-    decl_index: InternPool.DeclIndex,
-) link.File.UpdateDeclError!void {
+    nav: InternPool.Nav.Index,
+) link.File.UpdateNavError!void {
     if (build_options.skip_non_native and builtin.object_format != .elf) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(pt, decl_index);
-    return self.zigObjectPtr().?.updateDecl(self, pt, decl_index);
-}
-
-pub fn lowerUnnamedConst(self: *Elf, pt: Zcu.PerThread, val: Value, decl_index: InternPool.DeclIndex) !u32 {
-    return self.zigObjectPtr().?.lowerUnnamedConst(self, pt, val, decl_index);
+    if (self.llvm_object) |llvm_object| return llvm_object.updateNav(pt, nav);
+    return self.zigObjectPtr().?.updateNav(self, pt, nav);
 }
 
 pub fn updateExports(
@@ -2955,9 +2951,9 @@ pub fn updateExports(
     return self.zigObjectPtr().?.updateExports(self, pt, exported, export_indices);
 }
 
-pub fn updateDeclLineNumber(self: *Elf, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
+pub fn updateNavLineNumber(self: *Elf, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !void {
     if (self.llvm_object) |_| return;
-    return self.zigObjectPtr().?.updateDeclLineNumber(pt, decl_index);
+    return self.zigObjectPtr().?.updateNavLineNumber(pt, nav);
 }
 
 pub fn deleteExport(

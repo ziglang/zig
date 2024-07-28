@@ -39,8 +39,6 @@ const ZigObject = @import("Wasm/ZigObject.zig");
 pub const Atom = @import("Wasm/Atom.zig");
 pub const Relocation = types.Relocation;
 
-pub const base_tag: link.File.Tag = .wasm;
-
 base: link.File,
 /// Symbol name of the entry function to export
 entry_name: ?[]const u8,
@@ -1451,19 +1449,19 @@ pub fn updateFunc(wasm: *Wasm, pt: Zcu.PerThread, func_index: InternPool.Index, 
     try wasm.zigObjectPtr().?.updateFunc(wasm, pt, func_index, air, liveness);
 }
 
-// Generate code for the Decl, storing it in memory to be later written to
+// Generate code for the "Nav", storing it in memory to be later written to
 // the file on flush().
-pub fn updateDecl(wasm: *Wasm, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
+pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !void {
     if (build_options.skip_non_native and builtin.object_format != .wasm) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (wasm.llvm_object) |llvm_object| return llvm_object.updateDecl(pt, decl_index);
-    try wasm.zigObjectPtr().?.updateDecl(wasm, pt, decl_index);
+    if (wasm.llvm_object) |llvm_object| return llvm_object.updateNav(pt, nav);
+    try wasm.zigObjectPtr().?.updateNav(wasm, pt, nav);
 }
 
-pub fn updateDeclLineNumber(wasm: *Wasm, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
+pub fn updateNavLineNumber(wasm: *Wasm, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !void {
     if (wasm.llvm_object) |_| return;
-    try wasm.zigObjectPtr().?.updateDeclLineNumber(pt, decl_index);
+    try wasm.zigObjectPtr().?.updateNavLineNumber(pt, nav);
 }
 
 /// From a given symbol location, returns its `wasm.GlobalType`.
@@ -1505,13 +1503,6 @@ fn getFunctionSignature(wasm: *const Wasm, loc: SymbolLoc) std.wasm.Type {
     return wasm.func_types.items[wasm.functions.get(.{ .file = loc.file, .index = symbol.index }).?.func.type_index];
 }
 
-/// Lowers a constant typed value to a local symbol and atom.
-/// Returns the symbol index of the local
-/// The given `decl` is the parent decl whom owns the constant.
-pub fn lowerUnnamedConst(wasm: *Wasm, pt: Zcu.PerThread, val: Value, decl_index: InternPool.DeclIndex) !u32 {
-    return wasm.zigObjectPtr().?.lowerUnnamedConst(wasm, pt, val, decl_index);
-}
-
 /// Returns the symbol index from a symbol of which its flag is set global,
 /// such as an exported or imported symbol.
 /// If the symbol does not yet exist, creates a new one symbol instead
@@ -1521,29 +1512,29 @@ pub fn getGlobalSymbol(wasm: *Wasm, name: []const u8, lib_name: ?[]const u8) !Sy
     return wasm.zigObjectPtr().?.getGlobalSymbol(wasm.base.comp.gpa, name);
 }
 
-/// For a given decl, find the given symbol index's atom, and create a relocation for the type.
+/// For a given `Nav`, find the given symbol index's atom, and create a relocation for the type.
 /// Returns the given pointer address
-pub fn getDeclVAddr(
+pub fn getNavVAddr(
     wasm: *Wasm,
     pt: Zcu.PerThread,
-    decl_index: InternPool.DeclIndex,
+    nav: InternPool.Nav.Index,
     reloc_info: link.File.RelocInfo,
 ) !u64 {
-    return wasm.zigObjectPtr().?.getDeclVAddr(wasm, pt, decl_index, reloc_info);
+    return wasm.zigObjectPtr().?.getNavVAddr(wasm, pt, nav, reloc_info);
 }
 
-pub fn lowerAnonDecl(
+pub fn lowerUav(
     wasm: *Wasm,
     pt: Zcu.PerThread,
-    decl_val: InternPool.Index,
+    uav: InternPool.Index,
     explicit_alignment: Alignment,
     src_loc: Zcu.LazySrcLoc,
-) !codegen.Result {
-    return wasm.zigObjectPtr().?.lowerAnonDecl(wasm, pt, decl_val, explicit_alignment, src_loc);
+) !codegen.GenResult {
+    return wasm.zigObjectPtr().?.lowerUav(wasm, pt, uav, explicit_alignment, src_loc);
 }
 
-pub fn getAnonDeclVAddr(wasm: *Wasm, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
-    return wasm.zigObjectPtr().?.getAnonDeclVAddr(wasm, decl_val, reloc_info);
+pub fn getUavVAddr(wasm: *Wasm, uav: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
+    return wasm.zigObjectPtr().?.getUavVAddr(wasm, uav, reloc_info);
 }
 
 pub fn deleteExport(
@@ -4018,11 +4009,11 @@ pub fn putOrGetFuncType(wasm: *Wasm, func_type: std.wasm.Type) !u32 {
     return index;
 }
 
-/// For the given `decl_index`, stores the corresponding type representing the function signature.
+/// For the given `nav`, stores the corresponding type representing the function signature.
 /// Asserts declaration has an associated `Atom`.
 /// Returns the index into the list of types.
-pub fn storeDeclType(wasm: *Wasm, decl_index: InternPool.DeclIndex, func_type: std.wasm.Type) !u32 {
-    return wasm.zigObjectPtr().?.storeDeclType(wasm.base.comp.gpa, decl_index, func_type);
+pub fn storeNavType(wasm: *Wasm, nav: InternPool.Nav.Index, func_type: std.wasm.Type) !u32 {
+    return wasm.zigObjectPtr().?.storeDeclType(wasm.base.comp.gpa, nav, func_type);
 }
 
 /// Returns the symbol index of the error name table.
@@ -4036,8 +4027,8 @@ pub fn getErrorTableSymbol(wasm_file: *Wasm, pt: Zcu.PerThread) !u32 {
 /// For a given `InternPool.DeclIndex` returns its corresponding `Atom.Index`.
 /// When the index was not found, a new `Atom` will be created, and its index will be returned.
 /// The newly created Atom is empty with default fields as specified by `Atom.empty`.
-pub fn getOrCreateAtomForDecl(wasm_file: *Wasm, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !Atom.Index {
-    return wasm_file.zigObjectPtr().?.getOrCreateAtomForDecl(wasm_file, pt, decl_index);
+pub fn getOrCreateAtomForNav(wasm_file: *Wasm, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !Atom.Index {
+    return wasm_file.zigObjectPtr().?.getOrCreateAtomForNav(wasm_file, pt, nav);
 }
 
 /// Verifies all resolved symbols and checks whether itself needs to be marked alive,

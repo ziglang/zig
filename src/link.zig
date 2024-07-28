@@ -216,8 +216,8 @@ pub const File = struct {
         }
     }
 
-    pub fn cast(base: *File, comptime T: type) ?*T {
-        return if (base.tag == T.base_tag) @fieldParentPtr("base", base) else null;
+    pub fn cast(base: *File, comptime tag: Tag) if (dev.env.supports(tag.devFeature())) ?*tag.Type() else ?noreturn {
+        return if (dev.env.supports(tag.devFeature()) and base.tag == tag) @fieldParentPtr("base", base) else null;
     }
 
     pub fn makeWritable(base: *File) !void {
@@ -231,7 +231,7 @@ pub const File = struct {
                 const emit = base.emit;
                 if (base.child_pid) |pid| {
                     if (builtin.os.tag == .windows) {
-                        base.cast(Coff).?.ptraceAttach(pid) catch |err| {
+                        base.cast(.coff).?.ptraceAttach(pid) catch |err| {
                             log.warn("attaching failed with error: {s}", .{@errorName(err)});
                         };
                     } else {
@@ -249,7 +249,7 @@ pub const File = struct {
                             .linux => std.posix.ptrace(std.os.linux.PTRACE.ATTACH, pid, 0, 0) catch |err| {
                                 log.warn("ptrace failure: {s}", .{@errorName(err)});
                             },
-                            .macos => base.cast(MachO).?.ptraceAttach(pid) catch |err| {
+                            .macos => base.cast(.macho).?.ptraceAttach(pid) catch |err| {
                                 log.warn("attaching failed with error: {s}", .{@errorName(err)});
                             },
                             .windows => unreachable,
@@ -317,10 +317,10 @@ pub const File = struct {
 
                 if (base.child_pid) |pid| {
                     switch (builtin.os.tag) {
-                        .macos => base.cast(MachO).?.ptraceDetach(pid) catch |err| {
+                        .macos => base.cast(.macho).?.ptraceDetach(pid) catch |err| {
                             log.warn("detaching failed with error: {s}", .{@errorName(err)});
                         },
-                        .windows => base.cast(Coff).?.ptraceDetach(pid),
+                        .windows => base.cast(.coff).?.ptraceDetach(pid),
                         else => return error.HotSwapUnavailableOnHostOperatingSystem,
                     }
                 }
@@ -329,7 +329,7 @@ pub const File = struct {
         }
     }
 
-    pub const UpdateDeclError = error{
+    pub const UpdateNavError = error{
         OutOfMemory,
         Overflow,
         Underflow,
@@ -367,27 +367,12 @@ pub const File = struct {
         HotSwapUnavailableOnHostOperatingSystem,
     };
 
-    /// Called from within the CodeGen to lower a local variable instantion as an unnamed
-    /// constant. Returns the symbol index of the lowered constant in the read-only section
-    /// of the final binary.
-    pub fn lowerUnnamedConst(base: *File, pt: Zcu.PerThread, val: Value, decl_index: InternPool.DeclIndex) UpdateDeclError!u32 {
-        switch (base.tag) {
-            .spirv => unreachable,
-            .c => unreachable,
-            .nvptx => unreachable,
-            inline else => |tag| {
-                dev.check(tag.devFeature());
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).lowerUnnamedConst(pt, val, decl_index);
-            },
-        }
-    }
-
     /// Called from within CodeGen to retrieve the symbol index of a global symbol.
     /// If no symbol exists yet with this name, a new undefined global symbol will
     /// be created. This symbol may get resolved once all relocatables are (re-)linked.
     /// Optionally, it is possible to specify where to expect the symbol defined if it
     /// is an import.
-    pub fn getGlobalSymbol(base: *File, name: []const u8, lib_name: ?[]const u8) UpdateDeclError!u32 {
+    pub fn getGlobalSymbol(base: *File, name: []const u8, lib_name: ?[]const u8) UpdateNavError!u32 {
         log.debug("getGlobalSymbol '{s}' (expected in '{?s}')", .{ name, lib_name });
         switch (base.tag) {
             .plan9 => unreachable,
@@ -401,14 +386,14 @@ pub const File = struct {
         }
     }
 
-    /// May be called before or after updateExports for any given Decl.
-    pub fn updateDecl(base: *File, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) UpdateDeclError!void {
-        const decl = pt.zcu.declPtr(decl_index);
-        assert(decl.has_tv);
+    /// May be called before or after updateExports for any given Nav.
+    pub fn updateNav(base: *File, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) UpdateNavError!void {
+        const nav = pt.zcu.intern_pool.getNav(nav_index);
+        assert(nav.status == .resolved);
         switch (base.tag) {
             inline else => |tag| {
                 dev.check(tag.devFeature());
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateDecl(pt, decl_index);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateNav(pt, nav_index);
             },
         }
     }
@@ -420,7 +405,7 @@ pub const File = struct {
         func_index: InternPool.Index,
         air: Air,
         liveness: Liveness,
-    ) UpdateDeclError!void {
+    ) UpdateNavError!void {
         switch (base.tag) {
             inline else => |tag| {
                 dev.check(tag.devFeature());
@@ -429,14 +414,16 @@ pub const File = struct {
         }
     }
 
-    pub fn updateDeclLineNumber(base: *File, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) UpdateDeclError!void {
-        const decl = pt.zcu.declPtr(decl_index);
-        assert(decl.has_tv);
+    pub fn updateNavLineNumber(
+        base: *File,
+        pt: Zcu.PerThread,
+        nav_index: InternPool.Nav.Index,
+    ) UpdateNavError!void {
         switch (base.tag) {
             .spirv, .nvptx => {},
             inline else => |tag| {
                 dev.check(tag.devFeature());
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateDeclLineNumber(pt, decl_index);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateNavineNumber(pt, nav_index);
             },
         }
     }
@@ -675,52 +662,50 @@ pub const File = struct {
         addend: u32,
     };
 
-    /// Get allocated `Decl`'s address in virtual memory.
+    /// Get allocated `Nav`'s address in virtual memory.
     /// The linker is passed information about the containing atom, `parent_atom_index`, and offset within it's
     /// memory buffer, `offset`, so that it can make a note of potential relocation sites, should the
-    /// `Decl`'s address was not yet resolved, or the containing atom gets moved in virtual memory.
-    /// May be called before or after updateFunc/updateDecl therefore it is up to the linker to allocate
+    /// `Nav`'s address was not yet resolved, or the containing atom gets moved in virtual memory.
+    /// May be called before or after updateFunc/updateNav therefore it is up to the linker to allocate
     /// the block/atom.
-    pub fn getDeclVAddr(base: *File, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex, reloc_info: RelocInfo) !u64 {
+    pub fn getNavVAddr(base: *File, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index, reloc_info: RelocInfo) !u64 {
         switch (base.tag) {
             .c => unreachable,
             .spirv => unreachable,
             .nvptx => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).getDeclVAddr(pt, decl_index, reloc_info);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).getNavVAddr(pt, nav_index, reloc_info);
             },
         }
     }
 
-    pub const LowerResult = @import("codegen.zig").Result;
-
-    pub fn lowerAnonDecl(
+    pub fn lowerUav(
         base: *File,
         pt: Zcu.PerThread,
         decl_val: InternPool.Index,
         decl_align: InternPool.Alignment,
         src_loc: Zcu.LazySrcLoc,
-    ) !LowerResult {
+    ) !@import("codegen.zig").GenResult {
         switch (base.tag) {
             .c => unreachable,
             .spirv => unreachable,
             .nvptx => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).lowerAnonDecl(pt, decl_val, decl_align, src_loc);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).lowerUav(pt, decl_val, decl_align, src_loc);
             },
         }
     }
 
-    pub fn getAnonDeclVAddr(base: *File, decl_val: InternPool.Index, reloc_info: RelocInfo) !u64 {
+    pub fn getUavVAddr(base: *File, decl_val: InternPool.Index, reloc_info: RelocInfo) !u64 {
         switch (base.tag) {
             .c => unreachable,
             .spirv => unreachable,
             .nvptx => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).getAnonDeclVAddr(decl_val, reloc_info);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).getUavVAddr(decl_val, reloc_info);
             },
         }
     }
@@ -964,18 +949,7 @@ pub const File = struct {
         pub const Kind = enum { code, const_data };
 
         kind: Kind,
-        ty: Type,
-
-        pub fn initDecl(kind: Kind, decl: ?InternPool.DeclIndex, mod: *Zcu) LazySymbol {
-            return .{ .kind = kind, .ty = if (decl) |decl_index|
-                mod.declPtr(decl_index).val.toType()
-            else
-                Type.anyerror };
-        }
-
-        pub fn getDecl(self: LazySymbol, mod: *Zcu) InternPool.OptionalDeclIndex {
-            return InternPool.OptionalDeclIndex.init(self.ty.getOwnerDeclOrNull(mod));
-        }
+        ty: InternPool.Index,
     };
 
     pub fn effectiveOutputMode(

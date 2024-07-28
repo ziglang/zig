@@ -118,26 +118,18 @@ const RegisterOffset = struct { reg: Register, off: i32 = 0 };
 pub const FrameAddr = struct { index: FrameIndex, off: i32 = 0 };
 
 const Owner = union(enum) {
-    func_index: InternPool.Index,
+    nav_index: InternPool.Nav.Index,
     lazy_sym: link.File.LazySymbol,
-
-    fn getDecl(owner: Owner, zcu: *Zcu) InternPool.DeclIndex {
-        return switch (owner) {
-            .func_index => |func_index| zcu.funcOwnerDeclIndex(func_index),
-            .lazy_sym => |lazy_sym| lazy_sym.ty.getOwnerDecl(zcu),
-        };
-    }
 
     fn getSymbolIndex(owner: Owner, func: *Func) !u32 {
         const pt = func.pt;
         switch (owner) {
-            .func_index => |func_index| {
-                const decl_index = func.pt.zcu.funcOwnerDeclIndex(func_index);
-                const elf_file = func.bin_file.cast(link.File.Elf).?;
-                return elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, decl_index);
+            .nav_index => |nav_index| {
+                const elf_file = func.bin_file.cast(.elf).?;
+                return elf_file.zigObjectPtr().?.getOrCreateMetadataForNav(elf_file, nav_index);
             },
             .lazy_sym => |lazy_sym| {
-                const elf_file = func.bin_file.cast(link.File.Elf).?;
+                const elf_file = func.bin_file.cast(.elf).?;
                 return elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, pt, lazy_sym) catch |err|
                     func.fail("{s} creating lazy symbol", .{@errorName(err)});
             },
@@ -767,12 +759,8 @@ pub fn generate(
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
     const func = zcu.funcInfo(func_index);
-    const fn_owner_decl = zcu.declPtr(func.owner_decl);
-    assert(fn_owner_decl.has_tv);
-    const fn_type = fn_owner_decl.typeOf(zcu);
-    const namespace = zcu.namespacePtr(fn_owner_decl.src_namespace);
-    const target = &namespace.fileScope(zcu).mod.resolved_target.result;
-    const mod = namespace.fileScope(zcu).mod;
+    const fn_type = Type.fromInterned(func.ty);
+    const mod = zcu.navFileScope(func.owner_nav).mod;
 
     var branch_stack = std.ArrayList(Branch).init(gpa);
     defer {
@@ -789,9 +777,9 @@ pub fn generate(
         .mod = mod,
         .bin_file = bin_file,
         .liveness = liveness,
-        .target = target,
+        .target = &mod.resolved_target.result,
         .debug_output = debug_output,
-        .owner = .{ .func_index = func_index },
+        .owner = .{ .nav_index = func.owner_nav },
         .err_msg = null,
         .args = undefined, // populated after `resolveCallingConventionValues`
         .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
@@ -818,7 +806,7 @@ pub fn generate(
         function.mir_instructions.deinit(gpa);
     }
 
-    wip_mir_log.debug("{}:", .{function.fmtDecl(func.owner_decl)});
+    wip_mir_log.debug("{}:", .{fmtNav(func.owner_nav, ip)});
 
     try function.frame_allocs.resize(gpa, FrameIndex.named_count);
     function.frame_allocs.set(
@@ -1074,22 +1062,22 @@ fn fmtWipMir(func: *Func, inst: Mir.Inst.Index) std.fmt.Formatter(formatWipMir) 
     return .{ .data = .{ .func = func, .inst = inst } };
 }
 
-const FormatDeclData = struct {
-    zcu: *Zcu,
-    decl_index: InternPool.DeclIndex,
+const FormatNavData = struct {
+    ip: *const InternPool,
+    nav_index: InternPool.Nav.Index,
 };
-fn formatDecl(
-    data: FormatDeclData,
+fn formatNav(
+    data: FormatNavData,
     comptime _: []const u8,
     _: std.fmt.FormatOptions,
     writer: anytype,
 ) @TypeOf(writer).Error!void {
-    try writer.print("{}", .{data.zcu.declPtr(data.decl_index).fqn.fmt(&data.zcu.intern_pool)});
+    try writer.print("{}", .{data.ip.getNav(data.nav_index).fqn.fmt(data.ip)});
 }
-fn fmtDecl(func: *Func, decl_index: InternPool.DeclIndex) std.fmt.Formatter(formatDecl) {
+fn fmtNav(nav_index: InternPool.Nav.Index, ip: *const InternPool) std.fmt.Formatter(formatNav) {
     return .{ .data = .{
-        .zcu = func.pt.zcu,
-        .decl_index = decl_index,
+        .ip = ip,
+        .nav_index = nav_index,
     } };
 }
 
@@ -1393,9 +1381,9 @@ fn genLazy(func: *Func, lazy_sym: link.File.LazySymbol) InnerError!void {
     const pt = func.pt;
     const mod = pt.zcu;
     const ip = &mod.intern_pool;
-    switch (lazy_sym.ty.zigTypeTag(mod)) {
+    switch (Type.fromInterned(lazy_sym.ty).zigTypeTag(mod)) {
         .Enum => {
-            const enum_ty = lazy_sym.ty;
+            const enum_ty = Type.fromInterned(lazy_sym.ty);
             wip_mir_log.debug("{}.@tagName:", .{enum_ty.fmt(pt)});
 
             const param_regs = abi.Registers.Integer.function_arg_regs;
@@ -1408,11 +1396,11 @@ fn genLazy(func: *Func, lazy_sym: link.File.LazySymbol) InnerError!void {
             const data_reg, const data_lock = try func.allocReg(.int);
             defer func.register_manager.unlockReg(data_lock);
 
-            const elf_file = func.bin_file.cast(link.File.Elf).?;
+            const elf_file = func.bin_file.cast(.elf).?;
             const zo = elf_file.zigObjectPtr().?;
             const sym_index = zo.getOrCreateMetadataForLazySymbol(elf_file, pt, .{
                 .kind = .const_data,
-                .ty = enum_ty,
+                .ty = enum_ty.toIntern(),
             }) catch |err|
                 return func.fail("{s} creating lazy symbol", .{@errorName(err)});
 
@@ -1479,7 +1467,7 @@ fn genLazy(func: *Func, lazy_sym: link.File.LazySymbol) InnerError!void {
         },
         else => return func.fail(
             "TODO implement {s} for {}",
-            .{ @tagName(lazy_sym.kind), lazy_sym.ty.fmt(pt) },
+            .{ @tagName(lazy_sym.kind), Type.fromInterned(lazy_sym.ty).fmt(pt) },
         ),
     }
 }
@@ -4682,17 +4670,14 @@ fn airFieldParentPtr(func: *Func, inst: Air.Inst.Index) !void {
 }
 
 fn genArgDbgInfo(func: Func, inst: Air.Inst.Index, mcv: MCValue) !void {
-    const pt = func.pt;
-    const zcu = pt.zcu;
     const arg = func.air.instructions.items(.data)[@intFromEnum(inst)].arg;
     const ty = arg.ty.toType();
-    const owner_decl = func.owner.getDecl(zcu);
     if (arg.name == .none) return;
     const name = func.air.nullTerminatedString(@intFromEnum(arg.name));
 
     switch (func.debug_output) {
         .dwarf => |dw| switch (mcv) {
-            .register => |reg| try dw.genArgDbgInfo(name, ty, owner_decl, .{
+            .register => |reg| try dw.genArgDbgInfo(name, ty, func.owner.nav_index, .{
                 .register = reg.dwarfLocOp(),
             }),
             .load_frame => {},
@@ -4940,14 +4925,14 @@ fn genCall(
                 switch (switch (func_key) {
                     else => func_key,
                     .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
-                        .decl => |decl| zcu.intern_pool.indexToKey(zcu.declPtr(decl).val.toIntern()),
+                        .nav => |nav| zcu.intern_pool.indexToKey(zcu.navValue(nav).toIntern()),
                         else => func_key,
                     } else func_key,
                 }) {
                     .func => |func_val| {
-                        if (func.bin_file.cast(link.File.Elf)) |elf_file| {
+                        if (func.bin_file.cast(.elf)) |elf_file| {
                             const zo = elf_file.zigObjectPtr().?;
-                            const sym_index = try zo.getOrCreateMetadataForDecl(elf_file, func_val.owner_decl);
+                            const sym_index = try zo.getOrCreateMetadataForNav(elf_file, func_val.owner_nav);
 
                             if (func.mod.pic) {
                                 return func.fail("TODO: genCall pic", .{});
@@ -4964,19 +4949,18 @@ fn genCall(
                             }
                         } else unreachable; // not a valid riscv64 format
                     },
-                    .extern_func => |extern_func| {
-                        const owner_decl = zcu.declPtr(extern_func.decl);
-                        const lib_name = extern_func.lib_name.toSlice(&zcu.intern_pool);
-                        const decl_name = owner_decl.name.toSlice(&zcu.intern_pool);
+                    .@"extern" => |@"extern"| {
+                        const lib_name = @"extern".lib_name.toSlice(&zcu.intern_pool);
+                        const name = @"extern".name.toSlice(&zcu.intern_pool);
                         const atom_index = try func.owner.getSymbolIndex(func);
 
-                        const elf_file = func.bin_file.cast(link.File.Elf).?;
+                        const elf_file = func.bin_file.cast(.elf).?;
                         _ = try func.addInst(.{
                             .tag = .pseudo_extern_fn_reloc,
                             .data = .{ .reloc = .{
                                 .register = .ra,
                                 .atom_index = atom_index,
-                                .sym_index = try elf_file.getGlobalSymbol(decl_name, lib_name),
+                                .sym_index = try elf_file.getGlobalSymbol(name, lib_name),
                             } },
                         });
                     },
@@ -5213,8 +5197,6 @@ fn genVarDbgInfo(
     mcv: MCValue,
     name: [:0]const u8,
 ) !void {
-    const pt = func.pt;
-    const zcu = pt.zcu;
     const is_ptr = switch (tag) {
         .dbg_var_ptr => true,
         .dbg_var_val => false,
@@ -5223,7 +5205,7 @@ fn genVarDbgInfo(
 
     switch (func.debug_output) {
         .dwarf => |dw| {
-            const loc: link.File.Dwarf.DeclState.DbgInfoLoc = switch (mcv) {
+            const loc: link.File.Dwarf.NavState.DbgInfoLoc = switch (mcv) {
                 .register => |reg| .{ .register = reg.dwarfLocOp() },
                 .memory => |address| .{ .memory = address },
                 .load_symbol => |sym_off| loc: {
@@ -5238,7 +5220,7 @@ fn genVarDbgInfo(
                     break :blk .nop;
                 },
             };
-            try dw.genVarDbgInfo(name, ty, func.owner.getDecl(zcu), is_ptr, loc);
+            try dw.genVarDbgInfo(name, ty, func.owner.nav_index, is_ptr, loc);
         },
         .plan9 => {},
         .none => {},
@@ -7804,7 +7786,6 @@ fn airMemcpy(func: *Func, inst: Air.Inst.Index) !void {
 
 fn airTagName(func: *Func, inst: Air.Inst.Index) !void {
     const pt = func.pt;
-    const zcu = pt.zcu;
 
     const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
@@ -7820,7 +7801,7 @@ fn airTagName(func: *Func, inst: Air.Inst.Index) !void {
         const operand = try func.resolveInst(un_op);
         try func.genSetReg(enum_ty, param_regs[1], operand);
 
-        const lazy_sym = link.File.LazySymbol.initDecl(.code, enum_ty.getOwnerDecl(zcu), zcu);
+        const lazy_sym: link.File.LazySymbol = .{ .kind = .code, .ty = enum_ty.toIntern() };
         const elf_file = func.bin_file.cast(link.File.Elf).?;
         const zo = elf_file.zigObjectPtr().?;
         const sym_index = zo.getOrCreateMetadataForLazySymbol(elf_file, pt, lazy_sym) catch |err|
@@ -8033,32 +8014,14 @@ fn getResolvedInstValue(func: *Func, inst: Air.Inst.Index) *InstTracking {
 
 fn genTypedValue(func: *Func, val: Value) InnerError!MCValue {
     const pt = func.pt;
-    const zcu = pt.zcu;
-    const gpa = func.gpa;
 
-    const owner_decl_index = func.owner.getDecl(zcu);
     const lf = func.bin_file;
     const src_loc = func.src_loc;
 
-    if (val.isUndef(pt.zcu)) {
-        const local_sym_index = lf.lowerUnnamedConst(pt, val, owner_decl_index) catch |err| {
-            const msg = try ErrorMsg.create(gpa, src_loc, "lowering unnamed undefined constant failed: {s}", .{@errorName(err)});
-            func.err_msg = msg;
-            return error.CodegenFail;
-        };
-        switch (lf.tag) {
-            .elf => return MCValue{ .undef = local_sym_index },
-            else => unreachable,
-        }
-    }
-
-    const result = try codegen.genTypedValue(
-        lf,
-        pt,
-        src_loc,
-        val,
-        owner_decl_index,
-    );
+    const result = if (val.isUndef(pt.zcu))
+        try lf.lowerUav(pt, val.toIntern(), .none, src_loc)
+    else
+        try codegen.genTypedValue(lf, pt, src_loc, val, func.target.*);
     const mcv: MCValue = switch (result) {
         .mcv => |mcv| switch (mcv) {
             .none => .none,

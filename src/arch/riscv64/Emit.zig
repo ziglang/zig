@@ -49,7 +49,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .Lib => emit.lower.link_mode == .static,
                     };
 
-                    const elf_file = emit.bin_file.cast(link.File.Elf).?;
+                    const elf_file = emit.bin_file.cast(.elf).?;
                     const zo = elf_file.zigObjectPtr().?;
 
                     const atom_ptr = zo.symbol(symbol.atom_index).atom(elf_file).?;
@@ -81,7 +81,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     });
                 },
                 .load_tlv_reloc => |symbol| {
-                    const elf_file = emit.bin_file.cast(link.File.Elf).?;
+                    const elf_file = emit.bin_file.cast(.elf).?;
                     const zo = elf_file.zigObjectPtr().?;
 
                     const atom_ptr = zo.symbol(symbol.atom_index).atom(elf_file).?;
@@ -107,7 +107,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     });
                 },
                 .call_extern_fn_reloc => |symbol| {
-                    const elf_file = emit.bin_file.cast(link.File.Elf).?;
+                    const elf_file = emit.bin_file.cast(.elf).?;
                     const zo = elf_file.zigObjectPtr().?;
                     const atom_ptr = zo.symbol(symbol.atom_index).atom(elf_file).?;
 

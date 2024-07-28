@@ -217,15 +217,23 @@ fn loadComptimePtrInner(
     };
 
     const base_val: MutableValue = switch (ptr.base_addr) {
-        .decl => |decl_index| val: {
-            try sema.declareDependency(.{ .decl_val = decl_index });
-            try sema.ensureDeclAnalyzed(decl_index);
-            const decl = zcu.declPtr(decl_index);
-            if (decl.val.getVariable(zcu) != null) return .runtime_load;
-            break :val .{ .interned = decl.val.toIntern() };
+        .nav => |nav| val: {
+            try sema.declareDependency(.{ .nav_val = nav });
+            try sema.ensureNavResolved(src, nav);
+            const val = ip.getNav(nav).status.resolved.val;
+            switch (ip.indexToKey(val)) {
+                .variable => return .runtime_load,
+                // We let `.@"extern"` through here if it's a function.
+                // This allows you to alias `extern fn`s.
+                .@"extern" => |e| if (Type.fromInterned(e.ty).zigTypeTag(zcu) == .Fn)
+                    break :val .{ .interned = val }
+                else
+                    return .runtime_load,
+                else => break :val .{ .interned = val },
+            }
         },
         .comptime_alloc => |alloc_index| sema.getComptimeAlloc(alloc_index).val,
-        .anon_decl => |anon_decl| .{ .interned = anon_decl.val },
+        .uav => |uav| .{ .interned = uav.val },
         .comptime_field => |val| .{ .interned = val },
         .int => return .runtime_load,
         .eu_payload => |base_ptr_ip| val: {
@@ -580,7 +588,7 @@ fn prepareComptimePtrStore(
 
     // `base_strat` will not be an error case.
     const base_strat: ComptimeStoreStrategy = switch (ptr.base_addr) {
-        .decl, .anon_decl, .int => return .runtime_store,
+        .nav, .uav, .int => return .runtime_store,
         .comptime_field => return .comptime_field,
         .comptime_alloc => |alloc_index| .{ .direct = .{
             .alloc = alloc_index,
