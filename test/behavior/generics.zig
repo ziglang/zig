@@ -19,7 +19,6 @@ fn checkSize(comptime T: type) usize {
 test "simple generic fn" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try expect(max(i32, 3, -1) == 3);
     try expect(max(u8, 1, 100) == 100);
@@ -56,7 +55,6 @@ test "fn with comptime args" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try expect(gimmeTheBigOne(1234, 5678) == 5678);
     try expect(shouldCallSameInstance(34, 12) == 34);
@@ -67,7 +65,6 @@ test "anytype params" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try expect(max_i32(12, 34) == 34);
     try expect(max_f64(1.2, 3.4) == 3.4);
@@ -404,8 +401,6 @@ test "generic struct as parameter type" {
 }
 
 test "slice as parameter type" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         fn internComptimeString(comptime str: []const u8) *const []const u8 {
             return &struct {
@@ -503,7 +498,6 @@ test "union in struct captures argument" {
 test "function argument tuple used as struct field" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn DeleagateWithContext(comptime Function: type) type {

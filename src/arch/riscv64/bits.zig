@@ -5,7 +5,6 @@ const testing = std.testing;
 const Target = std.Target;
 
 const Zcu = @import("../../Zcu.zig");
-const Encoding = @import("Encoding.zig");
 const Mir = @import("Mir.zig");
 const abi = @import("abi.zig");
 
@@ -16,7 +15,6 @@ pub const Memory = struct {
     pub const Base = union(enum) {
         reg: Register,
         frame: FrameIndex,
-        reloc: Symbol,
     };
 
     pub const Mod = struct {
@@ -83,7 +81,6 @@ pub const Memory = struct {
                     .disp = base_loc.disp + offset,
                 };
             },
-            .reloc => unreachable,
         }
     }
 };
@@ -193,7 +190,7 @@ pub const Register = enum(u8) {
     /// The goal of this function is to return the same ID for `zero` and `x0` but two
     /// seperate IDs for `x0` and `f0`. We will assume that each register set has 32 registers
     /// and is repeated twice, once for the named version, once for the number version.
-    pub fn id(reg: Register) u8 {
+    pub fn id(reg: Register) std.math.IntFittingRange(0, @typeInfo(Register).Enum.fields.len) {
         const base = switch (@intFromEnum(reg)) {
             // zig fmt: off
             @intFromEnum(Register.zero) ... @intFromEnum(Register.x31) => @intFromEnum(Register.zero),
@@ -251,8 +248,7 @@ pub const FrameIndex = enum(u32) {
     /// This index referes to a frame dedicated to setting up args for function called
     /// in this function. Useful for aligning args separately.
     call_frame,
-    /// This index referes to the frame where callee saved registers are spilled and restore
-    /// from.
+    /// This index referes to the frame where callee saved registers are spilled and restored from.
     spill_frame,
     /// Other indices are used for local variable stack slots
     _,

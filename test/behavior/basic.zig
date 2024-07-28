@@ -16,8 +16,6 @@ test "empty function with comments" {
 }
 
 test "truncate" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     try expect(testTruncate(0x10fd) == 0xfd);
     comptime assert(testTruncate(0x10fd) == 0xfd);
 }
@@ -27,7 +25,6 @@ fn testTruncate(x: u32) u8 {
 
 test "truncate to non-power-of-two integers" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try testTrunc(u32, u1, 0b10101, 0b1);
     try testTrunc(u32, u1, 0b10110, 0b0);
@@ -45,7 +42,6 @@ test "truncate to non-power-of-two integers from 128-bit" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try testTrunc(u128, u1, 0xffffffff_ffffffff_ffffffff_01010101, 0x01);
     try testTrunc(u128, u1, 0xffffffff_ffffffff_ffffffff_01010110, 0x00);
@@ -224,7 +220,6 @@ const OpaqueB = opaque {};
 test "opaque types" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try expect(*OpaqueA != *OpaqueB);
 
@@ -376,7 +371,6 @@ test "take address of parameter" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try testTakeAddressOfParameter(12.34);
 }
@@ -401,7 +395,6 @@ test "array 2D const double ptr" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const rect_2d_vertexes = [_][1]f32{
         [_]f32{1.0},
@@ -414,7 +407,6 @@ test "array 2D const double ptr with offset" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const rect_2d_vertexes = [_][2]f32{
         [_]f32{ 3.0, 4.239 },
@@ -427,7 +419,6 @@ test "array 3D const double ptr with offset" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const rect_3d_vertexes = [_][2][2]f32{
         [_][2]f32{
@@ -622,7 +613,6 @@ var global_ptr = &gdt[0];
 
 test "global constant is loaded with a runtime-known index" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -641,7 +631,6 @@ test "global constant is loaded with a runtime-known index" {
 
 test "multiline string literal is null terminated" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const s1 =
         \\one
@@ -656,7 +645,6 @@ test "string escapes" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try expectEqualStrings("\"", "\x22");
     try expectEqualStrings("\'", "\x27");
@@ -789,7 +777,6 @@ test "discarding the result of various expressions" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn foo() !u32 {
@@ -1072,7 +1059,6 @@ test "returning an opaque type from a function" {
 test "orelse coercion as function argument" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const Loc = struct { start: i32 = -1 };
     const Container = struct {
@@ -1186,8 +1172,6 @@ fn testUnsignedCmp(comptime T: type) !void {
 }
 
 test "integer compare <= 64 bits" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     inline for (.{ u8, u16, u32, u64, usize, u10, u20, u30, u60 }) |T| {
         try testUnsignedCmp(T);
         try comptime testUnsignedCmp(T);
@@ -1324,7 +1308,6 @@ test "break out of block based on comptime known values" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         const source = "A-";

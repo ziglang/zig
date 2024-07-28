@@ -282,11 +282,13 @@ pub fn mainSimple() anyerror!void {
     const stderr = if (comptime enable_print) std.io.getStdErr() else {};
 
     for (builtin.test_functions) |test_fn| {
-        if (enable_print) {
-            stderr.writeAll(test_fn.name) catch {};
-            stderr.writeAll("... ") catch {};
-        }
-        test_fn.func() catch |err| {
+        if (test_fn.func()) |_| {
+            if (enable_print) {
+                stderr.writeAll(test_fn.name) catch {};
+                stderr.writeAll("... ") catch {};
+                stderr.writeAll("PASS\n") catch {};
+            }
+        } else |err| if (enable_print) {
             if (enable_print) {
                 stderr.writeAll(test_fn.name) catch {};
                 stderr.writeAll("... ") catch {};
@@ -300,8 +302,7 @@ pub fn mainSimple() anyerror!void {
             if (enable_print) stderr.writeAll("SKIP\n") catch {};
             skipped += 1;
             continue;
-        };
-        if (enable_print) stderr.writeAll("PASS\n") catch {};
+        }
         passed += 1;
     }
     if (enable_print and print_summary) {

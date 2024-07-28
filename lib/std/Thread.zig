@@ -385,7 +385,7 @@ pub fn yield() YieldError!void {
 }
 
 /// State to synchronize detachment of spawner thread to spawned thread
-const Completion = std.atomic.Value(enum(u8) {
+const Completion = std.atomic.Value(enum(if (builtin.zig_backend == .stage2_riscv64) u32 else u8) {
     running,
     detached,
     completed,

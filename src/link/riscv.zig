@@ -25,47 +25,27 @@ pub fn writeAddend(
 }
 
 pub fn writeInstU(code: *[4]u8, value: u32) void {
-    var data = Encoding.Data{
-        .U = mem.bytesToValue(std.meta.TagPayload(
-            Encoding.Data,
-            Encoding.Data.U,
-        ), code),
-    };
+    var data: Instruction = .{ .U = mem.bytesToValue(std.meta.TagPayload(Instruction, .U), code) };
     const compensated: u32 = @bitCast(@as(i32, @bitCast(value)) + 0x800);
     data.U.imm12_31 = bitSlice(compensated, 31, 12);
     mem.writeInt(u32, code, data.toU32(), .little);
 }
 
 pub fn writeInstI(code: *[4]u8, value: u32) void {
-    var data = Encoding.Data{
-        .I = mem.bytesToValue(std.meta.TagPayload(
-            Encoding.Data,
-            Encoding.Data.I,
-        ), code),
-    };
+    var data: Instruction = .{ .I = mem.bytesToValue(std.meta.TagPayload(Instruction, .I), code) };
     data.I.imm0_11 = bitSlice(value, 11, 0);
     mem.writeInt(u32, code, data.toU32(), .little);
 }
 
 pub fn writeInstS(code: *[4]u8, value: u32) void {
-    var data = Encoding.Data{
-        .S = mem.bytesToValue(std.meta.TagPayload(
-            Encoding.Data,
-            Encoding.Data.S,
-        ), code),
-    };
+    var data: Instruction = .{ .S = mem.bytesToValue(std.meta.TagPayload(Instruction, .S), code) };
     data.S.imm0_4 = bitSlice(value, 4, 0);
     data.S.imm5_11 = bitSlice(value, 11, 5);
     mem.writeInt(u32, code, data.toU32(), .little);
 }
 
 pub fn writeInstJ(code: *[4]u8, value: u32) void {
-    var data = Encoding.Data{
-        .J = mem.bytesToValue(std.meta.TagPayload(
-            Encoding.Data,
-            Encoding.Data.J,
-        ), code),
-    };
+    var data: Instruction = .{ .J = mem.bytesToValue(std.meta.TagPayload(Instruction, .J), code) };
     data.J.imm1_10 = bitSlice(value, 10, 1);
     data.J.imm11 = bitSlice(value, 11, 11);
     data.J.imm12_19 = bitSlice(value, 19, 12);
@@ -74,12 +54,7 @@ pub fn writeInstJ(code: *[4]u8, value: u32) void {
 }
 
 pub fn writeInstB(code: *[4]u8, value: u32) void {
-    var data = Encoding.Data{
-        .B = mem.bytesToValue(std.meta.TagPayload(
-            Encoding.Data,
-            Encoding.Data.B,
-        ), code),
-    };
+    var data: Instruction = .{ .B = mem.bytesToValue(std.meta.TagPayload(Instruction, .B), code) };
     data.B.imm1_4 = bitSlice(value, 4, 1);
     data.B.imm5_10 = bitSlice(value, 10, 5);
     data.B.imm11 = bitSlice(value, 11, 11);
@@ -109,9 +84,8 @@ pub const RiscvEflags = packed struct(u32) {
     _unused: u8,
 };
 
-const encoder = @import("../arch/riscv64/encoder.zig");
-const Encoding = @import("../arch/riscv64/Encoding.zig");
 const mem = std.mem;
 const std = @import("std");
 
-pub const Instruction = encoder.Instruction;
+const encoding = @import("../arch/riscv64/encoding.zig");
+const Instruction = encoding.Instruction;
