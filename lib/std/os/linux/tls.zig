@@ -68,6 +68,7 @@ const current_variant: Variant = switch (native_arch) {
     .armeb,
     .aarch64,
     .aarch64_be,
+    .csky,
     .thumb,
     .thumbeb,
     => .I_original,
@@ -279,7 +280,7 @@ pub fn setThreadPointer(addr: usize) void {
                 : [addr] "r" (addr),
             );
         },
-        .mips, .mipsel, .mips64, .mips64el => {
+        .csky, .mips, .mipsel, .mips64, .mips64el => {
             const rc = @call(.always_inline, linux.syscall1, .{ .set_thread_area, addr });
             assert(rc == 0);
         },
