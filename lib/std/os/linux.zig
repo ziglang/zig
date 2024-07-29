@@ -1614,6 +1614,10 @@ pub fn getpid() pid_t {
     return @bitCast(@as(u32, @truncate(syscall0(.getpid))));
 }
 
+pub fn getppid() pid_t {
+    return @bitCast(@as(u32, @truncate(syscall0(.getppid))));
+}
+
 pub fn gettid() pid_t {
     return @bitCast(@as(u32, @truncate(syscall0(.gettid))));
 }
