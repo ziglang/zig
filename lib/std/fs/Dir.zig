@@ -2,7 +2,12 @@ fd: Handle,
 
 pub const Handle = posix.fd_t;
 
-pub const default_mode = 0o755;
+/// Default mode bits for a new directory.
+pub const default_mode = switch (posix.mode_t) {
+    void => {}, // wasi-without-libc has no mode suppport
+    u0 => 0, // Zig's Posix layer doesn't support modes on Windows
+    else => 0o755,
+};
 
 pub const Entry = struct {
     name: []const u8,
@@ -831,32 +836,19 @@ pub fn openFile(self: Dir, sub_path: []const u8, flags: File.OpenFlags) File.Ope
 
 /// Same as `openFile` but the path parameter is null-terminated.
 pub fn openFileZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) File.OpenError!File {
-    switch (native_os) {
-        .windows => {
-            const path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path);
-            return self.openFileW(path_w.span(), flags);
-        },
-        // Use the libc API when libc is linked because it implements things
-        // such as opening absolute file paths.
-        .wasi => if (!builtin.link_libc) {
-            return openFile(self, mem.sliceTo(sub_path, 0), flags);
-        },
-        else => {},
+    if (native_os == .windows) {
+        const path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path);
+        return self.openFileW(path_w.span(), flags);
+    }
+    if (native_os == .wasi and !builtin.link_libc) {
+        return openFile(self, mem.sliceTo(sub_path, 0), flags);
     }
 
-    var os_flags: posix.O = switch (native_os) {
-        .wasi => .{
-            .read = flags.mode != .write_only,
-            .write = flags.mode != .read_only,
-        },
-        else => .{
-            .ACCMODE = switch (flags.mode) {
-                .read_only => .RDONLY,
-                .write_only => .WRONLY,
-                .read_write => .RDWR,
-            },
-        },
-    };
+    var os_flags: posix.O = std.posix.makeOFlags(switch (flags.mode) {
+        .read_only => .RDONLY,
+        .write_only => .WRONLY,
+        .read_write => .RDWR,
+    }, .{});
     if (@hasField(posix.O, "CLOEXEC")) os_flags.CLOEXEC = true;
     if (@hasField(posix.O, "LARGEFILE")) os_flags.LARGEFILE = true;
     if (@hasField(posix.O, "NOCTTY")) os_flags.NOCTTY = !flags.allow_ctty;
@@ -879,7 +871,8 @@ pub fn openFileZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) File
             },
         }
     }
-    const fd = try posix.openatZ(self.fd, sub_path, os_flags, 0);
+    const mode = if (posix.mode_t == void) {} else 0;
+    const fd = try posix.openatZ(self.fd, sub_path, os_flags, mode);
     errdefer posix.close(fd);
 
     if (have_flock and !has_flock_open_flags and flags.lock != .none) {
@@ -1002,12 +995,11 @@ pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags
         else => {},
     }
 
-    var os_flags: posix.O = .{
-        .ACCMODE = if (flags.read) .RDWR else .WRONLY,
+    var os_flags: posix.O = std.posix.makeOFlags(if (flags.read) .RDWR else .WRONLY, .{
         .CREAT = true,
         .TRUNC = flags.truncate,
         .EXCL = flags.exclusive,
-    };
+    });
     if (@hasField(posix.O, "LARGEFILE")) os_flags.LARGEFILE = true;
     if (@hasField(posix.O, "CLOEXEC")) os_flags.CLOEXEC = true;
 
@@ -1270,7 +1262,7 @@ pub const RealPathError = posix.RealPathError;
 /// See also `Dir.realpathZ`, `Dir.realpathW`, and `Dir.realpathAlloc`.
 pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) RealPathError![]u8 {
     if (native_os == .wasi) {
-        @compileError("realpath is not available on WASI");
+        @compileError("WASI does not support absolute paths");
     }
     if (native_os == .windows) {
         const pathname_w = try windows.sliceToPrefixedFileW(self.fd, pathname);
@@ -1283,22 +1275,18 @@ pub fn realpath(self: Dir, pathname: []const u8, out_buffer: []u8) RealPathError
 /// Same as `Dir.realpath` except `pathname` is null-terminated.
 /// See also `Dir.realpath`, `realpathZ`.
 pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) RealPathError![]u8 {
+    if (native_os == .wasi) {
+        @compileError("WASI does not support absolute paths");
+    }
     if (native_os == .windows) {
         const pathname_w = try windows.cStrToPrefixedFileW(self.fd, pathname);
         return self.realpathW(pathname_w.span(), out_buffer);
     }
 
-    const flags: posix.O = switch (native_os) {
-        .linux => .{
-            .NONBLOCK = true,
-            .CLOEXEC = true,
-            .PATH = true,
-        },
-        else => .{
-            .NONBLOCK = true,
-            .CLOEXEC = true,
-        },
-    };
+    var flags: posix.O = .{};
+    if (@hasField(posix.O, "NONBLOCK")) flags.NONBLOCK = true;
+    if (@hasField(posix.O, "CLOEXEC")) flags.CLOEXEC = true;
+    if (@hasField(posix.O, "PATH")) flags.PATH = true;
 
     const fd = posix.openatZ(self.fd, pathname, flags, 0) catch |err| switch (err) {
         error.FileLocksNotSupported => return error.Unexpected,
@@ -1511,19 +1499,13 @@ pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenOptions) OpenErr
         else => {},
     }
 
-    var symlink_flags: posix.O = switch (native_os) {
-        .wasi => .{
-            .read = true,
-            .NOFOLLOW = args.no_follow,
-            .DIRECTORY = true,
-        },
-        else => .{
-            .ACCMODE = .RDONLY,
-            .NOFOLLOW = args.no_follow,
-            .DIRECTORY = true,
-            .CLOEXEC = true,
-        },
-    };
+    var symlink_flags: posix.O = std.posix.makeOFlags(.RDONLY, .{
+        .NOFOLLOW = args.no_follow,
+        .DIRECTORY = true,
+    });
+
+    if (@hasField(posix.O, "CLOEXEC"))
+        symlink_flags.CLOEXEC = true;
 
     if (@hasField(posix.O, "PATH") and !args.iterate)
         symlink_flags.PATH = true;
@@ -1556,7 +1538,8 @@ pub fn openDirW(self: Dir, sub_path_w: [*:0]const u16, args: OpenOptions) OpenEr
 /// Asserts `flags` has `DIRECTORY` set.
 fn openDirFlagsZ(self: Dir, sub_path_c: [*:0]const u8, flags: posix.O) OpenError!Dir {
     assert(flags.DIRECTORY);
-    const fd = posix.openatZ(self.fd, sub_path_c, flags, 0) catch |err| switch (err) {
+    const mode = if (posix.mode_t == void) {} else 0;
+    const fd = posix.openatZ(self.fd, sub_path_c, flags, mode) catch |err| switch (err) {
         error.FileTooBig => unreachable, // can't happen for directories
         error.IsDir => unreachable, // we're setting DIRECTORY
         error.NoSpaceLeft => unreachable, // not setting CREAT

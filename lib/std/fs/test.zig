@@ -14,6 +14,16 @@ const File = std.fs.File;
 const tmpDir = testing.tmpDir;
 const SymLinkFlags = std.fs.Dir.SymLinkFlags;
 
+// Filter to skip tests on platforms that don't support absolute paths
+const supports_absolute_paths = std.os.isGetFdPathSupportedOnTarget(builtin.os);
+
+// Filter to skip tests on platforms that don't support file locking
+const supports_file_locking = (builtin.os.tag != .wasi);
+
+// Filter to skip tests on platforms that don't support file modes
+// WASI does not currently support chmod (but it should in the future)
+const supports_chmod = (builtin.os.tag != .wasi and builtin.os.tag != .windows);
+
 const PathType = enum {
     relative,
     absolute,
@@ -279,12 +289,11 @@ test "File.stat on a File that is a symlink returns Kind.sym_link" {
                     const sub_path_c = try posix.toPosixPath("symlink");
                     // the O_NOFOLLOW | O_PATH combination can obtain a fd to a symlink
                     // note that if O_DIRECTORY is set, then this will error with ENOTDIR
-                    const flags: posix.O = .{
+                    const flags: posix.O = std.posix.makeOFlags(.RDONLY, .{
                         .NOFOLLOW = true,
                         .PATH = true,
-                        .ACCMODE = .RDONLY,
                         .CLOEXEC = true,
-                    };
+                    });
                     const fd = try posix.openatZ(ctx.dir.fd, &sub_path_c, flags, 0);
                     break :linux_symlink Dir{ .fd = fd };
                 },
@@ -315,7 +324,7 @@ test "openDir" {
 }
 
 test "accessAbsolute" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (!supports_absolute_paths) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -333,7 +342,7 @@ test "accessAbsolute" {
 }
 
 test "openDirAbsolute" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (!supports_absolute_paths) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -369,7 +378,7 @@ test "openDir cwd parent '..'" {
 
 test "openDir non-cwd parent '..'" {
     switch (native_os) {
-        .wasi, .netbsd, .openbsd => return error.SkipZigTest,
+        .netbsd, .openbsd => return error.SkipZigTest,
         else => {},
     }
 
@@ -382,17 +391,23 @@ test "openDir non-cwd parent '..'" {
     var dir = try subdir.openDir("..", .{});
     defer dir.close();
 
-    const expected_path = try tmp.dir.realpathAlloc(testing.allocator, ".");
-    defer testing.allocator.free(expected_path);
+    if (supports_absolute_paths) {
+        const expected_path = try tmp.dir.realpathAlloc(testing.allocator, ".");
+        defer testing.allocator.free(expected_path);
 
-    const actual_path = try dir.realpathAlloc(testing.allocator, ".");
-    defer testing.allocator.free(actual_path);
+        const actual_path = try dir.realpathAlloc(testing.allocator, ".");
+        defer testing.allocator.free(actual_path);
 
-    try testing.expectEqualStrings(expected_path, actual_path);
+        try testing.expectEqualStrings(expected_path, actual_path);
+    }
+
+    const tmpStat = try tmp.dir.stat();
+    const dirStat = try dir.stat();
+    try testing.expectEqual(tmpStat.inode, dirStat.inode);
 }
 
 test "readLinkAbsolute" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (!supports_absolute_paths) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -604,7 +619,7 @@ fn contains(entries: *const std.ArrayList(Dir.Entry), el: Dir.Entry) bool {
 }
 
 test "Dir.realpath smoke test" {
-    if (!comptime std.os.isGetFdPathSupportedOnTarget(builtin.os)) return error.SkipZigTest;
+    if (!supports_absolute_paths) return error.SkipZigTest;
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -728,7 +743,7 @@ test "directory operations on files" {
             try testing.expectError(error.NotDir, ctx.dir.openDir(test_file_name, .{}));
             try testing.expectError(error.NotDir, ctx.dir.deleteDir(test_file_name));
 
-            if (ctx.path_type == .absolute and comptime PathType.absolute.isSupported(builtin.os)) {
+            if (ctx.path_type == .absolute and supports_absolute_paths) {
                 try testing.expectError(error.PathAlreadyExists, fs.makeDirAbsolute(test_file_name));
                 try testing.expectError(error.NotDir, fs.deleteDirAbsolute(test_file_name));
             }
@@ -769,7 +784,7 @@ test "file operations on directories" {
             // TODO: Add a read-only test as well, see https://github.com/ziglang/zig/issues/5732
             try testing.expectError(error.IsDir, ctx.dir.openFile(test_dir_name, .{ .mode = .read_write }));
 
-            if (ctx.path_type == .absolute and comptime PathType.absolute.isSupported(builtin.os)) {
+            if (ctx.path_type == .absolute and supports_absolute_paths) {
                 try testing.expectError(error.IsDir, fs.createFileAbsolute(test_dir_name, .{}));
                 try testing.expectError(error.IsDir, fs.deleteFileAbsolute(test_dir_name));
             }
@@ -980,7 +995,7 @@ test "rename" {
 }
 
 test "renameAbsolute" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (!supports_absolute_paths) return error.SkipZigTest;
 
     var tmp_dir = tmpDir(.{});
     defer tmp_dir.cleanup();
@@ -1524,7 +1539,7 @@ test "AtomicFile" {
 }
 
 test "open file with exclusive nonblocking lock twice" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (!supports_file_locking) return error.SkipZigTest;
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -1540,7 +1555,7 @@ test "open file with exclusive nonblocking lock twice" {
 }
 
 test "open file with shared and exclusive nonblocking lock" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (!supports_file_locking) return error.SkipZigTest;
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -1556,7 +1571,7 @@ test "open file with shared and exclusive nonblocking lock" {
 }
 
 test "open file with exclusive and shared nonblocking lock" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (!supports_file_locking) return error.SkipZigTest;
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -1615,7 +1630,7 @@ test "open file with exclusive lock twice, make sure second lock waits" {
 }
 
 test "open file with exclusive nonblocking lock twice (absolute paths)" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (!supports_file_locking or !supports_absolute_paths) return error.SkipZigTest;
 
     var random_bytes: [12]u8 = undefined;
     std.crypto.random.bytes(&random_bytes);
@@ -1648,8 +1663,6 @@ test "open file with exclusive nonblocking lock twice (absolute paths)" {
 }
 
 test "walker" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-
     var tmp = tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
@@ -1701,8 +1714,6 @@ test "walker" {
 }
 
 test "walker without fully iterating" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-
     var tmp = tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
@@ -1724,8 +1735,6 @@ test "walker without fully iterating" {
 }
 
 test "'.' and '..' in fs.Dir functions" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-
     if (native_os == .windows and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/17134
         return error.SkipZigTest;
@@ -1764,7 +1773,7 @@ test "'.' and '..' in fs.Dir functions" {
 }
 
 test "'.' and '..' in absolute functions" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (!supports_absolute_paths) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1808,8 +1817,7 @@ test "'.' and '..' in absolute functions" {
 }
 
 test "chmod" {
-    if (native_os == .windows or native_os == .wasi)
-        return error.SkipZigTest;
+    if (!supports_chmod) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1830,8 +1838,7 @@ test "chmod" {
 }
 
 test "chown" {
-    if (native_os == .windows or native_os == .wasi)
-        return error.SkipZigTest;
+    if (!supports_chmod) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1863,8 +1870,7 @@ test "File.Metadata" {
 }
 
 test "File.Permissions" {
-    if (native_os == .wasi)
-        return error.SkipZigTest;
+    if (!supports_chmod) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1889,8 +1895,7 @@ test "File.Permissions" {
 }
 
 test "File.PermissionsUnix" {
-    if (native_os == .windows or native_os == .wasi)
-        return error.SkipZigTest;
+    if (!supports_chmod) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -2033,7 +2038,7 @@ test "invalid UTF-8/WTF-8 paths" {
 
             try testing.expectError(expected_err, ctx.dir.statFile(invalid_path));
 
-            if (native_os != .wasi) {
+            if (supports_absolute_paths) {
                 try testing.expectError(expected_err, ctx.dir.realpath(invalid_path, &[_]u8{}));
                 try testing.expectError(expected_err, ctx.dir.realpathZ(invalid_path, &[_]u8{}));
                 try testing.expectError(expected_err, ctx.dir.realpathAlloc(testing.allocator, invalid_path));
@@ -2042,7 +2047,7 @@ test "invalid UTF-8/WTF-8 paths" {
             try testing.expectError(expected_err, fs.rename(ctx.dir, invalid_path, ctx.dir, invalid_path));
             try testing.expectError(expected_err, fs.renameZ(ctx.dir, invalid_path, ctx.dir, invalid_path));
 
-            if (native_os != .wasi and ctx.path_type != .relative) {
+            if (supports_absolute_paths and ctx.path_type != .relative) {
                 try testing.expectError(expected_err, fs.updateFileAbsolute(invalid_path, invalid_path, .{}));
                 try testing.expectError(expected_err, fs.copyFileAbsolute(invalid_path, invalid_path, .{}));
                 try testing.expectError(expected_err, fs.makeDirAbsolute(invalid_path));

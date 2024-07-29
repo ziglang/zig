@@ -1034,7 +1034,7 @@ test printLineFromFileAnyOs {
         output.clearRetainingCapacity();
     }
     {
-        const path = try fs.path.join(allocator, &.{ test_dir_path, "three_lines.zig" });
+        const path = try join(allocator, &.{ test_dir_path, "three_lines.zig" });
         defer allocator.free(path);
         try test_dir.dir.writeFile(.{
             .sub_path = "three_lines.zig",
@@ -1056,7 +1056,7 @@ test printLineFromFileAnyOs {
     {
         const file = try test_dir.dir.createFile("line_overlaps_page_boundary.zig", .{});
         defer file.close();
-        const path = try fs.path.join(allocator, &.{ test_dir_path, "line_overlaps_page_boundary.zig" });
+        const path = try join(allocator, &.{ test_dir_path, "line_overlaps_page_boundary.zig" });
         defer allocator.free(path);
 
         const overlap = 10;
@@ -1072,7 +1072,7 @@ test printLineFromFileAnyOs {
     {
         const file = try test_dir.dir.createFile("file_ends_on_page_boundary.zig", .{});
         defer file.close();
-        const path = try fs.path.join(allocator, &.{ test_dir_path, "file_ends_on_page_boundary.zig" });
+        const path = try join(allocator, &.{ test_dir_path, "file_ends_on_page_boundary.zig" });
         defer allocator.free(path);
 
         var writer = file.writer();
@@ -1085,7 +1085,7 @@ test printLineFromFileAnyOs {
     {
         const file = try test_dir.dir.createFile("very_long_first_line_spanning_multiple_pages.zig", .{});
         defer file.close();
-        const path = try fs.path.join(allocator, &.{ test_dir_path, "very_long_first_line_spanning_multiple_pages.zig" });
+        const path = try join(allocator, &.{ test_dir_path, "very_long_first_line_spanning_multiple_pages.zig" });
         defer allocator.free(path);
 
         var writer = file.writer();
@@ -1110,7 +1110,7 @@ test printLineFromFileAnyOs {
     {
         const file = try test_dir.dir.createFile("file_of_newlines.zig", .{});
         defer file.close();
-        const path = try fs.path.join(allocator, &.{ test_dir_path, "file_of_newlines.zig" });
+        const path = try join(allocator, &.{ test_dir_path, "file_of_newlines.zig" });
         defer allocator.free(path);
 
         var writer = file.writer();

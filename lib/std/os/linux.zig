@@ -802,7 +802,7 @@ pub fn readlinkat(dirfd: i32, noalias path: [*:0]const u8, noalias buf_ptr: [*]u
     return syscall4(.readlinkat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(buf_ptr), buf_len);
 }
 
-pub fn mkdir(path: [*:0]const u8, mode: u32) usize {
+pub fn mkdir(path: [*:0]const u8, mode: mode_t) usize {
     if (@hasField(SYS, "mkdir")) {
         return syscall2(.mkdir, @intFromPtr(path), mode);
     } else {
@@ -810,11 +810,11 @@ pub fn mkdir(path: [*:0]const u8, mode: u32) usize {
     }
 }
 
-pub fn mkdirat(dirfd: i32, path: [*:0]const u8, mode: u32) usize {
+pub fn mkdirat(dirfd: i32, path: [*:0]const u8, mode: mode_t) usize {
     return syscall3(.mkdirat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), mode);
 }
 
-pub fn mknod(path: [*:0]const u8, mode: u32, dev: u32) usize {
+pub fn mknod(path: [*:0]const u8, mode: mode_t, dev: u32) usize {
     if (@hasField(SYS, "mknod")) {
         return syscall3(.mknod, @intFromPtr(path), mode, dev);
     } else {
@@ -822,7 +822,7 @@ pub fn mknod(path: [*:0]const u8, mode: u32, dev: u32) usize {
     }
 }
 
-pub fn mknodat(dirfd: i32, path: [*:0]const u8, mode: u32, dev: u32) usize {
+pub fn mknodat(dirfd: i32, path: [*:0]const u8, mode: mode_t, dev: u32) usize {
     return syscall4(.mknodat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), mode, dev);
 }
 
@@ -1041,7 +1041,7 @@ pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: i64) usize {
     }
 }
 
-pub fn access(path: [*:0]const u8, mode: u32) usize {
+pub fn access(path: [*:0]const u8, mode: mode_t) usize {
     if (@hasField(SYS, "access")) {
         return syscall2(.access, @intFromPtr(path), mode);
     } else {
@@ -1049,7 +1049,7 @@ pub fn access(path: [*:0]const u8, mode: u32) usize {
     }
 }
 
-pub fn faccessat(dirfd: i32, path: [*:0]const u8, mode: u32, flags: u32) usize {
+pub fn faccessat(dirfd: i32, path: [*:0]const u8, mode: mode_t, flags: u32) usize {
     return syscall4(.faccessat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), mode, flags);
 }
 

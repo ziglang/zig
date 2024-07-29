@@ -29,22 +29,194 @@ test {
     _ = @import("posix/test.zig");
 }
 
-/// Whether to use libc for the POSIX API layer.
-const use_libc = builtin.link_libc or switch (native_os) {
-    .windows, .wasi => true,
-    else => false,
-};
-
 const linux = std.os.linux;
 const windows = std.os.windows;
 const wasi = std.os.wasi;
 
 /// A libc-compatible API layer.
-pub const system = if (use_libc)
+pub const system = if (builtin.link_libc or native_os == .windows)
     std.c
 else switch (native_os) {
     .linux => linux,
     .plan9 => std.os.plan9,
+    .wasi => struct {
+        // This is the non-libc Wasi "system" implementation. See std.c
+        // for the with-libc variation.  WASI is somewhat limited in a
+        // couple key ways that reduce the POSIX compatibilty:
+        //
+        // - no notion of "absolute paths".  So calls to `realpath`
+        //   or to look up the path for a file descriptor will
+        //   @compileError.
+        //
+        // - no notion of file modes/permissions.  The POSIX `mode_t` is
+        //   void.
+        //
+        // - Immutable "current working directory".  So APIs to
+        //   change the working directory will @compileError.
+        //
+        // - No signals, mmap, fcntl, pipe, gethostname, fork, or pthread
+        //   support.
+
+        pub const PATH_MAX = 4096;
+        pub const STDIN_FILENO = 0;
+        pub const STDOUT_FILENO = 1;
+        pub const STDERR_FILENO = 2;
+        pub const E = wasi.errno_t;
+        pub const fd_t = wasi.fd_t;
+        pub const ino_t = wasi.inode_t;
+        pub const dev_t = wasi.device_t;
+        pub const nlink_t = wasi.linkcount_t;
+        pub const off_t = i64;
+        pub const time_t = i64;
+        pub const msync = {};
+        pub const pid_t = void;
+        pub const pollfd = void;
+        pub const rlimit_resource = void;
+        pub const ucontext_t = void;
+        pub const AT = struct {
+            pub const FDCWD = 3; // Needs no translation.  In Zig, fd 3 is a preopened cwd fd.
+            pub const SYMLINK_FOLLOW = 0x100; // for {sym,}linkat()
+            pub const SYMLINK_NOFOLLOW = 0x200; // for {f,}chmodat()
+            pub const REMOVEDIR = 0x400;
+        };
+
+        pub const Stat = struct {
+            // POSIX-y set of the fields supported by wasi.filestat_t.
+            dev: system.dev_t,
+            ino: system.ino_t,
+            nlink: system.nlink_t,
+            mode: u32, // only the file-type bits (S.IFMT) no permission bits
+            size: system.off_t,
+            atim: system.timespec,
+            mtim: system.timespec,
+            ctim: system.timespec,
+
+            pub fn atime(self: @This()) system.timespec {
+                return self.atim;
+            }
+
+            pub fn mtime(self: @This()) system.timespec {
+                return self.mtim;
+            }
+
+            pub fn ctime(self: @This()) system.timespec {
+                return self.ctim;
+            }
+
+            pub fn fromFilestat(st: wasi.filestat_t) @This() {
+                return .{
+                    .dev = st.dev,
+                    .ino = st.ino,
+                    .mode = switch (st.filetype) {
+                        .UNKNOWN => 0,
+                        .BLOCK_DEVICE => system.S.IFBLK,
+                        .CHARACTER_DEVICE => system.S.IFCHR,
+                        .DIRECTORY => system.S.IFDIR,
+                        .REGULAR_FILE => system.S.IFREG,
+                        .SOCKET_DGRAM => system.S.IFSOCK,
+                        .SOCKET_STREAM => system.S.IFIFO,
+                        .SYMBOLIC_LINK => system.S.IFLNK,
+                        _ => 0,
+                    },
+                    .nlink = st.nlink,
+                    .size = @intCast(st.size),
+                    .atim = system.timespec.fromTimestamp(st.atim),
+                    .mtim = system.timespec.fromTimestamp(st.mtim),
+                    .ctim = system.timespec.fromTimestamp(st.ctim),
+                };
+            }
+        };
+
+        pub const S = struct {
+            // These constants here are not tied to any existing C headers.
+            pub const IFBLK = 0x1000;
+            pub const IFCHR = 0x2000;
+            pub const IFDIR = 0x3000;
+            pub const IFLNK = 0x4000;
+            pub const IFREG = 0x5000;
+            pub const IFSOCK = 0x6000;
+            pub const IFIFO = 0x7000;
+            pub const IFMT = IFBLK | IFCHR | IFDIR | IFIFO | IFLNK | IFREG | IFSOCK;
+
+            pub fn ISBLK(m: u32) bool {
+                return m & IFMT == IFBLK;
+            }
+
+            pub fn ISCHR(m: u32) bool {
+                return m & IFMT == IFCHR;
+            }
+
+            pub fn ISDIR(m: u32) bool {
+                return m & IFMT == IFDIR;
+            }
+
+            pub fn ISFIFO(m: u32) bool {
+                return m & IFMT == IFIFO;
+            }
+
+            pub fn ISLNK(m: u32) bool {
+                return m & IFMT == IFLNK;
+            }
+
+            pub fn ISREG(m: u32) bool {
+                return m & IFMT == IFREG;
+            }
+
+            pub fn ISSOCK(m: u32) bool {
+                return m & IFMT == IFSOCK;
+            }
+        };
+
+        pub const timespec = struct {
+            sec: system.time_t,
+            nsec: isize,
+
+            pub fn fromTimestamp(tm: wasi.timestamp_t) @This() {
+                const sec: wasi.timestamp_t = tm / 1_000_000_000;
+                const nsec = tm - sec * 1_000_000_000;
+                return .{
+                    .sec = @as(system.time_t, @intCast(sec)),
+                    .nsec = @as(isize, @intCast(nsec)),
+                };
+            }
+
+            pub fn toTimestamp(ts: @This()) wasi.timestamp_t {
+                return @as(wasi.timestamp_t, @intCast(ts.sec * 1_000_000_000)) +
+                    @as(wasi.timestamp_t, @intCast(ts.nsec));
+            }
+        };
+
+        pub const mode_t = void; // Wasi does not (yet) support file mode/permission bits
+
+        pub const O = packed struct(u32) {
+            // Map POSIX-y open flags into an amalgam of Wasi oflags_t, lookupflags_t, fdflags_t
+            // and ACCMODE.  Doesn't need to match any existing C structure.
+            ACCMODE: ACCMODE = .RDONLY,
+
+            // oflags_t:
+            CREAT: bool = false,
+            DIRECTORY: bool = false,
+            EXCL: bool = false,
+            TRUNC: bool = false,
+
+            // fdflags_t:
+            APPEND: bool = false,
+            DSYNC: bool = false,
+            NONBLOCK: bool = false,
+            RSYNC: bool = false,
+            SYNC: bool = false,
+
+            // lookupflags_t:
+            NOFOLLOW: bool = false, // POSIX reverses the polarity of Wasi SYMLINK_FOLLOW
+
+            _: u20 = 0,
+        };
+
+        pub const F_OK = 0x000;
+        pub const X_OK = 0x001;
+        pub const W_OK = 0x002;
+        pub const R_OK = 0x004;
+    },
     else => struct {
         pub const ucontext_t = void;
         pub const pid_t = void;
@@ -52,6 +224,8 @@ else switch (native_os) {
         pub const fd_t = void;
         pub const uid_t = void;
         pub const gid_t = void;
+        pub const msync = {};
+        pub const rlimit_resource = void;
     },
 };
 
@@ -194,6 +368,19 @@ pub const ACCMODE = enum(u2) {
     RDWR = 2,
 };
 
+// Build O flags set from the access mode and given base flags.  This is only necessary
+// because of the Wasi-libc O flags do not put RDONLY and WRONLY in adjacent bits.
+pub fn makeOFlags(acc: std.posix.ACCMODE, baseFlags: std.posix.O) std.posix.O {
+    var flags = baseFlags;
+    if (comptime (native_os == .wasi and builtin.link_libc)) {
+        flags.RDONLY = (acc == .RDONLY or acc == .RDWR);
+        flags.WRONLY = (acc == .WRONLY or acc == .RDWR);
+    } else {
+        flags.ACCMODE = acc;
+    }
+    return flags;
+}
+
 pub const TCSA = enum(c_uint) {
     NOW,
     DRAIN,
@@ -243,7 +430,7 @@ pub const socket_t = if (native_os == .windows) windows.ws2_32.SOCKET else fd_t;
 /// function only returns a well-defined value when it is called directly after
 /// the system function call whose errno value is intended to be observed.
 pub fn errno(rc: anytype) E {
-    if (use_libc) {
+    if (builtin.link_libc) {
         return if (rc == -1) @enumFromInt(std.c._errno().*) else .SUCCESS;
     }
     const signed: isize = @bitCast(rc);
@@ -1643,20 +1830,19 @@ pub fn openat(dir_fd: fd_t, file_path: []const u8, flags: O, mode: mode_t) OpenE
     if (native_os == .windows) {
         @compileError("Windows does not support POSIX; use Windows-specific API or cross-platform std.fs API");
     } else if (native_os == .wasi and !builtin.link_libc) {
-        // `mode` is ignored on WASI, which does not support unix-style file permissions
         const opts = try openOptionsFromFlagsWasi(flags);
         const fd = try openatWasi(
             dir_fd,
             file_path,
             opts.lookup_flags,
             opts.oflags,
-            opts.fs_flags,
+            opts.fd_flags,
             opts.fs_rights_base,
             opts.fs_rights_inheriting,
         );
         errdefer close(fd);
 
-        if (flags.write) {
+        if (flags.ACCMODE == .WRONLY or flags.ACCMODE == .RDWR) {
             const info = try std.os.fstat_wasi(fd);
             if (info.filetype == .DIRECTORY)
                 return error.IsDir;
@@ -1683,7 +1869,6 @@ pub fn openatWasi(
         switch (wasi.path_open(dir_fd, lookup_flags, file_path.ptr, file_path.len, oflags, base, inheriting, fdflags, &fd)) {
             .SUCCESS => return fd,
             .INTR => continue,
-
             .FAULT => unreachable,
             // Provides INVAL with a linux host on a bad path name, but NOENT on Windows
             .INVAL => return error.BadPathName,
@@ -1717,42 +1902,45 @@ const WasiOpenOptions = struct {
     lookup_flags: wasi.lookupflags_t,
     fs_rights_base: wasi.rights_t,
     fs_rights_inheriting: wasi.rights_t,
-    fs_flags: wasi.fdflags_t,
+    fd_flags: wasi.fdflags_t,
 };
 
 /// Compute rights + flags corresponding to the provided POSIX access mode.
-fn openOptionsFromFlagsWasi(oflag: O) OpenError!WasiOpenOptions {
-    const w = std.os.wasi;
-
-    // Next, calculate the read/write rights to request, depending on the
+fn openOptionsFromFlagsWasi(posixFlags: O) OpenError!WasiOpenOptions {
+    // Calculate the read/write rights to request, depending on the
     // provided POSIX access mode
-    var rights: w.rights_t = .{};
-    if (oflag.read) {
+    var rights: std.os.wasi.rights_t = .{};
+    const accmode = posixFlags.ACCMODE;
+    if (accmode == .RDONLY or accmode == .RDWR) {
         rights.FD_READ = true;
         rights.FD_READDIR = true;
     }
-    if (oflag.write) {
+    if (accmode == .WRONLY or accmode == .RDWR) {
         rights.FD_DATASYNC = true;
         rights.FD_WRITE = true;
         rights.FD_ALLOCATE = true;
         rights.FD_FILESTAT_SET_SIZE = true;
     }
 
-    // https://github.com/ziglang/zig/issues/18882
-    const flag_bits: u32 = @bitCast(oflag);
-    const oflags_int: u16 = @as(u12, @truncate(flag_bits >> 12));
-    const fs_flags_int: u16 = @as(u12, @truncate(flag_bits));
-
     return .{
-        // https://github.com/ziglang/zig/issues/18882
-        .oflags = @bitCast(oflags_int),
+        .oflags = .{
+            .CREAT = posixFlags.CREAT,
+            .DIRECTORY = posixFlags.DIRECTORY,
+            .EXCL = posixFlags.EXCL,
+            .TRUNC = posixFlags.TRUNC,
+        },
         .lookup_flags = .{
-            .SYMLINK_FOLLOW = !oflag.NOFOLLOW,
+            .SYMLINK_FOLLOW = !posixFlags.NOFOLLOW,
         },
         .fs_rights_base = rights,
         .fs_rights_inheriting = rights,
-        // https://github.com/ziglang/zig/issues/18882
-        .fs_flags = @bitCast(fs_flags_int),
+        .fd_flags = .{
+            .APPEND = posixFlags.APPEND,
+            .NONBLOCK = posixFlags.NONBLOCK,
+            .DSYNC = posixFlags.DSYNC,
+            .RSYNC = posixFlags.RSYNC,
+            .SYNC = posixFlags.SYNC,
+        },
     };
 }
 
@@ -1771,7 +1959,8 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: O, mode: mode_t) O
 
     const openat_sym = if (lfs64_abi) system.openat64 else system.openat;
     while (true) {
-        const rc = openat_sym(dir_fd, file_path, flags, mode);
+        const syscall_mode = if (mode_t == void) @as(u32, 0) else mode;
+        const rc = openat_sym(dir_fd, file_path, flags, syscall_mode);
         switch (errno(rc)) {
             .SUCCESS => return @intCast(rc),
             .INTR => continue,
@@ -2070,7 +2259,7 @@ pub fn symlink(target_path: []const u8, sym_link_path: []const u8) SymLinkError!
     if (native_os == .windows) {
         @compileError("symlink is not supported on Windows; use std.os.windows.CreateSymbolicLink instead");
     } else if (native_os == .wasi and !builtin.link_libc) {
-        return symlinkat(target_path, wasi.AT.FDCWD, sym_link_path);
+        return symlinkat(target_path, AT.FDCWD, sym_link_path);
     }
     const target_path_c = try toPosixPath(target_path);
     const sym_link_path_c = try toPosixPath(sym_link_path);
@@ -2240,7 +2429,7 @@ pub fn linkZ(oldpath: [*:0]const u8, newpath: [*:0]const u8) LinkError!void {
 /// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn link(oldpath: []const u8, newpath: []const u8) LinkError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        return linkat(wasi.AT.FDCWD, oldpath, wasi.AT.FDCWD, newpath, 0) catch |err| switch (err) {
+        return linkat(AT.FDCWD, oldpath, AT.FDCWD, newpath, 0) catch |err| switch (err) {
             error.NotDir => unreachable, // link() does not support directories
             else => |e| return e,
         };
@@ -2377,7 +2566,7 @@ pub const UnlinkError = error{
 /// See also `unlinkZ`.
 pub fn unlink(file_path: []const u8) UnlinkError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        return unlinkat(wasi.AT.FDCWD, file_path, 0) catch |err| switch (err) {
+        return unlinkat(AT.FDCWD, file_path, 0) catch |err| switch (err) {
             error.DirNotEmpty => unreachable, // only occurs when targeting directories
             else => |e| return e,
         };
@@ -2571,7 +2760,7 @@ pub const RenameError = error{
 /// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn rename(old_path: []const u8, new_path: []const u8) RenameError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        return renameat(wasi.AT.FDCWD, old_path, wasi.AT.FDCWD, new_path);
+        return renameat(AT.FDCWD, old_path, AT.FDCWD, new_path);
     } else if (native_os == .windows) {
         const old_path_w = try windows.sliceToPrefixedFileW(null, old_path);
         const new_path_w = try windows.sliceToPrefixedFileW(null, new_path);
@@ -2845,7 +3034,7 @@ pub fn renameatW(
 /// On Windows, `sub_dir_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, `sub_dir_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_dir_path` is an opaque sequence of bytes with no particular encoding.
-pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!void {
+pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: mode_t) MakeDirError!void {
     if (native_os == .windows) {
         const sub_dir_path_w = try windows.sliceToPrefixedFileW(dir_fd, sub_dir_path);
         return mkdiratW(dir_fd, sub_dir_path_w.span(), mode);
@@ -2857,7 +3046,7 @@ pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!v
     }
 }
 
-pub fn mkdiratWasi(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!void {
+pub fn mkdiratWasi(dir_fd: fd_t, sub_dir_path: []const u8, mode: mode_t) MakeDirError!void {
     _ = mode;
     switch (wasi.path_create_directory(dir_fd, sub_dir_path.ptr, sub_dir_path.len)) {
         .SUCCESS => return,
@@ -2882,14 +3071,15 @@ pub fn mkdiratWasi(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirErr
 }
 
 /// Same as `mkdirat` except the parameters are null-terminated.
-pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
+pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: mode_t) MakeDirError!void {
     if (native_os == .windows) {
         const sub_dir_path_w = try windows.cStrToPrefixedFileW(dir_fd, sub_dir_path);
         return mkdiratW(dir_fd, sub_dir_path_w.span(), mode);
     } else if (native_os == .wasi and !builtin.link_libc) {
         return mkdirat(dir_fd, mem.sliceTo(sub_dir_path, 0), mode);
     }
-    switch (errno(system.mkdirat(dir_fd, sub_dir_path, mode))) {
+    const syscall_mode = if (mode_t == void) @as(u32, 0) else mode;
+    switch (errno(system.mkdirat(dir_fd, sub_dir_path, syscall_mode))) {
         .SUCCESS => return,
         .ACCES => return error.AccessDenied,
         .BADF => unreachable,
@@ -2916,7 +3106,7 @@ pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: u32) MakeDirErr
 }
 
 /// Windows-only. Same as `mkdirat` except the parameter WTF16 LE encoded.
-pub fn mkdiratW(dir_fd: fd_t, sub_path_w: []const u16, mode: u32) MakeDirError!void {
+pub fn mkdiratW(dir_fd: fd_t, sub_path_w: []const u16, mode: mode_t) MakeDirError!void {
     _ = mode;
     const sub_dir_handle = windows.OpenFile(sub_path_w, .{
         .dir = dir_fd,
@@ -2963,9 +3153,9 @@ pub const MakeDirError = error{
 /// On Windows, `dir_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, `dir_path` should be encoded as valid UTF-8.
 /// On other platforms, `dir_path` is an opaque sequence of bytes with no particular encoding.
-pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
+pub fn mkdir(dir_path: []const u8, mode: mode_t) MakeDirError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        return mkdirat(wasi.AT.FDCWD, dir_path, mode);
+        return mkdirat(AT.FDCWD, dir_path, mode);
     } else if (native_os == .windows) {
         const dir_path_w = try windows.sliceToPrefixedFileW(null, dir_path);
         return mkdirW(dir_path_w.span(), mode);
@@ -2979,7 +3169,7 @@ pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
 /// On Windows, `dir_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, `dir_path` should be encoded as valid UTF-8.
 /// On other platforms, `dir_path` is an opaque sequence of bytes with no particular encoding.
-pub fn mkdirZ(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
+pub fn mkdirZ(dir_path: [*:0]const u8, mode: mode_t) MakeDirError!void {
     if (native_os == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(null, dir_path);
         return mkdirW(dir_path_w.span(), mode);
@@ -3010,7 +3200,7 @@ pub fn mkdirZ(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
 }
 
 /// Windows-only. Same as `mkdir` but the parameters is WTF16LE encoded.
-pub fn mkdirW(dir_path_w: []const u16, mode: u32) MakeDirError!void {
+pub fn mkdirW(dir_path_w: []const u16, mode: mode_t) MakeDirError!void {
     _ = mode;
     const sub_dir_handle = windows.OpenFile(dir_path_w, .{
         .dir = fs.cwd().fd,
@@ -3053,7 +3243,7 @@ pub const DeleteDirError = error{
 /// On other platforms, `dir_path` is an opaque sequence of bytes with no particular encoding.
 pub fn rmdir(dir_path: []const u8) DeleteDirError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        return unlinkat(wasi.AT.FDCWD, dir_path, AT.REMOVEDIR) catch |err| switch (err) {
+        return unlinkat(AT.FDCWD, dir_path, AT.REMOVEDIR) catch |err| switch (err) {
             error.FileSystem => unreachable, // only occurs when targeting files
             error.IsDir => unreachable, // only occurs when targeting files
             else => |e| return e,
@@ -3242,7 +3432,7 @@ pub const ReadLinkError = error{
 /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
 pub fn readlink(file_path: []const u8, out_buffer: []u8) ReadLinkError![]u8 {
     if (native_os == .wasi and !builtin.link_libc) {
-        return readlinkat(wasi.AT.FDCWD, file_path, out_buffer);
+        return readlinkat(AT.FDCWD, file_path, out_buffer);
     } else if (native_os == .windows) {
         const file_path_w = try windows.sliceToPrefixedFileW(null, file_path);
         return readlinkW(file_path_w.span(), out_buffer);
@@ -4381,10 +4571,9 @@ pub fn fstatat(dirfd: fd_t, pathname: []const u8, flags: u32) FStatAtError!Stat 
 /// See also `fstatat`.
 pub fn fstatatZ(dirfd: fd_t, pathname: [*:0]const u8, flags: u32) FStatAtError!Stat {
     if (native_os == .wasi and !builtin.link_libc) {
-        const filestat = try std.os.fstatat_wasi(dirfd, mem.sliceTo(pathname, 0), .{
-            .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
-        });
-        return Stat.fromFilestat(filestat);
+        return fstatat(dirfd, mem.sliceTo(pathname, 0), flags);
+    } else if (native_os == .windows) {
+        @compileError("fstatatZ is not yet implemented on Windows");
     }
 
     const fstatat_sym = if (lfs64_abi) system.fstatat64 else system.fstatat;
@@ -4793,7 +4982,7 @@ pub fn access(path: []const u8, mode: u32) AccessError!void {
         _ = try windows.GetFileAttributesW(path_w.span().ptr);
         return;
     } else if (native_os == .wasi and !builtin.link_libc) {
-        return faccessat(wasi.AT.FDCWD, path, mode, 0);
+        return faccessat(AT.FDCWD, path, mode, 0);
     }
     const path_c = try toPosixPath(path);
     return accessZ(&path_c, mode);
@@ -4842,16 +5031,17 @@ pub fn accessZ(path: [*:0]const u8, mode: u32) AccessError!void {
 /// Windows. See `fs` for the cross-platform file system API.
 pub fn faccessat(dirfd: fd_t, path: []const u8, mode: u32, flags: u32) AccessError!void {
     if (native_os == .windows) {
-        const path_w = try windows.sliceToPrefixedFileW(dirfd, path);
+        const path_w = try windows.sliceToPrefixedFileW(dirfd, path) catch |err| switch (err) {
+            error.AccessDenied => return error.PermissionDenied,
+            else => |e| return e,
+        };
         return faccessatW(dirfd, path_w.span().ptr);
     } else if (native_os == .wasi and !builtin.link_libc) {
         const resolved: RelativePathWasi = .{ .dir_fd = dirfd, .relative_path = path };
 
-        const st = blk: {
-            break :blk std.os.fstatat_wasi(dirfd, path, .{
-                .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
-            });
-        } catch |err| switch (err) {
+        const st = std.os.fstatat_wasi(resolved.dir_fd, path, .{
+            .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
+        }) catch |err| switch (err) {
             error.AccessDenied => return error.PermissionDenied,
             else => |e| return e,
         };
@@ -5043,7 +5233,7 @@ pub fn sysctl(
     newlen: usize,
 ) SysCtlError!void {
     if (native_os == .wasi) {
-        @panic("unsupported"); // TODO should be compile error, not panic
+        @compileError("sysctl is not supported on WASI");
     }
     if (native_os == .haiku) {
         @panic("unsupported"); // TODO should be compile error, not panic
@@ -5068,7 +5258,7 @@ pub fn sysctlbynameZ(
     newlen: usize,
 ) SysCtlError!void {
     if (native_os == .wasi) {
-        @panic("unsupported"); // TODO should be compile error, not panic
+        @compileError("sysctlbynameZ is not supported on WASI");
     }
     if (native_os == .haiku) {
         @panic("unsupported"); // TODO should be compile error, not panic
@@ -5085,6 +5275,10 @@ pub fn sysctlbynameZ(
 }
 
 pub fn gettimeofday(tv: ?*timeval, tz: ?*timezone) void {
+    if (native_os == .wasi and !builtin.link_libc) {
+        @compileError("gettimeofday is not implemented on no-libc WASI yet");
+    }
+
     switch (errno(system.gettimeofday(tv, tz))) {
         .SUCCESS => return,
         .INVAL => unreachable,
@@ -5391,8 +5585,8 @@ pub fn realpath(pathname: []const u8, out_buffer: *[max_path_bytes]u8) RealPathE
     if (native_os == .windows) {
         const pathname_w = try windows.sliceToPrefixedFileW(null, pathname);
         return realpathW(pathname_w.span(), out_buffer);
-    } else if (native_os == .wasi and !builtin.link_libc) {
-        @compileError("WASI does not support os.realpath");
+    } else if (native_os == .wasi) {
+        @compileError("WASI has no support for absolute paths");
     }
     const pathname_c = try toPosixPath(pathname);
     return realpathZ(&pathname_c, out_buffer);
@@ -5405,8 +5599,8 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[max_path_bytes]u8) RealP
     if (native_os == .windows) {
         const pathname_w = try windows.cStrToPrefixedFileW(null, pathname);
         return realpathW(pathname_w.span(), out_buffer);
-    } else if (native_os == .wasi and !builtin.link_libc) {
-        return realpath(mem.sliceTo(pathname, 0), out_buffer);
+    } else if (native_os == .wasi) {
+        @compileError("WASI has no support for absolute paths");
     }
     if (!builtin.link_libc) {
         const flags: O = switch (native_os) {

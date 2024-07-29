@@ -133,9 +133,11 @@ pub const dev_t = switch (native_os) {
 pub const mode_t = switch (native_os) {
     .linux => linux.mode_t,
     .emscripten => emscripten.mode_t,
-    .openbsd, .haiku, .netbsd, .solaris, .illumos, .wasi => u32,
+    .openbsd, .haiku, .netbsd, .solaris, .illumos => u32,
     .freebsd, .macos, .ios, .tvos, .watchos, .visionos => u16,
-    else => u0,
+    .wasi => void,
+    .windows => u0,
+    else => u0, // TODO: should be void?
 };
 
 pub const nlink_t = switch (native_os) {
@@ -1702,17 +1704,15 @@ pub const S = switch (native_os) {
     .linux => linux.S,
     .emscripten => emscripten.S,
     .wasi => struct {
-        pub const IEXEC = @compileError("TODO audit this");
+        // Match wasi-libc's libc-bottom-half/headers/public/__mode_t.h
         pub const IFBLK = 0x6000;
         pub const IFCHR = 0x2000;
         pub const IFDIR = 0x4000;
-        pub const IFIFO = 0xc000;
+        pub const IFIFO = 0x1000;
         pub const IFLNK = 0xa000;
-        pub const IFMT = IFBLK | IFCHR | IFDIR | IFIFO | IFLNK | IFREG | IFSOCK;
         pub const IFREG = 0x8000;
-        /// There's no concept of UNIX domain socket but we define this value here
-        /// in order to line with other OSes.
-        pub const IFSOCK = 0x1;
+        pub const IFSOCK = 0xc000;
+        pub const IFMT = IFBLK | IFCHR | IFDIR | IFIFO | IFLNK | IFREG | IFSOCK;
     },
     .macos, .ios, .tvos, .watchos, .visionos => struct {
         pub const IFMT = 0o170000;
@@ -6486,6 +6486,7 @@ pub const Stat = switch (native_os) {
     },
     .emscripten => emscripten.Stat,
     .wasi => extern struct {
+        // Matches wasi-libc's libc-bottom-half/headers/public/__struct_stat.h
         dev: dev_t,
         ino: ino_t,
         nlink: nlink_t,
@@ -7185,17 +7186,13 @@ pub const AT = switch (native_os) {
         pub const RECURSIVE = 0x8000;
     },
     .wasi => struct {
-        pub const SYMLINK_NOFOLLOW = 0x100;
-        pub const SYMLINK_FOLLOW = 0x400;
-        pub const REMOVEDIR: u32 = 0x4;
-        /// When linking libc, we follow their convention and use -2 for current working directory.
-        /// However, without libc, Zig does a different convention: it assumes the
-        /// current working directory is the first preopen. This behavior can be
-        /// overridden with a public function called `wasi_cwd` in the root source
-        /// file.
-        pub const FDCWD: fd_t = if (builtin.link_libc) -2 else 3;
+        // Match AT_* constants in wasi-libc libc-bottom-half/headers/public/__header_fcntl.h
+        pub const FDCWD = -2;
+        pub const EACCESS = 0x0;
+        pub const SYMLINK_NOFOLLOW = 0x1;
+        pub const SYMLINK_FOLLOW = 0x2;
+        pub const REMOVEDIR = 0x4;
     },
-
     else => void,
 };
 
@@ -7224,6 +7221,7 @@ pub const O = switch (native_os) {
         _: u9 = 0,
     },
     .wasi => packed struct(u32) {
+        // Match layout from wasi-libc libc-bottom-half/headers/public/__header_fcntl.h
         APPEND: bool = false,
         DSYNC: bool = false,
         NONBLOCK: bool = false,
@@ -7236,10 +7234,17 @@ pub const O = switch (native_os) {
         TRUNC: bool = false,
         _16: u8 = 0,
         NOFOLLOW: bool = false,
+
+        // Logical O_ACCMODE is the following 4 bits, note O_SEARCH is between RD and WR,
+        // so can't easily reuse std.posix.ACCMODE in this struct.
         EXEC: bool = false,
-        read: bool = false,
+        RDONLY: bool = true, // equivalent to "ACCMODE = .RDONLY" default
         SEARCH: bool = false,
-        write: bool = false,
+        WRONLY: bool = false,
+
+        // CLOEXEC, TTY_ININT, NOCTTY are mapped 0, so they're silently
+        // ignored in C code.
+
         _: u3 = 0,
     },
     .solaris, .illumos => packed struct(u32) {
@@ -9069,6 +9074,7 @@ pub const gettimeofday = switch (native_os) {
 
 pub const msync = switch (native_os) {
     .netbsd => private.__msync13,
+    .wasi => {},
     else => private.msync,
 };
 
@@ -9211,8 +9217,8 @@ pub const fork = switch (native_os) {
 pub extern "c" fn access(path: [*:0]const u8, mode: c_uint) c_int;
 pub extern "c" fn faccessat(dirfd: fd_t, path: [*:0]const u8, mode: c_uint, flags: c_uint) c_int;
 pub extern "c" fn pipe(fds: *[2]fd_t) c_int;
-pub extern "c" fn mkdir(path: [*:0]const u8, mode: c_uint) c_int;
-pub extern "c" fn mkdirat(dirfd: fd_t, path: [*:0]const u8, mode: u32) c_int;
+pub extern "c" fn mkdir(path: [*:0]const u8, mode: usize) c_int;
+pub extern "c" fn mkdirat(dirfd: fd_t, path: [*:0]const u8, mode: usize) c_int;
 pub extern "c" fn symlink(existing: [*:0]const u8, new: [*:0]const u8) c_int;
 pub extern "c" fn symlinkat(oldpath: [*:0]const u8, newdirfd: fd_t, newpath: [*:0]const u8) c_int;
 pub extern "c" fn rename(old: [*:0]const u8, new: [*:0]const u8) c_int;

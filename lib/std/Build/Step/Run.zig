@@ -1089,7 +1089,7 @@ fn runCommand(
                         // the `--` before the module name. This appears to work for both old and
                         // new Wasmtime versions.
                         try interp_argv.append(bin_name);
-                        try interp_argv.append("--dir=.");
+                        try interp_argv.append("--dir=."); // Preopen '.' at file descriptor 3 for cwd
                         try interp_argv.append("--");
                         try interp_argv.append(argv[0]);
                         try interp_argv.appendSlice(argv[1..]);
