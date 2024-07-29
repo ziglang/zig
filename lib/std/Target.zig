@@ -1099,8 +1099,19 @@ pub const Cpu = struct {
         }
 
         pub inline fn isMIPS(arch: Arch) bool {
+            return arch.isMIPS32() or arch.isMIPS64();
+        }
+
+        pub inline fn isMIPS32(arch: Arch) bool {
             return switch (arch) {
-                .mips, .mipsel, .mips64, .mips64el => true,
+                .mips, .mipsel => true,
+                else => false,
+            };
+        }
+
+        pub inline fn isMIPS64(arch: Arch) bool {
+            return switch (arch) {
+                .mips64, .mips64el => true,
                 else => false,
             };
         }
