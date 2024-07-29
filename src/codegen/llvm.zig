@@ -79,8 +79,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .xtensa => "xtensa",
         .nvptx => "nvptx",
         .nvptx64 => "nvptx64",
-        .spir => "spir",
-        .spir64 => "spir64",
         .spirv => "spirv",
         .spirv32 => "spirv32",
         .spirv64 => "spirv64",
@@ -292,8 +290,6 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .xtensa => .xtensa,
         .nvptx => .nvptx,
         .nvptx64 => .nvptx64,
-        .spir => .spir,
-        .spir64 => .spir64,
         .spirv => .spirv,
         .spirv32 => .spirv32,
         .spirv64 => .spirv64,
@@ -12095,8 +12091,6 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         },
 
         // LLVM backends that have no initialization functions.
-        .spir,
-        .spir64,
         .spirv,
         .spirv32,
         .spirv64,
