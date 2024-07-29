@@ -1598,7 +1598,7 @@ pub fn openZ(file_path: [*:0]const u8, flags: O, perm: mode_t) OpenError!fd_t {
             .INTR => continue,
 
             .FAULT => unreachable,
-            .INVAL => unreachable,
+            .INVAL => return error.BadPathName,
             .ACCES => return error.AccessDenied,
             .FBIG => return error.FileTooBig,
             .OVERFLOW => return error.FileTooBig,
@@ -1676,7 +1676,8 @@ pub fn openatWasi(
             .INTR => continue,
 
             .FAULT => unreachable,
-            .INVAL => unreachable,
+            // Provides INVAL with a linux host on a bad path name, but NOENT on Windows
+            .INVAL => return error.BadPathName,
             .BADF => unreachable,
             .ACCES => return error.AccessDenied,
             .FBIG => return error.FileTooBig,
@@ -1767,7 +1768,7 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: O, mode: mode_t) O
             .INTR => continue,
 
             .FAULT => unreachable,
-            .INVAL => unreachable,
+            .INVAL => return error.BadPathName,
             .BADF => unreachable,
             .ACCES => return error.AccessDenied,
             .FBIG => return error.FileTooBig,
