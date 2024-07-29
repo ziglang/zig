@@ -15,32 +15,32 @@ pub const SerialIo = extern struct {
     mode: *Mode,
     device_type_guid: ?*Guid,
 
-    ///Resets the serial device.
+    /// Resets the serial device.
     pub fn reset(self: *const SerialIo) Status {
         return self._reset(self);
     }
 
-    ///Sets the baud rate, receive FIFO depth, transmit/receive time out, parity, data bits, and stop bits on a serial device.
+    /// Sets the baud rate, receive FIFO depth, transmit/receive time out, parity, data bits, and stop bits on a serial device.
     pub fn setAttribute(self: *const SerialIo, baudRate: u64, receiverFifoDepth: u32, timeout: u32, parity: ParityType, dataBits: u8, stopBits: StopBitsType) Status {
         return self._set_attribute(self, baudRate, receiverFifoDepth, timeout, parity, dataBits, stopBits);
     }
 
-    ///Sets the control bits on a serial device.
+    /// Sets the control bits on a serial device.
     pub fn setControl(self: *const SerialIo, control: u32) Status {
         return self._set_control(self, control);
     }
 
-    ///Retrieves the status of the control bits on a serial device.
+    /// Retrieves the status of the control bits on a serial device.
     pub fn getControl(self: *const SerialIo, control: *u32) Status {
         return self._get_control(self, control);
     }
 
-    ///Writes data to a serial device.
+    /// Writes data to a serial device.
     pub fn write(self: *const SerialIo, bufferSize: *usize, buffer: *anyopaque) Status {
         return self._write(self, bufferSize, buffer);
     }
 
-    ///Reads data from a serial device.
+    /// Reads data from a serial device.
     pub fn read(self: *const SerialIo, bufferSize: *usize, buffer: *anyopaque) Status {
         return self._read(self, bufferSize, buffer);
     }
