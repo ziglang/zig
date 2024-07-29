@@ -16,9 +16,11 @@ pub fn gcAtoms(elf_file: *Elf) !void {
 }
 
 fn collectRoots(roots: *std.ArrayList(*Atom), files: []const File.Index, elf_file: *Elf) !void {
-    if (elf_file.entry_index) |index| {
-        const global = elf_file.symbol(index);
-        try markSymbol(global, roots, elf_file);
+    if (elf_file.linkerDefinedPtr()) |obj| {
+        if (obj.entry_index) |index| {
+            const global = elf_file.symbol(index);
+            try markSymbol(global, roots, elf_file);
+        }
     }
 
     for (files) |index| {

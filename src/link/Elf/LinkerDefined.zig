@@ -4,6 +4,7 @@ symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
 symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
 
+entry_index: ?Symbol.Index = null,
 dynamic_index: ?Symbol.Index = null,
 ehdr_start_index: ?Symbol.Index = null,
 init_array_start_index: ?Symbol.Index = null,
@@ -39,6 +40,12 @@ pub fn init(self: *LinkerDefined, allocator: Allocator) !void {
 pub fn initSymbols(self: *LinkerDefined, elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
 
+    // Look for entry address in objects if not set by the incremental compiler.
+    if (self.entry_index == null) {
+        if (elf_file.entry_name) |name| {
+            self.entry_index = elf_file.globalByName(name);
+        }
+    }
     self.dynamic_index = try self.addGlobal("_DYNAMIC", elf_file);
     self.ehdr_start_index = try self.addGlobal("__ehdr_start", elf_file);
     self.init_array_start_index = try self.addGlobal("__init_array_start", elf_file);

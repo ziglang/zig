@@ -93,7 +93,6 @@ phdr_gnu_stack_index: ?u16 = null,
 /// TODO I think ELF permits multiple TLS segments but for now, assume one per file.
 phdr_tls_index: ?u16 = null,
 
-entry_index: ?Symbol.Index = null,
 page_size: u32,
 default_sym_version: elf.Elf64_Versym,
 
@@ -1277,18 +1276,14 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     // Any qualifing unresolved symbol will be upgraded to an absolute, weak
     // symbol for potential resolution at load-time.
     try self.resolveSymbols();
+    if (self.linkerDefinedPtr()) |obj| {
+        try obj.initSymbols(self);
+    }
     self.markEhFrameAtomsDead();
     try self.resolveMergeSections();
 
     try self.convertCommonSymbols();
     self.markImportsExports();
-
-    // Look for entry address in objects if not set by the incremental compiler.
-    if (self.entry_index == null) {
-        if (self.entry_name) |name| {
-            self.entry_index = self.globalByName(name);
-        }
-    }
 
     if (self.base.gc_sections) {
         try gc.gcAtoms(self);
@@ -1307,9 +1302,6 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     try self.finalizeMergeSections();
     try self.initOutputSections();
     try self.initMergeSections();
-    if (self.linkerDefinedPtr()) |obj| {
-        try obj.initSymbols(self);
-    }
     self.claimUnresolved();
 
     // Scan and create missing synthetic entries such as GOT indirection.
@@ -1385,7 +1377,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
         else => |e| return e,
     };
 
-    if (self.entry_index == null and self.base.isExe()) {
+    if (self.base.isExe() and self.linkerDefinedPtr().?.entry_index == null) {
         log.debug("flushing. no_entry_point_found = true", .{});
         comp.link_error_flags.no_entry_point_found = true;
     } else {
@@ -2917,10 +2909,10 @@ pub fn writeElfHeader(self: *Elf) !void {
     mem.writeInt(u32, hdr_buf[index..][0..4], 1, endian);
     index += 4;
 
-    const e_entry = if (self.entry_index) |entry_index|
-        @as(u64, @intCast(self.symbol(entry_index).address(.{}, self)))
-    else
-        0;
+    const e_entry: u64 = if (self.linkerDefinedPtr()) |obj| blk: {
+        const entry_index = obj.entry_index orelse break :blk 0;
+        break :blk @intCast(self.symbol(entry_index).address(.{}, self));
+    } else 0;
     const phdr_table_offset = if (self.phdr_table_index) |phndx| self.phdrs.items[phndx].p_offset else 0;
     switch (self.ptr_width) {
         .p32 => {
