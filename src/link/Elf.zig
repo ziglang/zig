@@ -3150,7 +3150,7 @@ fn addLinkerDefinedSymbols(self: *Elf) !void {
         }
     }
 
-    if (self.getTarget().cpu.arch == .riscv64 and self.isEffectivelyDynLib()) {
+    if (self.getTarget().cpu.arch.isRISCV() and self.isEffectivelyDynLib()) {
         self.global_pointer_index = try linker_defined.addGlobal("__global_pointer$", self);
     }
 

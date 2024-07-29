@@ -720,7 +720,16 @@ pub const Abi = enum {
 
     pub inline fn isGnu(abi: Abi) bool {
         return switch (abi) {
-            .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => true,
+            .gnu,
+            .gnuabin32,
+            .gnuabi64,
+            .gnueabi,
+            .gnueabihf,
+            .gnuf32,
+            .gnusf,
+            .gnux32,
+            .gnuilp32,
+            => true,
             else => false,
         };
     }

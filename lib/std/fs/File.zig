@@ -342,7 +342,7 @@ pub fn seekTo(self: File, offset: u64) SeekError!void {
     return posix.lseek_SET(self.handle, offset);
 }
 
-pub const GetSeekPosError = posix.SeekError || posix.FStatError;
+pub const GetSeekPosError = posix.SeekError || StatError;
 
 /// TODO: integrate with async I/O
 pub fn getPos(self: File) GetSeekPosError!u64 {
@@ -357,7 +357,7 @@ pub fn getEndPos(self: File) GetSeekPosError!u64 {
     return (try self.stat()).size;
 }
 
-pub const ModeError = posix.FStatError;
+pub const ModeError = StatError;
 
 /// TODO: integrate with async I/O
 pub fn mode(self: File) ModeError!Mode {
@@ -392,7 +392,7 @@ pub const Stat = struct {
     /// Last status/metadata change time in nanoseconds, relative to UTC 1970-01-01.
     ctime: i128,
 
-    pub fn fromSystem(st: posix.Stat) Stat {
+    pub fn fromPosix(st: posix.Stat) Stat {
         const atime = st.atime();
         const mtime = st.mtime();
         const ctime = st.ctime();
@@ -419,6 +419,31 @@ pub const Stat = struct {
                 };
 
                 break :k .unknown;
+            },
+            .atime = @as(i128, atime.sec) * std.time.ns_per_s + atime.nsec,
+            .mtime = @as(i128, mtime.sec) * std.time.ns_per_s + mtime.nsec,
+            .ctime = @as(i128, ctime.sec) * std.time.ns_per_s + ctime.nsec,
+        };
+    }
+
+    pub fn fromLinux(stx: linux.Statx) Stat {
+        const atime = stx.atime;
+        const mtime = stx.mtime;
+        const ctime = stx.ctime;
+
+        return .{
+            .inode = stx.ino,
+            .size = stx.size,
+            .mode = stx.mode,
+            .kind = switch (stx.mode & linux.S.IFMT) {
+                linux.S.IFDIR => .directory,
+                linux.S.IFCHR => .character_device,
+                linux.S.IFBLK => .block_device,
+                linux.S.IFREG => .file,
+                linux.S.IFIFO => .named_pipe,
+                linux.S.IFLNK => .sym_link,
+                linux.S.IFSOCK => .unix_domain_socket,
+                else => .unknown,
             },
             .atime = @as(i128, atime.sec) * std.time.ns_per_s + atime.nsec,
             .mtime = @as(i128, mtime.sec) * std.time.ns_per_s + mtime.nsec,
@@ -502,8 +527,34 @@ pub fn stat(self: File) StatError!Stat {
         return Stat.fromWasi(st);
     }
 
+    if (builtin.os.tag == .linux) {
+        var stx = std.mem.zeroes(linux.Statx);
+
+        const rc = linux.statx(
+            self.handle,
+            "",
+            linux.AT.EMPTY_PATH,
+            linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
+            &stx,
+        );
+
+        return switch (linux.E.init(rc)) {
+            .SUCCESS => Stat.fromLinux(stx),
+            .ACCES => unreachable,
+            .BADF => unreachable,
+            .FAULT => unreachable,
+            .INVAL => unreachable,
+            .LOOP => unreachable,
+            .NAMETOOLONG => unreachable,
+            .NOENT => unreachable,
+            .NOMEM => error.SystemResources,
+            .NOTDIR => unreachable,
+            else => |err| posix.unexpectedErrno(err),
+        };
+    }
+
     const st = try posix.fstat(self.handle);
-    return Stat.fromSystem(st);
+    return Stat.fromPosix(st);
 }
 
 pub const ChmodError = posix.FChmodError;
@@ -731,7 +782,7 @@ pub const Metadata = struct {
 
     /// Returns the time the file was created in nanoseconds since UTC 1970-01-01
     /// On Windows, this cannot return null
-    /// On Linux, this returns null if the filesystem does not support creation times, or if the kernel is older than 4.11
+    /// On Linux, this returns null if the filesystem does not support creation times
     /// On Unices, this returns null if the filesystem or OS does not support creation times
     /// On MacOS, this returns the ctime if the filesystem does not support creation times; this is insanity, and yet another reason to hate on Apple
     pub fn created(self: Self) ?i128 {
@@ -822,7 +873,6 @@ pub const MetadataUnix = struct {
 };
 
 /// `MetadataUnix`, but using Linux's `statx` syscall.
-/// On Linux versions below 4.11, `statx` will be filled with data from stat.
 pub const MetadataLinux = struct {
     statx: std.os.linux.Statx,
 
@@ -1010,34 +1060,29 @@ pub fn metadata(self: File) MetadataError!Metadata {
                 };
             },
             .linux => blk: {
-                const l = std.os.linux;
-                var stx = std.mem.zeroes(l.Statx);
-                const rcx = l.statx(self.handle, "\x00", l.AT.EMPTY_PATH, l.STATX_TYPE |
-                    l.STATX_MODE | l.STATX_ATIME | l.STATX_MTIME | l.STATX_BTIME, &stx);
+                var stx = std.mem.zeroes(linux.Statx);
 
-                switch (posix.errno(rcx)) {
+                // We are gathering information for Metadata, which is meant to contain all the
+                // native OS information about the file, so use all known flags.
+                const rc = linux.statx(
+                    self.handle,
+                    "",
+                    linux.AT.EMPTY_PATH,
+                    linux.STATX_BASIC_STATS | linux.STATX_BTIME,
+                    &stx,
+                );
+
+                switch (posix.errno(rc)) {
                     .SUCCESS => {},
-                    // NOSYS happens when `statx` is unsupported, which is the case on kernel versions before 4.11
-                    // Here, we call `fstat` and fill `stx` with the data we need
-                    .NOSYS => {
-                        const st = try posix.fstat(self.handle);
-
-                        stx.mode = @as(u16, @intCast(st.mode));
-
-                        // Hacky conversion from timespec to statx_timestamp
-                        stx.atime = std.mem.zeroes(l.statx_timestamp);
-                        stx.atime.sec = st.atim.sec;
-                        stx.atime.nsec = @as(u32, @intCast(st.atim.nsec)); // Guaranteed to succeed (nsec is always below 10^9)
-
-                        stx.mtime = std.mem.zeroes(l.statx_timestamp);
-                        stx.mtime.sec = st.mtim.sec;
-                        stx.mtime.nsec = @as(u32, @intCast(st.mtim.nsec));
-
-                        stx.mask = l.STATX_BASIC_STATS | l.STATX_MTIME;
-                    },
+                    .ACCES => unreachable,
                     .BADF => unreachable,
                     .FAULT => unreachable,
+                    .INVAL => unreachable,
+                    .LOOP => unreachable,
+                    .NAMETOOLONG => unreachable,
+                    .NOENT => unreachable,
                     .NOMEM => return error.SystemResources,
+                    .NOTDIR => unreachable,
                     else => |err| return posix.unexpectedErrno(err),
                 }
 
@@ -1731,6 +1776,7 @@ const posix = std.posix;
 const io = std.io;
 const math = std.math;
 const assert = std.debug.assert;
+const linux = std.os.linux;
 const windows = std.os.windows;
 const Os = std.builtin.Os;
 const maxInt = std.math.maxInt;

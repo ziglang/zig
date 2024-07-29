@@ -272,7 +272,7 @@ fn _start() callconv(.Naked) noreturn {
             \\ bstrins.d $sp, $zero, 3, 0
             \\ b %[posixCallMainAndExit]
             ,
-            .riscv64 =>
+            .riscv32, .riscv64 =>
             \\ li s0, 0
             \\ li ra, 0
             \\ mv a0, sp
