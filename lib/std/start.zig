@@ -436,7 +436,8 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
         // to ask for more stack space.
         expandStackSize(phdrs);
 
-        {
+        // Disabled with the riscv backend because it cannot handle this code yet.
+        if (builtin.zig_backend != .stage2_riscv64) {
             const opt_init_array_start = @extern([*]*const fn () callconv(.C) void, .{
                 .name = "__init_array_start",
                 .linkage = .weak,
