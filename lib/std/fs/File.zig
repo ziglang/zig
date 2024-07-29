@@ -27,9 +27,9 @@ pub const Kind = enum {
 /// the `touch` command, which would correspond to `0o644`. However, POSIX
 /// libc implementations use `0o666` inside `fopen` and then rely on the
 /// process-scoped "umask" setting to adjust this number for file creation.
-pub const default_mode = switch (builtin.os.tag) {
-    .windows => 0,
-    .wasi => 0,
+pub const default_mode = switch (posix.mode_t) {
+    void => {}, // WASI-without-libc has no mode support
+    u0 => 0, // Zig's Posix layer doesn't support modes for Windows
     else => 0o666,
 };
 
@@ -381,7 +381,7 @@ pub const Stat = struct {
     /// is unique to each filesystem.
     inode: INode,
     size: u64,
-    /// This is available on POSIX systems and is always 0 otherwise.
+    /// This is available on POSIX systems and is {} otherwise.
     mode: Mode,
     kind: Kind,
 
@@ -399,7 +399,7 @@ pub const Stat = struct {
         return .{
             .inode = st.ino,
             .size = @bitCast(st.size),
-            .mode = st.mode,
+            .mode = if (Mode == void) {} else st.mode,
             .kind = k: {
                 const m = st.mode & posix.S.IFMT;
                 switch (m) {
@@ -455,7 +455,7 @@ pub const Stat = struct {
         return .{
             .inode = st.ino,
             .size = @bitCast(st.size),
-            .mode = 0,
+            .mode = {},
             .kind = switch (st.filetype) {
                 .BLOCK_DEVICE => .block_device,
                 .CHARACTER_DEVICE => .character_device,
