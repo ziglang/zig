@@ -5472,11 +5472,6 @@ pub fn getOrPutGlobal(self: *Elf, name: []const u8) !GetOrPutGlobalResult {
     };
 }
 
-pub fn globalByName(self: *Elf, name: []const u8) ?Symbol.Index {
-    const name_off = self.strings.getOffset(name) orelse return null;
-    return self.resolver.get(name_off);
-}
-
 pub fn getGlobalSymbol(self: *Elf, name: []const u8, lib_name: ?[]const u8) !u32 {
     return self.zigObjectPtr().?.getGlobalSymbol(self, name, lib_name);
 }
