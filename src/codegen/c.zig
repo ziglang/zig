@@ -1014,7 +1014,7 @@ pub const DeclGen = struct {
                     try writer.writeAll(", ");
                     empty = false;
                 } else {
-                    // isSignalNan is equivalent to isNan currently, and MSVC doens't have nans, so prefer nan
+                    // isSignalNan is equivalent to isNan currently, and MSVC doesn't have nans, so prefer nan
                     const operation = if (std.math.isNan(f128_val))
                         "nan"
                     else if (std.math.isSignalNan(f128_val))

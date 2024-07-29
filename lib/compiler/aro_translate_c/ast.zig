@@ -1527,11 +1527,11 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         .c_pointer, .single_pointer => {
             const payload = @as(*Payload.Pointer, @alignCast(@fieldParentPtr("base", node.ptr_otherwise))).data;
 
-            const asterisk = if (node.tag() == .single_pointer)
+            const main_token = if (node.tag() == .single_pointer)
                 try c.addToken(.asterisk, "*")
             else blk: {
-                _ = try c.addToken(.l_bracket, "[");
-                const res = try c.addToken(.asterisk, "*");
+                const res = try c.addToken(.l_bracket, "[");
+                _ = try c.addToken(.asterisk, "*");
                 _ = try c.addIdentifier("c");
                 _ = try c.addToken(.r_bracket, "]");
                 break :blk res;
@@ -1542,7 +1542,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
 
             return c.addNode(.{
                 .tag = .ptr_type_aligned,
-                .main_token = asterisk,
+                .main_token = main_token,
                 .data = .{
                     .lhs = 0,
                     .rhs = elem_type,

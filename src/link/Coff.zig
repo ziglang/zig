@@ -4,7 +4,7 @@
 //! LLD is also the default linker for LLVM.
 
 /// If this is not null, an object file is created by LLVM and emitted to zcu_object_sub_path.
-llvm_object: ?*LlvmObject = null,
+llvm_object: ?LlvmObject.Ptr = null,
 
 base: link.File,
 image_base: u64,
@@ -21,6 +21,7 @@ entry: link.File.OpenOptions.Entry,
 entry_addr: ?u32,
 module_definition_file: ?[]const u8,
 pdb_out_path: ?[]const u8,
+repro: bool,
 
 ptr_width: PtrWidth,
 page_size: u32,
@@ -319,6 +320,7 @@ pub fn createEmpty(
             return error.EntryAddressTooBig,
         .module_definition_file = options.module_definition_file,
         .pdb_out_path = options.pdb_out_path,
+        .repro = options.repro,
     };
     if (use_llvm and comp.config.have_zcu) {
         self.llvm_object = try LlvmObject.create(arena, comp);
@@ -2287,7 +2289,7 @@ fn writeHeader(self: *Coff) !void {
         flags.DLL = 1;
     }
 
-    const timestamp = std.time.timestamp();
+    const timestamp = if (self.repro) 0 else std.time.timestamp();
     const size_of_optional_header = @as(u16, @intCast(self.getOptionalHeaderSize() + self.getDataDirectoryHeadersSize()));
     var coff_header = coff.CoffHeader{
         .machine = coff.MachineType.fromTargetCpuArch(target.cpu.arch),
@@ -2765,6 +2767,7 @@ const StringTable = @import("StringTable.zig");
 const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 const AnalUnit = InternPool.AnalUnit;
+const dev = @import("../dev.zig");
 
 pub const base_tag: link.File.Tag = .coff;
 

@@ -1897,7 +1897,7 @@ fn transDeclRefExpr(
     const name = try c.str(@as(*const clang.NamedDecl, @ptrCast(value_decl)).getName_bytes_begin());
     const mangled_name = scope.getAlias(name);
     const decl_is_var = @as(*const clang.Decl, @ptrCast(value_decl)).getKind() == .Var;
-    const potential_local_extern = if (decl_is_var) ((@as(*const clang.VarDecl, @ptrCast(value_decl)).getStorageClass() == .Extern) and (scope.id == .block)) else false;
+    const potential_local_extern = if (decl_is_var) ((@as(*const clang.VarDecl, @ptrCast(value_decl)).getStorageClass() == .Extern) and (scope.id != .root)) else false;
 
     var confirmed_local_extern = false;
     var ref_expr = val: {

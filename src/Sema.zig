@@ -239,7 +239,7 @@ pub const InferredErrorSet = struct {
 /// Stores the mapping from `Zir.Inst.Index -> Air.Inst.Ref`, which is used by sema to resolve
 /// instructions during analysis.
 /// Instead of a hash table approach, InstMap is simply a slice that is indexed into using the
-/// zir instruction index and a start offset. An index is not pressent in the map if the value
+/// zir instruction index and a start offset. An index is not present in the map if the value
 /// at the index is `Air.Inst.Ref.none`.
 /// `ensureSpaceForInstructions` can be called to force InstMap to have a mapped range that
 /// includes all instructions in a slice. After calling this function, `putAssumeCapacity*` can
@@ -1313,6 +1313,11 @@ fn analyzeBodyInner(
                         if (!block.is_comptime) {
                             _ = try block.addNoOp(.breakpoint);
                         }
+                        i += 1;
+                        continue;
+                    },
+                    .disable_instrumentation => {
+                        try sema.zirDisableInstrumentation();
                         i += 1;
                         continue;
                     },
@@ -6576,6 +6581,14 @@ fn zirSetCold(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) 
     ip.funcSetCold(sema.func_index, is_cold);
 }
 
+fn zirDisableInstrumentation(sema: *Sema) CompileError!void {
+    const pt = sema.pt;
+    const mod = pt.zcu;
+    const ip = &mod.intern_pool;
+    if (sema.func_index == .none) return; // does nothing outside a function
+    ip.funcSetDisableInstrumentation(sema.func_index);
+}
+
 fn zirSetFloatMode(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
     const src = block.builtinCallArgSrc(extra.node, 0);
@@ -10023,11 +10036,11 @@ fn finishFunc(
             else => "x86",
         },
         .Vectorcall => switch (arch) {
-            .x86, .aarch64, .aarch64_be, .aarch64_32 => null,
+            .x86, .aarch64, .aarch64_be => null,
             else => "x86 and AArch64",
         },
         .APCS, .AAPCS, .AAPCSVFP => switch (arch) {
-            .arm, .armeb, .aarch64, .aarch64_be, .aarch64_32, .thumb, .thumbeb => null,
+            .arm, .armeb, .aarch64, .aarch64_be, .thumb, .thumbeb => null,
             else => "ARM",
         },
         .SysV, .Win64 => switch (arch) {
@@ -17787,8 +17800,7 @@ fn zirBuiltinSrc(
     };
 
     const file_name_val = v: {
-        // The compiler must not call realpath anywhere.
-        const file_name = try fn_owner_decl.getFileScope(mod).fullPath(sema.arena);
+        const file_name = fn_owner_decl.getFileScope(mod).sub_file_path;
         const array_ty = try pt.intern(.{ .array_type = .{
             .len = file_name.len,
             .sentinel = .zero_u8,
@@ -28024,6 +28036,10 @@ fn fieldCallBind(
         if (concrete_ty.zigTypeTag(mod) == .ErrorUnion) {
             try sema.errNote(src, msg, "consider using 'try', 'catch', or 'if'", .{});
         }
+        if (is_double_ptr) {
+            try sema.errNote(src, msg, "method invocation only supports up to one level of implicit pointer dereferencing", .{});
+            try sema.errNote(src, msg, "use '.*' to dereference pointer", .{});
+        }
         break :msg msg;
     };
     return sema.failWithOwnedErrorMsg(block, msg);
@@ -30276,7 +30292,7 @@ pub fn coerceInMemoryAllowed(
 
         if ((src_info.signedness == dest_info.signedness and dest_info.bits < src_info.bits) or
             // small enough unsigned ints can get casted to large enough signed ints
-            (dest_info.signedness == .signed and (src_info.signedness == .unsigned or dest_info.bits <= src_info.bits)) or
+            (dest_info.signedness == .signed and src_info.signedness == .unsigned and dest_info.bits <= src_info.bits) or
             (dest_info.signedness == .unsigned and src_info.signedness == .signed))
         {
             return InMemoryCoercionResult{ .int_not_coercible = .{
@@ -30357,12 +30373,16 @@ pub fn coerceInMemoryAllowed(
         }
 
         const child = try sema.coerceInMemoryAllowed(block, dest_info.elem_type, src_info.elem_type, dest_is_mut, target, dest_src, src_src, null);
-        if (child != .ok) {
-            return InMemoryCoercionResult{ .array_elem = .{
-                .child = try child.dupe(sema.arena),
-                .actual = src_info.elem_type,
-                .wanted = dest_info.elem_type,
-            } };
+        switch (child) {
+            .ok => {},
+            .no_match => return child,
+            else => {
+                return InMemoryCoercionResult{ .array_elem = .{
+                    .child = try child.dupe(sema.arena),
+                    .actual = src_info.elem_type,
+                    .wanted = dest_info.elem_type,
+                } };
+            },
         }
         const ok_sent = (dest_info.sentinel == null and src_info.sentinel == null) or
             (src_info.sentinel != null and
@@ -31860,14 +31880,9 @@ fn coerceTupleToStruct(
     };
     for (0..field_count) |tuple_field_index| {
         const field_src = inst_src; // TODO better source location
-        const field_name: InternPool.NullTerminatedString = switch (ip.indexToKey(inst_ty.toIntern())) {
-            .anon_struct_type => |anon_struct_type| if (anon_struct_type.names.len > 0)
-                anon_struct_type.names.get(ip)[tuple_field_index]
-            else
-                try ip.getOrPutStringFmt(sema.gpa, pt.tid, "{d}", .{tuple_field_index}, .no_embedded_nulls),
-            .struct_type => ip.loadStructType(inst_ty.toIntern()).field_names.get(ip)[tuple_field_index],
-            else => unreachable,
-        };
+        const field_name = inst_ty.structFieldName(tuple_field_index, mod).unwrap() orelse
+            try ip.getOrPutStringFmt(sema.gpa, pt.tid, "{d}", .{tuple_field_index}, .no_embedded_nulls);
+
         const struct_field_index = try sema.structFieldIndex(block, struct_ty, field_name, field_src);
         const struct_field_ty = Type.fromInterned(struct_type.field_types.get(ip)[struct_field_index]);
         const elem_ref = try sema.tupleField(block, inst_src, inst, field_src, @intCast(tuple_field_index));
@@ -31973,21 +31988,8 @@ fn coerceTupleToTuple(
     for (0..dest_field_count) |field_index_usize| {
         const field_i: u32 = @intCast(field_index_usize);
         const field_src = inst_src; // TODO better source location
-        const field_name: InternPool.NullTerminatedString = switch (ip.indexToKey(inst_ty.toIntern())) {
-            .anon_struct_type => |anon_struct_type| if (anon_struct_type.names.len > 0)
-                anon_struct_type.names.get(ip)[field_i]
-            else
-                try ip.getOrPutStringFmt(sema.gpa, pt.tid, "{d}", .{field_i}, .no_embedded_nulls),
-            .struct_type => s: {
-                const struct_type = ip.loadStructType(inst_ty.toIntern());
-                if (struct_type.field_names.len > 0) {
-                    break :s struct_type.field_names.get(ip)[field_i];
-                } else {
-                    break :s try ip.getOrPutStringFmt(sema.gpa, pt.tid, "{d}", .{field_i}, .no_embedded_nulls);
-                }
-            },
-            else => unreachable,
-        };
+        const field_name = inst_ty.structFieldName(field_index_usize, mod).unwrap() orelse
+            try ip.getOrPutStringFmt(sema.gpa, pt.tid, "{d}", .{field_index_usize}, .no_embedded_nulls);
 
         if (field_name.eqlSlice("len", ip))
             return sema.fail(block, field_src, "cannot assign to 'len' field of tuple", .{});

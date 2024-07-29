@@ -38,6 +38,7 @@ const Alignment = InternPool.Alignment;
 const AnalUnit = InternPool.AnalUnit;
 const BuiltinFn = std.zig.BuiltinFn;
 const LlvmObject = @import("codegen/llvm.zig").Object;
+const dev = @import("dev.zig");
 
 comptime {
     @setEvalBranchQuota(4000);
@@ -57,7 +58,7 @@ comp: *Compilation,
 /// Usually, the LlvmObject is managed by linker code, however, in the case
 /// that -fno-emit-bin is specified, the linker code never executes, so we
 /// store the LlvmObject here.
-llvm_object: ?*LlvmObject,
+llvm_object: ?LlvmObject.Ptr,
 
 /// Pointer to externally managed resource.
 root_mod: *Package.Module,
@@ -2403,10 +2404,7 @@ pub fn deinit(zcu: *Zcu) void {
     const pt: Zcu.PerThread = .{ .tid = .main, .zcu = zcu };
     const gpa = zcu.gpa;
 
-    if (zcu.llvm_object) |llvm_object| {
-        if (build_options.only_c) unreachable;
-        llvm_object.deinit();
-    }
+    if (zcu.llvm_object) |llvm_object| llvm_object.deinit();
 
     for (zcu.import_table.keys()) |key| {
         gpa.free(key);
@@ -3041,7 +3039,7 @@ pub fn deleteUnitExports(zcu: *Zcu, anal_unit: AnalUnit) void {
     // `updateExports` on flush).
     // This case is needed because in some rare edge cases, `Sema` wants to add and delete exports
     // within a single update.
-    if (!build_options.only_c) {
+    if (dev.env.supports(.incremental)) {
         for (exports, exports_base..) |exp, export_idx| {
             if (zcu.comp.bin_file) |lf| {
                 lf.deleteExport(exp.exported, exp.opts.name);
@@ -3243,30 +3241,22 @@ pub fn atomicPtrAlignment(
         .armeb,
         .hexagon,
         .m68k,
-        .le32,
         .mips,
         .mipsel,
         .nvptx,
         .powerpc,
         .powerpcle,
-        .r600,
         .riscv32,
         .sparc,
         .sparcel,
-        .tce,
-        .tcele,
         .thumb,
         .thumbeb,
         .x86,
         .xcore,
-        .amdil,
-        .hsail,
         .spir,
         .kalimba,
         .lanai,
-        .shave,
         .wasm32,
-        .renderscript32,
         .csky,
         .spirv32,
         .dxil,
@@ -3277,7 +3267,6 @@ pub fn atomicPtrAlignment(
         .amdgcn,
         .bpfel,
         .bpfeb,
-        .le64,
         .mips64,
         .mips64el,
         .nvptx64,
@@ -3286,11 +3275,8 @@ pub fn atomicPtrAlignment(
         .riscv64,
         .sparc64,
         .s390x,
-        .amdil64,
-        .hsail64,
         .spir64,
         .wasm64,
-        .renderscript64,
         .ve,
         .spirv64,
         .loongarch64,
@@ -3298,7 +3284,6 @@ pub fn atomicPtrAlignment(
 
         .aarch64,
         .aarch64_be,
-        .aarch64_32,
         => 128,
 
         .x86_64 => if (std.Target.x86.featureSetHas(target.cpu.features, .cx16)) 128 else 64,

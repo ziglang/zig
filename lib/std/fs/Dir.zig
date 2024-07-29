@@ -178,7 +178,8 @@ pub const Iterator = switch (native_os) {
                     self.end_index = @as(usize, @intCast(rc));
                 }
                 const bsd_entry = @as(*align(1) posix.system.dirent, @ptrCast(&self.buf[self.index]));
-                const next_index = self.index + if (@hasDecl(posix.system.dirent, "reclen")) bsd_entry.reclen() else bsd_entry.reclen;
+                const next_index = self.index +
+                    if (@hasField(posix.system.dirent, "reclen")) bsd_entry.reclen else bsd_entry.reclen();
                 self.index = next_index;
 
                 const name = @as([*]u8, @ptrCast(&bsd_entry.name))[0..bsd_entry.namlen];
@@ -880,16 +881,14 @@ pub fn openFileZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) File
     const fd = try posix.openatZ(self.fd, sub_path, os_flags, 0);
     errdefer posix.close(fd);
 
-    if (@hasDecl(posix.system, "LOCK")) {
-        if (!has_flock_open_flags and flags.lock != .none) {
-            // TODO: integrate async I/O
-            const lock_nonblocking: i32 = if (flags.lock_nonblocking) posix.LOCK.NB else 0;
-            try posix.flock(fd, switch (flags.lock) {
-                .none => unreachable,
-                .shared => posix.LOCK.SH | lock_nonblocking,
-                .exclusive => posix.LOCK.EX | lock_nonblocking,
-            });
-        }
+    if (have_flock and !has_flock_open_flags and flags.lock != .none) {
+        // TODO: integrate async I/O
+        const lock_nonblocking: i32 = if (flags.lock_nonblocking) posix.LOCK.NB else 0;
+        try posix.flock(fd, switch (flags.lock) {
+            .none => unreachable,
+            .shared => posix.LOCK.SH | lock_nonblocking,
+            .exclusive => posix.LOCK.EX | lock_nonblocking,
+        });
     }
 
     if (has_flock_open_flags and flags.lock_nonblocking) {
@@ -1030,7 +1029,7 @@ pub fn createFileZ(self: Dir, sub_path_c: [*:0]const u8, flags: File.CreateFlags
     const fd = try posix.openatZ(self.fd, sub_path_c, os_flags, flags.mode);
     errdefer posix.close(fd);
 
-    if (!has_flock_open_flags and flags.lock != .none) {
+    if (have_flock and !has_flock_open_flags and flags.lock != .none) {
         // TODO: integrate async I/O
         const lock_nonblocking: i32 = if (flags.lock_nonblocking) posix.LOCK.NB else 0;
         try posix.flock(fd, switch (flags.lock) {
@@ -2539,8 +2538,8 @@ const CopyFileRawError = error{SystemResources} || posix.CopyFileRangeError || p
 // The copy starts at offset 0, the initial offsets are preserved.
 // No metadata is transferred over.
 fn copy_file(fd_in: posix.fd_t, fd_out: posix.fd_t, maybe_size: ?u64) CopyFileRawError!void {
-    if (comptime builtin.target.isDarwin()) {
-        const rc = posix.system.fcopyfile(fd_in, fd_out, null, posix.system.COPYFILE_DATA);
+    if (builtin.target.isDarwin()) {
+        const rc = posix.system.fcopyfile(fd_in, fd_out, null, .{ .DATA = true });
         switch (posix.errno(rc)) {
             .SUCCESS => return,
             .INVAL => unreachable,
@@ -2703,3 +2702,4 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const windows = std.os.windows;
 const native_os = builtin.os.tag;
+const have_flock = @TypeOf(posix.system.flock) != void;

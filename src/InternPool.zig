@@ -5184,11 +5184,11 @@ pub const FuncAnalysis = packed struct(u32) {
     is_noinline: bool,
     calls_or_awaits_errorable_fn: bool,
     stack_alignment: Alignment,
-
     /// True if this function has an inferred error set.
     inferred_error_set: bool,
+    disable_instrumentation: bool,
 
-    _: u14 = 0,
+    _: u13 = 0,
 
     pub const State = enum(u8) {
         /// This function has not yet undergone analysis, because we have not
@@ -8111,6 +8111,7 @@ pub fn getFuncDecl(
             .calls_or_awaits_errorable_fn = false,
             .stack_alignment = .none,
             .inferred_error_set = false,
+            .disable_instrumentation = false,
         },
         .owner_decl = key.owner_decl,
         .ty = key.ty,
@@ -8214,6 +8215,7 @@ pub fn getFuncDeclIes(
             .calls_or_awaits_errorable_fn = false,
             .stack_alignment = .none,
             .inferred_error_set = true,
+            .disable_instrumentation = false,
         },
         .owner_decl = key.owner_decl,
         .ty = func_ty,
@@ -8405,6 +8407,7 @@ pub fn getFuncInstance(
             .calls_or_awaits_errorable_fn = false,
             .stack_alignment = .none,
             .inferred_error_set = false,
+            .disable_instrumentation = false,
         },
         // This is populated after we create the Decl below. It is not read
         // by equality or hashing functions.
@@ -8504,6 +8507,7 @@ pub fn getFuncInstanceIes(
             .calls_or_awaits_errorable_fn = false,
             .stack_alignment = .none,
             .inferred_error_set = true,
+            .disable_instrumentation = false,
         },
         // This is populated after we create the Decl below. It is not read
         // by equality or hashing functions.
@@ -9433,12 +9437,11 @@ pub fn getCoerced(
     switch (ip.indexToKey(val)) {
         .undef => return ip.get(gpa, tid, .{ .undef = new_ty }),
         .extern_func => |extern_func| if (ip.isFunctionType(new_ty))
-            return ip.get(gpa, tid, .{ .extern_func = .{
+            return ip.getExternFunc(gpa, tid, .{
                 .ty = new_ty,
                 .decl = extern_func.decl,
                 .lib_name = extern_func.lib_name,
-            } }),
-
+            }),
         .func => unreachable,
 
         .int => |int| switch (ip.indexToKey(new_ty)) {
@@ -11223,6 +11226,18 @@ pub fn funcSetCallsOrAwaitsErrorableFn(ip: *InternPool, func: Index) void {
     const analysis_ptr = ip.funcAnalysisPtr(func);
     var analysis = analysis_ptr.*;
     analysis.calls_or_awaits_errorable_fn = true;
+    @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
+}
+
+pub fn funcSetDisableInstrumentation(ip: *InternPool, func: Index) void {
+    const unwrapped_func = func.unwrap(ip);
+    const extra_mutex = &ip.getLocal(unwrapped_func.tid).mutate.extra.mutex;
+    extra_mutex.lock();
+    defer extra_mutex.unlock();
+
+    const analysis_ptr = ip.funcAnalysisPtr(func);
+    var analysis = analysis_ptr.*;
+    analysis.disable_instrumentation = true;
     @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
 }
 

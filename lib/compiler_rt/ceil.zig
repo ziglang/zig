@@ -48,14 +48,14 @@ pub fn ceilf(x: f32) callconv(.C) f32 {
         if (u & m == 0) {
             return x;
         }
-        mem.doNotOptimizeAway(x + 0x1.0p120);
+        if (common.want_float_exceptions) mem.doNotOptimizeAway(x + 0x1.0p120);
         if (u >> 31 == 0) {
             u += m;
         }
         u &= ~m;
         return @bitCast(u);
     } else {
-        mem.doNotOptimizeAway(x + 0x1.0p120);
+        if (common.want_float_exceptions) mem.doNotOptimizeAway(x + 0x1.0p120);
         if (u >> 31 != 0) {
             return -0.0;
         } else {
@@ -82,7 +82,7 @@ pub fn ceil(x: f64) callconv(.C) f64 {
     }
 
     if (e <= 0x3FF - 1) {
-        mem.doNotOptimizeAway(y);
+        if (common.want_float_exceptions) mem.doNotOptimizeAway(y);
         if (u >> 63 != 0) {
             return -0.0;
         } else {
@@ -116,7 +116,7 @@ pub fn ceilq(x: f128) callconv(.C) f128 {
     }
 
     if (e <= 0x3FFF - 1) {
-        mem.doNotOptimizeAway(y);
+        if (common.want_float_exceptions) mem.doNotOptimizeAway(y);
         if (u >> 127 != 0) {
             return -0.0;
         } else {

@@ -404,7 +404,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/buf_map.zig
     lib/std/builtin.zig
     lib/std/c.zig
-    lib/std/c/linux.zig
     lib/std/coff.zig
     lib/std/crypto.zig
     lib/std/crypto/blake3.zig
@@ -536,11 +535,14 @@ set(ZIG_STAGE2_SOURCES
     src/arch/arm/Mir.zig
     src/arch/arm/abi.zig
     src/arch/arm/bits.zig
-    src/arch/riscv64/CodeGen.zig
-    src/arch/riscv64/Emit.zig
-    src/arch/riscv64/Mir.zig
     src/arch/riscv64/abi.zig
     src/arch/riscv64/bits.zig
+    src/arch/riscv64/CodeGen.zig
+    src/arch/riscv64/Emit.zig
+    src/arch/riscv64/encoding.zig
+    src/arch/riscv64/Lower.zig
+    src/arch/riscv64/Mir.zig
+    src/arch/riscv64/mnem.zig
     src/arch/sparc64/CodeGen.zig
     src/arch/sparc64/Emit.zig
     src/arch/sparc64/Mir.zig
@@ -579,6 +581,7 @@ set(ZIG_STAGE2_SOURCES
     src/codegen/spirv/Section.zig
     src/codegen/spirv/spec.zig
     src/crash_report.zig
+    src/dev.zig
     src/glibc.zig
     src/introspect.zig
     src/libcxx.zig
@@ -865,9 +868,9 @@ set(BUILD_ZIG2_ARGS
   -target "${ZIG_HOST_TARGET_TRIPLE}"
   --dep "build_options"
   --dep "aro"
-  --mod "root" "src/main.zig"
-  --mod "build_options" "${ZIG_CONFIG_ZIG_OUT}"
-  --mod "aro" "lib/compiler/aro/aro.zig"
+  "-Mroot=src/main.zig"
+  "-Mbuild_options=${ZIG_CONFIG_ZIG_OUT}"
+  "-Maro=lib/compiler/aro/aro.zig"
 )
 
 add_custom_command(
@@ -885,8 +888,8 @@ set(BUILD_COMPILER_RT_ARGS
   -femit-bin="${ZIG_COMPILER_RT_C_SOURCE}"
   -target "${ZIG_HOST_TARGET_TRIPLE}"
   --dep "build_options"
-  --mod "root" "lib/compiler_rt.zig"
-  --mod "build_options" "${ZIG_CONFIG_ZIG_OUT}"
+  "-Mroot=lib/compiler_rt.zig"
+  "-Mbuild_options=${ZIG_CONFIG_ZIG_OUT}"
 )
 
 add_custom_command(

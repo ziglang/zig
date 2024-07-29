@@ -439,7 +439,7 @@ const test_targets = blk: {
             .target = std.Target.Query.parse(
                 .{
                     .arch_os_abi = "riscv64-linux-musl",
-                    .cpu_features = "baseline+v",
+                    .cpu_features = "baseline+v+zbb",
                 },
             ) catch @panic("OOM"),
             .use_llvm = false,

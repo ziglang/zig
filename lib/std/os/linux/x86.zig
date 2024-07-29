@@ -181,13 +181,6 @@ pub const F = struct {
     pub const UNLCK = 2;
 };
 
-pub const LOCK = struct {
-    pub const SH = 1;
-    pub const EX = 2;
-    pub const NB = 4;
-    pub const UN = 8;
-};
-
 pub const MMAP2_UNIT = 4096;
 
 pub const VDSO = struct {
@@ -267,13 +260,13 @@ pub const Stat = extern struct {
 };
 
 pub const timeval = extern struct {
-    tv_sec: i32,
-    tv_usec: i32,
+    sec: i32,
+    usec: i32,
 };
 
 pub const timezone = extern struct {
-    tz_minuteswest: i32,
-    tz_dsttime: i32,
+    minuteswest: i32,
+    dsttime: i32,
 };
 
 pub const mcontext_t = extern struct {

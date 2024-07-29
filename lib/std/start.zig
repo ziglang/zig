@@ -9,8 +9,6 @@ const elf = std.elf;
 const native_arch = builtin.cpu.arch;
 const native_os = builtin.os.tag;
 
-var argc_argv_ptr: [*]usize = undefined;
-
 const start_sym_name = if (native_arch.isMIPS()) "__start" else "_start";
 
 // The self-hosted compiler is not fully capable of handling all of this start.zig file.
@@ -22,8 +20,7 @@ pub const simplified_logic =
     builtin.zig_backend == .stage2_arm or
     builtin.zig_backend == .stage2_sparc64 or
     builtin.cpu.arch == .spirv32 or
-    builtin.cpu.arch == .spirv64 or
-    builtin.zig_backend == .stage2_riscv64;
+    builtin.cpu.arch == .spirv64;
 
 comptime {
     // No matter what, we import the root file, so that any export, test, comptime
@@ -43,10 +40,6 @@ comptime {
             } else if (builtin.os.tag == .opencl) {
                 if (@hasDecl(root, "main"))
                     @export(spirvMain2, .{ .name = "main" });
-            } else if (native_arch.isRISCV()) {
-                if (!@hasDecl(root, "_start")) {
-                    @export(riscv_start, .{ .name = "_start" });
-                }
             } else {
                 if (!@hasDecl(root, "_start")) {
                     @export(_start2, .{ .name = "_start" });
@@ -208,42 +201,6 @@ fn wasi_start() callconv(.C) void {
     }
 }
 
-fn riscv_start() callconv(.C) noreturn {
-    std.process.exit(switch (@typeInfo(@typeInfo(@TypeOf(root.main)).Fn.return_type.?)) {
-        .NoReturn => root.main(),
-        .Void => ret: {
-            root.main();
-            break :ret 0;
-        },
-        .Int => |info| ret: {
-            if (info.bits != 8 or info.signedness == .signed) {
-                @compileError(bad_main_ret);
-            }
-            break :ret root.main();
-        },
-        .ErrorUnion => ret: {
-            const result = root.main() catch {
-                const stderr = std.io.getStdErr().writer();
-                stderr.writeAll("failed with error\n") catch {
-                    @panic("failed to print when main returned error");
-                };
-                break :ret 1;
-            };
-            switch (@typeInfo(@TypeOf(result))) {
-                .Void => break :ret 0,
-                .Int => |info| {
-                    if (info.bits != 8 or info.signedness == .signed) {
-                        @compileError(bad_main_ret);
-                    }
-                    return result;
-                },
-                else => @compileError(bad_main_ret),
-            }
-        },
-        else => @compileError(bad_main_ret),
-    });
-}
-
 fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv(.C) usize {
     uefi.handle = handle;
     uefi.system_table = system_table;
@@ -274,65 +231,80 @@ fn _start() callconv(.Naked) noreturn {
             : [tos] "={rax}" (-> *std.os.plan9.Tos),
         );
     }
+
+    // Note that we maintain a very low level of trust with regards to ABI guarantees at this point.
+    // We will redundantly align the stack, clear the link register, etc. While e.g. the Linux
+    // kernel is usually good about upholding the ABI guarantees, the same cannot be said of dynamic
+    // linkers; musl's ldso, for example, opts to not align the stack when invoking the dynamic
+    // linker explicitly.
     asm volatile (switch (native_arch) {
             .x86_64 =>
             \\ xorl %%ebp, %%ebp
-            \\ movq %%rsp, %[argc_argv_ptr]
+            \\ movq %%rsp, %%rdi
             \\ andq $-16, %%rsp
             \\ callq %[posixCallMainAndExit:P]
             ,
             .x86 =>
             \\ xorl %%ebp, %%ebp
-            \\ movl %%esp, %[argc_argv_ptr]
+            \\ movl %%esp, %%eax
             \\ andl $-16, %%esp
+            \\ subl $12, %%esp
+            \\ pushl %%eax
             \\ calll %[posixCallMainAndExit:P]
             ,
             .aarch64, .aarch64_be =>
             \\ mov fp, #0
             \\ mov lr, #0
             \\ mov x0, sp
-            \\ str x0, %[argc_argv_ptr]
+            \\ and sp, x0, #-16
             \\ b %[posixCallMainAndExit]
             ,
             .arm, .armeb, .thumb, .thumbeb =>
             \\ mov fp, #0
             \\ mov lr, #0
-            \\ str sp, %[argc_argv_ptr]
+            \\ mov a1, sp
             \\ and sp, #-16
+            \\ b %[posixCallMainAndExit]
+            ,
+            .loongarch32, .loongarch64 =>
+            \\ move $fp, $zero
+            \\ move $a0, $sp
+            \\ bstrins.d $sp, $zero, 3, 0
             \\ b %[posixCallMainAndExit]
             ,
             .riscv64 =>
             \\ li s0, 0
             \\ li ra, 0
-            \\ sd sp, %[argc_argv_ptr]
+            \\ mv a0, sp
             \\ andi sp, sp, -16
             \\ tail %[posixCallMainAndExit]@plt
             ,
+            .m68k =>
+            // Note that the - 8 is needed because pc in the jsr instruction points into the middle
+            // of the jsr instruction. (The lea is 6 bytes, the jsr is 4 bytes.)
+            \\ suba.l %%fp, %%fp
+            \\ move.l %%sp, -(%%sp)
+            \\ lea %[posixCallMainAndExit] - . - 8, %%a0
+            \\ jsr (%%pc, %%a0)
+            ,
             .mips, .mipsel =>
-            // The lr is already zeroed on entry, as specified by the ABI.
-            \\ addiu $fp, $zero, 0
-            \\ sw $sp, %[argc_argv_ptr]
-            \\ .set push
-            \\ .set noat
-            \\ addiu $1, $zero, -16
-            \\ and $sp, $sp, $1
-            \\ .set pop
+            \\ move $fp, $0
+            \\ move $ra, $0
+            \\ move $a0, $sp
+            \\ and $sp, -8
             \\ j %[posixCallMainAndExit]
             ,
             .mips64, .mips64el =>
-            // The lr is already zeroed on entry, as specified by the ABI.
-            \\ addiu $fp, $zero, 0
-            \\ sd $sp, %[argc_argv_ptr]
-            \\ .set push
-            \\ .set noat
-            \\ daddiu $1, $zero, -16
-            \\ and $sp, $sp, $1
-            \\ .set pop
+            \\ move $fp, $0
+            \\ move $ra, $0
+            \\ move $a0, $sp
+            \\ and $sp, -16
             \\ j %[posixCallMainAndExit]
             ,
             .powerpc, .powerpcle =>
-            // Setup the initial stack frame and clear the back chain pointer.
-            \\ stw 1, %[argc_argv_ptr]
+            // Set up the initial stack frame, and clear the back chain pointer.
+            \\ mr 3, 1
+            \\ clrrwi 1, 1, 4
             \\ li 0, 0
             \\ stwu 1, -16(1)
             \\ stw 0, 0(1)
@@ -340,25 +312,41 @@ fn _start() callconv(.Naked) noreturn {
             \\ b %[posixCallMainAndExit]
             ,
             .powerpc64, .powerpc64le =>
-            // Setup the initial stack frame and clear the back chain pointer.
-            // TODO: Support powerpc64 (big endian) on ELFv2.
-            \\ std 1, %[argc_argv_ptr]
+            // Set up the ToC and initial stack frame, and clear the back chain pointer.
+            \\ addis 2, 12, .TOC. - %[_start]@ha
+            \\ addi 2, 2, .TOC. - %[_start]@l
+            \\ mr 3, 1
+            \\ clrrdi 1, 1, 4
             \\ li 0, 0
             \\ stdu 0, -32(1)
             \\ mtlr 0
             \\ b %[posixCallMainAndExit]
             ,
+            .s390x =>
+            // Set up the stack frame (register save area and cleared back-chain slot).
+            \\ lgr %%r2, %%r15
+            \\ lghi %%r0, -16
+            \\ ngr %%r15, %%r0
+            \\ aghi %%r15, -160
+            \\ lghi %%r0, 0
+            \\ stg  %%r0, 0(%%r15)
+            \\ jg %[posixCallMainAndExit]
+            ,
             .sparc64 =>
-            // argc is stored after a register window (16 registers) plus stack bias
-            \\ mov %%g0, %%i6
-            \\ add %%o6, 2175, %%l0
-            \\ ba %[posixCallMainAndExit]
-            \\  stx %%l0, %[argc_argv_ptr]
+            // argc is stored after a register window (16 registers * 8 bytes) plus the stack bias
+            // (2047 bytes).
+            \\ mov %%g0, %%fp
+            \\ add %%sp, 2175, %%o0
+            \\ add %%sp, 2047, %%sp
+            \\ and %%sp, -16, %%sp
+            \\ sub %%sp, 2047, %%sp
+            \\ ba,a %[posixCallMainAndExit]
             ,
             else => @compileError("unsupported arch"),
         }
-        : [argc_argv_ptr] "=m" (argc_argv_ptr),
-        : [posixCallMainAndExit] "X" (&posixCallMainAndExit),
+        :
+        : [_start] "X" (_start),
+          [posixCallMainAndExit] "X" (&posixCallMainAndExit),
     );
 }
 
@@ -385,7 +373,11 @@ fn wWinMainCRTStartup() callconv(std.os.windows.WINAPI) noreturn {
     std.os.windows.ntdll.RtlExitUserProcess(@as(std.os.windows.UINT, @bitCast(result)));
 }
 
-fn posixCallMainAndExit() callconv(.C) noreturn {
+fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
+    // We're not ready to panic until thread local storage is initialized.
+    @setRuntimeSafety(false);
+    // Code coverage instrumentation might try to use thread local variables.
+    @disableInstrumentation();
     const argc = argc_argv_ptr[0];
     const argv = @as([*][*:0]u8, @ptrCast(argc_argv_ptr + 1));
 
@@ -428,9 +420,9 @@ fn posixCallMainAndExit() callconv(.C) noreturn {
             if (comptime native_arch.isARM()) {
                 if (at_hwcap & std.os.linux.HWCAP.TLS == 0) {
                     // FIXME: Make __aeabi_read_tp call the kernel helper kuser_get_tls
-                    // For the time being use a simple abort instead of a @panic call to
+                    // For the time being use a simple trap instead of a @panic call to
                     // keep the binary bloat under control.
-                    std.posix.abort();
+                    @trap();
                 }
             }
 
@@ -530,6 +522,10 @@ pub inline fn callMain() u8 {
             if (@typeInfo(ReturnType) != .ErrorUnion) @compileError(bad_main_ret);
 
             const result = root.main() catch |err| {
+                if (builtin.zig_backend == .stage2_riscv64) {
+                    std.debug.print("error: failed with error\n", .{});
+                    return 1;
+                }
                 std.log.err("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
@@ -609,8 +605,7 @@ fn maybeIgnoreSigpipe() void {
             .mask = posix.empty_sigset,
             .flags = 0,
         };
-        posix.sigaction(posix.SIG.PIPE, &act, null) catch |err|
-            std.debug.panic("failed to set noop SIGPIPE handler: {s}", .{@errorName(err)});
+        posix.sigaction(posix.SIG.PIPE, &act, null);
     }
 }
 

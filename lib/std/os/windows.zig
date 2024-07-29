@@ -729,8 +729,8 @@ pub const GetCurrentDirectoryError = error{
 /// The result is a slice of `buffer`, indexed from 0.
 /// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 pub fn GetCurrentDirectory(buffer: []u8) GetCurrentDirectoryError![]u8 {
-    var wtf16le_buf: [PATH_MAX_WIDE]u16 = undefined;
-    const result = kernel32.GetCurrentDirectoryW(wtf16le_buf.len, &wtf16le_buf);
+    var wtf16le_buf: [PATH_MAX_WIDE:0]u16 = undefined;
+    const result = kernel32.GetCurrentDirectoryW(wtf16le_buf.len + 1, &wtf16le_buf);
     if (result == 0) {
         switch (GetLastError()) {
             else => |err| return unexpectedError(err),
@@ -1190,7 +1190,14 @@ pub fn SetFilePointerEx_CURRENT_get(handle: HANDLE) SetFilePointerError!u64 {
     return @as(u64, @bitCast(result));
 }
 
-pub fn QueryObjectName(handle: HANDLE, out_buffer: []u16) ![]u16 {
+pub const QueryObjectNameError = error{
+    AccessDenied,
+    InvalidHandle,
+    NameTooLong,
+    Unexpected,
+};
+
+pub fn QueryObjectName(handle: HANDLE, out_buffer: []u16) QueryObjectNameError![]u16 {
     const out_buffer_aligned = mem.alignInSlice(out_buffer, @alignOf(OBJECT_NAME_INFORMATION)) orelse return error.NameTooLong;
 
     const info = @as(*OBJECT_NAME_INFORMATION, @ptrCast(out_buffer_aligned));
@@ -2761,7 +2768,7 @@ pub fn loadWinsockExtensionFunction(comptime T: type, sock: ws2_32.SOCKET, guid:
 pub fn unexpectedError(err: Win32Error) UnexpectedError {
     if (std.posix.unexpected_error_tracing) {
         // 614 is the length of the longest windows error description
-        var buf_wstr: [614]WCHAR = undefined;
+        var buf_wstr: [614:0]WCHAR = undefined;
         const len = kernel32.FormatMessageW(
             FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
             null,

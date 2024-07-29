@@ -108,6 +108,7 @@ pub fn muslArchName(arch: std.Target.Cpu.Arch) [:0]const u8 {
         .arm, .armeb, .thumb, .thumbeb => return "arm",
         .x86 => return "i386",
         .loongarch64 => return "loongarch64",
+        .m68k => return "m68k",
         .mips, .mipsel => return "mips",
         .mips64el, .mips64 => return "mips64",
         .powerpc => return "powerpc",

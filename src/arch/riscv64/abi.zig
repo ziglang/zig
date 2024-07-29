@@ -125,10 +125,7 @@ pub fn classifySystem(ty: Type, pt: Zcu.PerThread) [8]SystemClass {
                 result[0] = .integer;
                 return result;
             }
-            result[0] = .integer;
-            if (ty.optionalChild(zcu).abiSize(pt) == 0) return result;
-            result[1] = .integer;
-            return result;
+            return memory_class;
         },
         .Int, .Enum, .ErrorSet => {
             const int_bits = ty.intInfo(pt.zcu).bits;
@@ -167,7 +164,7 @@ pub fn classifySystem(ty: Type, pt: Zcu.PerThread) [8]SystemClass {
 
             return memory_class;
         },
-        .Struct => {
+        .Struct, .Union => {
             const layout = ty.containerLayout(pt.zcu);
             const ty_size = ty.abiSize(pt);
 
@@ -200,6 +197,8 @@ pub fn classifySystem(ty: Type, pt: Zcu.PerThread) [8]SystemClass {
                 result[0] = .integer;
                 return result;
             }
+            // we should pass vector registers of size <= 128 through 2 integer registers
+            // but we haven't implemented seperating vector registers into register_pairs
             return memory_class;
         },
         else => |bad_ty| std.debug.panic("classifySystem {s}", .{@tagName(bad_ty)}),

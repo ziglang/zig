@@ -631,15 +631,12 @@ fn dataType(symbol: *const Symbol, elf_file: *Elf) u2 {
 }
 
 fn reportUnhandledRelocError(self: Atom, rel: elf.Elf64_Rela, elf_file: *Elf) RelocError!void {
-    var err = try elf_file.addErrorWithNotes(1);
-    try err.addMsg(elf_file, "fatal linker error: unhandled relocation type {} at offset 0x{x}", .{
+    var err = try elf_file.base.addErrorWithNotes(1);
+    try err.addMsg("fatal linker error: unhandled relocation type {} at offset 0x{x}", .{
         relocation.fmtRelocType(rel.r_type(), elf_file.getTarget().cpu.arch),
         rel.r_offset,
     });
-    try err.addNote(elf_file, "in {}:{s}", .{
-        self.file(elf_file).?.fmtPath(),
-        self.name(elf_file),
-    });
+    try err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
     return error.RelocFailure;
 }
 
@@ -649,15 +646,12 @@ fn reportTextRelocError(
     rel: elf.Elf64_Rela,
     elf_file: *Elf,
 ) RelocError!void {
-    var err = try elf_file.addErrorWithNotes(1);
-    try err.addMsg(elf_file, "relocation at offset 0x{x} against symbol '{s}' cannot be used", .{
+    var err = try elf_file.base.addErrorWithNotes(1);
+    try err.addMsg("relocation at offset 0x{x} against symbol '{s}' cannot be used", .{
         rel.r_offset,
         symbol.name(elf_file),
     });
-    try err.addNote(elf_file, "in {}:{s}", .{
-        self.file(elf_file).?.fmtPath(),
-        self.name(elf_file),
-    });
+    try err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
     return error.RelocFailure;
 }
 
@@ -667,16 +661,13 @@ fn reportPicError(
     rel: elf.Elf64_Rela,
     elf_file: *Elf,
 ) RelocError!void {
-    var err = try elf_file.addErrorWithNotes(2);
-    try err.addMsg(elf_file, "relocation at offset 0x{x} against symbol '{s}' cannot be used", .{
+    var err = try elf_file.base.addErrorWithNotes(2);
+    try err.addMsg("relocation at offset 0x{x} against symbol '{s}' cannot be used", .{
         rel.r_offset,
         symbol.name(elf_file),
     });
-    try err.addNote(elf_file, "in {}:{s}", .{
-        self.file(elf_file).?.fmtPath(),
-        self.name(elf_file),
-    });
-    try err.addNote(elf_file, "recompile with -fPIC", .{});
+    try err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
+    try err.addNote("recompile with -fPIC", .{});
     return error.RelocFailure;
 }
 
@@ -686,16 +677,13 @@ fn reportNoPicError(
     rel: elf.Elf64_Rela,
     elf_file: *Elf,
 ) RelocError!void {
-    var err = try elf_file.addErrorWithNotes(2);
-    try err.addMsg(elf_file, "relocation at offset 0x{x} against symbol '{s}' cannot be used", .{
+    var err = try elf_file.base.addErrorWithNotes(2);
+    try err.addMsg("relocation at offset 0x{x} against symbol '{s}' cannot be used", .{
         rel.r_offset,
         symbol.name(elf_file),
     });
-    try err.addNote(elf_file, "in {}:{s}", .{
-        self.file(elf_file).?.fmtPath(),
-        self.name(elf_file),
-    });
-    try err.addNote(elf_file, "recompile with -fno-PIC", .{});
+    try err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
+    try err.addNote("recompile with -fno-PIC", .{});
     return error.RelocFailure;
 }
 
@@ -1113,6 +1101,7 @@ const x86_64 = struct {
         code: ?[]const u8,
         it: *RelocsIterator,
     ) !void {
+        dev.check(.x86_64_backend);
         const is_static = elf_file.base.isStatic();
         const is_dyn_lib = elf_file.isEffectivelyDynLib();
 
@@ -1235,6 +1224,7 @@ const x86_64 = struct {
         code: []u8,
         stream: anytype,
     ) (error{ InvalidInstruction, CannotEncode } || RelocError)!void {
+        dev.check(.x86_64_backend);
         const r_type: elf.R_X86_64 = @enumFromInt(rel.r_type());
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
 
@@ -1330,9 +1320,9 @@ const x86_64 = struct {
                     try cwriter.writeInt(i32, @as(i32, @intCast(S_ + A - P)), .little);
                 } else {
                     x86_64.relaxGotPcTlsDesc(code[r_offset - 3 ..]) catch {
-                        var err = try elf_file.addErrorWithNotes(1);
-                        try err.addMsg(elf_file, "could not relax {s}", .{@tagName(r_type)});
-                        try err.addNote(elf_file, "in {}:{s} at offset 0x{x}", .{
+                        var err = try elf_file.base.addErrorWithNotes(1);
+                        try err.addMsg("could not relax {s}", .{@tagName(r_type)});
+                        try err.addNote("in {}:{s} at offset 0x{x}", .{
                             atom.file(elf_file).?.fmtPath(),
                             atom.name(elf_file),
                             rel.r_offset,
@@ -1380,6 +1370,7 @@ const x86_64 = struct {
         code: []u8,
         stream: anytype,
     ) !void {
+        dev.check(.x86_64_backend);
         _ = code;
         _ = it;
         const r_type: elf.R_X86_64 = @enumFromInt(rel.r_type());
@@ -1420,6 +1411,7 @@ const x86_64 = struct {
     }
 
     fn relaxGotpcrelx(code: []u8) !void {
+        dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse return error.RelaxFailure;
         const inst = switch (old_inst.encoding.mnemonic) {
             .call => try Instruction.new(old_inst.prefix, .call, &.{
@@ -1438,6 +1430,7 @@ const x86_64 = struct {
     }
 
     fn relaxRexGotpcrelx(code: []u8) !void {
+        dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse return error.RelaxFailure;
         switch (old_inst.encoding.mnemonic) {
             .mov => {
@@ -1456,6 +1449,7 @@ const x86_64 = struct {
         elf_file: *Elf,
         stream: anytype,
     ) !void {
+        dev.check(.x86_64_backend);
         assert(rels.len == 2);
         const writer = stream.writer();
         const rel: elf.R_X86_64 = @enumFromInt(rels[1].r_type());
@@ -1473,12 +1467,12 @@ const x86_64 = struct {
             },
 
             else => {
-                var err = try elf_file.addErrorWithNotes(1);
-                try err.addMsg(elf_file, "TODO: rewrite {} when followed by {}", .{
+                var err = try elf_file.base.addErrorWithNotes(1);
+                try err.addMsg("TODO: rewrite {} when followed by {}", .{
                     relocation.fmtRelocType(rels[0].r_type(), .x86_64),
                     relocation.fmtRelocType(rels[1].r_type(), .x86_64),
                 });
-                try err.addNote(elf_file, "in {}:{s} at offset 0x{x}", .{
+                try err.addNote("in {}:{s} at offset 0x{x}", .{
                     self.file(elf_file).?.fmtPath(),
                     self.name(elf_file),
                     rels[0].r_offset,
@@ -1495,6 +1489,7 @@ const x86_64 = struct {
         elf_file: *Elf,
         stream: anytype,
     ) !void {
+        dev.check(.x86_64_backend);
         assert(rels.len == 2);
         const writer = stream.writer();
         const rel: elf.R_X86_64 = @enumFromInt(rels[1].r_type());
@@ -1527,12 +1522,12 @@ const x86_64 = struct {
             },
 
             else => {
-                var err = try elf_file.addErrorWithNotes(1);
-                try err.addMsg(elf_file, "TODO: rewrite {} when followed by {}", .{
+                var err = try elf_file.base.addErrorWithNotes(1);
+                try err.addMsg("TODO: rewrite {} when followed by {}", .{
                     relocation.fmtRelocType(rels[0].r_type(), .x86_64),
                     relocation.fmtRelocType(rels[1].r_type(), .x86_64),
                 });
-                try err.addNote(elf_file, "in {}:{s} at offset 0x{x}", .{
+                try err.addNote("in {}:{s} at offset 0x{x}", .{
                     self.file(elf_file).?.fmtPath(),
                     self.name(elf_file),
                     rels[0].r_offset,
@@ -1543,6 +1538,7 @@ const x86_64 = struct {
     }
 
     fn canRelaxGotTpOff(code: []const u8) bool {
+        dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse return false;
         switch (old_inst.encoding.mnemonic) {
             .mov => if (Instruction.new(old_inst.prefix, .mov, &.{
@@ -1558,6 +1554,7 @@ const x86_64 = struct {
     }
 
     fn relaxGotTpOff(code: []u8) void {
+        dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse unreachable;
         switch (old_inst.encoding.mnemonic) {
             .mov => {
@@ -1574,6 +1571,7 @@ const x86_64 = struct {
     }
 
     fn relaxGotPcTlsDesc(code: []u8) !void {
+        dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse return error.RelaxFailure;
         switch (old_inst.encoding.mnemonic) {
             .lea => {
@@ -1596,6 +1594,7 @@ const x86_64 = struct {
         elf_file: *Elf,
         stream: anytype,
     ) !void {
+        dev.check(.x86_64_backend);
         assert(rels.len == 2);
         const writer = stream.writer();
         const rel: elf.R_X86_64 = @enumFromInt(rels[1].r_type());
@@ -1619,12 +1618,12 @@ const x86_64 = struct {
             },
 
             else => {
-                var err = try elf_file.addErrorWithNotes(1);
-                try err.addMsg(elf_file, "fatal linker error: rewrite {} when followed by {}", .{
+                var err = try elf_file.base.addErrorWithNotes(1);
+                try err.addMsg("fatal linker error: rewrite {} when followed by {}", .{
                     relocation.fmtRelocType(rels[0].r_type(), .x86_64),
                     relocation.fmtRelocType(rels[1].r_type(), .x86_64),
                 });
-                try err.addNote(elf_file, "in {}:{s} at offset 0x{x}", .{
+                try err.addNote("in {}:{s} at offset 0x{x}", .{
                     self.file(elf_file).?.fmtPath(),
                     self.name(elf_file),
                     rels[0].r_offset,
@@ -1813,9 +1812,9 @@ const aarch64 = struct {
                 aarch64_util.writeAdrpInst(pages, code);
             } else {
                 // TODO: relax
-                var err = try elf_file.addErrorWithNotes(1);
-                try err.addMsg(elf_file, "TODO: relax ADR_GOT_PAGE", .{});
-                try err.addNote(elf_file, "in {}:{s} at offset 0x{x}", .{
+                var err = try elf_file.base.addErrorWithNotes(1);
+                try err.addMsg("TODO: relax ADR_GOT_PAGE", .{});
+                try err.addNote("in {}:{s} at offset 0x{x}", .{
                     atom.file(elf_file).?.fmtPath(),
                     atom.name(elf_file),
                     r_offset,
@@ -2107,9 +2106,9 @@ const riscv = struct {
                     if (S == atom_addr + @as(i64, @intCast(pair.r_offset))) break pair;
                 } else {
                     // TODO: implement searching forward
-                    var err = try elf_file.addErrorWithNotes(1);
-                    try err.addMsg(elf_file, "TODO: find HI20 paired reloc scanning forward", .{});
-                    try err.addNote(elf_file, "in {}:{s} at offset 0x{x}", .{
+                    var err = try elf_file.base.addErrorWithNotes(1);
+                    try err.addMsg("TODO: find HI20 paired reloc scanning forward", .{});
+                    try err.addNote("in {}:{s} at offset 0x{x}", .{
                         atom.file(elf_file).?.fmtPath(),
                         atom.name(elf_file),
                         rel.r_offset,
@@ -2312,3 +2311,4 @@ const File = @import("file.zig").File;
 const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");
 const Thunk = @import("thunks.zig").Thunk;
+const dev = @import("../../dev.zig");

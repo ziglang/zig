@@ -1053,7 +1053,7 @@ fn setupErrorsLen(zig_object: *ZigObject, wasm_file: *Wasm) !void {
 
     const errors_len = 1 + wasm_file.base.comp.module.?.intern_pool.global_error_set.getNamesFromMainThread().len;
     // overwrite existing atom if it already exists (maybe the error set has increased)
-    // if not, allcoate a new atom.
+    // if not, allocate a new atom.
     const atom_index = if (wasm_file.symbol_atom.get(.{ .file = zig_object.index, .index = sym_index })) |index| blk: {
         const atom = wasm_file.getAtomPtr(index);
         atom.prev = .null;
@@ -1179,7 +1179,7 @@ pub fn storeDeclType(zig_object: *ZigObject, gpa: std.mem.Allocator, decl_index:
 }
 
 /// The symbols in ZigObject are already represented by an atom as we need to store its data.
-/// So rather than creating a new Atom and returning its index, we use this oppertunity to scan
+/// So rather than creating a new Atom and returning its index, we use this opportunity to scan
 /// its relocations and create any GOT symbols or function table indexes it may require.
 pub fn parseSymbolIntoAtom(zig_object: *ZigObject, wasm_file: *Wasm, index: Symbol.Index) !Atom.Index {
     const gpa = wasm_file.base.comp.gpa;

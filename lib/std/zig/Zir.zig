@@ -1553,7 +1553,7 @@ pub const Inst = struct {
                 => false,
 
                 .extended => switch (data.extended.opcode) {
-                    .fence, .set_cold, .breakpoint => true,
+                    .fence, .set_cold, .breakpoint, .disable_instrumentation => true,
                     else => false,
                 },
             };
@@ -1973,6 +1973,8 @@ pub const Inst = struct {
         /// Implements `@breakpoint`.
         /// `operand` is `src_node: i32`.
         breakpoint,
+        /// Implement builtin `@disableInstrumentation`. `operand` is `src_node: i32`.
+        disable_instrumentation,
         /// Implements the `@select` builtin.
         /// `operand` is payload index to `Select`.
         select,

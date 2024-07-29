@@ -775,14 +775,8 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
     }
 
     if (builtin.zig_backend == .stage2_riscv64) {
-        asm volatile ("ecall"
-            :
-            : [number] "{a7}" (64),
-              [arg1] "{a0}" (1),
-              [arg2] "{a1}" (@intFromPtr(msg.ptr)),
-              [arg3] "{a2}" (msg.len),
-            : "memory"
-        );
+        std.debug.print("panic: {s}\n", .{msg});
+        @breakpoint();
         std.posix.exit(127);
     }
 
@@ -799,41 +793,55 @@ pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr
         .uefi => {
             const uefi = std.os.uefi;
 
+            const Formatter = struct {
+                pub fn fmt(exit_msg: []const u8, out: []u16) ![:0]u16 {
+                    var u8_buf: [256]u8 = undefined;
+                    const slice = try std.fmt.bufPrint(&u8_buf, "err: {s}\r\n", .{exit_msg});
+                    // We pass len - 1 because we need to add a null terminator after
+                    const len = try std.unicode.utf8ToUtf16Le(out[0 .. out.len - 1], slice);
+
+                    out[len] = 0;
+
+                    return out[0..len :0];
+                }
+            };
+
             const ExitData = struct {
-                pub fn create_exit_data(exit_msg: []const u8, exit_size: *usize) ![*:0]u16 {
+                pub fn create_exit_data(exit_msg: [:0]u16, exit_size: *usize) ![*:0]u16 {
                     // Need boot services for pool allocation
                     if (uefi.system_table.boot_services == null) {
                         return error.BootServicesUnavailable;
                     }
 
-                    // ExitData buffer must be allocated using boot_services.allocatePool
-                    var utf16: []u16 = try uefi.raw_pool_allocator.alloc(u16, 256);
-                    errdefer uefi.raw_pool_allocator.free(utf16);
+                    // ExitData buffer must be allocated using boot_services.allocatePool (spec: page 220)
+                    const exit_data: []u16 = try uefi.raw_pool_allocator.alloc(u16, exit_msg.len + 1);
 
-                    if (exit_msg.len > 255) {
-                        return error.MessageTooLong;
-                    }
+                    @memcpy(exit_data[0 .. exit_msg.len + 1], exit_msg[0 .. exit_msg.len + 1]);
+                    exit_size.* = exit_msg.len + 1;
 
-                    var fmt: [256]u8 = undefined;
-                    const slice = try std.fmt.bufPrint(&fmt, "\r\nerr: {s}\r\n", .{exit_msg});
-                    const len = try std.unicode.utf8ToUtf16Le(utf16, slice);
-
-                    utf16[len] = 0;
-
-                    exit_size.* = 256;
-
-                    return @as([*:0]u16, @ptrCast(utf16.ptr));
+                    return @as([*:0]u16, @ptrCast(exit_data.ptr));
                 }
             };
 
-            var exit_size: usize = 0;
-            const exit_data = ExitData.create_exit_data(msg, &exit_size) catch null;
+            var buf: [256]u16 = undefined;
+            const utf16 = Formatter.fmt(msg, &buf) catch null;
 
-            if (exit_data) |data| {
-                if (uefi.system_table.std_err) |out| {
-                    _ = out.setAttribute(uefi.protocol.SimpleTextOutput.red);
-                    _ = out.outputString(data);
-                    _ = out.setAttribute(uefi.protocol.SimpleTextOutput.white);
+            var exit_size: usize = 0;
+            const exit_data = if (utf16) |u|
+                ExitData.create_exit_data(u, &exit_size) catch null
+            else
+                null;
+
+            if (utf16) |str| {
+                // Output to both std_err and con_out, as std_err is easier
+                // to read in stuff like QEMU at times, but, unlike con_out,
+                // isn't visible on actual hardware if directly booted into
+                inline for ([_]?*uefi.protocol.SimpleTextOutput{ uefi.system_table.std_err, uefi.system_table.con_out }) |o| {
+                    if (o) |out| {
+                        _ = out.setAttribute(uefi.protocol.SimpleTextOutput.red);
+                        _ = out.outputString(str);
+                        _ = out.setAttribute(uefi.protocol.SimpleTextOutput.white);
+                    }
                 }
             }
 

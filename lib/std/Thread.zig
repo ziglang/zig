@@ -385,7 +385,7 @@ pub fn yield() YieldError!void {
 }
 
 /// State to synchronize detachment of spawner thread to spawned thread
-const Completion = std.atomic.Value(enum(u8) {
+const Completion = std.atomic.Value(enum(if (builtin.zig_backend == .stage2_riscv64) u32 else u8) {
     running,
     detached,
     completed,
@@ -484,7 +484,7 @@ const WindowsThreadImpl = struct {
     pub const ThreadHandle = windows.HANDLE;
 
     fn getCurrentId() windows.DWORD {
-        return windows.kernel32.GetCurrentThreadId();
+        return windows.GetCurrentThreadId();
     }
 
     fn getCpuCount() !usize {
@@ -1117,7 +1117,7 @@ const LinuxThreadImpl = struct {
                       [len] "r" (self.mapped.len),
                     : "memory"
                 ),
-                .aarch64, .aarch64_be, .aarch64_32 => asm volatile (
+                .aarch64, .aarch64_be => asm volatile (
                     \\  mov x8, #215
                     \\  mov x0, %[ptr]
                     \\  mov x1, %[len]

@@ -148,7 +148,7 @@ pub const Poly1305 = struct {
             return;
         }
         @memset(st.buf[st.leftover..], 0);
-        st.blocks(&st.buf);
+        st.blocks(&st.buf, false);
         st.leftover = 0;
     }
 

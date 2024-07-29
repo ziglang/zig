@@ -2,6 +2,7 @@ const std = @import("std");
 const build_options = @import("build_options");
 const allocPrint = std.fmt.allocPrint;
 const assert = std.debug.assert;
+const dev = @import("../../dev.zig");
 const fs = std.fs;
 const log = std.log.scoped(.link);
 const mem = std.mem;
@@ -18,6 +19,8 @@ const Compilation = @import("../../Compilation.zig");
 const Zcu = @import("../../Zcu.zig");
 
 pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
+    dev.check(.lld_linker);
+
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -68,7 +71,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
         man = comp.cache_parent.obtain();
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 13);
+        comptime assert(Compilation.link_hash_implementation_version == 14);
 
         for (comp.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -77,10 +80,8 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
         for (comp.c_object_table.keys()) |key| {
             _ = try man.addFile(key.status.success.object_path, null);
         }
-        if (!build_options.only_core_functionality) {
-            for (comp.win32_resource_table.keys()) |key| {
-                _ = try man.addFile(key.status.success.res_path, null);
-            }
+        for (comp.win32_resource_table.keys()) |key| {
+            _ = try man.addFile(key.status.success.res_path, null);
         }
         try man.addOptionalFile(module_obj_path);
         man.hash.addOptionalBytes(entry_name);
@@ -109,6 +110,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
         // strip does not need to go into the linker hash because it is part of the hash namespace
         man.hash.add(self.major_subsystem_version);
         man.hash.add(self.minor_subsystem_version);
+        man.hash.add(self.repro);
         man.hash.addOptional(comp.version);
         try man.addOptionalFile(self.module_definition_file);
 
@@ -226,6 +228,10 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
             try argv.append(try allocPrint(arena, "-ENTRY:{s}", .{name}));
         }
 
+        if (self.repro) {
+            try argv.append("-BREPRO");
+        }
+
         if (self.tsaware) {
             try argv.append("-tsaware");
         }
@@ -274,10 +280,8 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
             try argv.append(key.status.success.object_path);
         }
 
-        if (!build_options.only_core_functionality) {
-            for (comp.win32_resource_table.keys()) |key| {
-                try argv.append(key.status.success.res_path);
-            }
+        for (comp.win32_resource_table.keys()) |key| {
+            try argv.append(key.status.success.res_path);
         }
 
         if (module_obj_path) |p| {
@@ -459,6 +463,10 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
         // libunwind dep
         if (comp.config.link_libunwind) {
             try argv.append(comp.libunwind_static_lib.?.full_object_path);
+        }
+
+        if (comp.config.any_fuzz) {
+            try argv.append(comp.fuzzer_lib.?.full_object_path);
         }
 
         if (is_exe_or_dyn_lib and !comp.skip_linker_dependencies) {

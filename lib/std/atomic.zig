@@ -388,7 +388,7 @@ pub inline fn spinLoopHint() void {
         // on common aarch64 CPUs.
         // https://bugs.java.com/bugdatabase/view_bug.do?bug_id=8258604
         // https://bugs.mysql.com/bug.php?id=100664
-        .aarch64, .aarch64_be, .aarch64_32 => asm volatile ("isb" ::: "memory"),
+        .aarch64, .aarch64_be => asm volatile ("isb" ::: "memory"),
 
         // `yield` was introduced in v6k but is also available on v6m.
         // https://www.keil.com/support/man/docs/armasm/armasm_dom1361289926796.htm

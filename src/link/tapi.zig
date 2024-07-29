@@ -129,8 +129,8 @@ pub const Tbd = union(enum) {
 
 pub const TapiError = error{
     NotLibStub,
-    FileTooBig,
-} || yaml.YamlError || std.fs.File.ReadError;
+    InputOutput,
+} || yaml.YamlError || std.fs.File.PReadError;
 
 pub const LibStub = struct {
     /// Underlying memory for stub's contents.
@@ -140,8 +140,14 @@ pub const LibStub = struct {
     inner: []Tbd,
 
     pub fn loadFromFile(allocator: Allocator, file: fs.File) TapiError!LibStub {
-        const source = try file.readToEndAlloc(allocator, std.math.maxInt(u32));
+        const filesize = blk: {
+            const stat = file.stat() catch break :blk std.math.maxInt(u32);
+            break :blk @min(stat.size, std.math.maxInt(u32));
+        };
+        const source = try allocator.alloc(u8, filesize);
         defer allocator.free(source);
+        const amt = try file.preadAll(source, 0);
+        if (amt != filesize) return error.InputOutput;
 
         var lib_stub = LibStub{
             .yaml = try Yaml.load(allocator, source),

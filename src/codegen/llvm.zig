@@ -26,6 +26,7 @@ const wasm_c_abi = @import("../arch/wasm/abi.zig");
 const aarch64_c_abi = @import("../arch/aarch64/abi.zig");
 const arm_c_abi = @import("../arch/arm/abi.zig");
 const riscv_c_abi = @import("../arch/riscv64/abi.zig");
+const dev = @import("../dev.zig");
 
 const target_util = @import("../target.zig");
 const libcFloatPrefix = target_util.libcFloatPrefix;
@@ -42,9 +43,8 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
     const llvm_arch = switch (target.cpu.arch) {
         .arm => "arm",
         .armeb => "armeb",
-        .aarch64 => "aarch64",
+        .aarch64 => if (target.abi == .ilp32) "aarch64_32" else "aarch64",
         .aarch64_be => "aarch64_be",
-        .aarch64_32 => "aarch64_32",
         .arc => "arc",
         .avr => "avr",
         .bpfel => "bpfel",
@@ -64,7 +64,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .powerpcle => "powerpcle",
         .powerpc64 => "powerpc64",
         .powerpc64le => "powerpc64le",
-        .r600 => "r600",
         .amdgcn => "amdgcn",
         .riscv32 => "riscv32",
         .riscv64 => "riscv64",
@@ -72,8 +71,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .sparc64 => "sparc64",
         .sparcel => "sparcel",
         .s390x => "s390x",
-        .tce => "tce",
-        .tcele => "tcele",
         .thumb => "thumb",
         .thumbeb => "thumbeb",
         .x86 => "i386",
@@ -82,24 +79,15 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .xtensa => "xtensa",
         .nvptx => "nvptx",
         .nvptx64 => "nvptx64",
-        .le32 => "le32",
-        .le64 => "le64",
-        .amdil => "amdil",
-        .amdil64 => "amdil64",
-        .hsail => "hsail",
-        .hsail64 => "hsail64",
         .spir => "spir",
         .spir64 => "spir64",
         .spirv => "spirv",
         .spirv32 => "spirv32",
         .spirv64 => "spirv64",
         .kalimba => "kalimba",
-        .shave => "shave",
         .lanai => "lanai",
         .wasm32 => "wasm32",
         .wasm64 => "wasm64",
-        .renderscript32 => "renderscript32",
-        .renderscript64 => "renderscript64",
         .ve => "ve",
         .spu_2 => return error.@"LLVM backend does not support SPU Mark II",
     };
@@ -111,9 +99,8 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .dragonfly => "dragonfly",
         .freebsd => "freebsd",
         .fuchsia => "fuchsia",
-        .kfreebsd => "kfreebsd",
         .linux => "linux",
-        .lv2 => "lv2",
+        .ps3 => "lv2",
         .netbsd => "netbsd",
         .openbsd => "openbsd",
         .solaris, .illumos => "solaris",
@@ -121,7 +108,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .zos => "zos",
         .haiku => "haiku",
         .rtems => "rtems",
-        .nacl => "nacl",
         .aix => "aix",
         .cuda => "cuda",
         .nvcl => "nvcl",
@@ -170,14 +156,13 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
     try llvm_triple.append('-');
 
     const llvm_abi = switch (target.abi) {
-        .none => "unknown",
+        .none, .ilp32 => "unknown",
         .gnu => "gnu",
         .gnuabin32 => "gnuabin32",
         .gnuabi64 => "gnuabi64",
         .gnueabi => "gnueabi",
         .gnueabihf => "gnueabihf",
         .gnuf32 => "gnuf32",
-        .gnuf64 => "gnuf64",
         .gnusf => "gnusf",
         .gnux32 => "gnux32",
         .gnuilp32 => "gnuilp32",
@@ -192,7 +177,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .msvc => "msvc",
         .itanium => "itanium",
         .cygnus => "cygnus",
-        .coreclr => "coreclr",
         .simulator => "simulator",
         .macabi => "macabi",
         .pixel => "pixel",
@@ -235,9 +219,8 @@ pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
         .freebsd => .FreeBSD,
         .fuchsia => .Fuchsia,
         .ios => .IOS,
-        .kfreebsd => .KFreeBSD,
         .linux => .Linux,
-        .lv2 => .Lv2,
+        .ps3 => .Lv2,
         .macos => .MacOSX,
         .netbsd => .NetBSD,
         .openbsd => .OpenBSD,
@@ -245,7 +228,6 @@ pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
         .zos => .ZOS,
         .haiku => .Haiku,
         .rtems => .RTEMS,
-        .nacl => .NaCl,
         .aix => .AIX,
         .cuda => .CUDA,
         .nvcl => .NVCL,
@@ -276,7 +258,6 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .armeb => .armeb,
         .aarch64 => .aarch64,
         .aarch64_be => .aarch64_be,
-        .aarch64_32 => .aarch64_32,
         .arc => .arc,
         .avr => .avr,
         .bpfel => .bpfel,
@@ -296,7 +277,6 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .powerpcle => .ppcle,
         .powerpc64 => .ppc64,
         .powerpc64le => .ppc64le,
-        .r600 => .r600,
         .amdgcn => .amdgcn,
         .riscv32 => .riscv32,
         .riscv64 => .riscv64,
@@ -304,8 +284,6 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .sparc64 => .sparcv9, // In LLVM, sparc64 == sparcv9.
         .sparcel => .sparcel,
         .s390x => .systemz,
-        .tce => .tce,
-        .tcele => .tcele,
         .thumb => .thumb,
         .thumbeb => .thumbeb,
         .x86 => .x86,
@@ -314,24 +292,15 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .xtensa => .xtensa,
         .nvptx => .nvptx,
         .nvptx64 => .nvptx64,
-        .le32 => .le32,
-        .le64 => .le64,
-        .amdil => .amdil,
-        .amdil64 => .amdil64,
-        .hsail => .hsail,
-        .hsail64 => .hsail64,
         .spir => .spir,
         .spir64 => .spir64,
         .spirv => .spirv,
         .spirv32 => .spirv32,
         .spirv64 => .spirv64,
         .kalimba => .kalimba,
-        .shave => .shave,
         .lanai => .lanai,
         .wasm32 => .wasm32,
         .wasm64 => .wasm64,
-        .renderscript32 => .renderscript32,
-        .renderscript64 => .renderscript64,
         .ve => .ve,
         .spu_2 => .UnknownArch,
     };
@@ -422,7 +391,6 @@ const DataLayoutBuilder = struct {
                 .pref = pref,
                 .idx = idx,
             };
-            if (self.target.cpu.arch == .aarch64_32) continue;
             if (!info.force_in_data_layout and matches_default and
                 self.target.cpu.arch != .riscv64 and
                 self.target.cpu.arch != .loongarch64 and
@@ -512,7 +480,6 @@ const DataLayoutBuilder = struct {
             => &.{32},
             .aarch64,
             .aarch64_be,
-            .aarch64_32,
             .amdgcn,
             .bpfeb,
             .bpfel,
@@ -551,7 +518,8 @@ const DataLayoutBuilder = struct {
             try self.typeAlignment(.float, 64, 64, 64, true, writer);
         }
         if (stack_abi != ptr_bit_width or self.target.cpu.arch == .msp430 or
-            self.target.os.tag == .uefi or self.target.os.tag == .windows)
+            self.target.os.tag == .uefi or self.target.os.tag == .windows or
+            self.target.cpu.arch == .riscv32)
             try writer.print("-S{d}", .{stack_abi});
         switch (self.target.cpu.arch) {
             .hexagon, .ve => {
@@ -615,7 +583,6 @@ const DataLayoutBuilder = struct {
                 switch (self.target.cpu.arch) {
                     .aarch64,
                     .aarch64_be,
-                    .aarch64_32,
                     => if (size == 128) {
                         abi = size;
                         pref = size;
@@ -733,7 +700,7 @@ const DataLayoutBuilder = struct {
                 force_pref = true;
             },
             .float => switch (self.target.cpu.arch) {
-                .aarch64_32, .amdgcn => if (size == 128) {
+                .amdgcn => if (size == 128) {
                     abi = size;
                     pref = size;
                 },
@@ -854,7 +821,7 @@ pub const Object = struct {
     /// table for every zig source field of the struct that has a corresponding
     /// LLVM struct field. comptime fields are not included. Zero-bit fields are
     /// mapped to a field at the correct byte, which may be a padding field, or
-    /// are not mapped, in which case they are sematically at the end of the
+    /// are not mapped, in which case they are semantically at the end of the
     /// struct.
     /// The value is the LLVM struct field index.
     /// This is denormalized data.
@@ -865,10 +832,12 @@ pub const Object = struct {
         field_index: u32,
     };
 
+    pub const Ptr = if (dev.env.supports(.llvm_backend)) *Object else noreturn;
+
     pub const TypeMap = std.AutoHashMapUnmanaged(InternPool.Index, Builder.Type);
 
-    pub fn create(arena: Allocator, comp: *Compilation) !*Object {
-        if (build_options.only_c) unreachable;
+    pub fn create(arena: Allocator, comp: *Compilation) !Ptr {
+        dev.check(.llvm_backend);
         const gpa = comp.gpa;
         const target = comp.root_mod.resolved_target.result;
         const llvm_target_triple = try targetTriple(arena, target);
@@ -1127,6 +1096,7 @@ pub const Object = struct {
         is_small: bool,
         time_report: bool,
         sanitize_thread: bool,
+        fuzz: bool,
         lto: bool,
     };
 
@@ -1303,48 +1273,52 @@ pub const Object = struct {
         // Unfortunately, LLVM shits the bed when we ask for both binary and assembly.
         // So we call the entire pipeline multiple times if this is requested.
         // var error_message: [*:0]const u8 = undefined;
-        var emit_bin_path = options.bin_path;
-        var post_ir_path = options.post_ir_path;
+        var lowered_options: llvm.TargetMachine.EmitOptions = .{
+            .is_debug = options.is_debug,
+            .is_small = options.is_small,
+            .time_report = options.time_report,
+            .tsan = options.sanitize_thread,
+            .sancov = options.fuzz,
+            .lto = options.lto,
+            .asm_filename = null,
+            .bin_filename = options.bin_path,
+            .llvm_ir_filename = options.post_ir_path,
+            .bitcode_filename = null,
+            .coverage = .{
+                .CoverageType = .Edge,
+                .IndirectCalls = true,
+                .TraceBB = false,
+                .TraceCmp = true,
+                .TraceDiv = false,
+                .TraceGep = false,
+                .Use8bitCounters = false,
+                .TracePC = false,
+                .TracePCGuard = comp.config.san_cov_trace_pc_guard,
+                .Inline8bitCounters = true,
+                .InlineBoolFlag = false,
+                .PCTable = true,
+                .NoPrune = false,
+                .StackDepth = true,
+                .TraceLoads = false,
+                .TraceStores = false,
+                .CollectControlFlow = false,
+            },
+        };
         if (options.asm_path != null and options.bin_path != null) {
-            if (target_machine.emitToFile(
-                module,
-                &error_message,
-                options.is_debug,
-                options.is_small,
-                options.time_report,
-                options.sanitize_thread,
-                options.lto,
-                null,
-                emit_bin_path,
-                post_ir_path,
-                null,
-            )) {
+            if (target_machine.emitToFile(module, &error_message, lowered_options)) {
                 defer llvm.disposeMessage(error_message);
-
                 log.err("LLVM failed to emit bin={s} ir={s}: {s}", .{
                     emit_bin_msg, post_llvm_ir_msg, error_message,
                 });
                 return error.FailedToEmit;
             }
-            emit_bin_path = null;
-            post_ir_path = null;
+            lowered_options.bin_filename = null;
+            lowered_options.llvm_ir_filename = null;
         }
 
-        if (target_machine.emitToFile(
-            module,
-            &error_message,
-            options.is_debug,
-            options.is_small,
-            options.time_report,
-            options.sanitize_thread,
-            options.lto,
-            options.asm_path,
-            emit_bin_path,
-            post_ir_path,
-            null,
-        )) {
+        lowered_options.asm_filename = options.asm_path;
+        if (target_machine.emitToFile(module, &error_message, lowered_options)) {
             defer llvm.disposeMessage(error_message);
-
             log.err("LLVM failed to emit asm={s} bin={s} ir={s} bc={s}: {s}", .{
                 emit_asm_msg,  emit_bin_msg, post_llvm_ir_msg, post_llvm_bc_msg,
                 error_message,
@@ -1404,6 +1378,21 @@ pub const Object = struct {
             try attributes.addFnAttr(.cold, &o.builder);
         } else {
             _ = try attributes.removeFnAttr(.cold);
+        }
+
+        if (owner_mod.sanitize_thread and !func_analysis.disable_instrumentation) {
+            try attributes.addFnAttr(.sanitize_thread, &o.builder);
+        } else {
+            _ = try attributes.removeFnAttr(.sanitize_thread);
+        }
+        if (owner_mod.fuzz and !func_analysis.disable_instrumentation) {
+            try attributes.addFnAttr(.optforfuzzing, &o.builder);
+            _ = try attributes.removeFnAttr(.skipprofile);
+            _ = try attributes.removeFnAttr(.nosanitize_coverage);
+        } else {
+            _ = try attributes.removeFnAttr(.optforfuzzing);
+            try attributes.addFnAttr(.skipprofile, &o.builder);
+            try attributes.addFnAttr(.nosanitize_coverage, &o.builder);
         }
 
         // TODO: disable this if safety is off for the function scope
@@ -3004,9 +2993,6 @@ pub const Object = struct {
         if (owner_mod.optimize_mode == .ReleaseSmall) {
             try attributes.addFnAttr(.minsize, &o.builder);
             try attributes.addFnAttr(.optsize, &o.builder);
-        }
-        if (owner_mod.sanitize_thread) {
-            try attributes.addFnAttr(.sanitize_thread, &o.builder);
         }
         const target = owner_mod.resolved_target.result;
         if (target.cpu.model.llvm_name) |s| {
@@ -9002,6 +8988,21 @@ pub const FuncGen = struct {
 
         const val_is_undef = if (try self.air.value(bin_op.rhs, pt)) |val| val.isUndefDeep(mod) else false;
         if (val_is_undef) {
+            const owner_mod = self.dg.ownerModule();
+
+            // Even if safety is disabled, we still emit a memset to undefined since it conveys
+            // extra information to LLVM, and LLVM will optimize it out. Safety makes the difference
+            // between using 0xaa or actual undefined for the fill byte.
+            //
+            // However, for Debug builds specifically, we avoid emitting the memset because LLVM
+            // will neither use the information nor get rid of the memset, thus leaving an
+            // unexpected call in the user's code. This is problematic if the code in question is
+            // not ready to correctly make calls yet, such as in our early PIE startup code, or in
+            // the early stages of a dynamic linker, etc.
+            if (!safety and owner_mod.optimize_mode == .Debug) {
+                return .none;
+            }
+
             const ptr_info = ptr_ty.ptrInfo(mod);
             const needs_bitmask = (ptr_info.packed_offset.host_size != 0);
             if (needs_bitmask) {
@@ -9011,9 +9012,6 @@ pub const FuncGen = struct {
                 return .none;
             }
 
-            // Even if safety is disabled, we still emit a memset to undefined since it conveys
-            // extra information to LLVM. However, safety makes the difference between using
-            // 0xaa or actual undefined for the fill byte.
             const len = try o.builder.intValue(try o.lowerType(Type.usize), operand_ty.abiSize(pt));
             _ = try self.wip.callMemSet(
                 dest_ptr,
@@ -9022,7 +9020,6 @@ pub const FuncGen = struct {
                 len,
                 if (ptr_ty.isVolatilePtr(mod)) .@"volatile" else .normal,
             );
-            const owner_mod = self.dg.ownerModule();
             if (safety and owner_mod.valgrind) {
                 try self.valgrindMarkUndef(dest_ptr, len);
             }
@@ -10858,7 +10855,7 @@ pub const FuncGen = struct {
                 ,
                 .constraints = "={rdx},{rax},0,~{cc},~{memory}",
             },
-            .aarch64, .aarch64_32, .aarch64_be => .{
+            .aarch64, .aarch64_be => .{
                 .template =
                 \\ror x12, x12, #3  ;  ror x12, x12, #13
                 \\ror x12, x12, #51 ;  ror x12, x12, #61
@@ -10930,7 +10927,7 @@ fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) Builder
         .Fastcall => .x86_fastcallcc,
         .Vectorcall => return switch (target.cpu.arch) {
             .x86, .x86_64 => .x86_vectorcallcc,
-            .aarch64, .aarch64_be, .aarch64_32 => .aarch64_vector_pcs,
+            .aarch64, .aarch64_be => .aarch64_vector_pcs,
             else => unreachable,
         },
         .Thiscall => .x86_thiscallcc,
@@ -11927,7 +11924,7 @@ fn constraintAllowsRegister(constraint: []const u8) bool {
 
 pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
     switch (arch) {
-        .aarch64, .aarch64_be, .aarch64_32 => {
+        .aarch64, .aarch64_be => {
             llvm.LLVMInitializeAArch64Target();
             llvm.LLVMInitializeAArch64TargetInfo();
             llvm.LLVMInitializeAArch64TargetMC();
@@ -12098,24 +12095,12 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         },
 
         // LLVM backends that have no initialization functions.
-        .tce,
-        .tcele,
-        .r600,
-        .le32,
-        .le64,
-        .amdil,
-        .amdil64,
-        .hsail,
-        .hsail64,
-        .shave,
         .spir,
         .spir64,
         .spirv,
         .spirv32,
         .spirv64,
         .kalimba,
-        .renderscript32,
-        .renderscript64,
         .dxil,
         => {},
 

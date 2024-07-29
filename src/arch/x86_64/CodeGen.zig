@@ -2685,7 +2685,7 @@ pub fn spillInstruction(self: *Self, reg: Register, inst: Air.Inst.Index) !void 
     const tracking = self.inst_tracking.getPtr(inst) orelse return;
     for (tracking.getRegs()) |tracked_reg| {
         if (tracked_reg.id() == reg.id()) break;
-    } else unreachable; // spilled reg not tracked with spilled instruciton
+    } else unreachable; // spilled reg not tracked with spilled instruction
     try tracking.spill(self, inst);
     try tracking.trackSpill(self, inst);
 }
@@ -12362,8 +12362,9 @@ fn genCall(self: *Self, info: union(enum) {
                         try self.genSetReg(.rax, Type.usize, .{ .lea_got = sym_index }, .{});
                         try self.asmRegister(.{ ._, .call }, .rax);
                     } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-                        const sym_index = try macho_file.getZigObject().?.getOrCreateMetadataForDecl(macho_file, func.owner_decl);
-                        const sym = macho_file.getSymbol(sym_index);
+                        const zo = macho_file.getZigObject().?;
+                        const sym_index = try zo.getOrCreateMetadataForDecl(macho_file, func.owner_decl);
+                        const sym = zo.symbols.items[sym_index];
                         try self.genSetReg(
                             .rax,
                             Type.usize,
@@ -15396,9 +15397,10 @@ fn genLazySymbolRef(
             else => unreachable,
         }
     } else if (self.bin_file.cast(link.File.MachO)) |macho_file| {
-        const sym_index = macho_file.getZigObject().?.getOrCreateMetadataForLazySymbol(macho_file, pt, lazy_sym) catch |err|
+        const zo = macho_file.getZigObject().?;
+        const sym_index = zo.getOrCreateMetadataForLazySymbol(macho_file, pt, lazy_sym) catch |err|
             return self.fail("{s} creating lazy symbol", .{@errorName(err)});
-        const sym = macho_file.getSymbol(sym_index);
+        const sym = zo.symbols.items[sym_index];
         switch (tag) {
             .lea, .call => try self.genSetReg(
                 reg,

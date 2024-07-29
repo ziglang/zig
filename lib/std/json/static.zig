@@ -42,6 +42,15 @@ pub const ParseOptions = struct {
     /// The default with a `*std.json.Reader` input is `.alloc_always`.
     /// Ignored for `parseFromValue` and `parseFromValueLeaky`.
     allocate: ?AllocWhen = null,
+
+    /// When parsing to a `std.json.Value`, set this option to false to always emit
+    /// JSON numbers as unparsed `std.json.Value.number_string`.
+    /// Otherwise, JSON numbers are parsed as either `std.json.Value.integer`,
+    /// `std.json.Value.float` or left as unparsed `std.json.Value.number_string`
+    /// depending on the format and value of the JSON number.
+    /// When this option is true, JSON numbers encoded as floats (see `std.json.isNumberFormattedLikeAnInteger`)
+    /// may lose precision when being parsed into `std.json.Value.float`.
+    parse_numbers: bool = true,
 };
 
 pub fn Parsed(comptime T: type) type {

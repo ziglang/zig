@@ -93,6 +93,7 @@ fn parseCommon(self: *Object, allocator: Allocator, handle: std.fs.File, elf_fil
         );
         return error.InvalidCpuArch;
     }
+    try elf_file.validateEFlags(self.index, self.header.?.e_flags);
 
     if (self.header.?.e_shnum == 0) return;
 
@@ -704,9 +705,9 @@ pub fn initMergeSections(self: *Object, elf_file: *Elf) !void {
                 var end = start;
                 while (end < data.len - sh_entsize and !isNull(data[end .. end + sh_entsize])) : (end += sh_entsize) {}
                 if (!isNull(data[end .. end + sh_entsize])) {
-                    var err = try elf_file.addErrorWithNotes(1);
-                    try err.addMsg(elf_file, "string not null terminated", .{});
-                    try err.addNote(elf_file, "in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
+                    var err = try elf_file.base.addErrorWithNotes(1);
+                    try err.addMsg("string not null terminated", .{});
+                    try err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                     return error.MalformedObject;
                 }
                 end += sh_entsize;
@@ -719,9 +720,9 @@ pub fn initMergeSections(self: *Object, elf_file: *Elf) !void {
             const sh_entsize: u32 = @intCast(shdr.sh_entsize);
             if (sh_entsize == 0) continue; // Malformed, don't split but don't error out
             if (shdr.sh_size % sh_entsize != 0) {
-                var err = try elf_file.addErrorWithNotes(1);
-                try err.addMsg(elf_file, "size not a multiple of sh_entsize", .{});
-                try err.addNote(elf_file, "in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
+                var err = try elf_file.base.addErrorWithNotes(1);
+                try err.addMsg("size not a multiple of sh_entsize", .{});
+                try err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                 return error.MalformedObject;
             }
 
@@ -779,10 +780,10 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) !void {
         const imsec = elf_file.inputMergeSection(imsec_index) orelse continue;
         if (imsec.offsets.items.len == 0) continue;
         const msub_index, const offset = imsec.findSubsection(@intCast(esym.st_value)) orelse {
-            var err = try elf_file.addErrorWithNotes(2);
-            try err.addMsg(elf_file, "invalid symbol value: {x}", .{esym.st_value});
-            try err.addNote(elf_file, "for symbol {s}", .{sym.name(elf_file)});
-            try err.addNote(elf_file, "in {}", .{self.fmtPath()});
+            var err = try elf_file.base.addErrorWithNotes(2);
+            try err.addMsg("invalid symbol value: {x}", .{esym.st_value});
+            try err.addNote("for symbol {s}", .{sym.name(elf_file)});
+            try err.addNote("in {}", .{self.fmtPath()});
             return error.MalformedObject;
         };
 
@@ -804,9 +805,9 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) !void {
             const imsec = elf_file.inputMergeSection(imsec_index) orelse continue;
             if (imsec.offsets.items.len == 0) continue;
             const msub_index, const offset = imsec.findSubsection(@intCast(@as(i64, @intCast(esym.st_value)) + rel.r_addend)) orelse {
-                var err = try elf_file.addErrorWithNotes(1);
-                try err.addMsg(elf_file, "invalid relocation at offset 0x{x}", .{rel.r_offset});
-                try err.addNote(elf_file, "in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
+                var err = try elf_file.base.addErrorWithNotes(1);
+                try err.addMsg("invalid relocation at offset 0x{x}", .{rel.r_offset});
+                try err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                 return error.MalformedObject;
             };
             const msub = elf_file.mergeSubsection(msub_index);

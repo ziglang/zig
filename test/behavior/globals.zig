@@ -18,7 +18,6 @@ test "store to global vector" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try expect(vpos[1] == 0.0);
     vpos = @Vector(2, f32){ 0.0, 1.0 };
