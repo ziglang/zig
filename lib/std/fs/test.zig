@@ -311,8 +311,8 @@ test "Dir.statLink" {
             const file_stat = try ctx.dir.statLink("test_file");
             const link_stat = try ctx.dir.statLink("symlink");
 
-            try testing.expectEqual(file_stat.kind, File.Kind.file);
-            try testing.expectEqual(link_stat.kind, File.Kind.sym_link);
+            try testing.expectEqual(File.Kind.file, file_stat.kind);
+            try testing.expectEqual(File.Kind.sym_link, link_stat.kind);
         }
     }.impl);
 }

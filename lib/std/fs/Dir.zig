@@ -1855,7 +1855,7 @@ pub const ReadLinkError = posix.ReadLinkError;
 /// behaviour that `Dir.statFile`
 pub fn statLink(self: Dir, sub_path: []const u8) StatFileError!Stat {
     if (native_os == .windows) {
-        const path_w = windows.sliceToPrefixedFileW(self.fd, sub_path) catch return error.InvalidWtf8;
+        const path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
         return self.statFileW(path_w.span().ptr, false);
     }
     if (native_os == .wasi and !builtin.link_libc) {
@@ -1869,7 +1869,7 @@ pub fn statLink(self: Dir, sub_path: []const u8) StatFileError!Stat {
 /// Same as `Dir.statLink`
 pub fn statLinkZ(self: Dir, sub_path_c: [*:0]const u8) StatFileError!Stat {
     if (native_os == .windows) {
-        const path_w = windows.cStrToPrefixedFileW(self.fd, sub_path_c) catch return error.InvalidWtf8;
+        const path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path_c);
         return self.statFileW(path_w.span().ptr, false);
     }
     if (native_os == .wasi and !builtin.link_libc) {
