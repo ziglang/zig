@@ -1105,14 +1105,18 @@ pub const Cpu = struct {
             };
         }
 
-        pub inline fn isPPC(arch: Arch) bool {
+        pub inline fn isPowerPC(arch: Arch) bool {
+            return arch.isPowerPC32() or arch.isPowerPC64();
+        }
+
+        pub inline fn isPowerPC32(arch: Arch) bool {
             return switch (arch) {
                 .powerpc, .powerpcle => true,
                 else => false,
             };
         }
 
-        pub inline fn isPPC64(arch: Arch) bool {
+        pub inline fn isPowerPC64(arch: Arch) bool {
             return switch (arch) {
                 .powerpc64, .powerpc64le => true,
                 else => false,

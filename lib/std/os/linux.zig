@@ -16,8 +16,7 @@ const native_arch = builtin.cpu.arch;
 const native_abi = builtin.abi;
 const native_endian = native_arch.endian();
 const is_mips = native_arch.isMIPS();
-const is_ppc = native_arch.isPPC();
-const is_ppc64 = native_arch.isPPC64();
+const is_ppc = native_arch.isPowerPC();
 const is_sparc = native_arch.isSPARC();
 const iovec = std.posix.iovec;
 const iovec_const = std.posix.iovec_const;
@@ -434,10 +433,9 @@ fn getauxvalImpl(index: usize) callconv(.C) usize {
 // Some architectures (and some syscalls) require 64bit parameters to be passed
 // in a even-aligned register pair.
 const require_aligned_register_pair =
-    builtin.cpu.arch.isPPC() or
+    builtin.cpu.arch.isPowerPC32() or
     builtin.cpu.arch.isMIPS() or
-    builtin.cpu.arch.isARM() or
-    builtin.cpu.arch.isThumb();
+    builtin.cpu.arch.isArmOrThumb();
 
 // Split a 64bit value into a {LSB,MSB} pair.
 // The LE/BE variants specify the endianness to assume.
@@ -2228,7 +2226,7 @@ pub fn process_vm_writev(pid: pid_t, local: []const iovec_const, remote: []const
 }
 
 pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
-    if (comptime native_arch.isARM() or native_arch.isPPC()) {
+    if (comptime native_arch.isARM() or native_arch.isPowerPC32()) {
         // These architectures reorder the arguments so that a register is not skipped to align the
         // register number that `offset` is passed in.
 
@@ -3575,7 +3573,7 @@ pub const SO = if (is_mips) struct {
     pub const RCVTIMEO_NEW = 66;
     pub const SNDTIMEO_NEW = 67;
     pub const DETACH_REUSEPORT_BPF = 68;
-} else if (is_ppc or is_ppc64) struct {
+} else if (is_ppc) struct {
     pub const DEBUG = 1;
     pub const REUSEADDR = 2;
     pub const TYPE = 3;
@@ -4023,8 +4021,8 @@ pub const T = struct {
     pub const IOCSPGRP = if (is_mips) 0x741d else 0x5410;
     pub const IOCOUTQ = if (is_mips) 0x7472 else 0x5411;
     pub const IOCSTI = if (is_mips) 0x5472 else 0x5412;
-    pub const IOCGWINSZ = if (is_mips or is_ppc64) 0x40087468 else 0x5413;
-    pub const IOCSWINSZ = if (is_mips or is_ppc64) 0x80087467 else 0x5414;
+    pub const IOCGWINSZ = if (is_mips or is_ppc) 0x40087468 else 0x5413;
+    pub const IOCSWINSZ = if (is_mips or is_ppc) 0x80087467 else 0x5414;
     pub const IOCMGET = if (is_mips) 0x741d else 0x5415;
     pub const IOCMBIS = if (is_mips) 0x741b else 0x5416;
     pub const IOCMBIC = if (is_mips) 0x741c else 0x5417;

@@ -26,7 +26,7 @@ pub fn suggestVectorLengthForCpu(comptime T: type, comptime cpu: std.Target.Cpu)
             // TODO: Check on this return when bigger values are more common
             if (std.Target.aarch64.featureSetHas(cpu.features, .sve)) break :blk 128;
             if (std.Target.aarch64.featureSetHas(cpu.features, .neon)) break :blk 128;
-        } else if (cpu.arch.isPPC() or cpu.arch.isPPC64()) {
+        } else if (cpu.arch.isPowerPC()) {
             if (std.Target.powerpc.featureSetHas(cpu.features, .altivec)) break :blk 128;
         } else if (cpu.arch.isMIPS()) {
             if (std.Target.mips.featureSetHas(cpu.features, .msa)) break :blk 128;
