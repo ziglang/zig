@@ -434,7 +434,7 @@ fn getauxvalImpl(index: usize) callconv(.C) usize {
 // in a even-aligned register pair.
 const require_aligned_register_pair =
     builtin.cpu.arch.isPowerPC32() or
-    builtin.cpu.arch.isMIPS() or
+    builtin.cpu.arch.isMIPS32() or
     builtin.cpu.arch.isArmOrThumb();
 
 // Split a 64bit value into a {LSB,MSB} pair.
