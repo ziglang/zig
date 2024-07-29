@@ -597,7 +597,7 @@ pub extern "kernel32" fn GetProcessHeap() callconv(WINAPI) ?HANDLE;
 // TODO: Wrapper around LdrGetDllFullName.
 pub extern "kernel32" fn GetModuleFileNameW(
     hModule: ?HMODULE,
-    lpFilename: LPWSTR,
+    lpFilename: [*]WCHAR,
     nSize: DWORD,
 ) callconv(WINAPI) DWORD;
 
