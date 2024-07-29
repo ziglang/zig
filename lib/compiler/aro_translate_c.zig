@@ -228,6 +228,7 @@ fn prepopulateGlobalNameTable(c: *Context) !void {
                 const decl_name = c.tree.tokSlice(data.decl.name);
                 try c.global_names.put(c.gpa, decl_name, {});
             },
+            .static_assert => {},
             else => unreachable,
         }
     }
@@ -305,6 +306,7 @@ fn transDecl(c: *Context, scope: *Scope, decl: NodeIndex) !void {
         => {
             try transVarDecl(c, decl, null);
         },
+        .static_assert => try warn(c, &c.global_scope.base, 0, "ignoring _Static_assert declaration", .{}),
         else => unreachable,
     }
 }
