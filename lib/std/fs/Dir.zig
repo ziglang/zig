@@ -1789,6 +1789,9 @@ pub fn symLink(
         // when converting to an NT namespaced path. CreateSymbolicLink in
         // symLinkW will handle the necessary conversion.
         var target_path_w: windows.PathSpace = undefined;
+        if (try std.unicode.checkWtf8ToWtf16LeOverflow(target_path, &target_path_w.data)) {
+            return error.NameTooLong;
+        }
         target_path_w.len = try std.unicode.wtf8ToWtf16Le(&target_path_w.data, target_path);
         target_path_w.data[target_path_w.len] = 0;
         // However, we need to canonicalize any path separators to `\`, since if
