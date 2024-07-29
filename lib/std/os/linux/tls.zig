@@ -313,7 +313,7 @@ fn computeAreaDesc(phdrs: []elf.Phdr) void {
     // Compute the total size of the ABI-specific data plus our own `ZigTcb` structure. All the
     // offsets calculated here assume a well-aligned base address.
     const area_size = switch (current_variant) {
-        .I_original, .I_modified => blk: {
+        .I_original => blk: {
             var l: usize = 0;
             dtv_offset = l;
             l += @sizeOf(Dtv);
@@ -326,6 +326,24 @@ fn computeAreaDesc(phdrs: []elf.Phdr) void {
             l += @sizeOf(ZigTcb);
             abi_tcb_offset = l;
             l += alignForward(@sizeOf(AbiTcb), align_factor);
+            block_offset = l;
+            l += block_size;
+            break :blk l;
+        },
+        .I_modified => blk: {
+            var l: usize = 0;
+            dtv_offset = l;
+            l += @sizeOf(Dtv);
+            // In this variant, the TLS blocks must begin immediately after the end of the ABI TCB,
+            // with the TP pointing to the beginning of the TLS blocks. Add padding so that the TP
+            // (`abi_tcb_offset`) is aligned to `align_factor` and the `ZigTcb` structure can be
+            // found by subtracting `@sizeOf(AbiTcb) + @sizeOf(ZigTcb)` from the TP.
+            const delta = (l + @sizeOf(ZigTcb) + @sizeOf(AbiTcb)) & (align_factor - 1);
+            if (delta > 0)
+                l += align_factor - delta;
+            l += @sizeOf(ZigTcb);
+            abi_tcb_offset = l;
+            l += @sizeOf(AbiTcb);
             block_offset = l;
             l += block_size;
             break :blk l;
