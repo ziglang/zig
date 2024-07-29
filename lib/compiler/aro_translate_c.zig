@@ -123,8 +123,9 @@ pub fn translate(
     var tree = try pp.parse();
     defer tree.deinit();
 
-    if (driver.comp.diagnostics.errors != 0) {
-        return error.SemanticAnalyzeFail;
+    // Workaround for https://github.com/Vexu/arocc/issues/603
+    for (comp.diagnostics.list.items) |msg| {
+        if (msg.kind == .@"error" or msg.kind == .@"fatal error") return error.ParsingFailed;
     }
 
     const mapper = tree.comp.string_interner.getFastTypeMapper(tree.comp.gpa) catch tree.comp.string_interner.getSlowTypeMapper();
@@ -227,6 +228,7 @@ fn prepopulateGlobalNameTable(c: *Context) !void {
                 const decl_name = c.tree.tokSlice(data.decl.name);
                 try c.global_names.put(c.gpa, decl_name, {});
             },
+            .static_assert => {},
             else => unreachable,
         }
     }
@@ -304,6 +306,7 @@ fn transDecl(c: *Context, scope: *Scope, decl: NodeIndex) !void {
         => {
             try transVarDecl(c, decl, null);
         },
+        .static_assert => try warn(c, &c.global_scope.base, 0, "ignoring _Static_assert declaration", .{}),
         else => unreachable,
     }
 }
@@ -1622,6 +1625,33 @@ test "Macro matching" {
     try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((volatile const void)(X))", "DISCARD");
 }
 
+/// Renders errors and fatal errors + associated notes (e.g. "expanded from here"); does not render warnings or associated notes
+/// Terminates with exit code 1
+fn renderErrorsAndExit(comp: *aro.Compilation) noreturn {
+    defer std.process.exit(1);
+
+    var writer = aro.Diagnostics.defaultMsgWriter(std.io.tty.detectConfig(std.io.getStdErr()));
+    defer writer.deinit(); // writer deinit must run *before* exit so that stderr is flushed
+
+    var saw_error = false;
+    for (comp.diagnostics.list.items) |msg| {
+        switch (msg.kind) {
+            .@"error", .@"fatal error" => {
+                saw_error = true;
+                aro.Diagnostics.renderMessage(comp, &writer, msg);
+            },
+            .warning => saw_error = false,
+            .note => {
+                if (saw_error) {
+                    aro.Diagnostics.renderMessage(comp, &writer, msg);
+                }
+            },
+            .off => {},
+            .default => unreachable,
+        }
+    }
+}
+
 pub fn main() !void {
     var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_instance.deinit();
@@ -1636,12 +1666,9 @@ pub fn main() !void {
     defer aro_comp.deinit();
 
     var tree = translate(gpa, &aro_comp, args) catch |err| switch (err) {
-        error.SemanticAnalyzeFail, error.FatalError => {
-            aro.Diagnostics.render(&aro_comp, std.io.tty.detectConfig(std.io.getStdErr()));
-            std.process.exit(1);
-        },
+        error.ParsingFailed, error.FatalError => renderErrorsAndExit(&aro_comp),
         error.OutOfMemory => return error.OutOfMemory,
-        error.StreamTooLong => std.zig.fatal("StreamTooLong?", .{}),
+        error.StreamTooLong => std.zig.fatal("An input file was larger than 4GiB", .{}),
     };
     defer tree.deinit(gpa);
 
