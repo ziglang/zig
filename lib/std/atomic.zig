@@ -380,7 +380,7 @@ pub inline fn spinLoopHint() void {
         // https://software.intel.com/content/www/us/en/develop/articles/benefitting-power-and-performance-sleep-loops.html
         .x86,
         .x86_64,
-        => asm volatile ("pause" ::: "memory"),
+        => asm volatile ("pause"),
 
         // No-op instruction that serves as a hardware-thread resource yield hint.
         // https://stackoverflow.com/a/7588941
@@ -388,7 +388,7 @@ pub inline fn spinLoopHint() void {
         .powerpcle,
         .powerpc64,
         .powerpc64le,
-        => asm volatile ("or 27, 27, 27" ::: "memory"),
+        => asm volatile ("or 27, 27, 27"),
 
         // `isb` appears more reliable for releasing execution resources than `yield`
         // on common aarch64 CPUs.
@@ -396,7 +396,7 @@ pub inline fn spinLoopHint() void {
         // https://bugs.mysql.com/bug.php?id=100664
         .aarch64,
         .aarch64_be,
-        => asm volatile ("isb" ::: "memory"),
+        => asm volatile ("isb"),
 
         // `yield` was introduced in v6k but is also available on v6m.
         // https://www.keil.com/support/man/docs/armasm/armasm_dom1361289926796.htm
@@ -409,30 +409,22 @@ pub inline fn spinLoopHint() void {
                 .has_v6k, .has_v6m,
             });
             if (can_yield) {
-                asm volatile ("yield" ::: "memory");
-            } else {
-                asm volatile ("" ::: "memory");
+                asm volatile ("yield");
             }
         },
 
         // The 8-bit immediate specifies the amount of cycles to pause for. We can't really be too
         // opinionated here.
         .hexagon,
-        => asm volatile ("pause(#1)" ::: "memory"),
+        => asm volatile ("pause(#1)"),
 
         .riscv32,
         .riscv64,
-        => {
-            if (comptime std.Target.riscv.featureSetHas(builtin.target.cpu.features, .zihintpause)) {
-                asm volatile ("pause" ::: "memory");
-            } else {
-                asm volatile ("" ::: "memory");
-            }
+        => if (comptime std.Target.riscv.featureSetHas(builtin.target.cpu.features, .zihintpause)) {
+            asm volatile ("pause");
         },
 
-        // Memory barrier to prevent the compiler from optimizing away the spin-loop
-        // even if no hint_instruction was provided.
-        else => asm volatile ("" ::: "memory"),
+        else => {},
     }
 }
 
