@@ -1409,6 +1409,7 @@ pub fn connectTunnel(
     proxy: *Proxy,
     tunnel_host: []const u8,
     tunnel_port: u16,
+    tunnel_protocol: Connection.Protocol,
 ) !*Connection {
     if (!proxy.supports_connect) return error.TunnelNotSupported;
 
@@ -1418,6 +1419,9 @@ pub fn connectTunnel(
         .protocol = proxy.protocol,
     })) |node|
         return node;
+
+    if (disable_tls and tunnel_protocol == .tls)
+        return error.TlsInitializationFailed;
 
     var maybe_valid = false;
     (tunnel: {
@@ -1460,7 +1464,20 @@ pub fn connectTunnel(
         errdefer client.allocator.free(conn.host);
 
         conn.port = tunnel_port;
+        conn.protocol = tunnel_protocol;
         conn.closing = false;
+
+        if (tunnel_protocol == .tls) {
+            if (disable_tls) unreachable;
+
+            conn.tls_client = try client.allocator.create(std.crypto.tls.Client);
+            errdefer client.allocator.destroy(conn.tls_client);
+
+            conn.tls_client.* = std.crypto.tls.Client.init(conn.stream, client.ca_bundle, tunnel_host) catch return error.TlsInitializationFailed;
+            // This is appropriate for HTTPS because the HTTP headers contain
+            // the content length which is used to detect truncation attacks.
+            conn.tls_client.allow_truncation_attacks = true;
+        }
 
         return conn;
     }) catch {
@@ -1499,7 +1516,7 @@ pub fn connect(
     }
 
     if (proxy.supports_connect) tunnel: {
-        return connectTunnel(client, proxy, host, port) catch |err| switch (err) {
+        return connectTunnel(client, proxy, host, port, protocol) catch |err| switch (err) {
             error.TunnelNotSupported => break :tunnel,
             else => |e| return e,
         };
