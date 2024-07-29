@@ -435,6 +435,22 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
         // Here we look for the stack size in our program headers and use setrlimit
         // to ask for more stack space.
         expandStackSize(phdrs);
+
+        {
+            const opt_init_array_start = @extern([*]*const fn () callconv(.C) void, .{
+                .name = "__init_array_start",
+                .linkage = .weak,
+            });
+            const opt_init_array_end = @extern([*]*const fn () callconv(.C) void, .{
+                .name = "__init_array_end",
+                .linkage = .weak,
+            });
+            if (opt_init_array_start) |init_array_start| {
+                const init_array_end = opt_init_array_end.?;
+                const slice = init_array_start[0 .. init_array_end - init_array_start];
+                for (slice) |func| func();
+            }
+        }
     }
 
     std.posix.exit(callMainWithArgs(argc, argv, envp));
