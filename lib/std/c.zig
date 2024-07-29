@@ -133,9 +133,11 @@ pub const dev_t = switch (native_os) {
 pub const mode_t = switch (native_os) {
     .linux => linux.mode_t,
     .emscripten => emscripten.mode_t,
-    .openbsd, .haiku, .netbsd, .solaris, .illumos, .wasi => u32,
+    .openbsd, .haiku, .netbsd, .solaris, .illumos => u32,
+    .wasi => u32, // NOTE: wasi-without-libc maps mode_t to 'void'
     .freebsd, .macos, .ios, .tvos, .watchos, .visionos => u16,
-    else => u0,
+    .windows => u0,
+    else => u0, // TODO: should be void?
 };
 
 pub const nlink_t = switch (native_os) {
@@ -1426,7 +1428,7 @@ pub const NAME_MAX = switch (native_os) {
 pub const PATH_MAX = switch (native_os) {
     .linux => linux.PATH_MAX,
     .emscripten => emscripten.PATH_MAX,
-    .wasi => 4096,
+    .wasi => std.fs.wasi.PATH_MAX,
     .windows => 260,
     .openbsd, .haiku, .dragonfly, .netbsd, .solaris, .illumos, .freebsd, .macos, .ios, .tvos, .watchos, .visionos => 1024,
     else => {},
@@ -2703,16 +2705,19 @@ pub const SIOCGIFINDEX = switch (native_os) {
 pub const STDIN_FILENO = switch (native_os) {
     .linux => linux.STDIN_FILENO,
     .emscripten => emscripten.STDIN_FILENO,
+    .wasi => std.fs.wasi.STDIN_FILENO,
     else => 0,
 };
 pub const STDOUT_FILENO = switch (native_os) {
     .linux => linux.STDOUT_FILENO,
     .emscripten => emscripten.STDOUT_FILENO,
+    .wasi => std.fs.wasi.STDOUT_FILENO,
     else => 1,
 };
 pub const STDERR_FILENO = switch (native_os) {
     .linux => linux.STDERR_FILENO,
     .emscripten => emscripten.STDERR_FILENO,
+    .wasi => std.fs.wasi.STDERR_FILENO,
     else => 2,
 };
 
@@ -6362,6 +6367,8 @@ pub const Stat = switch (native_os) {
     },
     .emscripten => emscripten.Stat,
     .wasi => extern struct {
+        // Matches wasi-libc's libc-bottom-half/headers/public/__struct_stat.h
+        // NOTE: this Stat struct is also used by Wasi-without-libc
         dev: dev_t,
         ino: ino_t,
         nlink: nlink_t,
@@ -7061,17 +7068,13 @@ pub const AT = switch (native_os) {
         pub const RECURSIVE = 0x8000;
     },
     .wasi => struct {
-        pub const SYMLINK_NOFOLLOW = 0x100;
-        pub const SYMLINK_FOLLOW = 0x400;
-        pub const REMOVEDIR: u32 = 0x4;
-        /// When linking libc, we follow their convention and use -2 for current working directory.
-        /// However, without libc, Zig does a different convention: it assumes the
-        /// current working directory is the first preopen. This behavior can be
-        /// overridden with a public function called `wasi_cwd` in the root source
-        /// file.
-        pub const FDCWD: fd_t = if (builtin.link_libc) -2 else 3;
+        // Match AT_* constants in wasi-libc libc-bottom-half/headers/public/__header_fcntl.h
+        pub const FDCWD = -2;
+        pub const EACCESS = 0x0;
+        pub const SYMLINK_NOFOLLOW = 0x1;
+        pub const SYMLINK_FOLLOW = 0x2;
+        pub const REMOVEDIR = 0x4;
     },
-
     else => void,
 };
 
@@ -7100,6 +7103,7 @@ pub const O = switch (native_os) {
         _: u9 = 0,
     },
     .wasi => packed struct(u32) {
+        // Match layout from wasi-libc libc-bottom-half/headers/public/__header_fcntl.h
         APPEND: bool = false,
         DSYNC: bool = false,
         NONBLOCK: bool = false,
@@ -7112,10 +7116,17 @@ pub const O = switch (native_os) {
         TRUNC: bool = false,
         _16: u8 = 0,
         NOFOLLOW: bool = false,
+
+        // Logical O_ACCMODE is the following 4 bits, note O_SEARCH is between RD and WR,
+        // so can't easily reuse std.posix.ACCMODE in this struct.
         EXEC: bool = false,
-        read: bool = false,
+        RDONLY: bool = true, // equivalent to "ACCMODE = .RDONLY" default
         SEARCH: bool = false,
-        write: bool = false,
+        WRONLY: bool = false,
+
+        // CLOEXEC, TTY_ININT, NOCTTY are mapped 0, so they're silently
+        // ignored in C code.
+
         _: u3 = 0,
     },
     .solaris, .illumos => packed struct(u32) {
@@ -8945,6 +8956,7 @@ pub const gettimeofday = switch (native_os) {
 
 pub const msync = switch (native_os) {
     .netbsd => private.__msync13,
+    .wasi => {},
     else => private.msync,
 };
 
@@ -9087,8 +9099,8 @@ pub const fork = switch (native_os) {
 pub extern "c" fn access(path: [*:0]const u8, mode: c_uint) c_int;
 pub extern "c" fn faccessat(dirfd: fd_t, path: [*:0]const u8, mode: c_uint, flags: c_uint) c_int;
 pub extern "c" fn pipe(fds: *[2]fd_t) c_int;
-pub extern "c" fn mkdir(path: [*:0]const u8, mode: c_uint) c_int;
-pub extern "c" fn mkdirat(dirfd: fd_t, path: [*:0]const u8, mode: u32) c_int;
+pub extern "c" fn mkdir(path: [*:0]const u8, mode: mode_t) c_int;
+pub extern "c" fn mkdirat(dirfd: fd_t, path: [*:0]const u8, mode: mode_t) c_int;
 pub extern "c" fn symlink(existing: [*:0]const u8, new: [*:0]const u8) c_int;
 pub extern "c" fn symlinkat(oldpath: [*:0]const u8, newdirfd: fd_t, newpath: [*:0]const u8) c_int;
 pub extern "c" fn rename(old: [*:0]const u8, new: [*:0]const u8) c_int;

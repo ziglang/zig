@@ -22,6 +22,32 @@ const tmpDir = std.testing.tmpDir;
 const Dir = std.fs.Dir;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
+// Filter to skip tests on platforms that don't support chdir.
+const supports_chdir = (native_os != .wasi);
+
+// Filter to skip tests on platforms that don't support absolute paths
+const supports_absolute_paths = (native_os != .wasi);
+
+// Tests that create/delete files in the current working directory are not safe to run
+// in CI.  So this is off by default.  But handy when testing.  Do not submit true.
+// Test should probably be fixed to use unique names to avoid races.
+//
+// https://github.com/ziglang/zig/issues/14968
+const enable_sketchy_cwd_tests = true;
+
+test "check WASI CWD" {
+    if (native_os == .wasi) {
+        if (std.options.wasiCwd() != 3) {
+            @panic("WASI code that uses cwd (like this test) needs a preopen for cwd (add '--dir=.' to wasmtime)");
+        }
+
+        if (!builtin.link_libc) {
+            // WASI without-libc hardcodes fd 3 as the FDCWD token so it can be passed directly to WASI calls
+            try expectEqual(3, posix.AT.FDCWD);
+        }
+    }
+}
+
 // https://github.com/ziglang/zig/issues/20288
 test "WTF-8 to WTF-16 conversion buffer overflows" {
     if (native_os != .windows) return error.SkipZigTest;
@@ -32,12 +58,8 @@ test "WTF-8 to WTF-16 conversion buffer overflows" {
 }
 
 test "chdir smoke test" {
-    if (native_os == .wasi) return error.SkipZigTest;
-
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14968
-        return error.SkipZigTest;
-    }
+    if (!supports_chdir) return error.SkipZigTest;
+    if (!enable_sketchy_cwd_tests) return error.SkipZigTest;
 
     // Get current working directory path
     var old_cwd_buf: [fs.max_path_bytes]u8 = undefined;
@@ -95,8 +117,14 @@ test "chdir smoke test" {
     }
 }
 
+const default_mode = switch (posix.mode_t) {
+    void => {},
+    u0 => 0,
+    else => 0o666,
+};
+
 test "open smoke test" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (!supports_absolute_paths) return error.SkipZigTest;
     if (native_os == .windows) return error.SkipZigTest;
 
     // TODO verify file attributes using `fstat`
@@ -116,7 +144,7 @@ test "open smoke test" {
 
     var file_path: []u8 = undefined;
     var fd: posix.fd_t = undefined;
-    const mode: posix.mode_t = if (native_os == .windows) 0 else 0o666;
+    const mode: posix.mode_t = default_mode;
 
     // Create some file using `open`.
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
@@ -151,7 +179,6 @@ test "open smoke test" {
 }
 
 test "openat smoke test" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
     if (native_os == .windows) return error.SkipZigTest;
 
     // TODO verify file attributes using `fstatat`
@@ -160,7 +187,7 @@ test "openat smoke test" {
     defer tmp.cleanup();
 
     var fd: posix.fd_t = undefined;
-    const mode: posix.mode_t = if (native_os == .windows) 0 else 0o666;
+    const mode: posix.mode_t = default_mode;
 
     // Create some file using `openat`.
     fd = try posix.openat(tmp.dir.fd, "some_file", CommonOpenFlags.lower(.{
@@ -207,12 +234,8 @@ test "openat smoke test" {
 }
 
 test "symlink with relative paths" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (!enable_sketchy_cwd_tests) return error.SkipZigTest;
 
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14968
-        return error.SkipZigTest;
-    }
     const cwd = fs.cwd();
     cwd.deleteFile("file.txt") catch {};
     cwd.deleteFile("symlinked") catch {};
@@ -262,16 +285,12 @@ fn testReadlink(target_path: []const u8, symlink_path: []const u8) !void {
 }
 
 test "link with relative paths" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-
     switch (native_os) {
         .wasi, .linux, .solaris, .illumos => {},
         else => return error.SkipZigTest,
     }
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14968
-        return error.SkipZigTest;
-    }
+    if (!enable_sketchy_cwd_tests) return error.SkipZigTest;
+
     var cwd = fs.cwd();
 
     cwd.deleteFile("example.txt") catch {};
@@ -305,16 +324,12 @@ test "link with relative paths" {
 }
 
 test "linkat with different directories" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-
     switch (native_os) {
         .wasi, .linux, .solaris, .illumos => {},
         else => return error.SkipZigTest,
     }
-    if (true) {
-        // https://github.com/ziglang/zig/issues/14968
-        return error.SkipZigTest;
-    }
+    if (!enable_sketchy_cwd_tests) return error.SkipZigTest;
+
     var cwd = fs.cwd();
     var tmp = tmpDir(.{});
 
@@ -365,7 +380,7 @@ test "fstatat" {
     defer file.close();
 
     // now repeat but using `fstatat` instead
-    const flags = if (native_os == .wasi) 0x0 else posix.AT.SYMLINK_NOFOLLOW;
+    const flags = posix.AT.SYMLINK_NOFOLLOW;
     const statat = try posix.fstatat(tmp.dir.fd, "file.txt", flags);
     try expectEqual(stat, statat);
 }
@@ -1014,7 +1029,7 @@ test "POSIX file locking with fcntl" {
 }
 
 test "rename smoke test" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (!supports_absolute_paths) return error.SkipZigTest; // Or fix test to use relative paths
     if (native_os == .windows) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
@@ -1032,7 +1047,7 @@ test "rename smoke test" {
 
     var file_path: []u8 = undefined;
     var fd: posix.fd_t = undefined;
-    const mode: posix.mode_t = if (native_os == .windows) 0 else 0o666;
+    const mode: posix.mode_t = default_mode;
 
     // Create some file using `open`.
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
@@ -1071,7 +1086,7 @@ test "rename smoke test" {
 }
 
 test "access smoke test" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (!supports_absolute_paths) return error.SkipZigTest; // Or fix test to use relative paths
     if (native_os == .windows) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
@@ -1089,7 +1104,7 @@ test "access smoke test" {
 
     var file_path: []u8 = undefined;
     var fd: posix.fd_t = undefined;
-    const mode: posix.mode_t = if (native_os == .windows) 0 else 0o666;
+    const mode: posix.mode_t = default_mode;
 
     // Create some file using `open`.
     file_path = try fs.path.join(allocator, &[_][]const u8{ base_path, "some_file" });
@@ -1146,7 +1161,7 @@ test "isatty" {
 }
 
 test "read with empty buffer" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (!supports_absolute_paths) return error.SkipZigTest; // Or fix test to use relative paths
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1171,7 +1186,7 @@ test "read with empty buffer" {
 }
 
 test "pread with empty buffer" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (!supports_absolute_paths) return error.SkipZigTest; // Or fix test to use relative paths
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1196,7 +1211,7 @@ test "pread with empty buffer" {
 }
 
 test "write with empty buffer" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (!supports_absolute_paths) return error.SkipZigTest; // Or fix test to use relative paths
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1221,7 +1236,7 @@ test "write with empty buffer" {
 }
 
 test "pwrite with empty buffer" {
-    if (native_os == .wasi) return error.SkipZigTest;
+    if (!supports_absolute_paths) return error.SkipZigTest; // Or fix test to use relative paths
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -1299,22 +1314,14 @@ const CommonOpenFlags = packed struct {
     NONBLOCK: bool = false,
 
     pub fn lower(cof: CommonOpenFlags) posix.O {
-        if (native_os == .wasi) return .{
-            .read = cof.ACCMODE != .WRONLY,
-            .write = cof.ACCMODE != .RDONLY,
+        var result: posix.O = std.posix.makeOFlags(cof.ACCMODE, .{
             .CREAT = cof.CREAT,
             .EXCL = cof.EXCL,
             .DIRECTORY = cof.DIRECTORY,
             .NONBLOCK = cof.NONBLOCK,
-        };
-        var result: posix.O = .{
-            .ACCMODE = cof.ACCMODE,
-            .CREAT = cof.CREAT,
-            .EXCL = cof.EXCL,
-            .DIRECTORY = cof.DIRECTORY,
-            .NONBLOCK = cof.NONBLOCK,
-            .CLOEXEC = cof.CLOEXEC,
-        };
+        });
+
+        if (@hasField(posix.O, "CLOEXEC")) result.CLOEXEC = cof.CLOEXEC;
         if (@hasField(posix.O, "LARGEFILE")) result.LARGEFILE = cof.LARGEFILE;
         return result;
     }
