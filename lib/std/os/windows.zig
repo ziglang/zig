@@ -452,7 +452,7 @@ pub fn WaitForSingleObjectEx(handle: HANDLE, milliseconds: DWORD, alertable: boo
 }
 
 pub fn WaitForMultipleObjectsEx(handles: []const HANDLE, waitAll: bool, milliseconds: DWORD, alertable: bool) !u32 {
-    assert(handles.len < MAXIMUM_WAIT_OBJECTS);
+    assert(handles.len > 0 and handles.len <= MAXIMUM_WAIT_OBJECTS);
     const nCount: DWORD = @as(DWORD, @intCast(handles.len));
     switch (kernel32.WaitForMultipleObjectsEx(
         nCount,
@@ -516,6 +516,7 @@ pub const GetQueuedCompletionStatusResult = enum {
     Aborted,
     Cancelled,
     EOF,
+    Timeout,
 };
 
 pub fn GetQueuedCompletionStatus(
@@ -536,6 +537,7 @@ pub fn GetQueuedCompletionStatus(
             .ABANDONED_WAIT_0 => return GetQueuedCompletionStatusResult.Aborted,
             .OPERATION_ABORTED => return GetQueuedCompletionStatusResult.Cancelled,
             .HANDLE_EOF => return GetQueuedCompletionStatusResult.EOF,
+            .WAIT_TIMEOUT => return GetQueuedCompletionStatusResult.Timeout,
             else => |err| {
                 if (std.debug.runtime_safety) {
                     @setEvalBranchQuota(2500);
@@ -3206,6 +3208,15 @@ pub const FILE_FS_DEVICE_INFORMATION = extern struct {
     Characteristics: ULONG,
 };
 
+pub const FILE_FS_VOLUME_INFORMATION = extern struct {
+    VolumeCreationTime: LARGE_INTEGER,
+    VolumeSerialNumber: ULONG,
+    VolumeLabelLength: ULONG,
+    SupportsObjects: BOOLEAN,
+    // Flexible array member
+    VolumeLabel: [1]WCHAR,
+};
+
 pub const FS_INFORMATION_CLASS = enum(c_int) {
     FileFsVolumeInformation = 1,
     FileFsLabelInformation,
@@ -3927,14 +3938,21 @@ pub const FILE_ACTION_RENAMED_NEW_NAME = 0x00000005;
 
 pub const LPOVERLAPPED_COMPLETION_ROUTINE = ?*const fn (DWORD, DWORD, *OVERLAPPED) callconv(.C) void;
 
-pub const FILE_NOTIFY_CHANGE_CREATION = 64;
-pub const FILE_NOTIFY_CHANGE_SIZE = 8;
-pub const FILE_NOTIFY_CHANGE_SECURITY = 256;
-pub const FILE_NOTIFY_CHANGE_LAST_ACCESS = 32;
-pub const FILE_NOTIFY_CHANGE_LAST_WRITE = 16;
-pub const FILE_NOTIFY_CHANGE_DIR_NAME = 2;
-pub const FILE_NOTIFY_CHANGE_FILE_NAME = 1;
-pub const FILE_NOTIFY_CHANGE_ATTRIBUTES = 4;
+pub const FileNotifyChangeFilter = packed struct(DWORD) {
+    file_name: bool = false,
+    dir_name: bool = false,
+    attributes: bool = false,
+    size: bool = false,
+    last_write: bool = false,
+    last_access: bool = false,
+    creation: bool = false,
+    ea: bool = false,
+    security: bool = false,
+    stream_name: bool = false,
+    stream_size: bool = false,
+    stream_write: bool = false,
+    _pad: u20 = 0,
+};
 
 pub const CONSOLE_SCREEN_BUFFER_INFO = extern struct {
     dwSize: COORD,

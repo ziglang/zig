@@ -45,6 +45,18 @@ const WINAPI = windows.WINAPI;
 const WORD = windows.WORD;
 
 // I/O - Filesystem
+
+pub extern "kernel32" fn ReadDirectoryChangesW(
+    hDirectory: windows.HANDLE,
+    lpBuffer: [*]align(@alignOf(windows.FILE_NOTIFY_INFORMATION)) u8,
+    nBufferLength: windows.DWORD,
+    bWatchSubtree: windows.BOOL,
+    dwNotifyFilter: windows.FileNotifyChangeFilter,
+    lpBytesReturned: ?*windows.DWORD,
+    lpOverlapped: ?*windows.OVERLAPPED,
+    lpCompletionRoutine: windows.LPOVERLAPPED_COMPLETION_ROUTINE,
+) callconv(windows.WINAPI) windows.BOOL;
+
 // TODO: Wrapper around NtCancelIoFile.
 pub extern "kernel32" fn CancelIo(
     hFile: HANDLE,
