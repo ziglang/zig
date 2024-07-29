@@ -22,6 +22,15 @@ pub const simplified_logic =
     builtin.cpu.arch == .spirv32 or
     builtin.cpu.arch == .spirv64;
 
+pub const StackSizeStrategy = enum {
+    /// Rely on the default stack size that the OS provides
+    none,
+    /// Read the stack size from the program header and apply that
+    program_header,
+    /// Use a fixed stack size
+    fixed,
+};
+
 comptime {
     // No matter what, we import the root file, so that any export, test, comptime
     // decls there get run.
@@ -430,47 +439,52 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
             std.os.linux.tls.initStaticTLS(phdrs);
         }
 
-        // The way Linux executables represent stack size is via the PT_GNU_STACK
-        // program header. However the kernel does not recognize it; it always gives 8 MiB.
-        // Here we look for the stack size in our program headers and use setrlimit
-        // to ask for more stack space.
-        expandStackSize(phdrs);
+        // Set the stack size depending on the chosen strategy.
+        // If we could not set it, depending on what happens at runtime
+        // a stack overflow may occur. This would however not cause a
+        // segmentation fault thanks to stack probing, so we do not have
+        // a memory safety issue here. This is intentional silent failure.
+
+        // This logic should be revisited when the following issues are addressed:
+        // https://github.com/ziglang/zig/issues/157
+        // https://github.com/ziglang/zig/issues/1006
+        switch (std.options.stack_size_strategy) {
+            .none => {},
+            .program_header => expandStackSizeFromProgramHeader(phdrs) catch {},
+            .fixed => {
+                comptime assert(std.options.stack_size % std.mem.page_size == 0);
+                expandStackSize(std.options.stack_size) catch {};
+            },
+        }
     }
 
     std.posix.exit(callMainWithArgs(argc, argv, envp));
 }
 
-fn expandStackSize(phdrs: []elf.Phdr) void {
-    for (phdrs) |*phdr| {
-        switch (phdr.p_type) {
-            elf.PT_GNU_STACK => {
-                assert(phdr.p_memsz % std.mem.page_size == 0);
-
-                // Silently fail if we are unable to get limits.
-                const limits = std.posix.getrlimit(.STACK) catch break;
-
-                // Clamp to limits.max .
-                const wanted_stack_size = @min(phdr.p_memsz, limits.max);
-
-                if (wanted_stack_size > limits.cur) {
-                    std.posix.setrlimit(.STACK, .{
-                        .cur = wanted_stack_size,
-                        .max = limits.max,
-                    }) catch {
-                        // Because we could not increase the stack size to the upper bound,
-                        // depending on what happens at runtime, a stack overflow may occur.
-                        // However it would cause a segmentation fault, thanks to stack probing,
-                        // so we do not have a memory safety issue here.
-                        // This is intentional silent failure.
-                        // This logic should be revisited when the following issues are addressed:
-                        // https://github.com/ziglang/zig/issues/157
-                        // https://github.com/ziglang/zig/issues/1006
-                    };
-                }
-                break;
-            },
-            else => {},
+// The way Linux executables represent stack size is via the PT_GNU_STACK
+// program header. However the kernel does not recognize it; it always gives 8 MiB.
+// This function looks for the stack size in our program headers and sets it from that.
+fn expandStackSizeFromProgramHeader(phdrs: []elf.Phdr) !void {
+    for (phdrs) |phdr| {
+        if (phdr.p_type == elf.PT_GNU_STACK) {
+            return expandStackSize(phdr.p_memsz);
         }
+    }
+}
+
+fn expandStackSize(size: usize) !void {
+    assert(size % std.mem.page_size == 0);
+
+    const limits = try std.posix.getrlimit(.STACK);
+
+    // Clamp to limits.max
+    const wanted_stack_size = @min(size, limits.max);
+
+    if (wanted_stack_size > limits.cur) {
+        try std.posix.setrlimit(.STACK, .{
+            .cur = wanted_stack_size,
+            .max = limits.max,
+        });
     }
 }
 
@@ -493,7 +507,7 @@ fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) cal
         const at_phdr = std.c.getauxval(elf.AT_PHDR);
         const at_phnum = std.c.getauxval(elf.AT_PHNUM);
         const phdrs = (@as([*]elf.Phdr, @ptrFromInt(at_phdr)))[0..at_phnum];
-        expandStackSize(phdrs);
+        expandStackSizeFromProgramHeader(phdrs) catch {};
     }
 
     return callMainWithArgs(@as(usize, @intCast(c_argc)), @as([*][*:0]u8, @ptrCast(c_argv)), envp);

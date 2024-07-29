@@ -144,6 +144,10 @@ pub const Options = struct {
     /// it like any other error.
     keep_sigpipe: bool = false,
 
+    stack_size_strategy: start.StackSizeStrategy = .program_header,
+
+    stack_size: usize = 8 * 1024 * 1024,
+
     /// By default, std.http.Client will support HTTPS connections.  Set this option to `true` to
     /// disable TLS support.
     ///
