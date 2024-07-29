@@ -1268,6 +1268,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
         self.linker_defined_index = index;
         const object = self.linkerDefinedPtr().?;
         try object.init(gpa);
+        try object.initSymbols(self);
     }
 
     // Now, we are ready to resolve the symbols across all input files.
@@ -1276,9 +1277,6 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     // Any qualifing unresolved symbol will be upgraded to an absolute, weak
     // symbol for potential resolution at load-time.
     try self.resolveSymbols();
-    if (self.linkerDefinedPtr()) |obj| {
-        try obj.initSymbols(self);
-    }
     self.markEhFrameAtomsDead();
     try self.resolveMergeSections();
 
@@ -1928,6 +1926,7 @@ pub fn resolveSymbols(self: *Elf) !void {
     // Resolve symbols on the set of all objects and shared objects (even if some are unneeded).
     for (self.objects.items) |index| self.file(index).?.resolveSymbols(self);
     for (self.shared_objects.items) |index| self.file(index).?.resolveSymbols(self);
+    if (self.linkerDefinedPtr()) |obj| obj.asFile().resolveSymbols(self);
 
     // Mark live objects.
     self.markLive();
@@ -1936,6 +1935,7 @@ pub fn resolveSymbols(self: *Elf) !void {
     if (self.zigObjectPtr()) |zig_object| zig_object.asFile().resetGlobals(self);
     for (self.objects.items) |index| self.file(index).?.resetGlobals(self);
     for (self.shared_objects.items) |index| self.file(index).?.resetGlobals(self);
+    if (self.linkerDefinedPtr()) |obj| obj.asFile().resetGlobals(self);
 
     // Prune dead objects and shared objects.
     var i: usize = 0;
@@ -1968,9 +1968,10 @@ pub fn resolveSymbols(self: *Elf) !void {
     }
 
     // Re-resolve the symbols.
-    if (self.zigObjectPtr()) |zig_object| zig_object.resolveSymbols(self);
+    if (self.zigObjectPtr()) |zig_object| zig_object.asFile().resolveSymbols(self);
     for (self.objects.items) |index| self.file(index).?.resolveSymbols(self);
     for (self.shared_objects.items) |index| self.file(index).?.resolveSymbols(self);
+    if (self.linkerDefinedPtr()) |obj| obj.asFile().resolveSymbols(self);
 }
 
 /// Traverses all objects and shared objects marking any object referenced by

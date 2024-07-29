@@ -40,12 +40,10 @@ pub fn init(self: *LinkerDefined, allocator: Allocator) !void {
 pub fn initSymbols(self: *LinkerDefined, elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
 
-    // Look for entry address in objects if not set by the incremental compiler.
-    if (self.entry_index == null) {
-        if (elf_file.entry_name) |name| {
-            self.entry_index = elf_file.globalByName(name);
-        }
+    if (elf_file.entry_name) |name| {
+        self.entry_index = try self.addGlobal(name, elf_file);
     }
+
     self.dynamic_index = try self.addGlobal("_DYNAMIC", elf_file);
     self.ehdr_start_index = try self.addGlobal("__ehdr_start", elf_file);
     self.init_array_start_index = try self.addGlobal("__init_array_start", elf_file);
@@ -62,11 +60,7 @@ pub fn initSymbols(self: *LinkerDefined, elf_file: *Elf) !void {
         self.gnu_eh_frame_hdr_index = try self.addGlobal("__GNU_EH_FRAME_HDR", elf_file);
     }
 
-    if (elf_file.globalByName("__dso_handle")) |index| {
-        if (elf_file.symbol(index).file(elf_file) == null)
-            self.dso_handle_index = try self.addGlobal("__dso_handle", elf_file);
-    }
-
+    self.dso_handle_index = try self.addGlobal("__dso_handle", elf_file);
     self.rela_iplt_start_index = try self.addGlobal("__rela_iplt_start", elf_file);
     self.rela_iplt_end_index = try self.addGlobal("__rela_iplt_end", elf_file);
 
@@ -87,11 +81,9 @@ pub fn initSymbols(self: *LinkerDefined, elf_file: *Elf) !void {
     if (elf_file.getTarget().cpu.arch.isRISCV() and elf_file.isEffectivelyDynLib()) {
         self.global_pointer_index = try self.addGlobal("__global_pointer$", elf_file);
     }
-
-    self.resolveSymbols(elf_file);
 }
 
-fn addGlobal(self: *LinkerDefined, name: [:0]const u8, elf_file: *Elf) !u32 {
+fn addGlobal(self: *LinkerDefined, name: []const u8, elf_file: *Elf) !u32 {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
     try self.symtab.ensureUnusedCapacity(gpa, 1);
