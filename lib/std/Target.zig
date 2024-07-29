@@ -1084,6 +1084,13 @@ pub const Cpu = struct {
             };
         }
 
+        pub inline fn isLoongArch(arch: Arch) bool {
+            return switch (arch) {
+                .loongarch32, .loongarch64 => true,
+                else => false,
+            };
+        }
+
         pub inline fn isRISCV(arch: Arch) bool {
             return switch (arch) {
                 .riscv32, .riscv64 => true,
