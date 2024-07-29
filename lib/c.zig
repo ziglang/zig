@@ -289,7 +289,7 @@ fn clone() callconv(.Naked) void {
                 \\      svc #0
             );
         },
-        .arm, .thumb => {
+        .arm, .armeb, .thumb, .thumbeb => {
             // __clone(func, stack, flags, arg, ptid, tls, ctid)
             //           r0,    r1,    r2,  r3,   +0,  +4,   +8
 
