@@ -43,7 +43,7 @@ fn sqrt32(z: Complex(f32)) Complex(f32) {
         // sqrt(-inf + i nan)   = nan +- inf i
         // sqrt(-inf + iy)      = 0 + inf i
         if (math.signbit(x)) {
-            return Complex(f32).init(@abs(x - y), math.copysign(x, y));
+            return Complex(f32).init(@abs(y - y), math.copysign(x, y));
         } else {
             return Complex(f32).init(x, math.copysign(y - y, y));
         }
@@ -94,7 +94,7 @@ fn sqrt64(z: Complex(f64)) Complex(f64) {
         // sqrt(-inf + i nan)   = nan +- inf i
         // sqrt(-inf + iy)      = 0 + inf i
         if (math.signbit(x)) {
-            return Complex(f64).init(@abs(x - y), math.copysign(x, y));
+            return Complex(f64).init(@abs(y - y), math.copysign(x, y));
         } else {
             return Complex(f64).init(x, math.copysign(y - y, y));
         }

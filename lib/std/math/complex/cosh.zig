@@ -34,7 +34,7 @@ fn cosh32(z: Complex(f32)) Complex(f32) {
 
     if (ix < 0x7f800000 and iy < 0x7f800000) {
         if (iy == 0) {
-            return Complex(f32).init(math.cosh(x), y);
+            return Complex(f32).init(math.cosh(x), x * y);
         }
         // small x: normal case
         if (ix < 0x41100000) {
@@ -45,7 +45,7 @@ fn cosh32(z: Complex(f32)) Complex(f32) {
         if (ix < 0x42b17218) {
             // x < 88.7: exp(|x|) won't overflow
             const h = @exp(@abs(x)) * 0.5;
-            return Complex(f32).init(math.copysign(h, x) * @cos(y), h * @sin(y));
+            return Complex(f32).init(h * @cos(y), math.copysign(h, x) * @sin(y));
         }
         // x < 192.7: scale to avoid overflow
         else if (ix < 0x4340b1e7) {
@@ -68,7 +68,7 @@ fn cosh32(z: Complex(f32)) Complex(f32) {
         if (hx & 0x7fffff == 0) {
             return Complex(f32).init(x * x, math.copysign(@as(f32, 0.0), x) * y);
         }
-        return Complex(f32).init(x, math.copysign(@as(f32, 0.0), (x + x) * y));
+        return Complex(f32).init(x * x, math.copysign(@as(f32, 0.0), (x + x) * y));
     }
 
     if (ix < 0x7f800000 and iy >= 0x7f800000) {

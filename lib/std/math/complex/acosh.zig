@@ -8,7 +8,11 @@ const Complex = cmath.Complex;
 pub fn acosh(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     const T = @TypeOf(z.re, z.im);
     const q = cmath.acos(z);
-    return Complex(T).init(-q.im, q.re);
+
+    return if (math.signbit(z.im))
+        Complex(T).init(q.im, -q.re)
+    else
+        Complex(T).init(-q.im, q.re);
 }
 
 const epsilon = 0.0001;
