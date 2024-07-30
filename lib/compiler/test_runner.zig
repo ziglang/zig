@@ -41,6 +41,7 @@ pub fn main() void {
     }
 
     fba.reset();
+    if (builtin.fuzz) fuzzer_init();
 
     if (listen) {
         return mainServer() catch @panic("internal test runner failure");
@@ -323,6 +324,7 @@ const FuzzerSlice = extern struct {
 var is_fuzz_test: bool = undefined;
 
 extern fn fuzzer_next() FuzzerSlice;
+extern fn fuzzer_init() void;
 
 pub fn fuzzInput(options: testing.FuzzInputOptions) []const u8 {
     @disableInstrumentation();
