@@ -681,7 +681,7 @@ test Tag {
     try testing.expect(Tag(U) == E);
 }
 
-///Returns the active tag of a tagged union
+/// Returns the active tag of a tagged union
 pub fn activeTag(u: anytype) Tag(@TypeOf(u)) {
     const T = @TypeOf(u);
     return @as(Tag(T), u);

@@ -39,6 +39,7 @@ const arch_bits = switch (native_arch) {
     .x86_64 => @import("linux/x86_64.zig"),
     .aarch64, .aarch64_be => @import("linux/arm64.zig"),
     .arm, .armeb, .thumb, .thumbeb => @import("linux/arm-eabi.zig"),
+    .riscv32 => @import("linux/riscv32.zig"),
     .riscv64 => @import("linux/riscv64.zig"),
     .sparc64 => @import("linux/sparc64.zig"),
     .mips, .mipsel => @import("linux/mips.zig"),
@@ -104,6 +105,7 @@ pub const SYS = switch (@import("builtin").cpu.arch) {
     .x86_64 => syscalls.X64,
     .aarch64, .aarch64_be => syscalls.Arm64,
     .arm, .armeb, .thumb, .thumbeb => syscalls.Arm,
+    .riscv32 => syscalls.RiscV32,
     .riscv64 => syscalls.RiscV64,
     .sparc64 => syscalls.Sparc64,
     .mips, .mipsel => syscalls.Mips,
@@ -163,7 +165,7 @@ pub const MAP = switch (native_arch) {
         UNINITIALIZED: bool = false,
         _: u5 = 0,
     },
-    .riscv64 => packed struct(u32) {
+    .riscv32, .riscv64 => packed struct(u32) {
         TYPE: MAP_TYPE,
         FIXED: bool = false,
         ANONYMOUS: bool = false,
@@ -268,7 +270,7 @@ pub const O = switch (native_arch) {
         TMPFILE: bool = false,
         _: u9 = 0,
     },
-    .x86, .riscv64 => packed struct(u32) {
+    .x86, .riscv32, .riscv64 => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
         _2: u4 = 0,
         CREAT: bool = false,
@@ -474,7 +476,7 @@ pub fn dup2(old: i32, new: i32) usize {
     } else {
         if (old == new) {
             if (std.debug.runtime_safety) {
-                const rc = syscall2(.fcntl, @as(usize, @bitCast(@as(isize, old))), F.GETFD);
+                const rc = fcntl(F.GETFD, @as(fd_t, old), 0);
                 if (@as(isize, @bitCast(rc)) < 0) return rc;
             }
             return @as(usize, @intCast(old));
@@ -1211,7 +1213,7 @@ pub fn llseek(fd: i32, offset: u64, result: ?*u64, whence: usize) usize {
     // NOTE: The offset parameter splitting is independent from the target
     // endianness.
     return syscall5(
-        ._llseek,
+        .llseek,
         @as(usize, @bitCast(@as(isize, fd))),
         @as(usize, @truncate(offset >> 32)),
         @as(usize, @truncate(offset)),
@@ -1370,7 +1372,11 @@ pub fn waitid(id_type: P, id: i32, infop: *siginfo_t, flags: u32) usize {
 }
 
 pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) usize {
-    return syscall3(.fcntl, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, cmd))), arg);
+    if (@hasField(SYS, "fcntl64")) {
+        return syscall3(.fcntl64, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, cmd))), arg);
+    } else {
+        return syscall3(.fcntl, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, cmd))), arg);
+    }
 }
 
 pub fn flock(fd: fd_t, operation: i32) usize {
@@ -1836,7 +1842,11 @@ pub fn accept4(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t, flag
 }
 
 pub fn fstat(fd: i32, stat_buf: *Stat) usize {
-    if (@hasField(SYS, "fstat64")) {
+    if (native_arch == .riscv32) {
+        // riscv32 has made the interesting decision to not implement some of
+        // the older stat syscalls, including this one.
+        @compileError("No fstat syscall on this architecture.");
+    } else if (@hasField(SYS, "fstat64")) {
         return syscall2(.fstat64, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(stat_buf));
     } else {
         return syscall2(.fstat, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(stat_buf));
@@ -1844,7 +1854,11 @@ pub fn fstat(fd: i32, stat_buf: *Stat) usize {
 }
 
 pub fn stat(pathname: [*:0]const u8, statbuf: *Stat) usize {
-    if (@hasField(SYS, "stat64")) {
+    if (native_arch == .riscv32) {
+        // riscv32 has made the interesting decision to not implement some of
+        // the older stat syscalls, including this one.
+        @compileError("No stat syscall on this architecture.");
+    } else if (@hasField(SYS, "stat64")) {
         return syscall2(.stat64, @intFromPtr(pathname), @intFromPtr(statbuf));
     } else {
         return syscall2(.stat, @intFromPtr(pathname), @intFromPtr(statbuf));
@@ -1852,7 +1866,11 @@ pub fn stat(pathname: [*:0]const u8, statbuf: *Stat) usize {
 }
 
 pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
-    if (@hasField(SYS, "lstat64")) {
+    if (native_arch == .riscv32) {
+        // riscv32 has made the interesting decision to not implement some of
+        // the older stat syscalls, including this one.
+        @compileError("No lstat syscall on this architecture.");
+    } else if (@hasField(SYS, "lstat64")) {
         return syscall2(.lstat64, @intFromPtr(pathname), @intFromPtr(statbuf));
     } else {
         return syscall2(.lstat, @intFromPtr(pathname), @intFromPtr(statbuf));
@@ -1860,7 +1878,11 @@ pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
 }
 
 pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: u32) usize {
-    if (@hasField(SYS, "fstatat64")) {
+    if (native_arch == .riscv32) {
+        // riscv32 has made the interesting decision to not implement some of
+        // the older stat syscalls, including this one.
+        @compileError("No fstatat syscall on this architecture.");
+    } else if (@hasField(SYS, "fstatat64")) {
         return syscall4(.fstatat64, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(stat_buf), flags);
     } else {
         return syscall4(.fstatat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(stat_buf), flags);
@@ -1868,17 +1890,14 @@ pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: u32) usi
 }
 
 pub fn statx(dirfd: i32, path: [*:0]const u8, flags: u32, mask: u32, statx_buf: *Statx) usize {
-    if (@hasField(SYS, "statx")) {
-        return syscall5(
-            .statx,
-            @as(usize, @bitCast(@as(isize, dirfd))),
-            @intFromPtr(path),
-            flags,
-            mask,
-            @intFromPtr(statx_buf),
-        );
-    }
-    return @as(usize, @bitCast(-@as(isize, @intFromEnum(E.NOSYS))));
+    return syscall5(
+        .statx,
+        @as(usize, @bitCast(@as(isize, dirfd))),
+        @intFromPtr(path),
+        flags,
+        mask,
+        @intFromPtr(statx_buf),
+    );
 }
 
 pub fn listxattr(path: [*:0]const u8, list: [*]u8, size: usize) usize {
@@ -2198,8 +2217,24 @@ pub fn process_vm_writev(pid: pid_t, local: []const iovec_const, remote: []const
 }
 
 pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
-    if (comptime builtin.cpu.arch.isMIPS()) {
-        // MIPS requires a 7 argument syscall
+    if (comptime native_arch.isARM() or native_arch.isPPC()) {
+        // These architectures reorder the arguments so that a register is not skipped to align the
+        // register number that `offset` is passed in.
+
+        const offset_halves = splitValue64(offset);
+        const length_halves = splitValue64(len);
+
+        return syscall6(
+            .fadvise64_64,
+            @as(usize, @bitCast(@as(isize, fd))),
+            advice,
+            offset_halves[0],
+            offset_halves[1],
+            length_halves[0],
+            length_halves[1],
+        );
+    } else if (comptime native_arch == .mips or native_arch == .mipsel) {
+        // MIPS O32 does not deal with the register alignment issue, so pass a dummy value.
 
         const offset_halves = splitValue64(offset);
         const length_halves = splitValue64(len);
@@ -2214,24 +2249,8 @@ pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
             length_halves[1],
             advice,
         );
-    } else if (comptime builtin.cpu.arch.isARM()) {
-        // ARM reorders the arguments
-
-        const offset_halves = splitValue64(offset);
-        const length_halves = splitValue64(len);
-
-        return syscall6(
-            .fadvise64_64,
-            @as(usize, @bitCast(@as(isize, fd))),
-            advice,
-            offset_halves[0],
-            offset_halves[1],
-            length_halves[0],
-            length_halves[1],
-        );
-    } else if (@hasField(SYS, "fadvise64_64") and usize_bits != 64) {
-        // The extra usize check is needed to avoid SPARC64 because it provides both
-        // fadvise64 and fadvise64_64 but the latter behaves differently than other platforms.
+    } else if (comptime usize_bits < 64) {
+        // Other 32-bit architectures do not require register alignment.
 
         const offset_halves = splitValue64(offset);
         const length_halves = splitValue64(len);
@@ -2246,8 +2265,11 @@ pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
             advice,
         );
     } else {
+        // On 64-bit architectures, fadvise64_64 and fadvise64 are the same. Generally, older ports
+        // call it fadvise64 (x86, PowerPC, etc), while newer ports call it fadvise64_64 (RISC-V,
+        // LoongArch, etc). SPARC is the odd one out because it has both.
         return syscall4(
-            .fadvise64,
+            if (@hasField(SYS, "fadvise64_64")) .fadvise64_64 else .fadvise64,
             @as(usize, @bitCast(@as(isize, fd))),
             @as(usize, @bitCast(offset)),
             @as(usize, @bitCast(len)),
@@ -6295,12 +6317,13 @@ pub const POSIX_FADV = switch (native_arch) {
 };
 
 /// The timespec struct used by the kernel.
-pub const kernel_timespec = if (@sizeOf(usize) >= 8) timespec else extern struct {
+pub const kernel_timespec = extern struct {
     sec: i64,
     nsec: i64,
 };
 
-pub const timespec = extern struct {
+// https://github.com/ziglang/zig/issues/4726#issuecomment-2190337877
+pub const timespec = if (!builtin.link_libc and native_arch == .riscv32) kernel_timespec else extern struct {
     sec: isize,
     nsec: isize,
 };
@@ -7338,6 +7361,7 @@ pub const AUDIT = struct {
             .x86_64 => .X86_64,
             .aarch64 => .AARCH64,
             .arm, .thumb => .ARM,
+            .riscv32 => .RISCV32,
             .riscv64 => .RISCV64,
             .sparc64 => .SPARC64,
             .mips => .MIPS,

@@ -663,7 +663,7 @@ fn generateBuiltinTypes(comp: *Compilation) !void {
         .arm, .armeb, .thumb, .thumbeb => .{
             .specifier = if (os != .windows and os != .netbsd and os != .openbsd) .uint else .int,
         },
-        .aarch64, .aarch64_be, .aarch64_32 => .{
+        .aarch64, .aarch64_be => .{
             .specifier = if (!os.isDarwin() and os != .netbsd) .uint else .int,
         },
         .x86_64, .x86 => .{ .specifier = if (os == .windows) .ushort else .int },

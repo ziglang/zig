@@ -272,7 +272,7 @@ fn _start() callconv(.Naked) noreturn {
             \\ bstrins.d $sp, $zero, 3, 0
             \\ b %[posixCallMainAndExit]
             ,
-            .riscv64 =>
+            .riscv32, .riscv64 =>
             \\ li s0, 0
             \\ li ra, 0
             \\ mv a0, sp
@@ -289,17 +289,42 @@ fn _start() callconv(.Naked) noreturn {
             ,
             .mips, .mipsel =>
             \\ move $fp, $0
+            \\ bal 1f
+            \\ .gpword .
+            \\ .gpword %[posixCallMainAndExit]
+            \\ 1:
+            \\ lw $gp, 0($ra)
+            \\ subu $gp, $ra, $gp
+            \\ lw $25, 4($ra)
+            \\ addu $25, $25, $gp
             \\ move $ra, $0
             \\ move $a0, $sp
             \\ and $sp, -8
-            \\ j %[posixCallMainAndExit]
+            \\ subu $sp, $sp, 16
+            \\ jalr $25
             ,
             .mips64, .mips64el =>
             \\ move $fp, $0
+            // This is needed because early MIPS versions don't support misaligned loads. Without
+            // this directive, the hidden `nop` inserted to fill the delay slot after `bal` would
+            // cause the two doublewords to be aligned to 4 bytes instead of 8.
+            \\ .balign 8
+            \\ bal 1f
+            \\ .gpdword .
+            \\ .gpdword %[posixCallMainAndExit]
+            \\ 1:
+            // The `gp` register on MIPS serves a similar purpose to `r2` (ToC pointer) on PPC64.
+            // We need to set it up in order for dynamically-linked / position-independent code to
+            // work.
+            \\ ld $gp, 0($ra)
+            \\ dsubu $gp, $ra, $gp
+            \\ ld $25, 8($ra)
+            \\ daddu $25, $25, $gp
             \\ move $ra, $0
             \\ move $a0, $sp
             \\ and $sp, -16
-            \\ j %[posixCallMainAndExit]
+            \\ dsubu $sp, $sp, 16
+            \\ jalr $25
             ,
             .powerpc, .powerpcle =>
             // Set up the initial stack frame, and clear the back chain pointer.
@@ -389,7 +414,6 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
     if (native_os == .linux) {
         // Find the beginning of the auxiliary vector
         const auxv: [*]elf.Auxv = @ptrCast(@alignCast(envp.ptr + envp_count + 1));
-        std.os.linux.elf_aux_maybe = auxv;
 
         var at_hwcap: usize = 0;
         const phdrs = init: {
@@ -407,11 +431,16 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
             break :init @as([*]elf.Phdr, @ptrFromInt(at_phdr))[0..at_phnum];
         };
 
-        // Apply the initial relocations as early as possible in the startup
-        // process.
+        // Apply the initial relocations as early as possible in the startup process. We cannot
+        // make calls yet on some architectures (e.g. MIPS) *because* they haven't been applied yet,
+        // so this must be fully inlined.
         if (builtin.position_independent_executable) {
-            std.os.linux.pie.relocate(phdrs);
+            @call(.always_inline, std.os.linux.pie.relocate, .{phdrs});
         }
+
+        // This must be done after PIE relocations have been applied or we may crash
+        // while trying to access the global variable (happens on MIPS at least).
+        std.os.linux.elf_aux_maybe = auxv;
 
         if (!builtin.single_threaded) {
             // ARMv6 targets (and earlier) have no support for TLS in hardware.
@@ -435,6 +464,23 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
         // Here we look for the stack size in our program headers and use setrlimit
         // to ask for more stack space.
         expandStackSize(phdrs);
+
+        // Disabled with the riscv backend because it cannot handle this code yet.
+        if (builtin.zig_backend != .stage2_riscv64) {
+            const opt_init_array_start = @extern([*]*const fn () callconv(.C) void, .{
+                .name = "__init_array_start",
+                .linkage = .weak,
+            });
+            const opt_init_array_end = @extern([*]*const fn () callconv(.C) void, .{
+                .name = "__init_array_end",
+                .linkage = .weak,
+            });
+            if (opt_init_array_start) |init_array_start| {
+                const init_array_end = opt_init_array_end.?;
+                const slice = init_array_start[0 .. init_array_end - init_array_start];
+                for (slice) |func| func();
+            }
+        }
     }
 
     std.posix.exit(callMainWithArgs(argc, argv, envp));

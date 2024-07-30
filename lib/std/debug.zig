@@ -747,7 +747,8 @@ pub const StackIterator = struct {
                             .SUCCESS => return bytes_read == buf.len,
                             .FAULT => return false,
                             .INVAL, .PERM, .SRCH => unreachable, // own pid is always valid
-                            .NOMEM, .NOSYS => {},
+                            .NOMEM => {},
+                            .NOSYS => {}, // QEMU is known not to implement this syscall.
                             else => unreachable, // unexpected
                         }
                         var path_buf: [

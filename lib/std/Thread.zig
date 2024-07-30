@@ -1082,11 +1082,11 @@ const LinuxThreadImpl = struct {
         fn freeAndExit(self: *ThreadCompletion) noreturn {
             switch (target.cpu.arch) {
                 .x86 => asm volatile (
-                    \\  movl $91, %%eax
+                    \\  movl $91, %%eax # SYS_munmap
                     \\  movl %[ptr], %%ebx
                     \\  movl %[len], %%ecx
                     \\  int $128
-                    \\  movl $1, %%eax
+                    \\  movl $1, %%eax # SYS_exit
                     \\  movl $0, %%ebx
                     \\  int $128
                     :
@@ -1095,9 +1095,9 @@ const LinuxThreadImpl = struct {
                     : "memory"
                 ),
                 .x86_64 => asm volatile (
-                    \\  movq $11, %%rax
+                    \\  movq $11, %%rax # SYS_munmap
                     \\  syscall
-                    \\  movq $60, %%rax
+                    \\  movq $60, %%rax # SYS_exit
                     \\  movq $1, %%rdi
                     \\  syscall
                     :
@@ -1105,11 +1105,11 @@ const LinuxThreadImpl = struct {
                       [len] "{rsi}" (self.mapped.len),
                 ),
                 .arm, .armeb, .thumb, .thumbeb => asm volatile (
-                    \\  mov r7, #91
+                    \\  mov r7, #91 // SYS_munmap
                     \\  mov r0, %[ptr]
                     \\  mov r1, %[len]
                     \\  svc 0
-                    \\  mov r7, #1
+                    \\  mov r7, #1 // SYS_exit
                     \\  mov r0, #0
                     \\  svc 0
                     :
@@ -1117,12 +1117,12 @@ const LinuxThreadImpl = struct {
                       [len] "r" (self.mapped.len),
                     : "memory"
                 ),
-                .aarch64, .aarch64_be, .aarch64_32 => asm volatile (
-                    \\  mov x8, #215
+                .aarch64, .aarch64_be => asm volatile (
+                    \\  mov x8, #215 // SYS_munmap
                     \\  mov x0, %[ptr]
                     \\  mov x1, %[len]
                     \\  svc 0
-                    \\  mov x8, #93
+                    \\  mov x8, #93 // SYS_exit
                     \\  mov x0, #0
                     \\  svc 0
                     :
@@ -1132,11 +1132,11 @@ const LinuxThreadImpl = struct {
                 ),
                 .mips, .mipsel => asm volatile (
                     \\  move $sp, $25
-                    \\  li $2, 4091
+                    \\  li $2, 4091 # SYS_munmap
                     \\  move $4, %[ptr]
                     \\  move $5, %[len]
                     \\  syscall
-                    \\  li $2, 4001
+                    \\  li $2, 4001 # SYS_exit
                     \\  li $4, 0
                     \\  syscall
                     :
@@ -1145,11 +1145,11 @@ const LinuxThreadImpl = struct {
                     : "memory"
                 ),
                 .mips64, .mips64el => asm volatile (
-                    \\  li $2, 4091
+                    \\  li $2, 4091 # SYS_munmap
                     \\  move $4, %[ptr]
                     \\  move $5, %[len]
                     \\  syscall
-                    \\  li $2, 4001
+                    \\  li $2, 4001 # SYS_exit
                     \\  li $4, 0
                     \\  syscall
                     :
@@ -1158,11 +1158,11 @@ const LinuxThreadImpl = struct {
                     : "memory"
                 ),
                 .powerpc, .powerpcle, .powerpc64, .powerpc64le => asm volatile (
-                    \\  li 0, 91
+                    \\  li 0, 91 # SYS_munmap
                     \\  mr %[ptr], 3
                     \\  mr %[len], 4
                     \\  sc
-                    \\  li 0, 1
+                    \\  li 0, 1 # SYS_exit
                     \\  li 3, 0
                     \\  sc
                     \\  blr
@@ -1171,12 +1171,25 @@ const LinuxThreadImpl = struct {
                       [len] "r" (self.mapped.len),
                     : "memory"
                 ),
-                .riscv64 => asm volatile (
-                    \\  li a7, 215
+                .riscv32 => asm volatile (
+                    \\  li a7, 215 # SYS_munmap
                     \\  mv a0, %[ptr]
                     \\  mv a1, %[len]
                     \\  ecall
-                    \\  li a7, 93
+                    \\  li a7, 93 # SYS_exit
+                    \\  mv a0, zero
+                    \\  ecall
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
+                ),
+                .riscv64 => asm volatile (
+                    \\  li a7, 215 # SYS_munmap
+                    \\  mv a0, %[ptr]
+                    \\  mv a1, %[len]
+                    \\  ecall
+                    \\  li a7, 93 # SYS_exit
                     \\  mv a0, zero
                     \\  ecall
                     :
@@ -1196,14 +1209,14 @@ const LinuxThreadImpl = struct {
                     \\  ba 1b
                     \\  restore
                     \\  2:
-                    \\  mov 73, %%g1
+                    \\  mov 73, %%g1 # SYS_munmap
                     \\  mov %[ptr], %%o0
                     \\  mov %[len], %%o1
                     \\  # Flush register window contents to prevent background
                     \\  # memory access before unmapping the stack.
                     \\  flushw
                     \\  t 0x6d
-                    \\  mov 1, %%g1
+                    \\  mov 1, %%g1 # SYS_exit
                     \\  mov 1, %%o0
                     \\  t 0x6d
                     :

@@ -334,7 +334,6 @@ pub const Iterator = switch (native_os) {
         first_iter: bool,
 
         const Self = @This();
-        const linux = std.os.linux;
 
         pub const Error = IteratorError;
 
@@ -1758,10 +1757,11 @@ pub fn renameW(self: Dir, old_sub_path_w: []const u16, new_sub_path_w: []const u
     return posix.renameatW(self.fd, old_sub_path_w, self.fd, new_sub_path_w);
 }
 
-/// Use with `Dir.symLink` and `symLinkAbsolute` to specify whether the symlink
-/// will point to a file or a directory. This value is ignored on all hosts
-/// except Windows where creating symlinks to different resource types, requires
-/// different flags. By default, `symLinkAbsolute` is assumed to point to a file.
+/// Use with `Dir.symLink`, `Dir.atomicSymLink`, and `symLinkAbsolute` to
+/// specify whether the symlink will point to a file or a directory. This value
+/// is ignored on all hosts except Windows where creating symlinks to different
+/// resource types, requires different flags. By default, `symLinkAbsolute` is
+/// assumed to point to a file.
 pub const SymLinkFlags = struct {
     is_directory: bool = false,
 };
@@ -1788,6 +1788,9 @@ pub fn symLink(
         // when converting to an NT namespaced path. CreateSymbolicLink in
         // symLinkW will handle the necessary conversion.
         var target_path_w: windows.PathSpace = undefined;
+        if (try std.unicode.checkWtf8ToWtf16LeOverflow(target_path, &target_path_w.data)) {
+            return error.NameTooLong;
+        }
         target_path_w.len = try std.unicode.wtf8ToWtf16Le(&target_path_w.data, target_path);
         target_path_w.data[target_path_w.len] = 0;
         // However, we need to canonicalize any path separators to `\`, since if
@@ -1845,6 +1848,50 @@ pub fn symLinkW(
     flags: SymLinkFlags,
 ) !void {
     return windows.CreateSymbolicLink(self.fd, sym_link_path_w, target_path_w, flags.is_directory);
+}
+
+/// Same as `symLink`, except tries to create the symbolic link until it
+/// succeeds or encounters an error other than `error.PathAlreadyExists`.
+/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// On WASI, both paths should be encoded as valid UTF-8.
+/// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
+pub fn atomicSymLink(
+    dir: Dir,
+    target_path: []const u8,
+    sym_link_path: []const u8,
+    flags: SymLinkFlags,
+) !void {
+    if (dir.symLink(target_path, sym_link_path, flags)) {
+        return;
+    } else |err| switch (err) {
+        error.PathAlreadyExists => {},
+        else => |e| return e,
+    }
+
+    const dirname = path.dirname(sym_link_path) orelse ".";
+
+    var rand_buf: [AtomicFile.random_bytes_len]u8 = undefined;
+
+    const temp_path_len = dirname.len + 1 + base64_encoder.calcSize(rand_buf.len);
+    var temp_path_buf: [fs.max_path_bytes]u8 = undefined;
+
+    if (temp_path_len > temp_path_buf.len) return error.NameTooLong;
+    @memcpy(temp_path_buf[0..dirname.len], dirname);
+    temp_path_buf[dirname.len] = path.sep;
+
+    const temp_path = temp_path_buf[0..temp_path_len];
+
+    while (true) {
+        crypto.random.bytes(rand_buf[0..]);
+        _ = base64_encoder.encode(temp_path[dirname.len + 1 ..], rand_buf[0..]);
+
+        if (dir.symLink(target_path, temp_path, flags)) {
+            return dir.rename(temp_path, sym_link_path);
+        } else |err| switch (err) {
+            error.PathAlreadyExists => continue,
+            else => |e| return e,
+        }
+    }
 }
 
 pub const ReadLinkError = posix.ReadLinkError;
@@ -2688,8 +2735,33 @@ pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
         const st = try std.os.fstatat_wasi(self.fd, sub_path, .{ .SYMLINK_FOLLOW = true });
         return Stat.fromWasi(st);
     }
+    if (native_os == .linux) {
+        const sub_path_c = try posix.toPosixPath(sub_path);
+        var stx = std.mem.zeroes(linux.Statx);
+
+        const rc = linux.statx(
+            self.fd,
+            &sub_path_c,
+            linux.AT.NO_AUTOMOUNT,
+            linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
+            &stx,
+        );
+
+        return switch (linux.E.init(rc)) {
+            .SUCCESS => Stat.fromLinux(stx),
+            .ACCES => error.AccessDenied,
+            .BADF => unreachable,
+            .FAULT => unreachable,
+            .INVAL => unreachable,
+            .LOOP => error.SymLinkLoop,
+            .NAMETOOLONG => unreachable, // Handled by posix.toPosixPath() above.
+            .NOENT, .NOTDIR => error.FileNotFound,
+            .NOMEM => error.SystemResources,
+            else => |err| posix.unexpectedErrno(err),
+        };
+    }
     const st = try posix.fstatat(self.fd, sub_path, 0);
-    return Stat.fromSystem(st);
+    return Stat.fromPosix(st);
 }
 
 pub const ChmodError = File.ChmodError;
@@ -2741,11 +2813,15 @@ const builtin = @import("builtin");
 const std = @import("../std.zig");
 const File = std.fs.File;
 const AtomicFile = std.fs.AtomicFile;
+const base64_encoder = fs.base64_encoder;
+const crypto = std.crypto;
 const posix = std.posix;
 const mem = std.mem;
+const path = fs.path;
 const fs = std.fs;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const linux = std.os.linux;
 const windows = std.os.windows;
 const native_os = builtin.os.tag;
 const have_flock = @TypeOf(posix.system.flock) != void;

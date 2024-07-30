@@ -264,7 +264,7 @@ const ArmCpuinfoImpl = struct {
         if (self.core_no == 0) return null;
 
         const is_64bit = switch (arch) {
-            .aarch64, .aarch64_be, .aarch64_32 => true,
+            .aarch64, .aarch64_be => true,
             else => false,
         };
 
@@ -391,7 +391,7 @@ pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
         .arm, .armeb, .thumb, .thumbeb => {
             return ArmCpuinfoParser.parse(current_arch, f.reader()) catch null;
         },
-        .aarch64, .aarch64_be, .aarch64_32 => {
+        .aarch64, .aarch64_be => {
             const registers = [12]u64{
                 getAArch64CpuFeature("MIDR_EL1"),
                 getAArch64CpuFeature("ID_AA64PFR0_EL1"),

@@ -3393,7 +3393,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         // We are about to obtain this lock, so here we give other processes a chance first.
         wasm.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 13);
+        comptime assert(Compilation.link_hash_implementation_version == 14);
 
         for (comp.objects) |obj| {
             _ = try man.addFile(obj.path, null);

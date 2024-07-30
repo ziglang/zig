@@ -16,9 +16,11 @@ pub fn gcAtoms(elf_file: *Elf) !void {
 }
 
 fn collectRoots(roots: *std.ArrayList(*Atom), files: []const File.Index, elf_file: *Elf) !void {
-    if (elf_file.entry_index) |index| {
-        const global = elf_file.symbol(index);
-        try markSymbol(global, roots, elf_file);
+    if (elf_file.linkerDefinedPtr()) |obj| {
+        if (obj.entry_index) |index| {
+            const global = elf_file.symbol(index);
+            try markSymbol(global, roots, elf_file);
+        }
     }
 
     for (files) |index| {
@@ -35,8 +37,8 @@ fn collectRoots(roots: *std.ArrayList(*Atom), files: []const File.Index, elf_fil
         const file = elf_file.file(index).?;
 
         for (file.atoms()) |atom_index| {
-            const atom = elf_file.atom(atom_index) orelse continue;
-            if (!atom.flags.alive) continue;
+            const atom = file.atom(atom_index) orelse continue;
+            if (!atom.alive) continue;
 
             const shdr = atom.inputShdr(elf_file);
             const name = atom.name(elf_file);
@@ -54,7 +56,7 @@ fn collectRoots(roots: *std.ArrayList(*Atom), files: []const File.Index, elf_fil
                 break :blk false;
             };
             if (is_gc_root and markAtom(atom)) try roots.append(atom);
-            if (shdr.sh_flags & elf.SHF_ALLOC == 0) atom.flags.visited = true;
+            if (shdr.sh_flags & elf.SHF_ALLOC == 0) atom.visited = true;
         }
 
         // Mark every atom referenced by CIE as alive.
@@ -77,22 +79,22 @@ fn markSymbol(sym: *Symbol, roots: *std.ArrayList(*Atom), elf_file: *Elf) !void 
 }
 
 fn markAtom(atom: *Atom) bool {
-    const already_visited = atom.flags.visited;
-    atom.flags.visited = true;
-    return atom.flags.alive and !already_visited;
+    const already_visited = atom.visited;
+    atom.visited = true;
+    return atom.alive and !already_visited;
 }
 
 fn markLive(atom: *Atom, elf_file: *Elf) void {
     if (@import("build_options").enable_logging) track_live_level.incr();
 
-    assert(atom.flags.visited);
+    assert(atom.visited);
     const file = atom.file(elf_file).?;
 
     for (atom.fdes(elf_file)) |fde| {
         for (fde.relocs(elf_file)[1..]) |rel| {
             const target_sym = elf_file.symbol(file.symbol(rel.r_sym()));
             const target_atom = target_sym.atom(elf_file) orelse continue;
-            target_atom.flags.alive = true;
+            target_atom.alive = true;
             gc_track_live_log.debug("{}marking live atom({d})", .{ track_live_level, target_atom.atom_index });
             if (markAtom(target_atom)) markLive(target_atom, elf_file);
         }
@@ -105,7 +107,7 @@ fn markLive(atom: *Atom, elf_file: *Elf) void {
             continue;
         }
         const target_atom = target_sym.atom(elf_file) orelse continue;
-        target_atom.flags.alive = true;
+        target_atom.alive = true;
         gc_track_live_log.debug("{}marking live atom({d})", .{ track_live_level, target_atom.atom_index });
         if (markAtom(target_atom)) markLive(target_atom, elf_file);
     }
@@ -120,10 +122,11 @@ fn mark(roots: std.ArrayList(*Atom), elf_file: *Elf) void {
 
 fn prune(files: []const File.Index, elf_file: *Elf) void {
     for (files) |index| {
-        for (elf_file.file(index).?.atoms()) |atom_index| {
-            const atom = elf_file.atom(atom_index) orelse continue;
-            if (atom.flags.alive and !atom.flags.visited) {
-                atom.flags.alive = false;
+        const file = elf_file.file(index).?;
+        for (file.atoms()) |atom_index| {
+            const atom = file.atom(atom_index) orelse continue;
+            if (atom.alive and !atom.visited) {
+                atom.alive = false;
                 atom.markFdesDead(elf_file);
             }
         }
@@ -133,9 +136,10 @@ fn prune(files: []const File.Index, elf_file: *Elf) void {
 pub fn dumpPrunedAtoms(elf_file: *Elf) !void {
     const stderr = std.io.getStdErr().writer();
     for (elf_file.objects.items) |index| {
-        for (elf_file.file(index).?.object.atoms.items) |atom_index| {
-            const atom = elf_file.atom(atom_index) orelse continue;
-            if (!atom.flags.alive)
+        const file = elf_file.file(index).?;
+        for (file.atoms()) |atom_index| {
+            const atom = file.atom(atom_index) orelse continue;
+            if (!atom.alive)
                 // TODO should we simply print to stderr?
                 try stderr.print("link: removing unused section '{s}' in file '{}'\n", .{
                     atom.name(elf_file),

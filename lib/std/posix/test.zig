@@ -22,6 +22,15 @@ const tmpDir = std.testing.tmpDir;
 const Dir = std.fs.Dir;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
+// https://github.com/ziglang/zig/issues/20288
+test "WTF-8 to WTF-16 conversion buffer overflows" {
+    if (native_os != .windows) return error.SkipZigTest;
+
+    const input_wtf8 = "\u{10FFFF}" ** 16385;
+    try expectError(error.NameTooLong, posix.chdir(input_wtf8));
+    try expectError(error.NameTooLong, posix.chdirZ(input_wtf8));
+}
+
 test "chdir smoke test" {
     if (native_os == .wasi) return error.SkipZigTest;
 
@@ -571,11 +580,7 @@ test "memfd_create" {
         else => return error.SkipZigTest,
     }
 
-    const fd = posix.memfd_create("test", 0) catch |err| switch (err) {
-        // Related: https://github.com/ziglang/zig/issues/4019
-        error.SystemOutdated => return error.SkipZigTest,
-        else => |e| return e,
-    };
+    const fd = try posix.memfd_create("test", 0);
     defer posix.close(fd);
     try expect((try posix.write(fd, "test")) == 4);
     try posix.lseek_SET(fd, 0);

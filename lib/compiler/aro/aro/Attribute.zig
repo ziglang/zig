@@ -892,7 +892,7 @@ pub fn applyFunctionAttributes(p: *Parser, ty: Type, attr_buf_start: usize) !Typ
                 else => try p.errStr(.callconv_not_supported, tok, p.tok_ids[tok].lexeme().?),
             },
             .vectorcall => switch (p.comp.target.cpu.arch) {
-                .x86, .aarch64, .aarch64_be, .aarch64_32 => try p.attr_application_buf.append(p.gpa, attr),
+                .x86, .aarch64, .aarch64_be => try p.attr_application_buf.append(p.gpa, attr),
                 else => try p.errStr(.callconv_not_supported, tok, p.tok_ids[tok].lexeme().?),
             },
         },
