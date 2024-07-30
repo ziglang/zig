@@ -6146,6 +6146,20 @@ pub const termios = switch (native_arch) {
     },
 };
 
+pub const SOCK_IOC_TYPE	= 0x89;
+
+pub const SIOCGSTAMP_NEW = IOCTL.IOR(SOCK_IOC_TYPE, 0x06, i64[2]);
+pub const SIOCGSTAMP_OLD = IOCTL.IOR('s', 100, timeval);
+
+/// Get stamp (timeval)
+pub const SIOCGSTAMP = if (native_arch == .x86_64 or @sizeOf(timeval) == 8) SIOCGSTAMP_OLD else SIOCGSTAMP_NEW;
+
+pub const SIOCGSTAMPNS_NEW = IOCTL.IOR(SOCK_IOC_TYPE, 0x07, i64[2]);
+pub const SIOCGSTAMPNS_OLD = IOCTL.IOR('s', 101, kernel_timespec);
+
+/// Get stamp (timespec)
+pub const SIOCGSTAMPNS = if (native_arch == .x86_64 or @sizeOf(timespec) == 8) SIOCGSTAMPNS_OLD else SIOCGSTAMPNS_NEW;
+
 // Routing table calls.
 /// Add routing table entry
 pub const SIOCADDRT = 0x890B;
