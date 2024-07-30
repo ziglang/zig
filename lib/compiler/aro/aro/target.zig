@@ -614,7 +614,6 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
 
     const llvm_os = switch (target.os.tag) {
         .freestanding => "unknown",
-        .cloudabi => "cloudabi",
         .dragonfly => "dragonfly",
         .freebsd => "freebsd",
         .fuchsia => "fuchsia",
