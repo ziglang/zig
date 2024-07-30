@@ -912,12 +912,13 @@ fn updateDeclCode(
     const sym = elf_file.symbol(sym_index);
     const esym = &self.local_esyms.items(.elf_sym)[sym.esym_index];
     const atom_ptr = sym.atom(elf_file).?;
+    const name_offset = try self.strtab.insert(gpa, decl.fqn.toSlice(ip));
 
     atom_ptr.alive = true;
-    atom_ptr.name_offset = sym.name_offset;
+    atom_ptr.name_offset = name_offset;
     atom_ptr.output_section_index = shdr_index;
-    sym.name_offset = try self.strtab.insert(gpa, decl.fqn.toSlice(ip));
-    esym.st_name = sym.name_offset;
+    sym.name_offset = name_offset;
+    esym.st_name = name_offset;
     esym.st_info |= stt_bits;
     esym.st_size = code.len;
 
@@ -1009,15 +1010,17 @@ fn updateTlv(
     const sym = elf_file.symbol(sym_index);
     const esym = &self.local_esyms.items(.elf_sym)[sym.esym_index];
     const atom_ptr = sym.atom(elf_file).?;
+    const name_offset = try self.strtab.insert(gpa, decl.fqn.toSlice(ip));
 
     sym.value = 0;
-    atom_ptr.output_section_index = shndx;
+    sym.name_offset = name_offset;
 
-    sym.name_offset = try self.strtab.insert(gpa, decl.fqn.toSlice(ip));
+    atom_ptr.output_section_index = shndx;
     atom_ptr.alive = true;
-    atom_ptr.name_offset = sym.name_offset;
+    atom_ptr.name_offset = name_offset;
+
     esym.st_value = 0;
-    esym.st_name = sym.name_offset;
+    esym.st_name = name_offset;
     esym.st_info = elf.STT_TLS;
     esym.st_size = code.len;
 
