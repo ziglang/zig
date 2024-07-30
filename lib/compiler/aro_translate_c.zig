@@ -304,7 +304,7 @@ fn transDecl(c: *Context, scope: *Scope, decl: NodeIndex) !void {
         .threadlocal_extern_var,
         .threadlocal_static_var,
         => {
-            try transVarDecl(c, decl, null);
+            try transVarDecl(c, decl);
         },
         .static_assert => try warn(c, &c.global_scope.base, 0, "ignoring _Static_assert declaration", .{}),
         else => unreachable,
@@ -566,8 +566,10 @@ fn transFnDecl(c: *Context, fn_decl: NodeIndex) Error!void {
     return addTopLevelDecl(c, fn_name, proto_node);
 }
 
-fn transVarDecl(_: *Context, _: NodeIndex, _: ?usize) Error!void {
-    @panic("TODO");
+fn transVarDecl(c: *Context, node: NodeIndex) Error!void {
+    const data = c.tree.nodes.items(.data)[@intFromEnum(node)];
+    const name = c.tree.tokSlice(data.decl.name);
+    return failDecl(c, data.decl.name, name, "unable to translate variable declaration", .{});
 }
 
 fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: NodeIndex, field_nodes: []const NodeIndex) Error!void {
