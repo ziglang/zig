@@ -681,12 +681,15 @@ fn transType(c: *Context, scope: *Scope, raw_ty: Type, qual_handling: Type.QualH
         .float80 => return ZigTag.type.create(c.arena, "f80"),
         .float128 => return ZigTag.type.create(c.arena, "f128"),
         .@"enum" => @panic("TODO"),
-        .pointer,
+        .pointer, .incomplete_array => @panic("todo"),
         .unspecified_variable_len_array,
         .array,
         .static_array,
-        .incomplete_array,
-        => @panic("TODO"),
+        => {
+            const size = ty.arrayLen().?;
+            const elem_type = try transType(c, scope, ty.elemType(), qual_handling, source_loc);
+            return ZigTag.array_type.create(c.arena, .{ .len = size, .elem_type = elem_type });
+        },
         .func,
         .var_args_func,
         .old_style_func,
