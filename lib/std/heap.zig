@@ -363,7 +363,7 @@ pub const HeapAllocator = switch (builtin.os.tag) {
 };
 
 fn sliceContainsPtr(container: []u8, ptr: [*]u8) bool {
-    // TODO: refactor for a single, efficient solution for
+    // TODO: refactor for a single, constant time solution for
     // both comptime and runtime once a way to safely compare
     // pointers at comptime is implemented
 
@@ -379,7 +379,7 @@ fn sliceContainsPtr(container: []u8, ptr: [*]u8) bool {
 }
 
 fn sliceContainsSlice(container: []u8, slice: []u8) bool {
-    // TODO: refactor for a single, efficient solution for
+    // TODO: refactor for a single, constant time solution for
     // both comptime and runtime once a way to safely compare
     // pointers at comptime is implemented
 
