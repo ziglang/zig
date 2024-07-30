@@ -70,7 +70,7 @@ fn tanh64(z: Complex(f64)) Complex(f64) {
     const ix = hx & 0x7fffffff;
 
     if (ix >= 0x7ff00000) {
-        if ((ix & 0x7fffff) | lx != 0) {
+        if ((ix & 0xfffff) | lx != 0) {
             const r = if (y == 0) y else x * y;
             return Complex(f64).init(x, r);
         }
@@ -117,4 +117,13 @@ test tanh64 {
 
     try testing.expectApproxEqAbs(0.9999128201513536, c.re, epsilon);
     try testing.expectApproxEqAbs(-0.00002536867620767604, c.im, epsilon);
+}
+
+test "tanh64 musl" {
+    const epsilon = math.floatEps(f64);
+    const a = Complex(f64).init(std.math.inf(f64), std.math.inf(f64));
+    const c = tanh(a);
+
+    try testing.expectApproxEqAbs(1, c.re, epsilon);
+    try testing.expectApproxEqAbs(0, c.im, epsilon);
 }

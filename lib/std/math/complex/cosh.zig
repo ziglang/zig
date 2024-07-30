@@ -123,7 +123,7 @@ fn cosh64(z: Complex(f64)) Complex(f64) {
         }
         // x >= 1455: result always overflows
         else {
-            const h = 0x1p1023;
+            const h = 0x1p1023 * x;
             return Complex(f64).init(h * h * @cos(y), h * @sin(y));
         }
     }
@@ -169,4 +169,13 @@ test cosh64 {
 
     try testing.expectApproxEqAbs(-73.46729221264526, c.re, epsilon);
     try testing.expectApproxEqAbs(10.471557674805572, c.im, epsilon);
+}
+
+test "cosh64 musl" {
+    const epsilon = math.floatEps(f64);
+    const a = Complex(f64).init(7.44648873421389e17, 1.6008058402057622e19);
+    const c = cosh(a);
+
+    try testing.expectApproxEqAbs(std.math.inf(f64), c.re, epsilon);
+    try testing.expectApproxEqAbs(std.math.inf(f64), c.im, epsilon);
 }
