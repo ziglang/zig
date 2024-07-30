@@ -9,10 +9,9 @@ name_offset: u32 = 0,
 /// Index of file where this symbol is defined.
 file_index: File.Index = 0,
 
-/// Index of atom containing this symbol.
-/// Index of 0 means there is no associated atom with this symbol.
-/// Use `atom` to get the pointer to the atom.
-atom_index: Atom.Index = 0,
+/// Reference to Atom or merge subsection containing this symbol if any.
+/// Use `atom` or `mergeSubsection` to get the pointer to the atom.
+ref: Elf.Ref = .{ .index = 0, .file = 0 },
 
 /// Assigned output section index for this symbol.
 output_section_index: u32 = 0,
@@ -34,11 +33,15 @@ pub fn isAbs(symbol: Symbol, elf_file: *Elf) bool {
     const file_ptr = symbol.file(elf_file).?;
     if (file_ptr == .shared_object) return symbol.elfSym(elf_file).st_shndx == elf.SHN_ABS;
     return !symbol.flags.import and symbol.atom(elf_file) == null and
-        symbol.mergeSubsection(elf_file) == null and symbol.outputShndx() == null and
+        symbol.mergeSubsection(elf_file) == null and symbol.outputShndx(elf_file) == null and
         file_ptr != .linker_defined;
 }
 
-pub fn outputShndx(symbol: Symbol) ?u32 {
+pub fn outputShndx(symbol: Symbol, elf_file: *Elf) ?u32 {
+    if (symbol.mergeSubsection(elf_file)) |msub|
+        return if (msub.alive) msub.mergeSection(elf_file).output_section_index else null;
+    if (symbol.atom(elf_file)) |atom_ptr|
+        return if (atom_ptr.alive) atom_ptr.output_section_index else null;
     if (symbol.output_section_index == 0) return null;
     return symbol.output_section_index;
 }
@@ -68,13 +71,15 @@ pub fn name(symbol: Symbol, elf_file: *Elf) [:0]const u8 {
 }
 
 pub fn atom(symbol: Symbol, elf_file: *Elf) ?*Atom {
-    return elf_file.atom(symbol.atom_index);
+    if (symbol.flags.merge_subsection) return null;
+    const file_ptr = elf_file.file(symbol.ref.file) orelse return null;
+    return file_ptr.atom(symbol.ref.index);
 }
 
 pub fn mergeSubsection(symbol: Symbol, elf_file: *Elf) ?*MergeSubsection {
     if (!symbol.flags.merge_subsection) return null;
-    const extras = symbol.extra(elf_file).?;
-    return elf_file.mergeSubsection(extras.subsection);
+    const msec = elf_file.mergeSection(symbol.ref.file);
+    return msec.mergeSubsection(symbol.ref.index);
 }
 
 pub fn file(symbol: Symbol, elf_file: *Elf) ?File {
@@ -116,7 +121,7 @@ pub fn address(symbol: Symbol, opts: struct { plt: bool = true }, elf_file: *Elf
         return symbol.pltAddress(elf_file);
     }
     if (symbol.atom(elf_file)) |atom_ptr| {
-        if (!atom_ptr.flags.alive) {
+        if (!atom_ptr.alive) {
             if (mem.eql(u8, atom_ptr.name(elf_file), ".eh_frame")) {
                 const sym_name = symbol.name(elf_file);
                 const sh_addr, const sh_size = blk: {
@@ -258,7 +263,6 @@ const AddExtraOpts = struct {
     gottp: ?u32 = null,
     tlsdesc: ?u32 = null,
     zig_got: ?u32 = null,
-    subsection: ?u32 = null,
 };
 
 pub fn addExtra(symbol: *Symbol, opts: AddExtraOpts, elf_file: *Elf) !void {
@@ -298,7 +302,7 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
         if (elf_file.base.isRelocatable() and esym.st_shndx == elf.SHN_COMMON) break :blk elf.SHN_COMMON;
         if (symbol.mergeSubsection(elf_file)) |msub| break :blk @intCast(msub.mergeSection(elf_file).output_section_index);
         if (symbol.atom(elf_file) == null and file_ptr != .linker_defined) break :blk elf.SHN_ABS;
-        break :blk @intCast(symbol.outputShndx() orelse elf.SHN_UNDEF);
+        break :blk @intCast(symbol.outputShndx(elf_file) orelse elf.SHN_UNDEF);
     };
     const st_value = blk: {
         if (symbol.flags.has_copy_rel) break :blk symbol.address(.{}, elf_file);
@@ -382,22 +386,23 @@ fn format2(
     _ = options;
     _ = unused_fmt_string;
     const symbol = ctx.symbol;
+    const elf_file = ctx.elf_file;
     try writer.print("%{d} : {s} : @{x}", .{
         symbol.esym_index,
-        symbol.fmtName(ctx.elf_file),
-        symbol.address(.{}, ctx.elf_file),
+        symbol.fmtName(elf_file),
+        symbol.address(.{}, elf_file),
     });
-    if (symbol.file(ctx.elf_file)) |file_ptr| {
-        if (symbol.isAbs(ctx.elf_file)) {
-            if (symbol.elfSym(ctx.elf_file).st_shndx == elf.SHN_UNDEF) {
+    if (symbol.file(elf_file)) |file_ptr| {
+        if (symbol.isAbs(elf_file)) {
+            if (symbol.elfSym(elf_file).st_shndx == elf.SHN_UNDEF) {
                 try writer.writeAll(" : undef");
             } else {
                 try writer.writeAll(" : absolute");
             }
-        } else if (symbol.outputShndx()) |shndx| {
+        } else if (symbol.outputShndx(elf_file)) |shndx| {
             try writer.print(" : shdr({d})", .{shndx});
         }
-        if (symbol.atom(ctx.elf_file)) |atom_ptr| {
+        if (symbol.atom(elf_file)) |atom_ptr| {
             try writer.print(" : atom({d})", .{atom_ptr.atom_index});
         }
         var buf: [2]u8 = .{'_'} ** 2;
@@ -483,7 +488,7 @@ pub const Extra = struct {
     gottp: u32 = 0,
     tlsdesc: u32 = 0,
     zig_got: u32 = 0,
-    subsection: u32 = 0,
+    merge_section: u32 = 0,
 };
 
 pub const Index = u32;

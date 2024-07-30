@@ -1075,7 +1075,7 @@ pub const GotPltSection = struct {
         _ = got_plt;
         {
             // [0]: _DYNAMIC
-            const symbol = elf_file.symbol(elf_file.dynamic_index.?);
+            const symbol = elf_file.symbol(elf_file.linkerDefinedPtr().?.dynamic_index.?);
             try writer.writeInt(u64, @intCast(symbol.address(.{}, elf_file)), .little);
         }
         // [1]: 0x0
@@ -1670,45 +1670,44 @@ pub const VerneedSection = struct {
 
 pub const ComdatGroupSection = struct {
     shndx: u32,
-    cg_index: u32,
+    cg_ref: Elf.Ref,
 
-    fn file(cgs: ComdatGroupSection, elf_file: *Elf) ?File {
-        const cg = elf_file.comdatGroup(cgs.cg_index);
-        const cg_owner = elf_file.comdatGroupOwner(cg.owner);
-        return elf_file.file(cg_owner.file);
+    fn comdatGroup(cgs: ComdatGroupSection, elf_file: *Elf) *Elf.ComdatGroup {
+        const cg_file = elf_file.file(cgs.cg_ref.file).?;
+        return cg_file.object.comdatGroup(cgs.cg_ref.index);
     }
 
     pub fn symbol(cgs: ComdatGroupSection, elf_file: *Elf) Symbol.Index {
-        const cg = elf_file.comdatGroup(cgs.cg_index);
-        const object = cgs.file(elf_file).?.object;
+        const cg = cgs.comdatGroup(elf_file);
+        const object = cg.file(elf_file).object;
         const shdr = object.shdrs.items[cg.shndx];
         return object.symbols.items[shdr.sh_info];
     }
 
     pub fn size(cgs: ComdatGroupSection, elf_file: *Elf) usize {
-        const cg = elf_file.comdatGroup(cgs.cg_index);
+        const cg = cgs.comdatGroup(elf_file);
         const members = cg.comdatGroupMembers(elf_file);
         return (members.len + 1) * @sizeOf(u32);
     }
 
     pub fn write(cgs: ComdatGroupSection, elf_file: *Elf, writer: anytype) !void {
-        const cg = elf_file.comdatGroup(cgs.cg_index);
-        const object = cgs.file(elf_file).?.object;
+        const cg = cgs.comdatGroup(elf_file);
+        const object = cg.file(elf_file).object;
         const members = cg.comdatGroupMembers(elf_file);
         try writer.writeInt(u32, elf.GRP_COMDAT, .little);
         for (members) |shndx| {
             const shdr = object.shdrs.items[shndx];
             switch (shdr.sh_type) {
                 elf.SHT_RELA => {
-                    const atom_index = object.atoms.items[shdr.sh_info];
-                    const atom = elf_file.atom(atom_index).?;
-                    const rela = elf_file.output_rela_sections.get(atom.outputShndx().?).?;
+                    const atom_index = object.atoms_indexes.items[shdr.sh_info];
+                    const atom = object.atom(atom_index).?;
+                    const rela = elf_file.output_rela_sections.get(atom.output_section_index).?;
                     try writer.writeInt(u32, rela.shndx, .little);
                 },
                 else => {
-                    const atom_index = object.atoms.items[shndx];
-                    const atom = elf_file.atom(atom_index).?;
-                    try writer.writeInt(u32, atom.outputShndx().?, .little);
+                    const atom_index = object.atoms_indexes.items[shndx];
+                    const atom = object.atom(atom_index).?;
+                    try writer.writeInt(u32, atom.output_section_index, .little);
                 },
             }
         }

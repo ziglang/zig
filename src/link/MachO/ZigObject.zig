@@ -1634,7 +1634,7 @@ fn isThreadlocal(macho_file: *MachO, decl_index: InternPool.DeclIndex) bool {
 
 fn addAtom(self: *ZigObject, allocator: Allocator) !Atom.Index {
     try self.atoms.ensureUnusedCapacity(allocator, 1);
-    try self.atoms_extra.ensureUnusedCapacity(allocator, 1);
+    try self.atoms_extra.ensureUnusedCapacity(allocator, @sizeOf(Atom.Extra));
     return self.addAtomAssumeCapacity();
 }
 
