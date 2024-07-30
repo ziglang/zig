@@ -1896,7 +1896,7 @@ pub fn atomicSymLink(
 
 pub const ReadLinkError = posix.ReadLinkError;
 
-/// Same as `File.stat`, but if the path points to a symbolic link,
+/// Same as `Dir.statFile`, but if the path points to a symbolic link,
 /// it will stat the link rather than the file it points to.
 /// Note: if the target is a regular file, this function has the same
 /// behaviour that `Dir.statFile`
