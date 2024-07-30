@@ -122,6 +122,17 @@ pub fn loadMetaData(gpa: Allocator, contents: []const u8) LoadMetaDataError!*ABI
                 return error.ZigInstallationCorrupt;
             };
             const arch_tag = std.meta.stringToEnum(std.Target.Cpu.Arch, arch_name) orelse {
+                // TODO: Remove this on the next glibc abilists update.
+                if (mem.eql(u8, arch_name, "sparcel")) {
+                    targets[i] = .{
+                        .arch = .sparc,
+                        .os = .linux,
+                        .abi = .gnu,
+                    };
+
+                    continue;
+                }
+
                 log.err("abilists: unrecognized arch: '{s}'", .{arch_name});
                 return error.ZigInstallationCorrupt;
             };
