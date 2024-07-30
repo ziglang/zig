@@ -16,7 +16,6 @@ fn logOverride(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    if (builtin.mode != .Debug) return;
     const f = if (log_file) |f| f else f: {
         const f = fuzzer.dir.createFile("libfuzzer.log", .{}) catch @panic("failed to open fuzzer log file");
         log_file = f;
@@ -27,7 +26,7 @@ fn logOverride(
     f.writer().print(prefix1 ++ prefix2 ++ format ++ "\n", args) catch @panic("failed to write to fuzzer log");
 }
 
-export threadlocal var __sancov_lowest_stack: usize = 0;
+export threadlocal var __sancov_lowest_stack: usize = std.math.maxInt(usize);
 
 var module_count_8bc: usize = 0;
 var module_count_pcs: usize = 0;
@@ -108,7 +107,6 @@ const Fuzzer = struct {
     pc_counters: []u8,
     n_runs: usize,
     recent_cases: RunMap,
-    deduplicated_runs: usize,
     /// Data collected from code coverage instrumentation from one execution of
     /// the test function.
     coverage: Coverage,
@@ -120,6 +118,7 @@ const Fuzzer = struct {
 
     const SeenPcsHeader = extern struct {
         n_runs: usize,
+        deduplicated_runs: usize,
         pcs_len: usize,
         lowest_stack: usize,
     };
@@ -229,6 +228,7 @@ const Fuzzer = struct {
         } else {
             const header: SeenPcsHeader = .{
                 .n_runs = 0,
+                .deduplicated_runs = 0,
                 .pcs_len = flagged_pcs.len,
                 .lowest_stack = std.math.maxInt(usize),
             };
@@ -273,7 +273,8 @@ const Fuzzer = struct {
             });
             if (gop.found_existing) {
                 //std.log.info("duplicate analysis: score={d} id={d}", .{ analysis.score, analysis.id });
-                f.deduplicated_runs += 1;
+                const header: *volatile SeenPcsHeader = @ptrCast(f.seen_pcs.items[0..@sizeOf(SeenPcsHeader)]);
+                _ = @atomicRmw(usize, &header.deduplicated_runs, .Add, 1, .monotonic);
                 if (f.input.items.len < gop.key_ptr.input.len or gop.key_ptr.score == 0) {
                     gpa.free(gop.key_ptr.input);
                     gop.key_ptr.input = try gpa.dupe(u8, f.input.items);
@@ -348,9 +349,6 @@ const Fuzzer = struct {
     }
 
     fn dumpStats(f: *Fuzzer) void {
-        std.log.info("stats: runs={d} deduplicated={d}", .{
-            f.n_runs, f.deduplicated_runs,
-        });
         for (f.recent_cases.keys()[0..@min(f.recent_cases.entries.len, 5)], 0..) |run, i| {
             std.log.info("best[{d}] id={x} score={d} input: '{}'", .{
                 i, run.id, run.score, std.zig.fmtEscapes(run.input),
@@ -397,7 +395,6 @@ var fuzzer: Fuzzer = .{
     .flagged_pcs = undefined,
     .pc_counters = undefined,
     .n_runs = 0,
-    .deduplicated_runs = 0,
     .recent_cases = .{},
     .coverage = undefined,
     .dir = undefined,
