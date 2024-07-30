@@ -92,6 +92,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf) !void {
     const symbol_ptr = elf_file.symbol(symbol_index);
     symbol_ptr.file_index = self.index;
     symbol_ptr.name_offset = name_off;
+    symbol_ptr.extra_index = try elf_file.addSymbolExtra(.{});
 
     const esym_index = try self.addLocalEsym(gpa);
     const esym = &self.local_esyms.items(.elf_sym)[esym_index];
@@ -292,6 +293,7 @@ pub fn newAtom(self: *ZigObject, elf_file: *Elf) !Symbol.Index {
     const symbol_ptr = elf_file.symbol(symbol_index);
     symbol_ptr.file_index = self.index;
     symbol_ptr.ref = .{ .index = atom_index, .file = self.index };
+    symbol_ptr.extra_index = try elf_file.addSymbolExtra(.{});
 
     self.local_esyms.items(.shndx)[esym_index] = atom_index;
     self.local_esyms.items(.elf_sym)[esym_index].st_shndx = SHN_ATOM;
@@ -779,11 +781,9 @@ fn freeUnnamedConsts(self: *ZigObject, elf_file: *Elf, decl_index: InternPool.De
 
 fn freeDeclMetadata(self: *ZigObject, elf_file: *Elf, sym_index: Symbol.Index) void {
     _ = self;
-    const gpa = elf_file.base.comp.gpa;
     const sym = elf_file.symbol(sym_index);
     sym.atom(elf_file).?.free(elf_file);
     log.debug("adding %{d} to local symbols free list", .{sym_index});
-    elf_file.symbols_free_list.append(gpa, sym_index) catch {};
     elf_file.symbols.items[sym_index] = .{};
     // TODO free GOT entry here
 }
@@ -940,7 +940,7 @@ fn updateDeclCode(
                 if (!elf_file.base.isRelocatable()) {
                     log.debug("  (writing new offset table entry)", .{});
                     assert(sym.flags.has_zig_got);
-                    const extra = sym.extra(elf_file).?;
+                    const extra = sym.extra(elf_file);
                     try elf_file.zig_got.writeOne(elf_file, extra.zig_got);
                 }
             }

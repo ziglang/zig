@@ -159,20 +159,20 @@ pub fn outputSymtabIndex(symbol: Symbol, elf_file: *Elf) ?u32 {
     const symtab_ctx = switch (file_ptr) {
         inline else => |x| x.output_symtab_ctx,
     };
-    const idx = symbol.extra(elf_file).?.symtab;
+    const idx = symbol.extra(elf_file).symtab;
     return if (symbol.isLocal(elf_file)) idx + symtab_ctx.ilocal else idx + symtab_ctx.iglobal;
 }
 
 pub fn gotAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.has_got) return 0;
-    const extras = symbol.extra(elf_file).?;
+    const extras = symbol.extra(elf_file);
     const entry = elf_file.got.entries.items[extras.got];
     return entry.address(elf_file);
 }
 
 pub fn pltGotAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!(symbol.flags.has_plt and symbol.flags.has_got)) return 0;
-    const extras = symbol.extra(elf_file).?;
+    const extras = symbol.extra(elf_file);
     const shdr = elf_file.shdrs.items[elf_file.plt_got_section_index.?];
     const cpu_arch = elf_file.getTarget().cpu.arch;
     return @intCast(shdr.sh_addr + extras.plt_got * PltGotSection.entrySize(cpu_arch));
@@ -180,7 +180,7 @@ pub fn pltGotAddress(symbol: Symbol, elf_file: *Elf) i64 {
 
 pub fn pltAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.has_plt) return 0;
-    const extras = symbol.extra(elf_file).?;
+    const extras = symbol.extra(elf_file);
     const shdr = elf_file.shdrs.items[elf_file.plt_section_index.?];
     const cpu_arch = elf_file.getTarget().cpu.arch;
     return @intCast(shdr.sh_addr + extras.plt * PltSection.entrySize(cpu_arch) + PltSection.preambleSize(cpu_arch));
@@ -188,7 +188,7 @@ pub fn pltAddress(symbol: Symbol, elf_file: *Elf) i64 {
 
 pub fn gotPltAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.has_plt) return 0;
-    const extras = symbol.extra(elf_file).?;
+    const extras = symbol.extra(elf_file);
     const shdr = elf_file.shdrs.items[elf_file.got_plt_section_index.?];
     return @intCast(shdr.sh_addr + extras.plt * 8 + GotPltSection.preamble_size);
 }
@@ -201,21 +201,21 @@ pub fn copyRelAddress(symbol: Symbol, elf_file: *Elf) i64 {
 
 pub fn tlsGdAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.has_tlsgd) return 0;
-    const extras = symbol.extra(elf_file).?;
+    const extras = symbol.extra(elf_file);
     const entry = elf_file.got.entries.items[extras.tlsgd];
     return entry.address(elf_file);
 }
 
 pub fn gotTpAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.has_gottp) return 0;
-    const extras = symbol.extra(elf_file).?;
+    const extras = symbol.extra(elf_file);
     const entry = elf_file.got.entries.items[extras.gottp];
     return entry.address(elf_file);
 }
 
 pub fn tlsDescAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.has_tlsdesc) return 0;
-    const extras = symbol.extra(elf_file).?;
+    const extras = symbol.extra(elf_file);
     const entry = elf_file.got.entries.items[extras.tlsdesc];
     return entry.address(elf_file);
 }
@@ -228,14 +228,14 @@ const GetOrCreateZigGotEntryResult = struct {
 pub fn getOrCreateZigGotEntry(symbol: *Symbol, symbol_index: Index, elf_file: *Elf) !GetOrCreateZigGotEntryResult {
     assert(!elf_file.base.isRelocatable());
     assert(symbol.flags.needs_zig_got);
-    if (symbol.flags.has_zig_got) return .{ .found_existing = true, .index = symbol.extra(elf_file).?.zig_got };
+    if (symbol.flags.has_zig_got) return .{ .found_existing = true, .index = symbol.extra(elf_file).zig_got };
     const index = try elf_file.zig_got.addSymbol(symbol_index, elf_file);
     return .{ .found_existing = false, .index = index };
 }
 
 pub fn zigGotAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.has_zig_got) return 0;
-    const extras = symbol.extra(elf_file).?;
+    const extras = symbol.extra(elf_file);
     return elf_file.zig_got.entryAddress(extras.zig_got, elf_file);
 }
 
@@ -266,10 +266,7 @@ const AddExtraOpts = struct {
 };
 
 pub fn addExtra(symbol: *Symbol, opts: AddExtraOpts, elf_file: *Elf) !void {
-    if (symbol.extra(elf_file) == null) {
-        symbol.extra_index = try elf_file.addSymbolExtra(.{});
-    }
-    var extras = symbol.extra(elf_file).?;
+    var extras = symbol.extra(elf_file);
     inline for (@typeInfo(@TypeOf(opts)).Struct.fields) |field| {
         if (@field(opts, field.name)) |x| {
             @field(extras, field.name) = x;
@@ -278,7 +275,7 @@ pub fn addExtra(symbol: *Symbol, opts: AddExtraOpts, elf_file: *Elf) !void {
     symbol.setExtra(extras, elf_file);
 }
 
-pub fn extra(symbol: Symbol, elf_file: *Elf) ?Extra {
+pub fn extra(symbol: Symbol, elf_file: *Elf) Extra {
     return elf_file.symbolExtra(symbol.extra_index);
 }
 

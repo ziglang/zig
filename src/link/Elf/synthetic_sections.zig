@@ -641,7 +641,7 @@ pub const GotSection = struct {
                 .tlsld => null,
                 inline else => elf_file.symbol(entry.symbol_index),
             };
-            const extra = if (symbol) |s| s.extra(elf_file).? else null;
+            const extra = if (symbol) |s| s.extra(elf_file) else null;
 
             switch (entry.tag) {
                 .got => {
@@ -898,7 +898,7 @@ pub const PltSection = struct {
         for (plt.symbols.items) |sym_index| {
             const sym = elf_file.symbol(sym_index);
             assert(sym.flags.import);
-            const extra = sym.extra(elf_file).?;
+            const extra = sym.extra(elf_file);
             const r_offset: u64 = @intCast(sym.gotPltAddress(elf_file));
             const r_sym: u64 = extra.dynamic;
             const r_type = relocation.encode(.jump_slot, cpu_arch);
@@ -1267,7 +1267,7 @@ pub const CopyRelSection = struct {
         for (copy_rel.symbols.items) |sym_index| {
             const sym = elf_file.symbol(sym_index);
             assert(sym.flags.import and sym.flags.has_copy_rel);
-            const extra = sym.extra(elf_file).?;
+            const extra = sym.extra(elf_file);
             elf_file.addRelaDynAssumeCapacity(.{
                 .offset = @intCast(sym.address(.{}, elf_file)),
                 .sym = extra.dynamic,
@@ -1322,7 +1322,7 @@ pub const DynsymSection = struct {
                 const rhs_hash = GnuHashSection.hasher(rhs_sym.name(ctx)) % nbuckets;
 
                 if (lhs_hash == rhs_hash)
-                    return lhs_sym.extra(ctx).?.dynamic < rhs_sym.extra(ctx).?.dynamic;
+                    return lhs_sym.extra(ctx).dynamic < rhs_sym.extra(ctx).dynamic;
                 return lhs_hash < rhs_hash;
             }
         };
@@ -1339,7 +1339,7 @@ pub const DynsymSection = struct {
 
         for (dynsym.entries.items, 1..) |entry, index| {
             const sym = elf_file.symbol(entry.symbol_index);
-            var extra = sym.extra(elf_file).?;
+            var extra = sym.extra(elf_file);
             extra.dynamic = @as(u32, @intCast(index));
             sym.setExtra(extra, elf_file);
         }

@@ -176,7 +176,6 @@ symtab_section_index: ?u32 = null,
 /// An array of symbols parsed across all input files.
 symbols: std.ArrayListUnmanaged(Symbol) = .{},
 symbols_extra: std.ArrayListUnmanaged(u32) = .{},
-symbols_free_list: std.ArrayListUnmanaged(Symbol.Index) = .{},
 
 resolver: std.AutoArrayHashMapUnmanaged(u32, Symbol.Index) = .{},
 
@@ -343,8 +342,6 @@ pub fn createEmpty(
 
     // Index 0 is always a null symbol.
     try self.symbols.append(gpa, .{});
-    // Index 0 is always a null symbol.
-    try self.symbols_extra.append(gpa, 0);
     // Append null file at index 0
     try self.files.append(gpa, .null);
     // Append null byte to string tables
@@ -462,7 +459,6 @@ pub fn deinit(self: *Elf) void {
     self.strtab.deinit(gpa);
     self.symbols.deinit(gpa);
     self.symbols_extra.deinit(gpa);
-    self.symbols_free_list.deinit(gpa);
     self.resolver.deinit(gpa);
 
     for (self.thunks.items) |*th| {
@@ -5389,17 +5385,8 @@ pub fn symbol(self: *Elf, sym_index: Symbol.Index) *Symbol {
 pub fn addSymbol(self: *Elf) !Symbol.Index {
     const gpa = self.base.comp.gpa;
     try self.symbols.ensureUnusedCapacity(gpa, 1);
-    const index = blk: {
-        if (self.symbols_free_list.popOrNull()) |index| {
-            log.debug("  (reusing symbol index {d})", .{index});
-            break :blk index;
-        } else {
-            log.debug("  (allocating symbol index {d})", .{self.symbols.items.len});
-            const index: Symbol.Index = @intCast(self.symbols.items.len);
-            _ = self.symbols.addOneAssumeCapacity();
-            break :blk index;
-        }
-    };
+    const index: Symbol.Index = @intCast(self.symbols.items.len);
+    _ = self.symbols.addOneAssumeCapacity();
     self.symbols.items[index] = .{};
     return index;
 }
@@ -5423,8 +5410,7 @@ pub fn addSymbolExtraAssumeCapacity(self: *Elf, extra: Symbol.Extra) u32 {
     return index;
 }
 
-pub fn symbolExtra(self: *Elf, index: u32) ?Symbol.Extra {
-    if (index == 0) return null;
+pub fn symbolExtra(self: *Elf, index: u32) Symbol.Extra {
     const fields = @typeInfo(Symbol.Extra).Struct.fields;
     var i: usize = index;
     var result: Symbol.Extra = undefined;
@@ -5439,7 +5425,6 @@ pub fn symbolExtra(self: *Elf, index: u32) ?Symbol.Extra {
 }
 
 pub fn setSymbolExtra(self: *Elf, index: u32, extra: Symbol.Extra) void {
-    assert(index > 0);
     const fields = @typeInfo(Symbol.Extra).Struct.fields;
     inline for (fields, 0..) |field, i| {
         self.symbols_extra.items[index + i] = switch (field.type) {
@@ -5464,6 +5449,7 @@ pub fn getOrPutGlobal(self: *Elf, name: []const u8) !GetOrPutGlobalResult {
         const global = self.symbol(index);
         global.name_offset = name_off;
         global.flags.global = true;
+        global.extra_index = try self.addSymbolExtra(.{});
         gop.value_ptr.* = index;
     }
     return .{

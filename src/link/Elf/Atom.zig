@@ -845,7 +845,7 @@ fn resolveDynAbsReloc(
             if (is_writeable or elf_file.z_nocopyreloc) {
                 elf_file.addRelaDynAssumeCapacity(.{
                     .offset = P,
-                    .sym = target.extra(elf_file).?.dynamic,
+                    .sym = target.extra(elf_file).dynamic,
                     .type = relocation.encode(.abs, cpu_arch),
                     .addend = A,
                 });
@@ -859,7 +859,7 @@ fn resolveDynAbsReloc(
             if (is_writeable) {
                 elf_file.addRelaDynAssumeCapacity(.{
                     .offset = P,
-                    .sym = target.extra(elf_file).?.dynamic,
+                    .sym = target.extra(elf_file).dynamic,
                     .type = relocation.encode(.abs, cpu_arch),
                     .addend = A,
                 });
@@ -872,7 +872,7 @@ fn resolveDynAbsReloc(
         .dynrel => {
             elf_file.addRelaDynAssumeCapacity(.{
                 .offset = P,
-                .sym = target.extra(elf_file).?.dynamic,
+                .sym = target.extra(elf_file).dynamic,
                 .type = relocation.encode(.abs, cpu_arch),
                 .addend = A,
             });

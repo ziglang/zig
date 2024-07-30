@@ -387,6 +387,7 @@ fn initSymtab(self: *Object, allocator: Allocator, elf_file: *Elf) !void {
         sym_ptr.name_offset = sym.st_name;
         sym_ptr.esym_index = @as(u32, @intCast(i));
         sym_ptr.file_index = self.index;
+        sym_ptr.extra_index = try elf_file.addSymbolExtra(.{});
         if (sym.st_shndx != elf.SHN_ABS) {
             sym_ptr.ref = .{ .index = self.atoms_indexes.items[sym.st_shndx], .file = self.index };
         }
@@ -865,6 +866,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) !void {
                 .name_offset = try self.addString(gpa, name),
                 .esym_index = rel.r_sym(),
                 .file_index = self.index,
+                .extra_index = try elf_file.addSymbolExtra(.{}),
             };
             sym.ref = .{ .index = res.msub_index, .file = imsec.merge_section_index };
             sym.flags.merge_subsection = true;
