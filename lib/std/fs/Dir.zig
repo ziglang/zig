@@ -1902,6 +1902,8 @@ pub const ReadLinkError = posix.ReadLinkError;
 /// behaviour that `Dir.statFile`
 pub fn statLink(self: Dir, sub_path: []const u8) StatFileError!Stat {
     if (native_os == .windows) {
+        // note: it is possible to stat the file directly using `NtQueryInformatioByName`
+        // see PR #20843 for why it has not been implemented
         const path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
         return self.statLinkW(path_w.span());
     }
@@ -1909,22 +1911,38 @@ pub fn statLink(self: Dir, sub_path: []const u8) StatFileError!Stat {
         const st = try std.os.fstatat_wasi(self.fd, sub_path, .{ .SYMLINK_FOLLOW = false });
         return Stat.fromWasi(st);
     }
+    if (native_os == .linux) {
+        const sub_path_c = try posix.toPosixPath(sub_path);
+        var stx = std.mem.zeroes(linux.Statx);
+
+        const rc = linux.statx(
+            self.fd,
+            &sub_path_c,
+            linux.AT.NO_AUTOMOUNT | linux.AT.SYMLINK_NOFOLLOW,
+            linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
+            &stx,
+        );
+
+        return switch (linux.E.init(rc)) {
+            .SUCCESS => Stat.fromLinux(stx),
+            .ACCES => error.AccessDenied,
+            .BADF => unreachable,
+            .FAULT => unreachable,
+            .INVAL => unreachable,
+            .LOOP => error.SymLinkLoop,
+            .NAMETOOLONG => unreachable, // Handled by posix.toPosixPath() above.
+            .NOENT, .NOTDIR => error.FileNotFound,
+            .NOMEM => error.SystemResources,
+            else => |err| posix.unexpectedErrno(err),
+        };
+    }
     const st = try posix.fstatat(self.fd, sub_path, posix.AT.SYMLINK_NOFOLLOW);
-    return Stat.fromSystem(st);
+    return Stat.fromPosix(st);
 }
 
 /// Same as `Dir.statLink`
 pub fn statLinkZ(self: Dir, sub_path_c: [*:0]const u8) StatFileError!Stat {
-    if (native_os == .windows) {
-        const path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path_c);
-        return self.statLinkW(path_w.span());
-    }
-    if (native_os == .wasi and !builtin.link_libc) {
-        const st = try std.os.fstatat_wasi(self.fd, mem.sliceTo(sub_path_c, 0), .{ .SYMLINK_FOLLOW = false });
-        return Stat.fromWasi(st);
-    }
-    const st = try posix.fstatatZ(self.fd, sub_path_c, posix.AT.SYMLINK_NOFOLLOW);
-    return Stat.fromSystem(st);
+    return self.statLink(mem.sliceTo(sub_path_c, 0));
 }
 
 /// Windows only. Same as `Dir.statLink`
@@ -2716,7 +2734,7 @@ pub const StatFileError = File.OpenError || File.StatError || posix.FStatAtError
 
 /// Returns metadata for a file inside the directory.
 ///
-/// On Windows, this requires two syscalls. On other operating systems, it
+/// On Windows, this requires three syscalls. On other operating systems, it
 /// only takes one.
 ///
 /// Symlinks are followed.
@@ -2727,6 +2745,8 @@ pub const StatFileError = File.OpenError || File.StatError || posix.FStatAtError
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
     if (native_os == .windows) {
+        // note: it is possible to stat the file directly using `NtQueryInformatioByName`
+        // see PR #20843 for why it has not been implemented
         const file = try self.openFile(sub_path, .{});
         defer file.close();
         return try file.stat();
