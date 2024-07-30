@@ -681,9 +681,29 @@ fn transType(c: *Context, scope: *Scope, raw_ty: Type, qual_handling: Type.QualH
         .float80 => return ZigTag.type.create(c.arena, "f80"),
         .float128 => return ZigTag.type.create(c.arena, "f128"),
         .@"enum" => @panic("TODO"),
-        .pointer => @panic("todo"),
-        .unspecified_variable_len_array,
-        .incomplete_array => {
+        .pointer => {
+            const child_type = ty.elemType();
+
+            const is_fn_proto = child_type.isFunc();
+            const is_const = is_fn_proto or child_type.isConst();
+            const is_volatile = child_type.qual.@"volatile";
+            const elem_type = try transType(c, scope, child_type, qual_handling, source_loc);
+            const ptr_info = .{
+                .is_const = is_const,
+                .is_volatile = is_volatile,
+                .elem_type = elem_type,
+            };
+            if (is_fn_proto or
+                typeIsOpaque(c, child_type) or
+                typeWasDemotedToOpaque(c, child_type))
+            {
+                const ptr = try ZigTag.single_pointer.create(c.arena, ptr_info);
+                return ZigTag.optional_type.create(c.arena, ptr);
+            }
+
+            return ZigTag.c_pointer.create(c.arena, ptr_info);
+        },
+        .unspecified_variable_len_array, .incomplete_array => {
             const child_type = ty.elemType();
             const is_const = child_type.qual.@"const";
             const is_volatile = child_type.qual.@"volatile";
@@ -962,6 +982,45 @@ fn transCompoundStmtInline(c: *Context, compound: NodeIndex, block: *Scope.Block
             .declaration, .empty_block => {},
             else => try block.statements.append(result),
         }
+    }
+}
+
+fn recordHasBitfield(record: *const Type.Record) bool {
+    if (record.isIncomplete()) return false;
+    for (record.fields) |field| {
+        if (!field.isRegularField()) return true;
+    }
+    return false;
+}
+
+fn typeIsOpaque(c: *Context, ty: Type) bool {
+    return switch (ty.specifier) {
+        .void => true,
+        .@"struct", .@"union" => recordHasBitfield(ty.getRecord().?),
+        .typeof_type => typeIsOpaque(c, ty.data.sub_type.*),
+        .typeof_expr => typeIsOpaque(c, ty.data.expr.ty),
+        .attributed => typeIsOpaque(c, ty.data.attributed.base),
+        else => false,
+    };
+}
+
+fn typeWasDemotedToOpaque(c: *Context, ty: Type) bool {
+    switch (ty.specifier) {
+        .@"struct", .@"union" => {
+            const record = ty.getRecord().?;
+            if (c.opaque_demotes.contains(@intFromPtr(record))) return true;
+            for (record.fields) |field| {
+                if (typeWasDemotedToOpaque(c, field.ty)) return true;
+            }
+            return false;
+        },
+
+        .@"enum" => return c.opaque_demotes.contains(@intFromPtr(ty.data.@"enum")),
+
+        .typeof_type => return typeWasDemotedToOpaque(c, ty.data.sub_type.*),
+        .typeof_expr => return typeWasDemotedToOpaque(c, ty.data.expr.ty),
+        .attributed => return typeWasDemotedToOpaque(c, ty.data.attributed.base),
+        else => return false,
     }
 }
 
