@@ -340,8 +340,6 @@ pub fn createEmpty(
 
     const gpa = comp.gpa;
 
-    // Index 0 is always a null symbol.
-    try self.symbols.append(gpa, .{});
     // Append null file at index 0
     try self.files.append(gpa, .null);
     // Append null byte to string tables
