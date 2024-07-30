@@ -293,6 +293,7 @@ fn _start() callconv(.Naked) noreturn {
             \\ .gpword .
             \\ .gpword %[posixCallMainAndExit]
             \\ 1:
+            // The `gp` register on MIPS serves a similar purpose to `r2` (ToC pointer) on PPC64.
             \\ lw $gp, 0($ra)
             \\ subu $gp, $ra, $gp
             \\ lw $25, 4($ra)
@@ -314,8 +315,6 @@ fn _start() callconv(.Naked) noreturn {
             \\ .gpdword %[posixCallMainAndExit]
             \\ 1:
             // The `gp` register on MIPS serves a similar purpose to `r2` (ToC pointer) on PPC64.
-            // We need to set it up in order for dynamically-linked / position-independent code to
-            // work.
             \\ ld $gp, 0($ra)
             \\ dsubu $gp, $ra, $gp
             \\ ld $25, 8($ra)
