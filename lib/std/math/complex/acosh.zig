@@ -15,12 +15,11 @@ pub fn acosh(z: anytype) Complex(@TypeOf(z.re, z.im)) {
         Complex(T).init(-q.im, q.re);
 }
 
-const epsilon = 0.0001;
-
 test acosh {
+    const epsilon = math.floatEps(f32);
     const a = Complex(f32).init(5, 3);
     const c = acosh(a);
 
-    try testing.expect(math.approxEqAbs(f32, c.re, 2.452914, epsilon));
-    try testing.expect(math.approxEqAbs(f32, c.im, 0.546975, epsilon));
+    try testing.expectApproxEqAbs(2.4529128, c.re, epsilon);
+    try testing.expectApproxEqAbs(0.5469737, c.im, epsilon);
 }

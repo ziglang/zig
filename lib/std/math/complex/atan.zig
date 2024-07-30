@@ -88,20 +88,20 @@ fn atan64(z: Complex(f64)) Complex(f64) {
     return Complex(f64).init(w, 0.25 * @log(a));
 }
 
-const epsilon = 0.0001;
-
 test atan32 {
+    const epsilon = math.floatEps(f32);
     const a = Complex(f32).init(5, 3);
     const c = atan(a);
 
-    try testing.expect(math.approxEqAbs(f32, c.re, 1.423679, epsilon));
-    try testing.expect(math.approxEqAbs(f32, c.im, 0.086569, epsilon));
+    try testing.expectApproxEqAbs(1.423679, c.re, epsilon);
+    try testing.expectApproxEqAbs(0.086569, c.im, epsilon);
 }
 
 test atan64 {
+    const epsilon = math.floatEps(f64);
     const a = Complex(f64).init(5, 3);
     const c = atan(a);
 
-    try testing.expect(math.approxEqAbs(f64, c.re, 1.423679, epsilon));
-    try testing.expect(math.approxEqAbs(f64, c.im, 0.086569, epsilon));
+    try testing.expectApproxEqAbs(1.4236790442393028, c.re, epsilon);
+    try testing.expectApproxEqAbs(0.08656905917945844, c.im, epsilon);
 }
