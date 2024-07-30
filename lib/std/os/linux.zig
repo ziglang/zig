@@ -6292,10 +6292,6 @@ pub const SIOCGIFTXQLEN = 0x8942;
 /// Set the tx queue length
 pub const SIOCSIFTXQLEN = 0x8943;
 
-// These 2 were commented in sockios.h not sure if it's needed or not.
-// pub const SIOCGIFDIVERT = 0x8944		Frame diversion support
-// pub const SIOCSIFDIVERT = 0x8945		Set frame diversion options
-
 /// Ethtool interface
 pub const SIOCETHTOOL = 0x8946;
 
