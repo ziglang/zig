@@ -243,6 +243,7 @@ fn transTopLevelDecls(c: *Context) !void {
 fn transDecl(c: *Context, scope: *Scope, decl: NodeIndex) !void {
     const node_tags = c.tree.nodes.items(.tag);
     const node_data = c.tree.nodes.items(.data);
+    const node_ty = c.tree.nodes.items(.ty);
     const data = node_data[@intFromEnum(decl)];
     switch (node_tags[@intFromEnum(decl)]) {
         .typedef => {
@@ -270,11 +271,13 @@ fn transDecl(c: *Context, scope: *Scope, decl: NodeIndex) !void {
             var field_count: u8 = 0;
             if (fields[0] != .none) field_count += 1;
             if (fields[1] != .none) field_count += 1;
-            try transEnumDecl(c, scope, decl, fields[0..field_count]);
+            const enum_decl = node_ty[@intFromEnum(decl)].canonicalize(.standard).data.@"enum";
+            try transEnumDecl(c, scope, enum_decl, fields[0..field_count]);
         },
         .enum_decl => {
             const fields = c.tree.data[data.range.start..data.range.end];
-            try transEnumDecl(c, scope, decl, fields);
+            const enum_decl = node_ty[@intFromEnum(decl)].canonicalize(.standard).data.@"enum";
+            try transEnumDecl(c, scope, enum_decl, fields);
         },
 
         .enum_field_decl,
@@ -572,18 +575,16 @@ fn transVarDecl(c: *Context, node: NodeIndex) Error!void {
     return failDecl(c, data.decl.name, name, "unable to translate variable declaration", .{});
 }
 
-fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: NodeIndex, field_nodes: []const NodeIndex) Error!void {
-    const node_types = c.tree.nodes.items(.ty);
-    const ty = node_types[@intFromEnum(enum_decl)];
-    if (c.decl_table.get(@intFromPtr(ty.data.@"enum"))) |_|
+fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const Type.Enum, field_nodes: []const NodeIndex) Error!void {
+    if (c.decl_table.get(@intFromPtr(enum_decl))) |_|
         return; // Avoid processing this decl twice
     const toplevel = scope.id == .root;
     const bs: *Scope.Block = if (!toplevel) try scope.findBlockScope(c) else undefined;
 
     var is_unnamed = false;
-    var bare_name: []const u8 = c.mapper.lookup(ty.data.@"enum".name);
+    var bare_name: []const u8 = c.mapper.lookup(enum_decl.name);
     var name = bare_name;
-    if (c.unnamed_typedefs.get(@intFromPtr(ty.data.@"enum"))) |typedef_name| {
+    if (c.unnamed_typedefs.get(@intFromPtr(enum_decl))) |typedef_name| {
         bare_name = typedef_name;
         name = typedef_name;
     } else {
@@ -594,10 +595,10 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: NodeIndex, field_nodes: 
         name = try std.fmt.allocPrint(c.arena, "enum_{s}", .{bare_name});
     }
     if (!toplevel) name = try bs.makeMangledName(c, name);
-    try c.decl_table.putNoClobber(c.gpa, @intFromPtr(ty.data.@"enum"), name);
+    try c.decl_table.putNoClobber(c.gpa, @intFromPtr(enum_decl), name);
 
-    const enum_type_node = if (!ty.data.@"enum".isIncomplete()) blk: {
-        for (ty.data.@"enum".fields, field_nodes) |field, field_node| {
+    const enum_type_node = if (!enum_decl.isIncomplete()) blk: {
+        for (enum_decl.fields, field_nodes) |field, field_node| {
             var enum_val_name: []const u8 = c.mapper.lookup(field.name);
             if (!toplevel) {
                 enum_val_name = try bs.makeMangledName(c, enum_val_name);
@@ -623,14 +624,14 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: NodeIndex, field_nodes: 
             }
         }
 
-        break :blk transType(c, scope, ty.data.@"enum".tag_ty, .standard, 0) catch |err| switch (err) {
+        break :blk transType(c, scope, enum_decl.tag_ty, .standard, 0) catch |err| switch (err) {
             error.UnsupportedType => {
                 return failDecl(c, 0, name, "unable to translate enum integer type", .{});
             },
             else => |e| return e,
         };
     } else blk: {
-        try c.opaque_demotes.put(c.gpa, @intFromPtr(ty.data.@"enum"), {});
+        try c.opaque_demotes.put(c.gpa, @intFromPtr(enum_decl), {});
         break :blk ZigTag.opaque_literal.init();
     };
 
@@ -680,7 +681,16 @@ fn transType(c: *Context, scope: *Scope, raw_ty: Type, qual_handling: Type.QualH
         .long_double => return ZigTag.type.create(c.arena, "c_longdouble"),
         .float80 => return ZigTag.type.create(c.arena, "f80"),
         .float128 => return ZigTag.type.create(c.arena, "f128"),
-        .@"enum" => @panic("TODO"),
+        .@"enum" => {
+            const enum_decl = ty.data.@"enum";
+            var trans_scope = scope;
+            if (enum_decl.name != .empty) {
+                const decl_name = c.mapper.lookup(enum_decl.name);
+                if (c.weak_global_names.contains(decl_name)) trans_scope = &c.global_scope.base;
+            }
+            try transEnumDecl(c, trans_scope, enum_decl, &.{});
+            return ZigTag.identifier.create(c.arena, c.decl_table.get(@intFromPtr(enum_decl)).?);
+        },
         .pointer => {
             const child_type = ty.elemType();
 
