@@ -615,7 +615,7 @@ pub const VaList = switch (builtin.cpu.arch) {
         else => VaListPowerPc,
     },
     .powerpc64, .powerpc64le => *u8,
-    .sparc, .sparcel, .sparc64 => *anyopaque,
+    .sparc, .sparc64 => *anyopaque,
     .spirv32, .spirv64 => *anyopaque,
     .s390x => VaListS390x,
     .wasm32, .wasm64 => *anyopaque,

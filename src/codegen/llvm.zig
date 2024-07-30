@@ -69,7 +69,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .riscv64 => "riscv64",
         .sparc => "sparc",
         .sparc64 => "sparc64",
-        .sparcel => "sparcel",
         .s390x => "s390x",
         .thumb => "thumb",
         .thumbeb => "thumbeb",
@@ -280,7 +279,6 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .riscv64 => .riscv64,
         .sparc => .sparc,
         .sparc64 => .sparcv9, // In LLVM, sparc64 == sparcv9.
-        .sparcel => .sparcel,
         .s390x => .systemz,
         .thumb => .thumb,
         .thumbeb => .thumbeb,
@@ -469,7 +467,6 @@ const DataLayoutBuilder = struct {
             .powerpcle,
             .riscv32,
             .sparc,
-            .sparcel,
             .thumb,
             .thumbeb,
             .xtensa,
@@ -12004,7 +12001,7 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializeRISCVAsmPrinter();
             llvm.LLVMInitializeRISCVAsmParser();
         },
-        .sparc, .sparc64, .sparcel => {
+        .sparc, .sparc64 => {
             llvm.LLVMInitializeSparcTarget();
             llvm.LLVMInitializeSparcTargetInfo();
             llvm.LLVMInitializeSparcTargetMC();

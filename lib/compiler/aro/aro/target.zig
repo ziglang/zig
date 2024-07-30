@@ -58,7 +58,7 @@ pub fn intPtrType(target: std.Target) Type {
         .avr,
         => return .{ .specifier = .int },
 
-        .sparc, .sparcel => switch (target.os.tag) {
+        .sparc => switch (target.os.tag) {
             .netbsd, .openbsd => {},
             else => return .{ .specifier = .int },
         },
@@ -132,7 +132,7 @@ pub fn defaultFunctionAlignment(target: std.Target) u8 {
     return switch (target.cpu.arch) {
         .arm, .armeb => 4,
         .aarch64, .aarch64_be => 4,
-        .sparc, .sparcel, .sparc64 => 4,
+        .sparc, .sparc64 => 4,
         .riscv64 => 2,
         else => 1,
     };
@@ -426,7 +426,7 @@ pub fn ldEmulationOption(target: std.Target, arm_endianness: ?std.builtin.Endian
         .powerpc64le => "elf64lppc",
         .riscv32 => "elf32lriscv",
         .riscv64 => "elf64lriscv",
-        .sparc, .sparcel => "elf32_sparc",
+        .sparc => "elf32_sparc",
         .sparc64 => "elf64_sparc",
         .loongarch32 => "elf32loongarch",
         .loongarch64 => "elf64loongarch",
@@ -466,7 +466,6 @@ pub fn get32BitArchVariant(target: std.Target) ?std.Target {
         .powerpcle,
         .riscv32,
         .sparc,
-        .sparcel,
         .thumb,
         .thumbeb,
         .x86,
@@ -510,7 +509,6 @@ pub fn get64BitArchVariant(target: std.Target) ?std.Target {
         .lanai,
         .m68k,
         .msp430,
-        .sparcel,
         .spu_2,
         .xcore,
         .xtensa,
@@ -592,7 +590,6 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .riscv64 => "riscv64",
         .sparc => "sparc",
         .sparc64 => "sparc64",
-        .sparcel => "sparcel",
         .s390x => "s390x",
         .thumb => "thumb",
         .thumbeb => "thumbeb",

@@ -1602,7 +1602,6 @@ pub fn maxIntAlignment(target: std.Target, use_llvm: bool) u16 {
         .amdgcn,
         .riscv32,
         .sparc,
-        .sparcel,
         .s390x,
         .lanai,
         .wasm32,
