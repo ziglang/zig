@@ -681,8 +681,16 @@ fn transType(c: *Context, scope: *Scope, raw_ty: Type, qual_handling: Type.QualH
         .float80 => return ZigTag.type.create(c.arena, "f80"),
         .float128 => return ZigTag.type.create(c.arena, "f128"),
         .@"enum" => @panic("TODO"),
-        .pointer, .incomplete_array => @panic("todo"),
+        .pointer => @panic("todo"),
         .unspecified_variable_len_array,
+        .incomplete_array => {
+            const child_type = ty.elemType();
+            const is_const = child_type.qual.@"const";
+            const is_volatile = child_type.qual.@"volatile";
+            const elem_type = try transType(c, scope, child_type, qual_handling, source_loc);
+
+            return ZigTag.c_pointer.create(c.arena, .{ .is_const = is_const, .is_volatile = is_volatile, .elem_type = elem_type });
+        },
         .array,
         .static_array,
         => {
