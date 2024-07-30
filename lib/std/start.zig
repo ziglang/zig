@@ -273,6 +273,14 @@ fn _start() callconv(.Naked) noreturn {
             \\ b %[posixCallMainAndExit]
             ,
             .riscv32, .riscv64 =>
+            // The RISC-V ELF ABI assumes that `gp` is set to the value of `__global_pointer$` at
+            // startup in order for GP relaxation to work, even in static builds.
+            \\ .weak __global_pointer$
+            \\ .hidden __global_pointer$
+            \\ .option push
+            \\ .option norelax
+            \\ lla gp, __global_pointer$
+            \\ .option pop
             \\ li s0, 0
             \\ li ra, 0
             \\ mv a0, sp
