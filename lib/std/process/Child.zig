@@ -1875,8 +1875,8 @@ fn argvToScriptCommandLineWindows(
 
 test "detached child" {
     const cmd = if (native_os == .windows)
-        &.{ "ping", "-n", "1", "-w", "10000", "127.255.255.255" }
-    else &.{ "sleep", "10" };
+        &.{ "ping", "-n", "1", "-w", "30000", "127.255.255.255" }
+    else &.{ "sleep", "30" };
     var child = ChildProcess.init(cmd, std.testing.allocator);
     child.stdin_behavior = .Ignore;
     child.stderr_behavior = .Ignore;
@@ -1905,4 +1905,6 @@ test "detached child" {
         const child_sid = try posix.getsid(child.id);
         try std.testing.expect(current_sid != child_sid);
     }
+
+    _ = try child.kill();
 }
