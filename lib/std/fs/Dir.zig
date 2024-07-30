@@ -1856,7 +1856,7 @@ pub const ReadLinkError = posix.ReadLinkError;
 pub fn statLink(self: Dir, sub_path: []const u8) StatFileError!Stat {
     if (native_os == .windows) {
         const path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
-        return self.statFileW(path_w.span().ptr, false);
+        return self.statLinkW(path_w.span());
     }
     if (native_os == .wasi and !builtin.link_libc) {
         const st = try std.os.fstatat_wasi(self.fd, sub_path, .{ .SYMLINK_FOLLOW = false });
@@ -1870,7 +1870,7 @@ pub fn statLink(self: Dir, sub_path: []const u8) StatFileError!Stat {
 pub fn statLinkZ(self: Dir, sub_path_c: [*:0]const u8) StatFileError!Stat {
     if (native_os == .windows) {
         const path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path_c);
-        return self.statFileW(path_w.span().ptr, false);
+        return self.statLinkW(path_w.span());
     }
     if (native_os == .wasi and !builtin.link_libc) {
         const st = try std.os.fstatat_wasi(self.fd, mem.sliceTo(sub_path_c, 0), .{ .SYMLINK_FOLLOW = false });
@@ -1881,8 +1881,18 @@ pub fn statLinkZ(self: Dir, sub_path_c: [*:0]const u8) StatFileError!Stat {
 }
 
 /// Windows only. Same as `Dir.statLink`
-pub fn statLinkW(self: Dir, sub_path_w: [*:0]const u16) StatFileError!Stat {
-    return self.statFileW(sub_path_w, false);
+pub fn statLinkW(self: Dir, sub_path_w: []const u16) StatFileError!Stat {
+    const file = File{
+        .handle = try windows.OpenFile(sub_path_w, .{
+            .dir = self.fd,
+            .access_mask = windows.GENERIC_READ,
+            .creation = windows.FILE_OPEN,
+            .follow_symlinks = false,
+            .filter = .any,
+        }),
+    };
+    defer file.close();
+    return file.stat();
 }
 
 /// Read value of a symbolic link.
@@ -2670,8 +2680,9 @@ pub const StatFileError = File.OpenError || File.StatError || posix.FStatAtError
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
     if (native_os == .windows) {
-        const path_w = windows.sliceToPrefixedFileW(self.fd, sub_path) catch return error.InvalidWtf8;
-        return self.statFileW(path_w.span().ptr, true);
+        const file = try self.openFile(sub_path, .{});
+        defer file.close();
+        return try file.stat();
     }
     if (native_os == .wasi and !builtin.link_libc) {
         const st = try std.os.fstatat_wasi(self.fd, sub_path, .{ .SYMLINK_FOLLOW = true });
@@ -2679,67 +2690,6 @@ pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
     }
     const st = try posix.fstatat(self.fd, sub_path, 0);
     return Stat.fromSystem(st);
-}
-
-fn statFileW(self: Dir, sub_path_w: [*:0]const u16, follow_symlinks: bool) StatFileError!Stat {
-    const path_len_bytes = std.math.cast(u16, mem.sliceTo(sub_path_w, 0).len * 2) orelse return error.NameTooLong;
-    var nt_name = windows.UNICODE_STRING{
-        .Length = path_len_bytes,
-        .MaximumLength = path_len_bytes,
-        .Buffer = @constCast(sub_path_w),
-    };
-    // windows.OBJ_OPENLINK means it opens the link directly rather than its target
-    const attributes: u32 = if (follow_symlinks) 0 else windows.OBJ_OPENLINK;
-    var attr = windows.OBJECT_ATTRIBUTES{
-        .Length = @sizeOf(windows.OBJECT_ATTRIBUTES),
-        .RootDirectory = if (fs.path.isAbsoluteWindowsW(sub_path_w)) null else self.fd,
-        .Attributes = attributes,
-        .ObjectName = &nt_name,
-        .SecurityDescriptor = null,
-        .SecurityQualityOfService = null,
-    };
-    var io_status_block: windows.IO_STATUS_BLOCK = undefined;
-    var info: windows.FILE_ALL_INFORMATION = undefined;
-
-    const rc = windows.ntdll.NtQueryInformationByName(&attr, &io_status_block, &info, @sizeOf(windows.FILE_ALL_INFORMATION), .FileAllInformation);
-    switch (rc) {
-        .SUCCESS => {},
-        // Buffer overflow here indicates that there is more information available than was able to be stored in the buffer
-        // size provided. This is treated as success because the type of variable-length information that this would be relevant for
-        // (name, volume name, etc) we don't care about.
-        .BUFFER_OVERFLOW => {},
-        .INVALID_PARAMETER => unreachable,
-        .ACCESS_DENIED => return error.AccessDenied,
-        else => return windows.unexpectedStatus(rc),
-    }
-    return .{
-        .inode = info.InternalInformation.IndexNumber,
-        .size = @as(u64, @bitCast(info.StandardInformation.EndOfFile)),
-        .mode = 0,
-        .kind = if (info.BasicInformation.FileAttributes & windows.FILE_ATTRIBUTE_REPARSE_POINT != 0) reparse_point: {
-            var tag_info: windows.FILE_ATTRIBUTE_TAG_INFO = undefined;
-            const tag_rc = windows.ntdll.NtQueryInformationByName(&attr, &io_status_block, &tag_info, @sizeOf(windows.FILE_ATTRIBUTE_TAG_INFO), .FileAttributeTagInformation);
-            switch (tag_rc) {
-                .SUCCESS => {},
-                // INFO_LENGTH_MISMATCH and ACCESS_DENIED are the only documented possible errors
-                // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-fscc/d295752f-ce89-4b98-8553-266d37c84f0e
-                .INFO_LENGTH_MISMATCH => unreachable,
-                .ACCESS_DENIED => return error.AccessDenied,
-                else => return windows.unexpectedStatus(rc),
-            }
-            if (tag_info.ReparseTag & windows.reparse_tag_name_surrogate_bit != 0) {
-                break :reparse_point .sym_link;
-            }
-            // Unknown reparse point
-            break :reparse_point .unknown;
-        } else if (info.BasicInformation.FileAttributes & windows.FILE_ATTRIBUTE_DIRECTORY != 0)
-            .directory
-        else
-            .file,
-        .atime = windows.fromSysTime(info.BasicInformation.LastAccessTime),
-        .mtime = windows.fromSysTime(info.BasicInformation.LastWriteTime),
-        .ctime = windows.fromSysTime(info.BasicInformation.ChangeTime),
-    };
 }
 
 pub const ChmodError = File.ChmodError;
