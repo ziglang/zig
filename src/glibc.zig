@@ -403,9 +403,9 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
 
 fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![]const u8 {
     const arch = comp.getTarget().cpu.arch;
-    const is_ppc = arch == .powerpc or arch == .powerpc64 or arch == .powerpc64le;
-    const is_aarch64 = arch == .aarch64 or arch == .aarch64_be;
-    const is_sparc = arch == .sparc or arch == .sparc64;
+    const is_ppc = arch.isPowerPC();
+    const is_aarch64 = arch.isAARCH64();
+    const is_sparc = arch.isSPARC();
     const is_64 = comp.getTarget().ptrBitWidth() == 64;
 
     const s = path.sep_str;
@@ -423,7 +423,7 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
                 try result.appendSlice("sparc" ++ s ++ "sparc32");
             }
         }
-    } else if (arch.isARM()) {
+    } else if (arch.isArmOrThumb()) {
         try result.appendSlice("arm");
     } else if (arch.isMIPS()) {
         if (!mem.eql(u8, basename, "crti.S") and !mem.eql(u8, basename, "crtn.S")) {
@@ -540,10 +540,10 @@ fn add_include_dirs_arch(
     dir: []const u8,
 ) error{OutOfMemory}!void {
     const arch = target.cpu.arch;
-    const is_x86 = arch == .x86 or arch == .x86_64;
-    const is_aarch64 = arch == .aarch64 or arch == .aarch64_be;
-    const is_ppc = arch == .powerpc or arch == .powerpc64 or arch == .powerpc64le;
-    const is_sparc = arch == .sparc or arch == .sparc64;
+    const is_x86 = arch.isX86();
+    const is_aarch64 = arch.isAARCH64();
+    const is_ppc = arch.isPowerPC();
+    const is_sparc = arch.isSPARC();
     const is_64 = target.ptrBitWidth() == 64;
 
     const s = path.sep_str;
@@ -573,7 +573,7 @@ fn add_include_dirs_arch(
             try args.append("-I");
             try args.append(try path.join(arena, &[_][]const u8{ dir, "x86" }));
         }
-    } else if (arch.isARM()) {
+    } else if (arch.isArmOrThumb()) {
         if (opt_nptl) |nptl| {
             try args.append("-I");
             try args.append(try path.join(arena, &[_][]const u8{ dir, "arm", nptl }));
