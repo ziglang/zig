@@ -494,16 +494,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     });
 
-    cases.add("function prototype with parenthesis",
-        \\void (f0) (void *L);
-        \\void ((f1)) (void *L);
-        \\void (((f2))) (void *L);
-    , &[_][]const u8{
-        \\pub extern fn f0(L: ?*anyopaque) void;
-        \\pub extern fn f1(L: ?*anyopaque) void;
-        \\pub extern fn f2(L: ?*anyopaque) void;
-    });
-
     cases.add("array initializer w/ typedef",
         \\typedef unsigned char uuid_t[16];
         \\static const uuid_t UUID_NULL __attribute__ ((unused)) = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};

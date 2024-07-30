@@ -297,7 +297,7 @@ fn transDecl(c: *Context, scope: *Scope, decl: NodeIndex) !void {
         .inline_fn_def,
         .inline_static_fn_def,
         => {
-            try transFnDecl(c, decl);
+            try transFnDecl(c, decl, true);
         },
 
         .@"var",
@@ -476,7 +476,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_node: NodeIndex, field_nod
     }
 }
 
-fn transFnDecl(c: *Context, fn_decl: NodeIndex) Error!void {
+fn transFnDecl(c: *Context, fn_decl: NodeIndex, is_pub: bool) Error!void {
     const raw_ty = c.tree.nodes.items(.ty)[@intFromEnum(fn_decl)];
     const fn_ty = raw_ty.canonicalize(.standard);
     const node_data = c.tree.nodes.items(.data)[@intFromEnum(fn_decl)];
@@ -501,6 +501,7 @@ fn transFnDecl(c: *Context, fn_decl: NodeIndex) Error!void {
 
             else => unreachable,
         },
+        .is_pub = is_pub,
     };
 
     const proto_node = transFnType(c, &c.global_scope.base, raw_ty, fn_ty, fn_decl_loc, proto_ctx) catch |err| switch (err) {
