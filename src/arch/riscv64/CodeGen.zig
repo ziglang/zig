@@ -6855,10 +6855,10 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
                     else => return std.debug.panic("TODO: genSetReg for float size {d}", .{abi_size}),
                 },
                 .int => switch (abi_size) {
-                    1 => .lb,
-                    2 => .lh,
-                    4 => .lw,
-                    8 => .ld,
+                    1...1 => .lb,
+                    2...2 => .lh,
+                    3...4 => .lw,
+                    5...8 => .ld,
                     else => return std.debug.panic("TODO: genSetReg for int size {d}", .{abi_size}),
                 },
                 .vector => {
