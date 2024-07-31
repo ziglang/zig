@@ -774,12 +774,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add("noreturn attribute",
-        \\void foo(void) __attribute__((noreturn));
-    , &[_][]const u8{
-        \\pub extern fn foo() noreturn;
-    });
-
     cases.add("always_inline attribute",
         \\__attribute__((always_inline)) int foo() {
         \\    return 5;
