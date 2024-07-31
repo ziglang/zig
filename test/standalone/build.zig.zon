@@ -62,6 +62,9 @@
         .child_process = .{
             .path = "child_process",
         },
+        .detached_child = .{
+            .path = "detached_child",
+        },
         .embed_generated_file = .{
             .path = "embed_generated_file",
         },

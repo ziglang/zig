@@ -1872,39 +1872,3 @@ fn argvToScriptCommandLineWindows(
 
     return try unicode.wtf8ToWtf16LeAllocZ(allocator, buf.items);
 }
-
-test "detached child" {
-    const cmd = if (native_os == .windows)
-        &.{ "ping", "-n", "1", "-w", "30000", "127.255.255.255" }
-    else &.{ "sleep", "30" };
-    var child = ChildProcess.init(cmd, std.testing.allocator);
-    child.stdin_behavior = .Ignore;
-    child.stderr_behavior = .Ignore;
-    child.stdout_behavior = .Pipe;
-    child.detached = true;
-    try child.spawn();
-
-    if (native_os == .windows) {
-        const child_pid = try windows.GetProcessId(child.id);
-
-        // Give the process some time to actually start doing something.
-        // If we check the process list immediately, we might be done before
-        // the new process attaches to the console.
-        var read_buffer: [1]u8 = undefined;
-        try std.testing.expectEqual(1, try child.stdout.?.read(&read_buffer));
-
-        var proc_buffer: [16]windows.DWORD = undefined;
-        const proc_count = try windows.GetConsoleProcessList(&proc_buffer);
-        if (proc_count > 16) return error.ProcessBufferTooSmall;
-
-        for (proc_buffer[0..proc_count]) |proc| {
-            if (proc == child_pid) return error.ProcessAttachedToConsole;
-        }
-    } else {
-        const current_sid = try posix.getsid(0);
-        const child_sid = try posix.getsid(child.id);
-        try std.testing.expect(current_sid != child_sid);
-    }
-
-    _ = try child.kill();
-}
