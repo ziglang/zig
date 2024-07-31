@@ -133,20 +133,20 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
 
     cases.add("scoped typedef",
         \\void foo() {
-        \\	typedef union {
-        \\		int A;
-        \\		int B;
-        \\		int C;
-        \\	} Foo;
-        \\	Foo a = {0};
-        \\	{
-        \\		typedef union {
-        \\			int A;
-        \\			int B;
-        \\			int C;
-        \\		} Foo;
-        \\		Foo a = {0};
-        \\	}
+        \\ typedef union {
+        \\  int A;
+        \\  int B;
+        \\  int C;
+        \\ } Foo;
+        \\ Foo a = {0};
+        \\ {
+        \\  typedef union {
+        \\   int A;
+        \\   int B;
+        \\   int C;
+        \\  } Foo;
+        \\  Foo a = {0};
+        \\ }
         \\}
     , &[_][]const u8{
         \\pub export fn foo() void {
@@ -2043,18 +2043,18 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\           break;
         \\        }
         \\        case 4:
-        \\		case 5:
+        \\        case 5:
         \\            res = 69;
         \\        {
         \\            res = 5;
-        \\			  return;
+        \\            return;
         \\        }
         \\        case 6:
         \\            switch (res) {
         \\                case 9: break;
         \\            }
         \\            res = 1;
-        \\			  return;
+        \\            return;
         \\    }
         \\}
     , &[_][]const u8{
