@@ -405,7 +405,7 @@ test "mappings" {
 
 test "inline mapped sequence of values" {
     try testExpected(
-        \\key :  [ val1, 
+        \\key :  [ val1,
         \\          val2 ]
     , &[_]Token.Id{
         .literal,
@@ -416,7 +416,6 @@ test "inline mapped sequence of values" {
         .space,
         .literal,
         .comma,
-        .space,
         .new_line,
         .space,
         .literal,

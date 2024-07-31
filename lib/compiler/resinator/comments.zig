@@ -322,11 +322,10 @@ test "multiline comment with newlines" {
 
 test "comments appended to a line" {
     try testRemoveComments(
-        \\blah 
-        \\blah
-    ,
+        "blah \nblah",
         \\blah // line comment
         \\blah
+        ,
     );
     try testRemoveComments(
         "blah \r\nblah",
