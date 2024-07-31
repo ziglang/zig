@@ -971,7 +971,9 @@ fn transFnType(
 }
 
 fn transStmt(c: *Context, node: NodeIndex) TransError!ZigNode {
-    return transExpr(c, node, .unused);
+    _ = c;
+    _ = node;
+    return error.UnsupportedTranslation;
 }
 
 fn transCompoundStmtInline(c: *Context, compound: NodeIndex, block: *Scope.Block) TransError!void {
