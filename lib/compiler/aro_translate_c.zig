@@ -398,6 +398,11 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_ty: Type) Error!void {
 
     const is_pub = toplevel and !is_unnamed;
     const init_node = blk: {
+        if (record_decl.isIncomplete()) {
+            try c.opaque_demotes.put(c.gpa, @intFromPtr(record_decl), {});
+            break :blk ZigTag.opaque_literal.init();
+        }
+
         var fields = try std.ArrayList(ast.Payload.Record.Field).initCapacity(c.gpa, record_decl.fields.len);
         defer fields.deinit();
 

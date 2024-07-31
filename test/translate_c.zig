@@ -879,17 +879,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const Foo = struct_Foo;
     });
 
-    cases.add("struct prototype used in func",
-        \\struct Foo;
-        \\struct Foo *some_func(struct Foo *foo, int x);
-    , &[_][]const u8{
-        \\pub const struct_Foo = opaque {};
-        ,
-        \\pub extern fn some_func(foo: ?*struct_Foo, x: c_int) ?*struct_Foo;
-        ,
-        \\pub const Foo = struct_Foo;
-    });
-
     cases.add("#define an unsigned integer literal",
         \\#define CHANNEL_COUNT 24
     , &[_][]const u8{
