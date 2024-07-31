@@ -253,17 +253,12 @@ fn transDecl(c: *Context, scope: *Scope, decl: NodeIndex) !void {
         .struct_decl_two,
         .union_decl_two,
         => {
-            var fields = [2]NodeIndex{ data.bin.lhs, data.bin.rhs };
-            var field_count: u2 = 0;
-            if (fields[0] != .none) field_count += 1;
-            if (fields[1] != .none) field_count += 1;
-            try transRecordDecl(c, scope, decl, fields[0..field_count]);
+            try transRecordDecl(c, scope, node_ty[@intFromEnum(decl)]);
         },
         .struct_decl,
         .union_decl,
         => {
-            const fields = c.tree.data[data.range.start..data.range.end];
-            try transRecordDecl(c, scope, decl, fields);
+            try transRecordDecl(c, scope, node_ty[@intFromEnum(decl)]);
         },
 
         .enum_decl_two => {
@@ -333,16 +328,14 @@ fn mangleWeakGlobalName(c: *Context, want_name: []const u8) ![]const u8 {
     return cur_name;
 }
 
-fn transRecordDecl(c: *Context, scope: *Scope, record_node: NodeIndex, field_nodes: []const NodeIndex) Error!void {
-    const node_types = c.tree.nodes.items(.ty);
-    const raw_record_ty = node_types[@intFromEnum(record_node)];
-    const record_decl = raw_record_ty.getRecord().?;
+fn transRecordDecl(c: *Context, scope: *Scope, record_ty: Type) Error!void {
+    const record_decl = record_ty.getRecord().?;
     if (c.decl_table.get(@intFromPtr(record_decl))) |_|
         return; // Avoid processing this decl twice
     const toplevel = scope.id == .root;
     const bs: *Scope.Block = if (!toplevel) try scope.findBlockScope(c) else undefined;
 
-    const container_kind: ZigTag = if (raw_record_ty.is(.@"union")) .@"union" else .@"struct";
+    const container_kind: ZigTag = if (record_ty.is(.@"union")) .@"union" else .@"struct";
     const container_kind_name: []const u8 = @tagName(container_kind);
 
     var is_unnamed = false;
@@ -353,7 +346,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_node: NodeIndex, field_nod
         bare_name = typedef_name;
         name = typedef_name;
     } else {
-        if (raw_record_ty.isAnonymousRecord(c.comp)) {
+        if (record_ty.isAnonymousRecord(c.comp)) {
             bare_name = try std.fmt.allocPrint(c.arena, "unnamed_{d}", .{c.getMangle()});
             is_unnamed = true;
         }
@@ -380,16 +373,9 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_node: NodeIndex, field_nod
         // layout, then we can just use a simple `extern` type. If it does have attributes,
         // then we need to inspect the layout and assign an `align` value for each field.
         const has_alignment_attributes = record_decl.field_attributes != null or
-            raw_record_ty.hasAttribute(.@"packed") or
-            raw_record_ty.hasAttribute(.aligned);
+            record_ty.hasAttribute(.@"packed") or
+            record_ty.hasAttribute(.aligned);
         const head_field_alignment: ?c_uint = if (has_alignment_attributes) headFieldAlignment(record_decl) else null;
-
-        // Iterate over field nodes so that we translate any type decls included in this record decl.
-        // TODO: Move this logic into `fn transType()` instead of handling decl translation here.
-        for (field_nodes) |field_node| {
-            const field_raw_ty = node_types[@intFromEnum(field_node)];
-            if (field_raw_ty.isEnumOrRecord()) try transDecl(c, scope, field_node);
-        }
 
         for (record_decl.fields, 0..) |field, field_index| {
             const field_loc = field.name_tok;
@@ -742,6 +728,7 @@ fn transType(c: *Context, scope: *Scope, raw_ty: Type, qual_handling: Type.QualH
                 const name_id = c.mapper.lookup(record_decl.name);
                 if (c.weak_global_names.contains(name_id)) trans_scope = &c.global_scope.base;
             }
+            try transRecordDecl(c, trans_scope, ty);
             const name = c.decl_table.get(@intFromPtr(ty.data.record)).?;
             return ZigTag.identifier.create(c.arena, name);
         },
