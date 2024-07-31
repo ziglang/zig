@@ -185,7 +185,7 @@ fn prepopulateGlobalNameTable(c: *Context) !void {
     for (c.tree.root_decls) |node| {
         const data = node_data[@intFromEnum(node)];
         switch (node_tags[@intFromEnum(node)]) {
-            .typedef => @panic("TODO"),
+            .typedef => {},
 
             .struct_decl_two,
             .union_decl_two,
@@ -309,8 +309,46 @@ fn transDecl(c: *Context, scope: *Scope, decl: NodeIndex) !void {
     }
 }
 
-fn transTypeDef(_: *Context, _: *Scope, _: NodeIndex) Error!void {
-    @panic("TODO");
+fn transTypeDef(c: *Context, scope: *Scope, typedef_decl: NodeIndex) Error!void {
+    const ty = c.tree.nodes.items(.ty)[@intFromEnum(typedef_decl)];
+    const data = c.tree.nodes.items(.data)[@intFromEnum(typedef_decl)];
+
+    const toplevel = scope.id == .root;
+    const bs: *Scope.Block = if (!toplevel) try scope.findBlockScope(c) else undefined;
+
+    var name: []const u8 = c.tree.tokSlice(data.decl.name);
+    try c.typedefs.put(c.gpa, name, {});
+
+    if (!toplevel) name = try bs.makeMangledName(c, name);
+
+    const typedef_loc = data.decl.name;
+    const init_node = transType(c, scope, ty, .standard, typedef_loc) catch |err| switch (err) {
+        error.UnsupportedType => {
+            return failDecl(c, typedef_loc, name, "unable to resolve typedef child type", .{});
+        },
+        error.OutOfMemory => |e| return e,
+    };
+
+    const payload = try c.arena.create(ast.Payload.SimpleVarDecl);
+    payload.* = .{
+        .base = .{ .tag = ([2]ZigTag{ .var_simple, .pub_var_simple })[@intFromBool(toplevel)] },
+        .data = .{
+            .name = name,
+            .init = init_node,
+        },
+    };
+    const node = ZigNode.initPayload(&payload.base);
+
+    if (toplevel) {
+        try addTopLevelDecl(c, name, node);
+    } else {
+        try scope.appendNode(node);
+        if (node.tag() != .pub_var_simple) {
+            try bs.discardVariable(c, name);
+        }
+    }
+
+
 }
 
 fn mangleWeakGlobalName(c: *Context, want_name: []const u8) ![]const u8 {
