@@ -78,6 +78,17 @@ fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: ZigNode) !void {
     }
 }
 
+fn fail(
+    c: *Context,
+    err: anytype,
+    source_loc: TokenIndex,
+    comptime format: []const u8,
+    args: anytype,
+) (@TypeOf(err) || error{OutOfMemory}) {
+    try warn(c, &c.global_scope.base, source_loc, format, args);
+    return err;
+}
+
 fn failDecl(c: *Context, loc: TokenIndex, name: []const u8, comptime format: []const u8, args: anytype) Error!void {
     // location
     // pub const name = @compileError(msg);
@@ -687,8 +698,21 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const Type.Enum, field_
     }
 }
 
+fn getTypeStr(c: *Context, ty: Type) ![]const u8 {
+    var buf: std.ArrayListUnmanaged(u8) = .{};
+    defer buf.deinit(c.gpa);
+    const w = buf.writer(c.gpa);
+    try ty.print(c.mapper, c.comp.langopts, w);
+    return c.arena.dupe(u8, buf.items);
+}
+
 fn transType(c: *Context, scope: *Scope, raw_ty: Type, qual_handling: Type.QualHandling, source_loc: TokenIndex) TypeError!ZigNode {
     const ty = raw_ty.canonicalize(qual_handling);
+    if (ty.qual.atomic) {
+        const type_name = try getTypeStr(c, ty);
+        return fail(c, error.UnsupportedType, source_loc, "unsupported type: '{s}'", .{type_name});
+    }
+
     switch (ty.specifier) {
         .void => return ZigTag.type.create(c.arena, "anyopaque"),
         .bool => return ZigTag.type.create(c.arena, "bool"),
