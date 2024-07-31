@@ -9,7 +9,9 @@ shdrs: std.ArrayListUnmanaged(elf.Elf64_Shdr) = .{},
 symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
 first_global: ?Symbol.Index = null,
-symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
+symbols: std.ArrayListUnmanaged(Symbol) = .{},
+symbols_extra: std.ArrayListUnmanaged(u32) = .{},
+symbols_resolver: std.ArrayListUnmanaged(Elf.SymbolResolver.Index) = .{},
 relocs: std.ArrayListUnmanaged(elf.Elf64_Rela) = .{},
 
 atoms: std.ArrayListUnmanaged(Atom) = .{},
@@ -51,6 +53,8 @@ pub fn deinit(self: *Object, allocator: Allocator) void {
     self.symtab.deinit(allocator);
     self.strtab.deinit(allocator);
     self.symbols.deinit(allocator);
+    self.symbols_extra.deinit(allocator);
+    self.symbols_resolver.deinit(allocator);
     self.atoms.deinit(allocator);
     self.atoms_indexes.deinit(allocator);
     self.atoms_extra.deinit(allocator);
@@ -80,7 +84,7 @@ pub fn parse(self: *Object, elf_file: *Elf) !void {
     try self.atoms.append(gpa, .{ .extra_index = try self.addAtomExtra(gpa, .{}) });
 
     try self.initAtoms(gpa, handle, elf_file);
-    try self.initSymtab(gpa, elf_file);
+    try self.initSymbols(gpa, elf_file);
 
     for (self.shdrs.items, 0..) |shdr, i| {
         const atom_ptr = self.atom(self.atoms_indexes.items[i]) orelse continue;
@@ -374,29 +378,29 @@ fn skipShdr(self: *Object, index: u32, elf_file: *Elf) bool {
     return ignore;
 }
 
-fn initSymtab(self: *Object, allocator: Allocator, elf_file: *Elf) !void {
+fn initSymbols(self: *Object, allocator: Allocator, elf_file: *Elf) !void {
     const first_global = self.first_global orelse self.symtab.items.len;
+    const nglobals = self.symtab.items.len - first_global;
 
     try self.symbols.ensureTotalCapacityPrecise(allocator, self.symtab.items.len);
+    try self.symbols_extra.ensureTotalCapacityPrecise(allocator, self.symtab.items.len * @sizeOf(Symbol.Extra));
+    try self.symbols_resolver.ensureTotalCapacityPrecise(allocator, nglobals);
+    self.symbols_resolver.resize(allocator, nglobals) catch unreachable;
+    @memset(self.symbols_resolver.items, 0);
 
-    for (self.symtab.items[0..first_global], 0..) |sym, i| {
-        const index = try elf_file.addSymbol();
-        self.symbols.appendAssumeCapacity(index);
-        const sym_ptr = elf_file.symbol(index);
+    for (self.symtab.items, 0..) |sym, i| {
+        const index = self.addSymbolAssumeCapacity();
+        const sym_ptr = &self.symbols.items[index];
         sym_ptr.value = @intCast(sym.st_value);
         sym_ptr.name_offset = sym.st_name;
-        sym_ptr.esym_index = @as(u32, @intCast(i));
-        sym_ptr.file_index = self.index;
-        sym_ptr.extra_index = try elf_file.addSymbolExtra(.{});
-        if (sym.st_shndx != elf.SHN_ABS) {
+        sym_ptr.esym_index = @intCast(i);
+        sym_ptr.extra_index = self.addSymbolExtraAssumeCapacity(.{
+            .weak = sym.st_bind() == elf.STB_WEAK,
+        });
+        sym_ptr.version_index = if (i >= first_global) elf_file.default_sym_version else elf.VER_NDX_LOCAL;
+        if (sym.st_shndx != elf.SHN_ABS and sym.st_shndx != elf.SHN_COMMON) {
             sym_ptr.ref = .{ .index = self.atoms_indexes.items[sym.st_shndx], .file = self.index };
         }
-    }
-
-    for (self.symtab.items[first_global..]) |sym| {
-        const name = self.getString(sym.st_name);
-        const gop = try elf_file.getOrPutGlobal(name);
-        self.symbols.addOneAssumeCapacity().* = gop.index;
     }
 }
 
@@ -544,7 +548,7 @@ pub fn scanRelocs(self: *Object, elf_file: *Elf, undefs: anytype) !void {
 
     for (self.cies.items) |cie| {
         for (cie.relocs(elf_file)) |rel| {
-            const sym = elf_file.symbol(self.symbols.items[rel.r_sym()]);
+            const sym = elf_file.symbol(self.resolveSymbol(rel.r_sym()));
             if (sym.flags.import) {
                 if (sym.type(elf_file) != elf.STT_FUNC)
                     // TODO convert into an error
@@ -559,48 +563,46 @@ pub fn scanRelocs(self: *Object, elf_file: *Elf, undefs: anytype) !void {
 }
 
 pub fn resolveSymbols(self: *Object, elf_file: *Elf) void {
+    const gpa = elf_file.base.comp.gpa;
+
     const first_global = self.first_global orelse return;
-    for (self.globals(), 0..) |index, i| {
-        const esym_index = @as(Symbol.Index, @intCast(first_global + i));
-        const esym = self.symtab.items[esym_index];
-
-        if (esym.st_shndx == elf.SHN_UNDEF) continue;
-
+    for (self.globals(), first_global..) |_, i| {
+        const esym = self.symtab.items[i];
         if (esym.st_shndx != elf.SHN_ABS and esym.st_shndx != elf.SHN_COMMON) {
             const atom_index = self.atoms_indexes.items[esym.st_shndx];
             const atom_ptr = self.atom(atom_index) orelse continue;
             if (!atom_ptr.alive) continue;
         }
 
-        const global = elf_file.symbol(index);
-        if (self.asFile().symbolRank(esym, !self.alive) < global.symbolRank(elf_file)) {
-            switch (esym.st_shndx) {
-                elf.SHN_ABS, elf.SHN_COMMON => {},
-                else => global.ref = .{
-                    .index = self.atoms_indexes.items[esym.st_shndx],
-                    .file = self.index,
-                },
-            }
-            global.value = @intCast(esym.st_value);
-            global.esym_index = esym_index;
-            global.file_index = self.index;
-            global.version_index = elf_file.default_sym_version;
-            if (esym.st_bind() == elf.STB_WEAK) global.flags.weak = true;
+        const resolv = &self.symbols_resolver.items[i - first_global];
+        const gop = try elf_file.resolver.getOrPut(gpa, .{
+            .index = @intCast(i),
+            .file = self.index,
+        }, elf_file);
+        if (!gop.found_existing) {
+            gop.ref.* = .{ .index = 0, .file = 0 };
+        }
+        resolv.* = gop.index;
+
+        if (esym.st_shndx == elf.SHN_UNDEF) continue;
+        if (elf_file.symbol(gop.ref) == null) {
+            gop.ref.* = .{ .index = @intCast(i), .file = self.index };
+            continue;
+        }
+
+        if (self.asFile().symbolRank(esym, !self.alive) < elf_file.symbol(gop.ref).?.symbolRank(elf_file)) {
+            gop.ref.* = .{ .index = @intCast(i), .file = self.index };
         }
     }
 }
 
 pub fn claimUnresolved(self: *Object, elf_file: *Elf) void {
     const first_global = self.first_global orelse return;
-    for (self.globals(), 0..) |index, i| {
+    for (self.globals(), 0..) |*sym, i| {
         const esym_index = @as(u32, @intCast(first_global + i));
         const esym = self.symtab.items[esym_index];
         if (esym.st_shndx != elf.SHN_UNDEF) continue;
-
-        const global = elf_file.symbol(index);
-        if (global.file(elf_file)) |_| {
-            if (global.elfSym(elf_file).st_shndx != elf.SHN_UNDEF) continue;
-        }
+        if (elf_file.symbol(self.resolveSymbol(esym_index, elf_file)) != null) continue;
 
         const is_import = blk: {
             if (!elf_file.isEffectivelyDynLib()) break :blk false;
@@ -609,12 +611,15 @@ pub fn claimUnresolved(self: *Object, elf_file: *Elf) void {
             break :blk true;
         };
 
-        global.value = 0;
-        global.ref = .{ .index = 0, .file = 0 };
-        global.esym_index = esym_index;
-        global.file_index = self.index;
-        global.version_index = if (is_import) elf.VER_NDX_LOCAL else elf_file.default_sym_version;
-        global.flags.import = is_import;
+        sym.value = 0;
+        sym.ref = .{ .index = 0, .file = 0 };
+        sym.esym_index = esym_index;
+        sym.file_index = self.index;
+        sym.version_index = if (is_import) elf.VER_NDX_LOCAL else elf_file.default_sym_version;
+        sym.flags.import = is_import;
+
+        const idx = self.symbols_resolver.items[i];
+        elf_file.resolver.values.items[idx - 1] = .{ .index = esym_index, .file = self.index };
     }
 }
 
@@ -1141,20 +1146,6 @@ pub fn writeSymtab(self: Object, elf_file: *Elf) void {
     }
 }
 
-pub fn locals(self: Object) []const Symbol.Index {
-    if (self.symbols.items.len == 0) return &[0]Symbol.Index{};
-    assert(self.symbols.items.len >= self.symtab.items.len);
-    const end = self.first_global orelse self.symtab.items.len;
-    return self.symbols.items[0..end];
-}
-
-pub fn globals(self: Object) []const Symbol.Index {
-    if (self.symbols.items.len == 0) return &[0]Symbol.Index{};
-    assert(self.symbols.items.len >= self.symtab.items.len);
-    const start = self.first_global orelse self.symtab.items.len;
-    return self.symbols.items[start..self.symtab.items.len];
-}
-
 /// Returns atom's code and optionally uncompresses data if required (for compressed sections).
 /// Caller owns the memory.
 pub fn codeDecompressAlloc(self: *Object, elf_file: *Elf, atom_index: Atom.Index) ![]u8 {
@@ -1185,6 +1176,77 @@ pub fn codeDecompressAlloc(self: *Object, elf_file: *Elf, atom_index: Atom.Index
     }
 
     return data;
+}
+
+pub fn locals(self: *Object) []Symbol {
+    if (self.symbols.items.len == 0) return &[0]Symbol{};
+    assert(self.symbols.items.len >= self.symtab.items.len);
+    const end = self.first_global orelse self.symtab.items.len;
+    return self.symbols.items[0..end];
+}
+
+pub fn globals(self: *Object) []Symbol {
+    if (self.symbols.items.len == 0) return &[0]Symbol{};
+    assert(self.symbols.items.len >= self.symtab.items.len);
+    const start = self.first_global orelse self.symtab.items.len;
+    return self.symbols.items[start..self.symtab.items.len];
+}
+
+pub fn resolveSymbol(self: Object, index: Symbol.Index, elf_file: *Elf) Elf.Ref {
+    const start = self.first_global orelse self.symtab.items.len;
+    const end = self.symtab.items.len;
+    if (index < start or index >= end) return .{ .index = index, .file = self.index };
+    const resolv = self.symbols_resolver.items[index - start];
+    return elf_file.resolver.get(resolv).?;
+}
+
+pub fn addSymbol(self: *Object, allocator: Allocator) !Symbol.Index {
+    try self.symbols.ensureUnusedCapacity(allocator, 1);
+    const index: Symbol.Index = @intCast(self.symbols.items.len);
+    self.symbols.appendAssumeCapacity(.{ .file_index = self.index });
+    return index;
+}
+
+pub fn addSymbolExtra(self: *Object, allocator: Allocator, extra: Symbol.Extra) !u32 {
+    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    try self.symbols_extra.ensureUnusedCapacity(allocator, fields.len);
+    return self.addSymbolExtraAssumeCapacity(extra);
+}
+
+pub fn addSymbolExtraAssumeCapacity(self: *Object, extra: Symbol.Extra) u32 {
+    const index = @as(u32, @intCast(self.symbols_extra.items.len));
+    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    inline for (fields) |field| {
+        self.symbols_extra.appendAssumeCapacity(switch (field.type) {
+            u32 => @field(extra, field.name),
+            else => @compileError("bad field type"),
+        });
+    }
+    return index;
+}
+
+pub fn symbolExtra(self: *Object, index: u32) Symbol.Extra {
+    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    var i: usize = index;
+    var result: Symbol.Extra = undefined;
+    inline for (fields) |field| {
+        @field(result, field.name) = switch (field.type) {
+            u32 => self.symbols_extra.items[i],
+            else => @compileError("bad field type"),
+        };
+        i += 1;
+    }
+    return result;
+}
+
+pub fn setSymbolExtra(self: *Object, index: u32, extra: Symbol.Extra) void {
+    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    inline for (fields, 0..) |field, i| {
+        self.symbols_extra.items[index + i] = switch (field.type) {
+            u32 => @field(extra, field.name),
+            else => @compileError("bad field type"),
+        };
+    }
 }
 
 pub fn asFile(self: *Object) File {

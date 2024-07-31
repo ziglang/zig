@@ -5375,85 +5375,9 @@ pub fn comdatGroup(self: *Elf, ref: Ref) *ComdatGroup {
     return self.file(ref.file).?.comdatGroup(ref.index);
 }
 
-/// Returns pointer-to-symbol described at sym_index.
-pub fn symbol(self: *Elf, sym_index: Symbol.Index) *Symbol {
-    return &self.symbols.items[sym_index];
-}
-
-pub fn addSymbol(self: *Elf) !Symbol.Index {
-    const gpa = self.base.comp.gpa;
-    try self.symbols.ensureUnusedCapacity(gpa, 1);
-    const index: Symbol.Index = @intCast(self.symbols.items.len);
-    _ = self.symbols.addOneAssumeCapacity();
-    self.symbols.items[index] = .{};
-    return index;
-}
-
-pub fn addSymbolExtra(self: *Elf, extra: Symbol.Extra) !u32 {
-    const gpa = self.base.comp.gpa;
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
-    try self.symbols_extra.ensureUnusedCapacity(gpa, fields.len);
-    return self.addSymbolExtraAssumeCapacity(extra);
-}
-
-pub fn addSymbolExtraAssumeCapacity(self: *Elf, extra: Symbol.Extra) u32 {
-    const index = @as(u32, @intCast(self.symbols_extra.items.len));
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
-    inline for (fields) |field| {
-        self.symbols_extra.appendAssumeCapacity(switch (field.type) {
-            u32 => @field(extra, field.name),
-            else => @compileError("bad field type"),
-        });
-    }
-    return index;
-}
-
-pub fn symbolExtra(self: *Elf, index: u32) Symbol.Extra {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
-    var i: usize = index;
-    var result: Symbol.Extra = undefined;
-    inline for (fields) |field| {
-        @field(result, field.name) = switch (field.type) {
-            u32 => self.symbols_extra.items[i],
-            else => @compileError("bad field type"),
-        };
-        i += 1;
-    }
-    return result;
-}
-
-pub fn setSymbolExtra(self: *Elf, index: u32, extra: Symbol.Extra) void {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
-    inline for (fields, 0..) |field, i| {
-        self.symbols_extra.items[index + i] = switch (field.type) {
-            u32 => @field(extra, field.name),
-            else => @compileError("bad field type"),
-        };
-    }
-}
-
-const GetOrPutGlobalResult = struct {
-    found_existing: bool,
-    index: Symbol.Index,
-};
-
-pub fn getOrPutGlobal(self: *Elf, name: []const u8) !GetOrPutGlobalResult {
-    const gpa = self.base.comp.gpa;
-    const name_off = try self.strings.insert(gpa, name);
-    const gop = try self.resolver.getOrPut(gpa, name_off);
-    if (!gop.found_existing) {
-        const index = try self.addSymbol();
-        log.debug("added symbol '{s}' at index {d}", .{ name, index });
-        const global = self.symbol(index);
-        global.name_offset = name_off;
-        global.flags.global = true;
-        global.extra_index = try self.addSymbolExtra(.{});
-        gop.value_ptr.* = index;
-    }
-    return .{
-        .found_existing = gop.found_existing,
-        .index = gop.value_ptr.*,
-    };
+pub fn symbol(self: *Elf, ref: Ref) ?*Symbol {
+    const file_ptr = self.file(ref.file) orelse return null;
+    return file_ptr.symbol(ref.index);
 }
 
 pub fn getGlobalSymbol(self: *Elf, name: []const u8, lib_name: ?[]const u8) !u32 {
@@ -6014,6 +5938,97 @@ pub const Ref = struct {
     }
 };
 
+pub const SymbolResolver = struct {
+    keys: std.ArrayListUnmanaged(Key) = .{},
+    values: std.ArrayListUnmanaged(Ref) = .{},
+    table: std.AutoArrayHashMapUnmanaged(void, void) = .{},
+
+    const Result = struct {
+        found_existing: bool,
+        index: Index,
+        ref: *Ref,
+    };
+
+    pub fn deinit(resolver: *SymbolResolver, allocator: Allocator) void {
+        resolver.keys.deinit(allocator);
+        resolver.values.deinit(allocator);
+        resolver.table.deinit(allocator);
+    }
+
+    pub fn getOrPut(
+        resolver: *SymbolResolver,
+        allocator: Allocator,
+        ref: Ref,
+        elf_file: *Elf,
+    ) !Result {
+        const adapter = Adapter{ .keys = resolver.keys.items, .elf_file = elf_file };
+        const key = Key{ .index = ref.index, .file = ref.file };
+        const gop = try resolver.table.getOrPutAdapted(allocator, key, adapter);
+        if (!gop.found_existing) {
+            try resolver.keys.append(allocator, key);
+            _ = try resolver.values.addOne(allocator);
+        }
+        return .{
+            .found_existing = gop.found_existing,
+            .index = @intCast(gop.index + 1),
+            .ref = &resolver.values.items[gop.index],
+        };
+    }
+
+    pub fn get(resolver: SymbolResolver, index: Index) ?Ref {
+        if (index == 0) return null;
+        return resolver.values.items[index - 1];
+    }
+
+    pub fn reset(resolver: *SymbolResolver) void {
+        resolver.keys.clearRetainingCapacity();
+        resolver.values.clearRetainingCapacity();
+        resolver.table.clearRetainingCapacity();
+    }
+
+    const Key = struct {
+        index: Symbol.Index,
+        file: File.Index,
+
+        fn name(key: Key, elf_file: *Elf) [:0]const u8 {
+            const ref = Ref{ .index = key.index, .file = key.file };
+            return ref.symbol(elf_file).?.name(elf_file);
+        }
+
+        pub fn file(key: Key, elf_file: *Elf) ?File {
+            const ref = Ref{ .index = key.index, .file = key.file };
+            return ref.file(elf_file);
+        }
+
+        fn eql(key: Key, other: Key, elf_file: *Elf) bool {
+            const key_name = key.name(elf_file);
+            const other_name = other.name(elf_file);
+            return mem.eql(u8, key_name, other_name);
+        }
+
+        fn hash(key: Key, elf_file: *Elf) u32 {
+            return @truncate(Hash.hash(0, key.name(elf_file)));
+        }
+    };
+
+    const Adapter = struct {
+        keys: []const Key,
+        elf_file: *Elf,
+
+        pub fn eql(ctx: @This(), key: Key, b_void: void, b_map_index: usize) bool {
+            _ = b_void;
+            const other = ctx.keys[b_map_index];
+            return key.eql(other, ctx.elf_file);
+        }
+
+        pub fn hash(ctx: @This(), key: Key) u32 {
+            return key.hash(ctx.elf_file);
+        }
+    };
+
+    pub const Index = u32;
+};
+
 const LastAtomAndFreeList = struct {
     /// Index of the last allocated atom in this section.
     last_atom_index: Atom.Index = 0,
@@ -6127,6 +6142,7 @@ const File = @import("Elf/file.zig").File;
 const GnuHashSection = synthetic_sections.GnuHashSection;
 const GotSection = synthetic_sections.GotSection;
 const GotPltSection = synthetic_sections.GotPltSection;
+const Hash = std.hash.Wyhash;
 const HashSection = synthetic_sections.HashSection;
 const InputMergeSection = merge_section.InputMergeSection;
 const LdScript = @import("Elf/LdScript.zig");
