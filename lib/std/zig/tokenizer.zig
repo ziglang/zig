@@ -424,10 +424,7 @@ pub const Tokenizer = struct {
                         };
                         state = .invalid;
                     },
-                    '\r' => {
-                        state = .expect_newline;
-                    },
-                    ' ', '\n', '\t' => {
+                    ' ', '\n', '\t', '\r' => {
                         result.loc.start = self.index + 1;
                     },
                     '"' => {
@@ -553,6 +550,13 @@ pub const Tokenizer = struct {
                 },
 
                 .expect_newline => switch (c) {
+                    0 => {
+                        if (self.index == self.buffer.len) {
+                            result.tag = .invalid;
+                            break;
+                        }
+                        state = .invalid;
+                    },
                     '\n' => {
                         result.loc.start = self.index + 1;
                         state = .start;
@@ -846,7 +850,15 @@ pub const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
-                    0x01...0x08, 0x0b...0x1f, 0x7f => {
+                    '\r' => {
+                        if (self.buffer[self.index + 1] == '\n') {
+                            self.index += 2;
+                            break;
+                        } else {
+                            state = .invalid;
+                        }
+                    },
+                    0x01...0x09, 0x0b...0x0c, 0x0e...0x1f, 0x7f => {
                         state = .invalid;
                     },
                     else => continue,
@@ -1091,7 +1103,7 @@ pub const Tokenizer = struct {
                         state = .start;
                         result.loc.start = self.index + 1;
                     },
-                    0x01...0x08, 0x0b...0x0c, 0x0e...0x1f, 0x7f => {
+                    0x01...0x09, 0x0b...0x0c, 0x0e...0x1f, 0x7f => {
                         state = .invalid;
                     },
                     else => {
@@ -1099,14 +1111,23 @@ pub const Tokenizer = struct {
                     },
                 },
                 .doc_comment_start => switch (c) {
-                    0, '\n', '\r' => {
+                    0, '\n' => {
                         result.tag = .doc_comment;
                         break;
+                    },
+                    '\r' => {
+                        if (self.buffer[self.index + 1] == '\n') {
+                            self.index += 1;
+                            result.tag = .doc_comment;
+                            break;
+                        } else {
+                            state = .invalid;
+                        }
                     },
                     '/' => {
                         state = .line_comment;
                     },
-                    0x01...0x08, 0x0b...0x0c, 0x0e...0x1f, 0x7f => {
+                    0x01...0x09, 0x0b...0x0c, 0x0e...0x1f, 0x7f => {
                         state = .invalid;
                     },
                     else => {
@@ -1135,16 +1156,24 @@ pub const Tokenizer = struct {
                         state = .start;
                         result.loc.start = self.index + 1;
                     },
-                    0x01...0x08, 0x0b...0x0c, 0x0e...0x1f, 0x7f => {
+                    0x01...0x09, 0x0b...0x0c, 0x0e...0x1f, 0x7f => {
                         state = .invalid;
                     },
                     else => continue,
                 },
                 .doc_comment => switch (c) {
-                    0, '\n', '\r' => {
+                    0, '\n' => {
                         break;
                     },
-                    0x01...0x08, 0x0b...0x0c, 0x0e...0x1f, 0x7f => {
+                    '\r' => {
+                        if (self.buffer[self.index + 1] == '\n') {
+                            self.index += 1;
+                            break;
+                        } else {
+                            state = .invalid;
+                        }
+                    },
+                    0x01...0x09, 0x0b...0x0c, 0x0e...0x1f, 0x7f => {
                         state = .invalid;
                     },
                     else => continue,
@@ -1383,30 +1412,6 @@ test "string identifier and builtin fns" {
         .string_literal,
         .r_paren,
         .semicolon,
-    });
-}
-
-test "multiline string literal with literal tab" {
-    try testTokenize(
-        \\\\foo	bar
-    , &.{
-        .multiline_string_literal_line,
-    });
-}
-
-test "comments with literal tab" {
-    try testTokenize(
-        \\//foo	bar
-        \\//!foo	bar
-        \\///foo	bar
-        \\//	foo
-        \\///	foo
-        \\///	/foo
-    , &.{
-        .container_doc_comment,
-        .doc_comment,
-        .doc_comment,
-        .doc_comment,
     });
 }
 
@@ -1765,6 +1770,60 @@ test "null byte before eof" {
     try testTokenize("// NUL\x00\n", &.{.invalid});
     try testTokenize("///\x00\n", &.{ .doc_comment, .invalid });
     try testTokenize("/// NUL\x00\n", &.{ .doc_comment, .invalid });
+}
+
+test "invalid tabs and carriage returns" {
+    // "Inside Line Comments and Documentation Comments, Any TAB is rejected by
+    // the grammar since it is ambiguous how it should be rendered."
+    // https://github.com/ziglang/zig-spec/issues/38
+    try testTokenize("//\t", &.{.invalid});
+    try testTokenize("// \t", &.{.invalid});
+    try testTokenize("///\t", &.{.invalid});
+    try testTokenize("/// \t", &.{.invalid});
+    try testTokenize("//!\t", &.{.invalid});
+    try testTokenize("//! \t", &.{.invalid});
+
+    // "Inside Line Comments and Documentation Comments, CR directly preceding
+    // NL is unambiguously part of the newline sequence. It is accepted by the
+    // grammar and removed by zig fmt, leaving only NL. CR anywhere else is
+    // rejected by the grammar."
+    // https://github.com/ziglang/zig-spec/issues/38
+    try testTokenize("//\r", &.{.invalid});
+    try testTokenize("// \r", &.{.invalid});
+    try testTokenize("///\r", &.{.invalid});
+    try testTokenize("/// \r", &.{.invalid});
+    try testTokenize("//\r ", &.{.invalid});
+    try testTokenize("// \r ", &.{.invalid});
+    try testTokenize("///\r ", &.{.invalid});
+    try testTokenize("/// \r ", &.{.invalid});
+    try testTokenize("//\r\n", &.{});
+    try testTokenize("// \r\n", &.{});
+    try testTokenize("///\r\n", &.{.doc_comment});
+    try testTokenize("/// \r\n", &.{.doc_comment});
+    try testTokenize("//!\r", &.{.invalid});
+    try testTokenize("//! \r", &.{.invalid});
+    try testTokenize("//!\r ", &.{.invalid});
+    try testTokenize("//! \r ", &.{.invalid});
+    try testTokenize("//!\r\n", &.{.container_doc_comment});
+    try testTokenize("//! \r\n", &.{.container_doc_comment});
+
+    // The control characters TAB and CR are rejected by the grammar inside multi-line string literals,
+    // except if CR is directly before NL.
+    // https://github.com/ziglang/zig-spec/issues/38
+    try testTokenize("\\\\\r", &.{.invalid});
+    try testTokenize("\\\\\r ", &.{.invalid});
+    try testTokenize("\\\\ \r", &.{.invalid});
+    try testTokenize("\\\\\t", &.{.invalid});
+    try testTokenize("\\\\\t ", &.{.invalid});
+    try testTokenize("\\\\ \t", &.{.invalid});
+    try testTokenize("\\\\\r\n", &.{.multiline_string_literal_line});
+
+    // "TAB used as whitespace is...accepted by the grammar. CR used as
+    // whitespace, whether directly preceding NL or stray, is...accepted by the
+    // grammar."
+    // https://github.com/ziglang/zig-spec/issues/38
+    try testTokenize("\tpub\tswitch\t", &.{ .keyword_pub, .keyword_switch });
+    try testTokenize("\rpub\rswitch\r", &.{ .keyword_pub, .keyword_switch });
 }
 
 fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag) !void {

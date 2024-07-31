@@ -39,14 +39,6 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     }
 
     {
-        const case = ctx.obj("isolated carriage return in multiline string literal", b.graph.host);
-
-        case.addError("const foo = \\\\\test\r\r rogue carriage return\n;", &[_][]const u8{
-            ":1:13: error: expected expression, found 'invalid token'",
-        });
-    }
-
-    {
         const case = ctx.obj("missing semicolon at EOF", b.graph.host);
         case.addError(
             \\const foo = 1
