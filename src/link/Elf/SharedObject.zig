@@ -282,7 +282,7 @@ pub fn markLive(self: *SharedObject, elf_file: *Elf) void {
     }
 }
 
-pub fn globals(self: SharedObject) []const Symbol.Index {
+pub fn globals(self: *SharedObject) []Symbol {
     return self.symbols.items;
 }
 
@@ -299,7 +299,7 @@ pub fn updateSymtabSize(self: *SharedObject, elf_file: *Elf) void {
     }
 }
 
-pub fn writeSymtab(self: SharedObject, elf_file: *Elf) void {
+pub fn writeSymtab(self: *SharedObject, elf_file: *Elf) void {
     for (self.globals(), self.symbols_resolver.items) |global, resolv| {
         const ref = elf_file.resolver.get(resolv).?;
         const ref_sym = elf_file.symbol(ref) orelse continue;
