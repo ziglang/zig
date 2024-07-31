@@ -69,7 +69,7 @@ pub fn parse(gpa: Allocator, source: [:0]const u8, mode: Mode) Allocator.Error!A
         const token = tokenizer.next();
         try tokens.append(gpa, .{
             .tag = token.tag,
-            .start = @as(u32, @intCast(token.loc.start)),
+            .start = @intCast(token.loc.start),
         });
         if (token.tag == .eof) break;
     }
