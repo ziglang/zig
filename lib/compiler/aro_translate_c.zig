@@ -358,8 +358,6 @@ fn transTypeDef(c: *Context, scope: *Scope, typedef_decl: NodeIndex) Error!void 
             try bs.discardVariable(c, name);
         }
     }
-
-
 }
 
 fn mangleWeakGlobalName(c: *Context, want_name: []const u8) ![]const u8 {
