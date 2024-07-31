@@ -644,14 +644,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn my_fn() linksection("NEAR,.data") void {}
     });
 
-    cases.add("simple function prototypes",
-        \\void __attribute__((noreturn)) foo(void);
-        \\int bar(void);
-    , &[_][]const u8{
-        \\pub extern fn foo() noreturn;
-        \\pub extern fn bar() c_int;
-    });
-
     cases.add("simple var decls",
         \\void foo(void) {
         \\    int a;
