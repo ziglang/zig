@@ -98,17 +98,17 @@ fn fixedName(name: []const u8) []const u8 {
 }
 
 const ArchInfo = union(enum) {
-    tableBasedArch: struct {
+    table: struct {
         name: []const u8,
         enum_name: []const u8,
         file_path: []const u8,
         header: ?[]const u8,
         extra_values: ?[]const u8,
-        processFile: ProcessTableBasedArchFileFn,
+        process_file: ProcessTableBasedArchFileFn,
         filters: Filters,
         additional_enum: ?[]const u8,
     },
-    preprocessedArch: struct {
+    preprocessor: struct {
         name: []const u8,
         enum_name: []const u8,
         file_path: []const u8,
@@ -116,14 +116,14 @@ const ArchInfo = union(enum) {
             comptime additional_args: ?[]const []const u8 = null,
             target: []const u8,
 
-            pub inline fn get_args(self: *const @This(), zig_exe: []const u8, file_path: []const u8) []const []const u8 {
+            pub inline fn getArgs(self: *const @This(), zig_exe: []const u8, file_path: []const u8) []const []const u8 {
                 const additional_args: []const []const u8 = self.additional_args orelse &.{};
                 return .{ zig_exe, "cc" } ++ additional_args ++ .{ "-target", self.target } ++ default_args ++ .{file_path};
             }
         },
         header: ?[]const u8,
         extra_values: ?[]const u8,
-        processFile: ProcessPreprocessedFileFn,
+        process_file: ProcessPreprocessedFileFn,
         additional_enum: ?[]const u8,
     },
 };
@@ -134,7 +134,7 @@ const arch_infos = [_]ArchInfo{
     // define pre-proc. vars that add additional (usually obsolete) syscalls.
     // FIXME: not able to generate enum err: `invalid target generic`
     .{
-        .preprocessedArch = .{
+        .preprocessor = .{
             .name = "hexagon",
             .enum_name = "Hexagon",
             .file_path = "arch/hexagon/include/uapi/asm/unistd.h",
@@ -142,14 +142,14 @@ const arch_infos = [_]ArchInfo{
                 .additional_args = null,
                 .target = "hexagon-freestanding-none",
             },
-            .processFile = &processPreprocessedFile,
+            .process_file = &processPreprocessedFile,
             .header = null,
             .extra_values = null,
             .additional_enum = null,
         },
     },
     .{
-        .preprocessedArch = .{
+        .preprocessor = .{
             .name = "csky",
             .enum_name = "CSky",
             .file_path = "arch/csky/include/uapi/asm/unistd.h",
@@ -157,14 +157,14 @@ const arch_infos = [_]ArchInfo{
                 .additional_args = null,
                 .target = "csky-freestanding-none",
             },
-            .processFile = &processPreprocessedFile,
+            .process_file = &processPreprocessedFile,
             .header = null,
             .extra_values = null,
             .additional_enum = null,
         },
     },
     .{
-        .preprocessedArch = .{
+        .preprocessor = .{
             .name = "arc",
             .enum_name = "Arc",
             .file_path = "arch/arc/include/uapi/asm/unistd.h",
@@ -172,14 +172,14 @@ const arch_infos = [_]ArchInfo{
                 .additional_args = null,
                 .target = "arc-freestanding-none",
             },
-            .processFile = &processPreprocessedFile,
+            .process_file = &processPreprocessedFile,
             .header = null,
             .extra_values = null,
             .additional_enum = null,
         },
     },
     .{
-        .preprocessedArch = .{
+        .preprocessor = .{
             .name = "loongarch",
             .enum_name = "LoongArch64",
             .file_path = "arch/loongarch/include/uapi/asm/unistd.h",
@@ -187,14 +187,14 @@ const arch_infos = [_]ArchInfo{
                 .additional_args = null,
                 .target = "loongarch64-freestanding-none",
             },
-            .processFile = &processPreprocessedFile,
+            .process_file = &processPreprocessedFile,
             .header = null,
             .extra_values = null,
             .additional_enum = null,
         },
     },
     .{
-        .preprocessedArch = .{
+        .preprocessor = .{
             .name = "riscv64",
             .enum_name = "RiscV64",
             .file_path = "arch/riscv/include/uapi/asm/unistd.h",
@@ -202,14 +202,14 @@ const arch_infos = [_]ArchInfo{
                 .additional_args = null,
                 .target = "riscv64-freestanding-none",
             },
-            .processFile = &processPreprocessedFile,
+            .process_file = &processPreprocessedFile,
             .header = null,
             .extra_values = null,
             .additional_enum = null,
         },
     },
     .{
-        .preprocessedArch = .{
+        .preprocessor = .{
             .name = "riscv32",
             .enum_name = "RiscV32",
             .file_path = "arch/riscv/include/uapi/asm/unistd.h",
@@ -217,14 +217,14 @@ const arch_infos = [_]ArchInfo{
                 .additional_args = null,
                 .target = "riscv32-freestanding-none",
             },
-            .processFile = &processPreprocessedFile,
+            .process_file = &processPreprocessedFile,
             .header = null,
             .extra_values = null,
             .additional_enum = null,
         },
     },
     .{
-        .preprocessedArch = .{
+        .preprocessor = .{
             .name = "arm64",
             .enum_name = "Arm64",
             .file_path = "arch/arm64/include/uapi/asm/unistd.h",
@@ -232,7 +232,7 @@ const arch_infos = [_]ArchInfo{
                 .additional_args = null,
                 .target = "aarch64-freestanding-none",
             },
-            .processFile = &processPreprocessedFile,
+            .process_file = &processPreprocessedFile,
             .header = null,
             .extra_values = null,
             .additional_enum = null,
@@ -242,11 +242,11 @@ const arch_infos = [_]ArchInfo{
     .{
         // These architectures have their syscall definitions generated from a TSV
         // file, processed via scripts/syscallhdr.sh.
-        .tableBasedArch = .{
+        .table = .{
             .name = "x86",
             .enum_name = "X86",
             .file_path = "arch/x86/entry/syscalls/syscall_32.tbl",
-            .processFile = &processTableBasedArch,
+            .process_file = &processTableBasedArch,
             .filters = .{
                 .abiCheck = null,
                 .fixedName = &fixedName,
@@ -258,11 +258,11 @@ const arch_infos = [_]ArchInfo{
         },
     },
     .{
-        .tableBasedArch = .{
+        .table = .{
             .name = "x64",
             .enum_name = "X64",
             .file_path = "arch/x86/entry/syscalls/syscall_64.tbl",
-            .processFile = &processTableBasedArch,
+            .process_file = &processTableBasedArch,
             .filters = .{
                 // The x32 abi syscalls are always at the end.
                 .abiCheck = getAbiCheckFunction("x32", .@"break"),
@@ -275,11 +275,11 @@ const arch_infos = [_]ArchInfo{
         },
     },
     .{
-        .tableBasedArch = .{
+        .table = .{
             .name = "arm",
             .enum_name = "Arm",
             .file_path = "arch/arm/tools/syscall.tbl",
-            .processFile = &processTableBasedArch,
+            .process_file = &processTableBasedArch,
             .filters = .{
                 .abiCheck = getAbiCheckFunction("oabi", .@"continue"),
                 .fixedName = &fixedName,
@@ -301,11 +301,11 @@ const arch_infos = [_]ArchInfo{
         },
     },
     .{
-        .tableBasedArch = .{
+        .table = .{
             .name = "sparc",
             .enum_name = "Sparc64",
             .file_path = "arch/sparc/kernel/syscalls/syscall.tbl",
-            .processFile = &processTableBasedArch,
+            .process_file = &processTableBasedArch,
             .filters = .{
                 .abiCheck = getAbiCheckFunction("32", .@"continue"),
                 .fixedName = &fixedName,
@@ -317,11 +317,11 @@ const arch_infos = [_]ArchInfo{
         },
     },
     .{
-        .tableBasedArch = .{
+        .table = .{
             .name = "m68k",
             .enum_name = "M68k",
             .file_path = "arch/m68k/kernel/syscalls/syscall.tbl",
-            .processFile = &processTableBasedArch,
+            .process_file = &processTableBasedArch,
             .filters = .{
                 // abi is always common
                 .abiCheck = null,
@@ -334,11 +334,11 @@ const arch_infos = [_]ArchInfo{
         },
     },
     .{
-        .tableBasedArch = .{
+        .table = .{
             .name = "mips_o32",
             .enum_name = "MipsO32",
             .file_path = "arch/mips/kernel/syscalls/syscall_o32.tbl",
-            .processFile = &processMipsBasedArch,
+            .process_file = &processMipsBasedArch,
             .filters = .{
                 // abi is always o32
                 .abiCheck = null,
@@ -351,11 +351,11 @@ const arch_infos = [_]ArchInfo{
         },
     },
     .{
-        .tableBasedArch = .{
+        .table = .{
             .name = "mips_n64",
             .enum_name = "MipsN64",
             .file_path = "arch/mips/kernel/syscalls/syscall_n64.tbl",
-            .processFile = &processMipsBasedArch,
+            .process_file = &processMipsBasedArch,
             .filters = .{
                 // abi is always n64
                 .abiCheck = null,
@@ -368,11 +368,11 @@ const arch_infos = [_]ArchInfo{
         },
     },
     .{
-        .tableBasedArch = .{
+        .table = .{
             .name = "mips_n32",
             .enum_name = "MipsN32",
             .file_path = "arch/mips/kernel/syscalls/syscall_n32.tbl",
-            .processFile = &processMipsBasedArch,
+            .process_file = &processMipsBasedArch,
             .filters = .{
                 // abi is always n32
                 .abiCheck = null,
@@ -385,11 +385,11 @@ const arch_infos = [_]ArchInfo{
         },
     },
     .{
-        .tableBasedArch = .{
+        .table = .{
             .name = "powerpc",
             .enum_name = "PowerPC",
             .file_path = "arch/powerpc/kernel/syscalls/syscall.tbl",
-            .processFile = &processPowerPcBasedArch,
+            .process_file = &processPowerPcBasedArch,
             .filters = .{
                 .abiCheck = null,
                 .fixedName = null,
@@ -401,11 +401,11 @@ const arch_infos = [_]ArchInfo{
         },
     },
     .{
-        .tableBasedArch = .{
+        .table = .{
             .name = "s390x",
             .enum_name = "S390x",
             .file_path = "arch/s390/kernel/syscalls/syscall.tbl",
-            .processFile = &processTableBasedArch,
+            .process_file = &processTableBasedArch,
             .filters = .{
                 // 32-bit s390 support in linux is deprecated
                 .abiCheck = getAbiCheckFunction("32", .@"continue"),
@@ -418,11 +418,11 @@ const arch_infos = [_]ArchInfo{
         },
     },
     .{
-        .tableBasedArch = .{
+        .table = .{
             .name = "xtensa",
             .enum_name = "Xtensa",
             .file_path = "arch/xtensa/kernel/syscalls/syscall.tbl",
-            .processFile = &processTableBasedArch,
+            .process_file = &processTableBasedArch,
             .filters = .{
                 // abi is always common
                 .abiCheck = null,
@@ -553,9 +553,9 @@ fn generateSyscallsFromTable(
     writer: anytype,
     _arch_info: *const ArchInfo,
 ) !void {
-    std.debug.assert(_arch_info.* == .tableBasedArch);
+    std.debug.assert(_arch_info.* == .table);
 
-    const arch_info = _arch_info.tableBasedArch;
+    const arch_info = _arch_info.table;
 
     // As of 5.17.1, the largest table is 23467 bytes.
     // 32k should be enough for now.
@@ -572,7 +572,7 @@ fn generateSyscallsFromTable(
         try writer.writeAll(header);
     }
 
-    try arch_info.processFile(table, arch_info.filters, writer, optional_writer);
+    try arch_info.process_file(table, arch_info.filters, writer, optional_writer);
 
     if (arch_info.extra_values) |extra_values| {
         try writer.writeAll(extra_values);
@@ -595,13 +595,13 @@ fn generateSyscallsFromPreprocessor(
     writer: anytype,
     _arch_info: *const ArchInfo,
 ) !void {
-    std.debug.assert(_arch_info.* == .preprocessedArch);
+    std.debug.assert(_arch_info.* == .preprocessor);
 
-    const arch_info = _arch_info.preprocessedArch;
+    const arch_info = _arch_info.preprocessor;
 
     const child_result = try std.process.Child.run(.{
         .allocator = allocator,
-        .argv = arch_info.child_options.get_args(zig_exe, arch_info.file_path),
+        .argv = arch_info.child_options.getArgs(zig_exe, arch_info.file_path),
         .cwd = linux_path,
         .cwd_dir = linux_dir,
     });
@@ -623,7 +623,7 @@ fn generateSyscallsFromPreprocessor(
         try writer.writeAll(header);
     }
 
-    try arch_info.processFile(defines, writer);
+    try arch_info.process_file(defines, writer);
 
     if (arch_info.extra_values) |extra_values| {
         try writer.writeAll(extra_values);
@@ -658,13 +658,13 @@ pub fn main() !void {
 
     inline for (arch_infos) |arch_info| {
         switch (arch_info) {
-            .tableBasedArch => try generateSyscallsFromTable(
+            .table => try generateSyscallsFromTable(
                 allocator,
                 linux_dir,
                 writer,
                 &arch_info,
             ),
-            .preprocessedArch => try generateSyscallsFromPreprocessor(
+            .preprocessor => try generateSyscallsFromPreprocessor(
                 allocator,
                 linux_dir,
                 linux_path,
