@@ -118,10 +118,48 @@ pub fn socketcall(call: usize, args: [*]const usize) usize {
     );
 }
 
-const CloneFn = *const fn (arg: usize) callconv(.C) u8;
-
-/// This matches the libc clone function.
-pub extern fn clone(func: CloneFn, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
+pub fn clone() callconv(.Naked) usize {
+    // __clone(func, stack, flags, arg, ptid, tls, ctid)
+    //         +8,   +12,   +16,   +20, +24,  +28, +32
+    //
+    // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
+    //         eax,       ebx,   ecx,   edx,  esi, edi
+    asm volatile (
+        \\  pushl %%ebp
+        \\  movl %%esp,%%ebp
+        \\  pushl %%ebx
+        \\  pushl %%esi
+        \\  pushl %%edi
+        \\  // Setup the arguments
+        \\  movl 16(%%ebp),%%ebx
+        \\  movl 12(%%ebp),%%ecx
+        \\  andl $-16,%%ecx
+        \\  subl $20,%%ecx
+        \\  movl 20(%%ebp),%%eax
+        \\  movl %%eax,4(%%ecx)
+        \\  movl 8(%%ebp),%%eax
+        \\  movl %%eax,0(%%ecx)
+        \\  movl 24(%%ebp),%%edx
+        \\  movl 28(%%ebp),%%esi
+        \\  movl 32(%%ebp),%%edi
+        \\  movl $120,%%eax // SYS_clone
+        \\  int $128
+        \\  testl %%eax,%%eax
+        \\  jnz 1f
+        \\  popl %%eax
+        \\  xorl %%ebp,%%ebp
+        \\  calll *%%eax
+        \\  movl %%eax,%%ebx
+        \\  movl $1,%%eax // SYS_exit
+        \\  int $128
+        \\1:
+        \\  popl %%edi
+        \\  popl %%esi
+        \\  popl %%ebx
+        \\  popl %%ebp
+        \\  retl
+    );
+}
 
 pub fn restore() callconv(.Naked) noreturn {
     switch (@import("builtin").zig_backend) {

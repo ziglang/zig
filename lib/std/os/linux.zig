@@ -65,6 +65,27 @@ pub const socketcall = syscall_bits.socketcall;
 pub const syscall_pipe = syscall_bits.syscall_pipe;
 pub const syscall_fork = syscall_bits.syscall_fork;
 
+pub fn clone(
+    func: *const fn (arg: usize) callconv(.C) u8,
+    stack: usize,
+    flags: u32,
+    arg: usize,
+    ptid: *i32,
+    tp: usize, // aka tls
+    ctid: *i32,
+) usize {
+    // Can't directly call a naked function; cast to C calling convention first.
+    return @as(*const fn (
+        *const fn (arg: usize) callconv(.C) u8,
+        usize,
+        u32,
+        usize,
+        *i32,
+        usize,
+        *i32,
+    ) callconv(.C) usize, @ptrCast(&syscall_bits.clone))(func, stack, flags, arg, ptid, tp, ctid);
+}
+
 pub const ARCH = arch_bits.ARCH;
 pub const Elf_Symndx = arch_bits.Elf_Symndx;
 pub const F = arch_bits.F;
@@ -77,7 +98,6 @@ pub const Stat = arch_bits.Stat;
 pub const VDSO = arch_bits.VDSO;
 pub const blkcnt_t = arch_bits.blkcnt_t;
 pub const blksize_t = arch_bits.blksize_t;
-pub const clone = arch_bits.clone;
 pub const dev_t = arch_bits.dev_t;
 pub const ino_t = arch_bits.ino_t;
 pub const mcontext_t = arch_bits.mcontext_t;
