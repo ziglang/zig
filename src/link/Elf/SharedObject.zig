@@ -286,8 +286,8 @@ pub fn markImportExports(self: *SharedObject, elf_file: *Elf) void {
     for (0..self.symbols.items.len) |i| {
         const ref = self.resolveSymbol(@intCast(i), elf_file);
         const ref_sym = elf_file.symbol(ref) orelse continue;
-        const ref_file = ref_sym.file(self).?;
-        const vis = @as(elf.STV, @enumFromInt(ref_sym.elfSym(self).st_other));
+        const ref_file = ref_sym.file(elf_file).?;
+        const vis = @as(elf.STV, @enumFromInt(ref_sym.elfSym(elf_file).st_other));
         if (ref_file != .shared_object and vis != .HIDDEN) ref_sym.flags.@"export" = true;
     }
 }
@@ -349,9 +349,12 @@ pub fn initSymbolAliases(self: *SharedObject, elf_file: *Elf) !void {
     assert(self.aliases == null);
 
     const SortAlias = struct {
-        pub fn lessThan(ctx: *Elf, lhs: Symbol.Index, rhs: Symbol.Index) bool {
-            const lhs_sym = ctx.symbol(lhs).elfSym(ctx);
-            const rhs_sym = ctx.symbol(rhs).elfSym(ctx);
+        so: *SharedObject,
+        ef: *Elf,
+
+        pub fn lessThan(ctx: @This(), lhs: Symbol.Index, rhs: Symbol.Index) bool {
+            const lhs_sym = ctx.so.symbols.items[lhs].elfSym(ctx.ef);
+            const rhs_sym = ctx.so.symbols.items[rhs].elfSym(ctx.ef);
             return lhs_sym.st_value < rhs_sym.st_value;
         }
     };
@@ -362,14 +365,14 @@ pub fn initSymbolAliases(self: *SharedObject, elf_file: *Elf) !void {
     defer aliases.deinit();
     try aliases.ensureTotalCapacityPrecise(self.symbols.items.len);
 
-    for (self.symbols_resolvers.items, 0..) |resolv, index| {
+    for (self.symbols_resolver.items, 0..) |resolv, index| {
         const ref = elf_file.resolver.get(resolv).?;
         const ref_sym = elf_file.symbol(ref) orelse continue;
         if (ref_sym.file(elf_file).?.index() != self.index) continue;
-        aliases.appendAssumeCapacity(index);
+        aliases.appendAssumeCapacity(@intCast(index));
     }
 
-    std.mem.sort(u32, aliases.items, elf_file, SortAlias.lessThan);
+    std.mem.sort(u32, aliases.items, SortAlias{ .so = self, .ef = elf_file }, SortAlias.lessThan);
 
     self.aliases = aliases.moveToUnmanaged();
 }
@@ -377,16 +380,16 @@ pub fn initSymbolAliases(self: *SharedObject, elf_file: *Elf) !void {
 pub fn symbolAliases(self: *SharedObject, index: u32, elf_file: *Elf) []const u32 {
     assert(self.aliases != null);
 
-    const symbol = self.symbol(index).elfSym(elf_file);
+    const symbol = self.symbols.items[index].elfSym(elf_file);
     const aliases = self.aliases.?;
 
     const start = for (aliases.items, 0..) |alias, i| {
-        const alias_sym = self.symbol(alias).elfSym(elf_file);
+        const alias_sym = self.symbols.items[alias].elfSym(elf_file);
         if (symbol.st_value == alias_sym.st_value) break i;
     } else aliases.items.len;
 
     const end = for (aliases.items[start..], 0..) |alias, i| {
-        const alias_sym = self.symbol(alias).elfSym(elf_file);
+        const alias_sym = self.symbols.items[alias].elfSym(elf_file);
         if (symbol.st_value < alias_sym.st_value) break i + start;
     } else aliases.items.len;
 
@@ -403,8 +406,12 @@ pub fn resolveSymbol(self: SharedObject, index: Symbol.Index, elf_file: *Elf) El
     return elf_file.resolver.get(resolv).?;
 }
 
-pub fn addSymbol(self: *SharedObject, allocator: Allocator) !Symbol.Index {
+fn addSymbol(self: *SharedObject, allocator: Allocator) !Symbol.Index {
     try self.symbols.ensureUnusedCapacity(allocator, 1);
+    return self.addSymbolAssumeCapacity();
+}
+
+fn addSymbolAssumeCapacity(self: *SharedObject) Symbol.Index {
     const index: Symbol.Index = @intCast(self.symbols.items.len);
     self.symbols.appendAssumeCapacity(.{ .file_index = self.index });
     return index;
@@ -486,10 +493,10 @@ fn formatSymtab(
     _ = unused_fmt_string;
     _ = options;
     const shared = ctx.shared;
+    const elf_file = ctx.elf_file;
     try writer.writeAll("  globals\n");
-    for (shared.symbols.items) |index| {
-        const global = ctx.elf_file.symbol(index);
-        try writer.print("    {}\n", .{global.fmt(ctx.elf_file)});
+    for (shared.symbols.items) |sym| {
+        try writer.print("    {}\n", .{sym.fmt(elf_file)});
     }
 }
 

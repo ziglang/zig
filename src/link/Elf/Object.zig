@@ -394,10 +394,9 @@ fn initSymbols(self: *Object, allocator: Allocator, elf_file: *Elf) !void {
         sym_ptr.value = @intCast(sym.st_value);
         sym_ptr.name_offset = sym.st_name;
         sym_ptr.esym_index = @intCast(i);
-        sym_ptr.extra_index = self.addSymbolExtraAssumeCapacity(.{
-            .weak = sym.st_bind() == elf.STB_WEAK,
-        });
+        sym_ptr.extra_index = self.addSymbolExtraAssumeCapacity(.{});
         sym_ptr.version_index = if (i >= first_global) elf_file.default_sym_version else elf.VER_NDX_LOCAL;
+        sym_ptr.flags.weak = sym.st_bind() == elf.STB_WEAK;
         if (sym.st_shndx != elf.SHN_ABS and sym.st_shndx != elf.SHN_COMMON) {
             sym_ptr.ref = .{ .index = self.atoms_indexes.items[sym.st_shndx], .file = self.index };
         }
@@ -548,7 +547,7 @@ pub fn scanRelocs(self: *Object, elf_file: *Elf, undefs: anytype) !void {
 
     for (self.cies.items) |cie| {
         for (cie.relocs(elf_file)) |rel| {
-            const sym = elf_file.symbol(self.resolveSymbol(rel.r_sym()));
+            const sym = elf_file.symbol(self.resolveSymbol(rel.r_sym(), elf_file)).?;
             if (sym.flags.import) {
                 if (sym.type(elf_file) != elf.STT_FUNC)
                     // TODO convert into an error
@@ -558,6 +557,51 @@ pub fn scanRelocs(self: *Object, elf_file: *Elf, undefs: anytype) !void {
                     });
                 sym.flags.needs_plt = true;
             }
+        }
+    }
+}
+
+pub fn createSymbolIndirection(self: *Object, elf_file: *Elf) !void {
+    for (self.symbols.items, 0..) |*sym, i| {
+        const ref = self.resolveSymbol(@intCast(i), elf_file);
+        const ref_sym = elf_file.symbol(ref) orelse continue;
+        if (ref_sym.file(elf_file).?.index() != self.index) continue;
+        if (!sym.isLocal(elf_file) and !sym.flags.has_dynamic) {
+            log.debug("'{s}' is non-local", .{sym.name(elf_file)});
+            try elf_file.dynsym.addSymbol(ref, elf_file);
+        }
+        if (sym.flags.needs_got) {
+            log.debug("'{s}' needs GOT", .{sym.name(elf_file)});
+            _ = try elf_file.got.addGotSymbol(ref, elf_file);
+        }
+        if (sym.flags.needs_plt) {
+            if (sym.flags.is_canonical) {
+                log.debug("'{s}' needs CPLT", .{sym.name(elf_file)});
+                sym.flags.@"export" = true;
+                try elf_file.plt.addSymbol(ref, elf_file);
+            } else if (sym.flags.needs_got) {
+                log.debug("'{s}' needs PLTGOT", .{sym.name(elf_file)});
+                try elf_file.plt_got.addSymbol(ref, elf_file);
+            } else {
+                log.debug("'{s}' needs PLT", .{sym.name(elf_file)});
+                try elf_file.plt.addSymbol(ref, elf_file);
+            }
+        }
+        if (sym.flags.needs_copy_rel and !sym.flags.has_copy_rel) {
+            log.debug("'{s}' needs COPYREL", .{sym.name(elf_file)});
+            try elf_file.copy_rel.addSymbol(ref, elf_file);
+        }
+        if (sym.flags.needs_tlsgd) {
+            log.debug("'{s}' needs TLSGD", .{sym.name(elf_file)});
+            try elf_file.got.addTlsGdSymbol(ref, elf_file);
+        }
+        if (sym.flags.needs_gottp) {
+            log.debug("'{s}' needs GOTTP", .{sym.name(elf_file)});
+            try elf_file.got.addGotTpSymbol(ref, elf_file);
+        }
+        if (sym.flags.needs_tlsdesc) {
+            log.debug("'{s}' needs TLSDESC", .{sym.name(elf_file)});
+            try elf_file.got.addTlsDescSymbol(ref, elf_file);
         }
     }
 }
@@ -643,7 +687,7 @@ pub fn claimUnresolvedObject(self: *Object, elf_file: *Elf) void {
         sym.file_index = self.index;
 
         const idx = self.symbols_resolver.items[i];
-        elf_file.resolver.items[idx - 1] = .{ .index = esym_index, .file = self.index };
+        elf_file.resolver.values.items[idx - 1] = .{ .index = esym_index, .file = self.index };
     }
 }
 
@@ -1120,7 +1164,7 @@ pub fn updateSymtabSize(self: *Object, elf_file: *Elf) void {
     }
 
     for (self.globals(), self.symbols_resolver.items) |*global, resolv| {
-        const ref = elf_file.resolver.items[resolv];
+        const ref = elf_file.resolver.values.items[resolv];
         const ref_sym = elf_file.symbol(ref) orelse continue;
         if (ref_sym.file(elf_file).?.index() != self.index) continue;
         if (!isAlive(global, elf_file)) continue;
@@ -1136,7 +1180,7 @@ pub fn updateSymtabSize(self: *Object, elf_file: *Elf) void {
     }
 }
 
-pub fn writeSymtab(self: Object, elf_file: *Elf) void {
+pub fn writeSymtab(self: *Object, elf_file: *Elf) void {
     for (self.locals()) |local| {
         const idx = local.outputSymtabIndex(elf_file) orelse continue;
         const out_sym = &elf_file.symtab.items[idx];
@@ -1147,7 +1191,7 @@ pub fn writeSymtab(self: Object, elf_file: *Elf) void {
     }
 
     for (self.globals(), self.symbols_resolver.items) |global, resolv| {
-        const ref = elf_file.resolver.items[resolv];
+        const ref = elf_file.resolver.values.items[resolv];
         const ref_sym = elf_file.symbol(ref) orelse continue;
         if (ref_sym.file(elf_file).?.index() != self.index) continue;
         const idx = global.outputSymtabIndex(elf_file) orelse continue;
@@ -1199,7 +1243,7 @@ fn locals(self: *Object) []Symbol {
     return self.symbols.items[0..end];
 }
 
-fn globals(self: *Object) []Symbol {
+pub fn globals(self: *Object) []Symbol {
     if (self.symbols.items.len == 0) return &[0]Symbol{};
     assert(self.symbols.items.len >= self.symtab.items.len);
     const start = self.first_global orelse self.symtab.items.len;
@@ -1214,8 +1258,12 @@ pub fn resolveSymbol(self: Object, index: Symbol.Index, elf_file: *Elf) Elf.Ref 
     return elf_file.resolver.get(resolv).?;
 }
 
-pub fn addSymbol(self: *Object, allocator: Allocator) !Symbol.Index {
+fn addSymbol(self: *Object, allocator: Allocator) !Symbol.Index {
     try self.symbols.ensureUnusedCapacity(allocator, 1);
+    return self.addSymbolAssumeCapacity();
+}
+
+fn addSymbolAssumeCapacity(self: *Object) Symbol.Index {
     const index: Symbol.Index = @intCast(self.symbols.items.len);
     self.symbols.appendAssumeCapacity(.{ .file_index = self.index });
     return index;
@@ -1430,15 +1478,14 @@ fn formatSymtab(
     _ = unused_fmt_string;
     _ = options;
     const object = ctx.object;
+    const elf_file = ctx.elf_file;
     try writer.writeAll("  locals\n");
-    for (object.locals()) |index| {
-        const local = ctx.elf_file.symbol(index);
-        try writer.print("    {}\n", .{local.fmt(ctx.elf_file)});
+    for (object.locals()) |sym| {
+        try writer.print("    {}\n", .{sym.fmt(elf_file)});
     }
     try writer.writeAll("  globals\n");
-    for (object.globals()) |index| {
-        const global = ctx.elf_file.symbol(index);
-        try writer.print("    {}\n", .{global.fmt(ctx.elf_file)});
+    for (object.globals()) |sym| {
+        try writer.print("    {}\n", .{sym.fmt(elf_file)});
     }
 }
 

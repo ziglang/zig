@@ -61,10 +61,10 @@ pub const File = union(enum) {
         return (@as(u32, base) << 24) + file.index();
     }
 
-    pub fn resolveSymbols(file: File, elf_file: *Elf) void {
-        switch (file) {
+    pub fn resolveSymbols(file: File, elf_file: *Elf) !void {
+        return switch (file) {
             inline else => |x| x.resolveSymbols(elf_file),
-        }
+        };
     }
 
     pub fn resetGlobals(file: File, elf_file: *Elf) void {
@@ -98,6 +98,13 @@ pub const File = union(enum) {
             .linker_defined, .shared_object => unreachable,
             inline else => |x| try x.scanRelocs(elf_file, undefs),
         }
+    }
+
+    pub fn createSymbolIndirection(file: File, elf_file: *Elf) !void {
+        return switch (file) {
+            .linker_defined, .shared_object => unreachable,
+            inline else => |x| x.createSymbolIndirection(elf_file),
+        };
     }
 
     pub fn atom(file: File, atom_index: Atom.Index) ?*Atom {
@@ -146,10 +153,16 @@ pub const File = union(enum) {
         };
     }
 
-    pub fn symbol(file: File, ind: Symbol.Index) Symbol.Index {
+    pub fn resolveSymbol(file: File, ind: Symbol.Index, elf_file: *Elf) Elf.Ref {
+        return switch (file) {
+            inline else => |x| x.resolveSymbol(ind, elf_file),
+        };
+    }
+
+    pub fn symbol(file: File, ind: Symbol.Index) *Symbol {
         return switch (file) {
             .zig_object => |x| x.symbol(ind),
-            inline else => |x| x.symbols.items[ind],
+            inline else => |x| &x.symbols.items[ind],
         };
     }
 

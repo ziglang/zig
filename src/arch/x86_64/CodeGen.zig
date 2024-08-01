@@ -12327,8 +12327,9 @@ fn genCall(self: *Self, info: union(enum) {
             }) {
                 .func => |func| {
                     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-                        const sym_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, func.owner_decl);
-                        const sym = elf_file.symbol(sym_index);
+                        const zo = elf_file.zigObjectPtr().?;
+                        const sym_index = try zo.getOrCreateMetadataForDecl(elf_file, func.owner_decl);
+                        const sym = zo.symbol(sym_index);
                         if (self.mod.pic) {
                             const callee_reg: Register = switch (resolved_cc) {
                                 .SysV => callee: {
@@ -15320,9 +15321,10 @@ fn genLazySymbolRef(
 ) InnerError!void {
     const pt = self.pt;
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-        const sym_index = elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, pt, lazy_sym) catch |err|
+        const zo = elf_file.zigObjectPtr().?;
+        const sym_index = zo.getOrCreateMetadataForLazySymbol(elf_file, pt, lazy_sym) catch |err|
             return self.fail("{s} creating lazy symbol", .{@errorName(err)});
-        const sym = elf_file.symbol(sym_index);
+        const sym = zo.symbol(sym_index);
         if (self.mod.pic) {
             switch (tag) {
                 .lea, .call => try self.genSetReg(reg, Type.usize, .{

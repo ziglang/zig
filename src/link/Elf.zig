@@ -2013,11 +2013,10 @@ fn claimUnresolved(self: *Elf) void {
 fn scanRelocs(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
 
-    var undefs = std.AutoHashMap(Symbol.Index, std.ArrayList(Ref)).init(gpa);
+    var undefs = std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)).init(gpa);
     defer {
-        var it = undefs.iterator();
-        while (it.next()) |entry| {
-            entry.value_ptr.deinit();
+        for (undefs.values()) |*refs| {
+            refs.deinit();
         }
         undefs.deinit();
     }
@@ -2028,7 +2027,18 @@ fn scanRelocs(self: *Elf) !void {
     objects.appendSliceAssumeCapacity(self.objects.items);
 
     var has_reloc_errors = false;
-    for (objects.items) |index| {
+    if (self.zigObjectPtr()) |zo| {
+        zo.asFile().scanRelocs(self, &undefs) catch |err| switch (err) {
+            error.RelaxFailure => unreachable,
+            error.UnsupportedCpuArch => {
+                try self.reportUnsupportedCpuArch();
+                return error.FlushFailure;
+            },
+            error.RelocFailure => has_reloc_errors = true,
+            else => |e| return e,
+        };
+    }
+    for (self.objects.items) |index| {
         self.file(index).?.scanRelocs(self, &undefs) catch |err| switch (err) {
             error.RelaxFailure => unreachable,
             error.UnsupportedCpuArch => {
@@ -2044,47 +2054,12 @@ fn scanRelocs(self: *Elf) !void {
 
     if (has_reloc_errors) return error.FlushFailure;
 
-    for (self.symbols.items, 0..) |*sym, i| {
-        const index = @as(u32, @intCast(i));
-        if (!sym.isLocal(self) and !sym.flags.has_dynamic) {
-            log.debug("'{s}' is non-local", .{sym.name(self)});
-            try self.dynsym.addSymbol(index, self);
-        }
-        if (sym.flags.needs_got) {
-            log.debug("'{s}' needs GOT", .{sym.name(self)});
-            _ = try self.got.addGotSymbol(index, self);
-        }
-        if (sym.flags.needs_plt) {
-            if (sym.flags.is_canonical) {
-                log.debug("'{s}' needs CPLT", .{sym.name(self)});
-                sym.flags.@"export" = true;
-                try self.plt.addSymbol(index, self);
-            } else if (sym.flags.needs_got) {
-                log.debug("'{s}' needs PLTGOT", .{sym.name(self)});
-                try self.plt_got.addSymbol(index, self);
-            } else {
-                log.debug("'{s}' needs PLT", .{sym.name(self)});
-                try self.plt.addSymbol(index, self);
-            }
-        }
-        if (sym.flags.needs_copy_rel and !sym.flags.has_copy_rel) {
-            log.debug("'{s}' needs COPYREL", .{sym.name(self)});
-            try self.copy_rel.addSymbol(index, self);
-        }
-        if (sym.flags.needs_tlsgd) {
-            log.debug("'{s}' needs TLSGD", .{sym.name(self)});
-            try self.got.addTlsGdSymbol(index, self);
-        }
-        if (sym.flags.needs_gottp) {
-            log.debug("'{s}' needs GOTTP", .{sym.name(self)});
-            try self.got.addGotTpSymbol(index, self);
-        }
-        if (sym.flags.needs_tlsdesc) {
-            log.debug("'{s}' needs TLSDESC", .{sym.name(self)});
-            try self.got.addTlsDescSymbol(index, self);
-        }
+    if (self.zigObjectPtr()) |zo| {
+        try zo.asFile().createSymbolIndirection(self);
     }
-
+    for (self.objects.items) |index| {
+        try self.file(index).?.createSymbolIndirection(self);
+    }
     if (self.got.flags.needs_tlsld) {
         log.debug("program needs TLSLD", .{});
         try self.got.addTlsLdSymbol(self);
@@ -2861,8 +2836,8 @@ pub fn writeElfHeader(self: *Elf) !void {
     index += 4;
 
     const e_entry: u64 = if (self.linkerDefinedPtr()) |obj| blk: {
-        const entry_index = obj.entry_index orelse break :blk 0;
-        break :blk @intCast(self.symbol(entry_index).address(.{}, self));
+        const entry_sym = obj.entrySymbol(self) orelse break :blk 0;
+        break :blk @intCast(entry_sym.address(.{}, self));
     } else 0;
     const phdr_table_offset = if (self.phdr_table_index) |phndx| self.phdrs.items[phndx].p_offset else 0;
     switch (self.ptr_width) {
@@ -2993,7 +2968,7 @@ pub fn deleteExport(
 fn checkDuplicates(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
 
-    var dupes = std.AutoArrayHashMap(Symbol.Index, std.ArrayListUnmanaged(File.Index)).init(gpa);
+    var dupes = std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayListUnmanaged(File.Index)).init(gpa);
     defer {
         for (dupes.values()) |*list| {
             list.deinit(gpa);
@@ -3301,7 +3276,7 @@ fn initSyntheticSections(self: *Elf) !void {
         });
 
         const needs_versions = for (self.dynsym.entries.items) |entry| {
-            const sym = self.symbol(entry.symbol_index);
+            const sym = self.symbol(entry.ref).?;
             if (sym.flags.import and sym.version_index & elf.VERSYM_VERSION > elf.VER_NDX_GLOBAL) break true;
         } else false;
         if (needs_versions) {
@@ -3515,7 +3490,7 @@ fn setVersionSymtab(self: *Elf) !void {
     try self.versym.resize(gpa, self.dynsym.count());
     self.versym.items[0] = elf.VER_NDX_LOCAL;
     for (self.dynsym.entries.items, 1..) |entry, i| {
-        const sym = self.symbol(entry.symbol_index);
+        const sym = self.symbol(entry.ref).?;
         self.versym.items[i] = sym.version_index;
     }
 
@@ -4307,11 +4282,10 @@ fn allocateSpecialPhdrs(self: *Elf) void {
 fn writeAtoms(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
 
-    var undefs = std.AutoHashMap(Symbol.Index, std.ArrayList(Ref)).init(gpa);
+    var undefs = std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)).init(gpa);
     defer {
-        var it = undefs.iterator();
-        while (it.next()) |entry| {
-            entry.value_ptr.deinit();
+        for (undefs.values()) |*refs| {
+            refs.deinit();
         }
         undefs.deinit();
     }
@@ -5261,7 +5235,7 @@ pub fn calcNumIRelativeRelocs(self: *Elf) usize {
 
     for (self.got.entries.items) |entry| {
         if (entry.tag != .got) continue;
-        const sym = self.symbol(entry.symbol_index);
+        const sym = self.symbol(entry.ref).?;
         if (sym.isIFunc(self)) count += 1;
     }
 
@@ -5443,36 +5417,34 @@ fn reportUndefinedSymbols(self: *Elf, undefs: anytype) !void {
 
     try self.base.comp.link_errors.ensureUnusedCapacity(gpa, undefs.count());
 
-    var it = undefs.iterator();
-    while (it.next()) |entry| {
-        const undef_index = entry.key_ptr.*;
-        const atoms = entry.value_ptr.*.items;
-        const natoms = @min(atoms.len, max_notes);
-        const nnotes = natoms + @intFromBool(atoms.len > max_notes);
+    for (undefs.keys(), undefs.values()) |key, refs| {
+        const undef_sym = self.resolver.keys.items[key - 1];
+        const nrefs = @min(refs.items.len, max_notes);
+        const nnotes = nrefs + @intFromBool(refs.items.len > max_notes);
 
         var err = try self.base.addErrorWithNotesAssumeCapacity(nnotes);
-        try err.addMsg("undefined symbol: {s}", .{self.symbol(undef_index).name(self)});
+        try err.addMsg("undefined symbol: {s}", .{undef_sym.name(self)});
 
-        for (atoms[0..natoms]) |ref| {
+        for (refs.items[0..nrefs]) |ref| {
             const atom_ptr = self.atom(ref).?;
-            const file_ptr = self.file(ref.file).?;
+            const file_ptr = atom_ptr.file(self).?;
             try err.addNote("referenced by {s}:{s}", .{ file_ptr.fmtPath(), atom_ptr.name(self) });
         }
 
-        if (atoms.len > max_notes) {
-            const remaining = atoms.len - max_notes;
+        if (refs.items.len > max_notes) {
+            const remaining = refs.items.len - max_notes;
             try err.addNote("referenced {d} more times", .{remaining});
         }
     }
 }
 
 fn reportDuplicates(self: *Elf, dupes: anytype) error{ HasDuplicates, OutOfMemory }!void {
+    if (dupes.keys().len == 0) return; // Nothing to do
+
     const max_notes = 3;
-    var has_dupes = false;
-    var it = dupes.iterator();
-    while (it.next()) |entry| {
-        const sym = self.symbol(entry.key_ptr.*);
-        const notes = entry.value_ptr.*;
+
+    for (dupes.keys(), dupes.values()) |key, notes| {
+        const sym = self.resolver.keys.items[key - 1];
         const nnotes = @min(notes.items.len, max_notes) + @intFromBool(notes.items.len > max_notes);
 
         var err = try self.base.addErrorWithNotes(nnotes + 1);
@@ -5489,11 +5461,9 @@ fn reportDuplicates(self: *Elf, dupes: anytype) error{ HasDuplicates, OutOfMemor
             const remaining = notes.items.len - max_notes;
             try err.addNote("defined {d} more times", .{remaining});
         }
-
-        has_dupes = true;
     }
 
-    if (has_dupes) return error.HasDuplicates;
+    return error.HasDuplicates;
 }
 
 fn reportMissingLibraryError(
@@ -5918,7 +5888,7 @@ pub const SymbolResolver = struct {
         elf_file: *Elf,
     ) !Result {
         const adapter = Adapter{ .keys = resolver.keys.items, .elf_file = elf_file };
-        const key = Key{ .index = ref.index, .file = ref.file };
+        const key = Key{ .index = ref.index, .file_index = ref.file };
         const gop = try resolver.table.getOrPutAdapted(allocator, key, adapter);
         if (!gop.found_existing) {
             try resolver.keys.append(allocator, key);
@@ -5944,16 +5914,15 @@ pub const SymbolResolver = struct {
 
     const Key = struct {
         index: Symbol.Index,
-        file: File.Index,
+        file_index: File.Index,
 
         fn name(key: Key, elf_file: *Elf) [:0]const u8 {
-            const ref = Ref{ .index = key.index, .file = key.file };
-            return ref.symbol(elf_file).?.name(elf_file);
+            const ref = Ref{ .index = key.index, .file = key.file_index };
+            return elf_file.symbol(ref).?.name(elf_file);
         }
 
-        pub fn file(key: Key, elf_file: *Elf) ?File {
-            const ref = Ref{ .index = key.index, .file = key.file };
-            return ref.file(elf_file);
+        fn file(key: Key, elf_file: *Elf) ?File {
+            return elf_file.file(key.file_index);
         }
 
         fn eql(key: Key, other: Key, elf_file: *Elf) bool {

@@ -89,19 +89,11 @@ pub fn init(self: *ZigObject, elf_file: *Elf) !void {
     try self.strtab.buffer.append(gpa, 0);
 
     const name_off = try self.strtab.insert(gpa, self.path);
-    const symbol_index = try elf_file.addSymbol();
-    try self.local_symbols.append(gpa, symbol_index);
-    const symbol_ptr = elf_file.symbol(symbol_index);
-    symbol_ptr.file_index = self.index;
-    symbol_ptr.name_offset = name_off;
-    symbol_ptr.extra_index = try elf_file.addSymbolExtra(.{});
-
-    const esym_index = try self.addLocalEsym(gpa);
-    const esym = &self.local_esyms.items(.elf_sym)[esym_index];
-    esym.st_name = name_off;
+    const symbol_index = try self.newLocalSymbol(gpa, name_off);
+    const sym = self.symbol(symbol_index);
+    const esym = &self.symtab.items(.elf_sym)[sym.esym_index];
     esym.st_info = elf.STT_FILE;
     esym.st_shndx = elf.SHN_ABS;
-    symbol_ptr.esym_index = esym_index;
 
     switch (comp.config.debug_format) {
         .strip => {},
@@ -275,7 +267,7 @@ fn newSymbol(self: *ZigObject, allocator: Allocator, name_off: u32, st_bind: u4)
     const index = self.addSymbolAssumeCapacity();
     const sym = &self.symbols.items[index];
     sym.name_offset = name_off;
-    sym.extra = self.addSymbolExtraAssumeCapacity(.{});
+    sym.extra_index = self.addSymbolExtraAssumeCapacity(.{});
 
     const esym_idx: u32 = @intCast(self.symtab.addOneAssumeCapacity());
     const esym = ElfSym{ .elf_sym = .{
@@ -377,7 +369,7 @@ pub fn resolveSymbols(self: *ZigObject, elf_file: *Elf) !void {
             continue;
         }
 
-        if (self.asFile().symbolRank(esym, !self.alive) < elf_file.symbol(gop.ref.*).?.symbolRank(elf_file)) {
+        if (self.asFile().symbolRank(esym, false) < elf_file.symbol(gop.ref.*).?.symbolRank(elf_file)) {
             gop.ref.* = .{ .index = @intCast(i | global_symbol_bit), .file = self.index };
         }
     }
@@ -428,7 +420,7 @@ pub fn claimUnresolvedObject(self: ZigObject, elf_file: *Elf) void {
         global.file_index = self.index;
 
         const idx = self.symbols_resolver.items[i];
-        elf_file.resolver.items[idx - 1] = .{ .index = @intCast(i | global_symbol_bit), .file = self.index };
+        elf_file.resolver.values.items[idx - 1] = .{ .index = @intCast(i | global_symbol_bit), .file = self.index };
     }
 }
 
@@ -450,6 +442,64 @@ pub fn scanRelocs(self: *ZigObject, elf_file: *Elf, undefs: anytype) !void {
     }
 }
 
+pub fn createSymbolIndirection(self: *ZigObject, elf_file: *Elf) !void {
+    const impl = struct {
+        fn impl(sym: *Symbol, ref: Elf.Ref, ef: *Elf) !void {
+            if (!sym.isLocal(ef) and !sym.flags.has_dynamic) {
+                log.debug("'{s}' is non-local", .{sym.name(ef)});
+                try ef.dynsym.addSymbol(ref, ef);
+            }
+            if (sym.flags.needs_got) {
+                log.debug("'{s}' needs GOT", .{sym.name(ef)});
+                _ = try ef.got.addGotSymbol(ref, ef);
+            }
+            if (sym.flags.needs_plt) {
+                if (sym.flags.is_canonical) {
+                    log.debug("'{s}' needs CPLT", .{sym.name(ef)});
+                    sym.flags.@"export" = true;
+                    try ef.plt.addSymbol(ref, ef);
+                } else if (sym.flags.needs_got) {
+                    log.debug("'{s}' needs PLTGOT", .{sym.name(ef)});
+                    try ef.plt_got.addSymbol(ref, ef);
+                } else {
+                    log.debug("'{s}' needs PLT", .{sym.name(ef)});
+                    try ef.plt.addSymbol(ref, ef);
+                }
+            }
+            if (sym.flags.needs_copy_rel and !sym.flags.has_copy_rel) {
+                log.debug("'{s}' needs COPYREL", .{sym.name(ef)});
+                try ef.copy_rel.addSymbol(ref, ef);
+            }
+            if (sym.flags.needs_tlsgd) {
+                log.debug("'{s}' needs TLSGD", .{sym.name(ef)});
+                try ef.got.addTlsGdSymbol(ref, ef);
+            }
+            if (sym.flags.needs_gottp) {
+                log.debug("'{s}' needs GOTTP", .{sym.name(ef)});
+                try ef.got.addGotTpSymbol(ref, ef);
+            }
+            if (sym.flags.needs_tlsdesc) {
+                log.debug("'{s}' needs TLSDESC", .{sym.name(ef)});
+                try ef.got.addTlsDescSymbol(ref, ef);
+            }
+        }
+    }.impl;
+    for (self.local_symbols.items, 0..) |index, i| {
+        const sym = &self.symbols.items[index];
+        const ref = self.resolveSymbol(@intCast(i), elf_file);
+        const ref_sym = elf_file.symbol(ref) orelse continue;
+        if (ref_sym.file(elf_file).?.index() != self.index) continue;
+        try impl(sym, ref, elf_file);
+    }
+    for (self.global_symbols.items, 0..) |index, i| {
+        const sym = &self.symbols.items[index];
+        const ref = self.resolveSymbol(@intCast(i | global_symbol_bit), elf_file);
+        const ref_sym = elf_file.symbol(ref) orelse continue;
+        if (ref_sym.file(elf_file).?.index() != self.index) continue;
+        try impl(sym, ref, elf_file);
+    }
+}
+
 pub fn markLive(self: *ZigObject, elf_file: *Elf) void {
     for (self.global_symbols.items, 0..) |index, i| {
         const global = self.symbols.items[index];
@@ -468,7 +518,7 @@ pub fn markLive(self: *ZigObject, elf_file: *Elf) void {
     }
 }
 
-pub fn markImportsExports(self: *Object, elf_file: *Elf) void {
+pub fn markImportsExports(self: *ZigObject, elf_file: *Elf) void {
     for (0..self.global_symbols.items.len) |i| {
         const ref = self.resolveSymbol(@intCast(i | global_symbol_bit), elf_file);
         const sym = elf_file.symbol(ref) orelse continue;
@@ -604,7 +654,7 @@ pub fn updateSymtabSize(self: *ZigObject, elf_file: *Elf) !void {
 
     for (self.global_symbols.items, self.symbols_resolver.items) |index, resolv| {
         const global = &self.symbols.items[index];
-        const ref = elf_file.resolver.items[resolv];
+        const ref = elf_file.resolver.values.items[resolv];
         const ref_sym = elf_file.symbol(ref) orelse continue;
         if (ref_sym.file(elf_file).?.index() != self.index) continue;
         if (global.atom(elf_file)) |atom_ptr| if (!atom_ptr.alive) continue;
@@ -633,7 +683,7 @@ pub fn writeSymtab(self: ZigObject, elf_file: *Elf) void {
 
     for (self.global_symbols.items, self.symbols_resolver.items) |index, resolv| {
         const global = self.symbols.items[index];
-        const ref = elf_file.resolver.items[resolv];
+        const ref = elf_file.resolver.values.items[resolv];
         const ref_sym = elf_file.symbol(ref) orelse continue;
         if (ref_sym.file(elf_file).?.index() != self.index) continue;
         const idx = global.outputSymtabIndex(elf_file) orelse continue;
@@ -678,13 +728,13 @@ pub fn getDeclVAddr(
     reloc_info: link.File.RelocInfo,
 ) !u64 {
     const this_sym_index = try self.getOrCreateMetadataForDecl(elf_file, decl_index);
-    const this_sym = elf_file.symbol(this_sym_index);
+    const this_sym = self.symbol(this_sym_index);
     const vaddr = this_sym.address(.{}, elf_file);
-    const parent_atom = elf_file.symbol(reloc_info.parent_atom_index).atom(elf_file).?;
+    const parent_atom = self.symbol(reloc_info.parent_atom_index).atom(elf_file).?;
     const r_type = relocation.encode(.abs, elf_file.getTarget().cpu.arch);
     try parent_atom.addReloc(elf_file, .{
         .r_offset = reloc_info.offset,
-        .r_info = (@as(u64, @intCast(this_sym.esym_index)) << 32) | r_type,
+        .r_info = (@as(u64, @intCast(this_sym_index)) << 32) | r_type,
         .r_addend = reloc_info.addend,
     });
     return @intCast(vaddr);
@@ -697,13 +747,13 @@ pub fn getAnonDeclVAddr(
     reloc_info: link.File.RelocInfo,
 ) !u64 {
     const sym_index = self.anon_decls.get(decl_val).?.symbol_index;
-    const sym = elf_file.symbol(sym_index);
+    const sym = self.symbol(sym_index);
     const vaddr = sym.address(.{}, elf_file);
-    const parent_atom = elf_file.symbol(reloc_info.parent_atom_index).atom(elf_file).?;
+    const parent_atom = self.symbol(reloc_info.parent_atom_index).atom(elf_file).?;
     const r_type = relocation.encode(.abs, elf_file.getTarget().cpu.arch);
     try parent_atom.addReloc(elf_file, .{
         .r_offset = reloc_info.offset,
-        .r_info = (@as(u64, @intCast(sym.esym_index)) << 32) | r_type,
+        .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
         .r_addend = reloc_info.addend,
     });
     return @intCast(vaddr);
@@ -725,7 +775,7 @@ pub fn lowerAnonDecl(
         else => explicit_alignment,
     };
     if (self.anon_decls.get(decl_val)) |metadata| {
-        const existing_alignment = elf_file.symbol(metadata.symbol_index).atom(elf_file).?.alignment;
+        const existing_alignment = self.symbol(metadata.symbol_index).atom(elf_file).?.alignment;
         if (decl_alignment.order(existing_alignment).compare(.lte))
             return .ok;
     }
@@ -811,11 +861,10 @@ fn freeUnnamedConsts(self: *ZigObject, elf_file: *Elf, decl_index: InternPool.De
 }
 
 fn freeDeclMetadata(self: *ZigObject, elf_file: *Elf, sym_index: Symbol.Index) void {
-    _ = self;
-    const sym = elf_file.symbol(sym_index);
+    const sym = self.symbol(sym_index);
     sym.atom(elf_file).?.free(elf_file);
     log.debug("adding %{d} to local symbols free list", .{sym_index});
-    elf_file.symbols.items[sym_index] = .{};
+    self.symbols.items[sym_index] = .{};
     // TODO free GOT entry here
 }
 
@@ -940,8 +989,8 @@ fn updateDeclCode(
         target_util.minFunctionAlignment(mod.getTarget()),
     );
 
-    const sym = elf_file.symbol(sym_index);
-    const esym = &self.local_esyms.items(.elf_sym)[sym.esym_index];
+    const sym = self.symbol(sym_index);
+    const esym = &self.symtab.items(.elf_sym)[sym.esym_index];
     const atom_ptr = sym.atom(elf_file).?;
     const name_offset = try self.strtab.insert(gpa, decl.fqn.toSlice(ip));
 
@@ -1038,8 +1087,8 @@ fn updateTlv(
 
     const required_alignment = decl.getAlignment(pt);
 
-    const sym = elf_file.symbol(sym_index);
-    const esym = &self.local_esyms.items(.elf_sym)[sym.esym_index];
+    const sym = self.symbol(sym_index);
+    const esym = &self.symtab.items(.elf_sym)[sym.esym_index];
     const atom_ptr = sym.atom(elf_file).?;
     const name_offset = try self.strtab.insert(gpa, decl.fqn.toSlice(ip));
 
@@ -1264,9 +1313,9 @@ fn updateLazySymbol(
         .code => elf_file.zig_text_section_index.?,
         .const_data => elf_file.zig_data_rel_ro_section_index.?,
     };
-    const local_sym = elf_file.symbol(symbol_index);
+    const local_sym = self.symbol(symbol_index);
     local_sym.name_offset = name_str_index;
-    const local_esym = &self.local_esyms.items(.elf_sym)[local_sym.esym_index];
+    const local_esym = &self.symtab.items(.elf_sym)[local_sym.esym_index];
     local_esym.st_name = name_str_index;
     local_esym.st_info |= elf.STT_OBJECT;
     local_esym.st_size = code.len;
@@ -1372,7 +1421,7 @@ fn lowerConst(
     };
 
     const local_sym = self.symbol(sym_index);
-    const local_esym = local_sym.elfSym(elf_file);
+    const local_esym = &self.symtab.items(.elf_sym)[local_sym.esym_index];
     local_esym.st_info |= elf.STT_OBJECT;
     local_esym.st_size = code.len;
     const atom_ptr = local_sym.atom(elf_file).?;
@@ -1473,9 +1522,9 @@ pub fn updateExports(
         const global_sym = self.symbol(global_sym_index);
         global_sym.value = value;
         global_sym.flags.weak = exp.opts.linkage == .weak;
-        global_sym.version_index = elf_file.default_version_index;
+        global_sym.version_index = elf_file.default_sym_version;
         global_sym.ref = .{ .index = esym_shndx, .file = self.index };
-        const global_esym = global_sym.elfSym(elf_file);
+        const global_esym = &self.symtab.items(.elf_sym)[global_sym.esym_index];
         global_esym.st_value = @intCast(value);
         global_esym.st_shndx = esym.st_shndx;
         global_esym.st_info = (stb_bits << 4) | stt_bits;
@@ -1517,16 +1566,16 @@ pub fn deleteExport(
     const exp_name = name.toSlice(&mod.intern_pool);
     const esym_index = metadata.@"export"(self, exp_name) orelse return;
     log.debug("deleting export '{s}'", .{exp_name});
-    const esym = &self.global_esyms.items(.elf_sym)[esym_index.*];
+    const esym = &self.symtab.items(.elf_sym)[esym_index.*];
     _ = self.globals_lookup.remove(esym.st_name);
-    const sym_index = elf_file.resolver.get(esym.st_name).?;
-    const sym = elf_file.symbol(sym_index);
-    if (sym.file_index == self.index) {
-        _ = elf_file.resolver.swapRemove(esym.st_name);
-        sym.* = .{};
-    }
+    // const sym_index = elf_file.resolver.get(esym.st_name).?;
+    // const sym = elf_file.symbol(sym_index);
+    // if (sym.file_index == self.index) {
+    //     _ = elf_file.resolver.swapRemove(esym.st_name);
+    //     sym.* = .{};
+    // }
     esym.* = Elf.null_sym;
-    self.global_esyms.items(.shndx)[esym_index.*] = elf.SHN_UNDEF;
+    self.symtab.items(.shndx)[esym_index.*] = elf.SHN_UNDEF;
 }
 
 pub fn getGlobalSymbol(self: *ZigObject, elf_file: *Elf, name: []const u8, lib_name: ?[]const u8) !u32 {
@@ -1535,7 +1584,7 @@ pub fn getGlobalSymbol(self: *ZigObject, elf_file: *Elf, name: []const u8, lib_n
     const off = try self.strtab.insert(gpa, name);
     const lookup_gop = try self.globals_lookup.getOrPut(gpa, off);
     if (!lookup_gop.found_existing) {
-        lookup_gop.value_ptr.* = try self.newSymbol(gpa, off);
+        lookup_gop.value_ptr.* = try self.newGlobalSymbol(gpa, off);
     }
     return lookup_gop.value_ptr.*;
 }
@@ -1636,8 +1685,12 @@ pub fn resolveSymbol(self: ZigObject, index: Symbol.Index, elf_file: *Elf) Elf.R
     return .{ .index = index, .file = self.index };
 }
 
-pub fn addSymbol(self: *ZigObject, allocator: Allocator) !Symbol.Index {
+fn addSymbol(self: *ZigObject, allocator: Allocator) !Symbol.Index {
     try self.symbols.ensureUnusedCapacity(allocator, 1);
+    return self.addSymbolAssumeCapacity();
+}
+
+fn addSymbolAssumeCapacity(self: *ZigObject) Symbol.Index {
     const index: Symbol.Index = @intCast(self.symbols.items.len);
     self.symbols.appendAssumeCapacity(.{ .file_index = self.index });
     return index;
@@ -1705,15 +1758,17 @@ fn formatSymtab(
 ) !void {
     _ = unused_fmt_string;
     _ = options;
+    const self = ctx.self;
+    const elf_file = ctx.elf_file;
     try writer.writeAll("  locals\n");
-    for (ctx.self.locals()) |index| {
-        const local = ctx.elf_file.symbol(index);
-        try writer.print("    {}\n", .{local.fmt(ctx.elf_file)});
+    for (self.local_symbols.items) |index| {
+        const local = self.symbols.items[index];
+        try writer.print("    {}\n", .{local.fmt(elf_file)});
     }
     try writer.writeAll("  globals\n");
-    for (ctx.self.globals()) |index| {
-        const global = ctx.elf_file.symbol(index);
-        try writer.print("    {}\n", .{global.fmt(ctx.elf_file)});
+    for (ctx.self.global_symbols.items) |index| {
+        const global = self.symbols.items[index];
+        try writer.print("    {}\n", .{global.fmt(elf_file)});
     }
 }
 
@@ -1759,7 +1814,7 @@ const DeclMetadata = struct {
 
     fn @"export"(m: DeclMetadata, zo: *ZigObject, name: []const u8) ?*u32 {
         for (m.exports.items) |*exp| {
-            const exp_name = zo.getString(zo.symbol(exp.*).name_off);
+            const exp_name = zo.getString(zo.symbol(exp.*).name_offset);
             if (mem.eql(u8, name, exp_name)) return exp;
         }
         return null;

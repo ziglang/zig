@@ -1409,12 +1409,13 @@ fn genLazy(func: *Func, lazy_sym: link.File.LazySymbol) InnerError!void {
             defer func.register_manager.unlockReg(data_lock);
 
             const elf_file = func.bin_file.cast(link.File.Elf).?;
-            const sym_index = elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, pt, .{
+            const zo = elf_file.zigObjectPtr().?;
+            const sym_index = zo.getOrCreateMetadataForLazySymbol(elf_file, pt, .{
                 .kind = .const_data,
                 .ty = enum_ty,
             }) catch |err|
                 return func.fail("{s} creating lazy symbol", .{@errorName(err)});
-            const sym = elf_file.symbol(sym_index);
+            const sym = zo.symbol(sym_index);
 
             try func.genSetReg(Type.u64, data_reg, .{ .lea_symbol = .{ .sym = sym.esym_index } });
 
@@ -4946,8 +4947,9 @@ fn genCall(
                 }) {
                     .func => |func_val| {
                         if (func.bin_file.cast(link.File.Elf)) |elf_file| {
-                            const sym_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, func_val.owner_decl);
-                            const sym = elf_file.symbol(sym_index);
+                            const zo = elf_file.zigObjectPtr().?;
+                            const sym_index = try zo.getOrCreateMetadataForDecl(elf_file, func_val.owner_decl);
+                            const sym = zo.symbol(sym_index);
 
                             if (func.mod.pic) {
                                 return func.fail("TODO: genCall pic", .{});
@@ -7822,9 +7824,10 @@ fn airTagName(func: *Func, inst: Air.Inst.Index) !void {
 
         const lazy_sym = link.File.LazySymbol.initDecl(.code, enum_ty.getOwnerDecl(zcu), zcu);
         const elf_file = func.bin_file.cast(link.File.Elf).?;
-        const sym_index = elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, pt, lazy_sym) catch |err|
+        const zo = elf_file.zigObjectPtr().?;
+        const sym_index = zo.getOrCreateMetadataForLazySymbol(elf_file, pt, lazy_sym) catch |err|
             return func.fail("{s} creating lazy symbol", .{@errorName(err)});
-        const sym = elf_file.symbol(sym_index);
+        const sym = zo.symbol(sym_index);
 
         if (func.mod.pic) {
             return func.fail("TODO: airTagName pic", .{});
@@ -8049,7 +8052,8 @@ fn genTypedValue(func: *Func, val: Value) InnerError!MCValue {
         switch (lf.tag) {
             .elf => {
                 const elf_file = lf.cast(link.File.Elf).?;
-                const local = elf_file.symbol(local_sym_index);
+                const zo = elf_file.zigObjectPtr().?;
+                const local = zo.symbol(local_sym_index);
                 return MCValue{ .undef = local.esym_index };
             },
             else => unreachable,

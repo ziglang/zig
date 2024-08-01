@@ -42,7 +42,8 @@ pub fn emitMir(emit: *Emit) Error!void {
                 }),
                 .linker_extern_fn => |symbol| if (emit.lower.bin_file.cast(link.File.Elf)) |elf_file| {
                     // Add relocation to the decl.
-                    const atom_ptr = elf_file.symbol(symbol.atom_index).atom(elf_file).?;
+                    const zo = elf_file.zigObjectPtr().?;
+                    const atom_ptr = zo.symbol(symbol.atom_index).atom(elf_file).?;
                     const r_type = @intFromEnum(std.elf.R_X86_64.PLT32);
                     try atom_ptr.addReloc(elf_file, .{
                         .r_offset = end_offset - 4,
@@ -88,7 +89,8 @@ pub fn emitMir(emit: *Emit) Error!void {
                 }),
                 .linker_tlsld => |data| {
                     const elf_file = emit.lower.bin_file.cast(link.File.Elf).?;
-                    const atom = elf_file.symbol(data.atom_index).atom(elf_file).?;
+                    const zo = elf_file.zigObjectPtr().?;
+                    const atom = zo.symbol(data.atom_index).atom(elf_file).?;
                     const r_type = @intFromEnum(std.elf.R_X86_64.TLSLD);
                     try atom.addReloc(elf_file, .{
                         .r_offset = end_offset - 4,
@@ -98,7 +100,8 @@ pub fn emitMir(emit: *Emit) Error!void {
                 },
                 .linker_dtpoff => |data| {
                     const elf_file = emit.lower.bin_file.cast(link.File.Elf).?;
-                    const atom = elf_file.symbol(data.atom_index).atom(elf_file).?;
+                    const zo = elf_file.zigObjectPtr().?;
+                    const atom = zo.symbol(data.atom_index).atom(elf_file).?;
                     const r_type = @intFromEnum(std.elf.R_X86_64.DTPOFF32);
                     try atom.addReloc(elf_file, .{
                         .r_offset = end_offset - 4,
@@ -112,11 +115,11 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .Obj => true,
                         .Lib => emit.lower.link_mode == .static,
                     };
-                    const atom = elf_file.symbol(data.atom_index).atom(elf_file).?;
-                    const sym_index = elf_file.zigObjectPtr().?.symbol(data.sym_index);
-                    const sym = elf_file.symbol(sym_index);
+                    const zo = elf_file.zigObjectPtr().?;
+                    const atom = zo.symbol(data.atom_index).atom(elf_file).?;
+                    const sym = zo.symbol(data.sym_index);
                     if (sym.flags.needs_zig_got and !is_obj_or_static_lib) {
-                        _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
+                        _ = try sym.getOrCreateZigGotEntry(data.sym_index, elf_file);
                     }
                     if (emit.lower.pic) {
                         const r_type: u32 = if (sym.flags.needs_zig_got and !is_obj_or_static_lib)

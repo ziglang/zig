@@ -86,6 +86,7 @@ pub fn file(symbol: Symbol, elf_file: *Elf) ?File {
 
 pub fn elfSym(symbol: Symbol, elf_file: *Elf) elf.Elf64_Sym {
     return switch (symbol.file(elf_file).?) {
+        .zig_object => |x| x.symtab.items(.elf_sym)[symbol.esym_index],
         inline else => |x| x.symtab.items[symbol.esym_index],
     };
 }
@@ -261,7 +262,7 @@ const AddExtraOpts = struct {
     zig_got: ?u32 = null,
 };
 
-pub fn addExtra(symbol: *Symbol, opts: AddExtraOpts, elf_file: *Elf) !void {
+pub fn addExtra(symbol: *Symbol, opts: AddExtraOpts, elf_file: *Elf) void {
     var extras = symbol.extra(elf_file);
     inline for (@typeInfo(@TypeOf(opts)).Struct.fields) |field| {
         if (@field(opts, field.name)) |x| {
@@ -272,11 +273,15 @@ pub fn addExtra(symbol: *Symbol, opts: AddExtraOpts, elf_file: *Elf) !void {
 }
 
 pub fn extra(symbol: Symbol, elf_file: *Elf) Extra {
-    return elf_file.symbolExtra(symbol.extra_index);
+    return switch (symbol.file(elf_file).?) {
+        inline else => |x| x.symbolExtra(symbol.extra_index),
+    };
 }
 
 pub fn setExtra(symbol: Symbol, extras: Extra, elf_file: *Elf) void {
-    elf_file.setSymbolExtra(symbol.extra_index, extras);
+    return switch (symbol.file(elf_file).?) {
+        inline else => |x| x.setSymbolExtra(symbol.extra_index, extras),
+    };
 }
 
 pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {

@@ -906,20 +906,20 @@ fn genDeclRef(
     const is_extern = decl.isExtern(zcu);
 
     if (lf.cast(link.File.Elf)) |elf_file| {
+        const zo = elf_file.zigObjectPtr().?;
         if (is_extern) {
             const name = decl.name.toSlice(ip);
             // TODO audit this
             const lib_name = if (decl.getOwnedVariable(zcu)) |ov| ov.lib_name.toSlice(ip) else null;
             const sym_index = try elf_file.getGlobalSymbol(name, lib_name);
-            elf_file.symbol(elf_file.zigObjectPtr().?.symbol(sym_index)).flags.needs_got = true;
+            zo.symbol(sym_index).flags.needs_got = true;
             return GenResult.mcv(.{ .load_symbol = sym_index });
         }
-        const sym_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, decl_index);
-        const sym = elf_file.symbol(sym_index);
+        const sym_index = try zo.getOrCreateMetadataForDecl(elf_file, decl_index);
         if (is_threadlocal) {
-            return GenResult.mcv(.{ .load_tlv = sym.esym_index });
+            return GenResult.mcv(.{ .load_tlv = sym_index });
         }
-        return GenResult.mcv(.{ .load_symbol = sym.esym_index });
+        return GenResult.mcv(.{ .load_symbol = sym_index });
     } else if (lf.cast(link.File.MachO)) |macho_file| {
         const zo = macho_file.getZigObject().?;
         if (is_extern) {
@@ -971,9 +971,7 @@ fn genUnnamedConst(
     };
     switch (lf.tag) {
         .elf => {
-            const elf_file = lf.cast(link.File.Elf).?;
-            const local = elf_file.symbol(local_sym_index);
-            return GenResult.mcv(.{ .load_symbol = local.esym_index });
+            return GenResult.mcv(.{ .load_symbol = local_sym_index });
         },
         .macho => {
             const macho_file = lf.cast(link.File.MachO).?;
