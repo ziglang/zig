@@ -6,6 +6,5 @@ export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :2:15: error: expected expression, found 'invalid bytes'
-// :2:21: note: invalid byte: 'z'
+// :2:21: error: expected hex digit or '}', found 'z'
 

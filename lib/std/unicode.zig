@@ -95,16 +95,13 @@ pub inline fn utf8EncodeComptime(comptime c: u21) [
 
 const Utf8DecodeError = Utf8Decode2Error || Utf8Decode3Error || Utf8Decode4Error;
 
-/// Decodes the UTF-8 codepoint encoded in the given slice of bytes.
-/// bytes.len must be equal to utf8ByteSequenceLength(bytes[0]) catch unreachable.
-/// If you already know the length at comptime, you can call one of
-/// utf8Decode2,utf8Decode3,utf8Decode4 directly instead of this function.
+/// Deprecated. This function has an awkward API that is too easy to use incorrectly.
 pub fn utf8Decode(bytes: []const u8) Utf8DecodeError!u21 {
     return switch (bytes.len) {
-        1 => @as(u21, bytes[0]),
-        2 => utf8Decode2(bytes),
-        3 => utf8Decode3(bytes),
-        4 => utf8Decode4(bytes),
+        1 => bytes[0],
+        2 => utf8Decode2(bytes[0..2].*),
+        3 => utf8Decode3(bytes[0..3].*),
+        4 => utf8Decode4(bytes[0..4].*),
         else => unreachable,
     };
 }
@@ -113,8 +110,7 @@ const Utf8Decode2Error = error{
     Utf8ExpectedContinuation,
     Utf8OverlongEncoding,
 };
-pub fn utf8Decode2(bytes: []const u8) Utf8Decode2Error!u21 {
-    assert(bytes.len == 2);
+pub fn utf8Decode2(bytes: [2]u8) Utf8Decode2Error!u21 {
     assert(bytes[0] & 0b11100000 == 0b11000000);
     var value: u21 = bytes[0] & 0b00011111;
 
@@ -130,7 +126,7 @@ pub fn utf8Decode2(bytes: []const u8) Utf8Decode2Error!u21 {
 const Utf8Decode3Error = Utf8Decode3AllowSurrogateHalfError || error{
     Utf8EncodesSurrogateHalf,
 };
-pub fn utf8Decode3(bytes: []const u8) Utf8Decode3Error!u21 {
+pub fn utf8Decode3(bytes: [3]u8) Utf8Decode3Error!u21 {
     const value = try utf8Decode3AllowSurrogateHalf(bytes);
 
     if (0xd800 <= value and value <= 0xdfff) return error.Utf8EncodesSurrogateHalf;
@@ -142,8 +138,7 @@ const Utf8Decode3AllowSurrogateHalfError = error{
     Utf8ExpectedContinuation,
     Utf8OverlongEncoding,
 };
-pub fn utf8Decode3AllowSurrogateHalf(bytes: []const u8) Utf8Decode3AllowSurrogateHalfError!u21 {
-    assert(bytes.len == 3);
+pub fn utf8Decode3AllowSurrogateHalf(bytes: [3]u8) Utf8Decode3AllowSurrogateHalfError!u21 {
     assert(bytes[0] & 0b11110000 == 0b11100000);
     var value: u21 = bytes[0] & 0b00001111;
 
@@ -165,8 +160,7 @@ const Utf8Decode4Error = error{
     Utf8OverlongEncoding,
     Utf8CodepointTooLarge,
 };
-pub fn utf8Decode4(bytes: []const u8) Utf8Decode4Error!u21 {
-    assert(bytes.len == 4);
+pub fn utf8Decode4(bytes: [4]u8) Utf8Decode4Error!u21 {
     assert(bytes[0] & 0b11111000 == 0b11110000);
     var value: u21 = bytes[0] & 0b00000111;
 
@@ -1637,12 +1631,13 @@ pub fn wtf8Encode(c: u21, out: []u8) error{CodepointTooLarge}!u3 {
 
 const Wtf8DecodeError = Utf8Decode2Error || Utf8Decode3AllowSurrogateHalfError || Utf8Decode4Error;
 
+/// Deprecated. This function has an awkward API that is too easy to use incorrectly.
 pub fn wtf8Decode(bytes: []const u8) Wtf8DecodeError!u21 {
     return switch (bytes.len) {
-        1 => @as(u21, bytes[0]),
-        2 => utf8Decode2(bytes),
-        3 => utf8Decode3AllowSurrogateHalf(bytes),
-        4 => utf8Decode4(bytes),
+        1 => bytes[0],
+        2 => utf8Decode2(bytes[0..2].*),
+        3 => utf8Decode3AllowSurrogateHalf(bytes[0..3].*),
+        4 => utf8Decode4(bytes[0..4].*),
         else => unreachable,
     };
 }
