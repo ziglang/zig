@@ -129,116 +129,7 @@ const ArchInfo = union(enum) {
 };
 
 const arch_infos = [_]ArchInfo{
-    // Newer architectures (starting with aarch64 c. 2012) now use the same C
-    // header file for their syscall numbers. Arch-specific headers are used to
-    // define pre-proc. vars that add additional (usually obsolete) syscalls.
     // FIXME: not able to generate enum err: `invalid target generic`
-    .{
-        .preprocessor = .{
-            .name = "hexagon",
-            .enum_name = "Hexagon",
-            .file_path = "arch/hexagon/include/uapi/asm/unistd.h",
-            .child_options = .{
-                .additional_args = null,
-                .target = "hexagon-freestanding-none",
-            },
-            .process_file = &processPreprocessedFile,
-            .header = null,
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .preprocessor = .{
-            .name = "csky",
-            .enum_name = "CSky",
-            .file_path = "arch/csky/include/uapi/asm/unistd.h",
-            .child_options = .{
-                .additional_args = null,
-                .target = "csky-freestanding-none",
-            },
-            .process_file = &processPreprocessedFile,
-            .header = null,
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .preprocessor = .{
-            .name = "arc",
-            .enum_name = "Arc",
-            .file_path = "arch/arc/include/uapi/asm/unistd.h",
-            .child_options = .{
-                .additional_args = null,
-                .target = "arc-freestanding-none",
-            },
-            .process_file = &processPreprocessedFile,
-            .header = null,
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .preprocessor = .{
-            .name = "loongarch",
-            .enum_name = "LoongArch64",
-            .file_path = "arch/loongarch/include/uapi/asm/unistd.h",
-            .child_options = .{
-                .additional_args = null,
-                .target = "loongarch64-freestanding-none",
-            },
-            .process_file = &processPreprocessedFile,
-            .header = null,
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .preprocessor = .{
-            .name = "riscv64",
-            .enum_name = "RiscV64",
-            .file_path = "arch/riscv/include/uapi/asm/unistd.h",
-            .child_options = .{
-                .additional_args = null,
-                .target = "riscv64-freestanding-none",
-            },
-            .process_file = &processPreprocessedFile,
-            .header = null,
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .preprocessor = .{
-            .name = "riscv32",
-            .enum_name = "RiscV32",
-            .file_path = "arch/riscv/include/uapi/asm/unistd.h",
-            .child_options = .{
-                .additional_args = null,
-                .target = "riscv32-freestanding-none",
-            },
-            .process_file = &processPreprocessedFile,
-            .header = null,
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .preprocessor = .{
-            .name = "arm64",
-            .enum_name = "Arm64",
-            .file_path = "arch/arm64/include/uapi/asm/unistd.h",
-            .child_options = .{
-                .additional_args = null,
-                .target = "aarch64-freestanding-none",
-            },
-            .process_file = &processPreprocessedFile,
-            .header = null,
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    // generated from table
     .{
         // These architectures have their syscall definitions generated from a TSV
         // file, processed via scripts/syscallhdr.sh.
@@ -303,6 +194,22 @@ const arch_infos = [_]ArchInfo{
     .{
         .table = .{
             .name = "sparc",
+            .enum_name = "Sparc",
+            .file_path = "arch/sparc/kernel/syscalls/syscall.tbl",
+            .process_file = &processTableBasedArch,
+            .filters = .{
+                .abiCheck = getAbiCheckFunction("64", .@"continue"),
+                .fixedName = &fixedName,
+                .isReservedNameOld = null,
+            },
+            .header = null,
+            .extra_values = null,
+            .additional_enum = null,
+        },
+    },
+    .{
+        .table = .{
+            .name = "sparc64",
             .enum_name = "Sparc64",
             .file_path = "arch/sparc/kernel/syscalls/syscall.tbl",
             .process_file = &processTableBasedArch,
@@ -429,6 +336,111 @@ const arch_infos = [_]ArchInfo{
                 .fixedName = null,
                 .isReservedNameOld = isReservedNameOld,
             },
+            .header = null,
+            .extra_values = null,
+            .additional_enum = null,
+        },
+    },
+    .{
+        .preprocessor = .{
+            .name = "arm64",
+            .enum_name = "Arm64",
+            .file_path = "arch/arm64/include/uapi/asm/unistd.h",
+            .child_options = .{
+                .additional_args = null,
+                .target = "aarch64-freestanding-none",
+            },
+            .process_file = &processPreprocessedFile,
+            .header = null,
+            .extra_values = null,
+            .additional_enum = null,
+        },
+    },
+    .{
+        .preprocessor = .{
+            .name = "riscv32",
+            .enum_name = "RiscV32",
+            .file_path = "arch/riscv/include/uapi/asm/unistd.h",
+            .child_options = .{
+                .additional_args = null,
+                .target = "riscv32-freestanding-none",
+            },
+            .process_file = &processPreprocessedFile,
+            .header = null,
+            .extra_values = null,
+            .additional_enum = null,
+        },
+    },
+    .{
+        .preprocessor = .{
+            .name = "riscv64",
+            .enum_name = "RiscV64",
+            .file_path = "arch/riscv/include/uapi/asm/unistd.h",
+            .child_options = .{
+                .additional_args = null,
+                .target = "riscv64-freestanding-none",
+            },
+            .process_file = &processPreprocessedFile,
+            .header = null,
+            .extra_values = null,
+            .additional_enum = null,
+        },
+    },
+    .{
+        .preprocessor = .{
+            .name = "loongarch",
+            .enum_name = "LoongArch64",
+            .file_path = "arch/loongarch/include/uapi/asm/unistd.h",
+            .child_options = .{
+                .additional_args = null,
+                .target = "loongarch64-freestanding-none",
+            },
+            .process_file = &processPreprocessedFile,
+            .header = null,
+            .extra_values = null,
+            .additional_enum = null,
+        },
+    },
+    .{
+        .preprocessor = .{
+            .name = "arc",
+            .enum_name = "Arc",
+            .file_path = "arch/arc/include/uapi/asm/unistd.h",
+            .child_options = .{
+                .additional_args = null,
+                .target = "arc-freestanding-none",
+            },
+            .process_file = &processPreprocessedFile,
+            .header = null,
+            .extra_values = null,
+            .additional_enum = null,
+        },
+    },
+    .{
+        .preprocessor = .{
+            .name = "csky",
+            .enum_name = "CSky",
+            .file_path = "arch/csky/include/uapi/asm/unistd.h",
+            .child_options = .{
+                .additional_args = null,
+                .target = "csky-freestanding-none",
+            },
+            .process_file = &processPreprocessedFile,
+            .header = null,
+            .extra_values = null,
+            .additional_enum = null,
+        },
+    },
+    .{
+        .preprocessor = .{
+            .name = "hexagon",
+            .enum_name = "Hexagon",
+            .file_path = "arch/hexagon/include/uapi/asm/unistd.h",
+            .child_options = .{
+                .additional_args = null,
+                .target = "hexagon-freestanding-none",
+            },
+            .process_file = &processPreprocessedFile,
             .header = null,
             .extra_values = null,
             .additional_enum = null,
