@@ -670,3 +670,224 @@ test "Extended C ABI casting" {
         try testing.expect(@TypeOf(Macros.L_SUFFIX(math.maxInt(c_long) + 1)) == c_longlong); // comptime_int -> c_longlong
     }
 }
+
+const BitfieldEmulation = struct {
+    /// By default the bits are allocated from LSB to MSB
+    /// (follows Zig's packed struct and most ABI).
+    /// Sets to true to allocate from MSB to LSB.
+    reverse_bits: bool,
+    /// Most of ABIs starts a new storage unit after a unnamed zero-bit width bit field.
+    /// Some ABIs ignores that, sets to false.
+    unnamed_void_boundary: bool,
+    /// Some ABIs allow a bitfield straddles on storage units.
+    /// Some ABIs, like MSVC, don't straddle, sets to false.
+    straddle: bool,
+    /// Also called 'steal padding'.
+    /// This option allows to steal the space from the previous padding for the next field.
+    collapse_padding: bool,
+
+    fn fromTarget(target: std.Target) ?BitfieldEmulation {
+        return switch (target.cpu.arch) {
+            .x86_64, .x86 => .{
+                .reverse_bits = false,
+                .unnamed_void_boundary = true,
+                .straddle = false,
+                .collapse_padding = switch (target.os.tag) {
+                    .windows => false,
+                    else => true,
+                },
+            },
+            .aarch64 => .{
+                .reverse_bits = false,
+                .unnamed_void_boundary = true,
+                .straddle = false,
+                .collapse_padding = true,
+            },
+            else => null,
+        };
+    }
+
+    fn merge(base: BitfieldEmulation, apply: anytype) BitfieldEmulation {
+        var copy = base;
+        for (std.meta.fieldNames(@This())) |name| {
+            if (@hasField(@TypeOf(apply), name)) {
+                @field(copy, name) = @field(apply, name);
+            }
+        }
+        return copy;
+    }
+};
+
+pub const Bitfield = struct {
+    /// The field name.
+    name: [:0]const u8,
+    /// The actual type of the field. For a bitfield,
+    /// It's the bit-sized unsigned int.
+    ///
+    /// Like in C `unsigned field0: 1` the type is `u1`.
+    type: type,
+    /// The backing integer for this field.
+    ///
+    /// Like in C `unsigned field0: 1`, the backing integer is `c_uint`.
+    backing_integer: ?type = null,
+    /// If the field is a pointer, it will be treated as `usize` and we avoid accessing the type.
+    ///
+    /// This helps to avoid the dependency loop problem.
+    is_pointer: bool = false,
+};
+
+fn makePaddingField(comptime bitsize: comptime_int, fieldNameCount: comptime_int) std.builtin.Type.StructField {
+    return makePaddingFieldWithName(bitsize, std.fmt.comptimePrint(" pad_{},+{}b", .{ fieldNameCount, bitsize }));
+}
+
+fn makePaddingFieldWithName(comptime bitsize: comptime_int, fieldName: [:0]const u8) std.builtin.Type.StructField {
+    const T = @Type(.{ .int = .{
+        .signedness = .unsigned,
+        .bits = bitsize,
+    } });
+    return .{
+        .alignment = 0,
+        .type = T,
+        .default_value = &std.mem.zeroes(T),
+        .name = fieldName,
+        .is_comptime = false,
+    };
+}
+
+fn isPaddingField(field: ?*const std.builtin.Type.StructField) bool {
+    return if (field) |f| std.mem.startsWith(u8, f.name, " pad_") else false;
+}
+
+/// Translate a packed struct type to adapt the C bitfields on the target platform.
+///
+/// If the target platform is unsupported, an opaque type will be returned.
+///
+/// `fields` is the struct definition.
+/// `modCfg` is the configuration accepted by `BitfieldEmulation.merge`.
+///
+/// Be advised that, the bitfields have different representation range in different ABI.
+/// This function assumes all bitfields are unsigned.
+pub fn EmulateBitfieldStruct(comptime fields: []const Bitfield, comptime modCfg: anytype) type {
+    const cfg = if (BitfieldEmulation.fromTarget(builtin.target)) |cfg|
+        cfg.merge(modCfg)
+    else {
+        return opaque {};
+    };
+
+    // TODO: implement reverse_bits
+    if (cfg.reverse_bits) @compileError("TODO: reverse_bit is not implemented");
+
+    comptime var finals: std.BoundedArray(std.builtin.Type.StructField, fields.len * 2) = .{};
+    comptime var lastBackingInt: ?type = null;
+    comptime var leftBitWidth = 0;
+    comptime var padFieldCount = 0;
+    comptime var lastField: ?*std.builtin.Type.StructField = null;
+    // The used space in bits
+    comptime var offset = 0;
+
+    for (fields, 0..fields.len) |field, _| {
+        if (comptime !field.is_pointer and @typeInfo(field.type) == .@"struct" and @typeInfo(field.type).@"struct".layout == .@"extern") {
+            return opaque {};
+        }
+        if (field.backing_integer) |BackingInt| {
+            const requiredBits = @typeInfo(field.type).int.bits;
+            if (leftBitWidth < requiredBits) {
+                if (!cfg.straddle and (leftBitWidth > 0)) {
+                    // add padding to use a new unit for the next field
+                    finals.appendAssumeCapacity(makePaddingField(leftBitWidth, padFieldCount));
+                    lastField = &finals.slice()[finals.len - 1];
+                    padFieldCount += 1;
+                    leftBitWidth = 0;
+                }
+
+                if (offset % @alignOf(BackingInt) != 0) {
+                    const padding = (@divTrunc(offset, @alignOf(BackingInt)) + 1) * @alignOf(BackingInt) - offset;
+                    offset += padding;
+
+                    finals.appendAssumeCapacity(makePaddingField(padding * 8, padFieldCount));
+                    lastField = &finals.slice()[finals.len - 1];
+                    padFieldCount += 1;
+                } else if (isPaddingField(lastField) and cfg.collapse_padding) {
+                    // Maybe we need to steal padding
+                    const lfield = lastField.?;
+                    const mlp = @divTrunc(@bitSizeOf(lfield.type), @alignOf(BackingInt) * 8);
+                    if (mlp >= 1) {
+                        const stolePadding = @alignOf(BackingInt) * mlp;
+                        const nsize = @bitSizeOf(lfield.type) - (stolePadding * 8);
+                        fields.set(fields.len - 1, makePaddingFieldWithName(
+                            nsize,
+                            std.fmt.comptimePrint("{s},-{}b", .{ lfield.name, stolePadding * 8 }),
+                        ));
+                        offset -= stolePadding;
+                    }
+                }
+
+                lastBackingInt = BackingInt;
+                leftBitWidth += @bitSizeOf(BackingInt);
+            }
+
+            leftBitWidth -= @bitSizeOf(field.type);
+            finals.appendAssumeCapacity(.{
+                .alignment = 0,
+                .default_value = &std.mem.zeroes(field.type),
+                .is_comptime = false,
+                .name = field.name,
+                .type = field.type,
+            });
+            lastField = &finals.slice()[finals.len - 1];
+        } else {
+            const LayoutAs = if (field.is_pointer) usize else field.type;
+
+            if (leftBitWidth > 0) {
+                finals.appendAssumeCapacity(makePaddingField(leftBitWidth, padFieldCount));
+                lastField = &finals.slice()[finals.len - 1];
+                padFieldCount += 1;
+                offset += leftBitWidth;
+            }
+            leftBitWidth = 0;
+            lastBackingInt = null;
+
+            if (offset % @alignOf(LayoutAs) != 0) {
+                const padding = (@divTrunc(offset, @alignOf(LayoutAs)) + 1) * @alignOf(LayoutAs) - offset;
+                offset += padding;
+
+                finals.appendAssumeCapacity(makePaddingField(padding * 8, padFieldCount));
+                lastField = &finals.slice()[finals.len - 1];
+                padFieldCount += 1;
+            } else if (isPaddingField(lastField) and cfg.collapse_padding) {
+                // Maybe we need to steal padding
+                const lfield = lastField.?;
+                const mlp = @divTrunc(@bitSizeOf(LayoutAs), @alignOf(LayoutAs) * 8);
+                if (mlp >= 1) {
+                    const stolePadding = @alignOf(LayoutAs) * mlp;
+                    const nsize = @bitSizeOf(lfield.type) - (stolePadding * 8);
+                    finals.set(finals.len - 1, makePaddingFieldWithName(
+                        nsize,
+                        std.fmt.comptimePrint("{s},-{}b", .{ lfield.name, stolePadding * 8 }),
+                    ));
+                    offset -= stolePadding;
+                }
+            }
+
+            finals.appendAssumeCapacity(.{
+                .alignment = 0,
+                .default_value = if (field.is_pointer) &@as(usize, 0) else &std.mem.zeroes(field.type),
+                .is_comptime = false,
+                .name = field.name,
+                .type = field.type,
+            });
+            lastField = &finals.slice()[finals.len - 1];
+            offset += @bitSizeOf(LayoutAs);
+        }
+    }
+
+    return @Type(.{
+        .@"struct" = .{
+            .layout = .@"packed",
+            .decls = &.{},
+            .fields = finals.constSlice(),
+            .is_tuple = false,
+            .backing_integer = null,
+        },
+    });
+}

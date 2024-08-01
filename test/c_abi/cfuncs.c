@@ -5567,3 +5567,118 @@ struct byval_tail_callsite_attr_Rect {
 double c_byval_tail_callsite_attr(struct byval_tail_callsite_attr_Rect in) {
     return in.size.width;
 }
+
+struct bitfield_simple {
+    uint8_t a: 1;
+    uint8_t b: 1;
+    uint8_t c: 1;
+    uint8_t d: 1;
+    uint8_t e: 1;
+    uint8_t f: 1;
+    uint8_t g: 1;
+    uint8_t h: 1;
+};
+
+signed c_struct_bitfield_simple_access(
+    struct bitfield_simple const *  s, unsigned offset) {
+        switch (offset) {
+            case 0:
+            return s->a;
+            case 1:
+            return s->b;
+            case 2:
+            return s->c;
+            case 3:
+            return s->d;
+            case 4:
+            return s->e;
+            case 5:
+            return s->f;
+            case 6:
+            return s->g;
+            case 7:
+            return s->h;
+            default:
+            return -2;
+        }
+}
+
+struct bitfield_pad {
+    unsigned a: 1;
+    unsigned b: 1;
+    unsigned c: 1;
+};
+
+signed c_struct_bitfield_pad_access(
+    struct bitfield_pad const *  s, unsigned offset) {
+        switch (offset) {
+            case 0:
+            return s->a;
+            case 1:
+            return s->b;
+            case 2:
+            return s->c;
+            default:
+            return -2;
+        }
+}
+
+struct tricky_bits
+{
+    unsigned int first : 9;
+    unsigned int second : 7;
+    unsigned int may_straddle : 30;
+    unsigned int last : 18;
+} ;
+
+signed c_struct_bitfield_tricky_bits_access(struct tricky_bits const * s, unsigned offset) {
+    switch (offset) {
+        case 0:
+        return s->first;
+        case 1:
+        return s->second;
+        case 2:
+        return s->may_straddle;
+        case 3:
+        return s->last;
+        default:
+        return -2;
+    }
+}
+
+struct mixing_bits {
+    unsigned first;
+    char b0_0: 1;
+    char b0_1: 1;
+    char b0_2: 1;
+    unsigned second;
+    unsigned int b1_0: 3;
+    unsigned int b1_1: 4;
+    unsigned int b1_2: 1;
+    short third;
+};
+
+int64_t c_struct_bitfield_mixing_bits_access(struct mixing_bits const *s, unsigned offset) {
+    switch (offset) {
+        case 0:
+        return s->first;
+        case 1:
+        return s->b0_0;
+        case 2:
+        return s->b0_1;
+        case 3:
+        return s->b0_2;
+        case 4:
+        return s->second;
+        case 5:
+        return s->b1_0;
+        case 6:
+        return s->b1_1;
+        case 7:
+        return s->b1_2;
+        case 8:
+        return s->third;
+        default:
+        return -2;
+    }
+}
