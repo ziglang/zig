@@ -6,11 +6,6 @@ const io = std.io;
 const posix = std.posix;
 const fs = std.fs;
 const testing = std.testing;
-const elf = std.elf;
-const DW = std.dwarf;
-const macho = std.macho;
-const coff = std.coff;
-const pdb = std.pdb;
 const root = @import("root");
 const File = std.fs.File;
 const windows = std.os.windows;
@@ -19,8 +14,22 @@ const native_os = builtin.os.tag;
 const native_endian = native_arch.endian();
 
 pub const Dwarf = @import("debug/Dwarf.zig");
-pub const Info = @import("debug/Info.zig");
+pub const Pdb = @import("debug/Pdb.zig");
+pub const SelfInfo = @import("debug/SelfInfo.zig");
 
+/// Unresolved source locations can be represented with a single `usize` that
+/// corresponds to a virtual memory address of the program counter. Combined
+/// with debug information, those values can be converted into a resolved
+/// source location, including file, line, and column.
+pub const SourceLocation = struct {
+    line: u64,
+    column: u64,
+    file_name: []const u8,
+};
+
+/// Deprecated because it returns the optimization mode of the standard
+/// library, when the caller probably wants to use the optimization mode of
+/// their own module.
 pub const runtime_safety = switch (builtin.mode) {
     .Debug, .ReleaseSafe => true,
     .ReleaseFast, .ReleaseSmall => false,
@@ -72,13 +81,13 @@ pub fn getStderrMutex() *std.Thread.Mutex {
 }
 
 /// TODO multithreaded awareness
-var self_debug_info: ?Info = null;
+var self_debug_info: ?SelfInfo = null;
 
-pub fn getSelfDebugInfo() !*Info {
+pub fn getSelfDebugInfo() !*SelfInfo {
     if (self_debug_info) |*info| {
         return info;
     } else {
-        self_debug_info = try Info.openSelf(getDebugInfoAllocator());
+        self_debug_info = try SelfInfo.openSelf(getDebugInfoAllocator());
         return &self_debug_info.?;
     }
 }
@@ -316,7 +325,7 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackT
         stack_trace.index = slice.len;
     } else {
         // TODO: This should use the DWARF unwinder if .eh_frame_hdr is available (so that full debug info parsing isn't required).
-        //       A new path for loading Info needs to be created which will only attempt to parse in-memory sections, because
+        //       A new path for loading SelfInfo needs to be created which will only attempt to parse in-memory sections, because
         //       stopping to load other debug info (ie. source line info) from disk here is not required for unwinding.
         var it = StackIterator.init(first_address, null);
         defer it.deinit();
@@ -494,7 +503,7 @@ pub fn writeStackTrace(
     stack_trace: std.builtin.StackTrace,
     out_stream: anytype,
     allocator: mem.Allocator,
-    debug_info: *Info,
+    debug_info: *SelfInfo,
     tty_config: io.tty.Config,
 ) !void {
     _ = allocator;
@@ -531,11 +540,11 @@ pub const StackIterator = struct {
     fp: usize,
     ma: MemoryAccessor = MemoryAccessor.init,
 
-    // When Info and a register context is available, this iterator can unwind
+    // When SelfInfo and a register context is available, this iterator can unwind
     // stacks with frames that don't use a frame pointer (ie. -fomit-frame-pointer),
     // using DWARF and MachO unwind info.
     unwind_state: if (have_ucontext) ?struct {
-        debug_info: *Info,
+        debug_info: *SelfInfo,
         dwarf_context: Dwarf.UnwindContext,
         last_error: ?UnwindError = null,
         failed: bool = false,
@@ -560,7 +569,7 @@ pub const StackIterator = struct {
         };
     }
 
-    pub fn initWithContext(first_address: ?usize, debug_info: *Info, context: *const posix.ucontext_t) !StackIterator {
+    pub fn initWithContext(first_address: ?usize, debug_info: *SelfInfo, context: *const posix.ucontext_t) !StackIterator {
         // The implementation of DWARF unwinding on aarch64-macos is not complete. However, Apple mandates that
         // the frame pointer register is always used, so on this platform we can safely use the FP-based unwinder.
         if (comptime builtin.target.isDarwin() and native_arch == .aarch64) {
@@ -820,7 +829,7 @@ const have_msync = switch (native_os) {
 
 pub fn writeCurrentStackTrace(
     out_stream: anytype,
-    debug_info: *Info,
+    debug_info: *SelfInfo,
     tty_config: io.tty.Config,
     start_addr: ?usize,
 ) !void {
@@ -906,7 +915,7 @@ pub noinline fn walkStackWindows(addresses: []usize, existing_context: ?*const w
 
 pub fn writeStackTraceWindows(
     out_stream: anytype,
-    debug_info: *Info,
+    debug_info: *SelfInfo,
     tty_config: io.tty.Config,
     context: *const windows.CONTEXT,
     start_addr: ?usize,
@@ -925,7 +934,7 @@ pub fn writeStackTraceWindows(
     }
 }
 
-fn printUnknownSource(debug_info: *Info, out_stream: anytype, address: usize, tty_config: io.tty.Config) !void {
+fn printUnknownSource(debug_info: *SelfInfo, out_stream: anytype, address: usize, tty_config: io.tty.Config) !void {
     const module_name = debug_info.getModuleNameForAddress(address);
     return printLineInfo(
         out_stream,
@@ -938,14 +947,14 @@ fn printUnknownSource(debug_info: *Info, out_stream: anytype, address: usize, tt
     );
 }
 
-fn printLastUnwindError(it: *StackIterator, debug_info: *Info, out_stream: anytype, tty_config: io.tty.Config) void {
+fn printLastUnwindError(it: *StackIterator, debug_info: *SelfInfo, out_stream: anytype, tty_config: io.tty.Config) void {
     if (!have_ucontext) return;
     if (it.getLastError()) |unwind_error| {
         printUnwindError(debug_info, out_stream, unwind_error.address, unwind_error.err, tty_config) catch {};
     }
 }
 
-fn printUnwindError(debug_info: *Info, out_stream: anytype, address: usize, err: UnwindError, tty_config: io.tty.Config) !void {
+fn printUnwindError(debug_info: *SelfInfo, out_stream: anytype, address: usize, err: UnwindError, tty_config: io.tty.Config) !void {
     const module_name = debug_info.getModuleNameForAddress(address) orelse "???";
     try tty_config.setColor(out_stream, .dim);
     if (err == error.MissingDebugInfo) {
@@ -956,7 +965,7 @@ fn printUnwindError(debug_info: *Info, out_stream: anytype, address: usize, err:
     try tty_config.setColor(out_stream, .reset);
 }
 
-pub fn printSourceAtAddress(debug_info: *Info, out_stream: anytype, address: usize, tty_config: io.tty.Config) !void {
+pub fn printSourceAtAddress(debug_info: *SelfInfo, out_stream: anytype, address: usize, tty_config: io.tty.Config) !void {
     const module = debug_info.getModuleForAddress(address) catch |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => return printUnknownSource(debug_info, out_stream, address, tty_config),
         else => return err,
@@ -981,7 +990,7 @@ pub fn printSourceAtAddress(debug_info: *Info, out_stream: anytype, address: usi
 
 fn printLineInfo(
     out_stream: anytype,
-    line_info: ?Info.SourceLocation,
+    line_info: ?SourceLocation,
     address: usize,
     symbol_name: []const u8,
     compile_unit_name: []const u8,
@@ -1027,7 +1036,7 @@ fn printLineInfo(
     }
 }
 
-fn printLineFromFileAnyOs(out_stream: anytype, line_info: Info.SourceLocation) !void {
+fn printLineFromFileAnyOs(out_stream: anytype, line_info: SourceLocation) !void {
     // Need this to always block even in async I/O mode, because this could potentially
     // be called from e.g. the event loop code crashing.
     var f = try fs.cwd().openFile(line_info.file_name, .{});
@@ -1093,7 +1102,7 @@ test printLineFromFileAnyOs {
 
     var test_dir = std.testing.tmpDir(.{});
     defer test_dir.cleanup();
-    // Relies on testing.tmpDir internals which is not ideal, but Info.SourceLocation requires paths.
+    // Relies on testing.tmpDir internals which is not ideal, but SourceLocation requires paths.
     const test_dir_path = try join(allocator, &.{ ".zig-cache", "tmp", test_dir.sub_path[0..] });
     defer allocator.free(test_dir_path);
 
@@ -1439,7 +1448,7 @@ test "manage resources correctly" {
     }
 
     const writer = std.io.null_writer;
-    var di = try Info.openSelf(testing.allocator);
+    var di = try SelfInfo.openSelf(testing.allocator);
     defer di.deinit();
     try printSourceAtAddress(&di, writer, showMyTrace(), io.tty.detectConfig(std.io.getStdErr()));
 }

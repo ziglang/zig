@@ -1,4 +1,5 @@
-//! Cross-platform abstraction for debug information.
+//! Cross-platform abstraction for this binary's own debug information, with a
+//! goal of minimal code bloat and compilation speed penalty.
 
 const builtin = @import("builtin");
 const native_os = builtin.os.tag;
@@ -17,24 +18,25 @@ const assert = std.debug.assert;
 const posix = std.posix;
 const elf = std.elf;
 const Dwarf = std.debug.Dwarf;
+const Pdb = std.debug.Pdb;
 const File = std.fs.File;
 const math = std.math;
 const testing = std.testing;
 
-const Info = @This();
+const SelfInfo = @This();
 
 const root = @import("root");
 
 allocator: Allocator,
 address_map: std.AutoHashMap(usize, *Module),
-modules: if (native_os == .windows) std.ArrayListUnmanaged(WindowsModuleInfo) else void,
+modules: if (native_os == .windows) std.ArrayListUnmanaged(WindowsModule) else void,
 
 pub const OpenSelfError = error{
     MissingDebugInfo,
     UnsupportedOperatingSystem,
-} || @typeInfo(@typeInfo(@TypeOf(Info.init)).Fn.return_type.?).ErrorUnion.error_set;
+} || @typeInfo(@typeInfo(@TypeOf(SelfInfo.init)).Fn.return_type.?).ErrorUnion.error_set;
 
-pub fn openSelf(allocator: Allocator) OpenSelfError!Info {
+pub fn openSelf(allocator: Allocator) OpenSelfError!SelfInfo {
     nosuspend {
         if (builtin.strip_debug_info)
             return error.MissingDebugInfo;
@@ -51,14 +53,14 @@ pub fn openSelf(allocator: Allocator) OpenSelfError!Info {
             .solaris,
             .illumos,
             .windows,
-            => return try Info.init(allocator),
+            => return try SelfInfo.init(allocator),
             else => return error.UnsupportedOperatingSystem,
         }
     }
 }
 
-pub fn init(allocator: Allocator) !Info {
-    var debug_info: Info = .{
+pub fn init(allocator: Allocator) !SelfInfo {
+    var debug_info: SelfInfo = .{
         .allocator = allocator,
         .address_map = std.AutoHashMap(usize, *Module).init(allocator),
         .modules = if (native_os == .windows) .{} else {},
@@ -101,7 +103,7 @@ pub fn init(allocator: Allocator) !Info {
     return debug_info;
 }
 
-pub fn deinit(self: *Info) void {
+pub fn deinit(self: *SelfInfo) void {
     var it = self.address_map.iterator();
     while (it.next()) |entry| {
         const mdi = entry.value_ptr.*;
@@ -118,7 +120,7 @@ pub fn deinit(self: *Info) void {
     }
 }
 
-pub fn getModuleForAddress(self: *Info, address: usize) !*Module {
+pub fn getModuleForAddress(self: *SelfInfo, address: usize) !*Module {
     if (comptime builtin.target.isDarwin()) {
         return self.lookupModuleDyld(address);
     } else if (native_os == .windows) {
@@ -135,7 +137,7 @@ pub fn getModuleForAddress(self: *Info, address: usize) !*Module {
 // Returns the module name for a given address.
 // This can be called when getModuleForAddress fails, so implementations should provide
 // a path that doesn't rely on any side-effects of a prior successful module lookup.
-pub fn getModuleNameForAddress(self: *Info, address: usize) ?[]const u8 {
+pub fn getModuleNameForAddress(self: *SelfInfo, address: usize) ?[]const u8 {
     if (comptime builtin.target.isDarwin()) {
         return self.lookupModuleNameDyld(address);
     } else if (native_os == .windows) {
@@ -149,7 +151,7 @@ pub fn getModuleNameForAddress(self: *Info, address: usize) ?[]const u8 {
     }
 }
 
-fn lookupModuleDyld(self: *Info, address: usize) !*Module {
+fn lookupModuleDyld(self: *SelfInfo, address: usize) !*Module {
     const image_count = std.c._dyld_image_count();
 
     var i: u32 = 0;
@@ -215,7 +217,7 @@ fn lookupModuleDyld(self: *Info, address: usize) !*Module {
     return error.MissingDebugInfo;
 }
 
-fn lookupModuleNameDyld(self: *Info, address: usize) ?[]const u8 {
+fn lookupModuleNameDyld(self: *SelfInfo, address: usize) ?[]const u8 {
     _ = self;
     const image_count = std.c._dyld_image_count();
 
@@ -253,7 +255,7 @@ fn lookupModuleNameDyld(self: *Info, address: usize) ?[]const u8 {
     return null;
 }
 
-fn lookupModuleWin32(self: *Info, address: usize) !*Module {
+fn lookupModuleWin32(self: *SelfInfo, address: usize) !*Module {
     for (self.modules.items) |*module| {
         if (address >= module.base_address and address < module.base_address + module.size) {
             if (self.address_map.get(module.base_address)) |obj_di| {
@@ -343,7 +345,7 @@ fn lookupModuleWin32(self: *Info, address: usize) !*Module {
     return error.MissingDebugInfo;
 }
 
-fn lookupModuleNameWin32(self: *Info, address: usize) ?[]const u8 {
+fn lookupModuleNameWin32(self: *SelfInfo, address: usize) ?[]const u8 {
     for (self.modules.items) |module| {
         if (address >= module.base_address and address < module.base_address + module.size) {
             return module.name;
@@ -352,7 +354,7 @@ fn lookupModuleNameWin32(self: *Info, address: usize) ?[]const u8 {
     return null;
 }
 
-fn lookupModuleNameDl(self: *Info, address: usize) ?[]const u8 {
+fn lookupModuleNameDl(self: *SelfInfo, address: usize) ?[]const u8 {
     _ = self;
 
     var ctx: struct {
@@ -390,7 +392,7 @@ fn lookupModuleNameDl(self: *Info, address: usize) ?[]const u8 {
     return null;
 }
 
-fn lookupModuleDl(self: *Info, address: usize) !*Module {
+fn lookupModuleDl(self: *SelfInfo, address: usize) !*Module {
     var ctx: struct {
         // Input
         address: usize,
@@ -484,13 +486,13 @@ fn lookupModuleDl(self: *Info, address: usize) !*Module {
     return obj_di;
 }
 
-fn lookupModuleHaiku(self: *Info, address: usize) !*Module {
+fn lookupModuleHaiku(self: *SelfInfo, address: usize) !*Module {
     _ = self;
     _ = address;
     @panic("TODO implement lookup module for Haiku");
 }
 
-fn lookupModuleWasm(self: *Info, address: usize) !*Module {
+fn lookupModuleWasm(self: *SelfInfo, address: usize) !*Module {
     _ = self;
     _ = address;
     @panic("TODO implement lookup module for Wasm");
@@ -709,7 +711,7 @@ pub const Module = switch (native_os) {
     },
     .uefi, .windows => struct {
         base_address: usize,
-        pdb: ?pdb.Pdb = null,
+        pdb: ?Pdb = null,
         dwarf: ?Dwarf = null,
         coff_image_base: u64,
 
@@ -837,7 +839,11 @@ pub const Module = switch (native_os) {
     else => Dwarf,
 };
 
-pub const WindowsModuleInfo = struct {
+/// How is this different than `Module` when the host is Windows?
+/// Why are both stored in the `SelfInfo` struct?
+/// Boy, it sure would be nice if someone added documentation comments for this
+/// struct explaining it.
+pub const WindowsModule = struct {
     base_address: usize,
     size: u32,
     name: []const u8,
@@ -1030,7 +1036,7 @@ fn readCoffDebugInfo(allocator: Allocator, coff_obj: *coff.Coff) !Module {
         };
         defer if (path.ptr != raw_path.ptr) allocator.free(path);
 
-        di.pdb = pdb.Pdb.init(allocator, path) catch |err| switch (err) {
+        di.pdb = Pdb.init(allocator, path) catch |err| switch (err) {
             error.FileNotFound, error.IsDir => {
                 if (di.dwarf == null) return error.MissingDebugInfo;
                 return di;
@@ -1292,22 +1298,10 @@ fn chopSlice(ptr: []const u8, offset: u64, size: u64) error{Overflow}![]const u8
 pub const SymbolInfo = struct {
     symbol_name: []const u8 = "???",
     compile_unit_name: []const u8 = "???",
-    line_info: ?SourceLocation = null,
+    line_info: ?std.debug.SourceLocation = null,
 
     pub fn deinit(self: SymbolInfo, allocator: Allocator) void {
-        if (self.line_info) |li| {
-            li.deinit(allocator);
-        }
-    }
-};
-
-pub const SourceLocation = struct {
-    line: u64,
-    column: u64,
-    file_name: []const u8,
-
-    pub fn deinit(self: SourceLocation, allocator: Allocator) void {
-        allocator.free(self.file_name);
+        if (self.line_info) |li| allocator.free(li.file_name);
     }
 };
 
