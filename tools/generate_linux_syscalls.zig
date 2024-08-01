@@ -129,7 +129,6 @@ const ArchInfo = union(enum) {
 };
 
 const arch_infos = [_]ArchInfo{
-    // FIXME: not able to generate enum err: `invalid target generic`
     .{
         // These architectures have their syscall definitions generated from a TSV
         // file, processed via scripts/syscallhdr.sh.
