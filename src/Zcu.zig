@@ -754,6 +754,9 @@ pub const File = struct {
     /// successful, this field is unloaded.
     prev_zir: ?*Zir = null,
 
+    /// Whether the file is Zig or ZON. This filed is always populated.
+    mode: Ast.Mode,
+
     /// A single reference to a file.
     pub const Reference = union(enum) {
         /// The file is imported directly (i.e. not as a package) with @import.
@@ -764,6 +767,17 @@ pub const File = struct {
         /// The file is the root of a module.
         root: *Package.Module,
     };
+
+    pub fn modeFromPath(path: []const u8) Ast.Mode {
+        if (std.mem.endsWith(u8, path, ".zon")) {
+            return .zon;
+        } else if (std.mem.endsWith(u8, path, ".zig")) {
+            return .zig;
+        } else {
+            // `Module.importFile` rejects all other extensions
+            unreachable;
+        }
+    }
 
     pub fn unload(file: *File, gpa: Allocator) void {
         file.unloadTree(gpa);
@@ -839,7 +853,7 @@ pub const File = struct {
         if (file.tree_loaded) return &file.tree;
 
         const source = try file.getSource(gpa);
-        file.tree = try Ast.parse(gpa, source.bytes, .zig);
+        file.tree = try Ast.parse(gpa, source.bytes, file.mode);
         file.tree_loaded = true;
         return &file.tree;
     }
@@ -956,6 +970,7 @@ pub const File = struct {
     pub const Index = InternPool.FileIndex;
 };
 
+/// Represents the contents of a file loaded with `@embedFile`.
 pub const EmbedFile = struct {
     /// Relative to the owning module's root directory.
     sub_file_path: InternPool.NullTerminatedString,
@@ -2347,6 +2362,12 @@ pub const LazySrcLoc = struct {
             break :inst .{ info.file, info.inst };
         };
         const file = zcu.fileByIndex(file_index);
+
+        // If we're relative to .main_struct_inst, we know the ast node is the root and don't need to resolve the ZIR,
+        // which may not exist e.g. in the case of errors in ZON files.
+        if (zir_inst == .main_struct_inst) return .{ file, 0 };
+
+        // Otherwise, make sure ZIR is loaded.
         assert(file.zir_loaded);
 
         const zir = file.zir;

@@ -6096,6 +6096,7 @@ fn cmdAstCheck(
         .tree = undefined,
         .zir = undefined,
         .mod = undefined,
+        .mode = .zig,
     };
     if (zig_source_file) |file_name| {
         var f = fs.cwd().openFile(file_name, .{}) catch |err| {
@@ -6419,6 +6420,7 @@ fn cmdDumpZir(
         .tree = undefined,
         .zir = try Zcu.loadZirCache(gpa, f),
         .mod = undefined,
+        .mode = .zig,
     };
     defer file.zir.deinit(gpa);
 
@@ -6490,6 +6492,7 @@ fn cmdChangelist(
         .tree = undefined,
         .zir = undefined,
         .mod = undefined,
+        .mode = Zcu.File.modeFromPath(old_source_file),
     };
 
     file.mod = try Package.Module.createLimited(arena, .{

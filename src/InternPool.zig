@@ -3748,7 +3748,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
     }
 }
 
-const LoadedEnumType = struct {
+pub const LoadedEnumType = struct {
     /// The Decl that corresponds to the enum itself.
     decl: DeclIndex,
     /// Represents the declarations inside this enum.

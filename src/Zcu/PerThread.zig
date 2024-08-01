@@ -1009,6 +1009,7 @@ fn semaFile(pt: Zcu.PerThread, file_index: Zcu.File.Index) Zcu.SemaError!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const file = zcu.fileByIndex(file_index);
+    assert(file.mode == .zig);
     assert(zcu.fileRootDecl(file_index) == .none);
     log.debug("semaFile zcu={s} sub_file_path={s}", .{
         file.mod.fully_qualified_name, file.sub_file_path,
@@ -1468,6 +1469,7 @@ pub fn importPkg(pt: Zcu.PerThread, mod: *Module) !Zcu.ImportFileResult {
         .zir = undefined,
         .status = .never_loaded,
         .mod = mod,
+        .mode = Zcu.File.modeFromPath(sub_file_path),
     };
 
     try new_file.addReference(zcu, .{ .root = mod });
@@ -1498,7 +1500,9 @@ pub fn importFile(
     if (mod.deps.get(import_string)) |pkg| {
         return pt.importPkg(pkg);
     }
-    if (!std.mem.endsWith(u8, import_string, ".zig")) {
+    if (!std.mem.endsWith(u8, import_string, ".zig") and
+        !std.mem.endsWith(u8, import_string, ".zon"))
+    {
         return error.ModuleNotFound;
     }
     const gpa = zcu.gpa;
@@ -1578,6 +1582,7 @@ pub fn importFile(
         .zir = undefined,
         .status = .never_loaded,
         .mod = mod,
+        .mode = Zcu.File.modeFromPath(sub_file_path),
     };
 
     return .{

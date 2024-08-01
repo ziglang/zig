@@ -88,6 +88,11 @@ pub const Case = struct {
     expect_exact: bool = false,
     backend: Backend = .stage2,
     link_libc: bool = false,
+    /// A list of imports to cache alongside the source file.
+    imports: []const []const u8 = &.{},
+    /// Where to look for imports relative to the `cases_dir_path` given to
+    /// `lower_to_build_steps`. If null, file imports will assert.
+    import_path: ?[]const u8 = null,
 
     deps: std.ArrayList(DepModule),
 
@@ -425,6 +430,7 @@ fn addFromDirInner(
         const is_test = try manifest.getConfigForKeyAssertSingle("is_test", bool);
         const link_libc = try manifest.getConfigForKeyAssertSingle("link_libc", bool);
         const output_mode = try manifest.getConfigForKeyAssertSingle("output_mode", std.builtin.OutputMode);
+        const imports = try manifest.getConfigForKeyAlloc(ctx.arena, "imports", []const u8);
 
         if (manifest.type == .translate_c) {
             for (c_frontends) |c_frontend| {
@@ -482,13 +488,15 @@ fn addFromDirInner(
                 const next = ctx.cases.items.len;
                 try ctx.cases.append(.{
                     .name = std.fs.path.stem(filename),
-                    .target = resolved_target,
+                    .import_path = std.fs.path.dirname(filename),
                     .backend = backend,
                     .updates = std.ArrayList(Cases.Update).init(ctx.cases.allocator),
                     .is_test = is_test,
                     .output_mode = output_mode,
                     .link_libc = link_libc,
                     .deps = std.ArrayList(DepModule).init(ctx.cases.allocator),
+                    .imports = imports,
+                    .target = b.resolveTargetQuery(target_query),
                 });
                 try cases.append(next);
             }
@@ -623,6 +631,7 @@ pub fn lowerToBuildSteps(
 ) void {
     const host = std.zig.system.resolveTargetQuery(.{}) catch |err|
         std.debug.panic("unable to detect native host: {s}\n", .{@errorName(err)});
+    const cases_dir_path = b.build_root.join(b.allocator, &.{ "test", "cases" }) catch @panic("OOM");
 
     for (self.incremental_cases.items) |incr_case| {
         if (true) {
@@ -656,6 +665,15 @@ pub fn lowerToBuildSteps(
         file_sources.put(first_file.path, root_source_file) catch @panic("OOM");
         for (update.files.items[1..]) |file| {
             file_sources.put(file.path, writefiles.add(file.path, file.src)) catch @panic("OOM");
+        }
+
+        for (case.imports) |import_rel| {
+            const import_abs = std.fs.path.join(b.allocator, &.{
+                cases_dir_path,
+                case.import_path orelse @panic("import_path not set"),
+                import_rel,
+            }) catch @panic("OOM");
+            _ = writefiles.addCopyFile(.{ .cwd_relative = import_abs }, import_rel);
         }
 
         const artifact = if (case.is_test) b.addTest(.{
@@ -948,6 +966,8 @@ const TestManifestConfigDefaults = struct {
             return "false";
         } else if (std.mem.eql(u8, key, "c_frontend")) {
             return "clang";
+        } else if (std.mem.eql(u8, key, "imports")) {
+            return "";
         } else unreachable;
     }
 };
@@ -981,6 +1001,7 @@ const TestManifest = struct {
         .{ "c_frontend", {} },
         .{ "link_libc", {} },
         .{ "backend", {} },
+        .{ "imports", {} },
     });
 
     const Type = enum {
@@ -1003,7 +1024,7 @@ const TestManifest = struct {
 
     fn ConfigValueIterator(comptime T: type) type {
         return struct {
-            inner: std.mem.SplitIterator(u8, .scalar),
+            inner: std.mem.TokenIterator(u8, .scalar),
 
             fn next(self: *@This()) !?T {
                 const next_raw = self.inner.next() orelse return null;
@@ -1081,7 +1102,9 @@ const TestManifest = struct {
             // Parse key=value(s)
             var kv_it = std.mem.splitScalar(u8, trimmed, '=');
             const key = kv_it.first();
-            if (!valid_keys.has(key)) return error.InvalidKey;
+            if (!valid_keys.has(key)) {
+                return error.InvalidKey;
+            }
             try manifest.config_map.putNoClobber(key, kv_it.next() orelse return error.MissingValuesForConfig);
         }
 
@@ -1098,7 +1121,7 @@ const TestManifest = struct {
     ) ConfigValueIterator(T) {
         const bytes = self.config_map.get(key) orelse TestManifestConfigDefaults.get(self.type, key);
         return ConfigValueIterator(T){
-            .inner = std.mem.splitScalar(u8, bytes, ','),
+            .inner = std.mem.tokenizeScalar(u8, bytes, ','),
         };
     }
 
@@ -1210,6 +1233,17 @@ const TestManifest = struct {
                 }
             }.parse,
             .Struct => @compileError("no default parser for " ++ @typeName(T)),
+            .Pointer => {
+                if (T == []const u8) {
+                    return struct {
+                        fn parse(str: []const u8) anyerror!T {
+                            return str;
+                        }
+                    }.parse;
+                } else {
+                    @compileError("no default parser for " ++ @typeName(T));
+                }
+            },
             else => @compileError("no default parser for " ++ @typeName(T)),
         }
     }

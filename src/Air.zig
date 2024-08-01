@@ -1017,6 +1017,11 @@ pub const Inst = struct {
         pub fn toType(ref: Ref) Type {
             return Type.fromInterned(ref.toInterned().?);
         }
+
+        pub fn toTypeAllowNone(ref: Ref) ?Type {
+            if (ref == .none) return null;
+            return ref.toType();
+        }
     };
 
     /// All instructions have an 8-byte payload, which is contained within
