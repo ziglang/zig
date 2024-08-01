@@ -21,24 +21,32 @@ pub fn main() !void {
         _ = child.kill() catch {};
     }
 
+    // Give the process some time to actually start doing something before
+    // checking if it properly detached.
+    var read_buffer: [1]u8 = undefined;
+    if (try child.stdout.?.read(&read_buffer) != 1) {
+        return error.OutputReadFailed;
+    }
+
     switch (builtin.os.tag) {
         .windows => {
             const windows = std.os.windows;
             const child_pid = try windows.GetProcessId(child.id);
 
-            // Give the process some time to actually start doing something.
-            // If we check the process list immediately, we might be done before
-            // the new process attaches to the console.
-            var read_buffer: [1]u8 = undefined;
-            try std.testing.expectEqual(1, try child.stdout.?.read(&read_buffer));
+            var proc_buffer: []windows.DWORD = undefined;
+            var proc_count: windows.DWORD = 16;
+            while (true) {
+                proc_buffer = try gpa.alloc(windows.DWORD, proc_count);
+                defer gpa.free(proc_buffer);
 
-            var proc_buffer: [16]windows.DWORD = undefined;
-            const proc_count = try windows.GetConsoleProcessList(&proc_buffer);
-            if (proc_count > 16) @panic("process buffer is too small");
+                proc_count = try windows.GetConsoleProcessList(proc_buffer);
+                if (proc_count == 0) return error.ConsoleProcessListFailed;
 
-            for (proc_buffer[0..proc_count]) |proc| {
-                if (proc == child_pid) {
-                    return error.ProcessAttachedToConsole;
+                if (proc_count <= proc_buffer.len) {
+                    for (proc_buffer[0..proc_count]) |proc| {
+                        if (proc == child_pid) return error.ProcessAttachedToConsole;
+                    }
+                    break;
                 }
             }
         },
