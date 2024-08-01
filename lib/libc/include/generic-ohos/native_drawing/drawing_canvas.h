@@ -37,7 +37,6 @@
  * @version 1.0
  */
 
-#include "drawing_error_code.h"
 #include "drawing_types.h"
 
 #ifdef __cplusplus
@@ -277,20 +276,6 @@ typedef enum {
 } OH_Drawing_PointMode;
 
 /**
- * @brief Draws a point.
- *
- * @syscap SystemCapability.Graphic.Graphic2D.NativeDrawing
- * @param canvas Indicates the pointer to an <b>OH_Drawing_Canvas</b> object.
- * @param point Indicates the pointer to an <b>OH_Drawing_Point</b> object.
- * @return Returns the error code.
- *         Returns {@link OH_DRAWING_SUCCESS} if the operation is successful.
- *         Returns {@link OH_DRAWING_ERROR_INVALID_PARAMETER} if canvas or point is nullptr.
- * @since 12
- * @version 1.0
- */
-OH_Drawing_ErrorCode OH_Drawing_CanvasDrawPoint(OH_Drawing_Canvas* canvas, const OH_Drawing_Point2D* point);
-
-/**
  * @brief Draws point array as separate point, line segment or open polygon according to given point mode.
  *
  * @syscap SystemCapability.Graphic.Graphic2D.NativeDrawing
@@ -354,22 +339,6 @@ void OH_Drawing_CanvasDrawRect(OH_Drawing_Canvas*, const OH_Drawing_Rect*);
  * @version 1.0
  */
 void OH_Drawing_CanvasDrawCircle(OH_Drawing_Canvas*, const OH_Drawing_Point*, float radius);
-
-/**
- * @brief Fills the entire canvas with the specified color and blend mode.
- *
- * @syscap SystemCapability.Graphic.Graphic2D.NativeDrawing
- * @param canvas Indicates the pointer to an <b>OH_Drawing_Canvas</b> object.
- * @param color Indicates the color, which is a 32-bit variable.
- * @param blendMode Indicates the blend mode.
- * @return Returns the error code.
- *         Returns {@link OH_DRAWING_SUCCESS} if the operation is successful.
- *         Returns {@link OH_DRAWING_ERROR_INVALID_PARAMETER} if canvas is nullptr.
- * @since 12
- * @version 1.0
- */
-OH_Drawing_ErrorCode OH_Drawing_CanvasDrawColor(OH_Drawing_Canvas* canvas, uint32_t color,
-    OH_Drawing_BlendMode blendMode);
 
 /**
  * @brief Draws an oval.
@@ -477,22 +446,6 @@ void OH_Drawing_CanvasClipRoundRect(OH_Drawing_Canvas*, const OH_Drawing_RoundRe
  */
 void OH_Drawing_CanvasClipPath(OH_Drawing_Canvas*, const OH_Drawing_Path*,
     OH_Drawing_CanvasClipOp clipOp, bool doAntiAlias);
-
-/**
- * @brief Clips a region.
- *
- * @syscap SystemCapability.Graphic.Graphic2D.NativeDrawing
- * @param canvas Indicates the pointer to an <b>OH_Drawing_Canvas</b> object.
- * @param region Indicates the pointer to an <b>OH_Drawing_Region</b> object.
- * @param clipOp To apply to clip.
- * @return Returns the error code.
- *         Returns {@link OH_DRAWING_SUCCESS} if the operation is successful.
- *         Returns {@link OH_DRAWING_ERROR_INVALID_PARAMETER} if canvas or region is nullptr.
- * @since 12
- * @version 1.0
- */
-OH_Drawing_ErrorCode OH_Drawing_CanvasClipRegion(OH_Drawing_Canvas* canvas, const OH_Drawing_Region* region,
-    OH_Drawing_CanvasClipOp clipOp);
 
 /**
  * @brief Rotates by degrees. Positive degrees rotates clockwise.
@@ -777,34 +730,6 @@ bool OH_Drawing_CanvasReadPixels(OH_Drawing_Canvas*, OH_Drawing_Image_Info*,
  * @version 1.0
  */
 bool OH_Drawing_CanvasReadPixelsToBitmap(OH_Drawing_Canvas*, OH_Drawing_Bitmap*, int32_t srcX, int32_t srcY);
-
-/**
- * @brief Checks whether the drawable area is empty.
- *
- * @syscap SystemCapability.Graphic.Graphic2D.NativeDrawing
- * @param canvas Indicates the pointer to an <b>OH_Drawing_Canvas</b> object.
- * @param isClipEmpty Indicates if drawable area is empty.
- * @return Returns the error code.
- *         Returns {@link OH_DRAWING_SUCCESS} if the operation is successful.
- *         Returns {@link OH_DRAWING_ERROR_INVALID_PARAMETER} if canvas or isClipEmpty is nullptr.
- * @since 12
- * @version 1.0
- */
-OH_Drawing_ErrorCode OH_Drawing_CanvasIsClipEmpty(OH_Drawing_Canvas* canvas, bool* isClipEmpty);
-
-/**
- * @brief Gets image info of canvas.
- *
- * @syscap SystemCapability.Graphic.Graphic2D.NativeDrawing
- * @param canvas Indicates the pointer to an <b>OH_Drawing_Canvas</b> object.
- * @param imageInfo Indicates the pointer to an <b>OH_Drawing_Image_Info</b> object.
- * @return Returns the error code.
- *         Returns {@link OH_DRAWING_SUCCESS} if the operation is successful.
- *         Returns {@link OH_DRAWING_ERROR_INVALID_PARAMETER} if canvas or imageInfo is nullptr.
- * @since 12
- * @version 1.0
- */
-OH_Drawing_ErrorCode OH_Drawing_CanvasGetImageInfo(OH_Drawing_Canvas* canvas, OH_Drawing_Image_Info* imageInfo);
 
 #ifdef __cplusplus
 }

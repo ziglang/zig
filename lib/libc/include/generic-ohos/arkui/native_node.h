@@ -89,8 +89,6 @@ typedef enum {
     ARKUI_NODE_SLIDER = 17,
     /** Radio */
     ARKUI_NODE_RADIO = 18,
-    /** Image animator. */
-    ARKUI_NODE_IMAGE_ANIMATOR = 19,
     /** Stack container. */
     ARKUI_NODE_STACK = MAX_NODE_SCOPE_NUM,
     /** Swiper. */
@@ -517,10 +515,6 @@ typedef enum {
      * .value[2].f32: height of rectangle.\n
      * .value[3].f32: width of the rounded corner of the rectangle.\n
      * .value[4].f32: height of the rounded corner of the rectangle.\n
-     * .value[5]?.f32: radius of the top left corner of the rectangular shape.\n
-     * .value[6]?.f32: radius of the bottom left corner of the rectangular shape.\n
-     * .value[7]?.f32: radius of the top right corner of the rectangular shape.\n
-     * .value[8]?.f32: radius of the bottom right corner of the rectangular shape.\n
      * 2. Circle:\n
      * .value[0].i32: type of shape. The parameter type is {@link ArkUI_ClipType}.
      * The value is <b>ARKUI_CLIP_TYPE_CIRCLE</b> for the circle shape.\n
@@ -545,10 +539,6 @@ typedef enum {
      * .value[2].f32: height of rectangle.\n
      * .value[3].f32: width of the rounded corner of the rectangle.\n
      * .value[4].f32: height of the rounded corner of the rectangle.\n
-     * .value[5].f32: radius of the top left corner of the rectangular shape; \n
-     * .value[6].f32: radius of the bottom left corner of the rectangular shape; \n
-     * .value[7].f32: radius of the top right corner of the rectangular shape; \n
-     * .value[8].f32: radius of the bottom right corner of the rectangular shape; \n
      * 2. Circle:\n
      * .value[0].i32: type of shape. The parameter type is {@link ArkUI_ClipType}.
      * The value is <b>ARKUI_CLIP_TYPE_CIRCLE</b> for the circle shape.\n
@@ -829,22 +819,10 @@ typedef enum {
      * This attribute can be set, reset, and obtained as required through APIs.
      *
      * Format of the {@link ArkUI_AttributeItem} parameter for setting the attribute:\n
-     * .value[0].i32: The parameter type is {@link ArkUI_TransitionEdge}. \n
-     * .value[1].i32: animation duration, in milliseconds.\n
-     * .value[2].i32: animation curve type. The value is an enum of {@link ArkUI_AnimationCurve}.\n
-     * .value[3]?.i32: animation delay duration, in milliseconds.\n
-     * .value[4]?.i32: number of times that the animation is played.\n
-     * .value[5]?.i32: animation playback mode. The value is an enum of {@link ArkUI_AnimationPlayMode}.\n
-     * .value[6]?.f32: animation playback speed.\n
+     * value[0].i32: The parameter type is {@link ArkUI_TransitionEdge}. \n
      * \n
      * Format of the return value {@link ArkUI_AttributeItem}:\n
-     * .value[0].i32: The parameter type is {@link ArkUI_TransitionEdge}. \n
-     * .value[1].i32: animation duration, in milliseconds.\n
-     * .value[2].i32: animation curve type. The value is an enum of {@link ArkUI_AnimationCurve}.\n
-     * .value[3].i32: animation delay duration, in milliseconds. \n
-     * .value[4].i32: number of times that the animation is played. \n
-     * .value[5].i32: animation playback mode. The value is an enum of {@link ArkUI_AnimationPlayMode}. \n
-     * .value[6].f32: animation playback speed. \n
+     * value[0].i32: The parameter type is {@link ArkUI_TransitionEdge}. \n
      *
      */
     NODE_MOVE_TRANSITION,
@@ -994,10 +972,6 @@ typedef enum {
      * .value[5].f32: height of the rectangle.\n
      * .value[6].f32: width of the rounded corner of the rectangle.\n
      * .value[7].f32: height of the rounded corner of the rectangle.\n
-     * .value[8]?.f32: radius of the top left corner of the rectangular shape.\n
-     * .value[9]?.f32: radius of the bottom left corner of the rectangular shape.\n
-     * .value[10]?.f32: radius of the top right corner of the rectangular shape.\n
-     * .value[11]?.f32: radius of the bottom right corner of the rectangular shape.\n
      * 2. Circle:\n
      * .value[0].u32 fill color, in 0xARGB format. \n
      * .value[1].u32: stroke color, in 0xARGB format. \n
@@ -1040,10 +1014,6 @@ typedef enum {
      * .value[5].f32: height of the rectangle.\n
      * .value[6].f32: width of the rounded corner of the rectangle.\n
      * .value[7].f32: height of the rounded corner of the rectangle.\n
-     * .value[8].f32: radius of the top left corner of the rectangular shape.\n
-     * .value[9].f32: radius of the bottom left corner of the rectangular shape.\n
-     * .value[10].f32: radius of the top right corner of the rectangular shape.\n
-     * .value[11].f32: radius of the bottom right corner of the rectangular shape.\n
      * 2. Circle:\n
      * .value[0].u32 fill color, in 0xARGB format. \n
      * .value[1].u32: stroke color, in 0xARGB format. \n
@@ -1221,12 +1191,12 @@ typedef enum {
      * the upper left corner of the component. This attribute can be set, reset, and obtained as required through APIs.
      *
      * Format of the {@link ArkUI_AttributeItem} parameter for setting the attribute:\n
-     * .value[0].f32: position along the x-axis, in px. \n
-     * .value[1].f32: position along the y-axis, in px. \n
+     * .value[0].f32: position along the x-axis, in vp. \n
+     * .value[1].f32: position along the y-axis, in vp. \n
      * \n
      * Format of the return value {@link ArkUI_AttributeItem}:\n
-     * .value[0].f32: position along the x-axis, in px. \n
-     * .value[1].f32: position along the y-axis, in px. \n
+     * .value[0].f32: position along the x-axis, in vp. \n
+     * .value[1].f32: position along the y-axis, in vp. \n
      *
      */
     NODE_BACKGROUND_IMAGE_POSITION,
@@ -1645,116 +1615,6 @@ typedef enum {
      *
      */
     NODE_FOCUS_ON_TOUCH,
-
-    /**
-     * @brief Defines the border width attribute, which can be set, reset, and obtained as required through APIs.
-     *
-     * Format of the {@link ArkUI_AttributeItem} parameter for setting the attribute:\n
-     * 1: .value[0].f32: width of the four borders, in percentage. \n
-     * 2: .value[0].f32: width of the top border, in percentage. \n
-     * .value[1].f32: width of the right border, in percentage. \n
-     * .value[2].f32: width of the bottom border, in percentage. \n
-     * .value[3].f32: width of the left border, in percentage. \n
-     * \n
-     * Format of the return value {@link ArkUI_AttributeItem}:\n
-     * .value[0].f32: width of the top border, in percentage. \n
-     * .value[1].f32: width of the right border, in percentage. \n
-     * .value[2].f32: width of the bottom border, in percentage. \n
-     * .value[3].f32: width of the left border, in percentage. \n
-     *
-     */
-    NODE_BORDER_WIDTH_PERCENT = 85,
-    /**
-     * @brief Defines the border corner radius attribute, which can be set, reset, and obtained as required through APIs.
-     *
-     * Format of the {@link ArkUI_AttributeItem} parameter for setting the attribute:\n
-     * 1: .value[0].f32: radius of the four corners, in percentage. \n
-     * 2: .value[0].f32: radius of the upper left corner, in percentage. \n
-     * .value[1].f32: radius of the upper right corner, in percentage. \n
-     * .value[2].f32: radius of the lower left corner, in percentage. \n
-     * .value[3].f32: radius of the lower right corner, in percentage. \n
-     * \n
-     * Format of the return value {@link ArkUI_AttributeItem}:\n
-     * .value[0].f32: radius of the upper left corner, in percentage. \n
-     * .value[1].f32: radius of the upper right corner, in percentage. \n
-     * .value[2].f32: radius of the lower left corner, in percentage. \n
-     * .value[3].f32: radius of the lower right corner, in percentage. \n
-     *
-     */
-    NODE_BORDER_RADIUS_PERCENT = 86,
-
-    /**
-     * @brief Accessible ID, which can be obtained as required through APIs.
-     *
-     * Format of the return value {@link ArkUI_AttributeItem}:\n
-     * .value[0].i32：Accessible ID。\n
-     *
-     */
-    NODE_ACCESSIBILITY_ID = 87,
-
-    /**
-     * @brief Define accessible actions, which can be set, reset, and obtained as required through APIs.
-     *
-     * Format of the {@link ArkUI_AttributeItem} parameter for setting the attribute:\n
-     * .value[0].u32：accessible action types，and uses the {@link ArkUI_AccessibilityActionType} enumeration value.\n
-     * \n
-     * Format of the return value {@link ArkUI_AttributeItem}:\n
-     * .value[0].u32：accessible action types，and uses the {@link ArkUI_AccessibilityActionType} enumeration value.\n
-     *
-     */
-    NODE_ACCESSIBILITY_ACTIONS = 88,
-
-    /**
-     * @brief Define accessible role, which can be set, reset, and obtained as required through APIs.
-     *
-     * Format of the {@link ArkUI_AttributeItem} parameter for setting the attribute:\n
-     * .value[0].u32：accessible role type，and uses the {@link ArkUI_NodeType} enumeration value.\n
-     * \n
-     * Format of the return value {@link ArkUI_AttributeItem}:\n
-     * .value[0].u32：accessible role type，and uses the {@link ArkUI_NodeType} enumeration value.\n
-     *
-     */
-    NODE_ACCESSIBILITY_ROLE = 89,
-
-    /**
-     * @brief Define accessible state, which can be set, reset, and obtained as required through APIs.
-     *
-     * Format of the {@link ArkUI_AttributeItem} parameter for setting the attribute:\n
-     * .object：the parameter type is {@link ArkUI_AccessibilityState}.\n
-     * \n
-     * Format of the {@link ArkUI_AttributeItem} parameter for setting the attribute:\n
-     * .object：the parameter type is {@link ArkUI_AccessibilityState}.\n
-     *
-     */
-    NODE_ACCESSIBILITY_STATE = 90,
-
-    /**
-     * @brief Define accessible value, which can be set, reset, and obtained as required through APIs.
-     *
-     * Format of the {@link ArkUI_AttributeItem} parameter for setting the attribute:\n
-     * .object：the parameter type is {@link ArkUI_AccessibilityValue}.\n
-     * \n
-     * Format of the return value {@link ArkUI_AttributeItem}:\n
-     * .object：the parameter type is {@link ArkUI_AccessibilityValue}.\n
-     *
-     */
-    NODE_ACCESSIBILITY_VALUE = 91,
-    /**
-     * @brief defines control components to extend their security zones,
-     * supporting property setting, property reset, and property fetching.
-     *
-     * Attribute setting method {@link ArkUI_AttributeItem} Parameter format: \n
-     * .value[0]? .u32: Set of extended security zone enumerated values {@link ArkUI_SafeAreaType},
-     * For example, ARKUI_SAFE_AREA_TYPE_SYSTEM | ARKUI_SAFE_AREA_TYPE_CUTOUT; \n
-     * .value[1]? .u32: set of directional enum values for extended security zones {@link ArkUI_SafeAreaEdge}; \n
-     * For example: ARKUI_SAFE_AREA_EDGE_TOP | ARKUI_SAFE_AREA_EDGE_BOTTOM; \n
-     * \n
-     * Attribute fetch method return value {@link ArkUI_AttributeItem} format: \n
-     *.value[0].u32: extends the security zone. \n. \n
-     *.value[1].u32: indicates the direction to extend the security zone. \n. \n
-     *
-     */
-    NODE_EXPAND_SAFE_AREA = 92,
 
     /**
      * @brief Defines the text content attribute, which can be set, reset, and obtained as required through APIs.
@@ -4063,106 +3923,6 @@ typedef enum {
     NODE_RADIO_GROUP,
 
     /**
-     * @brief Set the image frames for the image animator. Dynamic updates is not supported.
-     * This attribute can be set, reset, and obtained as required through APIs.
-     *
-     * Attribute setting method {@Link ArkUI_AttributeItem} Parameter format:\n
-     * .size: number of the images.\n
-     * .object: array of the images, the type is {@ArkUI_ImageAnimatorFrameInfo} array.\n
-     * \n
-     * Attribute obtaining method return value {@Link ArkUI_AttributeItem} format:\n
-     * .size: number of the images.\n
-     * .object: array of the images, the type is {@ArkUI_ImageAnimatorFrameInfo} array.\n
-     *
-    */
-    NODE_IMAGE_ANIMATOR_IMAGES = ARKUI_NODE_IMAGE_ANIMATOR * MAX_NODE_SCOPE_NUM,
-    /**
-     * @brief Set the playback status of the animation for the image animator.
-     * This attribute can be set, reset, and obtained as required through APIs.
-     *
-     * Attribute setting method {@Link ArkUI_AttributeItem} Parameter format:\n
-     * .value[0].i32: the playback status of the animation, the type is {@link ArkUI_AnimationStatus},
-     * and the default value is ARKUI_ANIMATION_STATUS_INITIAL.
-     *
-     * Attribute obtaining method return value {@Link ArkUI_AttributeItem} format:\n
-     * .value[0].i32: the playback status of the animation, the type is {@link ArkUI_AnimationStatus}.\n
-     *
-    */
-    NODE_IMAGE_ANIMATOR_STATE = 19001,
-    /**
-     * @brief Set the playback duration for the image animator. When the duration is 0, no image is played.
-     * The value change takes effect only at the beginning of the next cycle.
-     * When a separate duration is set in images, the setting of this attribute is invalid.
-     * This attribute can be set, reset, and obtained as required through APIs.
-     *
-     * Attribute setting method {@Link ArkUI_AttributeItem} Parameter format:\n
-     * .value[0].i32: the playback duration, the unit is ms and the default value is 1000.\n
-     *
-     * Attribute obtaining method return value {@Link ArkUI_AttributeItem} format:\n
-     * .value[0].i32: the playback duration, the unit is ms.\n
-     *
-    */
-    NODE_IMAGE_ANIMATOR_DURATION = 19002,
-    /**
-     * @brief Set the playback direction for the image animator.
-     * This attribute can be set, reset, and obtained as required through APIs.
-     *
-     * Attribute setting method {@Link ArkUI_AttributeItem} Parameter format:\n
-     * .value[0].i32: the playback direction. 0 indicates that images are played from the first one to the last one,
-     * and 1 indicates that images are played from the last one to the first one.\n
-     *
-     * Attribute obtaining method return value {@Link ArkUI_AttributeItem} format:\n
-     * .value[0].i32: the playback direction. 0 indicates that images are played from the first one to the last one,
-     * and 1 indicates that images are played from the last one to the first one.\n
-     *
-    */
-    NODE_IMAGE_ANIMATOR_REVERSE = 19003,
-    /**
-     * @brief Set whether the image size is the same as the component size.
-     * This attribute can be set, reset, and obtained as required through APIs.
-     *
-     * Attribute setting method {@Link ArkUI_AttributeItem} Parameter format:\n
-     * .value[0].i32: whether the image size is the same as the component size.
-     * 1 indicates the image size is the same as the component size.
-     * In this case, the width, height, top, and left attributes of the image are invalid.
-     * 0 indicates the image size is customized.
-     * The width, height, top, and left attributes of each image must be set separately.
-     *
-     * Attribute obtaining method return value {@Link ArkUI_AttributeItem} format:\n
-     * .value[0].i32: whether the image size is the same as the component size.
-     * 1 indicates the image size is the same as the component size.
-     * 0 indicates the image size is customized.
-     *
-    */
-    NODE_IMAGE_ANIMATOR_FIXED_SIZE = 19004,
-    /**
-     * @brief Set the status before and after execution of the animation in the current playback direction.
-     * This attribute can be set, reset, and obtained as required through APIs.
-     *
-     * Attribute setting method {@Link ArkUI_AttributeItem} Parameter format:\n
-     * .value[0].i32: the status before and after execution of the animation in the current playback direction,
-     * the type is {ArkUI_AnimationFillMode} and the default value is ARKUI_ANIMATION_FILL_MODE_FORWARDS.\n
-     *
-     * Attribute obtaining method return value {@Link ArkUI_AttributeItem} format:\n
-     * .value[0].i32: the status before and after execution of the animation in the current playback direction,
-     * the type is {ArkUI_AnimationFillMode}.
-     *
-    */
-    NODE_IMAGE_ANIMATOR_FILL_MODE = 19005,
-    /**
-     * @brief Set the number of times that the animation is played.
-     * This attribute can be set, reset, and obtained as required through APIs.
-     *
-     * Attribute setting method {@Link ArkUI_AttributeItem} Parameter format:\n
-     * .value[0].i32: the number of times that the animation is played.\n
-     *
-     * Attribute setting method {@Link ArkUI_AttributeItem} Parameter format:\n
-     * .value[0].i32: the number of times that the animation is played.\n
-     *
-    */
-    NODE_IMAGE_ANIMATOR_ITERATION = 19006,
-
-    /**
      * @brief Defines the alignment mode of the child components in the container. This attribute can be set, reset,
      * and obtained as required through APIs.
      *
@@ -4488,38 +4248,6 @@ typedef enum {
     NODE_LIST_CHILDREN_MAIN_SIZE = 1003007,
 
     /**
-     * @brief Set the index value of the item displayed at the start of the viewport
-     * when the current List is first loaded.This attribute can be set, reset, and obtained as required through APIs.
-     *
-     * Format of the {@link ArkUI_AttributeItem} parameter for setting the attribute:\n
-     * .value[0].i32: index value of the item displayed at
-     * the start of the viewport when the current List is loaded for the first time. Default value: 0.\n
-     * \n
-     * Format of the return value {@link ArkUI_AttributeItem}:\n
-     * .value[0].i32: index value of the item displayed at
-     * the start of the viewport when the current List is loaded for the first time. Default value: 0.\n
-     */
-    NODE_LIST_INITIAL_INDEX = 1003008,
-    /**
-     * @brief sets the ListItem splitter style. By default, there is no splitter.
-     * This attribute can be set, reset, and obtained as required through APIs.
-     *
-     * Attribute setting method parameter {@link ArkUI_AttributeItem} Format: \n
-     *.value[0].u32: divider color, type 0xargb; \n
-     *.value[1].f32: dividing line width; \n
-     *.value[2].f32: the distance between the divider and the beginning of the side of the list, unit vp; \n
-     *.value[3].f32: the distance between the divider and the end of the side of the list (unit: vp). \n
-     * \n
-     * Attribute fetch method return value {@link ArkUI_AttributeItem} format: \n
-     *.value[0].u32: divider color, type 0xargb; \n
-     *.value[1].f32: dividing line width; \n
-     *.value[2].f32: the distance between the divider and the beginning of the side of the list, unit vp; \n
-     *.value[3].f32: the distance between the divider and the end of the side of the list (unit: vp). \n
-     *
-     */
-    NODE_LIST_DIVIDER = 1003009,
-
-    /**
      * @brief Defines whether to enable loop playback for the swiper.
      * This attribute can be set, reset, and obtained as required through APIs.
      *
@@ -4728,12 +4456,10 @@ typedef enum {
      *
      * Format of the {@link ArkUI_AttributeItem} parameter for setting the attribute:\n
      * .value[0].f32: the front margin. The unit is vp. The default value is <b>0.0</b>\n
-     * .value[1]?.i32: whether to ignore blanks, the default value is 0.
-     * The value <b>1</b> means to ignore blank areas, and <b>0</b> means the opposite. \n
+     * \n
      * Format of the return value {@link ArkUI_AttributeItem}:\n
      * .value[0].f32: the front margin, the unit is vp. \n
-     * .value[1].i32: whether to ignore blank areas. The value <b>1</b> means to ignore blank areas, and <b>0</b> means
-     * the opposite. \n
+     *
      */
     NODE_SWIPER_PREV_MARGIN,
 
@@ -4743,12 +4469,9 @@ typedef enum {
      *
      * Format of the {@link ArkUI_AttributeItem} parameter for setting the attribute:\n
      * .value[0].f32: the back margin. The unit is vp. The default value is <b>0.0</b>\n
-     * .value[1]?.i32: whether to ignore blanks, the default value is 0.
-     * The value <b>1</b> means to ignore blank areas, and <b>0</b> means the opposite. \n
+     * \n
      * Format of the return value {@link ArkUI_AttributeItem}:\n
      * .value[0].f32: the back margin, the unit is vp. \n
-     * .value[1].i32: whether to ignore blank areas. The value <b>1</b> means to ignore blank areas, and <b>0</b> means
-     * the opposite. \n
      */
     NODE_SWIPER_NEXT_MARGIN,
 
@@ -4788,17 +4511,6 @@ typedef enum {
      * effect, 0 indicates no active effect, default value is 0。\n
      */
     NODE_SWIPER_SWIPE_TO_INDEX,
-
-    /**
-    * @brief Set to disable component navigation point interaction function。
-    *
-    * Property setting method parameter {@link ArkUI-AttributeItem} format: \n
-    * .value[0].i32：Set to disable the interaction function of component navigation points. When set to true, it
-    * indicates that the navigation points are interactive. The default value is true. \n
-    * The return value of the attribute acquisition method is in the format of {@ link ArkUI-AttributeItem}： \n
-    * .value[0].i32：Set to disable component navigation point interaction. \n
-    */
-    NODE_SWIPER_INDICATOR_INTERACTIVE,
 
     /**
      * @brief: Set the delineation component of the ListItem, supporting property settings, property resets, and
@@ -4973,44 +4685,6 @@ typedef enum {
      *
      */
     NODE_REFRESH_CONTENT,
-    /**
-     * @brief Set the pull-down hand coefficient.
-     * This attribute can be set, reset, and obtained as required through APIs.
-     *
-     * Format of the {@link ArkUI_AttributeItem} parameter for setting the attribute:\n
-     * .value[0].f32：Pull-down hand coefficient, valid value between 0 and 1.
-     * \n
-     * Format of the return value {@link ArkUI_AttributeItem}:\n
-     * .value[0].f32：Pull-down hand coefficient, valid value between 0 and 1.
-     *
-     */
-    NODE_REFRESH_PULL_DOWN_RATIO = 1009002,
-    /**
-     * @brief Sets the pull-down offset that initiates a refresh.
-     * This attribute can be set, reset, and obtained as required through APIs.
-     *
-     * Format of the {@link ArkUI_AttributeItem} parameter for setting the attribute:\n
-     * .value[0].f32: pull-down offset, in vp. The default value is <b>64vp</b>.
-     * \n
-     * Format of the return value {@link ArkUI_AttributeItem}:\n
-     * .value[0].f32: pull-down offset, in vp. The default value is <b>64vp</b>.
-     *
-     */
-    NODE_REFRESH_OFFSET = 1009003,
-    /**
-     * @brief Sets whether to initiate a refresh when the pull-down distance exceeds the value of <b>refreshOffset</b>.
-     * This attribute can be set, reset, and obtained as required through APIs.
-     *
-     * Format of the {@link ArkUI_AttributeItem} parameter for setting the attribute:\n
-     * .value[0].i32: whether to initiate a refresh. The value <b>true</b> means to initiate a refresh, and
-     * <b>false</b> means the opposite.
-     * \n
-     * Format of the return value {@link ArkUI_AttributeItem}:\n
-     * .value[0].i32: whether to initiate a refresh. The value <b>1</b> means to initiate a refresh, and
-     * <b>0</b> means the opposite.
-     *
-     */
-    NODE_REFRESH_PULL_TO_REFRESH = 1009004,
 
     /**
      * @brief Defines the main axis direction of the <b><WaterFlow></b> component layout.
@@ -5465,20 +5139,6 @@ typedef enum {
     NODE_EVENT_ON_DETACH,
 
     /**
-     * @brief Defines the accessibility action event.
-     *
-     * This event is triggered when The accessibility operation type has been set and
-     * corresponding operations have been carried out. \n
-     * When the event callback occurs, the union type in the {@link ArkUI_NodeEvent} object is
-     * {@link ArkUI_NodeComponentEvent}. \n
-     * {@link ArkUI_NodeComponentEvent} contains one parameters:\n
-     * <b>ArkUI_NodeComponentEvent.data[0].u32</b>: accessibility action type，the union type is
-     * {@link ArkUI_AccessibilityActionType} \n
-     *
-     */
-    NODE_ON_ACCESSIBILITY_ACTIONS = 13,
-
-    /**
      * @brief Triggers onDetectResultUpdate callback
      * when the text is set to TextDataDetectorConfig and recognized successfully.
      *
@@ -5838,52 +5498,6 @@ typedef enum {
     NODE_RADIO_EVENT_ON_CHANGE = MAX_NODE_SCOPE_NUM * ARKUI_NODE_RADIO,
 
     /**
-     * @brief Defines the event callback function triggered when the animation starts to play.
-     *
-     * When the event callback occurs, the union type in the {@Link ArkUI_NodeEvent} object is \n
-     * {@Link ArkUI_NodeComponentEvent}. \n
-     * {@Link ArkUI_NodeComponentEvent} contains no parameter:\n
-     *
-    */
-    NODE_IMAGE_ANIMATOR_EVENT_ON_START = MAX_NODE_SCOPE_NUM * ARKUI_NODE_IMAGE_ANIMATOR,
-    /**
-     * @brief Defines the event callback function triggered when the animation playback is paused.
-     *
-     * When the event callback occurs, the union type in the {@Link ArkUI_NodeEvent} object is \n
-     * {@Link ArkUI_NodeComponentEvent}. \n
-     * {@Link ArkUI_NodeComponentEvent} contains no parameter:\n
-     *
-    */
-    NODE_IMAGE_ANIMATOR_EVENT_ON_PAUSE = 19001,
-    /**
-     * @brief Defines the event callback function triggered when the animation playback is repeated.
-     *
-     * When the event callback occurs, the union type in the {@Link ArkUI_NodeEvent} object is \n
-     * {@Link ArkUI_NodeComponentEvent}. \n
-     * {@Link ArkUI_NodeComponentEvent} contains no parameter:\n
-     *
-    */
-    NODE_IMAGE_ANIMATOR_EVENT_ON_REPEAT = 19002,
-    /**
-     * @brief Defines the event callback function when the animation playback returns to the initial state.
-     *
-     * When the event callback occurs, the union type in the {@Link ArkUI_NodeEvent} object is \n
-     * {@Link ArkUI_NodeComponentEvent}. \n
-     * {@Link ArkUI_NodeComponentEvent} contains no parameter:\n
-     *
-    */
-    NODE_IMAGE_ANIMATOR_EVENT_ON_CANCEL = 19003,
-    /**
-     * @brief Defines the event callback function triggered when the animation playback is complete or stopped.
-     *
-     * When the event callback occurs, the union type in the {@Link ArkUI_NodeEvent} object is \n
-     * {@Link ArkUI_NodeComponentEvent}. \n
-     * {@Link ArkUI_NodeComponentEvent} contains no parameter:\n
-     *
-    */
-    NODE_IMAGE_ANIMATOR_EVENT_ON_FINISH = 19004,
-
-    /**
      * @brief Defines the event triggered when the index of the currently displayed element of this
      * <b>ARKUI_NODE_SWIPER</b> instance changes.
      *
@@ -6005,16 +5619,13 @@ typedef enum {
      * 3. Cross boundary rebound.\n
      * When an event callback occurs, the union type in the event parameter {@ link ArkUI_NodeEvent} object is
      * {@link ArkUI_NodeComponentEvent}. \n
-     * {@link ArkUI_NodeComponentEvent} contains four parameters: \n
+     * {@link ArkUI_NodeComponentEvent} contains three parameters: \n
      * <b>ArkUI_NodeComponentEvent.data[0].f32</b>: The offset for each frame of scrolling is positive when scrolling to
      * the left and negative when scrolling to the right, measured in vp. \n
      * <b>ArkUI_NodeComponentEvent.data[1].f32</b>: The offset of each frame scrolling, with a positive offset when
      * scrolling up and a negative offset when scrolling down, measured in vp. \n
-     * <b>ArkUI_NodeComponentEvent.data[2].i32</b>: Current sliding state, \n
-     * parameter type is {@link ArkUI_ScrollState}. \n
-     * <b>ArkUI_NodeComponentEvent.data[3].i32</b>: Current scroll source, \n
-     * parameter type is {@link ArkUI_ScrollSource}. \n
-     * @return Does not return or returns a number that sets the actual scroll distance of the scroll component.
+     * <b>ArkUI_NodeComponentEvent.data[2].i32</b>: Current sliding state,\n
+     * parameter type is {@link ArkUI_ScrollState}.\n
      */
     NODE_SCROLL_EVENT_ON_WILL_SCROLL,
     /**
@@ -6121,15 +5732,11 @@ typedef enum {
      * Out-of-bounds rebound. \n
      * When the event callback occurs, the union type in the {@Link ArkUI_NodeEvent} object is \n
      * {@Link ArkUI_NodeComponentEvent}. \n
-     * {@Link ArkUI_NodeComponentEvent} contains three parameters: \n
+     * {@Link ArkUI_NodeComponentEvent} contains two parameters: \n
      * ArkUI_NodeComponentEvent.data[0].f32: offset of each frame scrolling. \n
      * The offset is positive when the list content is scrolled up and \n
      * is negative when the list content is scrolled down. \n
      * ArkUI_NodeComponentEvent.data[1].i32: Current sliding state. \n
-     * parameter type is {@link ArkUI_ScrollState}. \n
-     * <b>ArkUI_NodeComponentEvent.data[2].i32</b>: Current scroll source, \n
-     * parameter type is {@link ArkUI_ScrollSource}. \n
-     * @return Does not return or returns a number that sets the actual scroll distance of the scroll component. \n
      */
     NODE_LIST_ON_WILL_SCROLL,
     /**
@@ -6187,15 +5794,10 @@ typedef enum {
      * 3. The out-of-bounds bounce effect is supported. \n
      * When the event callback occurs, the union type in the {@link ArkUI_NodeEvent} object is
      * {@link ArkUI_NodeComponentEvent}. \n
-     * {@Link ArkUI_NodeComponentEvent} contains three parameters: \n
-     * ArkUI_NodeComponentEvent.data[0].f32: offset of each frame scrolling. \n
-     * The offset is positive when the list content is scrolled up and \n
-     * is negative when the list content is scrolled down. \n
-     * ArkUI_NodeComponentEvent.data[1].i32: Current sliding state. \n
-     * parameter type is {@link ArkUI_ScrollState}. \n
-     * <b>ArkUI_NodeComponentEvent.data[2].i32</b>: Current scroll source, \n
-     * parameter type is {@link ArkUI_ScrollSource}. \n
-     * @return Does not return or returns a number that sets the actual scroll distance of the scroll component. \n
+     * {@link ArkUI_NodeComponentEvent} contains two parameters: \n
+     * <b>ArkUI_NodeComponentEvent.data[0].f32</b>: scroll offset of each frame. The offset is positive when the
+     * component is scrolled up and negative when the component is scrolled down. \n
+     * <b>ArkUI_NodeComponentEvent.data[1].i32</b>: current scroll state. \n
      */
     NODE_ON_WILL_SCROLL = MAX_NODE_SCOPE_NUM * ARKUI_NODE_WATER_FLOW,
     /**
@@ -6561,7 +6163,9 @@ uint32_t OH_ArkUI_NodeAdapterEvent_GetItemIndex(ArkUI_NodeAdapterEvent* event);
 * @brief Obtains the scrollable container node that uses the specified adapter.
 *
 * @param event Indicates the target adapter event.
-* @return Returns the scrollable container node that uses the specified adapter.
+* @return Returns the error code.
+*         Returns {@link ARKUI_ERROR_CODE_NO_ERROR} if the operation is successful.
+*         Returns {@link ARKUI_ERROR_CODE_PARAM_INVALID} if a parameter error occurs.
 * @since 12
 */
 ArkUI_NodeHandle OH_ArkUI_NodeAdapterEvent_GetHostNode(ArkUI_NodeAdapterEvent* event);
@@ -7170,36 +6774,6 @@ int32_t OH_ArkUI_NodeContent_RegisterCallback(ArkUI_NodeContentHandle content, A
  * @since 12
  */
 ArkUI_NodeContentEventType OH_ArkUI_NodeContentEvent_GetEventType(ArkUI_NodeContentEvent* event);
-
-/**
- * @brief Obtains the node content object that triggers a node content event.
- *
- * @param event Indicates the pointer to the node content event.
- * @return Returns the node content object that triggers the node content event.
- * @since 12
- */
-ArkUI_NodeContentHandle OH_ArkUI_NodeContentEvent_GetNodeContentHandle(ArkUI_NodeContentEvent* event);
-
-/**
- * @brief Saves custom data on the specified node content.
- *
- * @param content Indicates the node content on which the custom data will be saved.
- * @param userData Indicates the custom data to be saved.
- * @return Returns the error code.
- *         Returns {@link ARKUI_ERROR_CODE_NO_ERROR} if the operation is successful.
- *         Returns {@link ARKUI_ERROR_CODE_PARAM_INVALID} if a parameter error occurs.
- * @since 12
- */
-int32_t OH_ArkUI_NodeContent_SetUserData(ArkUI_NodeContentHandle content, void* userData);
-
-/**
- * @brief Obtains the custom data saved on the specified node content.
- *
- * @param content Indicates the target node content.
- * @return Returns the custom data.
- * @since 12
- */
-void* OH_ArkUI_NodeContent_GetUserData(ArkUI_NodeContentHandle content);
 
 /**
  * @brief Add a node to a node content.

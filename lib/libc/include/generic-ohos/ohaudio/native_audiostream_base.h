@@ -435,7 +435,7 @@ typedef enum {
 } OH_AudioStream_SourceType;
 
 /**
- * @brief Defines the audio interrupt mode.
+ * Defines the audio interrupt mode.
  *
  * @since 12
  */
@@ -510,7 +510,7 @@ typedef struct OH_AudioRenderer_Callbacks_Struct {
             OH_AudioRenderer* renderer,
             void* userData,
             void* buffer,
-            int32_t length);
+            int32_t lenth);
 
     /**
      * This function pointer will point to the callback function that
@@ -563,7 +563,7 @@ typedef struct OH_AudioCapturer_Callbacks_Struct {
             OH_AudioCapturer* capturer,
             void* userData,
             void* buffer,
-            int32_t length);
+            int32_t lenth);
 
     /**
      * This function pointer will point to the callback function that
@@ -669,36 +669,6 @@ typedef enum {
      */
     AUDIO_STREAM_PRIVACY_TYPE_PRIVATE = 1,
 } OH_AudioStream_PrivacyType;
-
-/**
- * @brief Defines enumeration of audio data callback result.
- *
- * @since 12
- */
-typedef enum {
-    /** Result of audio data callabck is invalid. */
-    AUDIO_DATA_CALLBACK_RESULT_INVALID = -1,
-    /** Result of audio data callabck is valid. */
-    AUDIO_DATA_CALLBACK_RESULT_VALID = 0,
-} OH_AudioData_Callback_Result;
-
-/**
- * @brief Callback function of  write data.
- *
- * This function is similar with OH_AudioRenderer_Callbacks_Struct.OH_AudioRenderer_OnWriteData instead of the return
- * value. The return result of this function indicates whether the data filled in the buffer is valid or invalid. If
- * result is invalid, the data filled by user will not be played.
- *
- * @param renderer AudioRenderer where this callback occurs.
- * @param userData User data which is passed by user.
- * @param audioData Audio data pointer, where user should fill in audio data.
- * @param audioDataSize Size of audio data that user should fill in.
- * @return Audio Data callback result.
- * @see OH_AudioRenderer_Callbacks_Struct.OH_AudioRenderer_OnWriteData
- * @since 12
- */
-typedef OH_AudioData_Callback_Result (*OH_AudioRenderer_OnWriteDataCallback)(OH_AudioRenderer* renderer, void* userData,
-    void* audioData, int32_t audioDataSize);
 #ifdef __cplusplus
 }
 #endif

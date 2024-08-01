@@ -129,28 +129,6 @@ Image_ErrorCode OH_PackingOptions_SetQuality(OH_PackingOptions *options,
     uint32_t quality);
 
 /**
- * @brief Get needsPackProperties for OH_PackingOptions struct.
- *
- * @param options The OH_PackingOptions pointer will be operated.
- * @param needsPackProperties Whether the image properties can be saved, like Exif.
- * @return Returns {@link Image_ErrorCode}
- * @since 12
- */
-Image_ErrorCode OH_PackingOptions_GetNeedsPackProperties(OH_PackingOptions *options,
-    bool *needsPackProperties);
-
-/**
- * @brief Set needsPackProperties for OH_PackingOptions struct.
- *
- * @param options The OH_PackingOptions pointer will be operated.
- * @param needsPackProperties Whether the image properties can be saved, like Exif.
- * @return Returns {@link Image_ErrorCode}
- * @since 12
- */
-Image_ErrorCode OH_PackingOptions_SetNeedsPackProperties(OH_PackingOptions *options,
-    bool needsPackProperties);
-
-/**
  * @brief Get desiredDynamicRange for PackingOptions struct.
  *
  * @param options The PackingOptions pointer will be operated. Pointer connot be null.

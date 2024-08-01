@@ -26,7 +26,7 @@
 
 /**
  * @file types.h
- * @kit MindSporeLiteKit
+ *
  * @brief provides the model file types and device types supported by MindSpore Lite.
  *
  * @library libmindspore_lite_ndk.so

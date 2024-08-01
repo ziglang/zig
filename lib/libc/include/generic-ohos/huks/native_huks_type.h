@@ -33,7 +33,7 @@
  *
  * @brief Defines the structure and enumeration.
  *
- * @kit UniversalKeystoreKit
+ * @kit Universal Keystore Kit
  * @since 9
  * @version 1.0
  */
@@ -409,7 +409,7 @@ enum  OH_Huks_ErrCode {
     /** Failed to call service. */
     OH_HUKS_ERR_CODE_CALL_SERVICE_FAILED = 12000015,
     /**
-     * A device password is required but not set.
+     * Device password is required but not set.
      *
      * @since 11
      */

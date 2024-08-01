@@ -13,28 +13,6 @@
  * limitations under the License.
  */
 
-/**
- * @addtogroup Ffrt
- * @{
- *
- * @brief ffrt provides APIs.
- *
- *
- * @syscap SystemCapability.Resourceschedule.Ffrt.Core
- *
- * @since 12
- */
-
- /**
- * @file loop.h
- * @kit FunctionFlowRuntimeKit
- *
- * @brief Declares the loop interfaces in C.
- *
- * @syscap SystemCapability.Resourceschedule.Ffrt.Core
- * @since 12
- * @version 1.0
- */
 #ifndef FFRT_API_C_LOOP_H
 #define FFRT_API_C_LOOP_H
 

@@ -27,7 +27,6 @@
 
 /**
  * @file sleep.h
- * @kit FunctionFlowRuntimeKit
  *
  * @brief Declares the sleep and yield interfaces in C.
  *

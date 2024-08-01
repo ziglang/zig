@@ -26,7 +26,7 @@
 
 /**
  * @file status.h
- * @kit MindSporeLiteKit
+ *
  * @brief 提供了Mindspore Lite运行时的状态码。
  *
  * @library libmindspore_lite_ndk.so

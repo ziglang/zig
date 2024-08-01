@@ -31,7 +31,7 @@
  * @brief Defines the enums, structs, and error codes used in the Asset APIs.
  *
  * @library libasset_ndk.z.so
- * @kit AssetStoreKit
+ * @kit Asset Store Kit
  * @syscap SystemCapability.Security.Asset
  * @since 11
  */

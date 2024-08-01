@@ -26,7 +26,7 @@
 
 /**
  * @file format.h
- * @kit MindSporeLiteKit
+ *
  * @brief 提供张量数据的排列格式。
  *
  * @library libmindspore_lite_ndk.so

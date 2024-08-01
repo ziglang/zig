@@ -29,7 +29,7 @@
  * @file oh_key_code.h
  *
  * @brief Defines the key event structure and related enumeration values.
- * @kit InputKit
+ *
  * @syscap SystemCapability.MultimodalInput.Input.Core
  * @library libohinput.so
  * @since 12

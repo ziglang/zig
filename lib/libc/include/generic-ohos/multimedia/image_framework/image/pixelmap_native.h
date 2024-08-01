@@ -372,17 +372,6 @@ Image_ErrorCode OH_PixelmapNative_ReadPixels(OH_PixelmapNative *pixelmap, uint8_
 Image_ErrorCode OH_PixelmapNative_WritePixels(OH_PixelmapNative *pixelmap, uint8_t *source, size_t bufferSize);
 
 /**
- * @brief Convert {@link OH_PixelmapNative} to standard dynamic range.
- *
- * @param pixelmap The Pixelmap pointer will be operated. Pointer connot be null.
- * @return Returns {@link Image_ErrorCode} IMAGE_SUCCESS - The operation is successful.
- * returns {@link Image_ErrorCode} IMAGE_BAD_PARAMETER - Parameter error.Possible causes:Parameter verification failed.
- * returns {@link Image_ErrorCode} IMAGE_UNSUPPORTED_OPERATION - Unsupported operation.Pixelmap can't be converted.
- * @since 12
- */
-Image_ErrorCode OH_PixelmapNative_ToSdr(OH_PixelmapNative *pixelmap);
-
-/**
  * @brief Obtains pixel map information of this image.
  *
  * @param pixelmap The Pixelmap pointer will be operated.

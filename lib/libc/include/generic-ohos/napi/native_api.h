@@ -41,7 +41,7 @@
 #endif
 #endif
 
-NAPI_EXTERN napi_status napi_fatal_exception(napi_env env, napi_value err);
+NAPI_INNER_EXTERN napi_status napi_fatal_exception(napi_env env, napi_value err);
 
 NAPI_EXTERN napi_status napi_create_string_utf16(napi_env env,
                                                  const char16_t* str,
@@ -194,121 +194,6 @@ NAPI_EXTERN napi_status napi_define_sendable_class(napi_env env,
  * @since 12
  */
 NAPI_EXTERN napi_status napi_is_sendable(napi_env env, napi_value value, bool* result);
-/**
- * @brief Defines a sendable object.
- *
- * @param env The environment that the API is invoked under.
- * @param property_count The count of object properties.
- * @param properties Object properties.
- * @return Return the function execution status.
- * @since 12
- */
-NAPI_EXTERN napi_status napi_create_sendable_object_with_properties(napi_env env, size_t property_count,
-                                                                    const napi_property_descriptor* properties,
-                                                                    napi_value* result);
-/**
- * @brief Wraps a native instance in a ArkTS object.
- *
- * @param env The environment that the API is invoked under.
- * @param js_object The ArkTS object that will be the wrapper for the native object.
- * @param native_object The native instance that will be wrapped in the ArkTS object.
- * @param finalize_lib Optional native callback that can be used to free the native instance when the ArkTS object
- * has been garbage-collected.
- * @param finalize_hint Optional contextual hint that is passed to the finalize callback.
- * @return Return the function execution status.
- * @since 12
- */
-NAPI_EXTERN napi_status napi_wrap_sendable(napi_env env, napi_value js_object, void* native_object,
-                                           napi_finalize finalize_cb, void* finalize_hint);
-/**
- * @brief Wraps a native instance in a ArkTS object.
- *
- * @param env The environment that the API is invoked under.
- * @param js_object The ArkTS object that will be the wrapper for the native object.
- * @param native_object The native instance that will be wrapped in the ArkTS object.
- * @param finalize_lib Optional native callback that can be used to free the native instance when the ArkTS object
- * has been garbage-collected.
- * @param finalize_hint Optional contextual hint that is passed to the finalize callback.
- * @param native_binding_size The size of native binding.
- * @return Return the function execution status.
- * @since 12
- */
-NAPI_EXTERN napi_status napi_wrap_sendable_with_size(napi_env env, napi_value js_object, void* native_object,
-                                                     napi_finalize finalize_cb, void* finalize_hint,
-                                                     size_t native_binding_size);
-/**
- * @brief Retrieves a native instance that was previously wrapped in a ArkTS object.
- *
- * @param env The environment that the API is invoked under.
- * @param js_object The object associated with the native instance.
- * @param result Pointer to the wrapped native instance.
- * @return Return the function execution status.
- * @since 12
- */
-NAPI_EXTERN napi_status napi_unwrap_sendable(napi_env env, napi_value js_object, void** result);
-/**
- * @brief Retrieves a native instance that was previously wrapped in a ArkTS object.
- *
- * @param env The environment that the API is invoked under.
- * @param js_object The object associated with the native instance.
- * @param result Pointer to the wrapped native instance.
- * @return Return the function execution status.
- * @since 12
- */
-NAPI_EXTERN napi_status napi_remove_wrap_sendable(napi_env env, napi_value js_object, void** result);
-/*
- * @brief Create a sendable array.
- *
- * @param env: The environment that the API is invoked under.
- * @param result: A napi_value representing a sendable array.
- * @return Return the function execution status.
- * @since 12
- */
-NAPI_EXTERN napi_status napi_create_sendable_array(napi_env env, napi_value* result);
-
-/*
- * @brief Create a sendable array with length.
- *
- * @param env: The environment that the API is invoked under.
- * @param length: The initial length of the sendable array.
- * @param result: A napi_value representing a sendable array.
- * @return Return the function execution status.
- * @since 12
- */
-NAPI_EXTERN napi_status napi_create_sendable_array_with_length(napi_env env, size_t length, napi_value* result);
-
-/*
- * @brief Create a sendable arraybuffer.
- *
- * @param env: The environment that the API is invoked under.
- * @param byte_length: The length in bytes of the sendable arraybuffer to create.
- * @param data: Pointer to the underlying byte buffer of the sendable arraybuffer.
- * @param result: A napi_value representing a sendable arraybuffer.
- * @return Return the function execution status.
- * @since 12
- */
-NAPI_EXTERN napi_status napi_create_sendable_arraybuffer(napi_env env, size_t byte_length,
-                                                         void** data, napi_value* result);
-
-/*
- * @brief Create a sendable typedarray.
- *
- * @param env: The environment that the API is invoked under.
- * @param type: Scalar datatype of the elements within the sendable typedarray.
- * @param length: Number of elements in the typedarray.
- * @param arraybuffer: Sendable arraybuffer underlying the sendable typedarray.
- * @param byte_offset: The byte offset within the sendable arraybuffer from
- * which to start projecting the sendable typedarray.
- * @param result: A napi_value representing a sendable typedarray.
- * @return Return the function execution status.
- * @since 12
- */
-NAPI_EXTERN napi_status napi_create_sendable_typedarray(napi_env env,
-                                                        napi_typedarray_type type,
-                                                        size_t length,
-                                                        napi_value arraybuffer,
-                                                        size_t byte_offset,
-                                                        napi_value* result);
 
 /**
  * @brief Run the event loop by the given env and running mode in current thread.

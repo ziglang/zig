@@ -37,7 +37,6 @@
  * @version 1.0
  */
 
-#include "drawing_error_code.h"
 #include "drawing_types.h"
 
 #ifdef __cplusplus
@@ -116,20 +115,6 @@ OH_Drawing_Corner_Radii OH_Drawing_RoundRectGetCorner(OH_Drawing_RoundRect*, OH_
  */
 void OH_Drawing_RoundRectDestroy(OH_Drawing_RoundRect*);
 
-/**
- * @brief Translates round rect by (dx, dy).
- *
- * @syscap SystemCapability.Graphic.Graphic2D.NativeDrawing
- * @param roundRect Indicates the pointer to an <b>OH_Drawing_RoundRect</b> object.
- * @param dx Indicates the offsets added to rect left and rect right.
- * @param dy Indicates the offsets added to rect top and rect bottom.
- * @return Returns the error code.
- *         Returns {@link OH_DRAWING_SUCCESS} if the operation is successful.
- *         Returns {@link OH_DRAWING_ERROR_INVALID_PARAMETER} if roundRect is nullptr.
- * @since 12
- * @version 1.0
- */
-OH_Drawing_ErrorCode OH_Drawing_RoundRectOffset(OH_Drawing_RoundRect* roundRect, float dx, float dy);
 #ifdef __cplusplus
 }
 #endif

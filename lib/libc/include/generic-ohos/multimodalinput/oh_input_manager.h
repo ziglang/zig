@@ -29,7 +29,7 @@
  * @file oh_input_manager.h
  *
  * @brief Provides capabilities such as event injection and key status query.
- * @kit InputKit
+ *
  * @syscap SystemCapability.MultimodalInput.Input.Core
  * @library liboh_input.so
  * @since 12

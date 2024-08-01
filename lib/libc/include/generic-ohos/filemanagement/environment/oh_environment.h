@@ -27,7 +27,6 @@
  * @file oh_environment.h
  *
  * @brief Provide environment APIS.
- * @kit CoreFileKit
  * @library libohenvironment.so
  * @syscap SystemCapability.FileManagement.File.Environment.FolderObtain
  * @since 12
@@ -41,8 +40,10 @@ extern "C" {
 /**
  * @brief Get the user Download directory.
  *
+ * @permission ohos.permission.READ_WRITE_DOWNLOAD_DIRECTORY
  * @param result Output a pointer to a string. Please use free() to clear the resource.
  * @return Return the status code of the execution.
+ *         {@link PERMISSION_ERROR} 201 - Permission verification failed.
  *         {@link PARAMETER_ERROR} 401 - Invalid input parameter, pointer is null.
  *         {@link DEVICE_NOT_SUPPORTED} 801 - Device not supported.
  *         {@link E_NOMEM} 13900011 - Failed to apply for memory.
@@ -53,8 +54,10 @@ FileManagement_ErrCode OH_Environment_GetUserDownloadDir(char **result);
 /**
  * @brief Get the user Desktop directory.
  *
+ * @permission ohos.permission.READ_WRITE_DESKTOP_DIRECTORY
  * @param result Output a pointer to a string. Please use free() to clear the resource.
  * @return Return the status code of the execution.
+ *         {@link PERMISSION_ERROR} 201 - Permission verification failed.
  *         {@link PARAMETER_ERROR} 401 - Invalid input parameter, pointer is null.
  *         {@link DEVICE_NOT_SUPPORTED} 801 - Device not supported.
  *         {@link E_NOMEM} 13900011 - Failed to apply for memory.
@@ -65,8 +68,10 @@ FileManagement_ErrCode OH_Environment_GetUserDesktopDir(char **result);
 /**
  * @brief Get the user Document directory.
  *
+ * @permission ohos.permission.READ_WRITE_DOCUMENTS_DIRECTORY
  * @param result Output a pointer to a string. Please use free() to clear the resource.
  * @return Return the status code of the execution.
+ *         {@link PERMISSION_ERROR} 201 - Permission verification failed.
  *         {@link PARAMETER_ERROR} 401 - Invalid input parameter, pointer is null.
  *         {@link DEVICE_NOT_SUPPORTED} 801 - Device not supported.
  *         {@link E_NOMEM} 13900011 - Failed to apply for memory.

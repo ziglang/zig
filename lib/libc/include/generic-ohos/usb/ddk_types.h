@@ -31,7 +31,6 @@
  * @brief Provides the enums, structs, and macros used in USB Base APIs.
  *
  * @library libddk_base.z.so
- * @kit DriverDevelopmentKit
  * @syscap SystemCapability.Driver.DDK.Extension
  * @since 12
  */

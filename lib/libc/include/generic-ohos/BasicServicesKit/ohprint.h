@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (C) 2024 Huawei Device Co., Ltd.
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@
  * @brief Provides the definition of the C interface for the print module.
  *
  * @syscap SystemCapability.Print.PrintFramework
+ *
  * @since 12
  * @version 1.0
  */
@@ -31,7 +32,6 @@
  *        query the list of the added printers and the printer information within it, and so on.
  *
  * @library libohprint.so
- * @kit BasicServicesKit
  * @syscap SystemCapability.Print.PrintFramework
  * @since 12
  * @version 1.0
@@ -54,27 +54,27 @@ extern "C" {
  * @version 1.0
  */
 typedef enum {
-    /** @error The operation is successful. */
+    /** The operation is successful. */
     PRINT_ERROR_NONE = 0,
-    /** @error Permission verification failed. */
+    /** Permission verification failed. */
     PRINT_ERROR_NO_PERMISSION = 201,
-    /** @error Invalid parameter. */
+    /** Invalid parameter. */
     PRINT_ERROR_INVALID_PARAMETER = 401,
-    /** @error General internal error. */
+    /** General internal error. */
     PRINT_ERROR_GENERIC_FAILURE = 24300001,
-    /** @error RPC communication error. */
+    /** RPC communication error. */
     PRINT_ERROR_RPC_FAILURE = 24300002,
-    /** @error Server error. */
+    /** Server error. */
     PRINT_ERROR_SERVER_FAILURE = 24300003,
-    /** @error Invalid extension. */
+    /** Invalid extension. */
     PRINT_ERROR_INVALID_EXTENSION = 24300004,
-    /** @error Invalid printer. */
+    /** Invalid printer. */
     PRINT_ERROR_INVALID_PRINTER = 24300005,
-    /** @error Invalid print job. */
+    /** Invalid print job. */
     PRINT_ERROR_INVALID_PRINT_JOB = 24300006,
-    /** @error Failed to read or write files. */
+    /** Failed to read or write files. */
     PRINT_ERROR_FILE_IO = 24300007,
-    /** @error Unknown error. */
+    /** Unknown error. */
     PRINT_ERROR_UNKNOWN = 24300255,
 } Print_ErrorCode;
 
@@ -445,96 +445,82 @@ typedef void (*Print_PrinterChangeCallback)(Print_PrinterEvent event, const Prin
  *        and establishes a connection to the print service.
  *
  * @permission {@code ohos.permission.PRINT}
- * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful.
- *         {@link PRINT_ERROR_NO_PERMISSION} The permission {@code ohos.permission.PRINT} is needed.
- *         {@link PRINT_ERROR_RPC_FAILURE} Unable to connect to the print service.
- *         {@link PRINT_ERROR_SERVER_FAILURE} The cups service cannot be started.
+ * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful,
+ *         otherwise returns a specific error code, refer to {@link Print_ErrorCode}.
  * @syscap SystemCapability.Print.PrintFramework
  * @since 12
  */
-Print_ErrorCode OH_Print_Init();
+int32_t OH_Print_Init();
 
 /**
  * @brief This API closes the connection from the print service, dissolves the previous callback,
  *        and releases the print client resources.
  *
- * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful.
- *         Currently no other error codes will be returned.
+ * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful,
+ *         otherwise returns a specific error code, refer to {@link Print_ErrorCode}.
  * @syscap SystemCapability.Print.PrintFramework
  * @since 12
  */
-Print_ErrorCode OH_Print_Release();
+int32_t OH_Print_Release();
 
 /**
  * @brief This API starts discovering printers.
  *
  * @permission {@code ohos.permission.PRINT}
  * @param callback The {@link Print_PrinterDiscoveryCallback} of printer discovery event.
- * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful.
- *         {@link PRINT_ERROR_NO_PERMISSION} The permission {@code ohos.permission.PRINT} is needed.
- *         {@link PRINT_ERROR_RPC_FAILURE} Unable to connect to the print service ability.
- *         {@link PRINT_ERROR_SERVER_FAILURE} Failed to query print extension list from BMS.
- *         {@link PRINT_ERROR_INVALID_EXTENSION} No available print extensions found.
+ * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful,
+ *         otherwise returns a specific error code, refer to {@link Print_ErrorCode}.
  * @syscap SystemCapability.Print.PrintFramework
  * @since 12
  */
-Print_ErrorCode OH_Print_StartPrinterDiscovery(Print_PrinterDiscoveryCallback callback);
+int32_t OH_Print_StartPrinterDiscovery(Print_PrinterDiscoveryCallback callback);
 
 /**
  * @brief This API stops discovering printers.
  *
  * @permission {@code ohos.permission.PRINT}
- * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful.
- *         {@link PRINT_ERROR_NO_PERMISSION} The permission {@code ohos.permission.PRINT} is needed.
- *         {@link PRINT_ERROR_RPC_FAILURE} Unable to connect to the print service.
+ * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful,
+ *         otherwise returns a specific error code, refer to {@link Print_ErrorCode}.
  * @syscap SystemCapability.Print.PrintFramework
  * @since 12
  */
-Print_ErrorCode OH_Print_StopPrinterDiscovery();
+int32_t OH_Print_StopPrinterDiscovery();
 
 /**
  * @brief This API connects to the printer using the printer id.
  *
  * @permission {@code ohos.permission.PRINT}
  * @param printerId The id of the printer to be connected.
- * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful.
- *         {@link PRINT_ERROR_NO_PERMISSION} The permission {@code ohos.permission.PRINT} is needed.
- *         {@link PRINT_ERROR_RPC_FAILURE} Unable to connect to the print service.
- *         {@link PRINT_ERROR_INVALID_PRINTER} The printer should be in the list of discovered printers.
- *         {@link PRINT_ERROR_SERVER_FAILURE} Unable to find an extension responsible for the printer.
+ * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful,
+ *         otherwise returns a specific error code, refer to {@link Print_ErrorCode}.
  * @syscap SystemCapability.Print.PrintFramework
  * @since 12
  */
-Print_ErrorCode OH_Print_ConnectPrinter(const char *printerId);
+int32_t OH_Print_ConnectPrinter(const char *printerId);
 
 /**
  * @brief This API starts initiating a print job.
  *
  * @permission {@code ohos.permission.PRINT}
  * @param printJob A pointer to a {@link Print_PrintJob} instance that specifies the information for the print job.
- * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful.
- *         {@link PRINT_ERROR_NO_PERMISSION} The permission {@code ohos.permission.PRINT} is needed.
- *         {@link PRINT_ERROR_RPC_FAILURE} Unable to connect to the print service.
- *         {@link PRINT_ERROR_INVALID_PRINTER} The printer should be in the list of connected printers.
- *         {@link PRINT_ERROR_SERVER_FAILURE} Unable to create print job in the print service.
- *         {@link PRINT_ERROR_INVALID_PRINT_JOB} Unable to find the job int the job queue.
+ * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful,
+ *         otherwise returns a specific error code, refer to {@link Print_ErrorCode}.
  * @syscap SystemCapability.Print.PrintFramework
  * @since 12
  */
-Print_ErrorCode OH_Print_StartPrintJob(const Print_PrintJob *printJob);
+int32_t OH_Print_StartPrintJob(const Print_PrintJob *printJob);
 
 /**
  * @brief This API registers the callback for printer changes.
  *
  * @permission {@code ohos.permission.PRINT}
  * @param callback The {@link Print_PrinterChangeCallback} to be registered.
- * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful.
- *         {@link PRINT_ERROR_NO_PERMISSION} The permission {@code ohos.permission.PRINT} is needed.
- *         {@link PRINT_ERROR_RPC_FAILURE} Unable to connect to the print service ability.
+ * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful,
+ *         otherwise returns a specific error code, refer to {@link Print_ErrorCode}.
  * @syscap SystemCapability.Print.PrintFramework
  * @since 12
  */
-Print_ErrorCode OH_Print_RegisterPrinterChangeListener(Print_PrinterChangeCallback callback);
+int32_t OH_Print_RegisterPrinterChangeListener(Print_PrinterChangeCallback callback);
 
 /**
  * @brief This API unregisters the callback for printer changes.
@@ -550,15 +536,12 @@ void OH_Print_UnregisterPrinterChangeListener();
  *
  * @permission {@code ohos.permission.PRINT}
  * @param printerIdList A pointer to a {@link Print_StringList} instance to store the queried printer id list.
- * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful.
- *         {@link PRINT_ERROR_NO_PERMISSION} The permission {@code ohos.permission.PRINT} is needed.
- *         {@link PRINT_ERROR_INVALID_PARAMETER} printerIdList is NULL.
- *         {@link PRINT_ERROR_INVALID_PRINTER} Unable to query any connected printers.
- *         {@link PRINT_ERROR_GENERIC_FAILURE} Unable to copy the printer id list.
+ * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful,
+ *         otherwise returns a specific error code, refer to {@link Print_ErrorCode}.
  * @syscap SystemCapability.Print.PrintFramework
  * @since 12
  */
-Print_ErrorCode OH_Print_QueryPrinterList(Print_StringList *printerIdList);
+int32_t OH_Print_QueryPrinterList(Print_StringList *printerIdList);
 
 /**
  * @brief This API frees up the printer list memory for the query.
@@ -575,15 +558,12 @@ void OH_Print_ReleasePrinterList(Print_StringList *printerIdList);
  * @permission {@code ohos.permission.PRINT}
  * @param printerId The id of the printer to be queried.
  * @param printerInfo A pointer to a {@link Print_PrinterInfo} pointer to store the printer infomation.
- * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful.
- *         {@link PRINT_ERROR_NO_PERMISSION} The permission {@code ohos.permission.PRINT} is needed.
- *         {@link PRINT_ERROR_RPC_FAILURE} Unable to connect to the print service.
- *         {@link PRINT_ERROR_INVALID_PARAMETER} printerId is NULL or printerInfo is NULL.
- *         {@link PRINT_ERROR_INVALID_PRINTER} Unable to find the printer in the connected printer list.
+ * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful,
+ *         otherwise returns a specific error code, refer to {@link Print_ErrorCode}.
  * @syscap SystemCapability.Print.PrintFramework
  * @since 12
  */
-Print_ErrorCode OH_Print_QueryPrinterInfo(const char *printerId, Print_PrinterInfo **printerInfo);
+int32_t OH_Print_QueryPrinterInfo(const char *printerId, Print_PrinterInfo **printerInfo);
 
 /**
  * @brief This API frees up the printer infomation memory for the query.
@@ -597,12 +577,12 @@ void OH_Print_ReleasePrinterInfo(Print_PrinterInfo *printerInfo);
 /**
  * @brief This API launches the system's printer management window.
  *
- * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful.
- *         {@link PRINT_ERROR_GENERIC_FAILURE} Unable to launch the printer manager window.
+ * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful,
+ *         otherwise returns a specific error code, refer to {@link Print_ErrorCode}.
  * @syscap SystemCapability.Print.PrintFramework
  * @since 12
  */
-Print_ErrorCode OH_Print_LaunchPrinterManager();
+int32_t OH_Print_LaunchPrinterManager();
 
 /**
  * @brief This API queries the corresponding printer property values based on the list of property keywords.
@@ -611,16 +591,13 @@ Print_ErrorCode OH_Print_LaunchPrinterManager();
  * @param printerId The id of the printer to be queried.
  * @param propertyKeyList The list of property keywords to be queried
  * @param propertyList The list of printer property values queried.
- * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful.
- *         {@link PRINT_ERROR_NO_PERMISSION} The permission {@code ohos.permission.PRINT} is needed.
- *         {@link PRINT_ERROR_INVALID_PARAMETER} One of the params is NULL or the keyword list is empty.
- *         {@link PRINT_ERROR_INVALID_PRINTER} The printer properties for the specified printer could not be found.
- *         {@link PRINT_ERROR_GENERIC_FAILURE} Unable to copy the printer properties.
+ * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful,
+ *         otherwise returns a specific error code, refer to {@link Print_ErrorCode}.
  * @syscap SystemCapability.Print.PrintFramework
  * @since 12
  */
-Print_ErrorCode OH_Print_QueryPrinterProperties(const char *printerId, const Print_StringList *propertyKeyList,
-    Print_PropertyList *propertyList);
+int32_t OH_Print_QueryPrinterProperties(const char *printerId, const Print_StringList *propertyKeyList,
+                                        Print_PropertyList *propertyList);
 
 /**
  * @brief This API frees up the property list memory for the query.
@@ -637,13 +614,12 @@ void OH_Print_ReleasePrinterProperties(Print_PropertyList *propertyList);
  * @permission {@code ohos.permission.PRINT}
  * @param printerId The id of the printer to be set.
  * @param propertyList The list of printer property values to be set.
- * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful.
- *         {@link PRINT_ERROR_NO_PERMISSION} The permission {@code ohos.permission.PRINT} is needed.
- *         {@link PRINT_ERROR_RPC_FAILURE} Unable to connect to the print service.
+ * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful,
+ *         otherwise returns a specific error code, refer to {@link Print_ErrorCode}.
  * @syscap SystemCapability.Print.PrintFramework
  * @since 12
  */
-Print_ErrorCode OH_Print_UpdatePrinterProperties(const char *printerId, const Print_PropertyList *propertyList);
+int32_t OH_Print_UpdatePrinterProperties(const char *printerId, const Print_PropertyList *propertyList);
 
 /**
  * @brief This API restores printer properties to default settings based on the list of property keywords.
@@ -651,13 +627,12 @@ Print_ErrorCode OH_Print_UpdatePrinterProperties(const char *printerId, const Pr
  * @permission {@code ohos.permission.PRINT}
  * @param printerId The id of the printer to be restored.
  * @param propertyKeyList The list of property keywords to be restored.
- * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful.
- *         {@link PRINT_ERROR_NO_PERMISSION} The permission {@code ohos.permission.PRINT} is needed.
- *         {@link PRINT_ERROR_RPC_FAILURE} Unable to connect to the print service.
+ * @return Returns {@link Print_ErrorCode#PRINT_ERROR_NONE} if the execution is successful,
+ *         otherwise returns a specific error code, refer to {@link Print_ErrorCode}.
  * @syscap SystemCapability.Print.PrintFramework
  * @since 12
  */
-Print_ErrorCode OH_Print_RestorePrinterProperties(const char *printerId, const Print_StringList *propertyKeyList);
+int32_t OH_Print_RestorePrinterProperties(const char *printerId, const Print_StringList *propertyKeyList);
 
 #ifdef __cplusplus
 }

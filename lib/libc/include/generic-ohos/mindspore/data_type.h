@@ -26,7 +26,7 @@
 
 /**
  * @file data_type.h
- * @kit MindSporeLiteKit
+ *
  * @brief 声明了张量的数据的类型。
  *
  * @library libmindspore_lite_ndk.so

@@ -31,7 +31,6 @@
  *
  * @brief Declares the HID DDK interfaces for the host to access an input device.
  *
- * @kit DriverDevelopmentKit
  * File to include: <hid/hid_ddk_api.h>
  * @since 11
  * @version 1.0

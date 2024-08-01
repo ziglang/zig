@@ -48,14 +48,14 @@ extern "C" {
  * @since 12
  */
 typedef struct ArkUI_GestureRecognizer ArkUI_GestureRecognizer;
- 
+
 /**
  * @brief Defines the gesture interruption information.
  *
  * @since 12
  */
 typedef struct ArkUI_GestureInterruptInfo ArkUI_GestureInterruptInfo;
- 
+
 /**
  * @brief Defines the gesture event.
  *

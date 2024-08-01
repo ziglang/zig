@@ -26,7 +26,7 @@
 
 /**
  * @file context.h
- * @kit MindSporeLiteKit
+ *
  * @brief 提供了Context相关的接口，可以配置运行时信息。
  *
  * @library libmindspore_lite_ndk.so

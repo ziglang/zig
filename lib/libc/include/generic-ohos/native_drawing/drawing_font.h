@@ -37,7 +37,6 @@
  * @version 1.0
  */
 
-#include "drawing_error_code.h"
 #include "drawing_types.h"
 
 #ifdef __cplusplus
@@ -239,26 +238,6 @@ uint32_t OH_Drawing_FontTextToGlyphs(const OH_Drawing_Font*, const void* text, u
  * @version 1.0
  */
 void OH_Drawing_FontGetWidths(const OH_Drawing_Font*, const uint16_t* glyphs, int count, float* widths);
-
-/**
- * @brief Measures the width of text.
- *
- * @syscap SystemCapability.Graphic.Graphic2D.NativeDrawing
- * @param font Indicates the pointer to an <b>OH_Drawing_Font</b> object.
- * @param text Indicates the character storage encoded with text encoding.
- * @param byteLength Indicates the text length in bytes.
- * @param encoding Indicates the text encoding.
- * @param bounds Gets the bounding box relative to (0, 0) if not nullptr.
- * @param textWidth Indicates the width of text.
- * @return Returns the error code.
- *         Returns {@link OH_DRAWING_SUCCESS} if the operation is successful.
- *         Returns {@link OH_DRAWING_ERROR_INVALID_PARAMETER} if any of font, text
- *                 and textWidth is nullptr or byteLength is 0.
- * @since 12
- * @version 1.0
- */
-OH_Drawing_ErrorCode OH_Drawing_FontMeasureText(const OH_Drawing_Font* font, const void* text, size_t byteLength,
-    OH_Drawing_TextEncoding encoding, OH_Drawing_Rect* bounds, float* textWidth);
 
 /**
  * @brief Enables or disables linearly scalable font for an <b>OH_Drawing_Font</b> object.

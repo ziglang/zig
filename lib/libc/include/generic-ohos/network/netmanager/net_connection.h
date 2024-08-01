@@ -31,7 +31,6 @@
  *
  * @brief Provide C interface for the data network connection module of network management.
  *
- * @kit NetworkKit
  * @syscap SystemCapability.Communication.NetManager.Core
  * @library libnet_connection.so
  * @since 11

@@ -26,7 +26,7 @@
 
 /**
  * @file tensor.h
- * @kit MindSporeLiteKit
+ *
  * @brief 提供了张量相关的接口，可用于创建和修改张量信息。
  *
  * @library libmindspore_lite_ndk.so

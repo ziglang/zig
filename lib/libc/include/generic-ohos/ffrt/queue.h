@@ -27,7 +27,6 @@
 
 /**
  * @file queue.h
- * @kit FunctionFlowRuntimeKit
  *
  * @brief Declares the queue interfaces in C.
  *

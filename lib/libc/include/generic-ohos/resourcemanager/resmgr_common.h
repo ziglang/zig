@@ -33,8 +33,6 @@
 #ifndef GLOBAL_RESMGR_COMMON_H
 #define GLOBAL_RESMGR_COMMON_H
 
-# include <stdint.h>
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -74,52 +72,6 @@ typedef enum ResourceManager_ErrorCode {
 } ResourceManager_ErrorCode;
 
 /**
- * @brief Enumerates screen directions.
- *
- * @since 12
- */
-typedef enum ResourceManager_Direction {
-    /** Indicates the vertical direction. */
-    DIRECTION_VERTICAL = 0,
-    /** Indicates the horizontal direction. */
-    DIRECTION_HORIZONTAL = 1,
-} ResourceManager_Direction;
-
-/**
- * @brief Enumerates color mode types.
- *
- * @since 12
- */
-typedef enum ResourceManager_ColorMode {
-    /** Indicates dark mode. */
-    COLOR_MODE_DARK = 0,
-    /** Indicates light mode. */
-    COLOR_MODE_LIGHT = 1,
-} ResourceManager_ColorMode;
-
-/**
- * @brief Enumerates device types.
- *
- * @since 12
- */
-typedef enum ResourceManager_DeviceType {
-    /** Indicates a phone. */
-    DEVICE_TYPE_PHONE = 0X00,
-    /** Indicates a tablet. */
-    DEVICE_TYPE_TABLET = 0x01,
-    /** Indicates a car. */
-    DEVICE_TYPE_CAR = 0x02,
-    /** Indicates a PC. */
-    DEVICE_TYPE_PC = 0x03,
-    /** Indicates a smart TV. */
-    DEVICE_TYPE_TV = 0x04,
-    /** Indicates a wearable device. */
-    DEVICE_TYPE_WEARABLE = 0x06,
-    /** Indicates a 2in1 device. */
-    DEVICE_TYPE_2IN1 = 0x07,
-} ResourceManager_DeviceType;
-
-/**
  * @brief Enumerates screen density types.
  *
  * @since 12
@@ -138,30 +90,6 @@ typedef enum ScreenDensity {
     /** Indicates extra-extra-extra-large screen density. */
     SCREEN_XXXLDPI = 640,
 } ScreenDensity;
-
-/**
- * @brief Enumerates device configuration.
- *
- * @since 12
- */
-typedef struct ResourceManager_Configuration {
-    /** Indicates the screen direction of the current device. */
-    ResourceManager_Direction direction;
-    /** Indicates the current system language, for example, zh-Hans-CN. */
-    char* locale = nullptr;
-    /** Indicates the device type. */
-    ResourceManager_DeviceType deviceType;
-    /** Indicates the screen density. */
-    ScreenDensity screenDensity;
-    /** Indicates the color mode. */
-    ResourceManager_ColorMode colorMode;
-    /** Indicates the mcc. */
-    uint32_t mcc = 0;
-    /** Indicates the mnc. */
-    uint32_t mnc = 0;
-    /** Reserved attributes. */
-    uint32_t reserved[20];
-} ResourceManager_Configuration;
 #ifdef __cplusplus
 };
 #endif

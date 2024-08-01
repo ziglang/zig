@@ -343,22 +343,6 @@ OH_AudioStream_Result OH_AudioStreamBuilder_SetWriteDataWithMetadataCallback(OH_
 OH_AudioStream_Result OH_AudioStreamBuilder_SetRendererInterruptMode(OH_AudioStreamBuilder* builder,
     OH_AudioInterrupt_Mode mode);
 
-/**
- * @brief Set the callback of writing data to renderer client.
- *
- * This function is similar with {@link OH_AudioStreamBuilder_SetRendererCallback}. Only the last callback set by
- * OH_AudioStreamBuilder_SetRendererCallback or this function will become effective.
- *
- * @param builder Builder provided by OH_AudioStreamBuilder_Create()
- * @param callback Callback to functions that will write audio data to renderer client.
- * @param userData Pointer to an application data structure that will be passed to the callback functions.
- * @return Result code.
- *     {@link AUDIOSTREAM_SUCCESS} Success.
- *     {@link AUDIOSTREAM_ERROR_INVALID_PARAM} Parameter is invalid, e.g. builder is nullptr, e.t.c.
- * @since 12
- */
-OH_AudioStream_Result OH_AudioStreamBuilder_SetRendererWriteDataCallback(OH_AudioStreamBuilder* builder,
-    OH_AudioRenderer_OnWriteDataCallback callback, void* userData);
 #ifdef __cplusplus
 }
 #endif

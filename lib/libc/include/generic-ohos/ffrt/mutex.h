@@ -27,7 +27,6 @@
  
 /**
  * @file mutex.h
- * @kit FunctionFlowRuntimeKit
  *
  * @brief Declares the mutex interfaces in C.
  *

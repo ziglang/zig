@@ -39,20 +39,11 @@
 
 #include <stdint.h>
 #include "buffer_handle.h"
-#include "../native_buffer/buffer_common.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 typedef struct OH_NativeBuffer OH_NativeBuffer;
-
-/**
- * @brief Defines the ipc parcel.
- *
- * @since 12
- * @version 1.0
- */
-typedef struct OHIPCParcel OHIPCParcel;
 
 /**
  * @brief native window.
@@ -237,20 +228,6 @@ typedef enum NativeWindowOperation {
      * @since 12
      */
     GET_APP_FRAMEWORK_TYPE,
-    /**
-     * set hdr white point brightness,
-     * variable parameter in function is
-     * [in] float brightness. the value range is 0.0f to 1.0f.
-     * @since 12
-     */
-    SET_HDR_WHITE_POINT_BRIGHTNESS,
-    /**
-     * set sdr white point brightness,
-     * variable parameter in function is
-     * [in] float brightness. the value range is 0.0f to 1.0f.
-     * @since 12
-     */
-    SET_SDR_WHITE_POINT_BRIGHTNESS,
 } NativeWindowOperation;
 
 /**
@@ -392,7 +369,6 @@ typedef enum {
  * @return Returns the pointer to the <b>OHNativeWindow</b> instance created.
  * @since 8
  * @version 1.0
- * @deprecated since 12
  */
 OHNativeWindow* OH_NativeWindow_CreateNativeWindow(void* pSurface);
 
@@ -414,8 +390,6 @@ void OH_NativeWindow_DestroyNativeWindow(OHNativeWindow* window);
  * @return Returns the pointer to the <b>OHNativeWindowBuffer</b> instance created.
  * @since 8
  * @version 1.0
- * @deprecated since 12
- * @useinstead OH_NativeWindow_CreateNativeWindowBufferFromNativeBuffer
  */
 OHNativeWindowBuffer* OH_NativeWindow_CreateNativeWindowBufferFromSurfaceBuffer(void* pSurfaceBuffer);
 
@@ -481,8 +455,6 @@ int32_t OH_NativeWindow_NativeWindowFlushBuffer(OHNativeWindow *window, OHNative
  * @return Returns an error code, 0 is success, otherwise, failed.
  * @since 11
  * @version 1.0
- * @deprecated since 12
- * @useinstead OH_NativeWindow_GetLastFlushedBufferV2
  */
 int32_t OH_NativeWindow_GetLastFlushedBuffer(OHNativeWindow *window, OHNativeWindowBuffer **buffer,
     int *fenceFd, float matrix[16]);
@@ -676,32 +648,6 @@ int32_t OH_NativeWindow_CreateNativeWindowFromSurfaceId(uint64_t surfaceId, OHNa
 void OH_NativeWindow_SetBufferHold(OHNativeWindow *window);
 
 /**
- * @brief Write an OHNativeWindow to an OHIPCParcel.
- *
- * @syscap SystemCapability.Graphic.Graphic2D.NativeWindow
- * @param window Indicates the pointer to an <b>OHNativeWindow</b> instance.
- * @param parcel Indicates the pointer to an <b>OHIPCParcel</b> instance.
- * @return 0 - Success.
- *     40001000 - parcel is NULL or window is NULL.
- * @since 12
- * @version 1.0
- */
-int32_t OH_NativeWindow_WriteToParcel(OHNativeWindow *window, OHIPCParcel *parcel);
-
-/**
- * @brief Read an OHNativeWindow from an OHIPCParcel.
- *
- * @syscap SystemCapability.Graphic.Graphic2D.NativeWindow
- * @param parcel Indicates the pointer to an <b>OHIPCParcel</b> instance.
- * @param window Indicates the pointer to an <b>OHNativeWindow</b> instance.
- * @return 0 - Success.
- *     40001000 - parcel is NULL or parcel does not contain the window.
- * @since 12
- * @version 1.0
- */
-int32_t OH_NativeWindow_ReadFromParcel(OHIPCParcel *parcel, OHNativeWindow **window);
-
-/**
  * @brief Get the last flushed <b>OHNativeWindowBuffer</b> from an <b>OHNativeWindow</b> instance.
  *
  * @syscap SystemCapability.Graphic.Graphic2D.NativeWindow
@@ -715,23 +661,8 @@ int32_t OH_NativeWindow_ReadFromParcel(OHIPCParcel *parcel, OHNativeWindow **win
  * @since 12
  * @version 1.0
  */
-
 int32_t OH_NativeWindow_GetLastFlushedBufferV2(OHNativeWindow *window, OHNativeWindowBuffer **buffer,
     int *fenceFd, float matrix[16]);
-
-/**
- * @brief Set the color space of the native window.
- *
- * @syscap SystemCapability.Graphic.Graphic2D.NativeWindow
- * @param window Indicates the pointer to a <b>OHNativeWindow</b> instance.
- * @param colorSpace Indicates the color space of native window, see <b>OH_NativeBuffer_ColorSpace</b>.
- * @return {@link NATIVE_ERROR_OK} 0 - Success.
- *     {@link NATIVE_ERROR_INVALID_ARGUMENTS} 40001000 - window is NULL.
- *     {@link NATIVE_ERROR_BUFFER_STATE_INVALID} 41207000 - Incorrect colorSpace state.
- * @since 12
- * @version 1.0
- */
-int32_t OH_NativeWindow_SetColorSpace(OHNativeWindow *window, OH_NativeBuffer_ColorSpace colorSpace);
 
 /**
  * @brief Sets scalingMode of a native window.
@@ -744,56 +675,6 @@ int32_t OH_NativeWindow_SetColorSpace(OHNativeWindow *window, OH_NativeBuffer_Co
  * @version 1.0
  */
 int32_t OH_NativeWindow_NativeWindowSetScalingModeV2(OHNativeWindow *window, OHScalingModeV2 scalingMode);
-
-/**
- * @brief Get the color space of the native window.
- *
- * @syscap SystemCapability.Graphic.Graphic2D.NativeWindow
- * @param window Indicates the pointer to a <b>OHNativeWindow</b> instance.
- * @param colorSpace Indicates the color space of native window, see <b>OH_NativeBuffer_ColorSpace</b>.
- * @return {@link NATIVE_ERROR_OK} 0 - Success.
- *     {@link NATIVE_ERROR_INVALID_ARGUMENTS} 40001000 - window is NULL.
- *     {@link NATIVE_ERROR_BUFFER_STATE_INVALID} 41207000 - Incorrect colorSpace state.
- * @since 12
- * @version 1.0
- */
-int32_t OH_NativeWindow_GetColorSpace(OHNativeWindow *window, OH_NativeBuffer_ColorSpace *colorSpace);
-
-/**
- * @brief Set the metadata type of the native window.
- *
- * @syscap SystemCapability.Graphic.Graphic2D.NativeWindow
- * @param window Indicates the pointer to a <b>OHNativeWindow</b> instance.
- * @param metadataKey Indicates the metadata type of native window, see <b>OH_NativeBuffer_MetadataKey</b>.
- * @param size Indicates the size of a uint8_t vector.
- * @param metadata Indicates the pointer to a uint8_t vector.
- * @return {@link NATIVE_ERROR_OK} 0 - Success.
- *     {@link NATIVE_ERROR_INVALID_ARGUMENTS} 40001000 - window or metadata is NULL.
- *     {@link NATIVE_ERROR_BUFFER_STATE_INVALID} 41207000 - Incorrect metadata state.
- *     {@link NATIVE_ERROR_UNSUPPORTED} 50102000 - Unsupported metadata key.
- * @since 12
- * @version 1.0
- */
-int32_t OH_NativeWindow_SetMetadataValue(OHNativeWindow *window, OH_NativeBuffer_MetadataKey metadataKey,
-    int32_t size, uint8_t *metadata);
-
-/**
- * @brief Set the metadata type of the native window.
- *
- * @syscap SystemCapability.Graphic.Graphic2D.NativeWindow
- * @param window Indicates the pointer to a <b>OHNativeWindow</b> instance.
- * @param metadataKey Indicates the metadata type of native window, see <b>OH_NativeBuffer_MetadataKey</b>.
- * @param size Indicates the size of a uint8_t vector.
- * @param metadata Indicates the pointer to a uint8_t vector.
- * @return {@link NATIVE_ERROR_OK} 0 - Success.
- *     {@link NATIVE_ERROR_INVALID_ARGUMENTS} 40001000 - window, metadata, or size is NULL.
- *     {@link NATIVE_ERROR_BUFFER_STATE_INVALID} 41207000 - Incorrect metadata state.
- *     {@link NATIVE_ERROR_UNSUPPORTED} 50102000 - Unsupported metadata key.
- * @since 12
- * @version 1.0
- */
-int32_t OH_NativeWindow_GetMetadataValue(OHNativeWindow *window, OH_NativeBuffer_MetadataKey metadataKey,
-    int32_t *size, uint8_t **metadata);
 #ifdef __cplusplus
 }
 #endif

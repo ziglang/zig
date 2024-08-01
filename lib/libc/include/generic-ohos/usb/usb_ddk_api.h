@@ -22,7 +22,6 @@
  * @brief Provides USB DDK APIs to open and close USB interfaces, perform non-isochronous and isochronous\n
  * data transfer over USB pipes, and implement control transfer and interrupt transfer, etc.
  *
- * @kit DriverDevelopmentKit
  * @syscap SystemCapability.Driver.USB.Extension
  * @since 10
  * @version 1.0

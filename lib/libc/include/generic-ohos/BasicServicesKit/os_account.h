@@ -27,8 +27,7 @@
  * @file os_account.h
  *
  * @brief Declares the APIs for accessing and managing the OS account information.
- * @library libos_account_ndk.so
- * @kit BasicServicesKit
+ * @library libos_account.so
  * @syscap SystemCapability.Account.OsAccount
  * @since 12
  */

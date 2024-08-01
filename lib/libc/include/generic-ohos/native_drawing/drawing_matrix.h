@@ -37,7 +37,6 @@
  * @version 1.0
  */
 
-#include "drawing_error_code.h"
 #include "drawing_types.h"
 
 #ifdef __cplusplus
@@ -355,20 +354,6 @@ void OH_Drawing_MatrixReset(OH_Drawing_Matrix*);
  */
 void OH_Drawing_MatrixConcat(OH_Drawing_Matrix* total, const OH_Drawing_Matrix* a,
     const OH_Drawing_Matrix* b);
-
-/**
- * @brief Gets nine matrix values contained by matrix into array.
- *
- * @syscap SystemCapability.Graphic.Graphic2D.NativeDrawing
- * @param matrix Indicates the pointer to an <b>OH_Drawing_Matrix</b> object.
- * @param value Storages for nine matrix values.
- * @return Returns the error code.
- *         Returns {@link OH_DRAWING_SUCCESS} if the operation is successful.
- *         Returns {@link OH_DRAWING_ERROR_INVALID_PARAMETER} if matrix or value is nullptr.
- * @since 12
- * @version 1.0
- */
-OH_Drawing_ErrorCode OH_Drawing_MatrixGetAll(OH_Drawing_Matrix* matrix, float value[9]);
 
 /**
  * @brief Get one matrix value. Index is between the range of 0-8.

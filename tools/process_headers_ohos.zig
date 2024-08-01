@@ -4,11 +4,18 @@
 //! architecture. Meanwhile, Zig supports out-of-the-box cross compilation for
 //! every target. So the process to create libc headers that Zig ships is to use
 //! this tool.
-//! First, use the musl/glibc build systems to create installations of all the
-//! targets in the `glibc_targets`/`musl_targets` variables.
-//! Next, run this tool to create a new directory which puts .h files into
-//! <arch> subdirectories, with `generic` being files that apply to all architectures.
-//! You'll then have to manually update Zig source repo with these new files.
+//!
+//! Current Version: 5.0-beta.1
+//!
+//! 1. Download openharmony sdk from https://gitee.com/openharmony/docs/tree/OpenHarmony-5.0-Beta1/zh-cn/release-notes
+//!    For example, if we use 5.0-beta.1, we can get download url with: https://gitee.com/openharmony/docs/blob/OpenHarmony-5.0-Beta1/zh-cn/release-notes/OpenHarmony-v5.0-beta1.md#%E6%BA%90%E7%A0%81%E8%8E%B7%E5%8F%96
+//! 2. Run this file without argument
+//!    zig run process_headers_ohos.zig
+//! 3. Run with those arguments
+//!    For example:
+//!    /path/to/process_headers_ohos \
+//!    --search-path /path/to/sdk/packages/ohos-sdk/darwin/native/sysroot/usr/include \
+//!    --generic-musl-path /path/to/zig/zig/lib/libc/include/generic-musl --out ./
 
 const std = @import("std");
 const Arch = std.Target.Cpu.Arch;
@@ -408,9 +415,9 @@ pub fn main() !void {
 }
 
 fn usageAndExit(arg0: []const u8) noreturn {
-    std.debug.print("Usage: {s} [--search-path <dir>] -- <dir> --abi <name>\n", .{arg0});
+    std.debug.print("Usage: {s} --search-path <dir> --generic-musl-path <dir> --out <name>\n", .{arg0});
     std.debug.print("--search-path should be openharmony ndk include dir.\n", .{});
-    std.debug.print("--out is a dir that will be created, and populated with the results\n", .{});
     std.debug.print("--generic-musl-path is current generic-musl dir.\n", .{});
+    std.debug.print("--out is a dir that will be created, and populated with the results\n", .{});
     std.process.exit(1);
 }

@@ -26,7 +26,7 @@
 
 /**
  * @file model.h
- * @kit MindSporeLiteKit
+ *
  * @brief provide model-related interfaces that can be used for model creation, model reasoning, and more.
  *
  * @library libmindspore_lite_ndk.so

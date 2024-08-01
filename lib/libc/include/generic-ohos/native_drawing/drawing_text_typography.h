@@ -2018,18 +2018,6 @@ void OH_Drawing_TypographyHandlerAddSymbol(OH_Drawing_TypographyCreate*, uint32_
 void OH_Drawing_TextStyleAddFontFeature(OH_Drawing_TextStyle*, const char* tag, int value);
 
 /**
- * @brief Add font variation.
- *
- * @syscap SystemCapability.Graphic.Graphic2D.NativeDrawing
- * @param OH_Drawing_TextStyle Indicates the pointer to an <b>OH_Drawing_TextStyle</b> object.
- * @param char* Indicates the pointer to font variation axis.
- * @param float Indicates the font variation value to set.
- * @since 12
- * @version 1.0
- */
-void OH_Drawing_TextStyleAddFontVariation(OH_Drawing_TextStyle*, const char* /* axis */, const float /* value */);
-
-/**
  * @brief Get all font features.
  *
  * @syscap SystemCapability.Graphic.Graphic2D.NativeDrawing

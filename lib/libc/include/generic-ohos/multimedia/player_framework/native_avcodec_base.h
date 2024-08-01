@@ -259,7 +259,7 @@ extern const char *OH_ED_KEY_EOS;
  * @since 9
  * @version 1.0
  */
-/* Key for track type, value type is int32_t, see @OH_MediaType. */
+/* Key for track type, value type is uint8_t, see @OH_MediaType. */
 extern const char *OH_MD_KEY_TRACK_TYPE;
 /* Key for codec mime type, value type is string. */
 extern const char *OH_MD_KEY_CODEC_MIME;
@@ -267,25 +267,25 @@ extern const char *OH_MD_KEY_CODEC_MIME;
 extern const char *OH_MD_KEY_DURATION;
 /* Key for bitrate, value type is int64_t. */
 extern const char *OH_MD_KEY_BITRATE;
-/* Key for max input size, value type is int32_t */
+/* Key for max input size, value type is uint32_t */
 extern const char *OH_MD_KEY_MAX_INPUT_SIZE;
-/* Key for video width, value type is int32_t */
+/* Key for video width, value type is uint32_t */
 extern const char *OH_MD_KEY_WIDTH;
-/* Key for video height, value type is int32_t */
+/* Key for video height, value type is uint32_t */
 extern const char *OH_MD_KEY_HEIGHT;
 /* Key for video pixel format, value type is int32_t, see @OH_AVPixelFormat */
 extern const char *OH_MD_KEY_PIXEL_FORMAT;
-/* key for audio raw format, value type is int32_t , see @AudioSampleFormat */
+/* key for audio raw format, value type is uint32_t , see @AudioSampleFormat */
 extern const char *OH_MD_KEY_AUDIO_SAMPLE_FORMAT;
 /* Key for video frame rate, value type is double. */
 extern const char *OH_MD_KEY_FRAME_RATE;
 /* video encode bitrate mode, the value type is int32_t, see @OH_VideoEncodeBitrateMode */
 extern const char *OH_MD_KEY_VIDEO_ENCODE_BITRATE_MODE;
-/* encode profile, the value type is int32_t. see @OH_AVCProfile, OH_HEVCProfile, OH_AACProfile. */
+/* encode profile, the value type is number. see @OH_AVCProfile, OH_HEVCProfile, OH_AACProfile. */
 extern const char *OH_MD_KEY_PROFILE;
-/* Key for audio channel count, value type is int32_t */
+/* Key for audio channel count, value type is uint32_t */
 extern const char *OH_MD_KEY_AUD_CHANNEL_COUNT;
-/* Key for audio sample rate, value type is int32_t */
+/* Key for audio sample rate, value type is uint32_t */
 extern const char *OH_MD_KEY_AUD_SAMPLE_RATE;
 /**
  * @brief Key for the interval of key frame. value type is int32_t, the unit is milliseconds. A negative value means no
@@ -303,7 +303,7 @@ extern const char *OH_MD_KEY_ROTATION;
  * @syscap SystemCapability.Multimedia.Media.CodecBase
  * @since 10
  */
-/* Key for video YUV value range flag, value type is bool, true for full range, false for limited range */
+/* Key for video YUV value range flag, value type is boolean */
 extern const char *OH_MD_KEY_RANGE_FLAG;
 /* Key for video color primaries, value type is int32_t, see @OH_ColorPrimary */
 extern const char *OH_MD_KEY_COLOR_PRIMARIES;
@@ -311,9 +311,9 @@ extern const char *OH_MD_KEY_COLOR_PRIMARIES;
 extern const char *OH_MD_KEY_TRANSFER_CHARACTERISTICS;
 /* Key for video matrix coefficients, value type is int32_t, see @OH_MatrixCoefficient */
 extern const char *OH_MD_KEY_MATRIX_COEFFICIENTS;
-/* Key for the request an I-Frame immediately, value type is bool */
+/* Key for the request an I-Frame immediately, value type is boolean */
 extern const char *OH_MD_KEY_REQUEST_I_FRAME;
-/* Key for the desired encoding quality, value type is int32_t, this key is only
+/* Key for the desired encoding quality, value type is uint32_t, this key is only
  * supported for encoders that are configured in constant quality mode */
 extern const char *OH_MD_KEY_QUALITY;
 /* Key of the codec specific data. value type is a uint8_t pointer */
@@ -340,15 +340,15 @@ extern const char *OH_MD_KEY_LANGUAGE;
 extern const char *OH_MD_KEY_DESCRIPTION;
 /* source format Key for lyrics, value type is string */
 extern const char *OH_MD_KEY_LYRICS;
-/* source format Key for track count, value type is int32_t */
+/* source format Key for track count, value type is uint32_t */
 extern const char *OH_MD_KEY_TRACK_COUNT;
 /* Key for the desired encoding channel layout, value type is int64_t, this key is only supported for encoders */
 extern const char *OH_MD_KEY_CHANNEL_LAYOUT;
-/* Key for bits per coded sample, value type is int32_t, supported for flac encoder, see @OH_BitsPerSample */
+/* Key for bits per coded sample, value type is uint32_t, supported for flac encoder, see @OH_BitsPerSample */
 extern const char *OH_MD_KEY_BITS_PER_CODED_SAMPLE;
-/* Key for the aac format, value type is int32_t, supported for aac decoder */
+/* Key for the aac format, value type is uint32_t, supported for aac decoder */
 extern const char *OH_MD_KEY_AAC_IS_ADTS;
-/* Key for aac sbr mode, value type is int32_t, supported for aac encoder */
+/* Key for aac sbr mode, value type is uint32_t, supported for aac encoder */
 extern const char *OH_MD_KEY_SBR;
 /* Key for flac compliance level, value type is int32_t */
 extern const char *OH_MD_KEY_COMPLIANCE_LEVEL;
@@ -368,7 +368,7 @@ extern const char *OH_MD_MAX_OUTPUT_BUFFER_COUNT;
  * @syscap SystemCapability.Multimedia.Media.CodecBase
  * @since 11
  */
-/* Key for audio codec compression level, value type is int32_t */
+/* Key for audio codec compression level, value type is uint32_t */
 extern const char *OH_MD_KEY_AUDIO_COMPRESSION_LEVEL;
 /* Key of the video is hdr vivid. value type is bool */
 extern const char *OH_MD_KEY_VIDEO_IS_HDR_VIVID;
@@ -554,52 +554,6 @@ extern const char *OH_MD_KEY_VIDEO_ENCODER_QP_MAX;
  * @since 12
  */
 extern const char *OH_MD_KEY_VIDEO_ENCODER_QP_MIN;
-/**
- * @brief Key for describing the video frame averge quantization parameter, value type is int32_t.
- * This is a part of a video encoder statistics export feature. This value is emitted from video encoder for a video
- * frame.
- *
- * @syscap SystemCapability.Multimedia.Media.CodecBase
- * @since 12
- */
-extern const char *OH_MD_KEY_VIDEO_ENCODER_QP_AVERAGE;
-/**
- * @brief Key for describing video frame mean squared error, value type is double.
- * This is a part of a video encoder statistics export feature. This value is emitted from video encoder for a video
- * frame.
- *
- * @syscap SystemCapability.Multimedia.Media.CodecBase
- * @since 12
- */
-extern const char *OH_MD_KEY_VIDEO_ENCODER_MSE;
-/**
- * @brief Key for decoding timestamp of the buffer in microseconds, value type is int64_t.
- *
- * @syscap SystemCapability.Multimedia.Media.CodecBase
- * @since 12
- */
-extern const char *OH_MD_KEY_DECODING_TIMESTAMP;
-/**
- * @brief Key for duration of the buffer in microseconds, value type is int64_t.
- *
- * @syscap SystemCapability.Multimedia.Media.CodecBase
- * @since 12
- */
-extern const char *OH_MD_KEY_BUFFER_DURATION;
-/**
- * @brief Key for sample aspect ratio, value type is double.
- *
- * @syscap SystemCapability.Multimedia.Media.CodecBase
- * @since 12
- */
-extern const char *OH_MD_KEY_VIDEO_SAR;
-/**
- * @brief Key for start time of file, value type is int64_t.
- *
- * @syscap SystemCapability.Multimedia.Media.CodecBase
- * @since 12
- */
-extern const char *OH_MD_KEY_START_TIME;
 
 /**
  * @brief Media type.

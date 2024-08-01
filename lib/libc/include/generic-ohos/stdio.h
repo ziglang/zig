@@ -153,9 +153,6 @@ int putchar_unlocked(int);
 ssize_t getdelim(char **__restrict, size_t *__restrict, int, FILE *__restrict);
 ssize_t getline(char **__restrict, size_t *__restrict, FILE *__restrict);
 int renameat(int, const char *, int, const char *);
-#define RENAME_NOREPLACE (1 << 0)
-#define RENAME_EXCHANGE  (1 << 1)
-#define RENAME_WHITEOUT  (1 << 2)
 int renameat2(int, const char *, int, const char *, unsigned int);
 char *ctermid(char *);
 #define L_ctermid 20

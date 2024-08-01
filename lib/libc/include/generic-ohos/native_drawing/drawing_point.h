@@ -37,7 +37,6 @@
  * @version 1.0
  */
 
-#include "drawing_error_code.h"
 #include "drawing_types.h"
 
 #ifdef __cplusplus
@@ -55,49 +54,6 @@ extern "C" {
  * @version 1.0
  */
 OH_Drawing_Point* OH_Drawing_PointCreate(float x, float y);
-
-/**
- * @brief Gets the x-axis coordinate of the point.
- *
- * @syscap SystemCapability.Graphic.Graphic2D.NativeDrawing
- * @param point Indicates the pointer to an <b>OH_Drawing_Point</b> object.
- * @param x Indicates the x-axis coordinate of the point.
- * @return Returns the error code.
- *         Returns {@link OH_DRAWING_SUCCESS} if the operation is successful.
- *         Returns {@link OH_DRAWING_ERROR_INVALID_PARAMETER} if point or x is nullptr.
- * @since 12
- * @version 1.0
- */
-OH_Drawing_ErrorCode OH_Drawing_PointGetX(const OH_Drawing_Point* point, float* x);
-
-/**
- * @brief Gets the y-axis coordinate of the point.
- *
- * @syscap SystemCapability.Graphic.Graphic2D.NativeDrawing
- * @param point Indicates the pointer to an <b>OH_Drawing_Point</b> object.
- * @param y Indicates the y-axis coordinate of the point.
- * @return Returns the error code.
- *         Returns {@link OH_DRAWING_SUCCESS} if the operation is successful.
- *         Returns {@link OH_DRAWING_ERROR_INVALID_PARAMETER} if point or y is nullptr.
- * @since 12
- * @version 1.0
- */
-OH_Drawing_ErrorCode OH_Drawing_PointGetY(const OH_Drawing_Point* point, float* y);
-
-/**
- * @brief Sets the x-axis and y-axis coordinates of the point.
- *
- * @syscap SystemCapability.Graphic.Graphic2D.NativeDrawing
- * @param point Indicates the pointer to an <b>OH_Drawing_Point</b> object.
- * @param x Indicates the x-axis coordinate of the point.
- * @param y Indicates the y-axis coordinate of the point.
- * @return Returns the error code.
- *         Returns {@link OH_DRAWING_SUCCESS} if the operation is successful.
- *         Returns {@link OH_DRAWING_ERROR_INVALID_PARAMETER} if point is nullptr.
- * @since 12
- * @version 1.0
- */
-OH_Drawing_ErrorCode OH_Drawing_PointSet(OH_Drawing_Point* point, float x, float y);
 
 /**
  * @brief Destroys an <b>OH_Drawing_Point</b> object and reclaims the memory occupied by the object.

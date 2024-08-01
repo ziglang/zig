@@ -39,7 +39,6 @@
 
 #include <stdint.h>
 #include <native_window/external_window.h>
-#include <native_buffer/buffer_common.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -198,6 +197,80 @@ typedef enum OH_NativeBuffer_Format {
     NATIVEBUFFER_PIXEL_FMT_VENDER_MASK = 0X7FFF0000,
     NATIVEBUFFER_PIXEL_FMT_BUTT = 0X7FFFFFFF          /// < Invalid pixel format */
 } OH_NativeBuffer_Format;
+
+/**
+ * @brief Indicates the color space of a native buffer.
+ *
+ * @syscap SystemCapability.Graphic.Graphic2D.NativeBuffer
+ * @since 11
+ * @version 1.0
+ */
+typedef enum OH_NativeBuffer_ColorSpace {
+    /** None color space */
+    OH_COLORSPACE_NONE,
+    /** COLORPRIMARIES_BT601_P | (TRANSFUNC_BT709 << 8) | (MATRIX_BT601_P << 16) | (RANGE_FULL << 21) */
+    OH_COLORSPACE_BT601_EBU_FULL,
+    /** COLORPRIMARIES_BT601_N | (TRANSFUNC_BT709 << 8) | (MATRIX_BT601_N << 16) | (RANGE_FULL << 21)*/
+    OH_COLORSPACE_BT601_SMPTE_C_FULL,
+    /** COLORPRIMARIES_BT709 | (TRANSFUNC_BT709 << 8) | (MATRIX_BT709 << 16) | (RANGE_FULL << 21) */
+    OH_COLORSPACE_BT709_FULL,
+    /** COLORPRIMARIES_BT2020 | (TRANSFUNC_HLG << 8) | (MATRIX_BT2020 << 16) | (RANGE_FULL << 21) */
+    OH_COLORSPACE_BT2020_HLG_FULL,
+    /** COLORPRIMARIES_BT2020 | (TRANSFUNC_PQ << 8) | (MATRIX_BT2020 << 16) | (RANGE_FULL << 21) */
+    OH_COLORSPACE_BT2020_PQ_FULL,
+    /** COLORPRIMARIES_BT601_P | (TRANSFUNC_BT709 << 8) | (MATRIX_BT601_P << 16) | (RANGE_LIMITED << 21) */
+    OH_COLORSPACE_BT601_EBU_LIMIT,
+    /** COLORPRIMARIES_BT601_N | (TRANSFUNC_BT709 << 8) | (MATRIX_BT601_N << 16) | (RANGE_LIMITED << 21) */
+    OH_COLORSPACE_BT601_SMPTE_C_LIMIT,
+    /** COLORPRIMARIES_BT709 | (TRANSFUNC_BT709 << 8) | (MATRIX_BT709 << 16) | (RANGE_LIMITED << 21) */
+    OH_COLORSPACE_BT709_LIMIT,
+    /** COLORPRIMARIES_BT2020 | (TRANSFUNC_HLG << 8) | (MATRIX_BT2020 << 16) | (RANGE_LIMITED << 21) */
+    OH_COLORSPACE_BT2020_HLG_LIMIT,
+    /** COLORPRIMARIES_BT2020 | (TRANSFUNC_PQ << 8) | (MATRIX_BT2020 << 16) | (RANGE_LIMITED << 21) */
+    OH_COLORSPACE_BT2020_PQ_LIMIT,
+    /** COLORPRIMARIES_SRGB | (TRANSFUNC_SRGB << 8) | (MATRIX_BT601_N << 16) | (RANGE_FULL << 21) */
+    OH_COLORSPACE_SRGB_FULL,
+    /** COLORPRIMARIES_P3_D65 | (TRANSFUNC_SRGB << 8) | (MATRIX_P3 << 16) | (RANGE_FULL << 21) */
+    OH_COLORSPACE_P3_FULL,
+    /** COLORPRIMARIES_P3_D65 | (TRANSFUNC_HLG << 8) | (MATRIX_P3 << 16) | (RANGE_FULL << 21) */
+    OH_COLORSPACE_P3_HLG_FULL,
+    /** COLORPRIMARIES_P3_D65 | (TRANSFUNC_PQ << 8) | (MATRIX_P3 << 16) | (RANGE_FULL << 21) */
+    OH_COLORSPACE_P3_PQ_FULL,
+    /** COLORPRIMARIES_ADOBERGB | (TRANSFUNC_ADOBERGB << 8) | (MATRIX_ADOBERGB << 16) | (RANGE_FULL << 21) */
+    OH_COLORSPACE_ADOBERGB_FULL,
+    /** COLORPRIMARIES_SRGB | (TRANSFUNC_SRGB << 8) | (MATRIX_BT601_N << 16) | (RANGE_LIMITED << 21) */
+    OH_COLORSPACE_SRGB_LIMIT,
+    /** COLORPRIMARIES_P3_D65 | (TRANSFUNC_SRGB << 8) | (MATRIX_P3 << 16) | (RANGE_LIMITED << 21) */
+    OH_COLORSPACE_P3_LIMIT,
+    /** COLORPRIMARIES_P3_D65 | (TRANSFUNC_HLG << 8) | (MATRIX_P3 << 16) | (RANGE_LIMITED << 21) */
+    OH_COLORSPACE_P3_HLG_LIMIT,
+    /** COLORPRIMARIES_P3_D65 | (TRANSFUNC_PQ << 8) | (MATRIX_P3 << 16) | (RANGE_LIMITED << 21) */
+    OH_COLORSPACE_P3_PQ_LIMIT,
+    /** COLORPRIMARIES_ADOBERGB | (TRANSFUNC_ADOBERGB << 8) | (MATRIX_ADOBERGB << 16) | (RANGE_LIMITED << 21) */
+    OH_COLORSPACE_ADOBERGB_LIMIT,
+    /** COLORPRIMARIES_SRGB | (TRANSFUNC_LINEAR << 8) */
+    OH_COLORSPACE_LINEAR_SRGB,
+    /** equal to OH_COLORSPACE_LINEAR_SRGB */
+    OH_COLORSPACE_LINEAR_BT709,
+    /** COLORPRIMARIES_P3_D65 | (TRANSFUNC_LINEAR << 8) */
+    OH_COLORSPACE_LINEAR_P3,
+    /** COLORPRIMARIES_BT2020 | (TRANSFUNC_LINEAR << 8) */
+    OH_COLORSPACE_LINEAR_BT2020,
+    /** equal to OH_COLORSPACE_SRGB_FULL */
+    OH_COLORSPACE_DISPLAY_SRGB,
+    /** equal to OH_COLORSPACE_P3_FULL */
+    OH_COLORSPACE_DISPLAY_P3_SRGB,
+    /** equal to OH_COLORSPACE_P3_HLG_FULL */
+    OH_COLORSPACE_DISPLAY_P3_HLG,
+    /** equal to OH_COLORSPACE_P3_PQ_FULL */
+    OH_COLORSPACE_DISPLAY_P3_PQ,
+    /** COLORPRIMARIES_BT2020 | (TRANSFUNC_SRGB << 8) | (MATRIX_BT2020 << 16) | (RANGE_FULL << 21) */
+    OH_COLORSPACE_DISPLAY_BT2020_SRGB,
+    /** equal to OH_COLORSPACE_BT2020_HLG_FULL */
+    OH_COLORSPACE_DISPLAY_BT2020_HLG,
+    /** equal to OH_COLORSPACE_BT2020_PQ_FULL */
+    OH_COLORSPACE_DISPLAY_BT2020_PQ,
+} OH_NativeBuffer_ColorSpace;
 
 /**
  * @brief Indicates the transform type of a native buffer.
@@ -367,6 +440,18 @@ int32_t OH_NativeBuffer_Unmap(OH_NativeBuffer *buffer);
 uint32_t OH_NativeBuffer_GetSeqNum(OH_NativeBuffer *buffer);
 
 /**
+ * @brief Set the color space of the OH_NativeBuffer.
+ *
+ * @syscap SystemCapability.Graphic.Graphic2D.NativeBuffer
+ * @param buffer Indicates the pointer to a <b>OH_NativeBuffer</b> instance.
+ * @param colorSpace Indicates the color space of native buffer, see <b>OH_NativeBuffer_ColorSpace</b>.
+ * @return Returns an error code, 0 is success, otherwise, failed.
+ * @since 11
+ * @version 1.0
+ */
+int32_t OH_NativeBuffer_SetColorSpace(OH_NativeBuffer *buffer, OH_NativeBuffer_ColorSpace colorSpace);
+
+/**
  * @brief Provide direct cpu access to the potentially multi-plannar OH_NativeBuffer in the process's address space.
  *
  * @syscap SystemCapability.Graphic.Graphic2D.NativeBuffer
@@ -390,69 +475,6 @@ int32_t OH_NativeBuffer_MapPlanes(OH_NativeBuffer *buffer, void **virAddr, OH_Na
  * @version 1.0
  */
 int32_t OH_NativeBuffer_FromNativeWindowBuffer(OHNativeWindowBuffer *nativeWindowBuffer, OH_NativeBuffer **buffer);
-
-/**
- * @brief Set the color space of the OH_NativeBuffer.
- *
- * @syscap SystemCapability.Graphic.Graphic2D.NativeBuffer
- * @param buffer Indicates the pointer to a <b>OH_NativeBuffer</b> instance.
- * @param colorSpace Indicates the color space of native buffer, see <b>OH_NativeBuffer_ColorSpace</b>.
- * @return Returns an error code, 0 is success, otherwise, failed.
- * @since 11
- * @version 1.0
- */
-int32_t OH_NativeBuffer_SetColorSpace(OH_NativeBuffer *buffer, OH_NativeBuffer_ColorSpace colorSpace);
-
-/**
- * @brief Get the color space of the OH_NativeBuffer.
- *
- * @syscap SystemCapability.Graphic.Graphic2D.NativeBuffer
- * @param buffer Indicates the pointer to a <b>OH_NativeBuffer</b> instance.
- * @param colorSpace Indicates the color space of native buffer, see <b>OH_NativeBuffer_ColorSpace</b>.
- * @return {@link NATIVE_ERROR_OK} 0 - Success.
- *     {@link NATIVE_ERROR_INVALID_ARGUMENTS} 40001000 - buffer is NULL.
- *     {@link NATIVE_ERROR_BUFFER_STATE_INVALID} 41207000 - Incorrect colorSpace state.
- * @since 12
- * @version 1.0
- */
-int32_t OH_NativeBuffer_GetColorSpace(OH_NativeBuffer *buffer, OH_NativeBuffer_ColorSpace *colorSpace);
-
-/**
- * @brief Set the metadata type of the OH_NativeBuffer.
- *
- * @syscap SystemCapability.Graphic.Graphic2D.NativeBuffer
- * @param buffer Indicates the pointer to a <b>OH_NativeBuffer</b> instance.
- * @param metadataKey Indicates the metadata type of native buffer, see <b>OH_NativeBuffer_MetadataKey</b>.
- * @param size Indicates the size of a uint8_t vector.
- * @param metadata Indicates the pointer to a uint8_t vector.
- * @return {@link NATIVE_ERROR_OK} 0 - Success.
- *     {@link NATIVE_ERROR_INVALID_ARGUMENTS} 40001000 - buffer or metadata is NULL.
- *     {@link NATIVE_ERROR_BUFFER_STATE_INVALID} 41207000 - Incorrect metadata state.
- *     {@link NATIVE_ERROR_UNSUPPORTED} 50102000 - Unsupported metadata key.
- * @since 12
- * @version 1.0
- */
-int32_t OH_NativeBuffer_SetMetadataValue(OH_NativeBuffer *buffer, OH_NativeBuffer_MetadataKey metadataKey,
-    int32_t size, uint8_t *metadata);
-
-/**
- * @brief Set the metadata type of the OH_NativeBuffer.
- *
- * @syscap SystemCapability.Graphic.Graphic2D.NativeBuffer
- * @param buffer Indicates the pointer to a <b>OH_NativeBuffer</b> instance.
- * @param metadataKey Indicates the metadata type of native buffer, see <b>OH_NativeBuffer_MetadataKey</b>.
- * @param size Indicates the size of a uint8_t vector.
- * @param metadata Indicates the pointer to a uint8_t vector.
- * @return {@link NATIVE_ERROR_OK} 0 - Success.
- *     {@link NATIVE_ERROR_INVALID_ARGUMENTS} 40001000 - buffer, metadata, or size is NULL.
- *     {@link NATIVE_ERROR_BUFFER_STATE_INVALID} 41207000 - Incorrect metadata state.
- *     {@link NATIVE_ERROR_UNSUPPORTED} 50102000 - Unsupported metadata key.
- * @since 12
- * @version 1.0
- */
-int32_t OH_NativeBuffer_GetMetadataValue(OH_NativeBuffer *buffer, OH_NativeBuffer_MetadataKey metadataKey,
-    int32_t *size, uint8_t **metadata);
-
 #ifdef __cplusplus
 }
 #endif

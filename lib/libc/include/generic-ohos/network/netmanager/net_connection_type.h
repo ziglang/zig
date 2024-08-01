@@ -31,7 +31,6 @@
  * @brief Defines the data structures for the C APIs of the network connection module.
  *
  * @library libnet_connection.so
- * @kit NetworkKit
  * @syscap SystemCapability.Communication.NetManager.Core
  * @since 11
  * @version 1.0
@@ -84,11 +83,6 @@ typedef enum NetConn_NetBearerType {
     NETCONN_BEARER_WIFI = 1,
     /** Ethernet */
     NETCONN_BEARER_ETHERNET = 3,
-    /**
-     * VPN
-     * @since 12
-     */
-    NETCONN_BEARER_VPN = 4,
 } NetConn_NetBearerType;
 
 /**

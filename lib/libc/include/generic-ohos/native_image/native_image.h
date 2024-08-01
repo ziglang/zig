@@ -84,7 +84,8 @@ typedef struct OH_OnFrameAvailableListener {
 OH_NativeImage* OH_NativeImage_Create(uint32_t textureId, uint32_t textureTarget);
 
 /**
- * @brief Acquire the OHNativeWindow for the OH_NativeImage.
+ * @brief Acquire the OHNativeWindow for the OH_NativeImage. This OHNativeWindow should be released by \n
+ * OH_NativeWindow_DestroyNativeWindow when no longer needed.
  *
  * @syscap SystemCapability.Graphic.Graphic2D.NativeImage
  * @param image Indicates the pointer to a <b>OH_NativeImage</b> instance.
@@ -151,8 +152,6 @@ int64_t OH_NativeImage_GetTimestamp(OH_NativeImage* image);
  * @return Returns an error code, 0 is success, otherwise, failed.
  * @since 9
  * @version 1.0
- * @deprecated since 12
- * @useinstead OH_NativeImage_GetTransformMatrixV2
  */
 int32_t OH_NativeImage_GetTransformMatrix(OH_NativeImage* image, float matrix[16]);
 
