@@ -575,7 +575,7 @@
         </tr>
         <tr>
             <th scope="row">{#syntax#}f80{#endsyntax#}</th>
-          <td><code class="c">double</code></td>
+          <td><code class="c">long double</code></td>
           <td>80-bit floating point (64-bit mantissa) IEEE-754-2008 80-bit extended precision</td>
         </tr>
         <tr>
