@@ -250,7 +250,7 @@ const arch_infos = [_]ArchInfo{
                 // abi is always o32
                 .abiCheck = null,
                 .fixedName = &fixedName,
-                .isReservedNameOld = isReservedNameOld,
+                .isReservedNameOld = &isReservedNameOld,
             },
             .header = "    const linux_base = 4000;\n\n",
             .extra_values = null,
@@ -267,7 +267,7 @@ const arch_infos = [_]ArchInfo{
                 // abi is always n64
                 .abiCheck = null,
                 .fixedName = &fixedName,
-                .isReservedNameOld = isReservedNameOld,
+                .isReservedNameOld = &isReservedNameOld,
             },
             .header = "    const linux_base = 5000;\n\n",
             .extra_values = null,
@@ -284,7 +284,7 @@ const arch_infos = [_]ArchInfo{
                 // abi is always n32
                 .abiCheck = null,
                 .fixedName = &fixedName,
-                .isReservedNameOld = isReservedNameOld,
+                .isReservedNameOld = &isReservedNameOld,
             },
             .header = "    const linux_base = 6000;\n\n",
             .extra_values = null,
@@ -333,8 +333,8 @@ const arch_infos = [_]ArchInfo{
             .filters = .{
                 // abi is always common
                 .abiCheck = null,
-                .fixedName = null,
-                .isReservedNameOld = isReservedNameOld,
+                .fixedName = fixedName,
+                .isReservedNameOld = &isReservedNameOld,
             },
             .header = null,
             .extra_values = null,
@@ -492,6 +492,9 @@ fn processTableBasedArch(
             }
         }
         const name = fields.next() orelse return error.Incomplete;
+        if (filters.isReservedNameOld) |isReservedNameOldFn| {
+            if (isReservedNameOldFn(name)) continue;
+        }
         const fixed_name = if (filters.fixedName) |fixedNameFn| fixedNameFn(name) else name;
 
         try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), number });
@@ -522,6 +525,9 @@ fn processMipsBasedArch(
             }
         }
         const name = fields.next() orelse return error.Incomplete;
+        if (filters.isReservedNameOld) |isReservedNameOldFn| {
+            if (isReservedNameOldFn(name)) continue;
+        }
         const fixed_name = if (filters.fixedName) |fixedNameFn| fixedNameFn(name) else name;
 
         try writer.print("    {p} = linux_base + {s},\n", .{ zig.fmtId(fixed_name), number });
