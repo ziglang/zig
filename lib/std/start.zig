@@ -259,12 +259,48 @@ fn _start() callconv(.Naked) noreturn {
             \\ and sp, x0, #-16
             \\ b %[posixCallMainAndExit]
             ,
+            .arc =>
+            // The `arc` tag currently means ARCv2, which has an unusually low stack alignment
+            // requirement. ARCv3 increases it from 4 to 16, but we don't support ARCv3 yet.
+            \\ mov fp, 0
+            \\ mov blink, 0
+            \\ mov r0, sp
+            \\ and sp, sp, -4
+            \\ b %[posixCallMainAndExit]
+            ,
             .arm, .armeb, .thumb, .thumbeb =>
             \\ mov fp, #0
             \\ mov lr, #0
             \\ mov a1, sp
             \\ and sp, #-16
             \\ b %[posixCallMainAndExit]
+            ,
+            // zig fmt: off
+            .csky =>
+            if (builtin.position_independent_code)
+                // The CSKY ABI assumes that `gb` is set to the address of the GOT in order for
+                // position-independent code to work. We depend on this in `std.os.linux.start_pie`
+                // to locate `_DYNAMIC` as well.
+                \\ grs t0, 1f
+                \\ 1:
+                \\ lrw gb, 1b@GOTPC
+                \\ addu gb, t0
+            else ""
+            ++
+            \\ movi lr, 0
+            \\ mov a0, sp
+            \\ andi sp, sp, -8
+            \\ jmpi %[posixCallMainAndExit]
+            ,
+            // zig fmt: on
+            .hexagon =>
+            // r29 = SP, r30 = FP
+            \\ r30 = #0
+            \\ r0 = r29
+            \\ r29 = and(r29, #-16)
+            \\ memw(r29 + #-8) = r29
+            \\ r29 = add(r29, #-8)
+            \\ call %[posixCallMainAndExit]
             ,
             .loongarch32, .loongarch64 =>
             \\ move $fp, $zero
