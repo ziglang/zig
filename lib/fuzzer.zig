@@ -17,7 +17,8 @@ fn logOverride(
     args: anytype,
 ) void {
     const f = if (log_file) |f| f else f: {
-        const f = fuzzer.dir.createFile("libfuzzer.log", .{}) catch @panic("failed to open fuzzer log file");
+        const f = fuzzer.cache_dir.createFile("tmp/libfuzzer.log", .{}) catch
+            @panic("failed to open fuzzer log file");
         log_file = f;
         break :f f;
     };
@@ -114,7 +115,10 @@ const Fuzzer = struct {
     /// Stored in a memory-mapped file so that it can be shared with other
     /// processes and viewed while the fuzzer is running.
     seen_pcs: MemoryMappedList,
-    dir: std.fs.Dir,
+    cache_dir: std.fs.Dir,
+    /// Identifies the file name that will be used to store coverage
+    /// information, available to other processes.
+    coverage_id: u64,
 
     const SeenPcsHeader = extern struct {
         n_runs: usize,
@@ -189,18 +193,31 @@ const Fuzzer = struct {
         id: Run.Id,
     };
 
-    fn init(f: *Fuzzer, dir: std.fs.Dir) !void {
-        f.dir = dir;
+    fn init(f: *Fuzzer, cache_dir: std.fs.Dir) !void {
+        const flagged_pcs = f.flagged_pcs;
+
+        f.cache_dir = cache_dir;
+
+        // Choose a file name for the coverage based on a hash of the PCs that will be stored within.
+        const pc_digest = d: {
+            var hasher = std.hash.Wyhash.init(0);
+            for (flagged_pcs) |flagged_pc| {
+                hasher.update(std.mem.asBytes(&flagged_pc.addr));
+            }
+            break :d f.coverage.run_id_hasher.final();
+        };
+        f.coverage_id = pc_digest;
+        const hex_digest = std.fmt.hex(pc_digest);
+        const coverage_file_path = "v/" ++ hex_digest;
 
         // Layout of this file:
         // - Header
         // - list of PC addresses (usize elements)
         // - list of hit flag, 1 bit per address (stored in u8 elements)
-        const coverage_file = dir.createFile("coverage", .{
+        const coverage_file = createFileBail(cache_dir, coverage_file_path, .{
             .read = true,
             .truncate = false,
-        }) catch |err| fatal("unable to create coverage file: {s}", .{@errorName(err)});
-        const flagged_pcs = f.flagged_pcs;
+        });
         const n_bitset_elems = (flagged_pcs.len + 7) / 8;
         const bytes_len = @sizeOf(SeenPcsHeader) + flagged_pcs.len * @sizeOf(usize) + n_bitset_elems;
         const existing_len = coverage_file.getEndPos() catch |err| {
@@ -217,7 +234,8 @@ const Fuzzer = struct {
             fatal("unable to init coverage memory map: {s}", .{@errorName(err)});
         };
         if (existing_len != 0) {
-            const existing_pcs = std.mem.bytesAsSlice(usize, f.seen_pcs.items[@sizeOf(SeenPcsHeader)..][0 .. flagged_pcs.len * @sizeOf(usize)]);
+            const existing_pcs_bytes = f.seen_pcs.items[@sizeOf(SeenPcsHeader)..][0 .. flagged_pcs.len * @sizeOf(usize)];
+            const existing_pcs = std.mem.bytesAsSlice(usize, existing_pcs_bytes);
             for (existing_pcs, flagged_pcs, 0..) |old, new, i| {
                 if (old != new.addr) {
                     fatal("incompatible existing coverage file (differing PC at index {d}: {x} != {x})", .{
@@ -380,6 +398,21 @@ const Fuzzer = struct {
     }
 };
 
+fn createFileBail(dir: std.fs.Dir, sub_path: []const u8, flags: std.fs.File.CreateFlags) std.fs.File {
+    return dir.createFile(sub_path, flags) catch |err| switch (err) {
+        error.FileNotFound => {
+            const dir_name = std.fs.path.dirname(sub_path).?;
+            dir.makePath(dir_name) catch |e| {
+                fatal("unable to make path '{s}': {s}", .{ dir_name, @errorName(e) });
+            };
+            return dir.createFile(sub_path, flags) catch |e| {
+                fatal("unable to create file '{s}': {s}", .{ sub_path, @errorName(e) });
+            };
+        },
+        else => fatal("unable to create file '{s}': {s}", .{ sub_path, @errorName(err) }),
+    };
+}
+
 fn oom(err: anytype) noreturn {
     switch (err) {
         error.OutOfMemory => @panic("out of memory"),
@@ -397,9 +430,15 @@ var fuzzer: Fuzzer = .{
     .n_runs = 0,
     .recent_cases = .{},
     .coverage = undefined,
-    .dir = undefined,
+    .cache_dir = undefined,
     .seen_pcs = undefined,
+    .coverage_id = undefined,
 };
+
+/// Invalid until `fuzzer_init` is called.
+export fn fuzzer_coverage_id() u64 {
+    return fuzzer.coverage_id;
+}
 
 export fn fuzzer_next() Fuzzer.Slice {
     return Fuzzer.Slice.fromZig(fuzzer.next() catch |err| switch (err) {
@@ -407,15 +446,19 @@ export fn fuzzer_next() Fuzzer.Slice {
     });
 }
 
-export fn fuzzer_init() void {
+export fn fuzzer_init(cache_dir_struct: Fuzzer.Slice) void {
     if (module_count_8bc == 0) fatal("__sanitizer_cov_8bit_counters_init was never called", .{});
     if (module_count_pcs == 0) fatal("__sanitizer_cov_pcs_init was never called", .{});
 
-    // TODO: move this to .zig-cache/f
-    const fuzz_dir = std.fs.cwd().makeOpenPath("f", .{ .iterate = true }) catch |err| {
-        fatal("unable to open fuzz directory 'f': {s}", .{@errorName(err)});
-    };
-    fuzzer.init(fuzz_dir) catch |err| fatal("unable to init fuzzer: {s}", .{@errorName(err)});
+    const cache_dir_path = cache_dir_struct.toZig();
+    const cache_dir = if (cache_dir_path.len == 0)
+        std.fs.cwd()
+    else
+        std.fs.cwd().makeOpenPath(cache_dir_path, .{ .iterate = true }) catch |err| {
+            fatal("unable to open fuzz directory '{s}': {s}", .{ cache_dir_path, @errorName(err) });
+        };
+
+    fuzzer.init(cache_dir) catch |err| fatal("unable to init fuzzer: {s}", .{@errorName(err)});
 }
 
 /// Like `std.ArrayListUnmanaged(u8)` but backed by memory mapping.

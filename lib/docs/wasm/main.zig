@@ -53,7 +53,7 @@ export fn unpack(tar_ptr: [*]u8, tar_len: usize) void {
     const tar_bytes = tar_ptr[0..tar_len];
     //log.debug("received {d} bytes of tar file", .{tar_bytes.len});
 
-    unpack_inner(tar_bytes) catch |err| {
+    unpackInner(tar_bytes) catch |err| {
         fatal("unable to unpack tar: {s}", .{@errorName(err)});
     };
 }
@@ -750,7 +750,7 @@ export fn decl_type_html(decl_index: Decl.Index) String {
 
 const Oom = error{OutOfMemory};
 
-fn unpack_inner(tar_bytes: []u8) !void {
+fn unpackInner(tar_bytes: []u8) !void {
     var fbs = std.io.fixedBufferStream(tar_bytes);
     var file_name_buffer: [1024]u8 = undefined;
     var link_name_buffer: [1024]u8 = undefined;
