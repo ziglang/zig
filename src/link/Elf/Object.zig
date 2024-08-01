@@ -676,6 +676,29 @@ pub fn markEhFrameAtomsDead(self: *Object, elf_file: *Elf) void {
     }
 }
 
+pub fn markImportsExports(self: *Object, elf_file: *Elf) void {
+    const first_global = self.first_global orelse return;
+    for (0..self.globals().len) |i| {
+        const idx = first_global + i;
+        const ref = self.resolveSymbol(@intCast(idx), elf_file);
+        const sym = elf_file.symbol(ref) orelse continue;
+        const file = sym.file(elf_file).?;
+        if (sym.version_index == elf.VER_NDX_LOCAL) continue;
+        const vis = @as(elf.STV, @enumFromInt(sym.elfSym(elf_file).st_other));
+        if (vis == .HIDDEN) continue;
+        if (file == .shared_object and !sym.isAbs(elf_file)) {
+            sym.flags.import = true;
+            continue;
+        }
+        if (file.index() == self.index) {
+            sym.flags.@"export" = true;
+            if (elf_file.isEffectivelyDynLib() and vis != .PROTECTED) {
+                sym.flags.import = true;
+            }
+        }
+    }
+}
+
 pub fn checkDuplicates(self: *Object, dupes: anytype, elf_file: *Elf) error{OutOfMemory}!void {
     const first_global = self.first_global orelse return;
     for (0..self.globals().len) |i| {
@@ -1169,14 +1192,14 @@ pub fn codeDecompressAlloc(self: *Object, elf_file: *Elf, atom_index: Atom.Index
     return data;
 }
 
-pub fn locals(self: *Object) []Symbol {
+fn locals(self: *Object) []Symbol {
     if (self.symbols.items.len == 0) return &[0]Symbol{};
     assert(self.symbols.items.len >= self.symtab.items.len);
     const end = self.first_global orelse self.symtab.items.len;
     return self.symbols.items[0..end];
 }
 
-pub fn globals(self: *Object) []Symbol {
+fn globals(self: *Object) []Symbol {
     if (self.symbols.items.len == 0) return &[0]Symbol{};
     assert(self.symbols.items.len >= self.symtab.items.len);
     const start = self.first_global orelse self.symtab.items.len;

@@ -302,12 +302,8 @@ pub fn allocateSymbols(self: *LinkerDefined, elf_file: *Elf) void {
     }
 }
 
-pub fn globals(self: *LinkerDefined) []Symbol {
-    return self.symbols.items;
-}
-
 pub fn updateSymtabSize(self: *LinkerDefined, elf_file: *Elf) void {
-    for (self.globals(), self.symbols_resolver.items) |*global, resolv| {
+    for (self.symbols.items, self.symbols_resolver.items) |*global, resolv| {
         const ref = elf_file.resolver.get(resolv).?;
         const ref_sym = elf_file.symbol(ref) orelse continue;
         if (ref_sym.file(elf_file).?.index() != self.index) continue;
@@ -324,7 +320,7 @@ pub fn updateSymtabSize(self: *LinkerDefined, elf_file: *Elf) void {
 }
 
 pub fn writeSymtab(self: *LinkerDefined, elf_file: *Elf) void {
-    for (self.globals(), self.symbols_resolver.items) |global, resolv| {
+    for (self.symbols.items, self.symbols_resolver.items) |global, resolv| {
         const ref = elf_file.resolver.get(resolv).?;
         const ref_sym = elf_file.symbol(ref) orelse continue;
         if (ref_sym.file(elf_file).?.index() != self.index) continue;

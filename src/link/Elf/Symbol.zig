@@ -63,9 +63,7 @@ pub fn @"type"(symbol: Symbol, elf_file: *Elf) u4 {
 }
 
 pub fn name(symbol: Symbol, elf_file: *Elf) [:0]const u8 {
-    if (symbol.flags.global) return elf_file.strings.getAssumeExists(symbol.name_offset);
-    const file_ptr = symbol.file(elf_file).?;
-    return switch (file_ptr) {
+    return switch (symbol.file(elf_file).?) {
         inline else => |x| x.getString(symbol.name_offset),
     };
 }
@@ -87,9 +85,7 @@ pub fn file(symbol: Symbol, elf_file: *Elf) ?File {
 }
 
 pub fn elfSym(symbol: Symbol, elf_file: *Elf) elf.Elf64_Sym {
-    const file_ptr = symbol.file(elf_file).?;
-    return switch (file_ptr) {
-        .zig_object => |x| x.elfSym(symbol.esym_index).*,
+    return switch (symbol.file(elf_file).?) {
         inline else => |x| x.symtab.items[symbol.esym_index],
     };
 }
@@ -422,12 +418,6 @@ pub const Flags = packed struct {
 
     /// Whether this symbol is weak.
     weak: bool = false,
-
-    /// Whether the symbol has its name interned in global symbol
-    /// resolver table.
-    /// This happens for any symbol that is considered a global
-    /// symbol, but is not necessarily an import or export.
-    global: bool = false,
 
     /// Whether the symbol makes into the output symtab.
     output_symtab: bool = false,

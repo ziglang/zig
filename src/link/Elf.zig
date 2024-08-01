@@ -173,11 +173,7 @@ shstrtab_section_index: ?u32 = null,
 strtab_section_index: ?u32 = null,
 symtab_section_index: ?u32 = null,
 
-/// An array of symbols parsed across all input files.
-symbols: std.ArrayListUnmanaged(Symbol) = .{},
-symbols_extra: std.ArrayListUnmanaged(u32) = .{},
-
-resolver: std.AutoArrayHashMapUnmanaged(u32, Symbol.Index) = .{},
+resolver: SymbolResolver = .{},
 
 has_text_reloc: bool = false,
 num_ifunc_dynrelocs: usize = 0,
@@ -190,10 +186,6 @@ merge_sections: std.ArrayListUnmanaged(MergeSection) = .{},
 
 /// Table of last atom index in a section and matching atom free list if any.
 last_atom_and_free_list_table: LastAtomAndFreeListTable = .{},
-
-/// Global string table used to provide quick access to global symbol resolvers
-/// such as `resolver`.
-strings: StringTable = .{},
 
 first_eflags: ?elf.Elf64_Word = null,
 
@@ -455,8 +447,6 @@ pub fn deinit(self: *Elf) void {
     self.shstrtab.deinit(gpa);
     self.symtab.deinit(gpa);
     self.strtab.deinit(gpa);
-    self.symbols.deinit(gpa);
-    self.symbols_extra.deinit(gpa);
     self.resolver.deinit(gpa);
 
     for (self.thunks.items) |*th| {
@@ -471,8 +461,6 @@ pub fn deinit(self: *Elf) void {
         value.free_list.deinit(gpa);
     }
     self.last_atom_and_free_list_table.deinit(gpa);
-
-    self.strings.deinit(gpa);
 
     self.got.deinit(gpa);
     self.plt.deinit(gpa);
@@ -1916,20 +1904,17 @@ fn accessLibPath(
 /// 6. Re-run symbol resolution on pruned objects and shared objects sets.
 pub fn resolveSymbols(self: *Elf) !void {
     // Resolve symbols in the ZigObject. For now, we assume that it's always live.
-    if (self.zigObjectPtr()) |zig_object| zig_object.asFile().resolveSymbols(self);
+    if (self.zigObjectPtr()) |zo| try zo.asFile().resolveSymbols(self);
     // Resolve symbols on the set of all objects and shared objects (even if some are unneeded).
-    for (self.objects.items) |index| self.file(index).?.resolveSymbols(self);
-    for (self.shared_objects.items) |index| self.file(index).?.resolveSymbols(self);
-    if (self.linkerDefinedPtr()) |obj| obj.asFile().resolveSymbols(self);
+    for (self.objects.items) |index| try self.file(index).?.resolveSymbols(self);
+    for (self.shared_objects.items) |index| try self.file(index).?.resolveSymbols(self);
+    if (self.linkerDefinedPtr()) |obj| try obj.asFile().resolveSymbols(self);
 
     // Mark live objects.
     self.markLive();
 
     // Reset state of all globals after marking live objects.
-    if (self.zigObjectPtr()) |zig_object| zig_object.asFile().resetGlobals(self);
-    for (self.objects.items) |index| self.file(index).?.resetGlobals(self);
-    for (self.shared_objects.items) |index| self.file(index).?.resetGlobals(self);
-    if (self.linkerDefinedPtr()) |obj| obj.asFile().resetGlobals(self);
+    self.resolver.reset();
 
     // Prune dead objects and shared objects.
     var i: usize = 0;
@@ -1962,10 +1947,10 @@ pub fn resolveSymbols(self: *Elf) !void {
     }
 
     // Re-resolve the symbols.
-    if (self.zigObjectPtr()) |zig_object| zig_object.asFile().resolveSymbols(self);
-    for (self.objects.items) |index| self.file(index).?.resolveSymbols(self);
-    for (self.shared_objects.items) |index| self.file(index).?.resolveSymbols(self);
-    if (self.linkerDefinedPtr()) |obj| obj.asFile().resolveSymbols(self);
+    if (self.zigObjectPtr()) |zo| try zo.asFile().resolveSymbols(self);
+    for (self.objects.items) |index| try self.file(index).?.resolveSymbols(self);
+    for (self.shared_objects.items) |index| try self.file(index).?.resolveSymbols(self);
+    if (self.linkerDefinedPtr()) |obj| try obj.asFile().resolveSymbols(self);
 }
 
 /// Traverses all objects and shared objects marking any object referenced by
@@ -1999,45 +1984,16 @@ fn convertCommonSymbols(self: *Elf) !void {
 }
 
 fn markImportsExports(self: *Elf) void {
-    const mark = struct {
-        fn mark(elf_file: *Elf, file_index: File.Index) void {
-            for (elf_file.file(file_index).?.globals()) |global_index| {
-                const global = elf_file.symbol(global_index);
-                if (global.version_index == elf.VER_NDX_LOCAL) continue;
-                const file_ptr = global.file(elf_file) orelse continue;
-                const vis = @as(elf.STV, @enumFromInt(global.elfSym(elf_file).st_other));
-                if (vis == .HIDDEN) continue;
-                if (file_ptr == .shared_object and !global.isAbs(elf_file)) {
-                    global.flags.import = true;
-                    continue;
-                }
-                if (file_ptr.index() == file_index) {
-                    global.flags.@"export" = true;
-                    if (elf_file.isEffectivelyDynLib() and vis != .PROTECTED) {
-                        global.flags.import = true;
-                    }
-                }
-            }
-        }
-    }.mark;
-
+    if (self.zigObjectPtr()) |zo| {
+        zo.markImportsExports(self);
+    }
+    for (self.objects.items) |index| {
+        self.file(index).?.object.markImportsExports(self);
+    }
     if (!self.isEffectivelyDynLib()) {
         for (self.shared_objects.items) |index| {
-            for (self.file(index).?.globals()) |global_index| {
-                const global = self.symbol(global_index);
-                const file_ptr = global.file(self) orelse continue;
-                const vis = @as(elf.STV, @enumFromInt(global.elfSym(self).st_other));
-                if (file_ptr != .shared_object and vis != .HIDDEN) global.flags.@"export" = true;
-            }
+            self.file(index).?.shared_object.markImportExports(self);
         }
-    }
-
-    if (self.zig_object_index) |index| {
-        mark(self, index);
-    }
-
-    for (self.objects.items) |index| {
-        mark(self, index);
     }
 }
 

@@ -282,12 +282,18 @@ pub fn markLive(self: *SharedObject, elf_file: *Elf) void {
     }
 }
 
-pub fn globals(self: *SharedObject) []Symbol {
-    return self.symbols.items;
+pub fn markImportExports(self: *SharedObject, elf_file: *Elf) void {
+    for (0..self.symbols.items.len) |i| {
+        const ref = self.resolveSymbol(@intCast(i), elf_file);
+        const ref_sym = elf_file.symbol(ref) orelse continue;
+        const ref_file = ref_sym.file(self).?;
+        const vis = @as(elf.STV, @enumFromInt(ref_sym.elfSym(self).st_other));
+        if (ref_file != .shared_object and vis != .HIDDEN) ref_sym.flags.@"export" = true;
+    }
 }
 
 pub fn updateSymtabSize(self: *SharedObject, elf_file: *Elf) void {
-    for (self.globals(), self.symbols_resolver.items) |*global, resolv| {
+    for (self.symbols.items, self.symbols_resolver.items) |*global, resolv| {
         const ref = elf_file.resolver.get(resolv).?;
         const ref_sym = elf_file.symbol(ref) orelse continue;
         if (ref_sym.file(elf_file).?.index() != self.index) continue;
@@ -300,7 +306,7 @@ pub fn updateSymtabSize(self: *SharedObject, elf_file: *Elf) void {
 }
 
 pub fn writeSymtab(self: *SharedObject, elf_file: *Elf) void {
-    for (self.globals(), self.symbols_resolver.items) |global, resolv| {
+    for (self.symbols.items, self.symbols_resolver.items) |global, resolv| {
         const ref = elf_file.resolver.get(resolv).?;
         const ref_sym = elf_file.symbol(ref) orelse continue;
         if (ref_sym.file(elf_file).?.index() != self.index) continue;
@@ -354,7 +360,7 @@ pub fn initSymbolAliases(self: *SharedObject, elf_file: *Elf) !void {
     const gpa = comp.gpa;
     var aliases = std.ArrayList(Symbol.Index).init(gpa);
     defer aliases.deinit();
-    try aliases.ensureTotalCapacityPrecise(self.globals().len);
+    try aliases.ensureTotalCapacityPrecise(self.symbols.items.len);
 
     for (self.symbols_resolvers.items, 0..) |resolv, index| {
         const ref = elf_file.resolver.get(resolv).?;

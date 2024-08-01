@@ -153,19 +153,6 @@ pub const File = union(enum) {
         };
     }
 
-    pub fn locals(file: File) []const Symbol.Index {
-        return switch (file) {
-            .linker_defined, .shared_object => &[0]Symbol.Index{},
-            inline else => |x| x.locals(),
-        };
-    }
-
-    pub fn globals(file: File) []const Symbol.Index {
-        return switch (file) {
-            inline else => |x| x.globals(),
-        };
-    }
-
     pub fn getString(file: File, off: u32) [:0]const u8 {
         return switch (file) {
             inline else => |x| x.getString(off),
