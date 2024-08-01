@@ -1339,13 +1339,12 @@ pub fn tgkill(tgid: pid_t, tid: pid_t, sig: i32) usize {
     return syscall3(.tgkill, @as(usize, @bitCast(@as(isize, tgid))), @as(usize, @bitCast(@as(isize, tid))), @as(usize, @bitCast(@as(isize, sig))));
 }
 
-pub fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: i32) usize {
+pub fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8) usize {
     if (@hasField(SYS, "link")) {
-        return syscall3(
+        return syscall2(
             .link,
             @intFromPtr(oldpath),
             @intFromPtr(newpath),
-            @as(usize, @bitCast(@as(isize, flags))),
         );
     } else {
         return syscall5(
@@ -1354,7 +1353,7 @@ pub fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: i32) usize {
             @intFromPtr(oldpath),
             @as(usize, @bitCast(@as(isize, AT.FDCWD))),
             @intFromPtr(newpath),
-            @as(usize, @bitCast(@as(isize, flags))),
+            0,
         );
     }
 }
