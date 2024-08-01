@@ -1,14 +1,14 @@
 const builtin = @import("builtin");
-const std = @import("../std.zig");
+const std = @import("../../std.zig");
 const mem = std.mem;
 const debug = std.debug;
 const leb = std.leb;
-const dwarf = std.dwarf;
-const abi = dwarf.abi;
-const expressions = dwarf.expressions;
+const DW = std.dwarf;
+const abi = std.debug.Dwarf.abi;
 const assert = std.debug.assert;
 const native_endian = builtin.cpu.arch.endian();
 
+/// TODO merge with std.dwarf.CFA
 const Opcode = enum(u8) {
     advance_loc = 0x1 << 6,
     offset = 0x2 << 6,
@@ -363,8 +363,8 @@ pub const VirtualMachine = struct {
         /// Resolves the register rule and places the result into `out` (see dwarf.abi.regBytes)
         pub fn resolveValue(
             self: Column,
-            context: *dwarf.UnwindContext,
-            expression_context: dwarf.expressions.ExpressionContext,
+            context: *std.debug.Dwarf.UnwindContext,
+            expression_context: std.debug.Dwarf.expression.Context,
             ma: *debug.StackIterator.MemoryAccessor,
             out: []u8,
         ) !void {
@@ -483,8 +483,8 @@ pub const VirtualMachine = struct {
         self: *VirtualMachine,
         allocator: std.mem.Allocator,
         pc: u64,
-        cie: dwarf.CommonInformationEntry,
-        fde: dwarf.FrameDescriptionEntry,
+        cie: std.debug.Dwarf.CommonInformationEntry,
+        fde: std.debug.Dwarf.FrameDescriptionEntry,
         addr_size_bytes: u8,
         endian: std.builtin.Endian,
     ) !Row {
@@ -502,7 +502,7 @@ pub const VirtualMachine = struct {
 
         for (&streams, 0..) |stream, i| {
             while (stream.pos < stream.buffer.len) {
-                const instruction = try dwarf.call_frame.Instruction.read(stream, addr_size_bytes, endian);
+                const instruction = try std.debug.Dwarf.call_frame.Instruction.read(stream, addr_size_bytes, endian);
                 prev_row = try self.step(allocator, cie, i == 0, instruction);
                 if (pc < fde.pc_begin + self.current_row.offset) return prev_row;
             }
@@ -515,8 +515,8 @@ pub const VirtualMachine = struct {
         self: *VirtualMachine,
         allocator: std.mem.Allocator,
         pc: u64,
-        cie: dwarf.CommonInformationEntry,
-        fde: dwarf.FrameDescriptionEntry,
+        cie: std.debug.Dwarf.CommonInformationEntry,
+        fde: std.debug.Dwarf.FrameDescriptionEntry,
     ) !Row {
         return self.runTo(allocator, pc, cie, fde, @sizeOf(usize), builtin.target.cpu.arch.endian());
     }
@@ -538,7 +538,7 @@ pub const VirtualMachine = struct {
     pub fn step(
         self: *VirtualMachine,
         allocator: std.mem.Allocator,
-        cie: dwarf.CommonInformationEntry,
+        cie: std.debug.Dwarf.CommonInformationEntry,
         is_initial: bool,
         instruction: Instruction,
     ) !Row {

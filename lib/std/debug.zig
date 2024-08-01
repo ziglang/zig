@@ -18,6 +18,8 @@ const native_arch = builtin.cpu.arch;
 const native_os = builtin.os.tag;
 const native_endian = native_arch.endian();
 
+pub const Dwarf = @import("debug/Dwarf.zig");
+
 pub const runtime_safety = switch (builtin.mode) {
     .Debug, .ReleaseSafe => true,
     .ReleaseFast, .ReleaseSmall => false,
@@ -67,7 +69,7 @@ pub const SymbolInfo = struct {
 };
 const PdbOrDwarf = union(enum) {
     pdb: pdb.Pdb,
-    dwarf: DW.DwarfInfo,
+    dwarf: Dwarf,
 
     fn deinit(self: *PdbOrDwarf, allocator: mem.Allocator) void {
         switch (self.*) {
@@ -566,7 +568,7 @@ pub const StackIterator = struct {
     // using DWARF and MachO unwind info.
     unwind_state: if (have_ucontext) ?struct {
         debug_info: *Info,
-        dwarf_context: DW.UnwindContext,
+        dwarf_context: Dwarf.UnwindContext,
         last_error: ?UnwindError = null,
         failed: bool = false,
     } else void = if (have_ucontext) null else {},
@@ -599,7 +601,7 @@ pub const StackIterator = struct {
             var iterator = init(first_address, null);
             iterator.unwind_state = .{
                 .debug_info = debug_info,
-                .dwarf_context = try DW.UnwindContext.init(debug_info.allocator, context),
+                .dwarf_context = try Dwarf.UnwindContext.init(debug_info.allocator, context),
             };
 
             return iterator;
@@ -783,7 +785,7 @@ pub const StackIterator = struct {
                 // __unwind_info is a requirement for unwinding on Darwin. It may fall back to DWARF, but unwinding
                 // via DWARF before attempting to use the compact unwind info will produce incorrect results.
                 if (module.unwind_info) |unwind_info| {
-                    if (DW.unwindFrameMachO(&unwind_state.dwarf_context, &it.ma, unwind_info, module.eh_frame, module.base_address)) |return_address| {
+                    if (Dwarf.unwindFrameMachO(&unwind_state.dwarf_context, &it.ma, unwind_info, module.eh_frame, module.base_address)) |return_address| {
                         return return_address;
                     } else |err| {
                         if (err != error.RequiresDWARFUnwind) return err;
@@ -1140,10 +1142,10 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_obj: *coff.Coff) !ModuleDebu
 
         if (coff_obj.getSectionByName(".debug_info")) |_| {
             // This coff file has embedded DWARF debug info
-            var sections: DW.DwarfInfo.SectionArray = DW.DwarfInfo.null_section_array;
+            var sections: Dwarf.SectionArray = Dwarf.null_section_array;
             errdefer for (sections) |section| if (section) |s| if (s.owned) allocator.free(s.data);
 
-            inline for (@typeInfo(DW.DwarfSection).Enum.fields, 0..) |section, i| {
+            inline for (@typeInfo(Dwarf.Section.Id).Enum.fields, 0..) |section, i| {
                 sections[i] = if (coff_obj.getSectionByName("." ++ section.name)) |section_header| blk: {
                     break :blk .{
                         .data = try coff_obj.getSectionDataAlloc(section_header, allocator),
@@ -1153,13 +1155,13 @@ fn readCoffDebugInfo(allocator: mem.Allocator, coff_obj: *coff.Coff) !ModuleDebu
                 } else null;
             }
 
-            var dwarf = DW.DwarfInfo{
+            var dwarf = Dwarf{
                 .endian = native_endian,
                 .sections = sections,
                 .is_macho = false,
             };
 
-            try DW.openDwarfDebugInfo(&dwarf, allocator);
+            try Dwarf.open(&dwarf, allocator);
             di.dwarf = dwarf;
         }
 
@@ -1211,7 +1213,7 @@ pub fn readElfDebugInfo(
     elf_filename: ?[]const u8,
     build_id: ?[]const u8,
     expected_crc: ?u32,
-    parent_sections: *DW.DwarfInfo.SectionArray,
+    parent_sections: *Dwarf.SectionArray,
     parent_mapped_mem: ?[]align(mem.page_size) const u8,
 ) !ModuleDebugInfo {
     nosuspend {
@@ -1245,7 +1247,7 @@ pub fn readElfDebugInfo(
             @ptrCast(@alignCast(&mapped_mem[shoff])),
         )[0..hdr.e_shnum];
 
-        var sections: DW.DwarfInfo.SectionArray = DW.DwarfInfo.null_section_array;
+        var sections: Dwarf.SectionArray = Dwarf.null_section_array;
 
         // Combine section list. This takes ownership over any owned sections from the parent scope.
         for (parent_sections, &sections) |*parent, *section| {
@@ -1274,7 +1276,7 @@ pub fn readElfDebugInfo(
             }
 
             var section_index: ?usize = null;
-            inline for (@typeInfo(DW.DwarfSection).Enum.fields, 0..) |section, i| {
+            inline for (@typeInfo(Dwarf.Section.Id).Enum.fields, 0..) |section, i| {
                 if (mem.eql(u8, "." ++ section.name, name)) section_index = i;
             }
             if (section_index == null) continue;
@@ -1308,10 +1310,10 @@ pub fn readElfDebugInfo(
         }
 
         const missing_debug_info =
-            sections[@intFromEnum(DW.DwarfSection.debug_info)] == null or
-            sections[@intFromEnum(DW.DwarfSection.debug_abbrev)] == null or
-            sections[@intFromEnum(DW.DwarfSection.debug_str)] == null or
-            sections[@intFromEnum(DW.DwarfSection.debug_line)] == null;
+            sections[@intFromEnum(Dwarf.Section.Id.debug_info)] == null or
+            sections[@intFromEnum(Dwarf.Section.Id.debug_abbrev)] == null or
+            sections[@intFromEnum(Dwarf.Section.Id.debug_str)] == null or
+            sections[@intFromEnum(Dwarf.Section.Id.debug_line)] == null;
 
         // Attempt to load debug info from an external file
         // See: https://sourceware.org/gdb/onlinedocs/gdb/Separate-Debug-Files.html
@@ -1379,13 +1381,13 @@ pub fn readElfDebugInfo(
             return error.MissingDebugInfo;
         }
 
-        var di = DW.DwarfInfo{
+        var di = Dwarf{
             .endian = endian,
             .sections = sections,
             .is_macho = false,
         };
 
-        try DW.openDwarfDebugInfo(&di, allocator);
+        try Dwarf.open(&di, allocator);
 
         return ModuleDebugInfo{
             .base_address = undefined,
@@ -2168,13 +2170,13 @@ pub const Info = struct {
         const obj_di = try self.allocator.create(ModuleDebugInfo);
         errdefer self.allocator.destroy(obj_di);
 
-        var sections: DW.DwarfInfo.SectionArray = DW.DwarfInfo.null_section_array;
+        var sections: Dwarf.SectionArray = Dwarf.null_section_array;
         if (ctx.gnu_eh_frame) |eh_frame_hdr| {
             // This is a special case - pointer offsets inside .eh_frame_hdr
             // are encoded relative to its base address, so we must use the
             // version that is already memory mapped, and not the one that
             // will be mapped separately from the ELF file.
-            sections[@intFromEnum(DW.DwarfSection.eh_frame_hdr)] = .{
+            sections[@intFromEnum(Dwarf.Section.Id.eh_frame_hdr)] = .{
                 .data = eh_frame_hdr,
                 .owned = false,
             };
@@ -2219,7 +2221,7 @@ pub const ModuleDebugInfo = switch (native_os) {
 
         const OFileTable = std.StringHashMap(OFileInfo);
         const OFileInfo = struct {
-            di: DW.DwarfInfo,
+            di: Dwarf,
             addr_table: std.StringHashMap(u64),
         };
 
@@ -2278,8 +2280,8 @@ pub const ModuleDebugInfo = switch (native_os) {
                 addr_table.putAssumeCapacityNoClobber(sym_name, sym.n_value);
             }
 
-            var sections: DW.DwarfInfo.SectionArray = DW.DwarfInfo.null_section_array;
-            if (self.eh_frame) |eh_frame| sections[@intFromEnum(DW.DwarfSection.eh_frame)] = .{
+            var sections: Dwarf.SectionArray = Dwarf.null_section_array;
+            if (self.eh_frame) |eh_frame| sections[@intFromEnum(Dwarf.Section.Id.eh_frame)] = .{
                 .data = eh_frame,
                 .owned = false,
             };
@@ -2288,7 +2290,7 @@ pub const ModuleDebugInfo = switch (native_os) {
                 if (!std.mem.eql(u8, "__DWARF", sect.segName())) continue;
 
                 var section_index: ?usize = null;
-                inline for (@typeInfo(DW.DwarfSection).Enum.fields, 0..) |section, i| {
+                inline for (@typeInfo(Dwarf.Section.Id).Enum.fields, 0..) |section, i| {
                     if (mem.eql(u8, "__" ++ section.name, sect.sectName())) section_index = i;
                 }
                 if (section_index == null) continue;
@@ -2302,19 +2304,19 @@ pub const ModuleDebugInfo = switch (native_os) {
             }
 
             const missing_debug_info =
-                sections[@intFromEnum(DW.DwarfSection.debug_info)] == null or
-                sections[@intFromEnum(DW.DwarfSection.debug_abbrev)] == null or
-                sections[@intFromEnum(DW.DwarfSection.debug_str)] == null or
-                sections[@intFromEnum(DW.DwarfSection.debug_line)] == null;
+                sections[@intFromEnum(Dwarf.Section.Id.debug_info)] == null or
+                sections[@intFromEnum(Dwarf.Section.Id.debug_abbrev)] == null or
+                sections[@intFromEnum(Dwarf.Section.Id.debug_str)] == null or
+                sections[@intFromEnum(Dwarf.Section.Id.debug_line)] == null;
             if (missing_debug_info) return error.MissingDebugInfo;
 
-            var di = DW.DwarfInfo{
+            var di = Dwarf{
                 .endian = .little,
                 .sections = sections,
                 .is_macho = true,
             };
 
-            try DW.openDwarfDebugInfo(&di, allocator);
+            try Dwarf.open(&di, allocator);
             const info = OFileInfo{
                 .di = di,
                 .addr_table = addr_table,
@@ -2411,14 +2413,14 @@ pub const ModuleDebugInfo = switch (native_os) {
             }
         }
 
-        pub fn getDwarfInfoForAddress(self: *@This(), allocator: mem.Allocator, address: usize) !?*const DW.DwarfInfo {
+        pub fn getDwarfInfoForAddress(self: *@This(), allocator: mem.Allocator, address: usize) !?*const Dwarf {
             return if ((try self.getOFileInfoForAddress(allocator, address)).o_file_info) |o_file_info| &o_file_info.di else null;
         }
     },
     .uefi, .windows => struct {
         base_address: usize,
         pdb: ?pdb.Pdb = null,
-        dwarf: ?DW.DwarfInfo = null,
+        dwarf: ?Dwarf = null,
         coff_image_base: u64,
 
         /// Only used if pdb is non-null
@@ -2488,7 +2490,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             return SymbolInfo{};
         }
 
-        pub fn getDwarfInfoForAddress(self: *@This(), allocator: mem.Allocator, address: usize) !?*const DW.DwarfInfo {
+        pub fn getDwarfInfoForAddress(self: *@This(), allocator: mem.Allocator, address: usize) !?*const Dwarf {
             _ = allocator;
             _ = address;
 
@@ -2500,7 +2502,7 @@ pub const ModuleDebugInfo = switch (native_os) {
     },
     .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris, .illumos => struct {
         base_address: usize,
-        dwarf: DW.DwarfInfo,
+        dwarf: Dwarf,
         mapped_memory: []align(mem.page_size) const u8,
         external_mapped_memory: ?[]align(mem.page_size) const u8,
 
@@ -2516,7 +2518,7 @@ pub const ModuleDebugInfo = switch (native_os) {
             return getSymbolFromDwarf(allocator, relocated_address, &self.dwarf);
         }
 
-        pub fn getDwarfInfoForAddress(self: *@This(), allocator: mem.Allocator, address: usize) !?*const DW.DwarfInfo {
+        pub fn getDwarfInfoForAddress(self: *@This(), allocator: mem.Allocator, address: usize) !?*const Dwarf {
             _ = allocator;
             _ = address;
             return &self.dwarf;
@@ -2535,17 +2537,17 @@ pub const ModuleDebugInfo = switch (native_os) {
             return SymbolInfo{};
         }
 
-        pub fn getDwarfInfoForAddress(self: *@This(), allocator: mem.Allocator, address: usize) !?*const DW.DwarfInfo {
+        pub fn getDwarfInfoForAddress(self: *@This(), allocator: mem.Allocator, address: usize) !?*const Dwarf {
             _ = self;
             _ = allocator;
             _ = address;
             return null;
         }
     },
-    else => DW.DwarfInfo,
+    else => Dwarf,
 };
 
-fn getSymbolFromDwarf(allocator: mem.Allocator, address: u64, di: *DW.DwarfInfo) !SymbolInfo {
+fn getSymbolFromDwarf(allocator: mem.Allocator, address: u64, di: *Dwarf) !SymbolInfo {
     if (nosuspend di.findCompileUnit(address)) |compile_unit| {
         return SymbolInfo{
             .symbol_name = nosuspend di.getSymbolName(address) orelse "???",
