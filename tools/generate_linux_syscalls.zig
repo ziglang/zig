@@ -87,7 +87,7 @@ const AbiCheckFn = *const fn (abi: []const u8) FlowControl;
 fn getAbiCheckFunction(comptime b: []const u8, comptime flow: FlowControl) AbiCheckFn {
     return struct {
         pub fn abiCheck(abi: []const u8) FlowControl {
-            if (std.mem.eql(u8, abi, b)) return flow;
+            if (mem.eql(u8, abi, b)) return flow;
             return .none;
         }
     }.abiCheck;
