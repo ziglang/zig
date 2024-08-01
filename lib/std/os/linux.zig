@@ -105,14 +105,24 @@ pub const SYS = switch (@import("builtin").cpu.arch) {
     .x86 => syscalls.X86,
     .x86_64 => syscalls.X64,
     .aarch64, .aarch64_be => syscalls.Arm64,
+    .arc => syscalls.Arc,
     .arm, .armeb, .thumb, .thumbeb => syscalls.Arm,
+    .csky => syscalls.CSky,
+    .hexagon => syscalls.Hexagon,
     .riscv32 => syscalls.RiscV32,
     .riscv64 => syscalls.RiscV64,
+    .sparc, .sparcel => syscalls.Sparc,
     .sparc64 => syscalls.Sparc64,
-    .mips, .mipsel => syscalls.Mips,
-    .mips64, .mips64el => syscalls.Mips64,
+    .m68k => syscalls.M68k,
+    .mips, .mipsel => syscalls.MipsO32,
+    .mips64, .mips64el => if (builtin.abi == .gnuabin32)
+        syscalls.MipsN32
+    else
+        syscalls.MipsN64,
     .powerpc, .powerpcle => syscalls.PowerPC,
     .powerpc64, .powerpc64le => syscalls.PowerPC64,
+    .s390x => syscalls.S390x,
+    .xtensa => syscalls.Xtensa,
     else => @compileError("The Zig Standard Library is missing syscall definitions for the target CPU architecture"),
 };
 

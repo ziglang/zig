@@ -42,6 +42,12 @@ fn getOverridenNameNew(value: []const u8) ?[]const u8 {
     }
 }
 
+fn isReservedNameOld(name: []const u8) bool {
+    return std.mem.startsWith(u8, name, "available") or
+        std.mem.startsWith(u8, name, "reserved") or
+        std.mem.startsWith(u8, name, "unused");
+}
+
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -149,6 +155,25 @@ pub fn main() !void {
         );
     }
     {
+        try writer.writeAll("pub const Sparc = enum(usize) {\n");
+        const table = try linux_dir.readFile("arch/sparc/kernel/syscalls/syscall.tbl", buf);
+        var lines = mem.tokenizeScalar(u8, table, '\n');
+        while (lines.next()) |line| {
+            if (line[0] == '#') continue;
+
+            var fields = mem.tokenizeAny(u8, line, " \t");
+            const number = fields.next() orelse return error.Incomplete;
+            const abi = fields.next() orelse return error.Incomplete;
+            if (mem.eql(u8, abi, "64")) continue;
+            const name = fields.next() orelse return error.Incomplete;
+            const fixed_name = if (stdlib_renames.get(name)) |fixed| fixed else name;
+
+            try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), number });
+        }
+
+        try writer.writeAll("};\n\n");
+    }
+    {
         try writer.writeAll("pub const Sparc64 = enum(usize) {\n");
         const table = try linux_dir.readFile("arch/sparc/kernel/syscalls/syscall.tbl", buf);
         var lines = mem.tokenizeScalar(u8, table, '\n');
@@ -168,9 +193,29 @@ pub fn main() !void {
         try writer.writeAll("};\n\n");
     }
     {
+        try writer.writeAll("pub const M68k = enum(usize) {\n");
+
+        const table = try linux_dir.readFile("arch/m68k/kernel/syscalls/syscall.tbl", buf);
+        var lines = mem.tokenizeScalar(u8, table, '\n');
+        while (lines.next()) |line| {
+            if (line[0] == '#') continue;
+
+            var fields = mem.tokenizeAny(u8, line, " \t");
+            const number = fields.next() orelse return error.Incomplete;
+            // abi is always common
+            _ = fields.next() orelse return error.Incomplete;
+            const name = fields.next() orelse return error.Incomplete;
+            const fixed_name = if (stdlib_renames.get(name)) |fixed| fixed else name;
+
+            try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), number });
+        }
+
+        try writer.writeAll("};\n\n");
+    }
+    {
         try writer.writeAll(
-            \\pub const Mips = enum(usize) {
-            \\    pub const Linux = 4000;
+            \\pub const MipsO32 = enum(usize) {
+            \\    const linux_base = 4000;
             \\
             \\
         );
@@ -185,18 +230,18 @@ pub fn main() !void {
             // abi is always o32
             _ = fields.next() orelse return error.Incomplete;
             const name = fields.next() orelse return error.Incomplete;
-            if (mem.startsWith(u8, name, "unused")) continue;
+            if (isReservedNameOld(name)) continue;
             const fixed_name = if (stdlib_renames.get(name)) |fixed| fixed else name;
 
-            try writer.print("    {p} = Linux + {s},\n", .{ zig.fmtId(fixed_name), number });
+            try writer.print("    {p} = linux_base + {s},\n", .{ zig.fmtId(fixed_name), number });
         }
 
         try writer.writeAll("};\n\n");
     }
     {
         try writer.writeAll(
-            \\pub const Mips64 = enum(usize) {
-            \\    pub const Linux = 5000;
+            \\pub const MipsN64 = enum(usize) {
+            \\    const linux_base = 5000;
             \\
             \\
         );
@@ -211,9 +256,36 @@ pub fn main() !void {
             // abi is always n64
             _ = fields.next() orelse return error.Incomplete;
             const name = fields.next() orelse return error.Incomplete;
+            if (isReservedNameOld(name)) continue;
             const fixed_name = if (stdlib_renames.get(name)) |fixed| fixed else name;
 
-            try writer.print("    {p} = Linux + {s},\n", .{ zig.fmtId(fixed_name), number });
+            try writer.print("    {p} = linux_base + {s},\n", .{ zig.fmtId(fixed_name), number });
+        }
+
+        try writer.writeAll("};\n\n");
+    }
+    {
+        try writer.writeAll(
+            \\pub const MipsN32 = enum(usize) {
+            \\    const linux_base = 6000;
+            \\
+            \\
+        );
+
+        const table = try linux_dir.readFile("arch/mips/kernel/syscalls/syscall_n32.tbl", buf);
+        var lines = mem.tokenizeScalar(u8, table, '\n');
+        while (lines.next()) |line| {
+            if (line[0] == '#') continue;
+
+            var fields = mem.tokenizeAny(u8, line, " \t");
+            const number = fields.next() orelse return error.Incomplete;
+            // abi is always n32
+            _ = fields.next() orelse return error.Incomplete;
+            const name = fields.next() orelse return error.Incomplete;
+            if (isReservedNameOld(name)) continue;
+            const fixed_name = if (stdlib_renames.get(name)) |fixed| fixed else name;
+
+            try writer.print("    {p} = linux_base + {s},\n", .{ zig.fmtId(fixed_name), number });
         }
 
         try writer.writeAll("};\n\n");
@@ -254,6 +326,47 @@ pub fn main() !void {
         try writer.writeAll(list_64.items);
         try writer.writeAll("};\n\n");
     }
+    {
+        try writer.writeAll("pub const S390x = enum(usize) {\n");
+
+        const table = try linux_dir.readFile("arch/s390/kernel/syscalls/syscall.tbl", buf);
+        var lines = mem.tokenizeScalar(u8, table, '\n');
+        while (lines.next()) |line| {
+            if (line[0] == '#') continue;
+
+            var fields = mem.tokenizeAny(u8, line, " \t");
+            const number = fields.next() orelse return error.Incomplete;
+            const abi = fields.next() orelse return error.Incomplete;
+            if (mem.eql(u8, abi, "32")) continue; // 32-bit s390 support in linux is deprecated
+            const name = fields.next() orelse return error.Incomplete;
+            const fixed_name = if (stdlib_renames.get(name)) |fixed| fixed else name;
+
+            try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), number });
+        }
+
+        try writer.writeAll("};\n\n");
+    }
+    {
+        try writer.writeAll("pub const Xtensa = enum(usize) {\n");
+
+        const table = try linux_dir.readFile("arch/xtensa/kernel/syscalls/syscall.tbl", buf);
+        var lines = mem.tokenizeScalar(u8, table, '\n');
+        while (lines.next()) |line| {
+            if (line[0] == '#') continue;
+
+            var fields = mem.tokenizeAny(u8, line, " \t");
+            const number = fields.next() orelse return error.Incomplete;
+            // abi is always common
+            _ = fields.next() orelse return error.Incomplete;
+            const name = fields.next() orelse return error.Incomplete;
+            if (isReservedNameOld(name)) continue;
+            const fixed_name = if (stdlib_renames.get(name)) |fixed| fixed else name;
+
+            try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), number });
+        }
+
+        try writer.writeAll("};\n\n");
+    }
 
     // Newer architectures (starting with aarch64 c. 2012) now use the same C
     // header file for their syscall numbers. Arch-specific headers are used to
@@ -273,8 +386,8 @@ pub fn main() !void {
             "-P",
             "-nostdinc",
             // Using -I=[dir] includes the zig linux headers, which we don't want.
-            "-Iinclude",
-            "-Iinclude/uapi",
+            "-Itools/include",
+            "-Itools/include/uapi",
             // Output the syscall in a format we can easily recognize.
             "-D __SYSCALL(nr, nm)=zigsyscall nm nr",
             "arch/arm64/include/uapi/asm/unistd.h",
@@ -328,9 +441,8 @@ pub fn main() !void {
             "-dD",
             "-P",
             "-nostdinc",
-            "-Iinclude",
-            "-Iinclude/uapi",
-            "-Iarch/riscv/include/uapi",
+            "-Itools/include",
+            "-Itools/include/uapi",
             "-D __SYSCALL(nr, nm)=zigsyscall nm nr",
             "arch/riscv/include/uapi/asm/unistd.h",
         };
@@ -383,9 +495,8 @@ pub fn main() !void {
             "-dD",
             "-P",
             "-nostdinc",
-            "-Iinclude",
-            "-Iinclude/uapi",
-            "-Iarch/riscv/include/uapi",
+            "-Itools/include",
+            "-Itools/include/uapi",
             "-D __SYSCALL(nr, nm)=zigsyscall nm nr",
             "arch/riscv/include/uapi/asm/unistd.h",
         };
@@ -427,24 +538,20 @@ pub fn main() !void {
         try writer.writeAll("};\n\n");
     }
     {
-        try writer.writeAll(
-            \\
-            \\pub const LoongArch64 = enum(usize) {
-            \\
-        );
+        try writer.writeAll("pub const LoongArch64 = enum(usize) {\n");
 
         const child_args = [_][]const u8{
             zig_exe,
             "cc",
-            "-march=loongarch64",
             "-target",
             "loongarch64-linux-gnu",
             "-E",
             "-dD",
             "-P",
             "-nostdinc",
-            "-Iinclude",
-            "-Iinclude/uapi",
+            "-Itools/include",
+            "-Itools/include/uapi",
+            "-D __SYSCALL(nr, nm)=zigsyscall nm nr",
             "arch/loongarch/include/uapi/asm/unistd.h",
         };
 
@@ -468,27 +575,183 @@ pub fn main() !void {
         };
 
         var lines = mem.tokenizeScalar(u8, defines, '\n');
-        loop: while (lines.next()) |line| {
-            var fields = mem.tokenizeAny(u8, line, " \t");
-            const cmd = fields.next() orelse return error.Incomplete;
-            if (!mem.eql(u8, cmd, "#define")) continue;
-            const define = fields.next() orelse return error.Incomplete;
-            const number = fields.next() orelse continue;
+        while (lines.next()) |line| {
+            var fields = mem.tokenizeAny(u8, line, " ");
+            const prefix = fields.next() orelse return error.Incomplete;
 
-            if (!std.ascii.isDigit(number[0])) continue;
-            if (!mem.startsWith(u8, define, "__NR")) continue;
-            const name = mem.trimLeft(u8, mem.trimLeft(u8, define, "__NR3264_"), "__NR_");
-            if (mem.eql(u8, name, "arch_specific_syscall")) continue;
-            if (mem.eql(u8, name, "syscalls")) break :loop;
+            if (!mem.eql(u8, prefix, "zigsyscall")) continue;
 
-            const fixed_name = if (stdlib_renames.get(name)) |fixed| fixed else name;
-            try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), number });
+            const sys_name = fields.next() orelse return error.Incomplete;
+            const value = fields.rest();
+            const name = (getOverridenNameNew(value) orelse sys_name)["sys_".len..];
+            const fixed_name = if (stdlib_renames_new.get(name)) |f| f else if (stdlib_renames.get(name)) |f| f else name;
+
+            try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), value });
         }
 
-        try writer.writeAll(
-            \\};
-            \\
-        );
+        try writer.writeAll("};\n\n");
+    }
+    {
+        try writer.writeAll("pub const Arc = enum(usize) {\n");
+
+        const child_args = [_][]const u8{
+            zig_exe,
+            "cc",
+            "-target",
+            "arc-freestanding-none",
+            "-E",
+            "-dD",
+            "-P",
+            "-nostdinc",
+            "-Itools/include",
+            "-Itools/include/uapi",
+            "-D __SYSCALL(nr, nm)=zigsyscall nm nr",
+            "arch/arc/include/uapi/asm/unistd.h",
+        };
+
+        const child_result = try std.process.Child.run(.{
+            .allocator = allocator,
+            .argv = &child_args,
+            .cwd = linux_path,
+            .cwd_dir = linux_dir,
+        });
+        if (child_result.stderr.len > 0) std.debug.print("{s}\n", .{child_result.stderr});
+
+        const defines = switch (child_result.term) {
+            .Exited => |code| if (code == 0) child_result.stdout else {
+                std.debug.print("zig cc exited with code {d}\n", .{code});
+                std.process.exit(1);
+            },
+            else => {
+                std.debug.print("zig cc crashed\n", .{});
+                std.process.exit(1);
+            },
+        };
+
+        var lines = mem.tokenizeScalar(u8, defines, '\n');
+        while (lines.next()) |line| {
+            var fields = mem.tokenizeAny(u8, line, " ");
+            const prefix = fields.next() orelse return error.Incomplete;
+
+            if (!mem.eql(u8, prefix, "zigsyscall")) continue;
+
+            const sys_name = fields.next() orelse return error.Incomplete;
+            const value = fields.rest();
+            const name = (getOverridenNameNew(value) orelse sys_name)["sys_".len..];
+            const fixed_name = if (stdlib_renames_new.get(name)) |f| f else if (stdlib_renames.get(name)) |f| f else name;
+
+            try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), value });
+        }
+
+        try writer.writeAll("};\n\n");
+    }
+    {
+        try writer.writeAll("pub const CSky = enum(usize) {\n");
+
+        const child_args = [_][]const u8{
+            zig_exe,
+            "cc",
+            "-target",
+            "csky-freestanding-none",
+            "-E",
+            "-dD",
+            "-P",
+            "-nostdinc",
+            "-Itools/include",
+            "-Itools/include/uapi",
+            "-D __SYSCALL(nr, nm)=zigsyscall nm nr",
+            "arch/csky/include/uapi/asm/unistd.h",
+        };
+
+        const child_result = try std.process.Child.run(.{
+            .allocator = allocator,
+            .argv = &child_args,
+            .cwd = linux_path,
+            .cwd_dir = linux_dir,
+        });
+        if (child_result.stderr.len > 0) std.debug.print("{s}\n", .{child_result.stderr});
+
+        const defines = switch (child_result.term) {
+            .Exited => |code| if (code == 0) child_result.stdout else {
+                std.debug.print("zig cc exited with code {d}\n", .{code});
+                std.process.exit(1);
+            },
+            else => {
+                std.debug.print("zig cc crashed\n", .{});
+                std.process.exit(1);
+            },
+        };
+
+        var lines = mem.tokenizeScalar(u8, defines, '\n');
+        while (lines.next()) |line| {
+            var fields = mem.tokenizeAny(u8, line, " ");
+            const prefix = fields.next() orelse return error.Incomplete;
+
+            if (!mem.eql(u8, prefix, "zigsyscall")) continue;
+
+            const sys_name = fields.next() orelse return error.Incomplete;
+            const value = fields.rest();
+            const name = (getOverridenNameNew(value) orelse sys_name)["sys_".len..];
+            const fixed_name = if (stdlib_renames_new.get(name)) |f| f else if (stdlib_renames.get(name)) |f| f else name;
+
+            try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), value });
+        }
+
+        try writer.writeAll("};\n\n");
+    }
+    {
+        try writer.writeAll("pub const Hexagon = enum(usize) {\n");
+
+        const child_args = [_][]const u8{
+            zig_exe,
+            "cc",
+            "-target",
+            "hexagon-freestanding-none",
+            "-E",
+            "-dD",
+            "-P",
+            "-nostdinc",
+            "-Itools/include",
+            "-Itools/include/uapi",
+            "-D __SYSCALL(nr, nm)=zigsyscall nm nr",
+            "arch/hexagon/include/uapi/asm/unistd.h",
+        };
+
+        const child_result = try std.process.Child.run(.{
+            .allocator = allocator,
+            .argv = &child_args,
+            .cwd = linux_path,
+            .cwd_dir = linux_dir,
+        });
+        if (child_result.stderr.len > 0) std.debug.print("{s}\n", .{child_result.stderr});
+
+        const defines = switch (child_result.term) {
+            .Exited => |code| if (code == 0) child_result.stdout else {
+                std.debug.print("zig cc exited with code {d}\n", .{code});
+                std.process.exit(1);
+            },
+            else => {
+                std.debug.print("zig cc crashed\n", .{});
+                std.process.exit(1);
+            },
+        };
+
+        var lines = mem.tokenizeScalar(u8, defines, '\n');
+        while (lines.next()) |line| {
+            var fields = mem.tokenizeAny(u8, line, " ");
+            const prefix = fields.next() orelse return error.Incomplete;
+
+            if (!mem.eql(u8, prefix, "zigsyscall")) continue;
+
+            const sys_name = fields.next() orelse return error.Incomplete;
+            const value = fields.rest();
+            const name = (getOverridenNameNew(value) orelse sys_name)["sys_".len..];
+            const fixed_name = if (stdlib_renames_new.get(name)) |f| f else if (stdlib_renames.get(name)) |f| f else name;
+
+            try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), value });
+        }
+
+        try writer.writeAll("};\n\n");
     }
 
     try buf_out.flush();
