@@ -152,4 +152,3 @@ typedef struct __ucontext {
 #define SIGUNHOOK 37
 
 #define _NSIG 65
-
