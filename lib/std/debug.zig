@@ -102,9 +102,9 @@ pub fn getStderrMutex() *std.Thread.Mutex {
 }
 
 /// TODO multithreaded awareness
-var self_debug_info: ?DebugInfo = null;
+var self_debug_info: ?Info = null;
 
-pub fn getSelfDebugInfo() !*DebugInfo {
+pub fn getSelfDebugInfo() !*Info {
     if (self_debug_info) |*info| {
         return info;
     } else {
@@ -346,7 +346,7 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackT
         stack_trace.index = slice.len;
     } else {
         // TODO: This should use the DWARF unwinder if .eh_frame_hdr is available (so that full debug info parsing isn't required).
-        //       A new path for loading DebugInfo needs to be created which will only attempt to parse in-memory sections, because
+        //       A new path for loading Info needs to be created which will only attempt to parse in-memory sections, because
         //       stopping to load other debug info (ie. source line info) from disk here is not required for unwinding.
         var it = StackIterator.init(first_address, null);
         defer it.deinit();
@@ -524,7 +524,7 @@ pub fn writeStackTrace(
     stack_trace: std.builtin.StackTrace,
     out_stream: anytype,
     allocator: mem.Allocator,
-    debug_info: *DebugInfo,
+    debug_info: *Info,
     tty_config: io.tty.Config,
 ) !void {
     _ = allocator;
@@ -561,11 +561,11 @@ pub const StackIterator = struct {
     fp: usize,
     ma: MemoryAccessor = MemoryAccessor.init,
 
-    // When DebugInfo and a register context is available, this iterator can unwind
+    // When Info and a register context is available, this iterator can unwind
     // stacks with frames that don't use a frame pointer (ie. -fomit-frame-pointer),
     // using DWARF and MachO unwind info.
     unwind_state: if (have_ucontext) ?struct {
-        debug_info: *DebugInfo,
+        debug_info: *Info,
         dwarf_context: DW.UnwindContext,
         last_error: ?UnwindError = null,
         failed: bool = false,
@@ -590,7 +590,7 @@ pub const StackIterator = struct {
         };
     }
 
-    pub fn initWithContext(first_address: ?usize, debug_info: *DebugInfo, context: *const posix.ucontext_t) !StackIterator {
+    pub fn initWithContext(first_address: ?usize, debug_info: *Info, context: *const posix.ucontext_t) !StackIterator {
         // The implementation of DWARF unwinding on aarch64-macos is not complete. However, Apple mandates that
         // the frame pointer register is always used, so on this platform we can safely use the FP-based unwinder.
         if (comptime builtin.target.isDarwin() and native_arch == .aarch64) {
@@ -850,7 +850,7 @@ const have_msync = switch (native_os) {
 
 pub fn writeCurrentStackTrace(
     out_stream: anytype,
-    debug_info: *DebugInfo,
+    debug_info: *Info,
     tty_config: io.tty.Config,
     start_addr: ?usize,
 ) !void {
@@ -936,7 +936,7 @@ pub noinline fn walkStackWindows(addresses: []usize, existing_context: ?*const w
 
 pub fn writeStackTraceWindows(
     out_stream: anytype,
-    debug_info: *DebugInfo,
+    debug_info: *Info,
     tty_config: io.tty.Config,
     context: *const windows.CONTEXT,
     start_addr: ?usize,
@@ -1000,7 +1000,7 @@ test machoSearchSymbols {
     try testing.expectEqual(&symbols[2], machoSearchSymbols(&symbols, 5000).?);
 }
 
-fn printUnknownSource(debug_info: *DebugInfo, out_stream: anytype, address: usize, tty_config: io.tty.Config) !void {
+fn printUnknownSource(debug_info: *Info, out_stream: anytype, address: usize, tty_config: io.tty.Config) !void {
     const module_name = debug_info.getModuleNameForAddress(address);
     return printLineInfo(
         out_stream,
@@ -1013,14 +1013,14 @@ fn printUnknownSource(debug_info: *DebugInfo, out_stream: anytype, address: usiz
     );
 }
 
-fn printLastUnwindError(it: *StackIterator, debug_info: *DebugInfo, out_stream: anytype, tty_config: io.tty.Config) void {
+fn printLastUnwindError(it: *StackIterator, debug_info: *Info, out_stream: anytype, tty_config: io.tty.Config) void {
     if (!have_ucontext) return;
     if (it.getLastError()) |unwind_error| {
         printUnwindError(debug_info, out_stream, unwind_error.address, unwind_error.err, tty_config) catch {};
     }
 }
 
-fn printUnwindError(debug_info: *DebugInfo, out_stream: anytype, address: usize, err: UnwindError, tty_config: io.tty.Config) !void {
+fn printUnwindError(debug_info: *Info, out_stream: anytype, address: usize, err: UnwindError, tty_config: io.tty.Config) !void {
     const module_name = debug_info.getModuleNameForAddress(address) orelse "???";
     try tty_config.setColor(out_stream, .dim);
     if (err == error.MissingDebugInfo) {
@@ -1031,7 +1031,7 @@ fn printUnwindError(debug_info: *DebugInfo, out_stream: anytype, address: usize,
     try tty_config.setColor(out_stream, .reset);
 }
 
-pub fn printSourceAtAddress(debug_info: *DebugInfo, out_stream: anytype, address: usize, tty_config: io.tty.Config) !void {
+pub fn printSourceAtAddress(debug_info: *Info, out_stream: anytype, address: usize, tty_config: io.tty.Config) !void {
     const module = debug_info.getModuleForAddress(address) catch |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => return printUnknownSource(debug_info, out_stream, address, tty_config),
         else => return err,
@@ -1105,9 +1105,9 @@ fn printLineInfo(
 pub const OpenSelfDebugInfoError = error{
     MissingDebugInfo,
     UnsupportedOperatingSystem,
-} || @typeInfo(@typeInfo(@TypeOf(DebugInfo.init)).Fn.return_type.?).ErrorUnion.error_set;
+} || @typeInfo(@typeInfo(@TypeOf(Info.init)).Fn.return_type.?).ErrorUnion.error_set;
 
-pub fn openSelfDebugInfo(allocator: mem.Allocator) OpenSelfDebugInfoError!DebugInfo {
+pub fn openSelfDebugInfo(allocator: mem.Allocator) OpenSelfDebugInfoError!Info {
     nosuspend {
         if (builtin.strip_debug_info)
             return error.MissingDebugInfo;
@@ -1124,7 +1124,7 @@ pub fn openSelfDebugInfo(allocator: mem.Allocator) OpenSelfDebugInfoError!DebugI
             .solaris,
             .illumos,
             .windows,
-            => return try DebugInfo.init(allocator),
+            => return try Info.init(allocator),
             else => return error.UnsupportedOperatingSystem,
         }
     }
@@ -1759,13 +1759,13 @@ pub const WindowsModuleInfo = struct {
     } = null,
 };
 
-pub const DebugInfo = struct {
+pub const Info = struct {
     allocator: mem.Allocator,
     address_map: std.AutoHashMap(usize, *ModuleDebugInfo),
     modules: if (native_os == .windows) std.ArrayListUnmanaged(WindowsModuleInfo) else void,
 
-    pub fn init(allocator: mem.Allocator) !DebugInfo {
-        var debug_info = DebugInfo{
+    pub fn init(allocator: mem.Allocator) !Info {
+        var debug_info = Info{
             .allocator = allocator,
             .address_map = std.AutoHashMap(usize, *ModuleDebugInfo).init(allocator),
             .modules = if (native_os == .windows) .{} else {},
@@ -1808,7 +1808,7 @@ pub const DebugInfo = struct {
         return debug_info;
     }
 
-    pub fn deinit(self: *DebugInfo) void {
+    pub fn deinit(self: *Info) void {
         var it = self.address_map.iterator();
         while (it.next()) |entry| {
             const mdi = entry.value_ptr.*;
@@ -1825,7 +1825,7 @@ pub const DebugInfo = struct {
         }
     }
 
-    pub fn getModuleForAddress(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
+    pub fn getModuleForAddress(self: *Info, address: usize) !*ModuleDebugInfo {
         if (comptime builtin.target.isDarwin()) {
             return self.lookupModuleDyld(address);
         } else if (native_os == .windows) {
@@ -1842,7 +1842,7 @@ pub const DebugInfo = struct {
     // Returns the module name for a given address.
     // This can be called when getModuleForAddress fails, so implementations should provide
     // a path that doesn't rely on any side-effects of a prior successful module lookup.
-    pub fn getModuleNameForAddress(self: *DebugInfo, address: usize) ?[]const u8 {
+    pub fn getModuleNameForAddress(self: *Info, address: usize) ?[]const u8 {
         if (comptime builtin.target.isDarwin()) {
             return self.lookupModuleNameDyld(address);
         } else if (native_os == .windows) {
@@ -1856,7 +1856,7 @@ pub const DebugInfo = struct {
         }
     }
 
-    fn lookupModuleDyld(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
+    fn lookupModuleDyld(self: *Info, address: usize) !*ModuleDebugInfo {
         const image_count = std.c._dyld_image_count();
 
         var i: u32 = 0;
@@ -1922,7 +1922,7 @@ pub const DebugInfo = struct {
         return error.MissingDebugInfo;
     }
 
-    fn lookupModuleNameDyld(self: *DebugInfo, address: usize) ?[]const u8 {
+    fn lookupModuleNameDyld(self: *Info, address: usize) ?[]const u8 {
         _ = self;
         const image_count = std.c._dyld_image_count();
 
@@ -1960,7 +1960,7 @@ pub const DebugInfo = struct {
         return null;
     }
 
-    fn lookupModuleWin32(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
+    fn lookupModuleWin32(self: *Info, address: usize) !*ModuleDebugInfo {
         for (self.modules.items) |*module| {
             if (address >= module.base_address and address < module.base_address + module.size) {
                 if (self.address_map.get(module.base_address)) |obj_di| {
@@ -2050,7 +2050,7 @@ pub const DebugInfo = struct {
         return error.MissingDebugInfo;
     }
 
-    fn lookupModuleNameWin32(self: *DebugInfo, address: usize) ?[]const u8 {
+    fn lookupModuleNameWin32(self: *Info, address: usize) ?[]const u8 {
         for (self.modules.items) |module| {
             if (address >= module.base_address and address < module.base_address + module.size) {
                 return module.name;
@@ -2059,7 +2059,7 @@ pub const DebugInfo = struct {
         return null;
     }
 
-    fn lookupModuleNameDl(self: *DebugInfo, address: usize) ?[]const u8 {
+    fn lookupModuleNameDl(self: *Info, address: usize) ?[]const u8 {
         _ = self;
 
         var ctx: struct {
@@ -2097,7 +2097,7 @@ pub const DebugInfo = struct {
         return null;
     }
 
-    fn lookupModuleDl(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
+    fn lookupModuleDl(self: *Info, address: usize) !*ModuleDebugInfo {
         var ctx: struct {
             // Input
             address: usize,
@@ -2191,13 +2191,13 @@ pub const DebugInfo = struct {
         return obj_di;
     }
 
-    fn lookupModuleHaiku(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
+    fn lookupModuleHaiku(self: *Info, address: usize) !*ModuleDebugInfo {
         _ = self;
         _ = address;
         @panic("TODO implement lookup module for Haiku");
     }
 
-    fn lookupModuleWasm(self: *DebugInfo, address: usize) !*ModuleDebugInfo {
+    fn lookupModuleWasm(self: *Info, address: usize) !*ModuleDebugInfo {
         _ = self;
         _ = address;
         @panic("TODO implement lookup module for Wasm");
