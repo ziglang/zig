@@ -301,6 +301,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
 pub fn needsCrtiCrtn(target: std.Target) bool {
     // zig fmt: off
     return switch (target.cpu.arch) {
+        .riscv32,
         .riscv64,
         .wasm32, .wasm64 => return false,
         else => true,
@@ -392,9 +393,9 @@ fn addCcArgs(
     try args.appendSlice(&[_][]const u8{
         "-std=c99",
         "-ffreestanding",
-        // Musl adds these args to builds with gcc but clang does not support them.
-        //"-fexcess-precision=standard",
-        //"-frounding-math",
+        "-fexcess-precision=standard",
+        "-frounding-math",
+        "-fno-strict-aliasing",
         "-Wa,--noexecstack",
         "-D_XOPEN_SOURCE=700",
 

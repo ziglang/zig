@@ -363,7 +363,7 @@ fn generateSystemDefines(comp: *Compilation, w: anytype) !void {
             \\#define __sparc_v9__ 1
             \\
         ),
-        .sparc, .sparcel => try w.writeAll(
+        .sparc => try w.writeAll(
             \\#define __sparc__ 1
             \\#define __sparc 1
             \\
@@ -534,7 +534,7 @@ pub fn generateBuiltinMacros(comp: *Compilation, system_defines_mode: SystemDefi
 
     if (system_defines_mode == .include_system_defines) {
         try buf.appendSlice(
-            \\#define __VERSION__ "Aro 
+            \\#define __VERSION__ "Aro
         ++ @import("../backend.zig").version_str ++ "\"\n" ++
             \\#define __Aro__
             \\

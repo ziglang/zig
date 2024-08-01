@@ -677,10 +677,10 @@ fn montReduce(x: i32) i16 {
     // Note gcd(2¹⁶, q) = 1 as q is prime.  Write q' := 62209 = q⁻¹ mod R.
     // First we compute
     //
-    //	m := ((x mod R) q') mod R
+    // m := ((x mod R) q') mod R
     //         = x q' mod R
-    //	   = int16(x q')
-    //	   = int16(int32(x) * int32(q'))
+    //    = int16(x q')
+    //    = int16(int32(x) * int32(q'))
     //
     // Note that x q' might be as big as 2³² and could overflow the int32
     // multiplication in the last line.  However for any int32s a and b,

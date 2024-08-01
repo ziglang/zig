@@ -69,7 +69,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .riscv64 => "riscv64",
         .sparc => "sparc",
         .sparc64 => "sparc64",
-        .sparcel => "sparcel",
         .s390x => "s390x",
         .thumb => "thumb",
         .thumbeb => "thumbeb",
@@ -79,8 +78,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .xtensa => "xtensa",
         .nvptx => "nvptx",
         .nvptx64 => "nvptx64",
-        .spir => "spir",
-        .spir64 => "spir64",
         .spirv => "spirv",
         .spirv32 => "spirv32",
         .spirv64 => "spirv64",
@@ -136,8 +133,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .opencl,
         .glsl450,
         .plan9,
-        .ananas,
-        .cloudabi,
         .minix,
         .contiki,
         .other,
@@ -208,8 +203,6 @@ pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
         .opencl,
         .glsl450,
         .plan9,
-        .ananas,
-        .cloudabi,
         .minix,
         .contiki,
         => .UnknownOS,
@@ -282,7 +275,6 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .riscv64 => .riscv64,
         .sparc => .sparc,
         .sparc64 => .sparcv9, // In LLVM, sparc64 == sparcv9.
-        .sparcel => .sparcel,
         .s390x => .systemz,
         .thumb => .thumb,
         .thumbeb => .thumbeb,
@@ -292,8 +284,6 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .xtensa => .xtensa,
         .nvptx => .nvptx,
         .nvptx64 => .nvptx64,
-        .spir => .spir,
-        .spir64 => .spir64,
         .spirv => .spirv,
         .spirv32 => .spirv32,
         .spirv64 => .spirv64,
@@ -473,7 +463,6 @@ const DataLayoutBuilder = struct {
             .powerpcle,
             .riscv32,
             .sparc,
-            .sparcel,
             .thumb,
             .thumbeb,
             .xtensa,
@@ -12008,7 +11997,7 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializeRISCVAsmPrinter();
             llvm.LLVMInitializeRISCVAsmParser();
         },
-        .sparc, .sparc64, .sparcel => {
+        .sparc, .sparc64 => {
             llvm.LLVMInitializeSparcTarget();
             llvm.LLVMInitializeSparcTargetInfo();
             llvm.LLVMInitializeSparcTargetMC();
@@ -12095,8 +12084,6 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         },
 
         // LLVM backends that have no initialization functions.
-        .spir,
-        .spir64,
         .spirv,
         .spirv32,
         .spirv64,

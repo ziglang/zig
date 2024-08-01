@@ -79,10 +79,10 @@ test "statx" {
     var statx_buf: linux.Statx = undefined;
     switch (linux.E.init(linux.statx(file.handle, "", linux.AT.EMPTY_PATH, linux.STATX_BASIC_STATS, &statx_buf))) {
         .SUCCESS => {},
-        // The statx syscall was only introduced in linux 4.11
-        .NOSYS => return error.SkipZigTest,
         else => unreachable,
     }
+
+    if (builtin.cpu.arch == .riscv32) return error.SkipZigTest; // No fstatat, so the rest of the test is meaningless.
 
     var stat_buf: linux.Stat = undefined;
     switch (linux.E.init(linux.fstatat(file.handle, "", &stat_buf, linux.AT.EMPTY_PATH))) {

@@ -87,8 +87,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .sparc, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .sparc, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .sparc, .os_tag = .linux, .abi = .none },
-    .{ .cpu_arch = .sparcel, .os_tag = .freestanding, .abi = .none },
-    .{ .cpu_arch = .sparcel, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .sparc64, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .sparc64, .os_tag = .linux, .abi = .gnu },
     //.{ .cpu_arch = .spirv32, .os_tag = .opencl, .abi = .none },
