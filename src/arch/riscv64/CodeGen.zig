@@ -1510,6 +1510,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .mul,
             .mul_wrap,
             .div_trunc, 
+            .div_exact,
             .rem,
 
             .shl, .shl_exact,
@@ -1533,7 +1534,6 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .mod,
             .div_float, 
             .div_floor, 
-            .div_exact,
             => return func.fail("TODO: {s}", .{@tagName(tag)}),
 
             .sqrt,
@@ -2563,10 +2563,12 @@ fn genBinOp(
         .mul_wrap,
         .rem,
         .div_trunc,
+        .div_exact,
         => {
             switch (tag) {
                 .rem,
                 .div_trunc,
+                .div_exact,
                 => {
                     if (!math.isPowerOfTwo(bit_size)) {
                         try func.truncateRegister(lhs_ty, lhs_reg);
@@ -2576,7 +2578,7 @@ fn genBinOp(
                 else => {
                     if (!math.isPowerOfTwo(bit_size))
                         return func.fail(
-                            "TODO: genBinOp verify {s} non-pow 2, found {}",
+                            "TODO: genBinOp verify if needs to truncate {s} non-pow 2, found {}",
                             .{ @tagName(tag), bit_size },
                         );
                 },
@@ -2604,7 +2606,7 @@ fn genBinOp(
                             8, 16, 32 => if (is_unsigned) .remuw else .remw,
                             else => if (is_unsigned) .remu else .rem,
                         },
-                        .div_trunc => switch (bit_size) {
+                        .div_trunc, .div_exact => switch (bit_size) {
                             8, 16, 32 => if (is_unsigned) .divuw else .divw,
                             else => if (is_unsigned) .divu else .div,
                         },
