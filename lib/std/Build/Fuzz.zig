@@ -235,30 +235,29 @@ pub const WebServer = struct {
             .root_dir = ws.zig_lib_directory,
             .sub_path = "docs/wasm/Walk.zig",
         };
+        const html_render_src_path: Build.Cache.Path = .{
+            .root_dir = ws.zig_lib_directory,
+            .sub_path = "docs/wasm/html_render.zig",
+        };
 
         var argv: std.ArrayListUnmanaged([]const u8) = .{};
 
         try argv.appendSlice(arena, &.{
-            ws.zig_exe_path,
-            "build-exe",
-            "-fno-entry",
-            "-O",
-            @tagName(optimize_mode),
-            "-target",
-            "wasm32-freestanding",
-            "-mcpu",
-            "baseline+atomics+bulk_memory+multivalue+mutable_globals+nontrapping_fptoint+reference_types+sign_ext",
-            "--cache-dir",
-            ws.global_cache_directory.path orelse ".",
-            "--global-cache-dir",
-            ws.global_cache_directory.path orelse ".",
-            "--name",
-            "fuzzer",
-            "-rdynamic",
-            "--dep",
-            "Walk",
-            try std.fmt.allocPrint(arena, "-Mroot={}", .{main_src_path}),
-            try std.fmt.allocPrint(arena, "-MWalk={}", .{walk_src_path}),
+            ws.zig_exe_path, "build-exe", //
+            "-fno-entry", //
+            "-O", @tagName(optimize_mode), //
+            "-target", "wasm32-freestanding", //
+            "-mcpu", "baseline+atomics+bulk_memory+multivalue+mutable_globals+nontrapping_fptoint+reference_types+sign_ext", //
+            "--cache-dir", ws.global_cache_directory.path orelse ".", //
+            "--global-cache-dir", ws.global_cache_directory.path orelse ".", //
+            "--name", "fuzzer", //
+            "-rdynamic", //
+            "--dep", "Walk", //
+            "--dep", "html_render", //
+            try std.fmt.allocPrint(arena, "-Mroot={}", .{main_src_path}), //
+            try std.fmt.allocPrint(arena, "-MWalk={}", .{walk_src_path}), //
+            "--dep", "Walk", //
+            try std.fmt.allocPrint(arena, "-Mhtml_render={}", .{html_render_src_path}), //
             "--listen=-",
         });
 

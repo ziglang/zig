@@ -2,6 +2,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const Walk = @import("Walk");
+const Decl = Walk.Decl;
+const html_render = @import("html_render");
 
 const gpa = std.heap.wasm_allocator;
 const log = std.log;
@@ -49,6 +51,48 @@ export fn unpack(tar_ptr: [*]u8, tar_len: usize) void {
 
     unpackInner(tar_bytes) catch |err| {
         fatal("unable to unpack tar: {s}", .{@errorName(err)});
+    };
+}
+
+/// Set by `set_input_string`.
+var input_string: std.ArrayListUnmanaged(u8) = .{};
+var string_result: std.ArrayListUnmanaged(u8) = .{};
+
+export fn set_input_string(len: usize) [*]u8 {
+    input_string.resize(gpa, len) catch @panic("OOM");
+    return input_string.items.ptr;
+}
+
+/// Looks up the root struct decl corresponding to a file by path.
+/// Uses `input_string`.
+export fn find_file_root() Decl.Index {
+    const file: Walk.File.Index = @enumFromInt(Walk.files.getIndex(input_string.items) orelse return .none);
+    return file.findRootDecl();
+}
+
+export fn decl_source_html(decl_index: Decl.Index) String {
+    const decl = decl_index.get();
+
+    string_result.clearRetainingCapacity();
+    html_render.fileSourceHtml(decl.file, &string_result, decl.ast_node, .{}) catch |err| {
+        fatal("unable to render source: {s}", .{@errorName(err)});
+    };
+    return String.init(string_result.items);
+}
+
+const String = Slice(u8);
+
+fn Slice(T: type) type {
+    return packed struct(u64) {
+        ptr: u32,
+        len: u32,
+
+        fn init(s: []const T) @This() {
+            return .{
+                .ptr = @intFromPtr(s.ptr),
+                .len = s.len,
+            };
+        }
     };
 }
 
