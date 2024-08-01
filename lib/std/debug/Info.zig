@@ -26,7 +26,7 @@ const Info = @This();
 const root = @import("root");
 
 allocator: Allocator,
-address_map: std.AutoHashMap(usize, *ModuleDebugInfo),
+address_map: std.AutoHashMap(usize, *Module),
 modules: if (native_os == .windows) std.ArrayListUnmanaged(WindowsModuleInfo) else void,
 
 pub const OpenSelfError = error{
@@ -58,9 +58,9 @@ pub fn openSelf(allocator: Allocator) OpenSelfError!Info {
 }
 
 pub fn init(allocator: Allocator) !Info {
-    var debug_info = Info{
+    var debug_info: Info = .{
         .allocator = allocator,
-        .address_map = std.AutoHashMap(usize, *ModuleDebugInfo).init(allocator),
+        .address_map = std.AutoHashMap(usize, *Module).init(allocator),
         .modules = if (native_os == .windows) .{} else {},
     };
 
@@ -118,7 +118,7 @@ pub fn deinit(self: *Info) void {
     }
 }
 
-pub fn getModuleForAddress(self: *Info, address: usize) !*ModuleDebugInfo {
+pub fn getModuleForAddress(self: *Info, address: usize) !*Module {
     if (comptime builtin.target.isDarwin()) {
         return self.lookupModuleDyld(address);
     } else if (native_os == .windows) {
@@ -149,7 +149,7 @@ pub fn getModuleNameForAddress(self: *Info, address: usize) ?[]const u8 {
     }
 }
 
-fn lookupModuleDyld(self: *Info, address: usize) !*ModuleDebugInfo {
+fn lookupModuleDyld(self: *Info, address: usize) !*Module {
     const image_count = std.c._dyld_image_count();
 
     var i: u32 = 0;
@@ -189,7 +189,7 @@ fn lookupModuleDyld(self: *Info, address: usize) !*ModuleDebugInfo {
                         }
                     }
 
-                    const obj_di = try self.allocator.create(ModuleDebugInfo);
+                    const obj_di = try self.allocator.create(Module);
                     errdefer self.allocator.destroy(obj_di);
 
                     const macho_path = mem.sliceTo(std.c._dyld_get_image_name(i), 0);
@@ -253,14 +253,14 @@ fn lookupModuleNameDyld(self: *Info, address: usize) ?[]const u8 {
     return null;
 }
 
-fn lookupModuleWin32(self: *Info, address: usize) !*ModuleDebugInfo {
+fn lookupModuleWin32(self: *Info, address: usize) !*Module {
     for (self.modules.items) |*module| {
         if (address >= module.base_address and address < module.base_address + module.size) {
             if (self.address_map.get(module.base_address)) |obj_di| {
                 return obj_di;
             }
 
-            const obj_di = try self.allocator.create(ModuleDebugInfo);
+            const obj_di = try self.allocator.create(Module);
             errdefer self.allocator.destroy(obj_di);
 
             const mapped_module = @as([*]const u8, @ptrFromInt(module.base_address))[0..module.size];
@@ -390,7 +390,7 @@ fn lookupModuleNameDl(self: *Info, address: usize) ?[]const u8 {
     return null;
 }
 
-fn lookupModuleDl(self: *Info, address: usize) !*ModuleDebugInfo {
+fn lookupModuleDl(self: *Info, address: usize) !*Module {
     var ctx: struct {
         // Input
         address: usize,
@@ -458,7 +458,7 @@ fn lookupModuleDl(self: *Info, address: usize) !*ModuleDebugInfo {
         return obj_di;
     }
 
-    const obj_di = try self.allocator.create(ModuleDebugInfo);
+    const obj_di = try self.allocator.create(Module);
     errdefer self.allocator.destroy(obj_di);
 
     var sections: Dwarf.SectionArray = Dwarf.null_section_array;
@@ -484,19 +484,19 @@ fn lookupModuleDl(self: *Info, address: usize) !*ModuleDebugInfo {
     return obj_di;
 }
 
-fn lookupModuleHaiku(self: *Info, address: usize) !*ModuleDebugInfo {
+fn lookupModuleHaiku(self: *Info, address: usize) !*Module {
     _ = self;
     _ = address;
     @panic("TODO implement lookup module for Haiku");
 }
 
-fn lookupModuleWasm(self: *Info, address: usize) !*ModuleDebugInfo {
+fn lookupModuleWasm(self: *Info, address: usize) !*Module {
     _ = self;
     _ = address;
     @panic("TODO implement lookup module for Wasm");
 }
 
-pub const ModuleDebugInfo = switch (native_os) {
+pub const Module = switch (native_os) {
     .macos, .ios, .watchos, .tvos, .visionos => struct {
         base_address: usize,
         vmaddr_slide: usize,
@@ -861,7 +861,7 @@ pub const WindowsModuleInfo = struct {
 /// This takes ownership of macho_file: users of this function should not close
 /// it themselves, even on error.
 /// TODO it's weird to take ownership even on error, rework this code.
-fn readMachODebugInfo(allocator: Allocator, macho_file: File) !ModuleDebugInfo {
+fn readMachODebugInfo(allocator: Allocator, macho_file: File) !Module {
     const mapped_mem = try mapWholeFile(macho_file);
 
     const hdr: *const macho.mach_header_64 = @ptrCast(@alignCast(mapped_mem.ptr));
@@ -975,19 +975,19 @@ fn readMachODebugInfo(allocator: Allocator, macho_file: File) !ModuleDebugInfo {
     // This sort is so that we can binary search later.
     mem.sort(MachoSymbol, symbols, {}, MachoSymbol.addressLessThan);
 
-    return ModuleDebugInfo{
+    return .{
         .base_address = undefined,
         .vmaddr_slide = undefined,
         .mapped_memory = mapped_mem,
-        .ofiles = ModuleDebugInfo.OFileTable.init(allocator),
+        .ofiles = Module.OFileTable.init(allocator),
         .symbols = symbols,
         .strings = strings,
     };
 }
 
-fn readCoffDebugInfo(allocator: Allocator, coff_obj: *coff.Coff) !ModuleDebugInfo {
+fn readCoffDebugInfo(allocator: Allocator, coff_obj: *coff.Coff) !Module {
     nosuspend {
-        var di = ModuleDebugInfo{
+        var di: Module = .{
             .base_address = undefined,
             .coff_image_base = coff_obj.getImageBase(),
             .coff_section_headers = undefined,
@@ -1062,7 +1062,7 @@ pub fn readElfDebugInfo(
     expected_crc: ?u32,
     parent_sections: *Dwarf.SectionArray,
     parent_mapped_mem: ?[]align(mem.page_size) const u8,
-) !ModuleDebugInfo {
+) !Module {
     nosuspend {
         const elf_file = (if (elf_filename) |filename| blk: {
             break :blk fs.cwd().openFile(filename, .{});
@@ -1236,7 +1236,7 @@ pub fn readElfDebugInfo(
 
         try Dwarf.open(&di, allocator);
 
-        return ModuleDebugInfo{
+        return .{
             .base_address = undefined,
             .dwarf = di,
             .mapped_memory = parent_mapped_mem orelse mapped_mem,
