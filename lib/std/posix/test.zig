@@ -278,7 +278,7 @@ test "link with relative paths" {
     cwd.deleteFile("new.txt") catch {};
 
     try cwd.writeFile(.{ .sub_path = "example.txt", .data = "example" });
-    try posix.link("example.txt", "new.txt", 0);
+    try posix.link("example.txt", "new.txt");
 
     const efd = try cwd.openFile("example.txt", .{});
     defer efd.close();
