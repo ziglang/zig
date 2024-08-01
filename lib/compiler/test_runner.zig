@@ -28,6 +28,7 @@ pub fn main() void {
         @panic("unable to parse command line args");
 
     var listen = false;
+    var opt_cache_dir: ?[]const u8 = null;
 
     for (args[1..]) |arg| {
         if (std.mem.eql(u8, arg, "--listen=-")) {
@@ -35,13 +36,18 @@ pub fn main() void {
         } else if (std.mem.startsWith(u8, arg, "--seed=")) {
             testing.random_seed = std.fmt.parseUnsigned(u32, arg["--seed=".len..], 0) catch
                 @panic("unable to parse --seed command line argument");
+        } else if (std.mem.startsWith(u8, arg, "--cache-dir")) {
+            opt_cache_dir = arg["--cache-dir=".len..];
         } else {
             @panic("unrecognized command line argument");
         }
     }
 
     fba.reset();
-    if (builtin.fuzz) fuzzer_init();
+    if (builtin.fuzz) {
+        const cache_dir = opt_cache_dir orelse @panic("missing --cache-dir=[path] argument");
+        fuzzer_init(FuzzerSlice.fromSlice(cache_dir));
+    }
 
     if (listen) {
         return mainServer() catch @panic("internal test runner failure");
@@ -59,6 +65,11 @@ fn mainServer() !void {
         .zig_version = builtin.zig_version_string,
     });
     defer server.deinit();
+
+    if (builtin.fuzz) {
+        const coverage_id = fuzzer_coverage_id();
+        try server.serveU64Message(.coverage_id, coverage_id);
+    }
 
     while (true) {
         const hdr = try server.receiveMessage();
@@ -316,15 +327,22 @@ const FuzzerSlice = extern struct {
     ptr: [*]const u8,
     len: usize,
 
+    /// Inline to avoid fuzzer instrumentation.
     inline fn toSlice(s: FuzzerSlice) []const u8 {
         return s.ptr[0..s.len];
+    }
+
+    /// Inline to avoid fuzzer instrumentation.
+    inline fn fromSlice(s: []const u8) FuzzerSlice {
+        return .{ .ptr = s.ptr, .len = s.len };
     }
 };
 
 var is_fuzz_test: bool = undefined;
 
 extern fn fuzzer_next() FuzzerSlice;
-extern fn fuzzer_init() void;
+extern fn fuzzer_init(cache_dir: FuzzerSlice) void;
+extern fn fuzzer_coverage_id() u64;
 
 pub fn fuzzInput(options: testing.FuzzInputOptions) []const u8 {
     @disableInstrumentation();

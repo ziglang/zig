@@ -28,6 +28,10 @@ pub const Message = struct {
         /// The remaining bytes is the file path relative to that prefix.
         /// The prefixes are hard-coded in Compilation.create (cwd, zig lib dir, local cache dir)
         file_system_inputs,
+        /// Body is a u64le that indicates the file path within the cache used
+        /// to store coverage information. The integer is a hash of the PCs
+        /// stored within that file.
+        coverage_id,
 
         _,
     };
@@ -180,6 +184,14 @@ pub fn serveMessage(
     try s.out.writevAll(iovecs[0 .. bufs.len + 1]);
 }
 
+pub fn serveU64Message(s: *Server, tag: OutMessage.Tag, int: u64) !void {
+    const msg_le = bswap(int);
+    return s.serveMessage(.{
+        .tag = tag,
+        .bytes_len = @sizeOf(u64),
+    }, &.{std.mem.asBytes(&msg_le)});
+}
+
 pub fn serveEmitBinPath(
     s: *Server,
     fs_path: []const u8,
@@ -187,7 +199,7 @@ pub fn serveEmitBinPath(
 ) !void {
     try s.serveMessage(.{
         .tag = .emit_bin_path,
-        .bytes_len = @as(u32, @intCast(fs_path.len + @sizeOf(OutMessage.EmitBinPath))),
+        .bytes_len = @intCast(fs_path.len + @sizeOf(OutMessage.EmitBinPath)),
     }, &.{
         std.mem.asBytes(&header),
         fs_path,
@@ -201,7 +213,7 @@ pub fn serveTestResults(
     const msg_le = bswap(msg);
     try s.serveMessage(.{
         .tag = .test_results,
-        .bytes_len = @as(u32, @intCast(@sizeOf(OutMessage.TestResults))),
+        .bytes_len = @intCast(@sizeOf(OutMessage.TestResults)),
     }, &.{
         std.mem.asBytes(&msg_le),
     });
@@ -209,14 +221,14 @@ pub fn serveTestResults(
 
 pub fn serveErrorBundle(s: *Server, error_bundle: std.zig.ErrorBundle) !void {
     const eb_hdr: OutMessage.ErrorBundle = .{
-        .extra_len = @as(u32, @intCast(error_bundle.extra.len)),
-        .string_bytes_len = @as(u32, @intCast(error_bundle.string_bytes.len)),
+        .extra_len = @intCast(error_bundle.extra.len),
+        .string_bytes_len = @intCast(error_bundle.string_bytes.len),
     };
     const bytes_len = @sizeOf(OutMessage.ErrorBundle) +
         4 * error_bundle.extra.len + error_bundle.string_bytes.len;
     try s.serveMessage(.{
         .tag = .error_bundle,
-        .bytes_len = @as(u32, @intCast(bytes_len)),
+        .bytes_len = @intCast(bytes_len),
     }, &.{
         std.mem.asBytes(&eb_hdr),
         // TODO: implement @ptrCast between slices changing the length
@@ -251,7 +263,7 @@ pub fn serveTestMetadata(s: *Server, test_metadata: TestMetadata) !void {
 
     return s.serveMessage(.{
         .tag = .test_metadata,
-        .bytes_len = @as(u32, @intCast(bytes_len)),
+        .bytes_len = @intCast(bytes_len),
     }, &.{
         std.mem.asBytes(&header),
         // TODO: implement @ptrCast between slices changing the length
