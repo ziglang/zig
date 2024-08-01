@@ -961,6 +961,140 @@ test "Struct with array as padding." {
     try expect(x.b == 155);
 }
 
+const StructBitfieldSimple = std.zig.c_translation.EmulateBitfieldStruct(struct {
+    a: u1 = std.mem.zeroes(u1),
+    b: u1 = std.mem.zeroes(u1),
+    c: u1 = std.mem.zeroes(u1),
+    d: u1 = std.mem.zeroes(u1),
+    e: u1 = std.mem.zeroes(u1),
+    f: u1 = std.mem.zeroes(u1),
+    g: u1 = std.mem.zeroes(u1),
+    h: u1 = std.mem.zeroes(u1),
+}, &[_]type{ u8, u8, u8, u8, u8, u8, u8, u8 }, .{});
+
+extern fn c_struct_bitfield_simple_access(*const StructBitfieldSimple, offset: c_uint) c_int;
+
+test "translate-c: struct with only bitfields" {
+    if (@typeInfo(StructBitfieldSimple) == .Opaque) {
+        return error.SkipZigTest;
+    }
+    const word = StructBitfieldSimple{ .a = 1 };
+    // @compileLog(@typeInfo(StructBitfieldSimple).Struct.fields);
+    try expectEqual(@as(c_int, 1), c_struct_bitfield_simple_access(&word, 0));
+    try expectEqual(@as(c_int, 0), c_struct_bitfield_simple_access(&word, 7));
+}
+
+const StructBitfieldPad = std.zig.c_translation.EmulateBitfieldStruct(struct {
+    a: u1 = std.mem.zeroes(u1),
+    b: u1 = std.mem.zeroes(u1),
+    c: u1 = std.mem.zeroes(u1),
+}, &[_]type{ u32, u32, u32 }, .{});
+
+extern fn c_struct_bitfield_pad_access(*const StructBitfieldPad, offset: c_uint) c_int;
+
+test "translate-c: struct with unanmed bitfield syntax" {
+    if (@typeInfo(StructBitfieldPad) == .Opaque) {
+        return error.SkipZigTest;
+    }
+    const word = StructBitfieldPad{ .a = 1 };
+    try expectEqual(@as(c_int, 1), c_struct_bitfield_pad_access(&word, 0));
+    try expectEqual(@as(c_int, 0), c_struct_bitfield_pad_access(&word, 1));
+}
+
+const StructTrickyBits = std.zig.c_translation.EmulateBitfieldStruct(struct {
+    first: u9 = std.mem.zeroes(u9),
+    second: u7 = std.mem.zeroes(u7),
+    may_straddle: u30 = std.mem.zeroes(u30),
+    last: u18 = std.mem.zeroes(u18),
+}, &[_]type{ u32, u32, u32, u32 }, .{});
+
+extern fn c_struct_bitfield_tricky_bits_access(*const StructTrickyBits, offset: c_uint) c_int;
+
+test "translate-c: struct with may straddle bitfield" {
+    if (@typeInfo(StructTrickyBits) == .Opaque) {
+        return error.SkipZigTest;
+    }
+    const word = StructTrickyBits{ .may_straddle = std.math.maxInt(u30) };
+    // @compileLog(@typeInfo(StructTrickyBits).Struct.fields);
+    try expectEqual(
+        @as(c_int, std.math.maxInt(u30)),
+        c_struct_bitfield_tricky_bits_access(&word, 2),
+    );
+}
+
+const StructMixingBits = std.zig.c_translation.EmulateBitfieldStruct(struct {
+    first: c_uint = std.mem.zeroes(c_uint),
+    b0_0: u1 = std.mem.zeroes(u1),
+    b0_1: u1 = std.mem.zeroes(u1),
+    b0_2: u1 = std.mem.zeroes(u1),
+    second: c_uint = std.mem.zeroes(c_uint),
+    b1_0: u3 = std.mem.zeroes(u3),
+    b1_1: u4 = std.mem.zeroes(u4),
+    b1_3: u1 = std.mem.zeroes(u1),
+    third: c_short = std.mem.zeroes(c_short),
+}, &[_]type{ void, c_char, c_char, c_char, void, c_uint, c_uint, c_uint, void }, .{});
+
+extern fn c_struct_bitfield_mixing_bits_access(*const StructMixingBits, offset: c_uint) i64;
+
+test "translate-c: struct mixing bitfields with regulars." {
+    if (@typeInfo(StructMixingBits) == .Opaque) {
+        return error.SkipZigTest;
+    }
+
+    {
+        const word = StructMixingBits{ .b0_2 = 1 };
+        try expectEqual(
+            @as(u64, 1),
+            @abs(c_struct_bitfield_mixing_bits_access(&word, 3)),
+        );
+    }
+    {
+        const word = StructMixingBits{ .second = std.math.maxInt(c_uint) };
+        try expectEqual(
+            @as(i64, std.math.maxInt(c_uint)),
+            c_struct_bitfield_mixing_bits_access(&word, 4),
+        );
+    }
+    {
+        const word = StructMixingBits{ .second = std.math.maxInt(c_uint) };
+        inline for (0..4) |i| {
+            try expectEqual(@as(i64, 0), c_struct_bitfield_mixing_bits_access(&word, i));
+        }
+        inline for (5..9) |i| {
+            try expectEqual(@as(i64, 0), c_struct_bitfield_mixing_bits_access(&word, i));
+        }
+    }
+    {
+        const word = StructMixingBits{ .third = std.math.maxInt(c_short) };
+        try expectEqual(@as(i64, std.math.maxInt(c_short)), c_struct_bitfield_mixing_bits_access(&word, 8));
+        inline for (0..8) |i| {
+            try expectEqual(@as(i64, 0), c_struct_bitfield_mixing_bits_access(&word, i));
+        }
+    }
+}
+
+const NestedStructWithoutBitfields = extern struct {
+    f0: c_uint = std.mem.zeroes(c_uint),
+    f1: c_uint = std.mem.zeroes(c_uint),
+};
+
+const MixedStructWithBitfields = std.zig.c_translation.EmulateBitfieldStruct(struct {
+    b0: u1 = std.mem.zeroes(u1),
+    b1: u1 = std.mem.zeroes(u1),
+    b2: u1 = std.mem.zeroes(u1),
+    f0: NestedStructWithoutBitfields = std.mem.zeroes(NestedStructWithoutBitfields),
+}, &[_]type{
+    c_uint,
+    c_uint,
+    c_uint,
+    void,
+}, .{});
+
+test "translate-c: struct mixing bitfields with structs" {
+    // It seems zig could not describe such case
+    try expectEqual(@as(std.builtin.TypeId, .Opaque), std.meta.activeTag(@typeInfo(MixedStructWithBitfields)));
+}
+
 const FloatArrayStruct = extern struct {
     origin: extern struct {
         x: f64,

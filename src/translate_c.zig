@@ -923,6 +923,9 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
         var functions = std.ArrayList(Node).init(c.gpa);
         defer functions.deinit();
 
+        var backings = std.ArrayList(ast.Node).init(c.gpa);
+        defer backings.deinit();
+
         const flexible_field = flexibleArrayField(c, record_def);
         var unnamed_field_count: u32 = 0;
         var it = record_def.field_begin();
@@ -930,15 +933,15 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
         const layout = record_def.getASTRecordLayout(c.clang_context);
         const record_alignment = layout.getAlignment();
 
+        var bitfield_count: usize = 0;
+
         while (it.neq(end_it)) : (it = it.next()) {
             const field_decl = it.deref();
             const field_loc = field_decl.getLocation();
             const field_qt = field_decl.getType();
 
             if (field_decl.isBitField()) {
-                try c.opaque_demotes.put(c.gpa, @intFromPtr(record_decl.getCanonicalDecl()), {});
-                try warn(c, scope, field_loc, "{s} demoted to opaque type - has bitfield", .{container_kind_name});
-                break :blk Tag.opaque_literal.init();
+                bitfield_count += 1;
             }
 
             var is_anon = false;
@@ -961,13 +964,26 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
                 try functions.append(flexible_array_fn);
                 continue;
             }
-            const field_type = transQualType(c, scope, field_qt, field_loc) catch |err| switch (err) {
+
+            const field_otype = transQualType(c, scope, field_qt, field_loc) catch |err| switch (err) {
                 error.UnsupportedType => {
                     try c.opaque_demotes.put(c.gpa, @intFromPtr(record_decl.getCanonicalDecl()), {});
                     try warn(c, scope, record_loc, "{s} demoted to opaque type - unable to translate type of field {s}", .{ container_kind_name, field_name });
                     break :blk Tag.opaque_literal.init();
                 },
                 else => |e| return e,
+            };
+
+            const field_type = if (field_decl.isBitField()) bitfield_type: {
+                try backings.append(field_otype);
+                const bitwidth = field_decl.getBitWidthValue(c.clang_context);
+                if (field_decl.isUnnamedBitField()) {
+                    break :bitfield_type Tag.void_type.init();
+                }
+                break :bitfield_type try Tag.type.create(c.arena, try std.fmt.allocPrint(c.arena, "u{}", .{bitwidth}));
+            } else regular_field: {
+                try backings.append(Tag.void_type.init());
+                break :regular_field field_otype;
             };
 
             const alignment = if (flexible_field != null and field_decl.getFieldIndex() == 0)
@@ -994,18 +1010,43 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
                 .default_value = default_value,
             });
         }
+        const has_bitfield = bitfield_count > 0;
 
         const record_payload = try c.arena.create(ast.Payload.Record);
         record_payload.* = .{
             .base = .{ .tag = ([2]Tag{ .@"struct", .@"union" })[@intFromBool(is_union)] },
             .data = .{
-                .layout = .@"extern",
+                .layout = if (has_bitfield) .none else .@"extern",
+                // We will leave to the `EmulateBitfieldStruct` to handle the layout
                 .fields = try c.arena.dupe(ast.Payload.Record.Field, fields.items),
                 .functions = try c.arena.dupe(Node, functions.items),
                 .variables = &.{},
             },
         };
-        break :blk Node.initPayload(&record_payload.base);
+
+        const node = Node.initPayload(&record_payload.base);
+
+        // Use `EmulateBitfieldStruct` to transform the struct if any bitfield is found
+        if (has_bitfield) {
+            try warn(c, scope, record_loc, "{s} has bitfields - limited bitfield support - nested extern struct {{}} or struct {{}} results in an opaque type", .{name});
+            const backing_array = try Tag.array_init.create(c.arena, .{
+                .cases = try c.arena.dupe(ast.Node, backings.items),
+                .cond = try Tag.array_type.create(c.arena, .{
+                    .len = backings.items.len,
+                    .elem_type = try Tag.type.create(c.arena, "type"),
+                }),
+            });
+            const Initializer = ast.Payload.ContainerInitDot.Initializer;
+            var cfglist: std.BoundedArray(Initializer, 3) = .{};
+            const cfg = try Tag.container_init_dot.create(c.arena, try c.arena.dupe(Initializer, cfglist.constSlice()));
+            const emulate_call = try Tag.helpers_emulate_bitfield_struct.create(c.arena, .{
+                .record = node,
+                .backings = try Tag.address_of.create(c.arena, backing_array),
+                .cfg = cfg,
+            });
+            break :blk emulate_call;
+        }
+        break :blk node;
     };
 
     const payload = try c.arena.create(ast.Payload.SimpleVarDecl);

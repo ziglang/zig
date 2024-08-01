@@ -25,6 +25,8 @@
 #include <clang/AST/Attr.h>
 #include <clang/AST/Expr.h>
 #include <clang/AST/RecordLayout.h>
+#include <clang/AST/ASTContext.h>
+#include <clang/AST/Decl.h>
 
 #if __GNUC__ >= 8
 #pragma GCC diagnostic pop
@@ -3952,6 +3954,17 @@ ZigClangRecordDecl_field_iterator ZigClangRecordDecl_field_end(const struct ZigC
 bool ZigClangFieldDecl_isBitField(const struct ZigClangFieldDecl *self) {
     auto casted = reinterpret_cast<const clang::FieldDecl *>(self);
     return casted->isBitField();
+}
+
+bool ZigClangFieldDecl_isUnnamedBitField(const struct ZigClangFieldDecl *self) {
+    auto casted = reinterpret_cast<const clang::FieldDecl *>(self);
+    return casted->isUnnamedBitfield();
+}
+
+unsigned int ZigClangFieldDecl_getBitWidthValue(const struct ZigClangFieldDecl *self, const struct ZigClangASTContext *ast_cx){
+    auto casted = reinterpret_cast<const clang::FieldDecl *>(self);
+    auto casted_ast_cx = reinterpret_cast<const clang::ASTContext *>(ast_cx);
+    return casted->getBitWidthValue(*casted_ast_cx);
 }
 
 bool ZigClangFieldDecl_isAnonymousStructOrUnion(const ZigClangFieldDecl *field_decl) {
