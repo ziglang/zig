@@ -1353,7 +1353,7 @@ pub fn getLineNumberInfo(
     allocator: Allocator,
     compile_unit: CompileUnit,
     target_address: u64,
-) !std.debug.LineInfo {
+) !std.debug.Info.SourceLocation {
     const compile_unit_cwd = try compile_unit.die.getAttrString(di, AT.comp_dir, di.section(.debug_line_str), compile_unit);
     const line_info_offset = try compile_unit.die.getAttrSecOffset(AT.stmt_list);
 
@@ -2084,7 +2084,7 @@ const LineNumberProgram = struct {
         self: *LineNumberProgram,
         allocator: Allocator,
         file_entries: []const FileEntry,
-    ) !?std.debug.LineInfo {
+    ) !?std.debug.Info.SourceLocation {
         if (self.prev_valid and
             self.target_address >= self.prev_address and
             self.target_address < self.address)
@@ -2104,7 +2104,7 @@ const LineNumberProgram = struct {
                 dir_name, file_entry.path,
             });
 
-            return std.debug.LineInfo{
+            return std.debug.Info.SourceLocation{
                 .line = if (self.prev_line >= 0) @as(u64, @intCast(self.prev_line)) else 0,
                 .column = self.prev_column,
                 .file_name = file_name,

@@ -706,7 +706,7 @@ pub const Pdb = struct {
         return null;
     }
 
-    pub fn getLineNumberInfo(self: *Pdb, module: *Module, address: u64) !debug.LineInfo {
+    pub fn getLineNumberInfo(self: *Pdb, module: *Module, address: u64) !debug.Info.SourceLocation {
         std.debug.assert(module.populated);
         const subsect_info = module.subsect_info;
 
@@ -731,7 +731,7 @@ pub const Pdb = struct {
 
                     if (address >= frag_vaddr_start and address < frag_vaddr_end) {
                         // There is an unknown number of LineBlockFragmentHeaders (and their accompanying line and column records)
-                        // from now on. We will iterate through them, and eventually find a LineInfo that we're interested in,
+                        // from now on. We will iterate through them, and eventually find a SourceLocation that we're interested in,
                         // breaking out to :subsections. If not, we will make sure to not read anything outside of this subsection.
                         const subsection_end_index = sect_offset + subsect_hdr.Length;
 
@@ -778,7 +778,7 @@ pub const Pdb = struct {
                                 const line_num_entry: *align(1) LineNumberEntry = @ptrCast(&subsect_info[found_line_index]);
                                 const flags: *align(1) LineNumberEntry.Flags = @ptrCast(&line_num_entry.Flags);
 
-                                return debug.LineInfo{
+                                return debug.Info.SourceLocation{
                                     .file_name = source_file_name,
                                     .line = flags.Start,
                                     .column = column,
