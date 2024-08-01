@@ -469,7 +469,7 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
             }
 
             // Initialize the TLS area.
-            std.os.linux.tls.initStaticTLS(phdrs);
+            std.os.linux.tls.initStatic(phdrs);
         }
 
         // The way Linux executables represent stack size is via the PT_GNU_STACK
