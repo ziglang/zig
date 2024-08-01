@@ -299,6 +299,9 @@ test "File.stat on a File that is a symlink returns Kind.sym_link" {
 }
 
 test "Dir.statLink" {
+    // https://github.com/ziglang/zig/issues/20890
+    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
             const dir_target_path = try ctx.transformPath("test_file");
