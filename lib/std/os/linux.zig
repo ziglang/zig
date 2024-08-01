@@ -2496,7 +2496,7 @@ pub const E = switch (native_arch) {
 
         pub const init = errnoFromSyscall;
     },
-    .sparc, .sparcel, .sparc64 => enum(u16) {
+    .sparc, .sparc64 => enum(u16) {
         /// No error occurred.
         SUCCESS = 0,
 
@@ -4843,7 +4843,6 @@ pub const MINSIGSTKSZ = switch (native_arch) {
     => 2048,
     .loongarch64,
     .sparc,
-    .sparcel,
     .sparc64,
     => 4096,
     .aarch64,
@@ -4880,7 +4879,6 @@ pub const SIGSTKSZ = switch (native_arch) {
     .aarch64_be,
     .loongarch64,
     .sparc,
-    .sparcel,
     .sparc64,
     => 16384,
     .powerpc64,

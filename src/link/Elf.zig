@@ -4901,7 +4901,7 @@ fn getLDMOption(target: std.Target) ?[]const u8 {
         .powerpc => return "elf32ppclinux",
         .powerpc64 => return "elf64ppc",
         .powerpc64le => return "elf64lppc",
-        .sparc, .sparcel => return "elf32_sparc",
+        .sparc => return "elf32_sparc",
         .sparc64 => return "elf64_sparc",
         .mips => return "elf32btsmip",
         .mipsel => return "elf32ltsmip",

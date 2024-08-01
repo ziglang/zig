@@ -478,7 +478,6 @@ pub const cache_line = switch (builtin.cpu.arch) {
     .riscv32,
     .riscv64,
     .sparc,
-    .sparcel,
     .sparc64,
     => 32,
 

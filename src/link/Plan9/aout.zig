@@ -110,7 +110,7 @@ pub const R_MAGIC = _MAGIC(HDR_MAGIC, 28); // arm64
 pub fn magicFromArch(arch: std.Target.Cpu.Arch) !u32 {
     return switch (arch) {
         .x86 => I_MAGIC,
-        .sparc => K_MAGIC, // TODO should sparc64 and sparcel go here?
+        .sparc => K_MAGIC, // TODO should sparc64 go here?
         .mips => V_MAGIC,
         .arm => E_MAGIC,
         .aarch64 => R_MAGIC,

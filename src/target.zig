@@ -138,7 +138,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .riscv64,
         .sparc,
         .sparc64,
-        .sparcel,
         .s390x,
         .thumb,
         .thumbeb,
@@ -148,8 +147,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .xtensa,
         .nvptx,
         .nvptx64,
-        .spir,
-        .spir64,
         .spirv,
         .spirv32,
         .spirv64,
@@ -410,7 +407,7 @@ pub fn defaultFunctionAlignment(target: std.Target) Alignment {
     return switch (target.cpu.arch) {
         .arm, .armeb => .@"4",
         .aarch64, .aarch64_be => .@"4",
-        .sparc, .sparcel, .sparc64 => .@"4",
+        .sparc, .sparc64 => .@"4",
         .riscv64 => .@"2",
         else => .@"1",
     };
@@ -425,7 +422,6 @@ pub fn minFunctionAlignment(target: std.Target) Alignment {
         .riscv32,
         .riscv64,
         .sparc,
-        .sparcel,
         .sparc64,
         => .@"2",
         else => .@"1",
