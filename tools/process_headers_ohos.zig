@@ -79,7 +79,7 @@ fn is_in_array(value: []const u8, array: []const []const u8) bool {
 
 // openharmony bulit-in header file
 // should be ignored
-const system_built_in_ability = &[_][]const u8{ "AbilityKit", "BasicServicesKit", "EGL", "GLES2", "GLES3", "IPCKit", "KHR", "SLES", "ace", "ark_runtime", "arkui", "asm-generic", "asm-mips", "asm-riscv", "asset", "bundle", "ffrt", "filemanagement", "fortify", "database", "ddk", "deviceinfo.h", "drm", "hiappevent", "hid", "hidebug", "hilog", "hitrace", "huks", "info", "js_native_api.h", "js_native_api_types.h", "linux", "mtd", "multimedia", "multimodalinput", "napi", "native_buffer", "native_drawing", "native_effect", "native_image", "native_vsync", "native_window", "neural_network_runtime", "ohaudio", "ohcamera", "purgeable_memory", "qos", "rawfile", "rdma", "resourcemanager", "sensors", "sound", "tee", "tee_client", "unicode", "usb", "uv", "uv.h", "version.h", "video", "vulkan", "web", "window_manager", "xen", "zconf.h", "zlib.h" };
+const system_built_in_ability = &[_][]const u8{ "AbilityKit", "BasicServicesKit", "EGL", "GLES2", "GLES3", "IPCKit", "KHR", "SLES", "ace", "ark_runtime", "arkui", "asm-generic", "asm-mips", "asm-riscv", "asset", "bundle", "ffrt", "filemanagement", "fortify", "database", "ddk", "deviceinfo.h", "drm", "hiappevent", "hid", "hidebug", "hilog", "hitrace", "huks", "info", "js_native_api.h", "js_native_api_types.h", "linux", "mtd", "multimedia", "multimodalinput", "napi", "native_buffer", "native_drawing", "native_effect", "native_image", "native_vsync", "native_window", "neural_network_runtime", "ohaudio", "ohcamera", "purgeable_memory", "qos", "rawfile", "rdma", "resourcemanager", "sensors", "sound", "tee", "tee_client", "unicode", "usb", "uv", "uv.h", "version.h", "video", "vulkan", "web", "window_manager", "xen", "zconf.h", "zlib.h", "network" };
 
 const musl_targets = [_]LibCTarget{
     LibCTarget{
@@ -165,7 +165,9 @@ fn generateGenericMuslFileMap(allocator: std.mem.Allocator, generic_musl_path: [
                     const max_size = 2 * 1024 * 1024 * 1024;
                     const raw_bytes = try std.fs.cwd().readFileAlloc(allocator, full_path, max_size);
                     const replaced = try replaceBytes(allocator, raw_bytes, "\r\n", "\n");
-                    const trimmed = std.mem.trim(u8, replaced, " \r\n\t");
+
+                    const removed_comment = try removeComment(allocator, replaced);
+                    const trimmed = std.mem.trim(u8, removed_comment, " \r\n\t");
 
                     const hash = try allocator.alloc(u8, 32);
                     inner_hasher = Blake3.init(.{});
@@ -199,6 +201,33 @@ fn replaceBytes(allocator: std.mem.Allocator, input: []const u8, from: []const u
             i += from.len;
         } else {
             try builder.append(input[i]);
+            i += 1;
+        }
+    }
+
+    return builder.toOwnedSlice();
+}
+
+fn removeComment(allocator: std.mem.Allocator, content: []const u8) ![]u8 {
+    var builder = std.ArrayList(u8).init(allocator);
+
+    var i: usize = 0;
+    while (i < content.len) {
+        if (content[i] == '/' and i + 1 < content.len and content[i + 1] == '/') {
+            // single
+            while (i < content.len and content[i] != '\n') {
+                i += 1;
+            }
+        } else if (content[i] == '/' and i + 1 < content.len and content[i + 1] == '*') {
+            // multi line
+            i += 2;
+            while (i + 1 < content.len and !(content[i] == '*' and content[i + 1] == '/')) {
+                i += 1;
+            }
+            i += 2; // skip end of */
+        } else {
+            // non-comment
+            _ = try builder.append(content[i]);
             i += 1;
         }
     }
@@ -306,7 +335,13 @@ pub fn main() !void {
                             const max_size = 2 * 1024 * 1024 * 1024;
                             const raw_bytes = try std.fs.cwd().readFileAlloc(allocator, full_path, max_size);
                             const replaced = try replaceBytes(allocator, raw_bytes, "\r\n", "\n");
-                            const trimmed = std.mem.trim(u8, replaced, " \r\n\t");
+
+                            // save content
+                            const tmp_content = std.mem.trim(u8, replaced, " \r\n\t");
+
+                            const removed_content = try removeComment(allocator, replaced);
+
+                            const trimmed = std.mem.trim(u8, removed_content, " \r\n\t");
                             total_bytes += raw_bytes.len;
                             const hash = try allocator.alloc(u8, 32);
                             hasher = Blake3.init(.{});
@@ -335,7 +370,7 @@ pub fn main() !void {
                                     });
                                 } else {
                                     gop.value_ptr.* = Contents{
-                                        .bytes = trimmed,
+                                        .bytes = tmp_content,
                                         .hit_count = 1,
                                         .hash = hash,
                                         .is_generic = false,
