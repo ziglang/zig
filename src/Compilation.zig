@@ -2442,7 +2442,15 @@ fn flush(
         try link.File.C.flushEmitH(zcu);
 
         if (zcu.llvm_object) |llvm_object| {
-            try emitLlvmObject(comp, arena, default_artifact_directory, null, llvm_object, prog_node);
+            try emitLlvmObject(
+                comp,
+                arena,
+                default_artifact_directory,
+                null,
+                llvm_object,
+                prog_node,
+                tid,
+            );
         }
     }
 }
@@ -2725,13 +2733,14 @@ pub fn emitLlvmObject(
     bin_emit_loc: ?EmitLoc,
     llvm_object: LlvmObject.Ptr,
     prog_node: std.Progress.Node,
+    tid: Zcu.PerThread.Id,
 ) !void {
     const sub_prog_node = prog_node.start("LLVM Emit Object", 0);
     defer sub_prog_node.end();
 
     try llvm_object.emit(.{
         .zcu = comp.zcu.?,
-        .tid = .main,
+        .tid = tid,
     }, .{
         .pre_ir_path = comp.verbose_llvm_ir,
         .pre_bc_path = comp.verbose_llvm_bc,

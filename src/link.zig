@@ -1348,14 +1348,22 @@ pub const File = struct {
         arena: Allocator,
         llvm_object: LlvmObject.Ptr,
         prog_node: std.Progress.Node,
+        tid: Zcu.PerThread.Id,
     ) !void {
-        return base.comp.emitLlvmObject(arena, .{
-            .root_dir = base.emit.root_dir,
-            .sub_path = std.fs.path.dirname(base.emit.sub_path) orelse "",
-        }, .{
-            .directory = null,
-            .basename = base.zcu_object_sub_path.?,
-        }, llvm_object, prog_node);
+        return base.comp.emitLlvmObject(
+            arena,
+            .{
+                .root_dir = base.emit.root_dir,
+                .sub_path = std.fs.path.dirname(base.emit.sub_path) orelse "",
+            },
+            .{
+                .directory = null,
+                .basename = base.zcu_object_sub_path.?,
+            },
+            llvm_object,
+            prog_node,
+            tid,
+        );
     }
 
     pub const C = @import("link/C.zig");

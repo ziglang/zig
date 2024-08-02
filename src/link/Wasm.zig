@@ -2626,7 +2626,7 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
     const comp = wasm.base.comp;
     const diags = &comp.link_diags;
     if (wasm.llvm_object) |llvm_object| {
-        try wasm.base.emitLlvmObject(arena, llvm_object, prog_node);
+        try wasm.base.emitLlvmObject(arena, llvm_object, prog_node, tid);
         const use_lld = build_options.have_llvm and comp.config.use_lld;
         if (use_lld) return;
     }
