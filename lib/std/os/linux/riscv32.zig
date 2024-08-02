@@ -198,30 +198,6 @@ pub const Flock = extern struct {
     __unused: [4]u8,
 };
 
-pub const msghdr = extern struct {
-    name: ?*sockaddr,
-    namelen: socklen_t,
-    iov: [*]iovec,
-    iovlen: i32,
-    __pad1: i32 = 0,
-    control: ?*anyopaque,
-    controllen: socklen_t,
-    __pad2: socklen_t = 0,
-    flags: i32,
-};
-
-pub const msghdr_const = extern struct {
-    name: ?*const sockaddr,
-    namelen: socklen_t,
-    iov: [*]const iovec_const,
-    iovlen: i32,
-    __pad1: i32 = 0,
-    control: ?*const anyopaque,
-    controllen: socklen_t,
-    __pad2: socklen_t = 0,
-    flags: i32,
-};
-
 // The `stat` definition used by the Linux kernel.
 pub const Stat = extern struct {
     dev: dev_t,
