@@ -2730,6 +2730,9 @@ pub fn emitLlvmObject(
     defer sub_prog_node.end();
 
     try llvm_object.emit(.{
+        .zcu = comp.zcu.?,
+        .tid = .main,
+    }, .{
         .pre_ir_path = comp.verbose_llvm_ir,
         .pre_bc_path = comp.verbose_llvm_bc,
         .bin_path = try resolveEmitLoc(arena, default_artifact_directory, bin_emit_loc),
