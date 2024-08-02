@@ -162,7 +162,7 @@ const glibc_targets = [_]LibCTarget{
     LibCTarget{
         .name = "riscv32-linux-gnu-rv32imac-ilp32",
         .arch = MultiArch{ .specific = Arch.riscv32 },
-        .abi = MultiAbi{ .specific = Abi.gnuilp32 },
+        .abi = MultiAbi{ .specific = Abi.gnu },
     },
     LibCTarget{
         .name = "riscv64-linux-gnu-rv64imac-lp64",

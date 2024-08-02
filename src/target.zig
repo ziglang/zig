@@ -369,7 +369,6 @@ pub fn addrSpaceCastIsValid(
 
 pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
     const have_float = switch (target.abi) {
-        .gnuilp32 => return "ilp32",
         .gnueabihf, .musleabihf, .eabihf => true,
         else => false,
     };
