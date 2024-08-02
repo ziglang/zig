@@ -483,7 +483,21 @@ pub const Os = struct {
                             .min = .{ .major = 4, .minor = 19, .patch = 0 },
                             .max = .{ .major = 6, .minor = 5, .patch = 7 },
                         },
-                        .glibc = .{ .major = 2, .minor = 28, .patch = 0 },
+                        .glibc = blk: {
+                            const default_min = .{ .major = 2, .minor = 28, .patch = 0 };
+
+                            for (std.zig.target.available_libcs) |libc| {
+                                // We don't know the ABI here. We can get away with not checking it
+                                // for now, but that may not always remain true.
+                                if (libc.os != tag or libc.arch != arch) continue;
+
+                                if (libc.glibc_min) |min| {
+                                    if (min.order(default_min) == .gt) break :blk min;
+                                }
+                            }
+
+                            break :blk default_min;
+                        },
                     },
                 },
 
