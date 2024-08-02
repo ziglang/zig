@@ -1742,8 +1742,8 @@ pub const DynamicLinker = struct {
                     else => "/lib64/ld-linux-x86-64.so.2",
                 }),
 
-                .riscv32 => init("/lib/ld-linux-riscv32-ilp32.so.1"),
-                .riscv64 => init("/lib/ld-linux-riscv64-lp64.so.1"),
+                .riscv32 => init("/lib/ld-linux-riscv32-ilp32d.so.1"),
+                .riscv64 => init("/lib/ld-linux-riscv64-lp64d.so.1"),
 
                 // Architectures in this list have been verified as not having a standard
                 // dynamic linker path.
