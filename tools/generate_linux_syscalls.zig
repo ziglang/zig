@@ -76,21 +76,17 @@ const FlowControl = enum {
     none,
 };
 
+const AbiCheckParams = struct { abi: []const u8, flow: FlowControl };
+
 const Filters = struct {
-    abiCheck: ?*const fn (abi: []const u8) FlowControl,
+    abiCheckParams: ?AbiCheckParams,
     fixedName: ?*const fn (name: []const u8) []const u8,
     isReservedNameOld: ?*const fn (name: []const u8) bool,
 };
 
-const AbiCheckFn = *const fn (abi: []const u8) FlowControl;
-
-fn getAbiCheckFunction(comptime b: []const u8, comptime flow: FlowControl) AbiCheckFn {
-    return struct {
-        pub fn abiCheck(abi: []const u8) FlowControl {
-            if (mem.eql(u8, abi, b)) return flow;
-            return .none;
-        }
-    }.abiCheck;
+fn abiCheck(abi: []const u8, params: *const AbiCheckParams) FlowControl {
+    if (mem.eql(u8, abi, params.abi)) return params.flow;
+    return .none;
 }
 
 fn fixedName(name: []const u8) []const u8 {
@@ -138,7 +134,7 @@ const arch_infos = [_]ArchInfo{
             .file_path = "arch/x86/entry/syscalls/syscall_32.tbl",
             .process_file = &processTableBasedArch,
             .filters = .{
-                .abiCheck = null,
+                .abiCheckParams = null,
                 .fixedName = &fixedName,
                 .isReservedNameOld = null,
             },
@@ -155,7 +151,7 @@ const arch_infos = [_]ArchInfo{
             .process_file = &processTableBasedArch,
             .filters = .{
                 // The x32 abi syscalls are always at the end.
-                .abiCheck = getAbiCheckFunction("x32", .@"break"),
+                .abiCheckParams = .{ .abi = "x32", .flow = .@"break" },
                 .fixedName = &fixedName,
                 .isReservedNameOld = null,
             },
@@ -171,7 +167,7 @@ const arch_infos = [_]ArchInfo{
             .file_path = "arch/arm/tools/syscall.tbl",
             .process_file = &processTableBasedArch,
             .filters = .{
-                .abiCheck = getAbiCheckFunction("oabi", .@"continue"),
+                .abiCheckParams = .{ .abi = "oabi", .flow = .@"continue" },
                 .fixedName = &fixedName,
                 .isReservedNameOld = null,
             },
@@ -197,7 +193,7 @@ const arch_infos = [_]ArchInfo{
             .file_path = "arch/sparc/kernel/syscalls/syscall.tbl",
             .process_file = &processTableBasedArch,
             .filters = .{
-                .abiCheck = getAbiCheckFunction("64", .@"continue"),
+                .abiCheckParams = .{ .abi = "64", .flow = .@"continue" },
                 .fixedName = &fixedName,
                 .isReservedNameOld = null,
             },
@@ -213,7 +209,7 @@ const arch_infos = [_]ArchInfo{
             .file_path = "arch/sparc/kernel/syscalls/syscall.tbl",
             .process_file = &processTableBasedArch,
             .filters = .{
-                .abiCheck = getAbiCheckFunction("32", .@"continue"),
+                .abiCheckParams = .{ .abi = "32", .flow = .@"continue" },
                 .fixedName = &fixedName,
                 .isReservedNameOld = null,
             },
@@ -230,7 +226,7 @@ const arch_infos = [_]ArchInfo{
             .process_file = &processTableBasedArch,
             .filters = .{
                 // abi is always common
-                .abiCheck = null,
+                .abiCheckParams = null,
                 .fixedName = &fixedName,
                 .isReservedNameOld = null,
             },
@@ -247,7 +243,7 @@ const arch_infos = [_]ArchInfo{
             .process_file = &processMipsBasedArch,
             .filters = .{
                 // abi is always o32
-                .abiCheck = null,
+                .abiCheckParams = null,
                 .fixedName = &fixedName,
                 .isReservedNameOld = &isReservedNameOld,
             },
@@ -264,7 +260,7 @@ const arch_infos = [_]ArchInfo{
             .process_file = &processMipsBasedArch,
             .filters = .{
                 // abi is always n64
-                .abiCheck = null,
+                .abiCheckParams = null,
                 .fixedName = &fixedName,
                 .isReservedNameOld = &isReservedNameOld,
             },
@@ -281,7 +277,7 @@ const arch_infos = [_]ArchInfo{
             .process_file = &processMipsBasedArch,
             .filters = .{
                 // abi is always n32
-                .abiCheck = null,
+                .abiCheckParams = null,
                 .fixedName = &fixedName,
                 .isReservedNameOld = &isReservedNameOld,
             },
@@ -297,7 +293,7 @@ const arch_infos = [_]ArchInfo{
             .file_path = "arch/powerpc/kernel/syscalls/syscall.tbl",
             .process_file = &processPowerPcBasedArch,
             .filters = .{
-                .abiCheck = null,
+                .abiCheckParams = null,
                 .fixedName = null,
                 .isReservedNameOld = null,
             },
@@ -314,7 +310,7 @@ const arch_infos = [_]ArchInfo{
             .process_file = &processTableBasedArch,
             .filters = .{
                 // 32-bit s390 support in linux is deprecated
-                .abiCheck = getAbiCheckFunction("32", .@"continue"),
+                .abiCheckParams = .{ .abi = "32", .flow = .@"continue" },
                 .fixedName = &fixedName,
                 .isReservedNameOld = null,
             },
@@ -331,7 +327,7 @@ const arch_infos = [_]ArchInfo{
             .process_file = &processTableBasedArch,
             .filters = .{
                 // abi is always common
-                .abiCheck = null,
+                .abiCheckParams = null,
                 .fixedName = fixedName,
                 .isReservedNameOld = &isReservedNameOld,
             },
@@ -483,8 +479,8 @@ fn processTableBasedArch(
         const number = fields.next() orelse return error.Incomplete;
 
         const abi = fields.next() orelse return error.Incomplete;
-        if (filters.abiCheck) |abiCheckFn| {
-            switch (abiCheckFn(abi)) {
+        if (filters.abiCheckParams) |*params| {
+            switch (abiCheck(abi, params)) {
                 .none => {},
                 .@"break" => break,
                 .@"continue" => continue,
@@ -516,8 +512,8 @@ fn processMipsBasedArch(
         const number = fields.next() orelse return error.Incomplete;
 
         const abi = fields.next() orelse return error.Incomplete;
-        if (filters.abiCheck) |abiCheckFn| {
-            switch (abiCheckFn(abi)) {
+        if (filters.abiCheckParams) |*params| {
+            switch (abiCheck(abi, params)) {
                 .none => {},
                 .@"break" => break,
                 .@"continue" => continue,
