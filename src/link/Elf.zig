@@ -5252,14 +5252,6 @@ pub fn isCIdentifier(name: []const u8) bool {
     return true;
 }
 
-pub fn getStartStopBasename(self: *Elf, shdr: elf.Elf64_Shdr) ?[]const u8 {
-    const name = self.getShString(shdr.sh_name);
-    if (shdr.sh_flags & elf.SHF_ALLOC != 0 and name.len > 0) {
-        if (isCIdentifier(name)) return name;
-    }
-    return null;
-}
-
 pub fn addThunk(self: *Elf) !Thunk.Index {
     const index = @as(Thunk.Index, @intCast(self.thunks.items.len));
     const th = try self.thunks.addOne(self.base.comp.gpa);

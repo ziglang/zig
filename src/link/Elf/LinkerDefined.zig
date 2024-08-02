@@ -95,8 +95,9 @@ pub fn initSymbols(self: *LinkerDefined, elf_file: *Elf) !void {
 
     var start_stop_count: usize = 0;
     for (elf_file.objects.items) |index| {
-        for (elf_file.file(index).?.object.shdrs.items) |shdr| {
-            if (elf_file.getStartStopBasename(shdr)) |_| {
+        const object = elf_file.file(index).?.object;
+        for (object.shdrs.items) |shdr| {
+            if (object.getStartStopBasename(shdr)) |_| {
                 start_stop_count += 2; // __start_, __stop_
             }
         }
@@ -140,8 +141,9 @@ pub fn initSymbols(self: *LinkerDefined, elf_file: *Elf) !void {
     }
 
     for (elf_file.objects.items) |index| {
-        for (elf_file.file(index).?.object.shdrs.items) |shdr| {
-            if (elf_file.getStartStopBasename(shdr)) |name| {
+        const object = elf_file.file(index).?.object;
+        for (object.shdrs.items) |shdr| {
+            if (object.getStartStopBasename(shdr)) |name| {
                 const start_name = try std.fmt.allocPrintZ(gpa, "__start_{s}", .{name});
                 defer gpa.free(start_name);
                 const stop_name = try std.fmt.allocPrintZ(gpa, "__stop_{s}", .{name});
