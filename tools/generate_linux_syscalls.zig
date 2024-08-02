@@ -566,6 +566,7 @@ fn processPowerPcBasedArch(
 
 fn generateSyscallsFromTable(
     allocator: std.mem.Allocator,
+    buf: []u8,
     linux_dir: std.fs.Dir,
     writer: anytype,
     _arch_info: *const ArchInfo,
@@ -573,10 +574,6 @@ fn generateSyscallsFromTable(
     std.debug.assert(_arch_info.* == .table);
 
     const arch_info = _arch_info.table;
-
-    // As of 5.17.1, the largest table is 23467 bytes.
-    // 32k should be enough for now.
-    const buf = try allocator.alloc(u8, 1 << 15);
 
     const table = try linux_dir.readFile(arch_info.file_path, buf);
 
@@ -673,10 +670,16 @@ pub fn main() !void {
         \\
     );
 
+    // As of 5.17.1, the largest table is 23467 bytes.
+    // 32k should be enough for now.
+    const buf = try allocator.alloc(u8, 1 << 15);
+    defer allocator.free(buf);
+
     inline for (arch_infos) |arch_info| {
         switch (arch_info) {
             .table => try generateSyscallsFromTable(
                 allocator,
+                buf,
                 linux_dir,
                 writer,
                 &arch_info,
