@@ -374,8 +374,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
                     "-std=gnu11",
                     "-fgnu89-inline",
                     "-fmerge-all-constants",
-                    // glibc sets this flag but clang does not support it.
-                    // "-frounding-math",
+                    "-frounding-math",
                     "-fno-stack-protector",
                     "-fno-common",
                     "-fmath-errno",
