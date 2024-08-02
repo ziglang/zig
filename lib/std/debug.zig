@@ -17,6 +17,7 @@ pub const MemoryAccessor = @import("debug/MemoryAccessor.zig");
 pub const Dwarf = @import("debug/Dwarf.zig");
 pub const Pdb = @import("debug/Pdb.zig");
 pub const SelfInfo = @import("debug/SelfInfo.zig");
+pub const Info = @import("debug/Info.zig");
 
 /// Unresolved source locations can be represented with a single `usize` that
 /// corresponds to a virtual memory address of the program counter. Combined
@@ -26,6 +27,12 @@ pub const SourceLocation = struct {
     line: u64,
     column: u64,
     file_name: []const u8,
+};
+
+pub const Symbol = struct {
+    name: []const u8 = "???",
+    compile_unit_name: []const u8 = "???",
+    source_location: ?SourceLocation = null,
 };
 
 /// Deprecated because it returns the optimization mode of the standard
@@ -871,13 +878,13 @@ pub fn printSourceAtAddress(debug_info: *SelfInfo, out_stream: anytype, address:
         error.MissingDebugInfo, error.InvalidDebugInfo => return printUnknownSource(debug_info, out_stream, address, tty_config),
         else => return err,
     };
-    defer symbol_info.deinit(debug_info.allocator);
+    defer if (symbol_info.source_location) |sl| debug_info.allocator.free(sl.file_name);
 
     return printLineInfo(
         out_stream,
-        symbol_info.line_info,
+        symbol_info.source_location,
         address,
-        symbol_info.symbol_name,
+        symbol_info.name,
         symbol_info.compile_unit_name,
         tty_config,
         printLineFromFileAnyOs,
@@ -886,7 +893,7 @@ pub fn printSourceAtAddress(debug_info: *SelfInfo, out_stream: anytype, address:
 
 fn printLineInfo(
     out_stream: anytype,
-    line_info: ?SourceLocation,
+    source_location: ?SourceLocation,
     address: usize,
     symbol_name: []const u8,
     compile_unit_name: []const u8,
@@ -896,8 +903,8 @@ fn printLineInfo(
     nosuspend {
         try tty_config.setColor(out_stream, .bold);
 
-        if (line_info) |*li| {
-            try out_stream.print("{s}:{d}:{d}", .{ li.file_name, li.line, li.column });
+        if (source_location) |*sl| {
+            try out_stream.print("{s}:{d}:{d}", .{ sl.file_name, sl.line, sl.column });
         } else {
             try out_stream.writeAll("???:?:?");
         }
@@ -910,11 +917,11 @@ fn printLineInfo(
         try out_stream.writeAll("\n");
 
         // Show the matching source code line if possible
-        if (line_info) |li| {
-            if (printLineFromFile(out_stream, li)) {
-                if (li.column > 0) {
+        if (source_location) |sl| {
+            if (printLineFromFile(out_stream, sl)) {
+                if (sl.column > 0) {
                     // The caret already takes one char
-                    const space_needed = @as(usize, @intCast(li.column - 1));
+                    const space_needed = @as(usize, @intCast(sl.column - 1));
 
                     try out_stream.writeByteNTimes(' ', space_needed);
                     try tty_config.setColor(out_stream, .green);
@@ -932,10 +939,10 @@ fn printLineInfo(
     }
 }
 
-fn printLineFromFileAnyOs(out_stream: anytype, line_info: SourceLocation) !void {
+fn printLineFromFileAnyOs(out_stream: anytype, source_location: SourceLocation) !void {
     // Need this to always block even in async I/O mode, because this could potentially
     // be called from e.g. the event loop code crashing.
-    var f = try fs.cwd().openFile(line_info.file_name, .{});
+    var f = try fs.cwd().openFile(source_location.file_name, .{});
     defer f.close();
     // TODO fstat and make sure that the file has the correct size
 
@@ -944,7 +951,7 @@ fn printLineFromFileAnyOs(out_stream: anytype, line_info: SourceLocation) !void 
     const line_start = seek: {
         var current_line_start: usize = 0;
         var next_line: usize = 1;
-        while (next_line != line_info.line) {
+        while (next_line != source_location.line) {
             const slice = buf[current_line_start..amt_read];
             if (mem.indexOfScalar(u8, slice, '\n')) |pos| {
                 next_line += 1;
