@@ -13,6 +13,7 @@ const native_arch = builtin.cpu.arch;
 const native_os = builtin.os.tag;
 const native_endian = native_arch.endian();
 
+pub const MemoryAccessor = @import("debug/MemoryAccessor.zig");
 pub const Dwarf = @import("debug/Dwarf.zig");
 pub const Pdb = @import("debug/Pdb.zig");
 pub const SelfInfo = @import("debug/SelfInfo.zig");
@@ -243,7 +244,7 @@ pub inline fn getContext(context: *ThreadContext) bool {
 /// Tries to print the stack trace starting from the supplied base pointer to stderr,
 /// unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
-pub fn dumpStackTraceFromBase(context: *const ThreadContext) void {
+pub fn dumpStackTraceFromBase(context: *ThreadContext) void {
     nosuspend {
         if (comptime builtin.target.isWasm()) {
             if (native_os == .wasi) {
@@ -545,7 +546,7 @@ pub const StackIterator = struct {
     // using DWARF and MachO unwind info.
     unwind_state: if (have_ucontext) ?struct {
         debug_info: *SelfInfo,
-        dwarf_context: Dwarf.UnwindContext,
+        dwarf_context: SelfInfo.UnwindContext,
         last_error: ?UnwindError = null,
         failed: bool = false,
     } else void = if (have_ucontext) null else {},
@@ -569,16 +570,16 @@ pub const StackIterator = struct {
         };
     }
 
-    pub fn initWithContext(first_address: ?usize, debug_info: *SelfInfo, context: *const posix.ucontext_t) !StackIterator {
+    pub fn initWithContext(first_address: ?usize, debug_info: *SelfInfo, context: *posix.ucontext_t) !StackIterator {
         // The implementation of DWARF unwinding on aarch64-macos is not complete. However, Apple mandates that
         // the frame pointer register is always used, so on this platform we can safely use the FP-based unwinder.
-        if (comptime builtin.target.isDarwin() and native_arch == .aarch64) {
+        if (builtin.target.isDarwin() and native_arch == .aarch64) {
             return init(first_address, context.mcontext.ss.fp);
         } else {
             var iterator = init(first_address, null);
             iterator.unwind_state = .{
                 .debug_info = debug_info,
-                .dwarf_context = try Dwarf.UnwindContext.init(debug_info.allocator, context),
+                .dwarf_context = try SelfInfo.UnwindContext.init(debug_info.allocator, context),
             };
 
             return iterator;
@@ -644,116 +645,6 @@ pub const StackIterator = struct {
         return address;
     }
 
-    fn isValidMemory(address: usize) bool {
-        // We are unable to determine validity of memory for freestanding targets
-        if (native_os == .freestanding or native_os == .uefi) return true;
-
-        const aligned_address = address & ~@as(usize, @intCast((mem.page_size - 1)));
-        if (aligned_address == 0) return false;
-        const aligned_memory = @as([*]align(mem.page_size) u8, @ptrFromInt(aligned_address))[0..mem.page_size];
-
-        if (native_os == .windows) {
-            var memory_info: windows.MEMORY_BASIC_INFORMATION = undefined;
-
-            // The only error this function can throw is ERROR_INVALID_PARAMETER.
-            // supply an address that invalid i'll be thrown.
-            const rc = windows.VirtualQuery(aligned_memory, &memory_info, aligned_memory.len) catch {
-                return false;
-            };
-
-            // Result code has to be bigger than zero (number of bytes written)
-            if (rc == 0) {
-                return false;
-            }
-
-            // Free pages cannot be read, they are unmapped
-            if (memory_info.State == windows.MEM_FREE) {
-                return false;
-            }
-
-            return true;
-        } else if (have_msync) {
-            posix.msync(aligned_memory, posix.MSF.ASYNC) catch |err| {
-                switch (err) {
-                    error.UnmappedMemory => return false,
-                    else => unreachable,
-                }
-            };
-
-            return true;
-        } else {
-            // We are unable to determine validity of memory on this target.
-            return true;
-        }
-    }
-
-    pub const MemoryAccessor = struct {
-        var cached_pid: posix.pid_t = -1;
-
-        mem: switch (native_os) {
-            .linux => File,
-            else => void,
-        },
-
-        pub const init: MemoryAccessor = .{
-            .mem = switch (native_os) {
-                .linux => .{ .handle = -1 },
-                else => {},
-            },
-        };
-
-        fn read(ma: *MemoryAccessor, address: usize, buf: []u8) bool {
-            switch (native_os) {
-                .linux => while (true) switch (ma.mem.handle) {
-                    -2 => break,
-                    -1 => {
-                        const linux = std.os.linux;
-                        const pid = switch (@atomicLoad(posix.pid_t, &cached_pid, .monotonic)) {
-                            -1 => pid: {
-                                const pid = linux.getpid();
-                                @atomicStore(posix.pid_t, &cached_pid, pid, .monotonic);
-                                break :pid pid;
-                            },
-                            else => |pid| pid,
-                        };
-                        const bytes_read = linux.process_vm_readv(
-                            pid,
-                            &.{.{ .base = buf.ptr, .len = buf.len }},
-                            &.{.{ .base = @ptrFromInt(address), .len = buf.len }},
-                            0,
-                        );
-                        switch (linux.E.init(bytes_read)) {
-                            .SUCCESS => return bytes_read == buf.len,
-                            .FAULT => return false,
-                            .INVAL, .PERM, .SRCH => unreachable, // own pid is always valid
-                            .NOMEM => {},
-                            .NOSYS => {}, // QEMU is known not to implement this syscall.
-                            else => unreachable, // unexpected
-                        }
-                        var path_buf: [
-                            std.fmt.count("/proc/{d}/mem", .{math.minInt(posix.pid_t)})
-                        ]u8 = undefined;
-                        const path = std.fmt.bufPrint(&path_buf, "/proc/{d}/mem", .{pid}) catch
-                            unreachable;
-                        ma.mem = std.fs.openFileAbsolute(path, .{}) catch {
-                            ma.mem.handle = -2;
-                            break;
-                        };
-                    },
-                    else => return (ma.mem.pread(buf, address) catch return false) == buf.len,
-                },
-                else => {},
-            }
-            if (!isValidMemory(address)) return false;
-            @memcpy(buf, @as([*]const u8, @ptrFromInt(address)));
-            return true;
-        }
-        pub fn load(ma: *MemoryAccessor, comptime Type: type, address: usize) ?Type {
-            var result: Type = undefined;
-            return if (ma.read(address, std.mem.asBytes(&result))) result else null;
-        }
-    };
-
     fn next_unwind(it: *StackIterator) !usize {
         const unwind_state = &it.unwind_state.?;
         const module = try unwind_state.debug_info.getModuleForAddress(unwind_state.dwarf_context.pc);
@@ -762,7 +653,13 @@ pub const StackIterator = struct {
                 // __unwind_info is a requirement for unwinding on Darwin. It may fall back to DWARF, but unwinding
                 // via DWARF before attempting to use the compact unwind info will produce incorrect results.
                 if (module.unwind_info) |unwind_info| {
-                    if (Dwarf.unwindFrameMachO(&unwind_state.dwarf_context, &it.ma, unwind_info, module.eh_frame, module.base_address)) |return_address| {
+                    if (SelfInfo.unwindFrameMachO(
+                        &unwind_state.dwarf_context,
+                        &it.ma,
+                        unwind_info,
+                        module.eh_frame,
+                        module.base_address,
+                    )) |return_address| {
                         return return_address;
                     } else |err| {
                         if (err != error.RequiresDWARFUnwind) return err;
@@ -773,7 +670,7 @@ pub const StackIterator = struct {
         }
 
         if (try module.getDwarfInfoForAddress(unwind_state.debug_info.allocator, unwind_state.dwarf_context.pc)) |di| {
-            return di.unwindFrame(&unwind_state.dwarf_context, &it.ma, null);
+            return SelfInfo.unwindFrameDwarf(di, &unwind_state.dwarf_context, &it.ma, null);
         } else return error.MissingDebugInfo;
     }
 
@@ -820,11 +717,6 @@ pub const StackIterator = struct {
 
         return new_pc;
     }
-};
-
-const have_msync = switch (native_os) {
-    .wasi, .emscripten, .windows => false,
-    else => true,
 };
 
 pub fn writeCurrentStackTrace(
@@ -1333,7 +1225,7 @@ fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopa
     posix.abort();
 }
 
-fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*const anyopaque) void {
+fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*anyopaque) void {
     const stderr = io.getStdErr().writer();
     _ = switch (sig) {
         posix.SIG.SEGV => if (native_arch == .x86_64 and native_os == .linux and code == 128) // SI_KERNEL
@@ -1359,7 +1251,7 @@ fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*const anyo
         .arm,
         .aarch64,
         => {
-            const ctx: *const posix.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
+            const ctx: *posix.ucontext_t = @ptrCast(@alignCast(ctx_ptr));
             dumpStackTraceFromBase(ctx);
         },
         else => {},
@@ -1582,6 +1474,99 @@ pub const SafetyLock = struct {
     pub fn assertUnlocked(l: SafetyLock) void {
         if (!runtime_safety) return;
         assert(l.state == .unlocked);
+    }
+};
+
+/// Deprecated. Don't use this, just read from your memory directly.
+///
+/// This only exists because someone was too lazy to rework logic that used to
+/// operate on an open file to operate on a memory buffer instead.
+pub const DeprecatedFixedBufferReader = struct {
+    buf: []const u8,
+    pos: usize = 0,
+    endian: std.builtin.Endian,
+
+    pub const Error = error{ EndOfBuffer, Overflow, InvalidBuffer };
+
+    pub fn seekTo(fbr: *DeprecatedFixedBufferReader, pos: u64) Error!void {
+        if (pos > fbr.buf.len) return error.EndOfBuffer;
+        fbr.pos = @intCast(pos);
+    }
+
+    pub fn seekForward(fbr: *DeprecatedFixedBufferReader, amount: u64) Error!void {
+        if (fbr.buf.len - fbr.pos < amount) return error.EndOfBuffer;
+        fbr.pos += @intCast(amount);
+    }
+
+    pub inline fn readByte(fbr: *DeprecatedFixedBufferReader) Error!u8 {
+        if (fbr.pos >= fbr.buf.len) return error.EndOfBuffer;
+        defer fbr.pos += 1;
+        return fbr.buf[fbr.pos];
+    }
+
+    pub fn readByteSigned(fbr: *DeprecatedFixedBufferReader) Error!i8 {
+        return @bitCast(try fbr.readByte());
+    }
+
+    pub fn readInt(fbr: *DeprecatedFixedBufferReader, comptime T: type) Error!T {
+        const size = @divExact(@typeInfo(T).Int.bits, 8);
+        if (fbr.buf.len - fbr.pos < size) return error.EndOfBuffer;
+        defer fbr.pos += size;
+        return std.mem.readInt(T, fbr.buf[fbr.pos..][0..size], fbr.endian);
+    }
+
+    pub fn readIntChecked(
+        fbr: *DeprecatedFixedBufferReader,
+        comptime T: type,
+        ma: *MemoryAccessor,
+    ) Error!T {
+        if (ma.load(T, @intFromPtr(fbr.buf[fbr.pos..].ptr)) == null)
+            return error.InvalidBuffer;
+
+        return fbr.readInt(T);
+    }
+
+    pub fn readUleb128(fbr: *DeprecatedFixedBufferReader, comptime T: type) Error!T {
+        return std.leb.readUleb128(T, fbr);
+    }
+
+    pub fn readIleb128(fbr: *DeprecatedFixedBufferReader, comptime T: type) Error!T {
+        return std.leb.readIleb128(T, fbr);
+    }
+
+    pub fn readAddress(fbr: *DeprecatedFixedBufferReader, format: std.dwarf.Format) Error!u64 {
+        return switch (format) {
+            .@"32" => try fbr.readInt(u32),
+            .@"64" => try fbr.readInt(u64),
+        };
+    }
+
+    pub fn readAddressChecked(
+        fbr: *DeprecatedFixedBufferReader,
+        format: std.dwarf.Format,
+        ma: *MemoryAccessor,
+    ) Error!u64 {
+        return switch (format) {
+            .@"32" => try fbr.readIntChecked(u32, ma),
+            .@"64" => try fbr.readIntChecked(u64, ma),
+        };
+    }
+
+    pub fn readBytes(fbr: *DeprecatedFixedBufferReader, len: usize) Error![]const u8 {
+        if (fbr.buf.len - fbr.pos < len) return error.EndOfBuffer;
+        defer fbr.pos += len;
+        return fbr.buf[fbr.pos..][0..len];
+    }
+
+    pub fn readBytesTo(fbr: *DeprecatedFixedBufferReader, comptime sentinel: u8) Error![:sentinel]const u8 {
+        const end = @call(.always_inline, std.mem.indexOfScalarPos, .{
+            u8,
+            fbr.buf,
+            fbr.pos,
+            sentinel,
+        }) orelse return error.EndOfBuffer;
+        defer fbr.pos = end + 1;
+        return fbr.buf[fbr.pos..end :sentinel];
     }
 };
 

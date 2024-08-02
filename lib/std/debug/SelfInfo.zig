@@ -22,6 +22,9 @@ const Pdb = std.debug.Pdb;
 const File = std.fs.File;
 const math = std.math;
 const testing = std.testing;
+const StackIterator = std.debug.StackIterator;
+const regBytes = Dwarf.abi.regBytes;
+const regValueNative = Dwarf.abi.regValueNative;
 
 const SelfInfo = @This();
 
@@ -1368,4 +1371,1034 @@ fn getSymbolFromDwarf(allocator: Allocator, address: u64, di: *Dwarf) !SymbolInf
         },
         else => return err,
     }
+}
+
+/// Unwind a frame using MachO compact unwind info (from __unwind_info).
+/// If the compact encoding can't encode a way to unwind a frame, it will
+/// defer unwinding to DWARF, in which case `.eh_frame` will be used if available.
+pub fn unwindFrameMachO(
+    context: *UnwindContext,
+    ma: *std.debug.MemoryAccessor,
+    unwind_info: []const u8,
+    eh_frame: ?[]const u8,
+    module_base_address: usize,
+) !usize {
+    const header = std.mem.bytesAsValue(
+        macho.unwind_info_section_header,
+        unwind_info[0..@sizeOf(macho.unwind_info_section_header)],
+    );
+    const indices = std.mem.bytesAsSlice(
+        macho.unwind_info_section_header_index_entry,
+        unwind_info[header.indexSectionOffset..][0 .. header.indexCount * @sizeOf(macho.unwind_info_section_header_index_entry)],
+    );
+    if (indices.len == 0) return error.MissingUnwindInfo;
+
+    const mapped_pc = context.pc - module_base_address;
+    const second_level_index = blk: {
+        var left: usize = 0;
+        var len: usize = indices.len;
+
+        while (len > 1) {
+            const mid = left + len / 2;
+            const offset = indices[mid].functionOffset;
+            if (mapped_pc < offset) {
+                len /= 2;
+            } else {
+                left = mid;
+                if (mapped_pc == offset) break;
+                len -= len / 2;
+            }
+        }
+
+        // Last index is a sentinel containing the highest address as its functionOffset
+        if (indices[left].secondLevelPagesSectionOffset == 0) return error.MissingUnwindInfo;
+        break :blk &indices[left];
+    };
+
+    const common_encodings = std.mem.bytesAsSlice(
+        macho.compact_unwind_encoding_t,
+        unwind_info[header.commonEncodingsArraySectionOffset..][0 .. header.commonEncodingsArrayCount * @sizeOf(macho.compact_unwind_encoding_t)],
+    );
+
+    const start_offset = second_level_index.secondLevelPagesSectionOffset;
+    const kind = std.mem.bytesAsValue(
+        macho.UNWIND_SECOND_LEVEL,
+        unwind_info[start_offset..][0..@sizeOf(macho.UNWIND_SECOND_LEVEL)],
+    );
+
+    const entry: struct {
+        function_offset: usize,
+        raw_encoding: u32,
+    } = switch (kind.*) {
+        .REGULAR => blk: {
+            const page_header = std.mem.bytesAsValue(
+                macho.unwind_info_regular_second_level_page_header,
+                unwind_info[start_offset..][0..@sizeOf(macho.unwind_info_regular_second_level_page_header)],
+            );
+
+            const entries = std.mem.bytesAsSlice(
+                macho.unwind_info_regular_second_level_entry,
+                unwind_info[start_offset + page_header.entryPageOffset ..][0 .. page_header.entryCount * @sizeOf(macho.unwind_info_regular_second_level_entry)],
+            );
+            if (entries.len == 0) return error.InvalidUnwindInfo;
+
+            var left: usize = 0;
+            var len: usize = entries.len;
+            while (len > 1) {
+                const mid = left + len / 2;
+                const offset = entries[mid].functionOffset;
+                if (mapped_pc < offset) {
+                    len /= 2;
+                } else {
+                    left = mid;
+                    if (mapped_pc == offset) break;
+                    len -= len / 2;
+                }
+            }
+
+            break :blk .{
+                .function_offset = entries[left].functionOffset,
+                .raw_encoding = entries[left].encoding,
+            };
+        },
+        .COMPRESSED => blk: {
+            const page_header = std.mem.bytesAsValue(
+                macho.unwind_info_compressed_second_level_page_header,
+                unwind_info[start_offset..][0..@sizeOf(macho.unwind_info_compressed_second_level_page_header)],
+            );
+
+            const entries = std.mem.bytesAsSlice(
+                macho.UnwindInfoCompressedEntry,
+                unwind_info[start_offset + page_header.entryPageOffset ..][0 .. page_header.entryCount * @sizeOf(macho.UnwindInfoCompressedEntry)],
+            );
+            if (entries.len == 0) return error.InvalidUnwindInfo;
+
+            var left: usize = 0;
+            var len: usize = entries.len;
+            while (len > 1) {
+                const mid = left + len / 2;
+                const offset = second_level_index.functionOffset + entries[mid].funcOffset;
+                if (mapped_pc < offset) {
+                    len /= 2;
+                } else {
+                    left = mid;
+                    if (mapped_pc == offset) break;
+                    len -= len / 2;
+                }
+            }
+
+            const entry = entries[left];
+            const function_offset = second_level_index.functionOffset + entry.funcOffset;
+            if (entry.encodingIndex < header.commonEncodingsArrayCount) {
+                if (entry.encodingIndex >= common_encodings.len) return error.InvalidUnwindInfo;
+                break :blk .{
+                    .function_offset = function_offset,
+                    .raw_encoding = common_encodings[entry.encodingIndex],
+                };
+            } else {
+                const local_index = try math.sub(
+                    u8,
+                    entry.encodingIndex,
+                    math.cast(u8, header.commonEncodingsArrayCount) orelse return error.InvalidUnwindInfo,
+                );
+                const local_encodings = std.mem.bytesAsSlice(
+                    macho.compact_unwind_encoding_t,
+                    unwind_info[start_offset + page_header.encodingsPageOffset ..][0 .. page_header.encodingsCount * @sizeOf(macho.compact_unwind_encoding_t)],
+                );
+                if (local_index >= local_encodings.len) return error.InvalidUnwindInfo;
+                break :blk .{
+                    .function_offset = function_offset,
+                    .raw_encoding = local_encodings[local_index],
+                };
+            }
+        },
+        else => return error.InvalidUnwindInfo,
+    };
+
+    if (entry.raw_encoding == 0) return error.NoUnwindInfo;
+    const reg_context = Dwarf.abi.RegisterContext{
+        .eh_frame = false,
+        .is_macho = true,
+    };
+
+    const encoding: macho.CompactUnwindEncoding = @bitCast(entry.raw_encoding);
+    const new_ip = switch (builtin.cpu.arch) {
+        .x86_64 => switch (encoding.mode.x86_64) {
+            .OLD => return error.UnimplementedUnwindEncoding,
+            .RBP_FRAME => blk: {
+                const regs: [5]u3 = .{
+                    encoding.value.x86_64.frame.reg0,
+                    encoding.value.x86_64.frame.reg1,
+                    encoding.value.x86_64.frame.reg2,
+                    encoding.value.x86_64.frame.reg3,
+                    encoding.value.x86_64.frame.reg4,
+                };
+
+                const frame_offset = encoding.value.x86_64.frame.frame_offset * @sizeOf(usize);
+                var max_reg: usize = 0;
+                inline for (regs, 0..) |reg, i| {
+                    if (reg > 0) max_reg = i;
+                }
+
+                const fp = (try regValueNative(context.thread_context, fpRegNum(reg_context), reg_context)).*;
+                const new_sp = fp + 2 * @sizeOf(usize);
+
+                // Verify the stack range we're about to read register values from
+                if (ma.load(usize, new_sp) == null or ma.load(usize, fp - frame_offset + max_reg * @sizeOf(usize)) == null) return error.InvalidUnwindInfo;
+
+                const ip_ptr = fp + @sizeOf(usize);
+                const new_ip = @as(*const usize, @ptrFromInt(ip_ptr)).*;
+                const new_fp = @as(*const usize, @ptrFromInt(fp)).*;
+
+                (try regValueNative(context.thread_context, fpRegNum(reg_context), reg_context)).* = new_fp;
+                (try regValueNative(context.thread_context, spRegNum(reg_context), reg_context)).* = new_sp;
+                (try regValueNative(context.thread_context, ip_reg_num, reg_context)).* = new_ip;
+
+                for (regs, 0..) |reg, i| {
+                    if (reg == 0) continue;
+                    const addr = fp - frame_offset + i * @sizeOf(usize);
+                    const reg_number = try Dwarf.compactUnwindToDwarfRegNumber(reg);
+                    (try regValueNative(context.thread_context, reg_number, reg_context)).* = @as(*const usize, @ptrFromInt(addr)).*;
+                }
+
+                break :blk new_ip;
+            },
+            .STACK_IMMD,
+            .STACK_IND,
+            => blk: {
+                const sp = (try regValueNative(context.thread_context, spRegNum(reg_context), reg_context)).*;
+                const stack_size = if (encoding.mode.x86_64 == .STACK_IMMD)
+                    @as(usize, encoding.value.x86_64.frameless.stack.direct.stack_size) * @sizeOf(usize)
+                else stack_size: {
+                    // In .STACK_IND, the stack size is inferred from the subq instruction at the beginning of the function.
+                    const sub_offset_addr =
+                        module_base_address +
+                        entry.function_offset +
+                        encoding.value.x86_64.frameless.stack.indirect.sub_offset;
+                    if (ma.load(usize, sub_offset_addr) == null) return error.InvalidUnwindInfo;
+
+                    // `sub_offset_addr` points to the offset of the literal within the instruction
+                    const sub_operand = @as(*align(1) const u32, @ptrFromInt(sub_offset_addr)).*;
+                    break :stack_size sub_operand + @sizeOf(usize) * @as(usize, encoding.value.x86_64.frameless.stack.indirect.stack_adjust);
+                };
+
+                // Decode the Lehmer-coded sequence of registers.
+                // For a description of the encoding see lib/libc/include/any-macos.13-any/mach-o/compact_unwind_encoding.h
+
+                // Decode the variable-based permutation number into its digits. Each digit represents
+                // an index into the list of register numbers that weren't yet used in the sequence at
+                // the time the digit was added.
+                const reg_count = encoding.value.x86_64.frameless.stack_reg_count;
+                const ip_ptr = if (reg_count > 0) reg_blk: {
+                    var digits: [6]u3 = undefined;
+                    var accumulator: usize = encoding.value.x86_64.frameless.stack_reg_permutation;
+                    var base: usize = 2;
+                    for (0..reg_count) |i| {
+                        const div = accumulator / base;
+                        digits[digits.len - 1 - i] = @intCast(accumulator - base * div);
+                        accumulator = div;
+                        base += 1;
+                    }
+
+                    const reg_numbers = [_]u3{ 1, 2, 3, 4, 5, 6 };
+                    var registers: [reg_numbers.len]u3 = undefined;
+                    var used_indices = [_]bool{false} ** reg_numbers.len;
+                    for (digits[digits.len - reg_count ..], 0..) |target_unused_index, i| {
+                        var unused_count: u8 = 0;
+                        const unused_index = for (used_indices, 0..) |used, index| {
+                            if (!used) {
+                                if (target_unused_index == unused_count) break index;
+                                unused_count += 1;
+                            }
+                        } else unreachable;
+
+                        registers[i] = reg_numbers[unused_index];
+                        used_indices[unused_index] = true;
+                    }
+
+                    var reg_addr = sp + stack_size - @sizeOf(usize) * @as(usize, reg_count + 1);
+                    if (ma.load(usize, reg_addr) == null) return error.InvalidUnwindInfo;
+                    for (0..reg_count) |i| {
+                        const reg_number = try Dwarf.compactUnwindToDwarfRegNumber(registers[i]);
+                        (try regValueNative(context.thread_context, reg_number, reg_context)).* = @as(*const usize, @ptrFromInt(reg_addr)).*;
+                        reg_addr += @sizeOf(usize);
+                    }
+
+                    break :reg_blk reg_addr;
+                } else sp + stack_size - @sizeOf(usize);
+
+                const new_ip = @as(*const usize, @ptrFromInt(ip_ptr)).*;
+                const new_sp = ip_ptr + @sizeOf(usize);
+                if (ma.load(usize, new_sp) == null) return error.InvalidUnwindInfo;
+
+                (try regValueNative(context.thread_context, spRegNum(reg_context), reg_context)).* = new_sp;
+                (try regValueNative(context.thread_context, ip_reg_num, reg_context)).* = new_ip;
+
+                break :blk new_ip;
+            },
+            .DWARF => {
+                return unwindFrameMachODwarf(context, ma, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.x86_64.dwarf));
+            },
+        },
+        .aarch64 => switch (encoding.mode.arm64) {
+            .OLD => return error.UnimplementedUnwindEncoding,
+            .FRAMELESS => blk: {
+                const sp = (try regValueNative(context.thread_context, spRegNum(reg_context), reg_context)).*;
+                const new_sp = sp + encoding.value.arm64.frameless.stack_size * 16;
+                const new_ip = (try regValueNative(context.thread_context, 30, reg_context)).*;
+                if (ma.load(usize, new_sp) == null) return error.InvalidUnwindInfo;
+                (try regValueNative(context.thread_context, spRegNum(reg_context), reg_context)).* = new_sp;
+                break :blk new_ip;
+            },
+            .DWARF => {
+                return unwindFrameMachODwarf(context, ma, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.arm64.dwarf));
+            },
+            .FRAME => blk: {
+                const fp = (try regValueNative(context.thread_context, fpRegNum(reg_context), reg_context)).*;
+                const new_sp = fp + 16;
+                const ip_ptr = fp + @sizeOf(usize);
+
+                const num_restored_pairs: usize =
+                    @popCount(@as(u5, @bitCast(encoding.value.arm64.frame.x_reg_pairs))) +
+                    @popCount(@as(u4, @bitCast(encoding.value.arm64.frame.d_reg_pairs)));
+                const min_reg_addr = fp - num_restored_pairs * 2 * @sizeOf(usize);
+
+                if (ma.load(usize, new_sp) == null or ma.load(usize, min_reg_addr) == null) return error.InvalidUnwindInfo;
+
+                var reg_addr = fp - @sizeOf(usize);
+                inline for (@typeInfo(@TypeOf(encoding.value.arm64.frame.x_reg_pairs)).Struct.fields, 0..) |field, i| {
+                    if (@field(encoding.value.arm64.frame.x_reg_pairs, field.name) != 0) {
+                        (try regValueNative(context.thread_context, 19 + i, reg_context)).* = @as(*const usize, @ptrFromInt(reg_addr)).*;
+                        reg_addr += @sizeOf(usize);
+                        (try regValueNative(context.thread_context, 20 + i, reg_context)).* = @as(*const usize, @ptrFromInt(reg_addr)).*;
+                        reg_addr += @sizeOf(usize);
+                    }
+                }
+
+                inline for (@typeInfo(@TypeOf(encoding.value.arm64.frame.d_reg_pairs)).Struct.fields, 0..) |field, i| {
+                    if (@field(encoding.value.arm64.frame.d_reg_pairs, field.name) != 0) {
+                        // Only the lower half of the 128-bit V registers are restored during unwinding
+                        @memcpy(
+                            try regBytes(context.thread_context, 64 + 8 + i, context.reg_context),
+                            std.mem.asBytes(@as(*const usize, @ptrFromInt(reg_addr))),
+                        );
+                        reg_addr += @sizeOf(usize);
+                        @memcpy(
+                            try regBytes(context.thread_context, 64 + 9 + i, context.reg_context),
+                            std.mem.asBytes(@as(*const usize, @ptrFromInt(reg_addr))),
+                        );
+                        reg_addr += @sizeOf(usize);
+                    }
+                }
+
+                const new_ip = @as(*const usize, @ptrFromInt(ip_ptr)).*;
+                const new_fp = @as(*const usize, @ptrFromInt(fp)).*;
+
+                (try regValueNative(context.thread_context, fpRegNum(reg_context), reg_context)).* = new_fp;
+                (try regValueNative(context.thread_context, ip_reg_num, reg_context)).* = new_ip;
+
+                break :blk new_ip;
+            },
+        },
+        else => return error.UnimplementedArch,
+    };
+
+    context.pc = stripInstructionPtrAuthCode(new_ip);
+    if (context.pc > 0) context.pc -= 1;
+    return new_ip;
+}
+
+pub const UnwindContext = struct {
+    allocator: Allocator,
+    cfa: ?usize,
+    pc: usize,
+    thread_context: *std.debug.ThreadContext,
+    reg_context: Dwarf.abi.RegisterContext,
+    vm: VirtualMachine,
+    stack_machine: Dwarf.expression.StackMachine(.{ .call_frame_context = true }),
+
+    pub fn init(
+        allocator: Allocator,
+        thread_context: *std.debug.ThreadContext,
+    ) !UnwindContext {
+        const pc = stripInstructionPtrAuthCode(
+            (try regValueNative(thread_context, ip_reg_num, null)).*,
+        );
+
+        const context_copy = try allocator.create(std.debug.ThreadContext);
+        std.debug.copyContext(thread_context, context_copy);
+
+        return .{
+            .allocator = allocator,
+            .cfa = null,
+            .pc = pc,
+            .thread_context = context_copy,
+            .reg_context = undefined,
+            .vm = .{},
+            .stack_machine = .{},
+        };
+    }
+
+    pub fn deinit(self: *UnwindContext) void {
+        self.vm.deinit(self.allocator);
+        self.stack_machine.deinit(self.allocator);
+        self.allocator.destroy(self.thread_context);
+        self.* = undefined;
+    }
+
+    pub fn getFp(self: *const UnwindContext) !usize {
+        return (try regValueNative(self.thread_context, fpRegNum(self.reg_context), self.reg_context)).*;
+    }
+};
+
+/// Some platforms use pointer authentication - the upper bits of instruction pointers contain a signature.
+/// This function clears these signature bits to make the pointer usable.
+pub inline fn stripInstructionPtrAuthCode(ptr: usize) usize {
+    if (native_arch == .aarch64) {
+        // `hint 0x07` maps to `xpaclri` (or `nop` if the hardware doesn't support it)
+        // The save / restore is because `xpaclri` operates on x30 (LR)
+        return asm (
+            \\mov x16, x30
+            \\mov x30, x15
+            \\hint 0x07
+            \\mov x15, x30
+            \\mov x30, x16
+            : [ret] "={x15}" (-> usize),
+            : [ptr] "{x15}" (ptr),
+            : "x16"
+        );
+    }
+
+    return ptr;
+}
+
+/// Unwind a stack frame using DWARF unwinding info, updating the register context.
+///
+/// If `.eh_frame_hdr` is available, it will be used to binary search for the FDE.
+/// Otherwise, a linear scan of `.eh_frame` and `.debug_frame` is done to find the FDE.
+///
+/// `explicit_fde_offset` is for cases where the FDE offset is known, such as when __unwind_info
+/// defers unwinding to DWARF. This is an offset into the `.eh_frame` section.
+pub fn unwindFrameDwarf(
+    di: *const Dwarf,
+    context: *UnwindContext,
+    ma: *std.debug.MemoryAccessor,
+    explicit_fde_offset: ?usize,
+) !usize {
+    if (!supports_unwinding) return error.UnsupportedCpuArchitecture;
+    if (context.pc == 0) return 0;
+
+    // Find the FDE and CIE
+    var cie: Dwarf.CommonInformationEntry = undefined;
+    var fde: Dwarf.FrameDescriptionEntry = undefined;
+
+    if (explicit_fde_offset) |fde_offset| {
+        const dwarf_section: Dwarf.Section.Id = .eh_frame;
+        const frame_section = di.section(dwarf_section) orelse return error.MissingFDE;
+        if (fde_offset >= frame_section.len) return error.MissingFDE;
+
+        var fbr: std.debug.DeprecatedFixedBufferReader = .{
+            .buf = frame_section,
+            .pos = fde_offset,
+            .endian = di.endian,
+        };
+
+        const fde_entry_header = try Dwarf.EntryHeader.read(&fbr, null, dwarf_section);
+        if (fde_entry_header.type != .fde) return error.MissingFDE;
+
+        const cie_offset = fde_entry_header.type.fde;
+        try fbr.seekTo(cie_offset);
+
+        fbr.endian = native_endian;
+        const cie_entry_header = try Dwarf.EntryHeader.read(&fbr, null, dwarf_section);
+        if (cie_entry_header.type != .cie) return Dwarf.bad();
+
+        cie = try Dwarf.CommonInformationEntry.parse(
+            cie_entry_header.entry_bytes,
+            0,
+            true,
+            cie_entry_header.format,
+            dwarf_section,
+            cie_entry_header.length_offset,
+            @sizeOf(usize),
+            native_endian,
+        );
+
+        fde = try Dwarf.FrameDescriptionEntry.parse(
+            fde_entry_header.entry_bytes,
+            0,
+            true,
+            cie,
+            @sizeOf(usize),
+            native_endian,
+        );
+    } else if (di.eh_frame_hdr) |header| {
+        const eh_frame_len = if (di.section(.eh_frame)) |eh_frame| eh_frame.len else null;
+        try header.findEntry(
+            ma,
+            eh_frame_len,
+            @intFromPtr(di.section(.eh_frame_hdr).?.ptr),
+            context.pc,
+            &cie,
+            &fde,
+        );
+    } else {
+        const index = std.sort.binarySearch(Dwarf.FrameDescriptionEntry, context.pc, di.fde_list.items, {}, struct {
+            pub fn compareFn(_: void, pc: usize, mid_item: Dwarf.FrameDescriptionEntry) std.math.Order {
+                if (pc < mid_item.pc_begin) return .lt;
+
+                const range_end = mid_item.pc_begin + mid_item.pc_range;
+                if (pc < range_end) return .eq;
+
+                return .gt;
+            }
+        }.compareFn);
+
+        fde = if (index) |i| di.fde_list.items[i] else return error.MissingFDE;
+        cie = di.cie_map.get(fde.cie_length_offset) orelse return error.MissingCIE;
+    }
+
+    var expression_context: Dwarf.expression.Context = .{
+        .format = cie.format,
+        .memory_accessor = ma,
+        .compile_unit = di.findCompileUnit(fde.pc_begin) catch null,
+        .thread_context = context.thread_context,
+        .reg_context = context.reg_context,
+        .cfa = context.cfa,
+    };
+
+    context.vm.reset();
+    context.reg_context.eh_frame = cie.version != 4;
+    context.reg_context.is_macho = di.is_macho;
+
+    const row = try context.vm.runToNative(context.allocator, context.pc, cie, fde);
+    context.cfa = switch (row.cfa.rule) {
+        .val_offset => |offset| blk: {
+            const register = row.cfa.register orelse return error.InvalidCFARule;
+            const value = mem.readInt(usize, (try regBytes(context.thread_context, register, context.reg_context))[0..@sizeOf(usize)], native_endian);
+            break :blk try applyOffset(value, offset);
+        },
+        .expression => |expr| blk: {
+            context.stack_machine.reset();
+            const value = try context.stack_machine.run(
+                expr,
+                context.allocator,
+                expression_context,
+                context.cfa,
+            );
+
+            if (value) |v| {
+                if (v != .generic) return error.InvalidExpressionValue;
+                break :blk v.generic;
+            } else return error.NoExpressionValue;
+        },
+        else => return error.InvalidCFARule,
+    };
+
+    if (ma.load(usize, context.cfa.?) == null) return error.InvalidCFA;
+    expression_context.cfa = context.cfa;
+
+    // Buffering the modifications is done because copying the thread context is not portable,
+    // some implementations (ie. darwin) use internal pointers to the mcontext.
+    var arena = std.heap.ArenaAllocator.init(context.allocator);
+    defer arena.deinit();
+    const update_allocator = arena.allocator();
+
+    const RegisterUpdate = struct {
+        // Backed by thread_context
+        dest: []u8,
+        // Backed by arena
+        src: []const u8,
+        prev: ?*@This(),
+    };
+
+    var update_tail: ?*RegisterUpdate = null;
+    var has_return_address = true;
+    for (context.vm.rowColumns(row)) |column| {
+        if (column.register) |register| {
+            if (register == cie.return_address_register) {
+                has_return_address = column.rule != .undefined;
+            }
+
+            const dest = try regBytes(context.thread_context, register, context.reg_context);
+            const src = try update_allocator.alloc(u8, dest.len);
+
+            const prev = update_tail;
+            update_tail = try update_allocator.create(RegisterUpdate);
+            update_tail.?.* = .{
+                .dest = dest,
+                .src = src,
+                .prev = prev,
+            };
+
+            try column.resolveValue(
+                context,
+                expression_context,
+                ma,
+                src,
+            );
+        }
+    }
+
+    // On all implemented architectures, the CFA is defined as being the previous frame's SP
+    (try regValueNative(context.thread_context, spRegNum(context.reg_context), context.reg_context)).* = context.cfa.?;
+
+    while (update_tail) |tail| {
+        @memcpy(tail.dest, tail.src);
+        update_tail = tail.prev;
+    }
+
+    if (has_return_address) {
+        context.pc = stripInstructionPtrAuthCode(mem.readInt(usize, (try regBytes(
+            context.thread_context,
+            cie.return_address_register,
+            context.reg_context,
+        ))[0..@sizeOf(usize)], native_endian));
+    } else {
+        context.pc = 0;
+    }
+
+    (try regValueNative(context.thread_context, ip_reg_num, context.reg_context)).* = context.pc;
+
+    // The call instruction will have pushed the address of the instruction that follows the call as the return address.
+    // This next instruction may be past the end of the function if the caller was `noreturn` (ie. the last instruction in
+    // the function was the call). If we were to look up an FDE entry using the return address directly, it could end up
+    // either not finding an FDE at all, or using the next FDE in the program, producing incorrect results. To prevent this,
+    // we subtract one so that the next lookup is guaranteed to land inside the
+    //
+    // The exception to this rule is signal frames, where we return execution would be returned to the instruction
+    // that triggered the handler.
+    const return_address = context.pc;
+    if (context.pc > 0 and !cie.isSignalFrame()) context.pc -= 1;
+
+    return return_address;
+}
+
+fn fpRegNum(reg_context: Dwarf.abi.RegisterContext) u8 {
+    return Dwarf.abi.fpRegNum(native_arch, reg_context);
+}
+
+fn spRegNum(reg_context: Dwarf.abi.RegisterContext) u8 {
+    return Dwarf.abi.spRegNum(native_arch, reg_context);
+}
+
+const ip_reg_num = Dwarf.abi.ipRegNum(native_arch);
+const supports_unwinding = Dwarf.abi.supportsUnwinding(builtin.target);
+
+fn unwindFrameMachODwarf(
+    context: *UnwindContext,
+    ma: *std.debug.MemoryAccessor,
+    eh_frame: []const u8,
+    fde_offset: usize,
+) !usize {
+    var di: Dwarf = .{
+        .endian = native_endian,
+        .is_macho = true,
+    };
+    defer di.deinit(context.allocator);
+
+    di.sections[@intFromEnum(Dwarf.Section.Id.eh_frame)] = .{
+        .data = eh_frame,
+        .owned = false,
+    };
+
+    return unwindFrameDwarf(&di, context, ma, fde_offset);
+}
+
+/// This is a virtual machine that runs DWARF call frame instructions.
+pub const VirtualMachine = struct {
+    /// See section 6.4.1 of the DWARF5 specification for details on each
+    const RegisterRule = union(enum) {
+        // The spec says that the default rule for each column is the undefined rule.
+        // However, it also allows ABI / compiler authors to specify alternate defaults, so
+        // there is a distinction made here.
+        default: void,
+        undefined: void,
+        same_value: void,
+        // offset(N)
+        offset: i64,
+        // val_offset(N)
+        val_offset: i64,
+        // register(R)
+        register: u8,
+        // expression(E)
+        expression: []const u8,
+        // val_expression(E)
+        val_expression: []const u8,
+        // Augmenter-defined rule
+        architectural: void,
+    };
+
+    /// Each row contains unwinding rules for a set of registers.
+    pub const Row = struct {
+        /// Offset from `FrameDescriptionEntry.pc_begin`
+        offset: u64 = 0,
+        /// Special-case column that defines the CFA (Canonical Frame Address) rule.
+        /// The register field of this column defines the register that CFA is derived from.
+        cfa: Column = .{},
+        /// The register fields in these columns define the register the rule applies to.
+        columns: ColumnRange = .{},
+        /// Indicates that the next write to any column in this row needs to copy
+        /// the backing column storage first, as it may be referenced by previous rows.
+        copy_on_write: bool = false,
+    };
+
+    pub const Column = struct {
+        register: ?u8 = null,
+        rule: RegisterRule = .{ .default = {} },
+
+        /// Resolves the register rule and places the result into `out` (see regBytes)
+        pub fn resolveValue(
+            self: Column,
+            context: *SelfInfo.UnwindContext,
+            expression_context: std.debug.Dwarf.expression.Context,
+            ma: *std.debug.MemoryAccessor,
+            out: []u8,
+        ) !void {
+            switch (self.rule) {
+                .default => {
+                    const register = self.register orelse return error.InvalidRegister;
+                    try getRegDefaultValue(register, context, out);
+                },
+                .undefined => {
+                    @memset(out, undefined);
+                },
+                .same_value => {
+                    // TODO: This copy could be eliminated if callers always copy the state then call this function to update it
+                    const register = self.register orelse return error.InvalidRegister;
+                    const src = try regBytes(context.thread_context, register, context.reg_context);
+                    if (src.len != out.len) return error.RegisterSizeMismatch;
+                    @memcpy(out, src);
+                },
+                .offset => |offset| {
+                    if (context.cfa) |cfa| {
+                        const addr = try applyOffset(cfa, offset);
+                        if (ma.load(usize, addr) == null) return error.InvalidAddress;
+                        const ptr: *const usize = @ptrFromInt(addr);
+                        mem.writeInt(usize, out[0..@sizeOf(usize)], ptr.*, native_endian);
+                    } else return error.InvalidCFA;
+                },
+                .val_offset => |offset| {
+                    if (context.cfa) |cfa| {
+                        mem.writeInt(usize, out[0..@sizeOf(usize)], try applyOffset(cfa, offset), native_endian);
+                    } else return error.InvalidCFA;
+                },
+                .register => |register| {
+                    const src = try regBytes(context.thread_context, register, context.reg_context);
+                    if (src.len != out.len) return error.RegisterSizeMismatch;
+                    @memcpy(out, try regBytes(context.thread_context, register, context.reg_context));
+                },
+                .expression => |expression| {
+                    context.stack_machine.reset();
+                    const value = try context.stack_machine.run(expression, context.allocator, expression_context, context.cfa.?);
+                    const addr = if (value) |v| blk: {
+                        if (v != .generic) return error.InvalidExpressionValue;
+                        break :blk v.generic;
+                    } else return error.NoExpressionValue;
+
+                    if (ma.load(usize, addr) == null) return error.InvalidExpressionAddress;
+                    const ptr: *usize = @ptrFromInt(addr);
+                    mem.writeInt(usize, out[0..@sizeOf(usize)], ptr.*, native_endian);
+                },
+                .val_expression => |expression| {
+                    context.stack_machine.reset();
+                    const value = try context.stack_machine.run(expression, context.allocator, expression_context, context.cfa.?);
+                    if (value) |v| {
+                        if (v != .generic) return error.InvalidExpressionValue;
+                        mem.writeInt(usize, out[0..@sizeOf(usize)], v.generic, native_endian);
+                    } else return error.NoExpressionValue;
+                },
+                .architectural => return error.UnimplementedRegisterRule,
+            }
+        }
+    };
+
+    const ColumnRange = struct {
+        /// Index into `columns` of the first column in this row.
+        start: usize = undefined,
+        len: u8 = 0,
+    };
+
+    columns: std.ArrayListUnmanaged(Column) = .{},
+    stack: std.ArrayListUnmanaged(ColumnRange) = .{},
+    current_row: Row = .{},
+
+    /// The result of executing the CIE's initial_instructions
+    cie_row: ?Row = null,
+
+    pub fn deinit(self: *VirtualMachine, allocator: std.mem.Allocator) void {
+        self.stack.deinit(allocator);
+        self.columns.deinit(allocator);
+        self.* = undefined;
+    }
+
+    pub fn reset(self: *VirtualMachine) void {
+        self.stack.clearRetainingCapacity();
+        self.columns.clearRetainingCapacity();
+        self.current_row = .{};
+        self.cie_row = null;
+    }
+
+    /// Return a slice backed by the row's non-CFA columns
+    pub fn rowColumns(self: VirtualMachine, row: Row) []Column {
+        if (row.columns.len == 0) return &.{};
+        return self.columns.items[row.columns.start..][0..row.columns.len];
+    }
+
+    /// Either retrieves or adds a column for `register` (non-CFA) in the current row.
+    fn getOrAddColumn(self: *VirtualMachine, allocator: std.mem.Allocator, register: u8) !*Column {
+        for (self.rowColumns(self.current_row)) |*c| {
+            if (c.register == register) return c;
+        }
+
+        if (self.current_row.columns.len == 0) {
+            self.current_row.columns.start = self.columns.items.len;
+        }
+        self.current_row.columns.len += 1;
+
+        const column = try self.columns.addOne(allocator);
+        column.* = .{
+            .register = register,
+        };
+
+        return column;
+    }
+
+    /// Runs the CIE instructions, then the FDE instructions. Execution halts
+    /// once the row that corresponds to `pc` is known, and the row is returned.
+    pub fn runTo(
+        self: *VirtualMachine,
+        allocator: std.mem.Allocator,
+        pc: u64,
+        cie: std.debug.Dwarf.CommonInformationEntry,
+        fde: std.debug.Dwarf.FrameDescriptionEntry,
+        addr_size_bytes: u8,
+        endian: std.builtin.Endian,
+    ) !Row {
+        assert(self.cie_row == null);
+        if (pc < fde.pc_begin or pc >= fde.pc_begin + fde.pc_range) return error.AddressOutOfRange;
+
+        var prev_row: Row = self.current_row;
+
+        var cie_stream = std.io.fixedBufferStream(cie.initial_instructions);
+        var fde_stream = std.io.fixedBufferStream(fde.instructions);
+        var streams = [_]*std.io.FixedBufferStream([]const u8){
+            &cie_stream,
+            &fde_stream,
+        };
+
+        for (&streams, 0..) |stream, i| {
+            while (stream.pos < stream.buffer.len) {
+                const instruction = try std.debug.Dwarf.call_frame.Instruction.read(stream, addr_size_bytes, endian);
+                prev_row = try self.step(allocator, cie, i == 0, instruction);
+                if (pc < fde.pc_begin + self.current_row.offset) return prev_row;
+            }
+        }
+
+        return self.current_row;
+    }
+
+    pub fn runToNative(
+        self: *VirtualMachine,
+        allocator: std.mem.Allocator,
+        pc: u64,
+        cie: std.debug.Dwarf.CommonInformationEntry,
+        fde: std.debug.Dwarf.FrameDescriptionEntry,
+    ) !Row {
+        return self.runTo(allocator, pc, cie, fde, @sizeOf(usize), native_endian);
+    }
+
+    fn resolveCopyOnWrite(self: *VirtualMachine, allocator: std.mem.Allocator) !void {
+        if (!self.current_row.copy_on_write) return;
+
+        const new_start = self.columns.items.len;
+        if (self.current_row.columns.len > 0) {
+            try self.columns.ensureUnusedCapacity(allocator, self.current_row.columns.len);
+            self.columns.appendSliceAssumeCapacity(self.rowColumns(self.current_row));
+            self.current_row.columns.start = new_start;
+        }
+    }
+
+    /// Executes a single instruction.
+    /// If this instruction is from the CIE, `is_initial` should be set.
+    /// Returns the value of `current_row` before executing this instruction.
+    pub fn step(
+        self: *VirtualMachine,
+        allocator: std.mem.Allocator,
+        cie: std.debug.Dwarf.CommonInformationEntry,
+        is_initial: bool,
+        instruction: Dwarf.call_frame.Instruction,
+    ) !Row {
+        // CIE instructions must be run before FDE instructions
+        assert(!is_initial or self.cie_row == null);
+        if (!is_initial and self.cie_row == null) {
+            self.cie_row = self.current_row;
+            self.current_row.copy_on_write = true;
+        }
+
+        const prev_row = self.current_row;
+        switch (instruction) {
+            .set_loc => |i| {
+                if (i.address <= self.current_row.offset) return error.InvalidOperation;
+                // TODO: Check cie.segment_selector_size != 0 for DWARFV4
+                self.current_row.offset = i.address;
+            },
+            inline .advance_loc,
+            .advance_loc1,
+            .advance_loc2,
+            .advance_loc4,
+            => |i| {
+                self.current_row.offset += i.delta * cie.code_alignment_factor;
+                self.current_row.copy_on_write = true;
+            },
+            inline .offset,
+            .offset_extended,
+            .offset_extended_sf,
+            => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                const column = try self.getOrAddColumn(allocator, i.register);
+                column.rule = .{ .offset = @as(i64, @intCast(i.offset)) * cie.data_alignment_factor };
+            },
+            inline .restore,
+            .restore_extended,
+            => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                if (self.cie_row) |cie_row| {
+                    const column = try self.getOrAddColumn(allocator, i.register);
+                    column.rule = for (self.rowColumns(cie_row)) |cie_column| {
+                        if (cie_column.register == i.register) break cie_column.rule;
+                    } else .{ .default = {} };
+                } else return error.InvalidOperation;
+            },
+            .nop => {},
+            .undefined => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                const column = try self.getOrAddColumn(allocator, i.register);
+                column.rule = .{ .undefined = {} };
+            },
+            .same_value => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                const column = try self.getOrAddColumn(allocator, i.register);
+                column.rule = .{ .same_value = {} };
+            },
+            .register => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                const column = try self.getOrAddColumn(allocator, i.register);
+                column.rule = .{ .register = i.target_register };
+            },
+            .remember_state => {
+                try self.stack.append(allocator, self.current_row.columns);
+                self.current_row.copy_on_write = true;
+            },
+            .restore_state => {
+                const restored_columns = self.stack.popOrNull() orelse return error.InvalidOperation;
+                self.columns.shrinkRetainingCapacity(self.columns.items.len - self.current_row.columns.len);
+                try self.columns.ensureUnusedCapacity(allocator, restored_columns.len);
+
+                self.current_row.columns.start = self.columns.items.len;
+                self.current_row.columns.len = restored_columns.len;
+                self.columns.appendSliceAssumeCapacity(self.columns.items[restored_columns.start..][0..restored_columns.len]);
+            },
+            .def_cfa => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                self.current_row.cfa = .{
+                    .register = i.register,
+                    .rule = .{ .val_offset = @intCast(i.offset) },
+                };
+            },
+            .def_cfa_sf => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                self.current_row.cfa = .{
+                    .register = i.register,
+                    .rule = .{ .val_offset = i.offset * cie.data_alignment_factor },
+                };
+            },
+            .def_cfa_register => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                if (self.current_row.cfa.register == null or self.current_row.cfa.rule != .val_offset) return error.InvalidOperation;
+                self.current_row.cfa.register = i.register;
+            },
+            .def_cfa_offset => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                if (self.current_row.cfa.register == null or self.current_row.cfa.rule != .val_offset) return error.InvalidOperation;
+                self.current_row.cfa.rule = .{
+                    .val_offset = @intCast(i.offset),
+                };
+            },
+            .def_cfa_offset_sf => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                if (self.current_row.cfa.register == null or self.current_row.cfa.rule != .val_offset) return error.InvalidOperation;
+                self.current_row.cfa.rule = .{
+                    .val_offset = i.offset * cie.data_alignment_factor,
+                };
+            },
+            .def_cfa_expression => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                self.current_row.cfa.register = undefined;
+                self.current_row.cfa.rule = .{
+                    .expression = i.block,
+                };
+            },
+            .expression => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                const column = try self.getOrAddColumn(allocator, i.register);
+                column.rule = .{
+                    .expression = i.block,
+                };
+            },
+            .val_offset => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                const column = try self.getOrAddColumn(allocator, i.register);
+                column.rule = .{
+                    .val_offset = @as(i64, @intCast(i.offset)) * cie.data_alignment_factor,
+                };
+            },
+            .val_offset_sf => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                const column = try self.getOrAddColumn(allocator, i.register);
+                column.rule = .{
+                    .val_offset = i.offset * cie.data_alignment_factor,
+                };
+            },
+            .val_expression => |i| {
+                try self.resolveCopyOnWrite(allocator);
+                const column = try self.getOrAddColumn(allocator, i.register);
+                column.rule = .{
+                    .val_expression = i.block,
+                };
+            },
+        }
+
+        return prev_row;
+    }
+};
+
+/// Returns the ABI-defined default value this register has in the unwinding table
+/// before running any of the CIE instructions. The DWARF spec defines these as having
+/// the .undefined rule by default, but allows ABI authors to override that.
+fn getRegDefaultValue(reg_number: u8, context: *UnwindContext, out: []u8) !void {
+    switch (builtin.cpu.arch) {
+        .aarch64 => {
+            // Callee-saved registers are initialized as if they had the .same_value rule
+            if (reg_number >= 19 and reg_number <= 28) {
+                const src = try regBytes(context.thread_context, reg_number, context.reg_context);
+                if (src.len != out.len) return error.RegisterSizeMismatch;
+                @memcpy(out, src);
+                return;
+            }
+        },
+        else => {},
+    }
+
+    @memset(out, undefined);
+}
+
+/// Since register rules are applied (usually) during a panic,
+/// checked addition / subtraction is used so that we can return
+/// an error and fall back to FP-based unwinding.
+fn applyOffset(base: usize, offset: i64) !usize {
+    return if (offset >= 0)
+        try std.math.add(usize, base, @as(usize, @intCast(offset)))
+    else
+        try std.math.sub(usize, base, @as(usize, @intCast(-offset)));
 }
