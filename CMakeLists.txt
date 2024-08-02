@@ -932,7 +932,7 @@ endif()
 
 # To obtain this document, run `zig build` against stage3 rather than stage2.
 # Note that the `langref` step can be used to isolate this task.
-set(ZIG_BUILD_ARGS
+list(APPEND ZIG_BUILD_ARGS
   --zig-lib-dir "${PROJECT_SOURCE_DIR}/lib"
 
   "-Dversion-string=${RESOLVED_ZIG_VERSION}"
