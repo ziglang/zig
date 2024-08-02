@@ -12,6 +12,8 @@ const native_endian = builtin.cpu.arch.endian();
 
 const std = @import("../std.zig");
 const Allocator = std.mem.Allocator;
+const elf = std.elf;
+const mem = std.mem;
 const DW = std.dwarf;
 const AT = DW.AT;
 const EH = DW.EH;
@@ -22,8 +24,8 @@ const UT = DW.UT;
 const assert = std.debug.assert;
 const cast = std.math.cast;
 const maxInt = std.math.maxInt;
-const readInt = std.mem.readInt;
 const MemoryAccessor = std.debug.MemoryAccessor;
+const Path = std.Build.Cache.Path;
 
 /// Did I mention this is deprecated?
 const DeprecatedFixedBufferReader = std.debug.DeprecatedFixedBufferReader;
@@ -252,13 +254,13 @@ pub const Die = struct {
                     .@"32" => {
                         const byte_offset = compile_unit.str_offsets_base + 4 * index;
                         if (byte_offset + 4 > debug_str_offsets.len) return bad();
-                        const offset = readInt(u32, debug_str_offsets[byte_offset..][0..4], di.endian);
+                        const offset = mem.readInt(u32, debug_str_offsets[byte_offset..][0..4], di.endian);
                         return getStringGeneric(opt_str, offset);
                     },
                     .@"64" => {
                         const byte_offset = compile_unit.str_offsets_base + 8 * index;
                         if (byte_offset + 8 > debug_str_offsets.len) return bad();
-                        const offset = readInt(u64, debug_str_offsets[byte_offset..][0..8], di.endian);
+                        const offset = mem.readInt(u64, debug_str_offsets[byte_offset..][0..8], di.endian);
                         return getStringGeneric(opt_str, offset);
                     },
                 }
@@ -721,12 +723,14 @@ const num_sections = std.enums.directEnumArrayLen(Section.Id, 0);
 pub const SectionArray = [num_sections]?Section;
 pub const null_section_array = [_]?Section{null} ** num_sections;
 
+pub const OpenError = ScanError;
+
 /// Initialize DWARF info. The caller has the responsibility to initialize most
 /// the `Dwarf` fields before calling. `binary_mem` is the raw bytes of the
 /// main binary file (not the secondary debug info file).
-pub fn open(di: *Dwarf, allocator: Allocator) !void {
-    try di.scanAllFunctions(allocator);
-    try di.scanAllCompileUnits(allocator);
+pub fn open(di: *Dwarf, gpa: Allocator) OpenError!void {
+    try di.scanAllFunctions(gpa);
+    try di.scanAllCompileUnits(gpa);
 }
 
 const PcRange = struct {
@@ -747,21 +751,21 @@ pub fn sectionVirtualOffset(di: Dwarf, dwarf_section: Section.Id, base_address: 
     return if (di.sections[@intFromEnum(dwarf_section)]) |s| s.virtualOffset(base_address) else null;
 }
 
-pub fn deinit(di: *Dwarf, allocator: Allocator) void {
+pub fn deinit(di: *Dwarf, gpa: Allocator) void {
     for (di.sections) |opt_section| {
-        if (opt_section) |s| if (s.owned) allocator.free(s.data);
+        if (opt_section) |s| if (s.owned) gpa.free(s.data);
     }
     for (di.abbrev_table_list.items) |*abbrev| {
-        abbrev.deinit(allocator);
+        abbrev.deinit(gpa);
     }
-    di.abbrev_table_list.deinit(allocator);
+    di.abbrev_table_list.deinit(gpa);
     for (di.compile_unit_list.items) |*cu| {
-        cu.die.deinit(allocator);
+        cu.die.deinit(gpa);
     }
-    di.compile_unit_list.deinit(allocator);
-    di.func_list.deinit(allocator);
-    di.cie_map.deinit(allocator);
-    di.fde_list.deinit(allocator);
+    di.compile_unit_list.deinit(gpa);
+    di.func_list.deinit(gpa);
+    di.cie_map.deinit(gpa);
+    di.fde_list.deinit(gpa);
     di.* = undefined;
 }
 
@@ -777,7 +781,12 @@ pub fn getSymbolName(di: *Dwarf, address: u64) ?[]const u8 {
     return null;
 }
 
-fn scanAllFunctions(di: *Dwarf, allocator: Allocator) !void {
+const ScanError = error{
+    InvalidDebugInfo,
+    MissingDebugInfo,
+} || Allocator.Error || std.debug.DeprecatedFixedBufferReader.Error;
+
+fn scanAllFunctions(di: *Dwarf, allocator: Allocator) ScanError!void {
     var fbr: DeprecatedFixedBufferReader = .{ .buf = di.section(.debug_info).?, .endian = di.endian };
     var this_unit_offset: u64 = 0;
 
@@ -964,7 +973,7 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator) !void {
     }
 }
 
-fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator) !void {
+fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator) ScanError!void {
     var fbr: DeprecatedFixedBufferReader = .{ .buf = di.section(.debug_info).?, .endian = di.endian };
     var this_unit_offset: u64 = 0;
 
@@ -1070,13 +1079,13 @@ const DebugRangeIterator = struct {
                     .@"32" => {
                         const offset_loc = @as(usize, @intCast(compile_unit.rnglists_base + 4 * idx));
                         if (offset_loc + 4 > debug_ranges.len) return bad();
-                        const offset = readInt(u32, debug_ranges[offset_loc..][0..4], di.endian);
+                        const offset = mem.readInt(u32, debug_ranges[offset_loc..][0..4], di.endian);
                         break :off compile_unit.rnglists_base + offset;
                     },
                     .@"64" => {
                         const offset_loc = @as(usize, @intCast(compile_unit.rnglists_base + 8 * idx));
                         if (offset_loc + 8 > debug_ranges.len) return bad();
-                        const offset = readInt(u64, debug_ranges[offset_loc..][0..8], di.endian);
+                        const offset = mem.readInt(u64, debug_ranges[offset_loc..][0..8], di.endian);
                         break :off compile_unit.rnglists_base + offset;
                     },
                 }
@@ -1287,7 +1296,7 @@ fn parseDie(
     attrs_buf: []Die.Attr,
     abbrev_table: *const Abbrev.Table,
     format: Format,
-) !?Die {
+) ScanError!?Die {
     const abbrev_code = try fbr.readUleb128(u64);
     if (abbrev_code == 0) return null;
     const table_entry = abbrev_table.get(abbrev_code) orelse return bad();
@@ -1588,7 +1597,7 @@ fn readDebugAddr(di: Dwarf, compile_unit: CompileUnit, index: u64) !u64 {
     // The header is 8 or 12 bytes depending on is_64.
     if (compile_unit.addr_base < 8) return bad();
 
-    const version = readInt(u16, debug_addr[compile_unit.addr_base - 4 ..][0..2], di.endian);
+    const version = mem.readInt(u16, debug_addr[compile_unit.addr_base - 4 ..][0..2], di.endian);
     if (version != 5) return bad();
 
     const addr_size = debug_addr[compile_unit.addr_base - 2];
@@ -1598,9 +1607,9 @@ fn readDebugAddr(di: Dwarf, compile_unit: CompileUnit, index: u64) !u64 {
     if (byte_offset + addr_size > debug_addr.len) return bad();
     return switch (addr_size) {
         1 => debug_addr[byte_offset],
-        2 => readInt(u16, debug_addr[byte_offset..][0..2], di.endian),
-        4 => readInt(u32, debug_addr[byte_offset..][0..4], di.endian),
-        8 => readInt(u64, debug_addr[byte_offset..][0..8], di.endian),
+        2 => mem.readInt(u16, debug_addr[byte_offset..][0..2], di.endian),
+        4 => mem.readInt(u32, debug_addr[byte_offset..][0..4], di.endian),
+        8 => mem.readInt(u64, debug_addr[byte_offset..][0..8], di.endian),
         else => bad(),
     };
 }
@@ -1699,7 +1708,7 @@ fn parseFormValue(
     form_id: u64,
     format: Format,
     implicit_const: ?i64,
-) anyerror!FormValue {
+) ScanError!FormValue {
     return switch (form_id) {
         FORM.addr => .{ .addr = try fbr.readAddress(switch (@bitSizeOf(usize)) {
             32 => .@"32",
@@ -1892,7 +1901,8 @@ const UnitHeader = struct {
     header_length: u4,
     unit_length: u64,
 };
-fn readUnitHeader(fbr: *DeprecatedFixedBufferReader, opt_ma: ?*MemoryAccessor) !UnitHeader {
+
+fn readUnitHeader(fbr: *DeprecatedFixedBufferReader, opt_ma: ?*MemoryAccessor) ScanError!UnitHeader {
     return switch (try if (opt_ma) |ma| fbr.readIntChecked(u32, ma) else fbr.readInt(u32)) {
         0...0xfffffff0 - 1 => |unit_length| .{
             .format = .@"32",
@@ -2022,4 +2032,336 @@ fn pcRelBase(field_ptr: usize, pc_rel_offset: i64) !usize {
     } else {
         return std.math.add(usize, field_ptr, @as(usize, @intCast(pc_rel_offset)));
     }
+}
+
+pub const ElfModule = struct {
+    base_address: usize,
+    dwarf: Dwarf,
+    mapped_memory: []align(std.mem.page_size) const u8,
+    external_mapped_memory: ?[]align(std.mem.page_size) const u8,
+
+    pub fn deinit(self: *@This(), allocator: Allocator) void {
+        self.dwarf.deinit(allocator);
+        std.posix.munmap(self.mapped_memory);
+        if (self.external_mapped_memory) |m| std.posix.munmap(m);
+    }
+
+    pub fn getSymbolAtAddress(self: *@This(), allocator: Allocator, address: usize) !std.debug.Symbol {
+        // Translate the VA into an address into this object
+        const relocated_address = address - self.base_address;
+        return self.dwarf.getSymbol(allocator, relocated_address);
+    }
+
+    pub fn getDwarfInfoForAddress(self: *@This(), allocator: Allocator, address: usize) !?*const Dwarf {
+        _ = allocator;
+        _ = address;
+        return &self.dwarf;
+    }
+
+    pub const LoadError = error{
+        InvalidDebugInfo,
+        MissingDebugInfo,
+        InvalidElfMagic,
+        InvalidElfVersion,
+        InvalidElfEndian,
+        /// TODO: implement this and then remove this error code
+        UnimplementedDwarfForeignEndian,
+        /// The debug info may be valid but this implementation uses memory
+        /// mapping which limits things to usize. If the target debug info is
+        /// 64-bit and host is 32-bit, there may be debug info that is not
+        /// supportable using this method.
+        Overflow,
+
+        PermissionDenied,
+        LockedMemoryLimitExceeded,
+        MemoryMappingNotSupported,
+    } || Allocator.Error || std.fs.File.OpenError || OpenError;
+
+    /// Reads debug info from an already mapped ELF file.
+    ///
+    /// If the required sections aren't present but a reference to external debug
+    /// info is, then this this function will recurse to attempt to load the debug
+    /// sections from an external file.
+    pub fn load(
+        gpa: Allocator,
+        mapped_mem: []align(std.mem.page_size) const u8,
+        build_id: ?[]const u8,
+        expected_crc: ?u32,
+        parent_sections: *Dwarf.SectionArray,
+        parent_mapped_mem: ?[]align(std.mem.page_size) const u8,
+        elf_filename: ?[]const u8,
+    ) LoadError!Dwarf.ElfModule {
+        if (expected_crc) |crc| if (crc != std.hash.crc.Crc32.hash(mapped_mem)) return error.InvalidDebugInfo;
+
+        const hdr: *const elf.Ehdr = @ptrCast(&mapped_mem[0]);
+        if (!mem.eql(u8, hdr.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
+        if (hdr.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
+
+        const endian: std.builtin.Endian = switch (hdr.e_ident[elf.EI_DATA]) {
+            elf.ELFDATA2LSB => .little,
+            elf.ELFDATA2MSB => .big,
+            else => return error.InvalidElfEndian,
+        };
+        if (endian != native_endian) return error.UnimplementedDwarfForeignEndian;
+
+        const shoff = hdr.e_shoff;
+        const str_section_off = shoff + @as(u64, hdr.e_shentsize) * @as(u64, hdr.e_shstrndx);
+        const str_shdr: *const elf.Shdr = @ptrCast(@alignCast(&mapped_mem[cast(usize, str_section_off) orelse return error.Overflow]));
+        const header_strings = mapped_mem[str_shdr.sh_offset..][0..str_shdr.sh_size];
+        const shdrs = @as(
+            [*]const elf.Shdr,
+            @ptrCast(@alignCast(&mapped_mem[shoff])),
+        )[0..hdr.e_shnum];
+
+        var sections: Dwarf.SectionArray = Dwarf.null_section_array;
+
+        // Combine section list. This takes ownership over any owned sections from the parent scope.
+        for (parent_sections, &sections) |*parent, *section_elem| {
+            if (parent.*) |*p| {
+                section_elem.* = p.*;
+                p.owned = false;
+            }
+        }
+        errdefer for (sections) |opt_section| if (opt_section) |s| if (s.owned) gpa.free(s.data);
+
+        var separate_debug_filename: ?[]const u8 = null;
+        var separate_debug_crc: ?u32 = null;
+
+        for (shdrs) |*shdr| {
+            if (shdr.sh_type == elf.SHT_NULL or shdr.sh_type == elf.SHT_NOBITS) continue;
+            const name = mem.sliceTo(header_strings[shdr.sh_name..], 0);
+
+            if (mem.eql(u8, name, ".gnu_debuglink")) {
+                const gnu_debuglink = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+                const debug_filename = mem.sliceTo(@as([*:0]const u8, @ptrCast(gnu_debuglink.ptr)), 0);
+                const crc_offset = mem.alignForward(usize, @intFromPtr(&debug_filename[debug_filename.len]) + 1, 4) - @intFromPtr(gnu_debuglink.ptr);
+                const crc_bytes = gnu_debuglink[crc_offset..][0..4];
+                separate_debug_crc = mem.readInt(u32, crc_bytes, native_endian);
+                separate_debug_filename = debug_filename;
+                continue;
+            }
+
+            var section_index: ?usize = null;
+            inline for (@typeInfo(Dwarf.Section.Id).Enum.fields, 0..) |sect, i| {
+                if (mem.eql(u8, "." ++ sect.name, name)) section_index = i;
+            }
+            if (section_index == null) continue;
+            if (sections[section_index.?] != null) continue;
+
+            const section_bytes = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+            sections[section_index.?] = if ((shdr.sh_flags & elf.SHF_COMPRESSED) > 0) blk: {
+                var section_stream = std.io.fixedBufferStream(section_bytes);
+                const section_reader = section_stream.reader();
+                const chdr = section_reader.readStruct(elf.Chdr) catch continue;
+                if (chdr.ch_type != .ZLIB) continue;
+
+                var zlib_stream = std.compress.zlib.decompressor(section_reader);
+
+                const decompressed_section = try gpa.alloc(u8, chdr.ch_size);
+                errdefer gpa.free(decompressed_section);
+
+                const read = zlib_stream.reader().readAll(decompressed_section) catch continue;
+                assert(read == decompressed_section.len);
+
+                break :blk .{
+                    .data = decompressed_section,
+                    .virtual_address = shdr.sh_addr,
+                    .owned = true,
+                };
+            } else .{
+                .data = section_bytes,
+                .virtual_address = shdr.sh_addr,
+                .owned = false,
+            };
+        }
+
+        const missing_debug_info =
+            sections[@intFromEnum(Dwarf.Section.Id.debug_info)] == null or
+            sections[@intFromEnum(Dwarf.Section.Id.debug_abbrev)] == null or
+            sections[@intFromEnum(Dwarf.Section.Id.debug_str)] == null or
+            sections[@intFromEnum(Dwarf.Section.Id.debug_line)] == null;
+
+        // Attempt to load debug info from an external file
+        // See: https://sourceware.org/gdb/onlinedocs/gdb/Separate-Debug-Files.html
+        if (missing_debug_info) {
+
+            // Only allow one level of debug info nesting
+            if (parent_mapped_mem) |_| {
+                return error.MissingDebugInfo;
+            }
+
+            const global_debug_directories = [_][]const u8{
+                "/usr/lib/debug",
+            };
+
+            // <global debug directory>/.build-id/<2-character id prefix>/<id remainder>.debug
+            if (build_id) |id| blk: {
+                if (id.len < 3) break :blk;
+
+                // Either md5 (16 bytes) or sha1 (20 bytes) are used here in practice
+                const extension = ".debug";
+                var id_prefix_buf: [2]u8 = undefined;
+                var filename_buf: [38 + extension.len]u8 = undefined;
+
+                _ = std.fmt.bufPrint(&id_prefix_buf, "{s}", .{std.fmt.fmtSliceHexLower(id[0..1])}) catch unreachable;
+                const filename = std.fmt.bufPrint(
+                    &filename_buf,
+                    "{s}" ++ extension,
+                    .{std.fmt.fmtSliceHexLower(id[1..])},
+                ) catch break :blk;
+
+                for (global_debug_directories) |global_directory| {
+                    const path: Path = .{
+                        .root_dir = std.Build.Cache.Directory.cwd(),
+                        .sub_path = try std.fs.path.join(gpa, &.{
+                            global_directory, ".build-id", &id_prefix_buf, filename,
+                        }),
+                    };
+                    defer gpa.free(path.sub_path);
+
+                    return loadPath(gpa, path, null, separate_debug_crc, &sections, mapped_mem) catch continue;
+                }
+            }
+
+            // use the path from .gnu_debuglink, in the same search order as gdb
+            if (separate_debug_filename) |separate_filename| blk: {
+                if (elf_filename != null and mem.eql(u8, elf_filename.?, separate_filename))
+                    return error.MissingDebugInfo;
+
+                // <cwd>/<gnu_debuglink>
+                if (loadPath(
+                    gpa,
+                    .{
+                        .root_dir = std.Build.Cache.Directory.cwd(),
+                        .sub_path = separate_filename,
+                    },
+                    null,
+                    separate_debug_crc,
+                    &sections,
+                    mapped_mem,
+                )) |debug_info| {
+                    return debug_info;
+                } else |_| {}
+
+                // <cwd>/.debug/<gnu_debuglink>
+                {
+                    const path: Path = .{
+                        .root_dir = std.Build.Cache.Directory.cwd(),
+                        .sub_path = try std.fs.path.join(gpa, &.{ ".debug", separate_filename }),
+                    };
+                    defer gpa.free(path.sub_path);
+
+                    if (loadPath(gpa, path, null, separate_debug_crc, &sections, mapped_mem)) |debug_info| return debug_info else |_| {}
+                }
+
+                var cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
+                const cwd_path = std.posix.realpath(".", &cwd_buf) catch break :blk;
+
+                // <global debug directory>/<absolute folder of current binary>/<gnu_debuglink>
+                for (global_debug_directories) |global_directory| {
+                    const path: Path = .{
+                        .root_dir = std.Build.Cache.Directory.cwd(),
+                        .sub_path = try std.fs.path.join(gpa, &.{ global_directory, cwd_path, separate_filename }),
+                    };
+                    defer gpa.free(path.sub_path);
+                    if (loadPath(gpa, path, null, separate_debug_crc, &sections, mapped_mem)) |debug_info| return debug_info else |_| {}
+                }
+            }
+
+            return error.MissingDebugInfo;
+        }
+
+        var di: Dwarf = .{
+            .endian = endian,
+            .sections = sections,
+            .is_macho = false,
+        };
+
+        try Dwarf.open(&di, gpa);
+
+        return .{
+            .base_address = 0,
+            .dwarf = di,
+            .mapped_memory = parent_mapped_mem orelse mapped_mem,
+            .external_mapped_memory = if (parent_mapped_mem != null) mapped_mem else null,
+        };
+    }
+
+    pub fn loadPath(
+        gpa: Allocator,
+        elf_file_path: Path,
+        build_id: ?[]const u8,
+        expected_crc: ?u32,
+        parent_sections: *Dwarf.SectionArray,
+        parent_mapped_mem: ?[]align(std.mem.page_size) const u8,
+    ) LoadError!Dwarf.ElfModule {
+        const elf_file = elf_file_path.root_dir.handle.openFile(elf_file_path.sub_path, .{}) catch |err| switch (err) {
+            error.FileNotFound => return missing(),
+            else => return err,
+        };
+        defer elf_file.close();
+
+        const end_pos = elf_file.getEndPos() catch return bad();
+        const file_len = cast(usize, end_pos) orelse return error.Overflow;
+
+        const mapped_mem = try std.posix.mmap(
+            null,
+            file_len,
+            std.posix.PROT.READ,
+            .{ .TYPE = .SHARED },
+            elf_file.handle,
+            0,
+        );
+        errdefer std.posix.munmap(mapped_mem);
+
+        return load(
+            gpa,
+            mapped_mem,
+            build_id,
+            expected_crc,
+            parent_sections,
+            parent_mapped_mem,
+            elf_file_path.sub_path,
+        );
+    }
+};
+
+/// Given an array of virtual memory addresses, sorted ascending, outputs a
+/// corresponding array of source locations, by appending to the provided
+/// array list.
+pub fn resolveSourceLocations(
+    d: *Dwarf,
+    gpa: Allocator,
+    sorted_pc_addrs: []const u64,
+    /// Asserts its length equals length of `sorted_pc_addrs`.
+    output: []std.debug.SourceLocation,
+) error{ MissingDebugInfo, InvalidDebugInfo }!void {
+    assert(sorted_pc_addrs.len == output.len);
+    _ = d;
+    _ = gpa;
+    @panic("TODO");
+}
+
+fn getSymbol(di: *Dwarf, allocator: Allocator, address: u64) !std.debug.Symbol {
+    if (di.findCompileUnit(address)) |compile_unit| {
+        return .{
+            .name = di.getSymbolName(address) orelse "???",
+            .compile_unit_name = compile_unit.die.getAttrString(di, std.dwarf.AT.name, di.section(.debug_str), compile_unit.*) catch |err| switch (err) {
+                error.MissingDebugInfo, error.InvalidDebugInfo => "???",
+            },
+            .source_location = di.getLineNumberInfo(allocator, compile_unit.*, address) catch |err| switch (err) {
+                error.MissingDebugInfo, error.InvalidDebugInfo => null,
+                else => return err,
+            },
+        };
+    } else |err| switch (err) {
+        error.MissingDebugInfo, error.InvalidDebugInfo => return .{},
+        else => return err,
+    }
+}
+
+pub fn chopSlice(ptr: []const u8, offset: u64, size: u64) error{Overflow}![]const u8 {
+    const start = cast(usize, offset) orelse return error.Overflow;
+    const end = start + (cast(usize, size) orelse return error.Overflow);
+    return ptr[start..end];
 }
