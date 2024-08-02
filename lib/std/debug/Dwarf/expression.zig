@@ -1190,11 +1190,11 @@ test "DWARF expressions" {
             mem.writeInt(usize, reg_bytes[0..@sizeOf(usize)], 0xee, native_endian);
             (try abi.regValueNative(&thread_context, abi.fpRegNum(native_arch, reg_context), reg_context)).* = 1;
             (try abi.regValueNative(&thread_context, abi.spRegNum(native_arch, reg_context), reg_context)).* = 2;
-            (try abi.regValueNative(&thread_context, abi.ipRegNum(native_arch), reg_context)).* = 3;
+            (try abi.regValueNative(&thread_context, abi.ipRegNum(native_arch).?, reg_context)).* = 3;
 
             try b.writeBreg(writer, abi.fpRegNum(native_arch, reg_context), @as(usize, 100));
             try b.writeBreg(writer, abi.spRegNum(native_arch, reg_context), @as(usize, 200));
-            try b.writeBregx(writer, abi.ipRegNum(native_arch), @as(usize, 300));
+            try b.writeBregx(writer, abi.ipRegNum(native_arch).?, @as(usize, 300));
             try b.writeRegvalType(writer, @as(u8, 0), @as(usize, 400));
 
             _ = try stack_machine.run(program.items, allocator, context, 0);

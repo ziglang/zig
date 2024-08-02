@@ -34,18 +34,15 @@ allocator: Allocator,
 address_map: std.AutoHashMap(usize, *Module),
 modules: if (native_os == .windows) std.ArrayListUnmanaged(WindowsModule) else void,
 
-pub const OpenSelfError = error{
+pub const OpenError = error{
     MissingDebugInfo,
     UnsupportedOperatingSystem,
 } || @typeInfo(@typeInfo(@TypeOf(SelfInfo.init)).Fn.return_type.?).ErrorUnion.error_set;
 
-pub fn openSelf(allocator: Allocator) OpenSelfError!SelfInfo {
+pub fn open(allocator: Allocator) OpenError!SelfInfo {
     nosuspend {
         if (builtin.strip_debug_info)
             return error.MissingDebugInfo;
-        if (@hasDecl(root, "os") and @hasDecl(root.os, "debug") and @hasDecl(root.os.debug, "openSelfDebugInfo")) {
-            return root.os.debug.openSelfDebugInfo(allocator);
-        }
         switch (native_os) {
             .linux,
             .freebsd,
@@ -1721,6 +1718,8 @@ pub const UnwindContext = struct {
         allocator: Allocator,
         thread_context: *std.debug.ThreadContext,
     ) !UnwindContext {
+        comptime assert(supports_unwinding);
+
         const pc = stripInstructionPtrAuthCode(
             (try regValueNative(thread_context, ip_reg_num, null)).*,
         );
@@ -1982,8 +1981,8 @@ fn spRegNum(reg_context: Dwarf.abi.RegisterContext) u8 {
     return Dwarf.abi.spRegNum(native_arch, reg_context);
 }
 
-const ip_reg_num = Dwarf.abi.ipRegNum(native_arch);
-const supports_unwinding = Dwarf.abi.supportsUnwinding(builtin.target);
+const ip_reg_num = Dwarf.abi.ipRegNum(native_arch).?;
+pub const supports_unwinding = Dwarf.supportsUnwinding(builtin.target);
 
 fn unwindFrameMachODwarf(
     context: *UnwindContext,

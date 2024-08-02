@@ -5,35 +5,14 @@ const mem = std.mem;
 const posix = std.posix;
 const Arch = std.Target.Cpu.Arch;
 
-pub fn supportsUnwinding(target: std.Target) bool {
-    return switch (target.cpu.arch) {
-        .x86 => switch (target.os.tag) {
-            .linux, .netbsd, .solaris, .illumos => true,
-            else => false,
-        },
-        .x86_64 => switch (target.os.tag) {
-            .linux, .netbsd, .freebsd, .openbsd, .macos, .ios, .solaris, .illumos => true,
-            else => false,
-        },
-        .arm => switch (target.os.tag) {
-            .linux => true,
-            else => false,
-        },
-        .aarch64 => switch (target.os.tag) {
-            .linux, .netbsd, .freebsd, .macos, .ios => true,
-            else => false,
-        },
-        else => false,
-    };
-}
-
-pub fn ipRegNum(arch: Arch) u8 {
+/// Returns `null` for CPU architectures without an instruction pointer register.
+pub fn ipRegNum(arch: Arch) ?u8 {
     return switch (arch) {
         .x86 => 8,
         .x86_64 => 16,
         .arm => 15,
         .aarch64 => 32,
-        else => unreachable,
+        else => null,
     };
 }
 

@@ -88,7 +88,7 @@ pub fn getSelfDebugInfo() !*SelfInfo {
     if (self_debug_info) |*info| {
         return info;
     } else {
-        self_debug_info = try SelfInfo.openSelf(getDebugInfoAllocator());
+        self_debug_info = try SelfInfo.open(getDebugInfoAllocator());
         return &self_debug_info.?;
     }
 }
@@ -573,17 +573,19 @@ pub const StackIterator = struct {
     pub fn initWithContext(first_address: ?usize, debug_info: *SelfInfo, context: *posix.ucontext_t) !StackIterator {
         // The implementation of DWARF unwinding on aarch64-macos is not complete. However, Apple mandates that
         // the frame pointer register is always used, so on this platform we can safely use the FP-based unwinder.
-        if (builtin.target.isDarwin() and native_arch == .aarch64) {
+        if (builtin.target.isDarwin() and native_arch == .aarch64)
             return init(first_address, context.mcontext.ss.fp);
-        } else {
+
+        if (SelfInfo.supports_unwinding) {
             var iterator = init(first_address, null);
             iterator.unwind_state = .{
                 .debug_info = debug_info,
                 .dwarf_context = try SelfInfo.UnwindContext.init(debug_info.allocator, context),
             };
-
             return iterator;
         }
+
+        return init(first_address, null);
     }
 
     pub fn deinit(it: *StackIterator) void {
@@ -725,11 +727,13 @@ pub fn writeCurrentStackTrace(
     tty_config: io.tty.Config,
     start_addr: ?usize,
 ) !void {
-    var context: ThreadContext = undefined;
-    const has_context = getContext(&context);
     if (native_os == .windows) {
+        var context: ThreadContext = undefined;
+        assert(getContext(&context));
         return writeStackTraceWindows(out_stream, debug_info, tty_config, &context, start_addr);
     }
+    var context: ThreadContext = undefined;
+    const has_context = getContext(&context);
 
     var it = (if (has_context) blk: {
         break :blk StackIterator.initWithContext(start_addr, debug_info, &context) catch null;
@@ -1340,7 +1344,7 @@ test "manage resources correctly" {
     }
 
     const writer = std.io.null_writer;
-    var di = try SelfInfo.openSelf(testing.allocator);
+    var di = try SelfInfo.open(testing.allocator);
     defer di.deinit();
     try printSourceAtAddress(&di, writer, showMyTrace(), io.tty.detectConfig(std.io.getStdErr()));
 }
@@ -1581,5 +1585,9 @@ pub inline fn inValgrind() bool {
 }
 
 test {
+    _ = &Dwarf;
+    _ = &MemoryAccessor;
+    _ = &Pdb;
+    _ = &SelfInfo;
     _ = &dumpHex;
 }
