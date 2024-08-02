@@ -19,6 +19,11 @@
 //!
 //! Note: For system bulit-in header file, we should ignore it. For example: arkui/native_dialog.h etc.
 //!       So if there are some new built-in header files, please add them to system_built_in_ability in this file.
+//!
+//! Diff logic:
+//!     1. reduce with generic-musl
+//!     2. reduce with <arch>-linux-any
+//!     3. reduce with <arch>-linux-musl
 
 const std = @import("std");
 const Arch = std.Target.Cpu.Arch;
@@ -138,10 +143,10 @@ const HashToContents = std.StringHashMap(Contents);
 const TargetToHash = std.ArrayHashMap(DestTarget, []const u8, DestTarget.HashContext, true);
 const PathTable = std.StringHashMap(*TargetToHash);
 
-fn generateGenericMuslFileMap(allocator: std.mem.Allocator, generic_musl_path: []const u8) !HashToContents {
+fn generateGenericFileMap(allocator: std.mem.Allocator, generic_musl_path: []const []const u8) !HashToContents {
     var inner_hasher = Blake3.init(.{});
     var musl_hash_content = HashToContents.init(allocator);
-    const target_include_dir = try std.fs.path.join(allocator, &[_][]const u8{generic_musl_path});
+    const target_include_dir = try std.fs.path.join(allocator, generic_musl_path);
 
     var dir_stack = std.ArrayList([]const u8).init(allocator);
     try dir_stack.append(target_include_dir);
@@ -167,7 +172,10 @@ fn generateGenericMuslFileMap(allocator: std.mem.Allocator, generic_musl_path: [
                     const replaced = try replaceBytes(allocator, raw_bytes, "\r\n", "\n");
 
                     const removed_comment = try removeComment(allocator, replaced);
-                    const trimmed = std.mem.trim(u8, removed_comment, " \r\n\t");
+
+                    const remove_space_line_content = try removeExtraSpacesAndLines(allocator, removed_comment);
+
+                    const trimmed = std.mem.trim(u8, remove_space_line_content, " \r\n\t");
 
                     const hash = try allocator.alloc(u8, 32);
                     inner_hasher = Blake3.init(.{});
@@ -235,6 +243,43 @@ fn removeComment(allocator: std.mem.Allocator, content: []const u8) ![]u8 {
     return builder.toOwnedSlice();
 }
 
+fn removeExtraSpacesAndLines(allocator: std.mem.Allocator, content: []const u8) ![]u8 {
+    var result = try allocator.alloc(u8, content.len);
+    var resultIndex: usize = 0;
+    var i: usize = 0;
+    var inWhitespace: bool = false;
+    var lastWasNewline: bool = true;
+
+    while (i < content.len) : (i += 1) {
+        const c = content[i];
+        if (std.ascii.isWhitespace(c)) {
+            if (c == '\n') {
+                if (!lastWasNewline) {
+                    result[resultIndex] = c;
+                    resultIndex += 1;
+                }
+                lastWasNewline = true;
+            } else if (!inWhitespace) {
+                result[resultIndex] = ' ';
+                resultIndex += 1;
+                inWhitespace = true;
+            }
+        } else {
+            result[resultIndex] = c;
+            resultIndex += 1;
+            inWhitespace = false;
+            lastWasNewline = false;
+        }
+    }
+
+    // Remove trailing whitespace
+    while (resultIndex > 0 and std.ascii.isWhitespace(result[resultIndex - 1])) {
+        resultIndex -= 1;
+    }
+
+    return result[0..resultIndex];
+}
+
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const allocator = arena.allocator();
@@ -280,7 +325,7 @@ pub fn main() !void {
     var max_bytes_saved: usize = 0;
     var total_bytes: usize = 0;
 
-    var musl_hash_to_contents = generateGenericMuslFileMap(allocator, generic_musl_libc_dir) catch |err| {
+    const musl_hash_to_contents = generateGenericFileMap(allocator, &[_][]const u8{ generic_musl_libc_dir, "generic-musl" }) catch |err| {
         std.debug.print("Error occurred: {}\n", .{err});
         return;
     };
@@ -299,6 +344,25 @@ pub fn main() !void {
             "linux",
             "ohos",
         });
+        const any_target = try std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{
+            libc_target.name,
+            "linux",
+            "any",
+        });
+        const musl_target = try std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{
+            libc_target.name,
+            "linux",
+            "musl",
+        });
+
+        const arch_generic_hash_content = generateGenericFileMap(allocator, &[_][]const u8{ generic_musl_libc_dir, musl_target }) catch |err| {
+            std.debug.print("Error occurred: {}\n", .{err});
+            return;
+        };
+        const any_generic_hash_content = generateGenericFileMap(allocator, &[_][]const u8{ generic_musl_libc_dir, any_target }) catch |err| {
+            std.debug.print("Error occurred: {}\n", .{err});
+            return;
+        };
 
         search: for (search_paths.items) |search_path| {
             const target_include_dir = try std.fs.path.join(allocator, &[_][]const u8{search_path});
@@ -340,8 +404,9 @@ pub fn main() !void {
                             const tmp_content = std.mem.trim(u8, replaced, " \r\n\t");
 
                             const removed_content = try removeComment(allocator, replaced);
+                            const remove_space_line_content = try removeExtraSpacesAndLines(allocator, removed_content);
 
-                            const trimmed = std.mem.trim(u8, removed_content, " \r\n\t");
+                            const trimmed = std.mem.trim(u8, remove_space_line_content, " \r\n\t");
                             total_bytes += raw_bytes.len;
                             const hash = try allocator.alloc(u8, 32);
                             hasher = Blake3.init(.{});
@@ -350,10 +415,26 @@ pub fn main() !void {
                             hasher.final(hash);
 
                             const is_musl_exist = musl_hash_to_contents.get(hash) != null;
+                            const is_linux_any_exist = any_generic_hash_content.get(hash) != null;
+                            const is_linux_arch_exist = arch_generic_hash_content.get(hash) != null;
 
                             if (is_musl_exist) {
                                 max_bytes_saved += raw_bytes.len;
                                 std.debug.print("musl duplicate: {s} {s} ({:2})\n", .{
+                                    libc_target.name,
+                                    rel_path,
+                                    std.fmt.fmtIntSizeDec(raw_bytes.len),
+                                });
+                            } else if (is_linux_any_exist) {
+                                max_bytes_saved += raw_bytes.len;
+                                std.debug.print("linux-any duplicate: {s} {s} ({:2})\n", .{
+                                    libc_target.name,
+                                    rel_path,
+                                    std.fmt.fmtIntSizeDec(raw_bytes.len),
+                                });
+                            } else if (is_linux_arch_exist) {
+                                max_bytes_saved += raw_bytes.len;
+                                std.debug.print("linux-arch duplicate: {s} {s} ({:2})\n", .{
                                     libc_target.name,
                                     rel_path,
                                     std.fmt.fmtIntSizeDec(raw_bytes.len),
