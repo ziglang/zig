@@ -233,13 +233,25 @@ pub fn init(argv: []const []const u8, allocator: mem.Allocator) ChildProcess {
     };
 }
 
+/// Call this if you have no intention of calling `kill` or `wait` to properly
+/// dispose of any resources related to the child process.
+pub fn deinit(self: *ChildProcess) void {
+    if (native_os == .windows) {
+        posix.close(self.thread_handle);
+        posix.close(self.id);
+    }
+    self.cleanupStreams();
+}
+
 pub fn setUserName(self: *ChildProcess, name: []const u8) !void {
     const user_info = try process.getUserInfo(name);
     self.uid = user_info.uid;
     self.gid = user_info.gid;
 }
 
-/// On success must call `kill` or `wait`.
+/// On success must call `kill` or `wait`. In the case of a detached process,
+/// consider using `deinit` instead if you have no intention of synchronizing
+/// with the child.
 /// After spawning the `id` is available.
 pub fn spawn(self: *ChildProcess) SpawnError!void {
     if (!process.can_spawn) {
@@ -693,6 +705,8 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
             posix.setpgid(0, pid) catch |err| forkChildErrReport(err_pipe[1], err);
         }
 
+        try writeIntFd(err_pipe[1], maxInt(ErrInt));
+
         const err = switch (self.expand_arg0) {
             .expand => posix.execvpeZ_expandArg0(.expand, argv_buf.ptr[0].?, argv_buf.ptr, envp),
             .no_expand => posix.execvpeZ_expandArg0(.no_expand, argv_buf.ptr[0].?, argv_buf.ptr, envp),
@@ -701,6 +715,14 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
     }
 
     // we are the parent
+
+    // we perform a blocking read on the err_pipe that gets us either an error
+    // that occured between fork and exec or a maxInt(ErrInt) if there wasn't any
+    const err_int = try readIntFd(err_pipe[0]);
+    if (err_int != maxInt(ErrInt)) {
+        return @as(SpawnError, @errorCast(@errorFromInt(err_int)));
+    }
+
     const pid: i32 = @intCast(pid_result);
     if (self.stdin_behavior == .Pipe) {
         self.stdin = .{ .handle = stdin_pipe[1] };
