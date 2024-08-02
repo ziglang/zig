@@ -5,6 +5,31 @@ const mem = std.mem;
 const posix = std.posix;
 const Arch = std.Target.Cpu.Arch;
 
+/// Tells whether unwinding for this target is supported by the Dwarf standard.
+///
+/// See also `std.debug.SelfInfo.supportsUnwinding` which tells whether the Zig
+/// standard library has a working implementation of unwinding for this target.
+pub fn supportsUnwinding(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .amdgcn,
+        .nvptx,
+        .nvptx64,
+        .spirv,
+        .spirv32,
+        .spirv64,
+        .spu_2,
+        => false,
+
+        // Enabling this causes relocation errors such as:
+        // error: invalid relocation type R_RISCV_SUB32 at offset 0x20
+        .riscv64, .riscv32 => false,
+
+        // Conservative guess. Feel free to update this logic with any targets
+        // that are known to not support Dwarf unwinding.
+        else => true,
+    };
+}
+
 /// Returns `null` for CPU architectures without an instruction pointer register.
 pub fn ipRegNum(arch: Arch) ?u8 {
     return switch (arch) {

@@ -2023,27 +2023,3 @@ fn pcRelBase(field_ptr: usize, pc_rel_offset: i64) !usize {
         return std.math.add(usize, field_ptr, @as(usize, @intCast(pc_rel_offset)));
     }
 }
-
-pub fn supportsUnwinding(target: std.Target) bool {
-    return switch (target.cpu.arch) {
-        .x86 => switch (target.os.tag) {
-            .linux, .netbsd, .solaris, .illumos => true,
-            else => false,
-        },
-        .x86_64 => switch (target.os.tag) {
-            .linux, .netbsd, .freebsd, .openbsd, .macos, .ios, .solaris, .illumos => true,
-            else => false,
-        },
-        .arm => switch (target.os.tag) {
-            .linux => true,
-            else => false,
-        },
-        .aarch64 => switch (target.os.tag) {
-            .linux, .netbsd, .freebsd, .macos, .ios => true,
-            else => false,
-        },
-        // Unwinding is possible on other targets but this implementation does
-        // not support them...yet!
-        else => false,
-    };
-}

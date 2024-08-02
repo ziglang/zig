@@ -1982,7 +1982,42 @@ fn spRegNum(reg_context: Dwarf.abi.RegisterContext) u8 {
 }
 
 const ip_reg_num = Dwarf.abi.ipRegNum(native_arch).?;
-pub const supports_unwinding = Dwarf.supportsUnwinding(builtin.target);
+
+/// Tells whether unwinding for the host is implemented.
+pub const supports_unwinding = supportsUnwinding(builtin.target);
+
+comptime {
+    if (supports_unwinding) assert(Dwarf.abi.supportsUnwinding(builtin.target));
+}
+
+/// Tells whether unwinding for this target is *implemented* here in the Zig
+/// standard library.
+///
+/// See also `Dwarf.abi.supportsUnwinding` which tells whether Dwarf supports
+/// unwinding on that target *in theory*.
+pub fn supportsUnwinding(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .x86 => switch (target.os.tag) {
+            .linux, .netbsd, .solaris, .illumos => true,
+            else => false,
+        },
+        .x86_64 => switch (target.os.tag) {
+            .linux, .netbsd, .freebsd, .openbsd, .macos, .ios, .solaris, .illumos => true,
+            else => false,
+        },
+        .arm => switch (target.os.tag) {
+            .linux => true,
+            else => false,
+        },
+        .aarch64 => switch (target.os.tag) {
+            .linux, .netbsd, .freebsd, .macos, .ios => true,
+            else => false,
+        },
+        // Unwinding is possible on other targets but this implementation does
+        // not support them...yet!
+        else => false,
+    };
+}
 
 fn unwindFrameMachODwarf(
     context: *UnwindContext,
