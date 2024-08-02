@@ -259,6 +259,15 @@ fn _start() callconv(.Naked) noreturn {
             \\ and sp, x0, #-16
             \\ b %[posixCallMainAndExit]
             ,
+            .arc =>
+            // The `arc` tag currently means ARCv2, which has an unusually low stack alignment
+            // requirement. ARCv3 increases it from 4 to 16, but we don't support ARCv3 yet.
+            \\ mov fp, 0
+            \\ mov blink, 0
+            \\ mov r0, sp
+            \\ and sp, sp, -4
+            \\ b %[posixCallMainAndExit]
+            ,
             .arm, .armeb, .thumb, .thumbeb =>
             \\ mov fp, #0
             \\ mov lr, #0
@@ -266,19 +275,60 @@ fn _start() callconv(.Naked) noreturn {
             \\ and sp, #-16
             \\ b %[posixCallMainAndExit]
             ,
+            // zig fmt: off
+            .csky =>
+            if (builtin.position_independent_code)
+                // The CSKY ABI assumes that `gb` is set to the address of the GOT in order for
+                // position-independent code to work. We depend on this in `std.os.linux.start_pie`
+                // to locate `_DYNAMIC` as well.
+                \\ grs t0, 1f
+                \\ 1:
+                \\ lrw gb, 1b@GOTPC
+                \\ addu gb, t0
+            else ""
+            ++
+            \\ movi lr, 0
+            \\ mov a0, sp
+            \\ andi sp, sp, -8
+            \\ jmpi %[posixCallMainAndExit]
+            ,
+            // zig fmt: on
+            .hexagon =>
+            // r29 = SP, r30 = FP
+            \\ r30 = #0
+            \\ r0 = r29
+            \\ r29 = and(r29, #-16)
+            \\ memw(r29 + #-8) = r29
+            \\ r29 = add(r29, #-8)
+            \\ call %[posixCallMainAndExit]
+            ,
             .loongarch32, .loongarch64 =>
             \\ move $fp, $zero
             \\ move $a0, $sp
             \\ bstrins.d $sp, $zero, 3, 0
             \\ b %[posixCallMainAndExit]
             ,
+            // zig fmt: off
             .riscv32, .riscv64 =>
+            // The self-hosted riscv64 backend is not able to assemble this yet.
+            if (builtin.zig_backend != .stage2_riscv64)
+                // The RISC-V ELF ABI assumes that `gp` is set to the value of `__global_pointer$` at
+                // startup in order for GP relaxation to work, even in static builds.
+                \\ .weak __global_pointer$
+                \\ .hidden __global_pointer$
+                \\ .option push
+                \\ .option norelax
+                \\ lla gp, __global_pointer$
+                \\ .option pop
+            else ""
+            ++
             \\ li s0, 0
             \\ li ra, 0
             \\ mv a0, sp
             \\ andi sp, sp, -16
             \\ tail %[posixCallMainAndExit]@plt
             ,
+            // zig fmt: off
             .m68k =>
             // Note that the - 8 is needed because pc in the jsr instruction points into the middle
             // of the jsr instruction. (The lea is 6 bytes, the jsr is 4 bytes.)
@@ -293,6 +343,7 @@ fn _start() callconv(.Naked) noreturn {
             \\ .gpword .
             \\ .gpword %[posixCallMainAndExit]
             \\ 1:
+            // The `gp` register on MIPS serves a similar purpose to `r2` (ToC pointer) on PPC64.
             \\ lw $gp, 0($ra)
             \\ subu $gp, $ra, $gp
             \\ lw $25, 4($ra)
@@ -314,8 +365,6 @@ fn _start() callconv(.Naked) noreturn {
             \\ .gpdword %[posixCallMainAndExit]
             \\ 1:
             // The `gp` register on MIPS serves a similar purpose to `r2` (ToC pointer) on PPC64.
-            // We need to set it up in order for dynamically-linked / position-independent code to
-            // work.
             \\ ld $gp, 0($ra)
             \\ dsubu $gp, $ra, $gp
             \\ ld $25, 8($ra)
@@ -456,7 +505,7 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
             }
 
             // Initialize the TLS area.
-            std.os.linux.tls.initStaticTLS(phdrs);
+            std.os.linux.tls.initStatic(phdrs);
         }
 
         // The way Linux executables represent stack size is via the PT_GNU_STACK
@@ -465,21 +514,18 @@ fn posixCallMainAndExit(argc_argv_ptr: [*]usize) callconv(.C) noreturn {
         // to ask for more stack space.
         expandStackSize(phdrs);
 
-        // Disabled with the riscv backend because it cannot handle this code yet.
-        if (builtin.zig_backend != .stage2_riscv64) {
-            const opt_init_array_start = @extern([*]*const fn () callconv(.C) void, .{
-                .name = "__init_array_start",
-                .linkage = .weak,
-            });
-            const opt_init_array_end = @extern([*]*const fn () callconv(.C) void, .{
-                .name = "__init_array_end",
-                .linkage = .weak,
-            });
-            if (opt_init_array_start) |init_array_start| {
-                const init_array_end = opt_init_array_end.?;
-                const slice = init_array_start[0 .. init_array_end - init_array_start];
-                for (slice) |func| func();
-            }
+        const opt_init_array_start = @extern([*]*const fn () callconv(.C) void, .{
+            .name = "__init_array_start",
+            .linkage = .weak,
+        });
+        const opt_init_array_end = @extern([*]*const fn () callconv(.C) void, .{
+            .name = "__init_array_end",
+            .linkage = .weak,
+        });
+        if (opt_init_array_start) |init_array_start| {
+            const init_array_end = opt_init_array_end.?;
+            const slice = init_array_start[0 .. init_array_end - init_array_start];
+            for (slice) |func| func();
         }
     }
 

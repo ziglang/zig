@@ -1,4 +1,6 @@
-fd: posix.fd_t,
+fd: Handle,
+
+pub const Handle = posix.fd_t;
 
 pub const default_mode = 0o755;
 

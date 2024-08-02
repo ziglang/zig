@@ -12,12 +12,11 @@ pub fn atanh(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     return Complex(T).init(r.im, -r.re);
 }
 
-const epsilon = 0.0001;
-
 test atanh {
+    const epsilon = math.floatEps(f32);
     const a = Complex(f32).init(5, 3);
     const c = atanh(a);
 
-    try testing.expect(math.approxEqAbs(f32, c.re, 0.146947, epsilon));
-    try testing.expect(math.approxEqAbs(f32, c.im, 1.480870, epsilon));
+    try testing.expectApproxEqAbs(0.14694665, c.re, epsilon);
+    try testing.expectApproxEqAbs(1.4808695, c.im, epsilon);
 }

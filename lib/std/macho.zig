@@ -203,8 +203,7 @@ pub const symtab_command = extern struct {
 ///  local symbols (static and debugging symbols) - grouped by module
 ///  defined external symbols - grouped by module (sorted by name if not lib)
 ///  undefined external symbols (sorted by name if MH_BINDATLOAD is not set,
-///       			    and in order the were seen by the static
-///  			    linker if MH_BINDATLOAD is set)
+///  and in order the were seen by the static linker if MH_BINDATLOAD is set)
 /// In this load command there are offsets and counts to each of the three groups
 /// of symbols.
 ///
@@ -219,9 +218,9 @@ pub const symtab_command = extern struct {
 /// shared library.  For executable and object modules, which are files
 /// containing only one module, the information that would be in these three
 /// tables is determined as follows:
-/// 	table of contents - the defined external symbols are sorted by name
-///  module table - the file contains only one module so everything in the
-///  	       file is part of the module.
+///  table of contents - the defined external symbols are sorted by name
+///  module table - the file contains only one module so everything in the file
+///  is part of the module.
 ///  reference symbol table - is the defined and undefined external symbols
 ///
 /// For dynamically linked shared library files this load command also contains

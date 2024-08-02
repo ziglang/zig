@@ -2016,6 +2016,10 @@ const riscv = struct {
                     assert(symbol.flags.has_zig_got);
                 },
 
+                Elf.R_GOT_HI20_STATIC,
+                Elf.R_GOT_LO12_I_STATIC,
+                => symbol.flags.needs_got = true,
+
                 else => try atom.reportUnhandledRelocError(rel, elf_file),
             },
         }
@@ -2161,14 +2165,26 @@ const riscv = struct {
                 // Zig custom relocations
                 Elf.R_ZIG_GOT_HI20 => {
                     assert(target.flags.has_zig_got);
-                    const disp: u32 = @bitCast(math.cast(i32, G + ZIG_GOT + A) orelse return error.Overflow);
+                    const disp: u32 = @bitCast(math.cast(i32, ZIG_GOT + A) orelse return error.Overflow);
                     riscv_util.writeInstU(code[r_offset..][0..4], disp);
                 },
 
                 Elf.R_ZIG_GOT_LO12 => {
                     assert(target.flags.has_zig_got);
-                    const value: u32 = @bitCast(math.cast(i32, G + ZIG_GOT + A) orelse return error.Overflow);
+                    const value: u32 = @bitCast(math.cast(i32, ZIG_GOT + A) orelse return error.Overflow);
                     riscv_util.writeInstI(code[r_offset..][0..4], value);
+                },
+
+                Elf.R_GOT_HI20_STATIC => {
+                    assert(target.flags.has_got);
+                    const disp: u32 = @bitCast(math.cast(i32, G + GOT + A) orelse return error.Overflow);
+                    riscv_util.writeInstU(code[r_offset..][0..4], disp);
+                },
+
+                Elf.R_GOT_LO12_I_STATIC => {
+                    assert(target.flags.has_got);
+                    const disp: u32 = @bitCast(math.cast(i32, G + GOT + A) orelse return error.Overflow);
+                    riscv_util.writeInstI(code[r_offset..][0..4], disp);
                 },
 
                 else => try atom.reportUnhandledRelocError(rel, elf_file),

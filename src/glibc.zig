@@ -122,6 +122,17 @@ pub fn loadMetaData(gpa: Allocator, contents: []const u8) LoadMetaDataError!*ABI
                 return error.ZigInstallationCorrupt;
             };
             const arch_tag = std.meta.stringToEnum(std.Target.Cpu.Arch, arch_name) orelse {
+                // TODO: Remove this on the next glibc abilists update.
+                if (mem.eql(u8, arch_name, "sparcel")) {
+                    targets[i] = .{
+                        .arch = .sparc,
+                        .os = .linux,
+                        .abi = .gnu,
+                    };
+
+                    continue;
+                }
+
                 log.err("abilists: unrecognized arch: '{s}'", .{arch_name});
                 return error.ZigInstallationCorrupt;
             };
@@ -394,7 +405,7 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
     const arch = comp.getTarget().cpu.arch;
     const is_ppc = arch == .powerpc or arch == .powerpc64 or arch == .powerpc64le;
     const is_aarch64 = arch == .aarch64 or arch == .aarch64_be;
-    const is_sparc = arch == .sparc or arch == .sparcel or arch == .sparc64;
+    const is_sparc = arch == .sparc or arch == .sparc64;
     const is_64 = comp.getTarget().ptrBitWidth() == 64;
 
     const s = path.sep_str;
@@ -532,7 +543,7 @@ fn add_include_dirs_arch(
     const is_x86 = arch == .x86 or arch == .x86_64;
     const is_aarch64 = arch == .aarch64 or arch == .aarch64_be;
     const is_ppc = arch == .powerpc or arch == .powerpc64 or arch == .powerpc64le;
-    const is_sparc = arch == .sparc or arch == .sparcel or arch == .sparc64;
+    const is_sparc = arch == .sparc or arch == .sparc64;
     const is_64 = target.ptrBitWidth() == 64;
 
     const s = path.sep_str;

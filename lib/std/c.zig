@@ -5779,7 +5779,7 @@ pub const ucontext_t = switch (native_os) {
                 .x86 => 4,
                 .mips, .mipsel, .mips64, .mips64el => 14,
                 .arm, .armeb, .thumb, .thumbeb => 1,
-                .sparc, .sparcel, .sparc64 => if (@sizeOf(usize) == 4) 43 else 8,
+                .sparc, .sparc64 => if (@sizeOf(usize) == 4) 43 else 8,
                 else => 0,
             }
         ]u32,
@@ -6821,7 +6821,7 @@ pub const pthread_key_t = switch (native_os) {
 pub const padded_pthread_spin_t = switch (native_os) {
     .netbsd => switch (builtin.cpu.arch) {
         .x86, .x86_64 => u32,
-        .sparc, .sparcel, .sparc64 => u32,
+        .sparc, .sparc64 => u32,
         else => pthread_spin_t,
     },
     else => void,
@@ -6834,7 +6834,7 @@ pub const pthread_spin_t = switch (native_os) {
         .powerpc, .powerpc64, .powerpc64le => i32,
         .x86, .x86_64 => u8,
         .arm, .armeb, .thumb, .thumbeb => i32,
-        .sparc, .sparcel, .sparc64 => u8,
+        .sparc, .sparc64 => u8,
         .riscv32, .riscv64 => u32,
         else => @compileError("undefined pthread_spin_t for this arch"),
     },

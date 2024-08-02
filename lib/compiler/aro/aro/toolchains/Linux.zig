@@ -357,7 +357,6 @@ fn getOSLibDir(target: std.Target) []const u8 {
         .powerpc,
         .powerpcle,
         .sparc,
-        .sparcel,
         => return "lib32",
         else => {},
     }

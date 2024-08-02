@@ -12,6 +12,8 @@ const R_CSKY_RELATIVE = 9;
 const R_HEXAGON_RELATIVE = 35;
 const R_LARCH_RELATIVE = 3;
 const R_68K_RELATIVE = 22;
+const R_MIPS_RELATIVE = 128;
+const R_PPC_RELATIVE = 22;
 const R_RISCV_RELATIVE = 3;
 const R_390_RELATIVE = 12;
 const R_SPARC_RELATIVE = 22;
@@ -26,6 +28,8 @@ const R_RELATIVE = switch (builtin.cpu.arch) {
     .hexagon => R_HEXAGON_RELATIVE,
     .loongarch32, .loongarch64 => R_LARCH_RELATIVE,
     .m68k => R_68K_RELATIVE,
+    .mips, .mipsel, .mips64, .mips64el => R_MIPS_RELATIVE,
+    .powerpc, .powerpcle, .powerpc64, .powerpc64le => R_PPC_RELATIVE,
     .riscv32, .riscv64 => R_RISCV_RELATIVE,
     .s390x => R_390_RELATIVE,
     else => @compileError("Missing R_RELATIVE definition for this target"),
@@ -34,7 +38,7 @@ const R_RELATIVE = switch (builtin.cpu.arch) {
 // Obtain a pointer to the _DYNAMIC array.
 // We have to compute its address as a PC-relative quantity not to require a
 // relocation that, at this point, is not yet applied.
-fn getDynamicSymbol() [*]elf.Dyn {
+inline fn getDynamicSymbol() [*]elf.Dyn {
     return switch (builtin.cpu.arch) {
         .x86 => asm volatile (
             \\ .weak _DYNAMIC
@@ -111,6 +115,57 @@ fn getDynamicSymbol() [*]elf.Dyn {
             \\ lea (%[ret], %%pc), %[ret]
             : [ret] "=r" (-> [*]elf.Dyn),
         ),
+        .mips, .mipsel => asm volatile (
+            \\ .weak _DYNAMIC
+            \\ .hidden _DYNAMIC
+            \\ bal 1f
+            \\ .gpword _DYNAMIC
+            \\ 1:
+            \\ lw %[ret], 0($ra)
+            \\ addu %[ret], %[ret], $gp
+            : [ret] "=r" (-> [*]elf.Dyn),
+            :
+            : "lr"
+        ),
+        .mips64, .mips64el => asm volatile (
+            \\ .weak _DYNAMIC
+            \\ .hidden _DYNAMIC
+            \\ .balign 8
+            \\ bal 1f
+            \\ .gpdword _DYNAMIC
+            \\ 1:
+            \\ ld %[ret], 0($ra)
+            \\ daddu %[ret], %[ret], $gp
+            : [ret] "=r" (-> [*]elf.Dyn),
+            :
+            : "lr"
+        ),
+        .powerpc, .powerpcle => asm volatile (
+            \\ .weak _DYNAMIC
+            \\ .hidden _DYNAMIC
+            \\ bl 1f
+            \\ .long _DYNAMIC - .
+            \\ 1:
+            \\ mflr %[ret]
+            \\ lwz 4, 0(%[ret])
+            \\ add %[ret], 4, %[ret]
+            : [ret] "=r" (-> [*]elf.Dyn),
+            :
+            : "lr", "r4"
+        ),
+        .powerpc64, .powerpc64le => asm volatile (
+            \\ .weak _DYNAMIC
+            \\ .hidden _DYNAMIC
+            \\ bl 1f
+            \\ .quad _DYNAMIC - .
+            \\ 1:
+            \\ mflr %[ret]
+            \\ ld 4, 0(%[ret])
+            \\ add %[ret], 4, %[ret]
+            : [ret] "=r" (-> [*]elf.Dyn),
+            :
+            : "lr", "r4"
+        ),
         .riscv32, .riscv64 => asm volatile (
             \\ .weak _DYNAMIC
             \\ .hidden _DYNAMIC
@@ -121,9 +176,9 @@ fn getDynamicSymbol() [*]elf.Dyn {
             \\ .weak _DYNAMIC
             \\ .hidden _DYNAMIC
             \\ larl %[ret], 1f
-            \\ agf %[ret], 0(%[ret])
+            \\ ag %[ret], 0(%[ret])
             \\ b 2f
-            \\ 1: .long _DYNAMIC - .
+            \\ 1: .quad _DYNAMIC - .
             \\ 2:
             : [ret] "=r" (-> [*]elf.Dyn),
         ),
@@ -138,6 +193,7 @@ pub fn relocate(phdrs: []elf.Phdr) void {
     @disableInstrumentation();
 
     const dynv = getDynamicSymbol();
+
     // Recover the delta applied by the loader by comparing the effective and
     // the theoretical load addresses for the `_DYNAMIC` symbol.
     const base_addr = base: {
@@ -149,34 +205,63 @@ pub fn relocate(phdrs: []elf.Phdr) void {
         @trap();
     };
 
-    var rel_addr: usize = 0;
-    var rela_addr: usize = 0;
-    var rel_size: usize = 0;
-    var rela_size: usize = 0;
+    var sorted_dynv: [elf.DT_NUM]elf.Addr = undefined;
+
+    // Zero-initialized this way to prevent the compiler from turning this into
+    // `memcpy` or `memset` calls (which can require relocations).
+    for (&sorted_dynv) |*dyn| {
+        const pdyn: *volatile elf.Addr = @ptrCast(dyn);
+        pdyn.* = 0;
+    }
+
     {
+        // `dynv` has no defined order. Fix that.
         var i: usize = 0;
         while (dynv[i].d_tag != elf.DT_NULL) : (i += 1) {
-            switch (dynv[i].d_tag) {
-                elf.DT_REL => rel_addr = base_addr + dynv[i].d_val,
-                elf.DT_RELA => rela_addr = base_addr + dynv[i].d_val,
-                elf.DT_RELSZ => rel_size = dynv[i].d_val,
-                elf.DT_RELASZ => rela_size = dynv[i].d_val,
-                else => {},
-            }
+            if (dynv[i].d_tag < elf.DT_NUM) sorted_dynv[@bitCast(dynv[i].d_tag)] = dynv[i].d_val;
         }
     }
 
-    // Apply the relocations.
-    if (rel_addr != 0) {
-        const rel = std.mem.bytesAsSlice(elf.Rel, @as([*]u8, @ptrFromInt(rel_addr))[0..rel_size]);
-        for (rel) |r| {
+    // Deal with the GOT relocations that MIPS uses first.
+    if (builtin.cpu.arch.isMIPS()) {
+        const count: elf.Addr = blk: {
+            // This is an architecture-specific tag, so not part of `sorted_dynv`.
+            var i: usize = 0;
+            while (dynv[i].d_tag != elf.DT_NULL) : (i += 1) {
+                if (dynv[i].d_tag == elf.DT_MIPS_LOCAL_GOTNO) break :blk dynv[i].d_val;
+            }
+
+            break :blk 0;
+        };
+
+        const got: [*]usize = @ptrFromInt(base_addr + sorted_dynv[elf.DT_PLTGOT]);
+
+        for (0..count) |i| {
+            got[i] += base_addr;
+        }
+    }
+
+    // Apply normal relocations.
+
+    const rel = sorted_dynv[elf.DT_REL];
+    if (rel != 0) {
+        const rels = @call(.always_inline, std.mem.bytesAsSlice, .{
+            elf.Rel,
+            @as([*]u8, @ptrFromInt(base_addr + rel))[0..sorted_dynv[elf.DT_RELSZ]],
+        });
+        for (rels) |r| {
             if (r.r_type() != R_RELATIVE) continue;
             @as(*usize, @ptrFromInt(base_addr + r.r_offset)).* += base_addr;
         }
     }
-    if (rela_addr != 0) {
-        const rela = std.mem.bytesAsSlice(elf.Rela, @as([*]u8, @ptrFromInt(rela_addr))[0..rela_size]);
-        for (rela) |r| {
+
+    const rela = sorted_dynv[elf.DT_RELA];
+    if (rela != 0) {
+        const relas = @call(.always_inline, std.mem.bytesAsSlice, .{
+            elf.Rela,
+            @as([*]u8, @ptrFromInt(base_addr + rela))[0..sorted_dynv[elf.DT_RELASZ]],
+        });
+        for (relas) |r| {
             if (r.r_type() != R_RELATIVE) continue;
             @as(*usize, @ptrFromInt(base_addr + r.r_offset)).* = base_addr + @as(usize, @bitCast(r.r_addend));
         }

@@ -63,6 +63,9 @@ pub fn emitMir(emit: *Emit) Error!void {
 
                         hi_r_type = Elf.R_ZIG_GOT_HI20;
                         lo_r_type = Elf.R_ZIG_GOT_LO12;
+                    } else if (sym.flags.needs_got) {
+                        hi_r_type = Elf.R_GOT_HI20_STATIC; // TODO: rework this #20887
+                        lo_r_type = Elf.R_GOT_LO12_I_STATIC; // TODO: rework this #20887
                     }
 
                     try atom_ptr.addReloc(elf_file, .{

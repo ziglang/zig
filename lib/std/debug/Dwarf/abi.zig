@@ -1,5 +1,5 @@
 const builtin = @import("builtin");
-const std = @import("../std.zig");
+const std = @import("../../std.zig");
 const mem = std.mem;
 const native_os = builtin.os.tag;
 const posix = std.posix;
@@ -392,7 +392,7 @@ pub fn regBytes(
 /// Returns the ABI-defined default value this register has in the unwinding table
 /// before running any of the CIE instructions. The DWARF spec defines these as having
 /// the .undefined rule by default, but allows ABI authors to override that.
-pub fn getRegDefaultValue(reg_number: u8, context: *std.dwarf.UnwindContext, out: []u8) !void {
+pub fn getRegDefaultValue(reg_number: u8, context: *std.debug.Dwarf.UnwindContext, out: []u8) !void {
     switch (builtin.cpu.arch) {
         .aarch64 => {
             // Callee-saved registers are initialized as if they had the .same_value rule
