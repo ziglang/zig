@@ -16,6 +16,9 @@
 //!    /path/to/process_headers_ohos \
 //!    --search-path /path/to/sdk/packages/ohos-sdk/darwin/native/sysroot/usr/include \
 //!    --generic-musl-path /path/to/zig/zig/lib/libc/include/generic-musl --out ./
+//!
+//! Note: For system bulit-in header file, we should ignore it. For example: arkui/native_dialog.h etc.
+//!       So if there are some new built-in header files, please add them to system_built_in_ability in this file.
 
 const std = @import("std");
 const Arch = std.Target.Cpu.Arch;
@@ -65,14 +68,18 @@ const targets_dirs = &[_][]const u8{
     "i686-linux-ohos",
 };
 
-fn is_target(name: []const u8) bool {
-    for (targets_dirs) |t| {
-        if (std.mem.eql(u8, t, name)) {
+fn is_in_array(value: []const u8, array: []const []const u8) bool {
+    for (array) |item| {
+        if (std.mem.eql(u8, value, item)) {
             return true;
         }
     }
     return false;
 }
+
+// openharmony bulit-in header file
+// should be ignored
+const system_built_in_ability = &[_][]const u8{ "AbilityKit", "BasicServicesKit", "EGL", "GLES2", "GLES3", "IPCKit", "KHR", "SLES", "ace", "ark_runtime", "arkui", "asm-generic", "asm-mips", "asm-riscv", "asset", "bundle", "ffrt", "filemanagement", "fortify", "database", "ddk", "deviceinfo.h", "drm", "hiappevent", "hid", "hidebug", "hilog", "hitrace", "huks", "info", "js_native_api.h", "js_native_api_types.h", "linux", "mtd", "multimedia", "multimodalinput", "napi", "native_buffer", "native_drawing", "native_effect", "native_image", "native_vsync", "native_window", "neural_network_runtime", "ohaudio", "ohcamera", "purgeable_memory", "qos", "rawfile", "rdma", "resourcemanager", "sensors", "sound", "tee", "tee_client", "unicode", "usb", "uv", "uv.h", "version.h", "video", "vulkan", "web", "window_manager", "xen", "zconf.h", "zlib.h" };
 
 const musl_targets = [_]LibCTarget{
     LibCTarget{
@@ -283,7 +290,7 @@ pub fn main() !void {
 
                 while (try dir_it.next()) |entry| {
                     // ignore arch file
-                    if (is_target(entry.name)) {
+                    if (is_in_array(entry.name, targets_dirs) or is_in_array(entry.name, system_built_in_ability)) {
                         continue;
                     }
                     const full_path = try std.fs.path.join(allocator, &[_][]const u8{ full_dir_name, entry.name });
