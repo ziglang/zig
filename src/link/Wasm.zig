@@ -3807,10 +3807,11 @@ pub fn flush(
     tid: Zcu.PerThread.Id,
     prog_node: std.Progress.Node,
 ) link.File.FlushError!void {
+    _ = tid;
+
     // The goal is to never use this because it's only needed if we need to
     // write to InternPool, but flush is too late to be writing to the
     // InternPool.
-    _ = tid;
     const comp = wasm.base.comp;
     const diags = &comp.link_diags;
     const gpa = comp.gpa;
