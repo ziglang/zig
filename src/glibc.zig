@@ -164,6 +164,21 @@ pub fn loadMetaData(gpa: Allocator, contents: []const u8) LoadMetaDataError!*ABI
     return abi;
 }
 
+fn useElfInitFini(target: std.Target) bool {
+    // Legacy architectures use _init/_fini.
+    return switch (target.cpu.arch) {
+        .arm, .armeb, .thumb, .thumbeb => true,
+        .aarch64, .aarch64_be => true,
+        .m68k => true,
+        .mips, .mipsel, .mips64, .mips64el => true,
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => true,
+        .s390x => true,
+        .sparc, .sparc64 => true,
+        .x86, .x86_64 => true,
+        else => false,
+    };
+}
+
 pub const CRTFile = enum {
     crti_o,
     crtn_o,
@@ -368,6 +383,10 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
                     "-Wno-ignored-attributes",
                 });
                 try add_include_dirs(comp, arena, &args);
+
+                if (!useElfInitFini(target)) {
+                    try args.append("-DNO_INITFINI");
+                }
 
                 if (target.cpu.arch == .x86) {
                     // This prevents i386/sysdep.h from trying to do some
