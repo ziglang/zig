@@ -242,8 +242,9 @@ const Os = switch (builtin.os.tag) {
 
         /// Keyed differently but indexes correspond 1:1 with `dir_table`.
         handle_table: HandleTable,
-        dir_list: std.ArrayListUnmanaged(*Directory),
+        dir_list: std.AutoArrayHashMapUnmanaged(usize, *Directory),
         io_cp: ?windows.HANDLE,
+        counter: usize = 0,
 
         const HandleTable = std.AutoArrayHashMapUnmanaged(FileId, ReactionSet);
 
@@ -260,7 +261,8 @@ const Os = switch (builtin.os.tag) {
             // https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-readdirectorychangesw#remarks
             buffer: [64 * 1024]u8 align(@alignOf(windows.FILE_NOTIFY_INFORMATION)) = undefined,
 
-            fn readChanges(self: *@This()) !void {
+            /// Start listening for events, buffer field will be overwritten eventually.
+            fn startListening(self: *@This()) !void {
                 const r = windows.kernel32.ReadDirectoryChangesW(
                     self.handle,
                     @ptrCast(&self.buffer),
@@ -394,6 +396,7 @@ const Os = switch (builtin.os.tag) {
             if (bytes_returned == 0) {
                 std.log.warn("file system watch queue overflowed; falling back to fstat", .{});
                 markAllFilesDirty(w, gpa);
+                try dir.startListening();
                 return true;
             }
             var file_name_buf: [std.fs.max_path_bytes]u8 = undefined;
@@ -418,7 +421,8 @@ const Os = switch (builtin.os.tag) {
                 offset += notify.NextEntryOffset;
             }
 
-            try dir.readChanges();
+            // We call this now since at this point we have finished reading dir.buffer.
+            try dir.startListening();
             return any_dirty;
         }
 
@@ -444,12 +448,14 @@ const Os = switch (builtin.os.tag) {
                             } else {
                                 assert(dh_gop.index == gop.index);
                                 dh_gop.value_ptr.* = .{};
-                                try dir.readChanges();
-                                try w.os.dir_list.insert(gpa, dh_gop.index, dir);
+                                try dir.startListening();
+                                const key = w.os.counter;
+                                w.os.counter +%= 1;
+                                try w.os.dir_list.put(gpa, key, dir);
                                 w.os.io_cp = try windows.CreateIoCompletionPort(
                                     dir.handle,
                                     w.os.io_cp,
-                                    dh_gop.index,
+                                    key,
                                     0,
                                 );
                             }
@@ -495,8 +501,8 @@ const Os = switch (builtin.os.tag) {
                         }
                     }
 
-                    w.os.dir_list.items[i].deinit(gpa);
-                    _ = w.os.dir_list.swapRemove(i);
+                    w.os.dir_list.values()[i].deinit(gpa);
+                    w.os.dir_list.swapRemoveAt(i);
                     w.dir_table.swapRemoveAt(i);
                     w.os.handle_table.swapRemoveAt(i);
                 }
@@ -653,7 +659,12 @@ pub fn wait(w: *Watch, gpa: Allocator, timeout: Timeout) !WaitResult {
                 .Normal => {
                     if (bytes_transferred == 0)
                         break error.Unexpected;
-                    break if (try Os.markDirtySteps(w, gpa, w.os.dir_list.items[key]))
+
+                    // This 'orelse' detects a race condition that happens when we receive a
+                    // completion notification for a directory that no longer exists in our list.
+                    const dir = w.os.dir_list.get(key) orelse break .clean;
+
+                    break if (try Os.markDirtySteps(w, gpa, dir))
                         .dirty
                     else
                         .clean;
