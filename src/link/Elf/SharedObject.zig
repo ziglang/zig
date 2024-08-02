@@ -229,13 +229,11 @@ fn initSymbols(self: *SharedObject, elf_file: *Elf, opts: struct {
         out_esym.st_name = name_off;
         const out_sym_index = self.addSymbolAssumeCapacity();
         const out_sym = &self.symbols.items[out_sym_index];
-        out_sym.* = .{
-            .value = @intCast(out_esym.st_value),
-            .ref = .{ .index = 0, .file = 0 },
-            .esym_index = out_esym_index,
-            .version_index = self.versyms.items[out_esym_index],
-            .extra_index = self.addSymbolExtraAssumeCapacity(.{}),
-        };
+        out_sym.value = @intCast(out_esym.st_value);
+        out_sym.ref = .{ .index = 0, .file = 0 };
+        out_sym.esym_index = out_esym_index;
+        out_sym.version_index = self.versyms.items[out_esym_index];
+        out_sym.extra_index = self.addSymbolExtraAssumeCapacity(.{});
     }
 }
 
