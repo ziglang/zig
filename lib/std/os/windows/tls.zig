@@ -20,8 +20,6 @@ comptime {
 }
 
 // TODO this is how I would like it to be expressed
-// TODO also note, ReactOS has a +1 on StartAddressOfRawData and AddressOfCallBacks. Investigate
-// why they do that.
 //export const _tls_used linksection(".rdata$T") = std.os.windows.IMAGE_TLS_DIRECTORY {
 //    .StartAddressOfRawData = @intFromPtr(&_tls_start),
 //    .EndAddressOfRawData = @intFromPtr(&_tls_end),
@@ -35,7 +33,7 @@ pub const IMAGE_TLS_DIRECTORY = extern struct {
     StartAddressOfRawData: *?*anyopaque,
     EndAddressOfRawData: *?*anyopaque,
     AddressOfIndex: *u32,
-    AddressOfCallBacks: *windows.PIMAGE_TLS_CALLBACK,
+    AddressOfCallBacks: [*:null]windows.PIMAGE_TLS_CALLBACK,
     SizeOfZeroFill: u32,
     Characteristics: u32,
 };
@@ -43,7 +41,10 @@ export const _tls_used linksection(".rdata$T") = IMAGE_TLS_DIRECTORY{
     .StartAddressOfRawData = &_tls_start,
     .EndAddressOfRawData = &_tls_end,
     .AddressOfIndex = &_tls_index,
-    .AddressOfCallBacks = &__xl_a,
+    // __xl_a is just a global variable containing a null pointer; the actual callbacks sit in
+    // between __xl_a and __xl_z. So we need to skip over __xl_a here. If there are no callbacks,
+    // this just means we point to __xl_z (the null terminator).
+    .AddressOfCallBacks = @as([*:null]windows.PIMAGE_TLS_CALLBACK, @ptrCast(&__xl_a)) + 1,
     .SizeOfZeroFill = 0,
     .Characteristics = 0,
 };
