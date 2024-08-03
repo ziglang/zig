@@ -1,56 +1,48 @@
-const std = @import("std");
 const builtin = @import("builtin");
-const OP = @import("OP.zig");
+const native_arch = builtin.cpu.arch;
+const native_endian = native_arch.endian();
+
+const std = @import("std");
 const leb = std.leb;
-const dwarf = std.dwarf;
-const abi = dwarf.abi;
+const OP = std.dwarf.OP;
+const abi = std.debug.Dwarf.abi;
 const mem = std.mem;
 const assert = std.debug.assert;
-const native_endian = builtin.cpu.arch.endian();
 
 /// Expressions can be evaluated in different contexts, each requiring its own set of inputs.
 /// Callers should specify all the fields relevant to their context. If a field is required
 /// by the expression and it isn't in the context, error.IncompleteExpressionContext is returned.
-pub const ExpressionContext = struct {
+pub const Context = struct {
     /// The dwarf format of the section this expression is in
-    format: dwarf.Format = .@"32",
-
+    format: std.dwarf.Format = .@"32",
     /// If specified, any addresses will pass through before being accessed
-    memory_accessor: ?*std.debug.StackIterator.MemoryAccessor = null,
-
+    memory_accessor: ?*std.debug.MemoryAccessor = null,
     /// The compilation unit this expression relates to, if any
-    compile_unit: ?*const dwarf.CompileUnit = null,
-
+    compile_unit: ?*const std.debug.Dwarf.CompileUnit = null,
     /// When evaluating a user-presented expression, this is the address of the object being evaluated
     object_address: ?*const anyopaque = null,
-
     /// .debug_addr section
     debug_addr: ?[]const u8 = null,
-
     /// Thread context
     thread_context: ?*std.debug.ThreadContext = null,
     reg_context: ?abi.RegisterContext = null,
-
     /// Call frame address, if in a CFI context
     cfa: ?usize = null,
-
     /// This expression is a sub-expression from an OP.entry_value instruction
     entry_value_context: bool = false,
 };
 
-pub const ExpressionOptions = struct {
+pub const Options = struct {
     /// The address size of the target architecture
     addr_size: u8 = @sizeOf(usize),
-
     /// Endianness of the target architecture
-    endian: std.builtin.Endian = builtin.target.cpu.arch.endian(),
-
+    endian: std.builtin.Endian = native_endian,
     /// Restrict the stack machine to a subset of opcodes used in call frame instructions
     call_frame_context: bool = false,
 };
 
 // Explicitly defined to support executing sub-expressions
-pub const ExpressionError = error{
+pub const Error = error{
     UnimplementedExpressionCall,
     UnimplementedOpcode,
     UnimplementedUserOpcode,
@@ -70,12 +62,12 @@ pub const ExpressionError = error{
     InvalidTypeLength,
 
     TruncatedIntegralType,
-} || abi.AbiError || error{ EndOfStream, Overflow, OutOfMemory, DivisionByZero };
+} || abi.RegBytesError || error{ EndOfStream, Overflow, OutOfMemory, DivisionByZero };
 
 /// A stack machine that can decode and run DWARF expressions.
 /// Expressions can be decoded for non-native address size and endianness,
 /// but can only be executed if the current target matches the configuration.
-pub fn StackMachine(comptime options: ExpressionOptions) type {
+pub fn StackMachine(comptime options: Options) type {
     const addr_type = switch (options.addr_size) {
         2 => u16,
         4 => u32,
@@ -186,7 +178,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
             }
         }
 
-        pub fn readOperand(stream: *std.io.FixedBufferStream([]const u8), opcode: u8, context: ExpressionContext) !?Operand {
+        pub fn readOperand(stream: *std.io.FixedBufferStream([]const u8), opcode: u8, context: Context) !?Operand {
             const reader = stream.reader();
             return switch (opcode) {
                 OP.addr => generic(try reader.readInt(addr_type, options.endian)),
@@ -297,9 +289,9 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
             self: *Self,
             expression: []const u8,
             allocator: std.mem.Allocator,
-            context: ExpressionContext,
+            context: Context,
             initial_value: ?usize,
-        ) ExpressionError!?Value {
+        ) Error!?Value {
             if (initial_value) |i| try self.stack.append(allocator, .{ .generic = i });
             var stream = std.io.fixedBufferStream(expression);
             while (try self.step(&stream, allocator, context)) {}
@@ -312,9 +304,9 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
             self: *Self,
             stream: *std.io.FixedBufferStream([]const u8),
             allocator: std.mem.Allocator,
-            context: ExpressionContext,
-        ) ExpressionError!bool {
-            if (@sizeOf(usize) != @sizeOf(addr_type) or options.endian != comptime builtin.target.cpu.arch.endian())
+            context: Context,
+        ) Error!bool {
+            if (@sizeOf(usize) != @sizeOf(addr_type) or options.endian != native_endian)
                 @compileError("Execution of non-native address sizes / endianness is not supported");
 
             const opcode = try stream.reader().readByte();
@@ -792,7 +784,7 @@ pub fn StackMachine(comptime options: ExpressionOptions) type {
     };
 }
 
-pub fn Builder(comptime options: ExpressionOptions) type {
+pub fn Builder(comptime options: Options) type {
     const addr_type = switch (options.addr_size) {
         2 => u16,
         4 => u32,
@@ -1066,7 +1058,7 @@ const testing = std.testing;
 test "DWARF expressions" {
     const allocator = std.testing.allocator;
 
-    const options = ExpressionOptions{};
+    const options = Options{};
     var stack_machine = StackMachine(options){};
     defer stack_machine.deinit(allocator);
 
@@ -1079,7 +1071,7 @@ test "DWARF expressions" {
 
     // Literals
     {
-        const context = ExpressionContext{};
+        const context = Context{};
         for (0..32) |i| {
             try b.writeLiteral(writer, @intCast(i));
         }
@@ -1125,7 +1117,7 @@ test "DWARF expressions" {
         try b.writeConst(writer, i28, input[9]);
         try b.writeAddr(writer, input[10]);
 
-        var mock_compile_unit: dwarf.CompileUnit = undefined;
+        var mock_compile_unit: std.debug.Dwarf.CompileUnit = undefined;
         mock_compile_unit.addr_base = 1;
 
         var mock_debug_addr = std.ArrayList(u8).init(allocator);
@@ -1135,7 +1127,7 @@ test "DWARF expressions" {
         try mock_debug_addr.writer().writeInt(usize, input[11], native_endian);
         try mock_debug_addr.writer().writeInt(usize, input[12], native_endian);
 
-        const context = ExpressionContext{
+        const context = Context{
             .compile_unit = &mock_compile_unit,
             .debug_addr = mock_debug_addr.items,
         };
@@ -1185,7 +1177,7 @@ test "DWARF expressions" {
         };
         var thread_context: std.debug.ThreadContext = undefined;
         std.debug.relocateContext(&thread_context);
-        const context = ExpressionContext{
+        const context = Context{
             .thread_context = &thread_context,
             .reg_context = reg_context,
         };
@@ -1196,13 +1188,13 @@ test "DWARF expressions" {
             // TODO: Test fbreg (once implemented): mock a DIE and point compile_unit.frame_base at it
 
             mem.writeInt(usize, reg_bytes[0..@sizeOf(usize)], 0xee, native_endian);
-            (try abi.regValueNative(usize, &thread_context, abi.fpRegNum(reg_context), reg_context)).* = 1;
-            (try abi.regValueNative(usize, &thread_context, abi.spRegNum(reg_context), reg_context)).* = 2;
-            (try abi.regValueNative(usize, &thread_context, abi.ipRegNum(), reg_context)).* = 3;
+            (try abi.regValueNative(&thread_context, abi.fpRegNum(native_arch, reg_context), reg_context)).* = 1;
+            (try abi.regValueNative(&thread_context, abi.spRegNum(native_arch, reg_context), reg_context)).* = 2;
+            (try abi.regValueNative(&thread_context, abi.ipRegNum(native_arch).?, reg_context)).* = 3;
 
-            try b.writeBreg(writer, abi.fpRegNum(reg_context), @as(usize, 100));
-            try b.writeBreg(writer, abi.spRegNum(reg_context), @as(usize, 200));
-            try b.writeBregx(writer, abi.ipRegNum(), @as(usize, 300));
+            try b.writeBreg(writer, abi.fpRegNum(native_arch, reg_context), @as(usize, 100));
+            try b.writeBreg(writer, abi.spRegNum(native_arch, reg_context), @as(usize, 200));
+            try b.writeBregx(writer, abi.ipRegNum(native_arch).?, @as(usize, 300));
             try b.writeRegvalType(writer, @as(u8, 0), @as(usize, 400));
 
             _ = try stack_machine.run(program.items, allocator, context, 0);
@@ -1228,7 +1220,7 @@ test "DWARF expressions" {
 
     // Stack operations
     {
-        var context = ExpressionContext{};
+        var context = Context{};
 
         stack_machine.reset();
         program.clearRetainingCapacity();
@@ -1359,7 +1351,7 @@ test "DWARF expressions" {
 
     // Arithmetic and Logical Operations
     {
-        const context = ExpressionContext{};
+        const context = Context{};
 
         stack_machine.reset();
         program.clearRetainingCapacity();
@@ -1483,7 +1475,7 @@ test "DWARF expressions" {
 
     // Control Flow Operations
     {
-        const context = ExpressionContext{};
+        const context = Context{};
         const expected = .{
             .{ OP.le, 1, 1, 0 },
             .{ OP.ge, 1, 0, 1 },
@@ -1540,7 +1532,7 @@ test "DWARF expressions" {
 
     // Type conversions
     {
-        const context = ExpressionContext{};
+        const context = Context{};
         stack_machine.reset();
         program.clearRetainingCapacity();
 
@@ -1588,7 +1580,7 @@ test "DWARF expressions" {
 
     // Special operations
     {
-        var context = ExpressionContext{};
+        var context = Context{};
 
         stack_machine.reset();
         program.clearRetainingCapacity();
@@ -1617,7 +1609,7 @@ test "DWARF expressions" {
         };
         var thread_context: std.debug.ThreadContext = undefined;
         std.debug.relocateContext(&thread_context);
-        context = ExpressionContext{
+        context = Context{
             .thread_context = &thread_context,
             .reg_context = reg_context,
         };
