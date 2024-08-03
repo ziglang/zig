@@ -158,10 +158,11 @@ pub const VDSO = struct {
     pub const CGT_VER = "LINUX_5.10";
 };
 
-pub const mcontext_t = extern struct {
-    pc: usize,
-    regs: [32]usize,
+pub const sigcontext_t = extern struct {
+    pc: u64,
+    regs: [32]u64,
     flags: u32,
+    extcontext: [0]u64 align(16),
 };
 
 pub const ucontext_t = extern struct {
@@ -170,7 +171,7 @@ pub const ucontext_t = extern struct {
     stack: stack_t,
     sigmask: sigset_t,
     _pad: [1024 / 8 - @sizeOf(sigset_t)]u8,
-    mcontext: mcontext_t,
+    mcontext: sigcontext_t,
 };
 
 pub const Elf_Symndx = u32;
