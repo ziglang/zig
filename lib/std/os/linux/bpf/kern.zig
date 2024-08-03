@@ -8,43 +8,51 @@ const in_bpf_program = switch (builtin.cpu.arch) {
 
 pub const helpers = if (in_bpf_program) @import("helpers.zig") else struct {};
 
-pub const BinPrm = opaque {};
-pub const BTFPtr = opaque {};
-pub const BpfDynPtr = opaque {};
-pub const BpfRedirNeigh = opaque {};
-pub const BpfSock = opaque {};
-pub const BpfSockAddr = opaque {};
-pub const BpfSockOps = opaque {};
-pub const BpfTimer = opaque {};
-pub const FibLookup = opaque {};
-pub const File = opaque {};
-pub const Inode = opaque {};
-pub const IpHdr = opaque {};
-pub const Ipv6Hdr = opaque {};
-pub const MapDef = opaque {};
-pub const MpTcpSock = opaque {};
-pub const Path = opaque {};
-pub const PerfEventData = opaque {};
-pub const PerfEventValue = opaque {};
-pub const PidNsInfo = opaque {};
-pub const SeqFile = opaque {};
-pub const SkBuff = opaque {};
-pub const SkMsgMd = opaque {};
-pub const SkReusePortMd = opaque {};
-pub const Sock = opaque {};
-pub const Socket = opaque {};
-pub const SockAddr = opaque {};
-pub const SockOps = opaque {};
-pub const SockTuple = opaque {};
-pub const SpinLock = opaque {};
-pub const SysCtl = opaque {};
-pub const Task = opaque {};
-pub const Tcp6Sock = opaque {};
-pub const TcpRequestSock = opaque {};
-pub const TcpSock = opaque {};
-pub const TcpTimewaitSock = opaque {};
-pub const TunnelKey = opaque {};
-pub const Udp6Sock = opaque {};
-pub const UnixSock = opaque {};
-pub const XdpMd = opaque {};
-pub const XfrmState = opaque {};
+pub const BPF = struct {
+    const BinPrm = opaque {};
+    const BTFPtr = opaque {};
+    const BpfDynPtr = opaque {};
+    const BpfRedirNeigh = opaque {};
+    const BpfSock = opaque {};
+    const BpfSockAddr = opaque {};
+    const BpfSockOps = opaque {};
+    const BpfTimer = opaque {};
+    const FibLookup = opaque {};
+    const File = opaque {};
+    const Inode = opaque {};
+    const IpHdr = opaque {};
+    const Ipv6Hdr = opaque {};
+    const MapDef = opaque {};
+    const MpTcpSock = opaque {};
+    const Path = opaque {};
+    const PerfEventData = opaque {};
+    const PerfEventValue = opaque {};
+    const PidNsInfo = opaque {};
+    const SeqFile = opaque {};
+    const SkBuff = opaque {};
+    const SkMsgMd = opaque {};
+    const SkReusePortMd = opaque {};
+    const Sock = opaque {};
+    const Socket = opaque {};
+    const SockAddr = opaque {};
+    const SockOps = opaque {};
+    const SockTuple = opaque {};
+    const SpinLock = opaque {};
+    const SysCtl = opaque {};
+    const Task = opaque {};
+    const Tcp6Sock = opaque {};
+    const TcpRequestSock = opaque {};
+    const TcpSock = opaque {};
+    const TcpTimewaitSock = opaque {};
+    const TunnelKey = opaque {};
+    const Udp6Sock = opaque {};
+    const UnixSock = opaque {};
+    const XdpMd = opaque {};
+    const XfrmState = opaque {};
+};
+
+comptime {
+    if (in_bpf_program) {
+        // Include additional BPF-specific code here if needed
+    }
+}
