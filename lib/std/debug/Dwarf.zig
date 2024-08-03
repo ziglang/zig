@@ -138,6 +138,29 @@ pub const CompileUnit = struct {
     rnglists_base: usize,
     loclists_base: usize,
     frame_base: ?*const FormValue,
+
+    src_loc_cache: ?SrcLocCache,
+
+    pub const SrcLocCache = struct {
+        line_table: LineTable,
+        directories: []const FileEntry,
+        files: []FileEntry,
+        version: u16,
+
+        pub const LineTable = std.AutoArrayHashMapUnmanaged(u64, LineEntry);
+
+        pub const LineEntry = struct {
+            line: u32,
+            column: u32,
+            file: u32,
+        };
+
+        pub fn findSource(slc: *const SrcLocCache, address: u64) !LineEntry {
+            const index = std.sort.upperBound(u64, address, slc.line_table.keys(), {}, std.sort.asc(u64));
+            if (index == 0) return missing();
+            return slc.line_table.values()[index - 1];
+        }
+    };
 };
 
 pub const FormValue = union(enum) {
@@ -760,6 +783,11 @@ pub fn deinit(di: *Dwarf, gpa: Allocator) void {
     }
     di.abbrev_table_list.deinit(gpa);
     for (di.compile_unit_list.items) |*cu| {
+        if (cu.src_loc_cache) |*slc| {
+            slc.line_table.deinit(gpa);
+            gpa.free(slc.directories);
+            gpa.free(slc.files);
+        }
         cu.die.deinit(gpa);
     }
     di.compile_unit_list.deinit(gpa);
@@ -846,6 +874,7 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator) ScanError!void {
             .rnglists_base = 0,
             .loclists_base = 0,
             .frame_base = null,
+            .src_loc_cache = null,
         };
 
         while (true) {
@@ -1032,6 +1061,7 @@ fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator) ScanError!void {
             .rnglists_base = if (compile_unit_die.getAttr(AT.rnglists_base)) |fv| try fv.getUInt(usize) else 0,
             .loclists_base = if (compile_unit_die.getAttr(AT.loclists_base)) |fv| try fv.getUInt(usize) else 0,
             .frame_base = compile_unit_die.getAttr(AT.frame_base),
+            .src_loc_cache = null,
         };
 
         compile_unit.pc_range = x: {
@@ -1242,7 +1272,7 @@ const DebugRangeIterator = struct {
 };
 
 /// TODO: change this to binary searching the sorted compile unit list
-pub fn findCompileUnit(di: *const Dwarf, target_address: u64) !*const CompileUnit {
+pub fn findCompileUnit(di: *const Dwarf, target_address: u64) !*CompileUnit {
     for (di.compile_unit_list.items) |*compile_unit| {
         if (compile_unit.pc_range) |range| {
             if (target_address >= range.start and target_address < range.end) return compile_unit;
@@ -1352,34 +1382,36 @@ fn parseDie(
     };
 }
 
-pub fn getLineNumberInfo(
-    di: *Dwarf,
-    allocator: Allocator,
-    compile_unit: CompileUnit,
-    target_address: u64,
-) !std.debug.SourceLocation {
-    const compile_unit_cwd = try compile_unit.die.getAttrString(di, AT.comp_dir, di.section(.debug_line_str), compile_unit);
+fn runLineNumberProgram(d: *Dwarf, gpa: Allocator, compile_unit: *CompileUnit) !CompileUnit.SrcLocCache {
+    const compile_unit_cwd = try compile_unit.die.getAttrString(d, AT.comp_dir, d.section(.debug_line_str), compile_unit.*);
     const line_info_offset = try compile_unit.die.getAttrSecOffset(AT.stmt_list);
 
-    var fbr: FixedBufferReader = .{ .buf = di.section(.debug_line).?, .endian = di.endian };
+    var fbr: FixedBufferReader = .{
+        .buf = d.section(.debug_line).?,
+        .endian = d.endian,
+    };
     try fbr.seekTo(line_info_offset);
 
     const unit_header = try readUnitHeader(&fbr, null);
     if (unit_header.unit_length == 0) return missing();
+
     const next_offset = unit_header.header_length + unit_header.unit_length;
 
     const version = try fbr.readInt(u16);
     if (version < 2) return bad();
 
-    var addr_size: u8 = switch (unit_header.format) {
-        .@"32" => 4,
-        .@"64" => 8,
+    const addr_size: u8, const seg_size: u8 = if (version >= 5) .{
+        try fbr.readByte(),
+        try fbr.readByte(),
+    } else .{
+        switch (unit_header.format) {
+            .@"32" => 4,
+            .@"64" => 8,
+        },
+        0,
     };
-    var seg_size: u8 = 0;
-    if (version >= 5) {
-        addr_size = try fbr.readByte();
-        seg_size = try fbr.readByte();
-    }
+    _ = addr_size;
+    _ = seg_size;
 
     const prologue_length = try fbr.readAddress(unit_header.format);
     const prog_start_offset = fbr.pos + prologue_length;
@@ -1388,8 +1420,8 @@ pub fn getLineNumberInfo(
     if (minimum_instruction_length == 0) return bad();
 
     if (version >= 4) {
-        // maximum_operations_per_instruction
-        _ = try fbr.readByte();
+        const maximum_operations_per_instruction = try fbr.readByte();
+        _ = maximum_operations_per_instruction;
     }
 
     const default_is_stmt = (try fbr.readByte()) != 0;
@@ -1402,18 +1434,18 @@ pub fn getLineNumberInfo(
 
     const standard_opcode_lengths = try fbr.readBytes(opcode_base - 1);
 
-    var include_directories = std.ArrayList(FileEntry).init(allocator);
-    defer include_directories.deinit();
-    var file_entries = std.ArrayList(FileEntry).init(allocator);
-    defer file_entries.deinit();
+    var directories: std.ArrayListUnmanaged(FileEntry) = .{};
+    defer directories.deinit(gpa);
+    var file_entries: std.ArrayListUnmanaged(FileEntry) = .{};
+    defer file_entries.deinit(gpa);
 
     if (version < 5) {
-        try include_directories.append(.{ .path = compile_unit_cwd });
+        try directories.append(gpa, .{ .path = compile_unit_cwd });
 
         while (true) {
             const dir = try fbr.readBytesTo(0);
             if (dir.len == 0) break;
-            try include_directories.append(.{ .path = dir });
+            try directories.append(gpa, .{ .path = dir });
         }
 
         while (true) {
@@ -1422,7 +1454,7 @@ pub fn getLineNumberInfo(
             const dir_index = try fbr.readUleb128(u32);
             const mtime = try fbr.readUleb128(u64);
             const size = try fbr.readUleb128(u64);
-            try file_entries.append(.{
+            try file_entries.append(gpa, .{
                 .path = file_name,
                 .dir_index = dir_index,
                 .mtime = mtime,
@@ -1446,31 +1478,27 @@ pub fn getLineNumberInfo(
             }
 
             const directories_count = try fbr.readUleb128(usize);
-            try include_directories.ensureUnusedCapacity(directories_count);
-            {
-                var i: usize = 0;
-                while (i < directories_count) : (i += 1) {
-                    var e: FileEntry = .{ .path = &.{} };
-                    for (dir_ent_fmt_buf[0..directory_entry_format_count]) |ent_fmt| {
-                        const form_value = try parseFormValue(
-                            &fbr,
-                            ent_fmt.form_code,
-                            unit_header.format,
-                            null,
-                        );
-                        switch (ent_fmt.content_type_code) {
-                            DW.LNCT.path => e.path = try form_value.getString(di.*),
-                            DW.LNCT.directory_index => e.dir_index = try form_value.getUInt(u32),
-                            DW.LNCT.timestamp => e.mtime = try form_value.getUInt(u64),
-                            DW.LNCT.size => e.size = try form_value.getUInt(u64),
-                            DW.LNCT.MD5 => e.md5 = switch (form_value) {
-                                .data16 => |data16| data16.*,
-                                else => return bad(),
-                            },
-                            else => continue,
-                        }
+
+            for (try directories.addManyAsSlice(gpa, directories_count)) |*e| {
+                e.* = .{ .path = &.{} };
+                for (dir_ent_fmt_buf[0..directory_entry_format_count]) |ent_fmt| {
+                    const form_value = try parseFormValue(
+                        &fbr,
+                        ent_fmt.form_code,
+                        unit_header.format,
+                        null,
+                    );
+                    switch (ent_fmt.content_type_code) {
+                        DW.LNCT.path => e.path = try form_value.getString(d.*),
+                        DW.LNCT.directory_index => e.dir_index = try form_value.getUInt(u32),
+                        DW.LNCT.timestamp => e.mtime = try form_value.getUInt(u64),
+                        DW.LNCT.size => e.size = try form_value.getUInt(u64),
+                        DW.LNCT.MD5 => e.md5 = switch (form_value) {
+                            .data16 => |data16| data16.*,
+                            else => return bad(),
+                        },
+                        else => continue,
                     }
-                    include_directories.appendAssumeCapacity(e);
                 }
             }
         }
@@ -1486,41 +1514,35 @@ pub fn getLineNumberInfo(
         }
 
         const file_names_count = try fbr.readUleb128(usize);
-        try file_entries.ensureUnusedCapacity(file_names_count);
-        {
-            var i: usize = 0;
-            while (i < file_names_count) : (i += 1) {
-                var e: FileEntry = .{ .path = &.{} };
-                for (file_ent_fmt_buf[0..file_name_entry_format_count]) |ent_fmt| {
-                    const form_value = try parseFormValue(
-                        &fbr,
-                        ent_fmt.form_code,
-                        unit_header.format,
-                        null,
-                    );
-                    switch (ent_fmt.content_type_code) {
-                        DW.LNCT.path => e.path = try form_value.getString(di.*),
-                        DW.LNCT.directory_index => e.dir_index = try form_value.getUInt(u32),
-                        DW.LNCT.timestamp => e.mtime = try form_value.getUInt(u64),
-                        DW.LNCT.size => e.size = try form_value.getUInt(u64),
-                        DW.LNCT.MD5 => e.md5 = switch (form_value) {
-                            .data16 => |data16| data16.*,
-                            else => return bad(),
-                        },
-                        else => continue,
-                    }
+        try file_entries.ensureUnusedCapacity(gpa, file_names_count);
+
+        for (try file_entries.addManyAsSlice(gpa, file_names_count)) |*e| {
+            e.* = .{ .path = &.{} };
+            for (file_ent_fmt_buf[0..file_name_entry_format_count]) |ent_fmt| {
+                const form_value = try parseFormValue(
+                    &fbr,
+                    ent_fmt.form_code,
+                    unit_header.format,
+                    null,
+                );
+                switch (ent_fmt.content_type_code) {
+                    DW.LNCT.path => e.path = try form_value.getString(d.*),
+                    DW.LNCT.directory_index => e.dir_index = try form_value.getUInt(u32),
+                    DW.LNCT.timestamp => e.mtime = try form_value.getUInt(u64),
+                    DW.LNCT.size => e.size = try form_value.getUInt(u64),
+                    DW.LNCT.MD5 => e.md5 = switch (form_value) {
+                        .data16 => |data16| data16.*,
+                        else => return bad(),
+                    },
+                    else => continue,
                 }
-                file_entries.appendAssumeCapacity(e);
             }
         }
     }
 
-    var prog = LineNumberProgram.init(
-        default_is_stmt,
-        include_directories.items,
-        target_address,
-        version,
-    );
+    var prog = LineNumberProgram.init(default_is_stmt, version);
+    var line_table: CompileUnit.SrcLocCache.LineTable = .{};
+    errdefer line_table.deinit(gpa);
 
     try fbr.seekTo(prog_start_offset);
 
@@ -1536,7 +1558,7 @@ pub fn getLineNumberInfo(
             switch (sub_op) {
                 DW.LNE.end_sequence => {
                     prog.end_sequence = true;
-                    if (try prog.checkLineMatch(allocator, file_entries.items)) |info| return info;
+                    try prog.addRow(gpa, &line_table);
                     prog.reset();
                 },
                 DW.LNE.set_address => {
@@ -1548,7 +1570,7 @@ pub fn getLineNumberInfo(
                     const dir_index = try fbr.readUleb128(u32);
                     const mtime = try fbr.readUleb128(u64);
                     const size = try fbr.readUleb128(u64);
-                    try file_entries.append(.{
+                    try file_entries.append(gpa, .{
                         .path = path,
                         .dir_index = dir_index,
                         .mtime = mtime,
@@ -1564,12 +1586,12 @@ pub fn getLineNumberInfo(
             const inc_line = @as(i32, line_base) + @as(i32, adjusted_opcode % line_range);
             prog.line += inc_line;
             prog.address += inc_addr;
-            if (try prog.checkLineMatch(allocator, file_entries.items)) |info| return info;
+            try prog.addRow(gpa, &line_table);
             prog.basic_block = false;
         } else {
             switch (opcode) {
                 DW.LNS.copy => {
-                    if (try prog.checkLineMatch(allocator, file_entries.items)) |info| return info;
+                    try prog.addRow(gpa, &line_table);
                     prog.basic_block = false;
                 },
                 DW.LNS.advance_pc => {
@@ -1611,7 +1633,35 @@ pub fn getLineNumberInfo(
         }
     }
 
-    return missing();
+    return .{
+        .line_table = line_table,
+        .directories = try directories.toOwnedSlice(gpa),
+        .files = try file_entries.toOwnedSlice(gpa),
+        .version = version,
+    };
+}
+
+pub fn getLineNumberInfo(
+    d: *Dwarf,
+    gpa: Allocator,
+    compile_unit: *CompileUnit,
+    target_address: u64,
+) !std.debug.SourceLocation {
+    if (compile_unit.src_loc_cache == null)
+        compile_unit.src_loc_cache = try runLineNumberProgram(d, gpa, compile_unit);
+    const slc = &compile_unit.src_loc_cache.?;
+    const entry = try slc.findSource(target_address);
+    const file_index = entry.file - @intFromBool(slc.version < 5);
+    if (file_index >= slc.files.len) return bad();
+    const file_entry = &slc.files[file_index];
+    if (file_entry.dir_index >= slc.directories.len) return bad();
+    const dir_name = slc.directories[file_entry.dir_index].path;
+    const file_name = try std.fs.path.join(gpa, &.{ dir_name, file_entry.path });
+    return .{
+        .line = entry.line,
+        .column = entry.column,
+        .file_name = file_name,
+    };
 }
 
 fn getString(di: Dwarf, offset: u64) ![:0]const u8 {
@@ -1826,17 +1876,6 @@ const LineNumberProgram = struct {
     end_sequence: bool,
 
     default_is_stmt: bool,
-    target_address: u64,
-    include_dirs: []const FileEntry,
-
-    prev_valid: bool,
-    prev_address: u64,
-    prev_file: usize,
-    prev_line: i64,
-    prev_column: u64,
-    prev_is_stmt: bool,
-    prev_basic_block: bool,
-    prev_end_sequence: bool,
 
     // Reset the state machine following the DWARF specification
     pub fn reset(self: *LineNumberProgram) void {
@@ -1847,24 +1886,10 @@ const LineNumberProgram = struct {
         self.is_stmt = self.default_is_stmt;
         self.basic_block = false;
         self.end_sequence = false;
-        // Invalidate all the remaining fields
-        self.prev_valid = false;
-        self.prev_address = 0;
-        self.prev_file = undefined;
-        self.prev_line = undefined;
-        self.prev_column = undefined;
-        self.prev_is_stmt = undefined;
-        self.prev_basic_block = undefined;
-        self.prev_end_sequence = undefined;
     }
 
-    pub fn init(
-        is_stmt: bool,
-        include_dirs: []const FileEntry,
-        target_address: u64,
-        version: u16,
-    ) LineNumberProgram {
-        return LineNumberProgram{
+    pub fn init(is_stmt: bool, version: u16) LineNumberProgram {
+        return .{
             .address = 0,
             .file = 1,
             .line = 1,
@@ -1873,60 +1898,17 @@ const LineNumberProgram = struct {
             .is_stmt = is_stmt,
             .basic_block = false,
             .end_sequence = false,
-            .include_dirs = include_dirs,
             .default_is_stmt = is_stmt,
-            .target_address = target_address,
-            .prev_valid = false,
-            .prev_address = 0,
-            .prev_file = undefined,
-            .prev_line = undefined,
-            .prev_column = undefined,
-            .prev_is_stmt = undefined,
-            .prev_basic_block = undefined,
-            .prev_end_sequence = undefined,
         };
     }
 
-    pub fn checkLineMatch(
-        self: *LineNumberProgram,
-        allocator: Allocator,
-        file_entries: []const FileEntry,
-    ) !?std.debug.SourceLocation {
-        if (self.prev_valid and
-            self.target_address >= self.prev_address and
-            self.target_address < self.address)
-        {
-            const file_index = if (self.version >= 5) self.prev_file else i: {
-                if (self.prev_file == 0) return missing();
-                break :i self.prev_file - 1;
-            };
-
-            if (file_index >= file_entries.len) return bad();
-            const file_entry = &file_entries[file_index];
-
-            if (file_entry.dir_index >= self.include_dirs.len) return bad();
-            const dir_name = self.include_dirs[file_entry.dir_index].path;
-
-            const file_name = try std.fs.path.join(allocator, &[_][]const u8{
-                dir_name, file_entry.path,
-            });
-
-            return std.debug.SourceLocation{
-                .line = if (self.prev_line >= 0) @as(u64, @intCast(self.prev_line)) else 0,
-                .column = self.prev_column,
-                .file_name = file_name,
-            };
-        }
-
-        self.prev_valid = true;
-        self.prev_address = self.address;
-        self.prev_file = self.file;
-        self.prev_line = self.line;
-        self.prev_column = self.column;
-        self.prev_is_stmt = self.is_stmt;
-        self.prev_basic_block = self.basic_block;
-        self.prev_end_sequence = self.end_sequence;
-        return null;
+    pub fn addRow(prog: *LineNumberProgram, gpa: Allocator, table: *CompileUnit.SrcLocCache.LineTable) !void {
+        if (prog.line == 0) return; // garbage data
+        try table.put(gpa, prog.address, .{
+            .line = cast(u32, prog.line) orelse maxInt(u32),
+            .column = cast(u32, prog.column) orelse maxInt(u32),
+            .file = cast(u32, prog.file) orelse return bad(),
+        });
     }
 };
 
@@ -2381,7 +2363,7 @@ pub fn resolveSourceLocations(
     defer prog_node.end();
 
     var cu_i: usize = 0;
-    var cu: *const CompileUnit = &d.compile_unit_list.items[0];
+    var cu: *CompileUnit = &d.compile_unit_list.items[0];
     var range = cu.pc_range.?;
     next_pc: for (sorted_pc_addrs, output) |pc, *out| {
         defer prog_node.completeOne();
@@ -2403,7 +2385,7 @@ pub fn resolveSourceLocations(
         }
         // TODO: instead of calling this function, break the function up into one that parses the
         // information once and prepares a context that can be reused for the entire batch.
-        if (getLineNumberInfo(d, gpa, cu.*, pc)) |src_loc| {
+        if (getLineNumberInfo(d, gpa, cu, pc)) |src_loc| {
             out.* = src_loc;
         } else |err| switch (err) {
             error.MissingDebugInfo, error.InvalidDebugInfo => out.* = std.debug.SourceLocation.invalid,
@@ -2419,7 +2401,7 @@ fn getSymbol(di: *Dwarf, allocator: Allocator, address: u64) !std.debug.Symbol {
             .compile_unit_name = compile_unit.die.getAttrString(di, std.dwarf.AT.name, di.section(.debug_str), compile_unit.*) catch |err| switch (err) {
                 error.MissingDebugInfo, error.InvalidDebugInfo => "???",
             },
-            .source_location = di.getLineNumberInfo(allocator, compile_unit.*, address) catch |err| switch (err) {
+            .source_location = di.getLineNumberInfo(allocator, compile_unit, address) catch |err| switch (err) {
                 error.MissingDebugInfo, error.InvalidDebugInfo => null,
                 else => return err,
             },

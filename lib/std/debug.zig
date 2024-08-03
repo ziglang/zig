@@ -762,7 +762,7 @@ pub fn writeCurrentStackTrace(
         // an overflow. We do not need to signal `StackIterator` as it will correctly detect this
         // condition on the subsequent iteration and return `null` thus terminating the loop.
         // same behaviour for x86-windows-msvc
-        const address = if (return_address == 0) return_address else return_address - 1;
+        const address = return_address -| 1;
         try printSourceAtAddress(debug_info, out_stream, address, tty_config);
     } else printLastUnwindError(&it, debug_info, out_stream, tty_config);
 }
