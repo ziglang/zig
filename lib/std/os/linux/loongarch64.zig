@@ -117,12 +117,12 @@ pub fn restore_rt() callconv(.Naked) noreturn {
 
 pub const blksize_t = i32;
 pub const nlink_t = u32;
-pub const time_t = isize;
+pub const time_t = i64;
 pub const mode_t = u32;
-pub const off_t = isize;
-pub const ino_t = usize;
-pub const dev_t = usize;
-pub const blkcnt_t = isize;
+pub const off_t = i64;
+pub const ino_t = u64;
+pub const dev_t = u32;
+pub const blkcnt_t = i64;
 
 pub const timeval = extern struct {
     tv_sec: time_t,
