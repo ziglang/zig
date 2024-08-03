@@ -1,11 +1,13 @@
-const std = @import("std");
 const builtin = @import("builtin");
+const native_arch = builtin.cpu.arch;
+const native_endian = native_arch.endian();
+
+const std = @import("std");
 const leb = std.leb;
 const OP = std.dwarf.OP;
 const abi = std.debug.Dwarf.abi;
 const mem = std.mem;
 const assert = std.debug.assert;
-const native_endian = builtin.cpu.arch.endian();
 
 /// Expressions can be evaluated in different contexts, each requiring its own set of inputs.
 /// Callers should specify all the fields relevant to their context. If a field is required
@@ -14,7 +16,7 @@ pub const Context = struct {
     /// The dwarf format of the section this expression is in
     format: std.dwarf.Format = .@"32",
     /// If specified, any addresses will pass through before being accessed
-    memory_accessor: ?*std.debug.StackIterator.MemoryAccessor = null,
+    memory_accessor: ?*std.debug.MemoryAccessor = null,
     /// The compilation unit this expression relates to, if any
     compile_unit: ?*const std.debug.Dwarf.CompileUnit = null,
     /// When evaluating a user-presented expression, this is the address of the object being evaluated
@@ -34,7 +36,7 @@ pub const Options = struct {
     /// The address size of the target architecture
     addr_size: u8 = @sizeOf(usize),
     /// Endianness of the target architecture
-    endian: std.builtin.Endian = builtin.target.cpu.arch.endian(),
+    endian: std.builtin.Endian = native_endian,
     /// Restrict the stack machine to a subset of opcodes used in call frame instructions
     call_frame_context: bool = false,
 };
@@ -60,7 +62,7 @@ pub const Error = error{
     InvalidTypeLength,
 
     TruncatedIntegralType,
-} || abi.AbiError || error{ EndOfStream, Overflow, OutOfMemory, DivisionByZero };
+} || abi.RegBytesError || error{ EndOfStream, Overflow, OutOfMemory, DivisionByZero };
 
 /// A stack machine that can decode and run DWARF expressions.
 /// Expressions can be decoded for non-native address size and endianness,
@@ -304,7 +306,7 @@ pub fn StackMachine(comptime options: Options) type {
             allocator: std.mem.Allocator,
             context: Context,
         ) Error!bool {
-            if (@sizeOf(usize) != @sizeOf(addr_type) or options.endian != comptime builtin.target.cpu.arch.endian())
+            if (@sizeOf(usize) != @sizeOf(addr_type) or options.endian != native_endian)
                 @compileError("Execution of non-native address sizes / endianness is not supported");
 
             const opcode = try stream.reader().readByte();
@@ -1186,13 +1188,13 @@ test "DWARF expressions" {
             // TODO: Test fbreg (once implemented): mock a DIE and point compile_unit.frame_base at it
 
             mem.writeInt(usize, reg_bytes[0..@sizeOf(usize)], 0xee, native_endian);
-            (try abi.regValueNative(usize, &thread_context, abi.fpRegNum(reg_context), reg_context)).* = 1;
-            (try abi.regValueNative(usize, &thread_context, abi.spRegNum(reg_context), reg_context)).* = 2;
-            (try abi.regValueNative(usize, &thread_context, abi.ipRegNum(), reg_context)).* = 3;
+            (try abi.regValueNative(&thread_context, abi.fpRegNum(native_arch, reg_context), reg_context)).* = 1;
+            (try abi.regValueNative(&thread_context, abi.spRegNum(native_arch, reg_context), reg_context)).* = 2;
+            (try abi.regValueNative(&thread_context, abi.ipRegNum(native_arch).?, reg_context)).* = 3;
 
-            try b.writeBreg(writer, abi.fpRegNum(reg_context), @as(usize, 100));
-            try b.writeBreg(writer, abi.spRegNum(reg_context), @as(usize, 200));
-            try b.writeBregx(writer, abi.ipRegNum(), @as(usize, 300));
+            try b.writeBreg(writer, abi.fpRegNum(native_arch, reg_context), @as(usize, 100));
+            try b.writeBreg(writer, abi.spRegNum(native_arch, reg_context), @as(usize, 200));
+            try b.writeBregx(writer, abi.ipRegNum(native_arch).?, @as(usize, 300));
             try b.writeRegvalType(writer, @as(u8, 0), @as(usize, 400));
 
             _ = try stack_machine.run(program.items, allocator, context, 0);

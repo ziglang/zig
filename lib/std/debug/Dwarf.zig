@@ -1,23 +1,32 @@
 //! Implements parsing, decoding, and caching of DWARF information.
 //!
+//! This API does not assume the current executable is itself the thing being
+//! debugged, however, it does assume the debug info has the same CPU
+//! architecture and OS as the current executable. It is planned to remove this
+//! limitation.
+//!
 //! For unopinionated types and bits, see `std.dwarf`.
 
 const builtin = @import("builtin");
+const native_endian = builtin.cpu.arch.endian();
+
 const std = @import("../std.zig");
-const AT = DW.AT;
 const Allocator = std.mem.Allocator;
 const DW = std.dwarf;
+const AT = DW.AT;
 const EH = DW.EH;
 const FORM = DW.FORM;
 const Format = DW.Format;
 const RLE = DW.RLE;
-const StackIterator = std.debug.StackIterator;
 const UT = DW.UT;
 const assert = std.debug.assert;
 const cast = std.math.cast;
 const maxInt = std.math.maxInt;
-const native_endian = builtin.cpu.arch.endian();
 const readInt = std.mem.readInt;
+const MemoryAccessor = std.debug.MemoryAccessor;
+
+/// Did I mention this is deprecated?
+const DeprecatedFixedBufferReader = std.debug.DeprecatedFixedBufferReader;
 
 const Dwarf = @This();
 
@@ -153,7 +162,7 @@ pub const FormValue = union(enum) {
             .string => |s| return s,
             .strp => |off| return di.getString(off),
             .line_strp => |off| return di.getLineString(off),
-            else => return badDwarf(),
+            else => return bad(),
         }
     }
 
@@ -162,8 +171,8 @@ pub const FormValue = union(enum) {
             inline .udata,
             .sdata,
             .sec_offset,
-            => |c| cast(U, c) orelse badDwarf(),
-            else => badDwarf(),
+            => |c| cast(U, c) orelse bad(),
+            else => bad(),
         };
     }
 };
@@ -237,25 +246,25 @@ pub const Die = struct {
             .string => |value| return value,
             .strp => |offset| return di.getString(offset),
             .strx => |index| {
-                const debug_str_offsets = di.section(.debug_str_offsets) orelse return badDwarf();
-                if (compile_unit.str_offsets_base == 0) return badDwarf();
+                const debug_str_offsets = di.section(.debug_str_offsets) orelse return bad();
+                if (compile_unit.str_offsets_base == 0) return bad();
                 switch (compile_unit.format) {
                     .@"32" => {
                         const byte_offset = compile_unit.str_offsets_base + 4 * index;
-                        if (byte_offset + 4 > debug_str_offsets.len) return badDwarf();
+                        if (byte_offset + 4 > debug_str_offsets.len) return bad();
                         const offset = readInt(u32, debug_str_offsets[byte_offset..][0..4], di.endian);
                         return getStringGeneric(opt_str, offset);
                     },
                     .@"64" => {
                         const byte_offset = compile_unit.str_offsets_base + 8 * index;
-                        if (byte_offset + 8 > debug_str_offsets.len) return badDwarf();
+                        if (byte_offset + 8 > debug_str_offsets.len) return bad();
                         const offset = readInt(u64, debug_str_offsets[byte_offset..][0..8], di.endian);
                         return getStringGeneric(opt_str, offset);
                     },
                 }
             },
             .line_strp => |offset| return di.getLineString(offset),
-            else => return badDwarf(),
+            else => return bad(),
         }
     }
 };
@@ -279,7 +288,7 @@ pub const ExceptionFrameHeader = struct {
             EH.PE.sdata8,
             => 16,
             // This is a binary search table, so all entries must be the same length
-            else => return badDwarf(),
+            else => return bad(),
         };
     }
 
@@ -287,7 +296,7 @@ pub const ExceptionFrameHeader = struct {
         self: ExceptionFrameHeader,
         comptime T: type,
         ptr: usize,
-        ma: *StackIterator.MemoryAccessor,
+        ma: *MemoryAccessor,
         eh_frame_len: ?usize,
     ) bool {
         if (eh_frame_len) |len| {
@@ -304,7 +313,7 @@ pub const ExceptionFrameHeader = struct {
     /// If `eh_frame_len` is provided, then these checks can be skipped.
     pub fn findEntry(
         self: ExceptionFrameHeader,
-        ma: *StackIterator.MemoryAccessor,
+        ma: *MemoryAccessor,
         eh_frame_len: ?usize,
         eh_frame_hdr_ptr: usize,
         pc: usize,
@@ -316,7 +325,7 @@ pub const ExceptionFrameHeader = struct {
         var left: usize = 0;
         var len: usize = self.fde_count;
 
-        var fbr: FixedBufferReader = .{ .buf = self.entries, .endian = native_endian };
+        var fbr: DeprecatedFixedBufferReader = .{ .buf = self.entries, .endian = native_endian };
 
         while (len > 1) {
             const mid = left + len / 2;
@@ -326,7 +335,7 @@ pub const ExceptionFrameHeader = struct {
                 .pc_rel_base = @intFromPtr(&self.entries[fbr.pos]),
                 .follow_indirect = true,
                 .data_rel_base = eh_frame_hdr_ptr,
-            }) orelse return badDwarf();
+            }) orelse return bad();
 
             if (pc < pc_begin) {
                 len /= 2;
@@ -337,7 +346,7 @@ pub const ExceptionFrameHeader = struct {
             }
         }
 
-        if (len == 0) return badDwarf();
+        if (len == 0) return bad();
         fbr.pos = left * entry_size;
 
         // Read past the pc_begin field of the entry
@@ -345,36 +354,36 @@ pub const ExceptionFrameHeader = struct {
             .pc_rel_base = @intFromPtr(&self.entries[fbr.pos]),
             .follow_indirect = true,
             .data_rel_base = eh_frame_hdr_ptr,
-        }) orelse return badDwarf();
+        }) orelse return bad();
 
         const fde_ptr = cast(usize, try readEhPointer(&fbr, self.table_enc, @sizeOf(usize), .{
             .pc_rel_base = @intFromPtr(&self.entries[fbr.pos]),
             .follow_indirect = true,
             .data_rel_base = eh_frame_hdr_ptr,
-        }) orelse return badDwarf()) orelse return badDwarf();
+        }) orelse return bad()) orelse return bad();
 
-        if (fde_ptr < self.eh_frame_ptr) return badDwarf();
+        if (fde_ptr < self.eh_frame_ptr) return bad();
 
         // Even if eh_frame_len is not specified, all ranges accssed are checked via MemoryAccessor
         const eh_frame = @as([*]const u8, @ptrFromInt(self.eh_frame_ptr))[0 .. eh_frame_len orelse maxInt(u32)];
 
         const fde_offset = fde_ptr - self.eh_frame_ptr;
-        var eh_frame_fbr: FixedBufferReader = .{
+        var eh_frame_fbr: DeprecatedFixedBufferReader = .{
             .buf = eh_frame,
             .pos = fde_offset,
             .endian = native_endian,
         };
 
         const fde_entry_header = try EntryHeader.read(&eh_frame_fbr, if (eh_frame_len == null) ma else null, .eh_frame);
-        if (!self.isValidPtr(u8, @intFromPtr(&fde_entry_header.entry_bytes[fde_entry_header.entry_bytes.len - 1]), ma, eh_frame_len)) return badDwarf();
-        if (fde_entry_header.type != .fde) return badDwarf();
+        if (!self.isValidPtr(u8, @intFromPtr(&fde_entry_header.entry_bytes[fde_entry_header.entry_bytes.len - 1]), ma, eh_frame_len)) return bad();
+        if (fde_entry_header.type != .fde) return bad();
 
         // CIEs always come before FDEs (the offset is a subtraction), so we can assume this memory is readable
         const cie_offset = fde_entry_header.type.fde;
         try eh_frame_fbr.seekTo(cie_offset);
         const cie_entry_header = try EntryHeader.read(&eh_frame_fbr, if (eh_frame_len == null) ma else null, .eh_frame);
-        if (!self.isValidPtr(u8, @intFromPtr(&cie_entry_header.entry_bytes[cie_entry_header.entry_bytes.len - 1]), ma, eh_frame_len)) return badDwarf();
-        if (cie_entry_header.type != .cie) return badDwarf();
+        if (!self.isValidPtr(u8, @intFromPtr(&cie_entry_header.entry_bytes[cie_entry_header.entry_bytes.len - 1]), ma, eh_frame_len)) return bad();
+        if (cie_entry_header.type != .cie) return bad();
 
         cie.* = try CommonInformationEntry.parse(
             cie_entry_header.entry_bytes,
@@ -417,17 +426,17 @@ pub const EntryHeader = struct {
     }
 
     /// Reads a header for either an FDE or a CIE, then advances the fbr to the position after the trailing structure.
-    /// `fbr` must be a FixedBufferReader backed by either the .eh_frame or .debug_frame sections.
+    /// `fbr` must be a DeprecatedFixedBufferReader backed by either the .eh_frame or .debug_frame sections.
     pub fn read(
-        fbr: *FixedBufferReader,
-        opt_ma: ?*StackIterator.MemoryAccessor,
+        fbr: *DeprecatedFixedBufferReader,
+        opt_ma: ?*MemoryAccessor,
         dwarf_section: Section.Id,
     ) !EntryHeader {
         assert(dwarf_section == .eh_frame or dwarf_section == .debug_frame);
 
         const length_offset = fbr.pos;
         const unit_header = try readUnitHeader(fbr, opt_ma);
-        const unit_length = cast(usize, unit_header.unit_length) orelse return badDwarf();
+        const unit_length = cast(usize, unit_header.unit_length) orelse return bad();
         if (unit_length == 0) return .{
             .length_offset = length_offset,
             .format = unit_header.format,
@@ -532,7 +541,7 @@ pub const CommonInformationEntry = struct {
     ) !CommonInformationEntry {
         if (addr_size_bytes > 8) return error.UnsupportedAddrSize;
 
-        var fbr: FixedBufferReader = .{ .buf = cie_bytes, .endian = endian };
+        var fbr: DeprecatedFixedBufferReader = .{ .buf = cie_bytes, .endian = endian };
 
         const version = try fbr.readByte();
         switch (dwarf_section) {
@@ -550,15 +559,15 @@ pub const CommonInformationEntry = struct {
         while (aug_byte != 0) : (aug_byte = try fbr.readByte()) {
             switch (aug_byte) {
                 'z' => {
-                    if (aug_str_len != 0) return badDwarf();
+                    if (aug_str_len != 0) return bad();
                     has_aug_data = true;
                 },
                 'e' => {
-                    if (has_aug_data or aug_str_len != 0) return badDwarf();
-                    if (try fbr.readByte() != 'h') return badDwarf();
+                    if (has_aug_data or aug_str_len != 0) return bad();
+                    if (try fbr.readByte() != 'h') return bad();
                     has_eh_data = true;
                 },
-                else => if (has_eh_data) return badDwarf(),
+                else => if (has_eh_data) return bad(),
             }
 
             aug_str_len += 1;
@@ -604,7 +613,7 @@ pub const CommonInformationEntry = struct {
                         fde_pointer_enc = try fbr.readByte();
                     },
                     'S', 'B', 'G' => {},
-                    else => return badDwarf(),
+                    else => return bad(),
                 }
             }
 
@@ -666,17 +675,17 @@ pub const FrameDescriptionEntry = struct {
     ) !FrameDescriptionEntry {
         if (addr_size_bytes > 8) return error.InvalidAddrSize;
 
-        var fbr: FixedBufferReader = .{ .buf = fde_bytes, .endian = endian };
+        var fbr: DeprecatedFixedBufferReader = .{ .buf = fde_bytes, .endian = endian };
 
         const pc_begin = try readEhPointer(&fbr, cie.fde_pointer_enc, addr_size_bytes, .{
             .pc_rel_base = try pcRelBase(@intFromPtr(&fde_bytes[fbr.pos]), pc_rel_offset),
             .follow_indirect = is_runtime,
-        }) orelse return badDwarf();
+        }) orelse return bad();
 
         const pc_range = try readEhPointer(&fbr, cie.fde_pointer_enc, addr_size_bytes, .{
             .pc_rel_base = 0,
             .follow_indirect = false,
-        }) orelse return badDwarf();
+        }) orelse return bad();
 
         var aug_data: []const u8 = &[_]u8{};
         const lsda_pointer = if (cie.aug_str.len > 0) blk: {
@@ -705,54 +714,6 @@ pub const FrameDescriptionEntry = struct {
             .aug_data = aug_data,
             .instructions = instructions,
         };
-    }
-};
-
-pub const UnwindContext = struct {
-    allocator: Allocator,
-    cfa: ?usize,
-    pc: usize,
-    thread_context: *std.debug.ThreadContext,
-    reg_context: abi.RegisterContext,
-    vm: call_frame.VirtualMachine,
-    stack_machine: expression.StackMachine(.{ .call_frame_context = true }),
-
-    pub fn init(
-        allocator: Allocator,
-        thread_context: *const std.debug.ThreadContext,
-    ) !UnwindContext {
-        const pc = abi.stripInstructionPtrAuthCode(
-            (try abi.regValueNative(
-                usize,
-                thread_context,
-                abi.ipRegNum(),
-                null,
-            )).*,
-        );
-
-        const context_copy = try allocator.create(std.debug.ThreadContext);
-        std.debug.copyContext(thread_context, context_copy);
-
-        return .{
-            .allocator = allocator,
-            .cfa = null,
-            .pc = pc,
-            .thread_context = context_copy,
-            .reg_context = undefined,
-            .vm = .{},
-            .stack_machine = .{},
-        };
-    }
-
-    pub fn deinit(self: *UnwindContext) void {
-        self.vm.deinit(self.allocator);
-        self.stack_machine.deinit(self.allocator);
-        self.allocator.destroy(self.thread_context);
-        self.* = undefined;
-    }
-
-    pub fn getFp(self: *const UnwindContext) !usize {
-        return (try abi.regValueNative(usize, self.thread_context, abi.fpRegNum(self.reg_context), self.reg_context)).*;
     }
 };
 
@@ -817,7 +778,7 @@ pub fn getSymbolName(di: *Dwarf, address: u64) ?[]const u8 {
 }
 
 fn scanAllFunctions(di: *Dwarf, allocator: Allocator) !void {
-    var fbr: FixedBufferReader = .{ .buf = di.section(.debug_info).?, .endian = di.endian };
+    var fbr: DeprecatedFixedBufferReader = .{ .buf = di.section(.debug_info).?, .endian = di.endian };
     var this_unit_offset: u64 = 0;
 
     while (this_unit_offset < fbr.buf.len) {
@@ -828,20 +789,20 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator) !void {
         const next_offset = unit_header.header_length + unit_header.unit_length;
 
         const version = try fbr.readInt(u16);
-        if (version < 2 or version > 5) return badDwarf();
+        if (version < 2 or version > 5) return bad();
 
         var address_size: u8 = undefined;
         var debug_abbrev_offset: u64 = undefined;
         if (version >= 5) {
             const unit_type = try fbr.readInt(u8);
-            if (unit_type != DW.UT.compile) return badDwarf();
+            if (unit_type != DW.UT.compile) return bad();
             address_size = try fbr.readByte();
             debug_abbrev_offset = try fbr.readAddress(unit_header.format);
         } else {
             debug_abbrev_offset = try fbr.readAddress(unit_header.format);
             address_size = try fbr.readByte();
         }
-        if (address_size != @sizeOf(usize)) return badDwarf();
+        if (address_size != @sizeOf(usize)) return bad();
 
         const abbrev_table = try di.getAbbrevTable(allocator, debug_abbrev_offset);
 
@@ -915,28 +876,28 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator) !void {
 
                                 // Follow the DIE it points to and repeat
                                 const ref_offset = try this_die_obj.getAttrRef(AT.abstract_origin);
-                                if (ref_offset > next_offset) return badDwarf();
+                                if (ref_offset > next_offset) return bad();
                                 try fbr.seekTo(this_unit_offset + ref_offset);
                                 this_die_obj = (try parseDie(
                                     &fbr,
                                     attrs_bufs[2],
                                     abbrev_table,
                                     unit_header.format,
-                                )) orelse return badDwarf();
+                                )) orelse return bad();
                             } else if (this_die_obj.getAttr(AT.specification)) |_| {
                                 const after_die_offset = fbr.pos;
                                 defer fbr.pos = after_die_offset;
 
                                 // Follow the DIE it points to and repeat
                                 const ref_offset = try this_die_obj.getAttrRef(AT.specification);
-                                if (ref_offset > next_offset) return badDwarf();
+                                if (ref_offset > next_offset) return bad();
                                 try fbr.seekTo(this_unit_offset + ref_offset);
                                 this_die_obj = (try parseDie(
                                     &fbr,
                                     attrs_bufs[2],
                                     abbrev_table,
                                     unit_header.format,
-                                )) orelse return badDwarf();
+                                )) orelse return bad();
                             } else {
                                 break :x null;
                             }
@@ -950,7 +911,7 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator) !void {
                             const pc_end = switch (high_pc_value.*) {
                                 .addr => |value| value,
                                 .udata => |offset| low_pc + offset,
-                                else => return badDwarf(),
+                                else => return bad(),
                             };
 
                             try di.func_list.append(allocator, .{
@@ -1004,7 +965,7 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator) !void {
 }
 
 fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator) !void {
-    var fbr: FixedBufferReader = .{ .buf = di.section(.debug_info).?, .endian = di.endian };
+    var fbr: DeprecatedFixedBufferReader = .{ .buf = di.section(.debug_info).?, .endian = di.endian };
     var this_unit_offset: u64 = 0;
 
     var attrs_buf = std.ArrayList(Die.Attr).init(allocator);
@@ -1018,20 +979,20 @@ fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator) !void {
         const next_offset = unit_header.header_length + unit_header.unit_length;
 
         const version = try fbr.readInt(u16);
-        if (version < 2 or version > 5) return badDwarf();
+        if (version < 2 or version > 5) return bad();
 
         var address_size: u8 = undefined;
         var debug_abbrev_offset: u64 = undefined;
         if (version >= 5) {
             const unit_type = try fbr.readInt(u8);
-            if (unit_type != UT.compile) return badDwarf();
+            if (unit_type != UT.compile) return bad();
             address_size = try fbr.readByte();
             debug_abbrev_offset = try fbr.readAddress(unit_header.format);
         } else {
             debug_abbrev_offset = try fbr.readAddress(unit_header.format);
             address_size = try fbr.readByte();
         }
-        if (address_size != @sizeOf(usize)) return badDwarf();
+        if (address_size != @sizeOf(usize)) return bad();
 
         const abbrev_table = try di.getAbbrevTable(allocator, debug_abbrev_offset);
 
@@ -1046,9 +1007,9 @@ fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator) !void {
             attrs_buf.items,
             abbrev_table,
             unit_header.format,
-        )) orelse return badDwarf();
+        )) orelse return bad();
 
-        if (compile_unit_die.tag_id != DW.TAG.compile_unit) return badDwarf();
+        if (compile_unit_die.tag_id != DW.TAG.compile_unit) return bad();
 
         compile_unit_die.attrs = try allocator.dupe(Die.Attr, compile_unit_die.attrs);
 
@@ -1070,7 +1031,7 @@ fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator) !void {
                     const pc_end = switch (high_pc_value.*) {
                         .addr => |value| value,
                         .udata => |offset| low_pc + offset,
-                        else => return badDwarf(),
+                        else => return bad(),
                     };
                     break :x PcRange{
                         .start = low_pc,
@@ -1096,7 +1057,7 @@ const DebugRangeIterator = struct {
     section_type: Section.Id,
     di: *const Dwarf,
     compile_unit: *const CompileUnit,
-    fbr: FixedBufferReader,
+    fbr: DeprecatedFixedBufferReader,
 
     pub fn init(ranges_value: *const FormValue, di: *const Dwarf, compile_unit: *const CompileUnit) !@This() {
         const section_type = if (compile_unit.version >= 5) Section.Id.debug_rnglists else Section.Id.debug_ranges;
@@ -1108,19 +1069,19 @@ const DebugRangeIterator = struct {
                 switch (compile_unit.format) {
                     .@"32" => {
                         const offset_loc = @as(usize, @intCast(compile_unit.rnglists_base + 4 * idx));
-                        if (offset_loc + 4 > debug_ranges.len) return badDwarf();
+                        if (offset_loc + 4 > debug_ranges.len) return bad();
                         const offset = readInt(u32, debug_ranges[offset_loc..][0..4], di.endian);
                         break :off compile_unit.rnglists_base + offset;
                     },
                     .@"64" => {
                         const offset_loc = @as(usize, @intCast(compile_unit.rnglists_base + 8 * idx));
-                        if (offset_loc + 8 > debug_ranges.len) return badDwarf();
+                        if (offset_loc + 8 > debug_ranges.len) return bad();
                         const offset = readInt(u64, debug_ranges[offset_loc..][0..8], di.endian);
                         break :off compile_unit.rnglists_base + offset;
                     },
                 }
             },
-            else => return badDwarf(),
+            else => return bad(),
         };
 
         // All the addresses in the list are relative to the value
@@ -1139,7 +1100,7 @@ const DebugRangeIterator = struct {
             .compile_unit = compile_unit,
             .fbr = .{
                 .buf = debug_ranges,
-                .pos = cast(usize, ranges_offset) orelse return badDwarf(),
+                .pos = cast(usize, ranges_offset) orelse return bad(),
                 .endian = di.endian,
             },
         };
@@ -1214,7 +1175,7 @@ const DebugRangeIterator = struct {
                             .end_addr = end_addr,
                         };
                     },
-                    else => return badDwarf(),
+                    else => return bad(),
                 }
             },
             .debug_ranges => {
@@ -1251,7 +1212,7 @@ pub fn findCompileUnit(di: *const Dwarf, target_address: u64) !*const CompileUni
         }
     }
 
-    return missingDwarf();
+    return missing();
 }
 
 /// Gets an already existing AbbrevTable given the abbrev_offset, or if not found,
@@ -1270,9 +1231,9 @@ fn getAbbrevTable(di: *Dwarf, allocator: Allocator, abbrev_offset: u64) !*const 
 }
 
 fn parseAbbrevTable(di: *Dwarf, allocator: Allocator, offset: u64) !Abbrev.Table {
-    var fbr: FixedBufferReader = .{
+    var fbr: DeprecatedFixedBufferReader = .{
         .buf = di.section(.debug_abbrev).?,
-        .pos = cast(usize, offset) orelse return badDwarf(),
+        .pos = cast(usize, offset) orelse return bad(),
         .endian = di.endian,
     };
 
@@ -1322,14 +1283,14 @@ fn parseAbbrevTable(di: *Dwarf, allocator: Allocator, offset: u64) !Abbrev.Table
 }
 
 fn parseDie(
-    fbr: *FixedBufferReader,
+    fbr: *DeprecatedFixedBufferReader,
     attrs_buf: []Die.Attr,
     abbrev_table: *const Abbrev.Table,
     format: Format,
 ) !?Die {
     const abbrev_code = try fbr.readUleb128(u64);
     if (abbrev_code == 0) return null;
-    const table_entry = abbrev_table.get(abbrev_code) orelse return badDwarf();
+    const table_entry = abbrev_table.get(abbrev_code) orelse return bad();
 
     const attrs = attrs_buf[0..table_entry.attrs.len];
     for (attrs, table_entry.attrs) |*result_attr, attr| result_attr.* = Die.Attr{
@@ -1353,19 +1314,19 @@ pub fn getLineNumberInfo(
     allocator: Allocator,
     compile_unit: CompileUnit,
     target_address: u64,
-) !std.debug.LineInfo {
+) !std.debug.SourceLocation {
     const compile_unit_cwd = try compile_unit.die.getAttrString(di, AT.comp_dir, di.section(.debug_line_str), compile_unit);
     const line_info_offset = try compile_unit.die.getAttrSecOffset(AT.stmt_list);
 
-    var fbr: FixedBufferReader = .{ .buf = di.section(.debug_line).?, .endian = di.endian };
+    var fbr: DeprecatedFixedBufferReader = .{ .buf = di.section(.debug_line).?, .endian = di.endian };
     try fbr.seekTo(line_info_offset);
 
     const unit_header = try readUnitHeader(&fbr, null);
-    if (unit_header.unit_length == 0) return missingDwarf();
+    if (unit_header.unit_length == 0) return missing();
     const next_offset = unit_header.header_length + unit_header.unit_length;
 
     const version = try fbr.readInt(u16);
-    if (version < 2) return badDwarf();
+    if (version < 2) return bad();
 
     var addr_size: u8 = switch (unit_header.format) {
         .@"32" => 4,
@@ -1381,7 +1342,7 @@ pub fn getLineNumberInfo(
     const prog_start_offset = fbr.pos + prologue_length;
 
     const minimum_instruction_length = try fbr.readByte();
-    if (minimum_instruction_length == 0) return badDwarf();
+    if (minimum_instruction_length == 0) return bad();
 
     if (version >= 4) {
         // maximum_operations_per_instruction
@@ -1392,7 +1353,7 @@ pub fn getLineNumberInfo(
     const line_base = try fbr.readByteSigned();
 
     const line_range = try fbr.readByte();
-    if (line_range == 0) return badDwarf();
+    if (line_range == 0) return bad();
 
     const opcode_base = try fbr.readByte();
 
@@ -1433,7 +1394,7 @@ pub fn getLineNumberInfo(
         {
             var dir_ent_fmt_buf: [10]FileEntFmt = undefined;
             const directory_entry_format_count = try fbr.readByte();
-            if (directory_entry_format_count > dir_ent_fmt_buf.len) return badDwarf();
+            if (directory_entry_format_count > dir_ent_fmt_buf.len) return bad();
             for (dir_ent_fmt_buf[0..directory_entry_format_count]) |*ent_fmt| {
                 ent_fmt.* = .{
                     .content_type_code = try fbr.readUleb128(u8),
@@ -1461,7 +1422,7 @@ pub fn getLineNumberInfo(
                             DW.LNCT.size => e.size = try form_value.getUInt(u64),
                             DW.LNCT.MD5 => e.md5 = switch (form_value) {
                                 .data16 => |data16| data16.*,
-                                else => return badDwarf(),
+                                else => return bad(),
                             },
                             else => continue,
                         }
@@ -1473,7 +1434,7 @@ pub fn getLineNumberInfo(
 
         var file_ent_fmt_buf: [10]FileEntFmt = undefined;
         const file_name_entry_format_count = try fbr.readByte();
-        if (file_name_entry_format_count > file_ent_fmt_buf.len) return badDwarf();
+        if (file_name_entry_format_count > file_ent_fmt_buf.len) return bad();
         for (file_ent_fmt_buf[0..file_name_entry_format_count]) |*ent_fmt| {
             ent_fmt.* = .{
                 .content_type_code = try fbr.readUleb128(u8),
@@ -1501,7 +1462,7 @@ pub fn getLineNumberInfo(
                         DW.LNCT.size => e.size = try form_value.getUInt(u64),
                         DW.LNCT.MD5 => e.md5 = switch (form_value) {
                             .data16 => |data16| data16.*,
-                            else => return badDwarf(),
+                            else => return bad(),
                         },
                         else => continue,
                     }
@@ -1527,7 +1488,7 @@ pub fn getLineNumberInfo(
 
         if (opcode == DW.LNS.extended_op) {
             const op_size = try fbr.readUleb128(u64);
-            if (op_size < 1) return badDwarf();
+            if (op_size < 1) return bad();
             const sub_op = try fbr.readByte();
             switch (sub_op) {
                 DW.LNE.end_sequence => {
@@ -1600,14 +1561,14 @@ pub fn getLineNumberInfo(
                 },
                 DW.LNS.set_prologue_end => {},
                 else => {
-                    if (opcode - 1 >= standard_opcode_lengths.len) return badDwarf();
+                    if (opcode - 1 >= standard_opcode_lengths.len) return bad();
                     try fbr.seekForward(standard_opcode_lengths[opcode - 1]);
                 },
             }
         }
     }
 
-    return missingDwarf();
+    return missing();
 }
 
 fn getString(di: Dwarf, offset: u64) ![:0]const u8 {
@@ -1619,28 +1580,28 @@ fn getLineString(di: Dwarf, offset: u64) ![:0]const u8 {
 }
 
 fn readDebugAddr(di: Dwarf, compile_unit: CompileUnit, index: u64) !u64 {
-    const debug_addr = di.section(.debug_addr) orelse return badDwarf();
+    const debug_addr = di.section(.debug_addr) orelse return bad();
 
     // addr_base points to the first item after the header, however we
     // need to read the header to know the size of each item. Empirically,
     // it may disagree with is_64 on the compile unit.
     // The header is 8 or 12 bytes depending on is_64.
-    if (compile_unit.addr_base < 8) return badDwarf();
+    if (compile_unit.addr_base < 8) return bad();
 
     const version = readInt(u16, debug_addr[compile_unit.addr_base - 4 ..][0..2], di.endian);
-    if (version != 5) return badDwarf();
+    if (version != 5) return bad();
 
     const addr_size = debug_addr[compile_unit.addr_base - 2];
     const seg_size = debug_addr[compile_unit.addr_base - 1];
 
     const byte_offset = @as(usize, @intCast(compile_unit.addr_base + (addr_size + seg_size) * index));
-    if (byte_offset + addr_size > debug_addr.len) return badDwarf();
+    if (byte_offset + addr_size > debug_addr.len) return bad();
     return switch (addr_size) {
         1 => debug_addr[byte_offset],
         2 => readInt(u16, debug_addr[byte_offset..][0..2], di.endian),
         4 => readInt(u32, debug_addr[byte_offset..][0..4], di.endian),
         8 => readInt(u64, debug_addr[byte_offset..][0..8], di.endian),
-        else => badDwarf(),
+        else => bad(),
     };
 }
 
@@ -1650,7 +1611,7 @@ fn readDebugAddr(di: Dwarf, compile_unit: CompileUnit, index: u64) !u64 {
 /// of FDEs is built for binary searching during unwinding.
 pub fn scanAllUnwindInfo(di: *Dwarf, allocator: Allocator, base_address: usize) !void {
     if (di.section(.eh_frame_hdr)) |eh_frame_hdr| blk: {
-        var fbr: FixedBufferReader = .{ .buf = eh_frame_hdr, .endian = native_endian };
+        var fbr: DeprecatedFixedBufferReader = .{ .buf = eh_frame_hdr, .endian = native_endian };
 
         const version = try fbr.readByte();
         if (version != 1) break :blk;
@@ -1665,16 +1626,16 @@ pub fn scanAllUnwindInfo(di: *Dwarf, allocator: Allocator, base_address: usize) 
         const eh_frame_ptr = cast(usize, try readEhPointer(&fbr, eh_frame_ptr_enc, @sizeOf(usize), .{
             .pc_rel_base = @intFromPtr(&eh_frame_hdr[fbr.pos]),
             .follow_indirect = true,
-        }) orelse return badDwarf()) orelse return badDwarf();
+        }) orelse return bad()) orelse return bad();
 
         const fde_count = cast(usize, try readEhPointer(&fbr, fde_count_enc, @sizeOf(usize), .{
             .pc_rel_base = @intFromPtr(&eh_frame_hdr[fbr.pos]),
             .follow_indirect = true,
-        }) orelse return badDwarf()) orelse return badDwarf();
+        }) orelse return bad()) orelse return bad();
 
         const entry_size = try ExceptionFrameHeader.entrySize(table_enc);
         const entries_len = fde_count * entry_size;
-        if (entries_len > eh_frame_hdr.len - fbr.pos) return badDwarf();
+        if (entries_len > eh_frame_hdr.len - fbr.pos) return bad();
 
         di.eh_frame_hdr = .{
             .eh_frame_ptr = eh_frame_ptr,
@@ -1690,7 +1651,7 @@ pub fn scanAllUnwindInfo(di: *Dwarf, allocator: Allocator, base_address: usize) 
     const frame_sections = [2]Section.Id{ .eh_frame, .debug_frame };
     for (frame_sections) |frame_section| {
         if (di.section(frame_section)) |section_data| {
-            var fbr: FixedBufferReader = .{ .buf = section_data, .endian = di.endian };
+            var fbr: DeprecatedFixedBufferReader = .{ .buf = section_data, .endian = di.endian };
             while (fbr.pos < fbr.buf.len) {
                 const entry_header = try EntryHeader.read(&fbr, null, frame_section);
                 switch (entry_header.type) {
@@ -1708,7 +1669,7 @@ pub fn scanAllUnwindInfo(di: *Dwarf, allocator: Allocator, base_address: usize) 
                         try di.cie_map.put(allocator, entry_header.length_offset, cie);
                     },
                     .fde => |cie_offset| {
-                        const cie = di.cie_map.get(cie_offset) orelse return badDwarf();
+                        const cie = di.cie_map.get(cie_offset) orelse return bad();
                         const fde = try FrameDescriptionEntry.parse(
                             entry_header.entry_bytes,
                             di.sectionVirtualOffset(frame_section, base_address).?,
@@ -1733,205 +1694,8 @@ pub fn scanAllUnwindInfo(di: *Dwarf, allocator: Allocator, base_address: usize) 
     }
 }
 
-/// Unwind a stack frame using DWARF unwinding info, updating the register context.
-///
-/// If `.eh_frame_hdr` is available, it will be used to binary search for the FDE.
-/// Otherwise, a linear scan of `.eh_frame` and `.debug_frame` is done to find the FDE.
-///
-/// `explicit_fde_offset` is for cases where the FDE offset is known, such as when __unwind_info
-/// defers unwinding to DWARF. This is an offset into the `.eh_frame` section.
-pub fn unwindFrame(di: *const Dwarf, context: *UnwindContext, ma: *StackIterator.MemoryAccessor, explicit_fde_offset: ?usize) !usize {
-    if (!comptime abi.supportsUnwinding(builtin.target)) return error.UnsupportedCpuArchitecture;
-    if (context.pc == 0) return 0;
-
-    // Find the FDE and CIE
-    var cie: CommonInformationEntry = undefined;
-    var fde: FrameDescriptionEntry = undefined;
-
-    if (explicit_fde_offset) |fde_offset| {
-        const dwarf_section: Section.Id = .eh_frame;
-        const frame_section = di.section(dwarf_section) orelse return error.MissingFDE;
-        if (fde_offset >= frame_section.len) return error.MissingFDE;
-
-        var fbr: FixedBufferReader = .{
-            .buf = frame_section,
-            .pos = fde_offset,
-            .endian = di.endian,
-        };
-
-        const fde_entry_header = try EntryHeader.read(&fbr, null, dwarf_section);
-        if (fde_entry_header.type != .fde) return error.MissingFDE;
-
-        const cie_offset = fde_entry_header.type.fde;
-        try fbr.seekTo(cie_offset);
-
-        fbr.endian = native_endian;
-        const cie_entry_header = try EntryHeader.read(&fbr, null, dwarf_section);
-        if (cie_entry_header.type != .cie) return badDwarf();
-
-        cie = try CommonInformationEntry.parse(
-            cie_entry_header.entry_bytes,
-            0,
-            true,
-            cie_entry_header.format,
-            dwarf_section,
-            cie_entry_header.length_offset,
-            @sizeOf(usize),
-            native_endian,
-        );
-
-        fde = try FrameDescriptionEntry.parse(
-            fde_entry_header.entry_bytes,
-            0,
-            true,
-            cie,
-            @sizeOf(usize),
-            native_endian,
-        );
-    } else if (di.eh_frame_hdr) |header| {
-        const eh_frame_len = if (di.section(.eh_frame)) |eh_frame| eh_frame.len else null;
-        try header.findEntry(
-            ma,
-            eh_frame_len,
-            @intFromPtr(di.section(.eh_frame_hdr).?.ptr),
-            context.pc,
-            &cie,
-            &fde,
-        );
-    } else {
-        const index = std.sort.binarySearch(FrameDescriptionEntry, context.pc, di.fde_list.items, {}, struct {
-            pub fn compareFn(_: void, pc: usize, mid_item: FrameDescriptionEntry) std.math.Order {
-                if (pc < mid_item.pc_begin) return .lt;
-
-                const range_end = mid_item.pc_begin + mid_item.pc_range;
-                if (pc < range_end) return .eq;
-
-                return .gt;
-            }
-        }.compareFn);
-
-        fde = if (index) |i| di.fde_list.items[i] else return error.MissingFDE;
-        cie = di.cie_map.get(fde.cie_length_offset) orelse return error.MissingCIE;
-    }
-
-    var expression_context: expression.Context = .{
-        .format = cie.format,
-        .memory_accessor = ma,
-        .compile_unit = di.findCompileUnit(fde.pc_begin) catch null,
-        .thread_context = context.thread_context,
-        .reg_context = context.reg_context,
-        .cfa = context.cfa,
-    };
-
-    context.vm.reset();
-    context.reg_context.eh_frame = cie.version != 4;
-    context.reg_context.is_macho = di.is_macho;
-
-    const row = try context.vm.runToNative(context.allocator, context.pc, cie, fde);
-    context.cfa = switch (row.cfa.rule) {
-        .val_offset => |offset| blk: {
-            const register = row.cfa.register orelse return error.InvalidCFARule;
-            const value = readInt(usize, (try abi.regBytes(context.thread_context, register, context.reg_context))[0..@sizeOf(usize)], native_endian);
-            break :blk try call_frame.applyOffset(value, offset);
-        },
-        .expression => |expr| blk: {
-            context.stack_machine.reset();
-            const value = try context.stack_machine.run(
-                expr,
-                context.allocator,
-                expression_context,
-                context.cfa,
-            );
-
-            if (value) |v| {
-                if (v != .generic) return error.InvalidExpressionValue;
-                break :blk v.generic;
-            } else return error.NoExpressionValue;
-        },
-        else => return error.InvalidCFARule,
-    };
-
-    if (ma.load(usize, context.cfa.?) == null) return error.InvalidCFA;
-    expression_context.cfa = context.cfa;
-
-    // Buffering the modifications is done because copying the thread context is not portable,
-    // some implementations (ie. darwin) use internal pointers to the mcontext.
-    var arena = std.heap.ArenaAllocator.init(context.allocator);
-    defer arena.deinit();
-    const update_allocator = arena.allocator();
-
-    const RegisterUpdate = struct {
-        // Backed by thread_context
-        dest: []u8,
-        // Backed by arena
-        src: []const u8,
-        prev: ?*@This(),
-    };
-
-    var update_tail: ?*RegisterUpdate = null;
-    var has_return_address = true;
-    for (context.vm.rowColumns(row)) |column| {
-        if (column.register) |register| {
-            if (register == cie.return_address_register) {
-                has_return_address = column.rule != .undefined;
-            }
-
-            const dest = try abi.regBytes(context.thread_context, register, context.reg_context);
-            const src = try update_allocator.alloc(u8, dest.len);
-
-            const prev = update_tail;
-            update_tail = try update_allocator.create(RegisterUpdate);
-            update_tail.?.* = .{
-                .dest = dest,
-                .src = src,
-                .prev = prev,
-            };
-
-            try column.resolveValue(
-                context,
-                expression_context,
-                ma,
-                src,
-            );
-        }
-    }
-
-    // On all implemented architectures, the CFA is defined as being the previous frame's SP
-    (try abi.regValueNative(usize, context.thread_context, abi.spRegNum(context.reg_context), context.reg_context)).* = context.cfa.?;
-
-    while (update_tail) |tail| {
-        @memcpy(tail.dest, tail.src);
-        update_tail = tail.prev;
-    }
-
-    if (has_return_address) {
-        context.pc = abi.stripInstructionPtrAuthCode(readInt(usize, (try abi.regBytes(
-            context.thread_context,
-            cie.return_address_register,
-            context.reg_context,
-        ))[0..@sizeOf(usize)], native_endian));
-    } else {
-        context.pc = 0;
-    }
-
-    (try abi.regValueNative(usize, context.thread_context, abi.ipRegNum(), context.reg_context)).* = context.pc;
-
-    // The call instruction will have pushed the address of the instruction that follows the call as the return address.
-    // This next instruction may be past the end of the function if the caller was `noreturn` (ie. the last instruction in
-    // the function was the call). If we were to look up an FDE entry using the return address directly, it could end up
-    // either not finding an FDE at all, or using the next FDE in the program, producing incorrect results. To prevent this,
-    // we subtract one so that the next lookup is guaranteed to land inside the
-    //
-    // The exception to this rule is signal frames, where we return execution would be returned to the instruction
-    // that triggered the handler.
-    const return_address = context.pc;
-    if (context.pc > 0 and !cie.isSignalFrame()) context.pc -= 1;
-
-    return return_address;
-}
-
 fn parseFormValue(
-    fbr: *FixedBufferReader,
+    fbr: *DeprecatedFixedBufferReader,
     form_id: u64,
     format: Format,
     implicit_const: ?i64,
@@ -1990,12 +1754,12 @@ fn parseFormValue(
         FORM.strx => .{ .strx = try fbr.readUleb128(usize) },
         FORM.line_strp => .{ .line_strp = try fbr.readAddress(format) },
         FORM.indirect => parseFormValue(fbr, try fbr.readUleb128(u64), format, implicit_const),
-        FORM.implicit_const => .{ .sdata = implicit_const orelse return badDwarf() },
+        FORM.implicit_const => .{ .sdata = implicit_const orelse return bad() },
         FORM.loclistx => .{ .loclistx = try fbr.readUleb128(u64) },
         FORM.rnglistx => .{ .rnglistx = try fbr.readUleb128(u64) },
         else => {
             //debug.print("unrecognized form id: {x}\n", .{form_id});
-            return badDwarf();
+            return bad();
         },
     };
 }
@@ -2084,27 +1848,27 @@ const LineNumberProgram = struct {
         self: *LineNumberProgram,
         allocator: Allocator,
         file_entries: []const FileEntry,
-    ) !?std.debug.LineInfo {
+    ) !?std.debug.SourceLocation {
         if (self.prev_valid and
             self.target_address >= self.prev_address and
             self.target_address < self.address)
         {
             const file_index = if (self.version >= 5) self.prev_file else i: {
-                if (self.prev_file == 0) return missingDwarf();
+                if (self.prev_file == 0) return missing();
                 break :i self.prev_file - 1;
             };
 
-            if (file_index >= file_entries.len) return badDwarf();
+            if (file_index >= file_entries.len) return bad();
             const file_entry = &file_entries[file_index];
 
-            if (file_entry.dir_index >= self.include_dirs.len) return badDwarf();
+            if (file_entry.dir_index >= self.include_dirs.len) return bad();
             const dir_name = self.include_dirs[file_entry.dir_index].path;
 
             const file_name = try std.fs.path.join(allocator, &[_][]const u8{
                 dir_name, file_entry.path,
             });
 
-            return std.debug.LineInfo{
+            return std.debug.SourceLocation{
                 .line = if (self.prev_line >= 0) @as(u64, @intCast(self.prev_line)) else 0,
                 .column = self.prev_column,
                 .file_name = file_name,
@@ -2128,14 +1892,14 @@ const UnitHeader = struct {
     header_length: u4,
     unit_length: u64,
 };
-fn readUnitHeader(fbr: *FixedBufferReader, opt_ma: ?*StackIterator.MemoryAccessor) !UnitHeader {
+fn readUnitHeader(fbr: *DeprecatedFixedBufferReader, opt_ma: ?*MemoryAccessor) !UnitHeader {
     return switch (try if (opt_ma) |ma| fbr.readIntChecked(u32, ma) else fbr.readInt(u32)) {
         0...0xfffffff0 - 1 => |unit_length| .{
             .format = .@"32",
             .header_length = 4,
             .unit_length = unit_length,
         },
-        0xfffffff0...0xffffffff - 1 => badDwarf(),
+        0xfffffff0...0xffffffff - 1 => bad(),
         0xffffffff => .{
             .format = .@"64",
             .header_length = 12,
@@ -2145,7 +1909,7 @@ fn readUnitHeader(fbr: *FixedBufferReader, opt_ma: ?*StackIterator.MemoryAccesso
 }
 
 /// Returns the DWARF register number for an x86_64 register number found in compact unwind info
-fn compactUnwindToDwarfRegNumber(unwind_reg_number: u3) !u8 {
+pub fn compactUnwindToDwarfRegNumber(unwind_reg_number: u3) !u8 {
     return switch (unwind_reg_number) {
         1 => 3, // RBX
         2 => 12, // R12
@@ -2159,471 +1923,23 @@ fn compactUnwindToDwarfRegNumber(unwind_reg_number: u3) !u8 {
 
 /// This function is to make it handy to comment out the return and make it
 /// into a crash when working on this file.
-fn badDwarf() error{InvalidDebugInfo} {
-    //if (true) @panic("badDwarf"); // can be handy to uncomment when working on this file
+pub fn bad() error{InvalidDebugInfo} {
+    //if (true) @panic("bad dwarf"); // can be handy to uncomment when working on this file
     return error.InvalidDebugInfo;
 }
 
-fn missingDwarf() error{MissingDebugInfo} {
-    //if (true) @panic("missingDwarf"); // can be handy to uncomment when working on this file
+fn missing() error{MissingDebugInfo} {
+    //if (true) @panic("missing dwarf"); // can be handy to uncomment when working on this file
     return error.MissingDebugInfo;
 }
 
 fn getStringGeneric(opt_str: ?[]const u8, offset: u64) ![:0]const u8 {
-    const str = opt_str orelse return badDwarf();
-    if (offset > str.len) return badDwarf();
-    const casted_offset = cast(usize, offset) orelse return badDwarf();
+    const str = opt_str orelse return bad();
+    if (offset > str.len) return bad();
+    const casted_offset = cast(usize, offset) orelse return bad();
     // Valid strings always have a terminating zero byte
-    const last = std.mem.indexOfScalarPos(u8, str, casted_offset, 0) orelse return badDwarf();
+    const last = std.mem.indexOfScalarPos(u8, str, casted_offset, 0) orelse return bad();
     return str[casted_offset..last :0];
-}
-
-// Reading debug info needs to be fast, even when compiled in debug mode,
-// so avoid using a `std.io.FixedBufferStream` which is too slow.
-pub const FixedBufferReader = struct {
-    buf: []const u8,
-    pos: usize = 0,
-    endian: std.builtin.Endian,
-
-    pub const Error = error{ EndOfBuffer, Overflow, InvalidBuffer };
-
-    fn seekTo(fbr: *FixedBufferReader, pos: u64) Error!void {
-        if (pos > fbr.buf.len) return error.EndOfBuffer;
-        fbr.pos = @intCast(pos);
-    }
-
-    fn seekForward(fbr: *FixedBufferReader, amount: u64) Error!void {
-        if (fbr.buf.len - fbr.pos < amount) return error.EndOfBuffer;
-        fbr.pos += @intCast(amount);
-    }
-
-    pub inline fn readByte(fbr: *FixedBufferReader) Error!u8 {
-        if (fbr.pos >= fbr.buf.len) return error.EndOfBuffer;
-        defer fbr.pos += 1;
-        return fbr.buf[fbr.pos];
-    }
-
-    fn readByteSigned(fbr: *FixedBufferReader) Error!i8 {
-        return @bitCast(try fbr.readByte());
-    }
-
-    fn readInt(fbr: *FixedBufferReader, comptime T: type) Error!T {
-        const size = @divExact(@typeInfo(T).Int.bits, 8);
-        if (fbr.buf.len - fbr.pos < size) return error.EndOfBuffer;
-        defer fbr.pos += size;
-        return std.mem.readInt(T, fbr.buf[fbr.pos..][0..size], fbr.endian);
-    }
-
-    fn readIntChecked(
-        fbr: *FixedBufferReader,
-        comptime T: type,
-        ma: *std.debug.StackIterator.MemoryAccessor,
-    ) Error!T {
-        if (ma.load(T, @intFromPtr(fbr.buf[fbr.pos..].ptr)) == null)
-            return error.InvalidBuffer;
-
-        return fbr.readInt(T);
-    }
-
-    fn readUleb128(fbr: *FixedBufferReader, comptime T: type) Error!T {
-        return std.leb.readUleb128(T, fbr);
-    }
-
-    fn readIleb128(fbr: *FixedBufferReader, comptime T: type) Error!T {
-        return std.leb.readIleb128(T, fbr);
-    }
-
-    fn readAddress(fbr: *FixedBufferReader, format: Format) Error!u64 {
-        return switch (format) {
-            .@"32" => try fbr.readInt(u32),
-            .@"64" => try fbr.readInt(u64),
-        };
-    }
-
-    fn readAddressChecked(
-        fbr: *FixedBufferReader,
-        format: Format,
-        ma: *std.debug.StackIterator.MemoryAccessor,
-    ) Error!u64 {
-        return switch (format) {
-            .@"32" => try fbr.readIntChecked(u32, ma),
-            .@"64" => try fbr.readIntChecked(u64, ma),
-        };
-    }
-
-    fn readBytes(fbr: *FixedBufferReader, len: usize) Error![]const u8 {
-        if (fbr.buf.len - fbr.pos < len) return error.EndOfBuffer;
-        defer fbr.pos += len;
-        return fbr.buf[fbr.pos..][0..len];
-    }
-
-    fn readBytesTo(fbr: *FixedBufferReader, comptime sentinel: u8) Error![:sentinel]const u8 {
-        const end = @call(.always_inline, std.mem.indexOfScalarPos, .{
-            u8,
-            fbr.buf,
-            fbr.pos,
-            sentinel,
-        }) orelse return error.EndOfBuffer;
-        defer fbr.pos = end + 1;
-        return fbr.buf[fbr.pos..end :sentinel];
-    }
-};
-
-/// Unwind a frame using MachO compact unwind info (from __unwind_info).
-/// If the compact encoding can't encode a way to unwind a frame, it will
-/// defer unwinding to DWARF, in which case `.eh_frame` will be used if available.
-pub fn unwindFrameMachO(
-    context: *UnwindContext,
-    ma: *StackIterator.MemoryAccessor,
-    unwind_info: []const u8,
-    eh_frame: ?[]const u8,
-    module_base_address: usize,
-) !usize {
-    const macho = std.macho;
-
-    const header = std.mem.bytesAsValue(
-        macho.unwind_info_section_header,
-        unwind_info[0..@sizeOf(macho.unwind_info_section_header)],
-    );
-    const indices = std.mem.bytesAsSlice(
-        macho.unwind_info_section_header_index_entry,
-        unwind_info[header.indexSectionOffset..][0 .. header.indexCount * @sizeOf(macho.unwind_info_section_header_index_entry)],
-    );
-    if (indices.len == 0) return error.MissingUnwindInfo;
-
-    const mapped_pc = context.pc - module_base_address;
-    const second_level_index = blk: {
-        var left: usize = 0;
-        var len: usize = indices.len;
-
-        while (len > 1) {
-            const mid = left + len / 2;
-            const offset = indices[mid].functionOffset;
-            if (mapped_pc < offset) {
-                len /= 2;
-            } else {
-                left = mid;
-                if (mapped_pc == offset) break;
-                len -= len / 2;
-            }
-        }
-
-        // Last index is a sentinel containing the highest address as its functionOffset
-        if (indices[left].secondLevelPagesSectionOffset == 0) return error.MissingUnwindInfo;
-        break :blk &indices[left];
-    };
-
-    const common_encodings = std.mem.bytesAsSlice(
-        macho.compact_unwind_encoding_t,
-        unwind_info[header.commonEncodingsArraySectionOffset..][0 .. header.commonEncodingsArrayCount * @sizeOf(macho.compact_unwind_encoding_t)],
-    );
-
-    const start_offset = second_level_index.secondLevelPagesSectionOffset;
-    const kind = std.mem.bytesAsValue(
-        macho.UNWIND_SECOND_LEVEL,
-        unwind_info[start_offset..][0..@sizeOf(macho.UNWIND_SECOND_LEVEL)],
-    );
-
-    const entry: struct {
-        function_offset: usize,
-        raw_encoding: u32,
-    } = switch (kind.*) {
-        .REGULAR => blk: {
-            const page_header = std.mem.bytesAsValue(
-                macho.unwind_info_regular_second_level_page_header,
-                unwind_info[start_offset..][0..@sizeOf(macho.unwind_info_regular_second_level_page_header)],
-            );
-
-            const entries = std.mem.bytesAsSlice(
-                macho.unwind_info_regular_second_level_entry,
-                unwind_info[start_offset + page_header.entryPageOffset ..][0 .. page_header.entryCount * @sizeOf(macho.unwind_info_regular_second_level_entry)],
-            );
-            if (entries.len == 0) return error.InvalidUnwindInfo;
-
-            var left: usize = 0;
-            var len: usize = entries.len;
-            while (len > 1) {
-                const mid = left + len / 2;
-                const offset = entries[mid].functionOffset;
-                if (mapped_pc < offset) {
-                    len /= 2;
-                } else {
-                    left = mid;
-                    if (mapped_pc == offset) break;
-                    len -= len / 2;
-                }
-            }
-
-            break :blk .{
-                .function_offset = entries[left].functionOffset,
-                .raw_encoding = entries[left].encoding,
-            };
-        },
-        .COMPRESSED => blk: {
-            const page_header = std.mem.bytesAsValue(
-                macho.unwind_info_compressed_second_level_page_header,
-                unwind_info[start_offset..][0..@sizeOf(macho.unwind_info_compressed_second_level_page_header)],
-            );
-
-            const entries = std.mem.bytesAsSlice(
-                macho.UnwindInfoCompressedEntry,
-                unwind_info[start_offset + page_header.entryPageOffset ..][0 .. page_header.entryCount * @sizeOf(macho.UnwindInfoCompressedEntry)],
-            );
-            if (entries.len == 0) return error.InvalidUnwindInfo;
-
-            var left: usize = 0;
-            var len: usize = entries.len;
-            while (len > 1) {
-                const mid = left + len / 2;
-                const offset = second_level_index.functionOffset + entries[mid].funcOffset;
-                if (mapped_pc < offset) {
-                    len /= 2;
-                } else {
-                    left = mid;
-                    if (mapped_pc == offset) break;
-                    len -= len / 2;
-                }
-            }
-
-            const entry = entries[left];
-            const function_offset = second_level_index.functionOffset + entry.funcOffset;
-            if (entry.encodingIndex < header.commonEncodingsArrayCount) {
-                if (entry.encodingIndex >= common_encodings.len) return error.InvalidUnwindInfo;
-                break :blk .{
-                    .function_offset = function_offset,
-                    .raw_encoding = common_encodings[entry.encodingIndex],
-                };
-            } else {
-                const local_index = try std.math.sub(
-                    u8,
-                    entry.encodingIndex,
-                    cast(u8, header.commonEncodingsArrayCount) orelse return error.InvalidUnwindInfo,
-                );
-                const local_encodings = std.mem.bytesAsSlice(
-                    macho.compact_unwind_encoding_t,
-                    unwind_info[start_offset + page_header.encodingsPageOffset ..][0 .. page_header.encodingsCount * @sizeOf(macho.compact_unwind_encoding_t)],
-                );
-                if (local_index >= local_encodings.len) return error.InvalidUnwindInfo;
-                break :blk .{
-                    .function_offset = function_offset,
-                    .raw_encoding = local_encodings[local_index],
-                };
-            }
-        },
-        else => return error.InvalidUnwindInfo,
-    };
-
-    if (entry.raw_encoding == 0) return error.NoUnwindInfo;
-    const reg_context = abi.RegisterContext{
-        .eh_frame = false,
-        .is_macho = true,
-    };
-
-    const encoding: macho.CompactUnwindEncoding = @bitCast(entry.raw_encoding);
-    const new_ip = switch (builtin.cpu.arch) {
-        .x86_64 => switch (encoding.mode.x86_64) {
-            .OLD => return error.UnimplementedUnwindEncoding,
-            .RBP_FRAME => blk: {
-                const regs: [5]u3 = .{
-                    encoding.value.x86_64.frame.reg0,
-                    encoding.value.x86_64.frame.reg1,
-                    encoding.value.x86_64.frame.reg2,
-                    encoding.value.x86_64.frame.reg3,
-                    encoding.value.x86_64.frame.reg4,
-                };
-
-                const frame_offset = encoding.value.x86_64.frame.frame_offset * @sizeOf(usize);
-                var max_reg: usize = 0;
-                inline for (regs, 0..) |reg, i| {
-                    if (reg > 0) max_reg = i;
-                }
-
-                const fp = (try abi.regValueNative(usize, context.thread_context, abi.fpRegNum(reg_context), reg_context)).*;
-                const new_sp = fp + 2 * @sizeOf(usize);
-
-                // Verify the stack range we're about to read register values from
-                if (ma.load(usize, new_sp) == null or ma.load(usize, fp - frame_offset + max_reg * @sizeOf(usize)) == null) return error.InvalidUnwindInfo;
-
-                const ip_ptr = fp + @sizeOf(usize);
-                const new_ip = @as(*const usize, @ptrFromInt(ip_ptr)).*;
-                const new_fp = @as(*const usize, @ptrFromInt(fp)).*;
-
-                (try abi.regValueNative(usize, context.thread_context, abi.fpRegNum(reg_context), reg_context)).* = new_fp;
-                (try abi.regValueNative(usize, context.thread_context, abi.spRegNum(reg_context), reg_context)).* = new_sp;
-                (try abi.regValueNative(usize, context.thread_context, abi.ipRegNum(), reg_context)).* = new_ip;
-
-                for (regs, 0..) |reg, i| {
-                    if (reg == 0) continue;
-                    const addr = fp - frame_offset + i * @sizeOf(usize);
-                    const reg_number = try compactUnwindToDwarfRegNumber(reg);
-                    (try abi.regValueNative(usize, context.thread_context, reg_number, reg_context)).* = @as(*const usize, @ptrFromInt(addr)).*;
-                }
-
-                break :blk new_ip;
-            },
-            .STACK_IMMD,
-            .STACK_IND,
-            => blk: {
-                const sp = (try abi.regValueNative(usize, context.thread_context, abi.spRegNum(reg_context), reg_context)).*;
-                const stack_size = if (encoding.mode.x86_64 == .STACK_IMMD)
-                    @as(usize, encoding.value.x86_64.frameless.stack.direct.stack_size) * @sizeOf(usize)
-                else stack_size: {
-                    // In .STACK_IND, the stack size is inferred from the subq instruction at the beginning of the function.
-                    const sub_offset_addr =
-                        module_base_address +
-                        entry.function_offset +
-                        encoding.value.x86_64.frameless.stack.indirect.sub_offset;
-                    if (ma.load(usize, sub_offset_addr) == null) return error.InvalidUnwindInfo;
-
-                    // `sub_offset_addr` points to the offset of the literal within the instruction
-                    const sub_operand = @as(*align(1) const u32, @ptrFromInt(sub_offset_addr)).*;
-                    break :stack_size sub_operand + @sizeOf(usize) * @as(usize, encoding.value.x86_64.frameless.stack.indirect.stack_adjust);
-                };
-
-                // Decode the Lehmer-coded sequence of registers.
-                // For a description of the encoding see lib/libc/include/any-macos.13-any/mach-o/compact_unwind_encoding.h
-
-                // Decode the variable-based permutation number into its digits. Each digit represents
-                // an index into the list of register numbers that weren't yet used in the sequence at
-                // the time the digit was added.
-                const reg_count = encoding.value.x86_64.frameless.stack_reg_count;
-                const ip_ptr = if (reg_count > 0) reg_blk: {
-                    var digits: [6]u3 = undefined;
-                    var accumulator: usize = encoding.value.x86_64.frameless.stack_reg_permutation;
-                    var base: usize = 2;
-                    for (0..reg_count) |i| {
-                        const div = accumulator / base;
-                        digits[digits.len - 1 - i] = @intCast(accumulator - base * div);
-                        accumulator = div;
-                        base += 1;
-                    }
-
-                    const reg_numbers = [_]u3{ 1, 2, 3, 4, 5, 6 };
-                    var registers: [reg_numbers.len]u3 = undefined;
-                    var used_indices = [_]bool{false} ** reg_numbers.len;
-                    for (digits[digits.len - reg_count ..], 0..) |target_unused_index, i| {
-                        var unused_count: u8 = 0;
-                        const unused_index = for (used_indices, 0..) |used, index| {
-                            if (!used) {
-                                if (target_unused_index == unused_count) break index;
-                                unused_count += 1;
-                            }
-                        } else unreachable;
-
-                        registers[i] = reg_numbers[unused_index];
-                        used_indices[unused_index] = true;
-                    }
-
-                    var reg_addr = sp + stack_size - @sizeOf(usize) * @as(usize, reg_count + 1);
-                    if (ma.load(usize, reg_addr) == null) return error.InvalidUnwindInfo;
-                    for (0..reg_count) |i| {
-                        const reg_number = try compactUnwindToDwarfRegNumber(registers[i]);
-                        (try abi.regValueNative(usize, context.thread_context, reg_number, reg_context)).* = @as(*const usize, @ptrFromInt(reg_addr)).*;
-                        reg_addr += @sizeOf(usize);
-                    }
-
-                    break :reg_blk reg_addr;
-                } else sp + stack_size - @sizeOf(usize);
-
-                const new_ip = @as(*const usize, @ptrFromInt(ip_ptr)).*;
-                const new_sp = ip_ptr + @sizeOf(usize);
-                if (ma.load(usize, new_sp) == null) return error.InvalidUnwindInfo;
-
-                (try abi.regValueNative(usize, context.thread_context, abi.spRegNum(reg_context), reg_context)).* = new_sp;
-                (try abi.regValueNative(usize, context.thread_context, abi.ipRegNum(), reg_context)).* = new_ip;
-
-                break :blk new_ip;
-            },
-            .DWARF => {
-                return unwindFrameMachODwarf(context, ma, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.x86_64.dwarf));
-            },
-        },
-        .aarch64 => switch (encoding.mode.arm64) {
-            .OLD => return error.UnimplementedUnwindEncoding,
-            .FRAMELESS => blk: {
-                const sp = (try abi.regValueNative(usize, context.thread_context, abi.spRegNum(reg_context), reg_context)).*;
-                const new_sp = sp + encoding.value.arm64.frameless.stack_size * 16;
-                const new_ip = (try abi.regValueNative(usize, context.thread_context, 30, reg_context)).*;
-                if (ma.load(usize, new_sp) == null) return error.InvalidUnwindInfo;
-                (try abi.regValueNative(usize, context.thread_context, abi.spRegNum(reg_context), reg_context)).* = new_sp;
-                break :blk new_ip;
-            },
-            .DWARF => {
-                return unwindFrameMachODwarf(context, ma, eh_frame orelse return error.MissingEhFrame, @intCast(encoding.value.arm64.dwarf));
-            },
-            .FRAME => blk: {
-                const fp = (try abi.regValueNative(usize, context.thread_context, abi.fpRegNum(reg_context), reg_context)).*;
-                const new_sp = fp + 16;
-                const ip_ptr = fp + @sizeOf(usize);
-
-                const num_restored_pairs: usize =
-                    @popCount(@as(u5, @bitCast(encoding.value.arm64.frame.x_reg_pairs))) +
-                    @popCount(@as(u4, @bitCast(encoding.value.arm64.frame.d_reg_pairs)));
-                const min_reg_addr = fp - num_restored_pairs * 2 * @sizeOf(usize);
-
-                if (ma.load(usize, new_sp) == null or ma.load(usize, min_reg_addr) == null) return error.InvalidUnwindInfo;
-
-                var reg_addr = fp - @sizeOf(usize);
-                inline for (@typeInfo(@TypeOf(encoding.value.arm64.frame.x_reg_pairs)).Struct.fields, 0..) |field, i| {
-                    if (@field(encoding.value.arm64.frame.x_reg_pairs, field.name) != 0) {
-                        (try abi.regValueNative(usize, context.thread_context, 19 + i, reg_context)).* = @as(*const usize, @ptrFromInt(reg_addr)).*;
-                        reg_addr += @sizeOf(usize);
-                        (try abi.regValueNative(usize, context.thread_context, 20 + i, reg_context)).* = @as(*const usize, @ptrFromInt(reg_addr)).*;
-                        reg_addr += @sizeOf(usize);
-                    }
-                }
-
-                inline for (@typeInfo(@TypeOf(encoding.value.arm64.frame.d_reg_pairs)).Struct.fields, 0..) |field, i| {
-                    if (@field(encoding.value.arm64.frame.d_reg_pairs, field.name) != 0) {
-                        // Only the lower half of the 128-bit V registers are restored during unwinding
-                        @memcpy(
-                            try abi.regBytes(context.thread_context, 64 + 8 + i, context.reg_context),
-                            std.mem.asBytes(@as(*const usize, @ptrFromInt(reg_addr))),
-                        );
-                        reg_addr += @sizeOf(usize);
-                        @memcpy(
-                            try abi.regBytes(context.thread_context, 64 + 9 + i, context.reg_context),
-                            std.mem.asBytes(@as(*const usize, @ptrFromInt(reg_addr))),
-                        );
-                        reg_addr += @sizeOf(usize);
-                    }
-                }
-
-                const new_ip = @as(*const usize, @ptrFromInt(ip_ptr)).*;
-                const new_fp = @as(*const usize, @ptrFromInt(fp)).*;
-
-                (try abi.regValueNative(usize, context.thread_context, abi.fpRegNum(reg_context), reg_context)).* = new_fp;
-                (try abi.regValueNative(usize, context.thread_context, abi.ipRegNum(), reg_context)).* = new_ip;
-
-                break :blk new_ip;
-            },
-        },
-        else => return error.UnimplementedArch,
-    };
-
-    context.pc = abi.stripInstructionPtrAuthCode(new_ip);
-    if (context.pc > 0) context.pc -= 1;
-    return new_ip;
-}
-
-fn unwindFrameMachODwarf(
-    context: *UnwindContext,
-    ma: *std.debug.StackIterator.MemoryAccessor,
-    eh_frame: []const u8,
-    fde_offset: usize,
-) !usize {
-    var di = Dwarf{
-        .endian = native_endian,
-        .is_macho = true,
-    };
-    defer di.deinit(context.allocator);
-
-    di.sections[@intFromEnum(Section.Id.eh_frame)] = .{
-        .data = eh_frame,
-        .owned = false,
-    };
-
-    return di.unwindFrame(context, ma, fde_offset);
 }
 
 const EhPointerContext = struct {
@@ -2641,7 +1957,7 @@ const EhPointerContext = struct {
     text_rel_base: ?u64 = null,
     function_rel_base: ?u64 = null,
 };
-fn readEhPointer(fbr: *FixedBufferReader, enc: u8, addr_size_bytes: u8, ctx: EhPointerContext) !?u64 {
+fn readEhPointer(fbr: *DeprecatedFixedBufferReader, enc: u8, addr_size_bytes: u8, ctx: EhPointerContext) !?u64 {
     if (enc == EH.PE.omit) return null;
 
     const value: union(enum) {
@@ -2664,7 +1980,7 @@ fn readEhPointer(fbr: *FixedBufferReader, enc: u8, addr_size_bytes: u8, ctx: EhP
         EH.PE.sdata2 => .{ .signed = try fbr.readInt(i16) },
         EH.PE.sdata4 => .{ .signed = try fbr.readInt(i32) },
         EH.PE.sdata8 => .{ .signed = try fbr.readInt(i64) },
-        else => return badDwarf(),
+        else => return bad(),
     };
 
     const base = switch (enc & EH.PE.rel_mask) {

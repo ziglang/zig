@@ -9,7 +9,7 @@ pub fn main() !void {
     defer assert(gpa.deinit() == .ok);
     const allocator = gpa.allocator();
 
-    var debug_info = try std.debug.openSelfDebugInfo(allocator);
+    var debug_info = try std.debug.SelfInfo.open(allocator);
     defer debug_info.deinit();
 
     var add_addr: usize = undefined;
