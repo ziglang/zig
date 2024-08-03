@@ -28,10 +28,7 @@ pub fn main() !void {
         .sub_path = cov_file_name,
     };
 
-    const prog_node = std.Progress.start(.{});
-    defer prog_node.end();
-
-    var debug_info = std.debug.Info.load(gpa, exe_path, prog_node) catch |err| {
+    var debug_info = std.debug.Info.load(gpa, exe_path) catch |err| {
         fatal("failed to load debug info for {}: {s}", .{ exe_path, @errorName(err) });
     };
     defer debug_info.deinit(gpa);
@@ -54,7 +51,7 @@ pub fn main() !void {
     assert(std.sort.isSorted(usize, pcs, {}, std.sort.asc(usize)));
 
     const source_locations = try arena.alloc(std.debug.SourceLocation, pcs.len);
-    try debug_info.resolveSourceLocations(gpa, pcs, source_locations, prog_node);
+    try debug_info.resolveSourceLocations(gpa, pcs, source_locations);
     defer for (source_locations) |sl| {
         gpa.free(sl.file_name);
     };

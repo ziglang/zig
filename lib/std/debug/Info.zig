@@ -20,13 +20,9 @@ address_map: std.AutoArrayHashMapUnmanaged(u64, Dwarf.ElfModule),
 
 pub const LoadError = Dwarf.ElfModule.LoadError;
 
-pub fn load(gpa: Allocator, path: Path, parent_prog_node: std.Progress.Node) LoadError!Info {
+pub fn load(gpa: Allocator, path: Path) LoadError!Info {
     var sections: Dwarf.SectionArray = Dwarf.null_section_array;
-    var prog_node = parent_prog_node.start("Loading Debug Info", 0);
-    defer prog_node.end();
     var elf_module = try Dwarf.ElfModule.loadPath(gpa, path, null, null, &sections, null);
-    prog_node.end();
-    prog_node = parent_prog_node.start("Sort Compile Units", 0);
     try elf_module.dwarf.sortCompileUnits();
     var info: Info = .{
         .address_map = .{},
@@ -51,10 +47,9 @@ pub fn resolveSourceLocations(
     sorted_pc_addrs: []const u64,
     /// Asserts its length equals length of `sorted_pc_addrs`.
     output: []std.debug.SourceLocation,
-    parent_prog_node: std.Progress.Node,
 ) ResolveSourceLocationsError!void {
     assert(sorted_pc_addrs.len == output.len);
     if (info.address_map.entries.len != 1) @panic("TODO");
     const elf_module = &info.address_map.values()[0];
-    return elf_module.dwarf.resolveSourceLocations(gpa, sorted_pc_addrs, output, parent_prog_node);
+    return elf_module.dwarf.resolveSourceLocations(gpa, sorted_pc_addrs, output);
 }
