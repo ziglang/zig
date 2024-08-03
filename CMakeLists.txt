@@ -945,6 +945,11 @@ set(ZIG_BUILD_ARGS
   -Dno-langref
 )
 
+option(ZIG_EXTRA_BUILD_ARGS "Extra zig build args")
+if(ZIG_EXTRA_BUILD_ARGS)
+  list(APPEND ZIG_BUILD_ARGS ${ZIG_EXTRA_BUILD_ARGS})
+endif()
+
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
   list(APPEND ZIG_BUILD_ARGS -Doptimize=Debug)
 elseif("${CMAKE_BUILD_TYPE}" STREQUAL "RelWithDebInfo")
