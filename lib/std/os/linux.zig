@@ -42,6 +42,7 @@ const arch_bits = switch (native_arch) {
     .riscv32 => @import("linux/riscv32.zig"),
     .riscv64 => @import("linux/riscv64.zig"),
     .sparc64 => @import("linux/sparc64.zig"),
+    .loongarch64 => @import("linux/loongarch64.zig"),
     .mips, .mipsel => @import("linux/mips.zig"),
     .mips64, .mips64el => @import("linux/mips64.zig"),
     .powerpc, .powerpcle => @import("linux/powerpc.zig"),
