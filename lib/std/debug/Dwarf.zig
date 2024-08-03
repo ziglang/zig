@@ -2354,19 +2354,14 @@ pub fn resolveSourceLocations(
     sorted_pc_addrs: []const u64,
     /// Asserts its length equals length of `sorted_pc_addrs`.
     output: []std.debug.SourceLocation,
-    parent_prog_node: std.Progress.Node,
 ) ResolveSourceLocationsError!void {
     assert(sorted_pc_addrs.len == output.len);
     assert(d.compile_units_sorted);
-
-    const prog_node = parent_prog_node.start("Resolve Source Locations", sorted_pc_addrs.len);
-    defer prog_node.end();
 
     var cu_i: usize = 0;
     var cu: *CompileUnit = &d.compile_unit_list.items[0];
     var range = cu.pc_range.?;
     next_pc: for (sorted_pc_addrs, output) |pc, *out| {
-        defer prog_node.completeOne();
         while (pc >= range.end) {
             cu_i += 1;
             if (cu_i >= d.compile_unit_list.items.len) {
