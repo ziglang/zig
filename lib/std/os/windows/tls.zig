@@ -1,11 +1,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const windows = std.os.windows;
 
 export var _tls_index: u32 = std.os.windows.TLS_OUT_OF_INDEXES;
 export var _tls_start: ?*anyopaque linksection(".tls") = null;
 export var _tls_end: ?*anyopaque linksection(".tls$ZZZ") = null;
-export var __xl_a: std.os.windows.PIMAGE_TLS_CALLBACK linksection(".CRT$XLA") = null;
-export var __xl_z: std.os.windows.PIMAGE_TLS_CALLBACK linksection(".CRT$XLZ") = null;
+export var __xl_a: windows.PIMAGE_TLS_CALLBACK linksection(".CRT$XLA") = null;
+export var __xl_z: windows.PIMAGE_TLS_CALLBACK linksection(".CRT$XLZ") = null;
 
 comptime {
     if (builtin.target.cpu.arch == .x86 and builtin.zig_backend != .stage2_c) {
@@ -33,8 +34,8 @@ comptime {
 pub const IMAGE_TLS_DIRECTORY = extern struct {
     StartAddressOfRawData: *?*anyopaque,
     EndAddressOfRawData: *?*anyopaque,
-    AddressOfIndex: *anyopaque,
-    AddressOfCallBacks: *anyopaque,
+    AddressOfIndex: *u32,
+    AddressOfCallBacks: *windows.PIMAGE_TLS_CALLBACK,
     SizeOfZeroFill: u32,
     Characteristics: u32,
 };
@@ -42,7 +43,7 @@ export const _tls_used linksection(".rdata$T") = IMAGE_TLS_DIRECTORY{
     .StartAddressOfRawData = &_tls_start,
     .EndAddressOfRawData = &_tls_end,
     .AddressOfIndex = &_tls_index,
-    .AddressOfCallBacks = @as(*anyopaque, @ptrCast(&__xl_a)),
+    .AddressOfCallBacks = &__xl_a,
     .SizeOfZeroFill = 0,
     .Characteristics = 0,
 };
