@@ -27,6 +27,12 @@ pub const SourceLocation = struct {
     line: u64,
     column: u64,
     file_name: []const u8,
+
+    pub const invalid: SourceLocation = .{
+        .line = 0,
+        .column = 0,
+        .file_name = &.{},
+    };
 };
 
 pub const Symbol = struct {

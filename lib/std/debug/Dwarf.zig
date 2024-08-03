@@ -39,6 +39,7 @@ pub const call_frame = @import("Dwarf/call_frame.zig");
 endian: std.builtin.Endian,
 sections: SectionArray = null_section_array,
 is_macho: bool,
+compile_units_sorted: bool,
 
 // Filled later by the initializer
 abbrev_table_list: std.ArrayListUnmanaged(Abbrev.Table) = .{},
@@ -728,9 +729,9 @@ pub const OpenError = ScanError;
 /// Initialize DWARF info. The caller has the responsibility to initialize most
 /// the `Dwarf` fields before calling. `binary_mem` is the raw bytes of the
 /// main binary file (not the secondary debug info file).
-pub fn open(di: *Dwarf, gpa: Allocator) OpenError!void {
-    try di.scanAllFunctions(gpa);
-    try di.scanAllCompileUnits(gpa);
+pub fn open(d: *Dwarf, gpa: Allocator) OpenError!void {
+    try d.scanAllFunctions(gpa);
+    try d.scanAllCompileUnits(gpa);
 }
 
 const PcRange = struct {
@@ -1061,6 +1062,39 @@ fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator) ScanError!void {
     }
 }
 
+/// Populate missing PC ranges in compilation units, and then sort them by start address.
+/// Does not guarantee pc_range to be non-null because there could be missing debug info.
+pub fn sortCompileUnits(d: *Dwarf) ScanError!void {
+    assert(!d.compile_units_sorted);
+
+    for (d.compile_unit_list.items) |*cu| {
+        if (cu.pc_range != null) continue;
+        const ranges_value = cu.die.getAttr(AT.ranges) orelse continue;
+        var iter = DebugRangeIterator.init(ranges_value, d, cu) catch continue;
+        var start: u64 = maxInt(u64);
+        var end: u64 = 0;
+        while (try iter.next()) |range| {
+            start = @min(start, range.start_addr);
+            end = @max(end, range.end_addr);
+        }
+        if (end != 0) cu.pc_range = .{
+            .start = start,
+            .end = end,
+        };
+    }
+
+    std.mem.sortUnstable(CompileUnit, d.compile_unit_list.items, {}, struct {
+        fn lessThan(ctx: void, a: CompileUnit, b: CompileUnit) bool {
+            _ = ctx;
+            const a_range = a.pc_range orelse return false;
+            const b_range = b.pc_range orelse return true;
+            return a_range.start < b_range.start;
+        }
+    }.lessThan);
+
+    d.compile_units_sorted = true;
+}
+
 const DebugRangeIterator = struct {
     base_address: u64,
     section_type: Section.Id,
@@ -1208,6 +1242,7 @@ const DebugRangeIterator = struct {
     }
 };
 
+/// TODO: change this to binary searching the sorted compile unit list
 pub fn findCompileUnit(di: *const Dwarf, target_address: u64) !*const CompileUnit {
     for (di.compile_unit_list.items) |*compile_unit| {
         if (compile_unit.pc_range) |range| {
@@ -2275,6 +2310,7 @@ pub const ElfModule = struct {
             .endian = endian,
             .sections = sections,
             .is_macho = false,
+            .compile_units_sorted = false,
         };
 
         try Dwarf.open(&di, gpa);
@@ -2326,6 +2362,8 @@ pub const ElfModule = struct {
     }
 };
 
+pub const ResolveSourceLocationsError = Allocator.Error || DeprecatedFixedBufferReader.Error;
+
 /// Given an array of virtual memory addresses, sorted ascending, outputs a
 /// corresponding array of source locations, by appending to the provided
 /// array list.
@@ -2335,11 +2373,44 @@ pub fn resolveSourceLocations(
     sorted_pc_addrs: []const u64,
     /// Asserts its length equals length of `sorted_pc_addrs`.
     output: []std.debug.SourceLocation,
-) error{ MissingDebugInfo, InvalidDebugInfo }!void {
+    parent_prog_node: std.Progress.Node,
+) ResolveSourceLocationsError!void {
     assert(sorted_pc_addrs.len == output.len);
-    _ = d;
-    _ = gpa;
-    @panic("TODO");
+    assert(d.compile_units_sorted);
+
+    const prog_node = parent_prog_node.start("Resolve Source Locations", sorted_pc_addrs.len);
+    defer prog_node.end();
+
+    var cu_i: usize = 0;
+    var cu: *const CompileUnit = &d.compile_unit_list.items[0];
+    var range = cu.pc_range.?;
+    next_pc: for (sorted_pc_addrs, output) |pc, *out| {
+        defer prog_node.completeOne();
+        while (pc >= range.end) {
+            cu_i += 1;
+            if (cu_i >= d.compile_unit_list.items.len) {
+                out.* = std.debug.SourceLocation.invalid;
+                continue :next_pc;
+            }
+            cu = &d.compile_unit_list.items[cu_i];
+            range = cu.pc_range orelse {
+                out.* = std.debug.SourceLocation.invalid;
+                continue :next_pc;
+            };
+        }
+        if (pc < range.start) {
+            out.* = std.debug.SourceLocation.invalid;
+            continue :next_pc;
+        }
+        // TODO: instead of calling this function, break the function up into one that parses the
+        // information once and prepares a context that can be reused for the entire batch.
+        if (getLineNumberInfo(d, gpa, cu.*, pc)) |src_loc| {
+            out.* = src_loc;
+        } else |err| switch (err) {
+            error.MissingDebugInfo, error.InvalidDebugInfo => out.* = std.debug.SourceLocation.invalid,
+            else => |e| return e,
+        }
+    }
 }
 
 fn getSymbol(di: *Dwarf, allocator: Allocator, address: u64) !std.debug.Symbol {
