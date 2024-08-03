@@ -1771,6 +1771,8 @@ pub const DynamicLinker = struct {
             .visionos,
             => init("/usr/lib/dyld"),
 
+            .serenity => init("/usr/lib/Loader.so"),
+
             // Operating systems in this list have been verified as not having a standard
             // dynamic linker path.
             .freestanding,
@@ -1783,7 +1785,6 @@ pub const DynamicLinker = struct {
             .vulkan,
             .other,
             .plan9,
-            .serenity,
             => none,
 
             // TODO revisit when multi-arch for Haiku is available
@@ -2086,6 +2087,7 @@ pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
         .haiku,
         .fuchsia,
         .minix,
+        .serenity,
         => switch (target.cpu.arch) {
             .msp430 => switch (c_type) {
                 .char => return 8,
@@ -2291,7 +2293,6 @@ pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
         .driverkit,
         .shadermodel,
         .liteos,
-        .serenity,
         => @panic("TODO specify the C integer and float type sizes for this OS"),
     }
 }
