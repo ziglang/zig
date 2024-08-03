@@ -154,7 +154,7 @@ pub const F = struct {
 };
 
 pub const VDSO = struct {
-    pub const CGT_SYM = "__kernel_clock_gettime";
+    pub const CGT_SYM = "__vdso_clock_gettime";
     pub const CGT_VER = "LINUX_5.10";
 };
 
