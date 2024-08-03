@@ -1175,6 +1175,7 @@ fn buildSharedLib(
 pub fn needsCrtiCrtn(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .riscv32, .riscv64 => false,
+        .loongarch64 => false,
         else => true,
     };
 }

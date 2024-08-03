@@ -304,6 +304,7 @@ pub fn needsCrtiCrtn(target: std.Target) bool {
         .riscv32,
         .riscv64,
         .wasm32, .wasm64 => return false,
+        .loongarch64 => return false,
         else => true,
     };
     // zig fmt: on

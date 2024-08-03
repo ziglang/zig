@@ -113,6 +113,7 @@ pub const SYS = switch (@import("builtin").cpu.arch) {
     .riscv64 => syscalls.RiscV64,
     .sparc => syscalls.Sparc,
     .sparc64 => syscalls.Sparc64,
+    .loongarch64 => syscalls.LoongArch64,
     .m68k => syscalls.M68k,
     .mips, .mipsel => syscalls.MipsO32,
     .mips64, .mips64el => if (builtin.abi == .gnuabin32)
