@@ -1,4 +1,6 @@
-const std = @import("std.zig");
+//! Optimized for performance in debug builds.
+
+const std = @import("../std.zig");
 const MemoryAccessor = std.debug.MemoryAccessor;
 
 const FixedBufferReader = @This();
