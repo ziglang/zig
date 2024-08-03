@@ -27,8 +27,7 @@ const maxInt = std.math.maxInt;
 const MemoryAccessor = std.debug.MemoryAccessor;
 const Path = std.Build.Cache.Path;
 
-/// Did I mention this is deprecated?
-const DeprecatedFixedBufferReader = std.debug.DeprecatedFixedBufferReader;
+const FixedBufferReader = std.debug.FixedBufferReader;
 
 const Dwarf = @This();
 
@@ -328,7 +327,7 @@ pub const ExceptionFrameHeader = struct {
         var left: usize = 0;
         var len: usize = self.fde_count;
 
-        var fbr: DeprecatedFixedBufferReader = .{ .buf = self.entries, .endian = native_endian };
+        var fbr: FixedBufferReader = .{ .buf = self.entries, .endian = native_endian };
 
         while (len > 1) {
             const mid = left + len / 2;
@@ -371,7 +370,7 @@ pub const ExceptionFrameHeader = struct {
         const eh_frame = @as([*]const u8, @ptrFromInt(self.eh_frame_ptr))[0 .. eh_frame_len orelse maxInt(u32)];
 
         const fde_offset = fde_ptr - self.eh_frame_ptr;
-        var eh_frame_fbr: DeprecatedFixedBufferReader = .{
+        var eh_frame_fbr: FixedBufferReader = .{
             .buf = eh_frame,
             .pos = fde_offset,
             .endian = native_endian,
@@ -429,9 +428,9 @@ pub const EntryHeader = struct {
     }
 
     /// Reads a header for either an FDE or a CIE, then advances the fbr to the position after the trailing structure.
-    /// `fbr` must be a DeprecatedFixedBufferReader backed by either the .eh_frame or .debug_frame sections.
+    /// `fbr` must be a FixedBufferReader backed by either the .eh_frame or .debug_frame sections.
     pub fn read(
-        fbr: *DeprecatedFixedBufferReader,
+        fbr: *FixedBufferReader,
         opt_ma: ?*MemoryAccessor,
         dwarf_section: Section.Id,
     ) !EntryHeader {
@@ -544,7 +543,7 @@ pub const CommonInformationEntry = struct {
     ) !CommonInformationEntry {
         if (addr_size_bytes > 8) return error.UnsupportedAddrSize;
 
-        var fbr: DeprecatedFixedBufferReader = .{ .buf = cie_bytes, .endian = endian };
+        var fbr: FixedBufferReader = .{ .buf = cie_bytes, .endian = endian };
 
         const version = try fbr.readByte();
         switch (dwarf_section) {
@@ -678,7 +677,7 @@ pub const FrameDescriptionEntry = struct {
     ) !FrameDescriptionEntry {
         if (addr_size_bytes > 8) return error.InvalidAddrSize;
 
-        var fbr: DeprecatedFixedBufferReader = .{ .buf = fde_bytes, .endian = endian };
+        var fbr: FixedBufferReader = .{ .buf = fde_bytes, .endian = endian };
 
         const pc_begin = try readEhPointer(&fbr, cie.fde_pointer_enc, addr_size_bytes, .{
             .pc_rel_base = try pcRelBase(@intFromPtr(&fde_bytes[fbr.pos]), pc_rel_offset),
@@ -785,10 +784,10 @@ pub fn getSymbolName(di: *Dwarf, address: u64) ?[]const u8 {
 const ScanError = error{
     InvalidDebugInfo,
     MissingDebugInfo,
-} || Allocator.Error || std.debug.DeprecatedFixedBufferReader.Error;
+} || Allocator.Error || std.debug.FixedBufferReader.Error;
 
 fn scanAllFunctions(di: *Dwarf, allocator: Allocator) ScanError!void {
-    var fbr: DeprecatedFixedBufferReader = .{ .buf = di.section(.debug_info).?, .endian = di.endian };
+    var fbr: FixedBufferReader = .{ .buf = di.section(.debug_info).?, .endian = di.endian };
     var this_unit_offset: u64 = 0;
 
     while (this_unit_offset < fbr.buf.len) {
@@ -975,7 +974,7 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator) ScanError!void {
 }
 
 fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator) ScanError!void {
-    var fbr: DeprecatedFixedBufferReader = .{ .buf = di.section(.debug_info).?, .endian = di.endian };
+    var fbr: FixedBufferReader = .{ .buf = di.section(.debug_info).?, .endian = di.endian };
     var this_unit_offset: u64 = 0;
 
     var attrs_buf = std.ArrayList(Die.Attr).init(allocator);
@@ -1100,7 +1099,7 @@ const DebugRangeIterator = struct {
     section_type: Section.Id,
     di: *const Dwarf,
     compile_unit: *const CompileUnit,
-    fbr: DeprecatedFixedBufferReader,
+    fbr: FixedBufferReader,
 
     pub fn init(ranges_value: *const FormValue, di: *const Dwarf, compile_unit: *const CompileUnit) !@This() {
         const section_type = if (compile_unit.version >= 5) Section.Id.debug_rnglists else Section.Id.debug_ranges;
@@ -1275,7 +1274,7 @@ fn getAbbrevTable(di: *Dwarf, allocator: Allocator, abbrev_offset: u64) !*const 
 }
 
 fn parseAbbrevTable(di: *Dwarf, allocator: Allocator, offset: u64) !Abbrev.Table {
-    var fbr: DeprecatedFixedBufferReader = .{
+    var fbr: FixedBufferReader = .{
         .buf = di.section(.debug_abbrev).?,
         .pos = cast(usize, offset) orelse return bad(),
         .endian = di.endian,
@@ -1327,7 +1326,7 @@ fn parseAbbrevTable(di: *Dwarf, allocator: Allocator, offset: u64) !Abbrev.Table
 }
 
 fn parseDie(
-    fbr: *DeprecatedFixedBufferReader,
+    fbr: *FixedBufferReader,
     attrs_buf: []Die.Attr,
     abbrev_table: *const Abbrev.Table,
     format: Format,
@@ -1362,7 +1361,7 @@ pub fn getLineNumberInfo(
     const compile_unit_cwd = try compile_unit.die.getAttrString(di, AT.comp_dir, di.section(.debug_line_str), compile_unit);
     const line_info_offset = try compile_unit.die.getAttrSecOffset(AT.stmt_list);
 
-    var fbr: DeprecatedFixedBufferReader = .{ .buf = di.section(.debug_line).?, .endian = di.endian };
+    var fbr: FixedBufferReader = .{ .buf = di.section(.debug_line).?, .endian = di.endian };
     try fbr.seekTo(line_info_offset);
 
     const unit_header = try readUnitHeader(&fbr, null);
@@ -1655,7 +1654,7 @@ fn readDebugAddr(di: Dwarf, compile_unit: CompileUnit, index: u64) !u64 {
 /// of FDEs is built for binary searching during unwinding.
 pub fn scanAllUnwindInfo(di: *Dwarf, allocator: Allocator, base_address: usize) !void {
     if (di.section(.eh_frame_hdr)) |eh_frame_hdr| blk: {
-        var fbr: DeprecatedFixedBufferReader = .{ .buf = eh_frame_hdr, .endian = native_endian };
+        var fbr: FixedBufferReader = .{ .buf = eh_frame_hdr, .endian = native_endian };
 
         const version = try fbr.readByte();
         if (version != 1) break :blk;
@@ -1695,7 +1694,7 @@ pub fn scanAllUnwindInfo(di: *Dwarf, allocator: Allocator, base_address: usize) 
     const frame_sections = [2]Section.Id{ .eh_frame, .debug_frame };
     for (frame_sections) |frame_section| {
         if (di.section(frame_section)) |section_data| {
-            var fbr: DeprecatedFixedBufferReader = .{ .buf = section_data, .endian = di.endian };
+            var fbr: FixedBufferReader = .{ .buf = section_data, .endian = di.endian };
             while (fbr.pos < fbr.buf.len) {
                 const entry_header = try EntryHeader.read(&fbr, null, frame_section);
                 switch (entry_header.type) {
@@ -1739,7 +1738,7 @@ pub fn scanAllUnwindInfo(di: *Dwarf, allocator: Allocator, base_address: usize) 
 }
 
 fn parseFormValue(
-    fbr: *DeprecatedFixedBufferReader,
+    fbr: *FixedBufferReader,
     form_id: u64,
     format: Format,
     implicit_const: ?i64,
@@ -1937,7 +1936,7 @@ const UnitHeader = struct {
     unit_length: u64,
 };
 
-fn readUnitHeader(fbr: *DeprecatedFixedBufferReader, opt_ma: ?*MemoryAccessor) ScanError!UnitHeader {
+fn readUnitHeader(fbr: *FixedBufferReader, opt_ma: ?*MemoryAccessor) ScanError!UnitHeader {
     return switch (try if (opt_ma) |ma| fbr.readIntChecked(u32, ma) else fbr.readInt(u32)) {
         0...0xfffffff0 - 1 => |unit_length| .{
             .format = .@"32",
@@ -2002,7 +2001,7 @@ const EhPointerContext = struct {
     text_rel_base: ?u64 = null,
     function_rel_base: ?u64 = null,
 };
-fn readEhPointer(fbr: *DeprecatedFixedBufferReader, enc: u8, addr_size_bytes: u8, ctx: EhPointerContext) !?u64 {
+fn readEhPointer(fbr: *FixedBufferReader, enc: u8, addr_size_bytes: u8, ctx: EhPointerContext) !?u64 {
     if (enc == EH.PE.omit) return null;
 
     const value: union(enum) {
@@ -2362,7 +2361,7 @@ pub const ElfModule = struct {
     }
 };
 
-pub const ResolveSourceLocationsError = Allocator.Error || DeprecatedFixedBufferReader.Error;
+pub const ResolveSourceLocationsError = Allocator.Error || FixedBufferReader.Error;
 
 /// Given an array of virtual memory addresses, sorted ascending, outputs a
 /// corresponding array of source locations, by appending to the provided
