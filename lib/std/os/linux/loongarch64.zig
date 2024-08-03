@@ -165,7 +165,7 @@ pub const mcontext_t = extern struct {
 };
 
 pub const ucontext_t = extern struct {
-    flags: usize,
+    flags: c_ulong,
     link: ?*ucontext_t,
     stack: stack_t,
     sigmask: sigset_t,
