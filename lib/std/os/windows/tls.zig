@@ -2,8 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 export var _tls_index: u32 = std.os.windows.TLS_OUT_OF_INDEXES;
-export var _tls_start: u8 linksection(".tls") = 0;
-export var _tls_end: u8 linksection(".tls$ZZZ") = 0;
+export var _tls_start: ?*anyopaque linksection(".tls") = null;
+export var _tls_end: ?*anyopaque linksection(".tls$ZZZ") = null;
 export var __xl_a: std.os.windows.PIMAGE_TLS_CALLBACK linksection(".CRT$XLA") = null;
 export var __xl_z: std.os.windows.PIMAGE_TLS_CALLBACK linksection(".CRT$XLZ") = null;
 
@@ -31,8 +31,8 @@ comptime {
 //};
 // This is the workaround because we can't do @intFromPtr at comptime like that.
 pub const IMAGE_TLS_DIRECTORY = extern struct {
-    StartAddressOfRawData: *anyopaque,
-    EndAddressOfRawData: *anyopaque,
+    StartAddressOfRawData: *?*anyopaque,
+    EndAddressOfRawData: *?*anyopaque,
     AddressOfIndex: *anyopaque,
     AddressOfCallBacks: *anyopaque,
     SizeOfZeroFill: u32,
