@@ -242,8 +242,8 @@ pub const F = struct {
 pub const MMAP2_UNIT = 4096;
 
 pub const VDSO = struct {
-    pub const CGT_SYM = "__kernel_clock_gettime";
-    pub const CGT_VER = "LINUX_2.6.39";
+    pub const CGT_SYM = "__vdso_clock_gettime";
+    pub const CGT_VER = "LINUX_2.6";
 };
 
 pub const Flock = extern struct {
