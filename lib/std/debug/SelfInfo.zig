@@ -1576,7 +1576,7 @@ pub fn unwindFrameDwarf(
         const frame_section = di.section(dwarf_section) orelse return error.MissingFDE;
         if (fde_offset >= frame_section.len) return error.MissingFDE;
 
-        var fbr: std.debug.DeprecatedFixedBufferReader = .{
+        var fbr: std.debug.FixedBufferReader = .{
             .buf = frame_section,
             .pos = fde_offset,
             .endian = di.endian,

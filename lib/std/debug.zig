@@ -14,6 +14,7 @@ const native_os = builtin.os.tag;
 const native_endian = native_arch.endian();
 
 pub const MemoryAccessor = @import("debug/MemoryAccessor.zig");
+pub const FixedBufferReader = @import("debug/FixedBufferReader.zig");
 pub const Dwarf = @import("debug/Dwarf.zig");
 pub const Pdb = @import("debug/Pdb.zig");
 pub const SelfInfo = @import("debug/SelfInfo.zig");
@@ -1494,99 +1495,6 @@ pub const SafetyLock = struct {
     }
 };
 
-/// Deprecated. Don't use this, just read from your memory directly.
-///
-/// This only exists because someone was too lazy to rework logic that used to
-/// operate on an open file to operate on a memory buffer instead.
-pub const DeprecatedFixedBufferReader = struct {
-    buf: []const u8,
-    pos: usize = 0,
-    endian: std.builtin.Endian,
-
-    pub const Error = error{ EndOfBuffer, Overflow, InvalidBuffer };
-
-    pub fn seekTo(fbr: *DeprecatedFixedBufferReader, pos: u64) Error!void {
-        if (pos > fbr.buf.len) return error.EndOfBuffer;
-        fbr.pos = @intCast(pos);
-    }
-
-    pub fn seekForward(fbr: *DeprecatedFixedBufferReader, amount: u64) Error!void {
-        if (fbr.buf.len - fbr.pos < amount) return error.EndOfBuffer;
-        fbr.pos += @intCast(amount);
-    }
-
-    pub inline fn readByte(fbr: *DeprecatedFixedBufferReader) Error!u8 {
-        if (fbr.pos >= fbr.buf.len) return error.EndOfBuffer;
-        defer fbr.pos += 1;
-        return fbr.buf[fbr.pos];
-    }
-
-    pub fn readByteSigned(fbr: *DeprecatedFixedBufferReader) Error!i8 {
-        return @bitCast(try fbr.readByte());
-    }
-
-    pub fn readInt(fbr: *DeprecatedFixedBufferReader, comptime T: type) Error!T {
-        const size = @divExact(@typeInfo(T).Int.bits, 8);
-        if (fbr.buf.len - fbr.pos < size) return error.EndOfBuffer;
-        defer fbr.pos += size;
-        return std.mem.readInt(T, fbr.buf[fbr.pos..][0..size], fbr.endian);
-    }
-
-    pub fn readIntChecked(
-        fbr: *DeprecatedFixedBufferReader,
-        comptime T: type,
-        ma: *MemoryAccessor,
-    ) Error!T {
-        if (ma.load(T, @intFromPtr(fbr.buf[fbr.pos..].ptr)) == null)
-            return error.InvalidBuffer;
-
-        return fbr.readInt(T);
-    }
-
-    pub fn readUleb128(fbr: *DeprecatedFixedBufferReader, comptime T: type) Error!T {
-        return std.leb.readUleb128(T, fbr);
-    }
-
-    pub fn readIleb128(fbr: *DeprecatedFixedBufferReader, comptime T: type) Error!T {
-        return std.leb.readIleb128(T, fbr);
-    }
-
-    pub fn readAddress(fbr: *DeprecatedFixedBufferReader, format: std.dwarf.Format) Error!u64 {
-        return switch (format) {
-            .@"32" => try fbr.readInt(u32),
-            .@"64" => try fbr.readInt(u64),
-        };
-    }
-
-    pub fn readAddressChecked(
-        fbr: *DeprecatedFixedBufferReader,
-        format: std.dwarf.Format,
-        ma: *MemoryAccessor,
-    ) Error!u64 {
-        return switch (format) {
-            .@"32" => try fbr.readIntChecked(u32, ma),
-            .@"64" => try fbr.readIntChecked(u64, ma),
-        };
-    }
-
-    pub fn readBytes(fbr: *DeprecatedFixedBufferReader, len: usize) Error![]const u8 {
-        if (fbr.buf.len - fbr.pos < len) return error.EndOfBuffer;
-        defer fbr.pos += len;
-        return fbr.buf[fbr.pos..][0..len];
-    }
-
-    pub fn readBytesTo(fbr: *DeprecatedFixedBufferReader, comptime sentinel: u8) Error![:sentinel]const u8 {
-        const end = @call(.always_inline, std.mem.indexOfScalarPos, .{
-            u8,
-            fbr.buf,
-            fbr.pos,
-            sentinel,
-        }) orelse return error.EndOfBuffer;
-        defer fbr.pos = end + 1;
-        return fbr.buf[fbr.pos..end :sentinel];
-    }
-};
-
 /// Detect whether the program is being executed in the Valgrind virtual machine.
 ///
 /// When Valgrind integrations are disabled, this returns comptime-known false.
@@ -1600,6 +1508,7 @@ pub inline fn inValgrind() bool {
 test {
     _ = &Dwarf;
     _ = &MemoryAccessor;
+    _ = &FixedBufferReader;
     _ = &Pdb;
     _ = &SelfInfo;
     _ = &dumpHex;
