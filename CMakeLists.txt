@@ -381,6 +381,7 @@ set(ZIG_STAGE2_SOURCES
     lib/std/Target/avr.zig
     lib/std/Target/bpf.zig
     lib/std/Target/hexagon.zig
+    lib/std/Target/loongarch64.zig
     lib/std/Target/mips.zig
     lib/std/Target/msp430.zig
     lib/std/Target/nvptx.zig
