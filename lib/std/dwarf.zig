@@ -1639,14 +1639,14 @@ pub const DwarfInfo = struct {
                 &fde,
             );
         } else {
-            const index = std.sort.binarySearch(FrameDescriptionEntry, context.pc, di.fde_list.items, {}, struct {
-                pub fn compareFn(_: void, pc: usize, mid_item: FrameDescriptionEntry) math.Order {
-                    if (pc < mid_item.pc_begin) return .lt;
+            const index = std.sort.binarySearch(FrameDescriptionEntry, di.fde_list.items, context.pc, struct {
+                pub fn compareFn(pc: usize, item: FrameDescriptionEntry) math.Order {
+                    if (pc < item.pc_begin) return .gt;
 
-                    const range_end = mid_item.pc_begin + mid_item.pc_range;
+                    const range_end = item.pc_begin + item.pc_range;
                     if (pc < range_end) return .eq;
 
-                    return .gt;
+                    return .lt;
                 }
             }.compareFn);
 
