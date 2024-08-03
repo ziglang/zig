@@ -169,6 +169,7 @@ pub const ucontext_t = extern struct {
     link: ?*ucontext_t,
     stack: stack_t,
     sigmask: sigset_t,
+    _pad: [1024 / 8 - @sizeOf(sigset_t)]u8,
     mcontext: mcontext_t,
 };
 
