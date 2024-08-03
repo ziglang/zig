@@ -612,7 +612,7 @@ pub fn resolveSymbols(self: *Object, elf_file: *Elf) !void {
     const first_global = self.first_global orelse return;
     for (self.globals(), first_global..) |_, i| {
         const esym = self.symtab.items[i];
-        if (esym.st_shndx != elf.SHN_ABS and esym.st_shndx != elf.SHN_COMMON) {
+        if (esym.st_shndx != elf.SHN_ABS and esym.st_shndx != elf.SHN_COMMON and esym.st_shndx != elf.SHN_UNDEF) {
             const atom_index = self.atoms_indexes.items[esym.st_shndx];
             const atom_ptr = self.atom(atom_index) orelse continue;
             if (!atom_ptr.alive) continue;
@@ -1492,8 +1492,14 @@ fn formatSymtab(
         try writer.print("    {}\n", .{sym.fmt(elf_file)});
     }
     try writer.writeAll("  globals\n");
-    for (object.globals()) |sym| {
-        try writer.print("    {}\n", .{sym.fmt(elf_file)});
+    for (object.globals(), 0..) |sym, i| {
+        const first_global = object.first_global.?;
+        const ref = object.resolveSymbol(@intCast(i + first_global), elf_file);
+        if (elf_file.symbol(ref)) |ref_sym| {
+            try writer.print("    {}\n", .{ref_sym.fmt(elf_file)});
+        } else {
+            try writer.print("    {s} : unclaimed\n", .{sym.name(elf_file)});
+        }
     }
 }
 

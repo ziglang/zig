@@ -447,8 +447,13 @@ fn formatSymtab(
     const self = ctx.self;
     const elf_file = ctx.elf_file;
     try writer.writeAll("  globals\n");
-    for (self.symbols.items) |sym| {
-        try writer.print("    {}\n", .{sym.fmt(elf_file)});
+    for (self.symbols.items, 0..) |sym, i| {
+        const ref = self.resolveSymbol(@intCast(i), elf_file);
+        if (elf_file.symbol(ref)) |ref_sym| {
+            try writer.print("    {}\n", .{ref_sym.fmt(elf_file)});
+        } else {
+            try writer.print("    {s} : unclaimed\n", .{sym.name(elf_file)});
+        }
     }
 }
 

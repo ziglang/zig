@@ -417,9 +417,9 @@ pub const ZigGotSection = struct {
         _ = unused_fmt_string;
         const zig_got = ctx.zig_got;
         const elf_file = ctx.elf_file;
-        const zo = elf_file.zigObjectPtr().?;
         try writer.writeAll(".zig.got\n");
         for (zig_got.entries.items, 0..) |entry, index| {
+            const zo = elf_file.zigObjectPtr().?;
             const symbol = zo.symbol(entry);
             try writer.print("  {d}@0x{x} => {d}@0x{x} ({s})\n", .{
                 index,
