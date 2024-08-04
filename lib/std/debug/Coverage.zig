@@ -65,7 +65,7 @@ pub const String = enum(u32) {
     };
 };
 
-pub const SourceLocation = struct {
+pub const SourceLocation = extern struct {
     file: File.Index,
     line: u32,
     column: u32,
@@ -77,7 +77,7 @@ pub const SourceLocation = struct {
     };
 };
 
-pub const File = struct {
+pub const File = extern struct {
     directory_index: u32,
     basename: String,
 
