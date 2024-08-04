@@ -28,8 +28,7 @@ pub const Kind = enum {
 /// libc implementations use `0o666` inside `fopen` and then rely on the
 /// process-scoped "umask" setting to adjust this number for file creation.
 pub const default_mode = switch (posix.mode_t) {
-    void => {}, // WASI-without-libc has no mode support
-    u0 => 0, // Zig's Posix layer doesn't support modes for Windows
+    void => {},
     else => 0o666,
 };
 
@@ -495,7 +494,7 @@ pub fn stat(self: File) StatError!Stat {
         return .{
             .inode = info.InternalInformation.IndexNumber,
             .size = @as(u64, @bitCast(info.StandardInformation.EndOfFile)),
-            .mode = 0,
+            .mode = {},
             .kind = if (info.BasicInformation.FileAttributes & windows.FILE_ATTRIBUTE_REPARSE_POINT != 0) reparse_point: {
                 var tag_info: windows.FILE_ATTRIBUTE_TAG_INFO = undefined;
                 const tag_rc = windows.ntdll.NtQueryInformationFile(self.handle, &io_status_block, &tag_info, @sizeOf(windows.FILE_ATTRIBUTE_TAG_INFO), .FileAttributeTagInformation);

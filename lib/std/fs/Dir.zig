@@ -4,8 +4,7 @@ pub const Handle = posix.fd_t;
 
 /// Default mode bits for a new directory.
 pub const default_mode = switch (posix.mode_t) {
-    void => {}, // wasi-without-libc has no mode suppport
-    u0 => 0, // Zig's Posix layer doesn't support modes on Windows
+    void => {},
     else => 0o755,
 };
 
