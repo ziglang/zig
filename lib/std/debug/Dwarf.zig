@@ -152,6 +152,7 @@ pub const CompileUnit = struct {
         pub const LineEntry = struct {
             line: u32,
             column: u32,
+            /// Offset by 1 depending on whether Dwarf version is >= 5.
             file: u32,
         };
 
@@ -809,7 +810,7 @@ pub fn getSymbolName(di: *Dwarf, address: u64) ?[]const u8 {
     return null;
 }
 
-const ScanError = error{
+pub const ScanError = error{
     InvalidDebugInfo,
     MissingDebugInfo,
 } || Allocator.Error || std.debug.FixedBufferReader.Error;
@@ -1113,7 +1114,7 @@ pub fn sortCompileUnits(d: *Dwarf) ScanError!void {
     }
 
     std.mem.sortUnstable(CompileUnit, d.compile_unit_list.items, {}, struct {
-        fn lessThan(ctx: void, a: CompileUnit, b: CompileUnit) bool {
+        pub fn lessThan(ctx: void, a: CompileUnit, b: CompileUnit) bool {
             _ = ctx;
             const a_range = a.pc_range orelse return false;
             const b_range = b.pc_range orelse return true;
@@ -1641,14 +1642,18 @@ fn runLineNumberProgram(d: *Dwarf, gpa: Allocator, compile_unit: *CompileUnit) !
     };
 }
 
+pub fn populateSrcLocCache(d: *Dwarf, gpa: Allocator, cu: *CompileUnit) ScanError!void {
+    if (cu.src_loc_cache != null) return;
+    cu.src_loc_cache = try runLineNumberProgram(d, gpa, cu);
+}
+
 pub fn getLineNumberInfo(
     d: *Dwarf,
     gpa: Allocator,
     compile_unit: *CompileUnit,
     target_address: u64,
 ) !std.debug.SourceLocation {
-    if (compile_unit.src_loc_cache == null)
-        compile_unit.src_loc_cache = try runLineNumberProgram(d, gpa, compile_unit);
+    try populateSrcLocCache(d, gpa, compile_unit);
     const slc = &compile_unit.src_loc_cache.?;
     const entry = try slc.findSource(target_address);
     const file_index = entry.file - @intFromBool(slc.version < 5);
@@ -2342,52 +2347,6 @@ pub const ElfModule = struct {
         );
     }
 };
-
-pub const ResolveSourceLocationsError = Allocator.Error || FixedBufferReader.Error;
-
-/// Given an array of virtual memory addresses, sorted ascending, outputs a
-/// corresponding array of source locations, by appending to the provided
-/// array list.
-pub fn resolveSourceLocations(
-    d: *Dwarf,
-    gpa: Allocator,
-    sorted_pc_addrs: []const u64,
-    /// Asserts its length equals length of `sorted_pc_addrs`.
-    output: []std.debug.SourceLocation,
-) ResolveSourceLocationsError!void {
-    assert(sorted_pc_addrs.len == output.len);
-    assert(d.compile_units_sorted);
-
-    var cu_i: usize = 0;
-    var cu: *CompileUnit = &d.compile_unit_list.items[0];
-    var range = cu.pc_range.?;
-    next_pc: for (sorted_pc_addrs, output) |pc, *out| {
-        while (pc >= range.end) {
-            cu_i += 1;
-            if (cu_i >= d.compile_unit_list.items.len) {
-                out.* = std.debug.SourceLocation.invalid;
-                continue :next_pc;
-            }
-            cu = &d.compile_unit_list.items[cu_i];
-            range = cu.pc_range orelse {
-                out.* = std.debug.SourceLocation.invalid;
-                continue :next_pc;
-            };
-        }
-        if (pc < range.start) {
-            out.* = std.debug.SourceLocation.invalid;
-            continue :next_pc;
-        }
-        // TODO: instead of calling this function, break the function up into one that parses the
-        // information once and prepares a context that can be reused for the entire batch.
-        if (getLineNumberInfo(d, gpa, cu, pc)) |src_loc| {
-            out.* = src_loc;
-        } else |err| switch (err) {
-            error.MissingDebugInfo, error.InvalidDebugInfo => out.* = std.debug.SourceLocation.invalid,
-            else => |e| return e,
-        }
-    }
-}
 
 fn getSymbol(di: *Dwarf, allocator: Allocator, address: u64) !std.debug.Symbol {
     if (di.findCompileUnit(address)) |compile_unit| {
