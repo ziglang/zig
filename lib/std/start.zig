@@ -406,6 +406,13 @@ fn _start() callconv(.Naked) noreturn {
             \\ stg  %%r0, 0(%%r15)
             \\ jg %[posixCallMainAndExit]
             ,
+            .sparc =>
+            // argc is stored after a register window (16 registers * 4 bytes).
+            \\ mov %%g0, %%fp
+            \\ add %%sp, 64, %%o0
+            \\ and %%sp, -8, %%sp
+            \\ ba,a %[posixCallMainAndExit]
+            ,
             .sparc64 =>
             // argc is stored after a register window (16 registers * 8 bytes) plus the stack bias
             // (2047 bytes).
