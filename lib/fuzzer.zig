@@ -218,6 +218,7 @@ const Fuzzer = struct {
             .read = true,
             .truncate = false,
         });
+        defer coverage_file.close();
         const n_bitset_elems = (flagged_pcs.len + 7) / 8;
         const bytes_len = @sizeOf(SeenPcsHeader) + flagged_pcs.len * @sizeOf(usize) + n_bitset_elems;
         const existing_len = coverage_file.getEndPos() catch |err| {

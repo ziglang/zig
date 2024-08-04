@@ -28,7 +28,10 @@ pub fn main() !void {
         .sub_path = cov_file_name,
     };
 
-    var debug_info = std.debug.Info.load(gpa, exe_path) catch |err| {
+    var coverage = std.debug.Coverage.init;
+    defer coverage.deinit(gpa);
+
+    var debug_info = std.debug.Info.load(gpa, exe_path, &coverage) catch |err| {
         fatal("failed to load debug info for {}: {s}", .{ exe_path, @errorName(err) });
     };
     defer debug_info.deinit(gpa);
@@ -50,14 +53,15 @@ pub fn main() !void {
     }
     assert(std.sort.isSorted(usize, pcs, {}, std.sort.asc(usize)));
 
-    const source_locations = try arena.alloc(std.debug.Info.SourceLocation, pcs.len);
-    try debug_info.resolveSourceLocations(gpa, pcs, source_locations);
+    const source_locations = try arena.alloc(std.debug.Coverage.SourceLocation, pcs.len);
+    try debug_info.resolveAddresses(gpa, pcs, source_locations);
 
     for (pcs, source_locations) |pc, sl| {
-        const file = debug_info.fileAt(sl.file);
-        const dir_name = debug_info.directories.keys()[file.directory_index];
+        const file = debug_info.coverage.fileAt(sl.file);
+        const dir_name = debug_info.coverage.directories.keys()[file.directory_index];
+        const dir_name_slice = debug_info.coverage.stringAt(dir_name);
         try stdout.print("{x}: {s}/{s}:{d}:{d}\n", .{
-            pc, dir_name, file.basename, sl.line, sl.column,
+            pc, dir_name_slice, debug_info.coverage.stringAt(file.basename), sl.line, sl.column,
         });
     }
 

@@ -1521,7 +1521,11 @@ fn evalZigTest(
                 {
                     web_server.mutex.lock();
                     defer web_server.mutex.unlock();
-                    try web_server.msg_queue.append(web_server.gpa, .{ .coverage_id = coverage_id });
+                    try web_server.msg_queue.append(web_server.gpa, .{ .coverage = .{
+                        .id = coverage_id,
+                        .run = run,
+                    } });
+                    web_server.condition.signal();
                 }
             },
             else => {}, // ignore other messages

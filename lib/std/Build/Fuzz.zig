@@ -6,6 +6,7 @@ const assert = std.debug.assert;
 const fatal = std.process.fatal;
 const Allocator = std.mem.Allocator;
 const log = std.log;
+const Coverage = std.debug.Coverage;
 
 const Fuzz = @This();
 const build_runner = @import("root");
@@ -53,16 +54,29 @@ pub fn start(
         .global_cache_directory = global_cache_directory,
         .zig_lib_directory = zig_lib_directory,
         .zig_exe_path = zig_exe_path,
-        .msg_queue = .{},
-        .mutex = .{},
         .listen_address = listen_address,
         .fuzz_run_steps = fuzz_run_steps,
+
+        .msg_queue = .{},
+        .mutex = .{},
+        .condition = .{},
+
+        .coverage_files = .{},
+        .coverage_mutex = .{},
+        .coverage_condition = .{},
     };
 
+    // For accepting HTTP connections.
     const web_server_thread = std.Thread.spawn(.{}, WebServer.run, .{&web_server}) catch |err| {
         fatal("unable to spawn web server thread: {s}", .{@errorName(err)});
     };
     defer web_server_thread.join();
+
+    // For polling messages and sending updates to subscribers.
+    const coverage_thread = std.Thread.spawn(.{}, WebServer.coverageRun, .{&web_server}) catch |err| {
+        fatal("unable to spawn coverage thread: {s}", .{@errorName(err)});
+    };
+    defer coverage_thread.join();
 
     {
         const fuzz_node = prog_node.start("Fuzzing", fuzz_run_steps.len);
@@ -88,14 +102,38 @@ pub const WebServer = struct {
     global_cache_directory: Build.Cache.Directory,
     zig_lib_directory: Build.Cache.Directory,
     zig_exe_path: []const u8,
-    /// Messages from fuzz workers. Protected by mutex.
-    msg_queue: std.ArrayListUnmanaged(Msg),
-    mutex: std.Thread.Mutex,
     listen_address: std.net.Address,
     fuzz_run_steps: []const *Step.Run,
 
+    /// Messages from fuzz workers. Protected by mutex.
+    msg_queue: std.ArrayListUnmanaged(Msg),
+    /// Protects `msg_queue` only.
+    mutex: std.Thread.Mutex,
+    /// Signaled when there is a message in `msg_queue`.
+    condition: std.Thread.Condition,
+
+    coverage_files: std.AutoArrayHashMapUnmanaged(u64, CoverageMap),
+    /// Protects `coverage_files` only.
+    coverage_mutex: std.Thread.Mutex,
+    /// Signaled when `coverage_files` changes.
+    coverage_condition: std.Thread.Condition,
+
+    const CoverageMap = struct {
+        mapped_memory: []align(std.mem.page_size) const u8,
+        coverage: Coverage,
+
+        fn deinit(cm: *CoverageMap, gpa: Allocator) void {
+            std.posix.munmap(cm.mapped_memory);
+            cm.coverage.deinit(gpa);
+            cm.* = undefined;
+        }
+    };
+
     const Msg = union(enum) {
-        coverage_id: u64,
+        coverage: struct {
+            id: u64,
+            run: *Step.Run,
+        },
     };
 
     fn run(ws: *WebServer) void {
@@ -162,6 +200,10 @@ pub const WebServer = struct {
             std.mem.eql(u8, request.head.target, "/debug/sources.tar"))
         {
             try serveSourcesTar(ws, request);
+        } else if (std.mem.eql(u8, request.head.target, "/events") or
+            std.mem.eql(u8, request.head.target, "/debug/events"))
+        {
+            try serveEvents(ws, request);
         } else {
             try request.respond("not found", .{
                 .status = .not_found,
@@ -384,6 +426,58 @@ pub const WebServer = struct {
         try file.writeAll(std.mem.asBytes(&header));
     }
 
+    fn serveEvents(ws: *WebServer, request: *std.http.Server.Request) !void {
+        var send_buffer: [0x4000]u8 = undefined;
+        var response = request.respondStreaming(.{
+            .send_buffer = &send_buffer,
+            .respond_options = .{
+                .extra_headers = &.{
+                    .{ .name = "content-type", .value = "text/event-stream" },
+                },
+                .transfer_encoding = .none,
+            },
+        });
+
+        ws.coverage_mutex.lock();
+        defer ws.coverage_mutex.unlock();
+
+        if (getStats(ws)) |stats| {
+            try response.writer().print("data: {d}\n\n", .{stats.n_runs});
+        } else {
+            try response.writeAll("data: loading debug information\n\n");
+        }
+        try response.flush();
+
+        while (true) {
+            ws.coverage_condition.timedWait(&ws.coverage_mutex, std.time.ns_per_ms * 500) catch {};
+            if (getStats(ws)) |stats| {
+                try response.writer().print("data: {d}\n\n", .{stats.n_runs});
+                try response.flush();
+            }
+        }
+    }
+
+    const Stats = struct {
+        n_runs: u64,
+    };
+
+    fn getStats(ws: *WebServer) ?Stats {
+        const coverage_maps = ws.coverage_files.values();
+        if (coverage_maps.len == 0) return null;
+        // TODO: make each events URL correspond to one coverage map
+        const ptr = coverage_maps[0].mapped_memory;
+        const SeenPcsHeader = extern struct {
+            n_runs: usize,
+            deduplicated_runs: usize,
+            pcs_len: usize,
+            lowest_stack: usize,
+        };
+        const header: *const SeenPcsHeader = @ptrCast(ptr[0..@sizeOf(SeenPcsHeader)]);
+        return .{
+            .n_runs = @atomicLoad(usize, &header.n_runs, .monotonic),
+        };
+    }
+
     fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
         const gpa = ws.gpa;
 
@@ -471,6 +565,95 @@ pub const WebServer = struct {
         .name = "cache-control",
         .value = "max-age=0, must-revalidate",
     };
+
+    fn coverageRun(ws: *WebServer) void {
+        ws.mutex.lock();
+        defer ws.mutex.unlock();
+
+        while (true) {
+            ws.condition.wait(&ws.mutex);
+            for (ws.msg_queue.items) |msg| switch (msg) {
+                .coverage => |coverage| prepareTables(ws, coverage.run, coverage.id) catch |err| switch (err) {
+                    error.AlreadyReported => continue,
+                    else => |e| log.err("failed to prepare code coverage tables: {s}", .{@errorName(e)}),
+                },
+            };
+            ws.msg_queue.clearRetainingCapacity();
+        }
+    }
+
+    fn prepareTables(
+        ws: *WebServer,
+        run_step: *Step.Run,
+        coverage_id: u64,
+    ) error{ OutOfMemory, AlreadyReported }!void {
+        const gpa = ws.gpa;
+
+        ws.coverage_mutex.lock();
+        defer ws.coverage_mutex.unlock();
+
+        const gop = try ws.coverage_files.getOrPut(gpa, coverage_id);
+        if (gop.found_existing) {
+            // We are fuzzing the same executable with multiple threads.
+            // Perhaps the same unit test; perhaps a different one. In any
+            // case, since the coverage file is the same, we only have to
+            // notice changes to that one file in order to learn coverage for
+            // this particular executable.
+            return;
+        }
+        errdefer _ = ws.coverage_files.pop();
+
+        gop.value_ptr.* = .{
+            .coverage = std.debug.Coverage.init,
+            .mapped_memory = undefined, // populated below
+        };
+        errdefer gop.value_ptr.coverage.deinit(gpa);
+
+        const rebuilt_exe_path: Build.Cache.Path = .{
+            .root_dir = Build.Cache.Directory.cwd(),
+            .sub_path = run_step.rebuilt_executable.?,
+        };
+        var debug_info = std.debug.Info.load(gpa, rebuilt_exe_path, &gop.value_ptr.coverage) catch |err| {
+            log.err("step '{s}': failed to load debug information for '{}': {s}", .{
+                run_step.step.name, rebuilt_exe_path, @errorName(err),
+            });
+            return error.AlreadyReported;
+        };
+        defer debug_info.deinit(gpa);
+
+        const coverage_file_path: Build.Cache.Path = .{
+            .root_dir = run_step.step.owner.cache_root,
+            .sub_path = "v/" ++ std.fmt.hex(coverage_id),
+        };
+        var coverage_file = coverage_file_path.root_dir.handle.openFile(coverage_file_path.sub_path, .{}) catch |err| {
+            log.err("step '{s}': failed to load coverage file '{}': {s}", .{
+                run_step.step.name, coverage_file_path, @errorName(err),
+            });
+            return error.AlreadyReported;
+        };
+        defer coverage_file.close();
+
+        const file_size = coverage_file.getEndPos() catch |err| {
+            log.err("unable to check len of coverage file '{}': {s}", .{ coverage_file_path, @errorName(err) });
+            return error.AlreadyReported;
+        };
+
+        const mapped_memory = std.posix.mmap(
+            null,
+            file_size,
+            std.posix.PROT.READ,
+            .{ .TYPE = .SHARED },
+            coverage_file.handle,
+            0,
+        ) catch |err| {
+            log.err("failed to map coverage file '{}': {s}", .{ coverage_file_path, @errorName(err) });
+            return error.AlreadyReported;
+        };
+
+        gop.value_ptr.mapped_memory = mapped_memory;
+
+        ws.coverage_condition.broadcast();
+    }
 };
 
 fn rebuildTestsWorkerRun(run: *Step.Run, ttyconf: std.io.tty.Config, parent_prog_node: std.Progress.Node) void {
@@ -493,16 +676,16 @@ fn rebuildTestsWorkerRun(run: *Step.Run, ttyconf: std.io.tty.Config, parent_prog
         build_runner.printErrorMessages(gpa, &compile.step, ttyconf, stderr, false) catch {};
     }
 
-    if (result) |rebuilt_bin_path| {
-        run.rebuilt_executable = rebuilt_bin_path;
-    } else |err| switch (err) {
-        error.MakeFailed => {},
+    const rebuilt_bin_path = result catch |err| switch (err) {
+        error.MakeFailed => return,
         else => {
-            std.debug.print("step '{s}': failed to rebuild in fuzz mode: {s}\n", .{
+            log.err("step '{s}': failed to rebuild in fuzz mode: {s}", .{
                 compile.step.name, @errorName(err),
             });
+            return;
         },
-    }
+    };
+    run.rebuilt_executable = rebuilt_bin_path;
 }
 
 fn fuzzWorkerRun(
@@ -524,11 +707,13 @@ fn fuzzWorkerRun(
             std.debug.lockStdErr();
             defer std.debug.unlockStdErr();
             build_runner.printErrorMessages(gpa, &run.step, ttyconf, stderr, false) catch {};
+            return;
         },
         else => {
-            std.debug.print("step '{s}': failed to rebuild '{s}' in fuzz mode: {s}\n", .{
+            log.err("step '{s}': failed to rerun '{s}' in fuzz mode: {s}", .{
                 run.step.name, test_name, @errorName(err),
             });
+            return;
         },
     };
 }

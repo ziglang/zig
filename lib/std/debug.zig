@@ -19,6 +19,7 @@ pub const Dwarf = @import("debug/Dwarf.zig");
 pub const Pdb = @import("debug/Pdb.zig");
 pub const SelfInfo = @import("debug/SelfInfo.zig");
 pub const Info = @import("debug/Info.zig");
+pub const Coverage = @import("debug/Coverage.zig");
 
 /// Unresolved source locations can be represented with a single `usize` that
 /// corresponds to a virtual memory address of the program counter. Combined
