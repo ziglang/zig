@@ -2968,59 +2968,25 @@ pub fn indexableHasLen(ty: Type, mod: *Module) bool {
 }
 
 /// Asserts that the type can have a namespace.
-pub fn getNamespaceIndex(ty: Type, zcu: *Zcu) InternPool.OptionalNamespaceIndex {
-    return ty.getNamespace(zcu).?;
+pub fn getNamespaceIndex(ty: Type, zcu: *Zcu) InternPool.NamespaceIndex {
+    return ty.getNamespace(zcu).unwrap().?;
 }
 
 /// Returns null if the type has no namespace.
-pub fn getNamespace(ty: Type, zcu: *Zcu) ?InternPool.OptionalNamespaceIndex {
+pub fn getNamespace(ty: Type, zcu: *Zcu) InternPool.OptionalNamespaceIndex {
     const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.toIntern())) {
-        .opaque_type => ip.loadOpaqueType(ty.toIntern()).namespace,
+        .opaque_type => ip.loadOpaqueType(ty.toIntern()).namespace.toOptional(),
         .struct_type => ip.loadStructType(ty.toIntern()).namespace,
-        .union_type => ip.loadUnionType(ty.toIntern()).namespace,
-        .enum_type => ip.loadEnumType(ty.toIntern()).namespace,
-
-        .anon_struct_type => .none,
-        .simple_type => |s| switch (s) {
-            .anyopaque,
-            .atomic_order,
-            .atomic_rmw_op,
-            .calling_convention,
-            .address_space,
-            .float_mode,
-            .reduce_op,
-            .call_modifier,
-            .prefetch_options,
-            .export_options,
-            .extern_options,
-            .type_info,
-            => .none,
-            else => null,
-        },
-
-        else => null,
+        .union_type => ip.loadUnionType(ty.toIntern()).namespace.toOptional(),
+        .enum_type => ip.loadEnumType(ty.toIntern()).namespace.toOptional(),
+        else => .none,
     };
 }
 
 // TODO: new dwarf structure will also need the enclosing code block for types created in imperative scopes
-pub fn getParentNamespace(ty: Type, zcu: *Zcu) ?InternPool.OptionalNamespaceIndex {
-    const ip = &zcu.intern_pool;
-    const cau = switch (ip.indexToKey(ty.toIntern())) {
-        .struct_type => ip.loadStructType(ty.toIntern()).cau,
-        .union_type => ip.loadUnionType(ty.toIntern()).cau.toOptional(),
-        .enum_type => |e| switch (e) {
-            .declared, .reified => ip.loadEnumType(ty.toIntern()).cau,
-            .generated_tag => |gt| ip.loadUnionType(gt.union_type).cau.toOptional(),
-            .empty_struct => unreachable,
-        },
-        // TODO: this doesn't handle opaque types with empty namespaces
-        .opaque_type => return ip.namespacePtr(ip.loadOpaqueType(ty.toIntern()).namespace.unwrap().?).parent,
-        else => return null,
-    };
-    return ip.namespacePtr(ip.getCau(cau.unwrap() orelse return .none).namespace)
-    // TODO: I thought the cau contained the parent namespace based on "analyzed within" but alas
-        .parent;
+pub fn getParentNamespace(ty: Type, zcu: *Zcu) InternPool.OptionalNamespaceIndex {
+    return zcu.namespacePtr(ty.getNamespace(zcu).unwrap() orelse return .none).parent;
 }
 
 // Works for vectors and vectors of integers.

@@ -887,7 +887,6 @@ fn createFileRootStruct(
         .any_default_inits = small.any_default_inits,
         .inits_resolved = false,
         .any_aligned_fields = small.any_aligned_fields,
-        .has_namespace = true,
         .key = .{ .declared = .{
             .zir_index = tracked_inst,
             .captures = &.{},
@@ -913,7 +912,7 @@ fn createFileRootStruct(
     try pt.scanNamespace(namespace_index, decls);
     try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
     zcu.setFileRootType(file_index, wip_ty.index);
-    return wip_ty.finish(ip, new_cau_index.toOptional(), namespace_index.toOptional());
+    return wip_ty.finish(ip, new_cau_index.toOptional(), namespace_index);
 }
 
 /// Re-analyze the root type of a file on an incremental update.
@@ -926,7 +925,7 @@ fn semaFileUpdate(pt: Zcu.PerThread, file_index: Zcu.File.Index, type_outdated: 
     const ip = &zcu.intern_pool;
     const file = zcu.fileByIndex(file_index);
     const file_root_type = zcu.fileRootType(file_index);
-    const namespace_index = Type.fromInterned(file_root_type).getNamespaceIndex(zcu).unwrap().?;
+    const namespace_index = Type.fromInterned(file_root_type).getNamespaceIndex(zcu);
 
     assert(file_root_type != .none);
 
@@ -1083,12 +1082,12 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
             const nav_name = ip.getNav(nav).name;
             const std_file_imported = try pt.importPkg(zcu.std_mod);
             const std_type = Type.fromInterned(zcu.fileRootType(std_file_imported.file_index));
-            const std_namespace = zcu.namespacePtr(std_type.getNamespace(zcu).?.unwrap().?);
+            const std_namespace = zcu.namespacePtr(std_type.getNamespace(zcu).unwrap().?);
             const builtin_str = try ip.getOrPutString(gpa, pt.tid, "builtin", .no_embedded_nulls);
             const builtin_nav = ip.getNav(std_namespace.pub_decls.getKeyAdapted(builtin_str, Zcu.Namespace.NameAdapter{ .zcu = zcu }) orelse break :ip_index .none);
             const builtin_namespace = switch (builtin_nav.status) {
                 .unresolved => break :ip_index .none,
-                .resolved => |r| Type.fromInterned(r.val).getNamespace(zcu).?.unwrap().?,
+                .resolved => |r| Type.fromInterned(r.val).getNamespace(zcu).unwrap().?,
             };
             if (cau.namespace != builtin_namespace) break :ip_index .none;
             // We're in builtin.zig. This could be a builtin we need to add to a specific InternPool index.
@@ -1232,7 +1231,7 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
         if (decl_ty.toIntern() != .type_type) {
             return sema.fail(&block, ty_src, "expected type, found {}", .{decl_ty.fmt(pt)});
         }
-        if (decl_val.toType().getNamespace(zcu) == null) {
+        if (decl_val.toType().getNamespace(zcu) == .none) {
             return sema.fail(&block, ty_src, "type {} has no namespace", .{decl_val.toType().fmt(pt)});
         }
         ip.resolveNavValue(nav_index, .{
@@ -2432,7 +2431,7 @@ pub fn populateTestFunctions(
         error.OutOfMemory => |e| return e,
     };
     const builtin_root_type = Type.fromInterned(zcu.fileRootType(builtin_file_index));
-    const builtin_namespace = builtin_root_type.getNamespace(zcu).?.unwrap().?;
+    const builtin_namespace = builtin_root_type.getNamespace(zcu).unwrap().?;
     const nav_index = zcu.namespacePtr(builtin_namespace).pub_decls.getKeyAdapted(
         try ip.getOrPutString(gpa, pt.tid, "test_functions", .no_embedded_nulls),
         Zcu.Namespace.NameAdapter{ .zcu = zcu },
@@ -3196,14 +3195,13 @@ pub fn getBuiltinNav(pt: Zcu.PerThread, name: []const u8) Allocator.Error!Intern
     const ip = &zcu.intern_pool;
     const std_file_imported = pt.importPkg(zcu.std_mod) catch @panic("failed to import lib/std.zig");
     const std_type = Type.fromInterned(zcu.fileRootType(std_file_imported.file_index));
-    const std_namespace = zcu.namespacePtr(std_type.getNamespace(zcu).?.unwrap().?);
+    const std_namespace = zcu.namespacePtr(std_type.getNamespace(zcu).unwrap().?);
     const builtin_str = try ip.getOrPutString(gpa, pt.tid, "builtin", .no_embedded_nulls);
     const builtin_nav = std_namespace.pub_decls.getKeyAdapted(builtin_str, Zcu.Namespace.NameAdapter{ .zcu = zcu }) orelse
         @panic("lib/std.zig is corrupt and missing 'builtin'");
     pt.ensureCauAnalyzed(ip.getNav(builtin_nav).analysis_owner.unwrap().?) catch @panic("std.builtin is corrupt");
     const builtin_type = Type.fromInterned(ip.getNav(builtin_nav).status.resolved.val);
-    const builtin_namespace_index = (if (builtin_type.getNamespace(zcu)) |n| n.unwrap() else null) orelse @panic("std.builtin is corrupt");
-    const builtin_namespace = zcu.namespacePtr(builtin_namespace_index);
+    const builtin_namespace = zcu.namespacePtr(builtin_type.getNamespace(zcu).unwrap() orelse @panic("std.builtin is corrupt"));
     const name_str = try ip.getOrPutString(gpa, pt.tid, name, .no_embedded_nulls);
     return builtin_namespace.pub_decls.getKeyAdapted(name_str, Zcu.Namespace.NameAdapter{ .zcu = zcu }) orelse @panic("lib/std/builtin.zig is corrupt");
 }

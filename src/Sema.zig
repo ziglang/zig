@@ -2802,7 +2802,6 @@ fn zirStructDecl(
         .any_default_inits = small.any_default_inits,
         .inits_resolved = false,
         .any_aligned_fields = small.any_aligned_fields,
-        .has_namespace = true or decls_len > 0, // TODO: see below
         .key = .{ .declared = .{
             .zir_index = tracked_inst,
             .captures = captures,
@@ -2825,15 +2824,14 @@ fn zirStructDecl(
         wip_ty.index,
     ));
 
-    // TODO: if AstGen tells us `@This` was not used in the fields, we can elide the namespace.
-    const new_namespace_index: InternPool.OptionalNamespaceIndex = if (true or decls_len > 0) (try pt.createNamespace(.{
+    const new_namespace_index: InternPool.NamespaceIndex = try pt.createNamespace(.{
         .parent = block.namespace.toOptional(),
         .owner_type = wip_ty.index,
         .file_scope = block.getFileScopeIndex(mod),
-    })).toOptional() else .none;
-    errdefer if (new_namespace_index.unwrap()) |ns| pt.destroyNamespace(ns);
+    });
+    errdefer pt.destroyNamespace(new_namespace_index);
 
-    const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, new_namespace_index.unwrap() orelse block.namespace, wip_ty.index);
+    const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, new_namespace_index, wip_ty.index);
 
     if (pt.zcu.comp.incremental) {
         try ip.addDependency(
@@ -2843,10 +2841,8 @@ fn zirStructDecl(
         );
     }
 
-    if (new_namespace_index.unwrap()) |ns| {
-        const decls = sema.code.bodySlice(extra_index, decls_len);
-        try pt.scanNamespace(ns, decls);
-    }
+    const decls = sema.code.bodySlice(extra_index, decls_len);
+    try pt.scanNamespace(new_namespace_index, decls);
 
     try mod.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
     try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .cau = new_cau_index }));
@@ -3015,7 +3011,6 @@ fn zirEnumDecl(
     } else false;
 
     const enum_init: InternPool.EnumTypeInit = .{
-        .has_namespace = true or decls_len > 0, // TODO: see below
         .has_values = any_values,
         .tag_mode = if (small.nonexhaustive)
             .nonexhaustive
@@ -3052,15 +3047,14 @@ fn zirEnumDecl(
     );
     wip_ty.setName(ip, type_name);
 
-    // TODO: if AstGen tells us `@This` was not used in the fields, we can elide the namespace.
-    const new_namespace_index: InternPool.OptionalNamespaceIndex = if (true or decls_len > 0) (try pt.createNamespace(.{
+    const new_namespace_index: InternPool.NamespaceIndex = try pt.createNamespace(.{
         .parent = block.namespace.toOptional(),
         .owner_type = wip_ty.index,
         .file_scope = block.getFileScopeIndex(mod),
-    })).toOptional() else .none;
-    errdefer if (!done) if (new_namespace_index.unwrap()) |ns| pt.destroyNamespace(ns);
+    });
+    errdefer if (!done) pt.destroyNamespace(new_namespace_index);
 
-    const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, new_namespace_index.unwrap() orelse block.namespace, wip_ty.index);
+    const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, new_namespace_index, wip_ty.index);
 
     if (pt.zcu.comp.incremental) {
         try mod.intern_pool.addDependency(
@@ -3070,9 +3064,7 @@ fn zirEnumDecl(
         );
     }
 
-    if (new_namespace_index.unwrap()) |ns| {
-        try pt.scanNamespace(ns, decls);
-    }
+    try pt.scanNamespace(new_namespace_index, decls);
 
     try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .cau = new_cau_index }));
     try sema.declareDependency(.{ .interned = wip_ty.index });
@@ -3098,7 +3090,7 @@ fn zirEnumDecl(
         var enum_block: Block = .{
             .parent = null,
             .sema = sema,
-            .namespace = new_namespace_index.unwrap() orelse block.namespace,
+            .namespace = new_namespace_index,
             .instructions = .{},
             .inlining = null,
             .is_comptime = true,
@@ -3284,7 +3276,6 @@ fn zirUnionDecl(
             .assumed_pointer_aligned = false,
             .alignment = .none,
         },
-        .has_namespace = true or decls_len != 0, // TODO: see below
         .fields_len = fields_len,
         .enum_tag_ty = .none, // set later
         .field_types = &.{}, // set later
@@ -3311,15 +3302,14 @@ fn zirUnionDecl(
         wip_ty.index,
     ));
 
-    // TODO: if AstGen tells us `@This` was not used in the fields, we can elide the namespace.
-    const new_namespace_index: InternPool.OptionalNamespaceIndex = if (true or decls_len > 0) (try pt.createNamespace(.{
+    const new_namespace_index: InternPool.NamespaceIndex = try pt.createNamespace(.{
         .parent = block.namespace.toOptional(),
         .owner_type = wip_ty.index,
         .file_scope = block.getFileScopeIndex(mod),
-    })).toOptional() else .none;
-    errdefer if (new_namespace_index.unwrap()) |ns| pt.destroyNamespace(ns);
+    });
+    errdefer pt.destroyNamespace(new_namespace_index);
 
-    const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, new_namespace_index.unwrap() orelse block.namespace, wip_ty.index);
+    const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, new_namespace_index, wip_ty.index);
 
     if (pt.zcu.comp.incremental) {
         try mod.intern_pool.addDependency(
@@ -3329,10 +3319,8 @@ fn zirUnionDecl(
         );
     }
 
-    if (new_namespace_index.unwrap()) |ns| {
-        const decls = sema.code.bodySlice(extra_index, decls_len);
-        try pt.scanNamespace(ns, decls);
-    }
+    const decls = sema.code.bodySlice(extra_index, decls_len);
+    try pt.scanNamespace(new_namespace_index, decls);
 
     try mod.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
     try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .cau = new_cau_index }));
@@ -3377,7 +3365,6 @@ fn zirOpaqueDecl(
     extra_index += captures_len;
 
     const opaque_init: InternPool.OpaqueTypeInit = .{
-        .has_namespace = decls_len != 0,
         .key = .{ .declared = .{
             .zir_index = tracked_inst,
             .captures = captures,
@@ -3399,17 +3386,15 @@ fn zirOpaqueDecl(
         wip_ty.index,
     ));
 
-    const new_namespace_index: InternPool.OptionalNamespaceIndex = if (decls_len > 0) (try pt.createNamespace(.{
+    const new_namespace_index: InternPool.NamespaceIndex = try pt.createNamespace(.{
         .parent = block.namespace.toOptional(),
         .owner_type = wip_ty.index,
         .file_scope = block.getFileScopeIndex(mod),
-    })).toOptional() else .none;
-    errdefer if (new_namespace_index.unwrap()) |ns| pt.destroyNamespace(ns);
+    });
+    errdefer pt.destroyNamespace(new_namespace_index);
 
-    if (new_namespace_index.unwrap()) |ns| {
-        const decls = sema.code.bodySlice(extra_index, decls_len);
-        try pt.scanNamespace(ns, decls);
-    }
+    const decls = sema.code.bodySlice(extra_index, decls_len);
+    try pt.scanNamespace(new_namespace_index, decls);
 
     return Air.internedToRef(wip_ty.finish(ip, .none, new_namespace_index));
 }
@@ -6749,7 +6734,7 @@ fn lookupIdentifier(sema: *Sema, block: *Block, src: LazySrcLoc, name: InternPoo
     const mod = pt.zcu;
     var namespace = block.namespace;
     while (true) {
-        if (try sema.lookupInNamespace(block, src, namespace.toOptional(), name, false)) |lookup| {
+        if (try sema.lookupInNamespace(block, src, namespace, name, false)) |lookup| {
             assert(lookup.accessible);
             return lookup.nav;
         }
@@ -6764,7 +6749,7 @@ fn lookupInNamespace(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    opt_namespace_index: InternPool.OptionalNamespaceIndex,
+    namespace_index: InternPool.NamespaceIndex,
     ident_name: InternPool.NullTerminatedString,
     observe_usingnamespace: bool,
 ) CompileError!?struct {
@@ -6777,7 +6762,6 @@ fn lookupInNamespace(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 
-    const namespace_index = opt_namespace_index.unwrap() orelse return null;
     const namespace = zcu.namespacePtr(namespace_index);
 
     const adapter: Zcu.Namespace.NameAdapter = .{ .zcu = zcu };
@@ -6816,7 +6800,7 @@ fn lookupInNamespace(
                 for (usingnamespaces.items) |sub_ns_nav| {
                     try sema.ensureNavResolved(src, sub_ns_nav);
                     const sub_ns_ty = Type.fromInterned(ip.getNav(sub_ns_nav).status.resolved.val);
-                    const sub_ns = zcu.namespacePtrUnwrap(sub_ns_ty.getNamespaceIndex(zcu)) orelse continue;
+                    const sub_ns = zcu.namespacePtr(sub_ns_ty.getNamespaceIndex(zcu));
                     try checked_namespaces.put(gpa, sub_ns, {});
                 }
             }
@@ -13952,7 +13936,7 @@ fn zirHasDecl(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         } });
     }
 
-    const namespace = container_type.getNamespaceIndex(mod);
+    const namespace = container_type.getNamespace(mod).unwrap() orelse return .bool_false;
     if (try sema.lookupInNamespace(block, src, namespace, decl_name, true)) |lookup| {
         if (lookup.accessible) {
             return .bool_true;
@@ -18436,7 +18420,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 } });
             };
 
-            const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, ip.loadEnumType(ty.toIntern()).namespace);
+            const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, ip.loadEnumType(ty.toIntern()).namespace.toOptional());
 
             const type_enum_ty = t: {
                 const nav = try sema.namespaceLookup(
@@ -18577,7 +18561,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 } });
             };
 
-            const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, ty.getNamespaceIndex(mod));
+            const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, ty.getNamespaceIndex(mod).toOptional());
 
             const enum_tag_ty_val = try pt.intern(.{ .opt = .{
                 .ty = (try pt.optionalType(.type_type)).toIntern(),
@@ -18804,7 +18788,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 } });
             };
 
-            const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, ty.getNamespaceIndex(mod));
+            const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, ty.getNamespace(mod));
 
             const backing_integer_val = try pt.intern(.{ .opt = .{
                 .ty = (try pt.optionalType(.type_type)).toIntern(),
@@ -18861,7 +18845,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             };
 
             try ty.resolveFields(pt);
-            const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, ty.getNamespaceIndex(mod));
+            const decls_val = try sema.typeInfoDecls(block, src, type_info_ty, ty.getNamespace(mod));
 
             const field_values = .{
                 // decls: []const Declaration,
@@ -19009,7 +18993,7 @@ fn typeInfoNamespaceDecls(
         }
         try sema.ensureNavResolved(src, nav);
         const namespace_ty = Type.fromInterned(ip.getNav(nav).status.resolved.val);
-        try sema.typeInfoNamespaceDecls(block, src, namespace_ty.getNamespaceIndex(zcu), declaration_ty, decl_vals, seen_namespaces);
+        try sema.typeInfoNamespaceDecls(block, src, namespace_ty.getNamespaceIndex(zcu).toOptional(), declaration_ty, decl_vals, seen_namespaces);
     }
 }
 
@@ -21798,7 +21782,6 @@ fn zirReify(
             }
 
             const wip_ty = switch (try ip.getOpaqueType(gpa, pt.tid, .{
-                .has_namespace = false,
                 .key = .{ .reified = .{
                     .zir_index = try block.trackZir(inst),
                 } },
@@ -21816,7 +21799,13 @@ fn zirReify(
                 wip_ty.index,
             ));
 
-            return Air.internedToRef(wip_ty.finish(ip, .none, .none));
+            const new_namespace_index = try pt.createNamespace(.{
+                .parent = block.namespace.toOptional(),
+                .owner_type = wip_ty.index,
+                .file_scope = block.getFileScopeIndex(mod),
+            });
+
+            return Air.internedToRef(wip_ty.finish(ip, .none, new_namespace_index));
         },
         .Union => {
             const struct_type = ip.loadStructType(ip.typeOf(union_val.val));
@@ -21988,7 +21977,6 @@ fn reifyEnum(
     const tracked_inst = try block.trackZir(inst);
 
     const wip_ty = switch (try ip.getEnumType(gpa, pt.tid, .{
-        .has_namespace = false,
         .has_values = true,
         .tag_mode = if (is_exhaustive) .explicit else .nonexhaustive,
         .fields_len = fields_len,
@@ -22014,9 +22002,15 @@ fn reifyEnum(
         wip_ty.index,
     ));
 
-    const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, block.namespace, wip_ty.index);
+    const new_namespace_index = try pt.createNamespace(.{
+        .parent = block.namespace.toOptional(),
+        .owner_type = wip_ty.index,
+        .file_scope = block.getFileScopeIndex(mod),
+    });
 
-    wip_ty.prepare(ip, new_cau_index, .none);
+    const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, new_namespace_index, wip_ty.index);
+
+    wip_ty.prepare(ip, new_cau_index, new_namespace_index);
     wip_ty.setTagTy(ip, tag_ty.toIntern());
 
     for (0..fields_len) |field_idx| {
@@ -22139,7 +22133,6 @@ fn reifyUnion(
             .assumed_pointer_aligned = false,
             .alignment = .none,
         },
-        .has_namespace = false,
         .fields_len = fields_len,
         .enum_tag_ty = .none, // set later because not yet validated
         .field_types = &.{}, // set later
@@ -22254,7 +22247,7 @@ fn reifyUnion(
             }
         }
 
-        const enum_tag_ty = try sema.generateUnionTagTypeSimple(field_names.keys(), wip_ty.index, type_name);
+        const enum_tag_ty = try sema.generateUnionTagTypeSimple(block, field_names.keys(), wip_ty.index, type_name);
         break :tag_ty .{ enum_tag_ty, false };
     };
     errdefer if (!has_explicit_tag) ip.remove(pt.tid, enum_tag_ty); // remove generated tag type on error
@@ -22301,11 +22294,17 @@ fn reifyUnion(
     loaded_union.setTagType(ip, enum_tag_ty);
     loaded_union.setStatus(ip, .have_field_types);
 
-    const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, block.namespace, wip_ty.index);
+    const new_namespace_index = try pt.createNamespace(.{
+        .parent = block.namespace.toOptional(),
+        .owner_type = wip_ty.index,
+        .file_scope = block.getFileScopeIndex(mod),
+    });
+
+    const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, new_namespace_index, wip_ty.index);
 
     try mod.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
     try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .cau = new_cau_index }));
-    return Air.internedToRef(wip_ty.finish(ip, new_cau_index.toOptional(), .none));
+    return Air.internedToRef(wip_ty.finish(ip, new_cau_index.toOptional(), new_namespace_index));
 }
 
 fn reifyStruct(
@@ -22398,7 +22397,6 @@ fn reifyStruct(
         .any_default_inits = any_default_inits,
         .any_aligned_fields = any_aligned_fields,
         .inits_resolved = true,
-        .has_namespace = false,
         .key = .{ .reified = .{
             .zir_index = tracked_inst,
             .type_hash = hasher.final(),
@@ -22569,11 +22567,17 @@ fn reifyStruct(
         }
     }
 
-    const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, block.namespace, wip_ty.index);
+    const new_namespace_index = try pt.createNamespace(.{
+        .parent = block.namespace.toOptional(),
+        .owner_type = wip_ty.index,
+        .file_scope = block.getFileScopeIndex(mod),
+    });
+
+    const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, new_namespace_index, wip_ty.index);
 
     try mod.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
     try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .cau = new_cau_index }));
-    return Air.internedToRef(wip_ty.finish(ip, new_cau_index.toOptional(), .none));
+    return Air.internedToRef(wip_ty.finish(ip, new_cau_index.toOptional(), new_namespace_index));
 }
 
 fn resolveVaListRef(sema: *Sema, block: *Block, src: LazySrcLoc, zir_ref: Zir.Inst.Ref) CompileError!Air.Inst.Ref {
@@ -28022,7 +28026,7 @@ fn fieldCallBind(
 
     // If we get here, we need to look for a decl in the struct type instead.
     const found_nav = found_nav: {
-        const namespace = concrete_ty.getNamespace(zcu) orelse
+        const namespace = concrete_ty.getNamespace(zcu).unwrap() orelse
             break :found_nav null;
         const nav_index = try sema.namespaceLookup(block, src, namespace, field_name) orelse
             break :found_nav null;
@@ -28154,13 +28158,13 @@ fn namespaceLookup(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    opt_namespace: InternPool.OptionalNamespaceIndex,
+    namespace: InternPool.NamespaceIndex,
     decl_name: InternPool.NullTerminatedString,
 ) CompileError!?InternPool.Nav.Index {
     const pt = sema.pt;
     const zcu = pt.zcu;
     const gpa = sema.gpa;
-    if (try sema.lookupInNamespace(block, src, opt_namespace, decl_name, true)) |lookup| {
+    if (try sema.lookupInNamespace(block, src, namespace, decl_name, true)) |lookup| {
         if (!lookup.accessible) {
             return sema.failWithOwnedErrorMsg(block, msg: {
                 const msg = try sema.errMsg(src, "'{}' is not marked 'pub'", .{
@@ -28180,10 +28184,10 @@ fn namespaceLookupRef(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    opt_namespace: InternPool.OptionalNamespaceIndex,
+    namespace: InternPool.NamespaceIndex,
     decl_name: InternPool.NullTerminatedString,
 ) CompileError!?Air.Inst.Ref {
-    const nav = try sema.namespaceLookup(block, src, opt_namespace, decl_name) orelse return null;
+    const nav = try sema.namespaceLookup(block, src, namespace, decl_name) orelse return null;
     return try sema.analyzeNavRef(src, nav);
 }
 
@@ -28191,10 +28195,10 @@ fn namespaceLookupVal(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
-    opt_namespace: InternPool.OptionalNamespaceIndex,
+    namespace: InternPool.NamespaceIndex,
     decl_name: InternPool.NullTerminatedString,
 ) CompileError!?Air.Inst.Ref {
-    const nav = try sema.namespaceLookup(block, src, opt_namespace, decl_name) orelse return null;
+    const nav = try sema.namespaceLookup(block, src, namespace, decl_name) orelse return null;
     return try sema.analyzeNavVal(block, src, nav);
 }
 
@@ -36422,7 +36426,7 @@ fn semaUnionFields(pt: Zcu.PerThread, arena: Allocator, union_ty: InternPool.Ind
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
     const cau_index = union_type.cau;
-    const zir = zcu.namespacePtr(union_type.namespace.unwrap().?).fileScope(zcu).zir;
+    const zir = zcu.namespacePtr(union_type.namespace).fileScope(zcu).zir;
     const zir_index = union_type.zir_index.resolve(ip);
     const extended = zir.instructions.items(.data)[@intFromEnum(zir_index)].extended;
     assert(extended.opcode == .union_decl);
@@ -36486,7 +36490,7 @@ fn semaUnionFields(pt: Zcu.PerThread, arena: Allocator, union_ty: InternPool.Ind
     var block_scope: Block = .{
         .parent = null,
         .sema = &sema,
-        .namespace = union_type.namespace.unwrap().?,
+        .namespace = union_type.namespace,
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
@@ -36778,10 +36782,10 @@ fn semaUnionFields(pt: Zcu.PerThread, arena: Allocator, union_ty: InternPool.Ind
             return sema.failWithOwnedErrorMsg(&block_scope, msg);
         }
     } else if (enum_field_vals.count() > 0) {
-        const enum_ty = try sema.generateUnionTagTypeNumbered(enum_field_names, enum_field_vals.keys(), union_ty, union_type.name);
+        const enum_ty = try sema.generateUnionTagTypeNumbered(&block_scope, enum_field_names, enum_field_vals.keys(), union_ty, union_type.name);
         union_type.setTagType(ip, enum_ty);
     } else {
-        const enum_ty = try sema.generateUnionTagTypeSimple(enum_field_names, union_ty, union_type.name);
+        const enum_ty = try sema.generateUnionTagTypeSimple(&block_scope, enum_field_names, union_ty, union_type.name);
         union_type.setTagType(ip, enum_ty);
     }
 
@@ -36797,6 +36801,7 @@ fn semaUnionFieldVal(sema: *Sema, block: *Block, src: LazySrcLoc, int_tag_ty: Ty
 
 fn generateUnionTagTypeNumbered(
     sema: *Sema,
+    block: *Block,
     enum_field_names: []const InternPool.NullTerminatedString,
     enum_field_vals: []const InternPool.Index,
     union_type: InternPool.Index,
@@ -36825,6 +36830,7 @@ fn generateUnionTagTypeNumbered(
         .names = enum_field_names,
         .values = enum_field_vals,
         .tag_mode = .explicit,
+        .parent_namespace = block.namespace,
     });
 
     return enum_ty;
@@ -36832,6 +36838,7 @@ fn generateUnionTagTypeNumbered(
 
 fn generateUnionTagTypeSimple(
     sema: *Sema,
+    block: *Block,
     enum_field_names: []const InternPool.NullTerminatedString,
     union_type: InternPool.Index,
     union_name: InternPool.NullTerminatedString,
@@ -36859,6 +36866,7 @@ fn generateUnionTagTypeSimple(
         .names = enum_field_names,
         .values = &.{},
         .tag_mode = .auto,
+        .parent_namespace = block.namespace,
     });
 
     return enum_ty;

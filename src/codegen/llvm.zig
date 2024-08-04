@@ -1958,7 +1958,7 @@ pub const Object = struct {
                 }
 
                 const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFull(ip).file);
-                const scope = if (ty.getParentNamespace(zcu).?.unwrap()) |parent_namespace|
+                const scope = if (ty.getParentNamespace(zcu).unwrap()) |parent_namespace|
                     try o.namespaceToDebugScope(parent_namespace)
                 else
                     file;
@@ -2136,7 +2136,7 @@ pub const Object = struct {
                 defer gpa.free(name);
 
                 const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFull(ip).file);
-                const scope = if (ty.getParentNamespace(zcu).?.unwrap()) |parent_namespace|
+                const scope = if (ty.getParentNamespace(zcu).unwrap()) |parent_namespace|
                     try o.namespaceToDebugScope(parent_namespace)
                 else
                     file;
@@ -2771,7 +2771,7 @@ pub const Object = struct {
         const zcu = o.pt.zcu;
         const ip = &zcu.intern_pool;
         const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFull(ip).file);
-        const scope = if (ty.getParentNamespace(zcu).?.unwrap()) |parent_namespace|
+        const scope = if (ty.getParentNamespace(zcu).unwrap()) |parent_namespace|
             try o.namespaceToDebugScope(parent_namespace)
         else
             file;
@@ -2797,13 +2797,13 @@ pub const Object = struct {
 
         const builtin_str = try ip.getOrPutString(zcu.gpa, pt.tid, "builtin", .no_embedded_nulls);
         const std_file_root_type = Type.fromInterned(zcu.fileRootType(std_file_imported.file_index));
-        const std_namespace = ip.namespacePtr(std_file_root_type.getNamespaceIndex(zcu).unwrap().?);
+        const std_namespace = ip.namespacePtr(std_file_root_type.getNamespaceIndex(zcu));
         const builtin_nav = std_namespace.pub_decls.getKeyAdapted(builtin_str, Zcu.Namespace.NameAdapter{ .zcu = zcu }).?;
 
         const stack_trace_str = try ip.getOrPutString(zcu.gpa, pt.tid, "StackTrace", .no_embedded_nulls);
         // buffer is only used for int_type, `builtin` is a struct.
         const builtin_ty = zcu.navValue(builtin_nav).toType();
-        const builtin_namespace = zcu.namespacePtrUnwrap(builtin_ty.getNamespaceIndex(zcu)).?;
+        const builtin_namespace = zcu.namespacePtr(builtin_ty.getNamespaceIndex(zcu));
         const stack_trace_nav = builtin_namespace.pub_decls.getKeyAdapted(stack_trace_str, Zcu.Namespace.NameAdapter{ .zcu = zcu }).?;
 
         // Sema should have ensured that StackTrace was analyzed.

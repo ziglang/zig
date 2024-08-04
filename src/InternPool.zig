@@ -2885,7 +2885,7 @@ pub const LoadedUnionType = struct {
     /// The `Cau` within which type resolution occurs.
     cau: Cau.Index,
     /// Represents the declarations inside this union.
-    namespace: OptionalNamespaceIndex,
+    namespace: NamespaceIndex,
     /// The enum tag type.
     enum_tag_ty: Index,
     /// List of field types in declaration order.
@@ -3219,7 +3219,7 @@ pub const LoadedStructType = struct {
     name: NullTerminatedString,
     /// The `Cau` within which type resolution occurs. `none` when the struct is `@TypeOf(.{})`.
     cau: Cau.Index.Optional,
-    /// `none` when the struct has no declarations.
+    /// `none` when the struct is `@TypeOf(.{})`.
     namespace: OptionalNamespaceIndex,
     /// Index of the `struct_decl` or `reify` ZIR instruction.
     /// Only `none` when the struct is `@TypeOf(.{})`.
@@ -3834,6 +3834,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
             };
             const name: NullTerminatedString = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "name").?]);
             const cau: Cau.Index = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "cau").?]);
+            const namespace: NamespaceIndex = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "namespace").?]);
             const zir_index: TrackedInst.Index = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "zir_index").?]);
             const fields_len = extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "fields_len").?];
             const flags: Tag.TypeStruct.Flags = @bitCast(@atomicLoad(u32, &extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "flags").?], .unordered));
@@ -3878,11 +3879,6 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 extra_index += fields_len;
                 break :i inits;
             } else Index.Slice.empty;
-            const namespace: OptionalNamespaceIndex = if (flags.has_namespace) n: {
-                const n: NamespaceIndex = @enumFromInt(extra_list.view().items(.@"0")[extra_index]);
-                extra_index += 1;
-                break :n n.toOptional();
-            } else .none;
             const aligns: Alignment.Slice = if (flags.any_aligned_fields) a: {
                 const a: Alignment.Slice = .{
                     .tid = unwrapped_index.tid,
@@ -3925,7 +3921,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .extra_index = item.data,
                 .name = name,
                 .cau = cau.toOptional(),
-                .namespace = namespace,
+                .namespace = namespace.toOptional(),
                 .zir_index = zir_index.toOptional(),
                 .layout = if (flags.is_extern) .@"extern" else .auto,
                 .field_names = names,
@@ -3944,7 +3940,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
             const cau: Cau.Index = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "cau").?]);
             const zir_index: TrackedInst.Index = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "zir_index").?]);
             const fields_len = extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "fields_len").?];
-            const namespace: OptionalNamespaceIndex = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "namespace").?]);
+            const namespace: NamespaceIndex = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "namespace").?]);
             const names_map: MapIndex = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "names_map").?]);
             const flags: Tag.TypeStructPacked.Flags = @bitCast(@atomicLoad(u32, &extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "flags").?], .unordered));
             var extra_index = item.data + @as(u32, @typeInfo(Tag.TypeStructPacked).Struct.fields.len);
@@ -3989,7 +3985,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .extra_index = item.data,
                 .name = name,
                 .cau = cau.toOptional(),
-                .namespace = namespace,
+                .namespace = namespace.toOptional(),
                 .zir_index = zir_index.toOptional(),
                 .layout = .@"packed",
                 .field_names = field_names,
@@ -4015,7 +4011,7 @@ const LoadedEnumType = struct {
     /// `null` if this is a generated tag type.
     cau: Cau.Index.Optional,
     /// Represents the declarations inside this enum.
-    namespace: OptionalNamespaceIndex,
+    namespace: NamespaceIndex,
     /// An integer type which is used for the numerical value of the enum.
     /// This field is present regardless of whether the enum has an
     /// explicitly provided tag type or auto-numbered.
@@ -4172,7 +4168,7 @@ pub fn loadEnumType(ip: *const InternPool, index: Index) LoadedEnumType {
 /// Note that this type doubles as the payload for `Tag.type_opaque`.
 pub const LoadedOpaqueType = struct {
     /// Contains the declarations inside this opaque.
-    namespace: OptionalNamespaceIndex,
+    namespace: NamespaceIndex,
     // TODO: the non-fqn will be needed by the new dwarf structure
     /// The name of this opaque type.
     name: NullTerminatedString,
@@ -5324,7 +5320,7 @@ pub const Tag = enum(u8) {
         /// Only valid after .have_layout
         padding: u32,
         cau: Cau.Index,
-        namespace: OptionalNamespaceIndex,
+        namespace: NamespaceIndex,
         /// The enum that provides the list of field names and values.
         tag_ty: Index,
         zir_index: TrackedInst.Index,
@@ -5357,7 +5353,7 @@ pub const Tag = enum(u8) {
         cau: Cau.Index,
         zir_index: TrackedInst.Index,
         fields_len: u32,
-        namespace: OptionalNamespaceIndex,
+        namespace: NamespaceIndex,
         backing_int_ty: Index,
         names_map: MapIndex,
         flags: Flags,
@@ -5396,19 +5392,18 @@ pub const Tag = enum(u8) {
     ///    name: NullTerminatedString // for each field in declared order
     /// 5. if any_default_inits:
     ///    init: Index // for each field in declared order
-    /// 6. if has_namespace:
-    ///    namespace: NamespaceIndex
-    /// 7. if any_aligned_fields:
+    /// 6. if any_aligned_fields:
     ///    align: Alignment // for each field in declared order
-    /// 8. if any_comptime_fields:
+    /// 7. if any_comptime_fields:
     ///    field_is_comptime_bits: u32 // minimal number of u32s needed, LSB is field 0
-    /// 9. if not is_extern:
+    /// 8. if not is_extern:
     ///    field_index: RuntimeOrder // for each field in runtime order
-    /// 10. field_offset: u32 // for each field in declared order, undef until layout_resolved
+    /// 9. field_offset: u32 // for each field in declared order, undef until layout_resolved
     pub const TypeStruct = struct {
         name: NullTerminatedString,
         cau: Cau.Index,
         zir_index: TrackedInst.Index,
+        namespace: NamespaceIndex,
         fields_len: u32,
         flags: Flags,
         size: u32,
@@ -5421,7 +5416,6 @@ pub const Tag = enum(u8) {
             is_tuple: bool = false,
             assumed_runtime_bits: bool = false,
             assumed_pointer_aligned: bool = false,
-            has_namespace: bool = false,
             any_comptime_fields: bool = false,
             any_default_inits: bool = false,
             any_aligned_fields: bool = false,
@@ -5444,7 +5438,7 @@ pub const Tag = enum(u8) {
             // which `layout_resolved` does not ensure.
             fully_resolved: bool = false,
             is_reified: bool = false,
-            _: u6 = 0,
+            _: u7 = 0,
         };
     };
 
@@ -5453,7 +5447,7 @@ pub const Tag = enum(u8) {
     pub const TypeOpaque = struct {
         name: NullTerminatedString,
         /// Contains the declarations inside this opaque.
-        namespace: OptionalNamespaceIndex,
+        namespace: NamespaceIndex,
         /// The index of the `opaque_decl` instruction.
         zir_index: TrackedInst.Index,
         /// `std.math.maxInt(u32)` indicates this type is reified.
@@ -5762,8 +5756,7 @@ pub const EnumExplicit = struct {
     name: NullTerminatedString,
     /// `std.math.maxInt(u32)` indicates this type is reified.
     captures_len: u32,
-    /// This may be `none` if there are no declarations.
-    namespace: OptionalNamespaceIndex,
+    namespace: NamespaceIndex,
     /// An integer type which is used for the numerical value of the enum, which
     /// has been explicitly provided by the enum declaration.
     int_tag_type: Index,
@@ -5789,8 +5782,7 @@ pub const EnumAuto = struct {
     name: NullTerminatedString,
     /// `std.math.maxInt(u32)` indicates this type is reified.
     captures_len: u32,
-    /// This may be `none` if there are no declarations.
-    namespace: OptionalNamespaceIndex,
+    namespace: NamespaceIndex,
     /// An integer type which is used for the numerical value of the enum, which
     /// was inferred by Zig based on the number of tags.
     int_tag_type: Index,
@@ -7854,7 +7846,6 @@ pub const UnionTypeInit = struct {
         assumed_pointer_aligned: bool,
         alignment: Alignment,
     },
-    has_namespace: bool,
     fields_len: u32,
     enum_tag_ty: Index,
     /// May have length 0 which leaves the values unset until later.
@@ -7930,7 +7921,7 @@ pub fn getUnionType(
         .padding = std.math.maxInt(u32),
         .name = undefined, // set by `finish`
         .cau = undefined, // set by `finish`
-        .namespace = .none, // set by `finish`
+        .namespace = undefined, // set by `finish`
         .tag_ty = ini.enum_tag_ty,
         .zir_index = switch (ini.key) {
             inline else => |x| x.zir_index,
@@ -7978,10 +7969,7 @@ pub fn getUnionType(
         .index = gop.put(),
         .type_name_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeUnion, "name").?,
         .cau_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeUnion, "cau").?,
-        .namespace_extra_index = if (ini.has_namespace)
-            extra_index + std.meta.fieldIndex(Tag.TypeUnion, "namespace").?
-        else
-            null,
+        .namespace_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeUnion, "namespace").?,
     } };
 }
 
@@ -7990,7 +7978,7 @@ pub const WipNamespaceType = struct {
     index: Index,
     type_name_extra_index: u32,
     cau_extra_index: ?u32,
-    namespace_extra_index: ?u32,
+    namespace_extra_index: u32,
 
     pub fn setName(
         wip: WipNamespaceType,
@@ -8006,7 +7994,7 @@ pub const WipNamespaceType = struct {
         wip: WipNamespaceType,
         ip: *InternPool,
         analysis_owner: Cau.Index.Optional,
-        namespace: OptionalNamespaceIndex,
+        namespace: NamespaceIndex,
     ) Index {
         const extra = ip.getLocalShared(wip.tid).extra.acquire();
         const extra_items = extra.view().items(.@"0");
@@ -8017,11 +8005,7 @@ pub const WipNamespaceType = struct {
             assert(analysis_owner == .none);
         }
 
-        if (wip.namespace_extra_index) |i| {
-            extra_items[i] = @intFromEnum(namespace.unwrap().?);
-        } else {
-            assert(namespace == .none);
-        }
+        extra_items[wip.namespace_extra_index] = @intFromEnum(namespace);
 
         return wip.index;
     }
@@ -8046,7 +8030,6 @@ pub const StructTypeInit = struct {
     any_default_inits: bool,
     inits_resolved: bool,
     any_aligned_fields: bool,
-    has_namespace: bool,
     key: union(enum) {
         declared: struct {
             zir_index: TrackedInst.Index,
@@ -8109,7 +8092,7 @@ pub fn getStructType(
                 .cau = undefined, // set by `finish`
                 .zir_index = zir_index,
                 .fields_len = ini.fields_len,
-                .namespace = .none,
+                .namespace = undefined, // set by `finish`
                 .backing_int_ty = .none,
                 .names_map = names_map,
                 .flags = .{
@@ -8142,10 +8125,7 @@ pub fn getStructType(
                 .index = gop.put(),
                 .type_name_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStructPacked, "name").?,
                 .cau_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStructPacked, "cau").?,
-                .namespace_extra_index = if (ini.has_namespace)
-                    extra_index + std.meta.fieldIndex(Tag.TypeStructPacked, "namespace").?
-                else
-                    null,
+                .namespace_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStructPacked, "namespace").?,
             } };
         },
     };
@@ -8164,11 +8144,12 @@ pub fn getStructType(
         // zig fmt: on
         (ini.fields_len * 5) + // types, names, inits, runtime order, offsets
         align_elements_len + comptime_elements_len +
-        2); // names_map + namespace
+        1); // names_map
     const extra_index = addExtraAssumeCapacity(extra, Tag.TypeStruct{
         .name = undefined, // set by `finish`
         .cau = undefined, // set by `finish`
         .zir_index = zir_index,
+        .namespace = undefined, // set by `finish`
         .fields_len = ini.fields_len,
         .size = std.math.maxInt(u32),
         .flags = .{
@@ -8179,7 +8160,6 @@ pub fn getStructType(
             .is_tuple = ini.is_tuple,
             .assumed_runtime_bits = false,
             .assumed_pointer_aligned = false,
-            .has_namespace = ini.has_namespace,
             .any_comptime_fields = ini.any_comptime_fields,
             .any_default_inits = ini.any_default_inits,
             .any_aligned_fields = ini.any_aligned_fields,
@@ -8215,10 +8195,6 @@ pub fn getStructType(
     if (ini.any_default_inits) {
         extra.appendNTimesAssumeCapacity(.{@intFromEnum(Index.none)}, ini.fields_len);
     }
-    const namespace_extra_index: ?u32 = if (ini.has_namespace) i: {
-        extra.appendAssumeCapacity(undefined); // set by `finish`
-        break :i @intCast(extra.mutate.len - 1);
-    } else null;
     if (ini.any_aligned_fields) {
         extra.appendNTimesAssumeCapacity(.{align_element}, align_elements_len);
     }
@@ -8234,7 +8210,7 @@ pub fn getStructType(
         .index = gop.put(),
         .type_name_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStruct, "name").?,
         .cau_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStruct, "cau").?,
-        .namespace_extra_index = namespace_extra_index,
+        .namespace_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStruct, "namespace").?,
     } };
 }
 
@@ -9002,7 +8978,6 @@ fn finishFuncInstance(
 }
 
 pub const EnumTypeInit = struct {
-    has_namespace: bool,
     has_values: bool,
     tag_mode: LoadedEnumType.TagMode,
     fields_len: u32,
@@ -9024,7 +8999,7 @@ pub const WipEnumType = struct {
     tag_ty_index: u32,
     type_name_extra_index: u32,
     cau_extra_index: u32,
-    namespace_extra_index: ?u32,
+    namespace_extra_index: u32,
     names_map: MapIndex,
     names_start: u32,
     values_map: OptionalMapIndex,
@@ -9044,18 +9019,13 @@ pub const WipEnumType = struct {
         wip: WipEnumType,
         ip: *InternPool,
         analysis_owner: Cau.Index,
-        namespace: OptionalNamespaceIndex,
+        namespace: NamespaceIndex,
     ) void {
         const extra = ip.getLocalShared(wip.tid).extra.acquire();
         const extra_items = extra.view().items(.@"0");
 
         extra_items[wip.cau_extra_index] = @intFromEnum(analysis_owner);
-
-        if (wip.namespace_extra_index) |i| {
-            extra_items[i] = @intFromEnum(namespace.unwrap().?);
-        } else {
-            assert(namespace == .none);
-        }
+        extra_items[wip.namespace_extra_index] = @intFromEnum(namespace);
     }
 
     pub fn setTagTy(wip: WipEnumType, ip: *InternPool, tag_ty: Index) void {
@@ -9153,7 +9123,7 @@ pub fn getEnumType(
                     .declared => |d| @intCast(d.captures.len),
                     .reified => std.math.maxInt(u32),
                 },
-                .namespace = .none,
+                .namespace = undefined, // set by `prepare`
                 .int_tag_type = .none, // set by `prepare`
                 .fields_len = ini.fields_len,
                 .names_map = names_map,
@@ -9179,7 +9149,7 @@ pub fn getEnumType(
                 .tag_ty_index = extra_index + std.meta.fieldIndex(EnumAuto, "int_tag_type").?,
                 .type_name_extra_index = extra_index + std.meta.fieldIndex(EnumAuto, "name").?,
                 .cau_extra_index = @intCast(cau_extra_index),
-                .namespace_extra_index = if (ini.has_namespace) extra_index + std.meta.fieldIndex(EnumAuto, "namespace").? else null,
+                .namespace_extra_index = extra_index + std.meta.fieldIndex(EnumAuto, "namespace").?,
                 .names_map = names_map,
                 .names_start = @intCast(names_start),
                 .values_map = .none,
@@ -9213,7 +9183,7 @@ pub fn getEnumType(
                     .declared => |d| @intCast(d.captures.len),
                     .reified => std.math.maxInt(u32),
                 },
-                .namespace = .none,
+                .namespace = undefined, // set by `prepare`
                 .int_tag_type = .none, // set by `prepare`
                 .fields_len = ini.fields_len,
                 .names_map = names_map,
@@ -9248,7 +9218,7 @@ pub fn getEnumType(
                 .tag_ty_index = extra_index + std.meta.fieldIndex(EnumExplicit, "int_tag_type").?,
                 .type_name_extra_index = extra_index + std.meta.fieldIndex(EnumExplicit, "name").?,
                 .cau_extra_index = @intCast(cau_extra_index),
-                .namespace_extra_index = if (ini.has_namespace) extra_index + std.meta.fieldIndex(EnumExplicit, "namespace").? else null,
+                .namespace_extra_index = extra_index + std.meta.fieldIndex(EnumExplicit, "namespace").?,
                 .names_map = names_map,
                 .names_start = @intCast(names_start),
                 .values_map = values_map,
@@ -9265,6 +9235,7 @@ const GeneratedTagEnumTypeInit = struct {
     names: []const NullTerminatedString,
     values: []const Index,
     tag_mode: LoadedEnumType.TagMode,
+    parent_namespace: NamespaceIndex,
 };
 
 /// Creates an enum type which was automatically-generated as the tag type of a
@@ -9291,6 +9262,18 @@ pub fn getGeneratedTagEnumType(
 
     const fields_len: u32 = @intCast(ini.names.len);
 
+    // Predict the index the enum will live at so we can construct the namespace before releasing the shard's mutex.
+    const enum_index = Index.Unwrapped.wrap(.{
+        .tid = tid,
+        .index = items.mutate.len,
+    }, ip);
+    const namespace = try ip.createNamespace(gpa, tid, .{
+        .parent = ini.parent_namespace.toOptional(),
+        .owner_type = enum_index,
+        .file_scope = ip.namespacePtr(ini.parent_namespace).file_scope,
+    });
+    errdefer ip.destroyNamespace(tid, namespace);
+
     const prev_extra_len = extra.mutate.len;
     switch (ini.tag_mode) {
         .auto => {
@@ -9302,7 +9285,7 @@ pub fn getGeneratedTagEnumType(
                 .data = addExtraAssumeCapacity(extra, EnumAuto{
                     .name = ini.name,
                     .captures_len = 0,
-                    .namespace = .none,
+                    .namespace = namespace,
                     .int_tag_type = ini.tag_ty,
                     .fields_len = fields_len,
                     .names_map = names_map,
@@ -9335,7 +9318,7 @@ pub fn getGeneratedTagEnumType(
                 .data = addExtraAssumeCapacity(extra, EnumExplicit{
                     .name = ini.name,
                     .captures_len = 0,
-                    .namespace = .none,
+                    .namespace = namespace,
                     .int_tag_type = ini.tag_ty,
                     .fields_len = fields_len,
                     .names_map = names_map,
@@ -9360,11 +9343,11 @@ pub fn getGeneratedTagEnumType(
         .generated_tag = .{ .union_type = ini.owner_union_ty },
     } });
     defer gop.deinit();
-    return gop.put();
+    assert(gop.put() == enum_index);
+    return enum_index;
 }
 
 pub const OpaqueTypeInit = struct {
-    has_namespace: bool,
     key: union(enum) {
         declared: struct {
             zir_index: TrackedInst.Index,
@@ -9407,7 +9390,7 @@ pub fn getOpaqueType(
     });
     const extra_index = addExtraAssumeCapacity(extra, Tag.TypeOpaque{
         .name = undefined, // set by `finish`
-        .namespace = .none,
+        .namespace = undefined, // set by `finish`
         .zir_index = switch (ini.key) {
             inline else => |x| x.zir_index,
         },
@@ -9430,10 +9413,7 @@ pub fn getOpaqueType(
             .index = gop.put(),
             .type_name_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeOpaque, "name").?,
             .cau_extra_index = null, // opaques do not undergo type resolution
-            .namespace_extra_index = if (ini.has_namespace)
-                extra_index + std.meta.fieldIndex(Tag.TypeOpaque, "namespace").?
-            else
-                null,
+            .namespace_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeOpaque, "namespace").?,
         },
     };
 }
@@ -10332,7 +10312,6 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
                     }
                     if (info.flags.any_default_inits)
                         ints += info.fields_len; // inits
-                    ints += @intFromBool(info.flags.has_namespace); // namespace
                     if (info.flags.any_aligned_fields)
                         ints += (info.fields_len + 3) / 4; // aligns
                     if (info.flags.any_comptime_fields)
