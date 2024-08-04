@@ -50,15 +50,14 @@ pub fn main() !void {
     }
     assert(std.sort.isSorted(usize, pcs, {}, std.sort.asc(usize)));
 
-    const source_locations = try arena.alloc(std.debug.SourceLocation, pcs.len);
+    const source_locations = try arena.alloc(std.debug.Info.SourceLocation, pcs.len);
     try debug_info.resolveSourceLocations(gpa, pcs, source_locations);
-    defer for (source_locations) |sl| {
-        gpa.free(sl.file_name);
-    };
 
     for (pcs, source_locations) |pc, sl| {
-        try stdout.print("{x}: {s}:{d}:{d}\n", .{
-            pc, sl.file_name, sl.line, sl.column,
+        const file = debug_info.fileAt(sl.file);
+        const dir_name = debug_info.directories.keys()[file.directory_index];
+        try stdout.print("{x}: {s}/{s}:{d}:{d}\n", .{
+            pc, dir_name, file.basename, sl.line, sl.column,
         });
     }
 
