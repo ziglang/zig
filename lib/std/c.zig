@@ -135,9 +135,8 @@ pub const mode_t = switch (native_os) {
     .emscripten => emscripten.mode_t,
     .openbsd, .haiku, .netbsd, .solaris, .illumos => u32,
     .freebsd, .macos, .ios, .tvos, .watchos, .visionos => u16,
-    .wasi => void,
-    .windows => u0,
-    else => u0, // TODO: should be void?
+    .wasi, .windows => void,
+    else => void,
 };
 
 pub const nlink_t = switch (native_os) {

@@ -119,7 +119,6 @@ test "chdir smoke test" {
 
 const default_mode = switch (posix.mode_t) {
     void => {},
-    u0 => 0,
     else => 0o666,
 };
 

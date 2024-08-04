@@ -439,8 +439,7 @@ pub fn createEmpty(
                 fs.File.default_mode | 0b001_000_000
             else
                 fs.File.default_mode
-        else
-            0,
+        else {},
     });
     wasm.name = sub_path;
 

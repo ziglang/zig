@@ -985,7 +985,7 @@ pub const File = struct {
         // with 0o755 permissions, but it works appropriately if the system is configured
         // more leniently. As another data point, C's fopen seems to open files with the
         // 666 mode.
-        const executable_mode = if (builtin.target.os.tag == .windows) 0 else 0o777;
+        const executable_mode = if (fs.File.Mode == void) {} else 0o777;
         switch (effectiveOutputMode(use_lld, output_mode)) {
             .Lib => return switch (link_mode) {
                 .dynamic => executable_mode,
