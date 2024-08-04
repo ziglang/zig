@@ -58,7 +58,7 @@ fn memcpy_fast(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) call
         return dest;
     }
 
-    const unroll_count = 4;
+    const unroll_count = 2;
 
     if (comptime 5 <= std.math.log2(size + unroll_count * size)) {
         inline for (5..std.math.log2(size + unroll_count * size) + 2) |p| {
