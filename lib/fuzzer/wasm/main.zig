@@ -110,6 +110,17 @@ export fn lowestStack() String {
     return String.init(string_result.items);
 }
 
+export fn totalSourceLocations() usize {
+    return coverage_source_locations.items.len;
+}
+
+export fn coveredSourceLocations() usize {
+    const covered_bits = recent_coverage_update.items[@sizeOf(abi.CoverageUpdateHeader)..];
+    var count: usize = 0;
+    for (covered_bits) |byte| count += @popCount(byte);
+    return count;
+}
+
 export fn totalRuns() u64 {
     const header: *abi.CoverageUpdateHeader = @ptrCast(recent_coverage_update.items[0..@sizeOf(abi.CoverageUpdateHeader)]);
     return header.n_runs;
