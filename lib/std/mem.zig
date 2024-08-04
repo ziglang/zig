@@ -1593,20 +1593,36 @@ test containsAtLeast {
 /// Reads an integer from memory with size equal to bytes.len.
 /// T specifies the return type, which must be large enough to store
 /// the result.
-pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: Endian) ReturnType {
+pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: Endian) !ReturnType {
     const bits = @typeInfo(ReturnType).Int.bits;
     const signedness = @typeInfo(ReturnType).Int.signedness;
     const WorkType = std.meta.Int(signedness, @max(16, bits));
     var result: WorkType = 0;
     switch (endian) {
         .big => {
-            for (bytes) |b| {
+            for (bytes, 0..) |b, index| {
+                // Check for truncation
+                if ((index * 8 >= bits and bytes[bytes.len - index - 1] != 0) or
+                    ((index + 1) * 8 > bits and bytes[bytes.len - index - 1] >= 1 << (bits % 8)))
+                {
+                    return error.Overflow;
+                }
+
                 result = (result << 8) | b;
             }
         },
         .little => {
             const ShiftType = math.Log2Int(WorkType);
             for (bytes, 0..) |b, index| {
+                // Check for truncation
+                // The continue prevents a "shift amount is greater than the type size" error
+                if (index * 8 >= bits and b == 0) continue;
+                if ((index * 8 >= bits and b != 0) or
+                    ((index + 1) * 8 > bits and b >= 1 << (bits % 8)))
+                {
+                    return error.Overflow;
+                }
+
                 result = result | (@as(WorkType, b) << @as(ShiftType, @intCast(index * 8)));
             }
         },
@@ -1615,26 +1631,41 @@ pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: Endian) 
 }
 
 test readVarInt {
-    try testing.expect(readVarInt(u0, &[_]u8{}, .big) == 0x0);
-    try testing.expect(readVarInt(u0, &[_]u8{}, .little) == 0x0);
-    try testing.expect(readVarInt(u8, &[_]u8{0x12}, .big) == 0x12);
-    try testing.expect(readVarInt(u8, &[_]u8{0xde}, .little) == 0xde);
-    try testing.expect(readVarInt(u16, &[_]u8{ 0x12, 0x34 }, .big) == 0x1234);
-    try testing.expect(readVarInt(u16, &[_]u8{ 0x12, 0x34 }, .little) == 0x3412);
+    try testing.expect(try readVarInt(u0, &[_]u8{}, .big) == 0x0);
+    try testing.expect(try readVarInt(u0, &[_]u8{}, .little) == 0x0);
+    try testing.expect(try readVarInt(u8, &[_]u8{0x12}, .big) == 0x12);
+    try testing.expect(try readVarInt(u8, &[_]u8{0xde}, .little) == 0xde);
+    try testing.expect(try readVarInt(u16, &[_]u8{ 0x12, 0x34 }, .big) == 0x1234);
+    try testing.expect(try readVarInt(u16, &[_]u8{ 0x12, 0x34 }, .little) == 0x3412);
 
-    try testing.expect(readVarInt(i8, &[_]u8{0xff}, .big) == -1);
-    try testing.expect(readVarInt(i8, &[_]u8{0xfe}, .little) == -2);
-    try testing.expect(readVarInt(i16, &[_]u8{ 0xff, 0xfd }, .big) == -3);
-    try testing.expect(readVarInt(i16, &[_]u8{ 0xfc, 0xff }, .little) == -4);
+    try testing.expect(try readVarInt(i8, &[_]u8{0xff}, .big) == -1);
+    try testing.expect(try readVarInt(i8, &[_]u8{0xfe}, .little) == -2);
+    try testing.expect(try readVarInt(i16, &[_]u8{ 0xff, 0xfd }, .big) == -3);
+    try testing.expect(try readVarInt(i16, &[_]u8{ 0xfc, 0xff }, .little) == -4);
 
     // Return type can be oversized (bytes.len * 8 < @typeInfo(ReturnType).Int.bits)
-    try testing.expect(readVarInt(u9, &[_]u8{0x12}, .little) == 0x12);
-    try testing.expect(readVarInt(u9, &[_]u8{0xde}, .big) == 0xde);
-    try testing.expect(readVarInt(u80, &[_]u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }, .big) == 0x123456789abcdef024);
-    try testing.expect(readVarInt(u80, &[_]u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }, .little) == 0xfedcba9876543210ec);
+    try testing.expect(try readVarInt(u9, &[_]u8{0x12}, .little) == 0x12);
+    try testing.expect(try readVarInt(u9, &[_]u8{0xde}, .big) == 0xde);
+    try testing.expect(try readVarInt(u80, &[_]u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }, .big) == 0x123456789abcdef024);
+    try testing.expect(try readVarInt(u80, &[_]u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }, .little) == 0xfedcba9876543210ec);
 
-    try testing.expect(readVarInt(i9, &[_]u8{0xff}, .big) == 0xff);
-    try testing.expect(readVarInt(i9, &[_]u8{0xfe}, .little) == 0xfe);
+    try testing.expect(try readVarInt(i9, &[_]u8{0xff}, .big) == 0xff);
+    try testing.expect(try readVarInt(i9, &[_]u8{0xfe}, .little) == 0xfe);
+
+    // Tests for undersized return type (bytes.len * 8 > @typeInfo(ReturnType).Int.bits)
+    try testing.expectError(error.Overflow, readVarInt(u0, &[_]u8{0x01}, .big));
+    try testing.expectError(error.Overflow, readVarInt(u0, &[_]u8{0x01}, .little));
+    try testing.expectError(error.Overflow, readVarInt(u4, &[_]u8{0x10}, .big));
+    try testing.expectError(error.Overflow, readVarInt(u4, &[_]u8{0x10}, .little));
+    try testing.expectError(error.Overflow, readVarInt(u8, &[_]u8{ 0x01, 0x00 }, .big));
+    try testing.expectError(error.Overflow, readVarInt(u8, &[_]u8{ 0x00, 0x01 }, .little));
+    try testing.expect(try readVarInt(u16, &[_]u8{ 0x0, 0x0, 0x0, 0xff, 0xfe }, .big) == 0xfffe);
+    try testing.expect(try readVarInt(u16, &[_]u8{ 0xfe, 0xff, 0x0, 0x0, 0x0 }, .little) == 0xfffe);
+
+    try testing.expectError(error.Overflow, readVarInt(i14, &[_]u8{ 0x40, 0xff }, .big));
+    try testing.expectError(error.Overflow, readVarInt(i14, &[_]u8{ 0xff, 0x40 }, .little));
+    try testing.expect(try readVarInt(i20, &[_]u8{ 0x0, 0x0, 0x0f, 0xff, 0xfe }, .big) == -2);
+    try testing.expect(try readVarInt(i20, &[_]u8{ 0xfe, 0xff, 0x0f, 0x0, 0x0 }, .little) == -2);
 }
 
 /// Loads an integer from packed memory with provided bit_count, bit_offset, and signedness.
