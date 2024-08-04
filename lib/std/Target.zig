@@ -1502,7 +1502,7 @@ pub const Cpu = struct {
                 .x86 => &x86.cpu.pentium4,
                 .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
                 .s390x => &s390x.cpu.arch8,
-                .sparc => &sparc.cpu.v8,
+                .sparc => &sparc.cpu.v9, // glibc does not work with 'plain' v8.
                 .loongarch64 => &loongarch.cpu.loongarch64,
 
                 else => generic(arch),
