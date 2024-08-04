@@ -136,8 +136,8 @@ pub const mode_t = switch (native_os) {
     .openbsd, .haiku, .netbsd, .solaris, .illumos => u32,
     .wasi => u32, // NOTE: wasi-without-libc maps mode_t to 'void'
     .freebsd, .macos, .ios, .tvos, .watchos, .visionos => u16,
-    .windows => u0,
-    else => u0, // TODO: should be void?
+    .windows => void,
+    else => void,
 };
 
 pub const nlink_t = switch (native_os) {
