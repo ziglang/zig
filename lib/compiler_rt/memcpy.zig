@@ -33,7 +33,7 @@ fn memcpy_small(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) cal
     @setRuntimeSafety(builtin.is_test);
 
     if (len != 0) {
-        memcpy_blocks(dest.?, src.?, len);
+        memcpy_blocks(dest.?, src.?, len, 1);
     }
 
     return dest;
@@ -58,8 +58,10 @@ fn memcpy_fast(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) call
         return dest;
     }
 
-    if (comptime 5 <= std.math.log2(2 * size)) {
-        inline for (5..std.math.log2(2 * size) + 1) |p| {
+    const unroll_count = 4;
+
+    if (comptime 5 <= std.math.log2(size + unroll_count * size)) {
+        inline for (5..std.math.log2(size + unroll_count * size) + 2) |p| {
             const limit = 1 << p;
             if (len <= limit) {
                 memcpy_range2(limit / 2, dest.?, src.?, len);
@@ -67,6 +69,8 @@ fn memcpy_fast(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) call
             }
         }
     }
+
+    std.debug.assert(size + unroll_count * size < len);
 
     // we know that `len > 2 * size` and `size >= alignment`
     // so we can safely align `s` to `alignment`
@@ -76,10 +80,12 @@ fn memcpy_fast(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) call
     const d = dest.? + alignment_offset;
     const s = src.? + alignment_offset;
 
+    std.debug.assert(unroll_count * size <= n);
+
     if (@intFromPtr(d) % alignment == 0) {
-        memcpy_aligned(@alignCast(@ptrCast(d)), @alignCast(@ptrCast(s)), n);
+        memcpy_aligned(@alignCast(@ptrCast(d)), @alignCast(@ptrCast(s)), n, unroll_count);
     } else {
-        memcpy_unaligned(@ptrCast(d), @alignCast(@ptrCast(s)), n);
+        memcpy_unaligned(@ptrCast(d), @alignCast(@ptrCast(s)), n, unroll_count);
     }
 
     dest.?[len - size ..][0..size].* = src.?[len - size ..][0..size].*;
@@ -92,16 +98,18 @@ inline fn memcpy_aligned(
     noalias dest: [*]CopyType,
     noalias src: [*]const CopyType,
     max_bytes: usize,
+    comptime unroll_count: comptime_int,
 ) void {
-    memcpy_blocks(dest, src, max_bytes);
+    memcpy_blocks(dest, src, max_bytes, unroll_count);
 }
 
 inline fn memcpy_unaligned(
     noalias dest: [*]align(1) CopyType,
     noalias src: [*]const CopyType,
     max_bytes: usize,
+    comptime unroll_count: comptime_int,
 ) void {
-    memcpy_blocks(dest, src, max_bytes);
+    memcpy_blocks(dest, src, max_bytes, unroll_count);
 }
 
 /// Copies a multiple of `@sizeOf(T)` bytes from `src` to `dest`, where `T` is
@@ -112,19 +120,29 @@ inline fn memcpy_blocks(
     noalias dest: anytype,
     noalias src: anytype,
     max_bytes: usize,
+    comptime unroll_count: comptime_int,
 ) void {
     @setRuntimeSafety(builtin.is_test);
+    comptime std.debug.assert(unroll_count > 0);
 
     const T = @typeInfo(@TypeOf(dest)).pointer.child;
     comptime std.debug.assert(T == @typeInfo(@TypeOf(src)).pointer.child);
+    std.debug.assert(max_bytes >= unroll_count * @sizeOf(T));
 
-    const loop_count = max_bytes / @sizeOf(T);
+    const loop_count = max_bytes / (@sizeOf(T) * unroll_count);
 
     var i: usize = 0;
     while (true) {
-        dest[i] = src[i];
+        inline for (dest[i * unroll_count ..][0..unroll_count], src[i * unroll_count ..][0..unroll_count]) |*d, s| {
+            d.* = s;
+        }
         i += 1;
         if (i == loop_count) break;
+    }
+
+    const tail_start = (max_bytes / @sizeOf(T)) - (unroll_count - 1);
+    inline for (dest[tail_start..][0 .. unroll_count - 1], src[tail_start..][0 .. unroll_count - 1]) |*d, s| {
+        d.* = s;
     }
 }
 
