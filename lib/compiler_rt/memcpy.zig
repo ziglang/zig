@@ -30,7 +30,7 @@ else
     memcpy_fast;
 
 fn memcpy_small(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
-    @setRuntimeSafety(false);
+    @setRuntimeSafety(builtin.is_test);
 
     if (len != 0) {
         memcpy_blocks(dest.?, src.?, len);
@@ -40,7 +40,7 @@ fn memcpy_small(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) cal
 }
 
 fn memcpy_fast(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
-    @setRuntimeSafety(false);
+    @setRuntimeSafety(builtin.is_test);
 
     if (len <= 16) {
         if (len <= 4) {
@@ -113,7 +113,7 @@ inline fn memcpy_blocks(
     noalias src: anytype,
     max_bytes: usize,
 ) void {
-    @setRuntimeSafety(false);
+    @setRuntimeSafety(builtin.is_test);
 
     const T = @typeInfo(@TypeOf(dest)).pointer.child;
     comptime std.debug.assert(T == @typeInfo(@TypeOf(src)).pointer.child);
@@ -136,7 +136,7 @@ inline fn memcpy_range2(
     noalias src: [*]const u8,
     len: usize,
 ) void {
-    @setRuntimeSafety(false);
+    @setRuntimeSafety(builtin.is_test);
     comptime std.debug.assert(std.math.isPowerOfTwo(copy_len));
 
     const last = len - copy_len;
@@ -160,57 +160,78 @@ inline fn memcpy_range2(
 }
 
 test "aligned" {
-    @setEvalBranchQuota(1024);
-    inline for (0..1024) |copy_len| {
-        var buffer: [copy_len]u8 align(alignment) = undefined;
-        const p: *align(alignment) [copy_len / 2]u16 = @ptrCast(&buffer);
-        for (p, 0..) |*b, i| {
-            b.* = @intCast(i);
+    const S = struct {
+        fn testFunc(comptime copy_func: anytype) !void {
+            @setEvalBranchQuota(1024);
+            inline for (0..1024) |copy_len| {
+                var buffer: [copy_len]u8 align(alignment) = undefined;
+                const p: *align(alignment) [copy_len / 2]u16 = @ptrCast(&buffer);
+                for (p, 0..) |*b, i| {
+                    b.* = @intCast(i);
+                }
+                var dest: [copy_len]u8 align(alignment) = undefined;
+                _ = copy_func(@ptrCast(&dest), @ptrCast(&buffer), copy_len);
+                try std.testing.expectEqualSlices(u8, &buffer, &dest);
+            }
         }
-        var dest: [copy_len]u8 align(alignment) = undefined;
-        _ = memcpy(@ptrCast(&dest), @ptrCast(&buffer), copy_len);
-        try std.testing.expectEqualSlices(u8, &buffer, &dest);
-    }
+    };
+
+    try S.testFunc(memcpy_small);
+    try S.testFunc(memcpy_fast);
 }
 
 test "unaligned" {
-    @setEvalBranchQuota(1024);
-    inline for (0..1024) |copy_len| {
-        var buffer: [copy_len + alignment - 1]u8 align(alignment) = undefined;
-        const p: *align(alignment) [copy_len / 2]u16 = @ptrCast(&buffer);
-        for (p, 0..) |*b, i| {
-            b.* = @intCast(i);
+    const S = struct {
+        fn testFunc(comptime copy_func: anytype) !void {
+            @setEvalBranchQuota(1024);
+            inline for (0..1024) |copy_len| {
+                var buffer: [copy_len + alignment - 1]u8 align(alignment) = undefined;
+                const p: *align(alignment) [copy_len / 2]u16 = @ptrCast(&buffer);
+                for (p, 0..) |*b, i| {
+                    b.* = @intCast(i);
+                }
+                var dest: [copy_len + alignment - 1]u8 align(alignment) = undefined;
+                for (1..alignment) |offset| {
+                    @memset(&dest, 0);
+                    const s = buffer[offset..][0..copy_len];
+                    const d = dest[offset..][0..copy_len];
+                    _ = copy_func(@ptrCast(d.ptr), @ptrCast(s.ptr), s.len);
+                    try std.testing.expectEqualSlices(u8, s, d);
+                }
+            }
         }
-        var dest: [copy_len + alignment - 1]u8 align(alignment) = undefined;
-        for (1..alignment) |offset| {
-            @memset(&dest, 0);
-            const s = buffer[offset..][0..copy_len];
-            const d = dest[offset..][0..copy_len];
-            _ = memcpy(@ptrCast(d.ptr), @ptrCast(s.ptr), s.len);
-            try std.testing.expectEqualSlices(u8, s, d);
-        }
-    }
+    };
+
+    try S.testFunc(memcpy_small);
+    try S.testFunc(memcpy_fast);
 }
 
 test "misaligned" {
-    @setEvalBranchQuota(1024);
-    inline for (0..1024) |copy_len| {
-        var buffer: [copy_len + alignment - 1]u8 align(alignment) = undefined;
-        const p: *align(alignment) [copy_len / 2]u16 = @ptrCast(&buffer);
-        for (p, 0..) |*b, i| {
-            b.* = @intCast(i);
-        }
-        var dest: [copy_len + alignment - 1]u8 align(alignment) = undefined;
+    const S = struct {
+        fn testFunc(comptime copy_func: anytype) !void {
+            @setEvalBranchQuota(1024);
+            inline for (0..1024) |copy_len| {
+                var buffer: [copy_len + alignment - 1]u8 align(alignment) = undefined;
+                const p: *align(alignment) [copy_len / 2]u16 = @ptrCast(&buffer);
+                for (p, 0..) |*b, i| {
+                    b.* = @intCast(i);
+                }
+                var dest: [copy_len + alignment - 1]u8 align(alignment) = undefined;
 
-        for (0..alignment) |s_offset| {
-            for (0..alignment) |d_offset| {
-                if (s_offset == d_offset) continue;
-                @memset(&dest, 0);
-                const s = buffer[s_offset..][0..copy_len];
-                const d = dest[d_offset..][0..copy_len];
-                _ = memcpy(@ptrCast(d.ptr), @ptrCast(s.ptr), s.len);
-                try std.testing.expectEqualSlices(u8, s, d);
+                for (0..alignment) |s_offset| {
+                    for (0..alignment) |d_offset| {
+                        if (s_offset == d_offset) continue;
+                        @memset(&dest, 0);
+                        const s = buffer[s_offset..][0..copy_len];
+                        const d = dest[d_offset..][0..copy_len];
+                        _ = copy_func(@ptrCast(d.ptr), @ptrCast(s.ptr), s.len);
+                        try std.testing.expectEqualSlices(u8, s, d);
+                    }
+                }
             }
         }
-    }
+    };
+
+    try S.testFunc(memcpy_small);
+    try S.testFunc(memcpy_fast);
 }
