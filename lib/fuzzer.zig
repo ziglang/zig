@@ -3,6 +3,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const fatal = std.process.fatal;
+const SeenPcsHeader = std.Build.Fuzz.abi.SeenPcsHeader;
 
 pub const std_options = .{
     .logFn = logOverride,
@@ -119,13 +120,6 @@ const Fuzzer = struct {
     /// Identifies the file name that will be used to store coverage
     /// information, available to other processes.
     coverage_id: u64,
-
-    const SeenPcsHeader = extern struct {
-        n_runs: usize,
-        deduplicated_runs: usize,
-        pcs_len: usize,
-        lowest_stack: usize,
-    };
 
     const RunMap = std.ArrayHashMapUnmanaged(Run, void, Run.HashContext, false);
 
@@ -247,7 +241,7 @@ const Fuzzer = struct {
         } else {
             const header: SeenPcsHeader = .{
                 .n_runs = 0,
-                .deduplicated_runs = 0,
+                .unique_runs = 0,
                 .pcs_len = flagged_pcs.len,
                 .lowest_stack = std.math.maxInt(usize),
             };
@@ -292,8 +286,6 @@ const Fuzzer = struct {
             });
             if (gop.found_existing) {
                 //std.log.info("duplicate analysis: score={d} id={d}", .{ analysis.score, analysis.id });
-                const header: *volatile SeenPcsHeader = @ptrCast(f.seen_pcs.items[0..@sizeOf(SeenPcsHeader)]);
-                _ = @atomicRmw(usize, &header.deduplicated_runs, .Add, 1, .monotonic);
                 if (f.input.items.len < gop.key_ptr.input.len or gop.key_ptr.score == 0) {
                     gpa.free(gop.key_ptr.input);
                     gop.key_ptr.input = try gpa.dupe(u8, f.input.items);
@@ -325,6 +317,9 @@ const Fuzzer = struct {
                         _ = @atomicRmw(u8, elem, .Or, mask, .monotonic);
                     }
                 }
+
+                const header: *volatile SeenPcsHeader = @ptrCast(f.seen_pcs.items[0..@sizeOf(SeenPcsHeader)]);
+                _ = @atomicRmw(usize, &header.unique_runs, .Add, 1, .monotonic);
             }
 
             if (f.recent_cases.entries.len >= 100) {

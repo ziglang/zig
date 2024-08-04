@@ -1,16 +1,19 @@
 const std = @import("std");
 const assert = std.debug.assert;
+const abi = std.Build.Fuzz.abi;
+const gpa = std.heap.wasm_allocator;
+const log = std.log;
+const Coverage = std.debug.Coverage;
 
 const Walk = @import("Walk");
 const Decl = Walk.Decl;
 const html_render = @import("html_render");
 
-const gpa = std.heap.wasm_allocator;
-const log = std.log;
-
 const js = struct {
     extern "js" fn log(ptr: [*]const u8, len: usize) void;
     extern "js" fn panic(ptr: [*]const u8, len: usize) noreturn;
+    extern "js" fn emitSourceIndexChange() void;
+    extern "js" fn emitCoverageUpdate() void;
 };
 
 pub const std_options: std.Options = .{
@@ -43,6 +46,26 @@ fn logFn(
 export fn alloc(n: usize) [*]u8 {
     const slice = gpa.alloc(u8, n) catch @panic("OOM");
     return slice.ptr;
+}
+
+var message_buffer: std.ArrayListAlignedUnmanaged(u8, @alignOf(u64)) = .{};
+
+/// Resizes the message buffer to be the correct length; returns the pointer to
+/// the query string.
+export fn message_begin(len: usize) [*]u8 {
+    message_buffer.resize(gpa, len) catch @panic("OOM");
+    return message_buffer.items.ptr;
+}
+
+export fn message_end() void {
+    const msg_bytes = message_buffer.items;
+
+    const tag: abi.ToClientTag = @enumFromInt(msg_bytes[0]);
+    switch (tag) {
+        .source_index => return sourceIndexMessage(msg_bytes) catch @panic("OOM"),
+        .coverage_update => return coverageUpdateMessage(msg_bytes) catch @panic("OOM"),
+        _ => unreachable,
+    }
 }
 
 export fn unpack(tar_ptr: [*]u8, tar_len: usize) void {
@@ -140,4 +163,58 @@ fn fatal(comptime format: []const u8, args: anytype) noreturn {
         break :l &buf;
     };
     js.panic(line.ptr, line.len);
+}
+
+fn sourceIndexMessage(msg_bytes: []u8) error{OutOfMemory}!void {
+    const Header = abi.SourceIndexHeader;
+    const header: Header = @bitCast(msg_bytes[0..@sizeOf(Header)].*);
+
+    const directories_start = @sizeOf(Header);
+    const directories_end = directories_start + header.directories_len * @sizeOf(Coverage.String);
+    const files_start = directories_end;
+    const files_end = files_start + header.files_len * @sizeOf(Coverage.File);
+    const source_locations_start = files_end;
+    const source_locations_end = source_locations_start + header.source_locations_len * @sizeOf(Coverage.SourceLocation);
+    const string_bytes = msg_bytes[source_locations_end..][0..header.string_bytes_len];
+
+    const directories: []const Coverage.String = @alignCast(std.mem.bytesAsSlice(Coverage.String, msg_bytes[directories_start..directories_end]));
+    const files: []const Coverage.File = @alignCast(std.mem.bytesAsSlice(Coverage.File, msg_bytes[files_start..files_end]));
+    const source_locations: []const Coverage.SourceLocation = @alignCast(std.mem.bytesAsSlice(Coverage.SourceLocation, msg_bytes[source_locations_start..source_locations_end]));
+
+    try updateCoverage(directories, files, source_locations, string_bytes);
+    js.emitSourceIndexChange();
+}
+
+fn coverageUpdateMessage(msg_bytes: []u8) error{OutOfMemory}!void {
+    recent_coverage_update.clearRetainingCapacity();
+    recent_coverage_update.appendSlice(gpa, msg_bytes) catch @panic("OOM");
+    js.emitCoverageUpdate();
+}
+
+var coverage = Coverage.init;
+var coverage_source_locations: std.ArrayListUnmanaged(Coverage.SourceLocation) = .{};
+/// Contains the most recent coverage update message, unmodified.
+var recent_coverage_update: std.ArrayListUnmanaged(u8) = .{};
+
+fn updateCoverage(
+    directories: []const Coverage.String,
+    files: []const Coverage.File,
+    source_locations: []const Coverage.SourceLocation,
+    string_bytes: []const u8,
+) !void {
+    coverage.directories.clearRetainingCapacity();
+    coverage.files.clearRetainingCapacity();
+    coverage.string_bytes.clearRetainingCapacity();
+    coverage_source_locations.clearRetainingCapacity();
+
+    try coverage_source_locations.appendSlice(gpa, source_locations);
+    try coverage.string_bytes.appendSlice(gpa, string_bytes);
+
+    try coverage.files.entries.resize(gpa, files.len);
+    @memcpy(coverage.files.entries.items(.key), files);
+    try coverage.files.reIndexContext(gpa, .{ .string_bytes = coverage.string_bytes.items });
+
+    try coverage.directories.entries.resize(gpa, directories.len);
+    @memcpy(coverage.directories.entries.items(.key), directories);
+    try coverage.directories.reIndexContext(gpa, .{ .string_bytes = coverage.string_bytes.items });
 }
