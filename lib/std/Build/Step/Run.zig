@@ -1427,6 +1427,7 @@ fn evalZigTest(
     var log_err_count: u32 = 0;
 
     var metadata: ?TestMetadata = null;
+    var coverage_id: ?u64 = null;
 
     var sub_prog_node: ?std.Progress.Node = null;
     defer if (sub_prog_node) |n| n.end();
@@ -1517,13 +1518,27 @@ fn evalZigTest(
             .coverage_id => {
                 const web_server = fuzz_context.?.web_server;
                 const msg_ptr: *align(1) const u64 = @ptrCast(body);
-                const coverage_id = msg_ptr.*;
+                coverage_id = msg_ptr.*;
                 {
                     web_server.mutex.lock();
                     defer web_server.mutex.unlock();
                     try web_server.msg_queue.append(web_server.gpa, .{ .coverage = .{
-                        .id = coverage_id,
+                        .id = coverage_id.?,
                         .run = run,
+                    } });
+                    web_server.condition.signal();
+                }
+            },
+            .fuzz_start_addr => {
+                const web_server = fuzz_context.?.web_server;
+                const msg_ptr: *align(1) const u64 = @ptrCast(body);
+                const addr = msg_ptr.*;
+                {
+                    web_server.mutex.lock();
+                    defer web_server.mutex.unlock();
+                    try web_server.msg_queue.append(web_server.gpa, .{ .entry_point = .{
+                        .addr = addr,
+                        .coverage_id = coverage_id.?,
                     } });
                     web_server.condition.signal();
                 }

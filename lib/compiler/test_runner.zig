@@ -1,8 +1,10 @@
 //! Default test runner for unit tests.
 const builtin = @import("builtin");
+
 const std = @import("std");
 const io = std.io;
 const testing = std.testing;
+const assert = std.debug.assert;
 
 pub const std_options = .{
     .logFn = log,
@@ -141,7 +143,9 @@ fn mainServer() !void {
                 });
             },
             .start_fuzzing => {
+                if (!builtin.fuzz) unreachable;
                 const index = try server.receiveBody_u32();
+                var first = true;
                 const test_fn = builtin.test_functions[index];
                 while (true) {
                     testing.allocator_instance = .{};
@@ -160,6 +164,10 @@ fn mainServer() !void {
                     };
                     if (!is_fuzz_test) @panic("missed call to std.testing.fuzzInput");
                     if (log_err_count != 0) @panic("error logs detected");
+                    if (first) {
+                        first = false;
+                        try server.serveU64Message(.fuzz_start_addr, entry_addr);
+                    }
                 }
             },
 
@@ -339,6 +347,7 @@ const FuzzerSlice = extern struct {
 };
 
 var is_fuzz_test: bool = undefined;
+var entry_addr: usize = 0;
 
 extern fn fuzzer_next() FuzzerSlice;
 extern fn fuzzer_init(cache_dir: FuzzerSlice) void;
@@ -348,7 +357,10 @@ pub fn fuzzInput(options: testing.FuzzInputOptions) []const u8 {
     @disableInstrumentation();
     if (crippled) return "";
     is_fuzz_test = true;
-    if (builtin.fuzz) return fuzzer_next().toSlice();
+    if (builtin.fuzz) {
+        if (entry_addr == 0) entry_addr = @returnAddress();
+        return fuzzer_next().toSlice();
+    }
     if (options.corpus.len == 0) return "";
     var prng = std.Random.DefaultPrng.init(testing.random_seed);
     const random = prng.random();

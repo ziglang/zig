@@ -34,6 +34,8 @@ const CoverageMap = struct {
     mapped_memory: []align(std.mem.page_size) const u8,
     coverage: Coverage,
     source_locations: []Coverage.SourceLocation,
+    /// Elements are indexes into `source_locations` pointing to the unit tests that are being fuzz tested.
+    entry_points: std.ArrayListUnmanaged(u32),
 
     fn deinit(cm: *CoverageMap, gpa: Allocator) void {
         std.posix.munmap(cm.mapped_memory);
@@ -46,6 +48,10 @@ const Msg = union(enum) {
     coverage: struct {
         id: u64,
         run: *Step.Run,
+    },
+    entry_point: struct {
+        coverage_id: u64,
+        addr: u64,
     },
 };
 
@@ -356,14 +362,20 @@ fn serveWebSocket(ws: *WebServer, web_socket: *std.http.WebSocket) !void {
     // On first connection, the client needs all the coverage information
     // so that subsequent updates can contain only the updated bits.
     var prev_unique_runs: usize = 0;
-    try sendCoverageContext(ws, web_socket, &prev_unique_runs);
+    var prev_entry_points: usize = 0;
+    try sendCoverageContext(ws, web_socket, &prev_unique_runs, &prev_entry_points);
     while (true) {
         ws.coverage_condition.timedWait(&ws.coverage_mutex, std.time.ns_per_ms * 500) catch {};
-        try sendCoverageContext(ws, web_socket, &prev_unique_runs);
+        try sendCoverageContext(ws, web_socket, &prev_unique_runs, &prev_entry_points);
     }
 }
 
-fn sendCoverageContext(ws: *WebServer, web_socket: *std.http.WebSocket, prev_unique_runs: *usize) !void {
+fn sendCoverageContext(
+    ws: *WebServer,
+    web_socket: *std.http.WebSocket,
+    prev_unique_runs: *usize,
+    prev_entry_points: *usize,
+) !void {
     const coverage_maps = ws.coverage_files.values();
     if (coverage_maps.len == 0) return;
     // TODO: make each events URL correspond to one coverage map
@@ -406,6 +418,21 @@ fn sendCoverageContext(ws: *WebServer, web_socket: *std.http.WebSocket, prev_uni
         try web_socket.writeMessagev(&iovecs, .binary);
 
         prev_unique_runs.* = unique_runs;
+    }
+
+    if (prev_entry_points.* != coverage_map.entry_points.items.len) {
+        const header: abi.EntryPointHeader = .{
+            .flags = .{
+                .locs_len = @intCast(coverage_map.entry_points.items.len),
+            },
+        };
+        const iovecs: [2]std.posix.iovec_const = .{
+            makeIov(std.mem.asBytes(&header)),
+            makeIov(std.mem.sliceAsBytes(coverage_map.entry_points.items)),
+        };
+        try web_socket.writeMessagev(&iovecs, .binary);
+
+        prev_entry_points.* = coverage_map.entry_points.items.len;
     }
 }
 
@@ -508,6 +535,10 @@ pub fn coverageRun(ws: *WebServer) void {
                 error.AlreadyReported => continue,
                 else => |e| log.err("failed to prepare code coverage tables: {s}", .{@errorName(e)}),
             },
+            .entry_point => |entry_point| addEntryPoint(ws, entry_point.coverage_id, entry_point.addr) catch |err| switch (err) {
+                error.AlreadyReported => continue,
+                else => |e| log.err("failed to prepare code coverage tables: {s}", .{@errorName(e)}),
+            },
         };
         ws.msg_queue.clearRetainingCapacity();
     }
@@ -538,6 +569,7 @@ fn prepareTables(
         .coverage = std.debug.Coverage.init,
         .mapped_memory = undefined, // populated below
         .source_locations = undefined, // populated below
+        .entry_points = .{},
     };
     errdefer gop.value_ptr.coverage.deinit(gpa);
 
@@ -595,6 +627,32 @@ fn prepareTables(
     gop.value_ptr.source_locations = source_locations;
 
     ws.coverage_condition.broadcast();
+}
+
+fn addEntryPoint(ws: *WebServer, coverage_id: u64, addr: u64) error{ AlreadyReported, OutOfMemory }!void {
+    ws.coverage_mutex.lock();
+    defer ws.coverage_mutex.unlock();
+
+    const coverage_map = ws.coverage_files.getPtr(coverage_id).?;
+    const ptr = coverage_map.mapped_memory;
+    const pcs_bytes = ptr[@sizeOf(abi.SeenPcsHeader)..][0 .. coverage_map.source_locations.len * @sizeOf(usize)];
+    const pcs: []const usize = @alignCast(std.mem.bytesAsSlice(usize, pcs_bytes));
+    const index = std.sort.upperBound(usize, addr, pcs, {}, std.sort.asc(usize));
+    if (index >= pcs.len) {
+        log.err("unable to find unit test entry address 0x{x} in source locations (range: 0x{x} to 0x{x})", .{
+            addr, pcs[0], pcs[pcs.len - 1],
+        });
+        return error.AlreadyReported;
+    }
+    if (false) {
+        const sl = coverage_map.source_locations[index];
+        const file_name = coverage_map.coverage.stringAt(coverage_map.coverage.fileAt(sl.file).basename);
+        log.debug("server found entry point {s}:{d}:{d}", .{
+            file_name, sl.line, sl.column,
+        });
+    }
+    const gpa = ws.gpa;
+    try coverage_map.entry_points.append(gpa, @intCast(index));
 }
 
 fn makeIov(s: []const u8) std.posix.iovec_const {
