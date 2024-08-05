@@ -144,7 +144,6 @@ const TargetToHash = std.ArrayHashMap(DestTarget, []const u8, DestTarget.HashCon
 const PathTable = std.StringHashMap(*TargetToHash);
 
 fn generateGenericFileMap(allocator: std.mem.Allocator, generic_musl_path: []const []const u8) !HashToContents {
-    var inner_hasher = Blake3.init(.{});
     var musl_hash_content = HashToContents.init(allocator);
     const target_include_dir = try std.fs.path.join(allocator, generic_musl_path);
 
@@ -167,22 +166,22 @@ fn generateGenericFileMap(allocator: std.mem.Allocator, generic_musl_path: []con
                 .directory => try dir_stack.append(full_path),
                 .file => {
                     const rel_path = try std.fs.path.relative(allocator, target_include_dir, full_path);
+
                     const max_size = 2 * 1024 * 1024 * 1024;
                     const raw_bytes = try std.fs.cwd().readFileAlloc(allocator, full_path, max_size);
+
                     const replaced = try replaceBytes(allocator, raw_bytes, "\r\n", "\n");
-
                     const removed_comment = try removeComment(allocator, replaced);
-
                     const remove_space_line_content = try removeExtraSpacesAndLines(allocator, removed_comment);
-
                     const trimmed = std.mem.trim(u8, remove_space_line_content, " \r\n\t");
 
                     const hash = try allocator.alloc(u8, 32);
-                    inner_hasher = Blake3.init(.{});
+                    var inner_hasher = Blake3.init(.{});
                     inner_hasher.update(rel_path);
                     inner_hasher.update(trimmed);
                     inner_hasher.final(hash);
                     const gop = try musl_hash_content.getOrPut(hash);
+
                     // for generic_musl always be new hash
                     gop.value_ptr.* = Contents{
                         .bytes = trimmed,
@@ -252,14 +251,15 @@ fn removeExtraSpacesAndLines(allocator: std.mem.Allocator, content: []const u8) 
 
     while (i < content.len) : (i += 1) {
         const c = content[i];
-        if (std.ascii.isWhitespace(c)) {
+        const isFullWidthSpace = (i + 2 < content.len) and (content[i] == 0xE3) and (content[i + 1] == 0x80) and (content[i + 2] == 0x80);
+        if (std.ascii.isWhitespace(c) or isFullWidthSpace) {
             if (c == '\n') {
                 if (!lastWasNewline) {
                     result[resultIndex] = c;
                     resultIndex += 1;
                 }
                 lastWasNewline = true;
-            } else if (!inWhitespace) {
+            } else if (!inWhitespace and (i + 1 < content.len) and content[i + 1] != '\n') {
                 result[resultIndex] = ' ';
                 resultIndex += 1;
                 inWhitespace = true;
@@ -273,9 +273,9 @@ fn removeExtraSpacesAndLines(allocator: std.mem.Allocator, content: []const u8) 
     }
 
     // Remove trailing whitespace
-    while (resultIndex > 0 and std.ascii.isWhitespace(result[resultIndex - 1])) {
-        resultIndex -= 1;
-    }
+    // while (resultIndex > 0 and std.ascii.isWhitespace(result[resultIndex - 1])) {
+    //     resultIndex -= 1;
+    // }
 
     return result[0..resultIndex];
 }
@@ -329,8 +329,6 @@ pub fn main() !void {
         std.debug.print("Error occurred: {}\n", .{err});
         return;
     };
-
-    var hasher = Blake3.init(.{});
 
     for (musl_targets) |libc_target| {
         const dest_target = DestTarget{
@@ -409,7 +407,8 @@ pub fn main() !void {
                             const trimmed = std.mem.trim(u8, remove_space_line_content, " \r\n\t");
                             total_bytes += raw_bytes.len;
                             const hash = try allocator.alloc(u8, 32);
-                            hasher = Blake3.init(.{});
+
+                            var hasher = Blake3.init(.{});
                             hasher.update(rel_path);
                             hasher.update(trimmed);
                             hasher.final(hash);
