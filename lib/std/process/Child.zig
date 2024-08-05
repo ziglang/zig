@@ -705,7 +705,7 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
             posix.setpgid(0, pid) catch |err| forkChildErrReport(err_pipe[1], err);
         }
 
-        try writeIntFd(err_pipe[1], maxInt(ErrInt));
+        writeIntFd(err_pipe[1], maxInt(ErrInt)) catch {};
 
         const err = switch (self.expand_arg0) {
             .expand => posix.execvpeZ_expandArg0(.expand, argv_buf.ptr[0].?, argv_buf.ptr, envp),
@@ -716,11 +716,23 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
 
     // we are the parent
 
-    // we perform a blocking read on the err_pipe that gets us either an error
-    // that occured between fork and exec or a maxInt(ErrInt) if there wasn't any
-    const err_int = try readIntFd(err_pipe[0]);
+    // We perform a blocking read on the err_pipe that gets us either an error
+    // that occured between fork and exec or a maxInt(ErrInt) if there wasn't any.
+    // Since we use eventfd on linux, it can happen that we get both
+    // a maxInt(ErrInt) and an error code in the first read if the exec in child failed
+    // and its error was written before this read (eventfd just sums the values up).
+    const err_int = blk: {
+        if (native_os == .linux) {
+            const file = File{ .handle = err_pipe[0] };
+            const err_int = file.reader().readInt(u64, .little) catch return error.SystemResources;
+            break :blk err_int;
+        } else {
+            break :blk try readIntFd(err_pipe[0]);
+        }
+    };
     if (err_int != maxInt(ErrInt)) {
-        return @as(SpawnError, @errorCast(@errorFromInt(err_int)));
+        const err = @errorFromInt(@as(ErrInt, @intCast(err_int % maxInt(ErrInt))));
+        return @as(SpawnError, @errorCast(err));
     }
 
     const pid: i32 = @intCast(pid_result);
