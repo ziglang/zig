@@ -24,6 +24,7 @@
 //!     1. reduce with generic-musl
 //!     2. reduce with <arch>-linux-any
 //!     3. reduce with <arch>-linux-musl
+//!     4. for x86_64 should compare with x86-linux-any x86-linux-musl x86_64-linux-musl
 
 const std = @import("std");
 const Arch = std.Target.Cpu.Arch;
@@ -172,8 +173,7 @@ fn generateGenericFileMap(allocator: std.mem.Allocator, generic_musl_path: []con
 
                     const replaced = try replaceBytes(allocator, raw_bytes, "\r\n", "\n");
                     const removed_comment = try removeComment(allocator, replaced);
-                    const remove_space_line_content = try removeExtraSpacesAndLines(allocator, removed_comment);
-                    const trimmed = std.mem.trim(u8, remove_space_line_content, " \r\n\t");
+                    const trimmed = try removeSpacesAndLines(allocator, removed_comment);
 
                     const hash = try allocator.alloc(u8, 32);
                     var inner_hasher = Blake3.init(.{});
@@ -242,40 +242,19 @@ fn removeComment(allocator: std.mem.Allocator, content: []const u8) ![]u8 {
     return builder.toOwnedSlice();
 }
 
-fn removeExtraSpacesAndLines(allocator: std.mem.Allocator, content: []const u8) ![]u8 {
+fn removeSpacesAndLines(allocator: std.mem.Allocator, content: []const u8) ![]u8 {
     var result = try allocator.alloc(u8, content.len);
     var resultIndex: usize = 0;
     var i: usize = 0;
-    var inWhitespace: bool = false;
-    var lastWasNewline: bool = true;
 
     while (i < content.len) : (i += 1) {
         const c = content[i];
         const isFullWidthSpace = (i + 2 < content.len) and (content[i] == 0xE3) and (content[i + 1] == 0x80) and (content[i + 2] == 0x80);
-        if (std.ascii.isWhitespace(c) or isFullWidthSpace) {
-            if (c == '\n') {
-                if (!lastWasNewline) {
-                    result[resultIndex] = c;
-                    resultIndex += 1;
-                }
-                lastWasNewline = true;
-            } else if (!inWhitespace and (i + 1 < content.len) and content[i + 1] != '\n') {
-                result[resultIndex] = ' ';
-                resultIndex += 1;
-                inWhitespace = true;
-            }
-        } else {
+        if (std.ascii.isWhitespace(c) or isFullWidthSpace) {} else {
             result[resultIndex] = c;
             resultIndex += 1;
-            inWhitespace = false;
-            lastWasNewline = false;
         }
     }
-
-    // Remove trailing whitespace
-    // while (resultIndex > 0 and std.ascii.isWhitespace(result[resultIndex - 1])) {
-    //     resultIndex -= 1;
-    // }
 
     return result[0..resultIndex];
 }
@@ -402,9 +381,8 @@ pub fn main() !void {
                             const tmp_content = std.mem.trim(u8, replaced, " \r\n\t");
 
                             const removed_content = try removeComment(allocator, replaced);
-                            const remove_space_line_content = try removeExtraSpacesAndLines(allocator, removed_content);
+                            const trimmed = try removeSpacesAndLines(allocator, removed_content);
 
-                            const trimmed = std.mem.trim(u8, remove_space_line_content, " \r\n\t");
                             total_bytes += raw_bytes.len;
                             const hash = try allocator.alloc(u8, 32);
 
@@ -416,6 +394,38 @@ pub fn main() !void {
                             const is_musl_exist = musl_hash_to_contents.get(hash) != null;
                             const is_linux_any_exist = any_generic_hash_content.get(hash) != null;
                             const is_linux_arch_exist = arch_generic_hash_content.get(hash) != null;
+
+                            if (std.mem.eql(u8, libc_target.name, "x86_64")) {
+                                const x86 = generateGenericFileMap(allocator, &[_][]const u8{ generic_musl_libc_dir, "x86-linux-any" }) catch |err| {
+                                    std.debug.print("Error occurred: {}\n", .{err});
+                                    return;
+                                };
+                                const x86_musl = generateGenericFileMap(allocator, &[_][]const u8{ generic_musl_libc_dir, "x86-linux-musl" }) catch |err| {
+                                    std.debug.print("Error occurred: {}\n", .{err});
+                                    return;
+                                };
+
+                                const is_x86_exist = x86.get(hash) != null;
+                                const is_x86_musl_exist = x86_musl.get(hash) != null;
+                                if (is_x86_exist) {
+                                    max_bytes_saved += raw_bytes.len;
+                                    std.debug.print("x86 duplicate: {s} {s} ({:2})\n", .{
+                                        libc_target.name,
+                                        rel_path,
+                                        std.fmt.fmtIntSizeDec(raw_bytes.len),
+                                    });
+                                    continue;
+                                }
+                                if (is_x86_musl_exist) {
+                                    max_bytes_saved += raw_bytes.len;
+                                    std.debug.print("x86-musl duplicate: {s} {s} ({:2})\n", .{
+                                        libc_target.name,
+                                        rel_path,
+                                        std.fmt.fmtIntSizeDec(raw_bytes.len),
+                                    });
+                                    continue;
+                                }
+                            }
 
                             if (is_musl_exist) {
                                 max_bytes_saved += raw_bytes.len;
