@@ -395,3 +395,30 @@ export fn sourceLocationFileHtml(sli: SourceLocationIndex) String {
     };
     return String.init(string_result.items);
 }
+
+export fn sourceLocationFileCoveredList(sli_file: SourceLocationIndex) Slice(SourceLocationIndex) {
+    const global = struct {
+        var result: std.ArrayListUnmanaged(SourceLocationIndex) = .{};
+        fn add(i: u32, want_file: Coverage.File.Index) void {
+            const src_loc_index: SourceLocationIndex = @enumFromInt(i);
+            if (src_loc_index.ptr().file == want_file) result.appendAssumeCapacity(src_loc_index);
+        }
+    };
+    const want_file = sli_file.ptr().file;
+    global.result.clearRetainingCapacity();
+    const covered_bits = recent_coverage_update.items[@sizeOf(abi.CoverageUpdateHeader)..];
+    var sli: u32 = 0;
+    for (covered_bits) |byte| {
+        global.result.ensureUnusedCapacity(gpa, 8) catch @panic("OOM");
+        if ((byte & 0b0000_0001) != 0) global.add(sli + 0, want_file);
+        if ((byte & 0b0000_0010) != 0) global.add(sli + 1, want_file);
+        if ((byte & 0b0000_0100) != 0) global.add(sli + 2, want_file);
+        if ((byte & 0b0000_1000) != 0) global.add(sli + 3, want_file);
+        if ((byte & 0b0001_0000) != 0) global.add(sli + 4, want_file);
+        if ((byte & 0b0010_0000) != 0) global.add(sli + 5, want_file);
+        if ((byte & 0b0100_0000) != 0) global.add(sli + 6, want_file);
+        if ((byte & 0b1000_0000) != 0) global.add(sli + 7, want_file);
+        sli += 8;
+    }
+    return Slice(SourceLocationIndex).init(global.result.items);
+}
