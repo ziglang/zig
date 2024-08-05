@@ -14,6 +14,7 @@ const js = struct {
     extern "js" fn panic(ptr: [*]const u8, len: usize) noreturn;
     extern "js" fn emitSourceIndexChange() void;
     extern "js" fn emitCoverageUpdate() void;
+    extern "js" fn emitEntryPointsUpdate() void;
 };
 
 pub const std_options: std.Options = .{
@@ -64,6 +65,7 @@ export fn message_end() void {
     switch (tag) {
         .source_index => return sourceIndexMessage(msg_bytes) catch @panic("OOM"),
         .coverage_update => return coverageUpdateMessage(msg_bytes) catch @panic("OOM"),
+        .entry_points => return entryPointsMessage(msg_bytes) catch @panic("OOM"),
         _ => unreachable,
     }
 }
@@ -219,6 +221,19 @@ fn coverageUpdateMessage(msg_bytes: []u8) error{OutOfMemory}!void {
     js.emitCoverageUpdate();
 }
 
+var entry_points: std.ArrayListUnmanaged(u32) = .{};
+
+fn entryPointsMessage(msg_bytes: []u8) error{OutOfMemory}!void {
+    const header: abi.EntryPointHeader = @bitCast(msg_bytes[0..@sizeOf(abi.EntryPointHeader)].*);
+    entry_points.resize(gpa, header.flags.locs_len) catch @panic("OOM");
+    @memcpy(entry_points.items, std.mem.bytesAsSlice(u32, msg_bytes[@sizeOf(abi.EntryPointHeader)..]));
+    js.emitEntryPointsUpdate();
+}
+
+export fn entryPoints() Slice(u32) {
+    return Slice(u32).init(entry_points.items);
+}
+
 var coverage = Coverage.init;
 var coverage_source_locations: std.ArrayListUnmanaged(Coverage.SourceLocation) = .{};
 /// Contains the most recent coverage update message, unmodified.
@@ -245,4 +260,15 @@ fn updateCoverage(
     try coverage.directories.entries.resize(gpa, directories.len);
     @memcpy(coverage.directories.entries.items(.key), directories);
     try coverage.directories.reIndexContext(gpa, .{ .string_bytes = coverage.string_bytes.items });
+}
+
+export fn sourceLocationLinkHtml(index: u32) String {
+    const sl = coverage_source_locations.items[index];
+    const file_name = coverage.stringAt(coverage.fileAt(sl.file).basename);
+
+    string_result.clearRetainingCapacity();
+    string_result.writer(gpa).print("{s}:{d}:{d}", .{
+        file_name, sl.line, sl.column,
+    }) catch @panic("OOM");
+    return String.init(string_result.items);
 }

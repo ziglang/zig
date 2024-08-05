@@ -32,6 +32,10 @@ pub const Message = struct {
         /// to store coverage information. The integer is a hash of the PCs
         /// stored within that file.
         coverage_id,
+        /// Body is a u64le that indicates the function pointer virtual memory
+        /// address of the fuzz unit test. This is used to provide a starting
+        /// point to view coverage.
+        fuzz_start_addr,
 
         _,
     };

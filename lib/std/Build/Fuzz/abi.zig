@@ -19,6 +19,7 @@ pub const SeenPcsHeader = extern struct {
 pub const ToClientTag = enum(u8) {
     source_index,
     coverage_update,
+    entry_points,
     _,
 };
 
@@ -52,4 +53,17 @@ pub const CoverageUpdateHeader = extern struct {
     n_runs: u64 align(1),
     unique_runs: u64 align(1),
     lowest_stack: u64 align(1),
+};
+
+/// Sent to the fuzzer web client when the set of entry points is updated.
+///
+/// Trailing:
+/// * one u32 index of source_locations per locs_len
+pub const EntryPointHeader = extern struct {
+    flags: Flags,
+
+    pub const Flags = packed struct(u32) {
+        tag: ToClientTag = .entry_points,
+        locs_len: u24,
+    };
 };
