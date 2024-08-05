@@ -219,9 +219,7 @@ fn initSymbols(self: *SharedObject, elf_file: *Elf, opts: struct {
                 self.versionString(self.versyms.items[i]),
             });
             defer gpa.free(mangled);
-            const name_off = @as(u32, @intCast(self.strtab.items.len));
-            try self.strtab.writer(gpa).print("{s}\x00", .{mangled});
-            break :blk name_off;
+            break :blk try self.addString(gpa, mangled);
         } else sym.st_name;
         const out_esym_index: u32 = @intCast(self.symtab.items.len);
         const out_esym = self.symtab.addOneAssumeCapacity();
@@ -230,6 +228,7 @@ fn initSymbols(self: *SharedObject, elf_file: *Elf, opts: struct {
         const out_sym_index = self.addSymbolAssumeCapacity();
         const out_sym = &self.symbols.items[out_sym_index];
         out_sym.value = @intCast(out_esym.st_value);
+        out_sym.name_offset = name_off;
         out_sym.ref = .{ .index = 0, .file = 0 };
         out_sym.esym_index = out_esym_index;
         out_sym.version_index = self.versyms.items[out_esym_index];
@@ -392,6 +391,14 @@ pub fn symbolAliases(self: *SharedObject, index: u32, elf_file: *Elf) []const u3
     } else aliases.items.len;
 
     return aliases.items[start..end];
+}
+
+fn addString(self: *SharedObject, allocator: Allocator, str: []const u8) !u32 {
+    const off: u32 = @intCast(self.strtab.items.len);
+    try self.strtab.ensureUnusedCapacity(allocator, str.len + 1);
+    self.strtab.appendSliceAssumeCapacity(str);
+    self.strtab.appendAssumeCapacity(0);
+    return off;
 }
 
 pub fn getString(self: SharedObject, off: u32) [:0]const u8 {

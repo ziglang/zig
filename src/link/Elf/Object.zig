@@ -561,51 +561,6 @@ pub fn scanRelocs(self: *Object, elf_file: *Elf, undefs: anytype) !void {
     }
 }
 
-pub fn createSymbolIndirection(self: *Object, elf_file: *Elf) !void {
-    for (self.symbols.items, 0..) |*sym, i| {
-        const ref = self.resolveSymbol(@intCast(i), elf_file);
-        const ref_sym = elf_file.symbol(ref) orelse continue;
-        if (ref_sym.file(elf_file).?.index() != self.index) continue;
-        if (!sym.isLocal(elf_file) and !sym.flags.has_dynamic) {
-            log.debug("'{s}' is non-local", .{sym.name(elf_file)});
-            try elf_file.dynsym.addSymbol(ref, elf_file);
-        }
-        if (sym.flags.needs_got) {
-            log.debug("'{s}' needs GOT", .{sym.name(elf_file)});
-            _ = try elf_file.got.addGotSymbol(ref, elf_file);
-        }
-        if (sym.flags.needs_plt) {
-            if (sym.flags.is_canonical) {
-                log.debug("'{s}' needs CPLT", .{sym.name(elf_file)});
-                sym.flags.@"export" = true;
-                try elf_file.plt.addSymbol(ref, elf_file);
-            } else if (sym.flags.needs_got) {
-                log.debug("'{s}' needs PLTGOT", .{sym.name(elf_file)});
-                try elf_file.plt_got.addSymbol(ref, elf_file);
-            } else {
-                log.debug("'{s}' needs PLT", .{sym.name(elf_file)});
-                try elf_file.plt.addSymbol(ref, elf_file);
-            }
-        }
-        if (sym.flags.needs_copy_rel and !sym.flags.has_copy_rel) {
-            log.debug("'{s}' needs COPYREL", .{sym.name(elf_file)});
-            try elf_file.copy_rel.addSymbol(ref, elf_file);
-        }
-        if (sym.flags.needs_tlsgd) {
-            log.debug("'{s}' needs TLSGD", .{sym.name(elf_file)});
-            try elf_file.got.addTlsGdSymbol(ref, elf_file);
-        }
-        if (sym.flags.needs_gottp) {
-            log.debug("'{s}' needs GOTTP", .{sym.name(elf_file)});
-            try elf_file.got.addGotTpSymbol(ref, elf_file);
-        }
-        if (sym.flags.needs_tlsdesc) {
-            log.debug("'{s}' needs TLSDESC", .{sym.name(elf_file)});
-            try elf_file.got.addTlsDescSymbol(ref, elf_file);
-        }
-    }
-}
-
 pub fn resolveSymbols(self: *Object, elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
 

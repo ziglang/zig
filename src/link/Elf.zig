@@ -2060,6 +2060,9 @@ fn scanRelocs(self: *Elf) !void {
     for (self.objects.items) |index| {
         try self.file(index).?.createSymbolIndirection(self);
     }
+    for (self.shared_objects.items) |index| {
+        try self.file(index).?.createSymbolIndirection(self);
+    }
     if (self.got.flags.needs_tlsld) {
         log.debug("program needs TLSLD", .{});
         try self.got.addTlsLdSymbol(self);
@@ -4431,11 +4434,13 @@ pub fn updateSymtabSize(self: *Elf) !void {
         strsize += ctx.strsize;
     }
 
-    if (self.zig_got_section_index) |_| {
-        self.zig_got.output_symtab_ctx.ilocal = nlocals + 1;
-        self.zig_got.updateSymtabSize(self);
-        nlocals += self.zig_got.output_symtab_ctx.nlocals;
-        strsize += self.zig_got.output_symtab_ctx.strsize;
+    if (self.zigObjectPtr()) |_| {
+        if (self.zig_got_section_index) |_| {
+            self.zig_got.output_symtab_ctx.ilocal = nlocals + 1;
+            self.zig_got.updateSymtabSize(self);
+            nlocals += self.zig_got.output_symtab_ctx.nlocals;
+            strsize += self.zig_got.output_symtab_ctx.strsize;
+        }
     }
 
     if (self.got_section_index) |_| {
@@ -4574,7 +4579,9 @@ fn writeSyntheticSections(self: *Elf) !void {
         const shdr = self.shdrs.items[shndx];
         try self.got.addRela(self);
         try self.copy_rel.addRela(self);
-        try self.zig_got.addRela(self);
+        if (self.zigObjectPtr()) |_| {
+            try self.zig_got.addRela(self);
+        }
         self.sortRelaDyn();
         try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.rela_dyn.items), shdr.sh_offset);
     }

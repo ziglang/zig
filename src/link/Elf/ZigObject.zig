@@ -442,64 +442,6 @@ pub fn scanRelocs(self: *ZigObject, elf_file: *Elf, undefs: anytype) !void {
     }
 }
 
-pub fn createSymbolIndirection(self: *ZigObject, elf_file: *Elf) !void {
-    const impl = struct {
-        fn impl(sym: *Symbol, ref: Elf.Ref, ef: *Elf) !void {
-            if (!sym.isLocal(ef) and !sym.flags.has_dynamic) {
-                log.debug("'{s}' is non-local", .{sym.name(ef)});
-                try ef.dynsym.addSymbol(ref, ef);
-            }
-            if (sym.flags.needs_got) {
-                log.debug("'{s}' needs GOT", .{sym.name(ef)});
-                _ = try ef.got.addGotSymbol(ref, ef);
-            }
-            if (sym.flags.needs_plt) {
-                if (sym.flags.is_canonical) {
-                    log.debug("'{s}' needs CPLT", .{sym.name(ef)});
-                    sym.flags.@"export" = true;
-                    try ef.plt.addSymbol(ref, ef);
-                } else if (sym.flags.needs_got) {
-                    log.debug("'{s}' needs PLTGOT", .{sym.name(ef)});
-                    try ef.plt_got.addSymbol(ref, ef);
-                } else {
-                    log.debug("'{s}' needs PLT", .{sym.name(ef)});
-                    try ef.plt.addSymbol(ref, ef);
-                }
-            }
-            if (sym.flags.needs_copy_rel and !sym.flags.has_copy_rel) {
-                log.debug("'{s}' needs COPYREL", .{sym.name(ef)});
-                try ef.copy_rel.addSymbol(ref, ef);
-            }
-            if (sym.flags.needs_tlsgd) {
-                log.debug("'{s}' needs TLSGD", .{sym.name(ef)});
-                try ef.got.addTlsGdSymbol(ref, ef);
-            }
-            if (sym.flags.needs_gottp) {
-                log.debug("'{s}' needs GOTTP", .{sym.name(ef)});
-                try ef.got.addGotTpSymbol(ref, ef);
-            }
-            if (sym.flags.needs_tlsdesc) {
-                log.debug("'{s}' needs TLSDESC", .{sym.name(ef)});
-                try ef.got.addTlsDescSymbol(ref, ef);
-            }
-        }
-    }.impl;
-    for (self.local_symbols.items, 0..) |index, i| {
-        const sym = &self.symbols.items[index];
-        const ref = self.resolveSymbol(@intCast(i), elf_file);
-        const ref_sym = elf_file.symbol(ref) orelse continue;
-        if (ref_sym.file(elf_file).?.index() != self.index) continue;
-        try impl(sym, ref, elf_file);
-    }
-    for (self.global_symbols.items, 0..) |index, i| {
-        const sym = &self.symbols.items[index];
-        const ref = self.resolveSymbol(@intCast(i | global_symbol_bit), elf_file);
-        const ref_sym = elf_file.symbol(ref) orelse continue;
-        if (ref_sym.file(elf_file).?.index() != self.index) continue;
-        try impl(sym, ref, elf_file);
-    }
-}
-
 pub fn markLive(self: *ZigObject, elf_file: *Elf) void {
     for (self.global_symbols.items, 0..) |index, i| {
         const global = self.symbols.items[index];

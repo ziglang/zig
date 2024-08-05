@@ -101,10 +101,74 @@ pub const File = union(enum) {
     }
 
     pub fn createSymbolIndirection(file: File, elf_file: *Elf) !void {
-        return switch (file) {
-            .linker_defined, .shared_object => unreachable,
-            inline else => |x| x.createSymbolIndirection(elf_file),
-        };
+        const impl = struct {
+            fn impl(sym: *Symbol, ref: Elf.Ref, ef: *Elf) !void {
+                if (!sym.isLocal(ef) and !sym.flags.has_dynamic) {
+                    log.debug("'{s}' is non-local", .{sym.name(ef)});
+                    try ef.dynsym.addSymbol(ref, ef);
+                }
+                if (sym.flags.needs_got) {
+                    log.debug("'{s}' needs GOT", .{sym.name(ef)});
+                    _ = try ef.got.addGotSymbol(ref, ef);
+                }
+                if (sym.flags.needs_plt) {
+                    if (sym.flags.is_canonical) {
+                        log.debug("'{s}' needs CPLT", .{sym.name(ef)});
+                        sym.flags.@"export" = true;
+                        try ef.plt.addSymbol(ref, ef);
+                    } else if (sym.flags.needs_got) {
+                        log.debug("'{s}' needs PLTGOT", .{sym.name(ef)});
+                        try ef.plt_got.addSymbol(ref, ef);
+                    } else {
+                        log.debug("'{s}' needs PLT", .{sym.name(ef)});
+                        try ef.plt.addSymbol(ref, ef);
+                    }
+                }
+                if (sym.flags.needs_copy_rel and !sym.flags.has_copy_rel) {
+                    log.debug("'{s}' needs COPYREL", .{sym.name(ef)});
+                    try ef.copy_rel.addSymbol(ref, ef);
+                }
+                if (sym.flags.needs_tlsgd) {
+                    log.debug("'{s}' needs TLSGD", .{sym.name(ef)});
+                    try ef.got.addTlsGdSymbol(ref, ef);
+                }
+                if (sym.flags.needs_gottp) {
+                    log.debug("'{s}' needs GOTTP", .{sym.name(ef)});
+                    try ef.got.addGotTpSymbol(ref, ef);
+                }
+                if (sym.flags.needs_tlsdesc) {
+                    log.debug("'{s}' needs TLSDESC", .{sym.name(ef)});
+                    try ef.got.addTlsDescSymbol(ref, ef);
+                }
+            }
+        }.impl;
+
+        switch (file) {
+            .zig_object => |x| {
+                for (x.local_symbols.items, 0..) |idx, i| {
+                    const sym = &x.symbols.items[idx];
+                    const ref = x.resolveSymbol(@intCast(i), elf_file);
+                    const ref_sym = elf_file.symbol(ref) orelse continue;
+                    if (ref_sym.file(elf_file).?.index() != x.index) continue;
+                    try impl(sym, ref, elf_file);
+                }
+                for (x.global_symbols.items, 0..) |idx, i| {
+                    const sym = &x.symbols.items[idx];
+                    const ref = x.resolveSymbol(@intCast(i | ZigObject.global_symbol_bit), elf_file);
+                    const ref_sym = elf_file.symbol(ref) orelse continue;
+                    if (ref_sym.file(elf_file).?.index() != x.index) continue;
+                    try impl(sym, ref, elf_file);
+                }
+            },
+            inline else => |x| {
+                for (x.symbols.items, 0..) |*sym, i| {
+                    const ref = x.resolveSymbol(@intCast(i), elf_file);
+                    const ref_sym = elf_file.symbol(ref) orelse continue;
+                    if (ref_sym.file(elf_file).?.index() != x.index) continue;
+                    try impl(sym, ref, elf_file);
+                }
+            },
+        }
     }
 
     pub fn atom(file: File, atom_index: Atom.Index) ?*Atom {
@@ -239,6 +303,7 @@ pub const File = union(enum) {
 
 const std = @import("std");
 const elf = std.elf;
+const log = std.log.scoped(.link);
 
 const Allocator = std.mem.Allocator;
 const Archive = @import("Archive.zig");
