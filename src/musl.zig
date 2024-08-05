@@ -303,8 +303,8 @@ pub fn needsCrtiCrtn(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .riscv32,
         .riscv64,
-        .wasm32, .wasm64 => return false,
-        .loongarch64 => return false,
+        .wasm32, .wasm64 => false,
+        .loongarch64 => false,
         else => true,
     };
     // zig fmt: on
