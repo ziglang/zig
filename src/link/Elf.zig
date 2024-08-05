@@ -2021,11 +2021,6 @@ fn scanRelocs(self: *Elf) !void {
         undefs.deinit();
     }
 
-    var objects = try std.ArrayList(File.Index).initCapacity(gpa, self.objects.items.len + 1);
-    defer objects.deinit();
-    if (self.zigObjectPtr()) |zo| objects.appendAssumeCapacity(zo.index);
-    objects.appendSliceAssumeCapacity(self.objects.items);
-
     var has_reloc_errors = false;
     if (self.zigObjectPtr()) |zo| {
         zo.asFile().scanRelocs(self, &undefs) catch |err| switch (err) {
@@ -2062,6 +2057,9 @@ fn scanRelocs(self: *Elf) !void {
     }
     for (self.shared_objects.items) |index| {
         try self.file(index).?.createSymbolIndirection(self);
+    }
+    if (self.linkerDefinedPtr()) |obj| {
+        try obj.asFile().createSymbolIndirection(self);
     }
     if (self.got.flags.needs_tlsld) {
         log.debug("program needs TLSLD", .{});
