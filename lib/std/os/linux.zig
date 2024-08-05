@@ -7175,7 +7175,7 @@ pub const perf_event_attr = extern struct {
     /// Defines size of the user stack to dump on samples.
     sample_stack_user: u32 = 0,
 
-    clockid: clockid_t = .REALTIME,
+    clockid: clockid_t = 0,
     /// Defines set of regs to dump for each sample
     /// state captured on:
     ///  - precise = 0: PMU interrupt
