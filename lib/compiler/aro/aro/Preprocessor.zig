@@ -265,14 +265,13 @@ fn clearBuffers(pp: *Preprocessor) void {
 
 pub fn expansionSlice(pp: *Preprocessor, tok: Tree.TokenIndex) []Source.Location {
     const S = struct {
-        fn order_token_index(context: void, lhs: Tree.TokenIndex, rhs: Tree.TokenIndex) std.math.Order {
-            _ = context;
-            return std.math.order(lhs, rhs);
+        fn orderTokenIndex(context: Tree.TokenIndex, item: Tree.TokenIndex) std.math.Order {
+            return std.math.order(item, context);
         }
     };
 
     const indices = pp.expansion_entries.items(.idx);
-    const idx = std.sort.binarySearch(Tree.TokenIndex, tok, indices, {}, S.order_token_index) orelse return &.{};
+    const idx = std.sort.binarySearch(Tree.TokenIndex, indices, tok, S.orderTokenIndex) orelse return &.{};
     const locs = pp.expansion_entries.items(.locs)[idx];
     var i: usize = 0;
     while (locs[i].id != .unused) : (i += 1) {}
