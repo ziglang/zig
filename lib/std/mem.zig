@@ -1594,6 +1594,7 @@ test containsAtLeast {
 /// T specifies the return type, which must be large enough to store
 /// the result.
 pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: Endian) ReturnType {
+    assert(@typeInfo(ReturnType).Int.bits >= bytes.len * 8);
     const bits = @typeInfo(ReturnType).Int.bits;
     const signedness = @typeInfo(ReturnType).Int.signedness;
     const WorkType = std.meta.Int(signedness, @max(16, bits));
