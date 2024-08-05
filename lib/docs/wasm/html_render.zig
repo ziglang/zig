@@ -16,6 +16,16 @@ pub const RenderSourceOptions = struct {
     skip_comments: bool = false,
     collapse_whitespace: bool = false,
     fn_link: Decl.Index = .none,
+    /// Assumed to be sorted ascending.
+    source_location_annotations: []const Annotation = &.{},
+    /// Concatenated with dom_id.
+    annotation_prefix: []const u8 = "l",
+};
+
+pub const Annotation = struct {
+    file_byte_offset: u32,
+    /// Concatenated with annotation_prefix.
+    dom_id: u32,
 };
 
 pub fn fileSourceHtml(
@@ -51,6 +61,8 @@ pub fn fileSourceHtml(
         }
     }
 
+    var next_annotate_index: usize = 0;
+
     for (
         token_tags[start_token..end_token],
         token_starts[start_token..end_token],
@@ -74,6 +86,18 @@ pub fn fileSourceHtml(
         if (tag == .eof) break;
         const slice = ast.tokenSlice(token_index);
         cursor = start + slice.len;
+
+        // Insert annotations.
+        while (true) {
+            if (next_annotate_index >= options.source_location_annotations.len) break;
+            const next_annotation = options.source_location_annotations[next_annotate_index];
+            if (cursor < next_annotation.file_byte_offset) break;
+            try out.writer(gpa).print("<span id=\"{s}{d}\"></span>", .{
+                options.annotation_prefix, next_annotation.dom_id,
+            });
+            next_annotate_index += 1;
+        }
+
         switch (tag) {
             .eof => unreachable,
 

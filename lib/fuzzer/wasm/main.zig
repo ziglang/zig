@@ -280,11 +280,70 @@ const SourceLocationIndex = enum(u32) {
     ) error{ OutOfMemory, SourceUnavailable }!void {
         const walk_file_index = sli.toWalkFile() orelse return error.SourceUnavailable;
         const root_node = walk_file_index.findRootDecl().get().ast_node;
-        html_render.fileSourceHtml(walk_file_index, out, root_node, .{}) catch |err| {
+        var annotations: std.ArrayListUnmanaged(html_render.Annotation) = .{};
+        defer annotations.deinit(gpa);
+        try computeSourceAnnotations(sli.ptr().file, walk_file_index, &annotations, coverage_source_locations.items);
+        html_render.fileSourceHtml(walk_file_index, out, root_node, .{
+            .source_location_annotations = annotations.items,
+        }) catch |err| {
             fatal("unable to render source: {s}", .{@errorName(err)});
         };
     }
 };
+
+fn computeSourceAnnotations(
+    cov_file_index: Coverage.File.Index,
+    walk_file_index: Walk.File.Index,
+    annotations: *std.ArrayListUnmanaged(html_render.Annotation),
+    source_locations: []const Coverage.SourceLocation,
+) !void {
+    // Collect all the source locations from only this file into this array
+    // first, then sort by line, col, so that we can collect annotations with
+    // O(N) time complexity.
+    var locs: std.ArrayListUnmanaged(SourceLocationIndex) = .{};
+    defer locs.deinit(gpa);
+
+    for (source_locations, 0..) |sl, sli_usize| {
+        if (sl.file != cov_file_index) continue;
+        const sli: SourceLocationIndex = @enumFromInt(sli_usize);
+        try locs.append(gpa, sli);
+    }
+
+    std.mem.sortUnstable(SourceLocationIndex, locs.items, {}, struct {
+        pub fn lessThan(context: void, lhs: SourceLocationIndex, rhs: SourceLocationIndex) bool {
+            _ = context;
+            const lhs_ptr = lhs.ptr();
+            const rhs_ptr = rhs.ptr();
+            if (lhs_ptr.line < rhs_ptr.line) return true;
+            if (lhs_ptr.line > rhs_ptr.line) return false;
+            return lhs_ptr.column < rhs_ptr.column;
+        }
+    }.lessThan);
+
+    const source = walk_file_index.get_ast().source;
+    var line: usize = 1;
+    var column: usize = 1;
+    var next_loc_index: usize = 0;
+    for (source, 0..) |byte, offset| {
+        if (byte == '\n') {
+            line += 1;
+            column = 1;
+        } else {
+            column += 1;
+        }
+        while (true) {
+            if (next_loc_index >= locs.items.len) return;
+            const next_sli = locs.items[next_loc_index];
+            const next_sl = next_sli.ptr();
+            if (next_sl.line > line or (next_sl.line == line and next_sl.column > column)) break;
+            try annotations.append(gpa, .{
+                .file_byte_offset = offset,
+                .dom_id = @intFromEnum(next_sli),
+            });
+            next_loc_index += 1;
+        }
+    }
+}
 
 var coverage = Coverage.init;
 /// Index of type `SourceLocationIndex`.
