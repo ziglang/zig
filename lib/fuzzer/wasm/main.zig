@@ -4,6 +4,7 @@ const abi = std.Build.Fuzz.abi;
 const gpa = std.heap.wasm_allocator;
 const log = std.log;
 const Coverage = std.debug.Coverage;
+const Allocator = std.mem.Allocator;
 
 const Walk = @import("Walk");
 const Decl = Walk.Decl;
@@ -263,12 +264,26 @@ fn updateCoverage(
 }
 
 export fn sourceLocationLinkHtml(index: u32) String {
-    const sl = coverage_source_locations.items[index];
-    const file_name = coverage.stringAt(coverage.fileAt(sl.file).basename);
-
     string_result.clearRetainingCapacity();
-    string_result.writer(gpa).print("{s}:{d}:{d}", .{
-        file_name, sl.line, sl.column,
-    }) catch @panic("OOM");
+    sourceLocationLinkHtmlFallible(index, &string_result) catch @panic("OOM");
     return String.init(string_result.items);
+}
+
+fn sourceLocationLinkHtmlFallible(index: u32, out: *std.ArrayListUnmanaged(u8)) Allocator.Error!void {
+    const sl = coverage_source_locations.items[index];
+    const file = coverage.fileAt(sl.file);
+    const file_name = coverage.stringAt(file.basename);
+    const dir_name = coverage.stringAt(coverage.directories.keys()[file.directory_index]);
+
+    out.clearRetainingCapacity();
+    try out.appendSlice(gpa, "<a href=\"#");
+    _ = html_render.missing_feature_url_escape;
+    try out.writer(gpa).print("{s}/{s}:{d}:{d}", .{
+        dir_name, file_name, sl.line, sl.column,
+    });
+    try out.appendSlice(gpa, "\">");
+    try html_render.appendEscaped(out, dir_name);
+    try out.appendSlice(gpa, "/");
+    try html_render.appendEscaped(out, file_name);
+    try out.writer(gpa).print(":{d}:{d}</a>", .{ sl.line, sl.column });
 }
