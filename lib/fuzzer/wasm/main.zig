@@ -235,7 +235,59 @@ export fn entryPoints() Slice(u32) {
     return Slice(u32).init(entry_points.items);
 }
 
+/// Index into `coverage_source_locations`.
+const SourceLocationIndex = enum(u32) {
+    _,
+
+    fn haveCoverage(sli: SourceLocationIndex) bool {
+        return @intFromEnum(sli) < coverage_source_locations.items.len;
+    }
+
+    fn ptr(sli: SourceLocationIndex) *Coverage.SourceLocation {
+        return &coverage_source_locations.items[@intFromEnum(sli)];
+    }
+
+    fn sourceLocationLinkHtml(
+        sli: SourceLocationIndex,
+        out: *std.ArrayListUnmanaged(u8),
+    ) Allocator.Error!void {
+        const sl = sli.ptr();
+        try out.writer(gpa).print("<a href=\"#l{d}\">", .{@intFromEnum(sli)});
+        try sli.appendPath(out);
+        try out.writer(gpa).print(":{d}:{d}</a>", .{ sl.line, sl.column });
+    }
+
+    fn appendPath(sli: SourceLocationIndex, out: *std.ArrayListUnmanaged(u8)) Allocator.Error!void {
+        const sl = sli.ptr();
+        const file = coverage.fileAt(sl.file);
+        const file_name = coverage.stringAt(file.basename);
+        const dir_name = coverage.stringAt(coverage.directories.keys()[file.directory_index]);
+        try html_render.appendEscaped(out, dir_name);
+        try out.appendSlice(gpa, "/");
+        try html_render.appendEscaped(out, file_name);
+    }
+
+    fn toWalkFile(sli: SourceLocationIndex) ?Walk.File.Index {
+        var buf: std.ArrayListUnmanaged(u8) = .{};
+        defer buf.deinit(gpa);
+        sli.appendPath(&buf) catch @panic("OOM");
+        return @enumFromInt(Walk.files.getIndex(buf.items) orelse return null);
+    }
+
+    fn fileHtml(
+        sli: SourceLocationIndex,
+        out: *std.ArrayListUnmanaged(u8),
+    ) error{ OutOfMemory, SourceUnavailable }!void {
+        const walk_file_index = sli.toWalkFile() orelse return error.SourceUnavailable;
+        const root_node = walk_file_index.findRootDecl().get().ast_node;
+        html_render.fileSourceHtml(walk_file_index, out, root_node, .{}) catch |err| {
+            fatal("unable to render source: {s}", .{@errorName(err)});
+        };
+    }
+};
+
 var coverage = Coverage.init;
+/// Index of type `SourceLocationIndex`.
 var coverage_source_locations: std.ArrayListUnmanaged(Coverage.SourceLocation) = .{};
 /// Contains the most recent coverage update message, unmodified.
 var recent_coverage_update: std.ArrayListUnmanaged(u8) = .{};
@@ -263,27 +315,24 @@ fn updateCoverage(
     try coverage.directories.reIndexContext(gpa, .{ .string_bytes = coverage.string_bytes.items });
 }
 
-export fn sourceLocationLinkHtml(index: u32) String {
+export fn sourceLocationLinkHtml(index: SourceLocationIndex) String {
     string_result.clearRetainingCapacity();
-    sourceLocationLinkHtmlFallible(index, &string_result) catch @panic("OOM");
+    index.sourceLocationLinkHtml(&string_result) catch @panic("OOM");
     return String.init(string_result.items);
 }
 
-fn sourceLocationLinkHtmlFallible(index: u32, out: *std.ArrayListUnmanaged(u8)) Allocator.Error!void {
-    const sl = coverage_source_locations.items[index];
-    const file = coverage.fileAt(sl.file);
-    const file_name = coverage.stringAt(file.basename);
-    const dir_name = coverage.stringAt(coverage.directories.keys()[file.directory_index]);
+/// Returns empty string if coverage metadata is not available for this source location.
+export fn sourceLocationPath(sli: SourceLocationIndex) String {
+    string_result.clearRetainingCapacity();
+    if (sli.haveCoverage()) sli.appendPath(&string_result) catch @panic("OOM");
+    return String.init(string_result.items);
+}
 
-    out.clearRetainingCapacity();
-    try out.appendSlice(gpa, "<a href=\"#");
-    _ = html_render.missing_feature_url_escape;
-    try out.writer(gpa).print("{s}/{s}:{d}:{d}", .{
-        dir_name, file_name, sl.line, sl.column,
-    });
-    try out.appendSlice(gpa, "\">");
-    try html_render.appendEscaped(out, dir_name);
-    try out.appendSlice(gpa, "/");
-    try html_render.appendEscaped(out, file_name);
-    try out.writer(gpa).print(":{d}:{d}</a>", .{ sl.line, sl.column });
+export fn sourceLocationFileHtml(sli: SourceLocationIndex) String {
+    string_result.clearRetainingCapacity();
+    sli.fileHtml(&string_result) catch |err| switch (err) {
+        error.OutOfMemory => @panic("OOM"),
+        error.SourceUnavailable => {},
+    };
+    return String.init(string_result.items);
 }
