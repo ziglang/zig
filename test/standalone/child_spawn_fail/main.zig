@@ -11,25 +11,21 @@ pub fn main() !void {
     _ = args.next() orelse unreachable; // skip executable name
     const child_path = args.next() orelse unreachable;
 
-    var child = std.process.Child.init(&.{ child_path, "30" }, gpa);
+    const argv = if (builtin.os.tag == .windows) &.{""} else &.{ child_path, "30" };
+    var child = std.process.Child.init(argv, gpa);
     child.stdin_behavior = .Ignore;
     child.stderr_behavior = .Ignore;
     child.stdout_behavior = .Pipe;
     child.detached = true;
-
-    // try to put the child in the same process group as the current session
-    // leader, which should fail since the child will be in a different session
-    child.pgid = try std.posix.getsid(0);
+    child.pgid = if (builtin.os.tag == .windows) void{} else try std.posix.getsid(0);
     defer {
         _ = child.kill() catch {};
-        child.deinit();
     }
 
     if (child.spawn()) {
         return error.SpawnSilencedError;
     } else |_| {}
 
-    child.deinit();
     child = std.process.Child.init(&.{ child_path, "30" }, gpa);
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Ignore;
