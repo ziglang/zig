@@ -2263,8 +2263,7 @@ pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
             .char => return 8,
             .short, .ushort => return 16,
             .int, .uint, .float => return 32,
-            .long, .ulong, .double => return 64,
-            .longlong, .ulonglong => return 128,
+            .long, .ulong, .longlong, .ulonglong, .double => return 64,
             // Note: The OpenCL specification does not guarantee a particular size for long double,
             // but clang uses 128 bits.
             .longdouble => return 128,
