@@ -2355,7 +2355,6 @@ pub fn c_type_alignment(target: Target, c_type: CType) u16 {
             .bpfeb,
             .dxil,
             .hexagon,
-            .loongarch64,
             .m68k,
             .mips,
             .mipsel,
@@ -2371,6 +2370,7 @@ pub fn c_type_alignment(target: Target, c_type: CType) u16 {
 
             .aarch64,
             .aarch64_be,
+            .loongarch64,
             .mips64,
             .mips64el,
             .powerpc,
@@ -2467,7 +2467,6 @@ pub fn c_type_preferred_alignment(target: Target, c_type: CType) u16 {
             .dxil,
             .hexagon,
             .x86,
-            .loongarch64,
             .m68k,
             .mips,
             .mipsel,
@@ -2483,6 +2482,7 @@ pub fn c_type_preferred_alignment(target: Target, c_type: CType) u16 {
 
             .aarch64,
             .aarch64_be,
+            .loongarch64,
             .mips64,
             .mips64el,
             .powerpc,
