@@ -80,7 +80,7 @@ pub fn createEmpty(
     errdefer self.deinit();
 
     switch (target.cpu.arch) {
-        .spirv32, .spirv64 => {},
+        .spirv, .spirv32, .spirv64 => {},
         else => unreachable, // Caught by Compilation.Config.resolve.
     }
 
