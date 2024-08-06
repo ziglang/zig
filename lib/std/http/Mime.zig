@@ -1,27 +1,32 @@
 const std = @import("std");
 const testing = std.testing;
+const mem = std.mem;
+const ascii = std.ascii;
+const Header = std.http.Header;
+const ArrayList = std.ArrayList;
+const fmt = std.fmt;
 
 /// An IANA media type.
 ///
 /// Read more: https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types
 pub const Mime = struct {
-    essence: []const u8,
+    essence: []const u8 = "",
 
     // The basetype represents the general category into which the data type falls, such as video or text.
-    basetype: []const u8,
+    basetype: []const u8 = "",
 
     // The subtype identifies the exact kind of data of the specified type the MIME type represents.
     // For example, for the MIME type text, the subtype might be plain (plain text),
     // html (HTML source code), or calendar (for iCalendar/.ics) files.
-    subtype: []const u8,
+    subtype: []const u8 = "",
 
     // An optional parameter can be added to provide additional details:
     // type/subtype;parameter=value
-    params: []Param,
+    params: []Param = &[_]Param{},
 
     fn parseParam(param_string: []const u8) ?Param {
         // Find the equals sign (=) to split into key and value
-        const equals_index = std.mem.indexOf(u8, param_string, "=");
+        const equals_index = mem.indexOf(u8, param_string, "=");
         if (equals_index == null) {
             return null;
         }
@@ -32,14 +37,14 @@ pub const Mime = struct {
         }
 
         var key = param_string[0..equals_index_value];
-        key = std.mem.trimLeft(u8, key, " \t");
+        key = mem.trimLeft(u8, key, " \t");
         // Add the parsed parameter to the list
         if (!isValidParamKey(key)) {
             return null;
         }
 
         var value = param_string[equals_index_value + 1 ..];
-        value = std.mem.trimRight(u8, value, " \t");
+        value = mem.trimRight(u8, value, " \t");
         if (!isValidParamValue(value)) {
             return null;
         }
@@ -49,12 +54,12 @@ pub const Mime = struct {
 
     // Function to parse parameters from a character sequence
     fn parseParams(params_string: []const u8) ?[]Param {
-        var gpa = std.heap.GeneralPurposeAllocator(.{ .verbose_log = true }){};
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
         const allocator = gpa.allocator();
-        var params = std.ArrayList(Param).init(allocator);
+        var params = ArrayList(Param).init(allocator);
 
         // Split the input string by semicolons (;) to get individual parameters
-        var param_list = std.mem.splitScalar(u8, params_string, ';');
+        var param_list = mem.splitScalar(u8, params_string, ';');
 
         if (param_list.buffer.len == 0) {
             const param_part = parseParam(params_string);
@@ -97,7 +102,7 @@ pub const Mime = struct {
         if (key.len == 0) return false;
         // Example validation: Ensure the key contains only printable ASCII characters
         for (key) |c| {
-            if (!std.ascii.isPrint(c)) {
+            if (!ascii.isPrint(c)) {
                 return false;
             }
         }
@@ -114,7 +119,7 @@ pub const Mime = struct {
 
         // Example validation: Ensure the value contains only printable ASCII characters
         for (value) |c| {
-            if (!std.ascii.isPrint(c)) {
+            if (!ascii.isPrint(c)) {
                 return false;
             }
         }
@@ -129,7 +134,7 @@ pub const Mime = struct {
     // Helper function to check if a part contains only valid characters
     fn isValidType(part: []const u8) bool {
         for (part) |c| {
-            if (!std.ascii.isAlphanumeric(c) and c != '-') {
+            if (!ascii.isAlphanumeric(c) and c != '-') {
                 return false;
             }
         }
@@ -144,7 +149,7 @@ pub const Mime = struct {
         }
 
         // const slash_index = mime_type.indexOf('/');
-        const slash_index = std.mem.indexOf(u8, mime_type, "/");
+        const slash_index = mem.indexOf(u8, mime_type, "/");
         if (slash_index == null) return null; // Must contain '/'
 
         const type_part = mime_type[0..slash_index.?];
@@ -154,11 +159,11 @@ pub const Mime = struct {
 
         if (!isValidType(type_part)) return null;
 
-        const subtype_index = std.mem.indexOf(u8, subtype_part, ";");
+        const subtype_index = mem.indexOf(u8, subtype_part, ";");
 
         if (subtype_index == null) {
             // Remove any trailing HTTP whitespace from subtype.
-            subtype_part = std.mem.trimRight(u8, subtype_part, " \t");
+            subtype_part = mem.trimRight(u8, subtype_part, " \t");
             if (!isValidType(subtype_part)) return null;
 
             return .{ .essence = mime_type, .basetype = type_part, .subtype = subtype_part, .params = &[_]Param{} };
@@ -169,13 +174,13 @@ pub const Mime = struct {
         if (subtype.len == 0) return null; // Must have non-empty type and subtype
 
         // Remove any trailing HTTP whitespace from subtype.
-        subtype = std.mem.trimRight(u8, subtype, " \t");
+        subtype = mem.trimRight(u8, subtype, " \t");
         if (!isValidType(subtype)) return null;
 
         // params should not be null
         var params_part = subtype_part[subtype_index.? + 1 ..];
         if (params_part.len == 0) return null;
-        params_part = std.mem.trimLeft(u8, params_part, " \t");
+        params_part = mem.trimLeft(u8, params_part, " \t");
 
         // Validate optional parameters
         const params = parseParams(params_part);
@@ -188,14 +193,43 @@ pub const Mime = struct {
     /// Create a new `Mime`.
     ///
     /// Follows the [WHATWG MIME parsing algorithm](https://mimesniff.spec.whatwg.org/#parsing-a-mime-type).
-    pub fn init(s: []const u8) ?Mime {
-        return parse(s);
+    pub fn init(self: Mime) ?Mime {
+        if (!isValidType(self.basetype) or !isValidType(self.subtype)) {
+            return null;
+        }
+
+        if (self.params.len == 0) {
+            var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+            const allocator = gpa.allocator();
+
+            // The essence is the full MIME type string.
+            const essence_content = fmt.allocPrint(allocator, "{s}/{s}", .{ self.basetype, self.subtype }) catch return null;
+            return .{
+                .essence = essence_content,
+                .basetype = self.basetype,
+                .subtype = self.subtype,
+            };
+        }
+        for (self.params) |param| {
+            if (param.key.len == 0 or param.value.len == 0) {
+                return null;
+            }
+            if (!isValidParamKey(param.key) or !isValidParamValue(param.value)) {
+                return null;
+            }
+        }
+
+        return .{
+            .basetype = self.basetype,
+            .subtype = self.subtype,
+            .params = self.params,
+        };
     }
 
     /// Get a reference to a param.
     pub fn getParam(self: *Mime, name: []const u8) ?[]const u8 {
         for (self.params) |pair| {
-            if (std.ascii.eqlIgnoreCase(pair.key, name)) {
+            if (ascii.eqlIgnoreCase(pair.key, name)) {
                 return pair.value;
             }
         }
@@ -206,15 +240,33 @@ pub const Mime = struct {
     pub fn removeParam(self: *Mime, key: []const u8) ?[]const u8 {
         var index: usize = 0;
         while (index < self.params.len) : (index += 1) {
-            if (std.mem.eql(u8, self.params[index].key, key)) {
+            if (mem.eql(u8, self.params[index].key, key)) {
                 return self.params[index].value;
             }
         }
         return null;
     }
 
-    pub fn values(self: *Mime) !std.ArrayList(std.http.Header) {
-        _ = self;
+    pub fn toHeaderValues(self: *Mime) !ArrayList(Header) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        const allocator = gpa.allocator();
+        var headers = ArrayList(Header).init(allocator);
+        try headers.append(
+            Header{ .name = "Content-Type", .value = self.essence },
+        );
+        return headers;
+    }
+
+    test toHeaderValues {
+        var mime = Mime.init(.{
+            .basetype = "text",
+            .subtype = "plain",
+        });
+        try testing.expect(mime != null);
+        const headers = try mime.?.toHeaderValues();
+        try testing.expect(headers.items.len == 1);
+        try testing.expectEqualStrings("Content-Type", headers.items[0].name);
+        try testing.expectEqualStrings("text/plain", headers.items[0].value);
     }
 };
 
@@ -295,9 +347,9 @@ test "Invalid mime type" {
 test "parse and params" {
     var mime = Mime.parse("text/plain; charset=utf-8; foo=bar");
     try testing.expect(mime != null);
-    try testing.expect(std.mem.eql(u8, mime.?.essence, "text/plain; charset=utf-8; foo=bar"));
-    try testing.expect(std.mem.eql(u8, mime.?.basetype, "text"));
-    try testing.expect(std.mem.eql(u8, mime.?.subtype, "plain"));
+    try testing.expect(mem.eql(u8, mime.?.essence, "text/plain; charset=utf-8; foo=bar"));
+    try testing.expect(mem.eql(u8, mime.?.basetype, "text"));
+    try testing.expect(mem.eql(u8, mime.?.subtype, "plain"));
 
     const charset = mime.?.getParam("charset");
     try testing.expect(charset != null);
