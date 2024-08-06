@@ -4201,10 +4201,11 @@ fn workerDocsWasm(comp: *Compilation, parent_prog_node: std.Progress.Node) void 
     const prog_node = parent_prog_node.start("Compile Autodocs", 0);
     defer prog_node.end();
 
-    workerDocsWasmFallible(comp, prog_node) catch |err| {
-        comp.lockAndSetMiscFailure(.docs_wasm, "unable to build autodocs: {s}", .{
+    workerDocsWasmFallible(comp, prog_node) catch |err| switch (err) {
+        error.SubCompilationFailed => return, // error reported already
+        else => comp.lockAndSetMiscFailure(.docs_wasm, "unable to build autodocs: {s}", .{
             @errorName(err),
-        });
+        }),
     };
 }
 
