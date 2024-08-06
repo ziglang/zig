@@ -649,7 +649,11 @@ fn addEntryPoint(ws: *WebServer, coverage_id: u64, addr: u64) error{ AlreadyRepo
     const ptr = coverage_map.mapped_memory;
     const pcs_bytes = ptr[@sizeOf(abi.SeenPcsHeader)..][0 .. coverage_map.source_locations.len * @sizeOf(usize)];
     const pcs: []const usize = @alignCast(std.mem.bytesAsSlice(usize, pcs_bytes));
-    const index = std.sort.upperBound(usize, addr, pcs, {}, std.sort.asc(usize));
+    const index = std.sort.upperBound(usize, pcs, addr, struct {
+        fn order(context: usize, item: usize) std.math.Order {
+            return std.math.order(item, context);
+        }
+    }.order);
     if (index >= pcs.len) {
         log.err("unable to find unit test entry address 0x{x} in source locations (range: 0x{x} to 0x{x})", .{
             addr, pcs[0], pcs[pcs.len - 1],
