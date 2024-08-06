@@ -1934,26 +1934,30 @@ pub fn stackAlignment(target: Target) u16 {
 /// Note that char signedness is implementation-defined and many compilers provide
 /// an option to override the default signedness e.g. GCC's -funsigned-char / -fsigned-char
 pub fn charSignedness(target: Target) std.builtin.Signedness {
-    switch (target.cpu.arch) {
-        .aarch64,
-        .aarch64_be,
+    if (target.isDarwin() or target.os.tag == .windows or target.os.tag == .uefi) return .signed;
+
+    return switch (target.cpu.arch) {
         .arm,
         .armeb,
         .thumb,
         .thumbeb,
-        => return if (target.os.tag.isDarwin() or target.os.tag == .windows) .signed else .unsigned,
-        .powerpc, .powerpc64 => return if (target.os.tag.isDarwin()) .signed else .unsigned,
+        .aarch64,
+        .aarch64_be,
+        .arc,
+        .csky,
+        .msp430,
+        .powerpc,
         .powerpcle,
+        .powerpc64,
         .powerpc64le,
         .s390x,
-        .xcore,
-        .arc,
-        .msp430,
         .riscv32,
         .riscv64,
-        => return .unsigned,
-        else => return .signed,
-    }
+        .xcore,
+        .xtensa,
+        => .unsigned,
+        else => .signed,
+    };
 }
 
 pub const CType = enum {
