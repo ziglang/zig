@@ -1712,6 +1712,34 @@ pub const S = switch (native_os) {
         pub const IFREG = 0x8000;
         pub const IFSOCK = 0xc000;
         pub const IFMT = IFBLK | IFCHR | IFDIR | IFIFO | IFLNK | IFREG | IFSOCK;
+
+        pub fn ISBLK(m: u32) bool {
+            return m & IFMT == IFBLK;
+        }
+
+        pub fn ISCHR(m: u32) bool {
+            return m & IFMT == IFCHR;
+        }
+
+        pub fn ISDIR(m: u32) bool {
+            return m & IFMT == IFDIR;
+        }
+
+        pub fn ISFIFO(m: u32) bool {
+            return m & IFMT == IFIFO;
+        }
+
+        pub fn ISLNK(m: u32) bool {
+            return m & IFMT == IFLNK;
+        }
+
+        pub fn ISREG(m: u32) bool {
+            return m & IFMT == IFREG;
+        }
+
+        pub fn ISSOCK(m: u32) bool {
+            return m & IFMT == IFSOCK;
+        }
     },
     .macos, .ios, .tvos, .watchos, .visionos => struct {
         pub const IFMT = 0o170000;
@@ -6489,7 +6517,7 @@ pub const Stat = switch (native_os) {
         dev: dev_t,
         ino: ino_t,
         nlink: nlink_t,
-        mode: mode_t,
+        mode: c_uint, // only the file-type bits (S.IFMT), no permission bits
         uid: uid_t,
         gid: gid_t,
         __pad0: c_uint = 0,
