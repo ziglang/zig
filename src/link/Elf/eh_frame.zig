@@ -145,10 +145,10 @@ pub const Cie = struct {
             if (cie_rel.r_addend != other_rel.r_addend) return false;
 
             const cie_object = elf_file.file(cie.file_index).?.object;
+            const cie_ref = cie_object.resolveSymbol(cie_rel.r_sym(), elf_file);
             const other_object = elf_file.file(other.file_index).?.object;
-            const cie_sym = cie_object.symbols.items[cie_rel.r_sym()];
-            const other_sym = other_object.symbols.items[other_rel.r_sym()];
-            if (!std.mem.eql(u8, std.mem.asBytes(&cie_sym), std.mem.asBytes(&other_sym))) return false;
+            const other_ref = other_object.resolveSymbol(other_rel.r_sym(), elf_file);
+            if (!cie_ref.eql(other_ref)) return false;
         }
         return true;
     }

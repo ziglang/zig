@@ -5860,6 +5860,10 @@ pub const Ref = struct {
     index: u32,
     file: u32,
 
+    pub fn eql(ref: Ref, other: Ref) bool {
+        return ref.index == other.index and ref.file == other.file;
+    }
+
     pub fn format(
         ref: Ref,
         comptime unused_fmt_string: []const u8,
