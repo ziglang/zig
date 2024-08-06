@@ -369,7 +369,7 @@ pub const Base64DecoderWithIgnore = struct {
 test "base64" {
     @setEvalBranchQuota(8000);
     try testBase64();
-    try testAllApis(standard, "comptime", "Y29tcHRpbWU=");
+    try comptime testAllApis(standard, "comptime", "Y29tcHRpbWU=");
 }
 
 test "base64 padding dest overflow" {
@@ -389,7 +389,7 @@ test "base64 padding dest overflow" {
 test "base64 url_safe_no_pad" {
     @setEvalBranchQuota(8000);
     try testBase64UrlSafeNoPad();
-    try testAllApis(url_safe_no_pad, "comptime", "Y29tcHRpbWU");
+    try comptime testAllApis(url_safe_no_pad, "comptime", "Y29tcHRpbWU");
 }
 
 fn testBase64() !void {
@@ -493,10 +493,9 @@ fn testAllApis(codecs: Codecs, expected_decoded: []const u8, expected_encoded: [
         try testing.expectEqualSlices(u8, expected_encoded, encoded);
 
         // stream encode
-        var list = std.ArrayList(u8).init(testing.allocator);
-        defer list.deinit();
+        var list = try std.BoundedArray(u8, 0x100).init(0);
         try codecs.Encoder.encodeWriter(list.writer(), expected_decoded);
-        try testing.expectEqualSlices(u8, expected_encoded, list.items);
+        try testing.expectEqualSlices(u8, expected_encoded, list.slice());
     }
 
 
