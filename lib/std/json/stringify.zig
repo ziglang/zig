@@ -332,7 +332,7 @@ pub fn WriteStream(
             try self.stream.writeByteNTimes(char, n_chars);
         }
 
-        fn valueStart(self: *Self) !void {
+        pub fn valueStart(self: *Self) !void {
             if (self.isObjectKeyExpected()) |is_it| assert(!is_it); // Call objectField*(), not write(), for object keys.
             return self.valueStartAssumeTypeOk();
         }
@@ -363,7 +363,7 @@ pub fn WriteStream(
                 },
             }
         }
-        fn valueDone(self: *Self) void {
+        pub fn valueDone(self: *Self) void {
             self.next_punctuation = .comma;
         }
 
