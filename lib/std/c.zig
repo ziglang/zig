@@ -1704,17 +1704,44 @@ pub const S = switch (native_os) {
     .linux => linux.S,
     .emscripten => emscripten.S,
     .wasi => struct {
-        pub const IEXEC = @compileError("TODO audit this");
+        // Match wasi-libc's libc-bottom-half/headers/public/__mode_t.h
+        // NOTE: this S struct is also used by Wasi-without-libc
         pub const IFBLK = 0x6000;
         pub const IFCHR = 0x2000;
         pub const IFDIR = 0x4000;
-        pub const IFIFO = 0xc000;
         pub const IFLNK = 0xa000;
-        pub const IFMT = IFBLK | IFCHR | IFDIR | IFIFO | IFLNK | IFREG | IFSOCK;
         pub const IFREG = 0x8000;
-        /// There's no concept of UNIX domain socket but we define this value here
-        /// in order to line with other OSes.
-        pub const IFSOCK = 0x1;
+        pub const IFSOCK = 0xc000;
+        pub const IFIFO = 0x1000;
+        pub const IFMT = IFBLK | IFCHR | IFDIR | IFIFO | IFLNK | IFREG | IFSOCK;
+
+        pub fn ISBLK(m: u32) bool {
+            return m & IFMT == IFBLK;
+        }
+
+        pub fn ISCHR(m: u32) bool {
+            return m & IFMT == IFCHR;
+        }
+
+        pub fn ISDIR(m: u32) bool {
+            return m & IFMT == IFDIR;
+        }
+
+        pub fn ISFIFO(m: u32) bool {
+            return m & IFMT == IFIFO;
+        }
+
+        pub fn ISLNK(m: u32) bool {
+            return m & IFMT == IFLNK;
+        }
+
+        pub fn ISREG(m: u32) bool {
+            return m & IFMT == IFREG;
+        }
+
+        pub fn ISSOCK(m: u32) bool {
+            return m & IFMT == IFSOCK;
+        }
     },
     .macos, .ios, .tvos, .watchos, .visionos => struct {
         pub const IFMT = 0o170000;
@@ -6372,7 +6399,7 @@ pub const Stat = switch (native_os) {
         dev: dev_t,
         ino: ino_t,
         nlink: nlink_t,
-        mode: mode_t,
+        mode: c_uint, // wasi-libc only the file-type bits (S.IFMT) no permission bits
         uid: uid_t,
         gid: gid_t,
         __pad0: c_uint = 0,

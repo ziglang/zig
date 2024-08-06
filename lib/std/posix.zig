@@ -77,6 +77,7 @@ else switch (native_os) {
         };
 
         pub const Stat = std.c.Stat; // libc Stat has nice conversion code to/from Wasi stat structure
+        pub const S = std.c.S; // libc S has all nice file-type conversions
 
         pub const mode_t = void; // Wasi does not (yet) support file mode/permission bits
 
