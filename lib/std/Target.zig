@@ -2250,7 +2250,7 @@ pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
             .longdouble => return 64,
         },
 
-        .amdhsa, .amdpal => switch (c_type) {
+        .amdhsa, .amdpal, .mesa3d => switch (c_type) {
             .char => return 8,
             .short, .ushort => return 16,
             .int, .uint, .float => return 32,
@@ -2280,7 +2280,6 @@ pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
         .rtems,
         .aix,
         .elfiamcu,
-        .mesa3d,
         .contiki,
         .hermit,
         .hurd,
