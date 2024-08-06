@@ -1875,11 +1875,10 @@ pub fn ptrBitWidth_cpu_abi(cpu: Cpu, abi: Abi) u16 {
         .sparc64,
         .s390x,
         .ve,
+        .spirv,
         .spirv64,
         .loongarch64,
         => 64,
-
-        .spirv => @panic("TODO what should this value be?"),
     };
 }
 
@@ -2359,6 +2358,7 @@ pub fn c_type_alignment(target: Target, c_type: CType) u16 {
             .nvptx,
             .nvptx64,
             .s390x,
+            .spirv,
             .spirv32,
             .spirv64,
             => 8,
@@ -2380,8 +2380,6 @@ pub fn c_type_alignment(target: Target, c_type: CType) u16 {
             .wasm32,
             .wasm64,
             => 16,
-
-            .spirv => @panic("TODO what should this value be?"),
         }),
     );
 }
@@ -2471,6 +2469,7 @@ pub fn c_type_preferred_alignment(target: Target, c_type: CType) u16 {
             .nvptx,
             .nvptx64,
             .s390x,
+            .spirv,
             .spirv32,
             .spirv64,
             => 8,
@@ -2492,8 +2491,6 @@ pub fn c_type_preferred_alignment(target: Target, c_type: CType) u16 {
             .wasm32,
             .wasm64,
             => 16,
-
-            .spirv => @panic("TODO what should this value be?"),
         }),
     );
 }
