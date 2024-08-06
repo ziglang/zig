@@ -1854,12 +1854,12 @@ pub fn ptrBitWidth_cpu_abi(cpu: Cpu, abi: Abi) u16 {
         .wasm32,
         .spirv32,
         .loongarch32,
-        .dxil,
         .xtensa,
         => 32,
 
         .aarch64,
         .aarch64_be,
+        .dxil,
         .mips64,
         .mips64el,
         .powerpc64,
