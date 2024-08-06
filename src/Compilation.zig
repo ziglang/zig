@@ -4275,8 +4275,29 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
         .cc_argv = &.{},
         .parent = null,
         .builtin_mod = null,
-        .builtin_modules = null, // there is only one module in this compilation
+        .builtin_modules = null,
     });
+    const walk_mod = try Package.Module.create(arena, .{
+        .global_cache_directory = comp.global_cache_directory,
+        .paths = .{
+            .root = .{
+                .root_dir = comp.zig_lib_directory,
+                .sub_path = "docs/wasm",
+            },
+            .root_src_path = "Walk.zig",
+        },
+        .fully_qualified_name = "Walk",
+        .inherited = .{
+            .resolved_target = resolved_target,
+            .optimize_mode = optimize_mode,
+        },
+        .global = config,
+        .cc_argv = &.{},
+        .parent = root_mod,
+        .builtin_mod = root_mod.getBuiltinDependency(),
+        .builtin_modules = null, // `builtin_mod` is set
+    });
+    try root_mod.deps.put(arena, "Walk", walk_mod);
     const bin_basename = try std.zig.binNameAlloc(arena, .{
         .root_name = root_name,
         .target = resolved_target.result,
