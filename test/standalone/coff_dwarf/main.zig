@@ -17,11 +17,11 @@ pub fn main() !void {
 
     const module = try debug_info.getModuleForAddress(add_addr);
     const symbol = try module.getSymbolAtAddress(allocator, add_addr);
-    defer symbol.deinit(allocator);
+    defer allocator.free(symbol.name);
 
-    try testing.expectEqualStrings("add", symbol.symbol_name);
-    try testing.expect(symbol.line_info != null);
-    try testing.expectEqualStrings("shared_lib.c", std.fs.path.basename(symbol.line_info.?.file_name));
-    try testing.expectEqual(@as(u64, 3), symbol.line_info.?.line);
-    try testing.expectEqual(@as(u64, 0), symbol.line_info.?.column);
+    try testing.expectEqualStrings("add", symbol.name);
+    try testing.expect(symbol.source_location != null);
+    try testing.expectEqualStrings("shared_lib.c", std.fs.path.basename(symbol.source_location.?.file_name));
+    try testing.expectEqual(@as(u64, 3), symbol.source_location.?.line);
+    try testing.expectEqual(@as(u64, 0), symbol.source_location.?.column);
 }
