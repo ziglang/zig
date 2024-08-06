@@ -1889,45 +1889,53 @@ pub fn ptrBitWidth(target: Target) u16 {
 }
 
 pub fn stackAlignment(target: Target) u16 {
-    return switch (target.cpu.arch) {
-        .m68k => 2,
-        .amdgcn => 4,
-        .x86 => switch (target.os.tag) {
-            .windows, .uefi => 4,
-            else => 16,
-        },
-        .arm,
-        .armeb,
-        .thumb,
-        .thumbeb,
+    // Overrides for when the stack alignment is not equal to the pointer width.
+    switch (target.cpu.arch) {
+        .m68k,
+        => return 2,
+        .amdgcn,
+        => return 4,
+        .lanai,
         .mips,
         .mipsel,
         .sparc,
-        => 8,
+        => return 8,
         .aarch64,
         .aarch64_be,
         .bpfeb,
         .bpfel,
+        .loongarch32,
+        .loongarch64,
         .mips64,
         .mips64el,
-        .riscv64,
         .sparc64,
-        .x86_64,
         .ve,
         .wasm32,
         .wasm64,
-        .loongarch64,
-        => 16,
-        .riscv32,
-        => if (Target.riscv.featureSetHas(target.cpu.features, .e)) 4 else 16,
+        => return 16,
+        // Some of the following prongs should really be testing the ABI (e.g. for Arm, it's APCS vs
+        // AAPCS16 vs AAPCS). But our current Abi enum is not able to handle that level of nuance.
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        => switch (target.os.tag) {
+            .netbsd => {},
+            .watchos => return 16,
+            else => return 8,
+        },
         .powerpc64,
         .powerpc64le,
-        => switch (target.os.tag) {
-            else => 8,
-            .linux => 16,
-        },
-        else => @divExact(target.ptrBitWidth(), 8),
-    };
+        => if (target.os.tag == .linux or target.os.tag == .aix) return 16,
+        .riscv32,
+        .riscv64,
+        => if (!Target.riscv.featureSetHas(target.cpu.features, .e)) return 16,
+        .x86 => if (target.os.tag != .windows and target.os.tag != .uefi) return 16,
+        .x86_64 => return if (target.os.tag == .elfiamcu) 4 else 16,
+        else => {},
+    }
+
+    return @divExact(target.ptrBitWidth(), 8);
 }
 
 /// Default signedness of `char` for the native C compiler for this target
