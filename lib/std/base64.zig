@@ -5,6 +5,7 @@ const assert = std.debug.assert;
 const builtin = @import("builtin");
 const testing = std.testing;
 const mem = std.mem;
+const window = mem.window;
 
 pub const Error = error{
     InvalidCharacter,
@@ -95,6 +96,15 @@ pub const Base64Encoder = struct {
         } else {
             const leftover = source_len % 3;
             return @divTrunc(source_len, 3) * 4 + @divTrunc(leftover * 4 + 2, 3);
+        }
+    }
+
+    pub fn encodeWriter(encoder: *const Base64Encoder, dest: anytype, source: []const u8) !void {
+        var temp = [_]u8{0} ** 5;
+        var chunker = window(u8, source, 3, 3);
+        while(chunker.next()) |chunk| {
+            const s = encoder.encode(&temp, chunk);
+            try dest.writeAll(s);
         }
     }
 
@@ -359,7 +369,7 @@ pub const Base64DecoderWithIgnore = struct {
 test "base64" {
     @setEvalBranchQuota(8000);
     try testBase64();
-    try comptime testAllApis(standard, "comptime", "Y29tcHRpbWU=");
+    try testAllApis(standard, "comptime", "Y29tcHRpbWU=");
 }
 
 test "base64 padding dest overflow" {
@@ -379,7 +389,7 @@ test "base64 padding dest overflow" {
 test "base64 url_safe_no_pad" {
     @setEvalBranchQuota(8000);
     try testBase64UrlSafeNoPad();
-    try comptime testAllApis(url_safe_no_pad, "comptime", "Y29tcHRpbWU");
+    try testAllApis(url_safe_no_pad, "comptime", "Y29tcHRpbWU");
 }
 
 fn testBase64() !void {
@@ -477,10 +487,18 @@ fn testBase64UrlSafeNoPad() !void {
 fn testAllApis(codecs: Codecs, expected_decoded: []const u8, expected_encoded: []const u8) !void {
     // Base64Encoder
     {
+        // raw encode
         var buffer: [0x100]u8 = undefined;
         const encoded = codecs.Encoder.encode(&buffer, expected_decoded);
         try testing.expectEqualSlices(u8, expected_encoded, encoded);
+
+        // stream encode
+        var list = std.ArrayList(u8).init(testing.allocator);
+        defer list.deinit();
+        try codecs.Encoder.encodeWriter(list.writer(), expected_decoded);
+        try testing.expectEqualSlices(u8, expected_encoded, list.items);
     }
+
 
     // Base64Decoder
     {
