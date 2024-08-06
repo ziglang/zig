@@ -1852,6 +1852,7 @@ pub fn ptrBitWidth_cpu_abi(cpu: Cpu, abi: Abi) u16 {
         .kalimba,
         .lanai,
         .wasm32,
+        .sparc,
         .spirv32,
         .loongarch32,
         .xtensa,
@@ -1877,8 +1878,6 @@ pub fn ptrBitWidth_cpu_abi(cpu: Cpu, abi: Abi) u16 {
         .spirv64,
         .loongarch64,
         => 64,
-
-        .sparc => if (std.Target.sparc.featureSetHas(cpu.features, .v9)) 64 else 32,
 
         .spirv => @panic("TODO what should this value be?"),
     };
