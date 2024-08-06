@@ -1563,7 +1563,11 @@ pub fn intAbiAlignment(bits: u16, target: Target, use_llvm: bool) Alignment {
             0 => .none,
             1...8 => .@"1",
             9...16 => .@"2",
-            17...64 => .@"4",
+            17...32 => .@"4",
+            33...64 => switch (target.os.tag) {
+                .uefi, .windows => .@"8",
+                else => .@"4",
+            },
             else => .@"16",
         },
         .x86_64 => switch (bits) {
