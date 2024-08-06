@@ -102,7 +102,7 @@ pub const Base64Encoder = struct {
     pub fn encodeWriter(encoder: *const Base64Encoder, dest: anytype, source: []const u8) !void {
         var temp = [_]u8{0} ** 5;
         var chunker = window(u8, source, 3, 3);
-        while(chunker.next()) |chunk| {
+        while (chunker.next()) |chunk| {
             const s = encoder.encode(&temp, chunk);
             try dest.writeAll(s);
         }
@@ -497,7 +497,6 @@ fn testAllApis(codecs: Codecs, expected_decoded: []const u8, expected_encoded: [
         try codecs.Encoder.encodeWriter(list.writer(), expected_decoded);
         try testing.expectEqualSlices(u8, expected_encoded, list.slice());
     }
-
 
     // Base64Decoder
     {
