@@ -2065,6 +2065,7 @@ pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
                     .wasm64,
                     .loongarch32,
                     .loongarch64,
+                    .ve,
                     => return 128,
 
                     else => return 64,
@@ -2170,6 +2171,7 @@ pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
                     .wasm64,
                     .loongarch32,
                     .loongarch64,
+                    .ve,
                     => return 128,
 
                     else => return 64,
