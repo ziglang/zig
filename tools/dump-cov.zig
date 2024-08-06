@@ -53,15 +53,18 @@ pub fn main() !void {
     }
     assert(std.sort.isSorted(usize, pcs, {}, std.sort.asc(usize)));
 
+    const seen_pcs = cov_bytes[@sizeOf(SeenPcsHeader) + pcs.len * @sizeOf(usize) ..];
+
     const source_locations = try arena.alloc(std.debug.Coverage.SourceLocation, pcs.len);
     try debug_info.resolveAddresses(gpa, pcs, source_locations);
 
-    for (pcs, source_locations) |pc, sl| {
+    for (pcs, source_locations, 0..) |pc, sl, i| {
         const file = debug_info.coverage.fileAt(sl.file);
         const dir_name = debug_info.coverage.directories.keys()[file.directory_index];
         const dir_name_slice = debug_info.coverage.stringAt(dir_name);
-        try stdout.print("{x}: {s}/{s}:{d}:{d}\n", .{
-            pc, dir_name_slice, debug_info.coverage.stringAt(file.basename), sl.line, sl.column,
+        const hit: u1 = @truncate(seen_pcs[i / 8] >> @intCast(i % 8));
+        try stdout.print("{c}{x}: {s}/{s}:{d}:{d}\n", .{
+            "-+"[hit], pc, dir_name_slice, debug_info.coverage.stringAt(file.basename), sl.line, sl.column,
         });
     }
 
