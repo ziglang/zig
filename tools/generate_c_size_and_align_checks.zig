@@ -53,5 +53,9 @@ pub fn main() !void {
             c_name(c_type),
             target.c_type_alignment(c_type),
         });
+        try stdout.print("_Static_assert(__alignof({0s}) == {1d}, \"__alignof({0s}) == {1d}\");\n\n", .{
+            c_name(c_type),
+            target.c_type_preferred_alignment(c_type),
+        });
     }
 }
