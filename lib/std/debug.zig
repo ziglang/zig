@@ -998,12 +998,12 @@ test printLineFromFileAnyOs {
 
     var test_dir = std.testing.tmpDir(.{});
     defer test_dir.cleanup();
-    // Relies on testing.tmpDir internals which is not ideal, but SourceLocation requires paths.
+    // Relies on testing.tmpDir internals which is not ideal, but SourceLocation requires paths relative to cwd.
     const test_dir_path = try join(allocator, &.{ ".zig-cache", "tmp", test_dir.sub_path[0..] });
     defer allocator.free(test_dir_path);
 
-    // Cases
     {
+        // no newlines in file
         const path = try join(allocator, &.{ test_dir_path, "one_line.zig" });
         defer allocator.free(path);
         try test_dir.dir.writeFile(.{ .sub_path = "one_line.zig", .data = "no new lines in this file, but one is printed anyway" });
@@ -1015,6 +1015,7 @@ test printLineFromFileAnyOs {
         output.clearRetainingCapacity();
     }
     {
+        // print 1 & 3 of 3-line file
         const path = try join(allocator, &.{ test_dir_path, "three_lines.zig" });
         defer allocator.free(path);
         try test_dir.dir.writeFile(.{
@@ -1035,6 +1036,7 @@ test printLineFromFileAnyOs {
         output.clearRetainingCapacity();
     }
     {
+        // mem.page_size boundary crossing line
         const file = try test_dir.dir.createFile("line_overlaps_page_boundary.zig", .{});
         defer file.close();
         const path = try join(allocator, &.{ test_dir_path, "line_overlaps_page_boundary.zig" });
@@ -1051,6 +1053,7 @@ test printLineFromFileAnyOs {
         output.clearRetainingCapacity();
     }
     {
+        // ends on mem.page_size boundary
         const file = try test_dir.dir.createFile("file_ends_on_page_boundary.zig", .{});
         defer file.close();
         const path = try join(allocator, &.{ test_dir_path, "file_ends_on_page_boundary.zig" });
@@ -1064,6 +1067,7 @@ test printLineFromFileAnyOs {
         output.clearRetainingCapacity();
     }
     {
+        // multi-mem.page_size "line"
         const file = try test_dir.dir.createFile("very_long_first_line_spanning_multiple_pages.zig", .{});
         defer file.close();
         const path = try join(allocator, &.{ test_dir_path, "very_long_first_line_spanning_multiple_pages.zig" });
@@ -1089,6 +1093,7 @@ test printLineFromFileAnyOs {
         output.clearRetainingCapacity();
     }
     {
+        // mem.page_size pages of newlines
         const file = try test_dir.dir.createFile("file_of_newlines.zig", .{});
         defer file.close();
         const path = try join(allocator, &.{ test_dir_path, "file_of_newlines.zig" });
