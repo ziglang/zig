@@ -45,11 +45,11 @@ pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
     inline for (@typeInfo(std.Target.CType).Enum.fields) |field| {
         const c_type: std.Target.CType = @enumFromInt(field.value);
-        try stdout.print("_Static_assert(sizeof({s}) == {d}, \"\");\n", .{
+        try stdout.print("_Static_assert(sizeof({0s}) == {1d}, \"sizeof({0s}) == {1d}\");\n", .{
             c_name(c_type),
             target.c_type_byte_size(c_type),
         });
-        try stdout.print("_Static_assert(_Alignof({s}) == {d}, \"\");\n\n", .{
+        try stdout.print("_Static_assert(_Alignof({0s}) == {1d}, \"_Alignof({0s}) == {1d}\");\n\n", .{
             c_name(c_type),
             target.c_type_alignment(c_type),
         });
