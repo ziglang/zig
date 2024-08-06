@@ -97,6 +97,9 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
         .output_file = .{ .step = &config_header.step },
     };
 
+    if (options.style.getPath()) |s| {
+        s.addStepDependencies(&config_header.step);
+    }
     return config_header;
 }
 
