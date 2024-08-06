@@ -1947,8 +1947,6 @@ pub fn statLinkZ(self: Dir, sub_path_c: [*:0]const u8) StatFileError!Stat {
 
 /// Windows only. Same as `Dir.statLink`
 pub fn statLinkW(self: Dir, sub_path_w: []const u16) StatFileError!Stat {
-    // note: it is possible to stat the file directly using `NtQueryInformatioByName`
-    // see PR #20843 (resolved comments) for why it has not been implemented
     const file = File{
         .handle = try windows.OpenFile(sub_path_w, .{
             .dir = self.fd,
@@ -2747,8 +2745,6 @@ pub const StatFileError = File.OpenError || File.StatError || posix.FStatAtError
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
 pub fn statFile(self: Dir, sub_path: []const u8) StatFileError!Stat {
     if (native_os == .windows) {
-        // note: it is possible to stat the file directly using `NtQueryInformatioByName`
-        // see PR #20843 for why it has not been implemented
         const file = try self.openFile(sub_path, .{});
         defer file.close();
         return try file.stat();

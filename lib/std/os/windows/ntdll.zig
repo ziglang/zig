@@ -93,13 +93,6 @@ pub extern "ntdll" fn RtlVirtualUnwind(
     EstablisherFrame: *DWORD64,
     ContextPointers: ?*KNONVOLATILE_CONTEXT_POINTERS,
 ) callconv(WINAPI) *EXCEPTION_ROUTINE;
-pub extern "ntdll" fn NtQueryInformationByName(
-    ObjectAttributes: *OBJECT_ATTRIBUTES,
-    IoStatusBlock: *IO_STATUS_BLOCK,
-    FileInformation: *anyopaque,
-    Length: ULONG,
-    FileInformationClass: FILE_INFORMATION_CLASS,
-) callconv(WINAPI) NTSTATUS;
 pub extern "ntdll" fn NtQueryInformationFile(
     FileHandle: HANDLE,
     IoStatusBlock: *IO_STATUS_BLOCK,
