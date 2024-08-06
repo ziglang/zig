@@ -1,5 +1,4 @@
 const std = @import("std");
-const DW = std.dwarf;
 const assert = std.debug.assert;
 const testing = std.testing;
 const Target = std.Target;
@@ -207,8 +206,8 @@ pub const Register = enum(u8) {
         return @truncate(@intFromEnum(reg));
     }
 
-    pub fn dwarfLocOp(reg: Register) u8 {
-        return @as(u8, reg.id());
+    pub fn dwarfNum(reg: Register) u8 {
+        return reg.id();
     }
 
     pub fn bitSize(reg: Register, zcu: *const Zcu) u32 {

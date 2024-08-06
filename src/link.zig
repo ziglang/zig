@@ -329,6 +329,9 @@ pub const File = struct {
         }
     }
 
+    pub const UpdateDebugInfoError = Dwarf.UpdateError;
+    pub const FlushDebugInfoError = Dwarf.FlushError;
+
     pub const UpdateNavError = error{
         OutOfMemory,
         Overflow,
@@ -365,7 +368,7 @@ pub const File = struct {
         DeviceBusy,
         InvalidArgument,
         HotSwapUnavailableOnHostOperatingSystem,
-    };
+    } || UpdateDebugInfoError;
 
     /// Called from within CodeGen to retrieve the symbol index of a global symbol.
     /// If no symbol exists yet with this name, a new undefined global symbol will
@@ -394,6 +397,16 @@ pub const File = struct {
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).updateNav(pt, nav_index);
+            },
+        }
+    }
+
+    pub fn updateContainerType(base: *File, pt: Zcu.PerThread, ty: InternPool.Index) UpdateNavError!void {
+        switch (base.tag) {
+            else => {},
+            inline .elf => |tag| {
+                dev.check(tag.devFeature());
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateContainerType(pt, ty);
             },
         }
     }
@@ -570,6 +583,7 @@ pub const File = struct {
         Unseekable,
         UnsupportedCpuArchitecture,
         UnsupportedVersion,
+        UnexpectedEndOfFile,
     } ||
         fs.File.WriteFileError ||
         fs.File.OpenError ||

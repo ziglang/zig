@@ -128,7 +128,7 @@ pub fn alignAllocLen(full_len: usize, alloc_len: usize, len_align: u29) usize {
     assert(full_len >= alloc_len);
     if (len_align == 0)
         return alloc_len;
-    const adjusted = alignBackwardAnyAlign(full_len, len_align);
+    const adjusted = alignBackwardAnyAlign(usize, full_len, len_align);
     assert(adjusted >= alloc_len);
     return adjusted;
 }
@@ -4312,6 +4312,15 @@ test "sliceAsBytes preserves pointer attributes" {
     try testing.expectEqual(in.alignment, out.alignment);
 }
 
+/// Round an address down to the next (or current) aligned address.
+/// Unlike `alignForward`, `alignment` can be any positive number, not just a power of 2.
+pub fn alignForwardAnyAlign(comptime T: type, addr: T, alignment: T) T {
+    if (isValidAlignGeneric(T, alignment))
+        return alignForward(T, addr, alignment);
+    assert(alignment != 0);
+    return alignBackwardAnyAlign(T, addr + (alignment - 1), alignment);
+}
+
 /// Round an address up to the next (or current) aligned address.
 /// The alignment must be a power of 2 and greater than 0.
 /// Asserts that rounding up the address does not cause integer overflow.
@@ -4433,11 +4442,11 @@ test alignForward {
 
 /// Round an address down to the previous (or current) aligned address.
 /// Unlike `alignBackward`, `alignment` can be any positive number, not just a power of 2.
-pub fn alignBackwardAnyAlign(i: usize, alignment: usize) usize {
-    if (isValidAlign(alignment))
-        return alignBackward(usize, i, alignment);
+pub fn alignBackwardAnyAlign(comptime T: type, addr: T, alignment: T) T {
+    if (isValidAlignGeneric(T, alignment))
+        return alignBackward(T, addr, alignment);
     assert(alignment != 0);
-    return i - @mod(i, alignment);
+    return addr - @mod(addr, alignment);
 }
 
 /// Round an address down to the previous (or current) aligned address.

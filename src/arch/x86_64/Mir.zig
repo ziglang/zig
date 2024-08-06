@@ -1204,7 +1204,7 @@ pub const FrameLoc = struct {
 pub fn resolveFrameLoc(mir: Mir, mem: Memory) Memory {
     return switch (mem.info.base) {
         .none, .reg, .reloc => mem,
-        .frame => if (mir.frame_locs.len > 0) Memory{
+        .frame => if (mir.frame_locs.len > 0) .{
             .info = .{
                 .base = .reg,
                 .mod = mem.info.mod,

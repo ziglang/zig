@@ -4677,9 +4677,7 @@ fn genArgDbgInfo(func: Func, inst: Air.Inst.Index, mcv: MCValue) !void {
 
     switch (func.debug_output) {
         .dwarf => |dw| switch (mcv) {
-            .register => |reg| try dw.genArgDbgInfo(name, ty, func.owner.nav_index, .{
-                .register = reg.dwarfLocOp(),
-            }),
+            .register => |reg| try dw.genVarDebugInfo(.local_arg, name, ty, .{ .reg = reg.dwarfNum() }),
             .load_frame => {},
             else => {},
         },
@@ -5184,43 +5182,30 @@ fn airDbgVar(func: *Func, inst: Air.Inst.Index) !void {
 
     const name = func.air.nullTerminatedString(pl_op.payload);
 
-    const tag = func.air.instructions.items(.tag)[@intFromEnum(inst)];
-    try func.genVarDbgInfo(tag, ty, mcv, name);
+    try func.genVarDbgInfo(ty, mcv, name);
 
     return func.finishAir(inst, .unreach, .{ operand, .none, .none });
 }
 
 fn genVarDbgInfo(
     func: Func,
-    tag: Air.Inst.Tag,
     ty: Type,
     mcv: MCValue,
-    name: [:0]const u8,
+    name: []const u8,
 ) !void {
-    const is_ptr = switch (tag) {
-        .dbg_var_ptr => true,
-        .dbg_var_val => false,
-        else => unreachable,
-    };
-
     switch (func.debug_output) {
-        .dwarf => |dw| {
-            const loc: link.File.Dwarf.NavState.DbgInfoLoc = switch (mcv) {
-                .register => |reg| .{ .register = reg.dwarfLocOp() },
-                .memory => |address| .{ .memory = address },
-                .load_symbol => |sym_off| loc: {
-                    assert(sym_off.off == 0);
-                    break :loc .{ .linker_load = .{ .type = .direct, .sym_index = sym_off.sym } };
-                },
-                .immediate => |x| .{ .immediate = x },
-                .undef => .undef,
-                .none => .none,
+        .dwarf => |dwarf| {
+            const loc: link.File.Dwarf.Loc = switch (mcv) {
+                .register => |reg| .{ .reg = reg.dwarfNum() },
+                .memory => |address| .{ .constu = address },
+                .immediate => |x| .{ .constu = x },
+                .none => .empty,
                 else => blk: {
                     // log.warn("TODO generate debug info for {}", .{mcv});
-                    break :blk .nop;
+                    break :blk .empty;
                 },
             };
-            try dw.genVarDbgInfo(name, ty, func.owner.nav_index, is_ptr, loc);
+            try dwarf.genVarDebugInfo(.local_var, name, ty, loc);
         },
         .plan9 => {},
         .none => {},
@@ -8031,7 +8016,7 @@ fn genTypedValue(func: *Func, val: Value) InnerError!MCValue {
             .load_tlv => |sym_index| .{ .lea_tlv = sym_index },
             .immediate => |imm| .{ .immediate = imm },
             .memory => |addr| .{ .memory = addr },
-            .load_got, .load_direct => {
+            .load_got, .load_direct, .lea_direct => {
                 return func.fail("TODO: genTypedValue {s}", .{@tagName(mcv)});
             },
         },

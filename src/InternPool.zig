@@ -4003,7 +4003,7 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
     }
 }
 
-const LoadedEnumType = struct {
+pub const LoadedEnumType = struct {
     // TODO: the non-fqn will be needed by the new dwarf structure
     /// The name of this enum type.
     name: NullTerminatedString,

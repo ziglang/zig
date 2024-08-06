@@ -465,7 +465,7 @@ fn allocateSections(macho_file: *MachO) !void {
         const alignment = try math.powi(u32, 2, header.@"align");
         if (!header.isZerofill()) {
             if (needed_size > macho_file.allocatedSize(header.offset)) {
-                header.offset = math.cast(u32, macho_file.findFreeSpace(needed_size, alignment)) orelse
+                header.offset = math.cast(u32, try macho_file.findFreeSpace(needed_size, alignment)) orelse
                     return error.Overflow;
             }
         }

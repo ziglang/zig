@@ -1,5 +1,4 @@
 const std = @import("std");
-const DW = std.dwarf;
 const assert = std.debug.assert;
 const testing = std.testing;
 
@@ -158,12 +157,12 @@ pub const Register = enum(u5) {
 
     /// Returns the unique 4-bit ID of this register which is used in
     /// the machine code
-    pub fn id(self: Register) u4 {
-        return @as(u4, @truncate(@intFromEnum(self)));
+    pub fn id(reg: Register) u4 {
+        return @truncate(@intFromEnum(reg));
     }
 
-    pub fn dwarfLocOp(self: Register) u8 {
-        return @as(u8, self.id()) + DW.OP.reg0;
+    pub fn dwarfNum(reg: Register) u4 {
+        return reg.id();
     }
 };
 

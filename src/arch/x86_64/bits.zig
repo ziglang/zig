@@ -4,7 +4,6 @@ const expect = std.testing.expect;
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
-const DW = std.dwarf;
 
 /// EFLAGS condition codes
 pub const Condition = enum(u5) {

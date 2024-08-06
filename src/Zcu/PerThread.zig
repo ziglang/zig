@@ -911,6 +911,11 @@ fn createFileRootStruct(
 
     try pt.scanNamespace(namespace_index, decls);
     try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
+    codegen_type: {
+        if (zcu.comp.config.use_llvm) break :codegen_type;
+        if (file.mod.strip) break :codegen_type;
+        try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
+    }
     zcu.setFileRootType(file_index, wip_ty.index);
     return wip_ty.finish(ip, new_cau_index.toOptional(), namespace_index);
 }
@@ -1332,7 +1337,10 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
         // to the `codegen_nav` job.
         try decl_ty.resolveFully(pt);
 
-        if (!decl_ty.isFnOrHasRuntimeBits(pt)) break :queue_codegen;
+        if (!decl_ty.isFnOrHasRuntimeBits(pt)) {
+            if (zcu.comp.config.use_llvm) break :queue_codegen;
+            if (file.mod.strip) break :queue_codegen;
+        }
 
         try zcu.comp.queueJob(.{ .codegen_nav = nav_index });
     }
@@ -2584,6 +2592,22 @@ pub fn linkerUpdateNav(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void
     } else if (zcu.llvm_object) |llvm_object| {
         llvm_object.updateNav(pt, nav_index) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
+        };
+    }
+}
+
+pub fn linkerUpdateContainerType(pt: Zcu.PerThread, ty: InternPool.Index) !void {
+    const zcu = pt.zcu;
+    const comp = zcu.comp;
+    const ip = &zcu.intern_pool;
+
+    const codegen_prog_node = zcu.codegen_prog_node.start(Type.fromInterned(ty).containerTypeName(ip).toSlice(ip), 0);
+    defer codegen_prog_node.end();
+
+    if (comp.bin_file) |lf| {
+        lf.updateContainerType(pt, ty) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => |e| log.err("codegen type failed: {s}", .{@errorName(e)}),
         };
     }
 }

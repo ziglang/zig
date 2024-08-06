@@ -36,10 +36,14 @@ pub fn readUleb128(comptime T: type, reader: anytype) !T {
 pub const readULEB128 = readUleb128;
 
 /// Write a single unsigned integer as unsigned LEB128 to the given writer.
-pub fn writeUleb128(writer: anytype, uint_value: anytype) !void {
-    const T = @TypeOf(uint_value);
-    const U = if (@typeInfo(T).Int.bits < 8) u8 else T;
-    var value: U = @intCast(uint_value);
+pub fn writeUleb128(writer: anytype, arg: anytype) !void {
+    const Arg = @TypeOf(arg);
+    const Int = switch (Arg) {
+        comptime_int => std.math.IntFittingRange(arg, arg),
+        else => Arg,
+    };
+    const Value = if (@typeInfo(Int).Int.bits < 8) u8 else Int;
+    var value: Value = arg;
 
     while (true) {
         const byte: u8 = @truncate(value & 0x7f);
@@ -118,16 +122,19 @@ pub fn readIleb128(comptime T: type, reader: anytype) !T {
 pub const readILEB128 = readIleb128;
 
 /// Write a single signed integer as signed LEB128 to the given writer.
-pub fn writeIleb128(writer: anytype, int_value: anytype) !void {
-    const T = @TypeOf(int_value);
-    const S = if (@typeInfo(T).Int.bits < 8) i8 else T;
-    const U = std.meta.Int(.unsigned, @typeInfo(S).Int.bits);
-
-    var value: S = @intCast(int_value);
+pub fn writeIleb128(writer: anytype, arg: anytype) !void {
+    const Arg = @TypeOf(arg);
+    const Int = switch (Arg) {
+        comptime_int => std.math.IntFittingRange(-arg - 1, arg),
+        else => Arg,
+    };
+    const Signed = if (@typeInfo(Int).Int.bits < 8) i8 else Int;
+    const Unsigned = std.meta.Int(.unsigned, @typeInfo(Signed).Int.bits);
+    var value: Signed = arg;
 
     while (true) {
-        const uvalue: U = @bitCast(value);
-        const byte: u8 = @truncate(uvalue);
+        const unsigned: Unsigned = @bitCast(value);
+        const byte: u8 = @truncate(unsigned);
         value >>= 6;
         if (value == -1 or value == 0) {
             try writer.writeByte(byte & 0x7F);
@@ -147,17 +154,25 @@ pub fn writeIleb128(writer: anytype, int_value: anytype) !void {
 /// "relocatable", meaning that it becomes possible to later go back and patch the number to be a
 /// different value without shifting all the following code.
 pub fn writeUnsignedFixed(comptime l: usize, ptr: *[l]u8, int: std.meta.Int(.unsigned, l * 7)) void {
-    const T = @TypeOf(int);
-    const U = if (@typeInfo(T).Int.bits < 8) u8 else T;
-    var value: U = @intCast(int);
+    writeUnsignedExtended(ptr, int);
+}
 
-    comptime var i = 0;
-    inline while (i < (l - 1)) : (i += 1) {
-        const byte = @as(u8, @truncate(value)) | 0b1000_0000;
+/// Same as `writeUnsignedFixed` but with a runtime-known length.
+/// Asserts `slice.len > 0`.
+pub fn writeUnsignedExtended(slice: []u8, arg: anytype) void {
+    const Arg = @TypeOf(arg);
+    const Int = switch (Arg) {
+        comptime_int => std.math.IntFittingRange(arg, arg),
+        else => Arg,
+    };
+    const Value = if (@typeInfo(Int).Int.bits < 8) u8 else Int;
+    var value: Value = arg;
+
+    for (slice[0 .. slice.len - 1]) |*byte| {
+        byte.* = @truncate(0x80 | value);
         value >>= 7;
-        ptr[i] = byte;
     }
-    ptr[i] = @truncate(value);
+    slice[slice.len - 1] = @as(u7, @intCast(value));
 }
 
 /// Deprecated: use `writeIleb128`

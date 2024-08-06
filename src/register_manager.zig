@@ -10,6 +10,7 @@ const Zcu = @import("Zcu.zig");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
+const link = @import("link.zig");
 
 const log = std.log.scoped(.register_manager);
 
@@ -25,7 +26,7 @@ pub const AllocateRegistersError = error{
     /// Can happen when spilling an instruction triggers a codegen
     /// error, so we propagate that error
     CodegenFail,
-};
+} || link.File.UpdateDebugInfoError;
 
 pub fn RegisterManager(
     comptime Function: type,

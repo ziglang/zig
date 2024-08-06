@@ -14,7 +14,7 @@ relocs: std.ArrayListUnmanaged(Reloc) = .{},
 
 pub const Error = Lower.Error || error{
     EmitFail,
-};
+} || link.File.UpdateDebugInfoError;
 
 pub fn emitMir(emit: *Emit) Error!void {
     for (0..emit.lower.mir.instructions.len) |mir_i| {

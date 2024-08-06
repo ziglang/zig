@@ -363,6 +363,7 @@ const Job = union(enum) {
         /// It must be deinited when the job is processed.
         air: Air,
     },
+    codegen_type: InternPool.Index,
     /// The `Cau` must be semantically analyzed (and possibly export itself).
     /// This may be its first time being analyzed, or it may be outdated.
     analyze_cau: InternPool.Cau.Index,
@@ -423,6 +424,7 @@ const CodegenJob = union(enum) {
         /// It must be deinited when the job is processed.
         air: Air,
     },
+    type: InternPool.Index,
 };
 
 pub const CObject = struct {
@@ -3712,6 +3714,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
                 .air = func.air,
             } });
         },
+        .codegen_type => |ty| try comp.queueCodegenJob(tid, .{ .type = ty }),
         .analyze_func => |func| {
             const named_frame = tracy.namedFrame("analyze_func");
             defer named_frame.end();
@@ -4000,6 +4003,13 @@ fn processOneCodegenJob(tid: usize, comp: *Compilation, codegen_job: CodegenJob)
             const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
             // This call takes ownership of `func.air`.
             try pt.linkerUpdateFunc(func.func, func.air);
+        },
+        .type => |ty| {
+            const named_frame = tracy.namedFrame("codegen_type");
+            defer named_frame.end();
+
+            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
+            try pt.linkerUpdateContainerType(ty);
         },
     }
 }

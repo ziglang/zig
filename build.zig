@@ -549,6 +549,15 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(tests.addStackTraceTests(b, test_filters, optimization_modes));
     test_step.dependOn(tests.addCliTests(b));
     test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filters, optimization_modes));
+    if (tests.addDebuggerTests(b, .{
+        .test_filters = test_filters,
+        .gdb = b.option([]const u8, "gdb", "path to gdb binary"),
+        .lldb = b.option([]const u8, "lldb", "path to lldb binary"),
+        .optimize_modes = optimization_modes,
+        .skip_single_threaded = skip_single_threaded,
+        .skip_non_native = skip_non_native,
+        .skip_libc = skip_libc,
+    })) |test_debugger_step| test_step.dependOn(test_debugger_step);
 
     try addWasiUpdateStep(b, version);
 

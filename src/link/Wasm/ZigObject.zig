@@ -248,46 +248,49 @@ pub fn updateNav(
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
 
-    const is_extern, const lib_name, const nav_init = switch (ip.indexToKey(nav.status.resolved.val)) {
-        .variable => |variable| .{ false, variable.lib_name, variable.init },
+    const nav_val = zcu.navValue(nav_index);
+    const is_extern, const lib_name, const nav_init = switch (ip.indexToKey(nav_val.toIntern())) {
+        .variable => |variable| .{ false, variable.lib_name, Value.fromInterned(variable.init) },
         .func => return,
         .@"extern" => |@"extern"| if (ip.isFunctionType(nav.typeOf(ip)))
             return
         else
-            .{ true, @"extern".lib_name, nav.status.resolved.val },
-        else => .{ false, .none, nav.status.resolved.val },
+            .{ true, @"extern".lib_name, nav_val },
+        else => .{ false, .none, nav_val },
     };
 
-    const gpa = wasm_file.base.comp.gpa;
-    const atom_index = try zig_object.getOrCreateAtomForNav(wasm_file, pt, nav_index);
-    const atom = wasm_file.getAtomPtr(atom_index);
-    atom.clear();
+    if (nav_init.typeOf(zcu).isFnOrHasRuntimeBits(pt)) {
+        const gpa = wasm_file.base.comp.gpa;
+        const atom_index = try zig_object.getOrCreateAtomForNav(wasm_file, pt, nav_index);
+        const atom = wasm_file.getAtomPtr(atom_index);
+        atom.clear();
 
-    if (is_extern)
-        return zig_object.addOrUpdateImport(wasm_file, nav.name.toSlice(ip), atom.sym_index, lib_name.toSlice(ip), null);
+        if (is_extern)
+            return zig_object.addOrUpdateImport(wasm_file, nav.name.toSlice(ip), atom.sym_index, lib_name.toSlice(ip), null);
 
-    var code_writer = std.ArrayList(u8).init(gpa);
-    defer code_writer.deinit();
+        var code_writer = std.ArrayList(u8).init(gpa);
+        defer code_writer.deinit();
 
-    const res = try codegen.generateSymbol(
-        &wasm_file.base,
-        pt,
-        zcu.navSrcLoc(nav_index),
-        Value.fromInterned(nav_init),
-        &code_writer,
-        .none,
-        .{ .parent_atom_index = @intFromEnum(atom.sym_index) },
-    );
+        const res = try codegen.generateSymbol(
+            &wasm_file.base,
+            pt,
+            zcu.navSrcLoc(nav_index),
+            nav_init,
+            &code_writer,
+            .none,
+            .{ .parent_atom_index = @intFromEnum(atom.sym_index) },
+        );
 
-    const code = switch (res) {
-        .ok => code_writer.items,
-        .fail => |em| {
-            try zcu.failed_codegen.put(zcu.gpa, nav_index, em);
-            return;
-        },
-    };
+        const code = switch (res) {
+            .ok => code_writer.items,
+            .fail => |em| {
+                try zcu.failed_codegen.put(zcu.gpa, nav_index, em);
+                return;
+            },
+        };
 
-    return zig_object.finishUpdateNav(wasm_file, pt, nav_index, code);
+        try zig_object.finishUpdateNav(wasm_file, pt, nav_index, code);
+    }
 }
 
 pub fn updateFunc(

@@ -4405,7 +4405,6 @@ fn globalVarDecl(
         .decl_line = astgen.source_line,
         .astgen = astgen,
         .is_comptime = true,
-        .anon_name_strategy = .parent,
         .instructions = gz.instructions,
         .instructions_top = gz.instructions.items.len,
     };
@@ -4463,6 +4462,8 @@ fn globalVarDecl(
         else
             .none;
 
+        block_scope.anon_name_strategy = .parent;
+
         const init_inst = try expr(
             &block_scope,
             &block_scope.base,
@@ -4489,6 +4490,8 @@ fn globalVarDecl(
     } else if (var_decl.ast.type_node != 0) vi: {
         // Extern variable which has an explicit type.
         const type_inst = try typeExpr(&block_scope, &block_scope.base, var_decl.ast.type_node);
+
+        block_scope.anon_name_strategy = .parent;
 
         const var_inst = try block_scope.addVar(.{
             .var_type = type_inst,

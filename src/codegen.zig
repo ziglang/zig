@@ -36,10 +36,10 @@ pub const CodeGenError = error{
     OutOfMemory,
     Overflow,
     CodegenFail,
-};
+} || link.File.UpdateDebugInfoError;
 
 pub const DebugInfoOutput = union(enum) {
-    dwarf: *link.File.Dwarf.NavState,
+    dwarf: *link.File.Dwarf.WipNav,
     plan9: *link.File.Plan9.DebugInfoOutput,
     none,
 };
@@ -819,6 +819,9 @@ pub const GenResult = union(enum) {
         /// Decl with address deferred until the linker allocates everything in virtual memory.
         /// Payload is a symbol index.
         load_direct: u32,
+        /// Decl with address deferred until the linker allocates everything in virtual memory.
+        /// Payload is a symbol index.
+        lea_direct: u32,
         /// Decl referenced via GOT with address deferred until the linker allocates
         /// everything in virtual memory.
         /// Payload is a symbol index.
@@ -832,10 +835,6 @@ pub const GenResult = union(enum) {
         /// Traditionally, this corresponds to emitting a relocation in a relocatable object file.
         lea_symbol: u32,
     };
-
-    fn mcv(val: MCValue) GenResult {
-        return .{ .mcv = val };
-    }
 
     fn fail(
         gpa: Allocator,
@@ -869,7 +868,7 @@ fn genNavRef(
             8 => 0xaaaaaaaaaaaaaaaa,
             else => unreachable,
         };
-        return GenResult.mcv(.{ .immediate = imm });
+        return .{ .mcv = .{ .immediate = imm } };
     }
 
     const comp = lf.comp;
@@ -878,12 +877,12 @@ fn genNavRef(
     // TODO this feels clunky. Perhaps we should check for it in `genTypedValue`?
     if (ty.castPtrToFn(zcu)) |fn_ty| {
         if (zcu.typeToFunc(fn_ty).?.is_generic) {
-            return GenResult.mcv(.{ .immediate = fn_ty.abiAlignment(pt).toByteUnits().? });
+            return .{ .mcv = .{ .immediate = fn_ty.abiAlignment(pt).toByteUnits().? } };
         }
     } else if (ty.zigTypeTag(zcu) == .Pointer) {
         const elem_ty = ty.elemType2(zcu);
         if (!elem_ty.hasRuntimeBits(pt)) {
-            return GenResult.mcv(.{ .immediate = elem_ty.abiAlignment(pt).toByteUnits().? });
+            return .{ .mcv = .{ .immediate = elem_ty.abiAlignment(pt).toByteUnits().? } };
         }
     }
 
@@ -900,40 +899,40 @@ fn genNavRef(
         if (is_extern) {
             const sym_index = try elf_file.getGlobalSymbol(name.toSlice(ip), lib_name.toSlice(ip));
             zo.symbol(sym_index).flags.is_extern_ptr = true;
-            return GenResult.mcv(.{ .lea_symbol = sym_index });
+            return .{ .mcv = .{ .lea_symbol = sym_index } };
         }
         const sym_index = try zo.getOrCreateMetadataForNav(elf_file, nav_index);
         if (!single_threaded and is_threadlocal) {
-            return GenResult.mcv(.{ .load_tlv = sym_index });
+            return .{ .mcv = .{ .load_tlv = sym_index } };
         }
-        return GenResult.mcv(.{ .lea_symbol = sym_index });
+        return .{ .mcv = .{ .lea_symbol = sym_index } };
     } else if (lf.cast(.macho)) |macho_file| {
         const zo = macho_file.getZigObject().?;
         if (is_extern) {
             const sym_index = try macho_file.getGlobalSymbol(name.toSlice(ip), lib_name.toSlice(ip));
             zo.symbols.items[sym_index].setSectionFlags(.{ .needs_got = true });
-            return GenResult.mcv(.{ .load_symbol = sym_index });
+            return .{ .mcv = .{ .load_symbol = sym_index } };
         }
         const sym_index = try zo.getOrCreateMetadataForNav(macho_file, nav_index);
         const sym = zo.symbols.items[sym_index];
         if (!single_threaded and is_threadlocal) {
-            return GenResult.mcv(.{ .load_tlv = sym.nlist_idx });
+            return .{ .mcv = .{ .load_tlv = sym.nlist_idx } };
         }
-        return GenResult.mcv(.{ .load_symbol = sym.nlist_idx });
+        return .{ .mcv = .{ .load_symbol = sym.nlist_idx } };
     } else if (lf.cast(.coff)) |coff_file| {
         if (is_extern) {
             // TODO audit this
             const global_index = try coff_file.getGlobalSymbol(name.toSlice(ip), lib_name.toSlice(ip));
             try coff_file.need_got_table.put(gpa, global_index, {}); // needs GOT
-            return GenResult.mcv(.{ .load_got = link.File.Coff.global_symbol_bit | global_index });
+            return .{ .mcv = .{ .load_got = link.File.Coff.global_symbol_bit | global_index } };
         }
         const atom_index = try coff_file.getOrCreateAtomForNav(nav_index);
         const sym_index = coff_file.getAtom(atom_index).getSymbolIndex().?;
-        return GenResult.mcv(.{ .load_got = sym_index });
+        return .{ .mcv = .{ .load_got = sym_index } };
     } else if (lf.cast(.plan9)) |p9| {
         const atom_index = try p9.seeNav(pt, nav_index);
         const atom = p9.getAtom(atom_index);
-        return GenResult.mcv(.{ .memory = atom.getOffsetTableAddress(p9) });
+        return .{ .mcv = .{ .memory = atom.getOffsetTableAddress(p9) } };
     } else {
         return GenResult.fail(gpa, src_loc, "TODO genNavRef for target {}", .{target});
     }
@@ -952,30 +951,40 @@ pub fn genTypedValue(
 
     log.debug("genTypedValue: val = {}", .{val.fmtValue(pt)});
 
-    if (val.isUndef(zcu)) {
-        return GenResult.mcv(.undef);
-    }
-
-    if (!ty.isSlice(zcu)) switch (ip.indexToKey(val.toIntern())) {
-        .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
-            .nav => |nav| return genNavRef(lf, pt, src_loc, val, nav, target),
-            else => {},
-        },
-        else => {},
-    };
+    if (val.isUndef(zcu)) return .{ .mcv = .undef };
 
     switch (ty.zigTypeTag(zcu)) {
-        .Void => return GenResult.mcv(.none),
+        .Void => return .{ .mcv = .none },
         .Pointer => switch (ty.ptrSize(zcu)) {
             .Slice => {},
             else => switch (val.toIntern()) {
                 .null_value => {
-                    return GenResult.mcv(.{ .immediate = 0 });
+                    return .{ .mcv = .{ .immediate = 0 } };
                 },
-                .none => {},
                 else => switch (ip.indexToKey(val.toIntern())) {
                     .int => {
-                        return GenResult.mcv(.{ .immediate = val.toUnsignedInt(pt) });
+                        return .{ .mcv = .{ .immediate = val.toUnsignedInt(pt) } };
+                    },
+                    .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
+                        .nav => |nav| return genNavRef(lf, pt, src_loc, val, nav, target),
+                        .uav => |uav| if (Value.fromInterned(uav.val).typeOf(zcu).hasRuntimeBits(pt))
+                            return switch (try lf.lowerUav(
+                                pt,
+                                uav.val,
+                                Type.fromInterned(uav.orig_ty).ptrAlignment(pt),
+                                src_loc,
+                            )) {
+                                .mcv => |mcv| return .{ .mcv = switch (mcv) {
+                                    .load_direct => |sym_index| .{ .lea_direct = sym_index },
+                                    .load_symbol => |sym_index| .{ .lea_symbol = sym_index },
+                                    else => unreachable,
+                                } },
+                                .fail => |em| return .{ .fail = em },
+                            }
+                        else
+                            return .{ .mcv = .{ .immediate = Type.fromInterned(uav.orig_ty).ptrAlignment(pt)
+                                .forward(@intCast((@as(u66, 1) << @intCast(target.ptrBitWidth() | 1)) / 3)) } },
+                        else => {},
                     },
                     else => {},
                 },
@@ -988,11 +997,11 @@ pub fn genTypedValue(
                     .signed => @bitCast(val.toSignedInt(pt)),
                     .unsigned => val.toUnsignedInt(pt),
                 };
-                return GenResult.mcv(.{ .immediate = unsigned });
+                return .{ .mcv = .{ .immediate = unsigned } };
             }
         },
         .Bool => {
-            return GenResult.mcv(.{ .immediate = @intFromBool(val.toBool()) });
+            return .{ .mcv = .{ .immediate = @intFromBool(val.toBool()) } };
         },
         .Optional => {
             if (ty.isPtrLikeOptional(zcu)) {
@@ -1000,11 +1009,11 @@ pub fn genTypedValue(
                     lf,
                     pt,
                     src_loc,
-                    val.optionalValue(zcu) orelse return GenResult.mcv(.{ .immediate = 0 }),
+                    val.optionalValue(zcu) orelse return .{ .mcv = .{ .immediate = 0 } },
                     target,
                 );
             } else if (ty.abiSize(pt) == 1) {
-                return GenResult.mcv(.{ .immediate = @intFromBool(!val.isNull(zcu)) });
+                return .{ .mcv = .{ .immediate = @intFromBool(!val.isNull(zcu)) } };
             }
         },
         .Enum => {
@@ -1020,7 +1029,7 @@ pub fn genTypedValue(
         .ErrorSet => {
             const err_name = ip.indexToKey(val.toIntern()).err.name;
             const error_index = try pt.getErrorValue(err_name);
-            return GenResult.mcv(.{ .immediate = error_index });
+            return .{ .mcv = .{ .immediate = error_index } };
         },
         .ErrorUnion => {
             const err_type = ty.errorUnionSet(zcu);
