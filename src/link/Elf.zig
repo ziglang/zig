@@ -1282,6 +1282,9 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     try self.finalizeMergeSections();
     try self.initOutputSections();
     try self.initMergeSections();
+    if (self.linkerDefinedPtr()) |obj| {
+        try obj.initStartStopSymbols(self);
+    }
     self.claimUnresolved();
 
     // Scan and create missing synthetic entries such as GOT indirection.
@@ -5245,6 +5248,14 @@ pub fn calcNumIRelativeRelocs(self: *Elf) usize {
     }
 
     return count;
+}
+
+pub fn getStartStopBasename(self: Elf, shdr: elf.Elf64_Shdr) ?[]const u8 {
+    const name = self.getShString(shdr.sh_name);
+    if (shdr.sh_flags & elf.SHF_ALLOC != 0 and name.len > 0) {
+        if (Elf.isCIdentifier(name)) return name;
+    }
+    return null;
 }
 
 pub fn isCIdentifier(name: []const u8) bool {

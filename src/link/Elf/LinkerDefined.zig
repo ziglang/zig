@@ -42,30 +42,28 @@ pub fn init(self: *LinkerDefined, allocator: Allocator) !void {
     try self.strtab.append(allocator, 0);
 }
 
-pub fn initSymbols(self: *LinkerDefined, elf_file: *Elf) !void {
-    const newSymbolAssumeCapacity = struct {
-        fn newSymbolAssumeCapacity(ld: *LinkerDefined, name_off: u32, ef: *Elf) Symbol.Index {
-            const esym_index: u32 = @intCast(ld.symtab.items.len);
-            const esym = ld.symtab.addOneAssumeCapacity();
-            esym.* = .{
-                .st_name = name_off,
-                .st_info = elf.STB_GLOBAL << 4,
-                .st_other = @intFromEnum(elf.STV.HIDDEN),
-                .st_shndx = elf.SHN_ABS,
-                .st_value = 0,
-                .st_size = 0,
-            };
-            const index = ld.addSymbolAssumeCapacity();
-            const symbol = &ld.symbols.items[index];
-            symbol.name_offset = name_off;
-            symbol.extra_index = ld.addSymbolExtraAssumeCapacity(.{});
-            symbol.ref = .{ .index = 0, .file = 0 };
-            symbol.esym_index = esym_index;
-            symbol.version_index = ef.default_sym_version;
-            return index;
-        }
-    }.newSymbolAssumeCapacity;
+fn newSymbolAssumeCapacity(self: *LinkerDefined, name_off: u32, elf_file: *Elf) Symbol.Index {
+    const esym_index: u32 = @intCast(self.symtab.items.len);
+    const esym = self.symtab.addOneAssumeCapacity();
+    esym.* = .{
+        .st_name = name_off,
+        .st_info = elf.STB_GLOBAL << 4,
+        .st_other = @intFromEnum(elf.STV.HIDDEN),
+        .st_shndx = elf.SHN_ABS,
+        .st_value = 0,
+        .st_size = 0,
+    };
+    const index = self.addSymbolAssumeCapacity();
+    const symbol = &self.symbols.items[index];
+    symbol.name_offset = name_off;
+    symbol.extra_index = self.addSymbolExtraAssumeCapacity(.{});
+    symbol.ref = .{ .index = 0, .file = 0 };
+    symbol.esym_index = esym_index;
+    symbol.version_index = elf_file.default_sym_version;
+    return index;
+}
 
+pub fn initSymbols(self: *LinkerDefined, elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
 
     var nsyms: usize = 0;
@@ -93,18 +91,6 @@ pub fn initSymbols(self: *LinkerDefined, elf_file: *Elf) !void {
         nsyms += 1; // __global_pointer$
     }
 
-    var start_stop_count: usize = 0;
-    for (elf_file.objects.items) |index| {
-        const object = elf_file.file(index).?.object;
-        for (object.shdrs.items) |shdr| {
-            if (object.getStartStopBasename(shdr)) |_| {
-                start_stop_count += 2; // __start_, __stop_
-            }
-        }
-    }
-    nsyms += start_stop_count;
-
-    try self.start_stop_indexes.ensureTotalCapacityPrecise(gpa, start_stop_count);
     try self.symtab.ensureTotalCapacityPrecise(gpa, nsyms);
     try self.symbols.ensureTotalCapacityPrecise(gpa, nsyms);
     try self.symbols_extra.ensureTotalCapacityPrecise(gpa, nsyms * @sizeOf(Symbol.Extra));
@@ -113,44 +99,67 @@ pub fn initSymbols(self: *LinkerDefined, elf_file: *Elf) !void {
     @memset(self.symbols_resolver.items, 0);
 
     if (elf_file.entry_name) |name| {
-        self.entry_index = newSymbolAssumeCapacity(self, try self.addString(gpa, name), elf_file);
+        self.entry_index = self.newSymbolAssumeCapacity(try self.addString(gpa, name), elf_file);
     }
 
-    self.dynamic_index = newSymbolAssumeCapacity(self, try self.addString(gpa, "_DYNAMIC"), elf_file);
-    self.ehdr_start_index = newSymbolAssumeCapacity(self, try self.addString(gpa, "__ehdr_start"), elf_file);
-    self.init_array_start_index = newSymbolAssumeCapacity(self, try self.addString(gpa, "__init_array_start"), elf_file);
-    self.init_array_end_index = newSymbolAssumeCapacity(self, try self.addString(gpa, "__init_array_end"), elf_file);
-    self.fini_array_start_index = newSymbolAssumeCapacity(self, try self.addString(gpa, "__fini_array_start"), elf_file);
-    self.fini_array_end_index = newSymbolAssumeCapacity(self, try self.addString(gpa, "__fini_array_end"), elf_file);
-    self.preinit_array_start_index = newSymbolAssumeCapacity(self, try self.addString(gpa, "__preinit_array_start"), elf_file);
-    self.preinit_array_end_index = newSymbolAssumeCapacity(self, try self.addString(gpa, "__preinit_array_end"), elf_file);
-    self.got_index = newSymbolAssumeCapacity(self, try self.addString(gpa, "_GLOBAL_OFFSET_TABLE_"), elf_file);
-    self.plt_index = newSymbolAssumeCapacity(self, try self.addString(gpa, "_PROCEDURE_LINKAGE_TABLE_"), elf_file);
-    self.end_index = newSymbolAssumeCapacity(self, try self.addString(gpa, "_end"), elf_file);
+    self.dynamic_index = self.newSymbolAssumeCapacity(try self.addString(gpa, "_DYNAMIC"), elf_file);
+    self.ehdr_start_index = self.newSymbolAssumeCapacity(try self.addString(gpa, "__ehdr_start"), elf_file);
+    self.init_array_start_index = self.newSymbolAssumeCapacity(try self.addString(gpa, "__init_array_start"), elf_file);
+    self.init_array_end_index = self.newSymbolAssumeCapacity(try self.addString(gpa, "__init_array_end"), elf_file);
+    self.fini_array_start_index = self.newSymbolAssumeCapacity(try self.addString(gpa, "__fini_array_start"), elf_file);
+    self.fini_array_end_index = self.newSymbolAssumeCapacity(try self.addString(gpa, "__fini_array_end"), elf_file);
+    self.preinit_array_start_index = self.newSymbolAssumeCapacity(try self.addString(gpa, "__preinit_array_start"), elf_file);
+    self.preinit_array_end_index = self.newSymbolAssumeCapacity(try self.addString(gpa, "__preinit_array_end"), elf_file);
+    self.got_index = self.newSymbolAssumeCapacity(try self.addString(gpa, "_GLOBAL_OFFSET_TABLE_"), elf_file);
+    self.plt_index = self.newSymbolAssumeCapacity(try self.addString(gpa, "_PROCEDURE_LINKAGE_TABLE_"), elf_file);
+    self.end_index = self.newSymbolAssumeCapacity(try self.addString(gpa, "_end"), elf_file);
 
     if (elf_file.base.comp.link_eh_frame_hdr) {
-        self.gnu_eh_frame_hdr_index = newSymbolAssumeCapacity(self, try self.addString(gpa, "__GNU_EH_FRAME_HDR"), elf_file);
+        self.gnu_eh_frame_hdr_index = self.newSymbolAssumeCapacity(try self.addString(gpa, "__GNU_EH_FRAME_HDR"), elf_file);
     }
 
-    self.dso_handle_index = newSymbolAssumeCapacity(self, try self.addString(gpa, "__dso_handle"), elf_file);
-    self.rela_iplt_start_index = newSymbolAssumeCapacity(self, try self.addString(gpa, "__rela_iplt_start"), elf_file);
-    self.rela_iplt_end_index = newSymbolAssumeCapacity(self, try self.addString(gpa, "__rela_iplt_end"), elf_file);
+    self.dso_handle_index = self.newSymbolAssumeCapacity(try self.addString(gpa, "__dso_handle"), elf_file);
+    self.rela_iplt_start_index = self.newSymbolAssumeCapacity(try self.addString(gpa, "__rela_iplt_start"), elf_file);
+    self.rela_iplt_end_index = self.newSymbolAssumeCapacity(try self.addString(gpa, "__rela_iplt_end"), elf_file);
 
     if (elf_file.getTarget().cpu.arch.isRISCV() and elf_file.isEffectivelyDynLib()) {
-        self.global_pointer_index = newSymbolAssumeCapacity(self, try self.addString(gpa, "__global_pointer$"), elf_file);
+        self.global_pointer_index = self.newSymbolAssumeCapacity(try self.addString(gpa, "__global_pointer$"), elf_file);
+    }
+}
+
+pub fn initStartStopSymbols(self: *LinkerDefined, elf_file: *Elf) !void {
+    const gpa = elf_file.base.comp.gpa;
+
+    var nsyms: usize = 0;
+    for (elf_file.shdrs.items) |shdr| {
+        if (elf_file.getStartStopBasename(shdr)) |_| {
+            nsyms += 2; // __start_, __stop_
+        }
     }
 
-    for (elf_file.objects.items) |index| {
-        const object = elf_file.file(index).?.object;
-        for (object.shdrs.items) |shdr| {
-            if (object.getStartStopBasename(shdr)) |name| {
-                const start_name = try std.fmt.allocPrintZ(gpa, "__start_{s}", .{name});
-                defer gpa.free(start_name);
-                const stop_name = try std.fmt.allocPrintZ(gpa, "__stop_{s}", .{name});
-                defer gpa.free(stop_name);
-                const start = newSymbolAssumeCapacity(self, try self.addString(gpa, start_name), elf_file);
-                const stop = newSymbolAssumeCapacity(self, try self.addString(gpa, stop_name), elf_file);
-                self.start_stop_indexes.appendSliceAssumeCapacity(&.{ start, stop });
+    try self.start_stop_indexes.ensureTotalCapacityPrecise(gpa, nsyms);
+    try self.symtab.ensureUnusedCapacity(gpa, nsyms);
+    try self.symbols.ensureUnusedCapacity(gpa, nsyms);
+    try self.symbols_extra.ensureUnusedCapacity(gpa, nsyms * @sizeOf(Symbol.Extra));
+    try self.symbols_resolver.ensureUnusedCapacity(gpa, nsyms);
+
+    for (elf_file.shdrs.items) |shdr| {
+        if (elf_file.getStartStopBasename(shdr)) |name| {
+            const start_name = try std.fmt.allocPrintZ(gpa, "__start_{s}", .{name});
+            defer gpa.free(start_name);
+            const stop_name = try std.fmt.allocPrintZ(gpa, "__stop_{s}", .{name});
+            defer gpa.free(stop_name);
+
+            for (&[_][]const u8{ start_name, stop_name }) |nn| {
+                const index = self.newSymbolAssumeCapacity(try self.addString(gpa, nn), elf_file);
+                self.start_stop_indexes.appendAssumeCapacity(index);
+                const gop = try elf_file.resolver.getOrPut(gpa, .{
+                    .index = index,
+                    .file = self.index,
+                }, elf_file);
+                assert(!gop.found_existing);
+                gop.ref.* = .{ .index = index, .file = self.index };
+                self.symbols_resolver.appendAssumeCapacity(gop.index);
             }
         }
     }

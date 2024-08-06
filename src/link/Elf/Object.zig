@@ -1399,14 +1399,6 @@ pub fn comdatGroup(self: *Object, index: Elf.ComdatGroup.Index) *Elf.ComdatGroup
     return &self.comdat_groups.items[index];
 }
 
-pub fn getStartStopBasename(self: Object, shdr: elf.Elf64_Shdr) ?[]const u8 {
-    const name = self.getString(shdr.sh_name);
-    if (shdr.sh_flags & elf.SHF_ALLOC != 0 and name.len > 0) {
-        if (Elf.isCIdentifier(name)) return name;
-    }
-    return null;
-}
-
 pub fn format(
     self: *Object,
     comptime unused_fmt_string: []const u8,
