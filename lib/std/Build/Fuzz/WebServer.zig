@@ -485,6 +485,8 @@ fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
     };
     std.mem.sortUnstable(Build.Cache.Path, deduped_paths, SortContext{}, SortContext.lessThan);
 
+    var cwd_cache: ?[]const u8 = null;
+
     for (deduped_paths) |joined_path| {
         var file = joined_path.root_dir.handle.openFile(joined_path.sub_path, .{}) catch |err| {
             log.err("failed to open {}: {s}", .{ joined_path, @errorName(err) });
@@ -506,7 +508,10 @@ fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
 
         var file_header = std.tar.output.Header.init();
         file_header.typeflag = .regular;
-        try file_header.setPath(joined_path.root_dir.path orelse ".", joined_path.sub_path);
+        try file_header.setPath(
+            joined_path.root_dir.path orelse try memoizedCwd(arena, &cwd_cache),
+            joined_path.sub_path,
+        );
         try file_header.setSize(stat.size);
         try file_header.updateChecksum();
         try w.writeAll(std.mem.asBytes(&file_header));
@@ -517,6 +522,13 @@ fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
     // intentionally omitting the pointless trailer
     //try w.writeByteNTimes(0, 512 * 2);
     try response.end();
+}
+
+fn memoizedCwd(arena: Allocator, opt_ptr: *?[]const u8) ![]const u8 {
+    if (opt_ptr.*) |cached| return cached;
+    const result = try std.process.getCwdAlloc(arena);
+    opt_ptr.* = result;
+    return result;
 }
 
 const cache_control_header: std.http.Header = .{
