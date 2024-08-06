@@ -2344,7 +2344,6 @@ pub fn c_type_alignment(target: Target, c_type: CType) u16 {
             .x86,
             .xcore,
             .loongarch32,
-            .spirv32,
             .kalimba,
             .ve,
             .spu_2,
@@ -2366,6 +2365,7 @@ pub fn c_type_alignment(target: Target, c_type: CType) u16 {
             .nvptx,
             .nvptx64,
             .s390x,
+            .spirv32,
             .spirv64,
             => 8,
 
@@ -2449,7 +2449,6 @@ pub fn c_type_preferred_alignment(target: Target, c_type: CType) u16 {
             .csky,
             .xcore,
             .loongarch32,
-            .spirv32,
             .kalimba,
             .ve,
             .spu_2,
@@ -2478,6 +2477,7 @@ pub fn c_type_preferred_alignment(target: Target, c_type: CType) u16 {
             .nvptx,
             .nvptx64,
             .s390x,
+            .spirv32,
             .spirv64,
             => 8,
 
