@@ -602,10 +602,11 @@ pub const Module = switch (native_os) {
                 sections[@intFromEnum(Dwarf.Section.Id.debug_line)] == null;
             if (missing_debug_info) return error.MissingDebugInfo;
 
-            var di = Dwarf{
+            var di: Dwarf = .{
                 .endian = .little,
                 .sections = sections,
                 .is_macho = true,
+                .compile_units_sorted = false,
             };
 
             try Dwarf.open(&di, allocator);
@@ -622,7 +623,7 @@ pub const Module = switch (native_os) {
             return result.value_ptr;
         }
 
-        pub fn getSymbolAtAddress(self: *@This(), allocator: Allocator, address: usize) !Dwarf.SymbolInfo {
+        pub fn getSymbolAtAddress(self: *@This(), allocator: Allocator, address: usize) !std.debug.Symbol {
             nosuspend {
                 const result = try self.getOFileInfoForAddress(allocator, address);
                 if (result.symbol == null) return .{};
@@ -630,19 +631,19 @@ pub const Module = switch (native_os) {
                 // Take the symbol name from the N_FUN STAB entry, we're going to
                 // use it if we fail to find the DWARF infos
                 const stab_symbol = mem.sliceTo(self.strings[result.symbol.?.strx..], 0);
-                if (result.o_file_info == null) return .{ .symbol_name = stab_symbol };
+                if (result.o_file_info == null) return .{ .name = stab_symbol };
 
                 // Translate again the address, this time into an address inside the
                 // .o file
                 const relocated_address_o = result.o_file_info.?.addr_table.get(stab_symbol) orelse return .{
-                    .symbol_name = "???",
+                    .name = "???",
                 };
 
                 const addr_off = result.relocated_address - result.symbol.?.addr;
                 const o_file_di = &result.o_file_info.?.di;
                 if (o_file_di.findCompileUnit(relocated_address_o)) |compile_unit| {
                     return .{
-                        .symbol_name = o_file_di.getSymbolName(relocated_address_o) orelse "???",
+                        .name = o_file_di.getSymbolName(relocated_address_o) orelse "???",
                         .compile_unit_name = compile_unit.die.getAttrString(
                             o_file_di,
                             std.dwarf.AT.name,
@@ -651,9 +652,9 @@ pub const Module = switch (native_os) {
                         ) catch |err| switch (err) {
                             error.MissingDebugInfo, error.InvalidDebugInfo => "???",
                         },
-                        .line_info = o_file_di.getLineNumberInfo(
+                        .source_location = o_file_di.getLineNumberInfo(
                             allocator,
-                            compile_unit.*,
+                            compile_unit,
                             relocated_address_o + addr_off,
                         ) catch |err| switch (err) {
                             error.MissingDebugInfo, error.InvalidDebugInfo => null,
@@ -662,7 +663,7 @@ pub const Module = switch (native_os) {
                     };
                 } else |err| switch (err) {
                     error.MissingDebugInfo, error.InvalidDebugInfo => {
-                        return .{ .symbol_name = stab_symbol };
+                        return .{ .name = stab_symbol };
                     },
                     else => return err,
                 }
@@ -760,9 +761,9 @@ pub const Module = switch (native_os) {
             );
 
             return .{
-                .symbol_name = symbol_name,
+                .name = symbol_name,
                 .compile_unit_name = obj_basename,
-                .line_info = opt_line_info,
+                .source_location = opt_line_info,
             };
         }
 
@@ -991,10 +992,11 @@ fn readCoffDebugInfo(allocator: Allocator, coff_obj: *coff.Coff) !Module {
                 } else null;
             }
 
-            var dwarf = Dwarf{
+            var dwarf: Dwarf = .{
                 .endian = native_endian,
                 .sections = sections,
                 .is_macho = false,
+                .compile_units_sorted = false,
             };
 
             try Dwarf.open(&dwarf, allocator);
@@ -1808,6 +1810,7 @@ fn unwindFrameMachODwarf(
     var di: Dwarf = .{
         .endian = native_endian,
         .is_macho = true,
+        .compile_units_sorted = false,
     };
     defer di.deinit(context.allocator);
 
