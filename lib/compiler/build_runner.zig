@@ -418,6 +418,14 @@ pub fn main() !void {
             else => return err,
         };
         if (fuzz) {
+            switch (builtin.os.tag) {
+                // Current implementation depends on two things that need to be ported to Windows:
+                // * Memory-mapping to share data between the fuzzer and build runner.
+                // * COFF/PE support added to `std.debug.Info` (it needs a batching API for resolving
+                //   many addresses to source locations).
+                .windows => fatal("--fuzz not yet implemented for {s}", .{@tagName(builtin.os.tag)}),
+                else => {},
+            }
             const listen_address = std.net.Address.parseIp("127.0.0.1", listen_port) catch unreachable;
             try Fuzz.start(
                 gpa,
