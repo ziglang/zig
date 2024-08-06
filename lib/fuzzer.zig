@@ -276,7 +276,7 @@ const Fuzzer = struct {
                 .score = 0,
             }, {});
         } else {
-            if (f.n_runs % 1000 == 0) f.dumpStats();
+            if (f.n_runs % 10000 == 0) f.dumpStats();
 
             const analysis = f.analyzeLastRun();
             const gop = f.recent_cases.getOrPutAssumeCapacity(.{
@@ -303,16 +303,16 @@ const Fuzzer = struct {
                 {
                     const seen_pcs = f.seen_pcs.items[@sizeOf(SeenPcsHeader) + f.flagged_pcs.len * @sizeOf(usize) ..];
                     for (seen_pcs, 0..) |*elem, i| {
-                        const byte_i = i / 8;
+                        const byte_i = i * 8;
                         const mask: u8 =
-                            (@as(u8, @intFromBool(f.pc_counters[byte_i + 0] != 0)) << 0) |
-                            (@as(u8, @intFromBool(f.pc_counters[byte_i + 1] != 0)) << 1) |
-                            (@as(u8, @intFromBool(f.pc_counters[byte_i + 2] != 0)) << 2) |
-                            (@as(u8, @intFromBool(f.pc_counters[byte_i + 3] != 0)) << 3) |
-                            (@as(u8, @intFromBool(f.pc_counters[byte_i + 4] != 0)) << 4) |
-                            (@as(u8, @intFromBool(f.pc_counters[byte_i + 5] != 0)) << 5) |
-                            (@as(u8, @intFromBool(f.pc_counters[byte_i + 6] != 0)) << 6) |
-                            (@as(u8, @intFromBool(f.pc_counters[byte_i + 7] != 0)) << 7);
+                            (@as(u8, @intFromBool(f.pc_counters.ptr[byte_i + 0] != 0)) << 0) |
+                            (@as(u8, @intFromBool(f.pc_counters.ptr[byte_i + 1] != 0)) << 1) |
+                            (@as(u8, @intFromBool(f.pc_counters.ptr[byte_i + 2] != 0)) << 2) |
+                            (@as(u8, @intFromBool(f.pc_counters.ptr[byte_i + 3] != 0)) << 3) |
+                            (@as(u8, @intFromBool(f.pc_counters.ptr[byte_i + 4] != 0)) << 4) |
+                            (@as(u8, @intFromBool(f.pc_counters.ptr[byte_i + 5] != 0)) << 5) |
+                            (@as(u8, @intFromBool(f.pc_counters.ptr[byte_i + 6] != 0)) << 6) |
+                            (@as(u8, @intFromBool(f.pc_counters.ptr[byte_i + 7] != 0)) << 7);
 
                         _ = @atomicRmw(u8, elem, .Or, mask, .monotonic);
                     }
