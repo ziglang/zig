@@ -25,6 +25,9 @@ const supports_chdir = (native_os != .wasi);
 // Filter to skip tests on platforms that don't support absolute paths
 const supports_absolute_paths = (native_os != .wasi);
 
+// Filter to skip tests on platforms that don't (yet) suppport fstat/fstatat
+const supports_fstat = (native_os != .windows);
+
 test "check WASI CWD" {
     if (native_os == .wasi) {
         if (std.options.wasiCwd() != 3) {
@@ -299,6 +302,8 @@ fn testReadlink(target_path: []const u8, symlink_path: []const u8) !void {
 }
 
 test "link with relative paths" {
+    if (!supports_fstat) return error.SkipZigTest;
+
     switch (native_os) {
         .wasi, .linux, .solaris, .illumos => {},
         else => return error.SkipZigTest,
@@ -341,6 +346,8 @@ test "link with relative paths" {
 }
 
 test "linkat with different directories" {
+    if (!supports_fstat) return error.SkipZigTest;
+
     switch (native_os) {
         .wasi, .linux, .solaris, .illumos => {},
         else => return error.SkipZigTest,
@@ -382,9 +389,8 @@ test "linkat with different directories" {
     }
 }
 
-test "fstatat" {
-    // enable when `fstat` and `fstatat` are implemented on Windows
-    if (native_os == .windows) return error.SkipZigTest;
+test "fstat(at) file" {
+    if (!supports_fstat) return error.SkipZigTest;
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -396,12 +402,64 @@ test "fstatat" {
     // fetch file's info on the opened fd directly
     const file = try tmp.dir.openFile("file.txt", .{});
     const stat = try posix.fstat(file.handle);
-    defer file.close();
+    file.close();
 
     // now repeat but using `fstatat` instead
-    const flags = posix.AT.SYMLINK_NOFOLLOW;
-    const statat = try posix.fstatat(tmp.dir.fd, "file.txt", flags);
+    const statat = try posix.fstatat(tmp.dir.fd, "file.txt", 0);
     try expectEqual(stat, statat);
+}
+
+test "fstat(at) symlink" {
+    if (!supports_fstat) return error.SkipZigTest;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(.{ .sub_path = "target.txt", .data = "irrelevant" });
+
+    const target = try tmp.dir.openFile("target.txt", .{});
+    const statTarget = try posix.fstat(target.handle);
+    target.close();
+
+    // Set up symlink
+    try tmp.dir.symLink("target.txt", "sym.lnk", .{});
+
+    // Openat (+follow) + fstat() the symlink
+    const linkFollowFd = try posix.openat(tmp.dir.fd, "sym.lnk", .{}, default_mode);
+    defer posix.close(linkFollowFd);
+    const statLinkFollow = try posix.fstat(linkFollowFd);
+
+    // fstatat (with and without follow) the symlink
+    const statatLinkFollow = try posix.fstatat(tmp.dir.fd, "sym.lnk", 0);
+    const statatLinkNoFollow = try posix.fstatat(tmp.dir.fd, "sym.lnk", posix.AT.SYMLINK_NOFOLLOW);
+
+    if (@hasField(posix.O, "PATH")) {
+        // Can only openat() a symlink with NOFOLLOW if O.PATH is
+        // supported.  Result should exactly match result from the
+        // no-follow fstatat() call.
+
+        const linkNoFollowFd = try posix.openat(tmp.dir.fd, "sym.lnk", .{ .NOFOLLOW = true, .PATH = true }, default_mode);
+        defer posix.close(linkNoFollowFd);
+
+        const statLinkNoFollow = try posix.fstat(linkNoFollowFd);
+        try testing.expectEqual(statLinkNoFollow, statatLinkNoFollow);
+    }
+
+    // Link following should have followed the link
+    try testing.expectEqual(statTarget, statLinkFollow);
+    try testing.expectEqual(statTarget, statatLinkFollow);
+
+    // symlink and target are different:
+    try testing.expect(statTarget.ino != statatLinkNoFollow.ino);
+    try testing.expect(statTarget.mode != statatLinkNoFollow.mode);
+
+    // target is a regular, non-link file:
+    try testing.expect(posix.S.ISREG(statTarget.mode));
+    try testing.expect(!posix.S.ISLNK(statTarget.mode));
+
+    // symlink is a non-regular, link file:
+    try testing.expect(!posix.S.ISREG(statatLinkNoFollow.mode));
+    try testing.expect(posix.S.ISLNK(statatLinkNoFollow.mode));
 }
 
 test "readlinkat" {
@@ -1249,6 +1307,7 @@ fn expectMode(dir: posix.fd_t, file: []const u8, mode: posix.mode_t) !void {
 
 test "fchmodat smoke test" {
     if (!std.fs.has_executable_bit) return error.SkipZigTest;
+    if (!supports_fstat) return error.SkipZigTest; // for expectMode()
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
