@@ -1119,7 +1119,7 @@ pub fn updateSymtabSize(self: *Object, elf_file: *Elf) void {
     }
 
     for (self.globals(), self.symbols_resolver.items) |*global, resolv| {
-        const ref = elf_file.resolver.values.items[resolv];
+        const ref = elf_file.resolver.values.items[resolv - 1];
         const ref_sym = elf_file.symbol(ref) orelse continue;
         if (ref_sym.file(elf_file).?.index() != self.index) continue;
         if (!isAlive(global, elf_file)) continue;
@@ -1146,7 +1146,7 @@ pub fn writeSymtab(self: *Object, elf_file: *Elf) void {
     }
 
     for (self.globals(), self.symbols_resolver.items) |global, resolv| {
-        const ref = elf_file.resolver.values.items[resolv];
+        const ref = elf_file.resolver.values.items[resolv - 1];
         const ref_sym = elf_file.symbol(ref) orelse continue;
         if (ref_sym.file(elf_file).?.index() != self.index) continue;
         const idx = global.outputSymtabIndex(elf_file) orelse continue;
