@@ -6266,7 +6266,7 @@ fn canBuildLibCompilerRt(target: std.Target, use_llvm: bool) bool {
         else => {},
     }
     switch (target.cpu.arch) {
-        .spirv32, .spirv64 => return false,
+        .spirv, .spirv32, .spirv64 => return false,
         else => {},
     }
     return switch (target_util.zigBackend(target, use_llvm)) {
@@ -6284,7 +6284,7 @@ fn canBuildZigLibC(target: std.Target, use_llvm: bool) bool {
         else => {},
     }
     switch (target.cpu.arch) {
-        .spirv32, .spirv64 => return false,
+        .spirv, .spirv32, .spirv64 => return false,
         else => {},
     }
     return switch (target_util.zigBackend(target, use_llvm)) {

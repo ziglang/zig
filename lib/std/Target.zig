@@ -1163,7 +1163,7 @@ pub const Cpu = struct {
 
         pub inline fn isSpirV(arch: Arch) bool {
             return switch (arch) {
-                .spirv32, .spirv64 => true,
+                .spirv, .spirv32, .spirv64 => true,
                 else => false,
             };
         }
@@ -1348,8 +1348,8 @@ pub const Cpu = struct {
 
         /// Returns whether this architecture supports the address space
         pub fn supportsAddressSpace(arch: Arch, address_space: std.builtin.AddressSpace) bool {
-            const is_nvptx = arch == .nvptx or arch == .nvptx64;
-            const is_spirv = arch == .spirv32 or arch == .spirv64;
+            const is_nvptx = arch.isNvptx();
+            const is_spirv = arch.isSpirV();
             const is_gpu = is_nvptx or is_spirv or arch == .amdgcn;
             return switch (address_space) {
                 .generic => true,
@@ -1378,7 +1378,7 @@ pub const Cpu = struct {
                 .x86, .x86_64 => "x86",
                 .nvptx, .nvptx64 => "nvptx",
                 .wasm32, .wasm64 => "wasm",
-                .spirv32, .spirv64 => "spirv",
+                .spirv, .spirv32, .spirv64 => "spirv",
                 else => @tagName(arch),
             };
         }
@@ -1401,7 +1401,7 @@ pub const Cpu = struct {
                 .amdgcn => &amdgpu.all_features,
                 .riscv32, .riscv64 => &riscv.all_features,
                 .sparc, .sparc64 => &sparc.all_features,
-                .spirv32, .spirv64 => &spirv.all_features,
+                .spirv, .spirv32, .spirv64 => &spirv.all_features,
                 .s390x => &s390x.all_features,
                 .x86, .x86_64 => &x86.all_features,
                 .xtensa => &xtensa.all_features,
@@ -1431,7 +1431,7 @@ pub const Cpu = struct {
                 .amdgcn => comptime allCpusFromDecls(amdgpu.cpu),
                 .riscv32, .riscv64 => comptime allCpusFromDecls(riscv.cpu),
                 .sparc, .sparc64 => comptime allCpusFromDecls(sparc.cpu),
-                .spirv32, .spirv64 => comptime allCpusFromDecls(spirv.cpu),
+                .spirv, .spirv32, .spirv64 => comptime allCpusFromDecls(spirv.cpu),
                 .s390x => comptime allCpusFromDecls(s390x.cpu),
                 .x86, .x86_64 => comptime allCpusFromDecls(x86.cpu),
                 .xtensa => comptime allCpusFromDecls(xtensa.cpu),
@@ -1521,7 +1521,7 @@ pub const Cpu = struct {
                 .amdgcn => &amdgpu.cpu.generic,
                 .riscv32 => &riscv.cpu.generic_rv32,
                 .riscv64 => &riscv.cpu.generic_rv64,
-                .spirv32, .spirv64 => &spirv.cpu.generic,
+                .spirv, .spirv32, .spirv64 => &spirv.cpu.generic,
                 .sparc => &sparc.cpu.generic,
                 .sparc64 => &sparc.cpu.v9, // 64-bit SPARC needs v9 as the baseline
                 .s390x => &s390x.cpu.generic,
