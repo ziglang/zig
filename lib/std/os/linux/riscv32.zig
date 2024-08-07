@@ -188,7 +188,10 @@ pub const Elf_Symndx = u32;
 
 pub const MMAP2_UNIT = 4096;
 
-pub const VDSO = struct {};
+pub const VDSO = struct {
+    pub const CGT_SYM = "__vdso_clock_gettime";
+    pub const CGT_VER = "LINUX_4.15";
+};
 
 /// TODO
 pub const ucontext_t = void;
