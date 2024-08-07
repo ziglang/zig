@@ -64,6 +64,8 @@ pub fn run(ws: *WebServer) void {
     };
     const port = http_server.listen_address.in.getPort();
     log.info("web interface listening at http://127.0.0.1:{d}/", .{port});
+    if (ws.listen_address.in.getPort() == 0)
+        log.info("hint: pass --port {d} to use this same port next time", .{port});
 
     while (true) {
         const connection = http_server.accept() catch |err| {
