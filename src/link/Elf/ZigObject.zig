@@ -294,9 +294,11 @@ fn newLocalSymbol(self: *ZigObject, allocator: Allocator, name_off: u32) !Symbol
 
 fn newGlobalSymbol(self: *ZigObject, allocator: Allocator, name_off: u32) !Symbol.Index {
     try self.global_symbols.ensureUnusedCapacity(allocator, 1);
+    try self.symbols_resolver.ensureUnusedCapacity(allocator, 1);
     const fake_index: Symbol.Index = @intCast(self.global_symbols.items.len);
     const index = try self.newSymbol(allocator, name_off, elf.STB_GLOBAL);
     self.global_symbols.appendAssumeCapacity(index);
+    self.symbols_resolver.addOneAssumeCapacity().* = 0;
     return fake_index | global_symbol_bit;
 }
 
