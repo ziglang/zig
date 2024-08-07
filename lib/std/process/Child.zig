@@ -57,6 +57,9 @@ stdin_behavior: StdIo,
 stdout_behavior: StdIo,
 stderr_behavior: StdIo,
 
+/// Set to spawn a detached process.
+detached: bool,
+
 /// Set to change the user id when spawning the child process.
 uid: if (native_os == .windows or native_os == .wasi) void else ?posix.uid_t,
 
@@ -172,6 +175,7 @@ pub const SpawnError = error{
     posix.ExecveError ||
     posix.SetIdError ||
     posix.SetPgidError ||
+    posix.SetSidError ||
     posix.ChangeCurDirError ||
     windows.CreateProcessError ||
     windows.GetProcessMemoryInfoError ||
@@ -215,6 +219,7 @@ pub fn init(argv: []const []const u8, allocator: mem.Allocator) ChildProcess {
         .term = null,
         .env_map = null,
         .cwd = null,
+        .detached = false,
         .uid = if (native_os == .windows or native_os == .wasi) {} else null,
         .gid = if (native_os == .windows or native_os == .wasi) {} else null,
         .pgid = if (native_os == .windows or native_os == .wasi) {} else null,
@@ -228,13 +233,25 @@ pub fn init(argv: []const []const u8, allocator: mem.Allocator) ChildProcess {
     };
 }
 
+/// Call this if you have no intention of calling `kill` or `wait` to properly
+/// dispose of any resources related to the child process.
+pub fn deinit(self: *ChildProcess) void {
+    if (native_os == .windows) {
+        posix.close(self.thread_handle);
+        posix.close(self.id);
+    }
+    self.cleanupStreams();
+}
+
 pub fn setUserName(self: *ChildProcess, name: []const u8) !void {
     const user_info = try process.getUserInfo(name);
     self.uid = user_info.uid;
     self.gid = user_info.gid;
 }
 
-/// On success must call `kill` or `wait`.
+/// On success must call `kill` or `wait`. In the case of a detached process,
+/// consider using `deinit` instead if you have no intention of synchronizing
+/// with the child.
 /// After spawning the `id` is available.
 pub fn spawn(self: *ChildProcess) SpawnError!void {
     if (!process.can_spawn) {
@@ -658,6 +675,10 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
     const pid_result = try posix.fork();
     if (pid_result == 0) {
         // we are the child
+        if (self.detached) {
+            _ = posix.setsid() catch |err| forkChildErrReport(err_pipe[1], err);
+        }
+
         setUpChildIo(self.stdin_behavior, stdin_pipe[0], posix.STDIN_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
         setUpChildIo(self.stdout_behavior, stdout_pipe[1], posix.STDOUT_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
         setUpChildIo(self.stderr_behavior, stderr_pipe[1], posix.STDERR_FILENO, dev_null_fd) catch |err| forkChildErrReport(err_pipe[1], err);
@@ -684,6 +705,8 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
             posix.setpgid(0, pid) catch |err| forkChildErrReport(err_pipe[1], err);
         }
 
+        writeIntFd(err_pipe[1], maxInt(ErrInt)) catch {};
+
         const err = switch (self.expand_arg0) {
             .expand => posix.execvpeZ_expandArg0(.expand, argv_buf.ptr[0].?, argv_buf.ptr, envp),
             .no_expand => posix.execvpeZ_expandArg0(.no_expand, argv_buf.ptr[0].?, argv_buf.ptr, envp),
@@ -692,6 +715,26 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
     }
 
     // we are the parent
+
+    // We perform a blocking read on the err_pipe that gets us either an error
+    // that occured between fork and exec or a maxInt(ErrInt) if there wasn't any.
+    // Since we use eventfd on linux, it can happen that we get both
+    // a maxInt(ErrInt) and an error code in the first read if the exec in child failed
+    // and its error was written before this read (eventfd just sums the values up).
+    const err_int = blk: {
+        if (native_os == .linux) {
+            const file = File{ .handle = err_pipe[0] };
+            const err_int = file.reader().readInt(u64, .little) catch return error.SystemResources;
+            break :blk err_int;
+        } else {
+            break :blk try readIntFd(err_pipe[0]);
+        }
+    };
+    if (err_int != maxInt(ErrInt)) {
+        const err = @errorFromInt(@as(ErrInt, @intCast(err_int % maxInt(ErrInt))));
+        return @as(SpawnError, @errorCast(err));
+    }
+
     const pid: i32 = @intCast(pid_result);
     if (self.stdin_behavior == .Pipe) {
         self.stdin = .{ .handle = stdin_pipe[1] };
@@ -844,6 +887,10 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
         .lpReserved2 = null,
     };
     var piProcInfo: windows.PROCESS_INFORMATION = undefined;
+    var dwCreationFlags: windows.DWORD = windows.CREATE_UNICODE_ENVIRONMENT;
+    if (self.detached) {
+        dwCreationFlags |= windows.DETACHED_PROCESS;
+    }
 
     const cwd_w = if (self.cwd) |cwd| try unicode.wtf8ToWtf16LeAllocZ(self.allocator, cwd) else null;
     defer if (cwd_w) |cwd| self.allocator.free(cwd);
@@ -928,7 +975,7 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
             dir_buf.shrinkRetainingCapacity(normalized_len);
         }
 
-        windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
+        windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo, dwCreationFlags) catch |no_path_err| {
             const original_err = switch (no_path_err) {
                 // argv[0] contains unsupported characters that will never resolve to a valid exe.
                 error.InvalidArg0 => return error.FileNotFound,
@@ -956,7 +1003,7 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
                 const normalized_len = windows.normalizePath(u16, dir_buf.items) catch continue;
                 dir_buf.shrinkRetainingCapacity(normalized_len);
 
-                if (windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) {
+                if (windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo, dwCreationFlags)) {
                     break :run;
                 } else |err| switch (err) {
                     // argv[0] contains unsupported characters that will never resolve to a valid exe.
@@ -1057,6 +1104,7 @@ fn windowsCreateProcessPathExt(
     cwd_ptr: ?[*:0]u16,
     lpStartupInfo: *windows.STARTUPINFOW,
     lpProcessInformation: *windows.PROCESS_INFORMATION,
+    dwCreationFlags: windows.DWORD,
 ) !void {
     const app_name_len = app_buf.items.len;
     const dir_path_len = dir_buf.items.len;
@@ -1205,7 +1253,7 @@ fn windowsCreateProcessPathExt(
             else
                 full_app_name;
 
-            if (windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation)) |_| {
+            if (windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation, dwCreationFlags)) |_| {
                 return;
             } else |err| switch (err) {
                 error.FileNotFound,
@@ -1260,7 +1308,7 @@ fn windowsCreateProcessPathExt(
         else
             full_app_name;
 
-        if (windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation)) |_| {
+        if (windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation, dwCreationFlags)) |_| {
             return;
         } else |err| switch (err) {
             error.FileNotFound => continue,
@@ -1288,6 +1336,7 @@ fn windowsCreateProcess(
     cwd_ptr: ?[*:0]u16,
     lpStartupInfo: *windows.STARTUPINFOW,
     lpProcessInformation: *windows.PROCESS_INFORMATION,
+    dwCreationFlags: windows.DWORD,
 ) !void {
     // TODO the docs for environment pointer say:
     // > A pointer to the environment block for the new process. If this parameter
@@ -1312,7 +1361,7 @@ fn windowsCreateProcess(
         null,
         null,
         windows.TRUE,
-        windows.CREATE_UNICODE_ENVIRONMENT,
+        dwCreationFlags,
         @as(?*anyopaque, @ptrCast(envp_ptr)),
         cwd_ptr,
         lpStartupInfo,

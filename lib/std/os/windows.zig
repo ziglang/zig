@@ -154,6 +154,12 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
     }
 }
 
+pub fn GetProcessId(Process: HANDLE) UnexpectedError!DWORD {
+    const ret_code = kernel32.GetProcessId(Process);
+    if (ret_code == 0) return unexpectedError(GetLastError());
+    return ret_code;
+}
+
 pub fn GetCurrentProcess() HANDLE {
     const process_pseudo_handle: usize = @bitCast(@as(isize, -1));
     return @ptrFromInt(process_pseudo_handle);
@@ -1811,6 +1817,12 @@ pub fn VirtualQuery(lpAddress: ?LPVOID, lpBuffer: PMEMORY_BASIC_INFORMATION, dwL
     }
 
     return rc;
+}
+
+pub fn GetConsoleProcessList(lpdwProcessList: []DWORD) UnexpectedError!DWORD {
+    const ret_code = kernel32.GetConsoleProcessList(lpdwProcessList.ptr, @min(lpdwProcessList.len, math.maxInt(DWORD)));
+    if (ret_code == 0) return unexpectedError(GetLastError());
+    return ret_code;
 }
 
 pub const SetConsoleTextAttributeError = error{Unexpected};
@@ -3727,6 +3739,7 @@ pub const COORD = extern struct {
     Y: SHORT,
 };
 
+pub const DETACHED_PROCESS = 8;
 pub const CREATE_UNICODE_ENVIRONMENT = 1024;
 
 pub const TLS_OUT_OF_INDEXES = 4294967295;
