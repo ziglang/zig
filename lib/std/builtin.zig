@@ -243,6 +243,9 @@ pub const AddressSpace = enum(u5) {
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const SourceLocation = struct {
+    /// The name chosen when compiling. Not a file path.
+    module: [:0]const u8,
+    /// Relative to the root directory of its module.
     file: [:0]const u8,
     fn_name: [:0]const u8,
     line: u32,

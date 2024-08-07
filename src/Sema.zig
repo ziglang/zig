@@ -17769,11 +17769,12 @@ fn zirBuiltinSrc(
     defer tracy.end();
 
     const pt = sema.pt;
-    const mod = pt.zcu;
+    const zcu = pt.zcu;
     const extra = sema.code.extraData(Zir.Inst.Src, extended.operand).data;
-    const fn_owner_decl = mod.funcOwnerDeclPtr(sema.func_index);
-    const ip = &mod.intern_pool;
+    const fn_owner_decl = zcu.funcOwnerDeclPtr(sema.func_index);
+    const ip = &zcu.intern_pool;
     const gpa = sema.gpa;
+    const file_scope = fn_owner_decl.getFileScope(zcu);
 
     const func_name_val = v: {
         const func_name_len = fn_owner_decl.name.length(ip);
@@ -17799,8 +17800,34 @@ fn zirBuiltinSrc(
         } });
     };
 
+    const module_name_val = v: {
+        const module_name = file_scope.mod.fully_qualified_name;
+        const array_ty = try pt.intern(.{ .array_type = .{
+            .len = module_name.len,
+            .sentinel = .zero_u8,
+            .child = .u8_type,
+        } });
+        break :v try pt.intern(.{ .slice = .{
+            .ty = .slice_const_u8_sentinel_0_type,
+            .ptr = try pt.intern(.{ .ptr = .{
+                .ty = .manyptr_const_u8_sentinel_0_type,
+                .base_addr = .{ .anon_decl = .{
+                    .orig_ty = .slice_const_u8_sentinel_0_type,
+                    .val = try pt.intern(.{ .aggregate = .{
+                        .ty = array_ty,
+                        .storage = .{
+                            .bytes = try ip.getOrPutString(gpa, pt.tid, module_name, .maybe_embedded_nulls),
+                        },
+                    } }),
+                } },
+                .byte_offset = 0,
+            } }),
+            .len = (try pt.intValue(Type.usize, module_name.len)).toIntern(),
+        } });
+    };
+
     const file_name_val = v: {
-        const file_name = fn_owner_decl.getFileScope(mod).sub_file_path;
+        const file_name = file_scope.sub_file_path;
         const array_ty = try pt.intern(.{ .array_type = .{
             .len = file_name.len,
             .sentinel = .zero_u8,
@@ -17827,6 +17854,8 @@ fn zirBuiltinSrc(
 
     const src_loc_ty = try pt.getBuiltinType("SourceLocation");
     const fields = .{
+        // module: [:0]const u8,
+        module_name_val,
         // file: [:0]const u8,
         file_name_val,
         // fn_name: [:0]const u8,
