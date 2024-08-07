@@ -2529,6 +2529,10 @@ fn buildOutputType(
                         fatal("unable to parse /version '{s}': {s}", .{ arg, @errorName(err) });
                     };
                     have_version = true;
+                } else if (mem.eql(u8, arg, "-V")) {
+                    warn("ignoring request for supported emulations: unimplemented", .{});
+                } else if (mem.eql(u8, arg, "-v")) {
+                    try std.io.getStdOut().writeAll("zig ld " ++ build_options.version ++ "\n");
                 } else if (mem.eql(u8, arg, "--version")) {
                     try std.io.getStdOut().writeAll("zig ld " ++ build_options.version ++ "\n");
                     process.exit(0);
