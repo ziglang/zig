@@ -116,6 +116,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .cuda => "cuda",
         .nvcl => "nvcl",
         .amdhsa => "amdhsa",
+        .opencl => "unknown", // https://llvm.org/docs/SPIRVUsage.html#target-triples
         .ps4 => "ps4",
         .ps5 => "ps5",
         .elfiamcu => "elfiamcu",
@@ -137,7 +138,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .serenity => "serenity",
         .vulkan => "vulkan",
 
-        .opencl,
         .glsl450,
         .plan9,
         .minix,
