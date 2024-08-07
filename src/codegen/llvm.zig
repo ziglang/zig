@@ -89,7 +89,14 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .spu_2 => return error.@"LLVM backend does not support SPU Mark II",
     };
     try llvm_triple.appendSlice(llvm_arch);
-    try llvm_triple.appendSlice("-unknown-");
+
+    // Unlike CPU backends, GPU backends actually care about the vendor tag.
+    try llvm_triple.appendSlice(switch (target.cpu.arch) {
+        .amdgcn => if (target.os.tag == .mesa3d) "-mesa-" else "-amd-",
+        .nvptx, .nvptx64 => "-nvidia-",
+        .spirv64 => if (target.os.tag == .amdhsa) "-amd-" else "-unknown-",
+        else => "-unknown-",
+    });
 
     const llvm_os = switch (target.os.tag) {
         .freestanding => "unknown",
