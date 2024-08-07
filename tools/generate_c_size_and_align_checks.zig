@@ -49,7 +49,7 @@ pub fn main() !void {
             c_name(c_type),
             target.c_type_byte_size(c_type),
         });
-        try stdout.print("_Static_assert(_Alignof({0s}) == {1d}, \"_Alignof({0s}) == {1d}\");\n\n", .{
+        try stdout.print("_Static_assert(_Alignof({0s}) == {1d}, \"_Alignof({0s}) == {1d}\");\n", .{
             c_name(c_type),
             target.c_type_alignment(c_type),
         });
