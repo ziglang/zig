@@ -31,67 +31,54 @@ pub const all_features = blk: {
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.atomics)] = .{
         .llvm_name = "atomics",
-        .description = "Enable Atomics",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.bulk_memory)] = .{
         .llvm_name = "bulk-memory",
-        .description = "Enable bulk memory operations",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.exception_handling)] = .{
         .llvm_name = "exception-handling",
-        .description = "Enable Wasm exception handling",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.extended_const)] = .{
         .llvm_name = "extended-const",
-        .description = "Enable extended const expressions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.multimemory)] = .{
         .llvm_name = "multimemory",
-        .description = "Enable multiple memories",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.multivalue)] = .{
         .llvm_name = "multivalue",
-        .description = "Enable multivalue blocks, instructions, and functions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.mutable_globals)] = .{
         .llvm_name = "mutable-globals",
-        .description = "Enable mutable globals",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.nontrapping_fptoint)] = .{
         .llvm_name = "nontrapping-fptoint",
-        .description = "Enable non-trapping float-to-int conversion operators",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.reference_types)] = .{
         .llvm_name = "reference-types",
-        .description = "Enable reference types",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.relaxed_simd)] = .{
         .llvm_name = "relaxed-simd",
-        .description = "Enable relaxed-simd instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.sign_ext)] = .{
         .llvm_name = "sign-ext",
-        .description = "Enable sign extension operators",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.simd128)] = .{
         .llvm_name = "simd128",
-        .description = "Enable 128-bit SIMD",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.tail_call)] = .{
         .llvm_name = "tail-call",
-        .description = "Enable tail call instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     const ti = @typeInfo(Feature);
@@ -99,6 +86,25 @@ pub const all_features = blk: {
         elem.index = i;
         elem.name = ti.Enum.fields[i].name;
     }
+    break :blk result;
+};
+
+pub const feature_descs = blk: {
+    const len = @typeInfo(Feature).Enum.fields.len;
+    var result: [len][]const u8 = undefined;
+    result[@intFromEnum(Feature.atomics)] = "Enable Atomics";
+    result[@intFromEnum(Feature.bulk_memory)] = "Enable bulk memory operations";
+    result[@intFromEnum(Feature.exception_handling)] = "Enable Wasm exception handling";
+    result[@intFromEnum(Feature.extended_const)] = "Enable extended const expressions";
+    result[@intFromEnum(Feature.multimemory)] = "Enable multiple memories";
+    result[@intFromEnum(Feature.multivalue)] = "Enable multivalue blocks, instructions, and functions";
+    result[@intFromEnum(Feature.mutable_globals)] = "Enable mutable globals";
+    result[@intFromEnum(Feature.nontrapping_fptoint)] = "Enable non-trapping float-to-int conversion operators";
+    result[@intFromEnum(Feature.reference_types)] = "Enable reference types";
+    result[@intFromEnum(Feature.relaxed_simd)] = "Enable relaxed-simd instructions";
+    result[@intFromEnum(Feature.sign_ext)] = "Enable sign extension operators";
+    result[@intFromEnum(Feature.simd128)] = "Enable 128-bit SIMD";
+    result[@intFromEnum(Feature.tail_call)] = "Enable tail call instructions";
     break :blk result;
 };
 

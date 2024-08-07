@@ -33,83 +33,68 @@ pub const all_features = blk: {
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.@"32bit")] = .{
         .llvm_name = "32bit",
-        .description = "LA32 Basic Integer and Privilege Instruction Set",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.@"64bit")] = .{
         .llvm_name = "64bit",
-        .description = "LA64 Basic Integer and Privilege Instruction Set",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.auto_vec)] = .{
         .llvm_name = "auto-vec",
-        .description = "Experimental auto vectorization",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.d)] = .{
         .llvm_name = "d",
-        .description = "'D' (Double-Precision Floating-Point)",
         .dependencies = featureSet(&[_]Feature{
             .f,
         }),
     };
     result[@intFromEnum(Feature.f)] = .{
         .llvm_name = "f",
-        .description = "'F' (Single-Precision Floating-Point)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.frecipe)] = .{
         .llvm_name = "frecipe",
-        .description = "Support frecipe.{s/d} and frsqrte.{s/d} instructions.",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.la_global_with_abs)] = .{
         .llvm_name = "la-global-with-abs",
-        .description = "Expand la.global as la.abs",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.la_global_with_pcrel)] = .{
         .llvm_name = "la-global-with-pcrel",
-        .description = "Expand la.global as la.pcrel",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.la_local_with_abs)] = .{
         .llvm_name = "la-local-with-abs",
-        .description = "Expand la.local as la.abs",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.lasx)] = .{
         .llvm_name = "lasx",
-        .description = "'LASX' (Loongson Advanced SIMD Extension)",
         .dependencies = featureSet(&[_]Feature{
             .lsx,
         }),
     };
     result[@intFromEnum(Feature.lbt)] = .{
         .llvm_name = "lbt",
-        .description = "'LBT' (Loongson Binary Translation Extension)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.lsx)] = .{
         .llvm_name = "lsx",
-        .description = "'LSX' (Loongson SIMD Extension)",
         .dependencies = featureSet(&[_]Feature{
             .d,
         }),
     };
     result[@intFromEnum(Feature.lvz)] = .{
         .llvm_name = "lvz",
-        .description = "'LVZ' (Loongson Virtualization Extension)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.relax)] = .{
         .llvm_name = "relax",
-        .description = "Enable Linker relaxation",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.ual)] = .{
         .llvm_name = "ual",
-        .description = "Allow memory accesses to be unaligned",
         .dependencies = featureSet(&[_]Feature{}),
     };
     const ti = @typeInfo(Feature);
@@ -117,6 +102,27 @@ pub const all_features = blk: {
         elem.index = i;
         elem.name = ti.Enum.fields[i].name;
     }
+    break :blk result;
+};
+
+pub const feature_descs = blk: {
+    const len = @typeInfo(Feature).Enum.fields.len;
+    var result: [len][]const u8 = undefined;
+    result[@intFromEnum(Feature.@"32bit")] = "LA32 Basic Integer and Privilege Instruction Set";
+    result[@intFromEnum(Feature.@"64bit")] = "LA64 Basic Integer and Privilege Instruction Set";
+    result[@intFromEnum(Feature.auto_vec)] = "Experimental auto vectorization";
+    result[@intFromEnum(Feature.d)] = "'D' (Double-Precision Floating-Point)";
+    result[@intFromEnum(Feature.f)] = "'F' (Single-Precision Floating-Point)";
+    result[@intFromEnum(Feature.frecipe)] = "Support frecipe.{s/d} and frsqrte.{s/d} instructions.";
+    result[@intFromEnum(Feature.la_global_with_abs)] = "Expand la.global as la.abs";
+    result[@intFromEnum(Feature.la_global_with_pcrel)] = "Expand la.global as la.pcrel";
+    result[@intFromEnum(Feature.la_local_with_abs)] = "Expand la.local as la.abs";
+    result[@intFromEnum(Feature.lasx)] = "'LASX' (Loongson Advanced SIMD Extension)";
+    result[@intFromEnum(Feature.lbt)] = "'LBT' (Loongson Binary Translation Extension)";
+    result[@intFromEnum(Feature.lsx)] = "'LSX' (Loongson SIMD Extension)";
+    result[@intFromEnum(Feature.lvz)] = "'LVZ' (Loongson Virtualization Extension)";
+    result[@intFromEnum(Feature.relax)] = "Enable Linker relaxation";
+    result[@intFromEnum(Feature.ual)] = "Allow memory accesses to be unaligned";
     break :blk result;
 };
 

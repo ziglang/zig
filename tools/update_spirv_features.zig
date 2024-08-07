@@ -139,7 +139,6 @@ pub fn main() !void {
         try w.print(
             \\    result[@intFromEnum(Feature.v{0}_{1})] = .{{
             \\        .llvm_name = null,
-            \\        .description = "SPIR-V version {0}.{1}",
             \\
         , .{ ver.major, ver.minor });
 
@@ -165,13 +164,11 @@ pub fn main() !void {
         try w.print(
             \\    result[@intFromEnum(Feature.{p_})] = .{{
             \\        .llvm_name = null,
-            \\        .description = "SPIR-V extension {s}",
             \\        .dependencies = featureSet(&[_]Feature{{}}),
             \\    }};
             \\
         , .{
             std.zig.fmtId(ext),
-            ext,
         });
     }
 
@@ -180,12 +177,10 @@ pub fn main() !void {
         try w.print(
             \\    result[@intFromEnum(Feature.{p_})] = .{{
             \\        .llvm_name = null,
-            \\        .description = "Enable SPIR-V capability {s}",
             \\        .dependencies = featureSet(&[_]Feature{{
             \\
         , .{
             std.zig.fmtId(cap.enumerant),
-            cap.enumerant,
         });
 
         if (cap.version) |ver_str| {
@@ -213,6 +208,55 @@ pub fn main() !void {
         \\        elem.name = ti.Enum.fields[i].name;
         \\    }
         \\    break :blk result;
+        \\};
+        \\
+        \\pub const feature_descs = blk: {
+        \\    const len = @typeInfo(Feature).Enum.fields.len;
+        \\    var result: [len][]const u8 = undefined;
+        \\
+    );
+
+    // Note: Description strings were moved out of `Cpu.Feature` to avoid
+    //       them being included in binaries that use `Target` but do not
+    //       use/reference the descriptions.
+    //
+    // TODO: Move the descriptions back into `Cpu.Feature`.
+    //       See https://github.com/ziglang/zig/issues/21010
+    for (versions) |ver| {
+        try w.print(
+            \\    result[@intFromEnum(Feature.v{0}_{1})] = "SPIR-V version {0}.{1}";
+            \\
+        , .{ ver.major, ver.minor });
+    }
+    for (extensions) |ext| {
+        try w.print(
+            \\    result[@intFromEnum(Feature.{p_})] = "SPIR-V extension {s}";
+            \\
+        , .{
+            std.zig.fmtId(ext),
+            ext,
+        });
+    }
+    for (capabilities) |cap| {
+        try w.print(
+            \\    result[@intFromEnum(Feature.{p_})] = "Enable SPIR-V capability {s}";
+            \\
+        , .{
+            std.zig.fmtId(cap.enumerant),
+            cap.enumerant,
+        });
+    }
+
+    try w.writeAll(
+        \\    break :blk result;
+        \\};
+        \\
+        \\pub const cpu = struct {
+        \\    pub const generic = CpuModel{
+        \\        .name = "generic",
+        \\        .llvm_name = "generic",
+        \\        .features = featureSet(&[_]Feature{}),
+        \\    };
         \\};
         \\
     );

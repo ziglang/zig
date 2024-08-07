@@ -19,7 +19,6 @@ pub const all_features = blk: {
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.density)] = .{
         .llvm_name = "density",
-        .description = "Enable Density instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     const ti = @typeInfo(Feature);
@@ -27,6 +26,13 @@ pub const all_features = blk: {
         elem.index = i;
         elem.name = ti.Enum.fields[i].name;
     }
+    break :blk result;
+};
+
+pub const feature_descs = blk: {
+    const len = @typeInfo(Feature).Enum.fields.len;
+    var result: [len][]const u8 = undefined;
+    result[@intFromEnum(Feature.density)] = "Enable Density instructions";
     break :blk result;
 };
 

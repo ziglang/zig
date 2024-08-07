@@ -54,17 +54,14 @@ pub const all_features = blk: {
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.addsubiw)] = .{
         .llvm_name = "addsubiw",
-        .description = "Enable 16-bit register-immediate addition and subtraction instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.avr0)] = .{
         .llvm_name = "avr0",
-        .description = "The device is a part of the avr0 family",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.avr1)] = .{
         .llvm_name = "avr1",
-        .description = "The device is a part of the avr1 family",
         .dependencies = featureSet(&[_]Feature{
             .avr0,
             .lpm,
@@ -73,7 +70,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.avr2)] = .{
         .llvm_name = "avr2",
-        .description = "The device is a part of the avr2 family",
         .dependencies = featureSet(&[_]Feature{
             .addsubiw,
             .avr1,
@@ -83,7 +79,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.avr25)] = .{
         .llvm_name = "avr25",
-        .description = "The device is a part of the avr25 family",
         .dependencies = featureSet(&[_]Feature{
             .avr2,
             .@"break",
@@ -94,7 +89,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.avr3)] = .{
         .llvm_name = "avr3",
-        .description = "The device is a part of the avr3 family",
         .dependencies = featureSet(&[_]Feature{
             .avr2,
             .jmpcall,
@@ -102,7 +96,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.avr31)] = .{
         .llvm_name = "avr31",
-        .description = "The device is a part of the avr31 family",
         .dependencies = featureSet(&[_]Feature{
             .avr3,
             .elpm,
@@ -110,7 +103,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.avr35)] = .{
         .llvm_name = "avr35",
-        .description = "The device is a part of the avr35 family",
         .dependencies = featureSet(&[_]Feature{
             .avr3,
             .@"break",
@@ -121,7 +113,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.avr4)] = .{
         .llvm_name = "avr4",
-        .description = "The device is a part of the avr4 family",
         .dependencies = featureSet(&[_]Feature{
             .avr2,
             .@"break",
@@ -133,7 +124,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.avr5)] = .{
         .llvm_name = "avr5",
-        .description = "The device is a part of the avr5 family",
         .dependencies = featureSet(&[_]Feature{
             .avr3,
             .@"break",
@@ -145,7 +135,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.avr51)] = .{
         .llvm_name = "avr51",
-        .description = "The device is a part of the avr51 family",
         .dependencies = featureSet(&[_]Feature{
             .avr5,
             .elpm,
@@ -154,7 +143,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.avr6)] = .{
         .llvm_name = "avr6",
-        .description = "The device is a part of the avr6 family",
         .dependencies = featureSet(&[_]Feature{
             .avr51,
             .eijmpcall,
@@ -162,7 +150,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.avrtiny)] = .{
         .llvm_name = "avrtiny",
-        .description = "The device is a part of the avrtiny family",
         .dependencies = featureSet(&[_]Feature{
             .avr0,
             .@"break",
@@ -173,82 +160,66 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.@"break")] = .{
         .llvm_name = "break",
-        .description = "The device supports the `BREAK` debugging instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.des)] = .{
         .llvm_name = "des",
-        .description = "The device supports the `DES k` encryption instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.eijmpcall)] = .{
         .llvm_name = "eijmpcall",
-        .description = "The device supports the `EIJMP`/`EICALL` instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.elpm)] = .{
         .llvm_name = "elpm",
-        .description = "The device supports the ELPM instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.elpmx)] = .{
         .llvm_name = "elpmx",
-        .description = "The device supports the `ELPM Rd, Z[+]` instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.ijmpcall)] = .{
         .llvm_name = "ijmpcall",
-        .description = "The device supports `IJMP`/`ICALL`instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.jmpcall)] = .{
         .llvm_name = "jmpcall",
-        .description = "The device supports the `JMP` and `CALL` instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.lowbytefirst)] = .{
         .llvm_name = "lowbytefirst",
-        .description = "Do the low byte first when writing a 16-bit port or storing a 16-bit word",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.lpm)] = .{
         .llvm_name = "lpm",
-        .description = "The device supports the `LPM` instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.lpmx)] = .{
         .llvm_name = "lpmx",
-        .description = "The device supports the `LPM Rd, Z[+]` instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.memmappedregs)] = .{
         .llvm_name = "memmappedregs",
-        .description = "The device has CPU registers mapped in data address space",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.movw)] = .{
         .llvm_name = "movw",
-        .description = "The device supports the 16-bit MOVW instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.mul)] = .{
         .llvm_name = "mul",
-        .description = "The device supports the multiplication instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.rmw)] = .{
         .llvm_name = "rmw",
-        .description = "The device supports the read-write-modify instructions: XCH, LAS, LAC, LAT",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.smallstack)] = .{
         .llvm_name = "smallstack",
-        .description = "The device has an 8-bit stack pointer",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.special)] = .{
         .llvm_name = "special",
-        .description = "Enable use of the entire instruction set - used for debugging",
         .dependencies = featureSet(&[_]Feature{
             .addsubiw,
             .@"break",
@@ -271,27 +242,22 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.spm)] = .{
         .llvm_name = "spm",
-        .description = "The device supports the `SPM` instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.spmx)] = .{
         .llvm_name = "spmx",
-        .description = "The device supports the `SPM Z+` instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.sram)] = .{
         .llvm_name = "sram",
-        .description = "The device has random access memory",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.tinyencoding)] = .{
         .llvm_name = "tinyencoding",
-        .description = "The device has Tiny core specific instruction encodings",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.xmega)] = .{
         .llvm_name = "xmega",
-        .description = "The device is a part of the xmega family",
         .dependencies = featureSet(&[_]Feature{
             .addsubiw,
             .avr0,
@@ -314,7 +280,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.xmega3)] = .{
         .llvm_name = "xmega3",
-        .description = "The device is a part of the xmega3 family",
         .dependencies = featureSet(&[_]Feature{
             .addsubiw,
             .avr0,
@@ -331,7 +296,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.xmegau)] = .{
         .llvm_name = "xmegau",
-        .description = "The device is a part of the xmegau family",
         .dependencies = featureSet(&[_]Feature{
             .rmw,
             .xmega,
@@ -342,6 +306,48 @@ pub const all_features = blk: {
         elem.index = i;
         elem.name = ti.Enum.fields[i].name;
     }
+    break :blk result;
+};
+
+pub const feature_descs = blk: {
+    const len = @typeInfo(Feature).Enum.fields.len;
+    var result: [len][]const u8 = undefined;
+    result[@intFromEnum(Feature.addsubiw)] = "Enable 16-bit register-immediate addition and subtraction instructions";
+    result[@intFromEnum(Feature.avr0)] = "The device is a part of the avr0 family";
+    result[@intFromEnum(Feature.avr1)] = "The device is a part of the avr1 family";
+    result[@intFromEnum(Feature.avr2)] = "The device is a part of the avr2 family";
+    result[@intFromEnum(Feature.avr25)] = "The device is a part of the avr25 family";
+    result[@intFromEnum(Feature.avr3)] = "The device is a part of the avr3 family";
+    result[@intFromEnum(Feature.avr31)] = "The device is a part of the avr31 family";
+    result[@intFromEnum(Feature.avr35)] = "The device is a part of the avr35 family";
+    result[@intFromEnum(Feature.avr4)] = "The device is a part of the avr4 family";
+    result[@intFromEnum(Feature.avr5)] = "The device is a part of the avr5 family";
+    result[@intFromEnum(Feature.avr51)] = "The device is a part of the avr51 family";
+    result[@intFromEnum(Feature.avr6)] = "The device is a part of the avr6 family";
+    result[@intFromEnum(Feature.avrtiny)] = "The device is a part of the avrtiny family";
+    result[@intFromEnum(Feature.@"break")] = "The device supports the `BREAK` debugging instruction";
+    result[@intFromEnum(Feature.des)] = "The device supports the `DES k` encryption instruction";
+    result[@intFromEnum(Feature.eijmpcall)] = "The device supports the `EIJMP`/`EICALL` instructions";
+    result[@intFromEnum(Feature.elpm)] = "The device supports the ELPM instruction";
+    result[@intFromEnum(Feature.elpmx)] = "The device supports the `ELPM Rd, Z[+]` instructions";
+    result[@intFromEnum(Feature.ijmpcall)] = "The device supports `IJMP`/`ICALL`instructions";
+    result[@intFromEnum(Feature.jmpcall)] = "The device supports the `JMP` and `CALL` instructions";
+    result[@intFromEnum(Feature.lowbytefirst)] = "Do the low byte first when writing a 16-bit port or storing a 16-bit word";
+    result[@intFromEnum(Feature.lpm)] = "The device supports the `LPM` instruction";
+    result[@intFromEnum(Feature.lpmx)] = "The device supports the `LPM Rd, Z[+]` instruction";
+    result[@intFromEnum(Feature.memmappedregs)] = "The device has CPU registers mapped in data address space";
+    result[@intFromEnum(Feature.movw)] = "The device supports the 16-bit MOVW instruction";
+    result[@intFromEnum(Feature.mul)] = "The device supports the multiplication instructions";
+    result[@intFromEnum(Feature.rmw)] = "The device supports the read-write-modify instructions: XCH, LAS, LAC, LAT";
+    result[@intFromEnum(Feature.smallstack)] = "The device has an 8-bit stack pointer";
+    result[@intFromEnum(Feature.special)] = "Enable use of the entire instruction set - used for debugging";
+    result[@intFromEnum(Feature.spm)] = "The device supports the `SPM` instruction";
+    result[@intFromEnum(Feature.spmx)] = "The device supports the `SPM Z+` instruction";
+    result[@intFromEnum(Feature.sram)] = "The device has random access memory";
+    result[@intFromEnum(Feature.tinyencoding)] = "The device has Tiny core specific instruction encodings";
+    result[@intFromEnum(Feature.xmega)] = "The device is a part of the xmega family";
+    result[@intFromEnum(Feature.xmega3)] = "The device is a part of the xmega3 family";
+    result[@intFromEnum(Feature.xmegau)] = "The device is a part of the xmegau family";
     break :blk result;
 };
 

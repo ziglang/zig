@@ -1383,8 +1383,8 @@ pub fn parseTargetQuery(options: std.Target.Query.ParseOptions) error{ParseFaile
                 diags.unknown_feature_name.?,
                 @tagName(diags.arch.?),
             });
-            for (diags.arch.?.allFeaturesList()) |feature| {
-                std.debug.print(" {s}: {s}\n", .{ feature.name, feature.description });
+            for (diags.arch.?.allFeaturesList(), diags.arch.?.allFeaturesDescList()) |feature, desc| {
+                std.debug.print(" {s}: {s}\n", .{ feature.name, desc });
             }
             return error.ParseFailed;
         },

@@ -41,33 +41,28 @@ pub const all_features = blk: {
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.isa_68000)] = .{
         .llvm_name = "isa-68000",
-        .description = "Is M68000 ISA supported",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.isa_68010)] = .{
         .llvm_name = "isa-68010",
-        .description = "Is M68010 ISA supported",
         .dependencies = featureSet(&[_]Feature{
             .isa_68000,
         }),
     };
     result[@intFromEnum(Feature.isa_68020)] = .{
         .llvm_name = "isa-68020",
-        .description = "Is M68020 ISA supported",
         .dependencies = featureSet(&[_]Feature{
             .isa_68010,
         }),
     };
     result[@intFromEnum(Feature.isa_68030)] = .{
         .llvm_name = "isa-68030",
-        .description = "Is M68030 ISA supported",
         .dependencies = featureSet(&[_]Feature{
             .isa_68020,
         }),
     };
     result[@intFromEnum(Feature.isa_68040)] = .{
         .llvm_name = "isa-68040",
-        .description = "Is M68040 ISA supported",
         .dependencies = featureSet(&[_]Feature{
             .isa_68030,
             .isa_68882,
@@ -75,96 +70,78 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.isa_68060)] = .{
         .llvm_name = "isa-68060",
-        .description = "Is M68060 ISA supported",
         .dependencies = featureSet(&[_]Feature{
             .isa_68040,
         }),
     };
     result[@intFromEnum(Feature.isa_68881)] = .{
         .llvm_name = "isa-68881",
-        .description = "Is M68881 (FPU) ISA supported",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.isa_68882)] = .{
         .llvm_name = "isa-68882",
-        .description = "Is M68882 (FPU) ISA supported",
         .dependencies = featureSet(&[_]Feature{
             .isa_68881,
         }),
     };
     result[@intFromEnum(Feature.reserve_a0)] = .{
         .llvm_name = "reserve-a0",
-        .description = "Reserve A0 register",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.reserve_a1)] = .{
         .llvm_name = "reserve-a1",
-        .description = "Reserve A1 register",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.reserve_a2)] = .{
         .llvm_name = "reserve-a2",
-        .description = "Reserve A2 register",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.reserve_a3)] = .{
         .llvm_name = "reserve-a3",
-        .description = "Reserve A3 register",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.reserve_a4)] = .{
         .llvm_name = "reserve-a4",
-        .description = "Reserve A4 register",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.reserve_a5)] = .{
         .llvm_name = "reserve-a5",
-        .description = "Reserve A5 register",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.reserve_a6)] = .{
         .llvm_name = "reserve-a6",
-        .description = "Reserve A6 register",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.reserve_d0)] = .{
         .llvm_name = "reserve-d0",
-        .description = "Reserve D0 register",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.reserve_d1)] = .{
         .llvm_name = "reserve-d1",
-        .description = "Reserve D1 register",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.reserve_d2)] = .{
         .llvm_name = "reserve-d2",
-        .description = "Reserve D2 register",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.reserve_d3)] = .{
         .llvm_name = "reserve-d3",
-        .description = "Reserve D3 register",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.reserve_d4)] = .{
         .llvm_name = "reserve-d4",
-        .description = "Reserve D4 register",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.reserve_d5)] = .{
         .llvm_name = "reserve-d5",
-        .description = "Reserve D5 register",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.reserve_d6)] = .{
         .llvm_name = "reserve-d6",
-        .description = "Reserve D6 register",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.reserve_d7)] = .{
         .llvm_name = "reserve-d7",
-        .description = "Reserve D7 register",
         .dependencies = featureSet(&[_]Feature{}),
     };
     const ti = @typeInfo(Feature);
@@ -172,6 +149,35 @@ pub const all_features = blk: {
         elem.index = i;
         elem.name = ti.Enum.fields[i].name;
     }
+    break :blk result;
+};
+
+pub const feature_descs = blk: {
+    const len = @typeInfo(Feature).Enum.fields.len;
+    var result: [len][]const u8 = undefined;
+    result[@intFromEnum(Feature.isa_68000)] = "Is M68000 ISA supported";
+    result[@intFromEnum(Feature.isa_68010)] = "Is M68010 ISA supported";
+    result[@intFromEnum(Feature.isa_68020)] = "Is M68020 ISA supported";
+    result[@intFromEnum(Feature.isa_68030)] = "Is M68030 ISA supported";
+    result[@intFromEnum(Feature.isa_68040)] = "Is M68040 ISA supported";
+    result[@intFromEnum(Feature.isa_68060)] = "Is M68060 ISA supported";
+    result[@intFromEnum(Feature.isa_68881)] = "Is M68881 (FPU) ISA supported";
+    result[@intFromEnum(Feature.isa_68882)] = "Is M68882 (FPU) ISA supported";
+    result[@intFromEnum(Feature.reserve_a0)] = "Reserve A0 register";
+    result[@intFromEnum(Feature.reserve_a1)] = "Reserve A1 register";
+    result[@intFromEnum(Feature.reserve_a2)] = "Reserve A2 register";
+    result[@intFromEnum(Feature.reserve_a3)] = "Reserve A3 register";
+    result[@intFromEnum(Feature.reserve_a4)] = "Reserve A4 register";
+    result[@intFromEnum(Feature.reserve_a5)] = "Reserve A5 register";
+    result[@intFromEnum(Feature.reserve_a6)] = "Reserve A6 register";
+    result[@intFromEnum(Feature.reserve_d0)] = "Reserve D0 register";
+    result[@intFromEnum(Feature.reserve_d1)] = "Reserve D1 register";
+    result[@intFromEnum(Feature.reserve_d2)] = "Reserve D2 register";
+    result[@intFromEnum(Feature.reserve_d3)] = "Reserve D3 register";
+    result[@intFromEnum(Feature.reserve_d4)] = "Reserve D4 register";
+    result[@intFromEnum(Feature.reserve_d5)] = "Reserve D5 register";
+    result[@intFromEnum(Feature.reserve_d6)] = "Reserve D6 register";
+    result[@intFromEnum(Feature.reserve_d7)] = "Reserve D7 register";
     break :blk result;
 };
 

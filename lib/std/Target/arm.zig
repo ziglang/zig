@@ -220,156 +220,130 @@ pub const all_features = blk: {
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.@"32bit")] = .{
         .llvm_name = "32bit",
-        .description = "Prefer 32-bit Thumb instrs",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.@"8msecext")] = .{
         .llvm_name = "8msecext",
-        .description = "Enable support for ARMv8-M Security Extensions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.a76)] = .{
         .llvm_name = "a76",
-        .description = "Cortex-A76 ARM processors",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.aapcs_frame_chain)] = .{
         .llvm_name = "aapcs-frame-chain",
-        .description = "Create an AAPCS compliant frame chain",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.aapcs_frame_chain_leaf)] = .{
         .llvm_name = "aapcs-frame-chain-leaf",
-        .description = "Create an AAPCS compliant frame chain for leaf functions",
         .dependencies = featureSet(&[_]Feature{
             .aapcs_frame_chain,
         }),
     };
     result[@intFromEnum(Feature.aclass)] = .{
         .llvm_name = "aclass",
-        .description = "Is application profile ('A' series)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.acquire_release)] = .{
         .llvm_name = "acquire-release",
-        .description = "Has v8 acquire/release (lda/ldaex  etc) instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.aes)] = .{
         .llvm_name = "aes",
-        .description = "Enable AES support",
         .dependencies = featureSet(&[_]Feature{
             .neon,
         }),
     };
     result[@intFromEnum(Feature.atomics_32)] = .{
         .llvm_name = "atomics-32",
-        .description = "Assume that lock-free 32-bit atomics are available",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.avoid_movs_shop)] = .{
         .llvm_name = "avoid-movs-shop",
-        .description = "Avoid movs instructions with shifter operand",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.avoid_partial_cpsr)] = .{
         .llvm_name = "avoid-partial-cpsr",
-        .description = "Avoid CPSR partial update for OOO execution",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.bf16)] = .{
         .llvm_name = "bf16",
-        .description = "Enable support for BFloat16 instructions",
         .dependencies = featureSet(&[_]Feature{
             .neon,
         }),
     };
     result[@intFromEnum(Feature.big_endian_instructions)] = .{
         .llvm_name = "big-endian-instructions",
-        .description = "Expect instructions to be stored big-endian.",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.cde)] = .{
         .llvm_name = "cde",
-        .description = "Support CDE instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v8m_main,
         }),
     };
     result[@intFromEnum(Feature.cdecp0)] = .{
         .llvm_name = "cdecp0",
-        .description = "Coprocessor 0 ISA is CDEv1",
         .dependencies = featureSet(&[_]Feature{
             .cde,
         }),
     };
     result[@intFromEnum(Feature.cdecp1)] = .{
         .llvm_name = "cdecp1",
-        .description = "Coprocessor 1 ISA is CDEv1",
         .dependencies = featureSet(&[_]Feature{
             .cde,
         }),
     };
     result[@intFromEnum(Feature.cdecp2)] = .{
         .llvm_name = "cdecp2",
-        .description = "Coprocessor 2 ISA is CDEv1",
         .dependencies = featureSet(&[_]Feature{
             .cde,
         }),
     };
     result[@intFromEnum(Feature.cdecp3)] = .{
         .llvm_name = "cdecp3",
-        .description = "Coprocessor 3 ISA is CDEv1",
         .dependencies = featureSet(&[_]Feature{
             .cde,
         }),
     };
     result[@intFromEnum(Feature.cdecp4)] = .{
         .llvm_name = "cdecp4",
-        .description = "Coprocessor 4 ISA is CDEv1",
         .dependencies = featureSet(&[_]Feature{
             .cde,
         }),
     };
     result[@intFromEnum(Feature.cdecp5)] = .{
         .llvm_name = "cdecp5",
-        .description = "Coprocessor 5 ISA is CDEv1",
         .dependencies = featureSet(&[_]Feature{
             .cde,
         }),
     };
     result[@intFromEnum(Feature.cdecp6)] = .{
         .llvm_name = "cdecp6",
-        .description = "Coprocessor 6 ISA is CDEv1",
         .dependencies = featureSet(&[_]Feature{
             .cde,
         }),
     };
     result[@intFromEnum(Feature.cdecp7)] = .{
         .llvm_name = "cdecp7",
-        .description = "Coprocessor 7 ISA is CDEv1",
         .dependencies = featureSet(&[_]Feature{
             .cde,
         }),
     };
     result[@intFromEnum(Feature.cheap_predicable_cpsr)] = .{
         .llvm_name = "cheap-predicable-cpsr",
-        .description = "Disable +1 predication cost for instructions updating CPSR",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.clrbhb)] = .{
         .llvm_name = "clrbhb",
-        .description = "Enable Clear BHB instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.crc)] = .{
         .llvm_name = "crc",
-        .description = "Enable support for CRC instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.crypto)] = .{
         .llvm_name = "crypto",
-        .description = "Enable support for Cryptography extensions",
         .dependencies = featureSet(&[_]Feature{
             .aes,
             .sha2,
@@ -377,54 +351,44 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.d32)] = .{
         .llvm_name = "d32",
-        .description = "Extend FP to 32 double registers",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.db)] = .{
         .llvm_name = "db",
-        .description = "Has data barrier (dmb/dsb) instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.dfb)] = .{
         .llvm_name = "dfb",
-        .description = "Has full data barrier (dfb) instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.disable_postra_scheduler)] = .{
         .llvm_name = "disable-postra-scheduler",
-        .description = "Don't schedule again after register allocation",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.dont_widen_vmovs)] = .{
         .llvm_name = "dont-widen-vmovs",
-        .description = "Don't widen VMOVS to VMOVD",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.dotprod)] = .{
         .llvm_name = "dotprod",
-        .description = "Enable support for dot product instructions",
         .dependencies = featureSet(&[_]Feature{
             .neon,
         }),
     };
     result[@intFromEnum(Feature.dsp)] = .{
         .llvm_name = "dsp",
-        .description = "Supports DSP instructions in ARM and/or Thumb2",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.execute_only)] = .{
         .llvm_name = "execute-only",
-        .description = "Enable the generation of execute only code.",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.expand_fp_mlx)] = .{
         .llvm_name = "expand-fp-mlx",
-        .description = "Expand VFP/NEON MLA/MLS instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.exynos)] = .{
         .llvm_name = "exynos",
-        .description = "Samsung Exynos processors",
         .dependencies = featureSet(&[_]Feature{
             .crc,
             .crypto,
@@ -447,36 +411,30 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.fix_cmse_cve_2021_35465)] = .{
         .llvm_name = "fix-cmse-cve-2021-35465",
-        .description = "Mitigate against the cve-2021-35465 security vulnerability",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.fix_cortex_a57_aes_1742098)] = .{
         .llvm_name = "fix-cortex-a57-aes-1742098",
-        .description = "Work around Cortex-A57 Erratum 1742098 / Cortex-A72 Erratum 1655431 (AES)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.fp16)] = .{
         .llvm_name = "fp16",
-        .description = "Enable half-precision floating point",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.fp16fml)] = .{
         .llvm_name = "fp16fml",
-        .description = "Enable full half-precision floating point fml instructions",
         .dependencies = featureSet(&[_]Feature{
             .fullfp16,
         }),
     };
     result[@intFromEnum(Feature.fp64)] = .{
         .llvm_name = "fp64",
-        .description = "Floating point unit supports double precision",
         .dependencies = featureSet(&[_]Feature{
             .fpregs64,
         }),
     };
     result[@intFromEnum(Feature.fp_armv8)] = .{
         .llvm_name = "fp-armv8",
-        .description = "Enable ARMv8 FP",
         .dependencies = featureSet(&[_]Feature{
             .fp_armv8d16,
             .fp_armv8sp,
@@ -485,7 +443,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.fp_armv8d16)] = .{
         .llvm_name = "fp-armv8d16",
-        .description = "Enable ARMv8 FP with only 16 d-registers",
         .dependencies = featureSet(&[_]Feature{
             .fp_armv8d16sp,
             .vfp4d16,
@@ -493,14 +450,12 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.fp_armv8d16sp)] = .{
         .llvm_name = "fp-armv8d16sp",
-        .description = "Enable ARMv8 FP with only 16 d-registers and no double precision",
         .dependencies = featureSet(&[_]Feature{
             .vfp4d16sp,
         }),
     };
     result[@intFromEnum(Feature.fp_armv8sp)] = .{
         .llvm_name = "fp-armv8sp",
-        .description = "Enable ARMv8 FP with no double precision",
         .dependencies = featureSet(&[_]Feature{
             .fp_armv8d16sp,
             .vfp4sp,
@@ -508,31 +463,26 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.fpao)] = .{
         .llvm_name = "fpao",
-        .description = "Enable fast computation of positive address offsets",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.fpregs)] = .{
         .llvm_name = "fpregs",
-        .description = "Enable FP registers",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.fpregs16)] = .{
         .llvm_name = "fpregs16",
-        .description = "Enable 16-bit FP registers",
         .dependencies = featureSet(&[_]Feature{
             .fpregs,
         }),
     };
     result[@intFromEnum(Feature.fpregs64)] = .{
         .llvm_name = "fpregs64",
-        .description = "Enable 64-bit FP registers",
         .dependencies = featureSet(&[_]Feature{
             .fpregs,
         }),
     };
     result[@intFromEnum(Feature.fullfp16)] = .{
         .llvm_name = "fullfp16",
-        .description = "Enable full half-precision floating point",
         .dependencies = featureSet(&[_]Feature{
             .fp_armv8d16sp,
             .fpregs16,
@@ -540,72 +490,60 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.fuse_aes)] = .{
         .llvm_name = "fuse-aes",
-        .description = "CPU fuses AES crypto operations",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.fuse_literals)] = .{
         .llvm_name = "fuse-literals",
-        .description = "CPU fuses literal generation operations",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.harden_sls_blr)] = .{
         .llvm_name = "harden-sls-blr",
-        .description = "Harden against straight line speculation across indirect calls",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.harden_sls_nocomdat)] = .{
         .llvm_name = "harden-sls-nocomdat",
-        .description = "Generate thunk code for SLS mitigation in the normal text section",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.harden_sls_retbr)] = .{
         .llvm_name = "harden-sls-retbr",
-        .description = "Harden against straight line speculation across RETurn and BranchRegister instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.has_v4t)] = .{
         .llvm_name = "v4t",
-        .description = "Support ARM v4T instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.has_v5t)] = .{
         .llvm_name = "v5t",
-        .description = "Support ARM v5T instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v4t,
         }),
     };
     result[@intFromEnum(Feature.has_v5te)] = .{
         .llvm_name = "v5te",
-        .description = "Support ARM v5TE, v5TEj, and v5TExp instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v5t,
         }),
     };
     result[@intFromEnum(Feature.has_v6)] = .{
         .llvm_name = "v6",
-        .description = "Support ARM v6 instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v5te,
         }),
     };
     result[@intFromEnum(Feature.has_v6k)] = .{
         .llvm_name = "v6k",
-        .description = "Support ARM v6k instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v6,
         }),
     };
     result[@intFromEnum(Feature.has_v6m)] = .{
         .llvm_name = "v6m",
-        .description = "Support ARM v6M instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v6,
         }),
     };
     result[@intFromEnum(Feature.has_v6t2)] = .{
         .llvm_name = "v6t2",
-        .description = "Support ARM v6t2 instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v6k,
             .has_v8m,
@@ -614,7 +552,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.has_v7)] = .{
         .llvm_name = "v7",
-        .description = "Support ARM v7 instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v6t2,
             .has_v7clrex,
@@ -622,12 +559,10 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.has_v7clrex)] = .{
         .llvm_name = "v7clrex",
-        .description = "Has v7 clrex instruction",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.has_v8)] = .{
         .llvm_name = "v8",
-        .description = "Support ARM v8 instructions",
         .dependencies = featureSet(&[_]Feature{
             .acquire_release,
             .has_v7,
@@ -636,35 +571,30 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.has_v8_1a)] = .{
         .llvm_name = "v8.1a",
-        .description = "Support ARM v8.1a instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v8,
         }),
     };
     result[@intFromEnum(Feature.has_v8_1m_main)] = .{
         .llvm_name = "v8.1m.main",
-        .description = "Support ARM v8-1M Mainline instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v8m_main,
         }),
     };
     result[@intFromEnum(Feature.has_v8_2a)] = .{
         .llvm_name = "v8.2a",
-        .description = "Support ARM v8.2a instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v8_1a,
         }),
     };
     result[@intFromEnum(Feature.has_v8_3a)] = .{
         .llvm_name = "v8.3a",
-        .description = "Support ARM v8.3a instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v8_2a,
         }),
     };
     result[@intFromEnum(Feature.has_v8_4a)] = .{
         .llvm_name = "v8.4a",
-        .description = "Support ARM v8.4a instructions",
         .dependencies = featureSet(&[_]Feature{
             .dotprod,
             .has_v8_3a,
@@ -672,7 +602,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.has_v8_5a)] = .{
         .llvm_name = "v8.5a",
-        .description = "Support ARM v8.5a instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v8_4a,
             .sb,
@@ -680,7 +609,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.has_v8_6a)] = .{
         .llvm_name = "v8.6a",
-        .description = "Support ARM v8.6a instructions",
         .dependencies = featureSet(&[_]Feature{
             .bf16,
             .has_v8_5a,
@@ -689,21 +617,18 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.has_v8_7a)] = .{
         .llvm_name = "v8.7a",
-        .description = "Support ARM v8.7a instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v8_6a,
         }),
     };
     result[@intFromEnum(Feature.has_v8_8a)] = .{
         .llvm_name = "v8.8a",
-        .description = "Support ARM v8.8a instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v8_7a,
         }),
     };
     result[@intFromEnum(Feature.has_v8_9a)] = .{
         .llvm_name = "v8.9a",
-        .description = "Support ARM v8.9a instructions",
         .dependencies = featureSet(&[_]Feature{
             .clrbhb,
             .has_v8_8a,
@@ -711,21 +636,18 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.has_v8m)] = .{
         .llvm_name = "v8m",
-        .description = "Support ARM v8M Baseline instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v6m,
         }),
     };
     result[@intFromEnum(Feature.has_v8m_main)] = .{
         .llvm_name = "v8m.main",
-        .description = "Support ARM v8M Mainline instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v7,
         }),
     };
     result[@intFromEnum(Feature.has_v9_1a)] = .{
         .llvm_name = "v9.1a",
-        .description = "Support ARM v9.1a instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v8_6a,
             .has_v9a,
@@ -733,7 +655,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.has_v9_2a)] = .{
         .llvm_name = "v9.2a",
-        .description = "Support ARM v9.2a instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v8_7a,
             .has_v9_1a,
@@ -741,7 +662,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.has_v9_3a)] = .{
         .llvm_name = "v9.3a",
-        .description = "Support ARM v9.3a instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v8_8a,
             .has_v9_2a,
@@ -749,7 +669,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.has_v9_4a)] = .{
         .llvm_name = "v9.4a",
-        .description = "Support ARM v9.4a instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v8_9a,
             .has_v9_3a,
@@ -757,87 +676,72 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.has_v9_5a)] = .{
         .llvm_name = "v9.5a",
-        .description = "Support ARM v9.5a instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v9_4a,
         }),
     };
     result[@intFromEnum(Feature.has_v9a)] = .{
         .llvm_name = "v9a",
-        .description = "Support ARM v9a instructions",
         .dependencies = featureSet(&[_]Feature{
             .has_v8_5a,
         }),
     };
     result[@intFromEnum(Feature.hwdiv)] = .{
         .llvm_name = "hwdiv",
-        .description = "Enable divide instructions in Thumb",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.hwdiv_arm)] = .{
         .llvm_name = "hwdiv-arm",
-        .description = "Enable divide instructions in ARM mode",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.i8mm)] = .{
         .llvm_name = "i8mm",
-        .description = "Enable Matrix Multiply Int8 Extension",
         .dependencies = featureSet(&[_]Feature{
             .neon,
         }),
     };
     result[@intFromEnum(Feature.iwmmxt)] = .{
         .llvm_name = "iwmmxt",
-        .description = "ARMv5te architecture",
         .dependencies = featureSet(&[_]Feature{
             .v5te,
         }),
     };
     result[@intFromEnum(Feature.iwmmxt2)] = .{
         .llvm_name = "iwmmxt2",
-        .description = "ARMv5te architecture",
         .dependencies = featureSet(&[_]Feature{
             .v5te,
         }),
     };
     result[@intFromEnum(Feature.lob)] = .{
         .llvm_name = "lob",
-        .description = "Enable Low Overhead Branch extensions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.long_calls)] = .{
         .llvm_name = "long-calls",
-        .description = "Generate calls via indirect call instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.loop_align)] = .{
         .llvm_name = "loop-align",
-        .description = "Prefer 32-bit alignment for loops",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.m3)] = .{
         .llvm_name = "m3",
-        .description = "Cortex-M3 ARM processors",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.mclass)] = .{
         .llvm_name = "mclass",
-        .description = "Is microcontroller profile ('M' series)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.mp)] = .{
         .llvm_name = "mp",
-        .description = "Supports Multiprocessing extension",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.muxed_units)] = .{
         .llvm_name = "muxed-units",
-        .description = "Has muxed AGU and NEON/FPU",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.mve)] = .{
         .llvm_name = "mve",
-        .description = "Support M-Class Vector Extension with integer ops",
         .dependencies = featureSet(&[_]Feature{
             .dsp,
             .fpregs16,
@@ -847,22 +751,18 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.mve1beat)] = .{
         .llvm_name = "mve1beat",
-        .description = "Model MVE instructions as a 1 beat per tick architecture",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.mve2beat)] = .{
         .llvm_name = "mve2beat",
-        .description = "Model MVE instructions as a 2 beats per tick architecture",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.mve4beat)] = .{
         .llvm_name = "mve4beat",
-        .description = "Model MVE instructions as a 4 beats per tick architecture",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.mve_fp)] = .{
         .llvm_name = "mve.fp",
-        .description = "Support M-Class Vector Extension with integer and floating ops",
         .dependencies = featureSet(&[_]Feature{
             .fullfp16,
             .mve,
@@ -870,253 +770,206 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.nacl_trap)] = .{
         .llvm_name = "nacl-trap",
-        .description = "NaCl trap",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.neon)] = .{
         .llvm_name = "neon",
-        .description = "Enable NEON instructions",
         .dependencies = featureSet(&[_]Feature{
             .vfp3,
         }),
     };
     result[@intFromEnum(Feature.neon_fpmovs)] = .{
         .llvm_name = "neon-fpmovs",
-        .description = "Convert VMOVSR, VMOVRS, VMOVS to NEON",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.neonfp)] = .{
         .llvm_name = "neonfp",
-        .description = "Use NEON for single precision FP",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.no_branch_predictor)] = .{
         .llvm_name = "no-branch-predictor",
-        .description = "Has no branch predictor",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.no_bti_at_return_twice)] = .{
         .llvm_name = "no-bti-at-return-twice",
-        .description = "Don't place a BTI instruction after a return-twice",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.no_movt)] = .{
         .llvm_name = "no-movt",
-        .description = "Don't use movt/movw pairs for 32-bit imms",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.no_neg_immediates)] = .{
         .llvm_name = "no-neg-immediates",
-        .description = "Convert immediates and instructions to their negated or complemented equivalent when the immediate does not fit in the encoding.",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.noarm)] = .{
         .llvm_name = "noarm",
-        .description = "Does not support ARM mode execution",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.nonpipelined_vfp)] = .{
         .llvm_name = "nonpipelined-vfp",
-        .description = "VFP instructions are not pipelined",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.pacbti)] = .{
         .llvm_name = "pacbti",
-        .description = "Enable Pointer Authentication and Branch Target Identification",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.perfmon)] = .{
         .llvm_name = "perfmon",
-        .description = "Enable support for Performance Monitor extensions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.prefer_ishst)] = .{
         .llvm_name = "prefer-ishst",
-        .description = "Prefer ISHST barriers",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.prefer_vmovsr)] = .{
         .llvm_name = "prefer-vmovsr",
-        .description = "Prefer VMOVSR",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.prof_unpr)] = .{
         .llvm_name = "prof-unpr",
-        .description = "Is profitable to unpredicate",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.r4)] = .{
         .llvm_name = "r4",
-        .description = "Cortex-R4 ARM processors",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.ras)] = .{
         .llvm_name = "ras",
-        .description = "Enable Reliability, Availability and Serviceability extensions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.rclass)] = .{
         .llvm_name = "rclass",
-        .description = "Is realtime profile ('R' series)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.read_tp_tpidrprw)] = .{
         .llvm_name = "read-tp-tpidrprw",
-        .description = "Reading thread pointer from TPIDRPRW register",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.read_tp_tpidruro)] = .{
         .llvm_name = "read-tp-tpidruro",
-        .description = "Reading thread pointer from TPIDRURO register",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.read_tp_tpidrurw)] = .{
         .llvm_name = "read-tp-tpidrurw",
-        .description = "Reading thread pointer from TPIDRURW register",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.reserve_r9)] = .{
         .llvm_name = "reserve-r9",
-        .description = "Reserve R9, making it unavailable as GPR",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.ret_addr_stack)] = .{
         .llvm_name = "ret-addr-stack",
-        .description = "Has return address stack",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.sb)] = .{
         .llvm_name = "sb",
-        .description = "Enable v8.5a Speculation Barrier",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.sha2)] = .{
         .llvm_name = "sha2",
-        .description = "Enable SHA1 and SHA256 support",
         .dependencies = featureSet(&[_]Feature{
             .neon,
         }),
     };
     result[@intFromEnum(Feature.slow_fp_brcc)] = .{
         .llvm_name = "slow-fp-brcc",
-        .description = "FP compare + branch is slow",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.slow_load_D_subreg)] = .{
         .llvm_name = "slow-load-D-subreg",
-        .description = "Loading into D subregs is slow",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.slow_odd_reg)] = .{
         .llvm_name = "slow-odd-reg",
-        .description = "VLDM/VSTM starting with an odd register is slow",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.slow_vdup32)] = .{
         .llvm_name = "slow-vdup32",
-        .description = "Has slow VDUP32 - prefer VMOV",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.slow_vgetlni32)] = .{
         .llvm_name = "slow-vgetlni32",
-        .description = "Has slow VGETLNi32 - prefer VMOV",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.slowfpvfmx)] = .{
         .llvm_name = "slowfpvfmx",
-        .description = "Disable VFP / NEON FMA instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.slowfpvmlx)] = .{
         .llvm_name = "slowfpvmlx",
-        .description = "Disable VFP / NEON MAC instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.soft_float)] = .{
         .llvm_name = "soft-float",
-        .description = "Use software floating point features.",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.splat_vfp_neon)] = .{
         .llvm_name = "splat-vfp-neon",
-        .description = "Splat register from VFP to NEON",
         .dependencies = featureSet(&[_]Feature{
             .dont_widen_vmovs,
         }),
     };
     result[@intFromEnum(Feature.strict_align)] = .{
         .llvm_name = "strict-align",
-        .description = "Disallow all unaligned memory access",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.swift)] = .{
         .llvm_name = "swift",
-        .description = "Swift ARM processors",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.thumb2)] = .{
         .llvm_name = "thumb2",
-        .description = "Enable Thumb2 instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.thumb_mode)] = .{
         .llvm_name = "thumb-mode",
-        .description = "Thumb mode",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.trustzone)] = .{
         .llvm_name = "trustzone",
-        .description = "Enable support for TrustZone security extensions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.use_mipipeliner)] = .{
         .llvm_name = "use-mipipeliner",
-        .description = "Use the MachinePipeliner",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.use_misched)] = .{
         .llvm_name = "use-misched",
-        .description = "Use the MachineScheduler",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.v2)] = .{
         .llvm_name = null,
-        .description = "ARMv2 architecture",
         .dependencies = featureSet(&[_]Feature{
             .strict_align,
         }),
     };
     result[@intFromEnum(Feature.v2a)] = .{
         .llvm_name = null,
-        .description = "ARMv2a architecture",
         .dependencies = featureSet(&[_]Feature{
             .strict_align,
         }),
     };
     result[@intFromEnum(Feature.v3)] = .{
         .llvm_name = null,
-        .description = "ARMv3 architecture",
         .dependencies = featureSet(&[_]Feature{
             .strict_align,
         }),
     };
     result[@intFromEnum(Feature.v3m)] = .{
         .llvm_name = null,
-        .description = "ARMv3m architecture",
         .dependencies = featureSet(&[_]Feature{
             .strict_align,
         }),
     };
     result[@intFromEnum(Feature.v4)] = .{
         .llvm_name = "armv4",
-        .description = "ARMv4 architecture",
         .dependencies = featureSet(&[_]Feature{
             .strict_align,
         }),
     };
     result[@intFromEnum(Feature.v4t)] = .{
         .llvm_name = "armv4t",
-        .description = "ARMv4t architecture",
         .dependencies = featureSet(&[_]Feature{
             .has_v4t,
             .strict_align,
@@ -1124,7 +977,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v5t)] = .{
         .llvm_name = "armv5t",
-        .description = "ARMv5t architecture",
         .dependencies = featureSet(&[_]Feature{
             .has_v5t,
             .strict_align,
@@ -1132,7 +984,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v5te)] = .{
         .llvm_name = "armv5te",
-        .description = "ARMv5te architecture",
         .dependencies = featureSet(&[_]Feature{
             .has_v5te,
             .strict_align,
@@ -1140,7 +991,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v5tej)] = .{
         .llvm_name = "armv5tej",
-        .description = "ARMv5tej architecture",
         .dependencies = featureSet(&[_]Feature{
             .has_v5te,
             .strict_align,
@@ -1148,7 +998,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v6)] = .{
         .llvm_name = "armv6",
-        .description = "ARMv6 architecture",
         .dependencies = featureSet(&[_]Feature{
             .dsp,
             .has_v6,
@@ -1156,21 +1005,18 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v6j)] = .{
         .llvm_name = "armv6j",
-        .description = "ARMv7a architecture",
         .dependencies = featureSet(&[_]Feature{
             .v6,
         }),
     };
     result[@intFromEnum(Feature.v6k)] = .{
         .llvm_name = "armv6k",
-        .description = "ARMv6k architecture",
         .dependencies = featureSet(&[_]Feature{
             .has_v6k,
         }),
     };
     result[@intFromEnum(Feature.v6kz)] = .{
         .llvm_name = "armv6kz",
-        .description = "ARMv6kz architecture",
         .dependencies = featureSet(&[_]Feature{
             .has_v6k,
             .trustzone,
@@ -1178,7 +1024,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v6m)] = .{
         .llvm_name = "armv6-m",
-        .description = "ARMv6m architecture",
         .dependencies = featureSet(&[_]Feature{
             .db,
             .has_v6m,
@@ -1190,7 +1035,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v6sm)] = .{
         .llvm_name = "armv6s-m",
-        .description = "ARMv6sm architecture",
         .dependencies = featureSet(&[_]Feature{
             .db,
             .has_v6m,
@@ -1202,7 +1046,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v6t2)] = .{
         .llvm_name = "armv6t2",
-        .description = "ARMv6t2 architecture",
         .dependencies = featureSet(&[_]Feature{
             .dsp,
             .has_v6t2,
@@ -1210,7 +1053,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v7a)] = .{
         .llvm_name = "armv7-a",
-        .description = "ARMv7a architecture",
         .dependencies = featureSet(&[_]Feature{
             .aclass,
             .db,
@@ -1222,7 +1064,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v7em)] = .{
         .llvm_name = "armv7e-m",
-        .description = "ARMv7em architecture",
         .dependencies = featureSet(&[_]Feature{
             .db,
             .dsp,
@@ -1235,14 +1076,12 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v7k)] = .{
         .llvm_name = "armv7k",
-        .description = "ARMv7a architecture",
         .dependencies = featureSet(&[_]Feature{
             .v7a,
         }),
     };
     result[@intFromEnum(Feature.v7m)] = .{
         .llvm_name = "armv7-m",
-        .description = "ARMv7m architecture",
         .dependencies = featureSet(&[_]Feature{
             .db,
             .has_v7,
@@ -1254,7 +1093,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v7r)] = .{
         .llvm_name = "armv7-r",
-        .description = "ARMv7r architecture",
         .dependencies = featureSet(&[_]Feature{
             .db,
             .dsp,
@@ -1266,14 +1104,12 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v7s)] = .{
         .llvm_name = "armv7s",
-        .description = "ARMv7a architecture",
         .dependencies = featureSet(&[_]Feature{
             .v7a,
         }),
     };
     result[@intFromEnum(Feature.v7ve)] = .{
         .llvm_name = "armv7ve",
-        .description = "ARMv7ve architecture",
         .dependencies = featureSet(&[_]Feature{
             .aclass,
             .db,
@@ -1288,7 +1124,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8_1a)] = .{
         .llvm_name = "armv8.1-a",
-        .description = "ARMv81a architecture",
         .dependencies = featureSet(&[_]Feature{
             .aclass,
             .crc,
@@ -1304,7 +1139,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8_1m_main)] = .{
         .llvm_name = "armv8.1-m.main",
-        .description = "ARMv81mMainline architecture",
         .dependencies = featureSet(&[_]Feature{
             .@"8msecext",
             .acquire_release,
@@ -1320,7 +1154,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8_2a)] = .{
         .llvm_name = "armv8.2-a",
-        .description = "ARMv82a architecture",
         .dependencies = featureSet(&[_]Feature{
             .aclass,
             .crc,
@@ -1337,7 +1170,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8_3a)] = .{
         .llvm_name = "armv8.3-a",
-        .description = "ARMv83a architecture",
         .dependencies = featureSet(&[_]Feature{
             .aclass,
             .crc,
@@ -1354,7 +1186,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8_4a)] = .{
         .llvm_name = "armv8.4-a",
-        .description = "ARMv84a architecture",
         .dependencies = featureSet(&[_]Feature{
             .aclass,
             .crc,
@@ -1371,7 +1202,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8_5a)] = .{
         .llvm_name = "armv8.5-a",
-        .description = "ARMv85a architecture",
         .dependencies = featureSet(&[_]Feature{
             .aclass,
             .crc,
@@ -1388,7 +1218,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8_6a)] = .{
         .llvm_name = "armv8.6-a",
-        .description = "ARMv86a architecture",
         .dependencies = featureSet(&[_]Feature{
             .aclass,
             .crc,
@@ -1405,7 +1234,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8_7a)] = .{
         .llvm_name = "armv8.7-a",
-        .description = "ARMv87a architecture",
         .dependencies = featureSet(&[_]Feature{
             .aclass,
             .crc,
@@ -1422,7 +1250,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8_8a)] = .{
         .llvm_name = "armv8.8-a",
-        .description = "ARMv88a architecture",
         .dependencies = featureSet(&[_]Feature{
             .aclass,
             .crc,
@@ -1439,7 +1266,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8_9a)] = .{
         .llvm_name = "armv8.9-a",
-        .description = "ARMv89a architecture",
         .dependencies = featureSet(&[_]Feature{
             .aclass,
             .crc,
@@ -1456,7 +1282,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8a)] = .{
         .llvm_name = "armv8-a",
-        .description = "ARMv8a architecture",
         .dependencies = featureSet(&[_]Feature{
             .aclass,
             .crc,
@@ -1472,7 +1297,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8m)] = .{
         .llvm_name = "armv8-m.base",
-        .description = "ARMv8mBaseline architecture",
         .dependencies = featureSet(&[_]Feature{
             .@"8msecext",
             .acquire_release,
@@ -1488,7 +1312,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8m_main)] = .{
         .llvm_name = "armv8-m.main",
-        .description = "ARMv8mMainline architecture",
         .dependencies = featureSet(&[_]Feature{
             .@"8msecext",
             .acquire_release,
@@ -1502,7 +1325,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v8r)] = .{
         .llvm_name = "armv8-r",
-        .description = "ARMv8r architecture",
         .dependencies = featureSet(&[_]Feature{
             .crc,
             .db,
@@ -1518,7 +1340,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v9_1a)] = .{
         .llvm_name = "armv9.1-a",
-        .description = "ARMv91a architecture",
         .dependencies = featureSet(&[_]Feature{
             .aclass,
             .crc,
@@ -1534,7 +1355,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v9_2a)] = .{
         .llvm_name = "armv9.2-a",
-        .description = "ARMv92a architecture",
         .dependencies = featureSet(&[_]Feature{
             .aclass,
             .crc,
@@ -1550,7 +1370,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v9_3a)] = .{
         .llvm_name = "armv9.3-a",
-        .description = "ARMv93a architecture",
         .dependencies = featureSet(&[_]Feature{
             .aclass,
             .crc,
@@ -1567,7 +1386,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v9_4a)] = .{
         .llvm_name = "armv9.4-a",
-        .description = "ARMv94a architecture",
         .dependencies = featureSet(&[_]Feature{
             .aclass,
             .crc,
@@ -1583,7 +1401,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v9_5a)] = .{
         .llvm_name = "armv9.5-a",
-        .description = "ARMv95a architecture",
         .dependencies = featureSet(&[_]Feature{
             .aclass,
             .crc,
@@ -1599,7 +1416,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.v9a)] = .{
         .llvm_name = "armv9-a",
-        .description = "ARMv9a architecture",
         .dependencies = featureSet(&[_]Feature{
             .aclass,
             .crc,
@@ -1615,7 +1431,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.vfp2)] = .{
         .llvm_name = "vfp2",
-        .description = "Enable VFP2 instructions",
         .dependencies = featureSet(&[_]Feature{
             .fp64,
             .vfp2sp,
@@ -1623,14 +1438,12 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.vfp2sp)] = .{
         .llvm_name = "vfp2sp",
-        .description = "Enable VFP2 instructions with no double precision",
         .dependencies = featureSet(&[_]Feature{
             .fpregs,
         }),
     };
     result[@intFromEnum(Feature.vfp3)] = .{
         .llvm_name = "vfp3",
-        .description = "Enable VFP3 instructions",
         .dependencies = featureSet(&[_]Feature{
             .vfp3d16,
             .vfp3sp,
@@ -1638,7 +1451,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.vfp3d16)] = .{
         .llvm_name = "vfp3d16",
-        .description = "Enable VFP3 instructions with only 16 d-registers",
         .dependencies = featureSet(&[_]Feature{
             .vfp2,
             .vfp3d16sp,
@@ -1646,14 +1458,12 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.vfp3d16sp)] = .{
         .llvm_name = "vfp3d16sp",
-        .description = "Enable VFP3 instructions with only 16 d-registers and no double precision",
         .dependencies = featureSet(&[_]Feature{
             .vfp2sp,
         }),
     };
     result[@intFromEnum(Feature.vfp3sp)] = .{
         .llvm_name = "vfp3sp",
-        .description = "Enable VFP3 instructions with no double precision",
         .dependencies = featureSet(&[_]Feature{
             .d32,
             .vfp3d16sp,
@@ -1661,7 +1471,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.vfp4)] = .{
         .llvm_name = "vfp4",
-        .description = "Enable VFP4 instructions",
         .dependencies = featureSet(&[_]Feature{
             .vfp3,
             .vfp4d16,
@@ -1670,7 +1479,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.vfp4d16)] = .{
         .llvm_name = "vfp4d16",
-        .description = "Enable VFP4 instructions with only 16 d-registers",
         .dependencies = featureSet(&[_]Feature{
             .vfp3d16,
             .vfp4d16sp,
@@ -1678,7 +1486,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.vfp4d16sp)] = .{
         .llvm_name = "vfp4d16sp",
-        .description = "Enable VFP4 instructions with only 16 d-registers and no double precision",
         .dependencies = featureSet(&[_]Feature{
             .fp16,
             .vfp3d16sp,
@@ -1686,7 +1493,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.vfp4sp)] = .{
         .llvm_name = "vfp4sp",
-        .description = "Enable VFP4 instructions with no double precision",
         .dependencies = featureSet(&[_]Feature{
             .vfp3sp,
             .vfp4d16sp,
@@ -1694,7 +1500,6 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.virtualization)] = .{
         .llvm_name = "virtualization",
-        .description = "Supports Virtualization extension",
         .dependencies = featureSet(&[_]Feature{
             .hwdiv,
             .hwdiv_arm,
@@ -1702,34 +1507,28 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.vldn_align)] = .{
         .llvm_name = "vldn-align",
-        .description = "Check for VLDn unaligned access",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.vmlx_forwarding)] = .{
         .llvm_name = "vmlx-forwarding",
-        .description = "Has multiplier accumulator forwarding",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.vmlx_hazards)] = .{
         .llvm_name = "vmlx-hazards",
-        .description = "Has VMLx hazards",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.wide_stride_vfp)] = .{
         .llvm_name = "wide-stride-vfp",
-        .description = "Use a wide stride when allocating VFP registers",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.xscale)] = .{
         .llvm_name = "xscale",
-        .description = "ARMv5te architecture",
         .dependencies = featureSet(&[_]Feature{
             .v5te,
         }),
     };
     result[@intFromEnum(Feature.zcz)] = .{
         .llvm_name = "zcz",
-        .description = "Has zero-cycle zeroing instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     const ti = @typeInfo(Feature);
@@ -1737,6 +1536,213 @@ pub const all_features = blk: {
         elem.index = i;
         elem.name = ti.Enum.fields[i].name;
     }
+    break :blk result;
+};
+
+pub const feature_descs = blk: {
+    const len = @typeInfo(Feature).Enum.fields.len;
+    var result: [len][]const u8 = undefined;
+    result[@intFromEnum(Feature.@"32bit")] = "Prefer 32-bit Thumb instrs";
+    result[@intFromEnum(Feature.@"8msecext")] = "Enable support for ARMv8-M Security Extensions";
+    result[@intFromEnum(Feature.a76)] = "Cortex-A76 ARM processors";
+    result[@intFromEnum(Feature.aapcs_frame_chain)] = "Create an AAPCS compliant frame chain";
+    result[@intFromEnum(Feature.aapcs_frame_chain_leaf)] = "Create an AAPCS compliant frame chain for leaf functions";
+    result[@intFromEnum(Feature.aclass)] = "Is application profile ('A' series)";
+    result[@intFromEnum(Feature.acquire_release)] = "Has v8 acquire/release (lda/ldaex  etc) instructions";
+    result[@intFromEnum(Feature.aes)] = "Enable AES support";
+    result[@intFromEnum(Feature.atomics_32)] = "Assume that lock-free 32-bit atomics are available";
+    result[@intFromEnum(Feature.avoid_movs_shop)] = "Avoid movs instructions with shifter operand";
+    result[@intFromEnum(Feature.avoid_partial_cpsr)] = "Avoid CPSR partial update for OOO execution";
+    result[@intFromEnum(Feature.bf16)] = "Enable support for BFloat16 instructions";
+    result[@intFromEnum(Feature.big_endian_instructions)] = "Expect instructions to be stored big-endian.";
+    result[@intFromEnum(Feature.cde)] = "Support CDE instructions";
+    result[@intFromEnum(Feature.cdecp0)] = "Coprocessor 0 ISA is CDEv1";
+    result[@intFromEnum(Feature.cdecp1)] = "Coprocessor 1 ISA is CDEv1";
+    result[@intFromEnum(Feature.cdecp2)] = "Coprocessor 2 ISA is CDEv1";
+    result[@intFromEnum(Feature.cdecp3)] = "Coprocessor 3 ISA is CDEv1";
+    result[@intFromEnum(Feature.cdecp4)] = "Coprocessor 4 ISA is CDEv1";
+    result[@intFromEnum(Feature.cdecp5)] = "Coprocessor 5 ISA is CDEv1";
+    result[@intFromEnum(Feature.cdecp6)] = "Coprocessor 6 ISA is CDEv1";
+    result[@intFromEnum(Feature.cdecp7)] = "Coprocessor 7 ISA is CDEv1";
+    result[@intFromEnum(Feature.cheap_predicable_cpsr)] = "Disable +1 predication cost for instructions updating CPSR";
+    result[@intFromEnum(Feature.clrbhb)] = "Enable Clear BHB instruction";
+    result[@intFromEnum(Feature.crc)] = "Enable support for CRC instructions";
+    result[@intFromEnum(Feature.crypto)] = "Enable support for Cryptography extensions";
+    result[@intFromEnum(Feature.d32)] = "Extend FP to 32 double registers";
+    result[@intFromEnum(Feature.db)] = "Has data barrier (dmb/dsb) instructions";
+    result[@intFromEnum(Feature.dfb)] = "Has full data barrier (dfb) instruction";
+    result[@intFromEnum(Feature.disable_postra_scheduler)] = "Don't schedule again after register allocation";
+    result[@intFromEnum(Feature.dont_widen_vmovs)] = "Don't widen VMOVS to VMOVD";
+    result[@intFromEnum(Feature.dotprod)] = "Enable support for dot product instructions";
+    result[@intFromEnum(Feature.dsp)] = "Supports DSP instructions in ARM and/or Thumb2";
+    result[@intFromEnum(Feature.execute_only)] = "Enable the generation of execute only code.";
+    result[@intFromEnum(Feature.expand_fp_mlx)] = "Expand VFP/NEON MLA/MLS instructions";
+    result[@intFromEnum(Feature.exynos)] = "Samsung Exynos processors";
+    result[@intFromEnum(Feature.fix_cmse_cve_2021_35465)] = "Mitigate against the cve-2021-35465 security vulnurability";
+    result[@intFromEnum(Feature.fix_cortex_a57_aes_1742098)] = "Work around Cortex-A57 Erratum 1742098 / Cortex-A72 Erratum 1655431 (AES)";
+    result[@intFromEnum(Feature.fp16)] = "Enable half-precision floating point";
+    result[@intFromEnum(Feature.fp16fml)] = "Enable full half-precision floating point fml instructions";
+    result[@intFromEnum(Feature.fp64)] = "Floating point unit supports double precision";
+    result[@intFromEnum(Feature.fp_armv8)] = "Enable ARMv8 FP";
+    result[@intFromEnum(Feature.fp_armv8d16)] = "Enable ARMv8 FP with only 16 d-registers";
+    result[@intFromEnum(Feature.fp_armv8d16sp)] = "Enable ARMv8 FP with only 16 d-registers and no double precision";
+    result[@intFromEnum(Feature.fp_armv8sp)] = "Enable ARMv8 FP with no double precision";
+    result[@intFromEnum(Feature.fpao)] = "Enable fast computation of positive address offsets";
+    result[@intFromEnum(Feature.fpregs)] = "Enable FP registers";
+    result[@intFromEnum(Feature.fpregs16)] = "Enable 16-bit FP registers";
+    result[@intFromEnum(Feature.fpregs64)] = "Enable 64-bit FP registers";
+    result[@intFromEnum(Feature.fullfp16)] = "Enable full half-precision floating point";
+    result[@intFromEnum(Feature.fuse_aes)] = "CPU fuses AES crypto operations";
+    result[@intFromEnum(Feature.fuse_literals)] = "CPU fuses literal generation operations";
+    result[@intFromEnum(Feature.harden_sls_blr)] = "Harden against straight line speculation across indirect calls";
+    result[@intFromEnum(Feature.harden_sls_nocomdat)] = "Generate thunk code for SLS mitigation in the normal text section";
+    result[@intFromEnum(Feature.harden_sls_retbr)] = "Harden against straight line speculation across RETurn and BranchRegister instructions";
+    result[@intFromEnum(Feature.has_v4t)] = "Support ARM v4T instructions";
+    result[@intFromEnum(Feature.has_v5t)] = "Support ARM v5T instructions";
+    result[@intFromEnum(Feature.has_v5te)] = "Support ARM v5TE, v5TEj, and v5TExp instructions";
+    result[@intFromEnum(Feature.has_v6)] = "Support ARM v6 instructions";
+    result[@intFromEnum(Feature.has_v6k)] = "Support ARM v6k instructions";
+    result[@intFromEnum(Feature.has_v6m)] = "Support ARM v6M instructions";
+    result[@intFromEnum(Feature.has_v6t2)] = "Support ARM v6t2 instructions";
+    result[@intFromEnum(Feature.has_v7)] = "Support ARM v7 instructions";
+    result[@intFromEnum(Feature.has_v7clrex)] = "Has v7 clrex instruction";
+    result[@intFromEnum(Feature.has_v8)] = "Support ARM v8 instructions";
+    result[@intFromEnum(Feature.has_v8_1a)] = "Support ARM v8.1a instructions";
+    result[@intFromEnum(Feature.has_v8_1m_main)] = "Support ARM v8-1M Mainline instructions";
+    result[@intFromEnum(Feature.has_v8_2a)] = "Support ARM v8.2a instructions";
+    result[@intFromEnum(Feature.has_v8_3a)] = "Support ARM v8.3a instructions";
+    result[@intFromEnum(Feature.has_v8_4a)] = "Support ARM v8.4a instructions";
+    result[@intFromEnum(Feature.has_v8_5a)] = "Support ARM v8.5a instructions";
+    result[@intFromEnum(Feature.has_v8_6a)] = "Support ARM v8.6a instructions";
+    result[@intFromEnum(Feature.has_v8_7a)] = "Support ARM v8.7a instructions";
+    result[@intFromEnum(Feature.has_v8_8a)] = "Support ARM v8.8a instructions";
+    result[@intFromEnum(Feature.has_v8_9a)] = "Support ARM v8.9a instructions";
+    result[@intFromEnum(Feature.has_v8m)] = "Support ARM v8M Baseline instructions";
+    result[@intFromEnum(Feature.has_v8m_main)] = "Support ARM v8M Mainline instructions";
+    result[@intFromEnum(Feature.has_v9_1a)] = "Support ARM v9.1a instructions";
+    result[@intFromEnum(Feature.has_v9_2a)] = "Support ARM v9.2a instructions";
+    result[@intFromEnum(Feature.has_v9_3a)] = "Support ARM v9.3a instructions";
+    result[@intFromEnum(Feature.has_v9_4a)] = "Support ARM v9.4a instructions";
+    result[@intFromEnum(Feature.has_v9_5a)] = "Support ARM v9.5a instructions";
+    result[@intFromEnum(Feature.has_v9a)] = "Support ARM v9a instructions";
+    result[@intFromEnum(Feature.hwdiv)] = "Enable divide instructions in Thumb";
+    result[@intFromEnum(Feature.hwdiv_arm)] = "Enable divide instructions in ARM mode";
+    result[@intFromEnum(Feature.i8mm)] = "Enable Matrix Multiply Int8 Extension";
+    result[@intFromEnum(Feature.iwmmxt)] = "ARMv5te architecture";
+    result[@intFromEnum(Feature.iwmmxt2)] = "ARMv5te architecture";
+    result[@intFromEnum(Feature.lob)] = "Enable Low Overhead Branch extensions";
+    result[@intFromEnum(Feature.long_calls)] = "Generate calls via indirect call instructions";
+    result[@intFromEnum(Feature.loop_align)] = "Prefer 32-bit alignment for loops";
+    result[@intFromEnum(Feature.m3)] = "Cortex-M3 ARM processors";
+    result[@intFromEnum(Feature.mclass)] = "Is microcontroller profile ('M' series)";
+    result[@intFromEnum(Feature.mp)] = "Supports Multiprocessing extension";
+    result[@intFromEnum(Feature.muxed_units)] = "Has muxed AGU and NEON/FPU";
+    result[@intFromEnum(Feature.mve)] = "Support M-Class Vector Extension with integer ops";
+    result[@intFromEnum(Feature.mve1beat)] = "Model MVE instructions as a 1 beat per tick architecture";
+    result[@intFromEnum(Feature.mve2beat)] = "Model MVE instructions as a 2 beats per tick architecture";
+    result[@intFromEnum(Feature.mve4beat)] = "Model MVE instructions as a 4 beats per tick architecture";
+    result[@intFromEnum(Feature.mve_fp)] = "Support M-Class Vector Extension with integer and floating ops";
+    result[@intFromEnum(Feature.nacl_trap)] = "NaCl trap";
+    result[@intFromEnum(Feature.neon)] = "Enable NEON instructions";
+    result[@intFromEnum(Feature.neon_fpmovs)] = "Convert VMOVSR, VMOVRS, VMOVS to NEON";
+    result[@intFromEnum(Feature.neonfp)] = "Use NEON for single precision FP";
+    result[@intFromEnum(Feature.no_branch_predictor)] = "Has no branch predictor";
+    result[@intFromEnum(Feature.no_bti_at_return_twice)] = "Don't place a BTI instruction after a return-twice";
+    result[@intFromEnum(Feature.no_movt)] = "Don't use movt/movw pairs for 32-bit imms";
+    result[@intFromEnum(Feature.no_neg_immediates)] = "Convert immediates and instructions to their negated or complemented equivalent when the immediate does not fit in the encoding.";
+    result[@intFromEnum(Feature.noarm)] = "Does not support ARM mode execution";
+    result[@intFromEnum(Feature.nonpipelined_vfp)] = "VFP instructions are not pipelined";
+    result[@intFromEnum(Feature.pacbti)] = "Enable Pointer Authentication and Branch Target Identification";
+    result[@intFromEnum(Feature.perfmon)] = "Enable support for Performance Monitor extensions";
+    result[@intFromEnum(Feature.prefer_ishst)] = "Prefer ISHST barriers";
+    result[@intFromEnum(Feature.prefer_vmovsr)] = "Prefer VMOVSR";
+    result[@intFromEnum(Feature.prof_unpr)] = "Is profitable to unpredicate";
+    result[@intFromEnum(Feature.r4)] = "Cortex-R4 ARM processors";
+    result[@intFromEnum(Feature.ras)] = "Enable Reliability, Availability and Serviceability extensions";
+    result[@intFromEnum(Feature.rclass)] = "Is realtime profile ('R' series)";
+    result[@intFromEnum(Feature.read_tp_tpidrprw)] = "Reading thread pointer from TPIDRPRW register";
+    result[@intFromEnum(Feature.read_tp_tpidruro)] = "Reading thread pointer from TPIDRURO register";
+    result[@intFromEnum(Feature.read_tp_tpidrurw)] = "Reading thread pointer from TPIDRURW register";
+    result[@intFromEnum(Feature.reserve_r9)] = "Reserve R9, making it unavailable as GPR";
+    result[@intFromEnum(Feature.ret_addr_stack)] = "Has return address stack";
+    result[@intFromEnum(Feature.sb)] = "Enable v8.5a Speculation Barrier";
+    result[@intFromEnum(Feature.sha2)] = "Enable SHA1 and SHA256 support";
+    result[@intFromEnum(Feature.slow_fp_brcc)] = "FP compare + branch is slow";
+    result[@intFromEnum(Feature.slow_load_D_subreg)] = "Loading into D subregs is slow";
+    result[@intFromEnum(Feature.slow_odd_reg)] = "VLDM/VSTM starting with an odd register is slow";
+    result[@intFromEnum(Feature.slow_vdup32)] = "Has slow VDUP32 - prefer VMOV";
+    result[@intFromEnum(Feature.slow_vgetlni32)] = "Has slow VGETLNi32 - prefer VMOV";
+    result[@intFromEnum(Feature.slowfpvfmx)] = "Disable VFP / NEON FMA instructions";
+    result[@intFromEnum(Feature.slowfpvmlx)] = "Disable VFP / NEON MAC instructions";
+    result[@intFromEnum(Feature.soft_float)] = "Use software floating point features.";
+    result[@intFromEnum(Feature.splat_vfp_neon)] = "Splat register from VFP to NEON";
+    result[@intFromEnum(Feature.strict_align)] = "Disallow all unaligned memory access";
+    result[@intFromEnum(Feature.swift)] = "Swift ARM processors";
+    result[@intFromEnum(Feature.thumb2)] = "Enable Thumb2 instructions";
+    result[@intFromEnum(Feature.thumb_mode)] = "Thumb mode";
+    result[@intFromEnum(Feature.trustzone)] = "Enable support for TrustZone security extensions";
+    result[@intFromEnum(Feature.use_mipipeliner)] = "Use the MachinePipeliner";
+    result[@intFromEnum(Feature.use_misched)] = "Use the MachineScheduler";
+    result[@intFromEnum(Feature.v2)] = "ARMv2 architecture";
+    result[@intFromEnum(Feature.v2a)] = "ARMv2a architecture";
+    result[@intFromEnum(Feature.v3)] = "ARMv3 architecture";
+    result[@intFromEnum(Feature.v3m)] = "ARMv3m architecture";
+    result[@intFromEnum(Feature.v4)] = "ARMv4 architecture";
+    result[@intFromEnum(Feature.v4t)] = "ARMv4t architecture";
+    result[@intFromEnum(Feature.v5t)] = "ARMv5t architecture";
+    result[@intFromEnum(Feature.v5te)] = "ARMv5te architecture";
+    result[@intFromEnum(Feature.v5tej)] = "ARMv5tej architecture";
+    result[@intFromEnum(Feature.v6)] = "ARMv6 architecture";
+    result[@intFromEnum(Feature.v6j)] = "ARMv7a architecture";
+    result[@intFromEnum(Feature.v6k)] = "ARMv6k architecture";
+    result[@intFromEnum(Feature.v6kz)] = "ARMv6kz architecture";
+    result[@intFromEnum(Feature.v6m)] = "ARMv6m architecture";
+    result[@intFromEnum(Feature.v6sm)] = "ARMv6sm architecture";
+    result[@intFromEnum(Feature.v6t2)] = "ARMv6t2 architecture";
+    result[@intFromEnum(Feature.v7a)] = "ARMv7a architecture";
+    result[@intFromEnum(Feature.v7em)] = "ARMv7em architecture";
+    result[@intFromEnum(Feature.v7k)] = "ARMv7a architecture";
+    result[@intFromEnum(Feature.v7m)] = "ARMv7m architecture";
+    result[@intFromEnum(Feature.v7r)] = "ARMv7r architecture";
+    result[@intFromEnum(Feature.v7s)] = "ARMv7a architecture";
+    result[@intFromEnum(Feature.v7ve)] = "ARMv7ve architecture";
+    result[@intFromEnum(Feature.v8_1a)] = "ARMv81a architecture";
+    result[@intFromEnum(Feature.v8_1m_main)] = "ARMv81mMainline architecture";
+    result[@intFromEnum(Feature.v8_2a)] = "ARMv82a architecture";
+    result[@intFromEnum(Feature.v8_3a)] = "ARMv83a architecture";
+    result[@intFromEnum(Feature.v8_4a)] = "ARMv84a architecture";
+    result[@intFromEnum(Feature.v8_5a)] = "ARMv85a architecture";
+    result[@intFromEnum(Feature.v8_6a)] = "ARMv86a architecture";
+    result[@intFromEnum(Feature.v8_7a)] = "ARMv87a architecture";
+    result[@intFromEnum(Feature.v8_8a)] = "ARMv88a architecture";
+    result[@intFromEnum(Feature.v8_9a)] = "ARMv89a architecture";
+    result[@intFromEnum(Feature.v8a)] = "ARMv8a architecture";
+    result[@intFromEnum(Feature.v8m)] = "ARMv8mBaseline architecture";
+    result[@intFromEnum(Feature.v8m_main)] = "ARMv8mMainline architecture";
+    result[@intFromEnum(Feature.v8r)] = "ARMv8r architecture";
+    result[@intFromEnum(Feature.v9_1a)] = "ARMv91a architecture";
+    result[@intFromEnum(Feature.v9_2a)] = "ARMv92a architecture";
+    result[@intFromEnum(Feature.v9_3a)] = "ARMv93a architecture";
+    result[@intFromEnum(Feature.v9_4a)] = "ARMv94a architecture";
+    result[@intFromEnum(Feature.v9_5a)] = "ARMv95a architecture";
+    result[@intFromEnum(Feature.v9a)] = "ARMv9a architecture";
+    result[@intFromEnum(Feature.vfp2)] = "Enable VFP2 instructions";
+    result[@intFromEnum(Feature.vfp2sp)] = "Enable VFP2 instructions with no double precision";
+    result[@intFromEnum(Feature.vfp3)] = "Enable VFP3 instructions";
+    result[@intFromEnum(Feature.vfp3d16)] = "Enable VFP3 instructions with only 16 d-registers";
+    result[@intFromEnum(Feature.vfp3d16sp)] = "Enable VFP3 instructions with only 16 d-registers and no double precision";
+    result[@intFromEnum(Feature.vfp3sp)] = "Enable VFP3 instructions with no double precision";
+    result[@intFromEnum(Feature.vfp4)] = "Enable VFP4 instructions";
+    result[@intFromEnum(Feature.vfp4d16)] = "Enable VFP4 instructions with only 16 d-registers";
+    result[@intFromEnum(Feature.vfp4d16sp)] = "Enable VFP4 instructions with only 16 d-registers and no double precision";
+    result[@intFromEnum(Feature.vfp4sp)] = "Enable VFP4 instructions with no double precision";
+    result[@intFromEnum(Feature.virtualization)] = "Supports Virtualization extension";
+    result[@intFromEnum(Feature.vldn_align)] = "Check for VLDn unaligned access";
+    result[@intFromEnum(Feature.vmlx_forwarding)] = "Has multiplier accumulator forwarding";
+    result[@intFromEnum(Feature.vmlx_hazards)] = "Has VMLx hazards";
+    result[@intFromEnum(Feature.wide_stride_vfp)] = "Use a wide stride when allocating VFP registers";
+    result[@intFromEnum(Feature.xscale)] = "ARMv5te architecture";
+    result[@intFromEnum(Feature.zcz)] = "Has zero-cycle zeroing instructions";
     break :blk result;
 };
 

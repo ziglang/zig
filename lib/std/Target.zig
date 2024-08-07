@@ -847,9 +847,6 @@ pub const Cpu = struct {
         /// otherwise null.
         llvm_name: ?[:0]const u8,
 
-        /// Human-friendly UTF-8 text.
-        description: []const u8,
-
         /// Sparse `Set` of features this depends on.
         dependencies: Set,
 
@@ -1404,6 +1401,40 @@ pub const Cpu = struct {
                 .wasm32, .wasm64 => &wasm.all_features,
 
                 else => &[0]Cpu.Feature{},
+            };
+        }
+
+        /// Human-friendly UTF-8 description text for all CPU features Zig is aware of.
+        /// Indexes correspond 1:1 with the return of `allFeaturesList`.
+        ///
+        /// TODO: Move these descriptions strings back into `Cpu.Feature`.
+        ///       See https://github.com/ziglang/zig/issues/21010
+        pub fn allFeaturesDescList(arch: Arch) []const []const u8 {
+            return switch (arch) {
+                .arm, .armeb, .thumb, .thumbeb => &arm.feature_descs,
+                .aarch64, .aarch64_be => &aarch64.feature_descs,
+                .arc => &arc.feature_descs,
+                .avr => &avr.feature_descs,
+                .bpfel, .bpfeb => &bpf.feature_descs,
+                .csky => &csky.feature_descs,
+                .hexagon => &hexagon.feature_descs,
+                .loongarch32, .loongarch64 => &loongarch.feature_descs,
+                .m68k => &m68k.feature_descs,
+                .mips, .mipsel, .mips64, .mips64el => &mips.feature_descs,
+                .msp430 => &msp430.feature_descs,
+                .powerpc, .powerpcle, .powerpc64, .powerpc64le => &powerpc.feature_descs,
+                .amdgcn => &amdgpu.feature_descs,
+                .riscv32, .riscv64 => &riscv.feature_descs,
+                .sparc, .sparc64 => &sparc.feature_descs,
+                .spirv32, .spirv64 => &spirv.feature_descs,
+                .s390x => &s390x.feature_descs,
+                .x86, .x86_64 => &x86.feature_descs,
+                .xtensa => &xtensa.feature_descs,
+                .nvptx, .nvptx64 => &nvptx.feature_descs,
+                .ve => &ve.feature_descs,
+                .wasm32, .wasm64 => &wasm.feature_descs,
+
+                else => &.{},
             };
         }
 

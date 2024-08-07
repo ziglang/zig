@@ -1359,25 +1359,21 @@ fn processOneTarget(job: Job) anyerror!void {
             try w.print(
                 \\    result[@intFromEnum(Feature.{p_})] = .{{
                 \\        .llvm_name = "{}",
-                \\        .description = "{}",
                 \\        .dependencies = featureSet(&[_]Feature{{
             ,
                 .{
                     std.zig.fmtId(feature.zig_name),
                     std.zig.fmtEscapes(llvm_name),
-                    std.zig.fmtEscapes(feature.desc),
                 },
             );
         } else {
             try w.print(
                 \\    result[@intFromEnum(Feature.{p_})] = .{{
                 \\        .llvm_name = null,
-                \\        .description = "{}",
                 \\        .dependencies = featureSet(&[_]Feature{{
             ,
                 .{
                     std.zig.fmtId(feature.zig_name),
-                    std.zig.fmtEscapes(feature.desc),
                 },
             );
         }
@@ -1419,6 +1415,32 @@ fn processOneTarget(job: Job) anyerror!void {
         \\        elem.index = i;
         \\        elem.name = ti.Enum.fields[i].name;
         \\    }
+        \\    break :blk result;
+        \\};
+        \\
+        \\pub const feature_descs = blk: {
+        \\    const len = @typeInfo(Feature).Enum.fields.len;
+        \\    var result: [len][]const u8 = undefined;
+        \\
+    );
+    // Note: Description strings were moved out of `Cpu.Feature` to avoid
+    //       them being included in binaries that use `Target` but do not
+    //       use/reference the descriptions.
+    //
+    // TODO: Move the descriptions back into `Cpu.Feature`.
+    //       See https://github.com/ziglang/zig/issues/21010
+    for (all_features.items) |feature| {
+        try w.print(
+            \\    result[@intFromEnum(Feature.{p_})] = "{}";
+            \\
+        ,
+            .{
+                std.zig.fmtId(feature.zig_name),
+                std.zig.fmtEscapes(feature.desc),
+            },
+        );
+    }
+    try w.writeAll(
         \\    break :blk result;
         \\};
         \\

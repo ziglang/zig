@@ -60,212 +60,170 @@ pub const all_features = blk: {
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.backchain)] = .{
         .llvm_name = "backchain",
-        .description = "Store the address of the caller's frame into the callee's stack frame",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.bear_enhancement)] = .{
         .llvm_name = "bear-enhancement",
-        .description = "Assume that the BEAR-enhancement facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.deflate_conversion)] = .{
         .llvm_name = "deflate-conversion",
-        .description = "Assume that the deflate-conversion facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.dfp_packed_conversion)] = .{
         .llvm_name = "dfp-packed-conversion",
-        .description = "Assume that the DFP packed-conversion facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.dfp_zoned_conversion)] = .{
         .llvm_name = "dfp-zoned-conversion",
-        .description = "Assume that the DFP zoned-conversion facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.distinct_ops)] = .{
         .llvm_name = "distinct-ops",
-        .description = "Assume that the distinct-operands facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.enhanced_dat_2)] = .{
         .llvm_name = "enhanced-dat-2",
-        .description = "Assume that the enhanced-DAT facility 2 is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.enhanced_sort)] = .{
         .llvm_name = "enhanced-sort",
-        .description = "Assume that the enhanced-sort facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.execution_hint)] = .{
         .llvm_name = "execution-hint",
-        .description = "Assume that the execution-hint facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.fast_serialization)] = .{
         .llvm_name = "fast-serialization",
-        .description = "Assume that the fast-serialization facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.fp_extension)] = .{
         .llvm_name = "fp-extension",
-        .description = "Assume that the floating-point extension facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.guarded_storage)] = .{
         .llvm_name = "guarded-storage",
-        .description = "Assume that the guarded-storage facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.high_word)] = .{
         .llvm_name = "high-word",
-        .description = "Assume that the high-word facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.insert_reference_bits_multiple)] = .{
         .llvm_name = "insert-reference-bits-multiple",
-        .description = "Assume that the insert-reference-bits-multiple facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.interlocked_access1)] = .{
         .llvm_name = "interlocked-access1",
-        .description = "Assume that interlocked-access facility 1 is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.load_and_trap)] = .{
         .llvm_name = "load-and-trap",
-        .description = "Assume that the load-and-trap facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.load_and_zero_rightmost_byte)] = .{
         .llvm_name = "load-and-zero-rightmost-byte",
-        .description = "Assume that the load-and-zero-rightmost-byte facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.load_store_on_cond)] = .{
         .llvm_name = "load-store-on-cond",
-        .description = "Assume that the load/store-on-condition facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.load_store_on_cond_2)] = .{
         .llvm_name = "load-store-on-cond-2",
-        .description = "Assume that the load/store-on-condition facility 2 is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.message_security_assist_extension3)] = .{
         .llvm_name = "message-security-assist-extension3",
-        .description = "Assume that the message-security-assist extension facility 3 is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.message_security_assist_extension4)] = .{
         .llvm_name = "message-security-assist-extension4",
-        .description = "Assume that the message-security-assist extension facility 4 is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.message_security_assist_extension5)] = .{
         .llvm_name = "message-security-assist-extension5",
-        .description = "Assume that the message-security-assist extension facility 5 is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.message_security_assist_extension7)] = .{
         .llvm_name = "message-security-assist-extension7",
-        .description = "Assume that the message-security-assist extension facility 7 is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.message_security_assist_extension8)] = .{
         .llvm_name = "message-security-assist-extension8",
-        .description = "Assume that the message-security-assist extension facility 8 is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.message_security_assist_extension9)] = .{
         .llvm_name = "message-security-assist-extension9",
-        .description = "Assume that the message-security-assist extension facility 9 is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.miscellaneous_extensions)] = .{
         .llvm_name = "miscellaneous-extensions",
-        .description = "Assume that the miscellaneous-extensions facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.miscellaneous_extensions_2)] = .{
         .llvm_name = "miscellaneous-extensions-2",
-        .description = "Assume that the miscellaneous-extensions facility 2 is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.miscellaneous_extensions_3)] = .{
         .llvm_name = "miscellaneous-extensions-3",
-        .description = "Assume that the miscellaneous-extensions facility 3 is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.nnp_assist)] = .{
         .llvm_name = "nnp-assist",
-        .description = "Assume that the NNP-assist facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.population_count)] = .{
         .llvm_name = "population-count",
-        .description = "Assume that the population-count facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.processor_activity_instrumentation)] = .{
         .llvm_name = "processor-activity-instrumentation",
-        .description = "Assume that the processor-activity-instrumentation facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.processor_assist)] = .{
         .llvm_name = "processor-assist",
-        .description = "Assume that the processor-assist facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.reset_dat_protection)] = .{
         .llvm_name = "reset-dat-protection",
-        .description = "Assume that the reset-DAT-protection facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.reset_reference_bits_multiple)] = .{
         .llvm_name = "reset-reference-bits-multiple",
-        .description = "Assume that the reset-reference-bits-multiple facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.soft_float)] = .{
         .llvm_name = "soft-float",
-        .description = "Use software emulation for floating point",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.transactional_execution)] = .{
         .llvm_name = "transactional-execution",
-        .description = "Assume that the transactional-execution facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.vector)] = .{
         .llvm_name = "vector",
-        .description = "Assume that the vectory facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.vector_enhancements_1)] = .{
         .llvm_name = "vector-enhancements-1",
-        .description = "Assume that the vector enhancements facility 1 is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.vector_enhancements_2)] = .{
         .llvm_name = "vector-enhancements-2",
-        .description = "Assume that the vector enhancements facility 2 is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.vector_packed_decimal)] = .{
         .llvm_name = "vector-packed-decimal",
-        .description = "Assume that the vector packed decimal facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.vector_packed_decimal_enhancement)] = .{
         .llvm_name = "vector-packed-decimal-enhancement",
-        .description = "Assume that the vector packed decimal enhancement facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.vector_packed_decimal_enhancement_2)] = .{
         .llvm_name = "vector-packed-decimal-enhancement-2",
-        .description = "Assume that the vector packed decimal enhancement facility 2 is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     const ti = @typeInfo(Feature);
@@ -273,6 +231,54 @@ pub const all_features = blk: {
         elem.index = i;
         elem.name = ti.Enum.fields[i].name;
     }
+    break :blk result;
+};
+
+pub const feature_descs = blk: {
+    const len = @typeInfo(Feature).Enum.fields.len;
+    var result: [len][]const u8 = undefined;
+    result[@intFromEnum(Feature.backchain)] = "Store the address of the caller's frame into the callee's stack frame";
+    result[@intFromEnum(Feature.bear_enhancement)] = "Assume that the BEAR-enhancement facility is installed";
+    result[@intFromEnum(Feature.deflate_conversion)] = "Assume that the deflate-conversion facility is installed";
+    result[@intFromEnum(Feature.dfp_packed_conversion)] = "Assume that the DFP packed-conversion facility is installed";
+    result[@intFromEnum(Feature.dfp_zoned_conversion)] = "Assume that the DFP zoned-conversion facility is installed";
+    result[@intFromEnum(Feature.distinct_ops)] = "Assume that the distinct-operands facility is installed";
+    result[@intFromEnum(Feature.enhanced_dat_2)] = "Assume that the enhanced-DAT facility 2 is installed";
+    result[@intFromEnum(Feature.enhanced_sort)] = "Assume that the enhanced-sort facility is installed";
+    result[@intFromEnum(Feature.execution_hint)] = "Assume that the execution-hint facility is installed";
+    result[@intFromEnum(Feature.fast_serialization)] = "Assume that the fast-serialization facility is installed";
+    result[@intFromEnum(Feature.fp_extension)] = "Assume that the floating-point extension facility is installed";
+    result[@intFromEnum(Feature.guarded_storage)] = "Assume that the guarded-storage facility is installed";
+    result[@intFromEnum(Feature.high_word)] = "Assume that the high-word facility is installed";
+    result[@intFromEnum(Feature.insert_reference_bits_multiple)] = "Assume that the insert-reference-bits-multiple facility is installed";
+    result[@intFromEnum(Feature.interlocked_access1)] = "Assume that interlocked-access facility 1 is installed";
+    result[@intFromEnum(Feature.load_and_trap)] = "Assume that the load-and-trap facility is installed";
+    result[@intFromEnum(Feature.load_and_zero_rightmost_byte)] = "Assume that the load-and-zero-rightmost-byte facility is installed";
+    result[@intFromEnum(Feature.load_store_on_cond)] = "Assume that the load/store-on-condition facility is installed";
+    result[@intFromEnum(Feature.load_store_on_cond_2)] = "Assume that the load/store-on-condition facility 2 is installed";
+    result[@intFromEnum(Feature.message_security_assist_extension3)] = "Assume that the message-security-assist extension facility 3 is installed";
+    result[@intFromEnum(Feature.message_security_assist_extension4)] = "Assume that the message-security-assist extension facility 4 is installed";
+    result[@intFromEnum(Feature.message_security_assist_extension5)] = "Assume that the message-security-assist extension facility 5 is installed";
+    result[@intFromEnum(Feature.message_security_assist_extension7)] = "Assume that the message-security-assist extension facility 7 is installed";
+    result[@intFromEnum(Feature.message_security_assist_extension8)] = "Assume that the message-security-assist extension facility 8 is installed";
+    result[@intFromEnum(Feature.message_security_assist_extension9)] = "Assume that the message-security-assist extension facility 9 is installed";
+    result[@intFromEnum(Feature.miscellaneous_extensions)] = "Assume that the miscellaneous-extensions facility is installed";
+    result[@intFromEnum(Feature.miscellaneous_extensions_2)] = "Assume that the miscellaneous-extensions facility 2 is installed";
+    result[@intFromEnum(Feature.miscellaneous_extensions_3)] = "Assume that the miscellaneous-extensions facility 3 is installed";
+    result[@intFromEnum(Feature.nnp_assist)] = "Assume that the NNP-assist facility is installed";
+    result[@intFromEnum(Feature.population_count)] = "Assume that the population-count facility is installed";
+    result[@intFromEnum(Feature.processor_activity_instrumentation)] = "Assume that the processor-activity-instrumentation facility is installed";
+    result[@intFromEnum(Feature.processor_assist)] = "Assume that the processor-assist facility is installed";
+    result[@intFromEnum(Feature.reset_dat_protection)] = "Assume that the reset-DAT-protection facility is installed";
+    result[@intFromEnum(Feature.reset_reference_bits_multiple)] = "Assume that the reset-reference-bits-multiple facility is installed";
+    result[@intFromEnum(Feature.soft_float)] = "Use software emulation for floating point";
+    result[@intFromEnum(Feature.transactional_execution)] = "Assume that the transactional-execution facility is installed";
+    result[@intFromEnum(Feature.vector)] = "Assume that the vectory facility is installed";
+    result[@intFromEnum(Feature.vector_enhancements_1)] = "Assume that the vector enhancements facility 1 is installed";
+    result[@intFromEnum(Feature.vector_enhancements_2)] = "Assume that the vector enhancements facility 2 is installed";
+    result[@intFromEnum(Feature.vector_packed_decimal)] = "Assume that the vector packed decimal facility is installed";
+    result[@intFromEnum(Feature.vector_packed_decimal_enhancement)] = "Assume that the vector packed decimal enhancement facility is installed";
+    result[@intFromEnum(Feature.vector_packed_decimal_enhancement_2)] = "Assume that the vector packed decimal enhancement facility 2 is installed";
     break :blk result;
 };
 
