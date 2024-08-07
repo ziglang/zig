@@ -1415,9 +1415,8 @@ fn genLazy(func: *Func, lazy_sym: link.File.LazySymbol) InnerError!void {
                 .ty = enum_ty,
             }) catch |err|
                 return func.fail("{s} creating lazy symbol", .{@errorName(err)});
-            const sym = zo.symbol(sym_index);
 
-            try func.genSetReg(Type.u64, data_reg, .{ .lea_symbol = .{ .sym = sym.esym_index } });
+            try func.genSetReg(Type.u64, data_reg, .{ .lea_symbol = .{ .sym = sym_index } });
 
             const cmp_reg, const cmp_lock = try func.allocReg(.int);
             defer func.register_manager.unlockReg(cmp_lock);
@@ -4949,12 +4948,11 @@ fn genCall(
                         if (func.bin_file.cast(link.File.Elf)) |elf_file| {
                             const zo = elf_file.zigObjectPtr().?;
                             const sym_index = try zo.getOrCreateMetadataForDecl(elf_file, func_val.owner_decl);
-                            const sym = zo.symbol(sym_index);
 
                             if (func.mod.pic) {
                                 return func.fail("TODO: genCall pic", .{});
                             } else {
-                                try func.genSetReg(Type.u64, .ra, .{ .load_symbol = .{ .sym = sym.esym_index } });
+                                try func.genSetReg(Type.u64, .ra, .{ .load_symbol = .{ .sym = sym_index } });
                                 _ = try func.addInst(.{
                                     .tag = .jalr,
                                     .data = .{ .i_type = .{
@@ -7827,12 +7825,11 @@ fn airTagName(func: *Func, inst: Air.Inst.Index) !void {
         const zo = elf_file.zigObjectPtr().?;
         const sym_index = zo.getOrCreateMetadataForLazySymbol(elf_file, pt, lazy_sym) catch |err|
             return func.fail("{s} creating lazy symbol", .{@errorName(err)});
-        const sym = zo.symbol(sym_index);
 
         if (func.mod.pic) {
             return func.fail("TODO: airTagName pic", .{});
         } else {
-            try func.genSetReg(Type.u64, .ra, .{ .load_symbol = .{ .sym = sym.esym_index } });
+            try func.genSetReg(Type.u64, .ra, .{ .load_symbol = .{ .sym = sym_index } });
             _ = try func.addInst(.{
                 .tag = .jalr,
                 .data = .{ .i_type = .{
@@ -8050,12 +8047,7 @@ fn genTypedValue(func: *Func, val: Value) InnerError!MCValue {
             return error.CodegenFail;
         };
         switch (lf.tag) {
-            .elf => {
-                const elf_file = lf.cast(link.File.Elf).?;
-                const zo = elf_file.zigObjectPtr().?;
-                const local = zo.symbol(local_sym_index);
-                return MCValue{ .undef = local.esym_index };
-            },
+            .elf => return MCValue{ .undef = local_sym_index },
             else => unreachable,
         }
     }
