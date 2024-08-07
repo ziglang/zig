@@ -22,7 +22,7 @@ pub const want_aeabi = switch (builtin.abi) {
     },
     else => false,
 };
-pub const want_ppc_abi = builtin.cpu.arch.isPPC() or builtin.cpu.arch.isPPC64();
+pub const want_ppc_abi = builtin.cpu.arch.isPowerPC();
 
 pub const want_float_exceptions = !builtin.cpu.arch.isWasm();
 

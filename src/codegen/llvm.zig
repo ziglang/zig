@@ -399,7 +399,7 @@ const DataLayoutBuilder = struct {
         else if (self.target.cpu.arch == .powerpc64 and
             self.target.os.tag != .freebsd and self.target.abi != .musl)
             try writer.writeAll("-Fi64")
-        else if (self.target.cpu.arch.isPPC() or self.target.cpu.arch.isPPC64())
+        else if (self.target.cpu.arch.isPowerPC())
             try writer.writeAll("-Fn32");
         if (self.target.cpu.arch != .hexagon) {
             if (self.target.cpu.arch == .arc or self.target.cpu.arch == .s390x)
@@ -659,7 +659,7 @@ const DataLayoutBuilder = struct {
                     128 => abi = 64,
                     else => {},
                 }
-            } else if ((self.target.cpu.arch.isPPC64() and self.target.os.tag == .linux and
+            } else if ((self.target.cpu.arch.isPowerPC64() and self.target.os.tag == .linux and
                 (size == 256 or size == 512)) or
                 (self.target.cpu.arch.isNvptx() and (size == 16 or size == 32)))
             {

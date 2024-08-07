@@ -264,7 +264,7 @@ pub fn systemCompiler(target: std.Target) LangOpts.Compiler {
 pub fn hasFloat128(target: std.Target) bool {
     if (target.cpu.arch.isWasm()) return true;
     if (target.isDarwin()) return false;
-    if (target.cpu.arch.isPPC() or target.cpu.arch.isPPC64()) return std.Target.powerpc.featureSetHas(target.cpu.features, .float128);
+    if (target.cpu.arch.isPowerPC()) return std.Target.powerpc.featureSetHas(target.cpu.features, .float128);
     return switch (target.os.tag) {
         .dragonfly,
         .haiku,

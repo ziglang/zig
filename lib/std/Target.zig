@@ -1084,6 +1084,13 @@ pub const Cpu = struct {
             };
         }
 
+        pub inline fn isLoongArch(arch: Arch) bool {
+            return switch (arch) {
+                .loongarch32, .loongarch64 => true,
+                else => false,
+            };
+        }
+
         pub inline fn isRISCV(arch: Arch) bool {
             return switch (arch) {
                 .riscv32, .riscv64 => true,
@@ -1092,20 +1099,35 @@ pub const Cpu = struct {
         }
 
         pub inline fn isMIPS(arch: Arch) bool {
+            return arch.isMIPS32() or arch.isMIPS64();
+        }
+
+        pub inline fn isMIPS32(arch: Arch) bool {
             return switch (arch) {
-                .mips, .mipsel, .mips64, .mips64el => true,
+                .mips, .mipsel => true,
                 else => false,
             };
         }
 
-        pub inline fn isPPC(arch: Arch) bool {
+        pub inline fn isMIPS64(arch: Arch) bool {
+            return switch (arch) {
+                .mips64, .mips64el => true,
+                else => false,
+            };
+        }
+
+        pub inline fn isPowerPC(arch: Arch) bool {
+            return arch.isPowerPC32() or arch.isPowerPC64();
+        }
+
+        pub inline fn isPowerPC32(arch: Arch) bool {
             return switch (arch) {
                 .powerpc, .powerpcle => true,
                 else => false,
             };
         }
 
-        pub inline fn isPPC64(arch: Arch) bool {
+        pub inline fn isPowerPC64(arch: Arch) bool {
             return switch (arch) {
                 .powerpc64, .powerpc64le => true,
                 else => false,
