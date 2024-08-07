@@ -118,7 +118,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .hurd => "hurd",
         .wasi => "wasi",
         .emscripten => "emscripten",
-        .uefi => "windows",
+        .uefi => "uefi",
         .macos => "macosx",
         .ios => "ios",
         .tvos => "tvos",
