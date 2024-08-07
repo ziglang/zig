@@ -326,12 +326,8 @@ pub fn writeRelocs(self: Atom, elf_file: *Elf, out_relocs: *std.ArrayList(elf.El
     const cpu_arch = elf_file.getTarget().cpu.arch;
     const file_ptr = self.file(elf_file).?;
     for (self.relocs(elf_file)) |rel| {
-        const target_index = switch (file_ptr) {
-            .zig_object => |x| x.symbol(rel.r_sym()),
-            .object => |x| x.symbols.items[rel.r_sym()],
-            else => unreachable,
-        };
-        const target = elf_file.symbol(target_index);
+        const target_ref = file_ptr.resolveSymbol(rel.r_sym(), elf_file);
+        const target = elf_file.symbol(target_ref).?;
         const r_type = rel.r_type();
         const r_offset: u64 = @intCast(self.value + @as(i64, @intCast(rel.r_offset)));
         var r_addend = rel.r_addend;
@@ -422,12 +418,21 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype
         const r_kind = relocation.decode(rel.r_type(), cpu_arch);
         if (r_kind == .none) continue;
 
-        const symbol_index = switch (file_ptr) {
-            .zig_object => |x| x.symbol(rel.r_sym()),
-            .object => |x| x.symbols.items[rel.r_sym()],
-            else => unreachable,
+        const symbol_ref = file_ptr.resolveSymbol(rel.r_sym(), elf_file);
+        const symbol = elf_file.symbol(symbol_ref) orelse {
+            const sym_name = switch (file_ptr) {
+                .zig_object => |x| x.symbol(rel.r_sym()).name(elf_file),
+                inline else => |x| x.symbols.items[rel.r_sym()].name(elf_file),
+            };
+            // Violation of One Definition Rule for COMDATs.
+            // TODO convert into an error
+            log.debug("{}: {s}: {s} refers to a discarded COMDAT section", .{
+                file_ptr.fmtPath(),
+                self.name(elf_file),
+                sym_name,
+            });
+            continue;
         };
-        const symbol = elf_file.symbol(symbol_index);
 
         const is_synthetic_symbol = switch (file_ptr) {
             .zig_object => false, // TODO: implement this once we support merge sections in ZigObject
@@ -435,19 +440,8 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype
             else => unreachable,
         };
 
-        // Check for violation of One Definition Rule for COMDATs.
-        if (symbol.file(elf_file) == null) {
-            // TODO convert into an error
-            log.debug("{}: {s}: {s} refers to a discarded COMDAT section", .{
-                file_ptr.fmtPath(),
-                self.name(elf_file),
-                symbol.name(elf_file),
-            });
-            continue;
-        }
-
         // Report an undefined symbol.
-        if (!is_synthetic_symbol and (try self.reportUndefined(elf_file, symbol, symbol_index, rel, undefs)))
+        if (!is_synthetic_symbol and (try self.reportUndefined(elf_file, symbol, rel, undefs)))
             continue;
 
         if (symbol.isIFunc(elf_file)) {
@@ -694,16 +688,15 @@ fn reportUndefined(
     self: Atom,
     elf_file: *Elf,
     sym: *const Symbol,
-    sym_index: Symbol.Index,
     rel: elf.Elf64_Rela,
     undefs: anytype,
 ) !bool {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
-    const rel_esym = switch (self.file(elf_file).?) {
-        .zig_object => |x| x.elfSym(rel.r_sym()).*,
-        .object => |x| x.symtab.items[rel.r_sym()],
-        else => unreachable,
+    const file_ptr = self.file(elf_file).?;
+    const rel_esym = switch (file_ptr) {
+        .zig_object => |x| x.symbol(rel.r_sym()).elfSym(elf_file),
+        inline else => |x| x.symtab.items[rel.r_sym()],
     };
     const esym = sym.elfSym(elf_file);
     if (rel_esym.st_shndx == elf.SHN_UNDEF and
@@ -712,7 +705,12 @@ fn reportUndefined(
         !sym.flags.import and
         esym.st_shndx == elf.SHN_UNDEF)
     {
-        const gop = try undefs.getOrPut(sym_index);
+        const idx = switch (file_ptr) {
+            .zig_object => |x| x.symbols_resolver.items[rel.r_sym() & ZigObject.symbol_mask],
+            .object => |x| x.symbols_resolver.items[rel.r_sym() - x.first_global.?],
+            inline else => |x| x.symbols_resolver.items[rel.r_sym()],
+        };
+        const gop = try undefs.getOrPut(idx);
         if (!gop.found_existing) {
             gop.value_ptr.* = std.ArrayList(Elf.Ref).init(gpa);
         }
@@ -737,11 +735,8 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) RelocError!voi
         const r_kind = relocation.decode(rel.r_type(), cpu_arch);
         if (r_kind == .none) continue;
 
-        const target = switch (file_ptr) {
-            .zig_object => |x| elf_file.symbol(x.symbol(rel.r_sym())),
-            .object => |x| elf_file.symbol(x.symbols.items[rel.r_sym()]),
-            else => unreachable,
-        };
+        const target_ref = file_ptr.resolveSymbol(rel.r_sym(), elf_file);
+        const target = elf_file.symbol(target_ref).?;
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
 
         // We will use equation format to resolve relocations:
@@ -845,7 +840,7 @@ fn resolveDynAbsReloc(
             if (is_writeable or elf_file.z_nocopyreloc) {
                 elf_file.addRelaDynAssumeCapacity(.{
                     .offset = P,
-                    .sym = target.extra(elf_file).?.dynamic,
+                    .sym = target.extra(elf_file).dynamic,
                     .type = relocation.encode(.abs, cpu_arch),
                     .addend = A,
                 });
@@ -859,7 +854,7 @@ fn resolveDynAbsReloc(
             if (is_writeable) {
                 elf_file.addRelaDynAssumeCapacity(.{
                     .offset = P,
-                    .sym = target.extra(elf_file).?.dynamic,
+                    .sym = target.extra(elf_file).dynamic,
                     .type = relocation.encode(.abs, cpu_arch),
                     .addend = A,
                 });
@@ -872,7 +867,7 @@ fn resolveDynAbsReloc(
         .dynrel => {
             elf_file.addRelaDynAssumeCapacity(.{
                 .offset = P,
-                .sym = target.extra(elf_file).?.dynamic,
+                .sym = target.extra(elf_file).dynamic,
                 .type = relocation.encode(.abs, cpu_arch),
                 .addend = A,
             });
@@ -923,31 +918,29 @@ pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: any
 
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
 
-        const target_index = switch (file_ptr) {
-            .zig_object => |x| x.symbol(rel.r_sym()),
-            .object => |x| x.symbols.items[rel.r_sym()],
-            else => unreachable,
+        const target_ref = file_ptr.resolveSymbol(rel.r_sym(), elf_file);
+        const target = elf_file.symbol(target_ref) orelse {
+            const sym_name = switch (file_ptr) {
+                .zig_object => |x| x.symbol(rel.r_sym()).name(elf_file),
+                inline else => |x| x.symbols.items[rel.r_sym()].name(elf_file),
+            };
+            // Violation of One Definition Rule for COMDATs.
+            // TODO convert into an error
+            log.debug("{}: {s}: {s} refers to a discarded COMDAT section", .{
+                file_ptr.fmtPath(),
+                self.name(elf_file),
+                sym_name,
+            });
+            continue;
         };
-        const target = elf_file.symbol(target_index);
         const is_synthetic_symbol = switch (file_ptr) {
             .zig_object => false, // TODO: implement this once we support merge sections in ZigObject
             .object => |x| rel.r_sym() >= x.symtab.items.len,
             else => unreachable,
         };
 
-        // Check for violation of One Definition Rule for COMDATs.
-        if (target.file(elf_file) == null) {
-            // TODO convert into an error
-            log.debug("{}: {s}: {s} refers to a discarded COMDAT section", .{
-                file_ptr.fmtPath(),
-                self.name(elf_file),
-                target.name(elf_file),
-            });
-            continue;
-        }
-
         // Report an undefined symbol.
-        if (!is_synthetic_symbol and (try self.reportUndefined(elf_file, target, target_index, rel, undefs)))
+        if (!is_synthetic_symbol and (try self.reportUndefined(elf_file, target, rel, undefs)))
             continue;
 
         // We will use equation format to resolve relocations:
@@ -1766,11 +1759,7 @@ const aarch64 = struct {
             => {
                 const disp: i28 = math.cast(i28, S + A - P) orelse blk: {
                     const th = atom.thunk(elf_file);
-                    const target_index = switch (file_ptr) {
-                        .zig_object => |x| x.symbol(rel.r_sym()),
-                        .object => |x| x.symbols.items[rel.r_sym()],
-                        else => unreachable,
-                    };
+                    const target_index = file_ptr.resolveSymbol(rel.r_sym(), elf_file);
                     const S_ = th.targetAddress(target_index, elf_file);
                     break :blk math.cast(i28, S_ + A - P) orelse return error.Overflow;
                 };
@@ -2106,11 +2095,8 @@ const riscv = struct {
                     return error.RelocFailure;
                 };
                 it.pos = pos;
-                const target_ = switch (file_ptr) {
-                    .zig_object => |x| elf_file.symbol(x.symbol(pair.r_sym())),
-                    .object => |x| elf_file.symbol(x.symbols.items[pair.r_sym()]),
-                    else => unreachable,
-                };
+                const target_ref_ = file_ptr.resolveSymbol(pair.r_sym(), elf_file);
+                const target_ = elf_file.symbol(target_ref_).?;
                 const S_ = target_.address(.{}, elf_file);
                 const A_ = pair.r_addend;
                 const P_ = atom_addr + @as(i64, @intCast(pair.r_offset));
@@ -2313,4 +2299,5 @@ const File = @import("file.zig").File;
 const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");
 const Thunk = @import("thunks.zig").Thunk;
+const ZigObject = @import("ZigObject.zig");
 const dev = @import("../../dev.zig");

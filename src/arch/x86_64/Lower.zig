@@ -349,8 +349,8 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                     assert(mem_op.sib.scale_index.scale == 0);
 
                     if (lower.bin_file.cast(link.File.Elf)) |elf_file| {
-                        const sym_index = elf_file.zigObjectPtr().?.symbol(sym.sym_index);
-                        const elf_sym = elf_file.symbol(sym_index);
+                        const zo = elf_file.zigObjectPtr().?;
+                        const elf_sym = zo.symbol(sym.sym_index);
 
                         if (elf_sym.flags.is_tls) {
                             // TODO handle extern TLS vars, i.e., emit GD model

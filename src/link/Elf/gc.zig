@@ -1,71 +1,84 @@
 pub fn gcAtoms(elf_file: *Elf) !void {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
-    const num_files = elf_file.objects.items.len + @intFromBool(elf_file.zig_object_index != null);
-    var files = try std.ArrayList(File.Index).initCapacity(gpa, num_files);
-    defer files.deinit();
-    if (elf_file.zig_object_index) |index| files.appendAssumeCapacity(index);
-    for (elf_file.objects.items) |index| files.appendAssumeCapacity(index);
-
     var roots = std.ArrayList(*Atom).init(gpa);
     defer roots.deinit();
-    try collectRoots(&roots, files.items, elf_file);
-
+    try collectRoots(&roots, elf_file);
     mark(roots, elf_file);
-    prune(files.items, elf_file);
+    prune(elf_file);
 }
 
-fn collectRoots(roots: *std.ArrayList(*Atom), files: []const File.Index, elf_file: *Elf) !void {
+fn collectRoots(roots: *std.ArrayList(*Atom), elf_file: *Elf) !void {
     if (elf_file.linkerDefinedPtr()) |obj| {
-        if (obj.entry_index) |index| {
-            const global = elf_file.symbol(index);
-            try markSymbol(global, roots, elf_file);
+        if (obj.entrySymbol(elf_file)) |sym| {
+            try markSymbol(sym, roots, elf_file);
         }
     }
 
-    for (files) |index| {
-        for (elf_file.file(index).?.globals()) |global_index| {
-            const global = elf_file.symbol(global_index);
-            if (global.file(elf_file)) |file| {
-                if (file.index() == index and global.flags.@"export")
-                    try markSymbol(global, roots, elf_file);
-            }
-        }
-    }
-
-    for (files) |index| {
-        const file = elf_file.file(index).?;
-
-        for (file.atoms()) |atom_index| {
-            const atom = file.atom(atom_index) orelse continue;
-            if (!atom.alive) continue;
-
-            const shdr = atom.inputShdr(elf_file);
-            const name = atom.name(elf_file);
-            const is_gc_root = blk: {
-                if (shdr.sh_flags & elf.SHF_GNU_RETAIN != 0) break :blk true;
-                if (shdr.sh_type == elf.SHT_NOTE) break :blk true;
-                if (shdr.sh_type == elf.SHT_PREINIT_ARRAY) break :blk true;
-                if (shdr.sh_type == elf.SHT_INIT_ARRAY) break :blk true;
-                if (shdr.sh_type == elf.SHT_FINI_ARRAY) break :blk true;
-                if (mem.startsWith(u8, name, ".ctors")) break :blk true;
-                if (mem.startsWith(u8, name, ".dtors")) break :blk true;
-                if (mem.startsWith(u8, name, ".init")) break :blk true;
-                if (mem.startsWith(u8, name, ".fini")) break :blk true;
-                if (Elf.isCIdentifier(name)) break :blk true;
-                break :blk false;
-            };
-            if (is_gc_root and markAtom(atom)) try roots.append(atom);
-            if (shdr.sh_flags & elf.SHF_ALLOC == 0) atom.visited = true;
-        }
-
-        // Mark every atom referenced by CIE as alive.
-        for (file.cies()) |cie| {
-            for (cie.relocs(elf_file)) |rel| {
-                const sym = elf_file.symbol(file.symbol(rel.r_sym()));
+    if (elf_file.zigObjectPtr()) |zo| {
+        for (0..zo.global_symbols.items.len) |i| {
+            const ref = zo.resolveSymbol(@intCast(i | ZigObject.global_symbol_bit), elf_file);
+            const sym = elf_file.symbol(ref) orelse continue;
+            if (sym.file(elf_file).?.index() != zo.index) continue;
+            if (sym.flags.@"export") {
                 try markSymbol(sym, roots, elf_file);
             }
         }
+    }
+
+    for (elf_file.objects.items) |index| {
+        const object = elf_file.file(index).?.object;
+        for (0..object.globals().len) |i| {
+            const ref = object.resolveSymbol(@intCast(i), elf_file);
+            const sym = elf_file.symbol(ref) orelse continue;
+            if (sym.file(elf_file).?.index() != object.index) continue;
+            if (sym.flags.@"export") {
+                try markSymbol(sym, roots, elf_file);
+            }
+        }
+    }
+
+    const atomRoots = struct {
+        fn atomRoots(file: File, rs: anytype, ef: *Elf) !void {
+            for (file.atoms()) |atom_index| {
+                const atom = file.atom(atom_index) orelse continue;
+                if (!atom.alive) continue;
+
+                const shdr = atom.inputShdr(ef);
+                const name = atom.name(ef);
+                const is_gc_root = blk: {
+                    if (shdr.sh_flags & elf.SHF_GNU_RETAIN != 0) break :blk true;
+                    if (shdr.sh_type == elf.SHT_NOTE) break :blk true;
+                    if (shdr.sh_type == elf.SHT_PREINIT_ARRAY) break :blk true;
+                    if (shdr.sh_type == elf.SHT_INIT_ARRAY) break :blk true;
+                    if (shdr.sh_type == elf.SHT_FINI_ARRAY) break :blk true;
+                    if (mem.startsWith(u8, name, ".ctors")) break :blk true;
+                    if (mem.startsWith(u8, name, ".dtors")) break :blk true;
+                    if (mem.startsWith(u8, name, ".init")) break :blk true;
+                    if (mem.startsWith(u8, name, ".fini")) break :blk true;
+                    if (Elf.isCIdentifier(name)) break :blk true;
+                    break :blk false;
+                };
+                if (is_gc_root and markAtom(atom)) try rs.append(atom);
+                if (shdr.sh_flags & elf.SHF_ALLOC == 0) atom.visited = true;
+            }
+
+            // Mark every atom referenced by CIE as alive.
+            for (file.cies()) |cie| {
+                for (cie.relocs(ef)) |rel| {
+                    const ref = file.resolveSymbol(rel.r_sym(), ef);
+                    const sym = ef.symbol(ref) orelse continue;
+                    try markSymbol(sym, rs, ef);
+                }
+            }
+        }
+    }.atomRoots;
+
+    if (elf_file.zigObjectPtr()) |zo| {
+        try atomRoots(zo.asFile(), roots, elf_file);
+    }
+    for (elf_file.objects.items) |index| {
+        try atomRoots(elf_file.file(index).?, roots, elf_file);
     }
 }
 
@@ -92,7 +105,8 @@ fn markLive(atom: *Atom, elf_file: *Elf) void {
 
     for (atom.fdes(elf_file)) |fde| {
         for (fde.relocs(elf_file)[1..]) |rel| {
-            const target_sym = elf_file.symbol(file.symbol(rel.r_sym()));
+            const ref = file.resolveSymbol(rel.r_sym(), elf_file);
+            const target_sym = elf_file.symbol(ref) orelse continue;
             const target_atom = target_sym.atom(elf_file) orelse continue;
             target_atom.alive = true;
             gc_track_live_log.debug("{}marking live atom({d})", .{ track_live_level, target_atom.atom_index });
@@ -101,7 +115,8 @@ fn markLive(atom: *Atom, elf_file: *Elf) void {
     }
 
     for (atom.relocs(elf_file)) |rel| {
-        const target_sym = elf_file.symbol(file.symbol(rel.r_sym()));
+        const ref = file.resolveSymbol(rel.r_sym(), elf_file);
+        const target_sym = elf_file.symbol(ref) orelse continue;
         if (target_sym.mergeSubsection(elf_file)) |msub| {
             msub.alive = true;
             continue;
@@ -120,16 +135,23 @@ fn mark(roots: std.ArrayList(*Atom), elf_file: *Elf) void {
     }
 }
 
-fn prune(files: []const File.Index, elf_file: *Elf) void {
-    for (files) |index| {
-        const file = elf_file.file(index).?;
-        for (file.atoms()) |atom_index| {
-            const atom = file.atom(atom_index) orelse continue;
-            if (atom.alive and !atom.visited) {
-                atom.alive = false;
-                atom.markFdesDead(elf_file);
+fn prune(elf_file: *Elf) void {
+    const pruneInFile = struct {
+        fn pruneInFile(file: File, ef: *Elf) void {
+            for (file.atoms()) |atom_index| {
+                const atom = file.atom(atom_index) orelse continue;
+                if (atom.alive and !atom.visited) {
+                    atom.alive = false;
+                    atom.markFdesDead(ef);
+                }
             }
         }
+    }.pruneInFile;
+    if (elf_file.zigObjectPtr()) |zo| {
+        pruneInFile(zo.asFile(), elf_file);
+    }
+    for (elf_file.objects.items) |index| {
+        pruneInFile(elf_file.file(index).?, elf_file);
     }
 }
 
@@ -181,3 +203,4 @@ const Atom = @import("Atom.zig");
 const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;
 const Symbol = @import("Symbol.zig");
+const ZigObject = @import("ZigObject.zig");

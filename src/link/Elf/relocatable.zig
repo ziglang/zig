@@ -37,7 +37,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]co
 
     // First, we flush relocatable object file generated with our backends.
     if (elf_file.zigObjectPtr()) |zig_object| {
-        zig_object.resolveSymbols(elf_file);
+        try zig_object.resolveSymbols(elf_file);
         try elf_file.addCommentString();
         try elf_file.finalizeMergeSections();
         zig_object.claimUnresolvedObject(elf_file);
@@ -383,7 +383,7 @@ fn updateComdatGroupsSizes(elf_file: *Elf) void {
         shdr.sh_size = cg.size(elf_file);
         shdr.sh_link = elf_file.symtab_section_index.?;
 
-        const sym = elf_file.symbol(cg.symbol(elf_file));
+        const sym = cg.symbol(elf_file);
         shdr.sh_info = sym.outputSymtabIndex(elf_file) orelse
             elf_file.sectionSymbolOutputSymtabIndex(sym.outputShndx(elf_file).?);
     }
