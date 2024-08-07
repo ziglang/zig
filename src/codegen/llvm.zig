@@ -12083,14 +12083,16 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializeLoongArchAsmParser();
         },
 
-        // LLVM backends that have no initialization functions.
+        // We don't currently support using these backends.
         .spirv,
         .spirv32,
         .spirv64,
-        .kalimba,
         .dxil,
         => {},
 
-        .spu_2 => unreachable, // LLVM does not support this backend
+        // LLVM does does not have a backend for these.
+        .kalimba,
+        .spu_2,
+        => unreachable,
     }
 }
