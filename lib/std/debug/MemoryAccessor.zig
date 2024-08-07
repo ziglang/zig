@@ -78,9 +78,6 @@ pub fn load(ma: *MemoryAccessor, comptime Type: type, address: usize) ?Type {
 }
 
 pub fn isValidMemory(address: usize) bool {
-    // We are unable to determine validity of memory for freestanding targets
-    if (native_os == .freestanding or native_os == .uefi) return true;
-
     const aligned_address = address & ~@as(usize, @intCast((page_size - 1)));
     if (aligned_address == 0) return false;
     const aligned_memory = @as([*]align(page_size) u8, @ptrFromInt(aligned_address))[0..page_size];
@@ -122,7 +119,4 @@ pub fn isValidMemory(address: usize) bool {
     }
 }
 
-const have_msync = switch (native_os) {
-    .wasi, .emscripten, .windows => false,
-    else => true,
-};
+const have_msync = @TypeOf(posix.system.msync) != void;

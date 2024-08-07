@@ -9,6 +9,12 @@ const wasi = std.os.wasi;
 const fd_t = wasi.fd_t;
 const prestat_t = wasi.prestat_t;
 
+pub const STDIN_FILENO = 0;
+pub const STDOUT_FILENO = 1;
+pub const STDERR_FILENO = 2;
+
+pub const PATH_MAX = 4096;
+
 pub const Preopens = struct {
     // Indexed by file descriptor number.
     names: []const []const u8,

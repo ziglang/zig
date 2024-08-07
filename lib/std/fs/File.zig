@@ -27,9 +27,8 @@ pub const Kind = enum {
 /// the `touch` command, which would correspond to `0o644`. However, POSIX
 /// libc implementations use `0o666` inside `fopen` and then rely on the
 /// process-scoped "umask" setting to adjust this number for file creation.
-pub const default_mode = switch (builtin.os.tag) {
-    .windows => 0,
-    .wasi => 0,
+pub const default_mode = switch (posix.mode_t) {
+    void => {},
     else => 0o666,
 };
 
@@ -455,7 +454,7 @@ pub const Stat = struct {
         return .{
             .inode = st.ino,
             .size = @bitCast(st.size),
-            .mode = 0,
+            .mode = {},
             .kind = switch (st.filetype) {
                 .BLOCK_DEVICE => .block_device,
                 .CHARACTER_DEVICE => .character_device,
@@ -495,7 +494,7 @@ pub fn stat(self: File) StatError!Stat {
         return .{
             .inode = info.InternalInformation.IndexNumber,
             .size = @as(u64, @bitCast(info.StandardInformation.EndOfFile)),
-            .mode = 0,
+            .mode = {},
             .kind = if (info.BasicInformation.FileAttributes & windows.FILE_ATTRIBUTE_REPARSE_POINT != 0) reparse_point: {
                 var tag_info: windows.FILE_ATTRIBUTE_TAG_INFO = undefined;
                 const tag_rc = windows.ntdll.NtQueryInformationFile(self.handle, &io_status_block, &tag_info, @sizeOf(windows.FILE_ATTRIBUTE_TAG_INFO), .FileAttributeTagInformation);
