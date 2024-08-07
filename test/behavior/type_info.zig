@@ -605,9 +605,9 @@ test "@typeInfo decls and usingnamespace" {
     };
     const decls = @typeInfo(B).Struct.decls;
     try expect(decls.len == 3);
-    try expectEqualStrings(decls[0].name, "x");
-    try expectEqualStrings(decls[1].name, "y");
-    try expectEqualStrings(decls[2].name, "z");
+    try expectEqualStrings(decls[0].name, "z");
+    try expectEqualStrings(decls[1].name, "x");
+    try expectEqualStrings(decls[2].name, "y");
 }
 
 test "@typeInfo decls ignore dependency loops" {

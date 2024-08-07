@@ -90,10 +90,6 @@ test {
     try expect(a.x == AA.c().expected);
 }
 
-comptime {
-    _ = @import("usingnamespace/file_1.zig");
-}
-
 const Bar = struct {
     usingnamespace Mixin;
 };

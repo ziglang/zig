@@ -36,6 +36,7 @@ const trace = @import("../tracy.zig").trace;
 const build_options = @import("build_options");
 const Air = @import("../Air.zig");
 const Liveness = @import("../Liveness.zig");
+const Type = @import("../Type.zig");
 const Value = @import("../Value.zig");
 
 const SpvModule = @import("../codegen/spirv/Module.zig");
@@ -49,8 +50,6 @@ const BinaryModule = @import("SpirV/BinaryModule.zig");
 base: link.File,
 
 object: codegen.Object,
-
-pub const base_tag: link.File.Tag = .spirv;
 
 pub fn createEmpty(
     arena: Allocator,
@@ -128,22 +127,22 @@ pub fn updateFunc(self: *SpirV, pt: Zcu.PerThread, func_index: InternPool.Index,
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
 
+    const ip = &pt.zcu.intern_pool;
     const func = pt.zcu.funcInfo(func_index);
-    const decl = pt.zcu.declPtr(func.owner_decl);
-    log.debug("lowering function {}", .{decl.name.fmt(&pt.zcu.intern_pool)});
+    log.debug("lowering function {}", .{ip.getNav(func.owner_nav).name.fmt(ip)});
 
     try self.object.updateFunc(pt, func_index, air, liveness);
 }
 
-pub fn updateDecl(self: *SpirV, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
+pub fn updateNav(self: *SpirV, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
 
-    const decl = pt.zcu.declPtr(decl_index);
-    log.debug("lowering declaration {}", .{decl.name.fmt(&pt.zcu.intern_pool)});
+    const ip = &pt.zcu.intern_pool;
+    log.debug("lowering declaration {}", .{ip.getNav(nav).name.fmt(ip)});
 
-    try self.object.updateDecl(pt, decl_index);
+    try self.object.updateNav(pt, nav);
 }
 
 pub fn updateExports(
@@ -152,19 +151,20 @@ pub fn updateExports(
     exported: Zcu.Exported,
     export_indices: []const u32,
 ) !void {
-    const mod = pt.zcu;
-    const decl_index = switch (exported) {
-        .decl_index => |i| i,
-        .value => |val| {
-            _ = val;
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+    const nav_index = switch (exported) {
+        .nav => |nav| nav,
+        .uav => |uav| {
+            _ = uav;
             @panic("TODO: implement SpirV linker code for exporting a constant value");
         },
     };
-    const decl = mod.declPtr(decl_index);
-    if (decl.val.isFuncBody(mod)) {
-        const target = mod.getTarget();
-        const spv_decl_index = try self.object.resolveDecl(mod, decl_index);
-        const execution_model = switch (decl.typeOf(mod).fnCallingConvention(mod)) {
+    const nav_ty = ip.getNav(nav_index).typeOf(ip);
+    if (ip.isFunctionType(nav_ty)) {
+        const target = zcu.getTarget();
+        const spv_decl_index = try self.object.resolveNav(zcu, nav_index);
+        const execution_model = switch (Type.fromInterned(nav_ty).fnCallingConvention(zcu)) {
             .Vertex => spec.ExecutionModel.Vertex,
             .Fragment => spec.ExecutionModel.Fragment,
             .Kernel => spec.ExecutionModel.Kernel,
@@ -177,10 +177,10 @@ pub fn updateExports(
             (is_vulkan and (execution_model == .Fragment or execution_model == .Vertex)))
         {
             for (export_indices) |export_idx| {
-                const exp = mod.all_exports.items[export_idx];
+                const exp = zcu.all_exports.items[export_idx];
                 try self.object.spv.declareEntryPoint(
                     spv_decl_index,
-                    exp.opts.name.toSlice(&mod.intern_pool),
+                    exp.opts.name.toSlice(ip),
                     execution_model,
                 );
             }
