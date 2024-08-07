@@ -1532,7 +1532,7 @@ fn isThreadlocal(macho_file: *MachO, nav_index: InternPool.Nav.Index) bool {
     return switch (ip.indexToKey(ip.getNav(nav_index).status.resolved.val)) {
         .variable => |variable| variable.is_threadlocal,
         .@"extern" => |@"extern"| @"extern".is_threadlocal,
-        else => unreachable,
+        else => false,
     };
 }
 

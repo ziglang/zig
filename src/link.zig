@@ -231,7 +231,7 @@ pub const File = struct {
                 const emit = base.emit;
                 if (base.child_pid) |pid| {
                     if (builtin.os.tag == .windows) {
-                        base.cast(Coff).?.ptraceAttach(pid) catch |err| {
+                        base.cast(.coff).?.ptraceAttach(pid) catch |err| {
                             log.warn("attaching failed with error: {s}", .{@errorName(err)});
                         };
                     } else {
@@ -249,7 +249,7 @@ pub const File = struct {
                             .linux => std.posix.ptrace(std.os.linux.PTRACE.ATTACH, pid, 0, 0) catch |err| {
                                 log.warn("ptrace failure: {s}", .{@errorName(err)});
                             },
-                            .macos => base.cast(MachO).?.ptraceAttach(pid) catch |err| {
+                            .macos => base.cast(.macho).?.ptraceAttach(pid) catch |err| {
                                 log.warn("attaching failed with error: {s}", .{@errorName(err)});
                             },
                             .windows => unreachable,
@@ -317,10 +317,10 @@ pub const File = struct {
 
                 if (base.child_pid) |pid| {
                     switch (builtin.os.tag) {
-                        .macos => base.cast(MachO).?.ptraceDetach(pid) catch |err| {
+                        .macos => base.cast(.macho).?.ptraceDetach(pid) catch |err| {
                             log.warn("detaching failed with error: {s}", .{@errorName(err)});
                         },
-                        .windows => base.cast(Coff).?.ptraceDetach(pid),
+                        .windows => base.cast(.coff).?.ptraceDetach(pid),
                         else => return error.HotSwapUnavailableOnHostOperatingSystem,
                     }
                 }
