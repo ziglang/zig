@@ -17,6 +17,14 @@ pub const page_size = switch (builtin.cpu.arch) {
         else => 4 * 1024,
     },
     .sparc64 => 8 * 1024,
+    .loongarch32, .loongarch64 => switch (builtin.os.tag) {
+        // Linux default KConfig value is 16KiB
+        .linux => 16 * 1024,
+        // FIXME:
+        // There is no other OS supported yet. Use the same value
+        // as Linux for now.
+        else => 16 * 1024,
+    },
     else => 4 * 1024,
 };
 
