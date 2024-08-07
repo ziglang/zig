@@ -598,7 +598,7 @@ pub fn updateSymtabSize(self: *ZigObject, elf_file: *Elf) !void {
 
     for (self.global_symbols.items, self.symbols_resolver.items) |index, resolv| {
         const global = &self.symbols.items[index];
-        const ref = elf_file.resolver.values.items[resolv];
+        const ref = elf_file.resolver.values.items[resolv - 1];
         const ref_sym = elf_file.symbol(ref) orelse continue;
         if (ref_sym.file(elf_file).?.index() != self.index) continue;
         if (global.atom(elf_file)) |atom_ptr| if (!atom_ptr.alive) continue;
@@ -627,7 +627,7 @@ pub fn writeSymtab(self: ZigObject, elf_file: *Elf) void {
 
     for (self.global_symbols.items, self.symbols_resolver.items) |index, resolv| {
         const global = self.symbols.items[index];
-        const ref = elf_file.resolver.values.items[resolv];
+        const ref = elf_file.resolver.values.items[resolv - 1];
         const ref_sym = elf_file.symbol(ref) orelse continue;
         if (ref_sym.file(elf_file).?.index() != self.index) continue;
         const idx = global.outputSymtabIndex(elf_file) orelse continue;
