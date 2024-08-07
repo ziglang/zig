@@ -48,7 +48,6 @@ pub fn build(b: *std.Build) void {
             .include_path = "stack.h",
         },
         .{
-            .AT = "@",
             .UNDERSCORE = "_",
             .NEST_UNDERSCORE_PROXY = "UNDERSCORE",
             .NEST_PROXY = "NEST_UNDERSCORE_PROXY",
@@ -104,7 +103,7 @@ fn compare_headers(step: *std.Build.Step, options: std.Build.Step.MakeOptions) !
         const header_text_index = std.mem.indexOf(u8, zig_header, "\n") orelse @panic("Could not find comment in header filer");
 
         if (!std.mem.eql(u8, zig_header[header_text_index + 1 ..], cmake_header)) {
-            @panic("processed cmakedefine header does not match expected output");
+            std.debug.panic("processed cmakedefine header {s} does not match expected output", .{zig_header_path});
         }
     }
 }
