@@ -1981,6 +1981,8 @@ fn buildOutputType(
                                 needed = false;
                             } else if (mem.eql(u8, linker_arg, "--no-as-needed") or mem.eql(u8, linker_arg, "-no-as-needed")) {
                                 needed = true;
+                            } else if (mem.eql(u8, linker_arg, "--pie") or mem.eql(u8, linker_arg, "-pie")) {
+                                create_module.opts.pie = true;
                             } else if (mem.eql(u8, linker_arg, "--no-pie") or
                                 mem.eql(u8, linker_arg, "-no-pie") or
                                 mem.eql(u8, linker_arg, "-no_pie"))
