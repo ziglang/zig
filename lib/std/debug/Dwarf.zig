@@ -2215,6 +2215,43 @@ pub const ElfModule = struct {
                 return error.MissingDebugInfo;
             }
 
+            // $XDG_CACHE_HOME/debuginfod_client/<buildid>/debuginfo
+            // This only opportunisticly tries to load from the debuginfod cache, but doesn't try to populate it.
+            // One can manually run `debuginfod-find debuginfo PATH` to download the symbols
+            if (build_id) |id| blk: {
+                var debuginfod_dir: std.fs.Dir = switch (builtin.os.tag) {
+                    .wasi, .windows => break :blk,
+                    else => dir: {
+                        if (std.posix.getenv("XDG_CACHE_HOME")) |cache_path| {
+                            const path = std.fs.path.join(gpa, &[_][]const u8{ cache_path, "debuginfod_client" }) catch break :blk;
+                            defer gpa.free(path);
+                            break :dir std.fs.openDirAbsolute(path, .{}) catch break :blk;
+                        }
+                        if (std.posix.getenv("HOME")) |home_path| {
+                            const path = std.fs.path.join(gpa, &[_][]const u8{ home_path, ".cache", "debuginfod_client" }) catch break :blk;
+                            defer gpa.free(path);
+                            break :dir std.fs.openDirAbsolute(path, .{}) catch break :blk;
+                        }
+                        break :blk;
+                    },
+                };
+                defer debuginfod_dir.close();
+
+                const filename = std.fmt.allocPrint(
+                    gpa,
+                    "{s}/debuginfo",
+                    .{std.fmt.fmtSliceHexLower(id)},
+                ) catch break :blk;
+                defer gpa.free(filename);
+
+                const path: Path = .{
+                    .root_dir = .{ .path = null, .handle = debuginfod_dir },
+                    .sub_path = filename,
+                };
+
+                return loadPath(gpa, path, null, separate_debug_crc, &sections, mapped_mem) catch break :blk;
+            }
+
             const global_debug_directories = [_][]const u8{
                 "/usr/lib/debug",
             };
