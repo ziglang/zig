@@ -6073,6 +6073,7 @@ pub fn hasCppExt(filename: []const u8) bool {
         mem.endsWith(u8, filename, ".cc") or
         mem.endsWith(u8, filename, ".cpp") or
         mem.endsWith(u8, filename, ".cxx") or
+        mem.endsWith(u8, filename, ".c++") or
         mem.endsWith(u8, filename, ".stub");
 }
 
