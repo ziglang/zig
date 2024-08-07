@@ -587,7 +587,7 @@ pub const Module = switch (native_os) {
                 }
                 if (section_index == null) continue;
 
-                const section_bytes = try chopSlice(mapped_mem, sect.offset, sect.size);
+                const section_bytes = try Dwarf.chopSlice(mapped_mem, sect.offset, sect.size);
                 sections[section_index.?] = .{
                     .data = section_bytes,
                     .virtual_address = sect.addr,
@@ -602,10 +602,11 @@ pub const Module = switch (native_os) {
                 sections[@intFromEnum(Dwarf.Section.Id.debug_line)] == null;
             if (missing_debug_info) return error.MissingDebugInfo;
 
-            var di = Dwarf{
+            var di: Dwarf = .{
                 .endian = .little,
                 .sections = sections,
                 .is_macho = true,
+                .compile_units_sorted = false,
             };
 
             try Dwarf.open(&di, allocator);
@@ -622,7 +623,7 @@ pub const Module = switch (native_os) {
             return result.value_ptr;
         }
 
-        pub fn getSymbolAtAddress(self: *@This(), allocator: Allocator, address: usize) !SymbolInfo {
+        pub fn getSymbolAtAddress(self: *@This(), allocator: Allocator, address: usize) !std.debug.Symbol {
             nosuspend {
                 const result = try self.getOFileInfoForAddress(allocator, address);
                 if (result.symbol == null) return .{};
@@ -630,19 +631,19 @@ pub const Module = switch (native_os) {
                 // Take the symbol name from the N_FUN STAB entry, we're going to
                 // use it if we fail to find the DWARF infos
                 const stab_symbol = mem.sliceTo(self.strings[result.symbol.?.strx..], 0);
-                if (result.o_file_info == null) return .{ .symbol_name = stab_symbol };
+                if (result.o_file_info == null) return .{ .name = stab_symbol };
 
                 // Translate again the address, this time into an address inside the
                 // .o file
                 const relocated_address_o = result.o_file_info.?.addr_table.get(stab_symbol) orelse return .{
-                    .symbol_name = "???",
+                    .name = "???",
                 };
 
                 const addr_off = result.relocated_address - result.symbol.?.addr;
                 const o_file_di = &result.o_file_info.?.di;
                 if (o_file_di.findCompileUnit(relocated_address_o)) |compile_unit| {
-                    return SymbolInfo{
-                        .symbol_name = o_file_di.getSymbolName(relocated_address_o) orelse "???",
+                    return .{
+                        .name = o_file_di.getSymbolName(relocated_address_o) orelse "???",
                         .compile_unit_name = compile_unit.die.getAttrString(
                             o_file_di,
                             std.dwarf.AT.name,
@@ -651,9 +652,9 @@ pub const Module = switch (native_os) {
                         ) catch |err| switch (err) {
                             error.MissingDebugInfo, error.InvalidDebugInfo => "???",
                         },
-                        .line_info = o_file_di.getLineNumberInfo(
+                        .source_location = o_file_di.getLineNumberInfo(
                             allocator,
-                            compile_unit.*,
+                            compile_unit,
                             relocated_address_o + addr_off,
                         ) catch |err| switch (err) {
                             error.MissingDebugInfo, error.InvalidDebugInfo => null,
@@ -662,7 +663,7 @@ pub const Module = switch (native_os) {
                     };
                 } else |err| switch (err) {
                     error.MissingDebugInfo, error.InvalidDebugInfo => {
-                        return SymbolInfo{ .symbol_name = stab_symbol };
+                        return .{ .name = stab_symbol };
                     },
                     else => return err,
                 }
@@ -729,7 +730,7 @@ pub const Module = switch (native_os) {
             }
         }
 
-        fn getSymbolFromPdb(self: *@This(), relocated_address: usize) !?SymbolInfo {
+        fn getSymbolFromPdb(self: *@This(), relocated_address: usize) !?std.debug.Symbol {
             var coff_section: *align(1) const coff.SectionHeader = undefined;
             const mod_index = for (self.pdb.?.sect_contribs) |sect_contrib| {
                 if (sect_contrib.Section > self.coff_section_headers.len) continue;
@@ -759,14 +760,14 @@ pub const Module = switch (native_os) {
                 relocated_address - coff_section.virtual_address,
             );
 
-            return SymbolInfo{
-                .symbol_name = symbol_name,
+            return .{
+                .name = symbol_name,
                 .compile_unit_name = obj_basename,
-                .line_info = opt_line_info,
+                .source_location = opt_line_info,
             };
         }
 
-        pub fn getSymbolAtAddress(self: *@This(), allocator: Allocator, address: usize) !SymbolInfo {
+        pub fn getSymbolAtAddress(self: *@This(), allocator: Allocator, address: usize) !std.debug.Symbol {
             // Translate the VA into an address into this object
             const relocated_address = address - self.base_address;
 
@@ -776,10 +777,10 @@ pub const Module = switch (native_os) {
 
             if (self.dwarf) |*dwarf| {
                 const dwarf_address = relocated_address + self.coff_image_base;
-                return getSymbolFromDwarf(allocator, dwarf_address, dwarf);
+                return dwarf.getSymbol(allocator, dwarf_address);
             }
 
-            return SymbolInfo{};
+            return .{};
         }
 
         pub fn getDwarfInfoForAddress(self: *@This(), allocator: Allocator, address: usize) !?*const Dwarf {
@@ -792,41 +793,18 @@ pub const Module = switch (native_os) {
             };
         }
     },
-    .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris, .illumos => struct {
-        base_address: usize,
-        dwarf: Dwarf,
-        mapped_memory: []align(mem.page_size) const u8,
-        external_mapped_memory: ?[]align(mem.page_size) const u8,
-
-        pub fn deinit(self: *@This(), allocator: Allocator) void {
-            self.dwarf.deinit(allocator);
-            posix.munmap(self.mapped_memory);
-            if (self.external_mapped_memory) |m| posix.munmap(m);
-        }
-
-        pub fn getSymbolAtAddress(self: *@This(), allocator: Allocator, address: usize) !SymbolInfo {
-            // Translate the VA into an address into this object
-            const relocated_address = address - self.base_address;
-            return getSymbolFromDwarf(allocator, relocated_address, &self.dwarf);
-        }
-
-        pub fn getDwarfInfoForAddress(self: *@This(), allocator: Allocator, address: usize) !?*const Dwarf {
-            _ = allocator;
-            _ = address;
-            return &self.dwarf;
-        }
-    },
+    .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris, .illumos => Dwarf.ElfModule,
     .wasi, .emscripten => struct {
         pub fn deinit(self: *@This(), allocator: Allocator) void {
             _ = self;
             _ = allocator;
         }
 
-        pub fn getSymbolAtAddress(self: *@This(), allocator: Allocator, address: usize) !SymbolInfo {
+        pub fn getSymbolAtAddress(self: *@This(), allocator: Allocator, address: usize) !std.debug.Symbol {
             _ = self;
             _ = allocator;
             _ = address;
-            return SymbolInfo{};
+            return .{};
         }
 
         pub fn getDwarfInfoForAddress(self: *@This(), allocator: Allocator, address: usize) !?*const Dwarf {
@@ -1014,10 +992,11 @@ fn readCoffDebugInfo(allocator: Allocator, coff_obj: *coff.Coff) !Module {
                 } else null;
             }
 
-            var dwarf = Dwarf{
+            var dwarf: Dwarf = .{
                 .endian = native_endian,
                 .sections = sections,
                 .is_macho = false,
+                .compile_units_sorted = false,
             };
 
             try Dwarf.open(&dwarf, allocator);
@@ -1068,7 +1047,7 @@ pub fn readElfDebugInfo(
     expected_crc: ?u32,
     parent_sections: *Dwarf.SectionArray,
     parent_mapped_mem: ?[]align(mem.page_size) const u8,
-) !Module {
+) !Dwarf.ElfModule {
     nosuspend {
         const elf_file = (if (elf_filename) |filename| blk: {
             break :blk fs.cwd().openFile(filename, .{});
@@ -1078,176 +1057,15 @@ pub fn readElfDebugInfo(
         };
 
         const mapped_mem = try mapWholeFile(elf_file);
-        if (expected_crc) |crc| if (crc != std.hash.crc.Crc32.hash(mapped_mem)) return error.InvalidDebugInfo;
-
-        const hdr: *const elf.Ehdr = @ptrCast(&mapped_mem[0]);
-        if (!mem.eql(u8, hdr.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
-        if (hdr.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
-
-        const endian: std.builtin.Endian = switch (hdr.e_ident[elf.EI_DATA]) {
-            elf.ELFDATA2LSB => .little,
-            elf.ELFDATA2MSB => .big,
-            else => return error.InvalidElfEndian,
-        };
-        assert(endian == native_endian); // this is our own debug info
-
-        const shoff = hdr.e_shoff;
-        const str_section_off = shoff + @as(u64, hdr.e_shentsize) * @as(u64, hdr.e_shstrndx);
-        const str_shdr: *const elf.Shdr = @ptrCast(@alignCast(&mapped_mem[math.cast(usize, str_section_off) orelse return error.Overflow]));
-        const header_strings = mapped_mem[str_shdr.sh_offset..][0..str_shdr.sh_size];
-        const shdrs = @as(
-            [*]const elf.Shdr,
-            @ptrCast(@alignCast(&mapped_mem[shoff])),
-        )[0..hdr.e_shnum];
-
-        var sections: Dwarf.SectionArray = Dwarf.null_section_array;
-
-        // Combine section list. This takes ownership over any owned sections from the parent scope.
-        for (parent_sections, &sections) |*parent, *section| {
-            if (parent.*) |*p| {
-                section.* = p.*;
-                p.owned = false;
-            }
-        }
-        errdefer for (sections) |section| if (section) |s| if (s.owned) allocator.free(s.data);
-
-        var separate_debug_filename: ?[]const u8 = null;
-        var separate_debug_crc: ?u32 = null;
-
-        for (shdrs) |*shdr| {
-            if (shdr.sh_type == elf.SHT_NULL or shdr.sh_type == elf.SHT_NOBITS) continue;
-            const name = mem.sliceTo(header_strings[shdr.sh_name..], 0);
-
-            if (mem.eql(u8, name, ".gnu_debuglink")) {
-                const gnu_debuglink = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-                const debug_filename = mem.sliceTo(@as([*:0]const u8, @ptrCast(gnu_debuglink.ptr)), 0);
-                const crc_offset = mem.alignForward(usize, @intFromPtr(&debug_filename[debug_filename.len]) + 1, 4) - @intFromPtr(gnu_debuglink.ptr);
-                const crc_bytes = gnu_debuglink[crc_offset..][0..4];
-                separate_debug_crc = mem.readInt(u32, crc_bytes, native_endian);
-                separate_debug_filename = debug_filename;
-                continue;
-            }
-
-            var section_index: ?usize = null;
-            inline for (@typeInfo(Dwarf.Section.Id).Enum.fields, 0..) |section, i| {
-                if (mem.eql(u8, "." ++ section.name, name)) section_index = i;
-            }
-            if (section_index == null) continue;
-            if (sections[section_index.?] != null) continue;
-
-            const section_bytes = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
-            sections[section_index.?] = if ((shdr.sh_flags & elf.SHF_COMPRESSED) > 0) blk: {
-                var section_stream = std.io.fixedBufferStream(section_bytes);
-                var section_reader = section_stream.reader();
-                const chdr = section_reader.readStruct(elf.Chdr) catch continue;
-                if (chdr.ch_type != .ZLIB) continue;
-
-                var zlib_stream = std.compress.zlib.decompressor(section_stream.reader());
-
-                const decompressed_section = try allocator.alloc(u8, chdr.ch_size);
-                errdefer allocator.free(decompressed_section);
-
-                const read = zlib_stream.reader().readAll(decompressed_section) catch continue;
-                assert(read == decompressed_section.len);
-
-                break :blk .{
-                    .data = decompressed_section,
-                    .virtual_address = shdr.sh_addr,
-                    .owned = true,
-                };
-            } else .{
-                .data = section_bytes,
-                .virtual_address = shdr.sh_addr,
-                .owned = false,
-            };
-        }
-
-        const missing_debug_info =
-            sections[@intFromEnum(Dwarf.Section.Id.debug_info)] == null or
-            sections[@intFromEnum(Dwarf.Section.Id.debug_abbrev)] == null or
-            sections[@intFromEnum(Dwarf.Section.Id.debug_str)] == null or
-            sections[@intFromEnum(Dwarf.Section.Id.debug_line)] == null;
-
-        // Attempt to load debug info from an external file
-        // See: https://sourceware.org/gdb/onlinedocs/gdb/Separate-Debug-Files.html
-        if (missing_debug_info) {
-
-            // Only allow one level of debug info nesting
-            if (parent_mapped_mem) |_| {
-                return error.MissingDebugInfo;
-            }
-
-            const global_debug_directories = [_][]const u8{
-                "/usr/lib/debug",
-            };
-
-            // <global debug directory>/.build-id/<2-character id prefix>/<id remainder>.debug
-            if (build_id) |id| blk: {
-                if (id.len < 3) break :blk;
-
-                // Either md5 (16 bytes) or sha1 (20 bytes) are used here in practice
-                const extension = ".debug";
-                var id_prefix_buf: [2]u8 = undefined;
-                var filename_buf: [38 + extension.len]u8 = undefined;
-
-                _ = std.fmt.bufPrint(&id_prefix_buf, "{s}", .{std.fmt.fmtSliceHexLower(id[0..1])}) catch unreachable;
-                const filename = std.fmt.bufPrint(
-                    &filename_buf,
-                    "{s}" ++ extension,
-                    .{std.fmt.fmtSliceHexLower(id[1..])},
-                ) catch break :blk;
-
-                for (global_debug_directories) |global_directory| {
-                    const path = try fs.path.join(allocator, &.{ global_directory, ".build-id", &id_prefix_buf, filename });
-                    defer allocator.free(path);
-
-                    return readElfDebugInfo(allocator, path, null, separate_debug_crc, &sections, mapped_mem) catch continue;
-                }
-            }
-
-            // use the path from .gnu_debuglink, in the same search order as gdb
-            if (separate_debug_filename) |separate_filename| blk: {
-                if (elf_filename != null and mem.eql(u8, elf_filename.?, separate_filename)) return error.MissingDebugInfo;
-
-                // <cwd>/<gnu_debuglink>
-                if (readElfDebugInfo(allocator, separate_filename, null, separate_debug_crc, &sections, mapped_mem)) |debug_info| return debug_info else |_| {}
-
-                // <cwd>/.debug/<gnu_debuglink>
-                {
-                    const path = try fs.path.join(allocator, &.{ ".debug", separate_filename });
-                    defer allocator.free(path);
-
-                    if (readElfDebugInfo(allocator, path, null, separate_debug_crc, &sections, mapped_mem)) |debug_info| return debug_info else |_| {}
-                }
-
-                var cwd_buf: [fs.max_path_bytes]u8 = undefined;
-                const cwd_path = posix.realpath(".", &cwd_buf) catch break :blk;
-
-                // <global debug directory>/<absolute folder of current binary>/<gnu_debuglink>
-                for (global_debug_directories) |global_directory| {
-                    const path = try fs.path.join(allocator, &.{ global_directory, cwd_path, separate_filename });
-                    defer allocator.free(path);
-                    if (readElfDebugInfo(allocator, path, null, separate_debug_crc, &sections, mapped_mem)) |debug_info| return debug_info else |_| {}
-                }
-            }
-
-            return error.MissingDebugInfo;
-        }
-
-        var di = Dwarf{
-            .endian = endian,
-            .sections = sections,
-            .is_macho = false,
-        };
-
-        try Dwarf.open(&di, allocator);
-
-        return .{
-            .base_address = undefined,
-            .dwarf = di,
-            .mapped_memory = parent_mapped_mem orelse mapped_mem,
-            .external_mapped_memory = if (parent_mapped_mem != null) mapped_mem else null,
-        };
+        return Dwarf.ElfModule.load(
+            allocator,
+            mapped_mem,
+            build_id,
+            expected_crc,
+            parent_sections,
+            parent_mapped_mem,
+            elf_filename,
+        );
     }
 }
 
@@ -1288,22 +1106,6 @@ fn mapWholeFile(file: File) ![]align(mem.page_size) const u8 {
         return mapped_mem;
     }
 }
-
-fn chopSlice(ptr: []const u8, offset: u64, size: u64) error{Overflow}![]const u8 {
-    const start = math.cast(usize, offset) orelse return error.Overflow;
-    const end = start + (math.cast(usize, size) orelse return error.Overflow);
-    return ptr[start..end];
-}
-
-pub const SymbolInfo = struct {
-    symbol_name: []const u8 = "???",
-    compile_unit_name: []const u8 = "???",
-    line_info: ?std.debug.SourceLocation = null,
-
-    pub fn deinit(self: SymbolInfo, allocator: Allocator) void {
-        if (self.line_info) |li| allocator.free(li.file_name);
-    }
-};
 
 fn machoSearchSymbols(symbols: []const MachoSymbol, address: usize) ?*const MachoSymbol {
     var min: usize = 0;
@@ -1348,26 +1150,6 @@ test machoSearchSymbols {
     try testing.expectEqual(&symbols[2], machoSearchSymbols(&symbols, 300).?);
     try testing.expectEqual(&symbols[2], machoSearchSymbols(&symbols, 301).?);
     try testing.expectEqual(&symbols[2], machoSearchSymbols(&symbols, 5000).?);
-}
-
-fn getSymbolFromDwarf(allocator: Allocator, address: u64, di: *Dwarf) !SymbolInfo {
-    if (nosuspend di.findCompileUnit(address)) |compile_unit| {
-        return SymbolInfo{
-            .symbol_name = nosuspend di.getSymbolName(address) orelse "???",
-            .compile_unit_name = compile_unit.die.getAttrString(di, std.dwarf.AT.name, di.section(.debug_str), compile_unit.*) catch |err| switch (err) {
-                error.MissingDebugInfo, error.InvalidDebugInfo => "???",
-            },
-            .line_info = nosuspend di.getLineNumberInfo(allocator, compile_unit.*, address) catch |err| switch (err) {
-                error.MissingDebugInfo, error.InvalidDebugInfo => null,
-                else => return err,
-            },
-        };
-    } else |err| switch (err) {
-        error.MissingDebugInfo, error.InvalidDebugInfo => {
-            return SymbolInfo{};
-        },
-        else => return err,
-    }
 }
 
 /// Unwind a frame using MachO compact unwind info (from __unwind_info).
@@ -1796,7 +1578,7 @@ pub fn unwindFrameDwarf(
         const frame_section = di.section(dwarf_section) orelse return error.MissingFDE;
         if (fde_offset >= frame_section.len) return error.MissingFDE;
 
-        var fbr: std.debug.DeprecatedFixedBufferReader = .{
+        var fbr: std.debug.FixedBufferReader = .{
             .buf = frame_section,
             .pos = fde_offset,
             .endian = di.endian,
@@ -2028,6 +1810,7 @@ fn unwindFrameMachODwarf(
     var di: Dwarf = .{
         .endian = native_endian,
         .is_macho = true,
+        .compile_units_sorted = false,
     };
     defer di.deinit(context.allocator);
 

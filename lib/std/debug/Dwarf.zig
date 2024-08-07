@@ -12,6 +12,8 @@ const native_endian = builtin.cpu.arch.endian();
 
 const std = @import("../std.zig");
 const Allocator = std.mem.Allocator;
+const elf = std.elf;
+const mem = std.mem;
 const DW = std.dwarf;
 const AT = DW.AT;
 const EH = DW.EH;
@@ -22,11 +24,10 @@ const UT = DW.UT;
 const assert = std.debug.assert;
 const cast = std.math.cast;
 const maxInt = std.math.maxInt;
-const readInt = std.mem.readInt;
 const MemoryAccessor = std.debug.MemoryAccessor;
+const Path = std.Build.Cache.Path;
 
-/// Did I mention this is deprecated?
-const DeprecatedFixedBufferReader = std.debug.DeprecatedFixedBufferReader;
+const FixedBufferReader = std.debug.FixedBufferReader;
 
 const Dwarf = @This();
 
@@ -37,6 +38,7 @@ pub const call_frame = @import("Dwarf/call_frame.zig");
 endian: std.builtin.Endian,
 sections: SectionArray = null_section_array,
 is_macho: bool,
+compile_units_sorted: bool,
 
 // Filled later by the initializer
 abbrev_table_list: std.ArrayListUnmanaged(Abbrev.Table) = .{},
@@ -136,6 +138,34 @@ pub const CompileUnit = struct {
     rnglists_base: usize,
     loclists_base: usize,
     frame_base: ?*const FormValue,
+
+    src_loc_cache: ?SrcLocCache,
+
+    pub const SrcLocCache = struct {
+        line_table: LineTable,
+        directories: []const FileEntry,
+        files: []FileEntry,
+        version: u16,
+
+        pub const LineTable = std.AutoArrayHashMapUnmanaged(u64, LineEntry);
+
+        pub const LineEntry = struct {
+            line: u32,
+            column: u32,
+            /// Offset by 1 depending on whether Dwarf version is >= 5.
+            file: u32,
+        };
+
+        pub fn findSource(slc: *const SrcLocCache, address: u64) !LineEntry {
+            const index = std.sort.upperBound(u64, slc.line_table.keys(), address, struct {
+                fn order(context: u64, item: u64) std.math.Order {
+                    return std.math.order(item, context);
+                }
+            }.order);
+            if (index == 0) return missing();
+            return slc.line_table.values()[index - 1];
+        }
+    };
 };
 
 pub const FormValue = union(enum) {
@@ -252,13 +282,13 @@ pub const Die = struct {
                     .@"32" => {
                         const byte_offset = compile_unit.str_offsets_base + 4 * index;
                         if (byte_offset + 4 > debug_str_offsets.len) return bad();
-                        const offset = readInt(u32, debug_str_offsets[byte_offset..][0..4], di.endian);
+                        const offset = mem.readInt(u32, debug_str_offsets[byte_offset..][0..4], di.endian);
                         return getStringGeneric(opt_str, offset);
                     },
                     .@"64" => {
                         const byte_offset = compile_unit.str_offsets_base + 8 * index;
                         if (byte_offset + 8 > debug_str_offsets.len) return bad();
-                        const offset = readInt(u64, debug_str_offsets[byte_offset..][0..8], di.endian);
+                        const offset = mem.readInt(u64, debug_str_offsets[byte_offset..][0..8], di.endian);
                         return getStringGeneric(opt_str, offset);
                     },
                 }
@@ -325,7 +355,7 @@ pub const ExceptionFrameHeader = struct {
         var left: usize = 0;
         var len: usize = self.fde_count;
 
-        var fbr: DeprecatedFixedBufferReader = .{ .buf = self.entries, .endian = native_endian };
+        var fbr: FixedBufferReader = .{ .buf = self.entries, .endian = native_endian };
 
         while (len > 1) {
             const mid = left + len / 2;
@@ -368,7 +398,7 @@ pub const ExceptionFrameHeader = struct {
         const eh_frame = @as([*]const u8, @ptrFromInt(self.eh_frame_ptr))[0 .. eh_frame_len orelse maxInt(u32)];
 
         const fde_offset = fde_ptr - self.eh_frame_ptr;
-        var eh_frame_fbr: DeprecatedFixedBufferReader = .{
+        var eh_frame_fbr: FixedBufferReader = .{
             .buf = eh_frame,
             .pos = fde_offset,
             .endian = native_endian,
@@ -426,9 +456,9 @@ pub const EntryHeader = struct {
     }
 
     /// Reads a header for either an FDE or a CIE, then advances the fbr to the position after the trailing structure.
-    /// `fbr` must be a DeprecatedFixedBufferReader backed by either the .eh_frame or .debug_frame sections.
+    /// `fbr` must be a FixedBufferReader backed by either the .eh_frame or .debug_frame sections.
     pub fn read(
-        fbr: *DeprecatedFixedBufferReader,
+        fbr: *FixedBufferReader,
         opt_ma: ?*MemoryAccessor,
         dwarf_section: Section.Id,
     ) !EntryHeader {
@@ -541,7 +571,7 @@ pub const CommonInformationEntry = struct {
     ) !CommonInformationEntry {
         if (addr_size_bytes > 8) return error.UnsupportedAddrSize;
 
-        var fbr: DeprecatedFixedBufferReader = .{ .buf = cie_bytes, .endian = endian };
+        var fbr: FixedBufferReader = .{ .buf = cie_bytes, .endian = endian };
 
         const version = try fbr.readByte();
         switch (dwarf_section) {
@@ -675,7 +705,7 @@ pub const FrameDescriptionEntry = struct {
     ) !FrameDescriptionEntry {
         if (addr_size_bytes > 8) return error.InvalidAddrSize;
 
-        var fbr: DeprecatedFixedBufferReader = .{ .buf = fde_bytes, .endian = endian };
+        var fbr: FixedBufferReader = .{ .buf = fde_bytes, .endian = endian };
 
         const pc_begin = try readEhPointer(&fbr, cie.fde_pointer_enc, addr_size_bytes, .{
             .pc_rel_base = try pcRelBase(@intFromPtr(&fde_bytes[fbr.pos]), pc_rel_offset),
@@ -721,12 +751,14 @@ const num_sections = std.enums.directEnumArrayLen(Section.Id, 0);
 pub const SectionArray = [num_sections]?Section;
 pub const null_section_array = [_]?Section{null} ** num_sections;
 
+pub const OpenError = ScanError;
+
 /// Initialize DWARF info. The caller has the responsibility to initialize most
 /// the `Dwarf` fields before calling. `binary_mem` is the raw bytes of the
 /// main binary file (not the secondary debug info file).
-pub fn open(di: *Dwarf, allocator: Allocator) !void {
-    try di.scanAllFunctions(allocator);
-    try di.scanAllCompileUnits(allocator);
+pub fn open(d: *Dwarf, gpa: Allocator) OpenError!void {
+    try d.scanAllFunctions(gpa);
+    try d.scanAllCompileUnits(gpa);
 }
 
 const PcRange = struct {
@@ -747,21 +779,26 @@ pub fn sectionVirtualOffset(di: Dwarf, dwarf_section: Section.Id, base_address: 
     return if (di.sections[@intFromEnum(dwarf_section)]) |s| s.virtualOffset(base_address) else null;
 }
 
-pub fn deinit(di: *Dwarf, allocator: Allocator) void {
+pub fn deinit(di: *Dwarf, gpa: Allocator) void {
     for (di.sections) |opt_section| {
-        if (opt_section) |s| if (s.owned) allocator.free(s.data);
+        if (opt_section) |s| if (s.owned) gpa.free(s.data);
     }
     for (di.abbrev_table_list.items) |*abbrev| {
-        abbrev.deinit(allocator);
+        abbrev.deinit(gpa);
     }
-    di.abbrev_table_list.deinit(allocator);
+    di.abbrev_table_list.deinit(gpa);
     for (di.compile_unit_list.items) |*cu| {
-        cu.die.deinit(allocator);
+        if (cu.src_loc_cache) |*slc| {
+            slc.line_table.deinit(gpa);
+            gpa.free(slc.directories);
+            gpa.free(slc.files);
+        }
+        cu.die.deinit(gpa);
     }
-    di.compile_unit_list.deinit(allocator);
-    di.func_list.deinit(allocator);
-    di.cie_map.deinit(allocator);
-    di.fde_list.deinit(allocator);
+    di.compile_unit_list.deinit(gpa);
+    di.func_list.deinit(gpa);
+    di.cie_map.deinit(gpa);
+    di.fde_list.deinit(gpa);
     di.* = undefined;
 }
 
@@ -777,8 +814,13 @@ pub fn getSymbolName(di: *Dwarf, address: u64) ?[]const u8 {
     return null;
 }
 
-fn scanAllFunctions(di: *Dwarf, allocator: Allocator) !void {
-    var fbr: DeprecatedFixedBufferReader = .{ .buf = di.section(.debug_info).?, .endian = di.endian };
+pub const ScanError = error{
+    InvalidDebugInfo,
+    MissingDebugInfo,
+} || Allocator.Error || std.debug.FixedBufferReader.Error;
+
+fn scanAllFunctions(di: *Dwarf, allocator: Allocator) ScanError!void {
+    var fbr: FixedBufferReader = .{ .buf = di.section(.debug_info).?, .endian = di.endian };
     var this_unit_offset: u64 = 0;
 
     while (this_unit_offset < fbr.buf.len) {
@@ -837,6 +879,7 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator) !void {
             .rnglists_base = 0,
             .loclists_base = 0,
             .frame_base = null,
+            .src_loc_cache = null,
         };
 
         while (true) {
@@ -964,8 +1007,8 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator) !void {
     }
 }
 
-fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator) !void {
-    var fbr: DeprecatedFixedBufferReader = .{ .buf = di.section(.debug_info).?, .endian = di.endian };
+fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator) ScanError!void {
+    var fbr: FixedBufferReader = .{ .buf = di.section(.debug_info).?, .endian = di.endian };
     var this_unit_offset: u64 = 0;
 
     var attrs_buf = std.ArrayList(Die.Attr).init(allocator);
@@ -1023,6 +1066,7 @@ fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator) !void {
             .rnglists_base = if (compile_unit_die.getAttr(AT.rnglists_base)) |fv| try fv.getUInt(usize) else 0,
             .loclists_base = if (compile_unit_die.getAttr(AT.loclists_base)) |fv| try fv.getUInt(usize) else 0,
             .frame_base = compile_unit_die.getAttr(AT.frame_base),
+            .src_loc_cache = null,
         };
 
         compile_unit.pc_range = x: {
@@ -1052,12 +1096,45 @@ fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator) !void {
     }
 }
 
+/// Populate missing PC ranges in compilation units, and then sort them by start address.
+/// Does not guarantee pc_range to be non-null because there could be missing debug info.
+pub fn sortCompileUnits(d: *Dwarf) ScanError!void {
+    assert(!d.compile_units_sorted);
+
+    for (d.compile_unit_list.items) |*cu| {
+        if (cu.pc_range != null) continue;
+        const ranges_value = cu.die.getAttr(AT.ranges) orelse continue;
+        var iter = DebugRangeIterator.init(ranges_value, d, cu) catch continue;
+        var start: u64 = maxInt(u64);
+        var end: u64 = 0;
+        while (try iter.next()) |range| {
+            start = @min(start, range.start_addr);
+            end = @max(end, range.end_addr);
+        }
+        if (end != 0) cu.pc_range = .{
+            .start = start,
+            .end = end,
+        };
+    }
+
+    std.mem.sortUnstable(CompileUnit, d.compile_unit_list.items, {}, struct {
+        pub fn lessThan(ctx: void, a: CompileUnit, b: CompileUnit) bool {
+            _ = ctx;
+            const a_range = a.pc_range orelse return false;
+            const b_range = b.pc_range orelse return true;
+            return a_range.start < b_range.start;
+        }
+    }.lessThan);
+
+    d.compile_units_sorted = true;
+}
+
 const DebugRangeIterator = struct {
     base_address: u64,
     section_type: Section.Id,
     di: *const Dwarf,
     compile_unit: *const CompileUnit,
-    fbr: DeprecatedFixedBufferReader,
+    fbr: FixedBufferReader,
 
     pub fn init(ranges_value: *const FormValue, di: *const Dwarf, compile_unit: *const CompileUnit) !@This() {
         const section_type = if (compile_unit.version >= 5) Section.Id.debug_rnglists else Section.Id.debug_ranges;
@@ -1070,13 +1147,13 @@ const DebugRangeIterator = struct {
                     .@"32" => {
                         const offset_loc = @as(usize, @intCast(compile_unit.rnglists_base + 4 * idx));
                         if (offset_loc + 4 > debug_ranges.len) return bad();
-                        const offset = readInt(u32, debug_ranges[offset_loc..][0..4], di.endian);
+                        const offset = mem.readInt(u32, debug_ranges[offset_loc..][0..4], di.endian);
                         break :off compile_unit.rnglists_base + offset;
                     },
                     .@"64" => {
                         const offset_loc = @as(usize, @intCast(compile_unit.rnglists_base + 8 * idx));
                         if (offset_loc + 8 > debug_ranges.len) return bad();
-                        const offset = readInt(u64, debug_ranges[offset_loc..][0..8], di.endian);
+                        const offset = mem.readInt(u64, debug_ranges[offset_loc..][0..8], di.endian);
                         break :off compile_unit.rnglists_base + offset;
                     },
                 }
@@ -1199,7 +1276,8 @@ const DebugRangeIterator = struct {
     }
 };
 
-pub fn findCompileUnit(di: *const Dwarf, target_address: u64) !*const CompileUnit {
+/// TODO: change this to binary searching the sorted compile unit list
+pub fn findCompileUnit(di: *const Dwarf, target_address: u64) !*CompileUnit {
     for (di.compile_unit_list.items) |*compile_unit| {
         if (compile_unit.pc_range) |range| {
             if (target_address >= range.start and target_address < range.end) return compile_unit;
@@ -1231,7 +1309,7 @@ fn getAbbrevTable(di: *Dwarf, allocator: Allocator, abbrev_offset: u64) !*const 
 }
 
 fn parseAbbrevTable(di: *Dwarf, allocator: Allocator, offset: u64) !Abbrev.Table {
-    var fbr: DeprecatedFixedBufferReader = .{
+    var fbr: FixedBufferReader = .{
         .buf = di.section(.debug_abbrev).?,
         .pos = cast(usize, offset) orelse return bad(),
         .endian = di.endian,
@@ -1283,11 +1361,11 @@ fn parseAbbrevTable(di: *Dwarf, allocator: Allocator, offset: u64) !Abbrev.Table
 }
 
 fn parseDie(
-    fbr: *DeprecatedFixedBufferReader,
+    fbr: *FixedBufferReader,
     attrs_buf: []Die.Attr,
     abbrev_table: *const Abbrev.Table,
     format: Format,
-) !?Die {
+) ScanError!?Die {
     const abbrev_code = try fbr.readUleb128(u64);
     if (abbrev_code == 0) return null;
     const table_entry = abbrev_table.get(abbrev_code) orelse return bad();
@@ -1309,34 +1387,36 @@ fn parseDie(
     };
 }
 
-pub fn getLineNumberInfo(
-    di: *Dwarf,
-    allocator: Allocator,
-    compile_unit: CompileUnit,
-    target_address: u64,
-) !std.debug.SourceLocation {
-    const compile_unit_cwd = try compile_unit.die.getAttrString(di, AT.comp_dir, di.section(.debug_line_str), compile_unit);
+fn runLineNumberProgram(d: *Dwarf, gpa: Allocator, compile_unit: *CompileUnit) !CompileUnit.SrcLocCache {
+    const compile_unit_cwd = try compile_unit.die.getAttrString(d, AT.comp_dir, d.section(.debug_line_str), compile_unit.*);
     const line_info_offset = try compile_unit.die.getAttrSecOffset(AT.stmt_list);
 
-    var fbr: DeprecatedFixedBufferReader = .{ .buf = di.section(.debug_line).?, .endian = di.endian };
+    var fbr: FixedBufferReader = .{
+        .buf = d.section(.debug_line).?,
+        .endian = d.endian,
+    };
     try fbr.seekTo(line_info_offset);
 
     const unit_header = try readUnitHeader(&fbr, null);
     if (unit_header.unit_length == 0) return missing();
+
     const next_offset = unit_header.header_length + unit_header.unit_length;
 
     const version = try fbr.readInt(u16);
     if (version < 2) return bad();
 
-    var addr_size: u8 = switch (unit_header.format) {
-        .@"32" => 4,
-        .@"64" => 8,
+    const addr_size: u8, const seg_size: u8 = if (version >= 5) .{
+        try fbr.readByte(),
+        try fbr.readByte(),
+    } else .{
+        switch (unit_header.format) {
+            .@"32" => 4,
+            .@"64" => 8,
+        },
+        0,
     };
-    var seg_size: u8 = 0;
-    if (version >= 5) {
-        addr_size = try fbr.readByte();
-        seg_size = try fbr.readByte();
-    }
+    _ = addr_size;
+    _ = seg_size;
 
     const prologue_length = try fbr.readAddress(unit_header.format);
     const prog_start_offset = fbr.pos + prologue_length;
@@ -1345,8 +1425,8 @@ pub fn getLineNumberInfo(
     if (minimum_instruction_length == 0) return bad();
 
     if (version >= 4) {
-        // maximum_operations_per_instruction
-        _ = try fbr.readByte();
+        const maximum_operations_per_instruction = try fbr.readByte();
+        _ = maximum_operations_per_instruction;
     }
 
     const default_is_stmt = (try fbr.readByte()) != 0;
@@ -1359,18 +1439,18 @@ pub fn getLineNumberInfo(
 
     const standard_opcode_lengths = try fbr.readBytes(opcode_base - 1);
 
-    var include_directories = std.ArrayList(FileEntry).init(allocator);
-    defer include_directories.deinit();
-    var file_entries = std.ArrayList(FileEntry).init(allocator);
-    defer file_entries.deinit();
+    var directories: std.ArrayListUnmanaged(FileEntry) = .{};
+    defer directories.deinit(gpa);
+    var file_entries: std.ArrayListUnmanaged(FileEntry) = .{};
+    defer file_entries.deinit(gpa);
 
     if (version < 5) {
-        try include_directories.append(.{ .path = compile_unit_cwd });
+        try directories.append(gpa, .{ .path = compile_unit_cwd });
 
         while (true) {
             const dir = try fbr.readBytesTo(0);
             if (dir.len == 0) break;
-            try include_directories.append(.{ .path = dir });
+            try directories.append(gpa, .{ .path = dir });
         }
 
         while (true) {
@@ -1379,7 +1459,7 @@ pub fn getLineNumberInfo(
             const dir_index = try fbr.readUleb128(u32);
             const mtime = try fbr.readUleb128(u64);
             const size = try fbr.readUleb128(u64);
-            try file_entries.append(.{
+            try file_entries.append(gpa, .{
                 .path = file_name,
                 .dir_index = dir_index,
                 .mtime = mtime,
@@ -1403,31 +1483,27 @@ pub fn getLineNumberInfo(
             }
 
             const directories_count = try fbr.readUleb128(usize);
-            try include_directories.ensureUnusedCapacity(directories_count);
-            {
-                var i: usize = 0;
-                while (i < directories_count) : (i += 1) {
-                    var e: FileEntry = .{ .path = &.{} };
-                    for (dir_ent_fmt_buf[0..directory_entry_format_count]) |ent_fmt| {
-                        const form_value = try parseFormValue(
-                            &fbr,
-                            ent_fmt.form_code,
-                            unit_header.format,
-                            null,
-                        );
-                        switch (ent_fmt.content_type_code) {
-                            DW.LNCT.path => e.path = try form_value.getString(di.*),
-                            DW.LNCT.directory_index => e.dir_index = try form_value.getUInt(u32),
-                            DW.LNCT.timestamp => e.mtime = try form_value.getUInt(u64),
-                            DW.LNCT.size => e.size = try form_value.getUInt(u64),
-                            DW.LNCT.MD5 => e.md5 = switch (form_value) {
-                                .data16 => |data16| data16.*,
-                                else => return bad(),
-                            },
-                            else => continue,
-                        }
+
+            for (try directories.addManyAsSlice(gpa, directories_count)) |*e| {
+                e.* = .{ .path = &.{} };
+                for (dir_ent_fmt_buf[0..directory_entry_format_count]) |ent_fmt| {
+                    const form_value = try parseFormValue(
+                        &fbr,
+                        ent_fmt.form_code,
+                        unit_header.format,
+                        null,
+                    );
+                    switch (ent_fmt.content_type_code) {
+                        DW.LNCT.path => e.path = try form_value.getString(d.*),
+                        DW.LNCT.directory_index => e.dir_index = try form_value.getUInt(u32),
+                        DW.LNCT.timestamp => e.mtime = try form_value.getUInt(u64),
+                        DW.LNCT.size => e.size = try form_value.getUInt(u64),
+                        DW.LNCT.MD5 => e.md5 = switch (form_value) {
+                            .data16 => |data16| data16.*,
+                            else => return bad(),
+                        },
+                        else => continue,
                     }
-                    include_directories.appendAssumeCapacity(e);
                 }
             }
         }
@@ -1443,41 +1519,35 @@ pub fn getLineNumberInfo(
         }
 
         const file_names_count = try fbr.readUleb128(usize);
-        try file_entries.ensureUnusedCapacity(file_names_count);
-        {
-            var i: usize = 0;
-            while (i < file_names_count) : (i += 1) {
-                var e: FileEntry = .{ .path = &.{} };
-                for (file_ent_fmt_buf[0..file_name_entry_format_count]) |ent_fmt| {
-                    const form_value = try parseFormValue(
-                        &fbr,
-                        ent_fmt.form_code,
-                        unit_header.format,
-                        null,
-                    );
-                    switch (ent_fmt.content_type_code) {
-                        DW.LNCT.path => e.path = try form_value.getString(di.*),
-                        DW.LNCT.directory_index => e.dir_index = try form_value.getUInt(u32),
-                        DW.LNCT.timestamp => e.mtime = try form_value.getUInt(u64),
-                        DW.LNCT.size => e.size = try form_value.getUInt(u64),
-                        DW.LNCT.MD5 => e.md5 = switch (form_value) {
-                            .data16 => |data16| data16.*,
-                            else => return bad(),
-                        },
-                        else => continue,
-                    }
+        try file_entries.ensureUnusedCapacity(gpa, file_names_count);
+
+        for (try file_entries.addManyAsSlice(gpa, file_names_count)) |*e| {
+            e.* = .{ .path = &.{} };
+            for (file_ent_fmt_buf[0..file_name_entry_format_count]) |ent_fmt| {
+                const form_value = try parseFormValue(
+                    &fbr,
+                    ent_fmt.form_code,
+                    unit_header.format,
+                    null,
+                );
+                switch (ent_fmt.content_type_code) {
+                    DW.LNCT.path => e.path = try form_value.getString(d.*),
+                    DW.LNCT.directory_index => e.dir_index = try form_value.getUInt(u32),
+                    DW.LNCT.timestamp => e.mtime = try form_value.getUInt(u64),
+                    DW.LNCT.size => e.size = try form_value.getUInt(u64),
+                    DW.LNCT.MD5 => e.md5 = switch (form_value) {
+                        .data16 => |data16| data16.*,
+                        else => return bad(),
+                    },
+                    else => continue,
                 }
-                file_entries.appendAssumeCapacity(e);
             }
         }
     }
 
-    var prog = LineNumberProgram.init(
-        default_is_stmt,
-        include_directories.items,
-        target_address,
-        version,
-    );
+    var prog = LineNumberProgram.init(default_is_stmt, version);
+    var line_table: CompileUnit.SrcLocCache.LineTable = .{};
+    errdefer line_table.deinit(gpa);
 
     try fbr.seekTo(prog_start_offset);
 
@@ -1493,7 +1563,7 @@ pub fn getLineNumberInfo(
             switch (sub_op) {
                 DW.LNE.end_sequence => {
                     prog.end_sequence = true;
-                    if (try prog.checkLineMatch(allocator, file_entries.items)) |info| return info;
+                    try prog.addRow(gpa, &line_table);
                     prog.reset();
                 },
                 DW.LNE.set_address => {
@@ -1505,7 +1575,7 @@ pub fn getLineNumberInfo(
                     const dir_index = try fbr.readUleb128(u32);
                     const mtime = try fbr.readUleb128(u64);
                     const size = try fbr.readUleb128(u64);
-                    try file_entries.append(.{
+                    try file_entries.append(gpa, .{
                         .path = path,
                         .dir_index = dir_index,
                         .mtime = mtime,
@@ -1521,12 +1591,12 @@ pub fn getLineNumberInfo(
             const inc_line = @as(i32, line_base) + @as(i32, adjusted_opcode % line_range);
             prog.line += inc_line;
             prog.address += inc_addr;
-            if (try prog.checkLineMatch(allocator, file_entries.items)) |info| return info;
+            try prog.addRow(gpa, &line_table);
             prog.basic_block = false;
         } else {
             switch (opcode) {
                 DW.LNS.copy => {
-                    if (try prog.checkLineMatch(allocator, file_entries.items)) |info| return info;
+                    try prog.addRow(gpa, &line_table);
                     prog.basic_block = false;
                 },
                 DW.LNS.advance_pc => {
@@ -1568,7 +1638,39 @@ pub fn getLineNumberInfo(
         }
     }
 
-    return missing();
+    return .{
+        .line_table = line_table,
+        .directories = try directories.toOwnedSlice(gpa),
+        .files = try file_entries.toOwnedSlice(gpa),
+        .version = version,
+    };
+}
+
+pub fn populateSrcLocCache(d: *Dwarf, gpa: Allocator, cu: *CompileUnit) ScanError!void {
+    if (cu.src_loc_cache != null) return;
+    cu.src_loc_cache = try runLineNumberProgram(d, gpa, cu);
+}
+
+pub fn getLineNumberInfo(
+    d: *Dwarf,
+    gpa: Allocator,
+    compile_unit: *CompileUnit,
+    target_address: u64,
+) !std.debug.SourceLocation {
+    try populateSrcLocCache(d, gpa, compile_unit);
+    const slc = &compile_unit.src_loc_cache.?;
+    const entry = try slc.findSource(target_address);
+    const file_index = entry.file - @intFromBool(slc.version < 5);
+    if (file_index >= slc.files.len) return bad();
+    const file_entry = &slc.files[file_index];
+    if (file_entry.dir_index >= slc.directories.len) return bad();
+    const dir_name = slc.directories[file_entry.dir_index].path;
+    const file_name = try std.fs.path.join(gpa, &.{ dir_name, file_entry.path });
+    return .{
+        .line = entry.line,
+        .column = entry.column,
+        .file_name = file_name,
+    };
 }
 
 fn getString(di: Dwarf, offset: u64) ![:0]const u8 {
@@ -1588,7 +1690,7 @@ fn readDebugAddr(di: Dwarf, compile_unit: CompileUnit, index: u64) !u64 {
     // The header is 8 or 12 bytes depending on is_64.
     if (compile_unit.addr_base < 8) return bad();
 
-    const version = readInt(u16, debug_addr[compile_unit.addr_base - 4 ..][0..2], di.endian);
+    const version = mem.readInt(u16, debug_addr[compile_unit.addr_base - 4 ..][0..2], di.endian);
     if (version != 5) return bad();
 
     const addr_size = debug_addr[compile_unit.addr_base - 2];
@@ -1598,9 +1700,9 @@ fn readDebugAddr(di: Dwarf, compile_unit: CompileUnit, index: u64) !u64 {
     if (byte_offset + addr_size > debug_addr.len) return bad();
     return switch (addr_size) {
         1 => debug_addr[byte_offset],
-        2 => readInt(u16, debug_addr[byte_offset..][0..2], di.endian),
-        4 => readInt(u32, debug_addr[byte_offset..][0..4], di.endian),
-        8 => readInt(u64, debug_addr[byte_offset..][0..8], di.endian),
+        2 => mem.readInt(u16, debug_addr[byte_offset..][0..2], di.endian),
+        4 => mem.readInt(u32, debug_addr[byte_offset..][0..4], di.endian),
+        8 => mem.readInt(u64, debug_addr[byte_offset..][0..8], di.endian),
         else => bad(),
     };
 }
@@ -1611,7 +1713,7 @@ fn readDebugAddr(di: Dwarf, compile_unit: CompileUnit, index: u64) !u64 {
 /// of FDEs is built for binary searching during unwinding.
 pub fn scanAllUnwindInfo(di: *Dwarf, allocator: Allocator, base_address: usize) !void {
     if (di.section(.eh_frame_hdr)) |eh_frame_hdr| blk: {
-        var fbr: DeprecatedFixedBufferReader = .{ .buf = eh_frame_hdr, .endian = native_endian };
+        var fbr: FixedBufferReader = .{ .buf = eh_frame_hdr, .endian = native_endian };
 
         const version = try fbr.readByte();
         if (version != 1) break :blk;
@@ -1651,7 +1753,7 @@ pub fn scanAllUnwindInfo(di: *Dwarf, allocator: Allocator, base_address: usize) 
     const frame_sections = [2]Section.Id{ .eh_frame, .debug_frame };
     for (frame_sections) |frame_section| {
         if (di.section(frame_section)) |section_data| {
-            var fbr: DeprecatedFixedBufferReader = .{ .buf = section_data, .endian = di.endian };
+            var fbr: FixedBufferReader = .{ .buf = section_data, .endian = di.endian };
             while (fbr.pos < fbr.buf.len) {
                 const entry_header = try EntryHeader.read(&fbr, null, frame_section);
                 switch (entry_header.type) {
@@ -1695,11 +1797,11 @@ pub fn scanAllUnwindInfo(di: *Dwarf, allocator: Allocator, base_address: usize) 
 }
 
 fn parseFormValue(
-    fbr: *DeprecatedFixedBufferReader,
+    fbr: *FixedBufferReader,
     form_id: u64,
     format: Format,
     implicit_const: ?i64,
-) anyerror!FormValue {
+) ScanError!FormValue {
     return switch (form_id) {
         FORM.addr => .{ .addr = try fbr.readAddress(switch (@bitSizeOf(usize)) {
             32 => .@"32",
@@ -1783,17 +1885,6 @@ const LineNumberProgram = struct {
     end_sequence: bool,
 
     default_is_stmt: bool,
-    target_address: u64,
-    include_dirs: []const FileEntry,
-
-    prev_valid: bool,
-    prev_address: u64,
-    prev_file: usize,
-    prev_line: i64,
-    prev_column: u64,
-    prev_is_stmt: bool,
-    prev_basic_block: bool,
-    prev_end_sequence: bool,
 
     // Reset the state machine following the DWARF specification
     pub fn reset(self: *LineNumberProgram) void {
@@ -1804,24 +1895,10 @@ const LineNumberProgram = struct {
         self.is_stmt = self.default_is_stmt;
         self.basic_block = false;
         self.end_sequence = false;
-        // Invalidate all the remaining fields
-        self.prev_valid = false;
-        self.prev_address = 0;
-        self.prev_file = undefined;
-        self.prev_line = undefined;
-        self.prev_column = undefined;
-        self.prev_is_stmt = undefined;
-        self.prev_basic_block = undefined;
-        self.prev_end_sequence = undefined;
     }
 
-    pub fn init(
-        is_stmt: bool,
-        include_dirs: []const FileEntry,
-        target_address: u64,
-        version: u16,
-    ) LineNumberProgram {
-        return LineNumberProgram{
+    pub fn init(is_stmt: bool, version: u16) LineNumberProgram {
+        return .{
             .address = 0,
             .file = 1,
             .line = 1,
@@ -1830,60 +1907,17 @@ const LineNumberProgram = struct {
             .is_stmt = is_stmt,
             .basic_block = false,
             .end_sequence = false,
-            .include_dirs = include_dirs,
             .default_is_stmt = is_stmt,
-            .target_address = target_address,
-            .prev_valid = false,
-            .prev_address = 0,
-            .prev_file = undefined,
-            .prev_line = undefined,
-            .prev_column = undefined,
-            .prev_is_stmt = undefined,
-            .prev_basic_block = undefined,
-            .prev_end_sequence = undefined,
         };
     }
 
-    pub fn checkLineMatch(
-        self: *LineNumberProgram,
-        allocator: Allocator,
-        file_entries: []const FileEntry,
-    ) !?std.debug.SourceLocation {
-        if (self.prev_valid and
-            self.target_address >= self.prev_address and
-            self.target_address < self.address)
-        {
-            const file_index = if (self.version >= 5) self.prev_file else i: {
-                if (self.prev_file == 0) return missing();
-                break :i self.prev_file - 1;
-            };
-
-            if (file_index >= file_entries.len) return bad();
-            const file_entry = &file_entries[file_index];
-
-            if (file_entry.dir_index >= self.include_dirs.len) return bad();
-            const dir_name = self.include_dirs[file_entry.dir_index].path;
-
-            const file_name = try std.fs.path.join(allocator, &[_][]const u8{
-                dir_name, file_entry.path,
-            });
-
-            return std.debug.SourceLocation{
-                .line = if (self.prev_line >= 0) @as(u64, @intCast(self.prev_line)) else 0,
-                .column = self.prev_column,
-                .file_name = file_name,
-            };
-        }
-
-        self.prev_valid = true;
-        self.prev_address = self.address;
-        self.prev_file = self.file;
-        self.prev_line = self.line;
-        self.prev_column = self.column;
-        self.prev_is_stmt = self.is_stmt;
-        self.prev_basic_block = self.basic_block;
-        self.prev_end_sequence = self.end_sequence;
-        return null;
+    pub fn addRow(prog: *LineNumberProgram, gpa: Allocator, table: *CompileUnit.SrcLocCache.LineTable) !void {
+        if (prog.line == 0) return; // garbage data
+        try table.put(gpa, prog.address, .{
+            .line = cast(u32, prog.line) orelse maxInt(u32),
+            .column = cast(u32, prog.column) orelse maxInt(u32),
+            .file = cast(u32, prog.file) orelse return bad(),
+        });
     }
 };
 
@@ -1892,7 +1926,8 @@ const UnitHeader = struct {
     header_length: u4,
     unit_length: u64,
 };
-fn readUnitHeader(fbr: *DeprecatedFixedBufferReader, opt_ma: ?*MemoryAccessor) !UnitHeader {
+
+fn readUnitHeader(fbr: *FixedBufferReader, opt_ma: ?*MemoryAccessor) ScanError!UnitHeader {
     return switch (try if (opt_ma) |ma| fbr.readIntChecked(u32, ma) else fbr.readInt(u32)) {
         0...0xfffffff0 - 1 => |unit_length| .{
             .format = .@"32",
@@ -1957,7 +1992,7 @@ const EhPointerContext = struct {
     text_rel_base: ?u64 = null,
     function_rel_base: ?u64 = null,
 };
-fn readEhPointer(fbr: *DeprecatedFixedBufferReader, enc: u8, addr_size_bytes: u8, ctx: EhPointerContext) !?u64 {
+fn readEhPointer(fbr: *FixedBufferReader, enc: u8, addr_size_bytes: u8, ctx: EhPointerContext) !?u64 {
     if (enc == EH.PE.omit) return null;
 
     const value: union(enum) {
@@ -2022,4 +2057,321 @@ fn pcRelBase(field_ptr: usize, pc_rel_offset: i64) !usize {
     } else {
         return std.math.add(usize, field_ptr, @as(usize, @intCast(pc_rel_offset)));
     }
+}
+
+pub const ElfModule = struct {
+    base_address: usize,
+    dwarf: Dwarf,
+    mapped_memory: []align(std.mem.page_size) const u8,
+    external_mapped_memory: ?[]align(std.mem.page_size) const u8,
+
+    pub fn deinit(self: *@This(), allocator: Allocator) void {
+        self.dwarf.deinit(allocator);
+        std.posix.munmap(self.mapped_memory);
+        if (self.external_mapped_memory) |m| std.posix.munmap(m);
+    }
+
+    pub fn getSymbolAtAddress(self: *@This(), allocator: Allocator, address: usize) !std.debug.Symbol {
+        // Translate the VA into an address into this object
+        const relocated_address = address - self.base_address;
+        return self.dwarf.getSymbol(allocator, relocated_address);
+    }
+
+    pub fn getDwarfInfoForAddress(self: *@This(), allocator: Allocator, address: usize) !?*const Dwarf {
+        _ = allocator;
+        _ = address;
+        return &self.dwarf;
+    }
+
+    pub const LoadError = error{
+        InvalidDebugInfo,
+        MissingDebugInfo,
+        InvalidElfMagic,
+        InvalidElfVersion,
+        InvalidElfEndian,
+        /// TODO: implement this and then remove this error code
+        UnimplementedDwarfForeignEndian,
+        /// The debug info may be valid but this implementation uses memory
+        /// mapping which limits things to usize. If the target debug info is
+        /// 64-bit and host is 32-bit, there may be debug info that is not
+        /// supportable using this method.
+        Overflow,
+
+        PermissionDenied,
+        LockedMemoryLimitExceeded,
+        MemoryMappingNotSupported,
+    } || Allocator.Error || std.fs.File.OpenError || OpenError;
+
+    /// Reads debug info from an already mapped ELF file.
+    ///
+    /// If the required sections aren't present but a reference to external debug
+    /// info is, then this this function will recurse to attempt to load the debug
+    /// sections from an external file.
+    pub fn load(
+        gpa: Allocator,
+        mapped_mem: []align(std.mem.page_size) const u8,
+        build_id: ?[]const u8,
+        expected_crc: ?u32,
+        parent_sections: *Dwarf.SectionArray,
+        parent_mapped_mem: ?[]align(std.mem.page_size) const u8,
+        elf_filename: ?[]const u8,
+    ) LoadError!Dwarf.ElfModule {
+        if (expected_crc) |crc| if (crc != std.hash.crc.Crc32.hash(mapped_mem)) return error.InvalidDebugInfo;
+
+        const hdr: *const elf.Ehdr = @ptrCast(&mapped_mem[0]);
+        if (!mem.eql(u8, hdr.e_ident[0..4], elf.MAGIC)) return error.InvalidElfMagic;
+        if (hdr.e_ident[elf.EI_VERSION] != 1) return error.InvalidElfVersion;
+
+        const endian: std.builtin.Endian = switch (hdr.e_ident[elf.EI_DATA]) {
+            elf.ELFDATA2LSB => .little,
+            elf.ELFDATA2MSB => .big,
+            else => return error.InvalidElfEndian,
+        };
+        if (endian != native_endian) return error.UnimplementedDwarfForeignEndian;
+
+        const shoff = hdr.e_shoff;
+        const str_section_off = shoff + @as(u64, hdr.e_shentsize) * @as(u64, hdr.e_shstrndx);
+        const str_shdr: *const elf.Shdr = @ptrCast(@alignCast(&mapped_mem[cast(usize, str_section_off) orelse return error.Overflow]));
+        const header_strings = mapped_mem[str_shdr.sh_offset..][0..str_shdr.sh_size];
+        const shdrs = @as(
+            [*]const elf.Shdr,
+            @ptrCast(@alignCast(&mapped_mem[shoff])),
+        )[0..hdr.e_shnum];
+
+        var sections: Dwarf.SectionArray = Dwarf.null_section_array;
+
+        // Combine section list. This takes ownership over any owned sections from the parent scope.
+        for (parent_sections, &sections) |*parent, *section_elem| {
+            if (parent.*) |*p| {
+                section_elem.* = p.*;
+                p.owned = false;
+            }
+        }
+        errdefer for (sections) |opt_section| if (opt_section) |s| if (s.owned) gpa.free(s.data);
+
+        var separate_debug_filename: ?[]const u8 = null;
+        var separate_debug_crc: ?u32 = null;
+
+        for (shdrs) |*shdr| {
+            if (shdr.sh_type == elf.SHT_NULL or shdr.sh_type == elf.SHT_NOBITS) continue;
+            const name = mem.sliceTo(header_strings[shdr.sh_name..], 0);
+
+            if (mem.eql(u8, name, ".gnu_debuglink")) {
+                const gnu_debuglink = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+                const debug_filename = mem.sliceTo(@as([*:0]const u8, @ptrCast(gnu_debuglink.ptr)), 0);
+                const crc_offset = mem.alignForward(usize, @intFromPtr(&debug_filename[debug_filename.len]) + 1, 4) - @intFromPtr(gnu_debuglink.ptr);
+                const crc_bytes = gnu_debuglink[crc_offset..][0..4];
+                separate_debug_crc = mem.readInt(u32, crc_bytes, native_endian);
+                separate_debug_filename = debug_filename;
+                continue;
+            }
+
+            var section_index: ?usize = null;
+            inline for (@typeInfo(Dwarf.Section.Id).Enum.fields, 0..) |sect, i| {
+                if (mem.eql(u8, "." ++ sect.name, name)) section_index = i;
+            }
+            if (section_index == null) continue;
+            if (sections[section_index.?] != null) continue;
+
+            const section_bytes = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
+            sections[section_index.?] = if ((shdr.sh_flags & elf.SHF_COMPRESSED) > 0) blk: {
+                var section_stream = std.io.fixedBufferStream(section_bytes);
+                const section_reader = section_stream.reader();
+                const chdr = section_reader.readStruct(elf.Chdr) catch continue;
+                if (chdr.ch_type != .ZLIB) continue;
+
+                var zlib_stream = std.compress.zlib.decompressor(section_reader);
+
+                const decompressed_section = try gpa.alloc(u8, chdr.ch_size);
+                errdefer gpa.free(decompressed_section);
+
+                const read = zlib_stream.reader().readAll(decompressed_section) catch continue;
+                assert(read == decompressed_section.len);
+
+                break :blk .{
+                    .data = decompressed_section,
+                    .virtual_address = shdr.sh_addr,
+                    .owned = true,
+                };
+            } else .{
+                .data = section_bytes,
+                .virtual_address = shdr.sh_addr,
+                .owned = false,
+            };
+        }
+
+        const missing_debug_info =
+            sections[@intFromEnum(Dwarf.Section.Id.debug_info)] == null or
+            sections[@intFromEnum(Dwarf.Section.Id.debug_abbrev)] == null or
+            sections[@intFromEnum(Dwarf.Section.Id.debug_str)] == null or
+            sections[@intFromEnum(Dwarf.Section.Id.debug_line)] == null;
+
+        // Attempt to load debug info from an external file
+        // See: https://sourceware.org/gdb/onlinedocs/gdb/Separate-Debug-Files.html
+        if (missing_debug_info) {
+
+            // Only allow one level of debug info nesting
+            if (parent_mapped_mem) |_| {
+                return error.MissingDebugInfo;
+            }
+
+            const global_debug_directories = [_][]const u8{
+                "/usr/lib/debug",
+            };
+
+            // <global debug directory>/.build-id/<2-character id prefix>/<id remainder>.debug
+            if (build_id) |id| blk: {
+                if (id.len < 3) break :blk;
+
+                // Either md5 (16 bytes) or sha1 (20 bytes) are used here in practice
+                const extension = ".debug";
+                var id_prefix_buf: [2]u8 = undefined;
+                var filename_buf: [38 + extension.len]u8 = undefined;
+
+                _ = std.fmt.bufPrint(&id_prefix_buf, "{s}", .{std.fmt.fmtSliceHexLower(id[0..1])}) catch unreachable;
+                const filename = std.fmt.bufPrint(
+                    &filename_buf,
+                    "{s}" ++ extension,
+                    .{std.fmt.fmtSliceHexLower(id[1..])},
+                ) catch break :blk;
+
+                for (global_debug_directories) |global_directory| {
+                    const path: Path = .{
+                        .root_dir = std.Build.Cache.Directory.cwd(),
+                        .sub_path = try std.fs.path.join(gpa, &.{
+                            global_directory, ".build-id", &id_prefix_buf, filename,
+                        }),
+                    };
+                    defer gpa.free(path.sub_path);
+
+                    return loadPath(gpa, path, null, separate_debug_crc, &sections, mapped_mem) catch continue;
+                }
+            }
+
+            // use the path from .gnu_debuglink, in the same search order as gdb
+            if (separate_debug_filename) |separate_filename| blk: {
+                if (elf_filename != null and mem.eql(u8, elf_filename.?, separate_filename))
+                    return error.MissingDebugInfo;
+
+                // <cwd>/<gnu_debuglink>
+                if (loadPath(
+                    gpa,
+                    .{
+                        .root_dir = std.Build.Cache.Directory.cwd(),
+                        .sub_path = separate_filename,
+                    },
+                    null,
+                    separate_debug_crc,
+                    &sections,
+                    mapped_mem,
+                )) |debug_info| {
+                    return debug_info;
+                } else |_| {}
+
+                // <cwd>/.debug/<gnu_debuglink>
+                {
+                    const path: Path = .{
+                        .root_dir = std.Build.Cache.Directory.cwd(),
+                        .sub_path = try std.fs.path.join(gpa, &.{ ".debug", separate_filename }),
+                    };
+                    defer gpa.free(path.sub_path);
+
+                    if (loadPath(gpa, path, null, separate_debug_crc, &sections, mapped_mem)) |debug_info| return debug_info else |_| {}
+                }
+
+                var cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
+                const cwd_path = std.posix.realpath(".", &cwd_buf) catch break :blk;
+
+                // <global debug directory>/<absolute folder of current binary>/<gnu_debuglink>
+                for (global_debug_directories) |global_directory| {
+                    const path: Path = .{
+                        .root_dir = std.Build.Cache.Directory.cwd(),
+                        .sub_path = try std.fs.path.join(gpa, &.{ global_directory, cwd_path, separate_filename }),
+                    };
+                    defer gpa.free(path.sub_path);
+                    if (loadPath(gpa, path, null, separate_debug_crc, &sections, mapped_mem)) |debug_info| return debug_info else |_| {}
+                }
+            }
+
+            return error.MissingDebugInfo;
+        }
+
+        var di: Dwarf = .{
+            .endian = endian,
+            .sections = sections,
+            .is_macho = false,
+            .compile_units_sorted = false,
+        };
+
+        try Dwarf.open(&di, gpa);
+
+        return .{
+            .base_address = 0,
+            .dwarf = di,
+            .mapped_memory = parent_mapped_mem orelse mapped_mem,
+            .external_mapped_memory = if (parent_mapped_mem != null) mapped_mem else null,
+        };
+    }
+
+    pub fn loadPath(
+        gpa: Allocator,
+        elf_file_path: Path,
+        build_id: ?[]const u8,
+        expected_crc: ?u32,
+        parent_sections: *Dwarf.SectionArray,
+        parent_mapped_mem: ?[]align(std.mem.page_size) const u8,
+    ) LoadError!Dwarf.ElfModule {
+        const elf_file = elf_file_path.root_dir.handle.openFile(elf_file_path.sub_path, .{}) catch |err| switch (err) {
+            error.FileNotFound => return missing(),
+            else => return err,
+        };
+        defer elf_file.close();
+
+        const end_pos = elf_file.getEndPos() catch return bad();
+        const file_len = cast(usize, end_pos) orelse return error.Overflow;
+
+        const mapped_mem = try std.posix.mmap(
+            null,
+            file_len,
+            std.posix.PROT.READ,
+            .{ .TYPE = .SHARED },
+            elf_file.handle,
+            0,
+        );
+        errdefer std.posix.munmap(mapped_mem);
+
+        return load(
+            gpa,
+            mapped_mem,
+            build_id,
+            expected_crc,
+            parent_sections,
+            parent_mapped_mem,
+            elf_file_path.sub_path,
+        );
+    }
+};
+
+pub fn getSymbol(di: *Dwarf, allocator: Allocator, address: u64) !std.debug.Symbol {
+    if (di.findCompileUnit(address)) |compile_unit| {
+        return .{
+            .name = di.getSymbolName(address) orelse "???",
+            .compile_unit_name = compile_unit.die.getAttrString(di, std.dwarf.AT.name, di.section(.debug_str), compile_unit.*) catch |err| switch (err) {
+                error.MissingDebugInfo, error.InvalidDebugInfo => "???",
+            },
+            .source_location = di.getLineNumberInfo(allocator, compile_unit, address) catch |err| switch (err) {
+                error.MissingDebugInfo, error.InvalidDebugInfo => null,
+                else => return err,
+            },
+        };
+    } else |err| switch (err) {
+        error.MissingDebugInfo, error.InvalidDebugInfo => return .{},
+        else => return err,
+    }
+}
+
+pub fn chopSlice(ptr: []const u8, offset: u64, size: u64) error{Overflow}![]const u8 {
+    const start = cast(usize, offset) orelse return error.Overflow;
+    const end = start + (cast(usize, size) orelse return error.Overflow);
+    return ptr[start..end];
 }

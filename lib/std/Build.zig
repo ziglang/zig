@@ -2300,22 +2300,26 @@ pub const LazyPath = union(enum) {
     }
 
     pub fn path(lazy_path: LazyPath, b: *Build, sub_path: []const u8) LazyPath {
+        return lazy_path.join(b.allocator, sub_path) catch @panic("OOM");
+    }
+
+    pub fn join(lazy_path: LazyPath, arena: Allocator, sub_path: []const u8) Allocator.Error!LazyPath {
         return switch (lazy_path) {
             .src_path => |src| .{ .src_path = .{
                 .owner = src.owner,
-                .sub_path = b.pathResolve(&.{ src.sub_path, sub_path }),
+                .sub_path = try fs.path.resolve(arena, &.{ src.sub_path, sub_path }),
             } },
             .generated => |gen| .{ .generated = .{
                 .file = gen.file,
                 .up = gen.up,
-                .sub_path = b.pathResolve(&.{ gen.sub_path, sub_path }),
+                .sub_path = try fs.path.resolve(arena, &.{ gen.sub_path, sub_path }),
             } },
             .cwd_relative => |cwd_relative| .{
-                .cwd_relative = b.pathResolve(&.{ cwd_relative, sub_path }),
+                .cwd_relative = try fs.path.resolve(arena, &.{ cwd_relative, sub_path }),
             },
             .dependency => |dep| .{ .dependency = .{
                 .dependency = dep.dependency,
-                .sub_path = b.pathResolve(&.{ dep.sub_path, sub_path }),
+                .sub_path = try fs.path.resolve(arena, &.{ dep.sub_path, sub_path }),
             } },
         };
     }

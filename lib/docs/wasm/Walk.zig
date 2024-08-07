@@ -1,4 +1,15 @@
 //! Find and annotate identifiers with links to their declarations.
+
+const Walk = @This();
+const std = @import("std");
+const Ast = std.zig.Ast;
+const assert = std.debug.assert;
+const log = std.log;
+const gpa = std.heap.wasm_allocator;
+const Oom = error{OutOfMemory};
+
+pub const Decl = @import("Decl.zig");
+
 pub var files: std.StringArrayHashMapUnmanaged(File) = .{};
 pub var decls: std.ArrayListUnmanaged(Decl) = .{};
 pub var modules: std.StringArrayHashMapUnmanaged(File.Index) = .{};
@@ -1119,15 +1130,6 @@ pub fn isPrimitiveNonType(name: []const u8) bool {
 //
 //    try w.root();
 //}
-
-const Walk = @This();
-const std = @import("std");
-const Ast = std.zig.Ast;
-const assert = std.debug.assert;
-const Decl = @import("Decl.zig");
-const log = std.log;
-const gpa = std.heap.wasm_allocator;
-const Oom = error{OutOfMemory};
 
 fn shrinkToFit(m: anytype) void {
     m.shrinkAndFree(gpa, m.entries.len);
