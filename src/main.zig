@@ -3412,6 +3412,14 @@ fn buildOutputType(
                         std.log.info("zig can provide libc for related target {s}-{s}.{d}-{s}", .{
                             @tagName(t.arch), @tagName(t.os), os_ver.major, @tagName(t.abi),
                         });
+                    } else if (t.glibc_min) |glibc_min| {
+                        std.log.info("zig can provide libc for related target {s}-{s}-{s}.{d}.{d}", .{
+                            @tagName(t.arch),
+                            @tagName(t.os),
+                            @tagName(t.abi),
+                            glibc_min.major,
+                            glibc_min.minor,
+                        });
                     } else {
                         std.log.info("zig can provide libc for related target {s}-{s}-{s}", .{
                             @tagName(t.arch), @tagName(t.os), @tagName(t.abi),

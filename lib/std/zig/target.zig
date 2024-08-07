@@ -57,7 +57,7 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .powerpc, .os = .linux, .abi = .gnueabi },
     .{ .arch = .powerpc, .os = .linux, .abi = .gnueabihf },
     .{ .arch = .powerpc, .os = .linux, .abi = .musl },
-    .{ .arch = .riscv32, .os = .linux, .abi = .gnuilp32, .glibc_min = .{ .major = 2, .minor = 33, .patch = 0 } },
+    .{ .arch = .riscv32, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 33, .patch = 0 } },
     .{ .arch = .riscv32, .os = .linux, .abi = .musl },
     .{ .arch = .riscv64, .os = .linux, .abi = .gnu, .glibc_min = .{ .major = 2, .minor = 27, .patch = 0 } },
     .{ .arch = .riscv64, .os = .linux, .abi = .musl },

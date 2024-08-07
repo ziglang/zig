@@ -483,7 +483,21 @@ pub const Os = struct {
                             .min = .{ .major = 4, .minor = 19, .patch = 0 },
                             .max = .{ .major = 6, .minor = 5, .patch = 7 },
                         },
-                        .glibc = .{ .major = 2, .minor = 28, .patch = 0 },
+                        .glibc = blk: {
+                            const default_min = .{ .major = 2, .minor = 28, .patch = 0 };
+
+                            for (std.zig.target.available_libcs) |libc| {
+                                // We don't know the ABI here. We can get away with not checking it
+                                // for now, but that may not always remain true.
+                                if (libc.os != tag or libc.arch != arch) continue;
+
+                                if (libc.glibc_min) |min| {
+                                    if (min.order(default_min) == .gt) break :blk min;
+                                }
+                            }
+
+                            break :blk default_min;
+                        },
                     },
                 },
 
@@ -1750,8 +1764,8 @@ pub const DynamicLinker = struct {
                     else => "/lib64/ld-linux-x86-64.so.2",
                 }),
 
-                .riscv32 => init("/lib/ld-linux-riscv32-ilp32.so.1"),
-                .riscv64 => init("/lib/ld-linux-riscv64-lp64.so.1"),
+                .riscv32 => init("/lib/ld-linux-riscv32-ilp32d.so.1"),
+                .riscv64 => init("/lib/ld-linux-riscv64-lp64d.so.1"),
 
                 // Architectures in this list have been verified as not having a standard
                 // dynamic linker path.
