@@ -119,7 +119,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .bpfel,
         .bpfeb,
         .csky,
-        .dxil,
         .hexagon,
         .loongarch32,
         .loongarch64,
@@ -147,17 +146,23 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .xtensa,
         .nvptx,
         .nvptx64,
-        .spirv,
-        .spirv32,
-        .spirv64,
-        .kalimba,
         .lanai,
         .wasm32,
         .wasm64,
         .ve,
         => true,
 
-        .spu_2 => false,
+        // An LLVM backend exists but we don't currently support using it.
+        .dxil,
+        .spirv,
+        .spirv32,
+        .spirv64,
+        => false,
+
+        // No LLVM backend exists.
+        .kalimba,
+        .spu_2,
+        => false,
     };
 }
 
