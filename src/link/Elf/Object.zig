@@ -630,12 +630,6 @@ pub fn claimUnresolvedObject(self: *Object, elf_file: *Elf) void {
         if (esym.st_shndx != elf.SHN_UNDEF) continue;
         if (elf_file.symbol(self.resolveSymbol(esym_index, elf_file)) != null) continue;
 
-        // TODO: audit this
-        // const global = elf_file.symbol(index);
-        // if (global.file(elf_file)) |file| {
-        //     if (global.elfSym(elf_file).st_shndx != elf.SHN_UNDEF or file.index() <= self.index) continue;
-        // }
-
         sym.value = 0;
         sym.ref = .{ .index = 0, .file = 0 };
         sym.esym_index = esym_index;
@@ -849,8 +843,6 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) !void {
 
     for (self.symtab.items, 0..) |*esym, idx| {
         const sym = &self.symbols.items[idx];
-        // TODO: do we need ref here?
-
         if (esym.st_shndx == elf.SHN_COMMON or esym.st_shndx == elf.SHN_UNDEF or esym.st_shndx == elf.SHN_ABS) continue;
 
         const imsec_index = self.input_merge_sections_indexes.items[esym.st_shndx];

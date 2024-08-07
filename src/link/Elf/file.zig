@@ -67,18 +67,6 @@ pub const File = union(enum) {
         };
     }
 
-    pub fn resetGlobals(file: File, elf_file: *Elf) void {
-        for (file.globals()) |global_index| {
-            const global = elf_file.symbol(global_index);
-            const name_offset = global.name_offset;
-            const extra_index = global.extra_index;
-            global.* = .{};
-            global.name_offset = name_offset;
-            global.flags.global = true;
-            global.extra_index = extra_index;
-        }
-    }
-
     pub fn setAlive(file: File) void {
         switch (file) {
             .zig_object, .linker_defined => {},

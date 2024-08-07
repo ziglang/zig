@@ -410,12 +410,6 @@ pub fn claimUnresolvedObject(self: ZigObject, elf_file: *Elf) void {
         if (esym.st_shndx != elf.SHN_UNDEF) continue;
         if (elf_file.symbol(self.resolveSymbol(@intCast(i | global_symbol_bit), elf_file)) != null) continue;
 
-        // TODO: audit this
-        // const global = elf_file.symbol(index);
-        // if (global.file(elf_file)) |file| {
-        //     if (global.elfSym(elf_file).st_shndx != elf.SHN_UNDEF or file.index() <= self.index) continue;
-        // }
-
         global.value = 0;
         global.ref = .{ .index = 0, .file = 0 };
         global.esym_index = @intCast(index);
@@ -1512,12 +1506,6 @@ pub fn deleteExport(
     log.debug("deleting export '{s}'", .{exp_name});
     const esym = &self.symtab.items(.elf_sym)[esym_index.*];
     _ = self.globals_lookup.remove(esym.st_name);
-    // const sym_index = elf_file.resolver.get(esym.st_name).?;
-    // const sym = elf_file.symbol(sym_index);
-    // if (sym.file_index == self.index) {
-    //     _ = elf_file.resolver.swapRemove(esym.st_name);
-    //     sym.* = .{};
-    // }
     esym.* = Elf.null_sym;
     self.symtab.items(.shndx)[esym_index.*] = elf.SHN_UNDEF;
 }
