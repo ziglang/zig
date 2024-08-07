@@ -809,6 +809,10 @@ const llvm_targets = [_]LlvmTarget{
                 .llvm_name = "v9.4a",
                 .zig_name = "has_v9_4a",
             },
+            .{
+                .llvm_name = "v9.5a",
+                .zig_name = "has_v9_5a",
+            },
         },
         // LLVM removed support for v2 and v3 but zig wants to support targeting old hardware
         .extra_features = &.{
@@ -990,6 +994,7 @@ const llvm_targets = [_]LlvmTarget{
             "icelake_client",
             "icelake_server",
             "graniterapids_d",
+            "arrowlake_s",
         },
     },
     .{
