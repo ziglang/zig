@@ -11351,6 +11351,9 @@ fn failWithStrLitError(astgen: *AstGen, err: std.zig.string_literal.Error, token
                 .{raw_string[bad_index]},
             );
         },
+        .empty_char_literal => {
+            return astgen.failOff(token, offset, "empty character literal", .{});
+        },
     }
 }
 
@@ -13820,20 +13823,8 @@ fn lowerAstErrors(astgen: *AstGen) !void {
     var msg: std.ArrayListUnmanaged(u8) = .{};
     defer msg.deinit(gpa);
 
-    const token_starts = tree.tokens.items(.start);
-    const token_tags = tree.tokens.items(.tag);
-
     var notes: std.ArrayListUnmanaged(u32) = .{};
     defer notes.deinit(gpa);
-
-    const tok = parse_err.token + @intFromBool(parse_err.token_is_prev);
-    if (token_tags[tok] == .invalid) {
-        const bad_off: u32 = @intCast(tree.tokenSlice(tok).len);
-        const byte_abs = token_starts[tok] + bad_off;
-        try notes.append(gpa, try astgen.errNoteTokOff(tok, bad_off, "invalid byte: '{'}'", .{
-            std.zig.fmtEscapes(tree.source[byte_abs..][0..1]),
-        }));
-    }
 
     for (tree.errors[1..]) |note| {
         if (!note.is_note) break;

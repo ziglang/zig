@@ -1,44 +1,50 @@
 const builtin = @import("builtin");
-const std = @import("../std.zig");
-const mem = std.mem;
-const native_os = builtin.os.tag;
-const posix = std.posix;
 
+const std = @import("../../std.zig");
+const mem = std.mem;
+const posix = std.posix;
+const Arch = std.Target.Cpu.Arch;
+
+/// Tells whether unwinding for this target is supported by the Dwarf standard.
+///
+/// See also `std.debug.SelfInfo.supportsUnwinding` which tells whether the Zig
+/// standard library has a working implementation of unwinding for this target.
 pub fn supportsUnwinding(target: std.Target) bool {
     return switch (target.cpu.arch) {
-        .x86 => switch (target.os.tag) {
-            .linux, .netbsd, .solaris, .illumos => true,
-            else => false,
-        },
-        .x86_64 => switch (target.os.tag) {
-            .linux, .netbsd, .freebsd, .openbsd, .macos, .ios, .solaris, .illumos => true,
-            else => false,
-        },
-        .arm => switch (target.os.tag) {
-            .linux => true,
-            else => false,
-        },
-        .aarch64 => switch (target.os.tag) {
-            .linux, .netbsd, .freebsd, .macos, .ios => true,
-            else => false,
-        },
-        else => false,
+        .amdgcn,
+        .nvptx,
+        .nvptx64,
+        .spirv,
+        .spirv32,
+        .spirv64,
+        .spu_2,
+        => false,
+
+        // Enabling this causes relocation errors such as:
+        // error: invalid relocation type R_RISCV_SUB32 at offset 0x20
+        .riscv64, .riscv32 => false,
+
+        // Conservative guess. Feel free to update this logic with any targets
+        // that are known to not support Dwarf unwinding.
+        else => true,
     };
 }
 
-pub fn ipRegNum() u8 {
-    return switch (builtin.cpu.arch) {
+/// Returns `null` for CPU architectures without an instruction pointer register.
+pub fn ipRegNum(arch: Arch) ?u8 {
+    return switch (arch) {
         .x86 => 8,
         .x86_64 => 16,
         .arm => 15,
         .aarch64 => 32,
-        else => unreachable,
+        else => null,
     };
 }
 
-pub fn fpRegNum(reg_context: RegisterContext) u8 {
-    return switch (builtin.cpu.arch) {
-        // GCC on OS X historically did the opposite of ELF for these registers (only in .eh_frame), and that is now the convention for MachO
+pub fn fpRegNum(arch: Arch, reg_context: RegisterContext) u8 {
+    return switch (arch) {
+        // GCC on OS X historically did the opposite of ELF for these registers
+        // (only in .eh_frame), and that is now the convention for MachO
         .x86 => if (reg_context.eh_frame and reg_context.is_macho) 4 else 5,
         .x86_64 => 6,
         .arm => 11,
@@ -47,8 +53,8 @@ pub fn fpRegNum(reg_context: RegisterContext) u8 {
     };
 }
 
-pub fn spRegNum(reg_context: RegisterContext) u8 {
-    return switch (builtin.cpu.arch) {
+pub fn spRegNum(arch: Arch, reg_context: RegisterContext) u8 {
+    return switch (arch) {
         .x86 => if (reg_context.eh_frame and reg_context.is_macho) 5 else 4,
         .x86_64 => 7,
         .arm => 13,
@@ -57,33 +63,12 @@ pub fn spRegNum(reg_context: RegisterContext) u8 {
     };
 }
 
-/// Some platforms use pointer authentication - the upper bits of instruction pointers contain a signature.
-/// This function clears these signature bits to make the pointer usable.
-pub inline fn stripInstructionPtrAuthCode(ptr: usize) usize {
-    if (builtin.cpu.arch == .aarch64) {
-        // `hint 0x07` maps to `xpaclri` (or `nop` if the hardware doesn't support it)
-        // The save / restore is because `xpaclri` operates on x30 (LR)
-        return asm (
-            \\mov x16, x30
-            \\mov x30, x15
-            \\hint 0x07
-            \\mov x15, x30
-            \\mov x30, x16
-            : [ret] "={x15}" (-> usize),
-            : [ptr] "{x15}" (ptr),
-            : "x16"
-        );
-    }
-
-    return ptr;
-}
-
 pub const RegisterContext = struct {
     eh_frame: bool,
     is_macho: bool,
 };
 
-pub const AbiError = error{
+pub const RegBytesError = error{
     InvalidRegister,
     UnimplementedArch,
     UnimplementedOs,
@@ -91,55 +76,21 @@ pub const AbiError = error{
     ThreadContextNotSupported,
 };
 
-fn RegValueReturnType(comptime ContextPtrType: type, comptime T: type) type {
-    const reg_bytes_type = comptime RegBytesReturnType(ContextPtrType);
-    const info = @typeInfo(reg_bytes_type).Pointer;
-    return @Type(.{
-        .Pointer = .{
-            .size = .One,
-            .is_const = info.is_const,
-            .is_volatile = info.is_volatile,
-            .is_allowzero = info.is_allowzero,
-            .alignment = info.alignment,
-            .address_space = info.address_space,
-            .child = T,
-            .sentinel = null,
-        },
-    });
-}
-
-/// Returns a pointer to a register stored in a ThreadContext, preserving the pointer attributes of the context.
-pub fn regValueNative(
-    comptime T: type,
-    thread_context_ptr: anytype,
-    reg_number: u8,
-    reg_context: ?RegisterContext,
-) !RegValueReturnType(@TypeOf(thread_context_ptr), T) {
-    const reg_bytes = try regBytes(thread_context_ptr, reg_number, reg_context);
-    if (@sizeOf(T) != reg_bytes.len) return error.IncompatibleRegisterSize;
-    return mem.bytesAsValue(T, reg_bytes[0..@sizeOf(T)]);
-}
-
-fn RegBytesReturnType(comptime ContextPtrType: type) type {
-    const info = @typeInfo(ContextPtrType);
-    if (info != .Pointer or info.Pointer.child != std.debug.ThreadContext) {
-        @compileError("Expected a pointer to std.debug.ThreadContext, got " ++ @typeName(@TypeOf(ContextPtrType)));
-    }
-
-    return if (info.Pointer.is_const) return []const u8 else []u8;
-}
-
 /// Returns a slice containing the backing storage for `reg_number`.
+///
+/// This function assumes the Dwarf information corresponds not necessarily to
+/// the current executable, but at least with a matching CPU architecture and
+/// OS. It is planned to lift this limitation with a future enhancement.
 ///
 /// `reg_context` describes in what context the register number is used, as it can have different
 /// meanings depending on the DWARF container. It is only required when getting the stack or
 /// frame pointer register on some architectures.
 pub fn regBytes(
-    thread_context_ptr: anytype,
+    thread_context_ptr: *std.debug.ThreadContext,
     reg_number: u8,
     reg_context: ?RegisterContext,
-) AbiError!RegBytesReturnType(@TypeOf(thread_context_ptr)) {
-    if (native_os == .windows) {
+) RegBytesError![]u8 {
+    if (builtin.os.tag == .windows) {
         return switch (builtin.cpu.arch) {
             .x86 => switch (reg_number) {
                 0 => mem.asBytes(&thread_context_ptr.Eax),
@@ -194,7 +145,7 @@ pub fn regBytes(
 
     const ucontext_ptr = thread_context_ptr;
     return switch (builtin.cpu.arch) {
-        .x86 => switch (native_os) {
+        .x86 => switch (builtin.os.tag) {
             .linux, .netbsd, .solaris, .illumos => switch (reg_number) {
                 0 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.EAX]),
                 1 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.ECX]),
@@ -229,7 +180,7 @@ pub fn regBytes(
             },
             else => error.UnimplementedOs,
         },
-        .x86_64 => switch (native_os) {
+        .x86_64 => switch (builtin.os.tag) {
             .linux, .solaris, .illumos => switch (reg_number) {
                 0 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.RAX]),
                 1 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.RDX]),
@@ -248,7 +199,7 @@ pub fn regBytes(
                 14 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.R14]),
                 15 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.R15]),
                 16 => mem.asBytes(&ucontext_ptr.mcontext.gregs[posix.REG.RIP]),
-                17...32 => |i| if (native_os.isSolarish())
+                17...32 => |i| if (builtin.os.tag.isSolarish())
                     mem.asBytes(&ucontext_ptr.mcontext.fpregs.chip_state.xmm[i - 17])
                 else
                     mem.asBytes(&ucontext_ptr.mcontext.fpregs.xmm[i - 17]),
@@ -318,7 +269,7 @@ pub fn regBytes(
             },
             else => error.UnimplementedOs,
         },
-        .arm => switch (native_os) {
+        .arm => switch (builtin.os.tag) {
             .linux => switch (reg_number) {
                 0 => mem.asBytes(&ucontext_ptr.mcontext.arm_r0),
                 1 => mem.asBytes(&ucontext_ptr.mcontext.arm_r1),
@@ -341,7 +292,7 @@ pub fn regBytes(
             },
             else => error.UnimplementedOs,
         },
-        .aarch64 => switch (native_os) {
+        .aarch64 => switch (builtin.os.tag) {
             .macos, .ios => switch (reg_number) {
                 0...28 => mem.asBytes(&ucontext_ptr.mcontext.ss.regs[reg_number]),
                 29 => mem.asBytes(&ucontext_ptr.mcontext.ss.fp),
@@ -389,22 +340,14 @@ pub fn regBytes(
     };
 }
 
-/// Returns the ABI-defined default value this register has in the unwinding table
-/// before running any of the CIE instructions. The DWARF spec defines these as having
-/// the .undefined rule by default, but allows ABI authors to override that.
-pub fn getRegDefaultValue(reg_number: u8, context: *std.dwarf.UnwindContext, out: []u8) !void {
-    switch (builtin.cpu.arch) {
-        .aarch64 => {
-            // Callee-saved registers are initialized as if they had the .same_value rule
-            if (reg_number >= 19 and reg_number <= 28) {
-                const src = try regBytes(context.thread_context, reg_number, context.reg_context);
-                if (src.len != out.len) return error.RegisterSizeMismatch;
-                @memcpy(out, src);
-                return;
-            }
-        },
-        else => {},
-    }
-
-    @memset(out, undefined);
+/// Returns a pointer to a register stored in a ThreadContext, preserving the
+/// pointer attributes of the context.
+pub fn regValueNative(
+    thread_context_ptr: *std.debug.ThreadContext,
+    reg_number: u8,
+    reg_context: ?RegisterContext,
+) !*align(1) usize {
+    const reg_bytes = try regBytes(thread_context_ptr, reg_number, reg_context);
+    if (@sizeOf(usize) != reg_bytes.len) return error.IncompatibleRegisterSize;
+    return mem.bytesAsValue(usize, reg_bytes[0..@sizeOf(usize)]);
 }

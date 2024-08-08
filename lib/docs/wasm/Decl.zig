@@ -1,3 +1,12 @@
+const Decl = @This();
+const std = @import("std");
+const Ast = std.zig.Ast;
+const Walk = @import("Walk.zig");
+const gpa = std.heap.wasm_allocator;
+const assert = std.debug.assert;
+const log = std.log;
+const Oom = error{OutOfMemory};
+
 ast_node: Ast.Node.Index,
 file: Walk.File.Index,
 /// The decl whose namespace this is in.
@@ -215,12 +224,3 @@ pub fn find(search_string: []const u8) Decl.Index {
     }
     return current_decl_index;
 }
-
-const Decl = @This();
-const std = @import("std");
-const Ast = std.zig.Ast;
-const Walk = @import("Walk.zig");
-const gpa = std.heap.wasm_allocator;
-const assert = std.debug.assert;
-const log = std.log;
-const Oom = error{OutOfMemory};

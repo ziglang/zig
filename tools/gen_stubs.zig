@@ -2,13 +2,14 @@
 //! ./gen_stubs /path/to/musl/build-all >libc.S
 //!
 //! The directory 'build-all' is expected to contain these subdirectories:
-//! arm  x86  mips  mips64  powerpc  powerpc64  riscv64  x86_64
+//! arm  x86  mips  mips64  powerpc  powerpc64  riscv32  riscv64  x86_64  loongarch64
 //!
 //! ...each with 'lib/libc.so' inside of them.
 //!
 //! When building the resulting libc.S file, these defines are required:
 //! * `-DPTR64`: when the architecture is 64-bit
 //! * One of the following, corresponding to the CPU architecture:
+//!   - `-DARCH_riscv32`
 //!   - `-DARCH_riscv64`
 //!   - `-DARCH_mips`
 //!   - `-DARCH_mips64`
@@ -17,6 +18,7 @@
 //!   - `-DARCH_powerpc`
 //!   - `-DARCH_powerpc64`
 //!   - `-DARCH_aarch64`
+//!   - `-DARCH_loongarch64`
 
 // TODO: pick the best index to put them into instead of at the end
 //       - e.g. find a common previous symbol and put it after that one
@@ -68,14 +70,16 @@ const MultiSym = struct {
     }
 
     fn is32Only(ms: MultiSym) bool {
-        return ms.present[archIndex(.riscv64)] == false and
+        return ms.present[archIndex(.riscv32)] == true and
+            ms.present[archIndex(.riscv64)] == false and
             ms.present[archIndex(.mips)] == true and
             ms.present[archIndex(.mips64)] == false and
             ms.present[archIndex(.x86)] == true and
             ms.present[archIndex(.x86_64)] == false and
             ms.present[archIndex(.powerpc)] == true and
             ms.present[archIndex(.powerpc64)] == false and
-            ms.present[archIndex(.aarch64)] == false;
+            ms.present[archIndex(.aarch64)] == false and
+            ms.present[archIndex(.loongarch64)] == false;
     }
 
     fn commonSize(ms: MultiSym) ?u64 {
@@ -110,6 +114,7 @@ const MultiSym = struct {
 
     fn isPtrSize(ms: MultiSym) bool {
         const map = .{
+            .{ .riscv32, 4 },
             .{ .riscv64, 8 },
             .{ .mips, 4 },
             .{ .mips64, 8 },
@@ -118,6 +123,7 @@ const MultiSym = struct {
             .{ .powerpc, 4 },
             .{ .powerpc64, 8 },
             .{ .aarch64, 8 },
+            .{ .loongarch64, 8 },
         };
         inline for (map) |item| {
             const arch = item[0];
@@ -132,6 +138,7 @@ const MultiSym = struct {
 
     fn isPtr2Size(ms: MultiSym) bool {
         const map = .{
+            .{ .riscv32, 8 },
             .{ .riscv64, 16 },
             .{ .mips, 8 },
             .{ .mips64, 16 },
@@ -140,6 +147,7 @@ const MultiSym = struct {
             .{ .powerpc, 8 },
             .{ .powerpc64, 16 },
             .{ .aarch64, 16 },
+            .{ .loongarch64, 16 },
         };
         inline for (map) |item| {
             const arch = item[0];
@@ -154,6 +162,7 @@ const MultiSym = struct {
 
     fn isWeak64(ms: MultiSym) bool {
         const map = .{
+            .{ .riscv32, 1 },
             .{ .riscv64, 2 },
             .{ .mips, 1 },
             .{ .mips64, 2 },
@@ -162,6 +171,7 @@ const MultiSym = struct {
             .{ .powerpc, 1 },
             .{ .powerpc64, 2 },
             .{ .aarch64, 2 },
+            .{ .loongarch64, 2 },
         };
         inline for (map) |item| {
             const arch = item[0];

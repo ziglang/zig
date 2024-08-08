@@ -22,7 +22,7 @@ pub const want_aeabi = switch (builtin.abi) {
     },
     else => false,
 };
-pub const want_ppc_abi = builtin.cpu.arch.isPPC() or builtin.cpu.arch.isPPC64();
+pub const want_ppc_abi = builtin.cpu.arch.isPowerPC();
 
 pub const want_float_exceptions = !builtin.cpu.arch.isWasm();
 
@@ -92,7 +92,7 @@ pub fn F16T(comptime OtherType: type) type {
             }
         else
             u16,
-        .aarch64, .aarch64_be, .aarch64_32 => f16,
+        .aarch64, .aarch64_be => f16,
         .riscv64 => if (builtin.zig_backend == .stage1) u16 else f16,
         .x86, .x86_64 => if (builtin.target.isDarwin()) switch (OtherType) {
             // Starting with LLVM 16, Darwin uses different abi for f16

@@ -53,13 +53,12 @@ pub fn intPtrType(target: std.Target) Type {
         .xcore,
         .hexagon,
         .m68k,
-        .spir,
         .spirv32,
         .arc,
         .avr,
         => return .{ .specifier = .int },
 
-        .sparc, .sparcel => switch (target.os.tag) {
+        .sparc => switch (target.os.tag) {
             .netbsd, .openbsd => {},
             else => return .{ .specifier = .int },
         },
@@ -132,8 +131,8 @@ pub fn int64Type(target: std.Target) Type {
 pub fn defaultFunctionAlignment(target: std.Target) u8 {
     return switch (target.cpu.arch) {
         .arm, .armeb => 4,
-        .aarch64, .aarch64_32, .aarch64_be => 4,
-        .sparc, .sparcel, .sparc64 => 4,
+        .aarch64, .aarch64_be => 4,
+        .sparc, .sparc64 => 4,
         .riscv64 => 2,
         else => 1,
     };
@@ -265,7 +264,7 @@ pub fn systemCompiler(target: std.Target) LangOpts.Compiler {
 pub fn hasFloat128(target: std.Target) bool {
     if (target.cpu.arch.isWasm()) return true;
     if (target.isDarwin()) return false;
-    if (target.cpu.arch.isPPC() or target.cpu.arch.isPPC64()) return std.Target.powerpc.featureSetHas(target.cpu.features, .float128);
+    if (target.cpu.arch.isPowerPC()) return std.Target.powerpc.featureSetHas(target.cpu.features, .float128);
     return switch (target.os.tag) {
         .dragonfly,
         .haiku,
@@ -322,7 +321,6 @@ pub const FPSemantics = enum {
     pub fn halfPrecisionType(target: std.Target) ?FPSemantics {
         switch (target.cpu.arch) {
             .aarch64,
-            .aarch64_32,
             .aarch64_be,
             .arm,
             .armeb,
@@ -428,7 +426,7 @@ pub fn ldEmulationOption(target: std.Target, arm_endianness: ?std.builtin.Endian
         .powerpc64le => "elf64lppc",
         .riscv32 => "elf32lriscv",
         .riscv64 => "elf64lriscv",
-        .sparc, .sparcel => "elf32_sparc",
+        .sparc => "elf32_sparc",
         .sparc64 => "elf64_sparc",
         .loongarch32 => "elf32loongarch",
         .loongarch64 => "elf64loongarch",
@@ -468,17 +466,14 @@ pub fn get32BitArchVariant(target: std.Target) ?std.Target {
         .powerpcle,
         .riscv32,
         .sparc,
-        .sparcel,
         .thumb,
         .thumbeb,
         .x86,
         .xcore,
         .nvptx,
-        .spir,
         .kalimba,
         .lanai,
         .wasm32,
-        .aarch64_32,
         .spirv32,
         .loongarch32,
         .dxil,
@@ -489,7 +484,6 @@ pub fn get32BitArchVariant(target: std.Target) ?std.Target {
         .aarch64_be => copy.cpu.arch = .armeb,
         .nvptx64 => copy.cpu.arch = .nvptx,
         .wasm64 => copy.cpu.arch = .wasm32,
-        .spir64 => copy.cpu.arch = .spir,
         .spirv64 => copy.cpu.arch = .spirv32,
         .loongarch64 => copy.cpu.arch = .loongarch32,
         .mips64 => copy.cpu.arch = .mips,
@@ -515,7 +509,6 @@ pub fn get64BitArchVariant(target: std.Target) ?std.Target {
         .lanai,
         .m68k,
         .msp430,
-        .sparcel,
         .spu_2,
         .xcore,
         .xtensa,
@@ -528,7 +521,6 @@ pub fn get64BitArchVariant(target: std.Target) ?std.Target {
         .bpfel,
         .nvptx64,
         .wasm64,
-        .spir64,
         .spirv64,
         .loongarch64,
         .mips64,
@@ -542,7 +534,6 @@ pub fn get64BitArchVariant(target: std.Target) ?std.Target {
         .x86_64,
         => {}, // Already 64 bit
 
-        .aarch64_32 => copy.cpu.arch = .aarch64,
         .arm => copy.cpu.arch = .aarch64,
         .armeb => copy.cpu.arch = .aarch64_be,
         .loongarch32 => copy.cpu.arch = .loongarch64,
@@ -553,7 +544,6 @@ pub fn get64BitArchVariant(target: std.Target) ?std.Target {
         .powerpcle => copy.cpu.arch = .powerpc64le,
         .riscv32 => copy.cpu.arch = .riscv64,
         .sparc => copy.cpu.arch = .sparc64,
-        .spir => copy.cpu.arch = .spir64,
         .spirv32 => copy.cpu.arch = .spirv64,
         .thumb => copy.cpu.arch = .aarch64,
         .thumbeb => copy.cpu.arch = .aarch64_be,
@@ -574,9 +564,8 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
     const llvm_arch = switch (target.cpu.arch) {
         .arm => "arm",
         .armeb => "armeb",
-        .aarch64 => "aarch64",
+        .aarch64 => if (target.abi == .ilp32) "aarch64_32" else "aarch64",
         .aarch64_be => "aarch64_be",
-        .aarch64_32 => "aarch64_32",
         .arc => "arc",
         .avr => "avr",
         .bpfel => "bpfel",
@@ -601,7 +590,6 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .riscv64 => "riscv64",
         .sparc => "sparc",
         .sparc64 => "sparc64",
-        .sparcel => "sparcel",
         .s390x => "s390x",
         .thumb => "thumb",
         .thumbeb => "thumbeb",
@@ -611,8 +599,6 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .xtensa => "xtensa",
         .nvptx => "nvptx",
         .nvptx64 => "nvptx64",
-        .spir => "spir",
-        .spir64 => "spir64",
         .spirv32 => "spirv32",
         .spirv64 => "spirv64",
         .kalimba => "kalimba",
@@ -628,8 +614,6 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
 
     const llvm_os = switch (target.os.tag) {
         .freestanding => "unknown",
-        .ananas => "ananas",
-        .cloudabi => "cloudabi",
         .dragonfly => "dragonfly",
         .freebsd => "freebsd",
         .fuchsia => "fuchsia",
@@ -687,7 +671,7 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
     writer.writeByte('-') catch unreachable;
 
     const llvm_abi = switch (target.abi) {
-        .none => "unknown",
+        .none, .ilp32 => "unknown",
         .gnu => "gnu",
         .gnuabin32 => "gnuabin32",
         .gnuabi64 => "gnuabi64",

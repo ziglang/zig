@@ -17,6 +17,12 @@ const runner = @This();
 pub const root = @import("@build");
 pub const dependencies = @import("@dependencies");
 
+pub const std_options: std.Options = .{
+    .side_channels_mitigations = .none,
+    .http_disable_tls = true,
+    .crypto_fork_safety = false,
+};
+
 pub fn main() !void {
     // Here we use an ArenaAllocator backed by a page allocator because a build is a short-lived,
     // one shot program. We don't need to waste time freeing memory and finding places to squish
@@ -110,6 +116,7 @@ pub fn main() !void {
         .root_dir = build_root_directory,
         .sub_path = "build.zig",
     };
+    var listen_port: u16 = 0;
 
     while (nextArg(args, &arg_idx)) |arg| {
         if (mem.startsWith(u8, arg, "-Z")) {
@@ -206,6 +213,14 @@ pub fn main() !void {
                     fatalWithHint("expected u16 after '{s}'", .{arg});
                 debounce_interval_ms = std.fmt.parseUnsigned(u16, next_arg, 0) catch |err| {
                     fatal("unable to parse debounce interval '{s}' as unsigned 16-bit integer: {s}\n", .{
+                        next_arg, @errorName(err),
+                    });
+                };
+            } else if (mem.eql(u8, arg, "--port")) {
+                const next_arg = nextArg(args, &arg_idx) orelse
+                    fatalWithHint("expected u16 after '{s}'", .{arg});
+                listen_port = std.fmt.parseUnsigned(u16, next_arg, 10) catch |err| {
+                    fatal("unable to parse port '{s}' as unsigned 16-bit integer: {s}\n", .{
                         next_arg, @errorName(err),
                     });
                 };
@@ -409,13 +424,33 @@ pub fn main() !void {
             else => return err,
         };
         if (fuzz) {
-            Fuzz.start(&run.thread_pool, run.step_stack.keys(), run.ttyconf, main_progress_node);
+            switch (builtin.os.tag) {
+                // Current implementation depends on two things that need to be ported to Windows:
+                // * Memory-mapping to share data between the fuzzer and build runner.
+                // * COFF/PE support added to `std.debug.Info` (it needs a batching API for resolving
+                //   many addresses to source locations).
+                .windows => fatal("--fuzz not yet implemented for {s}", .{@tagName(builtin.os.tag)}),
+                else => {},
+            }
+            const listen_address = std.net.Address.parseIp("127.0.0.1", listen_port) catch unreachable;
+            try Fuzz.start(
+                gpa,
+                arena,
+                global_cache_directory,
+                zig_lib_directory,
+                zig_exe,
+                &run.thread_pool,
+                run.step_stack.keys(),
+                run.ttyconf,
+                listen_address,
+                main_progress_node,
+            );
         }
 
         if (!watch) return cleanExit();
 
         switch (builtin.os.tag) {
-            .linux => {},
+            .linux, .windows => {},
             else => fatal("--watch not yet implemented for {s}", .{@tagName(builtin.os.tag)}),
         }
 

@@ -86,6 +86,7 @@ pub const Feature = enum {
     has_v9_2a,
     has_v9_3a,
     has_v9_4a,
+    has_v9_5a,
     has_v9a,
     hwdiv,
     hwdiv_arm,
@@ -752,6 +753,13 @@ pub const all_features = blk: {
         .dependencies = featureSet(&[_]Feature{
             .has_v8_9a,
             .has_v9_3a,
+        }),
+    };
+    result[@intFromEnum(Feature.has_v9_5a)] = .{
+        .llvm_name = "v9.5a",
+        .description = "Support ARM v9.5a instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .has_v9_4a,
         }),
     };
     result[@intFromEnum(Feature.has_v9a)] = .{
@@ -1582,18 +1590,11 @@ pub const all_features = blk: {
             .db,
             .dsp,
             .fp_armv8,
+            .has_v9_5a,
             .mp,
             .ras,
             .trustzone,
-            .v9_5a,
             .virtualization,
-        }),
-    };
-    result[@intFromEnum(Feature.v9_5a)] = .{
-        .llvm_name = "v9.5a",
-        .description = "Support ARM v9.5a instructions",
-        .dependencies = featureSet(&[_]Feature{
-            .has_v9_4a,
         }),
     };
     result[@intFromEnum(Feature.v9a)] = .{

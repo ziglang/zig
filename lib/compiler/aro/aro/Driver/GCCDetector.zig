@@ -376,7 +376,7 @@ fn collectLibDirsAndTriples(
             biarch_libdirs.appendSliceAssumeCapacity(&RISCV32LibDirs);
             biarch_triple_aliases.appendSliceAssumeCapacity(&RISCV32Triples);
         },
-        .sparc, .sparcel => {
+        .sparc => {
             lib_dirs.appendSliceAssumeCapacity(&SPARCv8LibDirs);
             triple_aliases.appendSliceAssumeCapacity(&SPARCv8Triples);
             biarch_libdirs.appendSliceAssumeCapacity(&SPARCv9LibDirs);

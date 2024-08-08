@@ -30,14 +30,17 @@ atom_index: Index = 0,
 prev_index: Index = 0,
 next_index: Index = 0,
 
-/// Flags we use for state tracking.
-flags: Flags = .{},
+/// Specifies whether this atom is alive or has been garbage collected.
+alive: bool = true,
+
+/// Specifies if the atom has been visited during garbage collection.
+visited: bool = false,
 
 extra_index: u32 = 0,
 
 pub const Alignment = @import("../../InternPool.zig").Alignment;
 
-pub fn name(self: Atom, elf_file: *Elf) []const u8 {
+pub fn name(self: Atom, elf_file: *Elf) [:0]const u8 {
     const file_ptr = self.file(elf_file).?;
     return switch (file_ptr) {
         inline else => |x| x.getString(self.name_offset),
@@ -45,8 +48,7 @@ pub fn name(self: Atom, elf_file: *Elf) []const u8 {
 }
 
 pub fn address(self: Atom, elf_file: *Elf) i64 {
-    const shndx = self.outputShndx() orelse return self.value;
-    const shdr = elf_file.shdrs.items[shndx];
+    const shdr = elf_file.shdrs.items[self.output_section_index];
     return @as(i64, @intCast(shdr.sh_addr)) + self.value;
 }
 
@@ -55,7 +57,7 @@ pub fn debugTombstoneValue(self: Atom, target: Symbol, elf_file: *Elf) ?u64 {
         if (msub.alive) return null;
     }
     if (target.atom(elf_file)) |atom_ptr| {
-        if (atom_ptr.flags.alive) return null;
+        if (atom_ptr.alive) return null;
     }
     const atom_name = self.name(elf_file);
     if (!mem.startsWith(u8, atom_name, ".debug")) return null;
@@ -67,8 +69,7 @@ pub fn file(self: Atom, elf_file: *Elf) ?File {
 }
 
 pub fn thunk(self: Atom, elf_file: *Elf) *Thunk {
-    assert(self.flags.thunk);
-    const extras = self.extra(elf_file).?;
+    const extras = self.extra(elf_file);
     return elf_file.thunk(extras.thunk);
 }
 
@@ -85,11 +86,6 @@ pub fn relocsShndx(self: Atom) ?u32 {
     return self.relocs_section_index;
 }
 
-pub fn outputShndx(self: Atom) ?u32 {
-    if (self.output_section_index == 0) return null;
-    return self.output_section_index;
-}
-
 pub fn priority(self: Atom, elf_file: *Elf) u64 {
     const index = self.file(elf_file).?.index();
     return (@as(u64, @intCast(index)) << 32) | @as(u64, @intCast(self.input_section_index));
@@ -99,7 +95,8 @@ pub fn priority(self: Atom, elf_file: *Elf) u64 {
 /// File offset relocation happens transparently, so it is not included in
 /// this calculation.
 pub fn capacity(self: Atom, elf_file: *Elf) u64 {
-    const next_addr = if (elf_file.atom(self.next_index)) |next|
+    const zo = elf_file.zigObjectPtr().?;
+    const next_addr = if (zo.atom(self.next_index)) |next|
         next.address(elf_file)
     else
         std.math.maxInt(u32);
@@ -107,8 +104,9 @@ pub fn capacity(self: Atom, elf_file: *Elf) u64 {
 }
 
 pub fn freeListEligible(self: Atom, elf_file: *Elf) bool {
+    const zo = elf_file.zigObjectPtr().?;
     // No need to keep a free list node for the last block.
-    const next = elf_file.atom(self.next_index) orelse return false;
+    const next = zo.atom(self.next_index) orelse return false;
     const cap: u64 = @intCast(next.address(elf_file) - self.address(elf_file));
     const ideal_cap = Elf.padToIdeal(self.size);
     if (cap <= ideal_cap) return false;
@@ -117,8 +115,9 @@ pub fn freeListEligible(self: Atom, elf_file: *Elf) bool {
 }
 
 pub fn allocate(self: *Atom, elf_file: *Elf) !void {
-    const shdr = &elf_file.shdrs.items[self.outputShndx().?];
-    const meta = elf_file.last_atom_and_free_list_table.getPtr(self.outputShndx().?).?;
+    const zo = elf_file.zigObjectPtr().?;
+    const shdr = &elf_file.shdrs.items[self.output_section_index];
+    const meta = elf_file.last_atom_and_free_list_table.getPtr(self.output_section_index).?;
     const free_list = &meta.free_list;
     const last_atom_index = &meta.last_atom_index;
     const new_atom_ideal_capacity = Elf.padToIdeal(self.size);
@@ -137,7 +136,7 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
         var i: usize = if (elf_file.base.child_pid == null) 0 else free_list.items.len;
         while (i < free_list.items.len) {
             const big_atom_index = free_list.items[i];
-            const big_atom = elf_file.atom(big_atom_index).?;
+            const big_atom = zo.atom(big_atom_index).?;
             // We now have a pointer to a live atom that has too much capacity.
             // Is it enough that we could fit this new atom?
             const cap = big_atom.capacity(elf_file);
@@ -169,7 +168,7 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
                 free_list_removal = i;
             }
             break :blk @intCast(new_start_vaddr);
-        } else if (elf_file.atom(last_atom_index.*)) |last| {
+        } else if (zo.atom(last_atom_index.*)) |last| {
             const ideal_capacity = Elf.padToIdeal(last.size);
             const ideal_capacity_end_vaddr = @as(u64, @intCast(last.value)) + ideal_capacity;
             const new_start_vaddr = self.alignment.forward(ideal_capacity_end_vaddr);
@@ -189,12 +188,12 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
     });
 
     const expand_section = if (atom_placement) |placement_index|
-        elf_file.atom(placement_index).?.next_index == 0
+        zo.atom(placement_index).?.next_index == 0
     else
         true;
     if (expand_section) {
         const needed_size: u64 = @intCast(self.value + @as(i64, @intCast(self.size)));
-        try elf_file.growAllocSection(self.outputShndx().?, needed_size);
+        try elf_file.growAllocSection(self.output_section_index, needed_size);
         last_atom_index.* = self.atom_index;
 
         const zig_object = elf_file.zigObjectPtr().?;
@@ -214,15 +213,15 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
     // This function can also reallocate an atom.
     // In this case we need to "unplug" it from its previous location before
     // plugging it in to its new location.
-    if (elf_file.atom(self.prev_index)) |prev| {
+    if (zo.atom(self.prev_index)) |prev| {
         prev.next_index = self.next_index;
     }
-    if (elf_file.atom(self.next_index)) |next| {
+    if (zo.atom(self.next_index)) |next| {
         next.prev_index = self.prev_index;
     }
 
     if (atom_placement) |big_atom_index| {
-        const big_atom = elf_file.atom(big_atom_index).?;
+        const big_atom = zo.atom(big_atom_index).?;
         self.prev_index = big_atom_index;
         self.next_index = big_atom.next_index;
         big_atom.next_index = self.atom_index;
@@ -234,7 +233,7 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
         _ = free_list.swapRemove(i);
     }
 
-    self.flags.alive = true;
+    self.alive = true;
 }
 
 pub fn shrink(self: *Atom, elf_file: *Elf) void {
@@ -250,9 +249,10 @@ pub fn grow(self: *Atom, elf_file: *Elf) !void {
 pub fn free(self: *Atom, elf_file: *Elf) void {
     log.debug("freeAtom {d} ({s})", .{ self.atom_index, self.name(elf_file) });
 
+    const zo = elf_file.zigObjectPtr().?;
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
-    const shndx = self.outputShndx().?;
+    const shndx = self.output_section_index;
     const meta = elf_file.last_atom_and_free_list_table.getPtr(shndx).?;
     const free_list = &meta.free_list;
     const last_atom_index = &meta.last_atom_index;
@@ -272,9 +272,9 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
         }
     }
 
-    if (elf_file.atom(last_atom_index.*)) |last_atom| {
+    if (zo.atom(last_atom_index.*)) |last_atom| {
         if (last_atom.atom_index == self.atom_index) {
-            if (elf_file.atom(self.prev_index)) |_| {
+            if (zo.atom(self.prev_index)) |_| {
                 // TODO shrink the section size here
                 last_atom_index.* = self.prev_index;
             } else {
@@ -283,7 +283,7 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
         }
     }
 
-    if (elf_file.atom(self.prev_index)) |prev| {
+    if (zo.atom(self.prev_index)) |prev| {
         prev.next_index = self.next_index;
         if (!already_have_free_list_node and prev.*.freeListEligible(elf_file)) {
             // The free list is heuristics, it doesn't have to be perfect, so we can
@@ -294,7 +294,7 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
         self.prev_index = 0;
     }
 
-    if (elf_file.atom(self.next_index)) |next| {
+    if (zo.atom(self.next_index)) |next| {
         next.prev_index = self.prev_index;
     } else {
         self.next_index = 0;
@@ -313,7 +313,7 @@ pub fn relocs(self: Atom, elf_file: *Elf) []const elf.Elf64_Rela {
     switch (self.file(elf_file).?) {
         .zig_object => |x| return x.relocs.items[shndx].items,
         .object => |x| {
-            const extras = self.extra(elf_file).?;
+            const extras = self.extra(elf_file);
             return x.relocs.items[extras.rel_index..][0..extras.rel_count];
         },
         else => unreachable,
@@ -326,23 +326,19 @@ pub fn writeRelocs(self: Atom, elf_file: *Elf, out_relocs: *std.ArrayList(elf.El
     const cpu_arch = elf_file.getTarget().cpu.arch;
     const file_ptr = self.file(elf_file).?;
     for (self.relocs(elf_file)) |rel| {
-        const target_index = switch (file_ptr) {
-            .zig_object => |x| x.symbol(rel.r_sym()),
-            .object => |x| x.symbols.items[rel.r_sym()],
-            else => unreachable,
-        };
-        const target = elf_file.symbol(target_index);
+        const target_ref = file_ptr.resolveSymbol(rel.r_sym(), elf_file);
+        const target = elf_file.symbol(target_ref).?;
         const r_type = rel.r_type();
         const r_offset: u64 = @intCast(self.value + @as(i64, @intCast(rel.r_offset)));
         var r_addend = rel.r_addend;
         var r_sym: u32 = 0;
         switch (target.type(elf_file)) {
-            elf.STT_SECTION => if (target.mergeSubsection(elf_file)) |msub| {
+            elf.STT_SECTION => {
                 r_addend += @intCast(target.address(.{}, elf_file));
-                r_sym = elf_file.sectionSymbolOutputSymtabIndex(msub.mergeSection(elf_file).output_section_index);
-            } else {
-                r_addend += @intCast(target.address(.{}, elf_file));
-                r_sym = elf_file.sectionSymbolOutputSymtabIndex(target.outputShndx().?);
+                r_sym = if (target.outputShndx(elf_file)) |osec|
+                    elf_file.sectionSymbolOutputSymtabIndex(osec)
+                else
+                    0;
             },
             else => {
                 r_sym = target.outputSymtabIndex(elf_file) orelse 0;
@@ -366,10 +362,12 @@ pub fn writeRelocs(self: Atom, elf_file: *Elf, out_relocs: *std.ArrayList(elf.El
 }
 
 pub fn fdes(self: Atom, elf_file: *Elf) []Fde {
-    if (!self.flags.fde) return &[0]Fde{};
-    const extras = self.extra(elf_file).?;
-    const object = self.file(elf_file).?.object;
-    return object.fdes.items[extras.fde_start..][0..extras.fde_count];
+    const extras = self.extra(elf_file);
+    return switch (self.file(elf_file).?) {
+        .shared_object => unreachable,
+        .linker_defined, .zig_object => &[0]Fde{},
+        .object => |x| x.fdes.items[extras.fde_start..][0..extras.fde_count],
+    };
 }
 
 pub fn markFdesDead(self: Atom, elf_file: *Elf) void {
@@ -420,12 +418,21 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype
         const r_kind = relocation.decode(rel.r_type(), cpu_arch);
         if (r_kind == .none) continue;
 
-        const symbol_index = switch (file_ptr) {
-            .zig_object => |x| x.symbol(rel.r_sym()),
-            .object => |x| x.symbols.items[rel.r_sym()],
-            else => unreachable,
+        const symbol_ref = file_ptr.resolveSymbol(rel.r_sym(), elf_file);
+        const symbol = elf_file.symbol(symbol_ref) orelse {
+            const sym_name = switch (file_ptr) {
+                .zig_object => |x| x.symbol(rel.r_sym()).name(elf_file),
+                inline else => |x| x.symbols.items[rel.r_sym()].name(elf_file),
+            };
+            // Violation of One Definition Rule for COMDATs.
+            // TODO convert into an error
+            log.debug("{}: {s}: {s} refers to a discarded COMDAT section", .{
+                file_ptr.fmtPath(),
+                self.name(elf_file),
+                sym_name,
+            });
+            continue;
         };
-        const symbol = elf_file.symbol(symbol_index);
 
         const is_synthetic_symbol = switch (file_ptr) {
             .zig_object => false, // TODO: implement this once we support merge sections in ZigObject
@@ -433,19 +440,8 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype
             else => unreachable,
         };
 
-        // Check for violation of One Definition Rule for COMDATs.
-        if (symbol.file(elf_file) == null) {
-            // TODO convert into an error
-            log.debug("{}: {s}: {s} refers to a discarded COMDAT section", .{
-                file_ptr.fmtPath(),
-                self.name(elf_file),
-                symbol.name(elf_file),
-            });
-            continue;
-        }
-
         // Report an undefined symbol.
-        if (!is_synthetic_symbol and (try self.reportUndefined(elf_file, symbol, symbol_index, rel, undefs)))
+        if (!is_synthetic_symbol and (try self.reportUndefined(elf_file, symbol, rel, undefs)))
             continue;
 
         if (symbol.isIFunc(elf_file)) {
@@ -692,16 +688,15 @@ fn reportUndefined(
     self: Atom,
     elf_file: *Elf,
     sym: *const Symbol,
-    sym_index: Symbol.Index,
     rel: elf.Elf64_Rela,
     undefs: anytype,
 ) !bool {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
-    const rel_esym = switch (self.file(elf_file).?) {
-        .zig_object => |x| x.elfSym(rel.r_sym()).*,
-        .object => |x| x.symtab.items[rel.r_sym()],
-        else => unreachable,
+    const file_ptr = self.file(elf_file).?;
+    const rel_esym = switch (file_ptr) {
+        .zig_object => |x| x.symbol(rel.r_sym()).elfSym(elf_file),
+        inline else => |x| x.symtab.items[rel.r_sym()],
     };
     const esym = sym.elfSym(elf_file);
     if (rel_esym.st_shndx == elf.SHN_UNDEF and
@@ -710,11 +705,16 @@ fn reportUndefined(
         !sym.flags.import and
         esym.st_shndx == elf.SHN_UNDEF)
     {
-        const gop = try undefs.getOrPut(sym_index);
+        const idx = switch (file_ptr) {
+            .zig_object => |x| x.symbols_resolver.items[rel.r_sym() & ZigObject.symbol_mask],
+            .object => |x| x.symbols_resolver.items[rel.r_sym() - x.first_global.?],
+            inline else => |x| x.symbols_resolver.items[rel.r_sym()],
+        };
+        const gop = try undefs.getOrPut(idx);
         if (!gop.found_existing) {
-            gop.value_ptr.* = std.ArrayList(Atom.Index).init(gpa);
+            gop.value_ptr.* = std.ArrayList(Elf.Ref).init(gpa);
         }
-        try gop.value_ptr.append(self.atom_index);
+        try gop.value_ptr.append(.{ .index = self.atom_index, .file = self.file_index });
         return true;
     }
 
@@ -735,11 +735,8 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) RelocError!voi
         const r_kind = relocation.decode(rel.r_type(), cpu_arch);
         if (r_kind == .none) continue;
 
-        const target = switch (file_ptr) {
-            .zig_object => |x| elf_file.symbol(x.symbol(rel.r_sym())),
-            .object => |x| elf_file.symbol(x.symbols.items[rel.r_sym()]),
-            else => unreachable,
-        };
+        const target_ref = file_ptr.resolveSymbol(rel.r_sym(), elf_file);
+        const target = elf_file.symbol(target_ref).?;
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
 
         // We will use equation format to resolve relocations:
@@ -843,7 +840,7 @@ fn resolveDynAbsReloc(
             if (is_writeable or elf_file.z_nocopyreloc) {
                 elf_file.addRelaDynAssumeCapacity(.{
                     .offset = P,
-                    .sym = target.extra(elf_file).?.dynamic,
+                    .sym = target.extra(elf_file).dynamic,
                     .type = relocation.encode(.abs, cpu_arch),
                     .addend = A,
                 });
@@ -857,7 +854,7 @@ fn resolveDynAbsReloc(
             if (is_writeable) {
                 elf_file.addRelaDynAssumeCapacity(.{
                     .offset = P,
-                    .sym = target.extra(elf_file).?.dynamic,
+                    .sym = target.extra(elf_file).dynamic,
                     .type = relocation.encode(.abs, cpu_arch),
                     .addend = A,
                 });
@@ -870,7 +867,7 @@ fn resolveDynAbsReloc(
         .dynrel => {
             elf_file.addRelaDynAssumeCapacity(.{
                 .offset = P,
-                .sym = target.extra(elf_file).?.dynamic,
+                .sym = target.extra(elf_file).dynamic,
                 .type = relocation.encode(.abs, cpu_arch),
                 .addend = A,
             });
@@ -921,31 +918,29 @@ pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: any
 
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
 
-        const target_index = switch (file_ptr) {
-            .zig_object => |x| x.symbol(rel.r_sym()),
-            .object => |x| x.symbols.items[rel.r_sym()],
-            else => unreachable,
+        const target_ref = file_ptr.resolveSymbol(rel.r_sym(), elf_file);
+        const target = elf_file.symbol(target_ref) orelse {
+            const sym_name = switch (file_ptr) {
+                .zig_object => |x| x.symbol(rel.r_sym()).name(elf_file),
+                inline else => |x| x.symbols.items[rel.r_sym()].name(elf_file),
+            };
+            // Violation of One Definition Rule for COMDATs.
+            // TODO convert into an error
+            log.debug("{}: {s}: {s} refers to a discarded COMDAT section", .{
+                file_ptr.fmtPath(),
+                self.name(elf_file),
+                sym_name,
+            });
+            continue;
         };
-        const target = elf_file.symbol(target_index);
         const is_synthetic_symbol = switch (file_ptr) {
             .zig_object => false, // TODO: implement this once we support merge sections in ZigObject
             .object => |x| rel.r_sym() >= x.symtab.items.len,
             else => unreachable,
         };
 
-        // Check for violation of One Definition Rule for COMDATs.
-        if (target.file(elf_file) == null) {
-            // TODO convert into an error
-            log.debug("{}: {s}: {s} refers to a discarded COMDAT section", .{
-                file_ptr.fmtPath(),
-                self.name(elf_file),
-                target.name(elf_file),
-            });
-            continue;
-        }
-
         // Report an undefined symbol.
-        if (!is_synthetic_symbol and (try self.reportUndefined(elf_file, target, target_index, rel, undefs)))
+        if (!is_synthetic_symbol and (try self.reportUndefined(elf_file, target, rel, undefs)))
             continue;
 
         // We will use equation format to resolve relocations:
@@ -1001,25 +996,23 @@ const AddExtraOpts = struct {
     rel_count: ?u32 = null,
 };
 
-pub fn addExtra(atom: *Atom, opts: AddExtraOpts, elf_file: *Elf) !void {
-    if (atom.extra(elf_file) == null) {
-        atom.extra_index = try elf_file.addAtomExtra(.{});
-    }
-    var extras = atom.extra(elf_file).?;
+pub fn addExtra(atom: *Atom, opts: AddExtraOpts, elf_file: *Elf) void {
+    const file_ptr = atom.file(elf_file).?;
+    var extras = file_ptr.atomExtra(atom.extra_index);
     inline for (@typeInfo(@TypeOf(opts)).Struct.fields) |field| {
         if (@field(opts, field.name)) |x| {
             @field(extras, field.name) = x;
         }
     }
-    atom.setExtra(extras, elf_file);
+    file_ptr.setAtomExtra(atom.extra_index, extras);
 }
 
-pub inline fn extra(atom: Atom, elf_file: *Elf) ?Extra {
-    return elf_file.atomExtra(atom.extra_index);
+pub inline fn extra(atom: Atom, elf_file: *Elf) Extra {
+    return atom.file(elf_file).?.atomExtra(atom.extra_index);
 }
 
 pub inline fn setExtra(atom: Atom, extras: Extra, elf_file: *Elf) void {
-    elf_file.setAtomExtra(atom.extra_index, extras);
+    atom.file(elf_file).?.setAtomExtra(atom.extra_index, extras);
 }
 
 pub fn format(
@@ -1061,9 +1054,9 @@ fn format2(
         atom.atom_index,           atom.name(elf_file), atom.address(elf_file),
         atom.output_section_index, atom.alignment,      atom.size,
     });
-    if (atom.flags.fde) {
+    if (atom.fdes(elf_file).len > 0) {
         try writer.writeAll(" : fdes{ ");
-        const extras = atom.extra(elf_file).?;
+        const extras = atom.extra(elf_file);
         for (atom.fdes(elf_file), extras.fde_start..) |fde, i| {
             try writer.print("{d}", .{i});
             if (!fde.alive) try writer.writeAll("([*])");
@@ -1071,26 +1064,12 @@ fn format2(
         }
         try writer.writeAll(" }");
     }
-    if (!atom.flags.alive) {
+    if (!atom.alive) {
         try writer.writeAll(" : [*]");
     }
 }
 
 pub const Index = u32;
-
-pub const Flags = packed struct {
-    /// Specifies whether this atom is alive or has been garbage collected.
-    alive: bool = true,
-
-    /// Specifies if the atom has been visited during garbage collection.
-    visited: bool = false,
-
-    /// Whether this atom has a range extension thunk.
-    thunk: bool = false,
-
-    /// Whether this atom has FDE records.
-    fde: bool = false,
-};
 
 const x86_64 = struct {
     fn scanReloc(
@@ -1780,11 +1759,7 @@ const aarch64 = struct {
             => {
                 const disp: i28 = math.cast(i28, S + A - P) orelse blk: {
                     const th = atom.thunk(elf_file);
-                    const target_index = switch (file_ptr) {
-                        .zig_object => |x| x.symbol(rel.r_sym()),
-                        .object => |x| x.symbols.items[rel.r_sym()],
-                        else => unreachable,
-                    };
+                    const target_index = file_ptr.resolveSymbol(rel.r_sym(), elf_file);
                     const S_ = th.targetAddress(target_index, elf_file);
                     break :blk math.cast(i28, S_ + A - P) orelse return error.Overflow;
                 };
@@ -2030,6 +2005,10 @@ const riscv = struct {
                     assert(symbol.flags.has_zig_got);
                 },
 
+                Elf.R_GOT_HI20_STATIC,
+                Elf.R_GOT_LO12_I_STATIC,
+                => symbol.flags.needs_got = true,
+
                 else => try atom.reportUnhandledRelocError(rel, elf_file),
             },
         }
@@ -2116,11 +2095,8 @@ const riscv = struct {
                     return error.RelocFailure;
                 };
                 it.pos = pos;
-                const target_ = switch (file_ptr) {
-                    .zig_object => |x| elf_file.symbol(x.symbol(pair.r_sym())),
-                    .object => |x| elf_file.symbol(x.symbols.items[pair.r_sym()]),
-                    else => unreachable,
-                };
+                const target_ref_ = file_ptr.resolveSymbol(pair.r_sym(), elf_file);
+                const target_ = elf_file.symbol(target_ref_).?;
                 const S_ = target_.address(.{}, elf_file);
                 const A_ = pair.r_addend;
                 const P_ = atom_addr + @as(i64, @intCast(pair.r_offset));
@@ -2175,14 +2151,26 @@ const riscv = struct {
                 // Zig custom relocations
                 Elf.R_ZIG_GOT_HI20 => {
                     assert(target.flags.has_zig_got);
-                    const disp: u32 = @bitCast(math.cast(i32, G + ZIG_GOT + A) orelse return error.Overflow);
+                    const disp: u32 = @bitCast(math.cast(i32, ZIG_GOT + A) orelse return error.Overflow);
                     riscv_util.writeInstU(code[r_offset..][0..4], disp);
                 },
 
                 Elf.R_ZIG_GOT_LO12 => {
                     assert(target.flags.has_zig_got);
-                    const value: u32 = @bitCast(math.cast(i32, G + ZIG_GOT + A) orelse return error.Overflow);
+                    const value: u32 = @bitCast(math.cast(i32, ZIG_GOT + A) orelse return error.Overflow);
                     riscv_util.writeInstI(code[r_offset..][0..4], value);
+                },
+
+                Elf.R_GOT_HI20_STATIC => {
+                    assert(target.flags.has_got);
+                    const disp: u32 = @bitCast(math.cast(i32, G + GOT + A) orelse return error.Overflow);
+                    riscv_util.writeInstU(code[r_offset..][0..4], disp);
+                },
+
+                Elf.R_GOT_LO12_I_STATIC => {
+                    assert(target.flags.has_got);
+                    const disp: u32 = @bitCast(math.cast(i32, G + GOT + A) orelse return error.Overflow);
+                    riscv_util.writeInstI(code[r_offset..][0..4], disp);
                 },
 
                 else => try atom.reportUnhandledRelocError(rel, elf_file),
@@ -2311,4 +2299,5 @@ const File = @import("file.zig").File;
 const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");
 const Thunk = @import("thunks.zig").Thunk;
+const ZigObject = @import("ZigObject.zig");
 const dev = @import("../../dev.zig");

@@ -43,9 +43,8 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
     const llvm_arch = switch (target.cpu.arch) {
         .arm => "arm",
         .armeb => "armeb",
-        .aarch64 => "aarch64",
+        .aarch64 => if (target.abi == .ilp32) "aarch64_32" else "aarch64",
         .aarch64_be => "aarch64_be",
-        .aarch64_32 => "aarch64_32",
         .arc => "arc",
         .avr => "avr",
         .bpfel => "bpfel",
@@ -70,7 +69,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .riscv64 => "riscv64",
         .sparc => "sparc",
         .sparc64 => "sparc64",
-        .sparcel => "sparcel",
         .s390x => "s390x",
         .thumb => "thumb",
         .thumbeb => "thumbeb",
@@ -80,17 +78,17 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .xtensa => "xtensa",
         .nvptx => "nvptx",
         .nvptx64 => "nvptx64",
-        .spir => "spir",
-        .spir64 => "spir64",
         .spirv => "spirv",
         .spirv32 => "spirv32",
         .spirv64 => "spirv64",
-        .kalimba => "kalimba",
         .lanai => "lanai",
         .wasm32 => "wasm32",
         .wasm64 => "wasm64",
         .ve => "ve",
-        .spu_2 => return error.@"LLVM backend does not support SPU Mark II",
+
+        .kalimba,
+        .spu_2,
+        => unreachable, // Gated by hasLlvmSupport().
     };
     try llvm_triple.appendSlice(llvm_arch);
     try llvm_triple.appendSlice("-unknown-");
@@ -137,8 +135,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .opencl,
         .glsl450,
         .plan9,
-        .ananas,
-        .cloudabi,
         .minix,
         .contiki,
         .other,
@@ -157,7 +153,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
     try llvm_triple.append('-');
 
     const llvm_abi = switch (target.abi) {
-        .none => "unknown",
+        .none, .ilp32 => "unknown",
         .gnu => "gnu",
         .gnuabin32 => "gnuabin32",
         .gnuabi64 => "gnuabi64",
@@ -209,8 +205,6 @@ pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
         .opencl,
         .glsl450,
         .plan9,
-        .ananas,
-        .cloudabi,
         .minix,
         .contiki,
         => .UnknownOS,
@@ -259,7 +253,6 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .armeb => .armeb,
         .aarch64 => .aarch64,
         .aarch64_be => .aarch64_be,
-        .aarch64_32 => .aarch64_32,
         .arc => .arc,
         .avr => .avr,
         .bpfel => .bpfel,
@@ -284,7 +277,6 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .riscv64 => .riscv64,
         .sparc => .sparc,
         .sparc64 => .sparcv9, // In LLVM, sparc64 == sparcv9.
-        .sparcel => .sparcel,
         .s390x => .systemz,
         .thumb => .thumb,
         .thumbeb => .thumbeb,
@@ -294,8 +286,6 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .xtensa => .xtensa,
         .nvptx => .nvptx,
         .nvptx64 => .nvptx64,
-        .spir => .spir,
-        .spir64 => .spir64,
         .spirv => .spirv,
         .spirv32 => .spirv32,
         .spirv64 => .spirv64,
@@ -393,7 +383,6 @@ const DataLayoutBuilder = struct {
                 .pref = pref,
                 .idx = idx,
             };
-            if (self.target.cpu.arch == .aarch64_32) continue;
             if (!info.force_in_data_layout and matches_default and
                 self.target.cpu.arch != .riscv64 and
                 self.target.cpu.arch != .loongarch64 and
@@ -412,7 +401,7 @@ const DataLayoutBuilder = struct {
         else if (self.target.cpu.arch == .powerpc64 and
             self.target.os.tag != .freebsd and self.target.abi != .musl)
             try writer.writeAll("-Fi64")
-        else if (self.target.cpu.arch.isPPC() or self.target.cpu.arch.isPPC64())
+        else if (self.target.cpu.arch.isPowerPC())
             try writer.writeAll("-Fn32");
         if (self.target.cpu.arch != .hexagon) {
             if (self.target.cpu.arch == .arc or self.target.cpu.arch == .s390x)
@@ -476,14 +465,12 @@ const DataLayoutBuilder = struct {
             .powerpcle,
             .riscv32,
             .sparc,
-            .sparcel,
             .thumb,
             .thumbeb,
             .xtensa,
             => &.{32},
             .aarch64,
             .aarch64_be,
-            .aarch64_32,
             .amdgcn,
             .bpfeb,
             .bpfel,
@@ -587,7 +574,6 @@ const DataLayoutBuilder = struct {
                 switch (self.target.cpu.arch) {
                     .aarch64,
                     .aarch64_be,
-                    .aarch64_32,
                     => if (size == 128) {
                         abi = size;
                         pref = size;
@@ -675,7 +661,7 @@ const DataLayoutBuilder = struct {
                     128 => abi = 64,
                     else => {},
                 }
-            } else if ((self.target.cpu.arch.isPPC64() and self.target.os.tag == .linux and
+            } else if ((self.target.cpu.arch.isPowerPC64() and self.target.os.tag == .linux and
                 (size == 256 or size == 512)) or
                 (self.target.cpu.arch.isNvptx() and (size == 16 or size == 32)))
             {
@@ -705,7 +691,7 @@ const DataLayoutBuilder = struct {
                 force_pref = true;
             },
             .float => switch (self.target.cpu.arch) {
-                .aarch64_32, .amdgcn => if (size == 128) {
+                .amdgcn => if (size == 128) {
                     abi = size;
                     pref = size;
                 },
@@ -10860,7 +10846,7 @@ pub const FuncGen = struct {
                 ,
                 .constraints = "={rdx},{rax},0,~{cc},~{memory}",
             },
-            .aarch64, .aarch64_32, .aarch64_be => .{
+            .aarch64, .aarch64_be => .{
                 .template =
                 \\ror x12, x12, #3  ;  ror x12, x12, #13
                 \\ror x12, x12, #51 ;  ror x12, x12, #61
@@ -10932,7 +10918,7 @@ fn toLlvmCallConv(cc: std.builtin.CallingConvention, target: std.Target) Builder
         .Fastcall => .x86_fastcallcc,
         .Vectorcall => return switch (target.cpu.arch) {
             .x86, .x86_64 => .x86_vectorcallcc,
-            .aarch64, .aarch64_be, .aarch64_32 => .aarch64_vector_pcs,
+            .aarch64, .aarch64_be => .aarch64_vector_pcs,
             else => unreachable,
         },
         .Thiscall => .x86_thiscallcc,
@@ -11929,7 +11915,7 @@ fn constraintAllowsRegister(constraint: []const u8) bool {
 
 pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
     switch (arch) {
-        .aarch64, .aarch64_be, .aarch64_32 => {
+        .aarch64, .aarch64_be => {
             llvm.LLVMInitializeAArch64Target();
             llvm.LLVMInitializeAArch64TargetInfo();
             llvm.LLVMInitializeAArch64TargetMC();
@@ -12013,7 +11999,7 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializeRISCVAsmPrinter();
             llvm.LLVMInitializeRISCVAsmParser();
         },
-        .sparc, .sparc64, .sparcel => {
+        .sparc, .sparc64 => {
             llvm.LLVMInitializeSparcTarget();
             llvm.LLVMInitializeSparcTargetInfo();
             llvm.LLVMInitializeSparcTargetMC();
@@ -12099,16 +12085,16 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializeLoongArchAsmParser();
         },
 
-        // LLVM backends that have no initialization functions.
-        .spir,
-        .spir64,
+        // We don't currently support using these backends.
         .spirv,
         .spirv32,
         .spirv64,
-        .kalimba,
         .dxil,
         => {},
 
-        .spu_2 => unreachable, // LLVM does not support this backend
+        // LLVM does does not have a backend for these.
+        .kalimba,
+        .spu_2,
+        => unreachable,
     }
 }

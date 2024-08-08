@@ -47,6 +47,11 @@ else switch (native_os) {
     .plan9 => std.os.plan9,
     else => struct {
         pub const ucontext_t = void;
+        pub const pid_t = void;
+        pub const pollfd = void;
+        pub const fd_t = void;
+        pub const uid_t = void;
+        pub const gid_t = void;
     },
 };
 
@@ -615,7 +620,6 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
                 .INVAL => unreachable,
                 .FAULT => unreachable,
                 .INTR => continue,
-                .NOSYS => return getRandomBytesDevURandom(buf),
                 else => return unexpectedErrno(err),
             }
         }
@@ -787,6 +791,10 @@ pub const ReadError = error{
     /// and reading from the file descriptor would block.
     WouldBlock,
 
+    /// reading a timerfd with CANCEL_ON_SET will lead to this error
+    /// when the clock goes through a discontinuous change
+    Canceled,
+
     /// In WASI, this error occurs when the file descriptor does
     /// not hold the required rights to read from it.
     AccessDenied,
@@ -847,6 +855,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             .INVAL => unreachable,
             .FAULT => unreachable,
             .AGAIN => return error.WouldBlock,
+            .CANCELED => return error.Canceled,
             .BADF => return error.NotOpenForReading, // Can be a race condition.
             .IO => return error.InputOutput,
             .ISDIR => return error.IsDir,
@@ -1598,7 +1607,7 @@ pub fn openZ(file_path: [*:0]const u8, flags: O, perm: mode_t) OpenError!fd_t {
             .INTR => continue,
 
             .FAULT => unreachable,
-            .INVAL => unreachable,
+            .INVAL => return error.BadPathName,
             .ACCES => return error.AccessDenied,
             .FBIG => return error.FileTooBig,
             .OVERFLOW => return error.FileTooBig,
@@ -1676,7 +1685,8 @@ pub fn openatWasi(
             .INTR => continue,
 
             .FAULT => unreachable,
-            .INVAL => unreachable,
+            // Provides INVAL with a linux host on a bad path name, but NOENT on Windows
+            .INVAL => return error.BadPathName,
             .BADF => unreachable,
             .ACCES => return error.AccessDenied,
             .FBIG => return error.FileTooBig,
@@ -1767,7 +1777,7 @@ pub fn openatZ(dir_fd: fd_t, file_path: [*:0]const u8, flags: O, mode: mode_t) O
             .INTR => continue,
 
             .FAULT => unreachable,
-            .INVAL => unreachable,
+            .INVAL => return error.BadPathName,
             .BADF => unreachable,
             .ACCES => return error.AccessDenied,
             .FBIG => return error.FileTooBig,
@@ -2197,11 +2207,11 @@ pub const LinkError = UnexpectedError || error{
 
 /// On WASI, both paths should be encoded as valid UTF-8.
 /// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
-pub fn linkZ(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: i32) LinkError!void {
+pub fn linkZ(oldpath: [*:0]const u8, newpath: [*:0]const u8) LinkError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        return link(mem.sliceTo(oldpath, 0), mem.sliceTo(newpath, 0), flags);
+        return link(mem.sliceTo(oldpath, 0), mem.sliceTo(newpath, 0));
     }
-    switch (errno(system.link(oldpath, newpath, flags))) {
+    switch (errno(system.link(oldpath, newpath))) {
         .SUCCESS => return,
         .ACCES => return error.AccessDenied,
         .DQUOT => return error.DiskQuota,
@@ -2228,16 +2238,16 @@ pub fn linkZ(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: i32) LinkErr
 
 /// On WASI, both paths should be encoded as valid UTF-8.
 /// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
-pub fn link(oldpath: []const u8, newpath: []const u8, flags: i32) LinkError!void {
+pub fn link(oldpath: []const u8, newpath: []const u8) LinkError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        return linkat(wasi.AT.FDCWD, oldpath, wasi.AT.FDCWD, newpath, flags) catch |err| switch (err) {
+        return linkat(wasi.AT.FDCWD, oldpath, wasi.AT.FDCWD, newpath, 0) catch |err| switch (err) {
             error.NotDir => unreachable, // link() does not support directories
             else => |e| return e,
         };
     }
     const old = try toPosixPath(oldpath);
     const new = try toPosixPath(newpath);
-    return try linkZ(&old, &new, flags);
+    return try linkZ(&old, &new);
 }
 
 pub const LinkatError = LinkError || error{NotDir};
@@ -3124,8 +3134,10 @@ pub fn chdir(dir_path: []const u8) ChangeCurDirError!void {
         @compileError("WASI does not support os.chdir");
     } else if (native_os == .windows) {
         var wtf16_dir_path: [windows.PATH_MAX_WIDE]u16 = undefined;
-        const len = try std.unicode.wtf8ToWtf16Le(wtf16_dir_path[0..], dir_path);
-        if (len > wtf16_dir_path.len) return error.NameTooLong;
+        if (try std.unicode.checkWtf8ToWtf16LeOverflow(dir_path, &wtf16_dir_path)) {
+            return error.NameTooLong;
+        }
+        const len = try std.unicode.wtf8ToWtf16Le(&wtf16_dir_path, dir_path);
         return chdirW(wtf16_dir_path[0..len]);
     } else {
         const dir_path_c = try toPosixPath(dir_path);
@@ -3139,9 +3151,12 @@ pub fn chdir(dir_path: []const u8) ChangeCurDirError!void {
 /// On other platforms, `dir_path` is an opaque sequence of bytes with no particular encoding.
 pub fn chdirZ(dir_path: [*:0]const u8) ChangeCurDirError!void {
     if (native_os == .windows) {
+        const dir_path_span = mem.span(dir_path);
         var wtf16_dir_path: [windows.PATH_MAX_WIDE]u16 = undefined;
-        const len = try std.unicode.wtf8ToWtf16Le(wtf16_dir_path[0..], mem.span(dir_path));
-        if (len > wtf16_dir_path.len) return error.NameTooLong;
+        if (try std.unicode.checkWtf8ToWtf16LeOverflow(dir_path_span, &wtf16_dir_path)) {
+            return error.NameTooLong;
+        }
+        const len = try std.unicode.wtf8ToWtf16Le(&wtf16_dir_path, dir_path_span);
         return chdirW(wtf16_dir_path[0..len]);
     } else if (native_os == .wasi and !builtin.link_libc) {
         return chdir(mem.span(dir_path));
@@ -4528,7 +4543,6 @@ pub const FanotifyInitError = error{
     ProcessFdQuotaExceeded,
     SystemFdQuotaExceeded,
     SystemResources,
-    OperationNotSupported,
     PermissionDenied,
 } || UnexpectedError;
 
@@ -4540,7 +4554,6 @@ pub fn fanotify_init(flags: std.os.linux.fanotify.InitFlags, event_f_flags: u32)
         .MFILE => return error.ProcessFdQuotaExceeded,
         .NFILE => return error.SystemFdQuotaExceeded,
         .NOMEM => return error.SystemResources,
-        .NOSYS => return error.OperationNotSupported,
         .PERM => return error.PermissionDenied,
         else => |err| return unexpectedErrno(err),
     }
@@ -4553,7 +4566,6 @@ pub const FanotifyMarkError = error{
     FileNotFound,
     SystemResources,
     UserMarkQuotaExceeded,
-    NotImplemented,
     NotDir,
     OperationNotSupported,
     PermissionDenied,
@@ -4594,7 +4606,6 @@ pub fn fanotify_markZ(
         .NOENT => return error.FileNotFound,
         .NOMEM => return error.SystemResources,
         .NOSPC => return error.UserMarkQuotaExceeded,
-        .NOSYS => return error.NotImplemented,
         .NOTDIR => return error.NotDir,
         .OPNOTSUPP => return error.OperationNotSupported,
         .PERM => return error.PermissionDenied,
@@ -6177,13 +6188,6 @@ pub fn sendfile(
 
     switch (native_os) {
         .linux => sf: {
-            // sendfile() first appeared in Linux 2.2, glibc 2.1.
-            const call_sf = comptime if (builtin.link_libc)
-                std.c.versionCheck(.{ .major = 2, .minor = 1, .patch = 0 })
-            else
-                builtin.os.version_range.linux.range.max.order(.{ .major = 2, .minor = 2, .patch = 0 }) != .lt;
-            if (!call_sf) break :sf;
-
             if (headers.len != 0) {
                 const amt = try writev(out_fd, headers);
                 total_written += amt;
@@ -6217,14 +6221,14 @@ pub fn sendfile(
                     .OVERFLOW => unreachable, // We avoid passing too large of a `count`.
                     .NOTCONN => return error.BrokenPipe, // `out_fd` is an unconnected socket
 
-                    .INVAL, .NOSYS => {
+                    .INVAL => {
                         // EINVAL could be any of the following situations:
                         // * Descriptor is not valid or locked
                         // * an mmap(2)-like operation is  not  available  for in_fd
                         // * count is negative
                         // * out_fd has the APPEND flag set
                         // Because of the "mmap(2)-like operation" possibility, we fall back to doing read/write
-                        // manually, the same as ENOSYS.
+                        // manually.
                         break :sf;
                     },
                     .AGAIN => return error.WouldBlock,
@@ -6450,21 +6454,15 @@ pub const CopyFileRangeError = error{
 /// `flags` has different meanings per operating system; refer to the respective man pages.
 ///
 /// These systems support in-kernel data copying:
-/// * Linux 4.5 (cross-filesystem 5.3)
+/// * Linux (cross-filesystem from version 5.3)
 /// * FreeBSD 13.0
 ///
 /// Other systems fall back to calling `pread` / `pwrite`.
 ///
 /// Maximum offsets on Linux and FreeBSD are `maxInt(i64)`.
 pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len: usize, flags: u32) CopyFileRangeError!usize {
-    const global = struct {
-        var has_copy_file_range = true;
-    };
-
     if ((comptime builtin.os.isAtLeast(.freebsd, .{ .major = 13, .minor = 0, .patch = 0 }) orelse false) or
-        ((comptime builtin.os.isAtLeast(.linux, .{ .major = 4, .minor = 5, .patch = 0 }) orelse false and
-        std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 })) and
-        @atomicLoad(bool, &global.has_copy_file_range, .monotonic)))
+        (comptime builtin.os.tag == .linux and std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 })))
     {
         var off_in_copy: i64 = @bitCast(off_in);
         var off_out_copy: i64 = @bitCast(off_out);
@@ -6498,10 +6496,6 @@ pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len
                     .PERM => return error.PermissionDenied,
                     .TXTBSY => return error.SwapFile,
                     .XDEV => break, // support for cross-filesystem copy added in Linux 5.3, use fallback
-                    .NOSYS => {
-                        @atomicStore(bool, &global.has_copy_file_range, false, .monotonic);
-                        break;
-                    },
                     else => |err| return unexpectedErrno(err),
                 }
             }
@@ -6769,10 +6763,6 @@ pub const MemFdCreateError = error{
     OutOfMemory,
     /// Either the name provided exceeded `NAME_MAX`, or invalid flags were passed.
     NameTooLong,
-
-    /// memfd_create is available in Linux 3.17 and later. This error is returned
-    /// for older kernel versions.
-    SystemOutdated,
 } || UnexpectedError;
 
 pub fn memfd_createZ(name: [*:0]const u8, flags: u32) MemFdCreateError!fd_t {
@@ -6789,7 +6779,6 @@ pub fn memfd_createZ(name: [*:0]const u8, flags: u32) MemFdCreateError!fd_t {
                 .NFILE => return error.SystemFdQuotaExceeded,
                 .MFILE => return error.ProcessFdQuotaExceeded,
                 .NOMEM => return error.OutOfMemory,
-                .NOSYS => return error.SystemOutdated,
                 else => |err| return unexpectedErrno(err),
             }
         },
@@ -6909,7 +6898,6 @@ pub fn signalfd(fd: fd_t, mask: *const sigset_t, flags: u32) !fd_t {
         .NOMEM => return error.SystemResources,
         .MFILE => return error.ProcessResources,
         .NODEV => return error.InodeMountFail,
-        .NOSYS => return error.SystemOutdated,
         else => |err| return unexpectedErrno(err),
     }
 }

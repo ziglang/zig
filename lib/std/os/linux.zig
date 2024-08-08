@@ -13,10 +13,10 @@ const elf = std.elf;
 const vdso = @import("linux/vdso.zig");
 const dl = @import("../dynamic_library.zig");
 const native_arch = builtin.cpu.arch;
+const native_abi = builtin.abi;
 const native_endian = native_arch.endian();
 const is_mips = native_arch.isMIPS();
-const is_ppc = native_arch.isPPC();
-const is_ppc64 = native_arch.isPPC64();
+const is_ppc = native_arch.isPowerPC();
 const is_sparc = native_arch.isSPARC();
 const iovec = std.posix.iovec;
 const iovec_const = std.posix.iovec_const;
@@ -39,6 +39,7 @@ const arch_bits = switch (native_arch) {
     .x86_64 => @import("linux/x86_64.zig"),
     .aarch64, .aarch64_be => @import("linux/arm64.zig"),
     .arm, .armeb, .thumb, .thumbeb => @import("linux/arm-eabi.zig"),
+    .riscv32 => @import("linux/riscv32.zig"),
     .riscv64 => @import("linux/riscv64.zig"),
     .sparc64 => @import("linux/sparc64.zig"),
     .mips, .mipsel => @import("linux/mips.zig"),
@@ -64,6 +65,27 @@ pub const socketcall = syscall_bits.socketcall;
 pub const syscall_pipe = syscall_bits.syscall_pipe;
 pub const syscall_fork = syscall_bits.syscall_fork;
 
+pub fn clone(
+    func: *const fn (arg: usize) callconv(.C) u8,
+    stack: usize,
+    flags: u32,
+    arg: usize,
+    ptid: *i32,
+    tp: usize, // aka tls
+    ctid: *i32,
+) usize {
+    // Can't directly call a naked function; cast to C calling convention first.
+    return @as(*const fn (
+        *const fn (arg: usize) callconv(.C) u8,
+        usize,
+        u32,
+        usize,
+        *i32,
+        usize,
+        *i32,
+    ) callconv(.C) usize, @ptrCast(&syscall_bits.clone))(func, stack, flags, arg, ptid, tp, ctid);
+}
+
 pub const ARCH = arch_bits.ARCH;
 pub const Elf_Symndx = arch_bits.Elf_Symndx;
 pub const F = arch_bits.F;
@@ -76,7 +98,6 @@ pub const Stat = arch_bits.Stat;
 pub const VDSO = arch_bits.VDSO;
 pub const blkcnt_t = arch_bits.blkcnt_t;
 pub const blksize_t = arch_bits.blksize_t;
-pub const clone = arch_bits.clone;
 pub const dev_t = arch_bits.dev_t;
 pub const ino_t = arch_bits.ino_t;
 pub const mcontext_t = arch_bits.mcontext_t;
@@ -103,13 +124,25 @@ pub const SYS = switch (@import("builtin").cpu.arch) {
     .x86 => syscalls.X86,
     .x86_64 => syscalls.X64,
     .aarch64, .aarch64_be => syscalls.Arm64,
+    .arc => syscalls.Arc,
     .arm, .armeb, .thumb, .thumbeb => syscalls.Arm,
+    .csky => syscalls.CSky,
+    .hexagon => syscalls.Hexagon,
+    .riscv32 => syscalls.RiscV32,
     .riscv64 => syscalls.RiscV64,
+    .sparc => syscalls.Sparc,
     .sparc64 => syscalls.Sparc64,
-    .mips, .mipsel => syscalls.Mips,
-    .mips64, .mips64el => syscalls.Mips64,
+    .loongarch64 => syscalls.LoongArch64,
+    .m68k => syscalls.M68k,
+    .mips, .mipsel => syscalls.MipsO32,
+    .mips64, .mips64el => if (builtin.abi == .gnuabin32)
+        syscalls.MipsN32
+    else
+        syscalls.MipsN64,
     .powerpc, .powerpcle => syscalls.PowerPC,
     .powerpc64, .powerpc64le => syscalls.PowerPC64,
+    .s390x => syscalls.S390x,
+    .xtensa => syscalls.Xtensa,
     else => @compileError("The Zig Standard Library is missing syscall definitions for the target CPU architecture"),
 };
 
@@ -163,7 +196,7 @@ pub const MAP = switch (native_arch) {
         UNINITIALIZED: bool = false,
         _: u5 = 0,
     },
-    .riscv64 => packed struct(u32) {
+    .riscv32, .riscv64 => packed struct(u32) {
         TYPE: MAP_TYPE,
         FIXED: bool = false,
         ANONYMOUS: bool = false,
@@ -268,7 +301,7 @@ pub const O = switch (native_arch) {
         TMPFILE: bool = false,
         _: u9 = 0,
     },
-    .x86, .riscv64 => packed struct(u32) {
+    .x86, .riscv32, .riscv64 => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
         _2: u4 = 0,
         CREAT: bool = false,
@@ -421,10 +454,9 @@ fn getauxvalImpl(index: usize) callconv(.C) usize {
 // Some architectures (and some syscalls) require 64bit parameters to be passed
 // in a even-aligned register pair.
 const require_aligned_register_pair =
-    builtin.cpu.arch.isPPC() or
-    builtin.cpu.arch.isMIPS() or
-    builtin.cpu.arch.isARM() or
-    builtin.cpu.arch.isThumb();
+    builtin.cpu.arch.isPowerPC32() or
+    builtin.cpu.arch.isMIPS32() or
+    builtin.cpu.arch.isArmOrThumb();
 
 // Split a 64bit value into a {LSB,MSB} pair.
 // The LE/BE variants specify the endianness to assume.
@@ -474,7 +506,7 @@ pub fn dup2(old: i32, new: i32) usize {
     } else {
         if (old == new) {
             if (std.debug.runtime_safety) {
-                const rc = syscall2(.fcntl, @as(usize, @bitCast(@as(isize, old))), F.GETFD);
+                const rc = fcntl(F.GETFD, @as(fd_t, old), 0);
                 if (@as(isize, @bitCast(rc)) < 0) return rc;
             }
             return @as(usize, @intCast(old));
@@ -1211,7 +1243,7 @@ pub fn llseek(fd: i32, offset: u64, result: ?*u64, whence: usize) usize {
     // NOTE: The offset parameter splitting is independent from the target
     // endianness.
     return syscall5(
-        ._llseek,
+        .llseek,
         @as(usize, @bitCast(@as(isize, fd))),
         @as(usize, @truncate(offset >> 32)),
         @as(usize, @truncate(offset)),
@@ -1308,13 +1340,12 @@ pub fn tgkill(tgid: pid_t, tid: pid_t, sig: i32) usize {
     return syscall3(.tgkill, @as(usize, @bitCast(@as(isize, tgid))), @as(usize, @bitCast(@as(isize, tid))), @as(usize, @bitCast(@as(isize, sig))));
 }
 
-pub fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: i32) usize {
+pub fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8) usize {
     if (@hasField(SYS, "link")) {
-        return syscall3(
+        return syscall2(
             .link,
             @intFromPtr(oldpath),
             @intFromPtr(newpath),
-            @as(usize, @bitCast(@as(isize, flags))),
         );
     } else {
         return syscall5(
@@ -1323,7 +1354,7 @@ pub fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: i32) usize {
             @intFromPtr(oldpath),
             @as(usize, @bitCast(@as(isize, AT.FDCWD))),
             @intFromPtr(newpath),
-            @as(usize, @bitCast(@as(isize, flags))),
+            0,
         );
     }
 }
@@ -1370,7 +1401,11 @@ pub fn waitid(id_type: P, id: i32, infop: *siginfo_t, flags: u32) usize {
 }
 
 pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) usize {
-    return syscall3(.fcntl, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, cmd))), arg);
+    if (@hasField(SYS, "fcntl64")) {
+        return syscall3(.fcntl64, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, cmd))), arg);
+    } else {
+        return syscall3(.fcntl, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, cmd))), arg);
+    }
 }
 
 pub fn flock(fd: fd_t, operation: i32) usize {
@@ -1382,7 +1417,7 @@ const VdsoClockGettime = *align(1) const fn (clockid_t, *timespec) callconv(.C) 
 var vdso_clock_gettime: ?VdsoClockGettime = &init_vdso_clock_gettime;
 
 pub fn clock_gettime(clk_id: clockid_t, tp: *timespec) usize {
-    if (@hasDecl(VDSO, "CGT_SYM")) {
+    if (VDSO != void) {
         const ptr = @atomicLoad(?VdsoClockGettime, &vdso_clock_gettime, .unordered);
         if (ptr) |f| {
             const rc = f(clk_id, tp);
@@ -1577,6 +1612,10 @@ pub fn setsid() pid_t {
 
 pub fn getpid() pid_t {
     return @bitCast(@as(u32, @truncate(syscall0(.getpid))));
+}
+
+pub fn getppid() pid_t {
+    return @bitCast(@as(u32, @truncate(syscall0(.getppid))));
 }
 
 pub fn gettid() pid_t {
@@ -1836,7 +1875,11 @@ pub fn accept4(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t, flag
 }
 
 pub fn fstat(fd: i32, stat_buf: *Stat) usize {
-    if (@hasField(SYS, "fstat64")) {
+    if (native_arch == .riscv32) {
+        // riscv32 has made the interesting decision to not implement some of
+        // the older stat syscalls, including this one.
+        @compileError("No fstat syscall on this architecture.");
+    } else if (@hasField(SYS, "fstat64")) {
         return syscall2(.fstat64, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(stat_buf));
     } else {
         return syscall2(.fstat, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(stat_buf));
@@ -1844,7 +1887,11 @@ pub fn fstat(fd: i32, stat_buf: *Stat) usize {
 }
 
 pub fn stat(pathname: [*:0]const u8, statbuf: *Stat) usize {
-    if (@hasField(SYS, "stat64")) {
+    if (native_arch == .riscv32) {
+        // riscv32 has made the interesting decision to not implement some of
+        // the older stat syscalls, including this one.
+        @compileError("No stat syscall on this architecture.");
+    } else if (@hasField(SYS, "stat64")) {
         return syscall2(.stat64, @intFromPtr(pathname), @intFromPtr(statbuf));
     } else {
         return syscall2(.stat, @intFromPtr(pathname), @intFromPtr(statbuf));
@@ -1852,7 +1899,11 @@ pub fn stat(pathname: [*:0]const u8, statbuf: *Stat) usize {
 }
 
 pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
-    if (@hasField(SYS, "lstat64")) {
+    if (native_arch == .riscv32) {
+        // riscv32 has made the interesting decision to not implement some of
+        // the older stat syscalls, including this one.
+        @compileError("No lstat syscall on this architecture.");
+    } else if (@hasField(SYS, "lstat64")) {
         return syscall2(.lstat64, @intFromPtr(pathname), @intFromPtr(statbuf));
     } else {
         return syscall2(.lstat, @intFromPtr(pathname), @intFromPtr(statbuf));
@@ -1860,7 +1911,11 @@ pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
 }
 
 pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: u32) usize {
-    if (@hasField(SYS, "fstatat64")) {
+    if (native_arch == .riscv32) {
+        // riscv32 has made the interesting decision to not implement some of
+        // the older stat syscalls, including this one.
+        @compileError("No fstatat syscall on this architecture.");
+    } else if (@hasField(SYS, "fstatat64")) {
         return syscall4(.fstatat64, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(stat_buf), flags);
     } else {
         return syscall4(.fstatat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(stat_buf), flags);
@@ -1868,17 +1923,14 @@ pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: u32) usi
 }
 
 pub fn statx(dirfd: i32, path: [*:0]const u8, flags: u32, mask: u32, statx_buf: *Statx) usize {
-    if (@hasField(SYS, "statx")) {
-        return syscall5(
-            .statx,
-            @as(usize, @bitCast(@as(isize, dirfd))),
-            @intFromPtr(path),
-            flags,
-            mask,
-            @intFromPtr(statx_buf),
-        );
-    }
-    return @as(usize, @bitCast(-@as(isize, @intFromEnum(E.NOSYS))));
+    return syscall5(
+        .statx,
+        @as(usize, @bitCast(@as(isize, dirfd))),
+        @intFromPtr(path),
+        flags,
+        mask,
+        @intFromPtr(statx_buf),
+    );
 }
 
 pub fn listxattr(path: [*:0]const u8, list: [*]u8, size: usize) usize {
@@ -2198,8 +2250,24 @@ pub fn process_vm_writev(pid: pid_t, local: []const iovec_const, remote: []const
 }
 
 pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
-    if (comptime builtin.cpu.arch.isMIPS()) {
-        // MIPS requires a 7 argument syscall
+    if (comptime native_arch.isArmOrThumb() or native_arch.isPowerPC32()) {
+        // These architectures reorder the arguments so that a register is not skipped to align the
+        // register number that `offset` is passed in.
+
+        const offset_halves = splitValue64(offset);
+        const length_halves = splitValue64(len);
+
+        return syscall6(
+            .fadvise64_64,
+            @as(usize, @bitCast(@as(isize, fd))),
+            advice,
+            offset_halves[0],
+            offset_halves[1],
+            length_halves[0],
+            length_halves[1],
+        );
+    } else if (comptime native_arch == .mips or native_arch == .mipsel) {
+        // MIPS O32 does not deal with the register alignment issue, so pass a dummy value.
 
         const offset_halves = splitValue64(offset);
         const length_halves = splitValue64(len);
@@ -2214,24 +2282,8 @@ pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
             length_halves[1],
             advice,
         );
-    } else if (comptime builtin.cpu.arch.isARM()) {
-        // ARM reorders the arguments
-
-        const offset_halves = splitValue64(offset);
-        const length_halves = splitValue64(len);
-
-        return syscall6(
-            .fadvise64_64,
-            @as(usize, @bitCast(@as(isize, fd))),
-            advice,
-            offset_halves[0],
-            offset_halves[1],
-            length_halves[0],
-            length_halves[1],
-        );
-    } else if (@hasField(SYS, "fadvise64_64") and usize_bits != 64) {
-        // The extra usize check is needed to avoid SPARC64 because it provides both
-        // fadvise64 and fadvise64_64 but the latter behaves differently than other platforms.
+    } else if (comptime usize_bits < 64) {
+        // Other 32-bit architectures do not require register alignment.
 
         const offset_halves = splitValue64(offset);
         const length_halves = splitValue64(len);
@@ -2246,8 +2298,11 @@ pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
             advice,
         );
     } else {
+        // On 64-bit architectures, fadvise64_64 and fadvise64 are the same. Generally, older ports
+        // call it fadvise64 (x86, PowerPC, etc), while newer ports call it fadvise64_64 (RISC-V,
+        // LoongArch, etc). SPARC is the odd one out because it has both.
         return syscall4(
-            .fadvise64,
+            if (@hasField(SYS, "fadvise64_64")) .fadvise64_64 else .fadvise64,
             @as(usize, @bitCast(@as(isize, fd))),
             @as(usize, @bitCast(offset)),
             @as(usize, @bitCast(len)),
@@ -2463,7 +2518,7 @@ pub const E = switch (native_arch) {
 
         pub const init = errnoFromSyscall;
     },
-    .sparc, .sparcel, .sparc64 => enum(u16) {
+    .sparc, .sparc64 => enum(u16) {
         /// No error occurred.
         SUCCESS = 0,
 
@@ -3542,7 +3597,7 @@ pub const SO = if (is_mips) struct {
     pub const RCVTIMEO_NEW = 66;
     pub const SNDTIMEO_NEW = 67;
     pub const DETACH_REUSEPORT_BPF = 68;
-} else if (is_ppc or is_ppc64) struct {
+} else if (is_ppc) struct {
     pub const DEBUG = 1;
     pub const REUSEADDR = 2;
     pub const TYPE = 3;
@@ -3990,8 +4045,8 @@ pub const T = struct {
     pub const IOCSPGRP = if (is_mips) 0x741d else 0x5410;
     pub const IOCOUTQ = if (is_mips) 0x7472 else 0x5411;
     pub const IOCSTI = if (is_mips) 0x5472 else 0x5412;
-    pub const IOCGWINSZ = if (is_mips or is_ppc64) 0x40087468 else 0x5413;
-    pub const IOCSWINSZ = if (is_mips or is_ppc64) 0x80087467 else 0x5414;
+    pub const IOCGWINSZ = if (is_mips or is_ppc) 0x40087468 else 0x5413;
+    pub const IOCSWINSZ = if (is_mips or is_ppc) 0x80087467 else 0x5414;
     pub const IOCMGET = if (is_mips) 0x741d else 0x5415;
     pub const IOCMBIS = if (is_mips) 0x741b else 0x5416;
     pub const IOCMBIC = if (is_mips) 0x741c else 0x5417;
@@ -4810,7 +4865,6 @@ pub const MINSIGSTKSZ = switch (native_arch) {
     => 2048,
     .loongarch64,
     .sparc,
-    .sparcel,
     .sparc64,
     => 4096,
     .aarch64,
@@ -4847,7 +4901,6 @@ pub const SIGSTKSZ = switch (native_arch) {
     .aarch64_be,
     .loongarch64,
     .sparc,
-    .sparcel,
     .sparc64,
     => 16384,
     .powerpc64,
@@ -6295,12 +6348,13 @@ pub const POSIX_FADV = switch (native_arch) {
 };
 
 /// The timespec struct used by the kernel.
-pub const kernel_timespec = if (@sizeOf(usize) >= 8) timespec else extern struct {
+pub const kernel_timespec = extern struct {
     sec: i64,
     nsec: i64,
 };
 
-pub const timespec = extern struct {
+// https://github.com/ziglang/zig/issues/4726#issuecomment-2190337877
+pub const timespec = if (!builtin.link_libc and native_arch == .riscv32) kernel_timespec else extern struct {
     sec: isize,
     nsec: isize,
 };
@@ -7330,66 +7384,101 @@ pub const PERF = struct {
 // TODO: Add the rest of the AUDIT defines?
 pub const AUDIT = struct {
     pub const ARCH = enum(u32) {
+        const CONVENTION_MIPS64_N32 = 0x20000000;
         const @"64BIT" = 0x80000000;
         const LE = 0x40000000;
 
+        AARCH64 = toAudit(.AARCH64, @"64BIT" | LE),
+        ALPHA = toAudit(.ALPHA, @"64BIT" | LE),
+        ARCOMPACT = toAudit(.ARC_COMPACT, LE),
+        ARCOMPACTBE = toAudit(.ARC_COMPACT, 0),
+        ARCV2 = toAudit(.ARC_COMPACT2, LE),
+        ARCV2BE = toAudit(.ARC_COMPACT2, 0),
+        ARM = toAudit(.ARM, LE),
+        ARMEB = toAudit(.ARM, 0),
+        C6X = toAudit(.TI_C6000, LE),
+        C6XBE = toAudit(.TI_C6000, 0),
+        CRIS = toAudit(.CRIS, LE),
+        CSKY = toAudit(.CSKY, LE),
+        FRV = toAudit(.FRV, 0),
+        H8300 = toAudit(.H8_300, 0),
+        HEXAGON = toAudit(.HEXAGON, 0),
+        I386 = toAudit(.@"386", LE),
+        IA64 = toAudit(.IA_64, @"64BIT" | LE),
+        M32R = toAudit(.M32R, 0),
+        M68K = toAudit(.@"68K", 0),
+        MICROBLAZE = toAudit(.MICROBLAZE, 0),
+        MIPS = toAudit(.MIPS, 0),
+        MIPSEL = toAudit(.MIPS, LE),
+        MIPS64 = toAudit(.MIPS, @"64BIT"),
+        MIPS64N32 = toAudit(.MIPS, @"64BIT" | CONVENTION_MIPS64_N32),
+        MIPSEL64 = toAudit(.MIPS, @"64BIT" | LE),
+        MIPSEL64N32 = toAudit(.MIPS, @"64BIT" | LE | CONVENTION_MIPS64_N32),
+        NDS32 = toAudit(.NDS32, LE),
+        NDS32BE = toAudit(.NDS32, 0),
+        NIOS2 = toAudit(.ALTERA_NIOS2, LE),
+        OPENRISC = toAudit(.OPENRISC, 0),
+        PARISC = toAudit(.PARISC, 0),
+        PARISC64 = toAudit(.PARISC, @"64BIT"),
+        PPC = toAudit(.PPC, 0),
+        PPC64 = toAudit(.PPC64, @"64BIT"),
+        PPC64LE = toAudit(.PPC64, @"64BIT" | LE),
+        RISCV32 = toAudit(.RISCV, LE),
+        RISCV64 = toAudit(.RISCV, @"64BIT" | LE),
+        S390 = toAudit(.S390, 0),
+        S390X = toAudit(.S390, @"64BIT"),
+        SH = toAudit(.SH, 0),
+        SHEL = toAudit(.SH, LE),
+        SH64 = toAudit(.SH, @"64BIT"),
+        SHEL64 = toAudit(.SH, @"64BIT" | LE),
+        SPARC = toAudit(.SPARC, 0),
+        SPARC64 = toAudit(.SPARCV9, @"64BIT"),
+        TILEGX = toAudit(.TILEGX, @"64BIT" | LE),
+        TILEGX32 = toAudit(.TILEGX, LE),
+        TILEPRO = toAudit(.TILEPRO, LE),
+        UNICORE = toAudit(.UNICORE, LE),
+        X86_64 = toAudit(.X86_64, @"64BIT" | LE),
+        XTENSA = toAudit(.XTENSA, 0),
+        LOONGARCH32 = toAudit(.LOONGARCH, LE),
+        LOONGARCH64 = toAudit(.LOONGARCH, @"64BIT" | LE),
+
+        fn toAudit(em: elf.EM, flags: u32) u32 {
+            return @intFromEnum(em) | flags;
+        }
+
         pub const current: AUDIT.ARCH = switch (native_arch) {
-            .x86 => .X86,
-            .x86_64 => .X86_64,
-            .aarch64 => .AARCH64,
             .arm, .thumb => .ARM,
-            .riscv64 => .RISCV64,
-            .sparc64 => .SPARC64,
+            .armeb, .thumbeb => .ARMEB,
+            .aarch64 => .AARCH64,
+            .arc => .ARCV2,
+            .csky => .CSKY,
+            .hexagon => .HEXAGON,
+            .loongarch32 => .LOONGARCH32,
+            .loongarch64 => .LOONGARCH64,
+            .m68k => .M68K,
             .mips => .MIPS,
             .mipsel => .MIPSEL,
+            .mips64 => switch (native_abi) {
+                .gnuabin32 => .MIPS64N32,
+                else => .MIPS64,
+            },
+            .mips64el => switch (native_abi) {
+                .gnuabin32 => .MIPSEL64N32,
+                else => .MIPSEL64,
+            },
             .powerpc => .PPC,
             .powerpc64 => .PPC64,
             .powerpc64le => .PPC64LE,
+            .riscv32 => .RISCV32,
+            .riscv64 => .RISCV64,
+            .sparc => .SPARC,
+            .sparc64 => .SPARC64,
+            .s390x => .S390X,
+            .x86 => .I386,
+            .x86_64 => .X86_64,
+            .xtensa => .XTENSA,
             else => @compileError("unsupported architecture"),
         };
-
-        AARCH64 = toAudit(.aarch64),
-        ARM = toAudit(.arm),
-        ARMEB = toAudit(.armeb),
-        CSKY = toAudit(.csky),
-        HEXAGON = @intFromEnum(std.elf.EM.HEXAGON),
-        LOONGARCH64 = toAudit(.loongarch64),
-        M68K = toAudit(.m68k),
-        MIPS = toAudit(.mips),
-        MIPSEL = toAudit(.mips) | LE,
-        MIPS64 = toAudit(.mips64),
-        MIPSEL64 = toAudit(.mips64) | LE,
-        PPC = toAudit(.powerpc),
-        PPC64 = toAudit(.powerpc64),
-        PPC64LE = toAudit(.powerpc64le),
-        RISCV32 = toAudit(.riscv32),
-        RISCV64 = toAudit(.riscv64),
-        S390X = toAudit(.s390x),
-        SPARC = toAudit(.sparc),
-        SPARC64 = toAudit(.sparc64),
-        X86 = toAudit(.x86),
-        X86_64 = toAudit(.x86_64),
-        XTENSA = toAudit(.xtensa),
-
-        fn toAudit(arch: std.Target.Cpu.Arch) u32 {
-            var res: u32 = @intFromEnum(arch.toElfMachine());
-            if (arch.endian() == .little) res |= LE;
-            switch (arch) {
-                .aarch64,
-                .loongarch64,
-                .mips64,
-                .mips64el,
-                .powerpc64,
-                .powerpc64le,
-                .riscv64,
-                .s390x,
-                .sparc64,
-                .x86_64,
-                => res |= @"64BIT",
-                else => {},
-            }
-            return res;
-        }
     };
 };
 

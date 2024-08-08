@@ -4,6 +4,7 @@ pub const protocol = @import("http/protocol.zig");
 pub const HeadParser = @import("http/HeadParser.zig");
 pub const ChunkParser = @import("http/ChunkParser.zig");
 pub const HeaderIterator = @import("http/HeaderIterator.zig");
+pub const WebSocket = @import("http/WebSocket.zig");
 
 pub const Version = enum {
     @"HTTP/1.0",
@@ -318,6 +319,7 @@ test {
         _ = Status;
         _ = HeadParser;
         _ = ChunkParser;
+        _ = WebSocket;
         _ = @import("http/test.zig");
     }
 }

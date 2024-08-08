@@ -275,10 +275,6 @@ fn buildWasmBinary(
 ) ![]const u8 {
     const gpa = context.gpa;
 
-    const main_src_path = try std.fs.path.join(arena, &.{
-        context.zig_lib_directory, "docs", "wasm", "main.zig",
-    });
-
     var argv: std.ArrayListUnmanaged([]const u8) = .{};
 
     try argv.appendSlice(arena, &.{
@@ -298,7 +294,10 @@ fn buildWasmBinary(
         "--name",
         "autodoc",
         "-rdynamic",
-        main_src_path,
+        "--dep",
+        "Walk",
+        try std.fmt.allocPrint(arena, "-Mroot={s}/docs/wasm/main.zig", .{context.zig_lib_directory}),
+        try std.fmt.allocPrint(arena, "-MWalk={s}/docs/wasm/Walk.zig", .{context.zig_lib_directory}),
         "--listen=-",
     });
 

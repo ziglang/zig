@@ -45,8 +45,7 @@ pub fn deinit(self: *InternalObject, allocator: Allocator) void {
 
 pub fn init(self: *InternalObject, allocator: Allocator) !void {
     // Atom at index 0 is reserved as null atom.
-    try self.atoms.append(allocator, .{});
-    try self.atoms_extra.append(allocator, 0);
+    try self.atoms.append(allocator, .{ .extra = try self.addAtomExtra(allocator, .{}) });
     // Null byte in strtab
     try self.strtab.append(allocator, 0);
 }

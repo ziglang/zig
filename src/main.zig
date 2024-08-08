@@ -860,6 +860,7 @@ fn buildOutputType(
     var want_compiler_rt: ?bool = null;
     var linker_script: ?[]const u8 = null;
     var version_script: ?[]const u8 = null;
+    var linker_repro: ?bool = null;
     var linker_allow_undefined_version: bool = false;
     var linker_enable_new_dtags: ?bool = null;
     var disable_c_depfile = false;
@@ -2481,6 +2482,8 @@ fn buildOutputType(
                 {
                     emit_implib = .{ .yes = linker_args_it.nextOrFatal() };
                     emit_implib_arg_provided = true;
+                } else if (mem.eql(u8, arg, "-Brepro") or mem.eql(u8, arg, "/Brepro")) {
+                    linker_repro = true;
                 } else if (mem.eql(u8, arg, "-undefined")) {
                     const lookup_type = linker_args_it.nextOrFatal();
                     if (mem.eql(u8, "dynamic_lookup", lookup_type)) {
@@ -2526,6 +2529,10 @@ fn buildOutputType(
                         fatal("unable to parse /version '{s}': {s}", .{ arg, @errorName(err) });
                     };
                     have_version = true;
+                } else if (mem.eql(u8, arg, "-V")) {
+                    warn("ignoring request for supported emulations: unimplemented", .{});
+                } else if (mem.eql(u8, arg, "-v")) {
+                    try std.io.getStdOut().writeAll("zig ld " ++ build_options.version ++ "\n");
                 } else if (mem.eql(u8, arg, "--version")) {
                     try std.io.getStdOut().writeAll("zig ld " ++ build_options.version ++ "\n");
                     process.exit(0);
@@ -3315,6 +3322,7 @@ fn buildOutputType(
         .soname = resolved_soname,
         .linker_sort_section = linker_sort_section,
         .linker_gc_sections = linker_gc_sections,
+        .linker_repro = linker_repro,
         .linker_allow_shlib_undefined = linker_allow_shlib_undefined,
         .linker_bind_global_refs_locally = linker_bind_global_refs_locally,
         .linker_import_symbols = linker_import_symbols,
@@ -3407,6 +3415,14 @@ fn buildOutputType(
                     if (t.os_ver) |os_ver| {
                         std.log.info("zig can provide libc for related target {s}-{s}.{d}-{s}", .{
                             @tagName(t.arch), @tagName(t.os), os_ver.major, @tagName(t.abi),
+                        });
+                    } else if (t.glibc_min) |glibc_min| {
+                        std.log.info("zig can provide libc for related target {s}-{s}-{s}.{d}.{d}", .{
+                            @tagName(t.arch),
+                            @tagName(t.os),
+                            @tagName(t.abi),
+                            glibc_min.major,
+                            glibc_min.minor,
                         });
                     } else {
                         std.log.info("zig can provide libc for related target {s}-{s}-{s}", .{

@@ -78,7 +78,6 @@ pub fn hasValgrindSupport(target: std.Target) bool {
         .x86,
         .x86_64,
         .aarch64,
-        .aarch64_32,
         .aarch64_be,
         => {
             return target.os.tag == .linux or target.os.tag == .solaris or target.os.tag == .illumos or
@@ -115,13 +114,11 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .armeb,
         .aarch64,
         .aarch64_be,
-        .aarch64_32,
         .arc,
         .avr,
         .bpfel,
         .bpfeb,
         .csky,
-        .dxil,
         .hexagon,
         .loongarch32,
         .loongarch64,
@@ -140,7 +137,6 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .riscv64,
         .sparc,
         .sparc64,
-        .sparcel,
         .s390x,
         .thumb,
         .thumbeb,
@@ -150,19 +146,23 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         .xtensa,
         .nvptx,
         .nvptx64,
-        .spir,
-        .spir64,
-        .spirv,
-        .spirv32,
-        .spirv64,
-        .kalimba,
         .lanai,
         .wasm32,
         .wasm64,
         .ve,
         => true,
 
-        .spu_2 => false,
+        // An LLVM backend exists but we don't currently support using it.
+        .dxil,
+        .spirv,
+        .spirv32,
+        .spirv64,
+        => false,
+
+        // No LLVM backend exists.
+        .kalimba,
+        .spu_2,
+        => false,
     };
 }
 
@@ -268,7 +268,6 @@ pub fn hasRedZone(target: std.Target) bool {
         .x86,
         .aarch64,
         .aarch64_be,
-        .aarch64_32,
         => true,
 
         else => false,
@@ -333,7 +332,7 @@ pub fn clangAssemblerSupportsMcpuArg(target: std.Target) bool {
 }
 
 pub fn needUnwindTables(target: std.Target) bool {
-    return target.os.tag == .windows or target.isDarwin() or std.dwarf.abi.supportsUnwinding(target);
+    return target.os.tag == .windows or target.isDarwin() or std.debug.Dwarf.abi.supportsUnwinding(target);
 }
 
 pub fn defaultAddressSpace(
@@ -375,7 +374,6 @@ pub fn addrSpaceCastIsValid(
 
 pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
     const have_float = switch (target.abi) {
-        .gnuilp32 => return "ilp32",
         .gnueabihf, .musleabihf, .eabihf => true,
         else => false,
     };
@@ -412,8 +410,8 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
 pub fn defaultFunctionAlignment(target: std.Target) Alignment {
     return switch (target.cpu.arch) {
         .arm, .armeb => .@"4",
-        .aarch64, .aarch64_32, .aarch64_be => .@"4",
-        .sparc, .sparcel, .sparc64 => .@"4",
+        .aarch64, .aarch64_be => .@"4",
+        .sparc, .sparc64 => .@"4",
         .riscv64 => .@"2",
         else => .@"1",
     };
@@ -424,12 +422,10 @@ pub fn minFunctionAlignment(target: std.Target) Alignment {
         .arm,
         .armeb,
         .aarch64,
-        .aarch64_32,
         .aarch64_be,
         .riscv32,
         .riscv64,
         .sparc,
-        .sparcel,
         .sparc64,
         => .@"2",
         else => .@"1",
@@ -517,7 +513,7 @@ pub fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBacken
         .arm, .armeb, .thumb, .thumbeb => .stage2_arm,
         .x86_64 => .stage2_x86_64,
         .x86 => .stage2_x86,
-        .aarch64, .aarch64_be, .aarch64_32 => .stage2_aarch64,
+        .aarch64, .aarch64_be => .stage2_aarch64,
         .riscv64 => .stage2_riscv64,
         .sparc64 => .stage2_sparc64,
         .spirv64 => .stage2_spirv64,

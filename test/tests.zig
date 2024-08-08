@@ -992,11 +992,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
     const step = b.step(b.fmt("test-{s}", .{options.name}), options.desc);
 
     for (test_targets) |test_target| {
-        const is_native = test_target.target.isNative() or
-            (test_target.target.os_tag == builtin.os.tag and
-            test_target.target.cpu_arch == builtin.cpu.arch);
-
-        if (options.skip_non_native and !is_native)
+        if (options.skip_non_native and !test_target.target.isNative())
             continue;
 
         const resolved_target = b.resolveTargetQuery(test_target.target);
