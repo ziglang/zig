@@ -28,13 +28,53 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             \\    );
             \\}
         , &[_][]const u8{
-            \\:2:5: error: 
+            \\:2:5: error:
             \\             hello!
             \\             I'm a multiline error message.
             \\             I hope to be very useful!
-            \\             
+            \\
             \\             also I will leave this trailing newline here if you don't mind
-            \\             
+            \\
+        });
+    }
+
+    {
+        const case = ctx.obj("unmatched parentheses", b.graph.host);
+
+        case.addError(
+            \\export fn a() void {
+            \\
+        , &[_][]const u8{
+            ":1:20: error: unclosed curly brace",
+        });
+    }
+
+    {
+        const case = ctx.obj("unmatched parentheses #2", b.graph.host);
+
+        case.addError(
+            \\const c = [
+            \\)
+            \\];
+        , &[_][]const u8{
+            ":1:11: error: unclosed bracket",
+        });
+    }
+
+    {
+        const case = ctx.obj("unmatched parentheses #3", b.graph.host);
+
+        case.addError(
+            \\pub fn bar() void {
+            \\    // Oops...
+            \\    }
+            \\
+            \\    if (true) {
+            \\        return;
+            \\    }
+            \\}
+        , &[_][]const u8{
+            ":8:1: error: unmatched curly brace",
         });
     }
 

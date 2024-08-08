@@ -1,6 +1,8 @@
 //! Ingests an AST and produces ZIR code.
 const AstGen = @This();
 
+const Parse = @import("Parse.zig");
+
 const std = @import("std");
 const Ast = std.zig.Ast;
 const mem = std.mem;
@@ -13819,6 +13821,53 @@ fn lowerAstErrors(astgen: *AstGen) !void {
 
     const gpa = astgen.gpa;
     const parse_err = tree.errors[0];
+    const err_tok = parse_err.token + @intFromBool(parse_err.token_is_prev);
+
+    const token_tags = tree.tokens.items(.tag);
+
+    if (try Parse.findUnmatchedParen(astgen.gpa, token_tags)) |tok| {
+        const text: []const u8 = switch (token_tags[tok]) {
+            .l_paren => "unclosed parenthesis",
+            .l_brace => "unclosed curly brace",
+            .l_bracket => "unclosed bracket",
+            .r_paren => "unmatched parenthesis",
+            .r_brace => "unmatched curly brace",
+            .r_bracket => "unmatched bracket",
+            else => unreachable,
+        };
+        try astgen.appendErrorTok(tok, "{s}", .{text});
+        // Unmatched parentheses are often an underlying cause of
+        // otherwise more obscure errors, so we only report the parse
+        // error if it probably wasn't caused by this.
+        switch (parse_err.tag) {
+            .asterisk_after_ptr_deref,
+            .chained_comparison_operators,
+            .expected_inlinable,
+            .expected_labelable,
+            .expected_prefix_expr,
+            .expected_return_type,
+            .extern_fn_body,
+            .extra_addrspace_qualifier,
+            .extra_align_qualifier,
+            .extra_allowzero_qualifier,
+            .extra_const_qualifier,
+            .extra_volatile_qualifier,
+            .ptr_mod_on_array_child_type,
+            .invalid_bit_range,
+            .same_line_doc_comment,
+            .test_doc_comment,
+            .comptime_doc_comment,
+            .varargs_nonfinal,
+            .expected_continue_expr,
+            .mismatched_binary_op_whitespace,
+            .invalid_ampersand_ampersand,
+            .extra_for_capture,
+            .for_input_not_captured,
+            => {},
+            .expected_token => if (token_tags[err_tok] != .invalid) return,
+            else => return,
+        }
+    }
 
     var msg: std.ArrayListUnmanaged(u8) = .{};
     defer msg.deinit(gpa);
