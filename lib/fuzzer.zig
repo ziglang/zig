@@ -214,6 +214,9 @@ const Fuzzer = struct {
         });
         defer coverage_file.close();
         const n_bitset_elems = (flagged_pcs.len + 7) / 8;
+        comptime assert(SeenPcsHeader.trailing[0] == .pc_addr);
+        comptime assert(SeenPcsHeader.trailing[1][0] == .pc_bits);
+        comptime assert(SeenPcsHeader.trailing[1][1] == u8);
         const bytes_len = @sizeOf(SeenPcsHeader) + flagged_pcs.len * @sizeOf(usize) + n_bitset_elems;
         const existing_len = coverage_file.getEndPos() catch |err| {
             fatal("unable to check len of coverage file: {s}", .{@errorName(err)});
@@ -301,6 +304,10 @@ const Fuzzer = struct {
 
                 // Track code coverage from all runs.
                 {
+                    comptime assert(SeenPcsHeader.trailing[0] == .pc_addr);
+                    comptime assert(SeenPcsHeader.trailing[1][0] == .pc_bits);
+                    comptime assert(SeenPcsHeader.trailing[1][1] == u8);
+
                     const seen_pcs = f.seen_pcs.items[@sizeOf(SeenPcsHeader) + f.flagged_pcs.len * @sizeOf(usize) ..];
                     for (seen_pcs, 0..) |*elem, i| {
                         const byte_i = i * 8;

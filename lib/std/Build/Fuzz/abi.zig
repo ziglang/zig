@@ -8,12 +8,19 @@
 ///
 /// Trailing:
 /// * pc_addr: usize for each pcs_len
-/// * 1 bit per pc_addr, usize elements
+/// * 1 bit per pc_addr, u8 elements
 pub const SeenPcsHeader = extern struct {
     n_runs: usize,
     unique_runs: usize,
     pcs_len: usize,
     lowest_stack: usize,
+
+    /// Used for comptime assertions. Provides a mechanism for strategically
+    /// causing compile errors.
+    pub const trailing = .{
+        .pc_addr,
+        .{ .pc_bits, u8 },
+    };
 };
 
 pub const ToClientTag = enum(u8) {
