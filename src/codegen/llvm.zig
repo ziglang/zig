@@ -81,12 +81,14 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .spirv => "spirv",
         .spirv32 => "spirv32",
         .spirv64 => "spirv64",
-        .kalimba => "kalimba",
         .lanai => "lanai",
         .wasm32 => "wasm32",
         .wasm64 => "wasm64",
         .ve => "ve",
-        .spu_2 => return error.@"LLVM backend does not support SPU Mark II",
+
+        .kalimba,
+        .spu_2,
+        => unreachable, // Gated by hasLlvmSupport().
     };
     try llvm_triple.appendSlice(llvm_arch);
     try llvm_triple.appendSlice("-unknown-");
@@ -12083,14 +12085,16 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializeLoongArchAsmParser();
         },
 
-        // LLVM backends that have no initialization functions.
+        // We don't currently support using these backends.
         .spirv,
         .spirv32,
         .spirv64,
-        .kalimba,
         .dxil,
         => {},
 
-        .spu_2 => unreachable, // LLVM does not support this backend
+        // LLVM does does not have a backend for these.
+        .kalimba,
+        .spu_2,
+        => unreachable,
     }
 }
