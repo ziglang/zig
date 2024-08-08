@@ -34,6 +34,7 @@
 #define AT_L3_CACHEGEOMETRY	47
 
 /* entries in ARCH_DLINFO */
-#define AT_VECTOR_SIZE_ARCH	9
+#define AT_VECTOR_SIZE_ARCH	10
+#define AT_MINSIGSTKSZ		51
 
 #endif /* _ASM_RISCV_AUXVEC_H */
