@@ -377,15 +377,14 @@ fn Kyber(comptime p: Params) type {
             secret_key: SecretKey,
             public_key: PublicKey,
 
-            /// Create a new key pair.
-            /// If seed is null, a random seed will be generated.
-            /// If a seed is provided, the key pair will be deterministic.
-            pub fn create(seed_: ?[seed_length]u8) !KeyPair {
-                const seed = seed_ orelse sk: {
-                    var random_seed: [seed_length]u8 = undefined;
-                    crypto.random.bytes(&random_seed);
-                    break :sk random_seed;
-                };
+            pub fn initWithRandomSeed() !KeyPair {
+                var random_seed: [seed_length]u8 = undefined;
+                crypto.random.bytes(&random_seed);
+                return init(random_seed);
+            }
+
+            /// Create a new key pair form seed.
+            pub fn init(seed: [seed_length]u8) !KeyPair {
                 var ret: KeyPair = undefined;
                 ret.secret_key.z = seed[inner_seed_length..seed_length].*;
 
@@ -1702,7 +1701,7 @@ test "Test happy flow" {
     inline for (modes) |mode| {
         for (0..100) |i| {
             seed[0] = @as(u8, @intCast(i));
-            const kp = try mode.KeyPair.create(seed);
+            const kp = try mode.KeyPair.init(seed);
             const sk = try mode.SecretKey.fromBytes(&kp.secret_key.toBytes());
             try testing.expectEqual(sk, kp.secret_key);
             const pk = try mode.PublicKey.fromBytes(&kp.public_key.toBytes());
@@ -1749,7 +1748,7 @@ test "NIST KAT test" {
             g2.fill(kseed[0..32]);
             g2.fill(kseed[32..64]);
             g2.fill(&eseed);
-            const kp = try mode.KeyPair.create(kseed);
+            const kp = try mode.KeyPair.init(kseed);
             const e = kp.public_key.encaps(eseed);
             const ss2 = try kp.secret_key.decaps(&e.ciphertext);
             try testing.expectEqual(ss2, e.shared_secret);

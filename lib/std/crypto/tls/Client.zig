@@ -150,15 +150,15 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
     const x25519_kp_seed = random_buffer[64..96].*;
     const secp256r1_kp_seed = random_buffer[96..128].*;
 
-    const x25519_kp = crypto.dh.X25519.KeyPair.create(x25519_kp_seed) catch |err| switch (err) {
+    const x25519_kp = crypto.dh.X25519.KeyPair.init(x25519_kp_seed) catch |err| switch (err) {
         // Only possible to happen if the private key is all zeroes.
         error.IdentityElement => return error.InsufficientEntropy,
     };
-    const secp256r1_kp = crypto.sign.ecdsa.EcdsaP256Sha256.KeyPair.create(secp256r1_kp_seed) catch |err| switch (err) {
+    const secp256r1_kp = crypto.sign.ecdsa.EcdsaP256Sha256.KeyPair.init(secp256r1_kp_seed) catch |err| switch (err) {
         // Only possible to happen if the private key is all zeroes.
         error.IdentityElement => return error.InsufficientEntropy,
     };
-    const kyber768_kp = crypto.kem.kyber_d00.Kyber768.KeyPair.create(null) catch {};
+    const kyber768_kp = crypto.kem.kyber_d00.Kyber768.KeyPair.initWithRandomSeed() catch {};
 
     const extensions_payload =
         tls.extension(.supported_versions, [_]u8{
