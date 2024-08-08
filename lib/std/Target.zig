@@ -2295,7 +2295,7 @@ pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
             .short, .ushort => return 16,
             .int, .uint, .float => return 32,
             .long, .ulong, .longlong, .ulonglong, .double => return 64,
-            .longdouble => return 64,
+            .longdouble => return 128,
         },
 
         .opencl, .vulkan => switch (c_type) {
