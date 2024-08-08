@@ -924,6 +924,10 @@ fn updateNavCode(
                     assert(sym.flags.has_zig_got);
                     const extra = sym.extra(elf_file);
                     try elf_file.zig_got.writeOne(elf_file, extra.zig_got);
+                    if (stt_bits == elf.STT_FUNC) {
+                        const offset_table = self.offsetTablePtr().?;
+                        offset_table.entries.items(.dirty)[extra.zig_offset_table] = true;
+                    }
                 }
             }
         } else if (code.len < old_size) {
