@@ -26,7 +26,7 @@
    The type `struct msg' is opaque.  */
 struct msqid_ds
 {
-#ifdef __USE_TIME_BITS64
+#ifdef __USE_TIME64_REDIRECTS
 # include <bits/types/struct_msqid64_ds_helper.h>
 #else
   struct ipc_perm msg_perm;	/* structure describing operation permission */

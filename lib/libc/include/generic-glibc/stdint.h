@@ -262,7 +262,7 @@ typedef __uintmax_t		uintmax_t;
 #  define UINTMAX_C(c)	c ## ULL
 # endif
 
-#if __GLIBC_USE (IEC_60559_BFP_EXT_C2X)
+#if __GLIBC_USE (IEC_60559_BFP_EXT_C23)
 
 # define INT8_WIDTH 8
 # define UINT8_WIDTH 8
