@@ -55,6 +55,8 @@ debug_str_section_zig_size: u64 = 0,
 debug_aranges_section_zig_size: u64 = 0,
 debug_line_section_zig_size: u64 = 0,
 
+func_offset_table: ?OffsetTable = null,
+
 pub const global_symbol_bit: u32 = 0x80000000;
 pub const symbol_mask: u32 = 0x7fffffff;
 pub const SHN_ATOM: u16 = 0x100;
@@ -127,6 +129,10 @@ pub fn deinit(self: *ZigObject, allocator: Allocator) void {
 
     if (self.dwarf) |*dw| {
         dw.deinit();
+    }
+
+    if (self.func_offset_table) |*ot| {
+        ot.deinit(allocator);
     }
 }
 
@@ -1686,6 +1692,58 @@ const NavTable = std.AutoHashMapUnmanaged(InternPool.Nav.Index, AvMetadata);
 const UavTable = std.AutoHashMapUnmanaged(InternPool.Index, AvMetadata);
 const LazySymbolTable = std.AutoArrayHashMapUnmanaged(InternPool.Index, LazySymbolMetadata);
 const TlsTable = std.AutoArrayHashMapUnmanaged(Atom.Index, TlsVariable);
+
+pub const OffsetTable = struct {
+    atom_index: Atom.Index,
+    entries: std.ArrayListUnmanaged(Symbol.Index) = .{},
+
+    pub fn deinit(ot: *OffsetTable, allocator: Allocator) void {
+        ot.entries.deinit(allocator);
+    }
+
+    pub fn size(ot: OffsetTable, elf_file: *Elf) usize {
+        return ot.entries.items.len * switch (elf_file.ptr_width) {
+            .p32 => @as(usize, 4),
+            .p64 => 8,
+        };
+    }
+
+    const OffsetTableFormatContext = struct { OffsetTable, *ZigObject, *Elf };
+
+    pub fn format(
+        ot: OffsetTable,
+        comptime unused_fmt_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = ot;
+        _ = unused_fmt_string;
+        _ = options;
+        _ = writer;
+        @compileError("do not format OffsetTable directly");
+    }
+
+    pub fn fmt(ot: OffsetTable, zo: *ZigObject, elf_file: *Elf) std.fmt.Formatter(format2) {
+        return .{ .data = .{ ot, zo, elf_file } };
+    }
+
+    fn format2(
+        ctx: OffsetTableFormatContext,
+        comptime unused_fmt_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = options;
+        _ = unused_fmt_string;
+        const ot, const zo, const ef = ctx;
+        const atom_ptr = zo.atom(ot.atom_index).?;
+        try writer.print("@{x} : size({x})\n", .{ atom_ptr.address(ef), ot.size(ef) });
+        for (ot.entries.items) |sym_index| {
+            const sym = zo.symbol(sym_index);
+            try writer.print("  %{d} : {s} : @{x}\n", .{ sym_index, sym.name(ef), sym.value });
+        }
+    }
+};
 
 const assert = std.debug.assert;
 const builtin = @import("builtin");

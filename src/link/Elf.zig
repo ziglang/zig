@@ -5657,10 +5657,14 @@ fn fmtDumpState(
 
     if (self.zigObjectPtr()) |zig_object| {
         try writer.print("zig_object({d}) : {s}\n", .{ zig_object.index, zig_object.path });
-        try writer.print("{}{}\n", .{
+        try writer.print("{}{}", .{
             zig_object.fmtAtoms(self),
             zig_object.fmtSymtab(self),
         });
+        if (zig_object.func_offset_table) |ot| {
+            try writer.print("{}", .{ot.fmt(zig_object, self)});
+        }
+        try writer.writeByte('\n');
     }
 
     for (self.objects.items) |index| {
