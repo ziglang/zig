@@ -760,7 +760,9 @@ pub fn getOrCreateMetadataForLazySymbol(
             const gpa = elf_file.base.comp.gpa;
             const symbol_index = try self.newSymbolWithAtom(gpa, 0);
             const sym = self.symbol(symbol_index);
-            sym.flags.needs_zig_got = true;
+            if (lazy_sym.kind != .code) {
+                sym.flags.needs_zig_got = true;
+            }
             symbol_index_ptr.* = symbol_index;
         },
         .pending_flush => return symbol_index_ptr.*,
@@ -816,7 +818,7 @@ pub fn getOrCreateMetadataForNav(
                 sym.flags.is_tls = true;
             }
         }
-        if (!sym.flags.is_tls) {
+        if (!sym.flags.is_tls and nav_val.typeOf(zcu).zigTypeTag(zcu) != .Fn) {
             sym.flags.needs_zig_got = true;
         }
         gop.value_ptr.* = .{ .symbol_index = symbol_index };
@@ -919,15 +921,18 @@ fn updateNavCode(
                 sym.value = 0;
                 esym.st_value = 0;
 
-                if (!elf_file.base.isRelocatable()) {
-                    log.debug("  (writing new offset table entry)", .{});
-                    assert(sym.flags.has_zig_got);
-                    const extra = sym.extra(elf_file);
-                    try elf_file.zig_got.writeOne(elf_file, extra.zig_got);
-                    if (stt_bits == elf.STT_FUNC) {
-                        const offset_table = self.offsetTablePtr().?;
-                        offset_table.entries.items(.dirty)[extra.zig_offset_table] = true;
+                if (stt_bits != elf.STT_FUNC) {
+                    if (!elf_file.base.isRelocatable()) {
+                        log.debug("  (writing new offset table entry)", .{});
+                        assert(sym.flags.has_zig_got);
+                        const extra = sym.extra(elf_file);
+                        try elf_file.zig_got.writeOne(elf_file, extra.zig_got);
                     }
+                }
+                if (stt_bits == elf.STT_FUNC) {
+                    const extra = sym.extra(elf_file);
+                    const offset_table = self.offsetTablePtr().?;
+                    offset_table.entries.items(.dirty)[extra.zig_offset_table] = true;
                 }
             }
         } else if (code.len < old_size) {
@@ -938,12 +943,13 @@ fn updateNavCode(
         errdefer self.freeNavMetadata(elf_file, sym_index);
 
         sym.value = 0;
-        sym.flags.needs_zig_got = true;
         esym.st_value = 0;
-
-        if (!elf_file.base.isRelocatable()) {
-            const gop = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
-            try elf_file.zig_got.writeOne(elf_file, gop.index);
+        if (stt_bits != elf.STT_FUNC) {
+            sym.flags.needs_zig_got = true;
+            if (!elf_file.base.isRelocatable()) {
+                const gop = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
+                try elf_file.zig_got.writeOne(elf_file, gop.index);
+            }
         }
     }
 
@@ -1061,7 +1067,12 @@ pub fn updateFunc(
             sym.flags.zig_offset_table = true;
             sym.addExtra(.{ .zig_offset_table = index }, elf_file);
             try offset_table.updateSize(self, elf_file);
+            const old_vaddr = offset_table.address(self, elf_file);
             try self.symbol(offset_table.sym_index).atom(elf_file).?.allocate(elf_file);
+            const new_vaddr = offset_table.address(self, elf_file);
+            if (old_vaddr != new_vaddr) {
+                offset_table.dirty = true;
+            }
         }
     }
 
@@ -1106,7 +1117,13 @@ pub fn updateFunc(
 
     // Exports will be updated by `Zcu.processExports` after the update.
 
-    {
+    if (offset_table.dirty) {
+        // TODO write in bulk
+        for (offset_table.entries.items(.dirty), 0..) |*dirty, i| {
+            try offset_table.writeEntry(@intCast(i), self, elf_file);
+            dirty.* = false;
+        }
+    } else {
         const sym = self.symbol(sym_index);
         const ot_index = sym.extra(elf_file).zig_offset_table;
         var ot_entry = offset_table.entries.get(ot_index);
@@ -1261,7 +1278,9 @@ fn updateLazySymbol(
     errdefer self.freeNavMetadata(elf_file, symbol_index);
 
     local_sym.value = 0;
-    local_sym.flags.needs_zig_got = true;
+    if (sym.kind != .code) {
+        local_sym.flags.needs_zig_got = true;
+    }
     local_esym.st_value = 0;
 
     if (!elf_file.base.isRelocatable()) {
@@ -1476,7 +1495,7 @@ pub fn getGlobalSymbol(self: *ZigObject, elf_file: *Elf, name: []const u8, lib_n
     return lookup_gop.value_ptr.*;
 }
 
-fn offsetTablePtr(self: *ZigObject) ?*OffsetTable {
+pub fn offsetTablePtr(self: *ZigObject) ?*OffsetTable {
     return if (self.offset_table) |*ot| ot else null;
 }
 
@@ -1747,6 +1766,7 @@ const TlsTable = std.AutoArrayHashMapUnmanaged(Atom.Index, TlsVariable);
 pub const OffsetTable = struct {
     sym_index: Symbol.Index,
     entries: std.MultiArrayList(Entry) = .{},
+    dirty: bool = false,
 
     pub fn deinit(ot: *OffsetTable, allocator: Allocator) void {
         ot.entries.deinit(allocator);

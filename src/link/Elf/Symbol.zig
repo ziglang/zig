@@ -236,6 +236,14 @@ pub fn zigGotAddress(symbol: Symbol, elf_file: *Elf) i64 {
     return elf_file.zig_got.entryAddress(extras.zig_got, elf_file);
 }
 
+pub fn zigOffsetTableAddress(symbol: Symbol, elf_file: *Elf) i64 {
+    if (!symbol.flags.zig_offset_table) return 0;
+    const zo = elf_file.zigObjectPtr().?;
+    const offset_table = zo.offsetTablePtr().?;
+    const ot_index = symbol.extra(elf_file).zig_offset_table;
+    return offset_table.entryAddress(ot_index, zo, elf_file);
+}
+
 pub fn dsoAlignment(symbol: Symbol, elf_file: *Elf) !u64 {
     const file_ptr = symbol.file(elf_file) orelse return 0;
     assert(file_ptr == .shared_object);

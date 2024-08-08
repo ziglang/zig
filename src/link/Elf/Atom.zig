@@ -759,13 +759,14 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) RelocError!voi
         // Address of the dynamic thread pointer.
         const DTP = elf_file.dtpAddress();
 
-        relocs_log.debug("  {s}: {x}: [{x} => {x}] G({x}) ZG({x}) ({s})", .{
+        relocs_log.debug("  {s}: {x}: [{x} => {x}] G({x}) ZG({x}) ZG2({x}) ({s})", .{
             relocation.fmtRelocType(rel.r_type(), cpu_arch),
             r_offset,
             P,
             S + A,
             G + GOT + A,
             ZIG_GOT + A,
+            target.zigOffsetTableAddress(elf_file) + A,
             target.name(elf_file),
         });
 
@@ -1224,9 +1225,12 @@ const x86_64 = struct {
                 );
             },
 
-            .PLT32,
-            .PC32,
-            => try cwriter.writeInt(i32, @as(i32, @intCast(S + A - P)), .little),
+            .PLT32 => try cwriter.writeInt(i32, @as(i32, @intCast(S + A - P)), .little),
+
+            .PC32 => {
+                const S_ = if (target.flags.zig_offset_table) target.zigOffsetTableAddress(elf_file) else S;
+                try cwriter.writeInt(i32, @as(i32, @intCast(S_ + A - P)), .little);
+            },
 
             .GOTPCREL => try cwriter.writeInt(i32, @as(i32, @intCast(G + GOT + A - P)), .little),
             .GOTPC32 => try cwriter.writeInt(i32, @as(i32, @intCast(GOT + A - P)), .little),
