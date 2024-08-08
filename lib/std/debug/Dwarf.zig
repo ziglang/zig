@@ -239,7 +239,7 @@ pub const Die = struct {
         return switch (form_value.*) {
             .addr => |value| value,
             .addrx => |index| di.readDebugAddr(compile_unit, index),
-            else => error.InvalidDebugInfo,
+            else => bad(),
         };
     }
 
@@ -252,7 +252,7 @@ pub const Die = struct {
         const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             .Const => |value| value.asUnsignedLe(),
-            else => error.InvalidDebugInfo,
+            else => bad(),
         };
     }
 
@@ -260,7 +260,7 @@ pub const Die = struct {
         const form_value = self.getAttr(id) orelse return error.MissingDebugInfo;
         return switch (form_value.*) {
             .ref => |value| value,
-            else => error.InvalidDebugInfo,
+            else => bad(),
         };
     }
 
@@ -2159,7 +2159,7 @@ pub const ElfModule = struct {
             if (mem.eql(u8, name, ".gnu_debuglink")) {
                 const gnu_debuglink = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
                 const debug_filename = mem.sliceTo(@as([*:0]const u8, @ptrCast(gnu_debuglink.ptr)), 0);
-                const crc_offset = mem.alignForward(usize, @intFromPtr(&debug_filename[debug_filename.len]) + 1, 4) - @intFromPtr(gnu_debuglink.ptr);
+                const crc_offset = mem.alignForward(usize, debug_filename.len + 1, 4);
                 const crc_bytes = gnu_debuglink[crc_offset..][0..4];
                 separate_debug_crc = mem.readInt(u32, crc_bytes, native_endian);
                 separate_debug_filename = debug_filename;
@@ -2215,6 +2215,46 @@ pub const ElfModule = struct {
                 return error.MissingDebugInfo;
             }
 
+            // $XDG_CACHE_HOME/debuginfod_client/<buildid>/debuginfo
+            // This only opportunisticly tries to load from the debuginfod cache, but doesn't try to populate it.
+            // One can manually run `debuginfod-find debuginfo PATH` to download the symbols
+            if (build_id) |id| blk: {
+                var debuginfod_dir: std.fs.Dir = switch (builtin.os.tag) {
+                    .wasi, .windows => break :blk,
+                    else => dir: {
+                        if (std.posix.getenv("DEBUGINFOD_CACHE_PATH")) |path| {
+                            break :dir std.fs.openDirAbsolute(path, .{}) catch break :blk;
+                        }
+                        if (std.posix.getenv("XDG_CACHE_HOME")) |cache_path| {
+                            const path = std.fs.path.join(gpa, &[_][]const u8{ cache_path, "debuginfod_client" }) catch break :blk;
+                            defer gpa.free(path);
+                            break :dir std.fs.openDirAbsolute(path, .{}) catch break :blk;
+                        }
+                        if (std.posix.getenv("HOME")) |home_path| {
+                            const path = std.fs.path.join(gpa, &[_][]const u8{ home_path, ".cache", "debuginfod_client" }) catch break :blk;
+                            defer gpa.free(path);
+                            break :dir std.fs.openDirAbsolute(path, .{}) catch break :blk;
+                        }
+                        break :blk;
+                    },
+                };
+                defer debuginfod_dir.close();
+
+                const filename = std.fmt.allocPrint(
+                    gpa,
+                    "{s}/debuginfo",
+                    .{std.fmt.fmtSliceHexLower(id)},
+                ) catch break :blk;
+                defer gpa.free(filename);
+
+                const path: Path = .{
+                    .root_dir = .{ .path = null, .handle = debuginfod_dir },
+                    .sub_path = filename,
+                };
+
+                return loadPath(gpa, path, null, separate_debug_crc, &sections, mapped_mem) catch break :blk;
+            }
+
             const global_debug_directories = [_][]const u8{
                 "/usr/lib/debug",
             };
@@ -2253,25 +2293,30 @@ pub const ElfModule = struct {
                 if (elf_filename != null and mem.eql(u8, elf_filename.?, separate_filename))
                     return error.MissingDebugInfo;
 
-                // <cwd>/<gnu_debuglink>
-                if (loadPath(
-                    gpa,
-                    .{
-                        .root_dir = std.Build.Cache.Directory.cwd(),
-                        .sub_path = separate_filename,
-                    },
-                    null,
-                    separate_debug_crc,
-                    &sections,
-                    mapped_mem,
-                )) |debug_info| {
-                    return debug_info;
-                } else |_| {}
+                exe_dir: {
+                    var exe_dir_buf: [std.fs.max_path_bytes]u8 = undefined;
+                    const exe_dir_path = std.fs.selfExeDirPath(&exe_dir_buf) catch break :exe_dir;
+                    var exe_dir = std.fs.openDirAbsolute(exe_dir_path, .{}) catch break :exe_dir;
+                    defer exe_dir.close();
 
-                // <cwd>/.debug/<gnu_debuglink>
-                {
+                    // <exe_dir>/<gnu_debuglink>
+                    if (loadPath(
+                        gpa,
+                        .{
+                            .root_dir = .{ .path = null, .handle = exe_dir },
+                            .sub_path = separate_filename,
+                        },
+                        null,
+                        separate_debug_crc,
+                        &sections,
+                        mapped_mem,
+                    )) |debug_info| {
+                        return debug_info;
+                    } else |_| {}
+
+                    // <exe_dir>/.debug/<gnu_debuglink>
                     const path: Path = .{
-                        .root_dir = std.Build.Cache.Directory.cwd(),
+                        .root_dir = .{ .path = null, .handle = exe_dir },
                         .sub_path = try std.fs.path.join(gpa, &.{ ".debug", separate_filename }),
                     };
                     defer gpa.free(path.sub_path);
