@@ -1101,6 +1101,17 @@ pub fn updateFunc(
     }
 
     // Exports will be updated by `Zcu.processExports` after the update.
+
+    {
+        const sym = self.symbol(sym_index);
+        const ot_index = sym.extra(elf_file).zig_offset_table;
+        var ot_entry = offset_table.entries.get(ot_index);
+        if (ot_entry.dirty) {
+            try offset_table.writeEntry(ot_index, self, elf_file);
+            ot_entry.dirty = false;
+        }
+        offset_table.entries.set(ot_index, ot_entry);
+    }
 }
 
 pub fn updateNav(
@@ -1731,15 +1742,15 @@ const TlsTable = std.AutoArrayHashMapUnmanaged(Atom.Index, TlsVariable);
 
 pub const OffsetTable = struct {
     sym_index: Symbol.Index,
-    entries: std.ArrayListUnmanaged(Symbol.Index) = .{},
+    entries: std.MultiArrayList(Entry) = .{},
 
     pub fn deinit(ot: *OffsetTable, allocator: Allocator) void {
         ot.entries.deinit(allocator);
     }
 
     pub fn addSymbol(ot: *OffsetTable, allocator: Allocator, sym_index: Symbol.Index) !Index {
-        const index: Index = @intCast(ot.entries.items.len);
-        try ot.entries.append(allocator, sym_index);
+        const index: Index = @intCast(try ot.entries.addOne(allocator));
+        ot.entries.set(index, .{ .sym_index = sym_index });
         return index;
     }
 
@@ -1753,11 +1764,72 @@ pub const OffsetTable = struct {
         return sym.atom(elf_file).?.size;
     }
 
+    pub fn entryAddress(ot: OffsetTable, index: Index, zo: *ZigObject, elf_file: *Elf) i64 {
+        return ot.address(zo, elf_file) + index * elf_file.archPtrWidthBytes();
+    }
+
+    pub fn entryOffset(ot: OffsetTable, index: Index, zo: *ZigObject, elf_file: *Elf) u64 {
+        const sym = zo.symbol(ot.sym_index);
+        const atom_ptr = sym.atom(elf_file).?;
+        const shdr = elf_file.shdrs.items[atom_ptr.output_section_index];
+        return shdr.sh_offset + @as(u64, @intCast(atom_ptr.value)) + index * elf_file.archPtrWidthBytes();
+    }
+
+    pub fn targetAddress(ot: OffsetTable, index: Index, zo: *ZigObject, elf_file: *Elf) i64 {
+        const sym_index = ot.entries.items(.sym_index)[index];
+        return zo.symbol(sym_index).address(.{}, elf_file);
+    }
+
+    pub fn writeEntry(ot: OffsetTable, index: Index, zo: *ZigObject, elf_file: *Elf) !void {
+        const entry_size: u16 = elf_file.archPtrWidthBytes();
+        const target = elf_file.getTarget();
+        const endian = target.cpu.arch.endian();
+        const fileoff = ot.entryOffset(index, zo, elf_file);
+        const vaddr: u64 = @intCast(ot.entryAddress(index, zo, elf_file));
+        const value = ot.targetAddress(index, zo, elf_file);
+        switch (entry_size) {
+            2 => {
+                var buf: [2]u8 = undefined;
+                std.mem.writeInt(u16, &buf, @intCast(value), endian);
+                try elf_file.base.file.?.pwriteAll(&buf, fileoff);
+            },
+            4 => {
+                var buf: [4]u8 = undefined;
+                std.mem.writeInt(u32, &buf, @intCast(value), endian);
+                try elf_file.base.file.?.pwriteAll(&buf, fileoff);
+            },
+            8 => {
+                var buf: [8]u8 = undefined;
+                std.mem.writeInt(u64, &buf, @intCast(value), endian);
+                try elf_file.base.file.?.pwriteAll(&buf, fileoff);
+
+                if (elf_file.base.child_pid) |pid| {
+                    switch (builtin.os.tag) {
+                        .linux => {
+                            var local_vec: [1]std.posix.iovec_const = .{.{
+                                .base = &buf,
+                                .len = buf.len,
+                            }};
+                            var remote_vec: [1]std.posix.iovec_const = .{.{
+                                .base = @as([*]u8, @ptrFromInt(@as(usize, @intCast(vaddr)))),
+                                .len = buf.len,
+                            }};
+                            const rc = std.os.linux.process_vm_writev(pid, &local_vec, &remote_vec, 0);
+                            switch (std.os.linux.E.init(rc)) {
+                                .SUCCESS => assert(rc == buf.len),
+                                else => |errno| log.warn("process_vm_writev failure: {s}", .{@tagName(errno)}),
+                            }
+                        },
+                        else => return error.HotSwapUnavailableOnHostOperatingSystem,
+                    }
+                }
+            },
+            else => unreachable,
+        }
+    }
+
     pub fn updateSize(ot: OffsetTable, zo: *ZigObject, elf_file: *Elf) !void {
-        const ot_size: u64 = @intCast(ot.entries.items.len * switch (elf_file.ptr_width) {
-            .p32 => @as(u64, 4),
-            .p64 => 8,
-        });
+        const ot_size: u64 = @intCast(ot.entries.items(.sym_index).len * elf_file.archPtrWidthBytes());
         const sym = zo.symbol(ot.sym_index);
         const esym = &zo.symtab.items(.elf_sym)[sym.esym_index];
         esym.st_size = ot_size;
@@ -1795,11 +1867,18 @@ pub const OffsetTable = struct {
         const ot, const zo, const ef = ctx;
         try writer.writeAll("offset table\n");
         try writer.print("  @{x} : size({x})\n", .{ ot.address(zo, ef), ot.size(zo, ef) });
-        for (ot.entries.items) |sym_index| {
+        for (ot.entries.items(.sym_index), ot.entries.items(.dirty)) |sym_index, dirty| {
             const sym = zo.symbol(sym_index);
-            try writer.print("    %{d} : {s} : @{x}\n", .{ sym_index, sym.name(ef), sym.address(.{}, ef) });
+            try writer.print("    %{d} : {s} : @{x}", .{ sym_index, sym.name(ef), sym.address(.{}, ef) });
+            if (dirty) try writer.writeAll(" : [!]");
+            try writer.writeByte('\n');
         }
     }
+
+    const Entry = struct {
+        sym_index: Symbol.Index,
+        dirty: bool = true,
+    };
 
     pub const Index = u32;
 };
