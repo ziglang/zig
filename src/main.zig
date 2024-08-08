@@ -3883,14 +3883,20 @@ fn createModule(
                                 const path = try arena.dupe(u8, test_path.items);
                                 switch (info.preferred_mode) {
                                     .static => try create_module.link_objects.append(arena, .{ .path = path }),
-                                    .dynamic => try create_module.resolved_system_libs.append(arena, .{
-                                        .name = lib_name,
-                                        .lib = .{
-                                            .needed = info.needed,
-                                            .weak = info.weak,
+                                    .dynamic => if (info.needed or target.isDarwin())
+                                        try create_module.resolved_system_libs.append(arena, .{
+                                            .name = lib_name,
+                                            .lib = .{
+                                                .needed = info.needed,
+                                                .weak = info.weak,
+                                                .path = path,
+                                            },
+                                        })
+                                    else
+                                        try create_module.link_objects.append(arena, .{
                                             .path = path,
-                                        },
-                                    }),
+                                            .loption = true,
+                                        }),
                                 }
                                 continue :syslib;
                             }
@@ -3917,14 +3923,20 @@ fn createModule(
                                 const path = try arena.dupe(u8, test_path.items);
                                 switch (info.fallbackMode()) {
                                     .static => try create_module.link_objects.append(arena, .{ .path = path }),
-                                    .dynamic => try create_module.resolved_system_libs.append(arena, .{
-                                        .name = lib_name,
-                                        .lib = .{
-                                            .needed = info.needed,
-                                            .weak = info.weak,
+                                    .dynamic => if (info.needed or target.isDarwin())
+                                        try create_module.resolved_system_libs.append(arena, .{
+                                            .name = lib_name,
+                                            .lib = .{
+                                                .needed = info.needed,
+                                                .weak = info.weak,
+                                                .path = path,
+                                            },
+                                        })
+                                    else
+                                        try create_module.link_objects.append(arena, .{
                                             .path = path,
-                                        },
-                                    }),
+                                            .loption = true,
+                                        }),
                                 }
                                 continue :syslib;
                             }
@@ -3951,14 +3963,20 @@ fn createModule(
                                 const path = try arena.dupe(u8, test_path.items);
                                 switch (info.preferred_mode) {
                                     .static => try create_module.link_objects.append(arena, .{ .path = path }),
-                                    .dynamic => try create_module.resolved_system_libs.append(arena, .{
-                                        .name = lib_name,
-                                        .lib = .{
-                                            .needed = info.needed,
-                                            .weak = info.weak,
+                                    .dynamic => if (info.needed or target.isDarwin())
+                                        try create_module.resolved_system_libs.append(arena, .{
+                                            .name = lib_name,
+                                            .lib = .{
+                                                .needed = info.needed,
+                                                .weak = info.weak,
+                                                .path = path,
+                                            },
+                                        })
+                                    else
+                                        try create_module.link_objects.append(arena, .{
                                             .path = path,
-                                        },
-                                    }),
+                                            .loption = true,
+                                        }),
                                 }
                                 continue :syslib;
                             }
@@ -3975,14 +3993,20 @@ fn createModule(
                                 const path = try arena.dupe(u8, test_path.items);
                                 switch (info.fallbackMode()) {
                                     .static => try create_module.link_objects.append(arena, .{ .path = path }),
-                                    .dynamic => try create_module.resolved_system_libs.append(arena, .{
-                                        .name = lib_name,
-                                        .lib = .{
-                                            .needed = info.needed,
-                                            .weak = info.weak,
+                                    .dynamic => if (info.needed or target.isDarwin())
+                                        try create_module.resolved_system_libs.append(arena, .{
+                                            .name = lib_name,
+                                            .lib = .{
+                                                .needed = info.needed,
+                                                .weak = info.weak,
+                                                .path = path,
+                                            },
+                                        })
+                                    else
+                                        try create_module.link_objects.append(arena, .{
                                             .path = path,
-                                        },
-                                    }),
+                                            .loption = true,
+                                        }),
                                 }
                                 continue :syslib;
                             }
