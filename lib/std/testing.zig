@@ -1137,10 +1137,23 @@ pub fn refAllDeclsRecursive(comptime T: type) void {
     }
 }
 
-pub const FuzzInputOptions = struct {
+pub const FuzzerOptions = struct {
     corpus: []const []const u8 = &.{},
 };
 
-pub inline fn fuzzInput(options: FuzzInputOptions) []const u8 {
-    return @import("root").fuzzInput(options);
+pub inline fn fuzzer(options: FuzzerOptions) Fuzzer {
+    @import("root").fuzzerInit(options);
+    return .{};
 }
+
+pub const Fuzzer = struct {
+    pub const Run = struct {
+        allocator: std.mem.Allocator,
+        input: []const u8,
+    };
+
+    pub fn next(self: *Fuzzer) ?Run {
+        _ = self;
+        return @import("root").fuzzerNext();
+    }
+};

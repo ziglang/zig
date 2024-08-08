@@ -117,7 +117,7 @@ fn mainServer() !void {
                 const test_fn = builtin.test_functions[index];
                 var fail = false;
                 var skip = false;
-                is_fuzz_test = false;
+                fuzzer = .{};
                 test_fn.func() catch |err| switch (err) {
                     error.SkipZigTest => skip = true,
                     else => {
@@ -134,7 +134,7 @@ fn mainServer() !void {
                         .fail = fail,
                         .skip = skip,
                         .leak = leak,
-                        .fuzz = is_fuzz_test,
+                        .fuzz = fuzzer.test_data != null,
                         .log_err_count = std.math.lossyCast(
                             @TypeOf(@as(std.zig.Server.Message.TestResults.Flags, undefined).log_err_count),
                             log_err_count,
@@ -145,30 +145,22 @@ fn mainServer() !void {
             .start_fuzzing => {
                 if (!builtin.fuzz) unreachable;
                 const index = try server.receiveBody_u32();
-                var first = true;
                 const test_fn = builtin.test_functions[index];
-                while (true) {
-                    testing.allocator_instance = .{};
-                    defer if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);
-                    log_err_count = 0;
-                    is_fuzz_test = false;
-                    test_fn.func() catch |err| switch (err) {
-                        error.SkipZigTest => continue,
-                        else => {
-                            if (@errorReturnTrace()) |trace| {
-                                std.debug.dumpStackTrace(trace.*);
-                            }
-                            std.debug.print("failed with error.{s}\n", .{@errorName(err)});
-                            std.process.exit(1);
-                        },
-                    };
-                    if (!is_fuzz_test) @panic("missed call to std.testing.fuzzInput");
-                    if (log_err_count != 0) @panic("error logs detected");
-                    if (first) {
-                        first = false;
-                        try server.serveU64Message(.fuzz_start_addr, entry_addr);
-                    }
-                }
+                fuzzer = .{ .server = &server };
+                testing.allocator_instance = .{};
+                defer if (testing.allocator_instance.deinit() == .leak) std.process.exit(1);
+                log_err_count = 0;
+                test_fn.func() catch |err| switch (err) {
+                    error.SkipZigTest => continue,
+                    else => {
+                        if (@errorReturnTrace()) |trace| {
+                            std.debug.dumpStackTrace(trace.*);
+                        }
+                        std.debug.print("failed with error.{s}\n", .{@errorName(err)});
+                        std.process.exit(1);
+                    },
+                };
+                if (log_err_count != 0) @panic("error logs detected");
             },
 
             else => {
@@ -211,7 +203,7 @@ fn mainTerminal() void {
         if (!have_tty) {
             std.debug.print("{d}/{d} {s}...", .{ i + 1, test_fn_list.len, test_fn.name });
         }
-        is_fuzz_test = false;
+        fuzzer = .{};
         if (test_fn.func()) |_| {
             ok_count += 1;
             test_node.end();
@@ -241,7 +233,7 @@ fn mainTerminal() void {
                 test_node.end();
             },
         }
-        fuzz_count += @intFromBool(is_fuzz_test);
+        fuzz_count += @intFromBool(fuzzer.test_data != null);
     }
     root_node.end();
     if (ok_count == test_fn_list.len) {
@@ -346,23 +338,79 @@ const FuzzerSlice = extern struct {
     }
 };
 
-var is_fuzz_test: bool = undefined;
-var entry_addr: usize = 0;
+// Initialized prior to executing each test function.
+var fuzzer: Fuzzer = undefined;
 
+// NOTE: These must only be referenced when `builtin.fuzz` since libfuzzer is only linked
+// when that is true.
 extern fn fuzzer_next() FuzzerSlice;
 extern fn fuzzer_init(cache_dir: FuzzerSlice) void;
 extern fn fuzzer_coverage_id() u64;
 
-pub fn fuzzInput(options: testing.FuzzInputOptions) []const u8 {
+const Fuzzer = struct {
+    server: ?*std.zig.Server = null,
+    test_data: ?TestData = null,
+
+    const TestData = struct {
+        notification_state: enum { before_first, after_first, rest } = .before_first,
+        entry_addr: usize = 0,
+        corpus: if (!builtin.fuzz) []const []const u8 else void,
+        corpus_index: if (!builtin.fuzz) usize else void,
+        allocator_instance: std.heap.GeneralPurposeAllocator(.{}) = .{},
+    };
+};
+
+pub fn fuzzerInit(options: testing.FuzzerOptions) void {
+    if (!builtin.fuzz) {
+        fuzzer.test_data = .{
+            .corpus = if (options.corpus.len == 0) &.{""} else options.corpus,
+            .corpus_index = 0,
+        };
+        return;
+    }
+    fuzzer.test_data = .{
+        .corpus = {},
+        .corpus_index = {},
+    };
+}
+
+pub fn fuzzerNext() ?testing.Fuzzer.Run {
     @disableInstrumentation();
     if (crippled) return "";
-    is_fuzz_test = true;
-    if (builtin.fuzz) {
-        if (entry_addr == 0) entry_addr = @returnAddress();
-        return fuzzer_next().toSlice();
+    // Test date must be initialized during `fuzzerInit`.
+    const test_data = &fuzzer.test_data.?;
+    // Evaluate the previous loop. This must do nothing before the first loop.
+    if (test_data.allocator_instance.deinit() == .leak) std.process.exit(1);
+    if (log_err_count != 0) @panic("error logs detected");
+    // Reset the allocator.
+    test_data.allocator_instance = .{};
+    // Iterate over the corpus for dry-run tests.
+    if (!builtin.fuzz) {
+        if (test_data.corpus_index >= test_data.corpus.len)
+            return null;
+        const result = test_data.corpus[test_data.corpus_index];
+        test_data.corpus_index += 1;
+        return .{
+            .allocator = test_data.allocator_instance.allocator(),
+            .input = result,
+        };
     }
-    if (options.corpus.len == 0) return "";
-    var prng = std.Random.DefaultPrng.init(testing.random_seed);
-    const random = prng.random();
-    return options.corpus[random.uintLessThan(usize, options.corpus.len)];
+    // Notify the Zig server on the second call to `fuzzerNext` using the return address
+    // from the first call. Subsequent calls have no effect.
+    switch (test_data.notification_state) {
+        .before_first => {
+            test_data.entry_addr = @returnAddress();
+            test_data.notification_state = .after_first;
+        },
+        .after_first => {
+            if (fuzzer.server) |server|
+                server.serveU64Message(.fuzz_start_addr, @returnAddress()) catch @panic("internal test runner failure");
+            test_data.notification_state = .rest;
+        },
+        .rest => {},
+    }
+    return .{
+        .allocator = test_data.allocator_instance.allocator(),
+        .input = fuzzer_next().toSlice(),
+    };
 }

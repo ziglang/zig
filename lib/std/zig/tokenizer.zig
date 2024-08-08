@@ -1842,46 +1842,49 @@ fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag) !v
 }
 
 test "fuzzable properties upheld" {
-    const source = std.testing.fuzzInput(.{});
-    const source0 = try std.testing.allocator.dupeZ(u8, source);
-    defer std.testing.allocator.free(source0);
-    var tokenizer = Tokenizer.init(source0);
-    var tokenization_failed = false;
-    while (true) {
-        const token = tokenizer.next();
+    var fuzzer = std.testing.fuzzer(.{});
+    while (fuzzer.next()) |run| {
+        const source = run.input;
+        const source0 = try run.allocator.dupeZ(u8, source);
+        defer run.allocator.free(source0);
+        var tokenizer = Tokenizer.init(source0);
+        var tokenization_failed = false;
+        while (true) {
+            const token = tokenizer.next();
 
-        // Property: token end location after start location (or equal)
-        try std.testing.expect(token.loc.end >= token.loc.start);
+            // Property: token end location after start location (or equal)
+            try std.testing.expect(token.loc.end >= token.loc.start);
 
-        switch (token.tag) {
-            .invalid => {
-                tokenization_failed = true;
+            switch (token.tag) {
+                .invalid => {
+                    tokenization_failed = true;
 
-                // Property: invalid token always ends at newline or eof
-                try std.testing.expect(source0[token.loc.end] == '\n' or source0[token.loc.end] == 0);
-            },
-            .eof => {
-                // Property: EOF token is always 0-length at end of source.
-                try std.testing.expectEqual(source0.len, token.loc.start);
-                try std.testing.expectEqual(source0.len, token.loc.end);
-                break;
-            },
-            else => continue,
+                    // Property: invalid token always ends at newline or eof
+                    try std.testing.expect(source0[token.loc.end] == '\n' or source0[token.loc.end] == 0);
+                },
+                .eof => {
+                    // Property: EOF token is always 0-length at end of source.
+                    try std.testing.expectEqual(source0.len, token.loc.start);
+                    try std.testing.expectEqual(source0.len, token.loc.end);
+                    break;
+                },
+                else => continue,
+            }
         }
+
+        if (source0.len > 0) for (source0, source0[1..][0..source0.len]) |cur, next| {
+            // Property: No null byte allowed except at end.
+            if (cur == 0) {
+                try std.testing.expect(tokenization_failed);
+            }
+            // Property: No ASCII control characters other than \n and \t are allowed.
+            if (std.ascii.isControl(cur) and cur != '\n' and cur != '\t') {
+                try std.testing.expect(tokenization_failed);
+            }
+            // Property: All '\r' must be followed by '\n'.
+            if (cur == '\r' and next != '\n') {
+                try std.testing.expect(tokenization_failed);
+            }
+        };
     }
-
-    if (source0.len > 0) for (source0, source0[1..][0..source0.len]) |cur, next| {
-        // Property: No null byte allowed except at end.
-        if (cur == 0) {
-            try std.testing.expect(tokenization_failed);
-        }
-        // Property: No ASCII control characters other than \n and \t are allowed.
-        if (std.ascii.isControl(cur) and cur != '\n' and cur != '\t') {
-            try std.testing.expect(tokenization_failed);
-        }
-        // Property: All '\r' must be followed by '\n'.
-        if (cur == '\r' and next != '\n') {
-            try std.testing.expect(tokenization_failed);
-        }
-    };
 }
