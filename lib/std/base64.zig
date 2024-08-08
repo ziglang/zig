@@ -99,12 +99,28 @@ pub const Base64Encoder = struct {
         }
     }
 
+    // dest must be compatible with std.io.Writer's writeAll interface
     pub fn encodeWriter(encoder: *const Base64Encoder, dest: anytype, source: []const u8) !void {
         var temp = [_]u8{0} ** 5;
         var chunker = window(u8, source, 3, 3);
         while (chunker.next()) |chunk| {
             const s = encoder.encode(&temp, chunk);
             try dest.writeAll(s);
+        }
+    }
+
+    // destWriter must be compatible with std.io.Writer's writeAll interface
+    // sourceReader must be compatible with std.io.Reader's read interface
+    pub fn encodeFromReaderToWriter(encoder: *const Base64Encoder, destWriter: anytype, sourceReader: anytype) !void {
+        var temp = [_]u8{0} ** 5;
+        var tempSource = [_]u8{0} ** 3;
+        while (true) {
+            const bytesRead = try sourceReader.read(&tempSource);
+            if (bytesRead == 0) {
+                break;
+            }
+            const s = encoder.encode(&temp, tempSource[0..bytesRead]);
+            try destWriter.writeAll(s);
         }
     }
 
@@ -495,6 +511,12 @@ fn testAllApis(codecs: Codecs, expected_decoded: []const u8, expected_encoded: [
         // stream encode
         var list = try std.BoundedArray(u8, 0x100).init(0);
         try codecs.Encoder.encodeWriter(list.writer(), expected_decoded);
+        try testing.expectEqualSlices(u8, expected_encoded, list.slice());
+
+        // reader to writer encode
+        var stream = std.io.fixedBufferStream(expected_decoded);
+        list = try std.BoundedArray(u8, 0x100).init(0);
+        try codecs.Encoder.encodeFromReaderToWriter(list.writer(), stream.reader());
         try testing.expectEqualSlices(u8, expected_encoded, list.slice());
     }
 
