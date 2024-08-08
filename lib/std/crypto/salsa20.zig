@@ -534,9 +534,9 @@ pub const SealedBox = struct {
 
     /// Encrypt a message `m` for a recipient whose public key is `public_key`.
     /// `c` must be `seal_length` bytes larger than `m`, so that the required metadata can be added.
-    pub fn seal(c: []u8, m: []const u8, public_key: [public_length]u8) (WeakPublicKeyError || IdentityElementError)!void {
+    pub fn seal(c: []u8, m: []const u8, public_key: [public_length]u8, seed: [KeyPair.seed_length]u8) (WeakPublicKeyError || IdentityElementError)!void {
         debug.assert(c.len == m.len + seal_length);
-        var ekp = try KeyPair.initWithRandomSeed();
+        var ekp = try KeyPair.init(seed);
         const nonce = createNonce(ekp.public_key, public_key);
         c[0..public_length].* = ekp.public_key;
         try Box.seal(c[Box.public_length..], m, nonce, public_key, ekp.secret_key);
@@ -600,6 +600,12 @@ test "xsalsa20poly1305 secretbox" {
     try SecretBox.open(msg2[0..], boxed[0..], nonce, key);
 }
 
+fn initTestKeypair(comptime Scheme: type, rng: *std.Random.DefaultPrng) !Scheme.KeyPair {
+    var seed: [Scheme.KeyPair.seed_length]u8 = undefined;
+    rng.fill(&seed);
+    return try Scheme.KeyPair.init(seed);
+}
+
 test "xsalsa20poly1305 box" {
     var msg: [100]u8 = undefined;
     var msg2: [msg.len]u8 = undefined;
@@ -608,8 +614,10 @@ test "xsalsa20poly1305 box" {
     crypto.random.bytes(&msg);
     crypto.random.bytes(&nonce);
 
-    const kp1 = try Box.KeyPair.initWithRandomSeed();
-    const kp2 = try Box.KeyPair.initWithRandomSeed();
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+
+    const kp1 = try initTestKeypair(Box, &prng);
+    const kp2 = try initTestKeypair(Box, &prng);
     try Box.seal(boxed[0..], msg[0..], nonce, kp1.public_key, kp2.secret_key);
     try Box.open(msg2[0..], boxed[0..], nonce, kp2.public_key, kp1.secret_key);
 }
@@ -620,8 +628,12 @@ test "xsalsa20poly1305 sealedbox" {
     var boxed: [msg.len + SealedBox.seal_length]u8 = undefined;
     crypto.random.bytes(&msg);
 
-    const kp = try Box.KeyPair.initWithRandomSeed();
-    try SealedBox.seal(boxed[0..], msg[0..], kp.public_key);
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+
+    const kp = try initTestKeypair(SealedBox, &prng);
+    var seed: [SealedBox.KeyPair.seed_length]u8 = undefined;
+    prng.fill(&seed);
+    try SealedBox.seal(boxed[0..], msg[0..], kp.public_key, seed);
     try SealedBox.open(msg2[0..], boxed[0..], kp);
 }
 

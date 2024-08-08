@@ -158,7 +158,10 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
         // Only possible to happen if the private key is all zeroes.
         error.IdentityElement => return error.InsufficientEntropy,
     };
-    const kyber768_kp = crypto.kem.kyber_d00.Kyber768.KeyPair.initWithRandomSeed() catch {};
+
+    var kyber768_kp_seed: [crypto.kem.kyber_d00.Kyber768.KeyPair.seed_length]u8 = undefined;
+    crypto.random.bytes(&kyber768_kp_seed);
+    const kyber768_kp = crypto.kem.kyber_d00.Kyber768.KeyPair.init(kyber768_kp_seed) catch {};
 
     const extensions_payload =
         tls.extension(.supported_versions, [_]u8{

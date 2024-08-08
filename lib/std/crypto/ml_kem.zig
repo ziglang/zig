@@ -229,8 +229,6 @@ fn Kyber(comptime p: Params) type {
         pub const shared_length = common_shared_key_size;
         /// Length (in bytes) of a seed for deterministic encapsulation.
         pub const encaps_seed_length = common_encaps_seed_length;
-        /// Length (in bytes) of a seed for key generation.
-        pub const seed_length: usize = inner_seed_length + shared_length;
         /// Algorithm name.
         pub const name = p.name;
 
@@ -377,11 +375,7 @@ fn Kyber(comptime p: Params) type {
             secret_key: SecretKey,
             public_key: PublicKey,
 
-            pub fn initWithRandomSeed() !KeyPair {
-                var random_seed: [seed_length]u8 = undefined;
-                crypto.random.bytes(&random_seed);
-                return init(random_seed);
-            }
+            pub const seed_length: usize = inner_seed_length + shared_length;
 
             /// Create a new key pair form seed.
             pub fn init(seed: [seed_length]u8) !KeyPair {

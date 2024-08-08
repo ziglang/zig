@@ -19,8 +19,6 @@ pub const X25519 = struct {
     pub const public_length = 32;
     /// Length (in bytes) of the output of the DH function.
     pub const shared_length = 32;
-    /// Seed (for key pair creation) length in bytes.
-    pub const seed_length = 32;
 
     /// An X25519 key pair.
     pub const KeyPair = struct {
@@ -29,11 +27,7 @@ pub const X25519 = struct {
         /// Secret part.
         secret_key: [secret_length]u8,
 
-        pub fn initWithRandomSeed() IdentityElementError!KeyPair {
-            var random_seed: [seed_length]u8 = undefined;
-            crypto.random.bytes(&random_seed);
-            return init(random_seed);
-        }
+        pub const seed_length = 32;
 
         /// Create a new key pair using a seed.
         pub fn init(seed: [seed_length]u8) IdentityElementError!KeyPair {

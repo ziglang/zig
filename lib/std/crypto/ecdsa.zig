@@ -289,13 +289,6 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             /// Secret scalar.
             secret_key: SecretKey,
 
-            /// Create a new random key pair. `crypto.random.bytes` must be supported for the target.
-            pub fn initWithRandomSeed() IdentityElementError!KeyPair {
-                var random_seed: [seed_length]u8 = undefined;
-                crypto.random.bytes(&random_seed);
-                return init(random_seed);
-            }
-
             /// Create a new key pair. The seed must be secret and indistinguishable from random.
             pub fn init(seed: [seed_length]u8) IdentityElementError!KeyPair {
                 const h = [_]u8{0x00} ** Hash.digest_length;
@@ -376,11 +369,19 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
     };
 }
 
+fn initTestKeypair(comptime Scheme: type, rng: *std.Random.DefaultPrng) !Scheme.KeyPair {
+    var seed: [Scheme.KeyPair.seed_length]u8 = undefined;
+    rng.fill(&seed);
+    return try Scheme.KeyPair.init(seed);
+}
+
 test "Basic operations over EcdsaP384Sha384" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+
     const Scheme = EcdsaP384Sha384;
-    const kp = try Scheme.KeyPair.initWithRandomSeed();
+    const kp = try initTestKeypair(Scheme, &prng);
     const msg = "test";
 
     var noise: [Scheme.noise_length]u8 = undefined;
@@ -395,8 +396,10 @@ test "Basic operations over EcdsaP384Sha384" {
 test "Basic operations over Secp256k1" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+
     const Scheme = EcdsaSecp256k1Sha256oSha256;
-    const kp = try Scheme.KeyPair.initWithRandomSeed();
+    const kp = try initTestKeypair(Scheme, &prng);
     const msg = "test";
 
     var noise: [Scheme.noise_length]u8 = undefined;
@@ -411,8 +414,10 @@ test "Basic operations over Secp256k1" {
 test "Basic operations over EcdsaP384Sha256" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+
     const Scheme = Ecdsa(crypto.ecc.P384, crypto.hash.sha2.Sha256);
-    const kp = try Scheme.KeyPair.initWithRandomSeed();
+    const kp = try initTestKeypair(Scheme, &prng);
     const msg = "test";
 
     var noise: [Scheme.noise_length]u8 = undefined;
@@ -885,8 +890,10 @@ fn tvTry(vector: TestVector) !void {
 test "Sec1 encoding/decoding" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+
     const Scheme = EcdsaP384Sha384;
-    const kp = try Scheme.KeyPair.initWithRandomSeed();
+    const kp = try initTestKeypair(Scheme, &prng);
     const pk = kp.public_key;
     const pk_compressed_sec1 = pk.toCompressedSec1();
     const pk_recovered1 = try Scheme.PublicKey.fromSec1(&pk_compressed_sec1);
