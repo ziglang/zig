@@ -173,6 +173,9 @@
         .dependencyFromBuildZig = .{
             .path = "dependencyFromBuildZig",
         },
+        .precompiled_c_headers = .{
+            .path = "pch",
+        },
         .run_output_paths = .{
             .path = "run_output_paths",
         },
