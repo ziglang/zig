@@ -1001,17 +1001,22 @@ pub const Cpu = struct {
     };
 
     pub const Arch = enum {
+        amdgcn,
+        arc,
         arm,
         armeb,
+        thumb,
+        thumbeb,
         aarch64,
         aarch64_be,
-        arc,
         avr,
         bpfel,
         bpfeb,
         csky,
         dxil,
         hexagon,
+        kalimba,
+        lanai,
         loongarch32,
         loongarch64,
         m68k,
@@ -1020,51 +1025,46 @@ pub const Cpu = struct {
         mips64,
         mips64el,
         msp430,
+        nvptx,
+        nvptx64,
         powerpc,
         powerpcle,
         powerpc64,
         powerpc64le,
-        amdgcn,
         riscv32,
         riscv64,
+        s390x,
         sparc,
         sparc64,
-        s390x,
-        thumb,
-        thumbeb,
+        spirv,
+        spirv32,
+        spirv64,
+        spu_2,
+        ve,
+        wasm32,
+        wasm64,
         x86,
         x86_64,
         xcore,
         xtensa,
-        nvptx,
-        nvptx64,
-        spirv,
-        spirv32,
-        spirv64,
-        kalimba,
-        lanai,
-        wasm32,
-        wasm64,
-        ve,
-        spu_2,
 
         // LLVM tags deliberately omitted:
         // - aarch64_32
-        // - r600
-        // - sparcel
-        // - tce
-        // - tcele
-        // - le32
-        // - le64
         // - amdil
         // - amdil64
+        // - le32
+        // - le64
+        // - r600
         // - hsail
         // - hsail64
-        // - spir
-        // - spir64
-        // - shave
         // - renderscript32
         // - renderscript64
+        // - shave
+        // - sparcel
+        // - spir
+        // - spir64
+        // - tce
+        // - tcele
 
         pub inline fn isX86(arch: Arch) bool {
             return switch (arch) {
