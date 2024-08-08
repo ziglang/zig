@@ -55,7 +55,10 @@ debug_str_section_zig_size: u64 = 0,
 debug_aranges_section_zig_size: u64 = 0,
 debug_line_section_zig_size: u64 = 0,
 
-func_offset_table: ?OffsetTable = null,
+/// Function offset table containing pointers to Zig generated functions.
+/// The table is used for Zig's incremental compilation and is embedded with
+/// the machine code section.
+offset_table: ?OffsetTable = null,
 
 pub const global_symbol_bit: u32 = 0x80000000;
 pub const symbol_mask: u32 = 0x7fffffff;
@@ -131,7 +134,7 @@ pub fn deinit(self: *ZigObject, allocator: Allocator) void {
         dw.deinit();
     }
 
-    if (self.func_offset_table) |*ot| {
+    if (self.offset_table) |*ot| {
         ot.deinit(allocator);
     }
 }
@@ -1040,11 +1043,23 @@ pub fn updateFunc(
     const ip = &zcu.intern_pool;
     const gpa = elf_file.base.comp.gpa;
     const func = zcu.funcInfo(func_index);
+    const offset_table = self.offsetTablePtr() orelse try self.initOffsetTable(gpa, elf_file);
 
     log.debug("updateFunc {}({d})", .{ ip.getNav(func.owner_nav).fqn.fmt(ip), func.owner_nav });
 
     const sym_index = try self.getOrCreateMetadataForNav(elf_file, func.owner_nav);
     self.symbol(sym_index).atom(elf_file).?.freeRelocs(elf_file);
+
+    {
+        const sym = self.symbol(sym_index);
+        if (!sym.flags.zig_offset_table) {
+            const index = try offset_table.addSymbol(gpa, sym_index);
+            sym.flags.zig_offset_table = true;
+            sym.addExtra(.{ .zig_offset_table = index }, elf_file);
+            try offset_table.updateSize(self, elf_file);
+            try self.symbol(offset_table.sym_index).atom(elf_file).?.allocate(elf_file);
+        }
+    }
 
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
@@ -1446,6 +1461,27 @@ pub fn getGlobalSymbol(self: *ZigObject, elf_file: *Elf, name: []const u8, lib_n
     return lookup_gop.value_ptr.*;
 }
 
+fn offsetTablePtr(self: *ZigObject) ?*OffsetTable {
+    return if (self.offset_table) |*ot| ot else null;
+}
+
+fn initOffsetTable(self: *ZigObject, allocator: Allocator, elf_file: *Elf) error{OutOfMemory}!*OffsetTable {
+    const name_off = try self.addString(allocator, "__zig_offset_table");
+    const sym_index = try self.newSymbolWithAtom(allocator, name_off);
+    const sym = self.symbol(sym_index);
+    const esym = &self.symtab.items(.elf_sym)[sym.esym_index];
+    esym.st_info |= elf.STT_OBJECT;
+    const atom_ptr = sym.atom(elf_file).?;
+    atom_ptr.alive = true;
+    atom_ptr.alignment = Atom.Alignment.fromNonzeroByteUnits(switch (elf_file.ptr_width) {
+        .p32 => 4,
+        .p64 => 8,
+    });
+    atom_ptr.output_section_index = elf_file.zig_text_section_index.?;
+    self.offset_table = OffsetTable{ .sym_index = sym_index };
+    return &(self.offset_table.?);
+}
+
 pub fn asFile(self: *ZigObject) File {
     return .{ .zig_object = self };
 }
@@ -1694,18 +1730,39 @@ const LazySymbolTable = std.AutoArrayHashMapUnmanaged(InternPool.Index, LazySymb
 const TlsTable = std.AutoArrayHashMapUnmanaged(Atom.Index, TlsVariable);
 
 pub const OffsetTable = struct {
-    atom_index: Atom.Index,
+    sym_index: Symbol.Index,
     entries: std.ArrayListUnmanaged(Symbol.Index) = .{},
 
     pub fn deinit(ot: *OffsetTable, allocator: Allocator) void {
         ot.entries.deinit(allocator);
     }
 
-    pub fn size(ot: OffsetTable, elf_file: *Elf) usize {
-        return ot.entries.items.len * switch (elf_file.ptr_width) {
-            .p32 => @as(usize, 4),
+    pub fn addSymbol(ot: *OffsetTable, allocator: Allocator, sym_index: Symbol.Index) !Index {
+        const index: Index = @intCast(ot.entries.items.len);
+        try ot.entries.append(allocator, sym_index);
+        return index;
+    }
+
+    pub fn address(ot: OffsetTable, zo: *ZigObject, elf_file: *Elf) i64 {
+        const sym = zo.symbol(ot.sym_index);
+        return sym.address(.{}, elf_file);
+    }
+
+    pub fn size(ot: OffsetTable, zo: *ZigObject, elf_file: *Elf) u64 {
+        const sym = zo.symbol(ot.sym_index);
+        return sym.atom(elf_file).?.size;
+    }
+
+    pub fn updateSize(ot: OffsetTable, zo: *ZigObject, elf_file: *Elf) !void {
+        const ot_size: u64 = @intCast(ot.entries.items.len * switch (elf_file.ptr_width) {
+            .p32 => @as(u64, 4),
             .p64 => 8,
-        };
+        });
+        const sym = zo.symbol(ot.sym_index);
+        const esym = &zo.symtab.items(.elf_sym)[sym.esym_index];
+        esym.st_size = ot_size;
+        const atom_ptr = sym.atom(elf_file).?;
+        atom_ptr.size = ot_size;
     }
 
     const OffsetTableFormatContext = struct { OffsetTable, *ZigObject, *Elf };
@@ -1736,13 +1793,15 @@ pub const OffsetTable = struct {
         _ = options;
         _ = unused_fmt_string;
         const ot, const zo, const ef = ctx;
-        const atom_ptr = zo.atom(ot.atom_index).?;
-        try writer.print("@{x} : size({x})\n", .{ atom_ptr.address(ef), ot.size(ef) });
+        try writer.writeAll("offset table\n");
+        try writer.print("  @{x} : size({x})\n", .{ ot.address(zo, ef), ot.size(zo, ef) });
         for (ot.entries.items) |sym_index| {
             const sym = zo.symbol(sym_index);
-            try writer.print("  %{d} : {s} : @{x}\n", .{ sym_index, sym.name(ef), sym.value });
+            try writer.print("    %{d} : {s} : @{x}\n", .{ sym_index, sym.name(ef), sym.address(.{}, ef) });
         }
     }
+
+    pub const Index = u32;
 };
 
 const assert = std.debug.assert;

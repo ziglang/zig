@@ -260,6 +260,7 @@ const AddExtraOpts = struct {
     gottp: ?u32 = null,
     tlsdesc: ?u32 = null,
     zig_got: ?u32 = null,
+    zig_offset_table: ?u32 = null,
 };
 
 pub fn addExtra(symbol: *Symbol, opts: AddExtraOpts, elf_file: *Elf) void {
@@ -467,6 +468,9 @@ pub const Flags = packed struct {
 
     /// Whether the symbol is a merge subsection.
     merge_subsection: bool = false,
+
+    /// Whether the symbol has __zig_offset_table indirection.
+    zig_offset_table: bool = false,
 };
 
 pub const Extra = struct {
@@ -481,6 +485,7 @@ pub const Extra = struct {
     tlsdesc: u32 = 0,
     zig_got: u32 = 0,
     merge_section: u32 = 0,
+    zig_offset_table: u32 = 0,
 };
 
 pub const Index = u32;
