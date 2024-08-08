@@ -138,15 +138,15 @@ const signatures = [_]Crypto{
     Crypto{ .ty = crypto.sign.ecdsa.EcdsaSecp256k1Sha256, .name = "ecdsa-secp256k1" },
 };
 
-fn initTestKeypair(comptime Scheme: type, rng: *std.Random.DefaultPrng) !Scheme.KeyPair {
+fn initBenchKeyPair(comptime Scheme: type) !Scheme.KeyPair {
     var seed: [Scheme.KeyPair.seed_length]u8 = undefined;
-    rng.fill(&seed);
+    prng.fill(&seed);
     return try Scheme.KeyPair.init(seed);
 }
 
 pub fn benchmarkSignature(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
     const msg = [_]u8{0} ** 64;
-    const key_pair = try initTestKeypair(Signature, &prng);
+    const key_pair = try initBenchKeyPair(Signature);
 
     var timer = try Timer.start();
     const start = timer.lap();
@@ -169,7 +169,7 @@ const signature_verifications = [_]Crypto{Crypto{ .ty = crypto.sign.Ed25519, .na
 
 pub fn benchmarkSignatureVerification(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
     const msg = [_]u8{0} ** 64;
-    const key_pair = try initTestKeypair(Signature, &prng);
+    const key_pair = try initBenchKeyPair(Signature);
     const sig = try key_pair.sign(&msg, null);
 
     var timer = try Timer.start();
@@ -193,7 +193,7 @@ const batch_signature_verifications = [_]Crypto{Crypto{ .ty = crypto.sign.Ed2551
 
 pub fn benchmarkBatchSignatureVerification(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
     const msg = [_]u8{0} ** 64;
-    const key_pair = try initTestKeypair(Signature, &prng);
+    const key_pair = try initBenchKeyPair(Signature);
     const sig = try key_pair.sign(&msg, null);
 
     var batch: [64]Signature.BatchElement = undefined;
@@ -225,7 +225,7 @@ const kems = [_]Crypto{
 };
 
 pub fn benchmarkKem(comptime Kem: anytype, comptime kems_count: comptime_int) !u64 {
-    const key_pair = try initTestKeypair(Kem, &prng);
+    const key_pair = try initBenchKeyPair(Kem);
 
     var timer = try Timer.start();
     const start = timer.lap();
@@ -245,7 +245,7 @@ pub fn benchmarkKem(comptime Kem: anytype, comptime kems_count: comptime_int) !u
 }
 
 pub fn benchmarkKemDecaps(comptime Kem: anytype, comptime kems_count: comptime_int) !u64 {
-    const key_pair = try initTestKeypair(Kem, &prng);
+    const key_pair = try initBenchKeyPair(Kem);
 
     const e = key_pair.public_key.encaps(null);
 
@@ -272,7 +272,7 @@ pub fn benchmarkKemKeyGen(comptime Kem: anytype, comptime kems_count: comptime_i
     {
         var i: usize = 0;
         while (i < kems_count) : (i += 1) {
-            const key_pair = try initTestKeypair(Kem, &prng);
+            const key_pair = try initBenchKeyPair(Kem);
             mem.doNotOptimizeAway(&key_pair);
         }
     }
