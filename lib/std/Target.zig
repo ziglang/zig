@@ -75,7 +75,13 @@ pub const Os = struct {
 
         pub inline fn isDarwin(tag: Tag) bool {
             return switch (tag) {
-                .ios, .macos, .watchos, .tvos, .visionos => true,
+                .driverkit,
+                .ios,
+                .macos,
+                .tvos,
+                .visionos,
+                .watchos,
+                => true,
                 else => false,
             };
         }
@@ -116,7 +122,13 @@ pub const Os = struct {
         pub fn dynamicLibSuffix(tag: Tag) [:0]const u8 {
             return switch (tag) {
                 .windows, .uefi => ".dll",
-                .ios, .macos, .watchos, .tvos, .visionos => ".dylib",
+                .driverkit,
+                .ios,
+                .macos,
+                .tvos,
+                .visionos,
+                .watchos,
+                => ".dylib",
                 else => ".so",
             };
         }
@@ -163,7 +175,6 @@ pub const Os = struct {
                 .hermit,
                 .hurd,
                 .emscripten,
-                .driverkit,
                 .shadermodel,
                 .uefi,
                 .opencl, // TODO: OpenCL versions
@@ -175,6 +186,7 @@ pub const Os = struct {
                 .other,
                 => .none,
 
+                .driverkit,
                 .freebsd,
                 .macos,
                 .ios,
@@ -392,7 +404,6 @@ pub const Os = struct {
                 .hermit,
                 .hurd,
                 .emscripten,
-                .driverkit,
                 .shadermodel,
                 .uefi,
                 .opencl, // TODO: OpenCL versions
@@ -408,6 +419,12 @@ pub const Os = struct {
                     .semver = std.SemanticVersion.Range{
                         .min = .{ .major = 12, .minor = 0, .patch = 0 },
                         .max = .{ .major = 14, .minor = 0, .patch = 0 },
+                    },
+                },
+                .driverkit => .{
+                    .semver = .{
+                        .min = .{ .major = 19, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 24, .minor = 0, .patch = 0 },
                     },
                 },
                 .macos => switch (arch) {
@@ -555,6 +572,7 @@ pub const Os = struct {
         return switch (os.tag) {
             .freebsd,
             .netbsd,
+            .driverkit,
             .macos,
             .ios,
             .tvos,
@@ -589,7 +607,6 @@ pub const Os = struct {
             .hurd,
             .wasi,
             .emscripten,
-            .driverkit,
             .shadermodel,
             .uefi,
             .opencl,
@@ -1802,6 +1819,7 @@ pub const DynamicLinker = struct {
                 => none,
             },
 
+            .driverkit,
             .ios,
             .tvos,
             .watchos,
@@ -1846,7 +1864,6 @@ pub const DynamicLinker = struct {
             .amdpal,
             .hermit,
             .hurd,
-            .driverkit,
             .shadermodel,
             => none,
         };
@@ -2261,7 +2278,13 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
             },
         },
 
-        .macos, .ios, .tvos, .watchos, .visionos => switch (c_type) {
+        .driverkit,
+        .ios,
+        .macos,
+        .tvos,
+        .visionos,
+        .watchos,
+        => switch (c_type) {
             .char => return 8,
             .short, .ushort => return 16,
             .int, .uint, .float => return 32,
@@ -2334,7 +2357,6 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
         .hermit,
         .hurd,
         .opengl,
-        .driverkit,
         .shadermodel,
         => @panic("TODO specify the C integer and float type sizes for this OS"),
     }
