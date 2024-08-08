@@ -144,7 +144,7 @@ pub const Os = struct {
         }
 
         pub inline fn isGnuLibC(tag: Os.Tag, abi: Abi) bool {
-            return tag == .linux and abi.isGnu();
+            return (tag == .hurd or tag == .linux) and abi.isGnu();
         }
 
         pub fn defaultVersionRange(tag: Tag, arch: Cpu.Arch) Os {
