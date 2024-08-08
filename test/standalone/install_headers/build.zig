@@ -19,18 +19,20 @@ pub fn build(b: *std.Build) void {
         .optimize = .Debug,
         .link_libc = true,
     });
-    exe.addCSourceFile(.{ .file = b.addWriteFiles().add("main.c",
-        \\#include <stdio.h>
-        \\#include <foo/a.h>
-        \\#include <foo/sub_dir/b.h>
-        \\#include <foo/d.h>
-        \\#include <foo/config.h>
-        \\#include <bar.h>
-        \\int main(void) {
-        \\    printf(FOO_A FOO_B FOO_D FOO_CONFIG_1 FOO_CONFIG_2 BAR_X);
-        \\    return 0;
-        \\}
-    ) });
+    exe.addCSourceFile(.{
+        .file = b.addWriteFiles().add("main.c",
+            \\#include <stdio.h>
+            \\#include <foo/a.h>
+            \\#include <foo/sub_dir/b.h>
+            \\#include <foo/d.h>
+            \\#include <foo/config.h>
+            \\#include <bar.h>
+            \\int main(void) {
+            \\    printf(FOO_A FOO_B FOO_D FOO_CONFIG_1 FOO_CONFIG_2 BAR_X);
+            \\    return 0;
+            \\}
+        ),
+    });
 
     libfoo.installHeadersDirectory(b.path("include"), "foo", .{ .exclude_extensions = &.{".ignore_me.h"} });
     libfoo.installHeader(b.addWriteFiles().add("d.h",
