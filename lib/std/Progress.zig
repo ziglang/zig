@@ -417,6 +417,17 @@ pub fn start(options: Options) Node {
                 posix.sigaction(posix.SIG.WINCH, &act, null);
             }
 
+            std.io.tty.setInterruptSignalHandler(struct {
+                fn interrupt_signal_handler() void {
+                    switch (global_progress.terminal_mode) {
+                        .off => unreachable, // handled a few lines above
+                        .ansi_escape_codes => clearWrittenWithEscapeCodes() catch {},
+                        .windows_api => if (is_windows) clearWrittenWindowsApi() catch {} else unreachable,
+                    }
+                    std.process.exit(1);
+                }
+            }.interrupt_signal_handler) catch {};
+
             if (switch (global_progress.terminal_mode) {
                 .off => unreachable, // handled a few lines above
                 .ansi_escape_codes => std.Thread.spawn(.{}, updateThreadRun, .{}),
