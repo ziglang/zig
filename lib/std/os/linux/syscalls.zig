@@ -448,6 +448,12 @@ pub const X86 = enum(usize) {
     futex_wake = 454,
     futex_wait = 455,
     futex_requeue = 456,
+    statmount = 457,
+    listmount = 458,
+    lsm_get_self_attr = 459,
+    lsm_set_self_attr = 460,
+    lsm_list_modules = 461,
+    mseal = 462,
 };
 
 pub const X64 = enum(usize) {
@@ -819,6 +825,12 @@ pub const X64 = enum(usize) {
     futex_wake = 454,
     futex_wait = 455,
     futex_requeue = 456,
+    statmount = 457,
+    listmount = 458,
+    lsm_get_self_attr = 459,
+    lsm_set_self_attr = 460,
+    lsm_list_modules = 461,
+    mseal = 462,
 };
 
 pub const Arm = enum(usize) {
@@ -1233,6 +1245,12 @@ pub const Arm = enum(usize) {
     futex_wake = 454,
     futex_wait = 455,
     futex_requeue = 456,
+    statmount = 457,
+    listmount = 458,
+    lsm_get_self_attr = 459,
+    lsm_set_self_attr = 460,
+    lsm_list_modules = 461,
+    mseal = 462,
 
     breakpoint = arm_base + 1,
     cacheflush = arm_base + 2,
@@ -1668,6 +1686,12 @@ pub const Sparc = enum(usize) {
     futex_wake = 454,
     futex_wait = 455,
     futex_requeue = 456,
+    statmount = 457,
+    listmount = 458,
+    lsm_get_self_attr = 459,
+    lsm_set_self_attr = 460,
+    lsm_list_modules = 461,
+    mseal = 462,
 };
 
 pub const Sparc64 = enum(usize) {
@@ -2059,6 +2083,12 @@ pub const Sparc64 = enum(usize) {
     futex_wake = 454,
     futex_wait = 455,
     futex_requeue = 456,
+    statmount = 457,
+    listmount = 458,
+    lsm_get_self_attr = 459,
+    lsm_set_self_attr = 460,
+    lsm_list_modules = 461,
+    mseal = 462,
 };
 
 pub const M68k = enum(usize) {
@@ -2490,6 +2520,12 @@ pub const M68k = enum(usize) {
     futex_wake = 454,
     futex_wait = 455,
     futex_requeue = 456,
+    statmount = 457,
+    listmount = 458,
+    lsm_get_self_attr = 459,
+    lsm_set_self_attr = 460,
+    lsm_list_modules = 461,
+    mseal = 462,
 };
 
 pub const MipsO32 = enum(usize) {
@@ -2917,6 +2953,12 @@ pub const MipsO32 = enum(usize) {
     futex_wake = linux_base + 454,
     futex_wait = linux_base + 455,
     futex_requeue = linux_base + 456,
+    statmount = linux_base + 457,
+    listmount = linux_base + 458,
+    lsm_get_self_attr = linux_base + 459,
+    lsm_set_self_attr = linux_base + 460,
+    lsm_list_modules = linux_base + 461,
+    mseal = linux_base + 462,
 };
 
 pub const MipsN64 = enum(usize) {
@@ -3280,6 +3322,12 @@ pub const MipsN64 = enum(usize) {
     futex_wake = linux_base + 454,
     futex_wait = linux_base + 455,
     futex_requeue = linux_base + 456,
+    statmount = linux_base + 457,
+    listmount = linux_base + 458,
+    lsm_get_self_attr = linux_base + 459,
+    lsm_set_self_attr = linux_base + 460,
+    lsm_list_modules = linux_base + 461,
+    mseal = linux_base + 462,
 };
 
 pub const MipsN32 = enum(usize) {
@@ -3667,6 +3715,12 @@ pub const MipsN32 = enum(usize) {
     futex_wake = linux_base + 454,
     futex_wait = linux_base + 455,
     futex_requeue = linux_base + 456,
+    statmount = linux_base + 457,
+    listmount = linux_base + 458,
+    lsm_get_self_attr = linux_base + 459,
+    lsm_set_self_attr = linux_base + 460,
+    lsm_list_modules = linux_base + 461,
+    mseal = linux_base + 462,
 };
 
 pub const PowerPC = enum(usize) {
@@ -4107,6 +4161,12 @@ pub const PowerPC = enum(usize) {
     futex_wake = 454,
     futex_wait = 455,
     futex_requeue = 456,
+    statmount = 457,
+    listmount = 458,
+    lsm_get_self_attr = 459,
+    lsm_set_self_attr = 460,
+    lsm_list_modules = 461,
+    mseal = 462,
 };
 
 pub const PowerPC64 = enum(usize) {
@@ -4519,6 +4579,12 @@ pub const PowerPC64 = enum(usize) {
     futex_wake = 454,
     futex_wait = 455,
     futex_requeue = 456,
+    statmount = 457,
+    listmount = 458,
+    lsm_get_self_attr = 459,
+    lsm_set_self_attr = 460,
+    lsm_list_modules = 461,
+    mseal = 462,
 };
 
 pub const S390x = enum(usize) {
@@ -4897,6 +4963,12 @@ pub const S390x = enum(usize) {
     futex_wake = 454,
     futex_wait = 455,
     futex_requeue = 456,
+    statmount = 457,
+    listmount = 458,
+    lsm_get_self_attr = 459,
+    lsm_set_self_attr = 460,
+    lsm_list_modules = 461,
+    mseal = 462,
 };
 
 pub const Xtensa = enum(usize) {
@@ -5279,6 +5351,12 @@ pub const Xtensa = enum(usize) {
     futex_wake = 454,
     futex_wait = 455,
     futex_requeue = 456,
+    statmount = 457,
+    listmount = 458,
+    lsm_get_self_attr = 459,
+    lsm_set_self_attr = 460,
+    lsm_list_modules = 461,
+    mseal = 462,
 };
 
 pub const Arm64 = enum(usize) {
@@ -5594,6 +5672,12 @@ pub const Arm64 = enum(usize) {
     futex_wake = 454,
     futex_wait = 455,
     futex_requeue = 456,
+    statmount = 457,
+    listmount = 458,
+    lsm_get_self_attr = 459,
+    lsm_set_self_attr = 460,
+    lsm_list_modules = 461,
+    mseal = 462,
 };
 
 pub const RiscV32 = enum(usize) {
@@ -5898,6 +5982,12 @@ pub const RiscV32 = enum(usize) {
     futex_wake = 454,
     futex_wait = 455,
     futex_requeue = 456,
+    statmount = 457,
+    listmount = 458,
+    lsm_get_self_attr = 459,
+    lsm_set_self_attr = 460,
+    lsm_list_modules = 461,
+    mseal = 462,
     riscv_flush_icache = (244 + 15),
     riscv_hwprobe = (244 + 14),
 };
@@ -6214,6 +6304,12 @@ pub const RiscV64 = enum(usize) {
     futex_wake = 454,
     futex_wait = 455,
     futex_requeue = 456,
+    statmount = 457,
+    listmount = 458,
+    lsm_get_self_attr = 459,
+    lsm_set_self_attr = 460,
+    lsm_list_modules = 461,
+    mseal = 462,
     riscv_flush_icache = (244 + 15),
     riscv_hwprobe = (244 + 14),
 };
@@ -6525,6 +6621,12 @@ pub const LoongArch64 = enum(usize) {
     futex_wake = 454,
     futex_wait = 455,
     futex_requeue = 456,
+    statmount = 457,
+    listmount = 458,
+    lsm_get_self_attr = 459,
+    lsm_set_self_attr = 460,
+    lsm_list_modules = 461,
+    mseal = 462,
 };
 
 pub const Arc = enum(usize) {
@@ -6859,6 +6961,12 @@ pub const Arc = enum(usize) {
     futex_wake = 454,
     futex_wait = 455,
     futex_requeue = 456,
+    statmount = 457,
+    listmount = 458,
+    lsm_get_self_attr = 459,
+    lsm_set_self_attr = 460,
+    lsm_list_modules = 461,
+    mseal = 462,
     cacheflush = (244 + 0),
     arc_settls = (244 + 1),
     arc_gettls = (244 + 2),
@@ -7197,6 +7305,12 @@ pub const CSky = enum(usize) {
     futex_wake = 454,
     futex_wait = 455,
     futex_requeue = 456,
+    statmount = 457,
+    listmount = 458,
+    lsm_get_self_attr = 459,
+    lsm_set_self_attr = 460,
+    lsm_list_modules = 461,
+    mseal = 462,
     set_thread_area = (244 + 0),
     cacheflush = (244 + 1),
 };
@@ -7532,4 +7646,10 @@ pub const Hexagon = enum(usize) {
     futex_wake = 454,
     futex_wait = 455,
     futex_requeue = 456,
+    statmount = 457,
+    listmount = 458,
+    lsm_get_self_attr = 459,
+    lsm_set_self_attr = 460,
+    lsm_list_modules = 461,
+    mseal = 462,
 };
