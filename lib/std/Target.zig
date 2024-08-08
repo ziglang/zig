@@ -1633,10 +1633,6 @@ pub inline fn isGnuLibC(target: Target) bool {
     return target.os.tag.isGnuLibC(target.abi);
 }
 
-pub inline fn supportsNewStackCall(target: Target) bool {
-    return !target.cpu.arch.isWasm();
-}
-
 pub inline fn isSpirV(target: Target) bool {
     return target.cpu.arch.isSpirV();
 }
