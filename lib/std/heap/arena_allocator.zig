@@ -214,7 +214,7 @@ pub const ArenaAllocator = struct {
 
         const cur_node = self.state.buffer_list.first orelse return false;
         const cur_buf = @as([*]u8, @ptrCast(cur_node))[@sizeOf(BufNode)..cur_node.data];
-        if (@intFromPtr(cur_buf.ptr) + self.state.end_index != @intFromPtr(buf.ptr) + buf.len) {
+        if (cur_buf.ptr + self.state.end_index != buf.ptr + buf.len) {
             // It's not the most recent allocation, so it cannot be expanded,
             // but it's fine if they want to make it smaller.
             return new_len <= buf.len;
@@ -240,7 +240,7 @@ pub const ArenaAllocator = struct {
         const cur_node = self.state.buffer_list.first orelse return;
         const cur_buf = @as([*]u8, @ptrCast(cur_node))[@sizeOf(BufNode)..cur_node.data];
 
-        if (@intFromPtr(cur_buf.ptr) + self.state.end_index == @intFromPtr(buf.ptr) + buf.len) {
+        if (cur_buf.ptr + self.state.end_index == buf.ptr + buf.len) {
             self.state.end_index -= buf.len;
         }
     }
