@@ -1253,7 +1253,7 @@ pub const Cpu = struct {
         pub fn toCoffMachine(arch: Arch) std.coff.MachineType {
             return switch (arch) {
                 .arm => .ARM,
-                .thumb => .Thumb,
+                .thumb => .THUMB,
                 .aarch64 => .ARM64,
                 .loongarch32 => .LOONGARCH32,
                 .loongarch64 => .LOONGARCH64,
@@ -1299,7 +1299,7 @@ pub const Cpu = struct {
                 .wasm64,
                 .xcore,
                 .xtensa,
-                => .Unknown,
+                => .UNKNOWN,
             };
         }
 

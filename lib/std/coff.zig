@@ -983,7 +983,7 @@ pub const DebugInfoDefinition = struct {
 };
 
 pub const MachineType = enum(u16) {
-    Unknown = 0x0,
+    UNKNOWN = 0x0,
     /// Alpha AXP, 32-bit address space
     ALPHA = 0x184,
     /// Alpha 64, 64-bit address space
@@ -1053,7 +1053,7 @@ pub const MachineType = enum(u16) {
     /// Hitachi SH5
     SH5 = 0x1a8,
     /// Thumb
-    Thumb = 0x1c2,
+    THUMB = 0x1c2,
     /// Infineon
     TRICORE = 0x520,
     /// MIPS little-endian WCE v2
@@ -1066,7 +1066,7 @@ pub const MachineType = enum(u16) {
             .ARM => .arm,
             .POWERPC => .powerpc,
             .RISCV32 => .riscv32,
-            .Thumb => .thumb,
+            .THUMB => .thumb,
             .I386 => .x86,
             .ARM64 => .aarch64,
             .RISCV64 => .riscv64,
