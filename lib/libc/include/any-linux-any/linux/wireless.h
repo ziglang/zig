@@ -831,7 +831,7 @@ struct iw_encode_ext {
 			       * individual keys */
 	__u16		alg; /* IW_ENCODE_ALG_* */
 	__u16		key_len;
-	__u8		key[0];
+	__u8		key[];
 };
 
 /* SIOCSIWMLME data */

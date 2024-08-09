@@ -49,11 +49,21 @@ enum opal_lock_flags {
 	OPAL_SAVE_FOR_LOCK = 0x01,
 };
 
+enum opal_key_type {
+	OPAL_INCLUDED = 0,	/* key[] is the key */
+	OPAL_KEYRING,		/* key is in keyring */
+};
+
 struct opal_key {
 	__u8 lr;
 	__u8 key_len;
-	__u8 __align[6];
+	__u8 key_type;
+	__u8 __align[5];
 	__u8 key[OPAL_KEY_MAX];
+};
+
+enum opal_revert_lsp_opts {
+	OPAL_PRESERVE = 0x01,
 };
 
 struct opal_lr_act {
@@ -76,6 +86,16 @@ struct opal_user_lr_setup {
 	__u32 RLE; /* Read Lock enabled */
 	__u32 WLE; /* Write Lock Enabled */
 	struct opal_session_info session;
+};
+
+struct opal_lr_status {
+	struct opal_session_info session;
+	__u64 range_start;
+	__u64 range_length;
+	__u32 RLE; /* Read Lock enabled */
+	__u32 WLE; /* Write Lock Enabled */
+	__u32 l_state;
+	__u8  align[4];
 };
 
 struct opal_lock_unlock {
@@ -151,6 +171,29 @@ struct opal_status {
 	__u32 reserved;
 };
 
+/*
+ * Geometry Reporting per TCG Storage OPAL SSC
+ * section 3.1.1.4
+ */
+struct opal_geometry {
+	__u8 align;
+	__u32 logical_block_size;
+	__u64 alignment_granularity;
+	__u64 lowest_aligned_lba;
+	__u8  __align[3];
+};
+
+struct opal_discovery {
+	__u64 data;
+	__u64 size;
+};
+
+struct opal_revert_lsp {
+	struct opal_key key;
+	__u32 options;
+	__u32 __pad;
+};
+
 #define IOC_OPAL_SAVE		    _IOW('p', 220, struct opal_lock_unlock)
 #define IOC_OPAL_LOCK_UNLOCK	    _IOW('p', 221, struct opal_lock_unlock)
 #define IOC_OPAL_TAKE_OWNERSHIP	    _IOW('p', 222, struct opal_key)
@@ -168,5 +211,9 @@ struct opal_status {
 #define IOC_OPAL_WRITE_SHADOW_MBR   _IOW('p', 234, struct opal_shadow_mbr)
 #define IOC_OPAL_GENERIC_TABLE_RW   _IOW('p', 235, struct opal_read_write_table)
 #define IOC_OPAL_GET_STATUS         _IOR('p', 236, struct opal_status)
+#define IOC_OPAL_GET_LR_STATUS      _IOW('p', 237, struct opal_lr_status)
+#define IOC_OPAL_GET_GEOMETRY       _IOR('p', 238, struct opal_geometry)
+#define IOC_OPAL_DISCOVERY          _IOW('p', 239, struct opal_discovery)
+#define IOC_OPAL_REVERT_LSP         _IOW('p', 240, struct opal_revert_lsp)
 
 #endif /* _SED_OPAL_H */
