@@ -5,6 +5,7 @@ const std = @import("std");
 const fatal = std.process.fatal;
 const Path = std.Build.Cache.Path;
 const assert = std.debug.assert;
+const SeenPcsHeader = std.Build.Fuzz.abi.SeenPcsHeader;
 
 pub fn main() !void {
     var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .{};
@@ -36,24 +37,29 @@ pub fn main() !void {
     };
     defer debug_info.deinit(gpa);
 
-    const cov_bytes = cov_path.root_dir.handle.readFileAlloc(arena, cov_path.sub_path, 1 << 30) catch |err| {
+    const cov_bytes = cov_path.root_dir.handle.readFileAllocOptions(
+        arena,
+        cov_path.sub_path,
+        1 << 30,
+        null,
+        @alignOf(SeenPcsHeader),
+        null,
+    ) catch |err| {
         fatal("failed to load coverage file {}: {s}", .{ cov_path, @errorName(err) });
     };
 
     var bw = std.io.bufferedWriter(std.io.getStdOut().writer());
     const stdout = bw.writer();
 
-    const header: *align(1) SeenPcsHeader = @ptrCast(cov_bytes);
+    const header: *SeenPcsHeader = @ptrCast(cov_bytes);
     try stdout.print("{any}\n", .{header.*});
-    //const n_bitset_elems = (header.pcs_len + 7) / 8;
-    const pcs_bytes = cov_bytes[@sizeOf(SeenPcsHeader)..][0 .. header.pcs_len * @sizeOf(usize)];
-    const pcs = try arena.alloc(usize, header.pcs_len);
-    for (0..pcs_bytes.len / @sizeOf(usize), pcs) |i, *pc| {
-        pc.* = std.mem.readInt(usize, pcs_bytes[i * @sizeOf(usize) ..][0..@sizeOf(usize)], .little);
+    const pcs = header.pcAddrs();
+    for (0.., pcs[0 .. pcs.len - 1], pcs[1..]) |i, a, b| {
+        if (a > b) std.log.err("{d}: 0x{x} > 0x{x}", .{ i, a, b });
     }
     assert(std.sort.isSorted(usize, pcs, {}, std.sort.asc(usize)));
 
-    const seen_pcs = cov_bytes[@sizeOf(SeenPcsHeader) + pcs.len * @sizeOf(usize) ..];
+    const seen_pcs = header.seenBits();
 
     const source_locations = try arena.alloc(std.debug.Coverage.SourceLocation, pcs.len);
     try debug_info.resolveAddresses(gpa, pcs, source_locations);
@@ -62,7 +68,7 @@ pub fn main() !void {
         const file = debug_info.coverage.fileAt(sl.file);
         const dir_name = debug_info.coverage.directories.keys()[file.directory_index];
         const dir_name_slice = debug_info.coverage.stringAt(dir_name);
-        const hit: u1 = @truncate(seen_pcs[i / 8] >> @intCast(i % 8));
+        const hit: u1 = @truncate(seen_pcs[i / @bitSizeOf(usize)] >> @intCast(i % @bitSizeOf(usize)));
         try stdout.print("{c}{x}: {s}/{s}:{d}:{d}\n", .{
             "-+"[hit], pc, dir_name_slice, debug_info.coverage.stringAt(file.basename), sl.line, sl.column,
         });
@@ -70,10 +76,3 @@ pub fn main() !void {
 
     try bw.flush();
 }
-
-const SeenPcsHeader = extern struct {
-    n_runs: usize,
-    deduplicated_runs: usize,
-    pcs_len: usize,
-    lowest_stack: usize,
-};
