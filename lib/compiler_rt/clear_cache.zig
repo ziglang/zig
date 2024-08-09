@@ -164,6 +164,7 @@ fn clear_cache(start: usize, end: usize) callconv(.C) void {
         sys_icache_invalidate(start, end - start);
         exportIt();
     } else if (os == .linux and loongarch64) {
+        // See: https://github.com/llvm/llvm-project/blob/cf54cae26b65fc3201eff7200ffb9b0c9e8f9a13/compiler-rt/lib/builtins/clear_cache.c#L94-L95
         asm volatile (
             \\ ibar 0
         );
