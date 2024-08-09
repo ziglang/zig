@@ -670,3 +670,422 @@ test "Extended C ABI casting" {
         try testing.expect(@TypeOf(Macros.L_SUFFIX(math.maxInt(c_long) + 1)) == c_longlong); // comptime_int -> c_longlong
     }
 }
+
+const BitfieldEmulation = struct {
+    /// By default the bits are allocated from LSB to MSB
+    /// (follows Zig's packed struct and most ABI).
+    /// Sets to true to allocate from MSB to LSB.
+    reverse_bits: bool,
+    /// Most of ABIs starts a new storage unit after a unnamed zero-bit width bit field.
+    /// Some ABIs ignores that, sets to false.
+    unnamed_void_boundary: bool,
+    /// Some ABIs allow a bitfield straddles on storage units.
+    /// Some ABIs, like MSVC, don't straddle, sets to false.
+    straddle: bool,
+    /// Also called 'stole padding'.
+    /// This option allows to define if the next field
+    /// can stole space from the last field's alignment.
+    collapse_padding: bool,
+
+    fn fromTarget(target: std.Target) ?BitfieldEmulation {
+        return switch (target.cpu.arch) {
+            .x86_64, .x86 => .{
+                .reverse_bits = false,
+                .unnamed_void_boundary = true,
+                .straddle = false,
+                .collapse_padding = switch (target.os.tag) {
+                    .windows => false,
+                    else => true,
+                },
+            },
+            .aarch64 => .{
+                .reverse_bits = false,
+                .unnamed_void_boundary = true,
+                .straddle = false,
+                .collapse_padding = true,
+            },
+            else => null,
+        };
+    }
+
+    fn merge(base: BitfieldEmulation, apply: anytype) BitfieldEmulation {
+        var copy = base;
+        for (std.meta.fieldNames(@This())) |name| {
+            if (@hasField(@TypeOf(apply), name)) {
+                @field(copy, name) = @field(apply, name);
+            }
+        }
+        return copy;
+    }
+};
+
+fn EmulateBitfieldGroup(comptime T: type, comptime backings: []const type, comptime cfg: BitfieldEmulation) type {
+    const inf = @typeInfo(T).Struct;
+
+    comptime var buf: std.BoundedArray(
+        std.builtin.Type.StructField,
+        backings.len * 2,
+        // worst case: every after field needs a padding field
+    ) = .{};
+    comptime var units: std.BoundedArray(
+        comptime_int,
+        backings.len,
+    ) = .{};
+    comptime var lastType: ?type = null;
+    comptime var leftBitWidth = 0;
+    comptime var padFieldCount = 0;
+
+    for (backings, inf.fields) |K, f| {
+        const kInf = @typeInfo(K);
+        if (kInf != .Int) {
+            @compileError("expects integer type, got " ++ @typeName(K));
+        }
+        const fInf = @typeInfo(f.type).Int;
+
+        if (f.type == void) {
+            if (!cfg.unnamed_void_boundary) continue;
+            if (leftBitWidth > 0) {
+                const bits = leftBitWidth;
+                if (bits < 0) {
+                    @compileError("impossible alignment since it is larger than the rest bits");
+                }
+                buf.appendAssumeCapacity(.{
+                    .type = @Type(.{ .Int = .{
+                        .bits = bits,
+                        .signedness = .unsigned,
+                    } }),
+                    .alignment = 0,
+                    .default_value = f.default_value,
+                    .is_comptime = f.is_comptime,
+                    .name = f.name,
+                });
+                units.appendAssumeCapacity(0);
+                lastType = null;
+                leftBitWidth = 0;
+            }
+            continue;
+        }
+
+        const allocatedBits = fInf.bits;
+        if (leftBitWidth < allocatedBits) {
+            if (!cfg.straddle and (leftBitWidth > 0)) {
+                // add padding to use a new unit for the next field
+                const typ = @Type(.{ .Int = .{
+                    .bits = leftBitWidth,
+                    .signedness = .unsigned,
+                } });
+                buf.appendAssumeCapacity(.{
+                    .alignment = 0,
+                    .type = typ,
+                    .default_value = &std.mem.zeroes(typ),
+                    .is_comptime = false,
+                    .name = std.fmt.comptimePrint(" pad_{}", .{padFieldCount}),
+                });
+                padFieldCount += 1;
+                const i = units.get(units.len - 1);
+                units.set(units.len - 1, i + 1);
+                leftBitWidth = 0;
+            }
+            lastType = K;
+            leftBitWidth += kInf.Int.bits;
+            units.appendAssumeCapacity(0);
+        }
+        leftBitWidth -= fInf.bits;
+        buf.appendAssumeCapacity(.{
+            .alignment = 0,
+            .default_value = f.default_value,
+            .is_comptime = f.is_comptime,
+            .name = f.name,
+            .type = f.type,
+        });
+        const i = units.get(units.len - 1);
+        units.set(units.len - 1, i + 1);
+    }
+
+    if (leftBitWidth > 0) {
+        const typ = @Type(.{ .Int = .{
+            .bits = leftBitWidth,
+            .signedness = .unsigned,
+        } });
+        buf.appendAssumeCapacity(.{
+            .alignment = 0,
+            .type = typ,
+            .default_value = &std.mem.zeroes(typ),
+            .is_comptime = false,
+            .name = std.fmt.comptimePrint(" pad_{}", .{padFieldCount}),
+        });
+        padFieldCount += 1;
+        const i = units.get(units.len - 1);
+        units.set(units.len - 1, i + 1);
+    }
+
+    if (cfg.reverse_bits) {
+        var offset = 0;
+        for (units.constSlice()) |i| {
+            const nextOffset = offset + i;
+            std.mem.reverse(std.builtin.Type.StructField, buf.buffer[offset..nextOffset]);
+            offset = nextOffset;
+        }
+    }
+
+    const backingInteger = bint: {
+        var bits = 0;
+        for (buf.constSlice()) |field| {
+            bits += @bitSizeOf(field.type);
+        }
+        break :bint @Type(.{ .Int = .{
+            .signedness = .unsigned,
+            .bits = bits,
+        } });
+    };
+
+    return @Type(.{ .Struct = .{
+        .backing_integer = backingInteger,
+        .decls = inf.decls,
+        .fields = buf.constSlice(),
+        .layout = .@"packed",
+        .is_tuple = false,
+    } });
+}
+
+/// Translate a packed struct type to adapt the C bitfields on the target platform.
+///
+/// If the target platform is unsupported, an opaque type will be returned.
+///
+/// `T` is a packed struct definition.
+/// `backings` is a series of the backing types of the field, `void` if the field is not bitfield.
+/// `modCfg` is the configuration accepted by `BitfieldEmulation.merge`.
+///
+/// Be advised that, the bitfields have different representation range in different ABI.
+/// This function assumes that all bitfields are unsigned, for now.
+///
+/// Example:
+/// For below struct,
+///
+/// ````c
+/// struct word {
+///   unsgined f0;
+///   unsgined f1: 1;
+///   unsigned f2: 4;
+///   char f3: 1;
+/// };
+/// ````
+///
+/// below the usage translates the packed struct to conform the `struct word`:
+///
+/// ````zig
+/// const word = EmulateBitfieldStruct(
+///   packed struct {
+///     f0: c_uint,
+///     f1: u1,
+///     f2: u4,
+///     f3: u1,
+///   },
+///   &[_]type {
+///     void, // not a bitfield
+///     c_uint,
+///     c_uint,
+///     c_char,
+///   },
+///   .{},
+/// )
+/// ````
+pub fn EmulateBitfieldStruct(comptime T: type, comptime backings: []const type, comptime modCfg: anytype) type {
+    const cfg = if (BitfieldEmulation.fromTarget(builtin.target)) |cfg|
+        cfg.merge(modCfg)
+    else {
+        return opaque {};
+    };
+    const inf = infT: {
+        const typeinf = @typeInfo(T);
+        const isGroup = checkIsGroup: {
+            for (backings, 0..backings.len) |t, i| {
+                if (t == void) {
+                    switch (@typeInfo(typeinf.Struct.fields[i].type)) {
+                        .Opaque => return opaque {},
+                        .Struct => |finf| {
+                            if (finf.layout != .@"packed") {
+                                return opaque {};
+                            }
+                        },
+                        else => {},
+                    }
+                    break :checkIsGroup false;
+                }
+            }
+            break :checkIsGroup true;
+        };
+        if (isGroup) {
+            return EmulateBitfieldGroup(T, backings, cfg);
+        }
+        break :infT typeinf.Struct;
+    };
+
+    comptime var backingFields: std.BoundedArray(std.builtin.Type.StructField, inf.fields.len) = .{};
+    comptime var currentGroupBackings: std.BoundedArray(type, inf.fields.len) = .{};
+    comptime var currentGroupFields: std.BoundedArray(std.builtin.Type.StructField, inf.fields.len) = .{};
+    comptime var backingGroupPxMap: std.BoundedArray(bool, inf.fields.len) = .{};
+    comptime var bitfieldGroupCount = 0;
+
+    for (0..inf.fields.len) |idx| {
+        const B = backings[idx];
+        const field = inf.fields[idx];
+        if (B == void) {
+            if (currentGroupBackings.len > 0) {
+                const grpTyp = @Type(.{ .Struct = .{
+                    .fields = currentGroupFields.constSlice(),
+                    .decls = &.{},
+                    .layout = .auto,
+                    .is_tuple = false,
+                } });
+                const emulated = EmulateBitfieldGroup(
+                    grpTyp,
+                    currentGroupBackings.constSlice(),
+                    cfg,
+                );
+                backingFields.appendAssumeCapacity(.{
+                    .name = std.fmt.comptimePrint("bitfield group {}", .{bitfieldGroupCount}),
+                    // use space to reduce the chance that conflicts with the other fields.
+                    .alignment = 0,
+                    .default_value = &std.mem.zeroes(emulated),
+                    .is_comptime = false,
+                    .type = emulated,
+                });
+                backingGroupPxMap.appendAssumeCapacity(true);
+
+                currentGroupFields = .{};
+                currentGroupBackings = .{};
+                bitfieldGroupCount += 1;
+            }
+            backingFields.appendAssumeCapacity(field);
+            backingGroupPxMap.appendAssumeCapacity(false);
+        } else {
+            currentGroupFields.appendAssumeCapacity(field);
+            currentGroupBackings.appendAssumeCapacity(B);
+        }
+    }
+
+    if (currentGroupBackings.len > 0) {
+        const grpTyp = @Type(.{ .Struct = .{
+            .fields = currentGroupFields.constSlice(),
+            .decls = &.{},
+            .layout = .@"packed",
+            .is_tuple = false,
+        } });
+        const emulated = EmulateBitfieldGroup(
+            grpTyp,
+            currentGroupBackings.constSlice(),
+            cfg,
+        );
+        backingFields.appendAssumeCapacity(.{
+            .name = std.fmt.comptimePrint("bitfield group {}", .{bitfieldGroupCount}),
+            .alignment = 0,
+            .default_value = &std.mem.zeroes(emulated),
+            .is_comptime = false,
+            .type = emulated,
+        });
+        backingGroupPxMap.appendAssumeCapacity(true);
+
+        currentGroupFields = .{};
+        currentGroupBackings = .{};
+        bitfieldGroupCount += 1;
+    }
+
+    // worst case: every field needs a padding field + a padding field for struct
+    comptime var fields: std.BoundedArray(std.builtin.Type.StructField, inf.fields.len * 2 + 1) = .{};
+    comptime var padCount = 0;
+    // Following two are used to calculate the alignments.
+    comptime var maxAlignment = 0;
+    comptime var offset = 0;
+    for (backingFields.constSlice(), backingGroupPxMap.constSlice(), 0..backingFields.len) |
+        fi,
+        isBitfieldGroup,
+        fieldi,
+    | {
+        const lastField = if (fields.len > 0)
+            @as(?std.builtin.Type.StructField, fields.constSlice()[fields.len - 1])
+        else
+            @as(?std.builtin.Type.StructField, null);
+        const isLastFieldPadding = if (lastField) |field|
+            std.mem.startsWith(u8, field.name, " pad_")
+        else
+            false;
+        // alignment on field is impossible in a packed struct.
+        // the only way to do is inserting padding fields manually.
+        if (offset % @alignOf(fi.type) != 0) {
+            const padding = (@divTrunc(offset, @alignOf(fi.type)) + 1) * @alignOf(fi.type) - offset;
+            offset += padding;
+            const PadType = @Type(.{
+                .Int = .{
+                    .signedness = .unsigned,
+                    .bits = padding * 8,
+                },
+            });
+            fields.appendAssumeCapacity(.{
+                .alignment = 0,
+                .default_value = &std.mem.zeroes(PadType),
+                .is_comptime = false,
+                .name = std.fmt.comptimePrint(" pad_{}", .{padCount}),
+                .type = PadType,
+            });
+            padCount += 1;
+        } else if (isLastFieldPadding and cfg.collapse_padding) {
+            // Maybe we need stole padding
+            const mlp = @divTrunc(@bitSizeOf(lastField.?.type), @alignOf(fi.type) * 8);
+            if (mlp >= 1) {
+                const stolePadding = @alignOf(fi.type) * mlp;
+                const NewPaddingType = @Type(.{ .Int = .{
+                    .signedness = .unsigned,
+                    .bits = @bitSizeOf(lastField.?.type) - (stolePadding * 8),
+                } });
+                fields.set(fields.len - 1, .{
+                    .alignment = 0,
+                    .default_value = &std.mem.zeroes(NewPaddingType),
+                    .is_comptime = lastField.?.is_comptime,
+                    .name = lastField.?.name,
+                    .type = NewPaddingType,
+                });
+                offset -= stolePadding;
+            }
+        }
+        maxAlignment = @max(maxAlignment, fi.alignment);
+        offset += @sizeOf(fi.type);
+        if (isBitfieldGroup) {
+            for (@typeInfo(fi.type).Struct.fields) |gf| {
+                const isPaddingField = std.mem.startsWith(
+                    u8,
+                    gf.name,
+                    " pad_",
+                );
+                const name = if (isPaddingField) rewritePadName: {
+                    const nPadName = std.fmt.comptimePrint(" pad_{}_g{}", .{ padCount, fieldi });
+                    padCount += 1;
+                    break :rewritePadName nPadName;
+                } else gf.name;
+                fields.appendAssumeCapacity(.{
+                    .alignment = 0,
+                    .default_value = gf.default_value,
+                    .is_comptime = gf.is_comptime,
+                    .name = name,
+                    .type = gf.type,
+                });
+            }
+        } else {
+            fields.appendAssumeCapacity(.{
+                .alignment = 0,
+                .default_value = fi.default_value,
+                .is_comptime = fi.is_comptime,
+                .name = fi.name,
+                .type = fi.type,
+            });
+        }
+    }
+
+    return @Type(.{ .Struct = .{
+        .layout = .@"packed",
+        .decls = inf.decls,
+        .fields = fields.constSlice(),
+        .is_tuple = inf.is_tuple,
+        .backing_integer = null,
+    } });
+}

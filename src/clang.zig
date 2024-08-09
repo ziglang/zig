@@ -487,6 +487,12 @@ pub const FieldDecl = opaque {
     pub const isBitField = ZigClangFieldDecl_isBitField;
     extern fn ZigClangFieldDecl_isBitField(*const FieldDecl) bool;
 
+    pub const isUnnamedBitField = ZigClangFieldDecl_isUnnamedBitField;
+    extern fn ZigClangFieldDecl_isUnnamedBitField(*const FieldDecl) bool;
+
+    pub const getBitWidthValue = ZigClangFieldDecl_getBitWidthValue;
+    extern fn ZigClangFieldDecl_getBitWidthValue(*const FieldDecl, *const ASTContext) c_uint;
+
     pub const getType = ZigClangFieldDecl_getType;
     extern fn ZigClangFieldDecl_getType(*const FieldDecl) QualType;
 

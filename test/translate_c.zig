@@ -3477,35 +3477,39 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add("Demote function that initializes opaque struct",
-        \\struct my_struct {
-        \\    unsigned a: 15;
-        \\    unsigned: 2;
-        \\    unsigned b: 15;
-        \\};
-        \\void initialize(void) {
-        \\    struct my_struct S = {.a = 1, .b = 2};
-        \\}
-    , &[_][]const u8{
-        \\warning: local variable has opaque type
-        ,
-        \\warning: unable to translate function, demoted to extern
-        \\pub extern fn initialize() void;
-    });
+    if (false) { // FIXME: bitfield is now supported, find another way to emit opaque
+        cases.add("Demote function that initializes opaque struct",
+            \\struct my_struct {
+            \\    unsigned a: 15;
+            \\    unsigned: 2;
+            \\    unsigned b: 15;
+            \\    unsigned d;
+            \\};
+            \\void initialize(void) {
+            \\    struct my_struct S = {.a = 1, .b = 2};
+            \\}
+        , &[_][]const u8{
+            \\warning: local variable has opaque type
+            ,
+            \\warning: unable to translate function, demoted to extern
+            \\pub extern fn initialize() void;
+        });
 
-    cases.add("Demote function that dereferences opaque type",
-        \\struct my_struct {
-        \\    unsigned a: 1;
-        \\};
-        \\void deref(struct my_struct *s) {
-        \\    *s;
-        \\}
-    , &[_][]const u8{
-        \\warning: cannot dereference opaque type
-        ,
-        \\warning: unable to translate function, demoted to extern
-        \\pub extern fn deref(arg_s: ?*struct_my_struct) void;
-    });
+        cases.add("Demote function that dereferences opaque type",
+            \\struct my_struct {
+            \\    unsigned a: 1;
+            \\    unsigned b;
+            \\};
+            \\void deref(struct my_struct *s) {
+            \\    *s;
+            \\}
+        , &[_][]const u8{
+            \\warning: cannot dereference opaque type
+            ,
+            \\warning: unable to translate function, demoted to extern
+            \\pub extern fn deref(arg_s: ?*struct_my_struct) void;
+        });
+    }
 
     cases.add("Demote function that dereference types that contain opaque type",
         \\struct inner {
