@@ -21,17 +21,14 @@ pub const all_features = blk: {
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.alu32)] = .{
         .llvm_name = "alu32",
-        .description = "Enable ALU32 instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.dummy)] = .{
         .llvm_name = "dummy",
-        .description = "unused feature",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.dwarfris)] = .{
         .llvm_name = "dwarfris",
-        .description = "Disable MCAsmInfo DwarfUsesRelocationsAcrossSections",
         .dependencies = featureSet(&[_]Feature{}),
     };
     const ti = @typeInfo(Feature);
@@ -39,6 +36,15 @@ pub const all_features = blk: {
         elem.index = i;
         elem.name = ti.Enum.fields[i].name;
     }
+    break :blk result;
+};
+
+pub const feature_descs = blk: {
+    const len = @typeInfo(Feature).Enum.fields.len;
+    var result: [len][]const u8 = undefined;
+    result[@intFromEnum(Feature.alu32)] = "Enable ALU32 instructions";
+    result[@intFromEnum(Feature.dummy)] = "unused feature";
+    result[@intFromEnum(Feature.dwarfris)] = "Disable MCAsmInfo DwarfUsesRelocationsAcrossSections";
     break :blk result;
 };
 
