@@ -50,7 +50,7 @@ extern void *memmove (void *__dest, const void *__src, size_t __n)
 /* Copy no more than N bytes of SRC to DEST, stopping when C is found.
    Return the position in DEST one byte past where C was copied,
    or NULL if C was not found in the first N bytes of SRC.  */
-#if defined __USE_MISC || defined __USE_XOPEN || __GLIBC_USE (ISOC2X)
+#if defined __USE_MISC || defined __USE_XOPEN || __GLIBC_USE (ISOC23)
 extern void *memccpy (void *__restrict __dest, const void *__restrict __src,
 		      int __c, size_t __n)
     __THROW __nonnull ((1, 2)) __attr_access ((__write_only__, 1, 4));
@@ -182,7 +182,7 @@ extern size_t strxfrm_l (char *__dest, const char *__src, size_t __n,
 #endif
 
 #if (defined __USE_XOPEN_EXTENDED || defined __USE_XOPEN2K8	\
-     || __GLIBC_USE (LIB_EXT2) || __GLIBC_USE (ISOC2X))
+     || __GLIBC_USE (LIB_EXT2) || __GLIBC_USE (ISOC23))
 /* Duplicate S, returning an identical malloc'd string.  */
 extern char *strdup (const char *__s)
      __THROW __attribute_malloc__ __nonnull ((1));
@@ -191,7 +191,7 @@ extern char *strdup (const char *__s)
 /* Return a malloc'd copy of at most N bytes of STRING.  The
    resultant string is terminated even if no null terminator
    appears before STRING[N].  */
-#if defined __USE_XOPEN2K8 || __GLIBC_USE (LIB_EXT2) || __GLIBC_USE (ISOC2X)
+#if defined __USE_XOPEN2K8 || __GLIBC_USE (LIB_EXT2) || __GLIBC_USE (ISOC23)
 extern char *strndup (const char *__string, size_t __n)
      __THROW __attribute_malloc__ __nonnull ((1));
 #endif

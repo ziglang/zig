@@ -22,7 +22,7 @@
 #include <features.h>
 #include <bits/sockaddr.h>
 
-struct sockaddr_ash
+struct __attribute_struct_may_alias__ sockaddr_ash
   {
     __SOCKADDR_COMMON (sash_);		/* Common data: address family etc.  */
     int sash_ifindex;			/* Interface to use.  */
