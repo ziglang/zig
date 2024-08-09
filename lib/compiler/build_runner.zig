@@ -112,6 +112,10 @@ pub fn main() !void {
     var watch = false;
     var fuzz = false;
     var debounce_interval_ms: u16 = 50;
+    var build_file: std.Build.Cache.Path = .{
+        .root_dir = build_root_directory,
+        .sub_path = "build.zig",
+    };
     var listen_port: u16 = 0;
 
     while (nextArg(args, &arg_idx)) |arg| {
@@ -134,6 +138,8 @@ pub fn main() !void {
         } else if (mem.startsWith(u8, arg, "-")) {
             if (mem.eql(u8, arg, "--verbose")) {
                 builder.verbose = true;
+            } else if (mem.eql(u8, arg, "--build-file")) {
+                build_file.sub_path = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                 help_menu = true;
             } else if (mem.eql(u8, arg, "-p") or mem.eql(u8, arg, "--prefix")) {
@@ -398,7 +404,7 @@ pub fn main() !void {
         else => return err,
     };
 
-    var w = if (watch) try Watch.init() else undefined;
+    var w = if (watch) try Watch.init(build_file) else undefined;
 
     try run.thread_pool.init(thread_pool_options);
     defer run.thread_pool.deinit();
@@ -471,6 +477,9 @@ pub fn main() !void {
                 debounce_timeout = .{ .ms = debounce_interval_ms };
                 debouncing_node.end();
                 debouncing_node = main_progress_node.start("Debouncing (Change Detected)", 0);
+            },
+            .build_file_changed => {
+                return rerunExit();
             },
             .clean => {},
         };
@@ -1385,6 +1394,11 @@ fn argsRest(args: [][:0]const u8, idx: usize) ?[][:0]const u8 {
 fn cleanExit() void {
     std.debug.lockStdErr();
     process.exit(0);
+}
+
+fn rerunExit() void {
+    std.debug.lockStdErr();
+    process.exit(4);
 }
 
 /// Perhaps in the future there could be an Advanced Options flag such as
