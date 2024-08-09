@@ -1224,6 +1224,19 @@ const LinuxThreadImpl = struct {
                       [len] "r" (self.mapped.len),
                     : "memory"
                 ),
+                .loongarch64 => asm volatile (
+                    \\ or      $a0, $zero, %[ptr]
+                    \\ or      $a1, $zero, %[len]
+                    \\ ori     $a7, $zero, 215     # SYS_munmap
+                    \\ syscall 0                   # call munmap
+                    \\ ori     $a0, $zero, 0
+                    \\ ori     $a7, $zero, 93      # SYS_exit
+                    \\ syscall 0                   # call exit
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
+                ),
                 else => |cpu_arch| @compileError("Unsupported linux arch: " ++ @tagName(cpu_arch)),
             }
             unreachable;

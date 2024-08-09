@@ -48,7 +48,7 @@ struct sembuf
 __BEGIN_DECLS
 
 /* Semaphore control operation.  */
-#ifndef __USE_TIME_BITS64
+#ifndef __USE_TIME64_REDIRECTS
 extern int semctl (int __semid, int __semnum, int __cmd, ...) __THROW;
 #else
 # ifdef __REDIRECT_NTH
@@ -68,7 +68,7 @@ extern int semop (int __semid, struct sembuf *__sops, size_t __nsops) __THROW;
 
 #ifdef __USE_GNU
 /* Operate on semaphore with timeout.  */
-# ifndef __USE_TIME_BITS64
+# ifndef __USE_TIME64_REDIRECTS
 extern int semtimedop (int __semid, struct sembuf *__sops, size_t __nsops,
 		       const struct timespec *__timeout) __THROW;
 # else

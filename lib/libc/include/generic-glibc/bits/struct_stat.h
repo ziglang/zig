@@ -29,7 +29,7 @@
 /* Structure describing file characteristics.  */
 struct stat
   {
-# ifdef __USE_TIME_BITS64
+# ifdef __USE_TIME64_REDIRECTS
 #  include <bits/struct_stat_time64_helper.h>
 # else
     unsigned long int st_dev;
@@ -82,13 +82,13 @@ struct stat
     __blkcnt64_t st_blocks;	/* Number of 512-byte blocks allocated.  */
 #  endif
     long int st_pad5[14];
-# endif /* __USE_TIME_BITS64  */
+# endif /* __USE_TIME64_REDIRECTS  */
   };
 
 # ifdef __USE_LARGEFILE64
 struct stat64
   {
-#  ifdef __USE_TIME_BITS64
+#  ifdef __USE_TIME64_REDIRECTS
 #   include <bits/struct_stat_time64_helper.h>
 #  else
     unsigned long int st_dev;
@@ -123,7 +123,7 @@ struct stat64
     long int st_pad3;
     __blkcnt64_t st_blocks;	/* Number of 512-byte blocks allocated.  */
     long int st_pad4[14];
-#  endif /* __USE_TIME_BITS64  */
+#  endif /* __USE_TIME64_REDIRECTS  */
   };
 # endif /* __USE_LARGEFILE64  */
 
@@ -131,7 +131,7 @@ struct stat64
 
 struct stat
   {
-# ifdef __USE_TIME_BITS64
+# ifdef __USE_TIME64_REDIRECTS
 #  include <bits/struct_stat_time64_helper.h>
 # else
     __dev_t st_dev;
@@ -189,7 +189,7 @@ struct stat
 #ifdef __USE_LARGEFILE64
 struct stat64
   {
-# ifdef __USE_TIME_BITS64
+# ifdef __USE_TIME64_REDIRECTS
 #  include <bits/struct_stat_time64_helper.h>
 # else
     __dev_t st_dev;
@@ -224,7 +224,7 @@ struct stat64
     unsigned int st_pad3;
     __blkcnt64_t st_blocks;
     int st_pad4[14];
-# endif /* __USE_TIME_BITS64  */
+# endif /* __USE_TIME64_REDIRECTS  */
 };
 #endif
 

@@ -33,15 +33,22 @@ extern char *__REDIRECT_NTH (__realpath_chk_warn,
      __warnattr ("second argument of realpath must be either NULL or at "
 		 "least PATH_MAX bytes long buffer");
 
-__fortify_function __wur char *
-__NTH (realpath (const char *__restrict __name, char *__restrict __resolved))
+__fortify_function __attribute_overloadable__ __wur char *
+__NTH (realpath (const char *__restrict __name,
+		 __fortify_clang_overload_arg (char *, __restrict, __resolved)))
+#if defined _LIBC_LIMITS_H_ && defined PATH_MAX
+     __fortify_clang_warning_only_if_bos_lt (PATH_MAX, __resolved,
+					     "second argument of realpath must be "
+					     "either NULL or at least PATH_MAX "
+					     "bytes long buffer")
+#endif
 {
   size_t sz = __glibc_objsize (__resolved);
 
   if (sz == (size_t) -1)
     return __realpath_alias (__name, __resolved);
 
-#if defined _LIBC_LIMITS_H_ && defined PATH_MAX
+#if !__fortify_use_clang && defined _LIBC_LIMITS_H_ && defined PATH_MAX
   if (__glibc_unsafe_len (PATH_MAX, sizeof (char), sz))
     return __realpath_chk_warn (__name, __resolved, sz);
 #endif
@@ -61,8 +68,13 @@ extern int __REDIRECT_NTH (__ptsname_r_chk_warn,
      __nonnull ((2)) __warnattr ("ptsname_r called with buflen bigger than "
 				 "size of buf");
 
-__fortify_function int
-__NTH (ptsname_r (int __fd, char *__buf, size_t __buflen))
+__fortify_function __attribute_overloadable__ int
+__NTH (ptsname_r (int __fd,
+		 __fortify_clang_overload_arg (char *, ,__buf),
+		 size_t __buflen))
+     __fortify_clang_warning_only_if_bos_lt (__buflen, __buf,
+					     "ptsname_r called with buflen "
+					     "bigger than size of buf")
 {
   return __glibc_fortify (ptsname_r, __buflen, sizeof (char),
 			  __glibc_objsize (__buf),
@@ -75,8 +87,8 @@ extern int __wctomb_chk (char *__s, wchar_t __wchar, size_t __buflen)
 extern int __REDIRECT_NTH (__wctomb_alias, (char *__s, wchar_t __wchar),
 			   wctomb) __wur;
 
-__fortify_function __wur int
-__NTH (wctomb (char *__s, wchar_t __wchar))
+__fortify_function __attribute_overloadable__ __wur int
+__NTH (wctomb (__fortify_clang_overload_arg (char *, ,__s), wchar_t __wchar))
 {
   /* We would have to include <limits.h> to get a definition of MB_LEN_MAX.
      But this would only disturb the namespace.  So we define our own
@@ -113,9 +125,13 @@ extern size_t __REDIRECT_NTH (__mbstowcs_chk_warn,
      __warnattr ("mbstowcs called with dst buffer smaller than len "
 		 "* sizeof (wchar_t)");
 
-__fortify_function size_t
-__NTH (mbstowcs (wchar_t *__restrict __dst, const char *__restrict __src,
+__fortify_function __attribute_overloadable__ size_t
+__NTH (mbstowcs (__fortify_clang_overload_arg (wchar_t *, __restrict, __dst),
+		 const char *__restrict __src,
 		 size_t __len))
+     __fortify_clang_warning_only_if_bos0_lt2 (__len, __dst, sizeof (wchar_t),
+					       "mbstowcs called with dst buffer "
+					       "smaller than len * sizeof (wchar_t)")
 {
   if (__builtin_constant_p (__dst == NULL) && __dst == NULL)
     return __mbstowcs_nulldst (__dst, __src, __len);
@@ -139,8 +155,9 @@ extern size_t __REDIRECT_NTH (__wcstombs_chk_warn,
 			       size_t __len, size_t __dstlen), __wcstombs_chk)
      __warnattr ("wcstombs called with dst buffer smaller than len");
 
-__fortify_function size_t
-__NTH (wcstombs (char *__restrict __dst, const wchar_t *__restrict __src,
+__fortify_function __attribute_overloadable__ size_t
+__NTH (wcstombs (__fortify_clang_overload_arg (char *, __restrict, __dst),
+		 const wchar_t *__restrict __src,
 		 size_t __len))
 {
   return __glibc_fortify (wcstombs, __len, sizeof (char),

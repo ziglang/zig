@@ -137,7 +137,7 @@ extern int ftw (const char *__dir, __ftw_func_t __func, int __descriptors)
      __nonnull ((1, 2));
 #else
 # ifdef __REDIRECT
-#  ifndef __USE_TIME_BITS64
+#  ifndef __USE_TIME64_REDIRECTS
 extern int __REDIRECT (ftw, (const char *__dir, __ftw_func_t __func,
 			     int __descriptors), ftw64) __nonnull ((1, 2));
 #  else
@@ -146,7 +146,7 @@ extern int __REDIRECT (ftw, (const char *__dir, __ftw_func_t __func,
      __nonnull ((1, 2));
 #  endif
 # else
-#  ifndef __USE_TIME_BITS64
+#  ifndef __USE_TIME64_REDIRECTS
 #   define ftw ftw64
 #  else
 #   define ftw __ftw64_time64
@@ -154,7 +154,7 @@ extern int __REDIRECT (ftw, (const char *__dir, __ftw_func_t __func,
 # endif
 #endif
 #ifdef __USE_LARGEFILE64
-# ifndef __USE_TIME_BITS64
+# ifndef __USE_TIME64_REDIRECTS
 extern int ftw64 (const char *__dir, __ftw64_func_t __func,
 		  int __descriptors) __nonnull ((1, 2));
 # else
@@ -180,7 +180,7 @@ extern int nftw (const char *__dir, __nftw_func_t __func, int __descriptors,
 		 int __flag) __nonnull ((1, 2));
 # else
 #  ifdef __REDIRECT
-#   ifndef __USE_TIME_BITS64
+#   ifndef __USE_TIME64_REDIRECTS
 extern int __REDIRECT (nftw, (const char *__dir, __nftw_func_t __func,
 			      int __descriptors, int __flag), nftw64)
      __nonnull ((1, 2));
@@ -190,7 +190,7 @@ extern int __REDIRECT (nftw, (const char *__dir, __nftw_func_t __func,
      __nonnull ((1, 2));
 #   endif
 #  else
-#   ifndef __USE_TIME_BITS64
+#   ifndef __USE_TIME64_REDIRECTS
 #    define nftw nftw64
 #   else
 #    define nftw __nftw64_time64
@@ -198,7 +198,7 @@ extern int __REDIRECT (nftw, (const char *__dir, __nftw_func_t __func,
 #  endif
 # endif
 # ifdef __USE_LARGEFILE64
-#  ifndef __USE_TIME_BITS64
+#  ifndef __USE_TIME64_REDIRECTS
 extern int nftw64 (const char *__dir, __nftw64_func_t __func,
 		   int __descriptors, int __flag) __nonnull ((1, 2));
 #  else

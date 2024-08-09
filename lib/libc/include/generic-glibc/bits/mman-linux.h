@@ -54,9 +54,28 @@
 # define MAP_ANONYMOUS	0x20		/* Don't use a file.  */
 #endif
 #define MAP_ANON	MAP_ANONYMOUS
-/* When MAP_HUGETLB is set bits [26:31] encode the log2 of the huge page size.  */
+
+/* When MAP_HUGETLB is set, bits [26:31] encode the log2 of the huge page size.
+   The following definitions are associated with this huge page size encoding.
+   It is responsibility of the application to know which sizes are supported on
+   the running system.  See mmap(2) man page for details.  */
+
 #define MAP_HUGE_SHIFT	26
 #define MAP_HUGE_MASK	0x3f
+
+#define MAP_HUGE_16KB	(14 << MAP_HUGE_SHIFT)
+#define MAP_HUGE_64KB	(16 << MAP_HUGE_SHIFT)
+#define MAP_HUGE_512KB	(19 << MAP_HUGE_SHIFT)
+#define MAP_HUGE_1MB	(20 << MAP_HUGE_SHIFT)
+#define MAP_HUGE_2MB	(21 << MAP_HUGE_SHIFT)
+#define MAP_HUGE_8MB	(23 << MAP_HUGE_SHIFT)
+#define MAP_HUGE_16MB	(24 << MAP_HUGE_SHIFT)
+#define MAP_HUGE_32MB	(25 << MAP_HUGE_SHIFT)
+#define MAP_HUGE_256MB	(28 << MAP_HUGE_SHIFT)
+#define MAP_HUGE_512MB	(29 << MAP_HUGE_SHIFT)
+#define MAP_HUGE_1GB	(30 << MAP_HUGE_SHIFT)
+#define MAP_HUGE_2GB	(31 << MAP_HUGE_SHIFT)
+#define MAP_HUGE_16GB	(34U << MAP_HUGE_SHIFT)
 
 /* Flags to `msync'.  */
 #define MS_ASYNC	1		/* Sync memory asynchronously.  */
