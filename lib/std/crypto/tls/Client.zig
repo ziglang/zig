@@ -157,15 +157,15 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
         }
     }.create();
 
-    const x25519_kp = crypto.dh.X25519.KeyPair.createDeterministic(seeds.x25519_kp) catch |err| switch (err) {
+    const x25519_kp = crypto.dh.X25519.KeyPair.generateDeterministic(seeds.x25519_kp) catch |err| switch (err) {
         // Only possible to happen if the private key is all zeroes.
         error.IdentityElement => return error.InsufficientEntropy,
     };
-    const secp256r1_kp = crypto.sign.ecdsa.EcdsaP256Sha256.KeyPair.createDeterministic(seeds.secp256r1_kp) catch |err| switch (err) {
+    const secp256r1_kp = crypto.sign.ecdsa.EcdsaP256Sha256.KeyPair.generateDeterministic(seeds.secp256r1_kp) catch |err| switch (err) {
         // Only possible to happen if the private key is all zeroes.
         error.IdentityElement => return error.InsufficientEntropy,
     };
-    const kyber768_kp = crypto.kem.kyber_d00.Kyber768.KeyPair.createDeterministic(seeds.kyber768_kp) catch {};
+    const kyber768_kp = crypto.kem.kyber_d00.Kyber768.KeyPair.generateDeterministic(seeds.kyber768_kp) catch {};
 
     const extensions_payload =
         tls.extension(.supported_versions, [_]u8{

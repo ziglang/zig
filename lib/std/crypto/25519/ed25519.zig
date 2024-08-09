@@ -238,10 +238,10 @@ pub const Ed25519 = struct {
         /// Secret scalar.
         secret_key: SecretKey,
 
-        pub fn create() IdentityElementError!KeyPair {
+        pub fn generate() IdentityElementError!KeyPair {
             var seed: [seed_length]u8 = undefined;
             crypto.random.bytes(&seed);
-            return try createDeterministic(seed);
+            return try generateDeterministic(seed);
         }
 
         /// Derive a key pair from an secret seed.
@@ -252,7 +252,7 @@ pub const Ed25519 = struct {
         ///
         /// For this reason, an EdDSA secret key is commonly called a seed,
         /// from which the actual secret is derived.
-        pub fn createDeterministic(seed: [seed_length]u8) IdentityElementError!KeyPair {
+        pub fn generateDeterministic(seed: [seed_length]u8) IdentityElementError!KeyPair {
             var az: [Sha512.digest_length]u8 = undefined;
             var h = Sha512.init(.{});
             h.update(&seed);
@@ -279,7 +279,7 @@ pub const Ed25519 = struct {
             // With runtime safety, we can still afford checking that the public key is correct.
             if (std.debug.runtime_safety) {
                 const pk_p = try Curve.fromBytes(secret_key.publicKeyBytes());
-                const recomputed_kp = try createDeterministic(secret_key.seed());
+                const recomputed_kp = try generateDeterministic(secret_key.seed());
                 debug.assert(mem.eql(u8, &recomputed_kp.public_key.toBytes(), &pk_p.toBytes()));
             }
             return KeyPair{
@@ -428,8 +428,8 @@ pub const Ed25519 = struct {
             blind_public_key: BlindPublicKey,
             blind_secret_key: BlindSecretKey,
 
-            /// Create an blind key pair from an existing key pair, a blinding seed and a context.
-            pub fn createDeterministic(key_pair: Ed25519.KeyPair, blind_seed: [blind_seed_length]u8, ctx: []const u8) (NonCanonicalError || IdentityElementError)!BlindKeyPair {
+            /// Generate an blind key pair from an existing key pair, a blinding seed and a context.
+            pub fn generateDeterministic(key_pair: Ed25519.KeyPair, blind_seed: [blind_seed_length]u8, ctx: []const u8) (NonCanonicalError || IdentityElementError)!BlindKeyPair {
                 var h: [Sha512.digest_length]u8 = undefined;
                 Sha512.hash(&key_pair.secret_key.seed(), &h, .{});
                 Curve.scalar.clamp(h[0..32]);
@@ -486,7 +486,7 @@ pub const Ed25519 = struct {
 test "key pair creation" {
     var seed: [32]u8 = undefined;
     _ = try fmt.hexToBytes(seed[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
-    const key_pair = try Ed25519.KeyPair.createDeterministic(seed);
+    const key_pair = try Ed25519.KeyPair.generateDeterministic(seed);
     var buf: [256]u8 = undefined;
     try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&key_pair.secret_key.toBytes())}), "8052030376D47112BE7F73ED7A019293DD12AD910B654455798B4667D73DE1662D6F7455D97B4A3A10D7293909D1A4F2058CB9A370E43FA8154BB280DB839083");
     try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&key_pair.public_key.toBytes())}), "2D6F7455D97B4A3A10D7293909D1A4F2058CB9A370E43FA8154BB280DB839083");
@@ -495,7 +495,7 @@ test "key pair creation" {
 test "signature" {
     var seed: [32]u8 = undefined;
     _ = try fmt.hexToBytes(seed[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
-    const key_pair = try Ed25519.KeyPair.createDeterministic(seed);
+    const key_pair = try Ed25519.KeyPair.generateDeterministic(seed);
 
     const sig = try key_pair.sign("test", null);
     var buf: [128]u8 = undefined;
@@ -507,7 +507,7 @@ test "signature" {
 fn initTestKeypair(comptime Scheme: type, rng: *std.Random.DefaultPrng) !Scheme.KeyPair {
     var seed: [Scheme.KeyPair.seed_length]u8 = undefined;
     rng.fill(&seed);
-    return try Scheme.KeyPair.createDeterministic(seed);
+    return try Scheme.KeyPair.generateDeterministic(seed);
 }
 
 test "batch verification" {
@@ -655,7 +655,7 @@ test "with blind keys" {
     crypto.random.bytes(&blind);
 
     // Blind the key pair
-    const blind_kp = try BlindKeyPair.createDeterministic(kp, blind, "ctx");
+    const blind_kp = try BlindKeyPair.generateDeterministic(kp, blind, "ctx");
 
     // Sign a message and check that it can be verified with the blind public key
     const msg = "test";

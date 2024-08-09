@@ -289,14 +289,14 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             /// Secret scalar.
             secret_key: SecretKey,
 
-            pub fn create() IdentityElementError!KeyPair {
+            pub fn generate() IdentityElementError!KeyPair {
                 var seed: [seed_length]u8 = undefined;
                 crypto.random.bytes(&seed);
-                return try createDeterministic(seed);
+                return try generateDeterministic(seed);
             }
 
-            /// Create a new key pair. The seed must be secret and indistinguishable from random.
-            pub fn createDeterministic(seed: [seed_length]u8) IdentityElementError!KeyPair {
+            /// Generate a new key pair. The seed must be secret and indistinguishable from random.
+            pub fn generateDeterministic(seed: [seed_length]u8) IdentityElementError!KeyPair {
                 const h = [_]u8{0x00} ** Hash.digest_length;
                 const k0 = [_]u8{0x01} ** SecretKey.encoded_length;
                 const secret_key = deterministicScalar(h, k0, seed).toBytes(.big);
@@ -378,7 +378,7 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
 fn initTestKeypair(comptime Scheme: type, rng: *std.Random.DefaultPrng) !Scheme.KeyPair {
     var seed: [Scheme.KeyPair.seed_length]u8 = undefined;
     rng.fill(&seed);
-    return try Scheme.KeyPair.createDeterministic(seed);
+    return try Scheme.KeyPair.generateDeterministic(seed);
 }
 
 test "Basic operations over EcdsaP384Sha384" {

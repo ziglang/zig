@@ -29,14 +29,14 @@ pub const X25519 = struct {
 
         pub const seed_length = 32;
 
-        pub fn create() IdentityElementError!KeyPair {
+        pub fn generate() IdentityElementError!KeyPair {
             var seed: [seed_length]u8 = undefined;
             crypto.random.bytes(&seed);
-            return try createDeterministic(seed);
+            return try generateDeterministic(seed);
         }
 
-        /// Create a new key pair using a seed.
-        pub fn createDeterministic(seed: [seed_length]u8) IdentityElementError!KeyPair {
+        /// Generate a new key pair using a seed.
+        pub fn generateDeterministic(seed: [seed_length]u8) IdentityElementError!KeyPair {
             var kp: KeyPair = undefined;
             kp.secret_key = seed;
             kp.public_key = try X25519.recoverPublicKey(seed);
@@ -172,7 +172,7 @@ test "rfc7748 1,000,000 iterations" {
 }
 
 test "edwards25519 -> curve25519 map" {
-    const ed_kp = try crypto.sign.Ed25519.KeyPair.createDeterministic([_]u8{0x42} ** 32);
+    const ed_kp = try crypto.sign.Ed25519.KeyPair.generateDeterministic([_]u8{0x42} ** 32);
     const mont_kp = try X25519.KeyPair.fromEd25519(ed_kp);
     try htest.assertEqual("90e7595fc89e52fdfddce9c6a43d74dbf6047025ee0462d2d172e8b6a2841d6e", &mont_kp.secret_key);
     try htest.assertEqual("cc4f2cdb695dd766f34118eb67b98652fed1d8bc49c330b119bbfa8a64989378", &mont_kp.public_key);
