@@ -302,6 +302,12 @@ pub fn resolve(options: Options) ResolveError!Config {
             break :b false;
         }
 
+        if (target.cpu.arch.isLoongArch()) {
+            // FIXME:
+            // loongarch LTO might have problem on LLVM 18.
+            break :b false;
+        }
+
         break :b switch (options.output_mode) {
             .Lib, .Obj => false,
             .Exe => switch (root_optimize_mode) {
