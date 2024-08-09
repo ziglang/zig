@@ -213,11 +213,12 @@ const Fuzzer = struct {
             .truncate = false,
         });
         defer coverage_file.close();
-        const n_bitset_elems = (flagged_pcs.len + 7) / 8;
-        comptime assert(SeenPcsHeader.trailing[0] == .pc_addr);
-        comptime assert(SeenPcsHeader.trailing[1][0] == .pc_bits);
-        comptime assert(SeenPcsHeader.trailing[1][1] == u8);
-        const bytes_len = @sizeOf(SeenPcsHeader) + flagged_pcs.len * @sizeOf(usize) + n_bitset_elems;
+        const n_bitset_elems = (flagged_pcs.len + @bitSizeOf(usize) - 1) / @bitSizeOf(usize);
+        comptime assert(SeenPcsHeader.trailing[0] == .pc_bits_usize);
+        comptime assert(SeenPcsHeader.trailing[1] == .pc_addr);
+        const bytes_len = @sizeOf(SeenPcsHeader) +
+            n_bitset_elems * @sizeOf(usize) +
+            flagged_pcs.len * @sizeOf(usize);
         const existing_len = coverage_file.getEndPos() catch |err| {
             fatal("unable to check len of coverage file: {s}", .{@errorName(err)});
         };
@@ -232,7 +233,7 @@ const Fuzzer = struct {
             fatal("unable to init coverage memory map: {s}", .{@errorName(err)});
         };
         if (existing_len != 0) {
-            const existing_pcs_bytes = f.seen_pcs.items[@sizeOf(SeenPcsHeader)..][0 .. flagged_pcs.len * @sizeOf(usize)];
+            const existing_pcs_bytes = f.seen_pcs.items[@sizeOf(SeenPcsHeader) + @sizeOf(usize) * n_bitset_elems ..][0 .. flagged_pcs.len * @sizeOf(usize)];
             const existing_pcs = std.mem.bytesAsSlice(usize, existing_pcs_bytes);
             for (existing_pcs, flagged_pcs, 0..) |old, new, i| {
                 if (old != new.addr) {
@@ -249,10 +250,10 @@ const Fuzzer = struct {
                 .lowest_stack = std.math.maxInt(usize),
             };
             f.seen_pcs.appendSliceAssumeCapacity(std.mem.asBytes(&header));
+            f.seen_pcs.appendNTimesAssumeCapacity(0, n_bitset_elems * @sizeOf(usize));
             for (flagged_pcs) |flagged_pc| {
                 f.seen_pcs.appendSliceAssumeCapacity(std.mem.asBytes(&flagged_pc.addr));
             }
-            f.seen_pcs.appendNTimesAssumeCapacity(0, n_bitset_elems);
         }
     }
 
@@ -302,26 +303,30 @@ const Fuzzer = struct {
                     .score = analysis.score,
                 };
 
-                // Track code coverage from all runs.
                 {
-                    comptime assert(SeenPcsHeader.trailing[0] == .pc_addr);
-                    comptime assert(SeenPcsHeader.trailing[1][0] == .pc_bits);
-                    comptime assert(SeenPcsHeader.trailing[1][1] == u8);
+                    // Track code coverage from all runs.
+                    comptime assert(SeenPcsHeader.trailing[0] == .pc_bits_usize);
+                    const header_end_ptr: [*]volatile usize = @ptrCast(f.seen_pcs.items[@sizeOf(SeenPcsHeader)..]);
+                    const remainder = f.flagged_pcs.len % @bitSizeOf(usize);
+                    const aligned_len = f.flagged_pcs.len - remainder;
+                    const seen_pcs = header_end_ptr[0..aligned_len];
+                    const pc_counters = std.mem.bytesAsSlice([@bitSizeOf(usize)]u8, f.pc_counters[0..aligned_len]);
+                    const V = @Vector(@bitSizeOf(usize), u8);
+                    const zero_v: V = @splat(0);
 
-                    const seen_pcs = f.seen_pcs.items[@sizeOf(SeenPcsHeader) + f.flagged_pcs.len * @sizeOf(usize) ..];
-                    for (seen_pcs, 0..) |*elem, i| {
-                        const byte_i = i * 8;
-                        const mask: u8 =
-                            (@as(u8, @intFromBool(f.pc_counters.ptr[byte_i + 0] != 0)) << 0) |
-                            (@as(u8, @intFromBool(f.pc_counters.ptr[byte_i + 1] != 0)) << 1) |
-                            (@as(u8, @intFromBool(f.pc_counters.ptr[byte_i + 2] != 0)) << 2) |
-                            (@as(u8, @intFromBool(f.pc_counters.ptr[byte_i + 3] != 0)) << 3) |
-                            (@as(u8, @intFromBool(f.pc_counters.ptr[byte_i + 4] != 0)) << 4) |
-                            (@as(u8, @intFromBool(f.pc_counters.ptr[byte_i + 5] != 0)) << 5) |
-                            (@as(u8, @intFromBool(f.pc_counters.ptr[byte_i + 6] != 0)) << 6) |
-                            (@as(u8, @intFromBool(f.pc_counters.ptr[byte_i + 7] != 0)) << 7);
-
-                        _ = @atomicRmw(u8, elem, .Or, mask, .monotonic);
+                    for (header_end_ptr[0..pc_counters.len], pc_counters) |*elem, *array| {
+                        const v: V = array.*;
+                        const mask: usize = @bitCast(v != zero_v);
+                        _ = @atomicRmw(usize, elem, .Or, mask, .monotonic);
+                    }
+                    if (remainder > 0) {
+                        const i = pc_counters.len;
+                        const elem = &seen_pcs[i];
+                        var mask: usize = 0;
+                        for (f.pc_counters[i * @bitSizeOf(usize) ..][0..remainder], 0..) |byte, bit_index| {
+                            mask |= @as(usize, @intFromBool(byte != 0)) << @intCast(bit_index);
+                        }
+                        _ = @atomicRmw(usize, elem, .Or, mask, .monotonic);
                     }
                 }
 

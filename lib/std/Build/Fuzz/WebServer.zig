@@ -384,10 +384,7 @@ fn sendCoverageContext(
     // TODO: make each events URL correspond to one coverage map
     const coverage_map = &coverage_maps[0];
     const cov_header: *const abi.SeenPcsHeader = @ptrCast(coverage_map.mapped_memory[0..@sizeOf(abi.SeenPcsHeader)]);
-    comptime assert(abi.SeenPcsHeader.trailing[0] == .pc_addr);
-    const seen_pcs = coverage_map.mapped_memory[@sizeOf(abi.SeenPcsHeader) + coverage_map.source_locations.len * @sizeOf(usize) ..];
-    comptime assert(abi.SeenPcsHeader.trailing[1][0] == .pc_bits);
-    comptime assert(abi.SeenPcsHeader.trailing[1][1] == u8);
+    const seen_pcs = cov_header.seenBits();
     const n_runs = @atomicLoad(usize, &cov_header.n_runs, .monotonic);
     const unique_runs = @atomicLoad(usize, &cov_header.unique_runs, .monotonic);
     const lowest_stack = @atomicLoad(usize, &cov_header.lowest_stack, .monotonic);
@@ -419,7 +416,7 @@ fn sendCoverageContext(
         };
         const iovecs: [2]std.posix.iovec_const = .{
             makeIov(std.mem.asBytes(&header)),
-            makeIov(seen_pcs),
+            makeIov(std.mem.sliceAsBytes(seen_pcs)),
         };
         try web_socket.writeMessagev(&iovecs, .binary);
 
@@ -634,9 +631,7 @@ fn prepareTables(
     gop.value_ptr.mapped_memory = mapped_memory;
 
     const header: *const abi.SeenPcsHeader = @ptrCast(mapped_memory[0..@sizeOf(abi.SeenPcsHeader)]);
-    comptime assert(abi.SeenPcsHeader.trailing[0] == .pc_addr);
-    const pcs_bytes = mapped_memory[@sizeOf(abi.SeenPcsHeader)..][0 .. header.pcs_len * @sizeOf(usize)];
-    const pcs = std.mem.bytesAsSlice(usize, pcs_bytes);
+    const pcs = header.pcAddrs();
     const source_locations = try gpa.alloc(Coverage.SourceLocation, pcs.len);
     errdefer gpa.free(source_locations);
     debug_info.resolveAddresses(gpa, pcs, source_locations) catch |err| {
@@ -653,10 +648,8 @@ fn addEntryPoint(ws: *WebServer, coverage_id: u64, addr: u64) error{ AlreadyRepo
     defer ws.coverage_mutex.unlock();
 
     const coverage_map = ws.coverage_files.getPtr(coverage_id).?;
-    const ptr = coverage_map.mapped_memory;
-    comptime assert(abi.SeenPcsHeader.trailing[0] == .pc_addr);
-    const pcs_bytes = ptr[@sizeOf(abi.SeenPcsHeader)..][0 .. coverage_map.source_locations.len * @sizeOf(usize)];
-    const pcs: []const usize = @alignCast(std.mem.bytesAsSlice(usize, pcs_bytes));
+    const header: *const abi.SeenPcsHeader = @ptrCast(coverage_map.mapped_memory[0..@sizeOf(abi.SeenPcsHeader)]);
+    const pcs = header.pcAddrs();
     const index = std.sort.upperBound(usize, pcs, addr, struct {
         fn order(context: usize, item: usize) std.math.Order {
             return std.math.order(item, context);

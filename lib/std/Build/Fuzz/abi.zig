@@ -7,8 +7,8 @@
 /// make the ints be the size of the target used with libfuzzer.
 ///
 /// Trailing:
+/// * 1 bit per pc_addr, usize elements
 /// * pc_addr: usize for each pcs_len
-/// * 1 bit per pc_addr, u8 elements
 pub const SeenPcsHeader = extern struct {
     n_runs: usize,
     unique_runs: usize,
@@ -18,9 +18,29 @@ pub const SeenPcsHeader = extern struct {
     /// Used for comptime assertions. Provides a mechanism for strategically
     /// causing compile errors.
     pub const trailing = .{
+        .pc_bits_usize,
         .pc_addr,
-        .{ .pc_bits, u8 },
     };
+
+    pub fn headerEnd(header: *const SeenPcsHeader) []const usize {
+        const ptr: [*]align(@alignOf(usize)) const u8 = @ptrCast(header);
+        const header_end_ptr: [*]const usize = @ptrCast(ptr + @sizeOf(SeenPcsHeader));
+        const pcs_len = header.pcs_len;
+        return header_end_ptr[0 .. pcs_len + seenElemsLen(pcs_len)];
+    }
+
+    pub fn seenBits(header: *const SeenPcsHeader) []const usize {
+        return header.headerEnd()[0..seenElemsLen(header.pcs_len)];
+    }
+
+    pub fn seenElemsLen(pcs_len: usize) usize {
+        return (pcs_len + @bitSizeOf(usize) - 1) / @bitSizeOf(usize);
+    }
+
+    pub fn pcAddrs(header: *const SeenPcsHeader) []const usize {
+        const pcs_len = header.pcs_len;
+        return header.headerEnd()[seenElemsLen(pcs_len)..][0..pcs_len];
+    }
 };
 
 pub const ToClientTag = enum(u8) {
@@ -54,12 +74,21 @@ pub const SourceIndexHeader = extern struct {
 /// changes.
 ///
 /// Trailing:
-/// * one bit per source_locations_len, contained in u8 elements
+/// * one bit per source_locations_len, contained in u64 elements
 pub const CoverageUpdateHeader = extern struct {
-    tag: ToClientTag = .coverage_update,
-    n_runs: u64 align(1),
-    unique_runs: u64 align(1),
-    lowest_stack: u64 align(1),
+    flags: Flags = .{},
+    n_runs: u64,
+    unique_runs: u64,
+    lowest_stack: u64,
+
+    pub const Flags = packed struct(u64) {
+        tag: ToClientTag = .coverage_update,
+        _: u56 = 0,
+    };
+
+    pub const trailing = .{
+        .pc_bits_usize,
+    };
 };
 
 /// Sent to the fuzzer web client when the set of entry points is updated.

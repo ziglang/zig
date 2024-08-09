@@ -125,12 +125,12 @@ export fn coveredSourceLocations() usize {
 }
 
 export fn totalRuns() u64 {
-    const header: *abi.CoverageUpdateHeader = @ptrCast(recent_coverage_update.items[0..@sizeOf(abi.CoverageUpdateHeader)]);
+    const header: *abi.CoverageUpdateHeader = @alignCast(@ptrCast(recent_coverage_update.items[0..@sizeOf(abi.CoverageUpdateHeader)]));
     return header.n_runs;
 }
 
 export fn uniqueRuns() u64 {
-    const header: *abi.CoverageUpdateHeader = @ptrCast(recent_coverage_update.items[0..@sizeOf(abi.CoverageUpdateHeader)]);
+    const header: *abi.CoverageUpdateHeader = @alignCast(@ptrCast(recent_coverage_update.items[0..@sizeOf(abi.CoverageUpdateHeader)]));
     return header.unique_runs;
 }
 
@@ -335,7 +335,7 @@ fn computeSourceAnnotations(
             if (next_loc_index >= locs.items.len) return;
             const next_sli = locs.items[next_loc_index];
             const next_sl = next_sli.ptr();
-            if (next_sl.line > line or (next_sl.line == line and next_sl.column > column)) break;
+            if (next_sl.line > line or (next_sl.line == line and next_sl.column >= column)) break;
             try annotations.append(gpa, .{
                 .file_byte_offset = offset,
                 .dom_id = @intFromEnum(next_sli),
@@ -349,7 +349,7 @@ var coverage = Coverage.init;
 /// Index of type `SourceLocationIndex`.
 var coverage_source_locations: std.ArrayListUnmanaged(Coverage.SourceLocation) = .{};
 /// Contains the most recent coverage update message, unmodified.
-var recent_coverage_update: std.ArrayListUnmanaged(u8) = .{};
+var recent_coverage_update: std.ArrayListAlignedUnmanaged(u8, @alignOf(u64)) = .{};
 
 fn updateCoverage(
     directories: []const Coverage.String,
@@ -406,19 +406,23 @@ export fn sourceLocationFileCoveredList(sli_file: SourceLocationIndex) Slice(Sou
     };
     const want_file = sli_file.ptr().file;
     global.result.clearRetainingCapacity();
-    const covered_bits = recent_coverage_update.items[@sizeOf(abi.CoverageUpdateHeader)..];
+
+    // This code assumes 64-bit elements, which is incorrect if the executable
+    // being fuzzed is not a 64-bit CPU. It also assumes little-endian which
+    // can also be incorrect.
+    comptime assert(abi.CoverageUpdateHeader.trailing[0] == .pc_bits_usize);
+    const n_bitset_elems = (coverage_source_locations.items.len + @bitSizeOf(u64) - 1) / @bitSizeOf(u64);
+    const covered_bits = std.mem.bytesAsSlice(
+        u64,
+        recent_coverage_update.items[@sizeOf(abi.CoverageUpdateHeader)..][0 .. n_bitset_elems * @sizeOf(u64)],
+    );
     var sli: u32 = 0;
-    for (covered_bits) |byte| {
-        global.result.ensureUnusedCapacity(gpa, 8) catch @panic("OOM");
-        if ((byte & 0b0000_0001) != 0) global.add(sli + 0, want_file);
-        if ((byte & 0b0000_0010) != 0) global.add(sli + 1, want_file);
-        if ((byte & 0b0000_0100) != 0) global.add(sli + 2, want_file);
-        if ((byte & 0b0000_1000) != 0) global.add(sli + 3, want_file);
-        if ((byte & 0b0001_0000) != 0) global.add(sli + 4, want_file);
-        if ((byte & 0b0010_0000) != 0) global.add(sli + 5, want_file);
-        if ((byte & 0b0100_0000) != 0) global.add(sli + 6, want_file);
-        if ((byte & 0b1000_0000) != 0) global.add(sli + 7, want_file);
-        sli += 8;
+    for (covered_bits) |elem| {
+        global.result.ensureUnusedCapacity(gpa, 64) catch @panic("OOM");
+        for (0..@bitSizeOf(u64)) |i| {
+            if ((elem & (@as(u64, 1) << @intCast(i))) != 0) global.add(sli, want_file);
+            sli += 1;
+        }
     }
     return Slice(SourceLocationIndex).init(global.result.items);
 }
