@@ -127,6 +127,11 @@ fn mainServer() !void {
                         }
                     },
                 };
+                if (first_fuzz_input) |input| {
+                    assert(is_fuzz_test);
+                    testing.allocator.free(input);
+                    first_fuzz_input = null;
+                }
                 const leak = testing.allocator_instance.deinit() == .leak;
                 try server.serveTestResults(.{
                     .index = index,
@@ -348,6 +353,7 @@ const FuzzerSlice = extern struct {
 
 var is_fuzz_test: bool = undefined;
 var entry_addr: usize = 0;
+var first_fuzz_input: ?[]u8 = null;
 
 extern fn fuzzer_next(testing.FuzzInputOptions.LengthRange) FuzzerSlice;
 extern fn fuzzer_init(cache_dir: FuzzerSlice) void;
@@ -365,16 +371,15 @@ pub fn fuzzInput(options: testing.FuzzInputOptions) []const u8 {
         return fuzzer_next(options.len_range).toSlice();
     }
 
-    if (options.corpus.len == 0) {
-        if (options.len_range.min > 0) {
-            std.debug.print("fuzz input with minimum length > 0 must provide a corpus\n", .{});
-            std.process.exit(1);
-        }
-        return "";
-    }
-
     var prng = std.Random.DefaultPrng.init(testing.random_seed);
     const random = prng.random();
+
+    if (options.corpus.len == 0) {
+        first_fuzz_input = testing.allocator.alloc(u8, options.len_range.min) catch @panic("failed to allocate first fuzz input");
+        random.bytes(first_fuzz_input.?);
+        return first_fuzz_input.?;
+    }
+
     const entry = options.corpus[random.uintLessThan(usize, options.corpus.len)];
     assert(entry.len >= options.len_range.min and entry.len <= options.len_range.max);
     return entry;
