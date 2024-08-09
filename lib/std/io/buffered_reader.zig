@@ -39,6 +39,28 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
             return dest.len;
         }
 
+        pub const PeekError = Error || error{EndOfStream};
+
+        /// Returns the next `n` bytes without advancing.
+        ///
+        /// The returned slice is a subslice of the buffer, which may or may not start
+        /// from the beginning. The length of the returned slice is always `n`.
+        ///
+        /// Asserts that the number of requested bytes is less than or equal to the
+        /// buffer size.
+        pub fn peek(self: *Self, n: usize) PeekError![]u8 {
+            assert(n <= buffer_size);
+            if (n > self.end - self.start) {
+                if (n > buffer_size - self.start) {
+                    std.mem.copyForwards(u8, &self.buf, self.buf[self.start..self.end]);
+                    self.end -= self.start;
+                    self.start = 0;
+                }
+                self.end += try self.unbuffered_reader.read(self.buf[self.end..]);
+            }
+            return self.buf[self.start..][0..n];
+        }
+
         pub fn reader(self: *Self) Reader {
             return .{ .context = self };
         }
@@ -191,5 +213,57 @@ test "Block" {
         _ = try test_buf_reader.read(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, block);
         try testing.expectEqual(try test_buf_reader.read(&out_buf), 0);
+    }
+}
+
+test "BufferedReader.peek" {
+    var fbs = io.fixedBufferStream("abcdefgh");
+    const reader = fbs.reader();
+    {
+        // peek before read
+        var br = bufferedReader(reader);
+
+        const out = try br.peek(2);
+        try testing.expectEqualSlices(u8, "ab", out);
+
+        var buf: [2]u8 = undefined;
+        _ = try br.read(&buf);
+        try testing.expectEqualSlices(u8, "ab", &buf);
+    }
+    {
+        // peek after read
+        fbs.reset();
+        var br = bufferedReader(reader);
+        var buf: [2]u8 = undefined;
+
+        _ = try br.read(&buf);
+
+        const out = try br.peek(2);
+        try testing.expectEqualSlices(u8, "cd", out);
+    }
+    {
+        // peek after read with small buffer
+        fbs.reset();
+        var br = BufferedReader(4, @TypeOf(reader)){ .unbuffered_reader = reader };
+        var buf: [2]u8 = undefined;
+
+        _ = try br.read(&buf);
+
+        const out = try br.peek(4);
+        try testing.expectEqualSlices(u8, "cdef", out);
+    }
+    {
+        // multiple peeks
+        fbs.reset();
+        var br = bufferedReader(reader);
+
+        const out1 = try br.peek(2);
+        try testing.expectEqualSlices(u8, "ab", out1);
+
+        const out2 = try br.peek(4);
+        try testing.expectEqualSlices(u8, "abcd", out2);
+
+        const out3 = try br.peek(1);
+        try testing.expectEqualSlices(u8, "a", out3);
     }
 }
