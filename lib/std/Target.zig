@@ -1209,9 +1209,10 @@ pub const Cpu = struct {
         }
 
         pub fn toElfMachine(arch: Arch) std.elf.EM {
+            // TODO: Return IAMCU for elfiamcu OS.
             return switch (arch) {
                 .amdgcn => .AMDGPU,
-                .arc => .ARC,
+                .arc => .ARC_COMPACT2,
                 .arm, .armeb, .thumb, .thumbeb => .ARM,
                 .aarch64, .aarch64_be => .AARCH64,
                 .avr => .AVR,
