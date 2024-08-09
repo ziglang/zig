@@ -42,9 +42,6 @@ stdio: StdIo,
 /// It should be only set using `setStdIn`.
 stdin: StdIn,
 
-/// Deprecated: use `addFileInput`
-extra_file_dependencies: []const []const u8,
-
 /// Additional input files that, when modified, indicate that the Run step
 /// should be re-executed.
 /// If the Run step is determined to have side-effects, the Run step is always
@@ -177,7 +174,6 @@ pub fn create(owner: *std.Build, name: []const u8) *Run {
         .disable_zig_progress = false,
         .stdio = .infer_from_args,
         .stdin = .none,
-        .extra_file_dependencies = &.{},
         .file_inputs = .{},
         .rename_step_with_output_arg = true,
         .skip_foreign_checks = false,
@@ -363,15 +359,9 @@ pub fn addPrefixedOutputDirectoryArg(
     return .{ .generated = .{ .file = &output.generated_file } };
 }
 
-/// deprecated: use `addDirectoryArg`
-pub const addDirectorySourceArg = addDirectoryArg;
-
 pub fn addDirectoryArg(run: *Run, directory_source: std.Build.LazyPath) void {
     run.addPrefixedDirectoryArg("", directory_source);
 }
-
-// deprecated: use `addPrefixedDirectoryArg`
-pub const addPrefixedDirectorySourceArg = addPrefixedDirectoryArg;
 
 pub fn addPrefixedDirectoryArg(run: *Run, prefix: []const u8, directory_source: std.Build.LazyPath) void {
     const b = run.step.owner;
@@ -697,9 +687,6 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
     hashStdIo(&man.hash, run.stdio);
 
-    for (run.extra_file_dependencies) |file_path| {
-        _ = try man.addFile(b.pathFromRoot(file_path), null);
-    }
     for (run.file_inputs.items) |lazy_path| {
         _ = try man.addFile(lazy_path.getPath2(b, step), null);
     }
@@ -1713,7 +1700,7 @@ fn addPathForDynLibs(run: *Run, artifact: *Step.Compile) void {
     var it = artifact.root_module.iterateDependencies(artifact, true);
     while (it.next()) |item| {
         const other = item.compile.?;
-        if (item.module == &other.root_module) {
+        if (item.module == other.root_module) {
             if (item.module.resolved_target.?.result.os.tag == .windows and
                 other.isDynamicLibrary())
             {
