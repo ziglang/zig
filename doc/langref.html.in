@@ -5053,7 +5053,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       It may have any alignment, and it may have any element type.</p>
       <p>{#syntax#}elem{#endsyntax#} is coerced to the element type of {#syntax#}dest{#endsyntax#}.</p>
       <p>For securely zeroing out sensitive contents from memory, you should use
-      {#syntax#}std.crypto.utils.secureZero{#endsyntax#}</p>
+      {#syntax#}std.crypto.secureZero{#endsyntax#}</p>
       {#header_close#}
 
       {#header_open|@min#}
