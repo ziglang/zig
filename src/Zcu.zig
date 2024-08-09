@@ -3200,6 +3200,7 @@ pub const Feature = enum {
     safety_checked_instructions,
     /// If the backend supports running from another thread.
     separate_thread,
+    can_expect,
 };
 
 pub fn backendSupportsFeature(zcu: *const Zcu, comptime feature: Feature) bool {

@@ -849,6 +849,10 @@ pub const Inst = struct {
         /// Operand is unused and set to Ref.none
         work_group_id,
 
+        /// Implements @expect builtin.
+        /// Uses the `bin_op` field.
+        expect,
+
         pub fn fromCmpOp(op: std.math.CompareOperator, optimized: bool) Tag {
             switch (op) {
                 .lt => return if (optimized) .cmp_lt_optimized else .cmp_lt,
@@ -1523,6 +1527,8 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .work_group_id,
         => return Type.u32,
 
+        .expect => return Type.bool,
+
         .inferred_alloc => unreachable,
         .inferred_alloc_comptime => unreachable,
     }
@@ -1640,6 +1646,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .add_safe,
         .sub_safe,
         .mul_safe,
+        .expect,
         => true,
 
         .add,

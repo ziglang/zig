@@ -559,5 +559,9 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
             .stage2_llvm => false,
             else => true,
         },
+        .can_expect => switch (backend) {
+            .stage2_c, .stage2_llvm => true,
+            else => false,
+        },
     };
 }
