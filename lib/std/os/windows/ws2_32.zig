@@ -1830,7 +1830,7 @@ pub extern "ws2_32" fn sendto(
     buf: [*]const u8,
     len: i32,
     flags: i32,
-    to: *const sockaddr,
+    to: ?*const sockaddr,
     tolen: i32,
 ) callconv(WINAPI) i32;
 
@@ -2113,14 +2113,6 @@ pub extern "ws2_32" fn WSASendMsg(
     lpMsg: *WSAMSG_const,
     dwFlags: u32,
     lpNumberOfBytesSent: ?*u32,
-    lpOverlapped: ?*OVERLAPPED,
-    lpCompletionRoutine: ?LPWSAOVERLAPPED_COMPLETION_ROUTINE,
-) callconv(WINAPI) i32;
-
-pub extern "ws2_32" fn WSARecvMsg(
-    s: SOCKET,
-    lpMsg: *WSAMSG,
-    lpdwNumberOfBytesRecv: ?*u32,
     lpOverlapped: ?*OVERLAPPED,
     lpCompletionRoutine: ?LPWSAOVERLAPPED_COMPLETION_ROUTINE,
 ) callconv(WINAPI) i32;
