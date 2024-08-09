@@ -835,6 +835,101 @@ pub const ObjectFormat = enum {
     }
 };
 
+pub fn toElfMachine(target: Target) std.elf.EM {
+    // TODO: Return IAMCU for elfiamcu OS.
+    return switch (target.cpu.arch) {
+        .amdgcn => .AMDGPU,
+        .arc => .ARC_COMPACT2,
+        .arm, .armeb, .thumb, .thumbeb => .ARM,
+        .aarch64, .aarch64_be => .AARCH64,
+        .avr => .AVR,
+        .bpfel, .bpfeb => .BPF,
+        .csky => .CSKY,
+        .hexagon => .HEXAGON,
+        .kalimba => .CSR_KALIMBA,
+        .lanai => .LANAI,
+        .loongarch32, .loongarch64 => .LOONGARCH,
+        .m68k => .@"68K",
+        .mips, .mips64, .mipsel, .mips64el => .MIPS,
+        .msp430 => .MSP430,
+        .powerpc, .powerpcle => .PPC,
+        .powerpc64, .powerpc64le => .PPC64,
+        .riscv32, .riscv64 => .RISCV,
+        .s390x => .S390,
+        .sparc => .SPARC, // TODO: Should be SPARC32PLUS when targeting 32-bit v9.
+        .sparc64 => .SPARCV9,
+        .spu_2 => .SPU_2,
+        .x86 => .@"386",
+        .x86_64 => .X86_64,
+        .xcore => .XCORE,
+        .xtensa => .XTENSA,
+
+        .dxil,
+        .nvptx,
+        .nvptx64,
+        .spirv,
+        .spirv32,
+        .spirv64,
+        .ve,
+        .wasm32,
+        .wasm64,
+        => .NONE,
+    };
+}
+
+pub fn toCoffMachine(target: Target) std.coff.MachineType {
+    return switch (target.cpu.arch) {
+        .arm => .ARM,
+        .thumb => .THUMB,
+        .aarch64 => .ARM64,
+        .loongarch32 => .LOONGARCH32,
+        .loongarch64 => .LOONGARCH64,
+        .riscv32 => .RISCV32,
+        .riscv64 => .RISCV64,
+        .x86 => .I386,
+        .x86_64 => .X64,
+
+        .amdgcn,
+        .arc,
+        .armeb,
+        .thumbeb,
+        .aarch64_be,
+        .avr,
+        .bpfel,
+        .bpfeb,
+        .csky,
+        .dxil,
+        .hexagon,
+        .kalimba,
+        .lanai,
+        .m68k,
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        .msp430,
+        .nvptx,
+        .nvptx64,
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        .s390x,
+        .sparc,
+        .sparc64,
+        .spirv,
+        .spirv32,
+        .spirv64,
+        .spu_2,
+        .ve,
+        .wasm32,
+        .wasm64,
+        .xcore,
+        .xtensa,
+        => .UNKNOWN,
+    };
+}
+
 pub const SubSystem = enum {
     Console,
     Windows,
@@ -1206,101 +1301,6 @@ pub const Cpu = struct {
                 }
             }
             return error.UnknownCpuModel;
-        }
-
-        pub fn toElfMachine(arch: Arch) std.elf.EM {
-            // TODO: Return IAMCU for elfiamcu OS.
-            return switch (arch) {
-                .amdgcn => .AMDGPU,
-                .arc => .ARC_COMPACT2,
-                .arm, .armeb, .thumb, .thumbeb => .ARM,
-                .aarch64, .aarch64_be => .AARCH64,
-                .avr => .AVR,
-                .bpfel, .bpfeb => .BPF,
-                .csky => .CSKY,
-                .hexagon => .HEXAGON,
-                .kalimba => .CSR_KALIMBA,
-                .lanai => .LANAI,
-                .loongarch32, .loongarch64 => .LOONGARCH,
-                .m68k => .@"68K",
-                .mips, .mips64, .mipsel, .mips64el => .MIPS,
-                .msp430 => .MSP430,
-                .powerpc, .powerpcle => .PPC,
-                .powerpc64, .powerpc64le => .PPC64,
-                .riscv32, .riscv64 => .RISCV,
-                .s390x => .S390,
-                .sparc => .SPARC, // TODO: Should be SPARC32PLUS when targeting 32-bit v9.
-                .sparc64 => .SPARCV9,
-                .spu_2 => .SPU_2,
-                .x86 => .@"386",
-                .x86_64 => .X86_64,
-                .xcore => .XCORE,
-                .xtensa => .XTENSA,
-
-                .dxil,
-                .nvptx,
-                .nvptx64,
-                .spirv,
-                .spirv32,
-                .spirv64,
-                .ve,
-                .wasm32,
-                .wasm64,
-                => .NONE,
-            };
-        }
-
-        pub fn toCoffMachine(arch: Arch) std.coff.MachineType {
-            return switch (arch) {
-                .arm => .ARM,
-                .thumb => .THUMB,
-                .aarch64 => .ARM64,
-                .loongarch32 => .LOONGARCH32,
-                .loongarch64 => .LOONGARCH64,
-                .riscv32 => .RISCV32,
-                .riscv64 => .RISCV64,
-                .x86 => .I386,
-                .x86_64 => .X64,
-
-                .amdgcn,
-                .arc,
-                .armeb,
-                .thumbeb,
-                .aarch64_be,
-                .avr,
-                .bpfel,
-                .bpfeb,
-                .csky,
-                .dxil,
-                .hexagon,
-                .kalimba,
-                .lanai,
-                .m68k,
-                .mips,
-                .mipsel,
-                .mips64,
-                .mips64el,
-                .msp430,
-                .nvptx,
-                .nvptx64,
-                .powerpc,
-                .powerpcle,
-                .powerpc64,
-                .powerpc64le,
-                .s390x,
-                .sparc,
-                .sparc64,
-                .spirv,
-                .spirv32,
-                .spirv64,
-                .spu_2,
-                .ve,
-                .wasm32,
-                .wasm64,
-                .xcore,
-                .xtensa,
-                => .UNKNOWN,
-            };
         }
 
         pub fn endian(arch: Arch) std.builtin.Endian {
