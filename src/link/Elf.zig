@@ -64,9 +64,6 @@ phdrs: std.ArrayListUnmanaged(elf.Elf64_Phdr) = .{},
 /// Tracked loadable segments during incremental linking.
 /// The index into the program headers of a PT_LOAD program header with Read and Execute flags
 phdr_zig_load_re_index: ?u16 = null,
-/// The index into the program headers of the global offset table.
-/// It needs PT_LOAD and Read flags.
-phdr_zig_got_index: ?u16 = null,
 /// The index into the program headers of a PT_LOAD program header with Read flag
 phdr_zig_load_ro_index: ?u16 = null,
 /// The index into the program headers of a PT_LOAD program header with Write flag
@@ -130,8 +127,6 @@ plt_got: PltGotSection = .{},
 copy_rel: CopyRelSection = .{},
 /// .rela.plt section
 rela_plt: std.ArrayListUnmanaged(elf.Elf64_Rela) = .{},
-/// .got.zig section
-zig_got: ZigGotSection = .{},
 /// SHT_GROUP sections
 /// Applies only to a relocatable.
 comdat_group_sections: std.ArrayListUnmanaged(ComdatGroupSection) = .{},
@@ -142,7 +137,6 @@ zig_text_section_index: ?u32 = null,
 zig_data_rel_ro_section_index: ?u32 = null,
 zig_data_section_index: ?u32 = null,
 zig_bss_section_index: ?u32 = null,
-zig_got_section_index: ?u32 = null,
 
 debug_info_section_index: ?u32 = null,
 debug_abbrev_section_index: ?u32 = null,
@@ -474,7 +468,6 @@ pub fn deinit(self: *Elf) void {
     self.copy_rel.deinit(gpa);
     self.rela_dyn.deinit(gpa);
     self.rela_plt.deinit(gpa);
-    self.zig_got.deinit(gpa);
     self.comdat_group_sections.deinit(gpa);
 }
 
@@ -618,21 +611,6 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
             });
         }
 
-        if (self.phdr_zig_got_index == null) {
-            const alignment = self.page_size;
-            const filesz = @as(u64, ptr_size) * options.symbol_count_hint;
-            const off = self.findFreeSpace(filesz, alignment);
-            self.phdr_zig_got_index = try self.addPhdr(.{
-                .type = elf.PT_LOAD,
-                .offset = off,
-                .filesz = filesz,
-                .addr = if (ptr_bit_width >= 32) 0x4000000 else 0x4000,
-                .memsz = filesz,
-                .@"align" = alignment,
-                .flags = elf.PF_R | elf.PF_W,
-            });
-        }
-
         if (self.phdr_zig_load_ro_index == null) {
             const alignment = self.page_size;
             const filesz: u64 = 1024;
@@ -699,27 +677,6 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         }
         try self.output_sections.putNoClobber(gpa, self.zig_text_section_index.?, .{});
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.zig_text_section_index.?, .{});
-    }
-
-    if (self.zig_got_section_index == null and !self.base.isRelocatable()) {
-        self.zig_got_section_index = try self.addSection(.{
-            .name = try self.insertShString(".got.zig"),
-            .type = elf.SHT_PROGBITS,
-            .addralign = ptr_size,
-            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
-            .offset = std.math.maxInt(u64),
-        });
-        const shdr = &self.shdrs.items[self.zig_got_section_index.?];
-        const phndx = self.phdr_zig_got_index.?;
-        const phdr = self.phdrs.items[phndx];
-        shdr.sh_addr = phdr.p_vaddr;
-        shdr.sh_offset = phdr.p_offset;
-        shdr.sh_size = phdr.p_memsz;
-        try self.phdr_to_shdr_table.putNoClobber(
-            gpa,
-            self.zig_got_section_index.?,
-            self.phdr_zig_got_index.?,
-        );
     }
 
     if (self.zig_data_rel_ro_section_index == null) {
@@ -3156,8 +3113,8 @@ fn initSyntheticSections(self: *Elf) !void {
     });
 
     const needs_rela_dyn = blk: {
-        if (self.got.flags.needs_rela or self.got.flags.needs_tlsld or
-            self.zig_got.flags.needs_rela or self.copy_rel.symbols.items.len > 0) break :blk true;
+        if (self.got.flags.needs_rela or self.got.flags.needs_tlsld or self.copy_rel.symbols.items.len > 0)
+            break :blk true;
         if (self.zigObjectPtr()) |zig_object| {
             if (zig_object.num_dynrelocs > 0) break :blk true;
         }
@@ -3562,7 +3519,6 @@ fn sortPhdrs(self: *Elf) error{OutOfMemory}!void {
 
     for (&[_]*?u16{
         &self.phdr_zig_load_re_index,
-        &self.phdr_zig_got_index,
         &self.phdr_zig_load_ro_index,
         &self.phdr_zig_load_zerofill_index,
         &self.phdr_table_index,
@@ -3694,7 +3650,6 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) !void {
         &self.versym_section_index,
         &self.verneed_section_index,
         &self.zig_text_section_index,
-        &self.zig_got_section_index,
         &self.zig_data_rel_ro_section_index,
         &self.zig_data_section_index,
         &self.zig_bss_section_index,
@@ -3893,7 +3848,7 @@ fn updateSectionSizes(self: *Elf) !void {
     }
 
     if (self.rela_dyn_section_index) |shndx| {
-        var num = self.got.numRela(self) + self.copy_rel.numRela() + self.zig_got.numRela();
+        var num = self.got.numRela(self) + self.copy_rel.numRela();
         if (self.zigObjectPtr()) |zig_object| {
             num += zig_object.num_dynrelocs;
         }
@@ -4431,15 +4386,6 @@ pub fn updateSymtabSize(self: *Elf) !void {
         strsize += ctx.strsize;
     }
 
-    if (self.zigObjectPtr()) |_| {
-        if (self.zig_got_section_index) |_| {
-            self.zig_got.output_symtab_ctx.ilocal = nlocals + 1;
-            self.zig_got.updateSymtabSize(self);
-            nlocals += self.zig_got.output_symtab_ctx.nlocals;
-            strsize += self.zig_got.output_symtab_ctx.strsize;
-        }
-    }
-
     if (self.got_section_index) |_| {
         self.got.output_symtab_ctx.ilocal = nlocals + 1;
         self.got.updateSymtabSize(self);
@@ -4576,9 +4522,6 @@ fn writeSyntheticSections(self: *Elf) !void {
         const shdr = self.shdrs.items[shndx];
         try self.got.addRela(self);
         try self.copy_rel.addRela(self);
-        if (self.zigObjectPtr()) |_| {
-            try self.zig_got.addRela(self);
-        }
         self.sortRelaDyn();
         try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.rela_dyn.items), shdr.sh_offset);
     }
@@ -4672,10 +4615,6 @@ pub fn writeSymtab(self: *Elf) !void {
 
     if (self.linkerDefinedPtr()) |obj| {
         obj.asFile().writeSymtab(self);
-    }
-
-    if (self.zig_got_section_index) |_| {
-        self.zig_got.writeSymtab(self);
     }
 
     if (self.got_section_index) |_| {
@@ -5085,7 +5024,6 @@ pub fn isZigSection(self: Elf, shndx: u32) bool {
         self.zig_data_rel_ro_section_index,
         self.zig_data_section_index,
         self.zig_bss_section_index,
-        self.zig_got_section_index,
     }) |maybe_index| {
         if (maybe_index) |index| {
             if (index == shndx) return true;
@@ -5704,7 +5642,6 @@ fn fmtDumpState(
         }
     }
 
-    try writer.print("{}\n", .{self.zig_got.fmt(self)});
     try writer.print("{}\n", .{self.got.fmt(self)});
     try writer.print("{}\n", .{self.plt.fmt(self)});
 
@@ -5995,20 +5932,12 @@ const RelaSection = struct {
 };
 const RelaSectionTable = std.AutoArrayHashMapUnmanaged(u32, RelaSection);
 
-pub const R_ZIG_GOT32: u32 = 0xff00;
-pub const R_ZIG_GOTPCREL: u32 = 0xff01;
-pub const R_ZIG_GOT_HI20: u32 = 0xff02;
-pub const R_ZIG_GOT_LO12: u32 = 0xff03;
 pub const R_GOT_HI20_STATIC: u32 = 0xff04;
 pub const R_GOT_LO12_I_STATIC: u32 = 0xff05;
 
 // Comptime asserts that no Zig relocs overlap with another ISA's reloc number
 comptime {
     const zig_relocs = .{
-        R_ZIG_GOT32,
-        R_ZIG_GOT_HI20,
-        R_ZIG_GOT_LO12,
-        R_ZIG_GOTPCREL,
         R_GOT_HI20_STATIC,
         R_GOT_LO12_I_STATIC,
     };
@@ -6099,6 +6028,5 @@ const StringTable = @import("StringTable.zig");
 const Thunk = thunks.Thunk;
 const Value = @import("../Value.zig");
 const VerneedSection = synthetic_sections.VerneedSection;
-const ZigGotSection = synthetic_sections.ZigGotSection;
 const ZigObject = @import("Elf/ZigObject.zig");
 const riscv = @import("riscv.zig");

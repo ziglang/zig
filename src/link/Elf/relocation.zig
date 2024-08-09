@@ -113,10 +113,6 @@ fn formatRelocType(
     _ = options;
     const r_type = ctx.r_type;
     switch (r_type) {
-        Elf.R_ZIG_GOT32 => try writer.writeAll("R_ZIG_GOT32"),
-        Elf.R_ZIG_GOTPCREL => try writer.writeAll("R_ZIG_GOTPCREL"),
-        Elf.R_ZIG_GOT_HI20 => try writer.writeAll("R_ZIG_GOT_HI20"),
-        Elf.R_ZIG_GOT_LO12 => try writer.writeAll("R_ZIG_GOT_LO12"),
         Elf.R_GOT_HI20_STATIC => try writer.writeAll("R_GOT_HI20_STATIC"),
         Elf.R_GOT_LO12_I_STATIC => try writer.writeAll("R_GOT_LO12_I_STATIC"),
         else => switch (ctx.cpu_arch) {

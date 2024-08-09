@@ -750,8 +750,8 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) RelocError!voi
         const S = target.address(.{}, elf_file);
         // Address of the global offset table.
         const GOT = elf_file.gotAddress();
-        // Address of the .zig.got table entry if any.
-        const ZIG_GOT = target.zigGotAddress(elf_file);
+        // Address of the offset table entry if any.
+        const ZIG_GOT = target.zigOffsetTableAddress(elf_file);
         // Relative offset to the start of the global offset table.
         const G = target.gotAddress(elf_file) - GOT;
         // // Address of the thread pointer.
@@ -759,14 +759,13 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) RelocError!voi
         // Address of the dynamic thread pointer.
         const DTP = elf_file.dtpAddress();
 
-        relocs_log.debug("  {s}: {x}: [{x} => {x}] G({x}) ZG({x}) ZG2({x}) ({s})", .{
+        relocs_log.debug("  {s}: {x}: [{x} => {x}] G({x}) ZG({x}) ({s})", .{
             relocation.fmtRelocType(rel.r_type(), cpu_arch),
             r_offset,
             P,
             S + A,
             G + GOT + A,
             ZIG_GOT + A,
-            target.zigOffsetTableAddress(elf_file) + A,
             target.name(elf_file),
         });
 
@@ -1181,16 +1180,7 @@ const x86_64 = struct {
             .TLSDESC_CALL,
             => {},
 
-            else => |x| switch (@intFromEnum(x)) {
-                // Zig custom relocations
-                Elf.R_ZIG_GOT32,
-                Elf.R_ZIG_GOTPCREL,
-                => {
-                    assert(symbol.flags.has_zig_got);
-                },
-
-                else => try atom.reportUnhandledRelocError(rel, elf_file),
-            },
+            else => try atom.reportUnhandledRelocError(rel, elf_file),
         }
     }
 
@@ -1228,7 +1218,7 @@ const x86_64 = struct {
             .PLT32 => try cwriter.writeInt(i32, @as(i32, @intCast(S + A - P)), .little),
 
             .PC32 => {
-                const S_ = if (target.flags.zig_offset_table) target.zigOffsetTableAddress(elf_file) else S;
+                const S_ = if (target.flags.zig_offset_table) ZIG_GOT else S;
                 try cwriter.writeInt(i32, @as(i32, @intCast(S_ + A - P)), .little);
             },
 
@@ -1255,7 +1245,7 @@ const x86_64 = struct {
             },
 
             .@"32" => {
-                const S_ = if (target.flags.zig_offset_table) target.zigOffsetTableAddress(elf_file) else S;
+                const S_ = if (target.flags.zig_offset_table) ZIG_GOT else S;
                 try cwriter.writeInt(u32, @as(u32, @truncate(@as(u64, @intCast(S_ + A)))), .little);
             },
             .@"32S" => try cwriter.writeInt(i32, @as(i32, @truncate(S + A)), .little),
@@ -1336,13 +1326,7 @@ const x86_64 = struct {
 
             .GOT32 => try cwriter.writeInt(i32, @as(i32, @intCast(G + GOT + A)), .little),
 
-            else => |x| switch (@intFromEnum(x)) {
-                // Zig custom relocations
-                Elf.R_ZIG_GOT32 => try cwriter.writeInt(u32, @as(u32, @intCast(ZIG_GOT + A)), .little),
-                Elf.R_ZIG_GOTPCREL => try cwriter.writeInt(i32, @as(i32, @intCast(ZIG_GOT + A - P)), .little),
-
-                else => try atom.reportUnhandledRelocError(rel, elf_file),
-            },
+            else => try atom.reportUnhandledRelocError(rel, elf_file),
         }
     }
 
@@ -2006,12 +1990,6 @@ const riscv = struct {
             => {},
 
             else => |x| switch (@intFromEnum(x)) {
-                Elf.R_ZIG_GOT_HI20,
-                Elf.R_ZIG_GOT_LO12,
-                => {
-                    assert(symbol.flags.has_zig_got);
-                },
-
                 Elf.R_GOT_HI20_STATIC,
                 Elf.R_GOT_LO12_I_STATIC,
                 => symbol.flags.needs_got = true,
@@ -2038,6 +2016,7 @@ const riscv = struct {
         const P, const A, const S, const GOT, const G, const TP, const DTP, const ZIG_GOT = args;
         _ = TP;
         _ = DTP;
+        _ = ZIG_GOT;
 
         switch (r_type) {
             .NONE => unreachable,
@@ -2156,18 +2135,6 @@ const riscv = struct {
 
             else => |x| switch (@intFromEnum(x)) {
                 // Zig custom relocations
-                Elf.R_ZIG_GOT_HI20 => {
-                    assert(target.flags.has_zig_got);
-                    const disp: u32 = @bitCast(math.cast(i32, ZIG_GOT + A) orelse return error.Overflow);
-                    riscv_util.writeInstU(code[r_offset..][0..4], disp);
-                },
-
-                Elf.R_ZIG_GOT_LO12 => {
-                    assert(target.flags.has_zig_got);
-                    const value: u32 = @bitCast(math.cast(i32, ZIG_GOT + A) orelse return error.Overflow);
-                    riscv_util.writeInstI(code[r_offset..][0..4], value);
-                },
-
                 Elf.R_GOT_HI20_STATIC => {
                     assert(target.flags.has_got);
                     const disp: u32 = @bitCast(math.cast(i32, G + GOT + A) orelse return error.Overflow);

@@ -217,25 +217,6 @@ pub fn tlsDescAddress(symbol: Symbol, elf_file: *Elf) i64 {
     return entry.address(elf_file);
 }
 
-const GetOrCreateZigGotEntryResult = struct {
-    found_existing: bool,
-    index: ZigGotSection.Index,
-};
-
-pub fn getOrCreateZigGotEntry(symbol: *Symbol, symbol_index: Index, elf_file: *Elf) !GetOrCreateZigGotEntryResult {
-    assert(!elf_file.base.isRelocatable());
-    assert(symbol.flags.needs_zig_got);
-    if (symbol.flags.has_zig_got) return .{ .found_existing = true, .index = symbol.extra(elf_file).zig_got };
-    const index = try elf_file.zig_got.addSymbol(symbol_index, elf_file);
-    return .{ .found_existing = false, .index = index };
-}
-
-pub fn zigGotAddress(symbol: Symbol, elf_file: *Elf) i64 {
-    if (!symbol.flags.has_zig_got) return 0;
-    const extras = symbol.extra(elf_file);
-    return elf_file.zig_got.entryAddress(extras.zig_got, elf_file);
-}
-
 pub fn zigOffsetTableAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.zig_offset_table) return 0;
     const zo = elf_file.zigObjectPtr().?;
@@ -267,7 +248,6 @@ const AddExtraOpts = struct {
     tlsgd: ?u32 = null,
     gottp: ?u32 = null,
     tlsdesc: ?u32 = null,
-    zig_got: ?u32 = null,
     zig_offset_table: ?u32 = null,
 };
 
@@ -465,10 +445,6 @@ pub const Flags = packed struct {
     needs_tlsdesc: bool = false,
     has_tlsdesc: bool = false,
 
-    /// Whether the symbol contains .zig.got indirection.
-    needs_zig_got: bool = false,
-    has_zig_got: bool = false,
-
     /// Whether the symbol is a TLS variable.
     /// TODO this is really not needed if only we operated on esyms between
     /// codegen and ZigObject.
@@ -491,7 +467,6 @@ pub const Extra = struct {
     tlsgd: u32 = 0,
     gottp: u32 = 0,
     tlsdesc: u32 = 0,
-    zig_got: u32 = 0,
     merge_section: u32 = 0,
     zig_offset_table: u32 = 0,
 };

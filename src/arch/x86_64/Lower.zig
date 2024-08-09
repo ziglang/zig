@@ -398,30 +398,20 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
 
                         _ = lower.reloc(.{ .linker_reloc = sym });
                         break :op if (lower.pic) switch (mnemonic) {
-                            .lea => {
-                                break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
-                            },
-                            .mov => {
-                                if (is_obj_or_static_lib and elf_sym.flags.needs_zig_got) emit_mnemonic = .lea;
-                                break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
-                            },
+                            .lea => break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) },
+                            .mov => break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) },
                             else => unreachable,
                         } else switch (mnemonic) {
-                            .call => break :op if (is_obj_or_static_lib and elf_sym.flags.needs_zig_got) .{
-                                .imm = Immediate.s(0),
-                            } else .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                            .call => break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
                                 .base = .{ .reg = .ds },
                             }) },
                             .lea => {
                                 emit_mnemonic = .mov;
                                 break :op .{ .imm = Immediate.s(0) };
                             },
-                            .mov => {
-                                if (is_obj_or_static_lib and elf_sym.flags.needs_zig_got) emit_mnemonic = .lea;
-                                break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
-                                    .base = .{ .reg = .ds },
-                                }) };
-                            },
+                            .mov => break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                                .base = .{ .reg = .ds },
+                            }) },
                             else => unreachable,
                         };
                     } else if (lower.bin_file.cast(.macho)) |macho_file| {
