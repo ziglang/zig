@@ -121,10 +121,15 @@ pub fn dumpHexFallible(bytes: []const u8) !void {
     const stderr = std.io.getStdErr();
     const ttyconf = std.io.tty.detectConfig(stderr);
     const writer = stderr.writer();
+
+    try dump_hex_inner(bytes, writer, ttyconf);
+}
+
+fn dump_hex_inner(bytes: []const u8, writer: anytype, ttyconf: std.io.tty.Config) !void {
     var chunks = mem.window(u8, bytes, 16, 16);
     while (chunks.next()) |window| {
         // 1. Print the address.
-        const address = (@intFromPtr(bytes.ptr) + 0x10 * (chunks.index orelse 0) / 16) - 0x10;
+        const address = (@intFromPtr(bytes.ptr) + 0x10 * (std.math.divCeil(usize, chunks.index orelse bytes.len, 16) catch unreachable)) - 0x10;
         try ttyconf.setColor(writer, .dim);
         // We print the address in lowercase and the bytes in uppercase hexadecimal to distinguish them more.
         // Also, make sure all lines are aligned by padding the address.
@@ -167,6 +172,20 @@ pub fn dumpHexFallible(bytes: []const u8) !void {
         }
         try writer.writeByte('\n');
     }
+}
+
+test dump_hex_inner {
+    const bytes: []const u8 = &.{ 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x01, 0x12, 0x13 };
+
+    var out = std.ArrayList(u8).init(std.testing.allocator);
+    defer out.deinit();
+
+    try dump_hex_inner(bytes, out.writer(), .no_color);
+
+    try std.testing.expectEqualStrings(
+        \\0000000000d9f04c  00 11 22 33 44 55 66 77  88 99 AA BB CC DD EE FF  .."3DUfw........
+        \\0000000000d9f05c  01 12 13                                          ...
+    , out.items);
 }
 
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
