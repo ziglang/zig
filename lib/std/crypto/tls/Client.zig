@@ -143,25 +143,29 @@ pub fn InitError(comptime Stream: type) type {
 pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) InitError(@TypeOf(stream))!Client {
     const host_len: u16 = @intCast(host.len);
 
-    var random_buffer: [128]u8 = undefined;
-    crypto.random.bytes(&random_buffer);
-    const hello_rand = random_buffer[0..32].*;
-    const legacy_session_id = random_buffer[32..64].*;
-    const x25519_kp_seed = random_buffer[64..96].*;
-    const secp256r1_kp_seed = random_buffer[96..128].*;
+    const seeds = extern struct {
+        hello_rand: [32]u8,
+        legacy_session_id: [32]u8,
+        x25519_kp: [crypto.dh.X25519.KeyPair.seed_length]u8,
+        secp256r1_kp: [crypto.sign.ecdsa.EcdsaP256Sha256.KeyPair.seed_length]u8,
+        kyber768_kp: [crypto.kem.kyber_d00.Kyber768.KeyPair.seed_length]u8,
 
-    const x25519_kp = crypto.dh.X25519.KeyPair.createDeterministic(x25519_kp_seed) catch |err| switch (err) {
+        fn create() @This() {
+            var random_buffer: [@sizeOf(@This())]u8 = undefined;
+            crypto.random.bytes(&random_buffer);
+            return @bitCast(random_buffer);
+        }
+    }.create();
+
+    const x25519_kp = crypto.dh.X25519.KeyPair.createDeterministic(seeds.x25519_kp) catch |err| switch (err) {
         // Only possible to happen if the private key is all zeroes.
         error.IdentityElement => return error.InsufficientEntropy,
     };
-    const secp256r1_kp = crypto.sign.ecdsa.EcdsaP256Sha256.KeyPair.createDeterministic(secp256r1_kp_seed) catch |err| switch (err) {
+    const secp256r1_kp = crypto.sign.ecdsa.EcdsaP256Sha256.KeyPair.createDeterministic(seeds.secp256r1_kp) catch |err| switch (err) {
         // Only possible to happen if the private key is all zeroes.
         error.IdentityElement => return error.InsufficientEntropy,
     };
-
-    var kyber768_kp_seed: [crypto.kem.kyber_d00.Kyber768.KeyPair.seed_length]u8 = undefined;
-    crypto.random.bytes(&kyber768_kp_seed);
-    const kyber768_kp = crypto.kem.kyber_d00.Kyber768.KeyPair.createDeterministic(kyber768_kp_seed) catch {};
+    const kyber768_kp = crypto.kem.kyber_d00.Kyber768.KeyPair.createDeterministic(seeds.kyber768_kp) catch {};
 
     const extensions_payload =
         tls.extension(.supported_versions, [_]u8{
@@ -201,8 +205,8 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
 
     const client_hello =
         int2(@intFromEnum(tls.ProtocolVersion.tls_1_2)) ++
-        hello_rand ++
-        [1]u8{32} ++ legacy_session_id ++
+        seeds.hello_rand ++
+        [1]u8{32} ++ seeds.legacy_session_id ++
         cipher_suites ++
         int2(legacy_compression_methods) ++
         extensions_header;
@@ -273,7 +277,7 @@ pub fn init(stream: anytype, ca_bundle: Certificate.Bundle, host: []const u8) In
                 const legacy_session_id_echo_len = hsd.decode(u8);
                 if (legacy_session_id_echo_len != 32) return error.TlsIllegalParameter;
                 const legacy_session_id_echo = hsd.array(32);
-                if (!mem.eql(u8, legacy_session_id_echo, &legacy_session_id))
+                if (!mem.eql(u8, legacy_session_id_echo, &seeds.legacy_session_id))
                     return error.TlsIllegalParameter;
                 const cipher_suite_tag = hsd.decode(tls.CipherSuite);
                 hsd.skip(1); // legacy_compression_method
