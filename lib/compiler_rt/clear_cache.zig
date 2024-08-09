@@ -28,6 +28,10 @@ fn clear_cache(start: usize, end: usize) callconv(.C) void {
         .aarch64, .aarch64_be => true,
         else => false,
     };
+    const loongarch64 = switch(arch) {
+        .loongarch64 => true,
+        else => false,
+    };
     const mips = switch (arch) {
         .mips, .mipsel, .mips64, .mips64el => true,
         else => false,
@@ -158,6 +162,11 @@ fn clear_cache(start: usize, end: usize) callconv(.C) void {
     } else if (apple) {
         // On Darwin, sys_icache_invalidate() provides this functionality
         sys_icache_invalidate(start, end - start);
+        exportIt();
+    } else if (os == .linux and loongarch64) {
+        asm volatile (
+            \\ ibar 0
+        );
         exportIt();
     }
 }
