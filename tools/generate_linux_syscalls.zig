@@ -587,13 +587,13 @@ fn generateSyscallsFromTable(
     if (arch_info.extra_values) |extra_values| {
         try writer.writeAll(extra_values);
     }
-
-    try writer.writeAll("};\n\n");
+    try writer.writeAll("};");
 
     if (arch_info.additional_enum) |additional_enum| {
+        try writer.writeAll("\n\n");
         try writer.print("pub const {s} = enum(usize) {{\n", .{additional_enum});
         try writer.writeAll(optional_array_list.?.items);
-        try writer.writeAll("};\n\n");
+        try writer.writeAll("};");
     }
 }
 
@@ -639,7 +639,7 @@ fn generateSyscallsFromPreprocessor(
         try writer.writeAll(extra_values);
     }
 
-    try writer.writeAll("};\n\n");
+    try writer.writeAll("};");
 }
 
 pub fn main() !void {
@@ -671,7 +671,7 @@ pub fn main() !void {
     const buf = try allocator.alloc(u8, 1 << 15);
     defer allocator.free(buf);
 
-    inline for (arch_infos) |arch_info| {
+    inline for (arch_infos, 0..) |arch_info, i| {
         switch (arch_info) {
             .table => try generateSyscallsFromTable(
                 allocator,
@@ -688,6 +688,11 @@ pub fn main() !void {
                 writer,
                 &arch_info,
             ),
+        }
+        if (i < arch_infos.len - 1) {
+            try writer.writeAll("\n\n");
+        } else {
+            try writer.writeAll("\n");
         }
     }
 
