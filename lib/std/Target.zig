@@ -857,7 +857,7 @@ pub fn toElfMachine(target: Target) std.elf.EM {
         .powerpc64, .powerpc64le => .PPC64,
         .riscv32, .riscv64 => .RISCV,
         .s390x => .S390,
-        .sparc => .SPARC, // TODO: Should be SPARC32PLUS when targeting 32-bit v9.
+        .sparc => if (Target.sparc.featureSetHas(target.cpu.features, .v9)) .SPARC32PLUS else .SPARC,
         .sparc64 => .SPARCV9,
         .spu_2 => .SPU_2,
         .x86 => .@"386",
