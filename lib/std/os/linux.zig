@@ -4027,50 +4027,354 @@ pub const DT = struct {
     pub const WHT = 14;
 };
 
-pub const T = struct {
-    pub const CGETS = if (is_mips) 0x540D else 0x5401;
-    pub const CSETS = if (is_mips) 0x540e else 0x5402;
-    pub const CSETSW = if (is_mips) 0x540f else 0x5403;
-    pub const CSETSF = if (is_mips) 0x5410 else 0x5404;
-    pub const CGETA = if (is_mips) 0x5401 else 0x5405;
-    pub const CSETA = if (is_mips) 0x5402 else 0x5406;
-    pub const CSETAW = if (is_mips) 0x5403 else 0x5407;
-    pub const CSETAF = if (is_mips) 0x5404 else 0x5408;
-    pub const CSBRK = if (is_mips) 0x5405 else 0x5409;
-    pub const CXONC = if (is_mips) 0x5406 else 0x540A;
-    pub const CFLSH = if (is_mips) 0x5407 else 0x540B;
-    pub const IOCEXCL = if (is_mips) 0x740d else 0x540C;
-    pub const IOCNXCL = if (is_mips) 0x740e else 0x540D;
-    pub const IOCSCTTY = if (is_mips) 0x7472 else 0x540E;
-    pub const IOCGPGRP = if (is_mips) 0x5472 else 0x540F;
-    pub const IOCSPGRP = if (is_mips) 0x741d else 0x5410;
-    pub const IOCOUTQ = if (is_mips) 0x7472 else 0x5411;
-    pub const IOCSTI = if (is_mips) 0x5472 else 0x5412;
-    pub const IOCGWINSZ = if (is_mips or is_ppc) 0x40087468 else 0x5413;
-    pub const IOCSWINSZ = if (is_mips or is_ppc) 0x80087467 else 0x5414;
-    pub const IOCMGET = if (is_mips) 0x741d else 0x5415;
-    pub const IOCMBIS = if (is_mips) 0x741b else 0x5416;
-    pub const IOCMBIC = if (is_mips) 0x741c else 0x5417;
-    pub const IOCMSET = if (is_mips) 0x741a else 0x5418;
-    pub const IOCGSOFTCAR = if (is_mips) 0x5481 else 0x5419;
-    pub const IOCSSOFTCAR = if (is_mips) 0x5482 else 0x541A;
-    pub const FIONREAD = if (is_mips) 0x467F else 0x541B;
+pub const T = if (is_mips) struct {
+    pub const CGETA = 0x5401;
+    pub const CSETA = 0x5402;
+    pub const CSETAW = 0x5403;
+    pub const CSETAF = 0x5404;
+
+    pub const CSBRK = 0x5405;
+    pub const CXONC = 0x5406;
+    pub const CFLSH = 0x5407;
+
+    pub const CGETS = 0x540d;
+    pub const CSETS = 0x540e;
+    pub const CSETSW = 0x540f;
+    pub const CSETSF = 0x5410;
+
+    pub const IOCEXCL = 0x740d;
+    pub const IOCNXCL = 0x740e;
+    pub const IOCOUTQ = 0x7472;
+    pub const IOCSTI = 0x5472;
+    pub const IOCMGET = 0x741d;
+    pub const IOCMBIS = 0x741b;
+    pub const IOCMBIC = 0x741c;
+    pub const IOCMSET = 0x741a;
+    pub const IOCPKT = 0x5470;
+    pub const IOCPKT_DATA = 0x00;
+    pub const IOCPKT_FLUSHREAD = 0x01;
+    pub const IOCPKT_FLUSHWRITE = 0x02;
+    pub const IOCPKT_STOP = 0x04;
+    pub const IOCPKT_START = 0x08;
+    pub const IOCPKT_NOSTOP = 0x10;
+    pub const IOCPKT_DOSTOP = 0x20;
+    pub const IOCPKT_IOCTL = 0x40;
+    pub const IOCSWINSZ = IOCTL.IOW('t', 103, winsize);
+    pub const IOCGWINSZ = IOCTL.IOR('t', 104, winsize);
+    pub const IOCNOTTY = 0x5471;
+    pub const IOCSETD = 0x7401;
+    pub const IOCGETD = 0x7400;
+
+    pub const FIOCLEX = 0x6601;
+    pub const FIONCLEX = 0x6602;
+    pub const FIOASYNC = 0x667d;
+    pub const FIONBIO = 0x667e;
+    pub const FIOQSIZE = 0x667f;
+
+    pub const IOCGLTC = 0x7474;
+    pub const IOCSLTC = 0x7475;
+    pub const IOCSPGRP = IOCTL.IOW('t', 118, c_int);
+    pub const IOCGPGRP = IOCTL.IOR('t', 119, c_int);
+    pub const IOCCONS = IOCTL.IOW('t', 120, c_int);
+
+    pub const FIONREAD = 0x467f;
     pub const IOCINQ = FIONREAD;
-    pub const IOCLINUX = if (is_mips) 0x5483 else 0x541C;
-    pub const IOCCONS = if (is_mips) IOCTL.IOW('t', 120, c_int) else 0x541D;
-    pub const IOCGSERIAL = if (is_mips) 0x5484 else 0x541E;
-    pub const IOCSSERIAL = if (is_mips) 0x5485 else 0x541F;
-    pub const IOCPKT = if (is_mips) 0x5470 else 0x5420;
-    pub const FIONBIO = if (is_mips) 0x667e else 0x5421;
-    pub const IOCNOTTY = if (is_mips) 0x5471 else 0x5422;
-    pub const IOCSETD = if (is_mips) 0x7401 else 0x5423;
-    pub const IOCGETD = if (is_mips) 0x7400 else 0x5424;
-    pub const CSBRKP = if (is_mips) 0x5486 else 0x5425;
+
+    pub const IOCGETP = 0x7408;
+    pub const IOCSETP = 0x7409;
+    pub const IOCSETN = 0x740a;
+
     pub const IOCSBRK = 0x5427;
     pub const IOCCBRK = 0x5428;
-    pub const IOCGSID = if (is_mips) 0x7416 else 0x5429;
-    pub const IOCGRS485 = 0x542E;
-    pub const IOCSRS485 = 0x542F;
+    pub const IOCGSID = 0x7416;
+    pub const CGETS2 = IOCTL.IOR('T', 0x2a, termios2);
+    pub const CSETS2 = IOCTL.IOW('T', 0x2b, termios2);
+    pub const CSETSW2 = IOCTL.IOW('T', 0x2c, termios2);
+    pub const CSETSF2 = IOCTL.IOW('T', 0x2d, termios2);
+    pub const IOCGRS485 = IOCTL.IOR('T', 0x2e, serial_rs485);
+    pub const IOCSRS485 = IOCTL.IOWR('T', 0x2f, serial_rs485);
+    pub const IOCGPTN = IOCTL.IOR('T', 0x30, c_uint);
+    pub const IOCSPTLCK = IOCTL.IOW('T', 0x31, c_int);
+    pub const IOCGDEV = IOCTL.IOR('T', 0x32, c_uint);
+    pub const IOCSIG = IOCTL.IOW('T', 0x36, c_int);
+    pub const IOCVHANGUP = 0x5437;
+    pub const IOCGPKT = IOCTL.IOR('T', 0x38, c_int);
+    pub const IOCGPTLCK = IOCTL.IOR('T', 0x39, c_int);
+    pub const IOCGEXCL = IOCTL.IOR('T', 0x40, c_int);
+    pub const IOCGPTPEER = IOCTL.IO('T', 0x41);
+    pub const IOCGISO7816 = IOCTL.IOR('T', 0x42, serial_iso7816);
+    pub const IOCSISO7816 = IOCTL.IOWR('T', 0x43, serial_iso7816);
+
+    pub const IOCSCTTY = 0x5480;
+    pub const IOCGSOFTCAR = 0x5481;
+    pub const IOCSSOFTCAR = 0x5482;
+    pub const IOCLINUX = 0x5483;
+    pub const IOCGSERIAL = 0x5484;
+    pub const IOCSSERIAL = 0x5485;
+    pub const CSBRKP = 0x5486;
+    pub const IOCSERCONFIG = 0x5488;
+    pub const IOCSERGWILD = 0x5489;
+    pub const IOCSERSWILD = 0x548a;
+    pub const IOCGLCKTRMIOS = 0x548b;
+    pub const IOCSLCKTRMIOS = 0x548c;
+    pub const IOCSERGSTRUCT = 0x548d;
+    pub const IOCSERGETLSR = 0x548e;
+    pub const IOCSERGETMULTI = 0x548f;
+    pub const IOCSERSETMULTI = 0x5490;
+    pub const IOCMIWAIT = 0x5491;
+    pub const IOCGICOUNT = 0x5492;
+} else if (is_ppc) struct {
+    pub const FIOCLEX = IOCTL.IO('f', 1);
+    pub const FIONCLEX = IOCTL.IO('f', 2);
+    pub const FIOASYNC = IOCTL.IOW('f', 125, c_int);
+    pub const FIONBIO = IOCTL.IOW('f', 126, c_int);
+    pub const FIONREAD = IOCTL.IOR('f', 127, c_int);
+    pub const IOCINQ = FIONREAD;
+    pub const FIOQSIZE = IOCTL.IOR('f', 128, c_longlong); // loff_t -> __kernel_loff_t -> long long
+
+    pub const IOCGETP = IOCTL.IOR('t', 8, sgttyb);
+    pub const IOCSETP = IOCTL.IOW('t', 9, sgttyb);
+    pub const IOCSETN = IOCTL.IOW('t', 10, sgttyb);
+
+    pub const IOCSETC = IOCTL.IOW('t', 17, tchars);
+    pub const IOCGETC = IOCTL.IOR('t', 18, tchars);
+    pub const CGETS = IOCTL.IOR('t', 19, termios);
+    pub const CSETS = IOCTL.IOW('t', 20, termios);
+    pub const CSETSW = IOCTL.IOW('t', 21, termios);
+    pub const CSETSF = IOCTL.IOW('t', 22, termios);
+
+    pub const CGETA = IOCTL.IOR('t', 23, termio);
+    pub const CSETA = IOCTL.IOW('t', 24, termio);
+    pub const CSETAW = IOCTL.IOW('t', 25, termio);
+    pub const CSETAF = IOCTL.IOW('t', 28, termio);
+
+    pub const CSBRK = IOCTL.IO('t', 29);
+    pub const CXONC = IOCTL.IO('t', 30);
+    pub const CFLSH = IOCTL.IO('t', 31);
+
+    pub const IOCSWINSZ = IOCTL.IOW('t', 103, winsize);
+    pub const IOCGWINSZ = IOCTL.IOR('t', 104, winsize);
+    pub const IOCSTART = IOCTL.IO('t', 110);
+    pub const IOCSTOP = IOCTL.IO('t', 111);
+    pub const IOCOUTQ = IOCTL.IOR('t', 115, c_int);
+
+    pub const IOCGLTC = IOCTL.IOR('t', 116, ltchars);
+    pub const IOCSLTC = IOCTL.IOW('t', 117, ltchars);
+    pub const IOCSPGRP = IOCTL.IOW('t', 118, c_int);
+    pub const IOCGPGRP = IOCTL.IOR('t', 119, c_int);
+
+    pub const IOCEXCL = 0x540c;
+    pub const IOCNXCL = 0x540d;
+    pub const IOCSCTTY = 0x540e;
+
+    pub const IOCSTI = 0x5412;
+    pub const IOCMGET = 0x5415;
+    pub const IOCMBIS = 0x5416;
+    pub const IOCMBIC = 0x5417;
+    pub const IOCMSET = 0x5418;
+    pub const IOCM_LE = 0x001;
+    pub const IOCM_DTR = 0x002;
+    pub const IOCM_RTS = 0x004;
+    pub const IOCM_ST = 0x008;
+    pub const IOCM_SR = 0x010;
+    pub const IOCM_CTS = 0x020;
+    pub const IOCM_CAR = 0x040;
+    pub const IOCM_RNG = 0x080;
+    pub const IOCM_DSR = 0x100;
+    pub const IOCM_CD = IOCM_CAR;
+    pub const IOCM_RI = IOCM_RNG;
+    pub const IOCM_OUT1 = 0x2000;
+    pub const IOCM_OUT2 = 0x4000;
+    pub const IOCM_LOOP = 0x8000;
+
+    pub const IOCGSOFTCAR = 0x5419;
+    pub const IOCSSOFTCAR = 0x541a;
+    pub const IOCLINUX = 0x541c;
+    pub const IOCCONS = 0x541d;
+    pub const IOCGSERIAL = 0x541e;
+    pub const IOCSSERIAL = 0x541f;
+    pub const IOCPKT = 0x5420;
+    pub const IOCPKT_DATA = 0;
+    pub const IOCPKT_FLUSHREAD = 1;
+    pub const IOCPKT_FLUSHWRITE = 2;
+    pub const IOCPKT_STOP = 4;
+    pub const IOCPKT_START = 8;
+    pub const IOCPKT_NOSTOP = 16;
+    pub const IOCPKT_DOSTOP = 32;
+    pub const IOCPKT_IOCTL = 64;
+
+    pub const IOCNOTTY = 0x5422;
+    pub const IOCSETD = 0x5423;
+    pub const IOCGETD = 0x5424;
+    pub const CSBRKP = 0x5425;
+    pub const IOCSBRK = 0x5427;
+    pub const IOCCBRK = 0x5428;
+    pub const IOCGSID = 0x5429;
+    pub const IOCGRS485 = 0x542e;
+    pub const IOCSRS485 = 0x542f;
+    pub const IOCGPTN = IOCTL.IOR('T', 0x30, c_uint);
+    pub const IOCSPTLCK = IOCTL.IOW('T', 0x31, c_int);
+    pub const IOCGDEV = IOCTL.IOR('T', 0x32, c_uint);
+    pub const IOCSIG = IOCTL.IOW('T', 0x36, c_int);
+    pub const IOCVHANGUP = 0x5437;
+    pub const IOCGPKT = IOCTL.IOR('T', 0x38, c_int);
+    pub const IOCGPTLCK = IOCTL.IOR('T', 0x39, c_int);
+    pub const IOCGEXCL = IOCTL.IOR('T', 0x40, c_int);
+    pub const IOCGPTPEER = IOCTL.IO('T', 0x41);
+    pub const IOCGISO7816 = IOCTL.IOR('T', 0x42, serial_iso7816);
+    pub const IOCSISO7816 = IOCTL.IOWR('T', 0x43, serial_iso7816);
+
+    pub const IOCSERCONFIG = 0x5453;
+    pub const IOCSERGWILD = 0x5454;
+    pub const IOCSERSWILD = 0x5455;
+    pub const IOCGLCKTRMIOS = 0x5456;
+    pub const IOCSLCKTRMIOS = 0x5457;
+    pub const IOCSERGSTRUCT = 0x5458;
+    pub const IOCSERGETLSR = 0x5459;
+    pub const IOCSER_TEMT = 0x01;
+    pub const IOCSERGETMULTI = 0x545a;
+    pub const IOCSERSETMULTI = 0x545b;
+
+    pub const IOCMIWAIT = 0x545c;
+    pub const IOCGICOUNT = 0x545d;
+} else if (is_sparc) struct {
+    // Entries with double-underscore prefix have not been translated as they are unsupported.
+
+    pub const CGETA = IOCTL.IOR('T', 1, termio);
+    pub const CSETA = IOCTL.IOW('T', 2, termio);
+    pub const CSETAW = IOCTL.IOW('T', 3, termio);
+    pub const CSETAF = IOCTL.IOW('T', 4, termio);
+    pub const CSBRK = IOCTL.IO('T', 5);
+    pub const CXONC = IOCTL.IO('T', 6);
+    pub const CFLSH = IOCTL.IO('T', 7);
+    pub const CGETS = IOCTL.IOR('T', 8, termios);
+    pub const CSETS = IOCTL.IOW('T', 9, termios);
+    pub const CSETSW = IOCTL.IOW('T', 10, termios);
+    pub const CSETSF = IOCTL.IOW('T', 11, termios);
+    pub const CGETS2 = IOCTL.IOR('T', 12, termios2);
+    pub const CSETS2 = IOCTL.IOW('T', 13, termios2);
+    pub const CSETSW2 = IOCTL.IOW('T', 14, termios2);
+    pub const CSETSF2 = IOCTL.IOW('T', 15, termios2);
+    pub const IOCGDEV = IOCTL.IOR('T', 0x32, c_uint);
+    pub const IOCVHANGUP = IOCTL.IO('T', 0x37);
+    pub const IOCGPKT = IOCTL.IOR('T', 0x38, c_int);
+    pub const IOCGPTLCK = IOCTL.IOR('T', 0x39, c_int);
+    pub const IOCGEXCL = IOCTL.IOR('T', 0x40, c_int);
+    pub const IOCGRS485 = IOCTL.IOR('T', 0x41, serial_rs485);
+    pub const IOCSRS485 = IOCTL.IOWR('T', 0x42, serial_rs485);
+    pub const IOCGISO7816 = IOCTL.IOR('T', 0x43, serial_iso7816);
+    pub const IOCSISO7816 = IOCTL.IOWR('T', 0x44, serial_iso7816);
+
+    pub const IOCGETD = IOCTL.IOR('t', 0, c_int);
+    pub const IOCSETD = IOCTL.IOW('t', 1, c_int);
+    pub const IOCEXCL = IOCTL.IO('t', 13);
+    pub const IOCNXCL = IOCTL.IO('t', 14);
+    pub const IOCCONS = IOCTL.IO('t', 36);
+    pub const IOCGSOFTCAR = IOCTL.IOR('t', 100, c_int);
+    pub const IOCSSOFTCAR = IOCTL.IOW('t', 101, c_int);
+    pub const IOCSWINSZ = IOCTL.IOW('t', 103, winsize);
+    pub const IOCGWINSZ = IOCTL.IOR('t', 104, winsize);
+    pub const IOCMGET = IOCTL.IOR('t', 106, c_int);
+    pub const IOCMBIC = IOCTL.IOW('t', 107, c_int);
+    pub const IOCMBIS = IOCTL.IOW('t', 108, c_int);
+    pub const IOCMSET = IOCTL.IOW('t', 109, c_int);
+    pub const IOCSTART = IOCTL.IO('t', 110);
+    pub const IOCSTOP = IOCTL.IO('t', 111);
+    pub const IOCPKT = IOCTL.IOW('t', 112, c_int);
+    pub const IOCNOTTY = IOCTL.IO('t', 113);
+    pub const IOCSTI = IOCTL.IOW('t', 114, c_char);
+    pub const IOCOUTQ = IOCTL.IOR('t', 115, c_int);
+    pub const IOCCBRK = IOCTL.IO('t', 122);
+    pub const IOCSBRK = IOCTL.IO('t', 123);
+    pub const IOCSPGRP = IOCTL.IOW('t', 130, c_int);
+    pub const IOCGPGRP = IOCTL.IOR('t', 131, c_int);
+    pub const IOCSCTTY = IOCTL.IO('t', 132);
+    pub const IOCGSID = IOCTL.IOR('t', 133, c_int);
+    pub const IOCGPTN = IOCTL.IOR('t', 134, c_uint);
+    pub const IOCSPTLCK = IOCTL.IOW('t', 135, c_int);
+    pub const IOCSIG = IOCTL.IOW('t', 136, c_int);
+    pub const IOCGPTPEER = IOCTL.IO('t', 137);
+
+    pub const FIOCLEX = IOCTL.IO('f', 1);
+    pub const FIONCLEX = IOCTL.IO('f', 2);
+    pub const FIOASYNC = IOCTL.IOW('f', 125, c_int);
+    pub const FIONBIO = IOCTL.IOW('f', 126, c_int);
+    pub const FIONREAD = IOCTL.IOR('f', 127, c_int);
+    pub const IOCINQ = FIONREAD;
+    pub const FIOQSIZE = IOCTL.IOR('f', 128, c_longlong); // loff_t -> __kernel_loff_t -> long long
+
+    pub const IOCLINUX = 0x541c;
+    pub const IOCGSERIAL = 0x541e;
+    pub const IOCSSERIAL = 0x541f;
+    pub const CSBRKP = 0x5425;
+    pub const IOCSERCONFIG = 0x5453;
+    pub const IOCSERGWILD = 0x5454;
+    pub const IOCSERSWILD = 0x5455;
+    pub const IOCGLCKTRMIOS = 0x5456;
+    pub const IOCSLCKTRMIOS = 0x5457;
+    pub const IOCSERGSTRUCT = 0x5458;
+    pub const IOCSERGETLSR = 0x5459;
+    pub const IOCSERGETMULTI = 0x545a;
+    pub const IOCSERSETMULTI = 0x545b;
+    pub const IOCMIWAIT = 0x545c;
+    pub const IOCGICOUNT = 0x545d;
+
+    pub const IOCPKT_DATA = 0;
+    pub const IOCPKT_FLUSHREAD = 1;
+    pub const IOCPKT_FLUSHWRITE = 2;
+    pub const IOCPKT_STOP = 4;
+    pub const IOCPKT_START = 8;
+    pub const IOCPKT_NOSTOP = 16;
+    pub const IOCPKT_DOSTOP = 32;
+    pub const IOCPKT_IOCTL = 64;
+} else struct {
+    pub const CGETS = 0x5401;
+    pub const CSETS = 0x5402;
+    pub const CSETSW = 0x5403;
+    pub const CSETSF = 0x5404;
+    pub const CGETA = 0x5405;
+    pub const CSETA = 0x5406;
+    pub const CSETAW = 0x5407;
+    pub const CSETAF = 0x5408;
+    pub const CSBRK = 0x5409;
+    pub const CXONC = 0x540a;
+    pub const CFLSH = 0x540b;
+    pub const IOCEXCL = 0x540c;
+    pub const IOCNXCL = 0x540d;
+    pub const IOCSCTTY = 0x540e;
+    pub const IOCGPGRP = 0x540f;
+    pub const IOCSPGRP = 0x5410;
+    pub const IOCOUTQ = 0x5411;
+    pub const IOCSTI = 0x5412;
+    pub const IOCGWINSZ = 0x5413;
+    pub const IOCSWINSZ = 0x5414;
+    pub const IOCMGET = 0x5415;
+    pub const IOCMBIS = 0x5416;
+    pub const IOCMBIC = 0x5417;
+    pub const IOCMSET = 0x5418;
+    pub const IOCGSOFTCAR = 0x5419;
+    pub const IOCSSOFTCAR = 0x541a;
+    pub const FIONREAD = 0x541b;
+    pub const IOCINQ = FIONREAD;
+    pub const IOCLINUX = 0x541c;
+    pub const IOCCONS = 0x541d;
+    pub const IOCGSERIAL = 0x541e;
+    pub const IOCSSERIAL = 0x541f;
+    pub const IOCPKT = 0x5420;
+    pub const FIONBIO = 0x5421;
+    pub const IOCNOTTY = 0x5422;
+    pub const IOCSETD = 0x5423;
+    pub const IOCGETD = 0x5424;
+    pub const CSBRKP = 0x5425;
+    pub const IOCSBRK = 0x5427;
+    pub const IOCCBRK = 0x5428;
+    pub const IOCGSID = 0x5429;
+    pub const CGETS2 = IOCTL.IOR('T', 0x2a, termios2);
+    pub const CSETS2 = IOCTL.IOW('T', 0x2b, termios2);
+    pub const CSETSW2 = IOCTL.IOW('T', 0x2c, termios2);
+    pub const CSETSF2 = IOCTL.IOW('T', 0x2d, termios2);
+    pub const IOCGRS485 = 0x542e;
+    pub const IOCSRS485 = 0x542f;
     pub const IOCGPTN = IOCTL.IOR('T', 0x30, c_uint);
     pub const IOCSPTLCK = IOCTL.IOW('T', 0x31, c_int);
     pub const IOCGDEV = IOCTL.IOR('T', 0x32, c_uint);
@@ -4083,6 +4387,93 @@ pub const T = struct {
     pub const IOCGPKT = IOCTL.IOR('T', 0x38, c_int);
     pub const IOCGPTLCK = IOCTL.IOR('T', 0x39, c_int);
     pub const IOCGEXCL = IOCTL.IOR('T', 0x40, c_int);
+    pub const IOCGPTPEER = IOCTL.IO('T', 0x41);
+    pub const IOCGISO7816 = IOCTL.IOR('T', 0x42, serial_iso7816);
+    pub const IOCSISO7816 = IOCTL.IOWR('T', 0x43, serial_iso7816);
+
+    pub const FIONCLEX = 0x5450;
+    pub const FIOCLEX = 0x5451;
+    pub const FIOASYNC = 0x5452;
+    pub const IOCSERCONFIG = 0x5453;
+    pub const IOCSERGWILD = 0x5454;
+    pub const IOCSERSWILD = 0x5455;
+    pub const IOCGLCKTRMIOS = 0x5456;
+    pub const IOCSLCKTRMIOS = 0x5457;
+    pub const IOCSERGSTRUCT = 0x5458;
+    pub const IOCSERGETLSR = 0x5459;
+    pub const IOCSERGETMULTI = 0x545a;
+    pub const IOCSERSETMULTI = 0x545b;
+
+    pub const IOCMIWAIT = 0x545c;
+    pub const IOCGICOUNT = 0x545d;
+
+    pub const FIOQSIZE = switch (native_arch) {
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        .m68k,
+        .s390x,
+        => 0x545e,
+        else => 0x5460,
+    };
+
+    pub const IOCPKT_DATA = 0;
+    pub const IOCPKT_FLUSHREAD = 1;
+    pub const IOCPKT_FLUSHWRITE = 2;
+    pub const IOCPKT_STOP = 4;
+    pub const IOCPKT_START = 8;
+    pub const IOCPKT_NOSTOP = 16;
+    pub const IOCPKT_DOSTOP = 32;
+    pub const IOCPKT_IOCTL = 64;
+
+    pub const IOCSER_TEMT = 0x01;
+};
+
+pub const serial_rs485 = extern struct {
+    flags: u32,
+    delay_rts_before_send: u32,
+    delay_rts_after_send: u32,
+    extra: extern union {
+        _pad1: [5]u32,
+        s: extern struct {
+            addr_recv: u8,
+            addr_dest: u8,
+            _pad2: [2]u8,
+            _pad3: [4]u32,
+        },
+    },
+};
+
+pub const serial_iso7816 = extern struct {
+    flags: u32,
+    tg: u32,
+    sc_fi: u32,
+    sc_di: u32,
+    clk: u32,
+    _reserved: [5]u32,
+};
+
+pub const SER = struct {
+    pub const RS485 = struct {
+        pub const ENABLED = 1 << 0;
+        pub const RTS_ON_SEND = 1 << 1;
+        pub const RTS_AFTER_SEND = 1 << 2;
+        pub const RX_DURING_TX = 1 << 4;
+        pub const TERMINATE_BUS = 1 << 5;
+        pub const ADDRB = 1 << 6;
+        pub const ADDR_RECV = 1 << 7;
+        pub const ADDR_DEST = 1 << 8;
+    };
+
+    pub const ISO7816 = struct {
+        pub const ENABLED = 1 << 0;
+        pub const T_PARAM = 0x0f << 4;
+
+        pub fn T(t: anytype) @TypeOf(t) {
+            return (t & 0x0f) << 4;
+        }
+    };
 };
 
 pub const EPOLL = struct {
@@ -5885,319 +6276,507 @@ pub const rusage = extern struct {
     pub const THREAD = 1;
 };
 
-pub const NCCS = switch (native_arch) {
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le => 19,
-    else => 32,
+pub const NCC = if (is_ppc) 10 else 8;
+pub const NCCS = if (is_mips) 32 else if (is_ppc) 19 else if (is_sparc) 17 else 32;
+
+pub const speed_t = if (is_ppc) enum(c_uint) {
+    B0 = 0x0000000,
+    B50 = 0x0000001,
+    B75 = 0x0000002,
+    B110 = 0x0000003,
+    B134 = 0x0000004,
+    B150 = 0x0000005,
+    B200 = 0x0000006,
+    B300 = 0x0000007,
+    B600 = 0x0000008,
+    B1200 = 0x0000009,
+    B1800 = 0x000000a,
+    B2400 = 0x000000b,
+    B4800 = 0x000000c,
+    B9600 = 0x000000d,
+    B19200 = 0x000000e,
+    B38400 = 0x000000f,
+
+    B57600 = 0x00000010,
+    B115200 = 0x00000011,
+    B230400 = 0x00000012,
+    B460800 = 0x00000013,
+    B500000 = 0x00000014,
+    B576000 = 0x00000015,
+    B921600 = 0x00000016,
+    B1000000 = 0x00000017,
+    B1152000 = 0x00000018,
+    B1500000 = 0x00000019,
+    B2000000 = 0x0000001a,
+    B2500000 = 0x0000001b,
+    B3000000 = 0x0000001c,
+    B3500000 = 0x0000001d,
+    B4000000 = 0x0000001e,
+
+    pub const EXTA = speed_t.B19200;
+    pub const EXTB = speed_t.B38400;
+} else if (is_sparc) enum(c_uint) {
+    B0 = 0x0000000,
+    B50 = 0x0000001,
+    B75 = 0x0000002,
+    B110 = 0x0000003,
+    B134 = 0x0000004,
+    B150 = 0x0000005,
+    B200 = 0x0000006,
+    B300 = 0x0000007,
+    B600 = 0x0000008,
+    B1200 = 0x0000009,
+    B1800 = 0x000000a,
+    B2400 = 0x000000b,
+    B4800 = 0x000000c,
+    B9600 = 0x000000d,
+    B19200 = 0x000000e,
+    B38400 = 0x000000f,
+
+    B57600 = 0x00001001,
+    B115200 = 0x00001002,
+    B230400 = 0x00001003,
+    B460800 = 0x00001004,
+    B76800 = 0x00001005,
+    B153600 = 0x00001006,
+    B307200 = 0x00001007,
+    B614400 = 0x00001008,
+    B921600 = 0x00001009,
+    B500000 = 0x0000100a,
+    B576000 = 0x0000100b,
+    B1000000 = 0x0000100c,
+    B1152000 = 0x0000100d,
+    B1500000 = 0x0000100e,
+    B2000000 = 0x0000100f,
+
+    pub const EXTA = speed_t.B19200;
+    pub const EXTB = speed_t.B38400;
+} else enum(c_uint) {
+    B0 = 0x0000000,
+    B50 = 0x0000001,
+    B75 = 0x0000002,
+    B110 = 0x0000003,
+    B134 = 0x0000004,
+    B150 = 0x0000005,
+    B200 = 0x0000006,
+    B300 = 0x0000007,
+    B600 = 0x0000008,
+    B1200 = 0x0000009,
+    B1800 = 0x000000a,
+    B2400 = 0x000000b,
+    B4800 = 0x000000c,
+    B9600 = 0x000000d,
+    B19200 = 0x000000e,
+    B38400 = 0x000000f,
+
+    B57600 = 0x00001001,
+    B115200 = 0x00001002,
+    B230400 = 0x00001003,
+    B460800 = 0x00001004,
+    B500000 = 0x00001005,
+    B576000 = 0x00001006,
+    B921600 = 0x00001007,
+    B1000000 = 0x00001008,
+    B1152000 = 0x00001009,
+    B1500000 = 0x0000100a,
+    B2000000 = 0x0000100b,
+    B2500000 = 0x0000100c,
+    B3000000 = 0x0000100d,
+    B3500000 = 0x0000100e,
+    B4000000 = 0x0000100f,
+
+    pub const EXTA = speed_t.B19200;
+    pub const EXTB = speed_t.B38400;
 };
 
-pub const speed_t = switch (native_arch) {
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le => enum(u32) {
-        B0 = 0o0000000,
-        B50 = 0o0000001,
-        B75 = 0o0000002,
-        B110 = 0o0000003,
-        B134 = 0o0000004,
-        B150 = 0o0000005,
-        B200 = 0o0000006,
-        B300 = 0o0000007,
-        B600 = 0o0000010,
-        B1200 = 0o0000011,
-        B1800 = 0o0000012,
-        B2400 = 0o0000013,
-        B4800 = 0o0000014,
-        B9600 = 0o0000015,
-        B19200 = 0o0000016,
-        B38400 = 0o0000017,
+pub const tcflag_t = if (native_arch == .sparc) c_ulong else c_uint;
 
-        B57600 = 0o00020,
-        B115200 = 0o00021,
-        B230400 = 0o00022,
-        B460800 = 0o00023,
-        B500000 = 0o00024,
-        B576000 = 0o00025,
-        B921600 = 0o00026,
-        B1000000 = 0o00027,
-        B1152000 = 0o00030,
-        B1500000 = 0o00031,
-        B2000000 = 0o00032,
-        B2500000 = 0o00033,
-        B3000000 = 0o00034,
-        B3500000 = 0o00035,
-        B4000000 = 0o00036,
-    },
-    else => enum(u32) {
-        B0 = 0o0000000,
-        B50 = 0o0000001,
-        B75 = 0o0000002,
-        B110 = 0o0000003,
-        B134 = 0o0000004,
-        B150 = 0o0000005,
-        B200 = 0o0000006,
-        B300 = 0o0000007,
-        B600 = 0o0000010,
-        B1200 = 0o0000011,
-        B1800 = 0o0000012,
-        B2400 = 0o0000013,
-        B4800 = 0o0000014,
-        B9600 = 0o0000015,
-        B19200 = 0o0000016,
-        B38400 = 0o0000017,
-
-        B57600 = 0o0010001,
-        B115200 = 0o0010002,
-        B230400 = 0o0010003,
-        B460800 = 0o0010004,
-        B500000 = 0o0010005,
-        B576000 = 0o0010006,
-        B921600 = 0o0010007,
-        B1000000 = 0o0010010,
-        B1152000 = 0o0010011,
-        B1500000 = 0o0010012,
-        B2000000 = 0o0010013,
-        B2500000 = 0o0010014,
-        B3000000 = 0o0010015,
-        B3500000 = 0o0010016,
-        B4000000 = 0o0010017,
-    },
+pub const tc_iflag_t = if (is_ppc) packed struct(tcflag_t) {
+    IGNBRK: bool = false,
+    BRKINT: bool = false,
+    IGNPAR: bool = false,
+    PARMRK: bool = false,
+    INPCK: bool = false,
+    ISTRIP: bool = false,
+    INLCR: bool = false,
+    IGNCR: bool = false,
+    ICRNL: bool = false,
+    IXON: bool = false,
+    IXOFF: bool = false,
+    IXANY: bool = false,
+    IUCLC: bool = false,
+    IMAXBEL: bool = false,
+    IUTF8: bool = false,
+    _15: u17 = 0,
+} else packed struct(tcflag_t) {
+    IGNBRK: bool = false,
+    BRKINT: bool = false,
+    IGNPAR: bool = false,
+    PARMRK: bool = false,
+    INPCK: bool = false,
+    ISTRIP: bool = false,
+    INLCR: bool = false,
+    IGNCR: bool = false,
+    ICRNL: bool = false,
+    IUCLC: bool = false,
+    IXON: bool = false,
+    IXANY: bool = false,
+    IXOFF: bool = false,
+    IMAXBEL: bool = false,
+    IUTF8: bool = false,
+    _15: u17 = 0,
 };
 
-pub const tc_iflag_t = switch (native_arch) {
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
-        IGNBRK: bool = false,
-        BRKINT: bool = false,
-        IGNPAR: bool = false,
-        PARMRK: bool = false,
-        INPCK: bool = false,
-        ISTRIP: bool = false,
-        INLCR: bool = false,
-        IGNCR: bool = false,
-        ICRNL: bool = false,
-        IXON: bool = false,
-        IXOFF: bool = false,
-        IXANY: bool = false,
-        IUCLC: bool = false,
-        IMAXBEL: bool = false,
-        IUTF8: bool = false,
-        _: u17 = 0,
-    },
-    else => packed struct(u32) {
-        IGNBRK: bool = false,
-        BRKINT: bool = false,
-        IGNPAR: bool = false,
-        PARMRK: bool = false,
-        INPCK: bool = false,
-        ISTRIP: bool = false,
-        INLCR: bool = false,
-        IGNCR: bool = false,
-        ICRNL: bool = false,
-        IUCLC: bool = false,
-        IXON: bool = false,
-        IXANY: bool = false,
-        IXOFF: bool = false,
-        IMAXBEL: bool = false,
-        IUTF8: bool = false,
-        _: u17 = 0,
-    },
+pub const NLDLY = if (is_ppc) enum(u2) {
+    NL0 = 0,
+    NL1 = 1,
+    NL2 = 2,
+    NL3 = 3,
+} else enum(u1) {
+    NL0 = 0,
+    NL1 = 1,
 };
 
-pub const tc_oflag_t = switch (native_arch) {
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
-        OPOST: bool = false,
-        ONLCR: bool = false,
-        OLCUC: bool = false,
-        OCRNL: bool = false,
-        ONOCR: bool = false,
-        ONLRET: bool = false,
-        OFILL: bool = false,
-        OFDEL: bool = false,
-        NLDLY: u2 = 0,
-        TABDLY: u2 = 0,
-        CRDLY: u2 = 0,
-        FFDLY: u1 = 0,
-        BSDLY: u1 = 0,
-        VTDLY: u1 = 0,
-        _: u15 = 0,
-    },
-    else => packed struct(u32) {
-        OPOST: bool = false,
-        OLCUC: bool = false,
-        ONLCR: bool = false,
-        OCRNL: bool = false,
-        ONOCR: bool = false,
-        ONLRET: bool = false,
-        OFILL: bool = false,
-        OFDEL: bool = false,
-        NLDLY: u1 = 0,
-        CRDLY: u2 = 0,
-        TABDLY: u2 = 0,
-        BSDLY: u1 = 0,
-        VTDLY: u1 = 0,
-        FFDLY: u1 = 0,
-        _: u16 = 0,
-    },
+pub const CRDLY = enum(u2) {
+    CR0 = 0,
+    CR1 = 1,
+    CR2 = 2,
+    CR3 = 3,
 };
 
-pub const CSIZE = enum(u2) { CS5, CS6, CS7, CS8 };
+pub const TABDLY = enum(u2) {
+    TAB0 = 0,
+    TAB1 = 1,
+    TAB2 = 2,
+    TAB3 = 3,
 
-pub const tc_cflag_t = switch (native_arch) {
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
-        _0: u8 = 0,
-        CSIZE: CSIZE = .CS5,
-        CSTOPB: bool = false,
-        CREAD: bool = false,
-        PARENB: bool = false,
-        PARODD: bool = false,
-        HUPCL: bool = false,
-        CLOCAL: bool = false,
-        _: u16 = 0,
-    },
-    else => packed struct(u32) {
-        _0: u4 = 0,
-        CSIZE: CSIZE = .CS5,
-        CSTOPB: bool = false,
-        CREAD: bool = false,
-        PARENB: bool = false,
-        PARODD: bool = false,
-        HUPCL: bool = false,
-        CLOCAL: bool = false,
-        _: u20 = 0,
-    },
+    pub const XTABS = TABDLY.TAB3;
 };
 
-pub const tc_lflag_t = switch (native_arch) {
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
-        _0: u1 = 0,
-        ECHOE: bool = false,
-        ECHOK: bool = false,
-        ECHO: bool = false,
-        ECHONL: bool = false,
-        _5: u2 = 0,
-        ISIG: bool = false,
-        ICANON: bool = false,
-        _9: u1 = 0,
-        IEXTEN: bool = false,
-        _11: u11 = 0,
-        TOSTOP: bool = false,
-        _23: u8 = 0,
-        NOFLSH: bool = false,
-    },
-    .mips, .mipsel, .mips64, .mips64el => packed struct(u32) {
-        ISIG: bool = false,
-        ICANON: bool = false,
-        _2: u1 = 0,
-        ECHO: bool = false,
-        ECHOE: bool = false,
-        ECHOK: bool = false,
-        ECHONL: bool = false,
-        NOFLSH: bool = false,
-        IEXTEN: bool = false,
-        _9: u6 = 0,
-        TOSTOP: bool = false,
-        _: u16 = 0,
-    },
-    else => packed struct(u32) {
-        ISIG: bool = false,
-        ICANON: bool = false,
-        _2: u1 = 0,
-        ECHO: bool = false,
-        ECHOE: bool = false,
-        ECHOK: bool = false,
-        ECHONL: bool = false,
-        NOFLSH: bool = false,
-        TOSTOP: bool = false,
-        _9: u6 = 0,
-        IEXTEN: bool = false,
-        _: u16 = 0,
-    },
+pub const BSDLY = enum(u1) {
+    BS0 = 0,
+    BS1 = 1,
+};
+
+pub const VTDLY = enum(u1) {
+    VT0 = 0,
+    VT1 = 1,
+};
+
+pub const FFDLY = enum(u1) {
+    FF0 = 0,
+    FF1 = 1,
+};
+
+pub const tc_oflag_t = if (is_ppc) packed struct(tcflag_t) {
+    OPOST: bool = false,
+    ONLCR: bool = false,
+    OLCUC: bool = false,
+    OCRNL: bool = false,
+    ONOCR: bool = false,
+    ONLRET: bool = false,
+    OFILL: bool = false,
+    OFDEL: bool = false,
+    NLDLY: NLDLY = 0,
+    TABDLY: TABDLY = 0,
+    CRDLY: CRDLY = 0,
+    FFDLY: FFDLY = 0,
+    BSDLY: BSDLY = 0,
+    VTDLY: VTDLY = 0,
+    _17: u15 = 0,
+} else if (is_sparc) packed struct(tcflag_t) {
+    OPOST: bool = false,
+    OLCUC: bool = false,
+    ONLCR: bool = false,
+    OCRNL: bool = false,
+    ONOCR: bool = false,
+    ONLRET: bool = false,
+    OFILL: bool = false,
+    OFDEL: bool = false,
+    NLDLY: NLDLY = .NL0,
+    CRDLY: CRDLY = .CR0,
+    TABDLY: TABDLY = .TAB0,
+    BSDLY: BSDLY = .BS0,
+    VTDLY: VTDLY = .VT0,
+    FFDLY: FFDLY = .FF0,
+    PAGEOUT: bool = false,
+    WRAP: bool = false,
+    _18: u14 = 0,
+} else packed struct(tcflag_t) {
+    OPOST: bool = false,
+    OLCUC: bool = false,
+    ONLCR: bool = false,
+    OCRNL: bool = false,
+    ONOCR: bool = false,
+    ONLRET: bool = false,
+    OFILL: bool = false,
+    OFDEL: bool = false,
+    NLDLY: NLDLY = .NL0,
+    CRDLY: CRDLY = .CR0,
+    TABDLY: TABDLY = .TAB0,
+    BSDLY: BSDLY = .BS0,
+    VTDLY: VTDLY = .VT0,
+    FFDLY: FFDLY = .FF0,
+    _16: u16 = 0,
+};
+
+pub const CSIZE = enum(u2) {
+    CS5 = 0,
+    CS6 = 1,
+    CS7 = 2,
+    CS8 = 3,
+};
+
+pub const tc_cflag_t = if (is_ppc) packed struct(tcflag_t) {
+    _0: u8 = 0,
+    CSIZE: CSIZE = .CS5,
+    CSTOPB: bool = false,
+    CREAD: bool = false,
+    PARENB: bool = false,
+    PARODD: bool = false,
+    HUPCL: bool = false,
+    CLOCAL: bool = false,
+    _16: u13 = 0,
+    ADDRB: bool = false,
+    CMSPAR: bool = false,
+    CRTSCTS: bool = false,
+} else packed struct(tcflag_t) {
+    _0: u4 = 0,
+    CSIZE: CSIZE = .CS5,
+    CSTOPB: bool = false,
+    CREAD: bool = false,
+    PARENB: bool = false,
+    PARODD: bool = false,
+    HUPCL: bool = false,
+    CLOCAL: bool = false,
+    _12: u17 = 0,
+    ADDRB: bool = false,
+    CMSPAR: bool = false,
+    CRTSCTS: bool = false,
+};
+
+pub const tc_lflag_t = if (is_mips) packed struct(tcflag_t) {
+    ISIG: bool = false,
+    ICANON: bool = false,
+    XCASE: bool = false,
+    ECHO: bool = false,
+    ECHOE: bool = false,
+    ECHOK: bool = false,
+    ECHONL: bool = false,
+    NOFLSH: bool = false,
+    IEXTEN: bool = false,
+    ECHOCTL: bool = false,
+    ECHOPRT: bool = false,
+    ECHOKE: bool = false,
+    _12: u1 = 0,
+    FLUSHO: bool = false,
+    PENDIN: bool = false,
+    TOSTOP: bool = false,
+    EXTPROC: bool = false,
+    _17: u16 = 0,
+} else if (is_ppc) packed struct(tcflag_t) {
+    ECHOKE: bool = false,
+    ECHOE: bool = false,
+    ECHOK: bool = false,
+    ECHO: bool = false,
+    ECHONL: bool = false,
+    ECHOPRT: bool = false,
+    ECHOCTL: bool = false,
+    ISIG: bool = false,
+    ICANON: bool = false,
+    _9: u1 = 0,
+    IEXTEN: bool = false,
+    _11: u3 = 0,
+    XCASE: bool = false,
+    _15: u7 = 0,
+    TOSTOP: bool = false,
+    FLUSHO: bool = false,
+    _24: u4 = 0,
+    EXTPROC: bool = false,
+    PENDIN: bool = false,
+    _30: u1 = 0,
+    NOFLSH: bool = false,
+} else if (is_sparc) packed struct(tcflag_t) {
+    ISIG: bool = false,
+    ICANON: bool = false,
+    XCASE: bool = false,
+    ECHO: bool = false,
+    ECHOE: bool = false,
+    ECHOK: bool = false,
+    ECHONL: bool = false,
+    NOFLSH: bool = false,
+    TOSTOP: bool = false,
+    ECHOCTL: bool = false,
+    ECHOPRT: bool = false,
+    ECHOKE: bool = false,
+    DEFECHO: bool = false,
+    FLUSHO: bool = false,
+    PENDIN: bool = false,
+    IEXTEN: bool = false,
+    EXTPROC: bool = false,
+    _17: u15 = 0,
+} else packed struct(tcflag_t) {
+    ISIG: bool = false,
+    ICANON: bool = false,
+    XCASE: bool = false,
+    ECHO: bool = false,
+    ECHOE: bool = false,
+    ECHOK: bool = false,
+    ECHONL: bool = false,
+    NOFLSH: bool = false,
+    TOSTOP: bool = false,
+    ECHOCTL: bool = false,
+    ECHOPRT: bool = false,
+    ECHOKE: bool = false,
+    FLUSHO: bool = false,
+    _13: u1 = 0,
+    PENDIN: bool = false,
+    IEXTEN: bool = false,
+    EXTPROC: bool = false,
+    _17: u15 = 0,
 };
 
 pub const cc_t = u8;
 
 /// Indices into the `cc` array in the `termios` struct.
-pub const V = switch (native_arch) {
-    .mips, .mipsel, .mips64, .mips64el => enum {
-        INTR,
-        QUIT,
-        ERASE,
-        KILL,
-        MIN,
-        TIME,
-        EOL2,
-        SWTC,
-        START,
-        STOP,
-        SUSP,
-        reserved,
-        REPRINT,
-        DISCARD,
-        WERASE,
-        LNEXT,
-        EOF,
-        EOL,
-    },
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le => enum {
-        INTR,
-        QUIT,
-        ERASE,
-        KILL,
-        EOF,
-        MIN,
-        EOL,
-        TIME,
-        EOL2,
-        SWTC,
-        WERASE,
-        REPRINT,
-        SUSP,
-        START,
-        STOP,
-        LNEXT,
-        DISCARD,
-    },
-    else => enum {
-        INTR,
-        QUIT,
-        ERASE,
-        KILL,
-        EOF,
-        TIME,
-        MIN,
-        SWTC,
-        START,
-        STOP,
-        SUSP,
-        EOL,
-        REPRINT,
-        DISCARD,
-        WERASE,
-        LNEXT,
-        EOL2,
-    },
+pub const V = if (is_mips) enum(u32) {
+    INTR = 0,
+    QUIT = 1,
+    ERASE = 2,
+    KILL = 3,
+    MIN = 4,
+    TIME = 5,
+    EOL2 = 6,
+    SWTC = 7,
+    START = 8,
+    STOP = 9,
+    SUSP = 10,
+    REPRINT = 12,
+    DISCARD = 13,
+    WERASE = 14,
+    LNEXT = 15,
+    EOF = 16,
+    EOL = 17,
+} else if (is_ppc) enum(u32) {
+    INTR = 0,
+    QUIT = 1,
+    ERASE = 2,
+    KILL = 3,
+    EOF = 4,
+    MIN = 5,
+    EOL = 6,
+    TIME = 7,
+    EOL2 = 8,
+    SWTC = 9,
+    WERASE = 10,
+    REPRINT = 11,
+    SUSP = 12,
+    START = 13,
+    STOP = 14,
+    LNEXT = 15,
+    DISCARD = 16,
+} else enum(u32) {
+    INTR = 0,
+    QUIT = 1,
+    ERASE = 2,
+    KILL = 3,
+    EOF = 4,
+    TIME = 5,
+    MIN = 6,
+    SWTC = 7,
+    START = 8,
+    STOP = 9,
+    SUSP = 10,
+    EOL = 11,
+    REPRINT = 12,
+    DISCARD = 13,
+    WERASE = 14,
+    LNEXT = 15,
+    EOL2 = 16,
 };
 
 pub const TCSA = std.posix.TCSA;
 
-pub const termios = switch (native_arch) {
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le => extern struct {
-        iflag: tc_iflag_t,
-        oflag: tc_oflag_t,
-        cflag: tc_cflag_t,
-        lflag: tc_lflag_t,
-        cc: [NCCS]cc_t,
-        line: cc_t,
-        ispeed: speed_t,
-        ospeed: speed_t,
-    },
-    else => extern struct {
-        iflag: tc_iflag_t,
-        oflag: tc_oflag_t,
-        cflag: tc_cflag_t,
-        lflag: tc_lflag_t,
-        line: cc_t,
-        cc: [NCCS]cc_t,
-        ispeed: speed_t,
-        ospeed: speed_t,
-    },
+pub const sgttyb = if (is_mips or is_ppc or is_sparc) extern struct {
+    ispeed: c_char,
+    ospeed: c_char,
+    erase: c_char,
+    kill: c_char,
+    flags: if (is_mips) c_int else c_short,
+} else void;
+
+pub const tchars = if (is_mips or is_ppc or is_sparc) extern struct {
+    intrc: c_char,
+    quitc: c_char,
+    startc: c_char,
+    stopc: c_char,
+    eofc: c_char,
+    brkc: c_char,
+} else void;
+
+pub const ltchars = if (is_mips or is_ppc or is_sparc) extern struct {
+    suspc: c_char,
+    dsuspc: c_char,
+    rprntc: c_char,
+    flushc: c_char,
+    werasc: c_char,
+    lnextc: c_char,
+} else void;
+
+pub const termio = extern struct {
+    iflag: c_ushort,
+    oflag: c_ushort,
+    cflag: c_ushort,
+    lflag: c_ushort,
+    line: if (is_mips) c_char else u8,
+    cc: [if (is_mips) NCCS else NCC]u8,
+};
+
+pub const termios = if (is_mips or is_sparc) extern struct {
+    iflag: tc_iflag_t,
+    oflag: tc_oflag_t,
+    cflag: tc_cflag_t,
+    lflag: tc_lflag_t,
+    line: cc_t,
+    cc: [NCCS]cc_t,
+} else if (is_ppc) extern struct {
+    iflag: tc_iflag_t,
+    oflag: tc_oflag_t,
+    cflag: tc_cflag_t,
+    lflag: tc_lflag_t,
+    cc: [NCCS]cc_t,
+    line: cc_t,
+    ispeed: speed_t,
+    ospeed: speed_t,
+} else extern struct {
+    iflag: tc_iflag_t,
+    oflag: tc_oflag_t,
+    cflag: tc_cflag_t,
+    lflag: tc_lflag_t,
+    line: cc_t,
+    cc: [NCCS]cc_t,
+    ispeed: speed_t,
+    ospeed: speed_t,
+};
+
+pub const termios2 = if (is_mips) extern struct {
+    iflag: tc_iflag_t,
+    oflag: tc_oflag_t,
+    cflag: tc_cflag_t,
+    lflag: tc_lflag_t,
+    cc: [NCCS]cc_t,
+    line: cc_t,
+    ispeed: speed_t,
+    ospeed: speed_t,
+} else extern struct {
+    iflag: tc_iflag_t,
+    oflag: tc_oflag_t,
+    cflag: tc_cflag_t,
+    lflag: tc_lflag_t,
+    line: cc_t,
+    cc: [NCCS + if (is_sparc) 2 else 0]cc_t,
+    ispeed: speed_t,
+    ospeed: speed_t,
 };
 
 pub const SIOCGIFINDEX = 0x8933;
