@@ -1254,7 +1254,10 @@ const x86_64 = struct {
                 try cwriter.writeInt(i32, @as(i32, @intCast(G + GOT + A - P)), .little);
             },
 
-            .@"32" => try cwriter.writeInt(u32, @as(u32, @truncate(@as(u64, @intCast(S + A)))), .little),
+            .@"32" => {
+                const S_ = if (target.flags.zig_offset_table) target.zigOffsetTableAddress(elf_file) else S;
+                try cwriter.writeInt(u32, @as(u32, @truncate(@as(u64, @intCast(S_ + A)))), .little);
+            },
             .@"32S" => try cwriter.writeInt(i32, @as(i32, @truncate(S + A)), .little),
 
             .TPOFF32 => try cwriter.writeInt(i32, @as(i32, @truncate(S + A - TP)), .little),
