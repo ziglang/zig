@@ -2,23 +2,38 @@
 //! ./gen_stubs /path/to/musl/build-all >libc.S
 //!
 //! The directory 'build-all' is expected to contain these subdirectories:
-//! arm  x86  mips  mips64  powerpc  powerpc64  riscv32  riscv64  x86_64  loongarch64
+//! - arm
+//! - aarch64
+//! - loongarch64
+//! - m68k
+//! - mips
+//! - mips64
+//! - powerpc
+//! - powerpc64
+//! - riscv32
+//! - riscv64
+//! - s390x
+//! - x86
+//! - x86_64
 //!
 //! ...each with 'lib/libc.so' inside of them.
 //!
 //! When building the resulting libc.S file, these defines are required:
 //! * `-DPTR64`: when the architecture is 64-bit
 //! * One of the following, corresponding to the CPU architecture:
-//!   - `-DARCH_riscv32`
-//!   - `-DARCH_riscv64`
-//!   - `-DARCH_mips`
-//!   - `-DARCH_mips64`
-//!   - `-DARCH_i386`
-//!   - `-DARCH_x86_64`
-//!   - `-DARCH_powerpc`
-//!   - `-DARCH_powerpc64`
+//!   - `-DARCH_arm`
 //!   - `-DARCH_aarch64`
 //!   - `-DARCH_loongarch64`
+//!   - `-DARCH_m68k`
+//!   - `-DARCH_mips`
+//!   - `-DARCH_mips64`
+//!   - `-DARCH_powerpc`
+//!   - `-DARCH_powerpc64`
+//!   - `-DARCH_riscv32`
+//!   - `-DARCH_riscv64`
+//!   - `-DARCH_s390x`
+//!   - `-DARCH_x86`
+//!   - `-DARCH_x86_64`
 
 // TODO: pick the best index to put them into instead of at the end
 //       - e.g. find a common previous symbol and put it after that one
@@ -32,16 +47,19 @@ const elf = std.elf;
 const native_endian = @import("builtin").target.cpu.arch.endian();
 
 const inputs = .{
-    .riscv32,
-    .riscv64,
+    .arm,
+    .aarch64,
     .loongarch64,
+    .m68k,
     .mips,
     .mips64,
-    .x86,
-    .x86_64,
     .powerpc,
     .powerpc64,
-    .aarch64,
+    .riscv32,
+    .riscv64,
+    .s390x,
+    .x86,
+    .x86_64,
 };
 
 const arches: [inputs.len]std.Target.Cpu.Arch = blk: {
@@ -70,16 +88,19 @@ const MultiSym = struct {
     }
 
     fn is32Only(ms: MultiSym) bool {
-        return ms.present[archIndex(.riscv32)] == true and
-            ms.present[archIndex(.riscv64)] == false and
+        return ms.present[archIndex(.arm)] == true and
+            ms.present[archIndex(.aarch64)] == false and
+            ms.present[archIndex(.loongarch64)] == false and
+            ms.present[archIndex(.m68k)] == true and
             ms.present[archIndex(.mips)] == true and
             ms.present[archIndex(.mips64)] == false and
-            ms.present[archIndex(.x86)] == true and
-            ms.present[archIndex(.x86_64)] == false and
             ms.present[archIndex(.powerpc)] == true and
             ms.present[archIndex(.powerpc64)] == false and
-            ms.present[archIndex(.aarch64)] == false and
-            ms.present[archIndex(.loongarch64)] == false;
+            ms.present[archIndex(.riscv32)] == true and
+            ms.present[archIndex(.riscv64)] == false and
+            ms.present[archIndex(.s390x)] == false and
+            ms.present[archIndex(.x86)] == true and
+            ms.present[archIndex(.x86_64)] == false;
     }
 
     fn commonSize(ms: MultiSym) ?u64 {
@@ -114,16 +135,19 @@ const MultiSym = struct {
 
     fn isPtrSize(ms: MultiSym) bool {
         const map = .{
-            .{ .riscv32, 4 },
-            .{ .riscv64, 8 },
-            .{ .mips, 4 },
-            .{ .mips64, 8 },
-            .{ .x86, 4 },
-            .{ .x86_64, 8 },
-            .{ .powerpc, 4 },
-            .{ .powerpc64, 8 },
+            .{ .arm, 4 },
             .{ .aarch64, 8 },
             .{ .loongarch64, 8 },
+            .{ .m68k, 4 },
+            .{ .mips, 4 },
+            .{ .mips64, 8 },
+            .{ .powerpc, 4 },
+            .{ .powerpc64, 8 },
+            .{ .riscv32, 4 },
+            .{ .riscv64, 8 },
+            .{ .s390x, 8 },
+            .{ .x86, 4 },
+            .{ .x86_64, 8 },
         };
         inline for (map) |item| {
             const arch = item[0];
@@ -138,16 +162,19 @@ const MultiSym = struct {
 
     fn isPtr2Size(ms: MultiSym) bool {
         const map = .{
-            .{ .riscv32, 8 },
-            .{ .riscv64, 16 },
-            .{ .mips, 8 },
-            .{ .mips64, 16 },
-            .{ .x86, 8 },
-            .{ .x86_64, 16 },
-            .{ .powerpc, 8 },
-            .{ .powerpc64, 16 },
+            .{ .arm, 8 },
             .{ .aarch64, 16 },
             .{ .loongarch64, 16 },
+            .{ .m68k, 4 },
+            .{ .mips, 8 },
+            .{ .mips64, 16 },
+            .{ .powerpc, 8 },
+            .{ .powerpc64, 16 },
+            .{ .s390x, 16 },
+            .{ .riscv32, 8 },
+            .{ .riscv64, 16 },
+            .{ .x86, 8 },
+            .{ .x86_64, 16 },
         };
         inline for (map) |item| {
             const arch = item[0];
@@ -161,17 +188,21 @@ const MultiSym = struct {
     }
 
     fn isWeak64(ms: MultiSym) bool {
+        // std.elf.STB_*
         const map = .{
-            .{ .riscv32, 1 },
-            .{ .riscv64, 2 },
-            .{ .mips, 1 },
-            .{ .mips64, 2 },
-            .{ .x86, 1 },
-            .{ .x86_64, 2 },
-            .{ .powerpc, 1 },
-            .{ .powerpc64, 2 },
+            .{ .arm, 1 },
             .{ .aarch64, 2 },
             .{ .loongarch64, 2 },
+            .{ .m68k, 1 },
+            .{ .mips, 1 },
+            .{ .mips64, 2 },
+            .{ .powerpc, 1 },
+            .{ .powerpc64, 2 },
+            .{ .riscv32, 1 },
+            .{ .riscv64, 2 },
+            .{ .s390x, 2 },
+            .{ .x86, 1 },
+            .{ .x86_64, 2 },
         };
         inline for (map) |item| {
             const arch = item[0];
@@ -593,16 +624,19 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
 fn archIndex(arch: std.Target.Cpu.Arch) u8 {
     return switch (arch) {
         // zig fmt: off
-        .riscv64     => 0,
-        .mips        => 1,
-        .mips64      => 2,
-        .x86         => 3,
-        .x86_64      => 4,
-        .powerpc     => 5,
-        .powerpc64   => 6,
-        .aarch64     => 7,
+        .arm         => 0,
+        .aarch64     => 1,
+        .loongarch64 => 2,
+        .m68k        => 3,
+        .mips        => 4,
+        .mips64      => 5,
+        .powerpc     => 6,
+        .powerpc64   => 7,
         .riscv32     => 8,
-        .loongarch64 => 9,
+        .riscv64     => 9,
+        .s390x       => 10,
+        .x86         => 11,
+        .x86_64      => 12,
         else         => unreachable,
         // zig fmt: on
     };
@@ -611,16 +645,19 @@ fn archIndex(arch: std.Target.Cpu.Arch) u8 {
 fn archMuslName(arch: std.Target.Cpu.Arch) []const u8 {
     return switch (arch) {
         // zig fmt: off
-        .riscv64     => "riscv64",
+        .arm         => "arm",
+        .aarch64     => "aarch64",
+        .loongarch64 => "loongarch64",
+        .m68k        => "m68k",
         .mips        => "mips",
         .mips64      => "mips64",
-        .x86         => "i386",
-        .x86_64      => "x86_64",
         .powerpc     => "powerpc",
         .powerpc64   => "powerpc64",
-        .aarch64     => "aarch64",
         .riscv32     => "riscv32",
-        .loongarch64 => "loongarch64",
+        .riscv64     => "riscv64",
+        .s390x       => "s390x",
+        .x86         => "i386",
+        .x86_64      => "x86_64",
         else         => unreachable,
         // zig fmt: on
     };
