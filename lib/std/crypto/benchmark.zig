@@ -141,7 +141,7 @@ const signatures = [_]Crypto{
 fn initBenchKeyPair(comptime Scheme: type) !Scheme.KeyPair {
     var seed: [Scheme.KeyPair.seed_length]u8 = undefined;
     prng.fill(&seed);
-    return try Scheme.KeyPair.init(seed);
+    return try Scheme.KeyPair.createDeterministic(seed);
 }
 
 pub fn benchmarkSignature(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {

@@ -536,7 +536,7 @@ pub const SealedBox = struct {
     /// `c` must be `seal_length` bytes larger than `m`, so that the required metadata can be added.
     pub fn seal(c: []u8, m: []const u8, public_key: [public_length]u8, seed: [KeyPair.seed_length]u8) (WeakPublicKeyError || IdentityElementError)!void {
         debug.assert(c.len == m.len + seal_length);
-        var ekp = try KeyPair.init(seed);
+        var ekp = try KeyPair.createDeterministic(seed);
         const nonce = createNonce(ekp.public_key, public_key);
         c[0..public_length].* = ekp.public_key;
         try Box.seal(c[Box.public_length..], m, nonce, public_key, ekp.secret_key);
@@ -603,7 +603,7 @@ test "xsalsa20poly1305 secretbox" {
 fn initTestKeypair(comptime Scheme: type, rng: *std.Random.DefaultPrng) !Scheme.KeyPair {
     var seed: [Scheme.KeyPair.seed_length]u8 = undefined;
     rng.fill(&seed);
-    return try Scheme.KeyPair.init(seed);
+    return try Scheme.KeyPair.createDeterministic(seed);
 }
 
 test "xsalsa20poly1305 box" {
