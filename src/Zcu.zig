@@ -3275,6 +3275,7 @@ pub fn atomicPtrAlignment(
         .s390x,
         .wasm64,
         .ve,
+        .spirv,
         .spirv64,
         .loongarch64,
         => 64,
@@ -3284,8 +3285,6 @@ pub fn atomicPtrAlignment(
         => 128,
 
         .x86_64 => if (std.Target.x86.featureSetHas(target.cpu.features, .cx16)) 128 else 64,
-
-        .spirv => @panic("TODO what should this value be?"),
     };
 
     if (ty.toIntern() == .bool_type) return .none;

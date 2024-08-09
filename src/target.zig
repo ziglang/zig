@@ -194,7 +194,7 @@ pub fn supportsStackProtector(target: std.Target, backend: std.builtin.CompilerB
         else => {},
     }
     switch (target.cpu.arch) {
-        .spirv32, .spirv64 => return false,
+        .spirv, .spirv32, .spirv64 => return false,
         else => {},
     }
     return switch (backend) {
@@ -205,7 +205,7 @@ pub fn supportsStackProtector(target: std.Target, backend: std.builtin.CompilerB
 
 pub fn clangSupportsStackProtector(target: std.Target) bool {
     return switch (target.cpu.arch) {
-        .spirv32, .spirv64 => return false,
+        .spirv, .spirv32, .spirv64 => return false,
         else => true,
     };
 }
@@ -218,7 +218,7 @@ pub fn supportsReturnAddress(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .wasm32, .wasm64 => target.os.tag == .emscripten,
         .bpfel, .bpfeb => false,
-        .spirv32, .spirv64 => false,
+        .spirv, .spirv32, .spirv64 => false,
         else => true,
     };
 }
