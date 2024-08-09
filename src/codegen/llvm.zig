@@ -11786,6 +11786,7 @@ fn backendSupportsF16(target: std.Target) bool {
         .mipsel,
         .mips64,
         .mips64el,
+        .loongarch64,
         => false,
         .aarch64 => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
         else => true,
