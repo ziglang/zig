@@ -28,7 +28,7 @@ fn clear_cache(start: usize, end: usize) callconv(.C) void {
         .aarch64, .aarch64_be => true,
         else => false,
     };
-    const loongarch64 = switch(arch) {
+    const loongarch64 = switch (arch) {
         .loongarch64 => true,
         else => false,
     };
