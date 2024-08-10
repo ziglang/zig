@@ -151,46 +151,35 @@ pub fn resolveAddressesDwarf(
     d: *Dwarf,
 ) ResolveAddressesDwarfError!void {
     assert(sorted_pc_addrs.len == output.len);
-    assert(d.compile_units_sorted);
+    assert(d.ranges.items.len != 0); // call `populateRanges` first.
 
-    var cu_i: usize = 0;
-    var line_table_i: usize = 0;
-    var cu: *Dwarf.CompileUnit = &d.compile_unit_list.items[0];
-    var range = cu.pc_range.?;
+    var range_i: usize = 0;
+    var range: *std.debug.Dwarf.Range = &d.ranges.items[0];
+    var line_table_i: usize = undefined;
+    var prev_cu: ?*std.debug.Dwarf.CompileUnit = null;
     // Protects directories and files tables from other threads.
     cov.mutex.lock();
     defer cov.mutex.unlock();
     next_pc: for (sorted_pc_addrs, output) |pc, *out| {
         while (pc >= range.end) {
-            cu_i += 1;
-            if (cu_i >= d.compile_unit_list.items.len) {
+            range_i += 1;
+            if (range_i >= d.ranges.items.len) {
                 out.* = SourceLocation.invalid;
                 continue :next_pc;
             }
-            cu = &d.compile_unit_list.items[cu_i];
-            line_table_i = 0;
-            range = cu.pc_range orelse {
-                out.* = SourceLocation.invalid;
-                continue :next_pc;
-            };
+            range = &d.ranges.items[range_i];
         }
         if (pc < range.start) {
             out.* = SourceLocation.invalid;
             continue :next_pc;
         }
-        if (line_table_i == 0) {
-            line_table_i = 1;
+        const cu = &d.compile_unit_list.items[range.compile_unit_index];
+        if (cu.src_loc_cache == null) {
             cov.mutex.unlock();
             defer cov.mutex.lock();
             d.populateSrcLocCache(gpa, cu) catch |err| switch (err) {
                 error.MissingDebugInfo, error.InvalidDebugInfo => {
                     out.* = SourceLocation.invalid;
-                    cu_i += 1;
-                    if (cu_i < d.compile_unit_list.items.len) {
-                        cu = &d.compile_unit_list.items[cu_i];
-                        line_table_i = 0;
-                        if (cu.pc_range) |r| range = r;
-                    }
                     continue :next_pc;
                 },
                 else => |e| return e,
@@ -198,6 +187,14 @@ pub fn resolveAddressesDwarf(
         }
         const slc = &cu.src_loc_cache.?;
         const table_addrs = slc.line_table.keys();
+        if (cu != prev_cu) {
+            prev_cu = cu;
+            line_table_i = std.sort.upperBound(u64, table_addrs, pc, struct {
+                fn order(context: u64, item: u64) std.math.Order {
+                    return std.math.order(item, context);
+                }
+            }.order);
+        }
         while (line_table_i < table_addrs.len and table_addrs[line_table_i] < pc) line_table_i += 1;
 
         const entry = slc.line_table.values()[line_table_i - 1];

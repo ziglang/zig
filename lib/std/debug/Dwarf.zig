@@ -38,18 +38,29 @@ pub const call_frame = @import("Dwarf/call_frame.zig");
 endian: std.builtin.Endian,
 sections: SectionArray = null_section_array,
 is_macho: bool,
-compile_units_sorted: bool,
 
-// Filled later by the initializer
+/// Filled later by the initializer
 abbrev_table_list: std.ArrayListUnmanaged(Abbrev.Table) = .{},
+/// Filled later by the initializer
 compile_unit_list: std.ArrayListUnmanaged(CompileUnit) = .{},
+/// Filled later by the initializer
 func_list: std.ArrayListUnmanaged(Func) = .{},
 
 eh_frame_hdr: ?ExceptionFrameHeader = null,
-// These lookup tables are only used if `eh_frame_hdr` is null
+/// These lookup tables are only used if `eh_frame_hdr` is null
 cie_map: std.AutoArrayHashMapUnmanaged(u64, CommonInformationEntry) = .{},
-// Sorted by start_pc
+/// Sorted by start_pc
 fde_list: std.ArrayListUnmanaged(FrameDescriptionEntry) = .{},
+
+/// Populated by `populateRanges`.
+ranges: std.ArrayListUnmanaged(Range) = .{},
+
+pub const Range = struct {
+    start: u64,
+    end: u64,
+    /// Index into `compile_unit_list`.
+    compile_unit_index: usize,
+};
 
 pub const Section = struct {
     data: []const u8,
@@ -799,6 +810,7 @@ pub fn deinit(di: *Dwarf, gpa: Allocator) void {
     di.func_list.deinit(gpa);
     di.cie_map.deinit(gpa);
     di.fde_list.deinit(gpa);
+    di.ranges.deinit(gpa);
     di.* = undefined;
 }
 
@@ -985,8 +997,8 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator) ScanError!void {
                             try di.func_list.append(allocator, .{
                                 .name = fn_name,
                                 .pc_range = .{
-                                    .start = range.start_addr,
-                                    .end = range.end_addr,
+                                    .start = range.start,
+                                    .end = range.end,
                                 },
                             });
                         }
@@ -1096,37 +1108,38 @@ fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator) ScanError!void {
     }
 }
 
-/// Populate missing PC ranges in compilation units, and then sort them by start address.
-/// Does not guarantee pc_range to be non-null because there could be missing debug info.
-pub fn sortCompileUnits(d: *Dwarf) ScanError!void {
-    assert(!d.compile_units_sorted);
+pub fn populateRanges(d: *Dwarf, gpa: Allocator) ScanError!void {
+    assert(d.ranges.items.len == 0);
 
-    for (d.compile_unit_list.items) |*cu| {
-        if (cu.pc_range != null) continue;
+    for (d.compile_unit_list.items, 0..) |*cu, cu_index| {
+        if (cu.pc_range) |range| {
+            try d.ranges.append(gpa, .{
+                .start = range.start,
+                .end = range.end,
+                .compile_unit_index = cu_index,
+            });
+            continue;
+        }
         const ranges_value = cu.die.getAttr(AT.ranges) orelse continue;
         var iter = DebugRangeIterator.init(ranges_value, d, cu) catch continue;
-        var start: u64 = maxInt(u64);
-        var end: u64 = 0;
         while (try iter.next()) |range| {
-            start = @min(start, range.start_addr);
-            end = @max(end, range.end_addr);
+            // Not sure why LLVM thinks it's OK to emit these...
+            if (range.start == range.end) continue;
+
+            try d.ranges.append(gpa, .{
+                .start = range.start,
+                .end = range.end,
+                .compile_unit_index = cu_index,
+            });
         }
-        if (end != 0) cu.pc_range = .{
-            .start = start,
-            .end = end,
-        };
     }
 
-    std.mem.sortUnstable(CompileUnit, d.compile_unit_list.items, {}, struct {
-        pub fn lessThan(ctx: void, a: CompileUnit, b: CompileUnit) bool {
+    std.mem.sortUnstable(Range, d.ranges.items, {}, struct {
+        pub fn lessThan(ctx: void, a: Range, b: Range) bool {
             _ = ctx;
-            const a_range = a.pc_range orelse return false;
-            const b_range = b.pc_range orelse return true;
-            return a_range.start < b_range.start;
+            return a.start < b.start;
         }
     }.lessThan);
-
-    d.compile_units_sorted = true;
 }
 
 const DebugRangeIterator = struct {
@@ -1184,7 +1197,7 @@ const DebugRangeIterator = struct {
     }
 
     // Returns the next range in the list, or null if the end was reached.
-    pub fn next(self: *@This()) !?struct { start_addr: u64, end_addr: u64 } {
+    pub fn next(self: *@This()) !?PcRange {
         switch (self.section_type) {
             .debug_rnglists => {
                 const kind = try self.fbr.readByte();
@@ -1203,8 +1216,8 @@ const DebugRangeIterator = struct {
                         const end_addr = try self.di.readDebugAddr(self.compile_unit.*, end_index);
 
                         return .{
-                            .start_addr = start_addr,
-                            .end_addr = end_addr,
+                            .start = start_addr,
+                            .end = end_addr,
                         };
                     },
                     RLE.startx_length => {
@@ -1215,8 +1228,8 @@ const DebugRangeIterator = struct {
                         const end_addr = start_addr + len;
 
                         return .{
-                            .start_addr = start_addr,
-                            .end_addr = end_addr,
+                            .start = start_addr,
+                            .end = end_addr,
                         };
                     },
                     RLE.offset_pair => {
@@ -1225,8 +1238,8 @@ const DebugRangeIterator = struct {
 
                         // This is the only kind that uses the base address
                         return .{
-                            .start_addr = self.base_address + start_addr,
-                            .end_addr = self.base_address + end_addr,
+                            .start = self.base_address + start_addr,
+                            .end = self.base_address + end_addr,
                         };
                     },
                     RLE.base_address => {
@@ -1238,8 +1251,8 @@ const DebugRangeIterator = struct {
                         const end_addr = try self.fbr.readInt(usize);
 
                         return .{
-                            .start_addr = start_addr,
-                            .end_addr = end_addr,
+                            .start = start_addr,
+                            .end = end_addr,
                         };
                     },
                     RLE.start_length => {
@@ -1248,8 +1261,8 @@ const DebugRangeIterator = struct {
                         const end_addr = start_addr + len;
 
                         return .{
-                            .start_addr = start_addr,
-                            .end_addr = end_addr,
+                            .start = start_addr,
+                            .end = end_addr,
                         };
                     },
                     else => return bad(),
@@ -1267,8 +1280,8 @@ const DebugRangeIterator = struct {
                 }
 
                 return .{
-                    .start_addr = self.base_address + start_addr,
-                    .end_addr = self.base_address + end_addr,
+                    .start = self.base_address + start_addr,
+                    .end = self.base_address + end_addr,
                 };
             },
             else => unreachable,
@@ -1286,7 +1299,7 @@ pub fn findCompileUnit(di: *const Dwarf, target_address: u64) !*CompileUnit {
         const ranges_value = compile_unit.die.getAttr(AT.ranges) orelse continue;
         var iter = DebugRangeIterator.init(ranges_value, di, compile_unit) catch continue;
         while (try iter.next()) |range| {
-            if (target_address >= range.start_addr and target_address < range.end_addr) return compile_unit;
+            if (target_address >= range.start and target_address < range.end) return compile_unit;
         }
     }
 
@@ -2345,7 +2358,6 @@ pub const ElfModule = struct {
             .endian = endian,
             .sections = sections,
             .is_macho = false,
-            .compile_units_sorted = false,
         };
 
         try Dwarf.open(&di, gpa);

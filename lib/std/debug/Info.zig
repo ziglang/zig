@@ -27,7 +27,7 @@ pub const LoadError = Dwarf.ElfModule.LoadError;
 pub fn load(gpa: Allocator, path: Path, coverage: *Coverage) LoadError!Info {
     var sections: Dwarf.SectionArray = Dwarf.null_section_array;
     var elf_module = try Dwarf.ElfModule.loadPath(gpa, path, null, null, &sections, null);
-    try elf_module.dwarf.sortCompileUnits();
+    try elf_module.dwarf.populateRanges(gpa);
     var info: Info = .{
         .address_map = .{},
         .coverage = coverage,

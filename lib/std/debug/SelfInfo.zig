@@ -606,7 +606,6 @@ pub const Module = switch (native_os) {
                 .endian = .little,
                 .sections = sections,
                 .is_macho = true,
-                .compile_units_sorted = false,
             };
 
             try Dwarf.open(&di, allocator);
@@ -996,7 +995,6 @@ fn readCoffDebugInfo(allocator: Allocator, coff_obj: *coff.Coff) !Module {
                 .endian = native_endian,
                 .sections = sections,
                 .is_macho = false,
-                .compile_units_sorted = false,
             };
 
             try Dwarf.open(&dwarf, allocator);
@@ -1810,7 +1808,6 @@ fn unwindFrameMachODwarf(
     var di: Dwarf = .{
         .endian = native_endian,
         .is_macho = true,
-        .compile_units_sorted = false,
     };
     defer di.deinit(context.allocator);
 
