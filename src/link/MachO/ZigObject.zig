@@ -550,6 +550,8 @@ pub fn calcSymtabSize(self: *ZigObject, macho_file: *MachO) void {
         const file = ref.getFile(macho_file) orelse continue;
         if (file.getIndex() != self.index) continue;
         if (sym.getAtom(macho_file)) |atom| if (!atom.isAlive()) continue;
+        const name = sym.getName(macho_file);
+        assert(name.len > 0);
         sym.flags.output_symtab = true;
         if (sym.isLocal()) {
             sym.addExtra(.{ .symtab = self.output_symtab_ctx.nlocals }, macho_file);
@@ -562,7 +564,7 @@ pub fn calcSymtabSize(self: *ZigObject, macho_file: *MachO) void {
             sym.addExtra(.{ .symtab = self.output_symtab_ctx.nimports }, macho_file);
             self.output_symtab_ctx.nimports += 1;
         }
-        self.output_symtab_ctx.strsize += @as(u32, @intCast(sym.getName(macho_file).len + 1));
+        self.output_symtab_ctx.strsize += @as(u32, @intCast(name.len + 1));
     }
 }
 
@@ -692,10 +694,22 @@ pub fn flushModule(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) 
 pub fn getDeclVAddr(
     self: *ZigObject,
     macho_file: *MachO,
+    pt: Zcu.PerThread,
     decl_index: InternPool.DeclIndex,
     reloc_info: link.File.RelocInfo,
 ) !u64 {
-    const sym_index = try self.getOrCreateMetadataForDecl(macho_file, decl_index);
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+    const decl = zcu.declPtr(decl_index);
+    log.debug("getDeclVAddr {}({d})", .{ decl.fqn.fmt(ip), decl_index });
+    const sym_index = if (decl.isExtern(zcu)) blk: {
+        const name = decl.name.toSlice(ip);
+        const lib_name = if (decl.getOwnedExternFunc(zcu)) |ext_fn|
+            ext_fn.lib_name.toSlice(ip)
+        else
+            decl.getOwnedVariable(zcu).?.lib_name.toSlice(ip);
+        break :blk try self.getGlobalSymbol(macho_file, name, lib_name);
+    } else try self.getOrCreateMetadataForDecl(macho_file, decl_index);
     const sym = self.symbols.items[sym_index];
     const vaddr = sym.getAddress(.{}, macho_file);
     const parent_atom = self.symbols.items[reloc_info.parent_atom_index].getAtom(macho_file).?;
