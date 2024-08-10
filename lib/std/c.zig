@@ -6619,7 +6619,7 @@ pub const Stat = switch (native_os) {
 };
 
 pub const pthread_mutex_t = switch (native_os) {
-    .linux, .minix => extern struct {
+    .linux => extern struct {
         data: [data_len]u8 align(@alignOf(usize)) = [_]u8{0} ** data_len,
 
         const data_len = switch (native_abi) {
@@ -6716,7 +6716,7 @@ pub const pthread_cond_t = switch (native_os) {
         magic: u16 = 0x4356,
         data: u64 = 0,
     },
-    .fuchsia, .minix, .emscripten => extern struct {
+    .fuchsia, .emscripten => extern struct {
         data: [48]u8 align(@alignOf(usize)) = [_]u8{0} ** 48,
     },
     else => void,

@@ -142,7 +142,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
 
         .opengl,
         .plan9,
-        .minix,
         .contiki,
         .other,
         => "unknown",
@@ -212,7 +211,6 @@ pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
         .opencl,
         .opengl,
         .plan9,
-        .minix,
         .contiki,
         => .UnknownOS,
 
