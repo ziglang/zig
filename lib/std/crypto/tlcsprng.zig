@@ -137,7 +137,7 @@ fn childAtForkHandler() callconv(.C) void {
     // The atfork handler is global, this function may be called after
     // fork()-ing threads that never initialized the CSPRNG context.
     if (wipe_mem.len == 0) return;
-    std.crypto.utils.secureZero(u8, wipe_mem);
+    std.crypto.secureZero(u8, wipe_mem);
 }
 
 fn fillWithCsprng(buffer: []u8) void {
@@ -159,7 +159,7 @@ fn initAndFill(buffer: []u8) void {
 
     const ctx = @as(*Context, @ptrCast(wipe_mem.ptr));
     ctx.rng = Rng.init(seed);
-    std.crypto.utils.secureZero(u8, &seed);
+    std.crypto.secureZero(u8, &seed);
 
     // This is at the end so that accidental recursive dependencies result
     // in stack overflows instead of invalid random data.

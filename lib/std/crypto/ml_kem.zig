@@ -1507,7 +1507,7 @@ fn Mat(comptime K: u8) type {
 
 // Returns `true` if a ≠ b.
 fn ctneq(comptime len: usize, a: [len]u8, b: [len]u8) u1 {
-    return 1 - @intFromBool(crypto.utils.timingSafeEql([len]u8, a, b));
+    return 1 - @intFromBool(crypto.timing_safe.eql([len]u8, a, b));
 }
 
 // Copy src into dst given b = 1.

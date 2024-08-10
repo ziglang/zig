@@ -1,5 +1,4 @@
 const std = @import("../std.zig");
-const utils = std.crypto.utils;
 const mem = std.mem;
 const mulWide = std.math.mulWide;
 
@@ -185,7 +184,7 @@ pub const Poly1305 = struct {
         mem.writeInt(u64, out[0..8], st.h[0], .little);
         mem.writeInt(u64, out[8..16], st.h[1], .little);
 
-        utils.secureZero(u8, @as([*]u8, @ptrCast(st))[0..@sizeOf(Poly1305)]);
+        std.crypto.secureZero(u8, @as([*]u8, @ptrCast(st))[0..@sizeOf(Poly1305)]);
     }
 
     pub fn create(out: *[mac_length]u8, msg: []const u8, key: *const [key_length]u8) void {
