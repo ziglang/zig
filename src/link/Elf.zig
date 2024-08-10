@@ -478,9 +478,9 @@ pub fn deinit(self: *Elf) void {
     self.comdat_group_sections.deinit(gpa);
 }
 
-pub fn getDeclVAddr(self: *Elf, _: Zcu.PerThread, decl_index: InternPool.DeclIndex, reloc_info: link.File.RelocInfo) !u64 {
+pub fn getDeclVAddr(self: *Elf, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
-    return self.zigObjectPtr().?.getDeclVAddr(self, decl_index, reloc_info);
+    return self.zigObjectPtr().?.getDeclVAddr(self, pt, decl_index, reloc_info);
 }
 
 pub fn lowerAnonDecl(

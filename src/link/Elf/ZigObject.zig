@@ -664,10 +664,22 @@ pub fn codeAlloc(self: *ZigObject, elf_file: *Elf, atom_index: Atom.Index) ![]u8
 pub fn getDeclVAddr(
     self: *ZigObject,
     elf_file: *Elf,
+    pt: Zcu.PerThread,
     decl_index: InternPool.DeclIndex,
     reloc_info: link.File.RelocInfo,
 ) !u64 {
-    const this_sym_index = try self.getOrCreateMetadataForDecl(elf_file, decl_index);
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+    const decl = zcu.declPtr(decl_index);
+    log.debug("getDeclVAddr {}({d})", .{ decl.fqn.fmt(ip), decl_index });
+    const this_sym_index = if (decl.isExtern(zcu)) blk: {
+        const name = decl.name.toSlice(ip);
+        const lib_name = if (decl.getOwnedExternFunc(zcu)) |ext_fn|
+            ext_fn.lib_name.toSlice(ip)
+        else
+            decl.getOwnedVariable(zcu).?.lib_name.toSlice(ip);
+        break :blk try self.getGlobalSymbol(elf_file, name, lib_name);
+    } else try self.getOrCreateMetadataForDecl(elf_file, decl_index);
     const this_sym = self.symbol(this_sym_index);
     const vaddr = this_sym.address(.{}, elf_file);
     const parent_atom = self.symbol(reloc_info.parent_atom_index).atom(elf_file).?;
@@ -810,10 +822,8 @@ fn freeDeclMetadata(self: *ZigObject, elf_file: *Elf, sym_index: Symbol.Index) v
 
 pub fn freeDecl(self: *ZigObject, elf_file: *Elf, decl_index: InternPool.DeclIndex) void {
     const gpa = elf_file.base.comp.gpa;
-    const mod = elf_file.base.comp.module.?;
-    const decl = mod.declPtr(decl_index);
 
-    log.debug("freeDecl {*}", .{decl});
+    log.debug("freeDecl ({d})", .{decl_index});
 
     if (self.decls.fetchRemove(decl_index)) |const_kv| {
         var kv = const_kv;
@@ -923,7 +933,7 @@ fn updateDeclCode(
     const ip = &mod.intern_pool;
     const decl = mod.declPtr(decl_index);
 
-    log.debug("updateDeclCode {}{*}", .{ decl.fqn.fmt(ip), decl });
+    log.debug("updateDeclCode {}({d})", .{ decl.fqn.fmt(ip), decl_index });
 
     const required_alignment = decl.getAlignment(pt).max(
         target_util.minFunctionAlignment(mod.getTarget()),
@@ -1023,7 +1033,7 @@ fn updateTlv(
     const gpa = mod.gpa;
     const decl = mod.declPtr(decl_index);
 
-    log.debug("updateTlv {} ({*})", .{ decl.fqn.fmt(ip), decl });
+    log.debug("updateTlv {}({d})", .{ decl.fqn.fmt(ip), decl_index });
 
     const required_alignment = decl.getAlignment(pt);
 
@@ -1077,10 +1087,13 @@ pub fn updateFunc(
     defer tracy.end();
 
     const mod = pt.zcu;
+    const ip = &mod.intern_pool;
     const gpa = elf_file.base.comp.gpa;
     const func = mod.funcInfo(func_index);
     const decl_index = func.owner_decl;
     const decl = mod.declPtr(decl_index);
+
+    log.debug("updateFunc {}({d})", .{ decl.fqn.fmt(ip), decl_index });
 
     const sym_index = try self.getOrCreateMetadataForDecl(elf_file, decl_index);
     self.freeUnnamedConsts(elf_file, decl_index);
@@ -1139,12 +1152,12 @@ pub fn updateDecl(
     defer tracy.end();
 
     const mod = pt.zcu;
+    const ip = &mod.intern_pool;
     const decl = mod.declPtr(decl_index);
 
-    if (decl.val.getExternFunc(mod)) |_| {
-        return;
-    }
+    log.debug("updateDecl {}({d})", .{ decl.fqn.fmt(ip), decl_index });
 
+    if (decl.val.getExternFunc(mod)) |_| return;
     if (decl.isExtern(mod)) {
         // Extern variable gets a .got entry only.
         const variable = decl.getOwnedVariable(mod).?;
@@ -1485,7 +1498,7 @@ pub fn updateDeclLineNumber(
 
     const decl = pt.zcu.declPtr(decl_index);
 
-    log.debug("updateDeclLineNumber {}{*}", .{ decl.fqn.fmt(&pt.zcu.intern_pool), decl });
+    log.debug("updateDeclLineNumber {}({d})", .{ decl.fqn.fmt(&pt.zcu.intern_pool), decl_index });
 
     if (self.dwarf) |*dw| {
         try dw.updateDeclLineNumber(pt.zcu, decl_index);
