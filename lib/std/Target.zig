@@ -63,10 +63,10 @@ pub const Os = struct {
         amdhsa,
         amdpal,
         cuda,
-        glsl450,
         mesa3d,
         nvcl,
         opencl,
+        opengl,
         shadermodel,
         vulkan,
 
@@ -171,7 +171,7 @@ pub const Os = struct {
                 .liteos,
                 .uefi,
                 .opencl, // TODO: OpenCL versions
-                .glsl450, // TODO: GLSL versions
+                .opengl, // TODO: GLSL versions
                 .vulkan,
                 .plan9,
                 .illumos,
@@ -402,7 +402,7 @@ pub const Os = struct {
                 .liteos,
                 .uefi,
                 .opencl, // TODO: OpenCL versions
-                .glsl450, // TODO: GLSL versions
+                .opengl, // TODO: GLSL versions
                 .vulkan,
                 .plan9,
                 .illumos,
@@ -601,7 +601,7 @@ pub const Os = struct {
             .liteos,
             .uefi,
             .opencl,
-            .glsl450,
+            .opengl,
             .vulkan,
             .plan9,
             .other,
@@ -715,7 +715,7 @@ pub const Abi = enum {
             => .musl,
             .liteos => .ohos,
             .opencl, // TODO: SPIR-V ABIs with Linkage capability
-            .glsl450,
+            .opengl,
             .vulkan,
             .plan9, // TODO specify abi
             .macos,
@@ -1661,7 +1661,7 @@ pub inline fn hasDynamicLinker(target: Target) bool {
         .windows,
         .emscripten,
         .opencl,
-        .glsl450,
+        .opengl,
         .vulkan,
         .plan9,
         .other,
@@ -1829,7 +1829,7 @@ pub const DynamicLinker = struct {
             .emscripten,
             .wasi,
             .opencl,
-            .glsl450,
+            .opengl,
             .vulkan,
             .other,
             .plan9,
@@ -2346,7 +2346,7 @@ pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
         .contiki,
         .hermit,
         .hurd,
-        .glsl450,
+        .opengl,
         .driverkit,
         .shadermodel,
         .liteos,

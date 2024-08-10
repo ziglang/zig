@@ -140,7 +140,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .serenity => "serenity",
         .vulkan => "vulkan",
 
-        .glsl450,
+        .opengl,
         .plan9,
         .minix,
         .contiki,
@@ -210,7 +210,7 @@ pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
         .freestanding,
         .other,
         .opencl,
-        .glsl450,
+        .opengl,
         .plan9,
         .minix,
         .contiki,

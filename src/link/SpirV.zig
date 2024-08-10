@@ -85,7 +85,7 @@ pub fn createEmpty(
     }
 
     switch (target.os.tag) {
-        .opencl, .glsl450, .vulkan => {},
+        .opencl, .opengl, .vulkan => {},
         else => unreachable, // Caught by Compilation.Config.resolve.
     }
 
@@ -290,7 +290,7 @@ fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
     // TODO: Integrate with a hypothetical feature system
     const caps: []const spec.Capability = switch (target.os.tag) {
         .opencl => &.{ .Kernel, .Addresses, .Int8, .Int16, .Int64, .Float64, .Float16, .Vector16, .GenericPointer },
-        .glsl450 => &.{.Shader},
+        .opengl => &.{.Shader},
         .vulkan => &.{ .Shader, .VariablePointersStorageBuffer, .Int8, .Int16, .Int64, .Float64, .Float16 },
         else => unreachable, // TODO
     };
@@ -311,13 +311,13 @@ fn writeMemoryModel(spv: *SpvModule, target: std.Target) !void {
             .spirv64 => spec.AddressingModel.Physical64,
             else => unreachable, // TODO
         },
-        .glsl450, .vulkan => spec.AddressingModel.Logical,
+        .opengl, .vulkan => spec.AddressingModel.Logical,
         else => unreachable, // TODO
     };
 
     const memory_model: spec.MemoryModel = switch (target.os.tag) {
         .opencl => .OpenCL,
-        .glsl450 => .GLSL450,
+        .opengl => .GLSL450,
         .vulkan => .GLSL450,
         else => unreachable,
     };

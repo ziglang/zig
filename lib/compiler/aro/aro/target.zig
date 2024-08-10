@@ -652,7 +652,7 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .shadermodel => "shadermodel",
         .liteos => "liteos",
         .opencl,
-        .glsl450,
+        .opengl,
         .vulkan,
         .plan9,
         .other,
