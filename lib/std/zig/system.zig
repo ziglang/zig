@@ -1152,7 +1152,7 @@ fn defaultAbiAndDynamicLinker(cpu: Target.Cpu, os: Target.Os, query: Target.Quer
         .abi = abi,
         .ofmt = query.ofmt orelse Target.ObjectFormat.default(os.tag, cpu.arch),
         .dynamic_linker = if (query.dynamic_linker.get() == null)
-            Target.DynamicLinker.standard(cpu, os.tag, abi)
+            Target.DynamicLinker.standard(cpu, os, abi)
         else
             query.dynamic_linker,
     };

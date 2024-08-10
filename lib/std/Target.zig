@@ -1768,156 +1768,332 @@ pub const DynamicLinker = struct {
         return std.mem.eql(u8, lhs.buffer[0..lhs.len], rhs.buffer[0..rhs.len]);
     }
 
-    pub fn standard(cpu: Cpu, os_tag: Os.Tag, abi: Abi) DynamicLinker {
-        return if (abi.isAndroid()) initFmt("/system/bin/linker{s}", .{
-            if (ptrBitWidth_cpu_abi(cpu, abi) == 64) "64" else "",
-        }) catch unreachable else if (abi.isMusl()) return initFmt("/lib/ld-musl-{s}{s}.so.1", .{
-            @tagName(switch (cpu.arch) {
-                .thumb => .arm,
-                .thumbeb => .armeb,
-                else => cpu.arch,
-            }),
-            if (cpu.arch.isArmOrThumb() and abi.floatAbi() == .hard) "hf" else "",
-        }) catch unreachable else switch (os_tag) {
-            .freebsd => init("/libexec/ld-elf.so.1"),
-            .netbsd => init("/libexec/ld.elf_so"),
-            .openbsd => init("/usr/libexec/ld.so"),
-            .dragonfly => init("/libexec/ld-elf.so.2"),
-            .solaris, .illumos => init("/lib/64/ld.so.1"),
-            .linux => switch (cpu.arch) {
-                .x86,
-                .sparc,
-                => init("/lib/ld-linux.so.2"),
+    pub fn standard(cpu: Cpu, os: Os, abi: Abi) DynamicLinker {
+        return switch (os.tag) {
+            .fuchsia => init("ld.so.1"), // Fuchsia is unusual in that `DT_INTERP` is just a basename.
 
-                .aarch64 => init("/lib/ld-linux-aarch64.so.1"),
-                .aarch64_be => init("/lib/ld-linux-aarch64_be.so.1"),
+            .haiku => init("/system/runtime_loader"),
 
+            .hurd => switch (cpu.arch) {
+                .aarch64,
+                .aarch64_be,
+                => |arch| initFmt("/lib/ld-{s}{s}.so.1", .{
+                    @tagName(arch),
+                    if (abi == .gnuilp32) "_ilp32" else "",
+                }),
+
+                .x86 => init("/lib/ld.so.1"),
+                .x86_64 => initFmt("/lib/ld-{s}.so.1", .{if (abi == .gnux32) "x32" else "x86-64"}),
+
+                // These are unsupported by Hurd/glibc.
+                .amdgcn,
+                .arc,
                 .arm,
                 .armeb,
                 .thumb,
                 .thumbeb,
-                => initFmt("/lib/ld-linux{s}.so.3", .{switch (abi.floatAbi()) {
-                    .hard => "-armhf",
-                    else => "",
-                }}) catch unreachable,
-
-                .loongarch64 => init("/lib64/ld-linux-loongarch-lp64d.so.1"),
-
+                .avr,
+                .bpfel,
+                .bpfeb,
+                .csky,
+                .hexagon,
+                .kalimba,
+                .lanai,
+                .loongarch32,
+                .loongarch64,
+                .m68k,
                 .mips,
                 .mipsel,
                 .mips64,
                 .mips64el,
-                => initFmt("/lib{s}/{s}", .{
-                    switch (abi) {
-                        .gnuabin32, .gnux32 => "32",
-                        .gnuabi64 => "64",
-                        else => "",
-                    },
-                    if (mips.featureSetHas(cpu.features, .nan2008))
-                        "ld-linux-mipsn8.so.1"
-                    else
-                        "ld.so.1",
-                }) catch unreachable,
-
-                .powerpc, .powerpcle => init("/lib/ld.so.1"),
-                .powerpc64, .powerpc64le => init("/lib64/ld64.so.2"),
-                .s390x => init("/lib64/ld64.so.1"),
-                .sparc64 => init("/lib64/ld-linux.so.2"),
-                .x86_64 => init(switch (abi) {
-                    .gnux32 => "/libx32/ld-linux-x32.so.2",
-                    else => "/lib64/ld-linux-x86-64.so.2",
-                }),
-
-                .riscv32 => init("/lib/ld-linux-riscv32-ilp32d.so.1"),
-                .riscv64 => init("/lib/ld-linux-riscv64-lp64d.so.1"),
-
-                // Architectures in this list have been verified as not having a standard
-                // dynamic linker path.
-                .wasm32,
-                .wasm64,
-                .bpfel,
-                .bpfeb,
+                .msp430,
                 .nvptx,
                 .nvptx64,
-                .spu_2,
-                .avr,
+                .powerpc,
+                .powerpcle,
+                .powerpc64,
+                .powerpc64le,
+                .propeller1,
+                .propeller2,
+                .riscv32,
+                .riscv64,
+                .s390x,
+                .sparc,
+                .sparc64,
                 .spirv,
                 .spirv32,
                 .spirv64,
-                .propeller1,
-                .propeller2,
-                => none,
-
-                // TODO go over each item in this list and either move it to the above list, or
-                // implement the standard dynamic linker path code for it.
-                .arc,
-                .csky,
-                .hexagon,
-                .m68k,
-                .msp430,
-                .amdgcn,
-                .xcore,
-                .kalimba,
-                .lanai,
+                .spu_2,
                 .ve,
-                .loongarch32,
+                .wasm32,
+                .wasm64,
+                .xcore,
                 .xtensa,
                 => none,
             },
 
+            .linux => if (abi.isAndroid())
+                initFmt("/system/bin/linker{s}", .{if (ptrBitWidth_cpu_abi(cpu, abi) == 64) "64" else ""})
+            else if (abi.isMusl())
+                switch (cpu.arch) {
+                    .arm,
+                    .armeb,
+                    .thumb,
+                    .thumbeb,
+                    .aarch64,
+                    .aarch64_be,
+                    .loongarch64,
+                    .m68k,
+                    .powerpc,
+                    .powerpc64,
+                    .powerpc64le,
+                    .riscv32,
+                    .riscv64,
+                    .s390x,
+                    .x86,
+                    .x86_64,
+                    => |arch| initFmt("/lib/ld-musl-{s}{s}.so.1", .{
+                        switch (arch) {
+                            .thumb => "arm",
+                            .thumbeb => "armeb",
+                            .x86 => "i386",
+                            .x86_64 => if (abi == .muslx32) "x32" else "x86_64",
+                            else => @tagName(arch),
+                        },
+                        switch (arch) {
+                            .arm, .armeb, .thumb, .thumbeb => if (abi.floatAbi() == .hard) "hf" else "",
+                            .aarch64, .aarch64_be => if (abi == .gnuilp32) "_ilp32" else "",
+                            .riscv32, .riscv64 => if (std.Target.riscv.featureSetHas(cpu.features, .d))
+                                ""
+                            else if (std.Target.riscv.featureSetHas(cpu.features, .f))
+                                "-sp"
+                            else
+                                "-sf",
+                            else => if (abi.floatAbi() == .soft) "-sf" else "",
+                        },
+                    }),
+
+                    // The naming scheme for MIPS is a bit irregular.
+                    .mips,
+                    .mipsel,
+                    .mips64,
+                    .mips64el,
+                    => |arch| initFmt("/lib/ld-musl-mips{s}{s}{s}{s}.so.1", .{
+                        if (arch.isMIPS64()) "64" else "", // TODO: `n32` ABI support in LLVM 20.
+                        if (mips.featureSetHas(cpu.features, if (arch.isMIPS64()) .mips64r6 else .mips32r6)) "r6" else "",
+                        if (arch.endian() == .little) "el" else "",
+                        if (abi.floatAbi() == .soft) "-sf" else "",
+                    }),
+
+                    // These are unsupported by musl.
+                    .amdgcn,
+                    .arc,
+                    .avr,
+                    .csky,
+                    .bpfel,
+                    .bpfeb,
+                    .hexagon,
+                    .kalimba,
+                    .lanai,
+                    .loongarch32,
+                    .msp430,
+                    .nvptx,
+                    .nvptx64,
+                    .powerpcle,
+                    .propeller1,
+                    .propeller2,
+                    .sparc,
+                    .sparc64,
+                    .spirv,
+                    .spirv32,
+                    .spirv64,
+                    .spu_2,
+                    .ve,
+                    .wasm32,
+                    .wasm64,
+                    .xcore,
+                    .xtensa,
+                    => none,
+                }
+            else if (abi.isGnu())
+                switch (cpu.arch) {
+                    // TODO: `eb` architecture support.
+                    // TODO: `700` ABI support.
+                    .arc => init("/lib/ld-linux-arc.so.2"),
+
+                    // TODO: OABI support (`/lib/ld-linux.so.2`).
+                    .arm,
+                    .armeb,
+                    .thumb,
+                    .thumbeb,
+                    => initFmt("/lib/ld-linux{s}.so.3", .{if (abi.floatAbi() == .hard) "-armhf" else ""}),
+
+                    .aarch64,
+                    .aarch64_be,
+                    => |arch| initFmt("/lib/ld-linux-{s}{s}.so.1", .{
+                        @tagName(arch),
+                        if (abi == .gnuilp32) "_ilp32" else "",
+                    }),
+
+                    // TODO: `-be` architecture support.
+                    .csky => initFmt("/lib/ld-linux-cskyv2{s}.so.1", .{if (abi.floatAbi() == .hard) "-hf" else ""}),
+
+                    .loongarch64 => initFmt("/lib64/ld-linux-loongarch-{s}.so.1", .{switch (abi) {
+                        .gnuf32 => "lp64f",
+                        .gnusf => "lp64s",
+                        else => "lp64d",
+                    }}),
+
+                    .m68k => init("/lib/ld.so.1"),
+
+                    .mips,
+                    .mipsel,
+                    .mips64,
+                    .mips64el,
+                    => initFmt("/lib{s}/ld{s}.so.1", .{
+                        switch (abi) {
+                            .gnuabin32 => "32",
+                            .gnuabi64 => "64",
+                            else => "",
+                        },
+                        if (mips.featureSetHas(cpu.features, .nan2008)) "-linux-mipsn8" else "",
+                    }),
+
+                    .powerpc => init("/lib/ld.so.1"),
+                    // TODO: ELFv2 ABI opt-in support.
+                    .powerpc64 => init("/lib64/ld64.so.1"),
+                    .powerpc64le => init("/lib64/ld64.so.2"),
+
+                    .riscv32,
+                    .riscv64,
+                    => |arch| initFmt("/lib/ld-linux-{s}-{s}{s}.so.1", .{
+                        @tagName(arch),
+                        switch (arch) {
+                            .riscv32 => "ilp32",
+                            .riscv64 => "lp64",
+                            else => unreachable,
+                        },
+                        if (riscv.featureSetHas(cpu.features, .d))
+                            "d"
+                        else if (riscv.featureSetHas(cpu.features, .f))
+                            "f"
+                        else
+                            "",
+                    }),
+
+                    .s390x => init("/lib/ld64.so.1"),
+
+                    .sparc => init("/lib/ld-linux.so.2"),
+                    .sparc64 => init("/lib64/ld-linux.so.2"),
+
+                    .x86 => init("/lib/ld-linux.so.2"),
+                    .x86_64 => init(if (abi == .gnux32) "/libx32/ld-linux-x32.so.2" else "/lib64/ld-linux-x86-64.so.2"),
+
+                    .xtensa => init("/lib/ld.so.1"),
+
+                    // These are unsupported by glibc.
+                    .amdgcn,
+                    .avr,
+                    .bpfeb,
+                    .bpfel,
+                    .hexagon,
+                    .kalimba,
+                    .lanai,
+                    .loongarch32,
+                    .msp430,
+                    .nvptx,
+                    .nvptx64,
+                    .powerpcle,
+                    .propeller1,
+                    .propeller2,
+                    .spirv,
+                    .spirv32,
+                    .spirv64,
+                    .spu_2,
+                    .ve,
+                    .wasm32,
+                    .wasm64,
+                    .xcore,
+                    => none,
+                }
+            else
+                none, // Not a known Linux libc.
+
+            .serenity => init("/usr/lib/Loader.so"),
+
+            .dragonfly => initFmt("{s}/libexec/ld-elf.so.2", .{
+                if (os.version_range.semver.isAtLeast(.{ .major = 3, .minor = 8, .patch = 0 }) orelse false)
+                    ""
+                else
+                    "/usr",
+            }),
+
+            .freebsd => initFmt("{s}/libexec/ld-elf.so.1", .{
+                if (os.version_range.semver.isAtLeast(.{ .major = 6, .minor = 0, .patch = 0 }) orelse false)
+                    ""
+                else
+                    "/usr",
+            }),
+
+            .netbsd => init("/libexec/ld.elf_so"),
+
+            .openbsd => init("/usr/libexec/ld.so"),
+
             .bridgeos,
             .driverkit,
             .ios,
-            .tvos,
-            .watchos,
             .macos,
+            .tvos,
             .visionos,
+            .watchos,
             => init("/usr/lib/dyld"),
 
-            .serenity => init("/usr/lib/Loader.so"),
+            .illumos,
+            .solaris,
+            => initFmt("/lib/{s}ld.so.1", .{if (ptrBitWidth_cpu_abi(cpu, abi) == 64) "64/" else ""}),
 
             // Operating systems in this list have been verified as not having a standard
             // dynamic linker path.
             .freestanding,
+            .other,
+
+            .contiki,
+            .elfiamcu,
+            .hermit,
+
+            .aix,
+            .plan9,
+            .rtems,
+            .zos,
+
             .uefi,
             .windows,
+
             .emscripten,
             .wasi,
+
+            .amdhsa,
+            .amdpal,
+            .cuda,
+            .mesa3d,
+            .nvcl,
             .opencl,
             .opengl,
             .vulkan,
-            .other,
-            .plan9,
             => none,
-
-            // TODO revisit when multi-arch for Haiku is available
-            .haiku => init("/system/runtime_loader"),
 
             // TODO go over each item in this list and either move it to the above list, or
             // implement the standard dynamic linker path code for it.
-            .fuchsia,
             .ps3,
-            .zos,
-            .rtems,
-            .aix,
-            .cuda,
-            .nvcl,
-            .amdhsa,
             .ps4,
             .ps5,
-            .elfiamcu,
-            .mesa3d,
-            .contiki,
-            .amdpal,
-            .hermit,
-            .hurd,
             => none,
-        };
+        } catch unreachable;
     }
 };
 
 pub fn standardDynamicLinkerPath(target: Target) DynamicLinker {
-    return DynamicLinker.standard(target.cpu, target.os.tag, target.abi);
+    return DynamicLinker.standard(target.cpu, target.os, target.abi);
 }
 
 pub fn ptrBitWidth_cpu_abi(cpu: Cpu, abi: Abi) u16 {
