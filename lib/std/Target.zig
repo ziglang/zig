@@ -411,13 +411,13 @@ pub const Os = struct {
                     .aarch64 => VersionRange{
                         .semver = .{
                             .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                            .max = .{ .major = 14, .minor = 1, .patch = 0 },
+                            .max = .{ .major = 14, .minor = 6, .patch = 1 },
                         },
                     },
                     .x86_64 => VersionRange{
                         .semver = .{
                             .min = .{ .major = 11, .minor = 7, .patch = 1 },
-                            .max = .{ .major = 14, .minor = 1, .patch = 0 },
+                            .max = .{ .major = 14, .minor = 6, .patch = 1 },
                         },
                     },
                     else => unreachable,
@@ -425,25 +425,25 @@ pub const Os = struct {
                 .ios => .{
                     .semver = .{
                         .min = .{ .major = 12, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 17, .minor = 1, .patch = 0 },
+                        .max = .{ .major = 17, .minor = 6, .patch = 1 },
                     },
                 },
                 .watchos => .{
                     .semver = .{
                         .min = .{ .major = 6, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 10, .minor = 1, .patch = 0 },
+                        .max = .{ .major = 10, .minor = 6, .patch = 0 },
                     },
                 },
                 .tvos => .{
                     .semver = .{
                         .min = .{ .major = 13, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 17, .minor = 1, .patch = 0 },
+                        .max = .{ .major = 17, .minor = 6, .patch = 0 },
                     },
                 },
                 .visionos => .{
                     .semver = .{
                         .min = .{ .major = 1, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 1, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 1, .minor = 3, .patch = 0 },
                     },
                 },
                 .netbsd => .{
