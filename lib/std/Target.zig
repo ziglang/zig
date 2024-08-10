@@ -714,7 +714,7 @@ pub const Abi = enum {
             .emscripten,
             => .musl,
             .liteos => .ohos,
-            .opencl, // TODO: SPIR-V ABIs with Linkage capability
+            .opencl,
             .opengl,
             .vulkan,
             .plan9, // TODO specify abi
