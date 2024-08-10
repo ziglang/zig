@@ -28,7 +28,6 @@ pub const Os = struct {
         haiku,
         hurd,
         linux,
-        liteos,
         plan9,
         rtems,
         serenity,
@@ -166,7 +165,6 @@ pub const Os = struct {
                 .emscripten,
                 .driverkit,
                 .shadermodel,
-                .liteos,
                 .uefi,
                 .opencl, // TODO: OpenCL versions
                 .opengl, // TODO: GLSL versions
@@ -396,7 +394,6 @@ pub const Os = struct {
                 .emscripten,
                 .driverkit,
                 .shadermodel,
-                .liteos,
                 .uefi,
                 .opencl, // TODO: OpenCL versions
                 .opengl, // TODO: GLSL versions
@@ -594,7 +591,6 @@ pub const Os = struct {
             .emscripten,
             .driverkit,
             .shadermodel,
-            .liteos,
             .uefi,
             .opencl,
             .opengl,
@@ -708,7 +704,6 @@ pub const Abi = enum {
             .wasi,
             .emscripten,
             => .musl,
-            .liteos => .ohos,
             .opencl,
             .opengl,
             .vulkan,
@@ -1853,7 +1848,6 @@ pub const DynamicLinker = struct {
             .hurd,
             .driverkit,
             .shadermodel,
-            .liteos,
             => none,
         };
     }
@@ -2342,7 +2336,6 @@ pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
         .opengl,
         .driverkit,
         .shadermodel,
-        .liteos,
         => @panic("TODO specify the C integer and float type sizes for this OS"),
     }
 }

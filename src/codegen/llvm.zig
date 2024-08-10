@@ -135,7 +135,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .watchos => "watchos",
         .driverkit => "driverkit",
         .shadermodel => "shadermodel",
-        .liteos => "liteos",
         .visionos => "xros",
         .serenity => "serenity",
         .vulkan => "vulkan",
@@ -246,7 +245,6 @@ pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
         .emscripten => .Emscripten,
         .driverkit => .DriverKit,
         .shadermodel => .ShaderModel,
-        .liteos => .LiteOS,
         .vulkan => .Vulkan,
         .serenity => .Serenity,
     };
