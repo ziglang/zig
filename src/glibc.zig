@@ -461,6 +461,8 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
         } else {
             try result.appendSlice("powerpc" ++ s ++ "powerpc32");
         }
+    } else if (arch.isLoongArch()) {
+        try result.appendSlice("loongarch");
     }
 
     try result.appendSlice(s);
