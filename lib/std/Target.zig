@@ -455,7 +455,7 @@ pub const Os = struct {
                 .openbsd => .{
                     .semver = .{
                         .min = .{ .major = 7, .minor = 3, .patch = 0 },
-                        .max = .{ .major = 7, .minor = 4, .patch = 0 },
+                        .max = .{ .major = 7, .minor = 5, .patch = 0 },
                     },
                 },
                 .dragonfly => .{
