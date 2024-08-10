@@ -466,8 +466,8 @@ pub const Os = struct {
                 },
                 .solaris => .{
                     .semver = .{
-                        .min = .{ .major = 5, .minor = 11, .patch = 0 },
-                        .max = .{ .major = 5, .minor = 11, .patch = 0 },
+                        .min = .{ .major = 11, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 11, .minor = 4, .patch = 0 },
                     },
                 },
                 .wasi => .{
