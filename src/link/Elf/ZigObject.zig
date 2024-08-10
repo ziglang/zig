@@ -579,6 +579,8 @@ pub fn updateSymtabSize(self: *ZigObject, elf_file: *Elf) !void {
     for (self.local_symbols.items) |index| {
         const local = &self.symbols.items[index];
         if (local.atom(elf_file)) |atom_ptr| if (!atom_ptr.alive) continue;
+        const name = local.name(elf_file);
+        assert(name.len > 0);
         const esym = local.elfSym(elf_file);
         switch (esym.st_type()) {
             elf.STT_SECTION, elf.STT_NOTYPE => continue,
@@ -587,7 +589,7 @@ pub fn updateSymtabSize(self: *ZigObject, elf_file: *Elf) !void {
         local.flags.output_symtab = true;
         local.addExtra(.{ .symtab = self.output_symtab_ctx.nlocals }, elf_file);
         self.output_symtab_ctx.nlocals += 1;
-        self.output_symtab_ctx.strsize += @as(u32, @intCast(local.name(elf_file).len)) + 1;
+        self.output_symtab_ctx.strsize += @as(u32, @intCast(name.len)) + 1;
     }
 
     for (self.global_symbols.items, self.symbols_resolver.items) |index, resolv| {
