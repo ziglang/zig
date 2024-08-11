@@ -174,28 +174,30 @@ pub fn resolveAddressesDwarf(
             continue :next_pc;
         }
         const cu = &d.compile_unit_list.items[range.compile_unit_index];
-        if (cu.src_loc_cache == null) {
-            cov.mutex.unlock();
-            defer cov.mutex.lock();
-            d.populateSrcLocCache(gpa, cu) catch |err| switch (err) {
-                error.MissingDebugInfo, error.InvalidDebugInfo => {
-                    out.* = SourceLocation.invalid;
-                    continue :next_pc;
-                },
-                else => |e| return e,
-            };
-        }
-        const slc = &cu.src_loc_cache.?;
-        const table_addrs = slc.line_table.keys();
         if (cu != prev_cu) {
             prev_cu = cu;
+            if (cu.src_loc_cache == null) {
+                cov.mutex.unlock();
+                defer cov.mutex.lock();
+                d.populateSrcLocCache(gpa, cu) catch |err| switch (err) {
+                    error.MissingDebugInfo, error.InvalidDebugInfo => {
+                        out.* = SourceLocation.invalid;
+                        continue :next_pc;
+                    },
+                    else => |e| return e,
+                };
+            }
+            const slc = &cu.src_loc_cache.?;
+            const table_addrs = slc.line_table.keys();
             line_table_i = std.sort.upperBound(u64, table_addrs, pc, struct {
                 fn order(context: u64, item: u64) std.math.Order {
                     return std.math.order(item, context);
                 }
             }.order);
         }
-        while (line_table_i < table_addrs.len and table_addrs[line_table_i] < pc) line_table_i += 1;
+        const slc = &cu.src_loc_cache.?;
+        const table_addrs = slc.line_table.keys();
+        while (line_table_i < table_addrs.len and table_addrs[line_table_i] <= pc) line_table_i += 1;
 
         const entry = slc.line_table.values()[line_table_i - 1];
         const corrected_file_index = entry.file - @intFromBool(slc.version < 5);

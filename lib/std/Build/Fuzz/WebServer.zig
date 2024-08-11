@@ -664,8 +664,8 @@ fn addEntryPoint(ws: *WebServer, coverage_id: u64, addr: u64) error{ AlreadyRepo
     if (false) {
         const sl = coverage_map.source_locations[index];
         const file_name = coverage_map.coverage.stringAt(coverage_map.coverage.fileAt(sl.file).basename);
-        log.debug("server found entry point {s}:{d}:{d}", .{
-            file_name, sl.line, sl.column,
+        log.debug("server found entry point for 0x{x} at {s}:{d}:{d}", .{
+            addr, file_name, sl.line, sl.column,
         });
     }
     const gpa = ws.gpa;
