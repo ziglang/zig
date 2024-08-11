@@ -1259,8 +1259,8 @@ fn updateLazySymbolAtom(
     atom_index: Atom.Index,
     section_index: u16,
 ) !void {
-    const mod = pt.zcu;
-    const gpa = mod.gpa;
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
 
     var required_alignment: InternPool.Alignment = .none;
     var code_buffer = std.ArrayList(u8).init(gpa);
@@ -1275,7 +1275,7 @@ fn updateLazySymbolAtom(
     const atom = self.getAtomPtr(atom_index);
     const local_sym_index = atom.getSymbolIndex().?;
 
-    const src = Type.fromInterned(sym.ty).srcLocOrNull(mod) orelse Module.LazySrcLoc.unneeded;
+    const src = Type.fromInterned(sym.ty).srcLocOrNull(zcu) orelse Zcu.LazySrcLoc.unneeded;
     const res = try codegen.generateLazySymbol(
         &self.base,
         pt,
@@ -1849,7 +1849,7 @@ pub fn lowerUav(
     const gpa = zcu.gpa;
     const val = Value.fromInterned(uav);
     const uav_alignment = switch (explicit_alignment) {
-        .none => val.typeOf(zcu).abiAlignment(pt),
+        .none => val.typeOf(zcu).abiAlignment(zcu),
         else => explicit_alignment,
     };
     if (self.uavs.get(uav)) |metadata| {

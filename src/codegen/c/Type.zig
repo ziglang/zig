@@ -1344,6 +1344,7 @@ pub const Pool = struct {
         kind: Kind,
     ) !CType {
         const ip = &pt.zcu.intern_pool;
+        const zcu = pt.zcu;
         switch (ty.toIntern()) {
             .u0_type,
             .i0_type,
@@ -1476,7 +1477,7 @@ pub const Pool = struct {
                                 ),
                                 .alignas = AlignAs.fromAlignment(.{
                                     .@"align" = ptr_info.flags.alignment,
-                                    .abi = Type.fromInterned(ptr_info.child).abiAlignment(pt),
+                                    .abi = Type.fromInterned(ptr_info.child).abiAlignment(zcu),
                                 }),
                             };
                             break :elem_ctype if (elem.alignas.abiOrder().compare(.gte))
@@ -1552,7 +1553,7 @@ pub const Pool = struct {
                         .{
                             .name = .{ .index = .array },
                             .ctype = array_ctype,
-                            .alignas = AlignAs.fromAbiAlignment(elem_type.abiAlignment(pt)),
+                            .alignas = AlignAs.fromAbiAlignment(elem_type.abiAlignment(zcu)),
                         },
                     };
                     return pool.fromFields(allocator, .@"struct", &fields, kind);
@@ -1578,7 +1579,7 @@ pub const Pool = struct {
                         .{
                             .name = .{ .index = .array },
                             .ctype = vector_ctype,
-                            .alignas = AlignAs.fromAbiAlignment(elem_type.abiAlignment(pt)),
+                            .alignas = AlignAs.fromAbiAlignment(elem_type.abiAlignment(zcu)),
                         },
                     };
                     return pool.fromFields(allocator, .@"struct", &fields, kind);
@@ -1613,7 +1614,7 @@ pub const Pool = struct {
                             .name = .{ .index = .payload },
                             .ctype = payload_ctype,
                             .alignas = AlignAs.fromAbiAlignment(
-                                Type.fromInterned(payload_type).abiAlignment(pt),
+                                Type.fromInterned(payload_type).abiAlignment(zcu),
                             ),
                         },
                     };
@@ -1649,7 +1650,7 @@ pub const Pool = struct {
                         .{
                             .name = .{ .index = .payload },
                             .ctype = payload_ctype,
-                            .alignas = AlignAs.fromAbiAlignment(payload_type.abiAlignment(pt)),
+                            .alignas = AlignAs.fromAbiAlignment(payload_type.abiAlignment(zcu)),
                         },
                     };
                     return pool.fromFields(allocator, .@"struct", &fields, kind);
@@ -1663,7 +1664,7 @@ pub const Pool = struct {
                                 .tag = .@"struct",
                                 .name = .{ .index = ip_index },
                             });
-                            if (kind.isForward()) return if (ty.hasRuntimeBitsIgnoreComptime(pt))
+                            if (kind.isForward()) return if (ty.hasRuntimeBitsIgnoreComptime(zcu))
                                 fwd_decl
                             else
                                 CType.void;
@@ -1696,7 +1697,7 @@ pub const Pool = struct {
                                     String.fromUnnamed(@intCast(field_index));
                                 const field_alignas = AlignAs.fromAlignment(.{
                                     .@"align" = loaded_struct.fieldAlign(ip, field_index),
-                                    .abi = field_type.abiAlignment(pt),
+                                    .abi = field_type.abiAlignment(zcu),
                                 });
                                 pool.addHashedExtraAssumeCapacityTo(scratch, &hasher, Field, .{
                                     .name = field_name.index,
@@ -1758,7 +1759,7 @@ pub const Pool = struct {
                             .name = field_name.index,
                             .ctype = field_ctype.index,
                             .flags = .{ .alignas = AlignAs.fromAbiAlignment(
-                                field_type.abiAlignment(pt),
+                                field_type.abiAlignment(zcu),
                             ) },
                         });
                     }
@@ -1802,7 +1803,7 @@ pub const Pool = struct {
                                 .tag = if (has_tag) .@"struct" else .@"union",
                                 .name = .{ .index = ip_index },
                             });
-                            if (kind.isForward()) return if (ty.hasRuntimeBitsIgnoreComptime(pt))
+                            if (kind.isForward()) return if (ty.hasRuntimeBitsIgnoreComptime(zcu))
                                 fwd_decl
                             else
                                 CType.void;
@@ -1836,7 +1837,7 @@ pub const Pool = struct {
                                 );
                                 const field_alignas = AlignAs.fromAlignment(.{
                                     .@"align" = loaded_union.fieldAlign(ip, field_index),
-                                    .abi = field_type.abiAlignment(pt),
+                                    .abi = field_type.abiAlignment(zcu),
                                 });
                                 pool.addHashedExtraAssumeCapacityTo(scratch, &hasher, Field, .{
                                     .name = field_name.index,
@@ -1881,7 +1882,7 @@ pub const Pool = struct {
                                     struct_fields[struct_fields_len] = .{
                                         .name = .{ .index = .tag },
                                         .ctype = tag_ctype,
-                                        .alignas = AlignAs.fromAbiAlignment(tag_type.abiAlignment(pt)),
+                                        .alignas = AlignAs.fromAbiAlignment(tag_type.abiAlignment(zcu)),
                                     };
                                     struct_fields_len += 1;
                                 }
@@ -1929,7 +1930,7 @@ pub const Pool = struct {
                         },
                         .@"packed" => return pool.fromIntInfo(allocator, .{
                             .signedness = .unsigned,
-                            .bits = @intCast(ty.bitSize(pt)),
+                            .bits = @intCast(ty.bitSize(zcu)),
                         }, mod, kind),
                     }
                 },

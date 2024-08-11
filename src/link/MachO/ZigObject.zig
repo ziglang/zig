@@ -688,7 +688,7 @@ pub fn lowerUav(
     const gpa = zcu.gpa;
     const val = Value.fromInterned(uav);
     const uav_alignment = switch (explicit_alignment) {
-        .none => val.typeOf(zcu).abiAlignment(pt),
+        .none => val.typeOf(zcu).abiAlignment(zcu),
         else => explicit_alignment,
     };
     if (self.uavs.get(uav)) |metadata| {

@@ -2109,9 +2109,9 @@ pub const CompileError = error{
     ComptimeBreak,
 };
 
-pub fn init(mod: *Zcu, thread_count: usize) !void {
-    const gpa = mod.gpa;
-    try mod.intern_pool.init(gpa, thread_count);
+pub fn init(zcu: *Zcu, thread_count: usize) !void {
+    const gpa = zcu.gpa;
+    try zcu.intern_pool.init(gpa, thread_count);
 }
 
 pub fn deinit(zcu: *Zcu) void {
@@ -2204,8 +2204,8 @@ pub fn namespacePtr(zcu: *Zcu, index: Namespace.Index) *Namespace {
     return zcu.intern_pool.namespacePtr(index);
 }
 
-pub fn namespacePtrUnwrap(mod: *Zcu, index: Namespace.OptionalIndex) ?*Namespace {
-    return mod.namespacePtr(index.unwrap() orelse return null);
+pub fn namespacePtrUnwrap(zcu: *Zcu, index: Namespace.OptionalIndex) ?*Namespace {
+    return zcu.namespacePtr(index.unwrap() orelse return null);
 }
 
 // TODO https://github.com/ziglang/zig/issues/8643
@@ -2682,7 +2682,7 @@ pub fn mapOldZirToNew(
 ///
 /// The caller is responsible for ensuring the function decl itself is already
 /// analyzed, and for ensuring it can exist at runtime (see
-/// `sema.fnHasRuntimeBits`). This function does *not* guarantee that the body
+/// `Type.fnHasRuntimeBitsSema`). This function does *not* guarantee that the body
 /// will be analyzed when it returns: for that, see `ensureFuncBodyAnalyzed`.
 pub fn ensureFuncBodyAnalysisQueued(zcu: *Zcu, func_index: InternPool.Index) !void {
     const ip = &zcu.intern_pool;
@@ -2846,16 +2846,16 @@ pub fn errorSetBits(mod: *Zcu) u16 {
 }
 
 pub fn errNote(
-    mod: *Zcu,
+    zcu: *Zcu,
     src_loc: LazySrcLoc,
     parent: *ErrorMsg,
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
-    const msg = try std.fmt.allocPrint(mod.gpa, format, args);
-    errdefer mod.gpa.free(msg);
+    const msg = try std.fmt.allocPrint(zcu.gpa, format, args);
+    errdefer zcu.gpa.free(msg);
 
-    parent.notes = try mod.gpa.realloc(parent.notes, parent.notes.len + 1);
+    parent.notes = try zcu.gpa.realloc(parent.notes, parent.notes.len + 1);
     parent.notes[parent.notes.len - 1] = .{
         .src_loc = src_loc,
         .msg = msg,
@@ -2876,14 +2876,14 @@ pub fn optimizeMode(zcu: *const Zcu) std.builtin.OptimizeMode {
     return zcu.root_mod.optimize_mode;
 }
 
-fn lockAndClearFileCompileError(mod: *Zcu, file: *File) void {
+fn lockAndClearFileCompileError(zcu: *Zcu, file: *File) void {
     switch (file.status) {
         .success_zir, .retryable_failure => {},
         .never_loaded, .parse_failure, .astgen_failure => {
-            mod.comp.mutex.lock();
-            defer mod.comp.mutex.unlock();
-            if (mod.failed_files.fetchSwapRemove(file)) |kv| {
-                if (kv.value) |msg| msg.destroy(mod.gpa); // Delete previous error message.
+            zcu.comp.mutex.lock();
+            defer zcu.comp.mutex.unlock();
+            if (zcu.failed_files.fetchSwapRemove(file)) |kv| {
+                if (kv.value) |msg| msg.destroy(zcu.gpa); // Delete previous error message.
             }
         },
     }
@@ -2965,11 +2965,11 @@ pub const AtomicPtrAlignmentDiagnostics = struct {
 // TODO this function does not take into account CPU features, which can affect
 // this value. Audit this!
 pub fn atomicPtrAlignment(
-    mod: *Zcu,
+    zcu: *Zcu,
     ty: Type,
     diags: *AtomicPtrAlignmentDiagnostics,
 ) AtomicPtrAlignmentError!Alignment {
-    const target = mod.getTarget();
+    const target = zcu.getTarget();
     const max_atomic_bits: u16 = switch (target.cpu.arch) {
         .avr,
         .msp430,
@@ -3039,8 +3039,8 @@ pub fn atomicPtrAlignment(
         }
         return .none;
     }
-    if (ty.isAbiInt(mod)) {
-        const bit_count = ty.intInfo(mod).bits;
+    if (ty.isAbiInt(zcu)) {
+        const bit_count = ty.intInfo(zcu).bits;
         if (bit_count > max_atomic_bits) {
             diags.* = .{
                 .bits = bit_count,
@@ -3050,7 +3050,7 @@ pub fn atomicPtrAlignment(
         }
         return .none;
     }
-    if (ty.isPtrAtRuntime(mod)) return .none;
+    if (ty.isPtrAtRuntime(zcu)) return .none;
     return error.BadType;
 }
 
@@ -3058,45 +3058,45 @@ pub fn atomicPtrAlignment(
 /// * `@TypeOf(.{})`
 /// * A struct which has no fields (`struct {}`).
 /// * Not a struct.
-pub fn typeToStruct(mod: *Zcu, ty: Type) ?InternPool.LoadedStructType {
+pub fn typeToStruct(zcu: *Zcu, ty: Type) ?InternPool.LoadedStructType {
     if (ty.ip_index == .none) return null;
-    const ip = &mod.intern_pool;
+    const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.ip_index)) {
         .struct_type => ip.loadStructType(ty.ip_index),
         else => null,
     };
 }
 
-pub fn typeToPackedStruct(mod: *Zcu, ty: Type) ?InternPool.LoadedStructType {
-    const s = mod.typeToStruct(ty) orelse return null;
+pub fn typeToPackedStruct(zcu: *Zcu, ty: Type) ?InternPool.LoadedStructType {
+    const s = zcu.typeToStruct(ty) orelse return null;
     if (s.layout != .@"packed") return null;
     return s;
 }
 
-pub fn typeToUnion(mod: *Zcu, ty: Type) ?InternPool.LoadedUnionType {
+pub fn typeToUnion(zcu: *const Zcu, ty: Type) ?InternPool.LoadedUnionType {
     if (ty.ip_index == .none) return null;
-    const ip = &mod.intern_pool;
+    const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.ip_index)) {
         .union_type => ip.loadUnionType(ty.ip_index),
         else => null,
     };
 }
 
-pub fn typeToFunc(mod: *Zcu, ty: Type) ?InternPool.Key.FuncType {
+pub fn typeToFunc(zcu: *const Zcu, ty: Type) ?InternPool.Key.FuncType {
     if (ty.ip_index == .none) return null;
-    return mod.intern_pool.indexToFuncType(ty.toIntern());
+    return zcu.intern_pool.indexToFuncType(ty.toIntern());
 }
 
 pub fn iesFuncIndex(zcu: *const Zcu, ies_index: InternPool.Index) InternPool.Index {
     return zcu.intern_pool.iesFuncIndex(ies_index);
 }
 
-pub fn funcInfo(mod: *Zcu, func_index: InternPool.Index) InternPool.Key.Func {
-    return mod.intern_pool.indexToKey(func_index).func;
+pub fn funcInfo(zcu: *const Zcu, func_index: InternPool.Index) InternPool.Key.Func {
+    return zcu.intern_pool.indexToKey(func_index).func;
 }
 
-pub fn toEnum(mod: *Zcu, comptime E: type, val: Value) E {
-    return mod.intern_pool.toEnum(E, val.toIntern());
+pub fn toEnum(zcu: *const Zcu, comptime E: type, val: Value) E {
+    return zcu.intern_pool.toEnum(E, val.toIntern());
 }
 
 pub const UnionLayout = struct {
@@ -3121,8 +3121,8 @@ pub const UnionLayout = struct {
 };
 
 /// Returns the index of the active field, given the current tag value
-pub fn unionTagFieldIndex(mod: *Zcu, loaded_union: InternPool.LoadedUnionType, enum_tag: Value) ?u32 {
-    const ip = &mod.intern_pool;
+pub fn unionTagFieldIndex(zcu: *const Zcu, loaded_union: InternPool.LoadedUnionType, enum_tag: Value) ?u32 {
+    const ip = &zcu.intern_pool;
     if (enum_tag.toIntern() == .none) return null;
     assert(ip.typeOf(enum_tag.toIntern()) == loaded_union.enum_tag_ty);
     return loaded_union.loadTagType(ip).tagValueIndex(ip, enum_tag.toIntern());
@@ -3348,7 +3348,7 @@ pub fn resolveReferences(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolve
     return result;
 }
 
-pub fn fileByIndex(zcu: *Zcu, file_index: File.Index) *File {
+pub fn fileByIndex(zcu: *const Zcu, file_index: File.Index) *File {
     return zcu.intern_pool.filePtr(file_index);
 }
 

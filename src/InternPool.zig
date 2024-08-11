@@ -3483,7 +3483,7 @@ pub const LoadedStructType = struct {
         return s.field_aligns.get(ip)[i];
     }
 
-    pub fn fieldInit(s: LoadedStructType, ip: *InternPool, i: usize) Index {
+    pub fn fieldInit(s: LoadedStructType, ip: *const InternPool, i: usize) Index {
         if (s.field_inits.len == 0) return .none;
         assert(s.haveFieldInits(ip));
         return s.field_inits.get(ip)[i];
@@ -11066,7 +11066,7 @@ pub fn destroyNamespace(
     local.mutate.namespaces.free_list = @intFromEnum(namespace_index);
 }
 
-pub fn filePtr(ip: *InternPool, file_index: FileIndex) *Zcu.File {
+pub fn filePtr(ip: *const InternPool, file_index: FileIndex) *Zcu.File {
     const file_index_unwrapped = file_index.unwrap(ip);
     const files = ip.getLocalShared(file_index_unwrapped.tid).files.acquire();
     return files.view().items(.file)[file_index_unwrapped.index];

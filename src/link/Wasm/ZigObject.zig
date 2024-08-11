@@ -487,9 +487,9 @@ fn lowerConst(
     src_loc: Zcu.LazySrcLoc,
 ) !LowerConstResult {
     const gpa = wasm_file.base.comp.gpa;
-    const mod = wasm_file.base.comp.module.?;
+    const zcu = wasm_file.base.comp.module.?;
 
-    const ty = val.typeOf(mod);
+    const ty = val.typeOf(zcu);
 
     // Create and initialize a new local symbol and atom
     const sym_index = try zig_object.allocateSymbol(gpa);
@@ -499,7 +499,7 @@ fn lowerConst(
 
     const code = code: {
         const atom = wasm_file.getAtomPtr(atom_index);
-        atom.alignment = ty.abiAlignment(pt);
+        atom.alignment = ty.abiAlignment(zcu);
         const segment_name = try std.mem.concat(gpa, u8, &.{ ".rodata.", name });
         errdefer gpa.free(segment_name);
         zig_object.symbol(sym_index).* = .{
@@ -509,7 +509,7 @@ fn lowerConst(
             .index = try zig_object.createDataSegment(
                 gpa,
                 segment_name,
-                ty.abiAlignment(pt),
+                ty.abiAlignment(zcu),
             ),
             .virtual_address = undefined,
         };
@@ -555,7 +555,7 @@ pub fn getErrorTableSymbol(zig_object: *ZigObject, wasm_file: *Wasm, pt: Zcu.Per
     const atom_index = try wasm_file.createAtom(sym_index, zig_object.index);
     const atom = wasm_file.getAtomPtr(atom_index);
     const slice_ty = Type.slice_const_u8_sentinel_0;
-    atom.alignment = slice_ty.abiAlignment(pt);
+    atom.alignment = slice_ty.abiAlignment(pt.zcu);
 
     const sym_name = try zig_object.string_table.insert(gpa, "__zig_err_name_table");
     const segment_name = try gpa.dupe(u8, ".rodata.__zig_err_name_table");
@@ -611,7 +611,7 @@ fn populateErrorNameTable(zig_object: *ZigObject, wasm_file: *Wasm, tid: Zcu.Per
         // TODO: remove this unreachable entry
         try atom.code.appendNTimes(gpa, 0, 4);
         try atom.code.writer(gpa).writeInt(u32, 0, .little);
-        atom.size += @intCast(slice_ty.abiSize(pt));
+        atom.size += @intCast(slice_ty.abiSize(pt.zcu));
         addend += 1;
 
         try names_atom.code.append(gpa, 0);
@@ -632,7 +632,7 @@ fn populateErrorNameTable(zig_object: *ZigObject, wasm_file: *Wasm, tid: Zcu.Per
             .offset = offset,
             .addend = @intCast(addend),
         });
-        atom.size += @intCast(slice_ty.abiSize(pt));
+        atom.size += @intCast(slice_ty.abiSize(pt.zcu));
         addend += len;
 
         // as we updated the error name table, we now store the actual name within the names atom
