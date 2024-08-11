@@ -78,7 +78,6 @@ pub const Feature = enum {
     svnapot,
     svpbmt,
     tagged_globals,
-    unaligned_scalar_mem,
     use_postra_scheduler,
     v,
     ventana_veyron,
@@ -583,11 +582,6 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.tagged_globals)] = .{
         .llvm_name = "tagged-globals",
         .description = "Use an instruction sequence for taking the address of a global that allows a memory tag in the upper address bits",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.unaligned_scalar_mem)] = .{
-        .llvm_name = "unaligned-scalar-mem",
-        .description = "Has reasonably performant unaligned scalar loads and stores",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.use_postra_scheduler)] = .{
