@@ -760,52 +760,59 @@ pub const Abi = enum {
 };
 
 pub const ObjectFormat = enum {
-    /// Common Object File Format (Windows)
-    coff,
-    /// DirectX Container
-    dxcontainer,
-    /// Executable and Linking Format
-    elf,
-    /// macOS relocatables
-    macho,
-    /// Standard, Portable Intermediate Representation V
-    spirv,
-    /// WebAssembly
-    wasm,
-    /// C source code
+    /// C source code.
     c,
-    /// Intel IHEX
+    /// The Common Object File Format used by Windows and UEFI.
+    coff,
+    /// The DirectX Container format containing either DXIL or DXBC.
+    dxcontainer,
+    /// The Executable and Linkable Format used by many Unixes.
+    elf,
+    /// The Generalized Object File Format used by z/OS.
+    goff,
+    /// The Intel HEX format for storing binary code in ASCII text.
     hex,
+    /// The Mach object format used by macOS and other Apple platforms.
+    macho,
+    /// Nvidia's PTX (Parallel Thread Execution) assembly language.
+    nvptx,
+    /// The a.out format used by Plan 9 from Bell Labs.
+    plan9,
     /// Machine code with no metadata.
     raw,
-    /// Plan 9 from Bell Labs
-    plan9,
-    /// Nvidia PTX format
-    nvptx,
+    /// The Khronos Group's Standard Portable Intermediate Representation V.
+    spirv,
+    /// The WebAssembly binary format.
+    wasm,
+    /// The eXtended Common Object File Format used by AIX.
+    xcoff,
 
     pub fn fileExt(of: ObjectFormat, arch: Cpu.Arch) [:0]const u8 {
         return switch (of) {
-            .coff => ".obj",
-            .elf, .macho, .wasm => ".o",
             .c => ".c",
-            .spirv => ".spv",
-            .hex => ".ihex",
-            .raw => ".bin",
-            .plan9 => arch.plan9Ext(),
-            .nvptx => ".ptx",
+            .coff => ".obj",
             .dxcontainer => ".dxil",
+            .elf, .goff, .macho, .wasm, .xcoff => ".o",
+            .hex => ".ihex",
+            .nvptx => ".ptx",
+            .plan9 => arch.plan9Ext(),
+            .raw => ".bin",
+            .spirv => ".spv",
         };
     }
 
     pub fn default(os_tag: Os.Tag, arch: Cpu.Arch) ObjectFormat {
         return switch (os_tag) {
-            .windows, .uefi => .coff,
-            .ios, .macos, .watchos, .tvos, .visionos => .macho,
+            .aix => .xcoff,
+            .driverkit, .ios, .macos, .tvos, .visionos, .watchos => .macho,
             .plan9 => .plan9,
+            .uefi, .windows => .coff,
+            .zos => .goff,
             else => switch (arch) {
-                .wasm32, .wasm64 => .wasm,
-                .spirv32, .spirv64 => .spirv,
+                .dxil => .dxcontainer,
                 .nvptx, .nvptx64 => .nvptx,
+                .spirv, .spirv32, .spirv64 => .spirv,
+                .wasm32, .wasm64 => .wasm,
                 else => .elf,
             },
         };

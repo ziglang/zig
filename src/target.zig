@@ -98,14 +98,16 @@ pub fn hasLlvmSupport(target: std.Target, ofmt: std.Target.ObjectFormat) bool {
         => return false,
 
         .coff,
-        .elf,
-        .macho,
-        .wasm,
-        .spirv,
-        .hex,
-        .raw,
-        .nvptx,
         .dxcontainer,
+        .elf,
+        .goff,
+        .hex,
+        .macho,
+        .nvptx,
+        .spirv,
+        .raw,
+        .wasm,
+        .xcoff,
         => {},
     }
 
