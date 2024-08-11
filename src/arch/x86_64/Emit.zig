@@ -40,7 +40,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     .offset = end_offset - 4,
                     .length = @intCast(end_offset - start_offset),
                 }),
-                .linker_extern_fn => |symbol| if (emit.lower.bin_file.cast(link.File.Elf)) |elf_file| {
+                .linker_extern_fn => |symbol| if (emit.lower.bin_file.cast(.elf)) |elf_file| {
                     // Add relocation to the decl.
                     const zo = elf_file.zigObjectPtr().?;
                     const atom_ptr = zo.symbol(symbol.atom_index).atom(elf_file).?;
@@ -50,7 +50,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | r_type,
                         .r_addend = -4,
                     });
-                } else if (emit.lower.bin_file.cast(link.File.MachO)) |macho_file| {
+                } else if (emit.lower.bin_file.cast(.macho)) |macho_file| {
                     // Add relocation to the decl.
                     const zo = macho_file.getZigObject().?;
                     const atom = zo.symbols.items[symbol.atom_index].getAtom(macho_file).?;
@@ -67,7 +67,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             .symbolnum = @intCast(symbol.sym_index),
                         },
                     });
-                } else if (emit.lower.bin_file.cast(link.File.Coff)) |coff_file| {
+                } else if (emit.lower.bin_file.cast(.coff)) |coff_file| {
                     // Add relocation to the decl.
                     const atom_index = coff_file.getAtomIndexForSymbol(
                         .{ .sym_index = symbol.atom_index, .file = null },
@@ -88,7 +88,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     @tagName(emit.lower.bin_file.tag),
                 }),
                 .linker_tlsld => |data| {
-                    const elf_file = emit.lower.bin_file.cast(link.File.Elf).?;
+                    const elf_file = emit.lower.bin_file.cast(.elf).?;
                     const zo = elf_file.zigObjectPtr().?;
                     const atom = zo.symbol(data.atom_index).atom(elf_file).?;
                     const r_type = @intFromEnum(std.elf.R_X86_64.TLSLD);
@@ -99,7 +99,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     });
                 },
                 .linker_dtpoff => |data| {
-                    const elf_file = emit.lower.bin_file.cast(link.File.Elf).?;
+                    const elf_file = emit.lower.bin_file.cast(.elf).?;
                     const zo = elf_file.zigObjectPtr().?;
                     const atom = zo.symbol(data.atom_index).atom(elf_file).?;
                     const r_type = @intFromEnum(std.elf.R_X86_64.DTPOFF32);
@@ -109,7 +109,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .r_addend = 0,
                     });
                 },
-                .linker_reloc => |data| if (emit.lower.bin_file.cast(link.File.Elf)) |elf_file| {
+                .linker_reloc => |data| if (emit.lower.bin_file.cast(.elf)) |elf_file| {
                     const is_obj_or_static_lib = switch (emit.lower.output_mode) {
                         .Exe => false,
                         .Obj => true,
@@ -157,7 +157,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             });
                         }
                     }
-                } else if (emit.lower.bin_file.cast(link.File.MachO)) |macho_file| {
+                } else if (emit.lower.bin_file.cast(.macho)) |macho_file| {
                     const is_obj_or_static_lib = switch (emit.lower.output_mode) {
                         .Exe => false,
                         .Obj => true,
@@ -196,11 +196,11 @@ pub fn emitMir(emit: *Emit) Error!void {
                 .linker_got,
                 .linker_direct,
                 .linker_import,
-                => |symbol| if (emit.lower.bin_file.cast(link.File.Elf)) |_| {
+                => |symbol| if (emit.lower.bin_file.cast(.elf)) |_| {
                     unreachable;
-                } else if (emit.lower.bin_file.cast(link.File.MachO)) |_| {
+                } else if (emit.lower.bin_file.cast(.macho)) |_| {
                     unreachable;
-                } else if (emit.lower.bin_file.cast(link.File.Coff)) |coff_file| {
+                } else if (emit.lower.bin_file.cast(.coff)) |coff_file| {
                     const atom_index = coff_file.getAtomIndexForSymbol(.{
                         .sym_index = symbol.atom_index,
                         .file = null,
@@ -222,7 +222,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                         .pcrel = true,
                         .length = 2,
                     });
-                } else if (emit.lower.bin_file.cast(link.File.Plan9)) |p9_file| {
+                } else if (emit.lower.bin_file.cast(.plan9)) |p9_file| {
                     const atom_index = symbol.atom_index;
                     try p9_file.addReloc(atom_index, .{ // TODO we may need to add a .type field to the relocs if they are .linker_got instead of just .linker_direct
                         .target = symbol.sym_index, // we set sym_index to just be the atom index

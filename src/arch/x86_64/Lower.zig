@@ -348,7 +348,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                     assert(mem_op.sib.disp == 0);
                     assert(mem_op.sib.scale_index.scale == 0);
 
-                    if (lower.bin_file.cast(link.File.Elf)) |elf_file| {
+                    if (lower.bin_file.cast(.elf)) |elf_file| {
                         const zo = elf_file.zigObjectPtr().?;
                         const elf_sym = zo.symbol(sym.sym_index);
 
@@ -424,7 +424,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             },
                             else => unreachable,
                         };
-                    } else if (lower.bin_file.cast(link.File.MachO)) |macho_file| {
+                    } else if (lower.bin_file.cast(.macho)) |macho_file| {
                         const zo = macho_file.getZigObject().?;
                         const macho_sym = zo.symbols.items[sym.sym_index];
 

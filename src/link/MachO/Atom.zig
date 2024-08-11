@@ -992,6 +992,8 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.r
     const tracy = trace(@src());
     defer tracy.end();
 
+    relocs_log.debug("{x}: {s}", .{ self.getAddress(macho_file), self.getName(macho_file) });
+
     const cpu_arch = macho_file.getTarget().cpu.arch;
     const relocs = self.getRelocs(macho_file);
 
@@ -1013,6 +1015,24 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.r
         if (rel.tag == .local) {
             const target: i64 = @intCast(rel.getTargetAddress(self, macho_file));
             addend += target;
+        }
+
+        switch (rel.tag) {
+            .local => relocs_log.debug("  {}: [{x} => {d}({s},{s})] + {x}", .{
+                rel.fmtPretty(cpu_arch),
+                r_address,
+                r_symbolnum,
+                macho_file.sections.items(.header)[r_symbolnum - 1].segName(),
+                macho_file.sections.items(.header)[r_symbolnum - 1].sectName(),
+                addend,
+            }),
+            .@"extern" => relocs_log.debug("  {}: [{x} => {d}({s})] + {x}", .{
+                rel.fmtPretty(cpu_arch),
+                r_address,
+                r_symbolnum,
+                rel.getTargetSymbol(self, macho_file).getName(macho_file),
+                addend,
+            }),
         }
 
         switch (cpu_arch) {

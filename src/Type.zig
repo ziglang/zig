@@ -268,9 +268,9 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
             return;
         },
         .inferred_error_set_type => |func_index| {
-            const owner_decl = mod.funcOwnerDeclPtr(func_index);
+            const func_nav = ip.getNav(mod.funcInfo(func_index).owner_nav);
             try writer.print("@typeInfo(@typeInfo(@TypeOf({})).Fn.return_type.?).ErrorUnion.error_set", .{
-                owner_decl.fqn.fmt(ip),
+                func_nav.fqn.fmt(ip),
             });
         },
         .error_set_type => |error_set_type| {
@@ -331,15 +331,11 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
             .generic_poison => unreachable,
         },
         .struct_type => {
-            const struct_type = ip.loadStructType(ty.toIntern());
-            if (struct_type.decl.unwrap()) |decl_index| {
-                const decl = mod.declPtr(decl_index);
-                try writer.print("{}", .{decl.fqn.fmt(ip)});
-            } else if (ip.loadStructType(ty.toIntern()).namespace.unwrap()) |namespace_index| {
-                const namespace = mod.namespacePtr(namespace_index);
-                try namespace.renderFullyQualifiedName(ip, .empty, writer);
-            } else {
+            const name = ip.loadStructType(ty.toIntern()).name;
+            if (name == .empty) {
                 try writer.writeAll("@TypeOf(.{})");
+            } else {
+                try writer.print("{}", .{name.fmt(ip)});
             }
         },
         .anon_struct_type => |anon_struct| {
@@ -366,16 +362,16 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
         },
 
         .union_type => {
-            const decl = mod.declPtr(ip.loadUnionType(ty.toIntern()).decl);
-            try writer.print("{}", .{decl.fqn.fmt(ip)});
+            const name = ip.loadUnionType(ty.toIntern()).name;
+            try writer.print("{}", .{name.fmt(ip)});
         },
         .opaque_type => {
-            const decl = mod.declPtr(ip.loadOpaqueType(ty.toIntern()).decl);
-            try writer.print("{}", .{decl.fqn.fmt(ip)});
+            const name = ip.loadOpaqueType(ty.toIntern()).name;
+            try writer.print("{}", .{name.fmt(ip)});
         },
         .enum_type => {
-            const decl = mod.declPtr(ip.loadEnumType(ty.toIntern()).decl);
-            try writer.print("{}", .{decl.fqn.fmt(ip)});
+            const name = ip.loadEnumType(ty.toIntern()).name;
+            try writer.print("{}", .{name.fmt(ip)});
         },
         .func_type => |fn_info| {
             if (fn_info.is_noinline) {
@@ -427,7 +423,7 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
         .undef,
         .simple_value,
         .variable,
-        .extern_func,
+        .@"extern",
         .func,
         .int,
         .err,
@@ -645,7 +641,7 @@ pub fn hasRuntimeBitsAdvanced(
             .undef,
             .simple_value,
             .variable,
-            .extern_func,
+            .@"extern",
             .func,
             .int,
             .err,
@@ -757,7 +753,7 @@ pub fn hasWellDefinedLayout(ty: Type, mod: *Module) bool {
         .undef,
         .simple_value,
         .variable,
-        .extern_func,
+        .@"extern",
         .func,
         .int,
         .err,
@@ -1108,7 +1104,7 @@ pub fn abiAlignmentAdvanced(
             .undef,
             .simple_value,
             .variable,
-            .extern_func,
+            .@"extern",
             .func,
             .int,
             .err,
@@ -1483,7 +1479,7 @@ pub fn abiSizeAdvanced(
             .undef,
             .simple_value,
             .variable,
-            .extern_func,
+            .@"extern",
             .func,
             .int,
             .err,
@@ -1813,7 +1809,7 @@ pub fn bitSizeAdvanced(
         .undef,
         .simple_value,
         .variable,
-        .extern_func,
+        .@"extern",
         .func,
         .int,
         .err,
@@ -2351,7 +2347,7 @@ pub fn intInfo(starting_ty: Type, mod: *Module) InternPool.Key.IntType {
             .undef,
             .simple_value,
             .variable,
-            .extern_func,
+            .@"extern",
             .func,
             .int,
             .err,
@@ -2700,7 +2696,7 @@ pub fn onePossibleValue(starting_type: Type, pt: Zcu.PerThread) !?Value {
             .undef,
             .simple_value,
             .variable,
-            .extern_func,
+            .@"extern",
             .func,
             .int,
             .err,
@@ -2899,7 +2895,7 @@ pub fn comptimeOnlyAdvanced(ty: Type, pt: Zcu.PerThread, comptime strat: Resolve
             .undef,
             .simple_value,
             .variable,
-            .extern_func,
+            .@"extern",
             .func,
             .int,
             .err,
@@ -2972,39 +2968,25 @@ pub fn indexableHasLen(ty: Type, mod: *Module) bool {
 }
 
 /// Asserts that the type can have a namespace.
-pub fn getNamespaceIndex(ty: Type, zcu: *Zcu) InternPool.OptionalNamespaceIndex {
-    return ty.getNamespace(zcu).?;
+pub fn getNamespaceIndex(ty: Type, zcu: *Zcu) InternPool.NamespaceIndex {
+    return ty.getNamespace(zcu).unwrap().?;
 }
 
 /// Returns null if the type has no namespace.
-pub fn getNamespace(ty: Type, zcu: *Zcu) ?InternPool.OptionalNamespaceIndex {
+pub fn getNamespace(ty: Type, zcu: *Zcu) InternPool.OptionalNamespaceIndex {
     const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.toIntern())) {
-        .opaque_type => ip.loadOpaqueType(ty.toIntern()).namespace,
+        .opaque_type => ip.loadOpaqueType(ty.toIntern()).namespace.toOptional(),
         .struct_type => ip.loadStructType(ty.toIntern()).namespace,
-        .union_type => ip.loadUnionType(ty.toIntern()).namespace,
-        .enum_type => ip.loadEnumType(ty.toIntern()).namespace,
-
-        .anon_struct_type => .none,
-        .simple_type => |s| switch (s) {
-            .anyopaque,
-            .atomic_order,
-            .atomic_rmw_op,
-            .calling_convention,
-            .address_space,
-            .float_mode,
-            .reduce_op,
-            .call_modifier,
-            .prefetch_options,
-            .export_options,
-            .extern_options,
-            .type_info,
-            => .none,
-            else => null,
-        },
-
-        else => null,
+        .union_type => ip.loadUnionType(ty.toIntern()).namespace.toOptional(),
+        .enum_type => ip.loadEnumType(ty.toIntern()).namespace.toOptional(),
+        else => .none,
     };
+}
+
+// TODO: new dwarf structure will also need the enclosing code block for types created in imperative scopes
+pub fn getParentNamespace(ty: Type, zcu: *Zcu) InternPool.OptionalNamespaceIndex {
+    return zcu.namespacePtr(ty.getNamespace(zcu).unwrap() orelse return .none).parent;
 }
 
 // Works for vectors and vectors of integers.
@@ -3321,21 +3303,6 @@ pub fn structFieldOffset(ty: Type, index: usize, pt: Zcu.PerThread) u64 {
     }
 }
 
-pub fn getOwnerDecl(ty: Type, mod: *Module) InternPool.DeclIndex {
-    return ty.getOwnerDeclOrNull(mod) orelse unreachable;
-}
-
-pub fn getOwnerDeclOrNull(ty: Type, mod: *Module) ?InternPool.DeclIndex {
-    const ip = &mod.intern_pool;
-    return switch (ip.indexToKey(ty.toIntern())) {
-        .struct_type => ip.loadStructType(ty.toIntern()).decl.unwrap(),
-        .union_type => ip.loadUnionType(ty.toIntern()).decl,
-        .opaque_type => ip.loadOpaqueType(ty.toIntern()).decl,
-        .enum_type => ip.loadEnumType(ty.toIntern()).decl,
-        else => null,
-    };
-}
-
 pub fn srcLocOrNull(ty: Type, zcu: *Zcu) ?Module.LazySrcLoc {
     const ip = &zcu.intern_pool;
     return .{
@@ -3366,7 +3333,7 @@ pub fn isTuple(ty: Type, mod: *Module) bool {
         .struct_type => {
             const struct_type = ip.loadStructType(ty.toIntern());
             if (struct_type.layout == .@"packed") return false;
-            if (struct_type.decl == .none) return false;
+            if (struct_type.cau == .none) return false;
             return struct_type.flagsUnordered(ip).is_tuple;
         },
         .anon_struct_type => |anon_struct| anon_struct.names.len == 0,
@@ -3388,7 +3355,7 @@ pub fn isTupleOrAnonStruct(ty: Type, mod: *Module) bool {
         .struct_type => {
             const struct_type = ip.loadStructType(ty.toIntern());
             if (struct_type.layout == .@"packed") return false;
-            if (struct_type.decl == .none) return false;
+            if (struct_type.cau == .none) return false;
             return struct_type.flagsUnordered(ip).is_tuple;
         },
         .anon_struct_type => true,
@@ -3444,6 +3411,21 @@ pub fn typeDeclInst(ty: Type, zcu: *const Zcu) ?InternPool.TrackedInst.Index {
     };
 }
 
+pub fn typeDeclInstAllowGeneratedTag(ty: Type, zcu: *const Zcu) ?InternPool.TrackedInst.Index {
+    const ip = &zcu.intern_pool;
+    return switch (ip.indexToKey(ty.toIntern())) {
+        .struct_type => ip.loadStructType(ty.toIntern()).zir_index.unwrap(),
+        .union_type => ip.loadUnionType(ty.toIntern()).zir_index,
+        .enum_type => |e| switch (e) {
+            .declared, .reified => ip.loadEnumType(ty.toIntern()).zir_index.unwrap().?,
+            .generated_tag => |gt| ip.loadUnionType(gt.union_type).zir_index,
+            .empty_struct => unreachable,
+        },
+        .opaque_type => ip.loadOpaqueType(ty.toIntern()).zir_index,
+        else => null,
+    };
+}
+
 pub fn typeDeclSrcLine(ty: Type, zcu: *Zcu) ?u32 {
     const ip = &zcu.intern_pool;
     const tracked = switch (ip.indexToKey(ty.toIntern())) {
@@ -3471,7 +3453,7 @@ pub fn typeDeclSrcLine(ty: Type, zcu: *Zcu) ?u32 {
     };
 }
 
-/// Given a namespace type, returns its list of caotured values.
+/// Given a namespace type, returns its list of captured values.
 pub fn getCaptures(ty: Type, zcu: *const Zcu) InternPool.CaptureValue.Slice {
     const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.toIntern())) {
@@ -3773,7 +3755,11 @@ fn resolveStructInner(
     const gpa = zcu.gpa;
 
     const struct_obj = zcu.typeToStruct(ty).?;
-    const owner_decl_index = struct_obj.decl.unwrap() orelse return;
+    const owner = InternPool.AnalUnit.wrap(.{ .cau = struct_obj.cau.unwrap() orelse return });
+
+    if (zcu.failed_analysis.contains(owner) or zcu.transitive_failed_analysis.contains(owner)) {
+        return error.AnalysisFail;
+    }
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
@@ -3786,24 +3772,30 @@ fn resolveStructInner(
         .gpa = gpa,
         .arena = analysis_arena.allocator(),
         .code = undefined, // This ZIR will not be used.
-        .owner_decl = zcu.declPtr(owner_decl_index),
-        .owner_decl_index = owner_decl_index,
+        .owner = owner,
         .func_index = .none,
         .func_is_naked = false,
         .fn_ret_ty = Type.void,
         .fn_ret_ty_ies = null,
-        .owner_func_index = .none,
         .comptime_err_ret_trace = &comptime_err_ret_trace,
     };
     defer sema.deinit();
 
-    switch (resolution) {
-        .fields => return sema.resolveTypeFieldsStruct(ty.toIntern(), struct_obj),
-        .inits => return sema.resolveStructFieldInits(ty),
-        .alignment => return sema.resolveStructAlignment(ty.toIntern(), struct_obj),
-        .layout => return sema.resolveStructLayout(ty),
-        .full => return sema.resolveStructFully(ty),
-    }
+    (switch (resolution) {
+        .fields => sema.resolveTypeFieldsStruct(ty.toIntern(), struct_obj),
+        .inits => sema.resolveStructFieldInits(ty),
+        .alignment => sema.resolveStructAlignment(ty.toIntern(), struct_obj),
+        .layout => sema.resolveStructLayout(ty),
+        .full => sema.resolveStructFully(ty),
+    }) catch |err| switch (err) {
+        error.AnalysisFail => {
+            if (!zcu.failed_analysis.contains(owner)) {
+                try zcu.transitive_failed_analysis.put(gpa, owner, {});
+            }
+            return error.AnalysisFail;
+        },
+        error.OutOfMemory => |e| return e,
+    };
 }
 
 /// `ty` must be a union.
@@ -3816,7 +3808,11 @@ fn resolveUnionInner(
     const gpa = zcu.gpa;
 
     const union_obj = zcu.typeToUnion(ty).?;
-    const owner_decl_index = union_obj.decl;
+    const owner = InternPool.AnalUnit.wrap(.{ .cau = union_obj.cau });
+
+    if (zcu.failed_analysis.contains(owner) or zcu.transitive_failed_analysis.contains(owner)) {
+        return error.AnalysisFail;
+    }
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
@@ -3829,23 +3825,29 @@ fn resolveUnionInner(
         .gpa = gpa,
         .arena = analysis_arena.allocator(),
         .code = undefined, // This ZIR will not be used.
-        .owner_decl = zcu.declPtr(owner_decl_index),
-        .owner_decl_index = owner_decl_index,
+        .owner = owner,
         .func_index = .none,
         .func_is_naked = false,
         .fn_ret_ty = Type.void,
         .fn_ret_ty_ies = null,
-        .owner_func_index = .none,
         .comptime_err_ret_trace = &comptime_err_ret_trace,
     };
     defer sema.deinit();
 
-    switch (resolution) {
-        .fields => return sema.resolveTypeFieldsUnion(ty, union_obj),
-        .alignment => return sema.resolveUnionAlignment(ty, union_obj),
-        .layout => return sema.resolveUnionLayout(ty),
-        .full => return sema.resolveUnionFully(ty),
-    }
+    (switch (resolution) {
+        .fields => sema.resolveTypeFieldsUnion(ty, union_obj),
+        .alignment => sema.resolveUnionAlignment(ty, union_obj),
+        .layout => sema.resolveUnionLayout(ty),
+        .full => sema.resolveUnionFully(ty),
+    }) catch |err| switch (err) {
+        error.AnalysisFail => {
+            if (!zcu.failed_analysis.contains(owner)) {
+                try zcu.transitive_failed_analysis.put(gpa, owner, {});
+            }
+            return error.AnalysisFail;
+        },
+        error.OutOfMemory => |e| return e,
+    };
 }
 
 /// Fully resolves a simple type. This is usually a nop, but for builtin types with
@@ -3943,6 +3945,16 @@ pub fn elemPtrType(ptr_ty: Type, offset: ?usize, pt: Zcu.PerThread) !Type {
             .bit_offset = 0,
         },
     });
+}
+
+pub fn containerTypeName(ty: Type, ip: *const InternPool) InternPool.NullTerminatedString {
+    return switch (ip.indexToKey(ty.toIntern())) {
+        .struct_type => ip.loadStructType(ty.toIntern()).name,
+        .union_type => ip.loadUnionType(ty.toIntern()).name,
+        .enum_type => ip.loadEnumType(ty.toIntern()).name,
+        .opaque_type => ip.loadOpaqueType(ty.toIntern()).name,
+        else => unreachable,
+    };
 }
 
 pub const @"u1": Type = .{ .ip_index = .u1_type };

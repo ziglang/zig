@@ -86,8 +86,8 @@ pub fn updateFunc(self: *NvPtx, pt: Zcu.PerThread, func_index: InternPool.Index,
     try self.llvm_object.updateFunc(pt, func_index, air, liveness);
 }
 
-pub fn updateDecl(self: *NvPtx, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
-    return self.llvm_object.updateDecl(pt, decl_index);
+pub fn updateNav(self: *NvPtx, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !void {
+    return self.llvm_object.updateNav(pt, nav);
 }
 
 pub fn updateExports(

@@ -687,7 +687,7 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
     };
     _ = offset;
 
-    if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
+    if (emit.bin_file.cast(.macho)) |macho_file| {
         _ = macho_file;
         @panic("TODO mirCallExtern");
         // // Add relocation to the decl.
@@ -701,7 +701,7 @@ fn mirCallExtern(emit: *Emit, inst: Mir.Inst.Index) !void {
         //     .pcrel = true,
         //     .length = 2,
         // });
-    } else if (emit.bin_file.cast(link.File.Coff)) |_| {
+    } else if (emit.bin_file.cast(.coff)) |_| {
         unreachable; // Calling imports is handled via `.load_memory_import`
     } else {
         return emit.fail("Implement call_extern for linking backends != {{ COFF, MachO }}", .{});
@@ -903,7 +903,7 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
         else => unreachable,
     }
 
-    if (emit.bin_file.cast(link.File.MachO)) |macho_file| {
+    if (emit.bin_file.cast(.macho)) |macho_file| {
         _ = macho_file;
         @panic("TODO mirLoadMemoryPie");
         // const Atom = link.File.MachO.Atom;
@@ -932,7 +932,7 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
         //         else => unreachable,
         //     },
         // } });
-    } else if (emit.bin_file.cast(link.File.Coff)) |coff_file| {
+    } else if (emit.bin_file.cast(.coff)) |coff_file| {
         const atom_index = coff_file.getAtomIndexForSymbol(.{ .sym_index = data.atom_index, .file = null }).?;
         const target = switch (tag) {
             .load_memory_got,

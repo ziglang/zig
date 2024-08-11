@@ -90,12 +90,8 @@ pub fn print(
             else => try writer.writeAll(@tagName(simple_value)),
         },
         .variable => try writer.writeAll("(variable)"),
-        .extern_func => |extern_func| try writer.print("(extern function '{}')", .{
-            mod.declPtr(extern_func.decl).name.fmt(ip),
-        }),
-        .func => |func| try writer.print("(function '{}')", .{
-            mod.declPtr(func.owner_decl).name.fmt(ip),
-        }),
+        .@"extern" => |e| try writer.print("(extern '{}')", .{e.name.fmt(ip)}),
+        .func => |func| try writer.print("(function '{}')", .{ip.getNav(func.owner_nav).name.fmt(ip)}),
         .int => |int| switch (int.storage) {
             inline .u64, .i64, .big_int => |x| try writer.print("{}", .{x}),
             .lazy_align => |ty| if (have_sema) {
@@ -138,8 +134,8 @@ pub fn print(
         .slice => |slice| {
             const print_contents = switch (ip.getBackingAddrTag(slice.ptr).?) {
                 .field, .arr_elem, .eu_payload, .opt_payload => unreachable,
-                .anon_decl, .comptime_alloc, .comptime_field => true,
-                .decl, .int => false,
+                .uav, .comptime_alloc, .comptime_field => true,
+                .nav, .int => false,
             };
             if (print_contents) {
                 // TODO: eventually we want to load the slice as an array with `sema`, but that's
@@ -157,8 +153,8 @@ pub fn print(
         .ptr => {
             const print_contents = switch (ip.getBackingAddrTag(val.toIntern()).?) {
                 .field, .arr_elem, .eu_payload, .opt_payload => unreachable,
-                .anon_decl, .comptime_alloc, .comptime_field => true,
-                .decl, .int => false,
+                .uav, .comptime_alloc, .comptime_field => true,
+                .nav, .int => false,
             };
             if (print_contents) {
                 // TODO: eventually we want to load the pointer with `sema`, but that's
@@ -294,11 +290,11 @@ fn printPtr(
         else => unreachable,
     };
 
-    if (ptr.base_addr == .anon_decl) {
+    if (ptr.base_addr == .uav) {
         // If the value is an aggregate, we can potentially print it more nicely.
-        switch (pt.zcu.intern_pool.indexToKey(ptr.base_addr.anon_decl.val)) {
+        switch (pt.zcu.intern_pool.indexToKey(ptr.base_addr.uav.val)) {
             .aggregate => |agg| return printAggregate(
-                Value.fromInterned(ptr.base_addr.anon_decl.val),
+                Value.fromInterned(ptr.base_addr.uav.val),
                 agg,
                 true,
                 writer,
@@ -333,13 +329,13 @@ fn printPtrDerivation(
             int.ptr_ty.fmt(pt),
             int.addr,
         }),
-        .decl_ptr => |decl_index| {
-            try writer.print("{}", .{zcu.declPtr(decl_index).fqn.fmt(ip)});
+        .nav_ptr => |nav| {
+            try writer.print("{}", .{ip.getNav(nav).fqn.fmt(ip)});
         },
-        .anon_decl_ptr => |anon| {
-            const ty = Value.fromInterned(anon.val).typeOf(zcu);
+        .uav_ptr => |uav| {
+            const ty = Value.fromInterned(uav.val).typeOf(zcu);
             try writer.print("@as({}, ", .{ty.fmt(pt)});
-            try print(Value.fromInterned(anon.val), writer, level - 1, pt, have_sema, sema);
+            try print(Value.fromInterned(uav.val), writer, level - 1, pt, have_sema, sema);
             try writer.writeByte(')');
         },
         .comptime_alloc_ptr => |info| {

@@ -675,7 +675,7 @@ const Writer = struct {
             }
         }
         const asm_source = std.mem.sliceAsBytes(w.air.extra[extra_i..])[0..extra.data.source_len];
-        try s.print(", \"{s}\"", .{asm_source});
+        try s.print(", \"{}\"", .{std.zig.fmtEscapes(asm_source)});
     }
 
     fn writeDbgStmt(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

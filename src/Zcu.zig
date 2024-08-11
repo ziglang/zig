@@ -118,8 +118,15 @@ embed_table: std.StringArrayHashMapUnmanaged(*EmbedFile) = .{},
 /// is not yet implemented.
 intern_pool: InternPool = .{},
 
+analysis_in_progress: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .{},
 /// The ErrorMsg memory is owned by the `AnalUnit`, using Module's general purpose allocator.
 failed_analysis: std.AutoArrayHashMapUnmanaged(AnalUnit, *ErrorMsg) = .{},
+/// This `AnalUnit` failed semantic analysis because it required analysis of another `AnalUnit` which itself failed.
+transitive_failed_analysis: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .{},
+/// This `Nav` succeeded analysis, but failed codegen.
+/// This may be a simple "value" `Nav`, or it may be a function.
+/// The ErrorMsg memory is owned by the `AnalUnit`, using Module's general purpose allocator.
+failed_codegen: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, *ErrorMsg) = .{},
 /// Keep track of one `@compileLog` callsite per `AnalUnit`.
 /// The value is the source location of the `@compileLog` call, convertible to a `LazySrcLoc`.
 compile_log_sources: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
@@ -155,12 +162,12 @@ outdated: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .{},
 /// Such `AnalUnit`s are ready for immediate re-analysis.
 /// See `findOutdatedToAnalyze` for details.
 outdated_ready: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .{},
-/// This contains a set of Decls which may not be in `outdated`, but are the
-/// root Decls of files which have updated source and thus must be re-analyzed.
-/// If such a Decl is only in this set, the struct type index may be preserved
-/// (only the namespace might change). If such a Decl is also `outdated`, the
-/// struct type index must be recreated.
-outdated_file_root: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .{},
+/// This contains a set of struct types whose corresponding `Cau` may not be in
+/// `outdated`, but are the root types of files which have updated source and
+/// thus must be re-analyzed. If such a type is only in this set, the struct type
+/// index may be preserved (only the namespace might change). If its owned `Cau`
+/// is also outdated, the struct type index must be recreated.
+outdated_file_root: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .{},
 /// This contains a list of AnalUnit whose analysis or codegen failed, but the
 /// failure was something like running out of disk space, and trying again may
 /// succeed. On the next update, we will flush this list, marking all members of
@@ -179,12 +186,9 @@ stage1_flags: packed struct {
 
 compile_log_text: std.ArrayListUnmanaged(u8) = .{},
 
-emit_h: ?*GlobalEmitH,
+test_functions: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .{},
 
-test_functions: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .{},
-
-/// TODO: the key here will be a `Cau.Index`.
-global_assembly: std.AutoArrayHashMapUnmanaged(Decl.Index, []u8) = .{},
+global_assembly: std.AutoArrayHashMapUnmanaged(InternPool.Cau.Index, []u8) = .{},
 
 /// Key is the `AnalUnit` *performing* the reference. This representation allows
 /// incremental updates to quickly delete references caused by a specific `AnalUnit`.
@@ -196,7 +200,7 @@ all_references: std.ArrayListUnmanaged(Reference) = .{},
 /// Freelist of indices in `all_references`.
 free_references: std.ArrayListUnmanaged(u32) = .{},
 
-panic_messages: [PanicId.len]Decl.OptionalIndex = .{.none} ** PanicId.len,
+panic_messages: [PanicId.len]InternPool.Nav.Index.Optional = .{.none} ** PanicId.len,
 /// The panic function body.
 panic_func_index: InternPool.Index = .none,
 null_stack_trace: InternPool.Index = .none,
@@ -250,45 +254,25 @@ pub const CImportError = struct {
     }
 };
 
-/// A `Module` has zero or one of these depending on whether `-femit-h` is enabled.
-pub const GlobalEmitH = struct {
-    /// Where to put the output.
-    loc: Compilation.EmitLoc,
-    /// When emit_h is non-null, each Decl gets one more compile error slot for
-    /// emit-h failing for that Decl. This table is also how we tell if a Decl has
-    /// failed emit-h or succeeded.
-    failed_decls: std.AutoArrayHashMapUnmanaged(Decl.Index, *ErrorMsg) = .{},
-    /// Tracks all decls in order to iterate over them and emit .h code for them.
-    decl_table: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .{},
-    /// Similar to the allocated_decls field of Module, this is where `EmitH` objects
-    /// are allocated. There will be exactly one EmitH object per Decl object, with
-    /// identical indexes.
-    allocated_emit_h: std.SegmentedList(EmitH, 0) = .{},
-
-    pub fn declPtr(global_emit_h: *GlobalEmitH, decl_index: Decl.Index) *EmitH {
-        return global_emit_h.allocated_emit_h.at(@intFromEnum(decl_index));
-    }
-};
-
 pub const ErrorInt = u32;
 
 pub const Exported = union(enum) {
-    /// The Decl being exported. Note this is *not* the Decl performing the export.
-    decl_index: Decl.Index,
+    /// The Nav being exported. Note this is *not* the Nav corresponding to the AnalUnit performing the export.
+    nav: InternPool.Nav.Index,
     /// Constant value being exported.
-    value: InternPool.Index,
+    uav: InternPool.Index,
 
     pub fn getValue(exported: Exported, zcu: *Zcu) Value {
         return switch (exported) {
-            .decl_index => |decl_index| zcu.declPtr(decl_index).val,
-            .value => |value| Value.fromInterned(value),
+            .nav => |nav| zcu.navValue(nav),
+            .uav => |uav| Value.fromInterned(uav),
         };
     }
 
     pub fn getAlign(exported: Exported, zcu: *Zcu) Alignment {
         return switch (exported) {
-            .decl_index => |decl_index| zcu.declPtr(decl_index).alignment,
-            .value => .none,
+            .nav => |nav| zcu.intern_pool.getNav(nav).status.resolved.alignment,
+            .uav => .none,
         };
     }
 };
@@ -324,302 +308,54 @@ pub const Reference = struct {
     src: LazySrcLoc,
 };
 
-pub const Decl = struct {
-    /// Equal to `fqn` if already fully qualified.
-    name: InternPool.NullTerminatedString,
-    /// Fully qualified name.
-    fqn: InternPool.NullTerminatedString,
-    /// The most recent Value of the Decl after a successful semantic analysis.
-    /// Populated when `has_tv`.
-    val: Value,
-    /// Populated when `has_tv`.
-    @"linksection": InternPool.OptionalNullTerminatedString,
-    /// Populated when `has_tv`.
-    alignment: Alignment,
-    /// Populated when `has_tv`.
-    @"addrspace": std.builtin.AddressSpace,
-    /// The direct parent namespace of the Decl. In the case of the Decl
-    /// corresponding to a file, this is the namespace of the struct, since
-    /// there is no parent.
-    src_namespace: Namespace.Index,
-
-    /// Index of the ZIR `declaration` instruction from which this `Decl` was created.
-    /// For the root `Decl` of a `File` and legacy anonymous decls, this is `.none`.
-    zir_decl_index: InternPool.TrackedInst.Index.Optional,
-
-    /// Represents the "shallow" analysis status. For example, for decls that are functions,
-    /// the function type is analyzed with this set to `in_progress`, however, the semantic
-    /// analysis of the function body is performed with this value set to `success`. Functions
-    /// have their own analysis status field.
-    analysis: enum {
-        /// This Decl corresponds to an AST Node that has not been referenced yet, and therefore
-        /// because of Zig's lazy declaration analysis, it will remain unanalyzed until referenced.
-        unreferenced,
-        /// Semantic analysis for this Decl is running right now.
-        /// This state detects dependency loops.
-        in_progress,
-        /// The file corresponding to this Decl had a parse error or ZIR error.
-        /// There will be a corresponding ErrorMsg in Zcu.failed_files.
-        file_failure,
-        /// This Decl might be OK but it depends on another one which did not
-        /// successfully complete semantic analysis.
-        dependency_failure,
-        /// Semantic analysis failure.
-        /// There will be a corresponding ErrorMsg in Zcu.failed_analysis.
-        sema_failure,
-        /// There will be a corresponding ErrorMsg in Zcu.failed_analysis.
-        codegen_failure,
-        /// Sematic analysis and constant value codegen of this Decl has
-        /// succeeded. However, the Decl may be outdated due to an in-progress
-        /// update. Note that for a function, this does not mean codegen of the
-        /// function body succeded: that state is indicated by the function's
-        /// `analysis` field.
-        complete,
-    },
-    /// Whether `typed_value`, `align`, `linksection` and `addrspace` are populated.
-    has_tv: bool,
-    /// If `true` it means the `Decl` is the resource owner of the type/value associated
-    /// with it. That means when `Decl` is destroyed, the cleanup code should additionally
-    /// check if the value owns a `Namespace`, and destroy that too.
-    owns_tv: bool,
-    /// Whether the corresponding AST decl has a `pub` keyword.
-    is_pub: bool,
-    /// Whether the corresponding AST decl has a `export` keyword.
-    is_exported: bool,
-    /// What kind of a declaration is this.
-    kind: Kind,
-
-    pub const Kind = enum {
-        @"usingnamespace",
-        @"test",
-        @"comptime",
-        named,
-        anon,
-    };
-
-    pub const Index = InternPool.DeclIndex;
-    pub const OptionalIndex = InternPool.OptionalDeclIndex;
-
-    pub fn zirBodies(decl: Decl, zcu: *Zcu) Zir.Inst.Declaration.Bodies {
-        const zir = decl.getFileScope(zcu).zir;
-        const zir_index = decl.zir_decl_index.unwrap().?.resolve(&zcu.intern_pool);
-        const declaration = zir.instructions.items(.data)[@intFromEnum(zir_index)].declaration;
-        const extra = zir.extraData(Zir.Inst.Declaration, declaration.payload_index);
-        return extra.data.getBodies(@intCast(extra.end), zir);
-    }
-
-    pub fn typeOf(decl: Decl, zcu: *const Zcu) Type {
-        assert(decl.has_tv);
-        return decl.val.typeOf(zcu);
-    }
-
-    /// Small wrapper for Sema to use over direct access to the `val` field.
-    /// If the value is not populated, instead returns `error.AnalysisFail`.
-    pub fn valueOrFail(decl: Decl) error{AnalysisFail}!Value {
-        if (!decl.has_tv) return error.AnalysisFail;
-        return decl.val;
-    }
-
-    pub fn getOwnedFunction(decl: Decl, zcu: *Zcu) ?InternPool.Key.Func {
-        const i = decl.getOwnedFunctionIndex();
-        if (i == .none) return null;
-        return switch (zcu.intern_pool.indexToKey(i)) {
-            .func => |func| func,
-            else => null,
-        };
-    }
-
-    /// This returns an InternPool.Index even when the value is not a function.
-    pub fn getOwnedFunctionIndex(decl: Decl) InternPool.Index {
-        return if (decl.owns_tv) decl.val.toIntern() else .none;
-    }
-
-    /// If the Decl owns its value and it is an extern function, returns it,
-    /// otherwise null.
-    pub fn getOwnedExternFunc(decl: Decl, zcu: *Zcu) ?InternPool.Key.ExternFunc {
-        return if (decl.owns_tv) decl.val.getExternFunc(zcu) else null;
-    }
-
-    /// If the Decl owns its value and it is a variable, returns it,
-    /// otherwise null.
-    pub fn getOwnedVariable(decl: Decl, zcu: *Zcu) ?InternPool.Key.Variable {
-        return if (decl.owns_tv) decl.val.getVariable(zcu) else null;
-    }
-
-    /// Gets the namespace that this Decl creates by being a struct, union,
-    /// enum, or opaque.
-    pub fn getInnerNamespaceIndex(decl: Decl, zcu: *Zcu) Namespace.OptionalIndex {
-        if (!decl.has_tv) return .none;
-        const ip = &zcu.intern_pool;
-        return switch (decl.val.ip_index) {
-            .empty_struct_type => .none,
-            .none => .none,
-            else => switch (ip.indexToKey(decl.val.toIntern())) {
-                .opaque_type => ip.loadOpaqueType(decl.val.toIntern()).namespace,
-                .struct_type => ip.loadStructType(decl.val.toIntern()).namespace,
-                .union_type => ip.loadUnionType(decl.val.toIntern()).namespace,
-                .enum_type => ip.loadEnumType(decl.val.toIntern()).namespace,
-                else => .none,
-            },
-        };
-    }
-
-    /// Like `getInnerNamespaceIndex`, but only returns it if the Decl is the owner.
-    pub fn getOwnedInnerNamespaceIndex(decl: Decl, zcu: *Zcu) Namespace.OptionalIndex {
-        if (!decl.owns_tv) return .none;
-        return decl.getInnerNamespaceIndex(zcu);
-    }
-
-    /// Same as `getOwnedInnerNamespaceIndex` but additionally obtains the pointer.
-    pub fn getOwnedInnerNamespace(decl: Decl, zcu: *Zcu) ?*Namespace {
-        return zcu.namespacePtrUnwrap(decl.getOwnedInnerNamespaceIndex(zcu));
-    }
-
-    /// Same as `getInnerNamespaceIndex` but additionally obtains the pointer.
-    pub fn getInnerNamespace(decl: Decl, zcu: *Zcu) ?*Namespace {
-        return zcu.namespacePtrUnwrap(decl.getInnerNamespaceIndex(zcu));
-    }
-
-    pub fn getFileScope(decl: Decl, zcu: *Zcu) *File {
-        return zcu.fileByIndex(getFileScopeIndex(decl, zcu));
-    }
-
-    pub fn getFileScopeIndex(decl: Decl, zcu: *Zcu) File.Index {
-        return zcu.namespacePtr(decl.src_namespace).file_scope;
-    }
-
-    pub fn getExternDecl(decl: Decl, zcu: *Zcu) OptionalIndex {
-        assert(decl.has_tv);
-        return switch (zcu.intern_pool.indexToKey(decl.val.toIntern())) {
-            .variable => |variable| if (variable.is_extern) variable.decl.toOptional() else .none,
-            .extern_func => |extern_func| extern_func.decl.toOptional(),
-            else => .none,
-        };
-    }
-
-    pub fn isExtern(decl: Decl, zcu: *Zcu) bool {
-        return decl.getExternDecl(zcu) != .none;
-    }
-
-    pub fn getAlignment(decl: Decl, pt: Zcu.PerThread) Alignment {
-        assert(decl.has_tv);
-        if (decl.alignment != .none) return decl.alignment;
-        return decl.typeOf(pt.zcu).abiAlignment(pt);
-    }
-
-    pub fn declPtrType(decl: Decl, pt: Zcu.PerThread) !Type {
-        assert(decl.has_tv);
-        const decl_ty = decl.typeOf(pt.zcu);
-        return pt.ptrType(.{
-            .child = decl_ty.toIntern(),
-            .flags = .{
-                .alignment = if (decl.alignment == decl_ty.abiAlignment(pt))
-                    .none
-                else
-                    decl.alignment,
-                .address_space = decl.@"addrspace",
-                .is_const = decl.getOwnedVariable(pt.zcu) == null,
-            },
-        });
-    }
-
-    /// Returns the source location of this `Decl`.
-    /// Asserts that this `Decl` corresponds to what will in future be a `Nav` (Named
-    /// Addressable Value): a source-level declaration or generic instantiation.
-    pub fn navSrcLoc(decl: Decl, zcu: *Zcu) LazySrcLoc {
-        return .{
-            .base_node_inst = decl.zir_decl_index.unwrap() orelse inst: {
-                // generic instantiation
-                assert(decl.has_tv);
-                assert(decl.owns_tv);
-                const owner = zcu.funcInfo(decl.val.toIntern()).generic_owner;
-                const generic_owner_decl = zcu.declPtr(zcu.funcInfo(owner).owner_decl);
-                break :inst generic_owner_decl.zir_decl_index.unwrap().?;
-            },
-            .offset = LazySrcLoc.Offset.nodeOffset(0),
-        };
-    }
-
-    pub fn navSrcLine(decl: Decl, zcu: *Zcu) u32 {
-        const ip = &zcu.intern_pool;
-        const tracked = decl.zir_decl_index.unwrap() orelse inst: {
-            // generic instantiation
-            assert(decl.has_tv);
-            assert(decl.owns_tv);
-            const generic_owner_func = switch (ip.indexToKey(decl.val.toIntern())) {
-                .func => |func| func.generic_owner,
-                else => return 0, // TODO: this is probably a `variable` or something; figure this out when we finish sorting out `Decl`.
-            };
-            const generic_owner_decl = zcu.declPtr(zcu.funcInfo(generic_owner_func).owner_decl);
-            break :inst generic_owner_decl.zir_decl_index.unwrap().?;
-        };
-        const info = tracked.resolveFull(ip);
-        const file = zcu.fileByIndex(info.file);
-        assert(file.zir_loaded);
-        const zir = file.zir;
-        const inst = zir.instructions.get(@intFromEnum(info.inst));
-        assert(inst.tag == .declaration);
-        return zir.extraData(Zir.Inst.Declaration, inst.data.declaration.payload_index).data.src_line;
-    }
-
-    pub fn typeSrcLine(decl: Decl, zcu: *Zcu) u32 {
-        assert(decl.has_tv);
-        assert(decl.owns_tv);
-        return decl.val.toType().typeDeclSrcLine(zcu).?;
-    }
-};
-
-/// This state is attached to every Decl when Module emit_h is non-null.
-pub const EmitH = struct {
-    fwd_decl: std.ArrayListUnmanaged(u8) = .{},
-};
-
-pub const DeclAdapter = struct {
-    zcu: *Zcu,
-
-    pub fn hash(self: @This(), s: InternPool.NullTerminatedString) u32 {
-        _ = self;
-        return std.hash.uint32(@intFromEnum(s));
-    }
-
-    pub fn eql(self: @This(), a: InternPool.NullTerminatedString, b_decl_index: Decl.Index, b_index: usize) bool {
-        _ = b_index;
-        return a == self.zcu.declPtr(b_decl_index).name;
-    }
-};
-
 /// The container that structs, enums, unions, and opaques have.
 pub const Namespace = struct {
     parent: OptionalIndex,
     file_scope: File.Index,
     /// Will be a struct, enum, union, or opaque.
-    decl_index: Decl.Index,
-    /// Direct children of the namespace.
-    /// Declaration order is preserved via entry order.
-    /// These are only declarations named directly by the AST; anonymous
-    /// declarations are not stored here.
-    decls: std.ArrayHashMapUnmanaged(Decl.Index, void, DeclContext, true) = .{},
-    /// Key is usingnamespace Decl itself. To find the namespace being included,
-    /// the Decl Value has to be resolved as a Type which has a Namespace.
-    /// Value is whether the usingnamespace decl is marked `pub`.
-    usingnamespace_set: std.AutoHashMapUnmanaged(Decl.Index, bool) = .{},
+    owner_type: InternPool.Index,
+    /// Members of the namespace which are marked `pub`.
+    pub_decls: std.ArrayHashMapUnmanaged(InternPool.Nav.Index, void, NavNameContext, true) = .{},
+    /// Members of the namespace which are *not* marked `pub`.
+    priv_decls: std.ArrayHashMapUnmanaged(InternPool.Nav.Index, void, NavNameContext, true) = .{},
+    /// All `usingnamespace` declarations in this namespace which are marked `pub`.
+    pub_usingnamespace: std.ArrayListUnmanaged(InternPool.Nav.Index) = .{},
+    /// All `usingnamespace` declarations in this namespace which are *not* marked `pub`.
+    priv_usingnamespace: std.ArrayListUnmanaged(InternPool.Nav.Index) = .{},
+    /// All `comptime` and `test` declarations in this namespace. We store these purely so that
+    /// incremental compilation can re-use the existing `Cau`s when a namespace changes.
+    other_decls: std.ArrayListUnmanaged(InternPool.Cau.Index) = .{},
 
     pub const Index = InternPool.NamespaceIndex;
     pub const OptionalIndex = InternPool.OptionalNamespaceIndex;
 
-    const DeclContext = struct {
+    const NavNameContext = struct {
         zcu: *Zcu,
 
-        pub fn hash(ctx: @This(), decl_index: Decl.Index) u32 {
-            const decl = ctx.zcu.declPtr(decl_index);
-            return std.hash.uint32(@intFromEnum(decl.name));
+        pub fn hash(ctx: NavNameContext, nav: InternPool.Nav.Index) u32 {
+            const name = ctx.zcu.intern_pool.getNav(nav).name;
+            return std.hash.uint32(@intFromEnum(name));
         }
 
-        pub fn eql(ctx: @This(), a_decl_index: Decl.Index, b_decl_index: Decl.Index, b_index: usize) bool {
+        pub fn eql(ctx: NavNameContext, a_nav: InternPool.Nav.Index, b_nav: InternPool.Nav.Index, b_index: usize) bool {
             _ = b_index;
-            const a_decl = ctx.zcu.declPtr(a_decl_index);
-            const b_decl = ctx.zcu.declPtr(b_decl_index);
-            return a_decl.name == b_decl.name;
+            const a_name = ctx.zcu.intern_pool.getNav(a_nav).name;
+            const b_name = ctx.zcu.intern_pool.getNav(b_nav).name;
+            return a_name == b_name;
+        }
+    };
+
+    pub const NameAdapter = struct {
+        zcu: *Zcu,
+
+        pub fn hash(ctx: NameAdapter, s: InternPool.NullTerminatedString) u32 {
+            _ = ctx;
+            return std.hash.uint32(@intFromEnum(s));
+        }
+
+        pub fn eql(ctx: NameAdapter, a: InternPool.NullTerminatedString, b_nav: InternPool.Nav.Index, b_index: usize) bool {
+            _ = b_index;
+            return a == ctx.zcu.intern_pool.getNav(b_nav).name;
         }
     };
 
@@ -629,25 +365,6 @@ pub const Namespace = struct {
 
     pub fn fileScopeIp(ns: Namespace, ip: *InternPool) *File {
         return ip.filePtr(ns.file_scope);
-    }
-
-    // This renders e.g. "std.fs.Dir.OpenOptions"
-    pub fn renderFullyQualifiedName(
-        ns: Namespace,
-        ip: *InternPool,
-        name: InternPool.NullTerminatedString,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
-        if (ns.parent.unwrap()) |parent| {
-            try ip.namespacePtr(parent).renderFullyQualifiedName(
-                ip,
-                ip.declPtr(ns.decl_index).name,
-                writer,
-            );
-        } else {
-            try ns.fileScopeIp(ip).renderFullyQualifiedName(writer);
-        }
-        if (name != .empty) try writer.print(".{}", .{name.fmt(ip)});
     }
 
     /// This renders e.g. "std/fs.zig:Dir.OpenOptions"
@@ -678,44 +395,9 @@ pub const Namespace = struct {
         tid: Zcu.PerThread.Id,
         name: InternPool.NullTerminatedString,
     ) !InternPool.NullTerminatedString {
-        const strings = ip.getLocal(tid).getMutableStrings(gpa);
-        // Protects reads of interned strings from being reallocated during the call to
-        // renderFullyQualifiedName.
-        const slice = try strings.addManyAsSlice(count: {
-            var count: usize = name.length(ip) + 1;
-            var cur_ns = &ns;
-            while (true) {
-                const decl = ip.declPtr(cur_ns.decl_index);
-                cur_ns = ip.namespacePtr(cur_ns.parent.unwrap() orelse {
-                    count += ns.fileScopeIp(ip).fullyQualifiedNameLen();
-                    break :count count;
-                });
-                count += decl.name.length(ip) + 1;
-            }
-        });
-        var fbs = std.io.fixedBufferStream(slice[0]);
-        ns.renderFullyQualifiedName(ip, name, fbs.writer()) catch unreachable;
-        assert(fbs.pos == slice[0].len);
-
-        // Sanitize the name for nvptx which is more restrictive.
-        // TODO This should be handled by the backend, not the frontend. Have a
-        // look at how the C backend does it for inspiration.
-        // FIXME This has bitrotted and is no longer able to be implemented here.
-        //const cpu_arch = zcu.root_mod.resolved_target.result.cpu.arch;
-        //if (cpu_arch.isNvptx()) {
-        //    for (slice[0]) |*byte| switch (byte.*) {
-        //        '{', '}', '*', '[', ']', '(', ')', ',', ' ', '\'' => byte.* = '_',
-        //        else => {},
-        //    };
-        //}
-
-        return ip.getOrPutTrailingString(gpa, tid, @intCast(slice[0].len), .no_embedded_nulls);
-    }
-
-    pub fn getType(ns: Namespace, zcu: *Zcu) Type {
-        const decl = zcu.declPtr(ns.decl_index);
-        assert(decl.has_tv);
-        return decl.val.toType();
+        const ns_name = Type.fromInterned(ns.owner_type).containerTypeName(ip);
+        if (name == .empty) return ns_name;
+        return ip.getOrPutStringFmt(gpa, tid, "{}.{}", .{ ns_name.fmt(ip), name.fmt(ip) }, .no_embedded_nulls);
     }
 };
 
@@ -2428,16 +2110,13 @@ pub fn deinit(zcu: *Zcu) void {
     for (zcu.failed_analysis.values()) |value| {
         value.destroy(gpa);
     }
-    zcu.failed_analysis.deinit(gpa);
-
-    if (zcu.emit_h) |emit_h| {
-        for (emit_h.failed_decls.values()) |value| {
-            value.destroy(gpa);
-        }
-        emit_h.failed_decls.deinit(gpa);
-        emit_h.decl_table.deinit(gpa);
-        emit_h.allocated_emit_h.deinit(gpa);
+    for (zcu.failed_codegen.values()) |value| {
+        value.destroy(gpa);
     }
+    zcu.analysis_in_progress.deinit(gpa);
+    zcu.failed_analysis.deinit(gpa);
+    zcu.transitive_failed_analysis.deinit(gpa);
+    zcu.failed_codegen.deinit(gpa);
 
     for (zcu.failed_files.values()) |value| {
         if (value) |msg| msg.destroy(gpa);
@@ -2486,24 +2165,12 @@ pub fn deinit(zcu: *Zcu) void {
     zcu.intern_pool.deinit(gpa);
 }
 
-pub fn declPtr(mod: *Zcu, index: Decl.Index) *Decl {
-    return mod.intern_pool.declPtr(index);
-}
-
-pub fn namespacePtr(mod: *Zcu, index: Namespace.Index) *Namespace {
-    return mod.intern_pool.namespacePtr(index);
+pub fn namespacePtr(zcu: *Zcu, index: Namespace.Index) *Namespace {
+    return zcu.intern_pool.namespacePtr(index);
 }
 
 pub fn namespacePtrUnwrap(mod: *Zcu, index: Namespace.OptionalIndex) ?*Namespace {
     return mod.namespacePtr(index.unwrap() orelse return null);
-}
-
-/// Returns true if and only if the Decl is the top level struct associated with a File.
-pub fn declIsRoot(mod: *Zcu, decl_index: Decl.Index) bool {
-    const decl = mod.declPtr(decl_index);
-    const namespace = mod.namespacePtr(decl.src_namespace);
-    if (namespace.parent != .none) return false;
-    return decl_index == namespace.decl_index;
 }
 
 // TODO https://github.com/ziglang/zig/issues/8643
@@ -2642,8 +2309,12 @@ pub fn markPoDependeeUpToDate(zcu: *Zcu, dependee: InternPool.Dependee) !void {
         // If this is a Decl, we must recursively mark dependencies on its tyval
         // as no longer PO.
         switch (depender.unwrap()) {
-            .decl => |decl_index| try zcu.markPoDependeeUpToDate(.{ .decl_val = decl_index }),
-            .func => |func_index| try zcu.markPoDependeeUpToDate(.{ .func_ies = func_index }),
+            .cau => |cau| switch (zcu.intern_pool.getCau(cau).owner.unwrap()) {
+                .nav => |nav| try zcu.markPoDependeeUpToDate(.{ .nav_val = nav }),
+                .type => |ty| try zcu.markPoDependeeUpToDate(.{ .interned = ty }),
+                .none => {},
+            },
+            .func => |func| try zcu.markPoDependeeUpToDate(.{ .interned = func }),
         }
     }
 }
@@ -2651,9 +2322,13 @@ pub fn markPoDependeeUpToDate(zcu: *Zcu, dependee: InternPool.Dependee) !void {
 /// Given a AnalUnit which is newly outdated or PO, mark all AnalUnits which may
 /// in turn be PO, due to a dependency on the original AnalUnit's tyval or IES.
 fn markTransitiveDependersPotentiallyOutdated(zcu: *Zcu, maybe_outdated: AnalUnit) !void {
-    var it = zcu.intern_pool.dependencyIterator(switch (maybe_outdated.unwrap()) {
-        .decl => |decl_index| .{ .decl_val = decl_index }, // TODO: also `decl_ref` deps when introduced
-        .func => |func_index| .{ .func_ies = func_index },
+    const ip = &zcu.intern_pool;
+    var it = ip.dependencyIterator(switch (maybe_outdated.unwrap()) {
+        .cau => |cau| switch (ip.getCau(cau).owner.unwrap()) {
+            .nav => |nav| .{ .nav_val = nav }, // TODO: also `nav_ref` deps when introduced
+            .none, .type => return, // analysis of this `Cau` can't outdate any dependencies
+        },
+        .func => |func_index| .{ .interned = func_index }, // IES
     });
 
     while (it.next()) |po| {
@@ -2679,6 +2354,8 @@ fn markTransitiveDependersPotentiallyOutdated(zcu: *Zcu, maybe_outdated: AnalUni
 
 pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?AnalUnit {
     if (!zcu.comp.incremental) return null;
+
+    if (true) @panic("TODO: findOutdatedToAnalyze");
 
     if (zcu.outdated.count() == 0 and zcu.potentially_outdated.count() == 0) {
         log.debug("findOutdatedToAnalyze: no outdated depender", .{});
@@ -2741,6 +2418,8 @@ pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?AnalUnit {
         zcu.outdated.count(),
         zcu.potentially_outdated.count(),
     });
+
+    const Decl = {};
 
     var chosen_decl_idx: ?Decl.Index = null;
     var chosen_decl_dependers: u32 = undefined;
@@ -2939,64 +2618,19 @@ pub fn mapOldZirToNew(
 /// analyzed, and for ensuring it can exist at runtime (see
 /// `sema.fnHasRuntimeBits`). This function does *not* guarantee that the body
 /// will be analyzed when it returns: for that, see `ensureFuncBodyAnalyzed`.
-pub fn ensureFuncBodyAnalysisQueued(mod: *Zcu, func_index: InternPool.Index) !void {
-    const ip = &mod.intern_pool;
-    const func = mod.funcInfo(func_index);
-    const decl_index = func.owner_decl;
-    const decl = mod.declPtr(decl_index);
-
-    switch (decl.analysis) {
-        .unreferenced => unreachable,
-        .in_progress => unreachable,
-
-        .file_failure,
-        .sema_failure,
-        .codegen_failure,
-        .dependency_failure,
-        // Analysis of the function Decl itself failed, but we've already
-        // emitted an error for that. The callee doesn't need the function to be
-        // analyzed right now, so its analysis can safely continue.
-        => return,
-
-        .complete => {},
-    }
-
-    assert(decl.has_tv);
-
-    const func_as_depender = AnalUnit.wrap(.{ .func = func_index });
-    const is_outdated = mod.outdated.contains(func_as_depender) or
-        mod.potentially_outdated.contains(func_as_depender);
+pub fn ensureFuncBodyAnalysisQueued(zcu: *Zcu, func_index: InternPool.Index) !void {
+    const ip = &zcu.intern_pool;
+    const func = zcu.funcInfo(func_index);
 
     switch (func.analysisUnordered(ip).state) {
-        .none => {},
-        .queued => return,
-        // As above, we don't need to forward errors here.
-        .sema_failure,
-        .dependency_failure,
-        .codegen_failure,
-        .success,
-        => if (!is_outdated) return,
-        .in_progress => return,
-        .inline_only => unreachable, // don't queue work for this
+        .unreferenced => {}, // We're the first reference!
+        .queued => return, // Analysis is already queued.
+        .analyzed => return, // Analysis is complete; if it's out-of-date, it'll be re-analyzed later this update.
     }
 
-    // Decl itself is safely analyzed, and body analysis is not yet queued
-
-    try mod.comp.queueJob(.{ .analyze_func = func_index });
-    if (mod.emit_h != null) {
-        // TODO: we ideally only want to do this if the function's type changed
-        // since the last update
-        try mod.comp.queueJob(.{ .emit_h_decl = decl_index });
-    }
+    try zcu.comp.queueJob(.{ .analyze_func = func_index });
     func.setAnalysisState(ip, .queued);
 }
-
-pub const SemaDeclResult = packed struct {
-    /// Whether the value of a `decl_val` of this Decl changed.
-    invalidate_decl_val: bool,
-    /// Whether the type of a `decl_ref` of this Decl changed.
-    invalidate_decl_ref: bool,
-};
 
 pub const ImportFileResult = struct {
     file: *File,
@@ -3171,14 +2805,15 @@ pub fn handleUpdateExports(
     };
 }
 
-pub fn addGlobalAssembly(mod: *Zcu, decl_index: Decl.Index, source: []const u8) !void {
-    const gop = try mod.global_assembly.getOrPut(mod.gpa, decl_index);
+pub fn addGlobalAssembly(zcu: *Zcu, cau: InternPool.Cau.Index, source: []const u8) !void {
+    const gpa = zcu.gpa;
+    const gop = try zcu.global_assembly.getOrPut(gpa, cau);
     if (gop.found_existing) {
-        const new_value = try std.fmt.allocPrint(mod.gpa, "{s}\n{s}", .{ gop.value_ptr.*, source });
-        mod.gpa.free(gop.value_ptr.*);
+        const new_value = try std.fmt.allocPrint(gpa, "{s}\n{s}", .{ gop.value_ptr.*, source });
+        gpa.free(gop.value_ptr.*);
         gop.value_ptr.* = new_value;
     } else {
-        gop.value_ptr.* = try mod.gpa.dupe(u8, source);
+        gop.value_ptr.* = try gpa.dupe(u8, source);
     }
 }
 
@@ -3315,10 +2950,6 @@ pub fn atomicPtrAlignment(
     return error.BadType;
 }
 
-pub fn declFileScope(mod: *Zcu, decl_index: Decl.Index) *File {
-    return mod.declPtr(decl_index).getFileScope(mod);
-}
-
 /// Returns null in the following cases:
 /// * `@TypeOf(.{})`
 /// * A struct which has no fields (`struct {}`).
@@ -3352,16 +2983,8 @@ pub fn typeToFunc(mod: *Zcu, ty: Type) ?InternPool.Key.FuncType {
     return mod.intern_pool.indexToFuncType(ty.toIntern());
 }
 
-pub fn funcOwnerDeclPtr(mod: *Zcu, func_index: InternPool.Index) *Decl {
-    return mod.declPtr(mod.funcOwnerDeclIndex(func_index));
-}
-
-pub fn funcOwnerDeclIndex(mod: *Zcu, func_index: InternPool.Index) Decl.Index {
-    return mod.funcInfo(func_index).owner_decl;
-}
-
-pub fn iesFuncIndex(mod: *const Zcu, ies_index: InternPool.Index) InternPool.Index {
-    return mod.intern_pool.iesFuncIndex(ies_index);
+pub fn iesFuncIndex(zcu: *const Zcu, ies_index: InternPool.Index) InternPool.Index {
+    return zcu.intern_pool.iesFuncIndex(ies_index);
 }
 
 pub fn funcInfo(mod: *Zcu, func_index: InternPool.Index) InternPool.Key.Func {
@@ -3370,44 +2993,6 @@ pub fn funcInfo(mod: *Zcu, func_index: InternPool.Index) InternPool.Key.Func {
 
 pub fn toEnum(mod: *Zcu, comptime E: type, val: Value) E {
     return mod.intern_pool.toEnum(E, val.toIntern());
-}
-
-pub fn isAnytypeParam(mod: *Zcu, func: InternPool.Index, index: u32) bool {
-    const file = mod.declPtr(func.owner_decl).getFileScope(mod);
-
-    const tags = file.zir.instructions.items(.tag);
-
-    const param_body = file.zir.getParamBody(func.zir_body_inst);
-    const param = param_body[index];
-
-    return switch (tags[param]) {
-        .param, .param_comptime => false,
-        .param_anytype, .param_anytype_comptime => true,
-        else => unreachable,
-    };
-}
-
-pub fn getParamName(mod: *Zcu, func_index: InternPool.Index, index: u32) [:0]const u8 {
-    const func = mod.funcInfo(func_index);
-    const file = mod.declPtr(func.owner_decl).getFileScope(mod);
-
-    const tags = file.zir.instructions.items(.tag);
-    const data = file.zir.instructions.items(.data);
-
-    const param_body = file.zir.getParamBody(func.zir_body_inst.resolve(&mod.intern_pool));
-    const param = param_body[index];
-
-    return switch (tags[@intFromEnum(param)]) {
-        .param, .param_comptime => blk: {
-            const extra = file.zir.extraData(Zir.Inst.Param, data[@intFromEnum(param)].pl_tok.payload_index);
-            break :blk file.zir.nullTerminatedString(extra.data.name);
-        },
-        .param_anytype, .param_anytype_comptime => blk: {
-            const param_data = data[@intFromEnum(param)].str_tok;
-            break :blk param_data.get(file.zir);
-        },
-        else => unreachable,
-    };
 }
 
 pub const UnionLayout = struct {
@@ -3468,19 +3053,20 @@ pub fn fileByIndex(zcu: *Zcu, file_index: File.Index) *File {
     return zcu.intern_pool.filePtr(file_index);
 }
 
-/// Returns the `Decl` of the struct that represents this `File`.
-pub fn fileRootDecl(zcu: *const Zcu, file_index: File.Index) Decl.OptionalIndex {
+/// Returns the struct that represents this `File`.
+/// If the struct has not been created, returns `.none`.
+pub fn fileRootType(zcu: *const Zcu, file_index: File.Index) InternPool.Index {
     const ip = &zcu.intern_pool;
     const file_index_unwrapped = file_index.unwrap(ip);
     const files = ip.getLocalShared(file_index_unwrapped.tid).files.acquire();
-    return files.view().items(.root_decl)[file_index_unwrapped.index];
+    return files.view().items(.root_type)[file_index_unwrapped.index];
 }
 
-pub fn setFileRootDecl(zcu: *Zcu, file_index: File.Index, root_decl: Decl.OptionalIndex) void {
+pub fn setFileRootType(zcu: *Zcu, file_index: File.Index, root_type: InternPool.Index) void {
     const ip = &zcu.intern_pool;
     const file_index_unwrapped = file_index.unwrap(ip);
     const files = ip.getLocalShared(file_index_unwrapped.tid).files.acquire();
-    files.view().items(.root_decl)[file_index_unwrapped.index] = root_decl;
+    files.view().items(.root_type)[file_index_unwrapped.index] = root_type;
 }
 
 pub fn filePathDigest(zcu: *const Zcu, file_index: File.Index) Cache.BinDigest {
@@ -3488,4 +3074,40 @@ pub fn filePathDigest(zcu: *const Zcu, file_index: File.Index) Cache.BinDigest {
     const file_index_unwrapped = file_index.unwrap(ip);
     const files = ip.getLocalShared(file_index_unwrapped.tid).files.acquire();
     return files.view().items(.bin_digest)[file_index_unwrapped.index];
+}
+
+pub fn navSrcLoc(zcu: *const Zcu, nav_index: InternPool.Nav.Index) LazySrcLoc {
+    const ip = &zcu.intern_pool;
+    return .{
+        .base_node_inst = ip.getNav(nav_index).srcInst(ip),
+        .offset = LazySrcLoc.Offset.nodeOffset(0),
+    };
+}
+
+pub fn navSrcLine(zcu: *Zcu, nav_index: InternPool.Nav.Index) u32 {
+    const ip = &zcu.intern_pool;
+    const inst_info = ip.getNav(nav_index).srcInst(ip).resolveFull(ip);
+    const zir = zcu.fileByIndex(inst_info.file).zir;
+    const inst = zir.instructions.get(@intFromEnum(inst_info.inst));
+    assert(inst.tag == .declaration);
+    return zir.extraData(Zir.Inst.Declaration, inst.data.declaration.payload_index).data.src_line;
+}
+
+pub fn navValue(zcu: *const Zcu, nav_index: InternPool.Nav.Index) Value {
+    return Value.fromInterned(zcu.intern_pool.getNav(nav_index).status.resolved.val);
+}
+
+pub fn navFileScopeIndex(zcu: *Zcu, nav: InternPool.Nav.Index) File.Index {
+    const ip = &zcu.intern_pool;
+    return ip.getNav(nav).srcInst(ip).resolveFull(ip).file;
+}
+
+pub fn navFileScope(zcu: *Zcu, nav: InternPool.Nav.Index) *File {
+    return zcu.fileByIndex(zcu.navFileScopeIndex(nav));
+}
+
+pub fn cauFileScope(zcu: *Zcu, cau: InternPool.Cau.Index) *File {
+    const ip = &zcu.intern_pool;
+    const file_index = ip.getCau(cau).zir_index.resolveFull(ip).file;
+    return zcu.fileByIndex(file_index);
 }

@@ -273,11 +273,9 @@ pub fn generate(
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const func = zcu.funcInfo(func_index);
-    const fn_owner_decl = zcu.declPtr(func.owner_decl);
-    assert(fn_owner_decl.has_tv);
-    const fn_type = fn_owner_decl.typeOf(zcu);
-    const namespace = zcu.namespacePtr(fn_owner_decl.src_namespace);
-    const target = &namespace.fileScope(zcu).mod.resolved_target.result;
+    const func_ty = Type.fromInterned(func.ty);
+    const file_scope = zcu.navFileScope(func.owner_nav);
+    const target = &file_scope.mod.resolved_target.result;
 
     var branch_stack = std.ArrayList(Branch).init(gpa);
     defer {
@@ -300,7 +298,7 @@ pub fn generate(
         .err_msg = null,
         .args = undefined, // populated after `resolveCallingConventionValues`
         .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
-        .fn_type = fn_type,
+        .fn_type = func_ty,
         .arg_index = 0,
         .branch_stack = &branch_stack,
         .src_loc = src_loc,
@@ -312,7 +310,7 @@ pub fn generate(
     defer function.blocks.deinit(gpa);
     defer function.exitlude_jump_relocs.deinit(gpa);
 
-    var call_info = function.resolveCallingConventionValues(fn_type, .callee) catch |err| switch (err) {
+    var call_info = function.resolveCallingConventionValues(func_ty, .callee) catch |err| switch (err) {
         error.CodegenFail => return Result{ .fail = function.err_msg.? },
         error.OutOfRegisters => return Result{
             .fail = try ErrorMsg.create(gpa, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
@@ -1306,6 +1304,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     const ty = self.typeOf(callee);
     const pt = self.pt;
     const mod = pt.zcu;
+    const ip = &mod.intern_pool;
     const fn_ty = switch (ty.zigTypeTag(mod)) {
         .Fn => ty,
         .Pointer => ty.childType(mod),
@@ -1349,46 +1348,42 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
 
     // Due to incremental compilation, how function calls are generated depends
     // on linking.
-    if (try self.air.value(callee, pt)) |func_value| {
-        if (self.bin_file.tag == link.File.Elf.base_tag) {
-            switch (mod.intern_pool.indexToKey(func_value.ip_index)) {
-                .func => |func| {
-                    const got_addr = if (self.bin_file.cast(link.File.Elf)) |elf_file| blk: {
-                        const zo = elf_file.zigObjectPtr().?;
-                        const sym_index = try zo.getOrCreateMetadataForDecl(elf_file, func.owner_decl);
-                        const sym = zo.symbol(sym_index);
-                        _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
-                        break :blk @as(u32, @intCast(sym.zigGotAddress(elf_file)));
-                    } else unreachable;
+    if (try self.air.value(callee, pt)) |func_value| switch (ip.indexToKey(func_value.toIntern())) {
+        .func => |func| {
+            const got_addr = if (self.bin_file.cast(.elf)) |elf_file| blk: {
+                const zo = elf_file.zigObjectPtr().?;
+                const sym_index = try zo.getOrCreateMetadataForNav(elf_file, func.owner_nav);
+                const sym = zo.symbol(sym_index);
+                _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
+                break :blk @as(u32, @intCast(sym.zigGotAddress(elf_file)));
+            } else @panic("TODO SPARCv9 currently does not support non-ELF binaries");
 
-                    try self.genSetReg(Type.usize, .o7, .{ .memory = got_addr });
+            try self.genSetReg(Type.usize, .o7, .{ .memory = got_addr });
 
-                    _ = try self.addInst(.{
-                        .tag = .jmpl,
-                        .data = .{
-                            .arithmetic_3op = .{
-                                .is_imm = false,
-                                .rd = .o7,
-                                .rs1 = .o7,
-                                .rs2_or_imm = .{ .rs2 = .g0 },
-                            },
-                        },
-                    });
+            _ = try self.addInst(.{
+                .tag = .jmpl,
+                .data = .{
+                    .arithmetic_3op = .{
+                        .is_imm = false,
+                        .rd = .o7,
+                        .rs1 = .o7,
+                        .rs2_or_imm = .{ .rs2 = .g0 },
+                    },
+                },
+            });
 
-                    // TODO Find a way to fill this delay slot
-                    _ = try self.addInst(.{
-                        .tag = .nop,
-                        .data = .{ .nop = {} },
-                    });
-                },
-                .extern_func => {
-                    return self.fail("TODO implement calling extern functions", .{});
-                },
-                else => {
-                    return self.fail("TODO implement calling bitcasted functions", .{});
-                },
-            }
-        } else @panic("TODO SPARCv9 currently does not support non-ELF binaries");
+            // TODO Find a way to fill this delay slot
+            _ = try self.addInst(.{
+                .tag = .nop,
+                .data = .{ .nop = {} },
+            });
+        },
+        .@"extern" => {
+            return self.fail("TODO implement calling extern functions", .{});
+        },
+        else => {
+            return self.fail("TODO implement calling bitcasted functions", .{});
+        },
     } else {
         assert(ty.zigTypeTag(mod) == .Pointer);
         const mcv = try self.resolveInst(callee);
@@ -3614,13 +3609,13 @@ fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, mcv: MCValue) !void {
     const mod = pt.zcu;
     const arg = self.air.instructions.items(.data)[@intFromEnum(inst)].arg;
     const ty = arg.ty.toType();
-    const owner_decl = mod.funcOwnerDeclIndex(self.func_index);
+    const owner_nav = mod.funcInfo(self.func_index).owner_nav;
     if (arg.name == .none) return;
     const name = self.air.nullTerminatedString(@intFromEnum(arg.name));
 
     switch (self.debug_output) {
         .dwarf => |dw| switch (mcv) {
-            .register => |reg| try dw.genArgDbgInfo(name, ty, owner_decl, .{
+            .register => |reg| try dw.genArgDbgInfo(name, ty, owner_nav, .{
                 .register = reg.dwarfLocOp(),
             }),
             else => {},
@@ -4153,7 +4148,7 @@ fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
         pt,
         self.src_loc,
         val,
-        pt.zcu.funcOwnerDeclIndex(self.func_index),
+        self.target.*,
     )) {
         .mcv => |mcv| switch (mcv) {
             .none => .none,

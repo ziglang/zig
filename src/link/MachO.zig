@@ -2998,21 +2998,17 @@ pub fn updateFunc(self: *MachO, pt: Zcu.PerThread, func_index: InternPool.Index,
     return self.getZigObject().?.updateFunc(self, pt, func_index, air, liveness);
 }
 
-pub fn lowerUnnamedConst(self: *MachO, pt: Zcu.PerThread, val: Value, decl_index: InternPool.DeclIndex) !u32 {
-    return self.getZigObject().?.lowerUnnamedConst(self, pt, val, decl_index);
-}
-
-pub fn updateDecl(self: *MachO, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
+pub fn updateNav(self: *MachO, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !void {
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(pt, decl_index);
-    return self.getZigObject().?.updateDecl(self, pt, decl_index);
+    if (self.llvm_object) |llvm_object| return llvm_object.updateNav(pt, nav);
+    return self.getZigObject().?.updateNav(self, pt, nav);
 }
 
-pub fn updateDeclLineNumber(self: *MachO, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
+pub fn updateNavLineNumber(self: *MachO, pt: Zcu.PerThread, nav: InternPool.NavIndex) !void {
     if (self.llvm_object) |_| return;
-    return self.getZigObject().?.updateDeclLineNumber(pt, decl_index);
+    return self.getZigObject().?.updateNavLineNumber(pt, nav);
 }
 
 pub fn updateExports(
@@ -3037,29 +3033,29 @@ pub fn deleteExport(
     return self.getZigObject().?.deleteExport(self, exported, name);
 }
 
-pub fn freeDecl(self: *MachO, decl_index: InternPool.DeclIndex) void {
-    if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
-    return self.getZigObject().?.freeDecl(decl_index);
+pub fn freeNav(self: *MachO, nav: InternPool.Nav.Index) void {
+    if (self.llvm_object) |llvm_object| return llvm_object.freeNav(nav);
+    return self.getZigObject().?.freeNav(nav);
 }
 
-pub fn getDeclVAddr(self: *MachO, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex, reloc_info: link.File.RelocInfo) !u64 {
+pub fn getNavVAddr(self: *MachO, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
-    return self.getZigObject().?.getDeclVAddr(self, pt, decl_index, reloc_info);
+    return self.getZigObject().?.getNavVAddr(self, pt, nav_index, reloc_info);
 }
 
-pub fn lowerAnonDecl(
+pub fn lowerUav(
     self: *MachO,
     pt: Zcu.PerThread,
-    decl_val: InternPool.Index,
+    uav: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
     src_loc: Module.LazySrcLoc,
-) !codegen.Result {
-    return self.getZigObject().?.lowerAnonDecl(self, pt, decl_val, explicit_alignment, src_loc);
+) !codegen.GenResult {
+    return self.getZigObject().?.lowerUav(self, pt, uav, explicit_alignment, src_loc);
 }
 
-pub fn getAnonDeclVAddr(self: *MachO, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
+pub fn getUavVAddr(self: *MachO, uav: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
-    return self.getZigObject().?.getAnonDeclVAddr(self, decl_val, reloc_info);
+    return self.getZigObject().?.getUavVAddr(self, uav, reloc_info);
 }
 
 pub fn getGlobalSymbol(self: *MachO, name: []const u8, lib_name: ?[]const u8) !u32 {
@@ -4050,8 +4046,6 @@ const is_hot_update_compatible = switch (builtin.target.os.tag) {
 };
 
 const default_entry_symbol_name = "_main";
-
-pub const base_tag: link.File.Tag = link.File.Tag.macho;
 
 const Section = struct {
     header: macho.section_64,

@@ -354,28 +354,25 @@ pub const RcIncludes = enum {
 
 const Job = union(enum) {
     /// Write the constant value for a Decl to the output file.
-    codegen_decl: InternPool.DeclIndex,
+    codegen_nav: InternPool.Nav.Index,
     /// Write the machine code for a function to the output file.
-    /// This will either be a non-generic `func_decl` or a `func_instance`.
     codegen_func: struct {
+        /// This will either be a non-generic `func_decl` or a `func_instance`.
         func: InternPool.Index,
         /// This `Air` is owned by the `Job` and allocated with `gpa`.
         /// It must be deinited when the job is processed.
         air: Air,
     },
-    /// Render the .h file snippet for the Decl.
-    emit_h_decl: InternPool.DeclIndex,
-    /// The Decl needs to be analyzed and possibly export itself.
-    /// It may have already be analyzed, or it may have been determined
-    /// to be outdated; in this case perform semantic analysis again.
-    analyze_decl: InternPool.DeclIndex,
+    /// The `Cau` must be semantically analyzed (and possibly export itself).
+    /// This may be its first time being analyzed, or it may be outdated.
+    analyze_cau: InternPool.Cau.Index,
     /// Analyze the body of a runtime function.
     /// After analysis, a `codegen_func` job will be queued.
     /// These must be separate jobs to ensure any needed type resolution occurs *before* codegen.
     analyze_func: InternPool.Index,
     /// The source file containing the Decl has been updated, and so the
     /// Decl may need its line number information updated in the debug info.
-    update_line_number: InternPool.DeclIndex,
+    update_line_number: void, // TODO
     /// The main source file for the module needs to be analyzed.
     analyze_mod: *Package.Module,
     /// Fully resolve the given `struct` or `union` type.
@@ -419,7 +416,7 @@ const Job = union(enum) {
 };
 
 const CodegenJob = union(enum) {
-    decl: InternPool.DeclIndex,
+    nav: InternPool.Nav.Index,
     func: struct {
         func: InternPool.Index,
         /// This `Air` is owned by the `Job` and allocated with `gpa`.
@@ -1445,12 +1442,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 .path = try options.global_cache_directory.join(arena, &[_][]const u8{zir_sub_dir}),
             };
 
-            const emit_h: ?*Zcu.GlobalEmitH = if (options.emit_h) |loc| eh: {
-                const eh = try arena.create(Zcu.GlobalEmitH);
-                eh.* = .{ .loc = loc };
-                break :eh eh;
-            } else null;
-
             const std_mod = options.std_mod orelse try Package.Module.create(arena, .{
                 .global_cache_directory = options.global_cache_directory,
                 .paths = .{
@@ -1478,7 +1469,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 .std_mod = std_mod,
                 .global_zir_cache = global_zir_cache,
                 .local_zir_cache = local_zir_cache,
-                .emit_h = emit_h,
                 .error_limit = error_limit,
                 .llvm_object = null,
             };
@@ -2581,7 +2571,7 @@ fn addNonIncrementalStuffToCacheManifest(
         man.hash.addOptionalBytes(comp.test_name_prefix);
         man.hash.add(comp.skip_linker_dependencies);
         man.hash.add(comp.formatted_panics);
-        man.hash.add(mod.emit_h != null);
+        //man.hash.add(mod.emit_h != null);
         man.hash.add(mod.error_limit);
     } else {
         cache_helpers.addModule(&man.hash, comp.root_mod);
@@ -2930,7 +2920,7 @@ const Header = extern struct {
     intern_pool: extern struct {
         thread_count: u32,
         src_hash_deps_len: u32,
-        decl_val_deps_len: u32,
+        nav_val_deps_len: u32,
         namespace_deps_len: u32,
         namespace_name_deps_len: u32,
         first_dependency_len: u32,
@@ -2972,7 +2962,7 @@ pub fn saveState(comp: *Compilation) !void {
             .intern_pool = .{
                 .thread_count = @intCast(ip.locals.len),
                 .src_hash_deps_len = @intCast(ip.src_hash_deps.count()),
-                .decl_val_deps_len = @intCast(ip.decl_val_deps.count()),
+                .nav_val_deps_len = @intCast(ip.nav_val_deps.count()),
                 .namespace_deps_len = @intCast(ip.namespace_deps.count()),
                 .namespace_name_deps_len = @intCast(ip.namespace_name_deps.count()),
                 .first_dependency_len = @intCast(ip.first_dependency.count()),
@@ -2999,8 +2989,8 @@ pub fn saveState(comp: *Compilation) !void {
 
         addBuf(&bufs, mem.sliceAsBytes(ip.src_hash_deps.keys()));
         addBuf(&bufs, mem.sliceAsBytes(ip.src_hash_deps.values()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.decl_val_deps.keys()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.decl_val_deps.values()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.nav_val_deps.keys()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.nav_val_deps.values()));
         addBuf(&bufs, mem.sliceAsBytes(ip.namespace_deps.keys()));
         addBuf(&bufs, mem.sliceAsBytes(ip.namespace_deps.values()));
         addBuf(&bufs, mem.sliceAsBytes(ip.namespace_name_deps.keys()));
@@ -3019,7 +3009,7 @@ pub fn saveState(comp: *Compilation) !void {
             addBuf(&bufs, local.shared.strings.view().items(.@"0")[0..pt_header.intern_pool.string_bytes_len]);
             addBuf(&bufs, mem.sliceAsBytes(local.shared.tracked_insts.view().items(.@"0")[0..pt_header.intern_pool.tracked_insts_len]));
             addBuf(&bufs, mem.sliceAsBytes(local.shared.files.view().items(.bin_digest)[0..pt_header.intern_pool.files_len]));
-            addBuf(&bufs, mem.sliceAsBytes(local.shared.files.view().items(.root_decl)[0..pt_header.intern_pool.files_len]));
+            addBuf(&bufs, mem.sliceAsBytes(local.shared.files.view().items(.root_type)[0..pt_header.intern_pool.files_len]));
         }
 
         //// TODO: compilation errors
@@ -3065,6 +3055,8 @@ pub fn totalErrorCount(comp: *Compilation) u32 {
     }
 
     if (comp.module) |zcu| {
+        const ip = &zcu.intern_pool;
+
         total += zcu.failed_exports.count();
         total += zcu.failed_embed_files.count();
 
@@ -3084,22 +3076,15 @@ pub fn totalErrorCount(comp: *Compilation) u32 {
         // When a parse error is introduced, we keep all the semantic analysis for
         // the previous parse success, including compile errors, but we cannot
         // emit them until the file succeeds parsing.
-        for (zcu.failed_analysis.keys()) |key| {
-            const decl_index = switch (key.unwrap()) {
-                .decl => |d| d,
-                .func => |ip_index| zcu.funcInfo(ip_index).owner_decl,
+        for (zcu.failed_analysis.keys()) |anal_unit| {
+            const file_index = switch (anal_unit.unwrap()) {
+                .cau => |cau| zcu.namespacePtr(ip.getCau(cau).namespace).file_scope,
+                .func => |ip_index| zcu.funcInfo(ip_index).zir_body_inst.resolveFull(ip).file,
             };
-            if (zcu.declFileScope(decl_index).okToReportErrors()) {
+            if (zcu.fileByIndex(file_index).okToReportErrors()) {
                 total += 1;
-                if (zcu.cimport_errors.get(key)) |errors| {
+                if (zcu.cimport_errors.get(anal_unit)) |errors| {
                     total += errors.errorMessageCount();
-                }
-            }
-        }
-        if (zcu.emit_h) |emit_h| {
-            for (emit_h.failed_decls.keys()) |key| {
-                if (zcu.declFileScope(key).okToReportErrors()) {
-                    total += 1;
                 }
             }
         }
@@ -3169,6 +3154,8 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         });
     }
     if (comp.module) |zcu| {
+        const ip = &zcu.intern_pool;
+
         var all_references = try zcu.resolveReferences();
         defer all_references.deinit(gpa);
 
@@ -3219,14 +3206,14 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             if (err) |e| return e;
         }
         for (zcu.failed_analysis.keys(), zcu.failed_analysis.values()) |anal_unit, error_msg| {
-            const decl_index = switch (anal_unit.unwrap()) {
-                .decl => |d| d,
-                .func => |ip_index| zcu.funcInfo(ip_index).owner_decl,
+            const file_index = switch (anal_unit.unwrap()) {
+                .cau => |cau| zcu.namespacePtr(ip.getCau(cau).namespace).file_scope,
+                .func => |ip_index| zcu.funcInfo(ip_index).zir_body_inst.resolveFull(ip).file,
             };
 
-            // Skip errors for Decls within files that had a parse failure.
+            // Skip errors for AnalUnits within files that had a parse failure.
             // We'll try again once parsing succeeds.
-            if (!zcu.declFileScope(decl_index).okToReportErrors()) continue;
+            if (!zcu.fileByIndex(file_index).okToReportErrors()) continue;
 
             try addModuleErrorMsg(zcu, &bundle, error_msg.*, &all_references);
             if (zcu.cimport_errors.get(anal_unit)) |errors| {
@@ -3247,15 +3234,6 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                             });
                         } else .none,
                     });
-                }
-            }
-        }
-        if (zcu.emit_h) |emit_h| {
-            for (emit_h.failed_decls.keys(), emit_h.failed_decls.values()) |decl_index, error_msg| {
-                // Skip errors for Decls within files that had a parse failure.
-                // We'll try again once parsing succeeds.
-                if (zcu.declFileScope(decl_index).okToReportErrors()) {
-                    try addModuleErrorMsg(zcu, &bundle, error_msg.*, &all_references);
                 }
             }
         }
@@ -3437,11 +3415,15 @@ pub fn addModuleErrorMsg(
                 const loc = std.zig.findLineColumn(source.bytes, span.main);
                 const rt_file_path = try src.file_scope.fullPath(gpa);
                 const name = switch (ref.referencer.unwrap()) {
-                    .decl => |d| mod.declPtr(d).name,
-                    .func => |f| mod.funcOwnerDeclPtr(f).name,
+                    .cau => |cau| switch (ip.getCau(cau).owner.unwrap()) {
+                        .nav => |nav| ip.getNav(nav).name.toSlice(ip),
+                        .type => |ty| Type.fromInterned(ty).containerTypeName(ip).toSlice(ip),
+                        .none => "comptime",
+                    },
+                    .func => |f| ip.getNav(mod.funcInfo(f).owner_nav).name.toSlice(ip),
                 };
                 try ref_traces.append(gpa, .{
-                    .decl_name = try eb.addString(name.toSlice(ip)),
+                    .decl_name = try eb.addString(name),
                     .src_loc = try eb.addSourceLocation(.{
                         .src_path = try eb.addString(rt_file_path),
                         .span_start = span.start,
@@ -3617,10 +3599,10 @@ fn performAllTheWorkInner(
                     // Pre-load these things from our single-threaded context since they
                     // will be needed by the worker threads.
                     const path_digest = zcu.filePathDigest(file_index);
-                    const root_decl = zcu.fileRootDecl(file_index);
+                    const old_root_type = zcu.fileRootType(file_index);
                     const file = zcu.fileByIndex(file_index);
                     comp.thread_pool.spawnWgId(&astgen_wait_group, workerAstGenFile, .{
-                        comp, file, file_index, path_digest, root_decl, zir_prog_node, &astgen_wait_group, .root,
+                        comp, file, file_index, path_digest, old_root_type, zir_prog_node, &astgen_wait_group, .root,
                     });
                 }
             }
@@ -3682,7 +3664,7 @@ fn performAllTheWorkInner(
             // which we need to work on, and queue it if so.
             if (try zcu.findOutdatedToAnalyze()) |outdated| {
                 switch (outdated.unwrap()) {
-                    .decl => |decl| try comp.queueJob(.{ .analyze_decl = decl }),
+                    .cau => |cau| try comp.queueJob(.{ .analyze_cau = cau }),
                     .func => |func| try comp.queueJob(.{ .analyze_func = func }),
                 }
                 continue;
@@ -3704,24 +3686,17 @@ pub fn queueJobs(comp: *Compilation, jobs: []const Job) !void {
 
 fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progress.Node) JobError!void {
     switch (job) {
-        .codegen_decl => |decl_index| {
-            const decl = comp.module.?.declPtr(decl_index);
-
-            switch (decl.analysis) {
-                .unreferenced => unreachable,
-                .in_progress => unreachable,
-
-                .file_failure,
-                .sema_failure,
-                .codegen_failure,
-                .dependency_failure,
-                => {},
-
-                .complete => {
-                    assert(decl.has_tv);
-                    try comp.queueCodegenJob(tid, .{ .decl = decl_index });
-                },
+        .codegen_nav => |nav_index| {
+            const zcu = comp.module.?;
+            const nav = zcu.intern_pool.getNav(nav_index);
+            if (nav.analysis_owner.unwrap()) |cau| {
+                const unit = InternPool.AnalUnit.wrap(.{ .cau = cau });
+                if (zcu.failed_analysis.contains(unit) or zcu.transitive_failed_analysis.contains(unit)) {
+                    return;
+                }
             }
+            assert(nav.status == .resolved);
+            try comp.queueCodegenJob(tid, .{ .nav = nav_index });
         },
         .codegen_func => |func| {
             // This call takes ownership of `func.air`.
@@ -3740,82 +3715,30 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
                 error.AnalysisFail => return,
             };
         },
-        .emit_h_decl => |decl_index| {
-            if (true) @panic("regressed compiler feature: emit-h should hook into updateExports, " ++
-                "not decl analysis, which is too early to know about @export calls");
-
+        .analyze_cau => |cau_index| {
             const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
-            const decl = pt.zcu.declPtr(decl_index);
-
-            switch (decl.analysis) {
-                .unreferenced => unreachable,
-                .in_progress => unreachable,
-
-                .file_failure,
-                .sema_failure,
-                .dependency_failure,
-                => return,
-
-                // emit-h only requires semantic analysis of the Decl to be complete,
-                // it does not depend on machine code generation to succeed.
-                .codegen_failure, .complete => {
-                    const named_frame = tracy.namedFrame("emit_h_decl");
-                    defer named_frame.end();
-
-                    const gpa = comp.gpa;
-                    const emit_h = pt.zcu.emit_h.?;
-                    _ = try emit_h.decl_table.getOrPut(gpa, decl_index);
-                    const decl_emit_h = emit_h.declPtr(decl_index);
-                    const fwd_decl = &decl_emit_h.fwd_decl;
-                    fwd_decl.shrinkRetainingCapacity(0);
-                    var ctypes_arena = std.heap.ArenaAllocator.init(gpa);
-                    defer ctypes_arena.deinit();
-
-                    const file_scope = pt.zcu.namespacePtr(decl.src_namespace).fileScope(pt.zcu);
-
-                    var dg: c_codegen.DeclGen = .{
-                        .gpa = gpa,
-                        .pt = pt,
-                        .mod = file_scope.mod,
-                        .error_msg = null,
-                        .pass = .{ .decl = decl_index },
-                        .is_naked_fn = false,
-                        .fwd_decl = fwd_decl.toManaged(gpa),
-                        .ctype_pool = c_codegen.CType.Pool.empty,
-                        .scratch = .{},
-                        .anon_decl_deps = .{},
-                        .aligned_anon_decls = .{},
-                    };
-                    defer {
-                        fwd_decl.* = dg.fwd_decl.moveToUnmanaged();
-                        fwd_decl.shrinkAndFree(gpa, fwd_decl.items.len);
-                        dg.ctype_pool.deinit(gpa);
-                        dg.scratch.deinit(gpa);
-                    }
-                    try dg.ctype_pool.init(gpa);
-
-                    c_codegen.genHeader(&dg) catch |err| switch (err) {
-                        error.AnalysisFail => {
-                            try emit_h.failed_decls.put(gpa, decl_index, dg.error_msg.?);
-                            return;
-                        },
-                        else => |e| return e,
-                    };
-                },
-            }
-        },
-        .analyze_decl => |decl_index| {
-            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
-            pt.ensureDeclAnalyzed(decl_index) catch |err| switch (err) {
+            pt.ensureCauAnalyzed(cau_index) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
             };
-            const decl = pt.zcu.declPtr(decl_index);
-            if (decl.kind == .@"test" and comp.config.is_test) {
+            queue_test_analysis: {
+                if (!comp.config.is_test) break :queue_test_analysis;
+
+                // Check if this is a test function.
+                const ip = &pt.zcu.intern_pool;
+                const cau = ip.getCau(cau_index);
+                const nav_index = switch (cau.owner.unwrap()) {
+                    .none, .type => break :queue_test_analysis,
+                    .nav => |nav| nav,
+                };
+                if (!pt.zcu.test_functions.contains(nav_index)) {
+                    break :queue_test_analysis;
+                }
+
                 // Tests are always emitted in test binaries. The decl_refs are created by
                 // Zcu.populateTestFunctions, but this will not queue body analysis, so do
                 // that now.
-                try pt.zcu.ensureFuncBodyAnalysisQueued(decl.val.toIntern());
+                try pt.zcu.ensureFuncBodyAnalysisQueued(ip.getNav(nav_index).status.resolved.val);
             }
         },
         .resolve_type_fully => |ty| {
@@ -3831,6 +3754,8 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
         .update_line_number => |decl_index| {
             const named_frame = tracy.namedFrame("update_line_number");
             defer named_frame.end();
+
+            if (true) @panic("TODO: update_line_number");
 
             const gpa = comp.gpa;
             const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
@@ -4054,12 +3979,12 @@ fn codegenThread(tid: usize, comp: *Compilation) void {
 
 fn processOneCodegenJob(tid: usize, comp: *Compilation, codegen_job: CodegenJob) JobError!void {
     switch (codegen_job) {
-        .decl => |decl_index| {
-            const named_frame = tracy.namedFrame("codegen_decl");
+        .nav => |nav_index| {
+            const named_frame = tracy.namedFrame("codegen_nav");
             defer named_frame.end();
 
             const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
-            try pt.linkerUpdateDecl(decl_index);
+            try pt.linkerUpdateNav(nav_index);
         },
         .func => |func| {
             const named_frame = tracy.namedFrame("codegen_func");
@@ -4366,7 +4291,7 @@ fn workerAstGenFile(
     file: *Zcu.File,
     file_index: Zcu.File.Index,
     path_digest: Cache.BinDigest,
-    root_decl: Zcu.Decl.OptionalIndex,
+    old_root_type: InternPool.Index,
     prog_node: std.Progress.Node,
     wg: *WaitGroup,
     src: Zcu.AstGenSrc,
@@ -4375,7 +4300,7 @@ fn workerAstGenFile(
     defer child_prog_node.end();
 
     const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
-    pt.astGenFile(file, path_digest, root_decl) catch |err| switch (err) {
+    pt.astGenFile(file, path_digest, old_root_type) catch |err| switch (err) {
         error.AnalysisFail => return,
         else => {
             file.status = .retryable_failure;
@@ -4406,7 +4331,7 @@ fn workerAstGenFile(
             // `@import("builtin")` is handled specially.
             if (mem.eql(u8, import_path, "builtin")) continue;
 
-            const import_result, const imported_path_digest, const imported_root_decl = blk: {
+            const import_result, const imported_path_digest, const imported_root_type = blk: {
                 comp.mutex.lock();
                 defer comp.mutex.unlock();
 
@@ -4421,8 +4346,8 @@ fn workerAstGenFile(
                     comp.appendFileSystemInput(fsi, res.file.mod.root, res.file.sub_file_path) catch continue;
                 };
                 const imported_path_digest = pt.zcu.filePathDigest(res.file_index);
-                const imported_root_decl = pt.zcu.fileRootDecl(res.file_index);
-                break :blk .{ res, imported_path_digest, imported_root_decl };
+                const imported_root_type = pt.zcu.fileRootType(res.file_index);
+                break :blk .{ res, imported_path_digest, imported_root_type };
             };
             if (import_result.is_new) {
                 log.debug("AstGen of {s} has import '{s}'; queuing AstGen of {s}", .{
@@ -4433,7 +4358,7 @@ fn workerAstGenFile(
                     .import_tok = item.data.token,
                 } };
                 comp.thread_pool.spawnWgId(wg, workerAstGenFile, .{
-                    comp, import_result.file, import_result.file_index, imported_path_digest, imported_root_decl, prog_node, wg, sub_src,
+                    comp, import_result.file, import_result.file_index, imported_path_digest, imported_root_type, prog_node, wg, sub_src,
                 });
             }
         }
