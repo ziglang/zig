@@ -6573,7 +6573,7 @@ pub const tc_lflag_t = if (is_mips) packed struct(tcflag_t) {
     PENDIN: bool = false,
     TOSTOP: bool = false,
     EXTPROC: bool = false,
-    _17: u16 = 0,
+    _17: u15 = 0,
 } else if (is_ppc) packed struct(tcflag_t) {
     ECHOKE: bool = false,
     ECHOE: bool = false,
