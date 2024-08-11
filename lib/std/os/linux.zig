@@ -18,10 +18,6 @@ const native_endian = native_arch.endian();
 const is_mips = native_arch.isMIPS();
 const is_ppc = native_arch.isPowerPC();
 const is_sparc = native_arch.isSPARC();
-const iovec = std.posix.iovec;
-const iovec_const = std.posix.iovec_const;
-const winsize = std.posix.winsize;
-const ACCMODE = std.posix.ACCMODE;
 
 test {
     if (builtin.os.tag == .linux) {
@@ -303,6 +299,12 @@ pub const MAP = switch (native_arch) {
     else => @compileError("missing std.os.linux.MAP constants for this architecture"),
 };
 
+pub const ACCMODE = enum(u2) {
+    RDONLY = 0,
+    WRONLY = 1,
+    RDWR = 2,
+};
+
 pub const O = switch (native_arch) {
     .x86_64 => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
@@ -468,6 +470,13 @@ pub const O = switch (native_arch) {
         // #define O_NDELAY O_NONBLOCK
     },
     else => @compileError("missing std.os.linux.O constants for this architecture"),
+};
+
+pub const LOCK = struct {
+    pub const SH = 1;
+    pub const EX = 2;
+    pub const NB = 4;
+    pub const UN = 8;
 };
 
 /// Set by startup code, used by `getauxval`.
@@ -2056,20 +2065,11 @@ pub fn sched_yield() usize {
 }
 
 pub fn sched_getaffinity(pid: pid_t, size: usize, set: *cpu_set_t) usize {
-    const rc = syscall3(.sched_getaffinity, @as(usize, @bitCast(@as(isize, pid))), size, @intFromPtr(set));
-    if (@as(isize, @bitCast(rc)) < 0) return rc;
-    if (rc < size) @memset(@as([*]u8, @ptrCast(set))[rc..size], 0);
-    return 0;
+    return syscall3(.sched_getaffinity, @as(usize, @bitCast(@as(isize, pid))), size, @intFromPtr(set));
 }
 
-pub fn sched_setaffinity(pid: pid_t, set: *const cpu_set_t) !void {
-    const size = @sizeOf(cpu_set_t);
-    const rc = syscall3(.sched_setaffinity, @as(usize, @bitCast(@as(isize, pid))), size, @intFromPtr(set));
-
-    switch (E.init(rc)) {
-        .SUCCESS => return,
-        else => |err| return std.posix.unexpectedErrno(err),
-    }
+pub fn sched_setaffinity(pid: pid_t, size: usize, set: *const cpu_set_t) usize {
+    return syscall3(.sched_setaffinity, @as(usize, @bitCast(@as(isize, pid))), size, @intFromPtr(set));
 }
 
 pub fn epoll_create() usize {
@@ -3056,6 +3056,16 @@ pub const clock_t = isize;
 pub const NAME_MAX = 255;
 pub const PATH_MAX = 4096;
 pub const IOV_MAX = 1024;
+
+pub const iovec = extern struct {
+    base: [*]u8,
+    len: usize,
+};
+
+pub const iovec_const = extern struct {
+    base: [*]const u8,
+    len: usize,
+};
 
 /// Largest hardware address length
 /// e.g. a mac address is a type of hardware address
@@ -4497,6 +4507,13 @@ pub const T = if (is_mips) struct {
     pub const IOCPKT_IOCTL = 64;
 
     pub const IOCSER_TEMT = 0x01;
+};
+
+pub const winsize = extern struct {
+    row: u16,
+    col: u16,
+    xpixel: u16,
+    ypixel: u16,
 };
 
 pub const serial_rs485 = extern struct {
@@ -6769,7 +6786,12 @@ pub const V = if (is_mips) enum(u32) {
     EOL2 = 16,
 };
 
-pub const TCSA = std.posix.TCSA;
+pub const TCSA = enum(c_uint) {
+    NOW,
+    DRAIN,
+    FLUSH,
+    _,
+};
 
 pub const sgttyb = if (is_mips or is_ppc or is_sparc) extern struct {
     ispeed: c_char,

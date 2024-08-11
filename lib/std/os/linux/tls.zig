@@ -16,7 +16,6 @@ const math = std.math;
 const assert = std.debug.assert;
 const native_arch = @import("builtin").cpu.arch;
 const linux = std.os.linux;
-const posix = std.posix;
 
 /// Represents an ELF TLS variant.
 ///
@@ -510,7 +509,7 @@ pub fn initStatic(phdrs: []elf.Phdr) void {
         const begin_addr = mmap(
             null,
             area_desc.size + area_desc.alignment - 1,
-            posix.PROT.READ | posix.PROT.WRITE,
+            linux.PROT.READ | linux.PROT.WRITE,
             .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
             -1,
             0,

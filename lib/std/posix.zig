@@ -178,42 +178,12 @@ pub const R_OK = system.R_OK;
 pub const W_OK = system.W_OK;
 pub const X_OK = system.X_OK;
 
-pub const iovec = extern struct {
-    base: [*]u8,
-    len: usize,
-};
-
-pub const iovec_const = extern struct {
-    base: [*]const u8,
-    len: usize,
-};
-
-pub const ACCMODE = enum(u2) {
-    RDONLY = 0,
-    WRONLY = 1,
-    RDWR = 2,
-};
-
-pub const TCSA = enum(c_uint) {
-    NOW,
-    DRAIN,
-    FLUSH,
-    _,
-};
-
-pub const winsize = extern struct {
-    row: u16,
-    col: u16,
-    xpixel: u16,
-    ypixel: u16,
-};
-
-pub const LOCK = struct {
-    pub const SH = 1;
-    pub const EX = 2;
-    pub const NB = 4;
-    pub const UN = 8;
-};
+pub const ACCMODE = system.ACCMODE;
+pub const LOCK = system.LOCK;
+pub const TCSA = system.TCSA;
+pub const iovec = system.iovec;
+pub const iovec_const = system.iovec_const;
+pub const winsize = system.winsize;
 
 pub const LOG = struct {
     /// system is unusable
@@ -5656,16 +5626,46 @@ pub fn clock_getres(clock_id: clockid_t, res: *timespec) ClockGetTimeError!void 
     }
 }
 
-pub const SchedGetAffinityError = error{PermissionDenied} || UnexpectedError;
+pub const SchedGetSetAffinityError = error{
+    SystemResources,
+    PermissionDenied,
+    ThreadNotFound,
+    OutOfMemory,
+} || UnexpectedError;
 
-pub fn sched_getaffinity(pid: pid_t) SchedGetAffinityError!cpu_set_t {
+pub fn sched_getaffinity(pid: pid_t) SchedGetSetAffinityError!cpu_set_t {
     var set: cpu_set_t = undefined;
-    switch (errno(system.sched_getaffinity(pid, @sizeOf(cpu_set_t), &set))) {
-        .SUCCESS => return set,
+    const size = @sizeOf(cpu_set_t);
+    const rc = system.sched_getaffinity(pid, size, &set);
+    const e = errno(rc);
+
+    if (e == .SUCCESS) {
+        // The syscall returns the number of bytes actually written in the set; the rest are left
+        // undefined. The libc function zeroes those undefined bytes. So when we're not linking
+        // libc, do what libc would have done.
+        if (!builtin.link_libc and rc < size) @memset(@as([*]u8, @ptrCast(&set))[rc..size], 0);
+
+        return set;
+    }
+
+    switch (e) {
         .FAULT => unreachable,
-        .INVAL => unreachable,
-        .SRCH => unreachable,
+        .INVAL => return error.SystemResources,
         .PERM => return error.PermissionDenied,
+        .SRCH => return error.ThreadNotFound,
+        .NOMEM => return error.OutOfMemory,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
+pub fn sched_setaffinity(pid: pid_t, set: *const cpu_set_t) SchedGetSetAffinityError!void {
+    switch (errno(system.sched_setaffinity(pid, @as(usize, @bitCast(@as(isize, pid))), @sizeOf(cpu_set_t), @intFromPtr(set)))) {
+        .SUCCESS => return,
+        .FAULT => unreachable,
+        .INVAL => return error.SystemResources,
+        .PERM => return error.PermissionDenied,
+        .SRCH => return error.ThreadNotFound,
+        .NOMEM => return error.OutOfMemory,
         else => |err| return unexpectedErrno(err),
     }
 }
