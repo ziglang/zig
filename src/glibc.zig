@@ -652,8 +652,13 @@ fn add_include_dirs_arch(
             try args.append(try path.join(arena, &[_][]const u8{ dir, "riscv" }));
         }
     } else if (arch.isLoongArch()) {
-        try args.append("-I");
-        try args.append(try path.join(arena, &[_][]const u8{ dir, "loongarch" }));
+        if (opt_nptl) |nptl| {
+            try args.append("-I");
+            try args.append(try path.join(arena, &[_][]const u8{ dir, "loongarch", nptl }));
+        } else {
+            try args.append("-I");
+            try args.append(try path.join(arena, &[_][]const u8{ dir, "loongarch" }));
+        }
     }
 }
 
