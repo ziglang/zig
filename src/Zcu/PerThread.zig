@@ -39,7 +39,6 @@ pub fn astGenFile(
     pt: Zcu.PerThread,
     file: *Zcu.File,
     path_digest: Cache.BinDigest,
-    old_root_type: InternPool.Index,
 ) !void {
     dev.check(.ast_gen);
     assert(!file.mod.isBuiltin());
@@ -299,25 +298,15 @@ pub fn astGenFile(
         file.status = .astgen_failure;
         return error.AnalysisFail;
     }
-
-    if (old_root_type != .none) {
-        // The root of this file must be re-analyzed, since the file has changed.
-        comp.mutex.lock();
-        defer comp.mutex.unlock();
-
-        log.debug("outdated file root type: {}", .{old_root_type});
-        try zcu.outdated_file_root.put(gpa, old_root_type, {});
-    }
 }
 
 const UpdatedFile = struct {
-    file_index: Zcu.File.Index,
     file: *Zcu.File,
     inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index),
 };
 
-fn cleanupUpdatedFiles(gpa: Allocator, updated_files: *std.ArrayListUnmanaged(UpdatedFile)) void {
-    for (updated_files.items) |*elem| elem.inst_map.deinit(gpa);
+fn cleanupUpdatedFiles(gpa: Allocator, updated_files: *std.AutoArrayHashMapUnmanaged(Zcu.File.Index, UpdatedFile)) void {
+    for (updated_files.values()) |*elem| elem.inst_map.deinit(gpa);
     updated_files.deinit(gpa);
 }
 
@@ -328,143 +317,166 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
     const gpa = zcu.gpa;
 
     // We need to visit every updated File for every TrackedInst in InternPool.
-    var updated_files: std.ArrayListUnmanaged(UpdatedFile) = .{};
+    var updated_files: std.AutoArrayHashMapUnmanaged(Zcu.File.Index, UpdatedFile) = .{};
     defer cleanupUpdatedFiles(gpa, &updated_files);
     for (zcu.import_table.values()) |file_index| {
         const file = zcu.fileByIndex(file_index);
         const old_zir = file.prev_zir orelse continue;
         const new_zir = file.zir;
-        try updated_files.append(gpa, .{
-            .file_index = file_index,
+        const gop = try updated_files.getOrPut(gpa, file_index);
+        assert(!gop.found_existing);
+        gop.value_ptr.* = .{
             .file = file,
             .inst_map = .{},
-        });
-        const inst_map = &updated_files.items[updated_files.items.len - 1].inst_map;
-        try Zcu.mapOldZirToNew(gpa, old_zir.*, new_zir, inst_map);
+        };
+        if (!new_zir.hasCompileErrors()) {
+            try Zcu.mapOldZirToNew(gpa, old_zir.*, file.zir, &gop.value_ptr.inst_map);
+        }
     }
 
-    if (updated_files.items.len == 0)
+    if (updated_files.count() == 0)
         return;
 
     for (ip.locals, 0..) |*local, tid| {
         const tracked_insts_list = local.getMutableTrackedInsts(gpa);
-        for (tracked_insts_list.view().items(.@"0"), 0..) |*tracked_inst, tracked_inst_unwrapped_index| {
-            for (updated_files.items) |updated_file| {
-                const file_index = updated_file.file_index;
-                if (tracked_inst.file != file_index) continue;
+        for (tracked_insts_list.viewAllowEmpty().items(.@"0"), 0..) |*tracked_inst, tracked_inst_unwrapped_index| {
+            const file_index = tracked_inst.file;
+            const updated_file = updated_files.get(file_index) orelse continue;
 
-                const file = updated_file.file;
-                const old_zir = file.prev_zir.?.*;
-                const new_zir = file.zir;
-                const old_tag = old_zir.instructions.items(.tag);
-                const old_data = old_zir.instructions.items(.data);
-                const inst_map = &updated_file.inst_map;
+            const file = updated_file.file;
 
-                const old_inst = tracked_inst.inst;
-                const tracked_inst_index = (InternPool.TrackedInst.Index.Unwrapped{
-                    .tid = @enumFromInt(tid),
-                    .index = @intCast(tracked_inst_unwrapped_index),
-                }).wrap(ip);
-                tracked_inst.inst = inst_map.get(old_inst) orelse {
-                    // Tracking failed for this instruction. Invalidate associated `src_hash` deps.
-                    log.debug("tracking failed for %{d}", .{old_inst});
-                    try zcu.markDependeeOutdated(.{ .src_hash = tracked_inst_index });
-                    continue;
-                };
+            if (file.zir.hasCompileErrors()) {
+                // If we mark this as outdated now, users of this inst will just get a transitive analysis failure.
+                // Ultimately, they would end up throwing out potentially useful analysis results.
+                // So, do nothing. We already have the file failure -- that's sufficient for now!
+                continue;
+            }
+            const old_inst = tracked_inst.inst.unwrap() orelse continue; // we can't continue tracking lost insts
+            const tracked_inst_index = (InternPool.TrackedInst.Index.Unwrapped{
+                .tid = @enumFromInt(tid),
+                .index = @intCast(tracked_inst_unwrapped_index),
+            }).wrap(ip);
+            const new_inst = updated_file.inst_map.get(old_inst) orelse {
+                // Tracking failed for this instruction. Invalidate associated `src_hash` deps.
+                log.debug("tracking failed for %{d}", .{old_inst});
+                tracked_inst.inst = .lost;
+                try zcu.markDependeeOutdated(.{ .src_hash = tracked_inst_index });
+                continue;
+            };
+            tracked_inst.inst = InternPool.TrackedInst.MaybeLost.ZirIndex.wrap(new_inst);
 
-                if (old_zir.getAssociatedSrcHash(old_inst)) |old_hash| hash_changed: {
-                    if (new_zir.getAssociatedSrcHash(tracked_inst.inst)) |new_hash| {
-                        if (std.zig.srcHashEql(old_hash, new_hash)) {
-                            break :hash_changed;
-                        }
-                        log.debug("hash for (%{d} -> %{d}) changed: {} -> {}", .{
-                            old_inst,
-                            tracked_inst.inst,
-                            std.fmt.fmtSliceHexLower(&old_hash),
-                            std.fmt.fmtSliceHexLower(&new_hash),
-                        });
+            const old_zir = file.prev_zir.?.*;
+            const new_zir = file.zir;
+            const old_tag = old_zir.instructions.items(.tag);
+            const old_data = old_zir.instructions.items(.data);
+
+            if (old_zir.getAssociatedSrcHash(old_inst)) |old_hash| hash_changed: {
+                if (new_zir.getAssociatedSrcHash(new_inst)) |new_hash| {
+                    if (std.zig.srcHashEql(old_hash, new_hash)) {
+                        break :hash_changed;
                     }
-                    // The source hash associated with this instruction changed - invalidate relevant dependencies.
-                    try zcu.markDependeeOutdated(.{ .src_hash = tracked_inst_index });
+                    log.debug("hash for (%{d} -> %{d}) changed: {} -> {}", .{
+                        old_inst,
+                        new_inst,
+                        std.fmt.fmtSliceHexLower(&old_hash),
+                        std.fmt.fmtSliceHexLower(&new_hash),
+                    });
                 }
+                // The source hash associated with this instruction changed - invalidate relevant dependencies.
+                try zcu.markDependeeOutdated(.{ .src_hash = tracked_inst_index });
+            }
 
-                // If this is a `struct_decl` etc, we must invalidate any outdated namespace dependencies.
-                const has_namespace = switch (old_tag[@intFromEnum(old_inst)]) {
-                    .extended => switch (old_data[@intFromEnum(old_inst)].extended.opcode) {
-                        .struct_decl, .union_decl, .opaque_decl, .enum_decl => true,
-                        else => false,
-                    },
+            // If this is a `struct_decl` etc, we must invalidate any outdated namespace dependencies.
+            const has_namespace = switch (old_tag[@intFromEnum(old_inst)]) {
+                .extended => switch (old_data[@intFromEnum(old_inst)].extended.opcode) {
+                    .struct_decl, .union_decl, .opaque_decl, .enum_decl => true,
                     else => false,
-                };
-                if (!has_namespace) continue;
+                },
+                else => false,
+            };
+            if (!has_namespace) continue;
 
-                var old_names: std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
-                defer old_names.deinit(zcu.gpa);
-                {
-                    var it = old_zir.declIterator(old_inst);
-                    while (it.next()) |decl_inst| {
-                        const decl_name = old_zir.getDeclaration(decl_inst)[0].name;
-                        switch (decl_name) {
-                            .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => continue,
-                            _ => if (decl_name.isNamedTest(old_zir)) continue,
-                        }
-                        const name_zir = decl_name.toString(old_zir).?;
-                        const name_ip = try zcu.intern_pool.getOrPutString(
-                            zcu.gpa,
-                            pt.tid,
-                            old_zir.nullTerminatedString(name_zir),
-                            .no_embedded_nulls,
-                        );
-                        try old_names.put(zcu.gpa, name_ip, {});
+            var old_names: std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void) = .{};
+            defer old_names.deinit(zcu.gpa);
+            {
+                var it = old_zir.declIterator(old_inst);
+                while (it.next()) |decl_inst| {
+                    const decl_name = old_zir.getDeclaration(decl_inst)[0].name;
+                    switch (decl_name) {
+                        .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => continue,
+                        _ => if (decl_name.isNamedTest(old_zir)) continue,
                     }
+                    const name_zir = decl_name.toString(old_zir).?;
+                    const name_ip = try zcu.intern_pool.getOrPutString(
+                        zcu.gpa,
+                        pt.tid,
+                        old_zir.nullTerminatedString(name_zir),
+                        .no_embedded_nulls,
+                    );
+                    try old_names.put(zcu.gpa, name_ip, {});
                 }
-                var any_change = false;
-                {
-                    var it = new_zir.declIterator(tracked_inst.inst);
-                    while (it.next()) |decl_inst| {
-                        const decl_name = new_zir.getDeclaration(decl_inst)[0].name;
-                        switch (decl_name) {
-                            .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => continue,
-                            _ => if (decl_name.isNamedTest(new_zir)) continue,
-                        }
-                        const name_zir = decl_name.toString(new_zir).?;
-                        const name_ip = try zcu.intern_pool.getOrPutString(
-                            zcu.gpa,
-                            pt.tid,
-                            new_zir.nullTerminatedString(name_zir),
-                            .no_embedded_nulls,
-                        );
-                        if (!old_names.swapRemove(name_ip)) continue;
-                        // Name added
-                        any_change = true;
-                        try zcu.markDependeeOutdated(.{ .namespace_name = .{
-                            .namespace = tracked_inst_index,
-                            .name = name_ip,
-                        } });
+            }
+            var any_change = false;
+            {
+                var it = new_zir.declIterator(new_inst);
+                while (it.next()) |decl_inst| {
+                    const decl_name = new_zir.getDeclaration(decl_inst)[0].name;
+                    switch (decl_name) {
+                        .@"comptime", .@"usingnamespace", .unnamed_test, .decltest => continue,
+                        _ => if (decl_name.isNamedTest(new_zir)) continue,
                     }
-                }
-                // The only elements remaining in `old_names` now are any names which were removed.
-                for (old_names.keys()) |name_ip| {
+                    const name_zir = decl_name.toString(new_zir).?;
+                    const name_ip = try zcu.intern_pool.getOrPutString(
+                        zcu.gpa,
+                        pt.tid,
+                        new_zir.nullTerminatedString(name_zir),
+                        .no_embedded_nulls,
+                    );
+                    if (!old_names.swapRemove(name_ip)) continue;
+                    // Name added
                     any_change = true;
                     try zcu.markDependeeOutdated(.{ .namespace_name = .{
                         .namespace = tracked_inst_index,
                         .name = name_ip,
                     } });
                 }
+            }
+            // The only elements remaining in `old_names` now are any names which were removed.
+            for (old_names.keys()) |name_ip| {
+                any_change = true;
+                try zcu.markDependeeOutdated(.{ .namespace_name = .{
+                    .namespace = tracked_inst_index,
+                    .name = name_ip,
+                } });
+            }
 
-                if (any_change) {
-                    try zcu.markDependeeOutdated(.{ .namespace = tracked_inst_index });
-                }
+            if (any_change) {
+                try zcu.markDependeeOutdated(.{ .namespace = tracked_inst_index });
             }
         }
     }
 
-    for (updated_files.items) |updated_file| {
+    try ip.rehashTrackedInsts(gpa, pt.tid);
+
+    for (updated_files.keys(), updated_files.values()) |file_index, updated_file| {
         const file = updated_file.file;
-        const prev_zir = file.prev_zir.?;
-        file.prev_zir = null;
-        prev_zir.deinit(gpa);
-        gpa.destroy(prev_zir);
+        if (file.zir.hasCompileErrors()) {
+            // Keep `prev_zir` around: it's the last non-error ZIR.
+            // Don't update the namespace, as we have no new data to update *to*.
+        } else {
+            const prev_zir = file.prev_zir.?;
+            file.prev_zir = null;
+            prev_zir.deinit(gpa);
+            gpa.destroy(prev_zir);
+
+            // For every file which has changed, re-scan the namespace of the file's root struct type.
+            // These types are special-cased because they don't have an enclosing declaration which will
+            // be re-analyzed (causing the struct's namespace to be re-scanned). It's fine to do this
+            // now because this work is fast (no actual Sema work is happening, we're just updating the
+            // namespace contents). We must do this after updating ZIR refs above, since `scanNamespace`
+            // will track some instructions.
+            try pt.updateFileNamespace(file_index);
+        }
     }
 }
 
@@ -473,6 +485,8 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
 pub fn ensureFileAnalyzed(pt: Zcu.PerThread, file_index: Zcu.File.Index) Zcu.SemaError!void {
     const file_root_type = pt.zcu.fileRootType(file_index);
     if (file_root_type != .none) {
+        // The namespace is already up-to-date thanks to the `updateFileNamespace` calls at the
+        // start of this update. We just have to check whether the type itself is okay!
         const file_root_type_cau = pt.zcu.intern_pool.loadStructType(file_root_type).cau.unwrap().?;
         return pt.ensureCauAnalyzed(file_root_type_cau);
     } else {
@@ -493,7 +507,6 @@ pub fn ensureCauAnalyzed(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) Zcu
 
     const anal_unit = InternPool.AnalUnit.wrap(.{ .cau = cau_index });
     const cau = ip.getCau(cau_index);
-    const inst_info = cau.zir_index.resolveFull(ip);
 
     log.debug("ensureCauAnalyzed {d}", .{@intFromEnum(cau_index)});
 
@@ -516,12 +529,9 @@ pub fn ensureCauAnalyzed(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) Zcu
         _ = zcu.outdated_ready.swapRemove(anal_unit);
     }
 
-    // TODO: this only works if namespace lookups in Sema trigger `ensureCauAnalyzed`, because
-    // `outdated_file_root` information is not "viral", so we need that a namespace lookup first
-    // handles the case where the file root is not an outdated *type* but does have an outdated
-    // *namespace*. A more logically simple alternative may be for a file's root struct to register
-    // a dependency on the file's entire source code (hash). Alternatively, we could make sure that
-    // these are always handled first in an update. Actually, that's probably the best option.
+    const inst_info = cau.zir_index.resolveFull(ip) orelse return error.AnalysisFail;
+
+    // TODO: document this elsewhere mlugg!
     // For my own benefit, here's how a namespace update for a normal (non-file-root) type works:
     // `const S = struct { ... };`
     // We are adding or removing a declaration within this `struct`.
@@ -535,16 +545,12 @@ pub fn ensureCauAnalyzed(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) Zcu
     //   * we basically do `scanDecls`, updating the namespace as needed
     //   * TODO: optimize this to make sure we only do it once a generation i guess?
     // * so everyone lived happily ever after
-    const file_root_outdated = switch (cau.owner.unwrap()) {
-        .type => |ty| zcu.outdated_file_root.swapRemove(ty),
-        .nav, .none => false,
-    };
 
     if (zcu.fileByIndex(inst_info.file).status != .success_zir) {
         return error.AnalysisFail;
     }
 
-    if (!cau_outdated and !file_root_outdated) {
+    if (!cau_outdated) {
         // We can trust the current information about this `Cau`.
         if (zcu.failed_analysis.contains(anal_unit) or zcu.transitive_failed_analysis.contains(anal_unit)) {
             return error.AnalysisFail;
@@ -571,10 +577,13 @@ pub fn ensureCauAnalyzed(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) Zcu
 
     const sema_result: SemaCauResult = res: {
         if (inst_info.inst == .main_struct_inst) {
-            const changed = try pt.semaFileUpdate(inst_info.file, cau_outdated);
+            // Note that this is definitely a *recreation* due to outdated, because
+            // this instruction indicates that `cau.owner` is a `type`, which only
+            // reaches here if `cau_outdated`.
+            try pt.recreateFileRoot(inst_info.file);
             break :res .{
-                .invalidate_decl_val = changed,
-                .invalidate_decl_ref = changed,
+                .invalidate_decl_val = true,
+                .invalidate_decl_ref = true,
             };
         }
 
@@ -690,8 +699,8 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
         zcu.potentially_outdated.swapRemove(anal_unit);
 
     if (func_outdated) {
-        dev.check(.incremental);
         _ = zcu.outdated_ready.swapRemove(anal_unit);
+        dev.check(.incremental);
         zcu.deleteUnitExports(anal_unit);
         zcu.deleteUnitReferences(anal_unit);
     }
@@ -920,12 +929,9 @@ fn createFileRootStruct(
     return wip_ty.finish(ip, new_cau_index.toOptional(), namespace_index);
 }
 
-/// Re-analyze the root type of a file on an incremental update.
-/// If `type_outdated`, the struct type itself is considered outdated and is
-/// reconstructed at a new InternPool index. Otherwise, the namespace is just
-/// re-analyzed. Returns whether the decl's tyval was invalidated.
-/// Returns `error.AnalysisFail` if the file has an error.
-fn semaFileUpdate(pt: Zcu.PerThread, file_index: Zcu.File.Index, type_outdated: bool) Zcu.SemaError!bool {
+/// Recreate the root type of a file after it becomes outdated. A new struct type
+/// is constructed at a new InternPool index, reusing the namespace for efficiency.
+fn recreateFileRoot(pt: Zcu.PerThread, file_index: Zcu.File.Index) Zcu.SemaError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const file = zcu.fileByIndex(file_index);
@@ -934,48 +940,58 @@ fn semaFileUpdate(pt: Zcu.PerThread, file_index: Zcu.File.Index, type_outdated: 
 
     assert(file_root_type != .none);
 
-    log.debug("semaFileUpdate mod={s} sub_file_path={s} type_outdated={}", .{
+    log.debug("recreateFileRoot mod={s} sub_file_path={s}", .{
         file.mod.fully_qualified_name,
         file.sub_file_path,
-        type_outdated,
     });
 
     if (file.status != .success_zir) {
         return error.AnalysisFail;
     }
 
-    if (type_outdated) {
-        // Invalidate the existing type, reusing its namespace.
-        const file_root_type_cau = ip.loadStructType(file_root_type).cau.unwrap().?;
-        ip.removeDependenciesForDepender(
-            zcu.gpa,
-            InternPool.AnalUnit.wrap(.{ .cau = file_root_type_cau }),
-        );
-        ip.remove(pt.tid, file_root_type);
-        _ = try pt.createFileRootStruct(file_index, namespace_index);
-        return true;
-    }
+    // Invalidate the existing type, reusing its namespace.
+    const file_root_type_cau = ip.loadStructType(file_root_type).cau.unwrap().?;
+    ip.removeDependenciesForDepender(
+        zcu.gpa,
+        InternPool.AnalUnit.wrap(.{ .cau = file_root_type_cau }),
+    );
+    ip.remove(pt.tid, file_root_type);
+    _ = try pt.createFileRootStruct(file_index, namespace_index);
+}
 
-    // Only the struct's namespace is outdated.
-    // Preserve the type - just scan the namespace again.
+/// Re-scan the namespace of a file's root struct type on an incremental update.
+/// The file must have successfully populated ZIR.
+/// If the file's root struct type is not populated (the file is unreferenced), nothing is done.
+/// This is called by `updateZirRefs` for all updated files before the main work loop.
+/// This function does not perform any semantic analysis.
+fn updateFileNamespace(pt: Zcu.PerThread, file_index: Zcu.File.Index) Allocator.Error!void {
+    const zcu = pt.zcu;
 
-    const extended = file.zir.instructions.items(.data)[@intFromEnum(Zir.Inst.Index.main_struct_inst)].extended;
-    const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
+    const file = zcu.fileByIndex(file_index);
+    assert(file.status == .success_zir);
+    const file_root_type = zcu.fileRootType(file_index);
+    if (file_root_type == .none) return;
 
-    var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).Struct.fields.len;
-    extra_index += @intFromBool(small.has_fields_len);
-    const decls_len = if (small.has_decls_len) blk: {
-        const decls_len = file.zir.extra[extra_index];
-        extra_index += 1;
-        break :blk decls_len;
-    } else 0;
-    const decls = file.zir.bodySlice(extra_index, decls_len);
+    log.debug("updateFileNamespace mod={s} sub_file_path={s}", .{
+        file.mod.fully_qualified_name,
+        file.sub_file_path,
+    });
 
-    if (!type_outdated) {
-        try pt.scanNamespace(namespace_index, decls);
-    }
+    const namespace_index = Type.fromInterned(file_root_type).getNamespaceIndex(zcu);
+    const decls = decls: {
+        const extended = file.zir.instructions.items(.data)[@intFromEnum(Zir.Inst.Index.main_struct_inst)].extended;
+        const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
 
-    return false;
+        var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).Struct.fields.len;
+        extra_index += @intFromBool(small.has_fields_len);
+        const decls_len = if (small.has_decls_len) blk: {
+            const decls_len = file.zir.extra[extra_index];
+            extra_index += 1;
+            break :blk decls_len;
+        } else 0;
+        break :decls file.zir.bodySlice(extra_index, decls_len);
+    };
+    try pt.scanNamespace(namespace_index, decls);
 }
 
 /// Regardless of the file status, will create a `Decl` if none exists so that we can track
@@ -1052,7 +1068,7 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
     const anal_unit = InternPool.AnalUnit.wrap(.{ .cau = cau_index });
 
     const cau = ip.getCau(cau_index);
-    const inst_info = cau.zir_index.resolveFull(ip);
+    const inst_info = cau.zir_index.resolveFull(ip) orelse return error.AnalysisFail;
     const file = zcu.fileByIndex(inst_info.file);
     const zir = file.zir;
 
@@ -1944,6 +1960,9 @@ const ScanDeclIter = struct {
                 const cau, const nav = if (existing_cau) |cau_index| cau_nav: {
                     const nav_index = ip.getCau(cau_index).owner.unwrap().nav;
                     const nav = ip.getNav(nav_index);
+                    if (nav.name != name) {
+                        std.debug.panic("'{}' vs '{}'", .{ nav.name.fmt(ip), name.fmt(ip) });
+                    }
                     assert(nav.name == name);
                     assert(nav.fqn == fqn);
                     break :cau_nav .{ cau_index, nav_index };
@@ -2011,7 +2030,7 @@ fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaError!
 
     const anal_unit = InternPool.AnalUnit.wrap(.{ .func = func_index });
     const func = zcu.funcInfo(func_index);
-    const inst_info = func.zir_body_inst.resolveFull(ip);
+    const inst_info = func.zir_body_inst.resolveFull(ip) orelse return error.AnalysisFail;
     const file = zcu.fileByIndex(inst_info.file);
     const zir = file.zir;
 
@@ -2097,7 +2116,7 @@ fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaError!
     };
     defer inner_block.instructions.deinit(gpa);
 
-    const fn_info = sema.code.getFnInfo(func.zirBodyInstUnordered(ip).resolve(ip));
+    const fn_info = sema.code.getFnInfo(func.zirBodyInstUnordered(ip).resolve(ip) orelse return error.AnalysisFail);
 
     // Here we are performing "runtime semantic analysis" for a function body, which means
     // we must map the parameter ZIR instructions to `arg` AIR instructions.

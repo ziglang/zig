@@ -3437,7 +3437,7 @@ pub fn typeDeclSrcLine(ty: Type, zcu: *Zcu) ?u32 {
         },
         else => return null,
     };
-    const info = tracked.resolveFull(&zcu.intern_pool);
+    const info = tracked.resolveFull(&zcu.intern_pool) orelse return null;
     const file = zcu.fileByIndex(info.file);
     assert(file.zir_loaded);
     const zir = file.zir;

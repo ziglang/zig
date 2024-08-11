@@ -162,12 +162,6 @@ outdated: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .{},
 /// Such `AnalUnit`s are ready for immediate re-analysis.
 /// See `findOutdatedToAnalyze` for details.
 outdated_ready: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .{},
-/// This contains a set of struct types whose corresponding `Cau` may not be in
-/// `outdated`, but are the root types of files which have updated source and
-/// thus must be re-analyzed. If such a type is only in this set, the struct type
-/// index may be preserved (only the namespace might change). If its owned `Cau`
-/// is also outdated, the struct type index must be recreated.
-outdated_file_root: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .{},
 /// This contains a list of AnalUnit whose analysis or codegen failed, but the
 /// failure was something like running out of disk space, and trying again may
 /// succeed. On the next update, we will flush this list, marking all members of
@@ -2025,7 +2019,7 @@ pub const LazySrcLoc = struct {
     pub fn resolveBaseNode(base_node_inst: InternPool.TrackedInst.Index, zcu: *Zcu) struct { *File, Ast.Node.Index } {
         const ip = &zcu.intern_pool;
         const file_index, const zir_inst = inst: {
-            const info = base_node_inst.resolveFull(ip);
+            const info = base_node_inst.resolveFull(ip) orelse @panic("TODO: resolve source location relative to lost inst");
             break :inst .{ info.file, info.inst };
         };
         const file = zcu.fileByIndex(file_index);
@@ -2148,7 +2142,6 @@ pub fn deinit(zcu: *Zcu) void {
     zcu.potentially_outdated.deinit(gpa);
     zcu.outdated.deinit(gpa);
     zcu.outdated_ready.deinit(gpa);
-    zcu.outdated_file_root.deinit(gpa);
     zcu.retryable_failures.deinit(gpa);
 
     zcu.test_functions.deinit(gpa);
@@ -2355,8 +2348,6 @@ fn markTransitiveDependersPotentiallyOutdated(zcu: *Zcu, maybe_outdated: AnalUni
 pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?AnalUnit {
     if (!zcu.comp.incremental) return null;
 
-    if (true) @panic("TODO: findOutdatedToAnalyze");
-
     if (zcu.outdated.count() == 0 and zcu.potentially_outdated.count() == 0) {
         log.debug("findOutdatedToAnalyze: no outdated depender", .{});
         return null;
@@ -2381,87 +2372,57 @@ pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?AnalUnit {
         return zcu.outdated_ready.keys()[0];
     }
 
-    // Next, we will see if there is any outdated file root which was not in
-    // `outdated`. This set will be small (number of files changed in this
-    // update), so it's alright for us to just iterate here.
-    for (zcu.outdated_file_root.keys()) |file_decl| {
-        const decl_depender = AnalUnit.wrap(.{ .decl = file_decl });
-        if (zcu.outdated.contains(decl_depender)) {
-            // Since we didn't hit this in the first loop, this Decl must have
-            // pending dependencies, so is ineligible.
-            continue;
-        }
-        if (zcu.potentially_outdated.contains(decl_depender)) {
-            // This Decl's struct may or may not need to be recreated depending
-            // on whether it is outdated. If we analyzed it now, we would have
-            // to assume it was outdated and recreate it!
-            continue;
-        }
-        log.debug("findOutdatedToAnalyze: outdated file root decl '{d}'", .{file_decl});
-        return decl_depender;
-    }
+    // There is no single AnalUnit which is ready for re-analysis. Instead, we must assume that some
+    // Cau with PO dependencies is outdated -- e.g. in the above example we arbitrarily pick one of
+    // A or B. We should select a Cau, since a Cau is definitely responsible for the loop in the
+    // dependency graph (since IES dependencies can't have loops). We should also, of course, not
+    // select a Cau owned by a `comptime` declaration, since you can't depend on those!
 
-    // There is no single AnalUnit which is ready for re-analysis. Instead, we
-    // must assume that some Decl with PO dependencies is outdated - e.g. in the
-    // above example we arbitrarily pick one of A or B. We should select a Decl,
-    // since a Decl is definitely responsible for the loop in the dependency
-    // graph (since you can't depend on a runtime function analysis!).
-
-    // The choice of this Decl could have a big impact on how much total
-    // analysis we perform, since if analysis concludes its tyval is unchanged,
-    // then other PO AnalUnit may be resolved as up-to-date. To hopefully avoid
-    // doing too much work, let's find a Decl which the most things depend on -
-    // the idea is that this will resolve a lot of loops (but this is only a
-    // heuristic).
+    // The choice of this Cau could have a big impact on how much total analysis we perform, since
+    // if analysis concludes any dependencies on its result are up-to-date, then other PO AnalUnit
+    // may be resolved as up-to-date. To hopefully avoid doing too much work, let's find a Decl
+    // which the most things depend on - the idea is that this will resolve a lot of loops (but this
+    // is only a heuristic).
 
     log.debug("findOutdatedToAnalyze: no trivial ready, using heuristic; {d} outdated, {d} PO", .{
         zcu.outdated.count(),
         zcu.potentially_outdated.count(),
     });
 
-    const Decl = {};
+    const ip = &zcu.intern_pool;
 
-    var chosen_decl_idx: ?Decl.Index = null;
-    var chosen_decl_dependers: u32 = undefined;
+    var chosen_cau: ?InternPool.Cau.Index = null;
+    var chosen_cau_dependers: u32 = undefined;
 
-    for (zcu.outdated.keys()) |depender| {
-        const decl_index = switch (depender.unwrap()) {
-            .decl => |d| d,
-            .func => continue,
-        };
+    inline for (.{ zcu.outdated.keys(), zcu.potentially_outdated.keys() }) |outdated_units| {
+        for (outdated_units) |unit| {
+            const cau = switch (unit.unwrap()) {
+                .cau => |cau| cau,
+                .func => continue, // a `func` definitely can't be causing the loop so it is a bad choice
+            };
+            const cau_owner = ip.getCau(cau).owner;
 
-        var n: u32 = 0;
-        var it = zcu.intern_pool.dependencyIterator(.{ .decl_val = decl_index });
-        while (it.next()) |_| n += 1;
+            var n: u32 = 0;
+            var it = ip.dependencyIterator(switch (cau_owner.unwrap()) {
+                .none => continue, // there can be no dependencies on this `Cau` so it is a terrible choice
+                .type => |ty| .{ .interned = ty },
+                .nav => |nav| .{ .nav_val = nav },
+            });
+            while (it.next()) |_| n += 1;
 
-        if (chosen_decl_idx == null or n > chosen_decl_dependers) {
-            chosen_decl_idx = decl_index;
-            chosen_decl_dependers = n;
+            if (chosen_cau == null or n > chosen_cau_dependers) {
+                chosen_cau = cau;
+                chosen_cau_dependers = n;
+            }
         }
     }
 
-    for (zcu.potentially_outdated.keys()) |depender| {
-        const decl_index = switch (depender.unwrap()) {
-            .decl => |d| d,
-            .func => continue,
-        };
-
-        var n: u32 = 0;
-        var it = zcu.intern_pool.dependencyIterator(.{ .decl_val = decl_index });
-        while (it.next()) |_| n += 1;
-
-        if (chosen_decl_idx == null or n > chosen_decl_dependers) {
-            chosen_decl_idx = decl_index;
-            chosen_decl_dependers = n;
-        }
-    }
-
-    log.debug("findOutdatedToAnalyze: heuristic returned Decl {d} ({d} dependers)", .{
-        chosen_decl_idx.?,
-        chosen_decl_dependers,
+    log.debug("findOutdatedToAnalyze: heuristic returned Cau {d} ({d} dependers)", .{
+        @intFromEnum(chosen_cau.?),
+        chosen_cau_dependers,
     });
 
-    return AnalUnit.wrap(.{ .decl = chosen_decl_idx.? });
+    return AnalUnit.wrap(.{ .cau = chosen_cau.? });
 }
 
 /// During an incremental update, before semantic analysis, call this to flush all values from
@@ -2583,7 +2544,7 @@ pub fn mapOldZirToNew(
                     break :inst unnamed_tests.items[unnamed_test_idx];
                 },
                 _ => inst: {
-                    const name_nts = new_decl.name.toString(old_zir).?;
+                    const name_nts = new_decl.name.toString(new_zir).?;
                     const name = new_zir.nullTerminatedString(name_nts);
                     if (new_decl.name.isNamedTest(new_zir)) {
                         break :inst named_tests.get(name) orelse continue;
@@ -3093,7 +3054,7 @@ pub fn navSrcLoc(zcu: *const Zcu, nav_index: InternPool.Nav.Index) LazySrcLoc {
 
 pub fn navSrcLine(zcu: *Zcu, nav_index: InternPool.Nav.Index) u32 {
     const ip = &zcu.intern_pool;
-    const inst_info = ip.getNav(nav_index).srcInst(ip).resolveFull(ip);
+    const inst_info = ip.getNav(nav_index).srcInst(ip).resolveFull(ip).?;
     const zir = zcu.fileByIndex(inst_info.file).zir;
     const inst = zir.instructions.get(@intFromEnum(inst_info.inst));
     assert(inst.tag == .declaration);
@@ -3106,7 +3067,7 @@ pub fn navValue(zcu: *const Zcu, nav_index: InternPool.Nav.Index) Value {
 
 pub fn navFileScopeIndex(zcu: *Zcu, nav: InternPool.Nav.Index) File.Index {
     const ip = &zcu.intern_pool;
-    return ip.getNav(nav).srcInst(ip).resolveFull(ip).file;
+    return ip.getNav(nav).srcInst(ip).resolveFile(ip);
 }
 
 pub fn navFileScope(zcu: *Zcu, nav: InternPool.Nav.Index) *File {
@@ -3115,6 +3076,6 @@ pub fn navFileScope(zcu: *Zcu, nav: InternPool.Nav.Index) *File {
 
 pub fn cauFileScope(zcu: *Zcu, cau: InternPool.Cau.Index) *File {
     const ip = &zcu.intern_pool;
-    const file_index = ip.getCau(cau).zir_index.resolveFull(ip).file;
+    const file_index = ip.getCau(cau).zir_index.resolveFile(ip);
     return zcu.fileByIndex(file_index);
 }

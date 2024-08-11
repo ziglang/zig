@@ -999,7 +999,7 @@ fn analyzeBodyInner(
         // The hashmap lookup in here is a little expensive, and LLVM fails to optimize it away.
         if (build_options.enable_logging) {
             std.log.scoped(.sema_zir).debug("sema ZIR {s} %{d}", .{ sub_file_path: {
-                const file_index = block.src_base_inst.resolveFull(&zcu.intern_pool).file;
+                const file_index = block.src_base_inst.resolveFile(&zcu.intern_pool);
                 const file = zcu.fileByIndex(file_index);
                 break :sub_file_path file.sub_file_path;
             }, inst });
@@ -2873,7 +2873,7 @@ fn createTypeName(
         .anon => {}, // handled after switch
         .parent => return block.type_name_ctx,
         .func => func_strat: {
-            const fn_info = sema.code.getFnInfo(ip.funcZirBodyInst(sema.func_index).resolve(ip));
+            const fn_info = sema.code.getFnInfo(ip.funcZirBodyInst(sema.func_index).resolve(ip) orelse return error.AnalysisFail);
             const zir_tags = sema.code.instructions.items(.tag);
 
             var buf: std.ArrayListUnmanaged(u8) = .{};
@@ -5487,7 +5487,7 @@ fn failWithBadMemberAccess(
         .Enum => "enum",
         else => unreachable,
     };
-    if (agg_ty.typeDeclInst(zcu)) |inst| if (inst.resolve(ip) == .main_struct_inst) {
+    if (agg_ty.typeDeclInst(zcu)) |inst| if ((inst.resolve(ip) orelse return error.AnalysisFail) == .main_struct_inst) {
         return sema.fail(block, field_src, "root struct of file '{}' has no member named '{}'", .{
             agg_ty.fmt(pt), field_name.fmt(ip),
         });
@@ -6041,8 +6041,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
 
     const path_digest = zcu.filePathDigest(result.file_index);
-    const old_root_type = zcu.fileRootType(result.file_index);
-    pt.astGenFile(result.file, path_digest, old_root_type) catch |err|
+    pt.astGenFile(result.file, path_digest) catch |err|
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
 
     // TODO: register some kind of dependency on the file.
@@ -7778,7 +7777,7 @@ fn analyzeCall(
         // the AIR instructions of the callsite. The callee could be a generic function
         // which means its parameter type expressions must be resolved in order and used
         // to successively coerce the arguments.
-        const fn_info = ics.callee().code.getFnInfo(module_fn.zir_body_inst.resolve(ip));
+        const fn_info = ics.callee().code.getFnInfo(module_fn.zir_body_inst.resolve(ip) orelse return error.AnalysisFail);
         try ics.callee().inst_map.ensureSpaceForInstructions(gpa, fn_info.param_body);
 
         var arg_i: u32 = 0;
@@ -7823,7 +7822,7 @@ fn analyzeCall(
         // each of the parameters, resolving the return type and providing it to the child
         // `Sema` so that it can be used for the `ret_ptr` instruction.
         const ret_ty_inst = if (fn_info.ret_ty_body.len != 0)
-            try sema.resolveInlineBody(&child_block, fn_info.ret_ty_body, module_fn.zir_body_inst.resolve(ip))
+            try sema.resolveInlineBody(&child_block, fn_info.ret_ty_body, module_fn.zir_body_inst.resolve(ip) orelse return error.AnalysisFail)
         else
             try sema.resolveInst(fn_info.ret_ty_ref);
         const ret_ty_src: LazySrcLoc = .{ .base_node_inst = module_fn.zir_body_inst, .offset = .{ .node_offset_fn_type_ret_ty = 0 } };
@@ -8210,7 +8209,7 @@ fn instantiateGenericCall(
     const fn_nav = ip.getNav(generic_owner_func.owner_nav);
     const fn_cau = ip.getCau(fn_nav.analysis_owner.unwrap().?);
     const fn_zir = zcu.namespacePtr(fn_cau.namespace).fileScope(zcu).zir;
-    const fn_info = fn_zir.getFnInfo(generic_owner_func.zir_body_inst.resolve(ip));
+    const fn_info = fn_zir.getFnInfo(generic_owner_func.zir_body_inst.resolve(ip) orelse return error.AnalysisFail);
 
     const comptime_args = try sema.arena.alloc(InternPool.Index, args_info.count());
     @memset(comptime_args, .none);
@@ -9416,7 +9415,7 @@ fn zirFunc(
             break :cau generic_owner_nav.analysis_owner.unwrap().?;
         } else sema.owner.unwrap().cau;
         const fn_is_exported = exported: {
-            const decl_inst = ip.getCau(func_decl_cau).zir_index.resolve(ip);
+            const decl_inst = ip.getCau(func_decl_cau).zir_index.resolve(ip) orelse return error.AnalysisFail;
             const zir_decl = sema.code.getDeclaration(decl_inst)[0];
             break :exported zir_decl.flags.is_export;
         };
@@ -26125,7 +26124,7 @@ fn zirVarExtended(
         const addrspace_src = block.src(.{ .node_offset_var_decl_addrspace = 0 });
 
         const decl_inst, const decl_bodies = decl: {
-            const decl_inst = sema.getOwnerCauDeclInst().resolve(ip);
+            const decl_inst = sema.getOwnerCauDeclInst().resolve(ip) orelse return error.AnalysisFail;
             const zir_decl, const extra_end = sema.code.getDeclaration(decl_inst);
             break :decl .{ decl_inst, zir_decl.getBodies(extra_end, sema.code) };
         };
@@ -26354,7 +26353,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
                 break :decl_inst cau.zir_index;
             } else sema.getOwnerCauDeclInst(); // not an instantiation so we're analyzing a function declaration Cau
 
-            const zir_decl = sema.code.getDeclaration(decl_inst.resolve(&mod.intern_pool))[0];
+            const zir_decl = sema.code.getDeclaration(decl_inst.resolve(&mod.intern_pool) orelse return error.AnalysisFail)[0];
             if (zir_decl.flags.is_export) {
                 break :cc .C;
             }
@@ -35505,7 +35504,7 @@ fn semaBackingIntType(pt: Zcu.PerThread, struct_type: InternPool.LoadedStructTyp
         break :blk accumulator;
     };
 
-    const zir_index = struct_type.zir_index.unwrap().?.resolve(ip);
+    const zir_index = struct_type.zir_index.unwrap().?.resolve(ip) orelse return error.AnalysisFail;
     const extended = zir.instructions.items(.data)[@intFromEnum(zir_index)].extended;
     assert(extended.opcode == .struct_decl);
     const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
@@ -36120,7 +36119,7 @@ fn semaStructFields(
     const cau_index = struct_type.cau.unwrap().?;
     const namespace_index = ip.getCau(cau_index).namespace;
     const zir = zcu.namespacePtr(namespace_index).fileScope(zcu).zir;
-    const zir_index = struct_type.zir_index.unwrap().?.resolve(ip);
+    const zir_index = struct_type.zir_index.unwrap().?.resolve(ip) orelse return error.AnalysisFail;
 
     const fields_len, const small, var extra_index = structZirInfo(zir, zir_index);
 
@@ -36343,7 +36342,7 @@ fn semaStructFieldInits(
     const cau_index = struct_type.cau.unwrap().?;
     const namespace_index = ip.getCau(cau_index).namespace;
     const zir = zcu.namespacePtr(namespace_index).fileScope(zcu).zir;
-    const zir_index = struct_type.zir_index.unwrap().?.resolve(ip);
+    const zir_index = struct_type.zir_index.unwrap().?.resolve(ip) orelse return error.AnalysisFail;
     const fields_len, const small, var extra_index = structZirInfo(zir, zir_index);
 
     var comptime_err_ret_trace = std.ArrayList(LazySrcLoc).init(gpa);
@@ -36477,7 +36476,7 @@ fn semaUnionFields(pt: Zcu.PerThread, arena: Allocator, union_ty: InternPool.Ind
     const ip = &zcu.intern_pool;
     const cau_index = union_type.cau;
     const zir = zcu.namespacePtr(union_type.namespace).fileScope(zcu).zir;
-    const zir_index = union_type.zir_index.resolve(ip);
+    const zir_index = union_type.zir_index.resolve(ip) orelse return error.AnalysisFail;
     const extended = zir.instructions.items(.data)[@intFromEnum(zir_index)].extended;
     assert(extended.opcode == .union_decl);
     const small: Zir.Inst.UnionDecl.Small = @bitCast(extended.small);

@@ -3081,7 +3081,7 @@ pub fn totalErrorCount(comp: *Compilation) u32 {
         for (zcu.failed_analysis.keys()) |anal_unit| {
             const file_index = switch (anal_unit.unwrap()) {
                 .cau => |cau| zcu.namespacePtr(ip.getCau(cau).namespace).file_scope,
-                .func => |ip_index| zcu.funcInfo(ip_index).zir_body_inst.resolveFull(ip).file,
+                .func => |ip_index| (zcu.funcInfo(ip_index).zir_body_inst.resolveFull(ip) orelse continue).file,
             };
             if (zcu.fileByIndex(file_index).okToReportErrors()) {
                 total += 1;
@@ -3091,11 +3091,13 @@ pub fn totalErrorCount(comp: *Compilation) u32 {
             }
         }
 
-        if (zcu.intern_pool.global_error_set.getNamesFromMainThread().len > zcu.error_limit) {
-            total += 1;
+        for (zcu.failed_codegen.keys()) |nav| {
+            if (zcu.navFileScope(nav).okToReportErrors()) {
+                total += 1;
+            }
         }
 
-        for (zcu.failed_codegen.keys()) |_| {
+        if (zcu.intern_pool.global_error_set.getNamesFromMainThread().len > zcu.error_limit) {
             total += 1;
         }
     }
@@ -3114,7 +3116,13 @@ pub fn totalErrorCount(comp: *Compilation) u32 {
         }
     }
 
-    return @as(u32, @intCast(total));
+    if (comp.module) |zcu| {
+        if (total == 0 and zcu.transitive_failed_analysis.count() > 0) {
+            @panic("Transitive analysis errors, but none actually emitted");
+        }
+    }
+
+    return @intCast(total);
 }
 
 /// This function is temporally single-threaded.
@@ -3214,7 +3222,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         for (zcu.failed_analysis.keys(), zcu.failed_analysis.values()) |anal_unit, error_msg| {
             const file_index = switch (anal_unit.unwrap()) {
                 .cau => |cau| zcu.namespacePtr(ip.getCau(cau).namespace).file_scope,
-                .func => |ip_index| zcu.funcInfo(ip_index).zir_body_inst.resolveFull(ip).file,
+                .func => |ip_index| (zcu.funcInfo(ip_index).zir_body_inst.resolveFull(ip) orelse continue).file,
             };
 
             // Skip errors for AnalUnits within files that had a parse failure.
@@ -3243,7 +3251,8 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 }
             }
         }
-        for (zcu.failed_codegen.values()) |error_msg| {
+        for (zcu.failed_codegen.keys(), zcu.failed_codegen.values()) |nav, error_msg| {
+            if (!zcu.navFileScope(nav).okToReportErrors()) continue;
             try addModuleErrorMsg(zcu, &bundle, error_msg.*, &all_references);
         }
         for (zcu.failed_exports.values()) |value| {
@@ -3608,10 +3617,9 @@ fn performAllTheWorkInner(
                     // Pre-load these things from our single-threaded context since they
                     // will be needed by the worker threads.
                     const path_digest = zcu.filePathDigest(file_index);
-                    const old_root_type = zcu.fileRootType(file_index);
                     const file = zcu.fileByIndex(file_index);
                     comp.thread_pool.spawnWgId(&astgen_wait_group, workerAstGenFile, .{
-                        comp, file, file_index, path_digest, old_root_type, zir_prog_node, &astgen_wait_group, .root,
+                        comp, file, file_index, path_digest, zir_prog_node, &astgen_wait_group, .root,
                     });
                 }
             }
@@ -3649,6 +3657,7 @@ fn performAllTheWorkInner(
         }
         try reportMultiModuleErrors(pt);
         try zcu.flushRetryableFailures();
+
         zcu.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
         zcu.codegen_prog_node = main_progress_node.start("Code Generation", 0);
     }
@@ -4283,7 +4292,6 @@ fn workerAstGenFile(
     file: *Zcu.File,
     file_index: Zcu.File.Index,
     path_digest: Cache.BinDigest,
-    old_root_type: InternPool.Index,
     prog_node: std.Progress.Node,
     wg: *WaitGroup,
     src: Zcu.AstGenSrc,
@@ -4292,7 +4300,7 @@ fn workerAstGenFile(
     defer child_prog_node.end();
 
     const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
-    pt.astGenFile(file, path_digest, old_root_type) catch |err| switch (err) {
+    pt.astGenFile(file, path_digest) catch |err| switch (err) {
         error.AnalysisFail => return,
         else => {
             file.status = .retryable_failure;
@@ -4323,7 +4331,7 @@ fn workerAstGenFile(
             // `@import("builtin")` is handled specially.
             if (mem.eql(u8, import_path, "builtin")) continue;
 
-            const import_result, const imported_path_digest, const imported_root_type = blk: {
+            const import_result, const imported_path_digest = blk: {
                 comp.mutex.lock();
                 defer comp.mutex.unlock();
 
@@ -4338,8 +4346,7 @@ fn workerAstGenFile(
                     comp.appendFileSystemInput(fsi, res.file.mod.root, res.file.sub_file_path) catch continue;
                 };
                 const imported_path_digest = pt.zcu.filePathDigest(res.file_index);
-                const imported_root_type = pt.zcu.fileRootType(res.file_index);
-                break :blk .{ res, imported_path_digest, imported_root_type };
+                break :blk .{ res, imported_path_digest };
             };
             if (import_result.is_new) {
                 log.debug("AstGen of {s} has import '{s}'; queuing AstGen of {s}", .{
@@ -4350,7 +4357,7 @@ fn workerAstGenFile(
                     .import_tok = item.data.token,
                 } };
                 comp.thread_pool.spawnWgId(wg, workerAstGenFile, .{
-                    comp, import_result.file, import_result.file_index, imported_path_digest, imported_root_type, prog_node, wg, sub_src,
+                    comp, import_result.file, import_result.file_index, imported_path_digest, prog_node, wg, sub_src,
                 });
             }
         }
@@ -6443,7 +6450,8 @@ fn buildOutputFromZig(
 
     try comp.updateSubCompilation(sub_compilation, misc_task_tag, prog_node);
 
-    assert(out.* == null);
+    // Under incremental compilation, `out` may already be populated from a prior update.
+    assert(out.* == null or comp.incremental);
     out.* = try sub_compilation.toCrtFile();
 }
 

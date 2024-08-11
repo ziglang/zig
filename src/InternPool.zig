@@ -65,19 +65,49 @@ pub const single_threaded = builtin.single_threaded or !want_multi_threaded;
 pub const TrackedInst = extern struct {
     file: FileIndex,
     inst: Zir.Inst.Index,
-    comptime {
-        // The fields should be tightly packed. See also serialiation logic in `Compilation.saveState`.
-        assert(@sizeOf(@This()) == @sizeOf(FileIndex) + @sizeOf(Zir.Inst.Index));
-    }
+
+    pub const MaybeLost = extern struct {
+        file: FileIndex,
+        inst: ZirIndex,
+        pub const ZirIndex = enum(u32) {
+            /// Tracking failed for this ZIR instruction. Uses of it should fail.
+            lost = std.math.maxInt(u32),
+            _,
+            pub fn unwrap(inst: ZirIndex) ?Zir.Inst.Index {
+                return switch (inst) {
+                    .lost => null,
+                    _ => @enumFromInt(@intFromEnum(inst)),
+                };
+            }
+            pub fn wrap(inst: Zir.Inst.Index) ZirIndex {
+                return @enumFromInt(@intFromEnum(inst));
+            }
+        };
+        comptime {
+            // The fields should be tightly packed. See also serialiation logic in `Compilation.saveState`.
+            assert(@sizeOf(@This()) == @sizeOf(FileIndex) + @sizeOf(ZirIndex));
+        }
+    };
+
     pub const Index = enum(u32) {
         _,
-        pub fn resolveFull(tracked_inst_index: TrackedInst.Index, ip: *const InternPool) TrackedInst {
+        pub fn resolveFull(tracked_inst_index: TrackedInst.Index, ip: *const InternPool) ?TrackedInst {
             const tracked_inst_unwrapped = tracked_inst_index.unwrap(ip);
             const tracked_insts = ip.getLocalShared(tracked_inst_unwrapped.tid).tracked_insts.acquire();
-            return tracked_insts.view().items(.@"0")[tracked_inst_unwrapped.index];
+            const maybe_lost = tracked_insts.view().items(.@"0")[tracked_inst_unwrapped.index];
+            return .{
+                .file = maybe_lost.file,
+                .inst = maybe_lost.inst.unwrap() orelse return null,
+            };
         }
-        pub fn resolve(i: TrackedInst.Index, ip: *const InternPool) Zir.Inst.Index {
-            return i.resolveFull(ip).inst;
+        pub fn resolveFile(tracked_inst_index: TrackedInst.Index, ip: *const InternPool) FileIndex {
+            const tracked_inst_unwrapped = tracked_inst_index.unwrap(ip);
+            const tracked_insts = ip.getLocalShared(tracked_inst_unwrapped.tid).tracked_insts.acquire();
+            const maybe_lost = tracked_insts.view().items(.@"0")[tracked_inst_unwrapped.index];
+            return maybe_lost.file;
+        }
+        pub fn resolve(i: TrackedInst.Index, ip: *const InternPool) ?Zir.Inst.Index {
+            return (i.resolveFull(ip) orelse return null).inst;
         }
 
         pub fn toOptional(i: TrackedInst.Index) Optional {
@@ -120,7 +150,11 @@ pub fn trackZir(
     tid: Zcu.PerThread.Id,
     key: TrackedInst,
 ) Allocator.Error!TrackedInst.Index {
-    const full_hash = Hash.hash(0, std.mem.asBytes(&key));
+    const maybe_lost_key: TrackedInst.MaybeLost = .{
+        .file = key.file,
+        .inst = TrackedInst.MaybeLost.ZirIndex.wrap(key.inst),
+    };
+    const full_hash = Hash.hash(0, std.mem.asBytes(&maybe_lost_key));
     const hash: u32 = @truncate(full_hash >> 32);
     const shard = &ip.shards[@intCast(full_hash & (ip.shards.len - 1))];
     var map = shard.shared.tracked_inst_map.acquire();
@@ -132,12 +166,11 @@ pub fn trackZir(
         const entry = &map.entries[map_index];
         const index = entry.acquire().unwrap() orelse break;
         if (entry.hash != hash) continue;
-        if (std.meta.eql(index.resolveFull(ip), key)) return index;
+        if (std.meta.eql(index.resolveFull(ip) orelse continue, key)) return index;
     }
     shard.mutate.tracked_inst_map.mutex.lock();
     defer shard.mutate.tracked_inst_map.mutex.unlock();
     if (map.entries != shard.shared.tracked_inst_map.entries) {
-        shard.mutate.tracked_inst_map.len += 1;
         map = shard.shared.tracked_inst_map;
         map_mask = map.header().mask();
         map_index = hash;
@@ -147,7 +180,7 @@ pub fn trackZir(
         const entry = &map.entries[map_index];
         const index = entry.acquire().unwrap() orelse break;
         if (entry.hash != hash) continue;
-        if (std.meta.eql(index.resolveFull(ip), key)) return index;
+        if (std.meta.eql(index.resolveFull(ip) orelse continue, key)) return index;
     }
     defer shard.mutate.tracked_inst_map.len += 1;
     const local = ip.getLocal(tid);
@@ -161,7 +194,7 @@ pub fn trackZir(
             .tid = tid,
             .index = list.mutate.len,
         }).wrap(ip);
-        list.appendAssumeCapacity(.{key});
+        list.appendAssumeCapacity(.{maybe_lost_key});
         entry.release(index.toOptional());
         return index;
     }
@@ -205,10 +238,89 @@ pub fn trackZir(
         .tid = tid,
         .index = list.mutate.len,
     }).wrap(ip);
-    list.appendAssumeCapacity(.{key});
+    list.appendAssumeCapacity(.{maybe_lost_key});
     map.entries[map_index] = .{ .value = index.toOptional(), .hash = hash };
     shard.shared.tracked_inst_map.release(new_map);
     return index;
+}
+
+pub fn rehashTrackedInsts(
+    ip: *InternPool,
+    gpa: Allocator,
+    /// TODO: maybe don't take this? it doesn't actually matter, only one thread is running at this point
+    tid: Zcu.PerThread.Id,
+) Allocator.Error!void {
+    // TODO: this function doesn't handle OOM well. What should it do?
+    //       Indeed, what should anyone do when they run out of memory?
+
+    // We don't lock anything, as this function assumes that no other thread is
+    // accessing `tracked_insts`. This is necessary because we're going to be
+    // iterating the `TrackedInst`s in each `Local`, so we have to know that
+    // none will be added as we work.
+
+    // Figure out how big each shard need to be and store it in its mutate `len`.
+    for (ip.shards) |*shard| shard.mutate.tracked_inst_map.len = 0;
+    for (ip.locals) |*local| {
+        // `getMutableTrackedInsts` is okay only because no other thread is currently active.
+        // We need the `mutate` for the len.
+        for (local.getMutableTrackedInsts(gpa).viewAllowEmpty().items(.@"0")) |tracked_inst| {
+            if (tracked_inst.inst == .lost) continue; // we can ignore this one!
+            const full_hash = Hash.hash(0, std.mem.asBytes(&tracked_inst));
+            const shard = &ip.shards[@intCast(full_hash & (ip.shards.len - 1))];
+            shard.mutate.tracked_inst_map.len += 1;
+        }
+    }
+
+    const Map = Shard.Map(TrackedInst.Index.Optional);
+
+    const arena_state = &ip.getLocal(tid).mutate.arena;
+
+    // We know how big each shard must be, so ensure we have the capacity we need.
+    for (ip.shards) |*shard| {
+        const want_capacity = std.math.ceilPowerOfTwo(u32, shard.mutate.tracked_inst_map.len * 5 / 3) catch unreachable;
+        const have_capacity = shard.shared.tracked_inst_map.header().capacity; // no acquire because we hold the mutex
+        if (have_capacity >= want_capacity) {
+            @memset(shard.shared.tracked_inst_map.entries[0..have_capacity], .{ .value = .none, .hash = undefined });
+            continue;
+        }
+        var arena = arena_state.promote(gpa);
+        defer arena_state.* = arena.state;
+        const new_map_buf = try arena.allocator().alignedAlloc(
+            u8,
+            Map.alignment,
+            Map.entries_offset + want_capacity * @sizeOf(Map.Entry),
+        );
+        const new_map: Map = .{ .entries = @ptrCast(new_map_buf[Map.entries_offset..].ptr) };
+        new_map.header().* = .{ .capacity = want_capacity };
+        @memset(new_map.entries[0..want_capacity], .{ .value = .none, .hash = undefined });
+        shard.shared.tracked_inst_map.release(new_map);
+    }
+
+    // Now, actually insert the items.
+    for (ip.locals, 0..) |*local, local_tid| {
+        // `getMutableTrackedInsts` is okay only because no other thread is currently active.
+        // We need the `mutate` for the len.
+        for (local.getMutableTrackedInsts(gpa).viewAllowEmpty().items(.@"0"), 0..) |tracked_inst, local_inst_index| {
+            if (tracked_inst.inst == .lost) continue; // we can ignore this one!
+            const full_hash = Hash.hash(0, std.mem.asBytes(&tracked_inst));
+            const hash: u32 = @truncate(full_hash >> 32);
+            const shard = &ip.shards[@intCast(full_hash & (ip.shards.len - 1))];
+            const map = shard.shared.tracked_inst_map; // no acquire because we hold the mutex
+            const map_mask = map.header().mask();
+            var map_index = hash;
+            const entry = while (true) : (map_index += 1) {
+                map_index &= map_mask;
+                const entry = &map.entries[map_index];
+                if (entry.acquire() == .none) break entry;
+            };
+            const index = TrackedInst.Index.Unwrapped.wrap(.{
+                .tid = @enumFromInt(local_tid),
+                .index = @intCast(local_inst_index),
+            }, ip);
+            entry.hash = hash;
+            entry.release(index.toOptional());
+        }
+    }
 }
 
 /// Analysis Unit. Represents a single entity which undergoes semantic analysis.
@@ -728,7 +840,7 @@ const Local = struct {
         else => @compileError("unsupported host"),
     };
     const Strings = List(struct { u8 });
-    const TrackedInsts = List(struct { TrackedInst });
+    const TrackedInsts = List(struct { TrackedInst.MaybeLost });
     const Maps = List(struct { FieldMap });
     const Caus = List(struct { Cau });
     const Navs = List(Nav.Repr);
@@ -959,6 +1071,14 @@ const Local = struct {
                     mutable.list.release(new_list);
                 }
 
+                pub fn viewAllowEmpty(mutable: Mutable) View {
+                    const capacity = mutable.list.header().capacity;
+                    return .{
+                        .bytes = mutable.list.bytes,
+                        .len = mutable.mutate.len,
+                        .capacity = capacity,
+                    };
+                }
                 pub fn view(mutable: Mutable) View {
                     const capacity = mutable.list.header().capacity;
                     assert(capacity > 0); // optimizes `MultiArrayList.Slice.items`
@@ -996,7 +1116,6 @@ const Local = struct {
             fn header(list: ListSelf) *Header {
                 return @ptrFromInt(@intFromPtr(list.bytes) - bytes_offset);
             }
-
             pub fn view(list: ListSelf) View {
                 const capacity = list.header().capacity;
                 assert(capacity > 0); // optimizes `MultiArrayList.Slice.items`
@@ -11000,7 +11119,6 @@ pub fn getOrPutTrailingString(
     shard.mutate.string_map.mutex.lock();
     defer shard.mutate.string_map.mutex.unlock();
     if (map.entries != shard.shared.string_map.entries) {
-        shard.mutate.string_map.len += 1;
         map = shard.shared.string_map;
         map_mask = map.header().mask();
         map_index = hash;

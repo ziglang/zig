@@ -1959,7 +1959,7 @@ pub const Object = struct {
                     );
                 }
 
-                const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFull(ip).file);
+                const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFile(ip));
                 const scope = if (ty.getParentNamespace(zcu).unwrap()) |parent_namespace|
                     try o.namespaceToDebugScope(parent_namespace)
                 else
@@ -2137,7 +2137,7 @@ pub const Object = struct {
                 const name = try o.allocTypeName(ty);
                 defer gpa.free(name);
 
-                const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFull(ip).file);
+                const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFile(ip));
                 const scope = if (ty.getParentNamespace(zcu).unwrap()) |parent_namespace|
                     try o.namespaceToDebugScope(parent_namespace)
                 else
@@ -2772,7 +2772,7 @@ pub const Object = struct {
     fn makeEmptyNamespaceDebugType(o: *Object, ty: Type) !Builder.Metadata {
         const zcu = o.pt.zcu;
         const ip = &zcu.intern_pool;
-        const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFull(ip).file);
+        const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFile(ip));
         const scope = if (ty.getParentNamespace(zcu).unwrap()) |parent_namespace|
             try o.namespaceToDebugScope(parent_namespace)
         else
