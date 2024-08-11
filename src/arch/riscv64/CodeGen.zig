@@ -8304,7 +8304,7 @@ fn promoteVarArg(func: *Func, ty: Type) Type {
     switch (ty.floatBits(func.target.*)) {
         32, 64 => return Type.f64,
         else => |float_bits| {
-            assert(float_bits == func.target.c_type_bit_size(.longdouble));
+            assert(float_bits == func.target.cTypeBitSize(.longdouble));
             return Type.c_longdouble;
         },
     }

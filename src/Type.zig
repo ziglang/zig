@@ -1005,15 +1005,15 @@ pub fn abiAlignmentAdvanced(
 
                 .f16 => return .{ .scalar = .@"2" },
                 .f32 => return .{ .scalar = cTypeAlign(target, .float) },
-                .f64 => switch (target.c_type_bit_size(.double)) {
+                .f64 => switch (target.cTypeBitSize(.double)) {
                     64 => return .{ .scalar = cTypeAlign(target, .double) },
                     else => return .{ .scalar = .@"8" },
                 },
-                .f80 => switch (target.c_type_bit_size(.longdouble)) {
+                .f80 => switch (target.cTypeBitSize(.longdouble)) {
                     80 => return .{ .scalar = cTypeAlign(target, .longdouble) },
                     else => return .{ .scalar = Type.u80.abiAlignment(pt) },
                 },
-                .f128 => switch (target.c_type_bit_size(.longdouble)) {
+                .f128 => switch (target.cTypeBitSize(.longdouble)) {
                     128 => return .{ .scalar = cTypeAlign(target, .longdouble) },
                     else => return .{ .scalar = .@"16" },
                 },
@@ -1366,8 +1366,8 @@ pub fn abiSizeAdvanced(
                 .f32 => return .{ .scalar = 4 },
                 .f64 => return .{ .scalar = 8 },
                 .f128 => return .{ .scalar = 16 },
-                .f80 => switch (target.c_type_bit_size(.longdouble)) {
-                    80 => return .{ .scalar = target.c_type_byte_size(.longdouble) },
+                .f80 => switch (target.cTypeBitSize(.longdouble)) {
+                    80 => return .{ .scalar = target.cTypeByteSize(.longdouble) },
                     else => return .{ .scalar = Type.u80.abiSize(pt) },
                 },
 
@@ -1375,16 +1375,16 @@ pub fn abiSizeAdvanced(
                 .isize,
                 => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) },
 
-                .c_char => return .{ .scalar = target.c_type_byte_size(.char) },
-                .c_short => return .{ .scalar = target.c_type_byte_size(.short) },
-                .c_ushort => return .{ .scalar = target.c_type_byte_size(.ushort) },
-                .c_int => return .{ .scalar = target.c_type_byte_size(.int) },
-                .c_uint => return .{ .scalar = target.c_type_byte_size(.uint) },
-                .c_long => return .{ .scalar = target.c_type_byte_size(.long) },
-                .c_ulong => return .{ .scalar = target.c_type_byte_size(.ulong) },
-                .c_longlong => return .{ .scalar = target.c_type_byte_size(.longlong) },
-                .c_ulonglong => return .{ .scalar = target.c_type_byte_size(.ulonglong) },
-                .c_longdouble => return .{ .scalar = target.c_type_byte_size(.longdouble) },
+                .c_char => return .{ .scalar = target.cTypeByteSize(.char) },
+                .c_short => return .{ .scalar = target.cTypeByteSize(.short) },
+                .c_ushort => return .{ .scalar = target.cTypeByteSize(.ushort) },
+                .c_int => return .{ .scalar = target.cTypeByteSize(.int) },
+                .c_uint => return .{ .scalar = target.cTypeByteSize(.uint) },
+                .c_long => return .{ .scalar = target.cTypeByteSize(.long) },
+                .c_ulong => return .{ .scalar = target.cTypeByteSize(.ulong) },
+                .c_longlong => return .{ .scalar = target.cTypeByteSize(.longlong) },
+                .c_ulonglong => return .{ .scalar = target.cTypeByteSize(.ulonglong) },
+                .c_longdouble => return .{ .scalar = target.cTypeByteSize(.longdouble) },
 
                 .anyopaque,
                 .void,
@@ -1724,16 +1724,16 @@ pub fn bitSizeAdvanced(
             .isize,
             => return target.ptrBitWidth(),
 
-            .c_char => return target.c_type_bit_size(.char),
-            .c_short => return target.c_type_bit_size(.short),
-            .c_ushort => return target.c_type_bit_size(.ushort),
-            .c_int => return target.c_type_bit_size(.int),
-            .c_uint => return target.c_type_bit_size(.uint),
-            .c_long => return target.c_type_bit_size(.long),
-            .c_ulong => return target.c_type_bit_size(.ulong),
-            .c_longlong => return target.c_type_bit_size(.longlong),
-            .c_ulonglong => return target.c_type_bit_size(.ulonglong),
-            .c_longdouble => return target.c_type_bit_size(.longdouble),
+            .c_char => return target.cTypeBitSize(.char),
+            .c_short => return target.cTypeBitSize(.short),
+            .c_ushort => return target.cTypeBitSize(.ushort),
+            .c_int => return target.cTypeBitSize(.int),
+            .c_uint => return target.cTypeBitSize(.uint),
+            .c_long => return target.cTypeBitSize(.long),
+            .c_ulong => return target.cTypeBitSize(.ulong),
+            .c_longlong => return target.cTypeBitSize(.longlong),
+            .c_ulonglong => return target.cTypeBitSize(.ulonglong),
+            .c_longdouble => return target.cTypeBitSize(.longdouble),
 
             .bool => return 1,
             .void => return 0,
@@ -2310,15 +2310,15 @@ pub fn intInfo(starting_ty: Type, mod: *Module) InternPool.Key.IntType {
         },
         .usize_type => return .{ .signedness = .unsigned, .bits = target.ptrBitWidth() },
         .isize_type => return .{ .signedness = .signed, .bits = target.ptrBitWidth() },
-        .c_char_type => return .{ .signedness = mod.getTarget().charSignedness(), .bits = target.c_type_bit_size(.char) },
-        .c_short_type => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.short) },
-        .c_ushort_type => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.ushort) },
-        .c_int_type => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.int) },
-        .c_uint_type => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.uint) },
-        .c_long_type => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.long) },
-        .c_ulong_type => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.ulong) },
-        .c_longlong_type => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.longlong) },
-        .c_ulonglong_type => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.ulonglong) },
+        .c_char_type => return .{ .signedness = mod.getTarget().charSignedness(), .bits = target.cTypeBitSize(.char) },
+        .c_short_type => return .{ .signedness = .signed, .bits = target.cTypeBitSize(.short) },
+        .c_ushort_type => return .{ .signedness = .unsigned, .bits = target.cTypeBitSize(.ushort) },
+        .c_int_type => return .{ .signedness = .signed, .bits = target.cTypeBitSize(.int) },
+        .c_uint_type => return .{ .signedness = .unsigned, .bits = target.cTypeBitSize(.uint) },
+        .c_long_type => return .{ .signedness = .signed, .bits = target.cTypeBitSize(.long) },
+        .c_ulong_type => return .{ .signedness = .unsigned, .bits = target.cTypeBitSize(.ulong) },
+        .c_longlong_type => return .{ .signedness = .signed, .bits = target.cTypeBitSize(.longlong) },
+        .c_ulonglong_type => return .{ .signedness = .unsigned, .bits = target.cTypeBitSize(.ulonglong) },
         else => switch (ip.indexToKey(ty.toIntern())) {
             .int_type => |int_type| return int_type,
             .struct_type => ty = Type.fromInterned(ip.loadStructType(ty.toIntern()).backingIntTypeUnordered(ip)),
@@ -2427,7 +2427,7 @@ pub fn floatBits(ty: Type, target: Target) u16 {
         .f64_type => 64,
         .f80_type => 80,
         .f128_type, .comptime_float_type => 128,
-        .c_longdouble_type => target.c_type_bit_size(.longdouble),
+        .c_longdouble_type => target.cTypeBitSize(.longdouble),
 
         else => unreachable,
     };
@@ -4025,5 +4025,5 @@ pub fn smallestUnsignedBits(max: u64) u16 {
 pub const packed_struct_layout_version = 2;
 
 fn cTypeAlign(target: Target, c_type: Target.CType) Alignment {
-    return Alignment.fromByteUnits(target.c_type_alignment(c_type));
+    return Alignment.fromByteUnits(target.cTypeAlignment(c_type));
 }

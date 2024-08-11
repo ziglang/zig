@@ -306,7 +306,7 @@ pub const FPSemantics = enum {
     /// Only intended for generating float.h macros for the preprocessor
     pub fn forType(ty: std.Target.CType, target: std.Target) FPSemantics {
         std.debug.assert(ty == .float or ty == .double or ty == .longdouble);
-        return switch (target.c_type_bit_size(ty)) {
+        return switch (target.cTypeBitSize(ty)) {
             32 => .IEEESingle,
             64 => .IEEEDouble,
             80 => .x87ExtendedDouble,
@@ -350,7 +350,7 @@ pub const FPSemantics = enum {
 };
 
 pub fn isLP64(target: std.Target) bool {
-    return target.c_type_bit_size(.int) == 32 and target.ptrBitWidth() == 64;
+    return target.cTypeBitSize(.int) == 32 and target.ptrBitWidth() == 64;
 }
 
 pub fn isKnownWindowsMSVCEnvironment(target: std.Target) bool {
