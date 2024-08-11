@@ -6,22 +6,21 @@ pub fn createThunks(shndx: u32, elf_file: *Elf) !void {
     const atoms = elf_file.output_sections.get(shndx).?.items;
     assert(atoms.len > 0);
 
-    for (atoms) |atom_index| {
-        elf_file.atom(atom_index).?.value = -1;
+    for (atoms) |ref| {
+        elf_file.atom(ref).?.value = -1;
     }
 
     var i: usize = 0;
     while (i < atoms.len) {
         const start = i;
         const start_atom = elf_file.atom(atoms[start]).?;
-        assert(start_atom.flags.alive);
+        assert(start_atom.alive);
         start_atom.value = try advance(shdr, start_atom.size, start_atom.alignment);
         i += 1;
 
         while (i < atoms.len) : (i += 1) {
-            const atom_index = atoms[i];
-            const atom = elf_file.atom(atom_index).?;
-            assert(atom.flags.alive);
+            const atom = elf_file.atom(atoms[i]).?;
+            assert(atom.alive);
             if (@as(i64, @intCast(atom.alignment.forward(shdr.sh_size))) - start_atom.value >= max_distance)
                 break;
             atom.value = try advance(shdr, atom.size, atom.alignment);
@@ -33,10 +32,10 @@ pub fn createThunks(shndx: u32, elf_file: *Elf) !void {
         thunk.output_section_index = shndx;
 
         // Scan relocs in the group and create trampolines for any unreachable callsite
-        for (atoms[start..i]) |atom_index| {
-            const atom = elf_file.atom(atom_index).?;
+        for (atoms[start..i]) |ref| {
+            const atom = elf_file.atom(ref).?;
             const file = atom.file(elf_file).?;
-            log.debug("atom({d}) {s}", .{ atom_index, atom.name(elf_file) });
+            log.debug("atom({}) {s}", .{ ref, atom.name(elf_file) });
             for (atom.relocs(elf_file)) |rel| {
                 const is_reachable = switch (cpu_arch) {
                     .aarch64 => aarch64.isReachable(atom, rel, elf_file),
@@ -44,15 +43,10 @@ pub fn createThunks(shndx: u32, elf_file: *Elf) !void {
                     else => @panic("unsupported arch"),
                 };
                 if (is_reachable) continue;
-                const target = switch (file) {
-                    .zig_object => |x| x.symbol(rel.r_sym()),
-                    .object => |x| x.symbols.items[rel.r_sym()],
-                    else => unreachable,
-                };
+                const target = file.resolveSymbol(rel.r_sym(), elf_file);
                 try thunk.symbols.put(gpa, target, {});
             }
-            try atom.addExtra(.{ .thunk = thunk_index }, elf_file);
-            atom.flags.thunk = true;
+            atom.addExtra(.{ .thunk = thunk_index }, elf_file);
         }
 
         thunk.value = try advance(shdr, thunk.size(elf_file), Atom.Alignment.fromNonzeroByteUnits(2));
@@ -82,7 +76,7 @@ fn maxAllowedDistance(cpu_arch: std.Target.Cpu.Arch) u32 {
 pub const Thunk = struct {
     value: i64 = 0,
     output_section_index: u32 = 0,
-    symbols: std.AutoArrayHashMapUnmanaged(Symbol.Index, void) = .{},
+    symbols: std.AutoArrayHashMapUnmanaged(Elf.Ref, void) = .{},
     output_symtab_ctx: Elf.SymtabCtx = .{},
 
     pub fn deinit(thunk: *Thunk, allocator: Allocator) void {
@@ -99,9 +93,9 @@ pub const Thunk = struct {
         return @as(i64, @intCast(shdr.sh_addr)) + thunk.value;
     }
 
-    pub fn targetAddress(thunk: Thunk, sym_index: Symbol.Index, elf_file: *Elf) i64 {
+    pub fn targetAddress(thunk: Thunk, ref: Elf.Ref, elf_file: *Elf) i64 {
         const cpu_arch = elf_file.getTarget().cpu.arch;
-        return thunk.address(elf_file) + @as(i64, @intCast(thunk.symbols.getIndex(sym_index).? * trampolineSize(cpu_arch)));
+        return thunk.address(elf_file) + @as(i64, @intCast(thunk.symbols.getIndex(ref).? * trampolineSize(cpu_arch)));
     }
 
     pub fn write(thunk: Thunk, elf_file: *Elf, writer: anytype) !void {
@@ -114,16 +108,16 @@ pub const Thunk = struct {
 
     pub fn calcSymtabSize(thunk: *Thunk, elf_file: *Elf) void {
         thunk.output_symtab_ctx.nlocals = @as(u32, @intCast(thunk.symbols.keys().len));
-        for (thunk.symbols.keys()) |sym_index| {
-            const sym = elf_file.symbol(sym_index);
+        for (thunk.symbols.keys()) |ref| {
+            const sym = elf_file.symbol(ref).?;
             thunk.output_symtab_ctx.strsize += @as(u32, @intCast(sym.name(elf_file).len + "$thunk".len + 1));
         }
     }
 
     pub fn writeSymtab(thunk: Thunk, elf_file: *Elf) void {
         const cpu_arch = elf_file.getTarget().cpu.arch;
-        for (thunk.symbols.keys(), thunk.output_symtab_ctx.ilocal..) |sym_index, ilocal| {
-            const sym = elf_file.symbol(sym_index);
+        for (thunk.symbols.keys(), thunk.output_symtab_ctx.ilocal..) |ref, ilocal| {
+            const sym = elf_file.symbol(ref).?;
             const st_name = @as(u32, @intCast(elf_file.strtab.items.len));
             elf_file.strtab.appendSliceAssumeCapacity(sym.name(elf_file));
             elf_file.strtab.appendSliceAssumeCapacity("$thunk");
@@ -133,7 +127,7 @@ pub const Thunk = struct {
                 .st_info = elf.STT_FUNC,
                 .st_other = 0,
                 .st_shndx = @intCast(thunk.output_section_index),
-                .st_value = @intCast(thunk.targetAddress(sym_index, elf_file)),
+                .st_value = @intCast(thunk.targetAddress(ref, elf_file)),
                 .st_size = trampolineSize(cpu_arch),
             };
         }
@@ -183,9 +177,9 @@ pub const Thunk = struct {
         const thunk = ctx.thunk;
         const elf_file = ctx.elf_file;
         try writer.print("@{x} : size({x})\n", .{ thunk.value, thunk.size(elf_file) });
-        for (thunk.symbols.keys()) |index| {
-            const sym = elf_file.symbol(index);
-            try writer.print("  %{d} : {s} : @{x}\n", .{ index, sym.name(elf_file), sym.value });
+        for (thunk.symbols.keys()) |ref| {
+            const sym = elf_file.symbol(ref).?;
+            try writer.print("  {} : {s} : @{x}\n", .{ ref, sym.name(elf_file), sym.value });
         }
     }
 
@@ -197,12 +191,8 @@ const aarch64 = struct {
         const r_type: elf.R_AARCH64 = @enumFromInt(rel.r_type());
         if (r_type != .CALL26 and r_type != .JUMP26) return true;
         const file = atom.file(elf_file).?;
-        const target_index = switch (file) {
-            .zig_object => |x| x.symbol(rel.r_sym()),
-            .object => |x| x.symbols.items[rel.r_sym()],
-            else => unreachable,
-        };
-        const target = elf_file.symbol(target_index);
+        const target_ref = file.resolveSymbol(rel.r_sym(), elf_file);
+        const target = elf_file.symbol(target_ref).?;
         if (target.flags.has_plt) return false;
         if (atom.output_section_index != target.output_section_index) return false;
         const target_atom = target.atom(elf_file).?;
@@ -214,8 +204,8 @@ const aarch64 = struct {
     }
 
     fn write(thunk: Thunk, elf_file: *Elf, writer: anytype) !void {
-        for (thunk.symbols.keys(), 0..) |sym_index, i| {
-            const sym = elf_file.symbol(sym_index);
+        for (thunk.symbols.keys(), 0..) |ref, i| {
+            const sym = elf_file.symbol(ref).?;
             const saddr = thunk.address(elf_file) + @as(i64, @intCast(i * trampoline_size));
             const taddr = sym.address(.{}, elf_file);
             const pages = try util.calcNumberOfPages(saddr, taddr);

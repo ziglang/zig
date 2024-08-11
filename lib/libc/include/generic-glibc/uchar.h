@@ -31,9 +31,9 @@
 #include <bits/types.h>
 #include <bits/types/mbstate_t.h>
 
-/* Declare the C2x char8_t typedef in C2x modes, but only if the C++
+/* Declare the C23 char8_t typedef in C23 modes, but only if the C++
   __cpp_char8_t feature test macro is not defined.  */
-#if __GLIBC_USE (ISOC2X) && !defined __cpp_char8_t
+#if __GLIBC_USE (ISOC23) && !defined __cpp_char8_t
 #if __GNUC_PREREQ (10, 0) && defined __cplusplus
 /* Suppress the diagnostic regarding char8_t being a keyword in C++20.  */
 # pragma GCC diagnostic push
@@ -55,9 +55,9 @@ typedef __uint_least32_t char32_t;
 
 __BEGIN_DECLS
 
-/* Declare the C2x mbrtoc8() and c8rtomb() functions in C2x modes or if
+/* Declare the C23 mbrtoc8() and c8rtomb() functions in C23 modes or if
    the C++ __cpp_char8_t feature test macro is defined.  */
-#if __GLIBC_USE (ISOC2X) || defined __cpp_char8_t
+#if __GLIBC_USE (ISOC23) || defined __cpp_char8_t
 /* Write char8_t representation of multibyte character pointed
    to by S to PC8.  */
 extern size_t mbrtoc8  (char8_t *__restrict __pc8,

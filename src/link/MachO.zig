@@ -3042,9 +3042,9 @@ pub fn freeDecl(self: *MachO, decl_index: InternPool.DeclIndex) void {
     return self.getZigObject().?.freeDecl(decl_index);
 }
 
-pub fn getDeclVAddr(self: *MachO, _: Zcu.PerThread, decl_index: InternPool.DeclIndex, reloc_info: link.File.RelocInfo) !u64 {
+pub fn getDeclVAddr(self: *MachO, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
-    return self.getZigObject().?.getDeclVAddr(self, decl_index, reloc_info);
+    return self.getZigObject().?.getDeclVAddr(self, pt, decl_index, reloc_info);
 }
 
 pub fn lowerAnonDecl(

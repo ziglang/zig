@@ -47,6 +47,11 @@ else switch (native_os) {
     .plan9 => std.os.plan9,
     else => struct {
         pub const ucontext_t = void;
+        pub const pid_t = void;
+        pub const pollfd = void;
+        pub const fd_t = void;
+        pub const uid_t = void;
+        pub const gid_t = void;
     },
 };
 
@@ -786,6 +791,10 @@ pub const ReadError = error{
     /// and reading from the file descriptor would block.
     WouldBlock,
 
+    /// reading a timerfd with CANCEL_ON_SET will lead to this error
+    /// when the clock goes through a discontinuous change
+    Canceled,
+
     /// In WASI, this error occurs when the file descriptor does
     /// not hold the required rights to read from it.
     AccessDenied,
@@ -846,6 +855,7 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
             .INVAL => unreachable,
             .FAULT => unreachable,
             .AGAIN => return error.WouldBlock,
+            .CANCELED => return error.Canceled,
             .BADF => return error.NotOpenForReading, // Can be a race condition.
             .IO => return error.InputOutput,
             .ISDIR => return error.IsDir,
@@ -2197,11 +2207,11 @@ pub const LinkError = UnexpectedError || error{
 
 /// On WASI, both paths should be encoded as valid UTF-8.
 /// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
-pub fn linkZ(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: i32) LinkError!void {
+pub fn linkZ(oldpath: [*:0]const u8, newpath: [*:0]const u8) LinkError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        return link(mem.sliceTo(oldpath, 0), mem.sliceTo(newpath, 0), flags);
+        return link(mem.sliceTo(oldpath, 0), mem.sliceTo(newpath, 0));
     }
-    switch (errno(system.link(oldpath, newpath, flags))) {
+    switch (errno(system.link(oldpath, newpath))) {
         .SUCCESS => return,
         .ACCES => return error.AccessDenied,
         .DQUOT => return error.DiskQuota,
@@ -2228,16 +2238,16 @@ pub fn linkZ(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: i32) LinkErr
 
 /// On WASI, both paths should be encoded as valid UTF-8.
 /// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
-pub fn link(oldpath: []const u8, newpath: []const u8, flags: i32) LinkError!void {
+pub fn link(oldpath: []const u8, newpath: []const u8) LinkError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        return linkat(wasi.AT.FDCWD, oldpath, wasi.AT.FDCWD, newpath, flags) catch |err| switch (err) {
+        return linkat(wasi.AT.FDCWD, oldpath, wasi.AT.FDCWD, newpath, 0) catch |err| switch (err) {
             error.NotDir => unreachable, // link() does not support directories
             else => |e| return e,
         };
     }
     const old = try toPosixPath(oldpath);
     const new = try toPosixPath(newpath);
-    return try linkZ(&old, &new, flags);
+    return try linkZ(&old, &new);
 }
 
 pub const LinkatError = LinkError || error{NotDir};

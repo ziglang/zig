@@ -133,20 +133,20 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
 
     cases.add("scoped typedef",
         \\void foo() {
-        \\	typedef union {
-        \\		int A;
-        \\		int B;
-        \\		int C;
-        \\	} Foo;
-        \\	Foo a = {0};
-        \\	{
-        \\		typedef union {
-        \\			int A;
-        \\			int B;
-        \\			int C;
-        \\		} Foo;
-        \\		Foo a = {0};
-        \\	}
+        \\ typedef union {
+        \\  int A;
+        \\  int B;
+        \\  int C;
+        \\ } Foo;
+        \\ Foo a = {0};
+        \\ {
+        \\  typedef union {
+        \\   int A;
+        \\   int B;
+        \\   int C;
+        \\  } Foo;
+        \\  Foo a = {0};
+        \\ }
         \\}
     , &[_][]const u8{
         \\pub export fn foo() void {
@@ -494,16 +494,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     });
 
-    cases.add("function prototype with parenthesis",
-        \\void (f0) (void *L);
-        \\void ((f1)) (void *L);
-        \\void (((f2))) (void *L);
-    , &[_][]const u8{
-        \\pub extern fn f0(L: ?*anyopaque) void;
-        \\pub extern fn f1(L: ?*anyopaque) void;
-        \\pub extern fn f2(L: ?*anyopaque) void;
-    });
-
     cases.add("array initializer w/ typedef",
         \\typedef unsigned char uuid_t[16];
         \\static const uuid_t UUID_NULL __attribute__ ((unused)) = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
@@ -528,10 +518,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    0,
         \\};
     });
-
-    cases.add("empty declaration",
-        \\;
-    , &[_][]const u8{""});
 
     cases.add("#define hex literal with capital X",
         \\#define VAL 0XF00D
@@ -656,14 +642,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     , &[_][]const u8{
         \\pub extern var my_array: [16]u8 linksection("NEAR,.data");
         \\pub export fn my_fn() linksection("NEAR,.data") void {}
-    });
-
-    cases.add("simple function prototypes",
-        \\void __attribute__((noreturn)) foo(void);
-        \\int bar(void);
-    , &[_][]const u8{
-        \\pub extern fn foo() noreturn;
-        \\pub extern fn bar() c_int;
     });
 
     cases.add("simple var decls",
@@ -796,12 +774,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\}
     });
 
-    cases.add("noreturn attribute",
-        \\void foo(void) __attribute__((noreturn));
-    , &[_][]const u8{
-        \\pub extern fn foo() noreturn;
-    });
-
     cases.add("always_inline attribute",
         \\__attribute__((always_inline)) int foo() {
         \\    return 5;
@@ -897,17 +869,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub const struct_Foo = extern struct {
         \\    derp: ?*const fn ([*c]struct_Foo) callconv(.C) void = @import("std").mem.zeroes(?*const fn ([*c]struct_Foo) callconv(.C) void),
         \\};
-        ,
-        \\pub const Foo = struct_Foo;
-    });
-
-    cases.add("struct prototype used in func",
-        \\struct Foo;
-        \\struct Foo *some_func(struct Foo *foo, int x);
-    , &[_][]const u8{
-        \\pub const struct_Foo = opaque {};
-        ,
-        \\pub extern fn some_func(foo: ?*struct_Foo, x: c_int) ?*struct_Foo;
         ,
         \\pub const Foo = struct_Foo;
     });
@@ -2043,18 +2004,18 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\           break;
         \\        }
         \\        case 4:
-        \\		case 5:
+        \\        case 5:
         \\            res = 69;
         \\        {
         \\            res = 5;
-        \\			  return;
+        \\            return;
         \\        }
         \\        case 6:
         \\            switch (res) {
         \\                case 9: break;
         \\            }
         \\            res = 1;
-        \\			  return;
+        \\            return;
         \\    }
         \\}
     , &[_][]const u8{

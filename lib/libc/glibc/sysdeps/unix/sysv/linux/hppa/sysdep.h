@@ -468,6 +468,15 @@ L(pre_end):					ASM_LINE_SEP	\
 #define CLOB_ARGS_1 CLOB_ARGS_2, "%r25"
 #define CLOB_ARGS_0 CLOB_ARGS_1, "%r26"
 
+#define VDSO_NAME	"LINUX_6.11"
+#define VDSO_HASH	182951793
+
+#ifdef __LP64__
+# define HAVE_CLOCK_GETTIME_VSYSCALL    "__vdso_clock_gettime"
+#else
+# define HAVE_CLOCK_GETTIME64_VSYSCALL  "__vdso_clock_gettime64"
+#endif /* __LP64__ */
+
 #endif	/* __ASSEMBLER__ */
 
 #endif /* _LINUX_HPPA_SYSDEP_H */

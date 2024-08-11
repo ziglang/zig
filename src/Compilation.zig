@@ -4201,10 +4201,11 @@ fn workerDocsWasm(comp: *Compilation, parent_prog_node: std.Progress.Node) void 
     const prog_node = parent_prog_node.start("Compile Autodocs", 0);
     defer prog_node.end();
 
-    workerDocsWasmFallible(comp, prog_node) catch |err| {
-        comp.lockAndSetMiscFailure(.docs_wasm, "unable to build autodocs: {s}", .{
+    workerDocsWasmFallible(comp, prog_node) catch |err| switch (err) {
+        error.SubCompilationFailed => return, // error reported already
+        else => comp.lockAndSetMiscFailure(.docs_wasm, "unable to build autodocs: {s}", .{
             @errorName(err),
-        });
+        }),
     };
 }
 
@@ -4274,8 +4275,29 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
         .cc_argv = &.{},
         .parent = null,
         .builtin_mod = null,
-        .builtin_modules = null, // there is only one module in this compilation
+        .builtin_modules = null,
     });
+    const walk_mod = try Package.Module.create(arena, .{
+        .global_cache_directory = comp.global_cache_directory,
+        .paths = .{
+            .root = .{
+                .root_dir = comp.zig_lib_directory,
+                .sub_path = "docs/wasm",
+            },
+            .root_src_path = "Walk.zig",
+        },
+        .fully_qualified_name = "Walk",
+        .inherited = .{
+            .resolved_target = resolved_target,
+            .optimize_mode = optimize_mode,
+        },
+        .global = config,
+        .cc_argv = &.{},
+        .parent = root_mod,
+        .builtin_mod = root_mod.getBuiltinDependency(),
+        .builtin_modules = null, // `builtin_mod` is set
+    });
+    try root_mod.deps.put(arena, "Walk", walk_mod);
     const bin_basename = try std.zig.binNameAlloc(arena, .{
         .root_name = root_name,
         .target = resolved_target.result,
@@ -6073,6 +6095,7 @@ pub fn hasCppExt(filename: []const u8) bool {
         mem.endsWith(u8, filename, ".cc") or
         mem.endsWith(u8, filename, ".cpp") or
         mem.endsWith(u8, filename, ".cxx") or
+        mem.endsWith(u8, filename, ".c++") or
         mem.endsWith(u8, filename, ".stub");
 }
 

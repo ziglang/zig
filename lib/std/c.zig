@@ -5779,7 +5779,7 @@ pub const ucontext_t = switch (native_os) {
                 .x86 => 4,
                 .mips, .mipsel, .mips64, .mips64el => 14,
                 .arm, .armeb, .thumb, .thumbeb => 1,
-                .sparc, .sparcel, .sparc64 => if (@sizeOf(usize) == 4) 43 else 8,
+                .sparc, .sparc64 => if (@sizeOf(usize) == 4) 43 else 8,
                 else => 0,
             }
         ]u32,
@@ -6821,7 +6821,7 @@ pub const pthread_key_t = switch (native_os) {
 pub const padded_pthread_spin_t = switch (native_os) {
     .netbsd => switch (builtin.cpu.arch) {
         .x86, .x86_64 => u32,
-        .sparc, .sparcel, .sparc64 => u32,
+        .sparc, .sparc64 => u32,
         else => pthread_spin_t,
     },
     else => void,
@@ -6834,7 +6834,7 @@ pub const pthread_spin_t = switch (native_os) {
         .powerpc, .powerpc64, .powerpc64le => i32,
         .x86, .x86_64 => u8,
         .arm, .armeb, .thumb, .thumbeb => i32,
-        .sparc, .sparcel, .sparc64 => u8,
+        .sparc, .sparc64 => u8,
         .riscv32, .riscv64 => u32,
         else => @compileError("undefined pthread_spin_t for this arch"),
     },
@@ -9060,7 +9060,7 @@ pub extern "c" fn pwrite(fd: fd_t, buf: [*]const u8, nbyte: usize, offset: off_t
 pub extern "c" fn mmap(addr: ?*align(page_size) anyopaque, len: usize, prot: c_uint, flags: MAP, fd: fd_t, offset: off_t) *anyopaque;
 pub extern "c" fn munmap(addr: *align(page_size) const anyopaque, len: usize) c_int;
 pub extern "c" fn mprotect(addr: *align(page_size) anyopaque, len: usize, prot: c_uint) c_int;
-pub extern "c" fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: c_int) c_int;
+pub extern "c" fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8) c_int;
 pub extern "c" fn linkat(oldfd: fd_t, oldpath: [*:0]const u8, newfd: fd_t, newpath: [*:0]const u8, flags: c_int) c_int;
 pub extern "c" fn unlink(path: [*:0]const u8) c_int;
 pub extern "c" fn unlinkat(dirfd: fd_t, path: [*:0]const u8, flags: c_uint) c_int;
@@ -9353,6 +9353,7 @@ pub extern "c" fn if_nametoindex([*:0]const u8) c_int;
 
 pub extern "c" fn getpid() pid_t;
 pub extern "c" fn getsid(pid: pid_t) pid_t;
+pub extern "c" fn getppid() pid_t;
 
 /// These are implementation defined but share identical values in at least musl and glibc:
 /// - https://git.musl-libc.org/cgit/musl/tree/include/locale.h?id=ab31e9d6a0fa7c5c408856c89df2dfb12c344039#n18

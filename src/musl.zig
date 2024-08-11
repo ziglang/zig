@@ -32,9 +32,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
         .crti_o => {
             var args = std.ArrayList([]const u8).init(arena);
             try addCcArgs(comp, arena, &args, false);
-            try args.appendSlice(&[_][]const u8{
-                "-Qunused-arguments",
-            });
             var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crti.s"),
@@ -47,9 +44,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
         .crtn_o => {
             var args = std.ArrayList([]const u8).init(arena);
             try addCcArgs(comp, arena, &args, false);
-            try args.appendSlice(&[_][]const u8{
-                "-Qunused-arguments",
-            });
             var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crtn.s"),
@@ -189,10 +183,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
 
                 var args = std.ArrayList([]const u8).init(arena);
                 try addCcArgs(comp, arena, &args, ext == .o3);
-                try args.appendSlice(&[_][]const u8{
-                    "-Qunused-arguments",
-                    "-w", // disable all warnings
-                });
                 const c_source_file = try c_source_files.addOne();
                 c_source_file.* = .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", src_file }),
@@ -303,7 +293,8 @@ pub fn needsCrtiCrtn(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .riscv32,
         .riscv64,
-        .wasm32, .wasm64 => return false,
+        .wasm32, .wasm64 => false,
+        .loongarch64 => false,
         else => true,
     };
     // zig fmt: on
@@ -427,6 +418,9 @@ fn addCcArgs(
         "-fno-asynchronous-unwind-tables",
         "-ffunction-sections",
         "-fdata-sections",
+
+        "-Qunused-arguments",
+        "-w", // disable all warnings
     });
 }
 

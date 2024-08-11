@@ -69,7 +69,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .riscv64 => "riscv64",
         .sparc => "sparc",
         .sparc64 => "sparc64",
-        .sparcel => "sparcel",
         .s390x => "s390x",
         .thumb => "thumb",
         .thumbeb => "thumbeb",
@@ -79,17 +78,17 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .xtensa => "xtensa",
         .nvptx => "nvptx",
         .nvptx64 => "nvptx64",
-        .spir => "spir",
-        .spir64 => "spir64",
         .spirv => "spirv",
         .spirv32 => "spirv32",
         .spirv64 => "spirv64",
-        .kalimba => "kalimba",
         .lanai => "lanai",
         .wasm32 => "wasm32",
         .wasm64 => "wasm64",
         .ve => "ve",
-        .spu_2 => return error.@"LLVM backend does not support SPU Mark II",
+
+        .kalimba,
+        .spu_2,
+        => unreachable, // Gated by hasLlvmSupport().
     };
     try llvm_triple.appendSlice(llvm_arch);
     try llvm_triple.appendSlice("-unknown-");
@@ -136,8 +135,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .opencl,
         .glsl450,
         .plan9,
-        .ananas,
-        .cloudabi,
         .minix,
         .contiki,
         .other,
@@ -208,8 +205,6 @@ pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
         .opencl,
         .glsl450,
         .plan9,
-        .ananas,
-        .cloudabi,
         .minix,
         .contiki,
         => .UnknownOS,
@@ -282,7 +277,6 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .riscv64 => .riscv64,
         .sparc => .sparc,
         .sparc64 => .sparcv9, // In LLVM, sparc64 == sparcv9.
-        .sparcel => .sparcel,
         .s390x => .systemz,
         .thumb => .thumb,
         .thumbeb => .thumbeb,
@@ -292,8 +286,6 @@ pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
         .xtensa => .xtensa,
         .nvptx => .nvptx,
         .nvptx64 => .nvptx64,
-        .spir => .spir,
-        .spir64 => .spir64,
         .spirv => .spirv,
         .spirv32 => .spirv32,
         .spirv64 => .spirv64,
@@ -409,7 +401,7 @@ const DataLayoutBuilder = struct {
         else if (self.target.cpu.arch == .powerpc64 and
             self.target.os.tag != .freebsd and self.target.abi != .musl)
             try writer.writeAll("-Fi64")
-        else if (self.target.cpu.arch.isPPC() or self.target.cpu.arch.isPPC64())
+        else if (self.target.cpu.arch.isPowerPC())
             try writer.writeAll("-Fn32");
         if (self.target.cpu.arch != .hexagon) {
             if (self.target.cpu.arch == .arc or self.target.cpu.arch == .s390x)
@@ -473,7 +465,6 @@ const DataLayoutBuilder = struct {
             .powerpcle,
             .riscv32,
             .sparc,
-            .sparcel,
             .thumb,
             .thumbeb,
             .xtensa,
@@ -670,7 +661,7 @@ const DataLayoutBuilder = struct {
                     128 => abi = 64,
                     else => {},
                 }
-            } else if ((self.target.cpu.arch.isPPC64() and self.target.os.tag == .linux and
+            } else if ((self.target.cpu.arch.isPowerPC64() and self.target.os.tag == .linux and
                 (size == 256 or size == 512)) or
                 (self.target.cpu.arch.isNvptx() and (size == 16 or size == 32)))
             {
@@ -12008,7 +11999,7 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializeRISCVAsmPrinter();
             llvm.LLVMInitializeRISCVAsmParser();
         },
-        .sparc, .sparc64, .sparcel => {
+        .sparc, .sparc64 => {
             llvm.LLVMInitializeSparcTarget();
             llvm.LLVMInitializeSparcTargetInfo();
             llvm.LLVMInitializeSparcTargetMC();
@@ -12094,16 +12085,16 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializeLoongArchAsmParser();
         },
 
-        // LLVM backends that have no initialization functions.
-        .spir,
-        .spir64,
+        // We don't currently support using these backends.
         .spirv,
         .spirv32,
         .spirv64,
-        .kalimba,
         .dxil,
         => {},
 
-        .spu_2 => unreachable, // LLVM does not support this backend
+        // LLVM does does not have a backend for these.
+        .kalimba,
+        .spu_2,
+        => unreachable,
     }
 }

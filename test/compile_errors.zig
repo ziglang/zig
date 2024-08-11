@@ -39,15 +39,6 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     }
 
     {
-        const case = ctx.obj("isolated carriage return in multiline string literal", b.graph.host);
-
-        case.addError("const foo = \\\\\test\r\r rogue carriage return\n;", &[_][]const u8{
-            ":1:13: error: expected expression, found 'invalid bytes'",
-            ":1:19: note: invalid byte: '\\r'",
-        });
-    }
-
-    {
         const case = ctx.obj("missing semicolon at EOF", b.graph.host);
         case.addError(
             \\const foo = 1
@@ -179,8 +170,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             \\    return true;
             \\}
         , &[_][]const u8{
-            ":1:1: error: expected type expression, found 'invalid bytes'",
-            ":1:1: note: invalid byte: '\\xff'",
+            ":1:1: error: expected type expression, found 'invalid token'",
         });
     }
 
@@ -222,8 +212,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
         const case = ctx.obj("invalid byte in string", b.graph.host);
 
         case.addError("_ = \"\x01Q\";", &[_][]const u8{
-            ":1:5: error: expected expression, found 'invalid bytes'",
-            ":1:6: note: invalid byte: '\\x01'",
+            ":1:5: error: expected expression, found 'invalid token'",
         });
     }
 
@@ -231,8 +220,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
         const case = ctx.obj("invalid byte in comment", b.graph.host);
 
         case.addError("//\x01Q", &[_][]const u8{
-            ":1:1: error: expected type expression, found 'invalid bytes'",
-            ":1:3: note: invalid byte: '\\x01'",
+            ":1:1: error: expected type expression, found 'invalid token'",
         });
     }
 
@@ -240,8 +228,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
         const case = ctx.obj("control character in character literal", b.graph.host);
 
         case.addError("const c = '\x01';", &[_][]const u8{
-            ":1:11: error: expected expression, found 'invalid bytes'",
-            ":1:12: note: invalid byte: '\\x01'",
+            ":1:11: error: expected expression, found 'invalid token'",
         });
     }
 
@@ -249,8 +236,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
         const case = ctx.obj("invalid byte at start of token", b.graph.host);
 
         case.addError("x = \x00Q", &[_][]const u8{
-            ":1:5: error: expected expression, found 'invalid bytes'",
-            ":1:5: note: invalid byte: '\\x00'",
+            ":1:5: error: expected expression, found 'invalid token'",
         });
     }
 }

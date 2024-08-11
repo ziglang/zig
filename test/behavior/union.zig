@@ -1903,7 +1903,7 @@ test "reinterpret packed union" {
     try comptime S.doTheTest();
 
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.cpu.arch.isPPC()) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest; // TODO
     if (builtin.cpu.arch.isWasm()) return error.SkipZigTest; // TODO
     try S.doTheTest();
 }

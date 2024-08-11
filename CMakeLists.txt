@@ -381,6 +381,7 @@ set(ZIG_STAGE2_SOURCES
     lib/std/Target/avr.zig
     lib/std/Target/bpf.zig
     lib/std/Target/hexagon.zig
+    lib/std/Target/loongarch.zig
     lib/std/Target/mips.zig
     lib/std/Target/msp430.zig
     lib/std/Target/nvptx.zig
@@ -944,6 +945,11 @@ set(ZIG_BUILD_ARGS
 
   -Dno-langref
 )
+
+option(ZIG_EXTRA_BUILD_ARGS "Extra zig build args")
+if(ZIG_EXTRA_BUILD_ARGS)
+  list(APPEND ZIG_BUILD_ARGS ${ZIG_EXTRA_BUILD_ARGS})
+endif()
 
 if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
   list(APPEND ZIG_BUILD_ARGS -Doptimize=Debug)

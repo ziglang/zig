@@ -153,6 +153,21 @@ pub fn loadMetaData(gpa: Allocator, contents: []const u8) LoadMetaDataError!*ABI
     return abi;
 }
 
+fn useElfInitFini(target: std.Target) bool {
+    // Legacy architectures use _init/_fini.
+    return switch (target.cpu.arch) {
+        .arm, .armeb, .thumb, .thumbeb => true,
+        .aarch64, .aarch64_be => true,
+        .m68k => true,
+        .mips, .mipsel, .mips64, .mips64el => true,
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => true,
+        .s390x => true,
+        .sparc, .sparc64 => true,
+        .x86, .x86_64 => true,
+        else => false,
+    };
+}
+
 pub const CRTFile = enum {
     crti_o,
     crtn_o,
@@ -348,8 +363,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
                     "-std=gnu11",
                     "-fgnu89-inline",
                     "-fmerge-all-constants",
-                    // glibc sets this flag but clang does not support it.
-                    // "-frounding-math",
+                    "-frounding-math",
                     "-fno-stack-protector",
                     "-fno-common",
                     "-fmath-errno",
@@ -357,6 +371,10 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
                     "-Wno-ignored-attributes",
                 });
                 try add_include_dirs(comp, arena, &args);
+
+                if (!useElfInitFini(target)) {
+                    try args.append("-DNO_INITFINI");
+                }
 
                 if (target.cpu.arch == .x86) {
                     // This prevents i386/sysdep.h from trying to do some
@@ -392,9 +410,9 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
 
 fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![]const u8 {
     const arch = comp.getTarget().cpu.arch;
-    const is_ppc = arch == .powerpc or arch == .powerpc64 or arch == .powerpc64le;
-    const is_aarch64 = arch == .aarch64 or arch == .aarch64_be;
-    const is_sparc = arch == .sparc or arch == .sparcel or arch == .sparc64;
+    const is_ppc = arch.isPowerPC();
+    const is_aarch64 = arch.isAARCH64();
+    const is_sparc = arch.isSPARC();
     const is_64 = comp.getTarget().ptrBitWidth() == 64;
 
     const s = path.sep_str;
@@ -412,7 +430,7 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
                 try result.appendSlice("sparc" ++ s ++ "sparc32");
             }
         }
-    } else if (arch.isARM()) {
+    } else if (arch.isArmOrThumb()) {
         try result.appendSlice("arm");
     } else if (arch.isMIPS()) {
         if (!mem.eql(u8, basename, "crti.S") and !mem.eql(u8, basename, "crtn.S")) {
@@ -529,10 +547,10 @@ fn add_include_dirs_arch(
     dir: []const u8,
 ) error{OutOfMemory}!void {
     const arch = target.cpu.arch;
-    const is_x86 = arch == .x86 or arch == .x86_64;
-    const is_aarch64 = arch == .aarch64 or arch == .aarch64_be;
-    const is_ppc = arch == .powerpc or arch == .powerpc64 or arch == .powerpc64le;
-    const is_sparc = arch == .sparc or arch == .sparcel or arch == .sparc64;
+    const is_x86 = arch.isX86();
+    const is_aarch64 = arch.isAARCH64();
+    const is_ppc = arch.isPowerPC();
+    const is_sparc = arch.isSPARC();
     const is_64 = target.ptrBitWidth() == 64;
 
     const s = path.sep_str;
@@ -562,7 +580,7 @@ fn add_include_dirs_arch(
             try args.append("-I");
             try args.append(try path.join(arena, &[_][]const u8{ dir, "x86" }));
         }
-    } else if (arch.isARM()) {
+    } else if (arch.isArmOrThumb()) {
         if (opt_nptl) |nptl| {
             try args.append("-I");
             try args.append(try path.join(arena, &[_][]const u8{ dir, "arm", nptl }));
@@ -1164,6 +1182,7 @@ fn buildSharedLib(
 pub fn needsCrtiCrtn(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .riscv32, .riscv64 => false,
+        .loongarch64 => false,
         else => true,
     };
 }

@@ -36,7 +36,7 @@
 struct lastlog
   {
 #if __WORDSIZE_TIME64_COMPAT32
-    int32_t ll_time;
+    __uint32_t ll_time;
 #else
     __time_t ll_time;
 #endif
@@ -76,7 +76,7 @@ struct utmp
   int32_t ut_session;		/* Session ID, used for windowing.  */
   struct
   {
-    int32_t tv_sec;		/* Seconds.  */
+    __uint32_t tv_sec;		/* Seconds.  */
     int32_t tv_usec;		/* Microseconds.  */
   } ut_tv;			/* Time entry was made.  */
 #else

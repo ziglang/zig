@@ -1856,11 +1856,23 @@ pub fn flushModule(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
     assert(!self.imports_count_dirty);
 }
 
-pub fn getDeclVAddr(self: *Coff, _: Zcu.PerThread, decl_index: InternPool.DeclIndex, reloc_info: link.File.RelocInfo) !u64 {
+pub fn getDeclVAddr(self: *Coff, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
-
-    const this_atom_index = try self.getOrCreateAtomForDecl(decl_index);
-    const sym_index = self.getAtom(this_atom_index).getSymbolIndex().?;
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+    const decl = zcu.declPtr(decl_index);
+    log.debug("getDeclVAddr {}({d})", .{ decl.fqn.fmt(ip), decl_index });
+    const sym_index = if (decl.isExtern(zcu)) blk: {
+        const name = decl.name.toSlice(ip);
+        const lib_name = if (decl.getOwnedExternFunc(zcu)) |ext_fn|
+            ext_fn.lib_name.toSlice(ip)
+        else
+            decl.getOwnedVariable(zcu).?.lib_name.toSlice(ip);
+        break :blk try self.getGlobalSymbol(name, lib_name);
+    } else blk: {
+        const this_atom_index = try self.getOrCreateAtomForDecl(decl_index);
+        break :blk self.getAtom(this_atom_index).getSymbolIndex().?;
+    };
     const atom_index = self.getAtomIndexForSymbol(.{ .sym_index = reloc_info.parent_atom_index, .file = null }).?;
     const target = SymbolWithLoc{ .sym_index = sym_index, .file = null };
     try Atom.addRelocation(self, atom_index, .{

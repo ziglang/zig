@@ -1224,6 +1224,19 @@ const LinuxThreadImpl = struct {
                       [len] "r" (self.mapped.len),
                     : "memory"
                 ),
+                .loongarch64 => asm volatile (
+                    \\ or      $a0, $zero, %[ptr]
+                    \\ or      $a1, $zero, %[len]
+                    \\ ori     $a7, $zero, 215     # SYS_munmap
+                    \\ syscall 0                   # call munmap
+                    \\ ori     $a0, $zero, 0
+                    \\ ori     $a7, $zero, 93      # SYS_exit
+                    \\ syscall 0                   # call exit
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
+                ),
                 else => |cpu_arch| @compileError("Unsupported linux arch: " ++ @tagName(cpu_arch)),
             }
             unreachable;
@@ -1261,9 +1274,9 @@ const LinuxThreadImpl = struct {
             bytes = std.mem.alignForward(usize, bytes, page_size);
             stack_offset = bytes;
 
-            bytes = std.mem.alignForward(usize, bytes, linux.tls.tls_image.alloc_align);
+            bytes = std.mem.alignForward(usize, bytes, linux.tls.area_desc.alignment);
             tls_offset = bytes;
-            bytes += linux.tls.tls_image.alloc_size;
+            bytes += linux.tls.area_desc.size;
 
             bytes = std.mem.alignForward(usize, bytes, @alignOf(Instance));
             instance_offset = bytes;
@@ -1304,12 +1317,12 @@ const LinuxThreadImpl = struct {
         };
 
         // Prepare the TLS segment and prepare a user_desc struct when needed on x86
-        var tls_ptr = linux.tls.prepareTLS(mapped[tls_offset..]);
+        var tls_ptr = linux.tls.prepareArea(mapped[tls_offset..]);
         var user_desc: if (target.cpu.arch == .x86) linux.user_desc else void = undefined;
         if (target.cpu.arch == .x86) {
             defer tls_ptr = @intFromPtr(&user_desc);
             user_desc = .{
-                .entry_number = linux.tls.tls_image.gdt_entry_number,
+                .entry_number = linux.tls.area_desc.gdt_entry_number,
                 .base_addr = tls_ptr,
                 .limit = 0xfffff,
                 .flags = .{

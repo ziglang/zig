@@ -790,11 +790,22 @@ pub fn getDeclVAddr(
     reloc_info: link.File.RelocInfo,
 ) !u64 {
     const target = wasm_file.base.comp.root_mod.resolved_target.result;
-    const gpa = pt.zcu.gpa;
-    const decl = pt.zcu.declPtr(decl_index);
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+    const gpa = zcu.gpa;
+    const decl = zcu.declPtr(decl_index);
 
     const target_atom_index = try zig_object.getOrCreateAtomForDecl(wasm_file, pt, decl_index);
-    const target_symbol_index = @intFromEnum(wasm_file.getAtom(target_atom_index).sym_index);
+    const target_atom = wasm_file.getAtom(target_atom_index);
+    const target_symbol_index = @intFromEnum(target_atom.sym_index);
+    if (decl.isExtern(zcu)) {
+        const name = decl.name.toSlice(ip);
+        const lib_name = if (decl.getOwnedExternFunc(zcu)) |ext_fn|
+            ext_fn.lib_name.toSlice(ip)
+        else
+            decl.getOwnedVariable(zcu).?.lib_name.toSlice(ip);
+        try zig_object.addOrUpdateImport(wasm_file, name, target_atom.sym_index, lib_name, null);
+    }
 
     std.debug.assert(reloc_info.parent_atom_index != 0);
     const atom_index = wasm_file.symbol_atom.get(.{ .file = zig_object.index, .index = @enumFromInt(reloc_info.parent_atom_index) }).?;

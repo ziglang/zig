@@ -95,9 +95,40 @@ pub fn syscall6(
     );
 }
 
-const CloneFn = *const fn (arg: usize) callconv(.C) u8;
-
-pub extern fn clone(func: CloneFn, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
+pub fn clone() callconv(.Naked) usize {
+    // __clone(func, stack, flags, arg, ptid, tls, ctid)
+    //         a0,   a1,    a2,    a3,  a4,   a5,  a6
+    //
+    // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
+    //         a7         a0,    a1,    a2,   a3,  a4
+    asm volatile (
+        \\    # Save func and arg to stack
+        \\    addi a1, a1, -8
+        \\    sw a0, 0(a1)
+        \\    sw a3, 4(a1)
+        \\
+        \\    # Call SYS_clone
+        \\    mv a0, a2
+        \\    mv a2, a4
+        \\    mv a3, a5
+        \\    mv a4, a6
+        \\    li a7, 220 # SYS_clone
+        \\    ecall
+        \\
+        \\    beqz a0, 1f
+        \\    # Parent
+        \\    ret
+        \\
+        \\    # Child
+        \\1:  lw a1, 0(sp)
+        \\    lw a0, 4(sp)
+        \\    jalr a1
+        \\
+        \\    # Exit
+        \\    li a7, 93 # SYS_exit
+        \\    ecall
+    );
+}
 
 pub const restore = restore_rt;
 
@@ -188,7 +219,10 @@ pub const Elf_Symndx = u32;
 
 pub const MMAP2_UNIT = 4096;
 
-pub const VDSO = struct {};
+pub const VDSO = struct {
+    pub const CGT_SYM = "__vdso_clock_gettime";
+    pub const CGT_VER = "LINUX_4.15";
+};
 
 /// TODO
 pub const ucontext_t = void;

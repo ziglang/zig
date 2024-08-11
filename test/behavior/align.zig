@@ -95,7 +95,6 @@ test "alignment and size of structs with 128-bit fields" {
         .amdgcn,
         .riscv32,
         .sparc,
-        .sparcel,
         .s390x,
         .lanai,
         .wasm32,

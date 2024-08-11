@@ -25,7 +25,7 @@
 
 struct timex
 {
-# if defined __USE_TIME_BITS64 || (__TIMESIZE == 64 && __WORDSIZE == 32)
+# if defined __USE_TIME64_REDIRECTS || (__TIMESIZE == 64 && __WORDSIZE == 32)
   unsigned int modes;          /* mode selector */
   int :32;                     /* pad */
   long long offset;            /* time offset (usec) */

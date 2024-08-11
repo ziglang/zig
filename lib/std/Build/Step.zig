@@ -559,7 +559,8 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?[]const u8 {
                         },
                         .zig_lib => zl: {
                             if (s.cast(Step.Compile)) |compile| {
-                                if (compile.zig_lib_dir) |lp| {
+                                if (compile.zig_lib_dir) |zig_lib_dir| {
+                                    const lp = try zig_lib_dir.join(arena, sub_path);
                                     try addWatchInput(s, lp);
                                     break :zl;
                                 }

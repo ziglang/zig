@@ -26,7 +26,7 @@
 __BEGIN_DECLS
 
 /* Structure describing the address of an AF_LOCAL (aka AF_UNIX) socket.  */
-struct sockaddr_un
+struct __attribute_struct_may_alias__ sockaddr_un
   {
     __SOCKADDR_COMMON (sun_);
     char sun_path[108];		/* Path name.  */

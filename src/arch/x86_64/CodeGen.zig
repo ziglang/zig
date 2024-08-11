@@ -12327,8 +12327,8 @@ fn genCall(self: *Self, info: union(enum) {
             }) {
                 .func => |func| {
                     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-                        const sym_index = try elf_file.zigObjectPtr().?.getOrCreateMetadataForDecl(elf_file, func.owner_decl);
-                        const sym = elf_file.symbol(sym_index);
+                        const zo = elf_file.zigObjectPtr().?;
+                        const sym_index = try zo.getOrCreateMetadataForDecl(elf_file, func.owner_decl);
                         if (self.mod.pic) {
                             const callee_reg: Register = switch (resolved_cc) {
                                 .SysV => callee: {
@@ -12345,14 +12345,14 @@ fn genCall(self: *Self, info: union(enum) {
                             try self.genSetReg(
                                 callee_reg,
                                 Type.usize,
-                                .{ .load_symbol = .{ .sym = sym.esym_index } },
+                                .{ .load_symbol = .{ .sym = sym_index } },
                                 .{},
                             );
                             try self.asmRegister(.{ ._, .call }, callee_reg);
                         } else try self.asmMemory(.{ ._, .call }, .{
                             .base = .{ .reloc = .{
                                 .atom_index = try self.owner.getSymbolIndex(self),
-                                .sym_index = sym.esym_index,
+                                .sym_index = sym_index,
                             } },
                             .mod = .{ .rm = .{ .size = .qword } },
                         });
@@ -15320,16 +15320,16 @@ fn genLazySymbolRef(
 ) InnerError!void {
     const pt = self.pt;
     if (self.bin_file.cast(link.File.Elf)) |elf_file| {
-        const sym_index = elf_file.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(elf_file, pt, lazy_sym) catch |err|
+        const zo = elf_file.zigObjectPtr().?;
+        const sym_index = zo.getOrCreateMetadataForLazySymbol(elf_file, pt, lazy_sym) catch |err|
             return self.fail("{s} creating lazy symbol", .{@errorName(err)});
-        const sym = elf_file.symbol(sym_index);
         if (self.mod.pic) {
             switch (tag) {
                 .lea, .call => try self.genSetReg(reg, Type.usize, .{
-                    .load_symbol = .{ .sym = sym.esym_index },
+                    .load_symbol = .{ .sym = sym_index },
                 }, .{}),
                 .mov => try self.genSetReg(reg, Type.usize, .{
-                    .load_symbol = .{ .sym = sym.esym_index },
+                    .load_symbol = .{ .sym = sym_index },
                 }, .{}),
                 else => unreachable,
             }
@@ -15341,7 +15341,7 @@ fn genLazySymbolRef(
         } else {
             const reloc = bits.Symbol{
                 .atom_index = try self.owner.getSymbolIndex(self),
-                .sym_index = sym.esym_index,
+                .sym_index = sym_index,
             };
             switch (tag) {
                 .lea, .mov => try self.asmRegisterMemory(.{ ._, .mov }, reg.to64(), .{

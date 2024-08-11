@@ -387,27 +387,27 @@ const usage_build_generic =
     \\       zig translate-c [options] [file]
     \\
     \\Supported file types:
-    \\                    .zig    Zig source code
-    \\                      .o    ELF object file
-    \\                      .o    Mach-O (macOS) object file
-    \\                      .o    WebAssembly object file
-    \\                    .obj    COFF (Windows) object file
-    \\                    .lib    COFF (Windows) static library
-    \\                      .a    ELF static library
-    \\                      .a    Mach-O (macOS) static library
-    \\                      .a    WebAssembly static library
-    \\                     .so    ELF shared object (dynamic link)
-    \\                    .dll    Windows Dynamic Link Library
-    \\                  .dylib    Mach-O (macOS) dynamic library
-    \\                    .tbd    (macOS) text-based dylib definition
-    \\                      .s    Target-specific assembly source code
-    \\                      .S    Assembly with C preprocessor (requires LLVM extensions)
-    \\                      .c    C source code (requires LLVM extensions)
-    \\  .cxx .cc .C .cpp .stub    C++ source code (requires LLVM extensions)
-    \\                      .m    Objective-C source code (requires LLVM extensions)
-    \\                     .mm    Objective-C++ source code (requires LLVM extensions)
-    \\                     .bc    LLVM IR Module (requires LLVM extensions)
-    \\                     .cu    Cuda source code (requires LLVM extensions)
+    \\                         .zig    Zig source code
+    \\                           .o    ELF object file
+    \\                           .o    Mach-O (macOS) object file
+    \\                           .o    WebAssembly object file
+    \\                         .obj    COFF (Windows) object file
+    \\                         .lib    COFF (Windows) static library
+    \\                           .a    ELF static library
+    \\                           .a    Mach-O (macOS) static library
+    \\                           .a    WebAssembly static library
+    \\                          .so    ELF shared object (dynamic link)
+    \\                         .dll    Windows Dynamic Link Library
+    \\                       .dylib    Mach-O (macOS) dynamic library
+    \\                         .tbd    (macOS) text-based dylib definition
+    \\                           .s    Target-specific assembly source code
+    \\                           .S    Assembly with C preprocessor (requires LLVM extensions)
+    \\                           .c    C source code (requires LLVM extensions)
+    \\  .cxx .cc .C .cpp .c++ .stub    C++ source code (requires LLVM extensions)
+    \\                           .m    Objective-C source code (requires LLVM extensions)
+    \\                          .mm    Objective-C++ source code (requires LLVM extensions)
+    \\                          .bc    LLVM IR Module (requires LLVM extensions)
+    \\                          .cu    Cuda source code (requires LLVM extensions)
     \\
     \\General Options:
     \\  -h, --help                Print this help and exit
@@ -2529,6 +2529,10 @@ fn buildOutputType(
                         fatal("unable to parse /version '{s}': {s}", .{ arg, @errorName(err) });
                     };
                     have_version = true;
+                } else if (mem.eql(u8, arg, "-V")) {
+                    warn("ignoring request for supported emulations: unimplemented", .{});
+                } else if (mem.eql(u8, arg, "-v")) {
+                    try std.io.getStdOut().writeAll("zig ld " ++ build_options.version ++ "\n");
                 } else if (mem.eql(u8, arg, "--version")) {
                     try std.io.getStdOut().writeAll("zig ld " ++ build_options.version ++ "\n");
                     process.exit(0);
@@ -3411,6 +3415,14 @@ fn buildOutputType(
                     if (t.os_ver) |os_ver| {
                         std.log.info("zig can provide libc for related target {s}-{s}.{d}-{s}", .{
                             @tagName(t.arch), @tagName(t.os), os_ver.major, @tagName(t.abi),
+                        });
+                    } else if (t.glibc_min) |glibc_min| {
+                        std.log.info("zig can provide libc for related target {s}-{s}-{s}.{d}.{d}", .{
+                            @tagName(t.arch),
+                            @tagName(t.os),
+                            @tagName(t.abi),
+                            glibc_min.major,
+                            glibc_min.minor,
                         });
                     } else {
                         std.log.info("zig can provide libc for related target {s}-{s}-{s}", .{

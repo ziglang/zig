@@ -34,6 +34,7 @@ pub fn build(b: *std.Build) void {
         "../../tools/gen_outline_atomics.zig",
         "../../tools/gen_spirv_spec.zig",
         "../../tools/gen_stubs.zig",
+        "../../tools/generate_c_size_and_align_checks.zig",
         "../../tools/generate_linux_syscalls.zig",
         "../../tools/process_headers.zig",
         "../../tools/update-linux-headers.zig",

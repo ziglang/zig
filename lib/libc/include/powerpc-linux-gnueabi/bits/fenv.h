@@ -170,7 +170,7 @@ extern const fenv_t __fe_nonieee_env;
 
 #endif
 
-#if __GLIBC_USE (IEC_60559_BFP_EXT_C2X)
+#if __GLIBC_USE (IEC_60559_BFP_EXT_C23)
 /* Type representing floating-point control modes.  */
 typedef double femode_t;
 

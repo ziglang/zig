@@ -57,7 +57,7 @@ pub fn Field(comptime params: FieldParams) type {
                 mem.writeInt(std.meta.Int(.unsigned, encoded_length * 8), &fos, field_order, .little);
                 break :fos fos;
             };
-            if (crypto.utils.timingSafeCompare(u8, &s, &field_order_s, .little) != .lt) {
+            if (crypto.timing_safe.compare(u8, &s, &field_order_s, .little) != .lt) {
                 return error.NonCanonical;
             }
         }

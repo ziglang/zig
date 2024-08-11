@@ -1,5 +1,5 @@
-/* bits/typesizes.h -- underlying types for *_t.  MIPS version.
-   Copyright (C) 2002-2024 Free Software Foundation, Inc.
+/* bits/typesizes.h -- underlying types for *_t.  For the generic Linux ABI.
+   Copyright (C) 2011-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -13,7 +13,7 @@
    Lesser General Public License for more details.
 
    You should have received a copy of the GNU Lesser General Public
-   License along with the GNU C Library; if not, see
+   License along with the GNU C Library.  If not, see
    <https://www.gnu.org/licenses/>.  */
 
 #ifndef _BITS_TYPES_H
@@ -25,44 +25,57 @@
 
 /* See <bits/types.h> for the meaning of these macros.  This file exists so
    that <bits/types.h> need not vary across different GNU platforms.  */
+#if __TIMESIZE == 64 && __WORDSIZE == 32
+/* These are the "new" y2038 types defined for architectures added after
+   the 5.1 kernel.  */
+# define __INO_T_TYPE		__UQUAD_TYPE
+# define __OFF_T_TYPE		__SQUAD_TYPE
+# define __RLIM_T_TYPE		__UQUAD_TYPE
+# define __BLKCNT_T_TYPE	__SQUAD_TYPE
+# define __FSBLKCNT_T_TYPE	__UQUAD_TYPE
+# define __FSFILCNT_T_TYPE	__UQUAD_TYPE
+# define __TIME_T_TYPE		__SQUAD_TYPE
+# define __SUSECONDS_T_TYPE	__SQUAD_TYPE
+#else
+# define __INO_T_TYPE		__ULONGWORD_TYPE
+# define __OFF_T_TYPE		__SLONGWORD_TYPE
+# define __RLIM_T_TYPE		__ULONGWORD_TYPE
+# define __BLKCNT_T_TYPE	__SLONGWORD_TYPE
+# define __FSBLKCNT_T_TYPE	__ULONGWORD_TYPE
+# define __FSFILCNT_T_TYPE	__ULONGWORD_TYPE
+# define __TIME_T_TYPE		__SLONGWORD_TYPE
+# define __SUSECONDS_T_TYPE	__SLONGWORD_TYPE
+#endif
 
 #define __DEV_T_TYPE		__UQUAD_TYPE
 #define __UID_T_TYPE		__U32_TYPE
 #define __GID_T_TYPE		__U32_TYPE
-#define __INO_T_TYPE		__ULONGWORD_TYPE
 #define __INO64_T_TYPE		__UQUAD_TYPE
 #define __MODE_T_TYPE		__U32_TYPE
-#define __NLINK_T_TYPE		__UWORD_TYPE
-#define __OFF_T_TYPE		__SLONGWORD_TYPE
+#define __NLINK_T_TYPE		__U32_TYPE
 #define __OFF64_T_TYPE		__SQUAD_TYPE
 #define __PID_T_TYPE		__S32_TYPE
-#define __RLIM_T_TYPE		__ULONGWORD_TYPE
 #define __RLIM64_T_TYPE		__UQUAD_TYPE
-#define	__BLKCNT_T_TYPE		__SLONGWORD_TYPE
 #define	__BLKCNT64_T_TYPE	__SQUAD_TYPE
-#define	__FSBLKCNT_T_TYPE	__ULONGWORD_TYPE
 #define	__FSBLKCNT64_T_TYPE	__UQUAD_TYPE
-#define	__FSFILCNT_T_TYPE	__ULONGWORD_TYPE
 #define	__FSFILCNT64_T_TYPE	__UQUAD_TYPE
 #define	__FSWORD_T_TYPE		__SWORD_TYPE
 #define	__ID_T_TYPE		__U32_TYPE
 #define __CLOCK_T_TYPE		__SLONGWORD_TYPE
-#define __TIME_T_TYPE		__SLONGWORD_TYPE
 #define __USECONDS_T_TYPE	__U32_TYPE
-#define __SUSECONDS_T_TYPE	__SLONGWORD_TYPE
 #define __SUSECONDS64_T_TYPE	__SQUAD_TYPE
 #define __DADDR_T_TYPE		__S32_TYPE
 #define __KEY_T_TYPE		__S32_TYPE
 #define __CLOCKID_T_TYPE	__S32_TYPE
 #define __TIMER_T_TYPE		void *
-#define __BLKSIZE_T_TYPE	__SLONGWORD_TYPE
+#define __BLKSIZE_T_TYPE	__S32_TYPE
 #define __FSID_T_TYPE		struct { int __val[2]; }
 #define __SSIZE_T_TYPE		__SWORD_TYPE
 #define __SYSCALL_SLONG_TYPE	__SLONGWORD_TYPE
 #define __SYSCALL_ULONG_TYPE	__ULONGWORD_TYPE
 #define __CPU_MASK_TYPE 	__ULONGWORD_TYPE
 
-#ifdef __LP64__
+#if defined __LP64__ || (__TIMESIZE == 64 && __WORDSIZE == 32)
 /* Tell the libc code that off_t and off64_t are actually the same type
    for all ABI purposes, even if possibly expressed as different base types
    for C type-checking purposes.  */
@@ -71,20 +84,19 @@
 /* Same for ino_t and ino64_t.  */
 # define __INO_T_MATCHES_INO64_T	1
 
-/* And for rlim_t and rlim64_t.  */
+/* And for __rlim_t and __rlim64_t.  */
 # define __RLIM_T_MATCHES_RLIM64_T	1
 
 /* And for fsblkcnt_t, fsblkcnt64_t, fsfilcnt_t and fsfilcnt64_t.  */
 # define __STATFS_MATCHES_STATFS64  1
 
 /* And for getitimer, setitimer and rusage  */
-# define __KERNEL_OLD_TIMEVAL_MATCHES_TIMEVAL64 1
+# define __KERNEL_OLD_TIMEVAL_MATCHES_TIMEVAL64 (__WORDSIZE == 64)
 #else
 # define __RLIM_T_MATCHES_RLIM64_T	0
 
 # define __STATFS_MATCHES_STATFS64  0
 
-/* And for getitimer, setitimer and rusage  */
 # define __KERNEL_OLD_TIMEVAL_MATCHES_TIMEVAL64 0
 #endif
 
