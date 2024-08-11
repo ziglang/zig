@@ -9981,7 +9981,10 @@ pub fn printUnbuffered(
                 .@"subprogram optimized definition",
                 .@"subprogram optimized local definition",
                 => |kind| {
-                    const extra = self.metadataExtraData(Metadata.Subprogram, metadata_item.data);
+                    const extra_trail = self.metadataExtraDataTrail(Metadata.Subprogram, metadata_item.data);
+                    const extra = extra_trail.data;
+                    var trail = extra_trail.trail;
+
                     try metadata_formatter.specialized(.@"distinct !", .DISubprogram, .{
                         .name = extra.name,
                         .linkageName = extra.linkage_name,
@@ -10000,7 +10003,7 @@ pub fn printUnbuffered(
                         .unit = extra.compile_unit,
                         .templateParams = null,
                         .declaration = null,
-                        .retainedNodes = null,
+                        .retainedNodes = trail.next(1, Metadata, self)[0],
                         .thrownTypes = null,
                         .annotations = null,
                         .targetFuncName = null,
@@ -11756,8 +11759,9 @@ pub fn debugSubprogram(
     ty: Metadata,
     options: Metadata.Subprogram.Options,
     compile_unit: Metadata,
+    retained_nodes: Metadata,
 ) Allocator.Error!Metadata {
-    try self.ensureUnusedMetadataCapacity(1, Metadata.Subprogram, 0);
+    try self.ensureUnusedMetadataCapacity(1, Metadata.Subprogram, @sizeOf(Metadata));
     return self.debugSubprogramAssumeCapacity(
         file,
         name,
@@ -11767,7 +11771,19 @@ pub fn debugSubprogram(
         ty,
         options,
         compile_unit,
+        retained_nodes,
     );
+}
+
+pub fn debugSubprogramSetRetainedNodes(
+    self: *Builder,
+    subprogram: Metadata,
+    retained_nodes: Metadata,
+) void {
+    const data = self.metadata_items.items(.data)[@intFromEnum(subprogram)];
+    const extra = self.metadataExtraDataTrail(Metadata.Subprogram, data);
+    var trail = extra.trail;
+    trail.nextMut(1, Metadata, self)[0] = retained_nodes;
 }
 
 pub fn debugLexicalBlock(self: *Builder, scope: Metadata, file: Metadata, line: u32, column: u32) Allocator.Error!Metadata {
@@ -12171,6 +12187,38 @@ fn metadataDistinctAssumeCapacity(self: *Builder, tag: Metadata.Tag, value: anyt
     return @enumFromInt(gop.index);
 }
 
+fn metadataSubprogramAssumeCapacity(self: *Builder, tag: Metadata.Tag, subprogram: Metadata.Subprogram, retainedNodes: Metadata) Metadata {
+    const Key = struct { tag: Metadata.Tag, index: Metadata };
+    const Adapter = struct {
+        pub fn hash(_: @This(), key: Key) u32 {
+            return @truncate(std.hash.Wyhash.hash(
+                std.hash.uint32(@intFromEnum(key.tag)),
+                std.mem.asBytes(&key.index),
+            ));
+        }
+
+        pub fn eql(_: @This(), lhs_key: Key, _: void, rhs_index: usize) bool {
+            return @intFromEnum(lhs_key.index) == rhs_index;
+        }
+    };
+
+    const gop = self.metadata_map.getOrPutAssumeCapacityAdapted(
+        Key{ .tag = tag, .index = @enumFromInt(self.metadata_map.count()) },
+        Adapter{},
+    );
+
+    if (!gop.found_existing) {
+        gop.key_ptr.* = {};
+        gop.value_ptr.* = {};
+        self.metadata_items.appendAssumeCapacity(.{
+            .tag = tag,
+            .data = self.addMetadataExtraAssumeCapacity(subprogram),
+        });
+        self.metadata_extra.appendAssumeCapacity(@intFromEnum(retainedNodes));
+    }
+    return @enumFromInt(gop.index);
+}
+
 fn debugNamedAssumeCapacity(self: *Builder, name: MetadataString, operands: []const Metadata) void {
     assert(!self.strip);
     assert(name != .none);
@@ -12231,11 +12279,12 @@ fn debugSubprogramAssumeCapacity(
     ty: Metadata,
     options: Metadata.Subprogram.Options,
     compile_unit: Metadata,
+    retained_nodes: Metadata,
 ) Metadata {
     assert(!self.strip);
     const tag: Metadata.Tag = @enumFromInt(@intFromEnum(Metadata.Tag.subprogram) +
         @as(u3, @truncate(@as(u32, @bitCast(options.sp_flags)) >> 2)));
-    return self.metadataDistinctAssumeCapacity(tag, Metadata.Subprogram{
+    return self.metadataSubprogramAssumeCapacity(tag, Metadata.Subprogram{
         .file = file,
         .name = name,
         .linkage_name = linkage_name,
@@ -12244,7 +12293,7 @@ fn debugSubprogramAssumeCapacity(
         .ty = ty,
         .di_flags = options.di_flags,
         .compile_unit = compile_unit,
-    });
+    }, retained_nodes);
 }
 
 fn debugLexicalBlockAssumeCapacity(self: *Builder, scope: Metadata, file: Metadata, line: u32, column: u32) Metadata {
@@ -13815,7 +13864,9 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     .@"subprogram optimized definition",
                     .@"subprogram optimized local definition",
                     => |kind| {
-                        const extra = self.metadataExtraData(Metadata.Subprogram, data);
+                        const extra_trail = self.metadataExtraDataTrail(Metadata.Subprogram, data);
+                        const extra = extra_trail.data;
+                        var trail = extra_trail.trail;
 
                         try metadata_block.writeAbbrevAdapted(MetadataBlock.Subprogram{
                             .scope = extra.file,
@@ -13830,6 +13881,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             ))) << 2),
                             .flags = extra.di_flags,
                             .compile_unit = extra.compile_unit,
+                            .retained_nodes = trail.next(1, Metadata, self)[0],
                         }, metadata_adapter);
                     },
                     .lexical_block => {
