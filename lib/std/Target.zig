@@ -958,7 +958,7 @@ pub const Cpu = struct {
             }
         };
 
-        pub fn feature_set_fns(comptime F: type) type {
+        pub fn FeatureSetFns(comptime F: type) type {
             return struct {
                 /// Populates only the feature bits specified.
                 pub fn featureSet(features: []const F) Set {
