@@ -172,10 +172,44 @@ pub fn syscall7(
     );
 }
 
-const CloneFn = *const fn (arg: usize) callconv(.C) u8;
-
-/// This matches the libc clone function.
-pub extern fn clone(func: CloneFn, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
+pub fn clone() callconv(.Naked) usize {
+    // __clone(func, stack, flags, arg, ptid, tls, ctid)
+    //         3,    4,     5,     6,   7,    8,   9
+    //
+    // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
+    //         2          4,     5,     6,    7,   8
+    asm volatile (
+        \\ # Save function pointer and argument pointer on new thread stack
+        \\ and $5, $5, -16
+        \\ dsubu $5, $5, 16
+        \\ sd $4, 0($5)
+        \\ sd $7, 8($5)
+        \\ # Shuffle (fn,sp,fl,arg,ptid,tls,ctid) to (fl,sp,ptid,tls,ctid)
+        \\ move $4, $6
+        \\ move $6, $8
+        \\ move $7, $9
+        \\ move $8, $10
+        \\ li $2, 5055 # SYS_clone
+        \\ syscall
+        \\ beq $7, $0, 1f
+        \\ nop
+        \\ jr $ra
+        \\ dsubu $2, $0, $2
+        \\1:
+        \\ beq $2, $0, 1f
+        \\ nop
+        \\ jr $ra
+        \\ nop
+        \\1:
+        \\ ld $25, 0($sp)
+        \\ ld $4, 8($sp)
+        \\ jalr $25
+        \\ nop
+        \\ move $4, $2
+        \\ li $2, 5058 # SYS_exit
+        \\ syscall
+    );
+}
 
 pub fn restore() callconv(.Naked) noreturn {
     asm volatile (
