@@ -1354,7 +1354,7 @@ pub fn getOrCreateAtomForNav(self: *Coff, nav_index: InternPool.Nav.Index) !Atom
 }
 
 fn getNavOutputSection(self: *Coff, nav_index: InternPool.Nav.Index) u16 {
-    const zcu = self.base.comp.module.?;
+    const zcu = self.base.comp.zcu.?;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
     const ty = Type.fromInterned(nav.typeOf(ip));
@@ -1609,7 +1609,7 @@ pub fn deleteExport(
         .nav => |nav| self.navs.getPtr(nav),
         .uav => |uav| self.uavs.getPtr(uav),
     } orelse return;
-    const zcu = self.base.comp.module.?;
+    const zcu = self.base.comp.zcu.?;
     const name_slice = name.toSlice(&zcu.intern_pool);
     const sym_index = metadata.getExportPtr(self, name_slice) orelse return;
 
@@ -1691,7 +1691,7 @@ pub fn flushModule(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
     defer sub_prog_node.end();
 
     const pt: Zcu.PerThread = .{
-        .zcu = comp.module orelse return error.LinkingWithoutZigSourceUnimplemented,
+        .zcu = comp.zcu orelse return error.LinkingWithoutZigSourceUnimplemented,
         .tid = tid,
     };
 

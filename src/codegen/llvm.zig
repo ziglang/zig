@@ -864,7 +864,7 @@ pub const Object = struct {
             // into the garbage can by converting into absolute paths. What
             // a terrible tragedy.
             const compile_unit_dir = blk: {
-                if (comp.module) |zcu| m: {
+                if (comp.zcu) |zcu| m: {
                     const d = try zcu.main_mod.root.joinString(arena, "");
                     if (d.len == 0) break :m;
                     if (std.fs.path.isAbsolute(d)) break :blk d;
@@ -955,7 +955,7 @@ pub const Object = struct {
             .gpa = gpa,
             .builder = builder,
             .pt = .{
-                .zcu = comp.module.?,
+                .zcu = comp.zcu.?,
                 .tid = .main,
             },
             .debug_compile_unit = debug_compile_unit,

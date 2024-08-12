@@ -566,7 +566,7 @@ pub fn getInputSection(self: ZigObject, atom: Atom, macho_file: *MachO) macho.se
 pub fn flushModule(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) !void {
     // Handle any lazy symbols that were emitted by incremental compilation.
     if (self.lazy_syms.getPtr(.anyerror_type)) |metadata| {
-        const pt: Zcu.PerThread = .{ .zcu = macho_file.base.comp.module.?, .tid = tid };
+        const pt: Zcu.PerThread = .{ .zcu = macho_file.base.comp.zcu.?, .tid = tid };
 
         // Most lazy symbols can be updated on first use, but
         // anyerror needs to wait for everything to be flushed.
@@ -1437,7 +1437,7 @@ pub fn deleteExport(
     exported: Zcu.Exported,
     name: InternPool.NullTerminatedString,
 ) void {
-    const mod = macho_file.base.comp.module.?;
+    const mod = macho_file.base.comp.zcu.?;
 
     const metadata = switch (exported) {
         .nav => |nav| self.navs.getPtr(nav),
@@ -1545,7 +1545,7 @@ pub fn getOrCreateMetadataForLazySymbol(
 fn isThreadlocal(macho_file: *MachO, nav_index: InternPool.Nav.Index) bool {
     if (!macho_file.base.comp.config.any_non_single_threaded)
         return false;
-    const ip = &macho_file.base.comp.module.?.intern_pool;
+    const ip = &macho_file.base.comp.zcu.?.intern_pool;
     return switch (ip.indexToKey(ip.getNav(nav_index).status.resolved.val)) {
         .variable => |variable| variable.is_threadlocal,
         .@"extern" => |@"extern"| @"extern".is_threadlocal,

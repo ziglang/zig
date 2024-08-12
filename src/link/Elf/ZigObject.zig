@@ -128,7 +128,7 @@ pub fn deinit(self: *ZigObject, allocator: Allocator) void {
 pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
     // Handle any lazy symbols that were emitted by incremental compilation.
     if (self.lazy_syms.getPtr(.anyerror_type)) |metadata| {
-        const pt: Zcu.PerThread = .{ .zcu = elf_file.base.comp.module.?, .tid = tid };
+        const pt: Zcu.PerThread = .{ .zcu = elf_file.base.comp.zcu.?, .tid = tid };
 
         // Most lazy symbols can be updated on first use, but
         // anyerror needs to wait for everything to be flushed.
@@ -949,7 +949,7 @@ pub fn getOrCreateMetadataForNav(
     if (!gop.found_existing) {
         const any_non_single_threaded = elf_file.base.comp.config.any_non_single_threaded;
         const symbol_index = try self.newSymbolWithAtom(gpa, 0);
-        const zcu = elf_file.base.comp.module.?;
+        const zcu = elf_file.base.comp.zcu.?;
         const nav_val = Value.fromInterned(zcu.intern_pool.getNav(nav_index).status.resolved.val);
         const sym = self.symbol(symbol_index);
         if (nav_val.getVariable(zcu)) |variable| {
@@ -1626,7 +1626,7 @@ pub fn deleteExport(
         .nav => |nav| self.navs.getPtr(nav),
         .uav => |uav| self.uavs.getPtr(uav),
     } orelse return;
-    const mod = elf_file.base.comp.module.?;
+    const mod = elf_file.base.comp.zcu.?;
     const exp_name = name.toSlice(&mod.intern_pool);
     const esym_index = metadata.@"export"(self, exp_name) orelse return;
     log.debug("deleting export '{s}'", .{exp_name});

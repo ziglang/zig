@@ -418,7 +418,7 @@ pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node:
 
     const comp = self.base.comp;
     const gpa = comp.gpa;
-    const zcu = self.base.comp.module.?;
+    const zcu = self.base.comp.zcu.?;
     const ip = &zcu.intern_pool;
     const pt: Zcu.PerThread = .{ .zcu = zcu, .tid = tid };
 

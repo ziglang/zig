@@ -6003,7 +6003,7 @@ fn airPtrSliceFieldPtr(func: *CodeGen, inst: Air.Inst.Index, offset: u32) InnerE
 
 /// NOTE: Allocates place for result on virtual stack, when integer size > 64 bits
 fn intZeroValue(func: *CodeGen, ty: Type) InnerError!WValue {
-    const zcu = func.bin_file.base.comp.module.?;
+    const zcu = func.bin_file.base.comp.zcu.?;
     const int_info = ty.intInfo(zcu);
     const wasm_bits = toWasmBits(int_info.bits) orelse {
         return func.fail("TODO: Implement intZeroValue for integer bitsize: {d}", .{int_info.bits});

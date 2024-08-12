@@ -487,7 +487,7 @@ fn lowerConst(
     src_loc: Zcu.LazySrcLoc,
 ) !LowerConstResult {
     const gpa = wasm_file.base.comp.gpa;
-    const zcu = wasm_file.base.comp.module.?;
+    const zcu = wasm_file.base.comp.zcu.?;
 
     const ty = val.typeOf(zcu);
 
@@ -604,7 +604,7 @@ fn populateErrorNameTable(zig_object: *ZigObject, wasm_file: *Wasm, tid: Zcu.Per
 
     // Addend for each relocation to the table
     var addend: u32 = 0;
-    const pt: Zcu.PerThread = .{ .zcu = wasm_file.base.comp.module.?, .tid = tid };
+    const pt: Zcu.PerThread = .{ .zcu = wasm_file.base.comp.zcu.?, .tid = tid };
     const slice_ty = Type.slice_const_u8_sentinel_0;
     const atom = wasm_file.getAtomPtr(atom_index);
     {
@@ -803,7 +803,7 @@ pub fn getUavVAddr(
     const parent_atom_index = wasm_file.symbol_atom.get(.{ .file = zig_object.index, .index = @enumFromInt(reloc_info.parent_atom_index) }).?;
     const parent_atom = wasm_file.getAtomPtr(parent_atom_index);
     const is_wasm32 = target.cpu.arch == .wasm32;
-    const mod = wasm_file.base.comp.module.?;
+    const mod = wasm_file.base.comp.zcu.?;
     const ty = Type.fromInterned(mod.intern_pool.typeOf(uav));
     if (ty.zigTypeTag(mod) == .Fn) {
         std.debug.assert(reloc_info.addend == 0); // addend not allowed for function relocations
@@ -834,7 +834,7 @@ pub fn deleteExport(
     exported: Zcu.Exported,
     name: InternPool.NullTerminatedString,
 ) void {
-    const mod = wasm_file.base.comp.module.?;
+    const mod = wasm_file.base.comp.zcu.?;
     const nav_index = switch (exported) {
         .nav => |nav_index| nav_index,
         .uav => @panic("TODO: implement Wasm linker code for exporting a constant value"),
@@ -930,7 +930,7 @@ pub fn updateExports(
 
 pub fn freeNav(zig_object: *ZigObject, wasm_file: *Wasm, nav_index: InternPool.Nav.Index) void {
     const gpa = wasm_file.base.comp.gpa;
-    const mod = wasm_file.base.comp.module.?;
+    const mod = wasm_file.base.comp.zcu.?;
     const ip = &mod.intern_pool;
     const nav_info = zig_object.navs.getPtr(nav_index).?;
     const atom_index = nav_info.atom;
@@ -1016,7 +1016,7 @@ fn setupErrorsLen(zig_object: *ZigObject, wasm_file: *Wasm) !void {
     const gpa = wasm_file.base.comp.gpa;
     const sym_index = zig_object.findGlobalSymbol("__zig_errors_len") orelse return;
 
-    const errors_len = 1 + wasm_file.base.comp.module.?.intern_pool.global_error_set.getNamesFromMainThread().len;
+    const errors_len = 1 + wasm_file.base.comp.zcu.?.intern_pool.global_error_set.getNamesFromMainThread().len;
     // overwrite existing atom if it already exists (maybe the error set has increased)
     // if not, allocate a new atom.
     const atom_index = if (wasm_file.symbol_atom.get(.{ .file = zig_object.index, .index = sym_index })) |index| blk: {

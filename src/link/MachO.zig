@@ -164,7 +164,7 @@ pub fn createEmpty(
 
     const gpa = comp.gpa;
     const use_llvm = comp.config.use_llvm;
-    const opt_zcu = comp.module;
+    const opt_zcu = comp.zcu;
     const optimize_mode = comp.root_mod.optimize_mode;
     const output_mode = comp.config.output_mode;
     const link_mode = comp.config.link_mode;
