@@ -398,7 +398,6 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
 
                         _ = lower.reloc(.{ .linker_reloc = sym });
                         break :op if (lower.pic) switch (mnemonic) {
-                            .call => break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) },
                             .lea => break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) },
                             .mov => break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) },
                             else => unreachable,
