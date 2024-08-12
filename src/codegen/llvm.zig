@@ -91,7 +91,14 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         => unreachable, // Gated by hasLlvmSupport().
     };
     try llvm_triple.appendSlice(llvm_arch);
-    try llvm_triple.appendSlice("-unknown-");
+
+    // Unlike CPU backends, GPU backends actually care about the vendor tag.
+    try llvm_triple.appendSlice(switch (target.cpu.arch) {
+        .amdgcn => if (target.os.tag == .mesa3d) "-mesa-" else "-amd-",
+        .nvptx, .nvptx64 => "-nvidia-",
+        .spirv64 => if (target.os.tag == .amdhsa) "-amd-" else "-unknown-",
+        else => "-unknown-",
+    });
 
     const llvm_os = switch (target.os.tag) {
         .freestanding => "unknown",
@@ -111,6 +118,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .cuda => "cuda",
         .nvcl => "nvcl",
         .amdhsa => "amdhsa",
+        .opencl => "unknown", // https://llvm.org/docs/SPIRVUsage.html#target-triples
         .ps4 => "ps4",
         .ps5 => "ps5",
         .elfiamcu => "elfiamcu",
@@ -132,7 +140,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .serenity => "serenity",
         .vulkan => "vulkan",
 
-        .opencl,
         .glsl450,
         .plan9,
         .minix,
