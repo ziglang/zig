@@ -2,14 +2,41 @@ const std = @import("std");
 const fatal = std.process.fatal;
 const Allocator = std.mem.Allocator;
 
+const usage = "usage: incr-check <zig binary path> <input file> [-fno-emit-bin] [--zig-lib-dir lib]";
+
 pub fn main() !void {
     var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    const args = try std.process.argsAlloc(arena);
-    const zig_exe = args[1];
-    const input_file_name = args[2];
+    var opt_zig_exe: ?[]const u8 = null;
+    var opt_input_file_name: ?[]const u8 = null;
+    var opt_lib_dir: ?[]const u8 = null;
+    var no_bin = false;
+
+    var arg_it = try std.process.argsWithAllocator(arena);
+    _ = arg_it.skip();
+    while (arg_it.next()) |arg| {
+        if (arg.len > 0 and arg[0] == '-') {
+            if (std.mem.eql(u8, arg, "-fno-emit-bin")) {
+                no_bin = true;
+            } else if (std.mem.eql(u8, arg, "--zig-lib-dir")) {
+                opt_lib_dir = arg_it.next() orelse fatal("expected arg after '--zig-lib-dir'\n{s}", .{usage});
+            } else {
+                fatal("unknown option '{s}'\n{s}", .{ arg, usage });
+            }
+            continue;
+        }
+        if (opt_zig_exe == null) {
+            opt_zig_exe = arg;
+        } else if (opt_input_file_name == null) {
+            opt_input_file_name = arg;
+        } else {
+            fatal("unknown argument '{s}'\n{s}", .{ arg, usage });
+        }
+    }
+    const zig_exe = opt_zig_exe orelse fatal("missing path to zig\n{s}", .{usage});
+    const input_file_name = opt_input_file_name orelse fatal("missing input file\n{s}", .{usage});
 
     const input_file_bytes = try std.fs.cwd().readFileAlloc(arena, input_file_name, std.math.maxInt(u32));
     const case = try Case.parse(arena, input_file_bytes);
@@ -24,13 +51,12 @@ pub fn main() !void {
     const child_prog_node = prog_node.start("zig build-exe", 0);
     defer child_prog_node.end();
 
-    var child = std.process.Child.init(&.{
+    var child_args: std.ArrayListUnmanaged([]const u8) = .{};
+    try child_args.appendSlice(arena, &.{
         // Convert incr-check-relative path to subprocess-relative path.
         try std.fs.path.relative(arena, tmp_dir_path, zig_exe),
         "build-exe",
         case.root_source_file,
-        "-fno-llvm",
-        "-fno-lld",
         "-fincremental",
         "-target",
         case.target_query,
@@ -39,8 +65,17 @@ pub fn main() !void {
         "--global-cache-dir",
         ".global_cache",
         "--listen=-",
-    }, arena);
+    });
+    if (opt_lib_dir) |lib_dir| {
+        try child_args.appendSlice(arena, &.{ "--zig-lib-dir", lib_dir });
+    }
+    if (no_bin) {
+        try child_args.append(arena, "-fno-emit-bin");
+    } else {
+        try child_args.appendSlice(arena, &.{ "-fno-llvm", "-fno-lld" });
+    }
 
+    var child = std.process.Child.init(child_args.items, arena);
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
@@ -65,6 +100,8 @@ pub fn main() !void {
     defer poller.deinit();
 
     for (case.updates) |update| {
+        var update_node = prog_node.start(update.name, 0);
+        defer update_node.end();
         eval.write(update);
         try eval.requestUpdate();
         try eval.check(&poller, update);
@@ -138,7 +175,17 @@ const Eval = struct {
                         const stderr_data = try stderr.toOwnedSlice();
                         fatal("error_bundle included unexpected stderr:\n{s}", .{stderr_data});
                     }
-                    try eval.checkErrorOutcome(update, result_error_bundle);
+                    if (result_error_bundle.errorMessageCount() == 0) {
+                        // Empty bundle indicates successful update in a `-fno-emit-bin` build.
+                        // We can't do a full success check since we don't have a binary, but let's
+                        // at least check that no errors were expected.
+                        switch (update.outcome) {
+                            .unknown, .stdout, .exit_code => {},
+                            .compile_errors => fatal("expected compile errors but compilation incorrectly succeeded", .{}),
+                        }
+                    } else {
+                        try eval.checkErrorOutcome(update, result_error_bundle);
+                    }
                     // This message indicates the end of the update.
                     stdout.discard(body.len);
                     return;
@@ -357,6 +404,11 @@ const Case = struct {
                             fatal("line {d}: bad string literal: {s}", .{ line_n, @errorName(err) });
                         },
                     };
+                } else if (std.mem.eql(u8, key, "expect_error")) {
+                    if (updates.items.len == 0) fatal("line {d}: expect directive before update", .{line_n});
+                    const last_update = &updates.items[updates.items.len - 1];
+                    if (last_update.outcome != .unknown) fatal("line {d}: conflicting expect directive", .{line_n});
+                    last_update.outcome = .{ .compile_errors = &.{} };
                 } else {
                     fatal("line {d}: unrecognized key '{s}'", .{ line_n, key });
                 }
