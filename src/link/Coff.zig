@@ -1141,7 +1141,7 @@ pub fn updateFunc(self: *Coff, pt: Zcu.PerThread, func_index: InternPool.Index, 
 
 const LowerConstResult = union(enum) {
     ok: Atom.Index,
-    fail: *Module.ErrorMsg,
+    fail: *Zcu.ErrorMsg,
 };
 
 fn lowerConst(
@@ -1151,7 +1151,7 @@ fn lowerConst(
     val: Value,
     required_alignment: InternPool.Alignment,
     sect_id: u16,
-    src_loc: Module.LazySrcLoc,
+    src_loc: Zcu.LazySrcLoc,
 ) !LowerConstResult {
     const gpa = self.base.comp.gpa;
 
@@ -1462,15 +1462,15 @@ pub fn freeNav(self: *Coff, nav_index: InternPool.NavIndex) void {
 pub fn updateExports(
     self: *Coff,
     pt: Zcu.PerThread,
-    exported: Module.Exported,
+    exported: Zcu.Exported,
     export_indices: []const u32,
 ) link.File.UpdateExportsError!void {
     if (build_options.skip_non_native and builtin.object_format != .coff) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
 
-    const mod = pt.zcu;
-    const ip = &mod.intern_pool;
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
     const comp = self.base.comp;
     const target = comp.root_mod.resolved_target.result;
 
@@ -1478,7 +1478,7 @@ pub fn updateExports(
         // Even in the case of LLVM, we need to notice certain exported symbols in order to
         // detect the default subsystem.
         for (export_indices) |export_idx| {
-            const exp = mod.all_exports.items[export_idx];
+            const exp = zcu.all_exports.items[export_idx];
             const exported_nav_index = switch (exp.exported) {
                 .nav => |nav| nav,
                 .uav => continue,
@@ -1490,20 +1490,20 @@ pub fn updateExports(
                 .x86 => .Stdcall,
                 else => .C,
             };
-            const exported_cc = Type.fromInterned(exported_ty).fnCallingConvention(mod);
+            const exported_cc = Type.fromInterned(exported_ty).fnCallingConvention(zcu);
             if (exported_cc == .C and exp.opts.name.eqlSlice("main", ip) and comp.config.link_libc) {
-                mod.stage1_flags.have_c_main = true;
+                zcu.stage1_flags.have_c_main = true;
             } else if (exported_cc == winapi_cc and target.os.tag == .windows) {
                 if (exp.opts.name.eqlSlice("WinMain", ip)) {
-                    mod.stage1_flags.have_winmain = true;
+                    zcu.stage1_flags.have_winmain = true;
                 } else if (exp.opts.name.eqlSlice("wWinMain", ip)) {
-                    mod.stage1_flags.have_wwinmain = true;
+                    zcu.stage1_flags.have_wwinmain = true;
                 } else if (exp.opts.name.eqlSlice("WinMainCRTStartup", ip)) {
-                    mod.stage1_flags.have_winmain_crt_startup = true;
+                    zcu.stage1_flags.have_winmain_crt_startup = true;
                 } else if (exp.opts.name.eqlSlice("wWinMainCRTStartup", ip)) {
-                    mod.stage1_flags.have_wwinmain_crt_startup = true;
+                    zcu.stage1_flags.have_wwinmain_crt_startup = true;
                 } else if (exp.opts.name.eqlSlice("DllMainCRTStartup", ip)) {
-                    mod.stage1_flags.have_dllmain_crt_startup = true;
+                    zcu.stage1_flags.have_dllmain_crt_startup = true;
                 }
             }
         }
@@ -1519,15 +1519,15 @@ pub fn updateExports(
             break :blk self.navs.getPtr(nav).?;
         },
         .uav => |uav| self.uavs.getPtr(uav) orelse blk: {
-            const first_exp = mod.all_exports.items[export_indices[0]];
+            const first_exp = zcu.all_exports.items[export_indices[0]];
             const res = try self.lowerUav(pt, uav, .none, first_exp.src);
             switch (res) {
                 .mcv => {},
                 .fail => |em| {
                     // TODO maybe it's enough to return an error here and let Module.processExportsInner
                     // handle the error?
-                    try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                    mod.failed_exports.putAssumeCapacityNoClobber(export_indices[0], em);
+                    try zcu.failed_exports.ensureUnusedCapacity(zcu.gpa, 1);
+                    zcu.failed_exports.putAssumeCapacityNoClobber(export_indices[0], em);
                     return;
                 },
             }
@@ -1538,12 +1538,12 @@ pub fn updateExports(
     const atom = self.getAtom(atom_index);
 
     for (export_indices) |export_idx| {
-        const exp = mod.all_exports.items[export_idx];
-        log.debug("adding new export '{}'", .{exp.opts.name.fmt(&mod.intern_pool)});
+        const exp = zcu.all_exports.items[export_idx];
+        log.debug("adding new export '{}'", .{exp.opts.name.fmt(&zcu.intern_pool)});
 
-        if (exp.opts.section.toSlice(&mod.intern_pool)) |section_name| {
+        if (exp.opts.section.toSlice(&zcu.intern_pool)) |section_name| {
             if (!mem.eql(u8, section_name, ".text")) {
-                try mod.failed_exports.putNoClobber(gpa, export_idx, try Module.ErrorMsg.create(
+                try zcu.failed_exports.putNoClobber(gpa, export_idx, try Zcu.ErrorMsg.create(
                     gpa,
                     exp.src,
                     "Unimplemented: ExportOptions.section",
@@ -1554,7 +1554,7 @@ pub fn updateExports(
         }
 
         if (exp.opts.linkage == .link_once) {
-            try mod.failed_exports.putNoClobber(gpa, export_idx, try Module.ErrorMsg.create(
+            try zcu.failed_exports.putNoClobber(gpa, export_idx, try Zcu.ErrorMsg.create(
                 gpa,
                 exp.src,
                 "Unimplemented: GlobalLinkage.link_once",
@@ -1563,7 +1563,7 @@ pub fn updateExports(
             continue;
         }
 
-        const exp_name = exp.opts.name.toSlice(&mod.intern_pool);
+        const exp_name = exp.opts.name.toSlice(&zcu.intern_pool);
         const sym_index = metadata.getExport(self, exp_name) orelse blk: {
             const sym_index = if (self.getGlobalIndex(exp_name)) |global_index| ind: {
                 const global = self.globals.items[global_index];
@@ -1609,14 +1609,14 @@ pub fn deleteExport(
         .nav => |nav| self.navs.getPtr(nav),
         .uav => |uav| self.uavs.getPtr(uav),
     } orelse return;
-    const mod = self.base.comp.module.?;
-    const name_slice = name.toSlice(&mod.intern_pool);
+    const zcu = self.base.comp.module.?;
+    const name_slice = name.toSlice(&zcu.intern_pool);
     const sym_index = metadata.getExportPtr(self, name_slice) orelse return;
 
     const gpa = self.base.comp.gpa;
     const sym_loc = SymbolWithLoc{ .sym_index = sym_index.*, .file = null };
     const sym = self.getSymbolPtr(sym_loc);
-    log.debug("deleting export '{}'", .{name.fmt(&mod.intern_pool)});
+    log.debug("deleting export '{}'", .{name.fmt(&zcu.intern_pool)});
     assert(sym.storage_class == .EXTERNAL and sym.section_number != .UNDEFINED);
     sym.* = .{
         .name = [_]u8{0} ** 8,
@@ -1843,7 +1843,7 @@ pub fn lowerUav(
     pt: Zcu.PerThread,
     uav: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
-    src_loc: Module.LazySrcLoc,
+    src_loc: Zcu.LazySrcLoc,
 ) !codegen.GenResult {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -1872,7 +1872,7 @@ pub fn lowerUav(
         src_loc,
     ) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        else => |e| return .{ .fail = try Module.ErrorMsg.create(
+        else => |e| return .{ .fail = try Zcu.ErrorMsg.create(
             gpa,
             src_loc,
             "lowerAnonDecl failed with error: {s}",
@@ -2730,8 +2730,6 @@ const ImportTable = @import("Coff/ImportTable.zig");
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Zcu = @import("../Zcu.zig");
-/// Deprecated.
-const Module = Zcu;
 const InternPool = @import("../InternPool.zig");
 const Object = @import("Coff/Object.zig");
 const Relocation = @import("Coff/Relocation.zig");
