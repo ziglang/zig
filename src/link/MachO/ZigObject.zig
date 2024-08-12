@@ -1256,7 +1256,7 @@ pub fn updateExports(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const mod = pt.zcu;
+    const zcu = pt.zcu;
     const gpa = macho_file.base.comp.gpa;
     const metadata = switch (exported) {
         .nav => |nav| blk: {
@@ -1264,15 +1264,15 @@ pub fn updateExports(
             break :blk self.navs.getPtr(nav).?;
         },
         .uav => |uav| self.uavs.getPtr(uav) orelse blk: {
-            const first_exp = mod.all_exports.items[export_indices[0]];
+            const first_exp = zcu.all_exports.items[export_indices[0]];
             const res = try self.lowerUav(macho_file, pt, uav, .none, first_exp.src);
             switch (res) {
                 .mcv => {},
                 .fail => |em| {
                     // TODO maybe it's enough to return an error here and let Zcu.processExportsInner
                     // handle the error?
-                    try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                    mod.failed_exports.putAssumeCapacityNoClobber(export_indices[0], em);
+                    try zcu.failed_exports.ensureUnusedCapacity(zcu.gpa, 1);
+                    zcu.failed_exports.putAssumeCapacityNoClobber(export_indices[0], em);
                     return;
                 },
             }
@@ -1284,11 +1284,11 @@ pub fn updateExports(
     const nlist = self.symtab.items(.nlist)[nlist_idx];
 
     for (export_indices) |export_idx| {
-        const exp = mod.all_exports.items[export_idx];
+        const exp = zcu.all_exports.items[export_idx];
         if (exp.opts.section.unwrap()) |section_name| {
-            if (!section_name.eqlSlice("__text", &mod.intern_pool)) {
-                try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                mod.failed_exports.putAssumeCapacityNoClobber(export_idx, try Zcu.ErrorMsg.create(
+            if (!section_name.eqlSlice("__text", &zcu.intern_pool)) {
+                try zcu.failed_exports.ensureUnusedCapacity(zcu.gpa, 1);
+                zcu.failed_exports.putAssumeCapacityNoClobber(export_idx, try Zcu.ErrorMsg.create(
                     gpa,
                     exp.src,
                     "Unimplemented: ExportOptions.section",
@@ -1298,7 +1298,7 @@ pub fn updateExports(
             }
         }
         if (exp.opts.linkage == .link_once) {
-            try mod.failed_exports.putNoClobber(mod.gpa, export_idx, try Zcu.ErrorMsg.create(
+            try zcu.failed_exports.putNoClobber(zcu.gpa, export_idx, try Zcu.ErrorMsg.create(
                 gpa,
                 exp.src,
                 "Unimplemented: GlobalLinkage.link_once",
@@ -1307,7 +1307,7 @@ pub fn updateExports(
             continue;
         }
 
-        const exp_name = exp.opts.name.toSlice(&mod.intern_pool);
+        const exp_name = exp.opts.name.toSlice(&zcu.intern_pool);
         const global_nlist_index = if (metadata.@"export"(self, exp_name)) |exp_index|
             exp_index.*
         else blk: {
@@ -1437,15 +1437,15 @@ pub fn deleteExport(
     exported: Zcu.Exported,
     name: InternPool.NullTerminatedString,
 ) void {
-    const mod = macho_file.base.comp.zcu.?;
+    const zcu = macho_file.base.comp.zcu.?;
 
     const metadata = switch (exported) {
         .nav => |nav| self.navs.getPtr(nav),
         .uav => |uav| self.uavs.getPtr(uav),
     } orelse return;
-    const nlist_index = metadata.@"export"(self, name.toSlice(&mod.intern_pool)) orelse return;
+    const nlist_index = metadata.@"export"(self, name.toSlice(&zcu.intern_pool)) orelse return;
 
-    log.debug("deleting export '{}'", .{name.fmt(&mod.intern_pool)});
+    log.debug("deleting export '{}'", .{name.fmt(&zcu.intern_pool)});
 
     const nlist = &self.symtab.items(.nlist)[nlist_index.*];
     self.symtab.items(.size)[nlist_index.*] = 0;

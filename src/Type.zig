@@ -3028,9 +3028,9 @@ pub fn getParentNamespace(ty: Type, zcu: *Zcu) InternPool.OptionalNamespaceIndex
 
 // Works for vectors and vectors of integers.
 pub fn minInt(ty: Type, pt: Zcu.PerThread, dest_ty: Type) !Value {
-    const mod = pt.zcu;
-    const scalar = try minIntScalar(ty.scalarType(mod), pt, dest_ty.scalarType(mod));
-    return if (ty.zigTypeTag(mod) == .Vector) Value.fromInterned(try pt.intern(.{ .aggregate = .{
+    const zcu = pt.zcu;
+    const scalar = try minIntScalar(ty.scalarType(zcu), pt, dest_ty.scalarType(zcu));
+    return if (ty.zigTypeTag(zcu) == .Vector) Value.fromInterned(try pt.intern(.{ .aggregate = .{
         .ty = dest_ty.toIntern(),
         .storage = .{ .repeated_elem = scalar.toIntern() },
     } })) else scalar;
@@ -3038,8 +3038,8 @@ pub fn minInt(ty: Type, pt: Zcu.PerThread, dest_ty: Type) !Value {
 
 /// Asserts that the type is an integer.
 pub fn minIntScalar(ty: Type, pt: Zcu.PerThread, dest_ty: Type) !Value {
-    const mod = pt.zcu;
-    const info = ty.intInfo(mod);
+    const zcu = pt.zcu;
+    const info = ty.intInfo(zcu);
     if (info.signedness == .unsigned) return pt.intValue(dest_ty, 0);
     if (info.bits == 0) return pt.intValue(dest_ty, -1);
 
@@ -3048,7 +3048,7 @@ pub fn minIntScalar(ty: Type, pt: Zcu.PerThread, dest_ty: Type) !Value {
         return pt.intValue(dest_ty, n);
     }
 
-    var res = try std.math.big.int.Managed.init(mod.gpa);
+    var res = try std.math.big.int.Managed.init(zcu.gpa);
     defer res.deinit();
 
     try res.setTwosCompIntLimit(.min, info.signedness, info.bits);
@@ -3059,9 +3059,9 @@ pub fn minIntScalar(ty: Type, pt: Zcu.PerThread, dest_ty: Type) !Value {
 // Works for vectors and vectors of integers.
 /// The returned Value will have type dest_ty.
 pub fn maxInt(ty: Type, pt: Zcu.PerThread, dest_ty: Type) !Value {
-    const mod = pt.zcu;
-    const scalar = try maxIntScalar(ty.scalarType(mod), pt, dest_ty.scalarType(mod));
-    return if (ty.zigTypeTag(mod) == .Vector) Value.fromInterned(try pt.intern(.{ .aggregate = .{
+    const zcu = pt.zcu;
+    const scalar = try maxIntScalar(ty.scalarType(zcu), pt, dest_ty.scalarType(zcu));
+    return if (ty.zigTypeTag(zcu) == .Vector) Value.fromInterned(try pt.intern(.{ .aggregate = .{
         .ty = dest_ty.toIntern(),
         .storage = .{ .repeated_elem = scalar.toIntern() },
     } })) else scalar;
@@ -3546,12 +3546,12 @@ pub fn optEuBaseType(ty: Type, zcu: *const Zcu) Type {
 }
 
 pub fn toUnsigned(ty: Type, pt: Zcu.PerThread) !Type {
-    const mod = pt.zcu;
-    return switch (ty.zigTypeTag(mod)) {
-        .Int => pt.intType(.unsigned, ty.intInfo(mod).bits),
+    const zcu = pt.zcu;
+    return switch (ty.zigTypeTag(zcu)) {
+        .Int => pt.intType(.unsigned, ty.intInfo(zcu).bits),
         .Vector => try pt.vectorType(.{
-            .len = ty.vectorLen(mod),
-            .child = (try ty.childType(mod).toUnsigned(pt)).toIntern(),
+            .len = ty.vectorLen(zcu),
+            .child = (try ty.childType(zcu).toUnsigned(pt)).toIntern(),
         }),
         else => unreachable,
     };

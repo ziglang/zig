@@ -62,8 +62,8 @@ pub fn print(
     comptime have_sema: bool,
     sema: if (have_sema) *Sema else void,
 ) (@TypeOf(writer).Error || Zcu.CompileError)!void {
-    const mod = pt.zcu;
-    const ip = &mod.intern_pool;
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
     switch (ip.indexToKey(val.toIntern())) {
         .int_type,
         .ptr_type,
@@ -116,7 +116,7 @@ pub fn print(
             enum_literal.fmt(ip),
         }),
         .enum_tag => |enum_tag| {
-            const enum_type = ip.loadEnumType(val.typeOf(mod).toIntern());
+            const enum_type = ip.loadEnumType(val.typeOf(zcu).toIntern());
             if (enum_type.tagValueIndex(ip, val.toIntern())) |tag_index| {
                 return writer.print(".{i}", .{enum_type.names.get(ip)[tag_index].fmt(ip)});
             }
@@ -173,7 +173,7 @@ pub fn print(
                 return;
             }
             if (un.tag == .none) {
-                const backing_ty = try val.typeOf(mod).unionBackingType(pt);
+                const backing_ty = try val.typeOf(zcu).unionBackingType(pt);
                 try writer.print("@bitCast(@as({}, ", .{backing_ty.fmt(pt)});
                 try print(Value.fromInterned(un.val), writer, level - 1, pt, have_sema, sema);
                 try writer.writeAll("))");

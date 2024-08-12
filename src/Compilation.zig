@@ -4350,8 +4350,8 @@ fn workerCheckEmbedFile(comp: *Compilation, embed_file: *Zcu.EmbedFile) void {
 }
 
 fn detectEmbedFileUpdate(comp: *Compilation, embed_file: *Zcu.EmbedFile) !void {
-    const mod = comp.zcu.?;
-    const ip = &mod.intern_pool;
+    const zcu = comp.zcu.?;
+    const ip = &zcu.intern_pool;
     var file = try embed_file.owner.root.openFile(embed_file.sub_file_path.toSlice(ip), .{});
     defer file.close();
 
@@ -4663,10 +4663,10 @@ fn reportRetryableEmbedFileError(
     embed_file: *Zcu.EmbedFile,
     err: anyerror,
 ) error{OutOfMemory}!void {
-    const mod = comp.zcu.?;
-    const gpa = mod.gpa;
+    const zcu = comp.zcu.?;
+    const gpa = zcu.gpa;
     const src_loc = embed_file.src_loc;
-    const ip = &mod.intern_pool;
+    const ip = &zcu.intern_pool;
     const err_msg = try Zcu.ErrorMsg.create(gpa, src_loc, "unable to load '{}/{s}': {s}", .{
         embed_file.owner.root,
         embed_file.sub_file_path.toSlice(ip),
@@ -4678,7 +4678,7 @@ fn reportRetryableEmbedFileError(
     {
         comp.mutex.lock();
         defer comp.mutex.unlock();
-        try mod.failed_embed_files.putNoClobber(gpa, embed_file, err_msg);
+        try zcu.failed_embed_files.putNoClobber(gpa, embed_file, err_msg);
     }
 }
 

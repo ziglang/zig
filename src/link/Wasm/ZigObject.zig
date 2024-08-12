@@ -803,9 +803,9 @@ pub fn getUavVAddr(
     const parent_atom_index = wasm_file.symbol_atom.get(.{ .file = zig_object.index, .index = @enumFromInt(reloc_info.parent_atom_index) }).?;
     const parent_atom = wasm_file.getAtomPtr(parent_atom_index);
     const is_wasm32 = target.cpu.arch == .wasm32;
-    const mod = wasm_file.base.comp.zcu.?;
-    const ty = Type.fromInterned(mod.intern_pool.typeOf(uav));
-    if (ty.zigTypeTag(mod) == .Fn) {
+    const zcu = wasm_file.base.comp.zcu.?;
+    const ty = Type.fromInterned(zcu.intern_pool.typeOf(uav));
+    if (ty.zigTypeTag(zcu) == .Fn) {
         std.debug.assert(reloc_info.addend == 0); // addend not allowed for function relocations
         try parent_atom.relocs.append(gpa, .{
             .index = target_symbol_index,
@@ -834,13 +834,13 @@ pub fn deleteExport(
     exported: Zcu.Exported,
     name: InternPool.NullTerminatedString,
 ) void {
-    const mod = wasm_file.base.comp.zcu.?;
+    const zcu = wasm_file.base.comp.zcu.?;
     const nav_index = switch (exported) {
         .nav => |nav_index| nav_index,
         .uav => @panic("TODO: implement Wasm linker code for exporting a constant value"),
     };
     const nav_info = zig_object.navs.getPtr(nav_index) orelse return;
-    if (nav_info.@"export"(zig_object, name.toSlice(&mod.intern_pool))) |sym_index| {
+    if (nav_info.@"export"(zig_object, name.toSlice(&zcu.intern_pool))) |sym_index| {
         const sym = zig_object.symbol(sym_index);
         nav_info.deleteExport(sym_index);
         std.debug.assert(zig_object.global_syms.remove(sym.name));
@@ -930,8 +930,8 @@ pub fn updateExports(
 
 pub fn freeNav(zig_object: *ZigObject, wasm_file: *Wasm, nav_index: InternPool.Nav.Index) void {
     const gpa = wasm_file.base.comp.gpa;
-    const mod = wasm_file.base.comp.zcu.?;
-    const ip = &mod.intern_pool;
+    const zcu = wasm_file.base.comp.zcu.?;
+    const ip = &zcu.intern_pool;
     const nav_info = zig_object.navs.getPtr(nav_index).?;
     const atom_index = nav_info.atom;
     const atom = wasm_file.getAtomPtr(atom_index);
@@ -956,7 +956,7 @@ pub fn freeNav(zig_object: *ZigObject, wasm_file: *Wasm, nav_index: InternPool.N
         segment.name = &.{}; // Ensure no accidental double free
     }
 
-    const nav_val = mod.navValue(nav_index).toIntern();
+    const nav_val = zcu.navValue(nav_index).toIntern();
     if (ip.indexToKey(nav_val) == .@"extern") {
         std.debug.assert(zig_object.imports.remove(atom.sym_index));
     }

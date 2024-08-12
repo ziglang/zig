@@ -1555,8 +1555,8 @@ pub fn embedFile(
     import_string: []const u8,
     src_loc: Zcu.LazySrcLoc,
 ) !InternPool.Index {
-    const mod = pt.zcu;
-    const gpa = mod.gpa;
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
 
     if (cur_file.mod.deps.get(import_string)) |pkg| {
         const resolved_path = try std.fs.path.resolve(gpa, &.{
@@ -1567,9 +1567,9 @@ pub fn embedFile(
         var keep_resolved_path = false;
         defer if (!keep_resolved_path) gpa.free(resolved_path);
 
-        const gop = try mod.embed_table.getOrPut(gpa, resolved_path);
+        const gop = try zcu.embed_table.getOrPut(gpa, resolved_path);
         errdefer {
-            assert(std.mem.eql(u8, mod.embed_table.pop().key, resolved_path));
+            assert(std.mem.eql(u8, zcu.embed_table.pop().key, resolved_path));
             keep_resolved_path = false;
         }
         if (gop.found_existing) return gop.value_ptr.*.val;
@@ -1594,9 +1594,9 @@ pub fn embedFile(
     var keep_resolved_path = false;
     defer if (!keep_resolved_path) gpa.free(resolved_path);
 
-    const gop = try mod.embed_table.getOrPut(gpa, resolved_path);
+    const gop = try zcu.embed_table.getOrPut(gpa, resolved_path);
     errdefer {
-        assert(std.mem.eql(u8, mod.embed_table.pop().key, resolved_path));
+        assert(std.mem.eql(u8, zcu.embed_table.pop().key, resolved_path));
         keep_resolved_path = false;
     }
     if (gop.found_existing) return gop.value_ptr.*.val;
@@ -1631,9 +1631,9 @@ fn newEmbedFile(
     result: **Zcu.EmbedFile,
     src_loc: Zcu.LazySrcLoc,
 ) !InternPool.Index {
-    const mod = pt.zcu;
-    const gpa = mod.gpa;
-    const ip = &mod.intern_pool;
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
 
     const new_file = try gpa.create(Zcu.EmbedFile);
     errdefer gpa.destroy(new_file);
@@ -1655,7 +1655,7 @@ fn newEmbedFile(
     if (actual_read != size) return error.UnexpectedEndOfFile;
     bytes[0][size] = 0;
 
-    const comp = mod.comp;
+    const comp = zcu.comp;
     switch (comp.cache_use) {
         .whole => |whole| if (whole.cache_manifest) |man| {
             const copied_resolved_path = try gpa.dupe(u8, resolved_path);
@@ -2857,9 +2857,9 @@ pub fn errorSetFromUnsortedNames(
 
 /// Supports only pointers, not pointer-like optionals.
 pub fn ptrIntValue(pt: Zcu.PerThread, ty: Type, x: u64) Allocator.Error!Value {
-    const mod = pt.zcu;
-    assert(ty.zigTypeTag(mod) == .Pointer and !ty.isSlice(mod));
-    assert(x != 0 or ty.isAllowzeroPtr(mod));
+    const zcu = pt.zcu;
+    assert(ty.zigTypeTag(zcu) == .Pointer and !ty.isSlice(zcu));
+    assert(x != 0 or ty.isAllowzeroPtr(zcu));
     return Value.fromInterned(try pt.intern(.{ .ptr = .{
         .ty = ty.toIntern(),
         .base_addr = .int,
@@ -3008,10 +3008,10 @@ pub fn intFittingRange(pt: Zcu.PerThread, min: Value, max: Value) !Type {
 /// twos-complement integer; otherwise in an unsigned integer.
 /// Asserts that `val` is not undef. If `val` is negative, asserts that `sign` is true.
 pub fn intBitsForValue(pt: Zcu.PerThread, val: Value, sign: bool) u16 {
-    const mod = pt.zcu;
-    assert(!val.isUndef(mod));
+    const zcu = pt.zcu;
+    assert(!val.isUndef(zcu));
 
-    const key = mod.intern_pool.indexToKey(val.toIntern());
+    const key = zcu.intern_pool.indexToKey(val.toIntern());
     switch (key.int.storage) {
         .i64 => |x| {
             if (std.math.cast(u64, x)) |casted| return Type.smallestUnsignedBits(casted) + @intFromBool(sign);
