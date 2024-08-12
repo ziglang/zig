@@ -12311,33 +12311,25 @@ fn genCall(self: *Self, info: union(enum) {
                         const zo = elf_file.zigObjectPtr().?;
                         const sym_index = try zo.getOrCreateMetadataForNav(elf_file, func.owner_nav);
                         if (self.mod.pic) {
-                            // const callee_reg: Register = switch (resolved_cc) {
-                            //     .SysV => callee: {
-                            //         if (!fn_info.is_var_args) break :callee .rax;
-                            //         const param_regs = abi.getCAbiIntParamRegs(resolved_cc);
-                            //         break :callee if (call_info.gp_count < param_regs.len)
-                            //             param_regs[call_info.gp_count]
-                            //         else
-                            //             .r10;
-                            //     },
-                            //     .Win64 => .rax,
-                            //     else => unreachable,
-                            // };
-                            // TODO convert to near jump
-                            try self.asmMemory(.{ ._, .call }, .{
-                                .base = .{ .reloc = .{
-                                    .atom_index = try self.owner.getSymbolIndex(self),
-                                    .sym_index = sym_index,
-                                } },
-                                .mod = .{ .rm = .{ .size = .qword } },
-                            });
-                            // try self.genSetReg(
-                            //     callee_reg,
-                            //     Type.usize,
-                            //     .{ .load_symbol = .{ .sym = sym_index } },
-                            //     .{},
-                            // );
-                            // try self.asmRegister(.{ ._, .call }, callee_reg);
+                            const callee_reg: Register = switch (resolved_cc) {
+                                .SysV => callee: {
+                                    if (!fn_info.is_var_args) break :callee .rax;
+                                    const param_regs = abi.getCAbiIntParamRegs(resolved_cc);
+                                    break :callee if (call_info.gp_count < param_regs.len)
+                                        param_regs[call_info.gp_count]
+                                    else
+                                        .r10;
+                                },
+                                .Win64 => .rax,
+                                else => unreachable,
+                            };
+                            try self.genSetReg(
+                                callee_reg,
+                                Type.usize,
+                                .{ .lea_symbol = .{ .sym = sym_index } },
+                                .{},
+                            );
+                            try self.asmRegister(.{ ._, .call }, callee_reg);
                         } else try self.asmMemory(.{ ._, .call }, .{
                             .base = .{ .reloc = .{
                                 .atom_index = try self.owner.getSymbolIndex(self),

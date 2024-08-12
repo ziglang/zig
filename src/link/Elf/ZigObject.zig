@@ -107,23 +107,17 @@ pub fn deinit(self: *ZigObject, allocator: Allocator) void {
     }
     self.relocs.deinit(allocator);
 
-    {
-        var it = self.navs.iterator();
-        while (it.next()) |entry| {
-            entry.value_ptr.exports.deinit(allocator);
-        }
-        self.navs.deinit(allocator);
+    for (self.navs.values()) |*meta| {
+        meta.exports.deinit(allocator);
     }
+    self.navs.deinit(allocator);
 
     self.lazy_syms.deinit(allocator);
 
-    {
-        var it = self.uavs.iterator();
-        while (it.next()) |entry| {
-            entry.value_ptr.exports.deinit(allocator);
-        }
-        self.uavs.deinit(allocator);
+    for (self.uavs.values()) |*meta| {
+        meta.exports.deinit(allocator);
     }
+    self.uavs.deinit(allocator);
 
     for (self.tls_variables.values()) |*tlv| {
         tlv.deinit(allocator);
@@ -1721,8 +1715,8 @@ const TlsVariable = struct {
 };
 
 const AtomList = std.ArrayListUnmanaged(Atom.Index);
-const NavTable = std.AutoHashMapUnmanaged(InternPool.Nav.Index, AvMetadata);
-const UavTable = std.AutoHashMapUnmanaged(InternPool.Index, AvMetadata);
+const NavTable = std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, AvMetadata);
+const UavTable = std.AutoArrayHashMapUnmanaged(InternPool.Index, AvMetadata);
 const LazySymbolTable = std.AutoArrayHashMapUnmanaged(InternPool.Index, LazySymbolMetadata);
 const TlsTable = std.AutoArrayHashMapUnmanaged(Atom.Index, TlsVariable);
 
@@ -1874,9 +1868,9 @@ pub const OffsetTable = struct {
 
     const x86_64 = struct {
         fn writeEntry(source_addr: i64, target_addr: i64, buf: *[max_jump_seq_len]u8) ![]u8 {
-            const disp = @as(i64, @intCast(target_addr)) - source_addr - 4;
+            const disp = @as(i64, @intCast(target_addr)) - source_addr - 5;
             var bytes = [_]u8{
-                0xe8, 0x00, 0x00, 0x00, 0x00, // jmp rel32
+                0xe9, 0x00, 0x00, 0x00, 0x00, // jmp rel32
             };
             assert(bytes.len == entrySize(.x86_64));
             mem.writeInt(i32, bytes[1..][0..4], @intCast(disp), .little);
