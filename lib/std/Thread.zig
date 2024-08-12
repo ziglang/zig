@@ -1171,20 +1171,7 @@ const LinuxThreadImpl = struct {
                       [len] "r" (self.mapped.len),
                     : "memory"
                 ),
-                .riscv32 => asm volatile (
-                    \\  li a7, 215 # SYS_munmap
-                    \\  mv a0, %[ptr]
-                    \\  mv a1, %[len]
-                    \\  ecall
-                    \\  li a7, 93 # SYS_exit
-                    \\  mv a0, zero
-                    \\  ecall
-                    :
-                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
-                      [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
-                .riscv64 => asm volatile (
+                .riscv32, .riscv64 => asm volatile (
                     \\  li a7, 215 # SYS_munmap
                     \\  mv a0, %[ptr]
                     \\  mv a1, %[len]
