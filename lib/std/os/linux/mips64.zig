@@ -118,9 +118,6 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
     );
 }
 
-// NOTE: The o32 calling convention requires the callee to reserve 16 bytes for
-// the first four arguments even though they're passed in $a0-$a3.
-
 pub fn syscall6(
     number: SYS,
     arg1: usize,
