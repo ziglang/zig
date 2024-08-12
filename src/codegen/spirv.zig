@@ -5148,7 +5148,7 @@ const NavGen = struct {
         const object_ty = self.typeOf(struct_field.struct_operand);
         const object_id = try self.resolve(struct_field.struct_operand);
         const field_index = struct_field.field_index;
-        const field_ty = object_ty.structFieldType(field_index, zcu);
+        const field_ty = object_ty.fieldType(field_index, zcu);
 
         if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) return null;
 

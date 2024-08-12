@@ -3191,8 +3191,8 @@ pub fn structFieldCount(ty: Type, zcu: *const Zcu) u32 {
     };
 }
 
-/// Supports structs and unions.
-pub fn structFieldType(ty: Type, index: usize, zcu: *const Zcu) Type {
+/// Returns the field type. Supports structs and unions.
+pub fn fieldType(ty: Type, index: usize, zcu: *const Zcu) Type {
     const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.toIntern())) {
         .struct_type => Type.fromInterned(ip.loadStructType(ty.toIntern()).field_types.get(ip)[index]),
@@ -3205,17 +3205,26 @@ pub fn structFieldType(ty: Type, index: usize, zcu: *const Zcu) Type {
     };
 }
 
-pub fn structFieldAlign(ty: Type, index: usize, zcu: *Zcu) Alignment {
-    return ty.structFieldAlignAdvanced(index, .normal, zcu, {}) catch unreachable;
+pub fn fieldAlignment(ty: Type, index: usize, zcu: *Zcu) Alignment {
+    return ty.fieldAlignmentInner(index, .normal, zcu, {}) catch unreachable;
 }
 
-pub fn structFieldAlignAdvanced(
+pub fn fieldAlignmentSema(ty: Type, index: usize, pt: Zcu.PerThread) SemaError!Alignment {
+    return try ty.fieldAlignmentInner(index, .sema, pt.zcu, pt.tid);
+}
+
+/// Returns the field alignment. Supports structs and unions.
+/// If `strat` is `.sema`, may perform type resolution.
+/// Asserts the layout is not packed.
+///
+/// Provide the struct field as the `ty`.
+pub fn fieldAlignmentInner(
     ty: Type,
     index: usize,
     comptime strat: ResolveStrat,
     zcu: *Zcu,
     tid: strat.Tid(),
-) !Alignment {
+) SemaError!Alignment {
     const ip = &zcu.intern_pool;
     switch (ip.indexToKey(ty.toIntern())) {
         .struct_type => {
@@ -3223,13 +3232,7 @@ pub fn structFieldAlignAdvanced(
             assert(struct_type.layout != .@"packed");
             const explicit_align = struct_type.fieldAlign(ip, index);
             const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[index]);
-            return field_ty.structFieldAlignmentAdvanced(
-                explicit_align,
-                struct_type.layout,
-                strat,
-                zcu,
-                tid,
-            );
+            return field_ty.structFieldAlignmentInner(explicit_align, struct_type.layout, strat, zcu, tid);
         },
         .anon_struct_type => |anon_struct| {
             return (try Type.fromInterned(anon_struct.types.get(ip)[index]).abiAlignmentInner(
@@ -3240,28 +3243,62 @@ pub fn structFieldAlignAdvanced(
         },
         .union_type => {
             const union_obj = ip.loadUnionType(ty.toIntern());
-            return unionFieldNormalAlignmentAdvanced(
-                union_obj,
-                @intCast(index),
-                strat,
-                zcu,
-                tid,
-            );
+            const layout = union_obj.flagsUnordered(ip).layout;
+            assert(layout != .@"packed");
+            const explicit_align = union_obj.fieldAlign(ip, index);
+            const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[index]);
+            return field_ty.unionFieldAlignmentInner(explicit_align, layout, strat, zcu, tid);
         },
         else => unreachable,
     }
 }
 
-/// Returns the field alignment of a non-packed struct. Asserts the layout is not packed.
-/// If `strat` is `.sema`, may perform type resolution.
-pub fn structFieldAlignmentAdvanced(
+/// Returns the alignment of a non-packed struct field. Assert the layout is not packed.
+///
+/// Asserts that all resolution needed was done.
+pub fn structFieldAlignment(
     field_ty: Type,
     explicit_alignment: InternPool.Alignment,
+    layout: std.builtin.Type.ContainerLayout,
+    zcu: *Zcu,
+) Alignment {
+    return field_ty.structFieldAlignmentInner(
+        explicit_alignment,
+        layout,
+        .normal,
+        zcu,
+        {},
+    ) catch unreachable;
+}
+
+/// Returns the alignment of a non-packed struct field. Assert the layout is not packed.
+/// May do type resolution when needed.
+/// Asserts that all resolution needed was done.
+pub fn structFieldAlignmentSema(
+    field_ty: Type,
+    explicit_alignment: InternPool.Alignment,
+    layout: std.builtin.Type.ContainerLayout,
+    pt: Zcu.PerThread,
+) SemaError!Alignment {
+    return try field_ty.structFieldAlignmentInner(
+        explicit_alignment,
+        layout,
+        .sema,
+        pt.zcu,
+        pt.tid,
+    );
+}
+
+/// Returns the alignment of a non-packed struct field. Asserts the layout is not packed.
+/// If `strat` is `.sema`, may perform type resolution.
+pub fn structFieldAlignmentInner(
+    field_ty: Type,
+    explicit_alignment: Alignment,
     layout: std.builtin.Type.ContainerLayout,
     comptime strat: Type.ResolveStrat,
     zcu: *Zcu,
     tid: strat.Tid(),
-) Zcu.SemaError!InternPool.Alignment {
+) SemaError!Alignment {
     assert(layout != .@"packed");
     if (explicit_alignment != .none) return explicit_alignment;
     const ty_abi_align = (try field_ty.abiAlignmentInner(
@@ -3281,29 +3318,31 @@ pub fn structFieldAlignmentAdvanced(
     return ty_abi_align;
 }
 
-/// Returns the field alignment of a non-packed union. Asserts the layout is not packed.
-pub fn unionFieldNormalAlignment(
-    loaded_union: InternPool.LoadedUnionType,
-    field_index: u32,
-    zcu: *Zcu,
-) InternPool.Alignment {
-    return unionFieldNormalAlignmentAdvanced(loaded_union, field_index, .normal, zcu, {}) catch unreachable;
+pub fn unionFieldAlignmentSema(
+    field_ty: Type,
+    explicit_alignment: Alignment,
+    layout: std.builtin.Type.ContainerLayout,
+    pt: Zcu.PerThread,
+) SemaError!Alignment {
+    return field_ty.unionFieldAlignmentInner(
+        explicit_alignment,
+        layout,
+        .sema,
+        pt.zcu,
+        pt.tid,
+    );
 }
 
-/// Returns the field alignment of a non-packed union. Asserts the layout is not packed.
-/// If `strat` is `.sema`, may perform type resolution.
-pub fn unionFieldNormalAlignmentAdvanced(
-    loaded_union: InternPool.LoadedUnionType,
-    field_index: u32,
+pub fn unionFieldAlignmentInner(
+    field_ty: Type,
+    explicit_alignment: Alignment,
+    layout: std.builtin.Type.ContainerLayout,
     comptime strat: Type.ResolveStrat,
     zcu: *Zcu,
     tid: strat.Tid(),
-) Zcu.SemaError!InternPool.Alignment {
-    const ip = &zcu.intern_pool;
-    assert(loaded_union.flagsUnordered(ip).layout != .@"packed");
-    const field_align = loaded_union.fieldAlign(ip, field_index);
-    if (field_align != .none) return field_align;
-    const field_ty = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
+) SemaError!Alignment {
+    assert(layout != .@"packed");
+    if (explicit_alignment != .none) return explicit_alignment;
     if (field_ty.isNoReturn(zcu)) return .none;
     return (try field_ty.abiAlignmentInner(strat.toLazy(), zcu, tid)).scalar;
 }
@@ -3608,12 +3647,12 @@ pub fn packedStructFieldPtrInfo(struct_ty: Type, parent_ptr_ty: Type, field_idx:
 
     const zcu = pt.zcu;
     const parent_ptr_info = parent_ptr_ty.ptrInfo(zcu);
-    const field_ty = struct_ty.structFieldType(field_idx, zcu);
+    const field_ty = struct_ty.fieldType(field_idx, zcu);
 
     var bit_offset: u16 = 0;
     var running_bits: u16 = 0;
     for (0..struct_ty.structFieldCount(zcu)) |i| {
-        const f_ty = struct_ty.structFieldType(i, zcu);
+        const f_ty = struct_ty.fieldType(i, zcu);
         if (i == field_idx) {
             bit_offset = running_bits;
         }

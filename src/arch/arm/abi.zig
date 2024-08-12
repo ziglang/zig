@@ -44,8 +44,8 @@ pub fn classifyType(ty: Type, zcu: *Zcu, ctx: Context) Class {
             const fields = ty.structFieldCount(zcu);
             var i: u32 = 0;
             while (i < fields) : (i += 1) {
-                const field_ty = ty.structFieldType(i, zcu);
-                const field_alignment = ty.structFieldAlign(i, zcu);
+                const field_ty = ty.fieldType(i, zcu);
+                const field_alignment = ty.fieldAlignment(i, zcu);
                 const field_size = field_ty.bitSize(zcu);
                 if (field_size > 32 or field_alignment.compare(.gt, .@"32")) {
                     return Class.arrSize(bit_size, 64);
@@ -66,7 +66,7 @@ pub fn classifyType(ty: Type, zcu: *Zcu, ctx: Context) Class {
 
             for (union_obj.field_types.get(ip), 0..) |field_ty, field_index| {
                 if (Type.fromInterned(field_ty).bitSize(zcu) > 32 or
-                    Type.unionFieldNormalAlignment(union_obj, @intCast(field_index), zcu).compare(.gt, .@"32"))
+                    ty.fieldAlignment(field_index, zcu).compare(.gt, .@"32"))
                 {
                     return Class.arrSize(bit_size, 64);
                 }
@@ -141,7 +141,7 @@ fn countFloats(ty: Type, zcu: *Zcu, maybe_float_bits: *?u16) u32 {
             var count: u32 = 0;
             var i: u32 = 0;
             while (i < fields_len) : (i += 1) {
-                const field_ty = ty.structFieldType(i, zcu);
+                const field_ty = ty.fieldType(i, zcu);
                 const field_count = countFloats(field_ty, zcu, maybe_float_bits);
                 if (field_count == invalid) return invalid;
                 count += field_count;

@@ -3040,38 +3040,6 @@ pub fn intBitsForValue(pt: Zcu.PerThread, val: Value, sign: bool) u16 {
     }
 }
 
-/// Returns 0 if the union is represented with 0 bits at runtime.
-pub fn unionAbiAlignment(pt: Zcu.PerThread, loaded_union: InternPool.LoadedUnionType) InternPool.Alignment {
-    const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
-    const have_tag = loaded_union.flagsPtr(ip).runtime_tag.hasTag();
-    var max_align: InternPool.Alignment = .none;
-    if (have_tag) max_align = Type.fromInterned(loaded_union.enum_tag_ty).abiAlignment(zcu);
-    for (loaded_union.field_types.get(ip), 0..) |field_ty, field_index| {
-        if (!Type.fromInterned(field_ty).hasRuntimeBits(zcu)) continue;
-
-        const field_align = zcu.unionFieldNormalAlignment(loaded_union, @intCast(field_index));
-        max_align = max_align.max(field_align);
-    }
-    return max_align;
-}
-
-/// Returns the field alignment of a non-packed struct. Asserts the layout is not packed.
-pub fn structFieldAlignment(
-    pt: Zcu.PerThread,
-    explicit_alignment: InternPool.Alignment,
-    field_ty: Type,
-    layout: std.builtin.Type.ContainerLayout,
-) InternPool.Alignment {
-    return field_ty.structFieldAlignmentAdvanced(
-        explicit_alignment,
-        layout,
-        .normal,
-        pt.zcu,
-        {},
-    ) catch unreachable;
-}
-
 /// https://github.com/ziglang/zig/issues/17178 explored storing these bit offsets
 /// into the packed struct InternPool data rather than computing this on the
 /// fly, however it was found to perform worse when measured on real world

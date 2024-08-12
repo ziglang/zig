@@ -1414,7 +1414,7 @@ pub fn fieldValue(val: Value, pt: Zcu.PerThread, index: usize) !Value {
     const zcu = pt.zcu;
     return switch (zcu.intern_pool.indexToKey(val.toIntern())) {
         .undef => |ty| Value.fromInterned(try pt.intern(.{
-            .undef = Type.fromInterned(ty).structFieldType(index, zcu).toIntern(),
+            .undef = Type.fromInterned(ty).fieldType(index, zcu).toIntern(),
         })),
         .aggregate => |aggregate| Value.fromInterned(switch (aggregate.storage) {
             .bytes => |bytes| try pt.intern(.{ .int = .{
@@ -3810,9 +3810,9 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, pt: Zcu.PerThread) !Value {
     // `field_align` may be `.none` to represent the natural alignment of `field_ty`, but is not necessarily.
     const field_ty: Type, const field_align: InternPool.Alignment = switch (aggregate_ty.zigTypeTag(zcu)) {
         .Struct => field: {
-            const field_ty = aggregate_ty.structFieldType(field_idx, zcu);
+            const field_ty = aggregate_ty.fieldType(field_idx, zcu);
             switch (aggregate_ty.containerLayout(zcu)) {
-                .auto => break :field .{ field_ty, try aggregate_ty.structFieldAlignAdvanced(@intCast(field_idx), .sema, zcu, pt.tid) },
+                .auto => break :field .{ field_ty, try aggregate_ty.fieldAlignmentSema(field_idx, pt) },
                 .@"extern" => {
                     // Well-defined layout, so just offset the pointer appropriately.
                     const byte_off = aggregate_ty.structFieldOffset(field_idx, zcu);
@@ -3863,7 +3863,7 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, pt: Zcu.PerThread) !Value {
             const union_obj = zcu.typeToUnion(aggregate_ty).?;
             const field_ty = Type.fromInterned(union_obj.field_types.get(&zcu.intern_pool)[field_idx]);
             switch (aggregate_ty.containerLayout(zcu)) {
-                .auto => break :field .{ field_ty, try aggregate_ty.structFieldAlignAdvanced(@intCast(field_idx), .sema, zcu, pt.tid) },
+                .auto => break :field .{ field_ty, try aggregate_ty.fieldAlignmentSema(field_idx, pt) },
                 .@"extern" => {
                     // Point to the same address.
                     const result_ty = try pt.ptrTypeSema(info: {
@@ -4198,14 +4198,14 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
             const base_ptr_ty = base_ptr.typeOf(zcu);
             const agg_ty = base_ptr_ty.childType(zcu);
             const field_ty, const field_align = switch (agg_ty.zigTypeTag(zcu)) {
-                .Struct => .{ agg_ty.structFieldType(@intCast(field.index), zcu), try agg_ty.structFieldAlignAdvanced(
-                    @intCast(field.index),
+                .Struct => .{ agg_ty.fieldType(field.index, zcu), try agg_ty.fieldAlignmentInner(
+                    field.index,
                     if (have_sema) .sema else .normal,
                     pt.zcu,
                     if (have_sema) pt.tid else {},
                 ) },
-                .Union => .{ agg_ty.unionFieldTypeByIndex(@intCast(field.index), zcu), try agg_ty.structFieldAlignAdvanced(
-                    @intCast(field.index),
+                .Union => .{ agg_ty.unionFieldTypeByIndex(field.index, zcu), try agg_ty.fieldAlignmentInner(
+                    field.index,
                     if (have_sema) .sema else .normal,
                     pt.zcu,
                     if (have_sema) pt.tid else {},
@@ -4344,7 +4344,7 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
             .Struct => switch (cur_ty.containerLayout(zcu)) {
                 .auto, .@"packed" => break,
                 .@"extern" => for (0..cur_ty.structFieldCount(zcu)) |field_idx| {
-                    const field_ty = cur_ty.structFieldType(field_idx, zcu);
+                    const field_ty = cur_ty.fieldType(field_idx, zcu);
                     const start_off = cur_ty.structFieldOffset(field_idx, zcu);
                     const end_off = start_off + field_ty.abiSize(zcu);
                     if (cur_offset >= start_off and cur_offset + need_bytes <= end_off) {
@@ -4401,7 +4401,7 @@ pub fn resolveLazy(
             .u64, .i64, .big_int => return val,
             .lazy_align, .lazy_size => return pt.intValue(
                 Type.fromInterned(int.ty),
-                (try val.getUnsignedIntInner(.sema, pt.zcu, pt.tid)).?,
+                try val.toUnsignedIntSema(pt),
             ),
         },
         .slice => |slice| {

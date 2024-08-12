@@ -4887,7 +4887,7 @@ fn validateStructInit(
         const i: u32 = @intCast(i_usize);
         if (opt_field_ptr.unwrap()) |field_ptr| {
             // Determine whether the value stored to this pointer is comptime-known.
-            const field_ty = struct_ty.structFieldType(i, zcu);
+            const field_ty = struct_ty.fieldType(i, zcu);
             if (try sema.typeHasOnePossibleValue(field_ty)) |opv| {
                 field_values[i] = opv.toIntern();
                 continue;
@@ -4999,7 +4999,7 @@ fn validateStructInit(
         var block_index = first_block_index;
         for (block.instructions.items[first_block_index..]) |cur_inst| {
             while (field_ptr_ref == .none and init_index < instrs.len) : (init_index += 1) {
-                const field_ty = struct_ty.structFieldType(field_indices[init_index], zcu);
+                const field_ty = struct_ty.fieldType(field_indices[init_index], zcu);
                 if (try field_ty.onePossibleValue(pt)) |_| continue;
                 field_ptr_ref = sema.inst_map.get(instrs[init_index]).?;
             }
@@ -8430,7 +8430,7 @@ fn zirArrayInitElemType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compil
     try indexable_ty.resolveFields(pt);
     assert(indexable_ty.isIndexable(zcu)); // validated by a previous instruction
     if (indexable_ty.zigTypeTag(zcu) == .Struct) {
-        const elem_type = indexable_ty.structFieldType(@intFromEnum(bin.rhs), zcu);
+        const elem_type = indexable_ty.fieldType(@intFromEnum(bin.rhs), zcu);
         return Air.internedToRef(elem_type.toIntern());
     } else {
         const elem_type = indexable_ty.elemType2(zcu);
@@ -14419,7 +14419,7 @@ fn analyzeTupleCat(
         var runtime_src: ?LazySrcLoc = null;
         var i: u32 = 0;
         while (i < lhs_len) : (i += 1) {
-            types[i] = lhs_ty.structFieldType(i, zcu).toIntern();
+            types[i] = lhs_ty.fieldType(i, zcu).toIntern();
             const default_val = lhs_ty.structFieldDefaultValue(i, zcu);
             values[i] = default_val.toIntern();
             const operand_src = block.src(.{ .array_cat_lhs = .{
@@ -14433,7 +14433,7 @@ fn analyzeTupleCat(
         }
         i = 0;
         while (i < rhs_len) : (i += 1) {
-            types[i + lhs_len] = rhs_ty.structFieldType(i, zcu).toIntern();
+            types[i + lhs_len] = rhs_ty.fieldType(i, zcu).toIntern();
             const default_val = rhs_ty.structFieldDefaultValue(i, zcu);
             values[i + lhs_len] = default_val.toIntern();
             const operand_src = block.src(.{ .array_cat_rhs = .{
@@ -14791,7 +14791,7 @@ fn analyzeTupleMul(
     const opt_runtime_src = rs: {
         var runtime_src: ?LazySrcLoc = null;
         for (0..tuple_len) |i| {
-            types[i] = operand_ty.structFieldType(i, zcu).toIntern();
+            types[i] = operand_ty.fieldType(i, zcu).toIntern();
             values[i] = operand_ty.structFieldDefaultValue(i, zcu).toIntern();
             const operand_src = block.src(.{ .array_cat_lhs = .{
                 .array_cat_offset = src_node,
@@ -18466,13 +18466,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 };
 
                 const alignment = switch (layout) {
-                    .auto, .@"extern" => try Type.unionFieldNormalAlignmentAdvanced(
-                        union_obj,
-                        @intCast(field_index),
-                        .sema,
-                        pt.zcu,
-                        pt.tid,
-                    ),
+                    .auto, .@"extern" => try ty.fieldAlignmentSema(field_index, pt),
                     .@"packed" => .none,
                 };
 
@@ -18691,12 +18685,10 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     const default_val_ptr = try sema.optRefValue(opt_default_val);
                     const alignment = switch (struct_type.layout) {
                         .@"packed" => .none,
-                        else => try field_ty.structFieldAlignmentAdvanced(
+                        else => try field_ty.structFieldAlignmentSema(
                             struct_type.fieldAlign(ip, field_index),
                             struct_type.layout,
-                            .sema,
-                            pt.zcu,
-                            pt.tid,
+                            pt,
                         ),
                     };
 
@@ -20327,7 +20319,7 @@ fn zirStructInit(
             assert(field_inits[field_index] == .none);
             found_fields[field_index] = item.data.field_type;
             const uncoerced_init = try sema.resolveInst(item.data.init);
-            const field_ty = resolved_ty.structFieldType(field_index, zcu);
+            const field_ty = resolved_ty.fieldType(field_index, zcu);
             field_inits[field_index] = try sema.coerce(block, field_ty, uncoerced_init, field_src);
             if (!is_packed) {
                 try resolved_ty.resolveStructFieldInits(pt);
@@ -20338,7 +20330,7 @@ fn zirStructInit(
                         });
                     };
 
-                    if (!init_val.eql(default_value, resolved_ty.structFieldType(field_index, zcu), zcu)) {
+                    if (!init_val.eql(default_value, resolved_ty.fieldType(field_index, zcu), zcu)) {
                         return sema.failWithInvalidComptimeFieldStore(block, field_src, resolved_ty, field_index);
                     }
                 }
@@ -20799,7 +20791,7 @@ fn zirArrayInit(
         const arg = args[i + 1];
         const resolved_arg = try sema.resolveInst(arg);
         const elem_ty = if (is_tuple)
-            array_ty.structFieldType(i, zcu)
+            array_ty.fieldType(i, zcu)
         else
             array_ty.elemType2(zcu);
         dest.* = try sema.coerce(block, elem_ty, resolved_arg, elem_src);
@@ -20862,7 +20854,7 @@ fn zirArrayInit(
         if (is_tuple) {
             for (resolved_args, 0..) |arg, i| {
                 const elem_ptr_ty = try pt.ptrTypeSema(.{
-                    .child = array_ty.structFieldType(i, zcu).toIntern(),
+                    .child = array_ty.fieldType(i, zcu).toIntern(),
                     .flags = .{ .address_space = target_util.defaultAddressSpace(target, .local) },
                 });
                 const elem_ptr_ty_ref = Air.internedToRef(elem_ptr_ty.toIntern());
@@ -25234,7 +25226,7 @@ fn zirFieldParentPtr(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Ins
         },
         .packed_offset = parent_ptr_info.packed_offset,
     };
-    const field_ty = parent_ty.structFieldType(field_index, zcu);
+    const field_ty = parent_ty.fieldType(field_index, zcu);
     var actual_field_ptr_info: InternPool.Key.PtrType = .{
         .child = field_ty.toIntern(),
         .flags = .{
@@ -25249,19 +25241,17 @@ fn zirFieldParentPtr(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Ins
     switch (parent_ty.containerLayout(zcu)) {
         .auto => {
             actual_parent_ptr_info.flags.alignment = actual_field_ptr_info.flags.alignment.minStrict(
-                if (zcu.typeToStruct(parent_ty)) |struct_obj| try field_ty.structFieldAlignmentAdvanced(
-                    struct_obj.fieldAlign(ip, field_index),
-                    struct_obj.layout,
-                    .sema,
-                    pt.zcu,
-                    pt.tid,
-                ) else if (zcu.typeToUnion(parent_ty)) |union_obj|
-                    try Type.unionFieldNormalAlignmentAdvanced(
-                        union_obj,
-                        field_index,
-                        .sema,
-                        pt.zcu,
-                        pt.tid,
+                if (zcu.typeToStruct(parent_ty)) |struct_obj|
+                    try field_ty.structFieldAlignmentSema(
+                        struct_obj.fieldAlign(ip, field_index),
+                        struct_obj.layout,
+                        pt,
+                    )
+                else if (zcu.typeToUnion(parent_ty)) |union_obj|
+                    try field_ty.unionFieldAlignmentSema(
+                        union_obj.fieldAlign(ip, field_index),
+                        union_obj.flagsUnordered(ip).layout,
+                        pt,
                     )
                 else
                     actual_field_ptr_info.flags.alignment,
@@ -28035,14 +28025,14 @@ fn fieldCallBind(
                     }
                     if (field_name.toUnsigned(ip)) |field_index| {
                         if (field_index >= concrete_ty.structFieldCount(zcu)) break :find_field;
-                        return sema.finishFieldCallBind(block, src, ptr_ty, concrete_ty.structFieldType(field_index, zcu), field_index, object_ptr);
+                        return sema.finishFieldCallBind(block, src, ptr_ty, concrete_ty.fieldType(field_index, zcu), field_index, object_ptr);
                     }
                 } else {
                     const max = concrete_ty.structFieldCount(zcu);
                     for (0..max) |i_usize| {
                         const i: u32 = @intCast(i_usize);
                         if (field_name == concrete_ty.structFieldName(i, zcu).unwrap().?) {
-                            return sema.finishFieldCallBind(block, src, ptr_ty, concrete_ty.structFieldType(i, zcu), i, object_ptr);
+                            return sema.finishFieldCallBind(block, src, ptr_ty, concrete_ty.fieldType(i, zcu), i, object_ptr);
                         }
                     }
                 }
@@ -28340,12 +28330,10 @@ fn structFieldPtrByIndex(
             @enumFromInt(@min(@intFromEnum(parent_align), @ctz(field_offset)));
     } else {
         // Our alignment is capped at the field alignment.
-        const field_align = try Type.fromInterned(field_ty).structFieldAlignmentAdvanced(
+        const field_align = try Type.fromInterned(field_ty).structFieldAlignmentSema(
             struct_type.fieldAlign(ip, field_index),
             struct_type.layout,
-            .sema,
-            pt.zcu,
-            pt.tid,
+            pt,
         );
         ptr_ty_data.flags.alignment = if (struct_ptr_ty_info.flags.alignment == .none)
             field_align
@@ -28477,7 +28465,7 @@ fn tupleFieldValByIndex(
 ) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    const field_ty = tuple_ty.structFieldType(field_index, zcu);
+    const field_ty = tuple_ty.fieldType(field_index, zcu);
 
     if (tuple_ty.structFieldIsComptime(field_index, zcu))
         try tuple_ty.resolveStructFieldInits(pt);
@@ -28538,13 +28526,7 @@ fn unionFieldPtr(
                     union_ptr_info.flags.alignment
                 else
                     try union_ty.abiAlignmentSema(pt);
-                const field_align = try Type.unionFieldNormalAlignmentAdvanced(
-                    union_obj,
-                    field_index,
-                    .sema,
-                    pt.zcu,
-                    pt.tid,
-                );
+                const field_align = try union_ty.fieldAlignmentSema(field_index, pt);
                 break :blk union_align.min(field_align);
             } else union_ptr_info.flags.alignment,
         },
@@ -28921,7 +28903,7 @@ fn tupleFieldPtr(
         });
     }
 
-    const field_ty = tuple_ty.structFieldType(field_index, zcu);
+    const field_ty = tuple_ty.fieldType(field_index, zcu);
     const ptr_field_ty = try pt.ptrTypeSema(.{
         .child = field_ty.toIntern(),
         .flags = .{
@@ -28979,7 +28961,7 @@ fn tupleField(
         });
     }
 
-    const field_ty = tuple_ty.structFieldType(field_index, zcu);
+    const field_ty = tuple_ty.fieldType(field_index, zcu);
 
     if (tuple_ty.structFieldIsComptime(field_index, zcu))
         try tuple_ty.resolveStructFieldInits(pt);
@@ -30615,9 +30597,9 @@ pub fn coerceInMemoryAllowed(
         const field_count = dest_ty.structFieldCount(zcu);
         for (0..field_count) |field_idx| {
             if (dest_ty.structFieldIsComptime(field_idx, zcu) != src_ty.structFieldIsComptime(field_idx, zcu)) break :tuple;
-            if (dest_ty.structFieldAlign(field_idx, zcu) != src_ty.structFieldAlign(field_idx, zcu)) break :tuple;
-            const dest_field_ty = dest_ty.structFieldType(field_idx, zcu);
-            const src_field_ty = src_ty.structFieldType(field_idx, zcu);
+            if (dest_ty.fieldAlignment(field_idx, zcu) != src_ty.fieldAlignment(field_idx, zcu)) break :tuple;
+            const dest_field_ty = dest_ty.fieldType(field_idx, zcu);
+            const src_field_ty = src_ty.fieldType(field_idx, zcu);
             const field = try sema.coerceInMemoryAllowed(block, dest_field_ty, src_field_ty, dest_is_mut, target, dest_src, src_src, null);
             if (field != .ok) break :tuple;
         }
@@ -35073,7 +35055,7 @@ fn resolvePeerTypesInner(
                         peer_field_val.* = null;
                         continue;
                     };
-                    peer_field_ty.* = ty.structFieldType(field_index, zcu);
+                    peer_field_ty.* = ty.fieldType(field_index, zcu);
                     peer_field_val.* = if (opt_val) |val| try val.fieldValue(pt, field_index) else null;
                 }
 
@@ -35095,7 +35077,7 @@ fn resolvePeerTypesInner(
                             // Already-resolved types won't be referenced by the error so it's fine
                             // to leave them undefined.
                             const ty = opt_ty orelse continue;
-                            peer_field_ty.* = ty.structFieldType(field_index, zcu);
+                            peer_field_ty.* = ty.fieldType(field_index, zcu);
                         }
 
                         return .{ .field_error = .{
@@ -35220,9 +35202,9 @@ fn typeIsArrayLike(sema: *Sema, ty: Type) ?ArrayLike {
                 .elem_ty = Type.noreturn,
             };
             if (!ty.isTuple(zcu)) return null;
-            const elem_ty = ty.structFieldType(0, zcu);
+            const elem_ty = ty.fieldType(0, zcu);
             for (1..field_count) |i| {
-                if (!ty.structFieldType(i, zcu).eql(elem_ty, zcu)) {
+                if (!ty.fieldType(i, zcu).eql(elem_ty, zcu)) {
                     return null;
                 }
             }
@@ -35309,12 +35291,10 @@ pub fn resolveStructAlignment(
         const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[i]);
         if (struct_type.fieldIsComptime(ip, i) or try field_ty.comptimeOnlySema(pt))
             continue;
-        const field_align = try field_ty.structFieldAlignmentAdvanced(
+        const field_align = try field_ty.structFieldAlignmentSema(
             struct_type.fieldAlign(ip, i),
             struct_type.layout,
-            .sema,
-            pt.zcu,
-            pt.tid,
+            pt,
         );
         alignment = alignment.maxStrict(field_align);
     }
@@ -35375,12 +35355,10 @@ pub fn resolveStructLayout(sema: *Sema, ty: Type) SemaError!void {
             },
             else => return err,
         };
-        field_align.* = try field_ty.structFieldAlignmentAdvanced(
+        field_align.* = try field_ty.structFieldAlignmentSema(
             struct_type.fieldAlign(ip, i),
             struct_type.layout,
-            .sema,
-            pt.zcu,
-            pt.tid,
+            pt,
         );
         big_align = big_align.maxStrict(field_align.*);
     }

@@ -26,7 +26,7 @@ pub fn classifyType(ty: Type, zcu: *Zcu) Class {
                 var any_fp = false;
                 var field_count: usize = 0;
                 for (0..ty.structFieldCount(zcu)) |field_index| {
-                    const field_ty = ty.structFieldType(field_index, zcu);
+                    const field_ty = ty.fieldType(field_index, zcu);
                     if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
                     if (field_ty.isRuntimeFloat())
                         any_fp = true

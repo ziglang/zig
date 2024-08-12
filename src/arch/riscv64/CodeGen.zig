@@ -4576,7 +4576,7 @@ fn airStructFieldVal(func: *Func, inst: Air.Inst.Index) !void {
     const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
         const src_mcv = try func.resolveInst(operand);
         const struct_ty = func.typeOf(operand);
-        const field_ty = struct_ty.structFieldType(index, zcu);
+        const field_ty = struct_ty.fieldType(index, zcu);
         if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) break :result .none;
 
         const field_off: u32 = switch (struct_ty.containerLayout(zcu)) {
@@ -7882,7 +7882,7 @@ fn airAggregateInit(func: *Func, inst: Air.Inst.Index) !void {
                         const elem_i: u32 = @intCast(elem_i_usize);
                         if ((try result_ty.structFieldValueComptime(pt, elem_i)) != null) continue;
 
-                        const elem_ty = result_ty.structFieldType(elem_i, zcu);
+                        const elem_ty = result_ty.fieldType(elem_i, zcu);
                         const elem_bit_size: u32 = @intCast(elem_ty.bitSize(zcu));
                         if (elem_bit_size > 64) {
                             return func.fail(
@@ -7916,7 +7916,7 @@ fn airAggregateInit(func: *Func, inst: Air.Inst.Index) !void {
                 } else for (elements, 0..) |elem, elem_i| {
                     if ((try result_ty.structFieldValueComptime(pt, elem_i)) != null) continue;
 
-                    const elem_ty = result_ty.structFieldType(elem_i, zcu);
+                    const elem_ty = result_ty.fieldType(elem_i, zcu);
                     const elem_off: i32 = @intCast(result_ty.structFieldOffset(elem_i, zcu));
                     const elem_mcv = try func.resolveInst(elem);
                     try func.genSetMem(.{ .frame = frame_index }, elem_off, elem_ty, elem_mcv);

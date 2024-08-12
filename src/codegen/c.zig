@@ -7206,7 +7206,7 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                     var empty = true;
                     for (0..elements.len) |field_index| {
                         if (inst_ty.structFieldIsComptime(field_index, zcu)) continue;
-                        const field_ty = inst_ty.structFieldType(field_index, zcu);
+                        const field_ty = inst_ty.fieldType(field_index, zcu);
                         if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
 
                         if (!empty) {
@@ -7219,7 +7219,7 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                     empty = true;
                     for (resolved_elements, 0..) |element, field_index| {
                         if (inst_ty.structFieldIsComptime(field_index, zcu)) continue;
-                        const field_ty = inst_ty.structFieldType(field_index, zcu);
+                        const field_ty = inst_ty.fieldType(field_index, zcu);
                         if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
 
                         if (!empty) try writer.writeAll(", ");

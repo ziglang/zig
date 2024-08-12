@@ -3954,7 +3954,7 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const struct_ty = func.typeOf(struct_field.struct_operand);
     const operand = try func.resolveInst(struct_field.struct_operand);
     const field_index = struct_field.field_index;
-    const field_ty = struct_ty.structFieldType(field_index, zcu);
+    const field_ty = struct_ty.fieldType(field_index, zcu);
     if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) return func.finishAir(inst, .none, &.{struct_field.struct_operand});
 
     const result: WValue = switch (struct_ty.containerLayout(zcu)) {
@@ -5378,7 +5378,7 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     for (elements, 0..) |elem, elem_index| {
                         if (try result_ty.structFieldValueComptime(pt, elem_index) != null) continue;
 
-                        const elem_ty = result_ty.structFieldType(elem_index, zcu);
+                        const elem_ty = result_ty.fieldType(elem_index, zcu);
                         const field_offset = result_ty.structFieldOffset(elem_index, zcu);
                         _ = try func.buildPointerOffset(offset, @intCast(field_offset - prev_field_offset), .modify);
                         prev_field_offset = field_offset;

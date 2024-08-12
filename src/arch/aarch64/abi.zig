@@ -95,7 +95,7 @@ fn countFloats(ty: Type, zcu: *Zcu, maybe_float_bits: *?u16) u8 {
             var count: u8 = 0;
             var i: u32 = 0;
             while (i < fields_len) : (i += 1) {
-                const field_ty = ty.structFieldType(i, zcu);
+                const field_ty = ty.fieldType(i, zcu);
                 const field_count = countFloats(field_ty, zcu, maybe_float_bits);
                 if (field_count == invalid) return invalid;
                 count += field_count;
@@ -130,7 +130,7 @@ pub fn getFloatArrayType(ty: Type, zcu: *Zcu) ?Type {
             const fields_len = ty.structFieldCount(zcu);
             var i: u32 = 0;
             while (i < fields_len) : (i += 1) {
-                const field_ty = ty.structFieldType(i, zcu);
+                const field_ty = ty.fieldType(i, zcu);
                 if (getFloatArrayType(field_ty, zcu)) |some| return some;
             }
             return null;

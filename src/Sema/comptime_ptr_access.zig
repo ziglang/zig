@@ -451,7 +451,7 @@ fn loadComptimePtrInner(
                 .@"packed" => break, // let the bitcast logic handle this
                 .@"extern" => for (0..cur_ty.structFieldCount(zcu)) |field_idx| {
                     const start_off = cur_ty.structFieldOffset(field_idx, zcu);
-                    const end_off = start_off + try cur_ty.structFieldType(field_idx, zcu).abiSizeSema(pt);
+                    const end_off = start_off + try cur_ty.fieldType(field_idx, zcu).abiSizeSema(pt);
                     if (cur_offset >= start_off and cur_offset + need_bytes <= end_off) {
                         cur_val = try cur_val.getElem(sema.pt, field_idx);
                         cur_offset -= start_off;
@@ -873,7 +873,7 @@ fn prepareComptimePtrStore(
                 .@"packed" => break, // let the bitcast logic handle this
                 .@"extern" => for (0..cur_ty.structFieldCount(zcu)) |field_idx| {
                     const start_off = cur_ty.structFieldOffset(field_idx, zcu);
-                    const end_off = start_off + try cur_ty.structFieldType(field_idx, zcu).abiSizeSema(pt);
+                    const end_off = start_off + try cur_ty.fieldType(field_idx, zcu).abiSizeSema(pt);
                     if (cur_offset >= start_off and cur_offset + need_bytes <= end_off) {
                         cur_val = try cur_val.elem(pt, sema.arena, field_idx);
                         cur_offset -= start_off;

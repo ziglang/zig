@@ -223,7 +223,7 @@ pub const MutableValue = union(enum) {
                                     @memset(elems[0..@intCast(len_no_sent)], .{ .interned = undef_elem });
                                 },
                                 .Struct => for (elems[0..@intCast(len_no_sent)], 0..) |*mut_elem, i| {
-                                    const field_ty = ty.structFieldType(i, zcu).toIntern();
+                                    const field_ty = ty.fieldType(i, zcu).toIntern();
                                     mut_elem.* = .{ .interned = try pt.intern(.{ .undef = field_ty }) };
                                 },
                                 else => unreachable,

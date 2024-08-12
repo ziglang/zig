@@ -108,7 +108,7 @@ pub fn scalarType(ty: Type, zcu: *Zcu) Type {
                 return scalarType(Type.fromInterned(packed_struct.backingIntTypeUnordered(ip)), zcu);
             } else {
                 assert(ty.structFieldCount(zcu) == 1);
-                return scalarType(ty.structFieldType(0, zcu), zcu);
+                return scalarType(ty.fieldType(0, zcu), zcu);
             }
         },
         .Union => {

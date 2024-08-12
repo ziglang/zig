@@ -542,7 +542,7 @@ const PackValueBits = struct {
                             while (it.next()) |field_idx| {
                                 const want_bit_off = ty.structFieldOffset(field_idx, zcu) * 8;
                                 try pack.padding(want_bit_off - cur_bit_off);
-                                const field_ty = ty.structFieldType(field_idx, zcu);
+                                const field_ty = ty.fieldType(field_idx, zcu);
                                 elems[field_idx] = (try pack.get(field_ty)).toIntern();
                                 cur_bit_off = want_bit_off + field_ty.bitSize(zcu);
                             }
@@ -552,7 +552,7 @@ const PackValueBits = struct {
                             var cur_bit_off: u64 = ty.bitSize(zcu);
                             var it = zcu.typeToStruct(ty).?.iterateRuntimeOrderReverse(ip);
                             while (it.next()) |field_idx| {
-                                const field_ty = ty.structFieldType(field_idx, zcu);
+                                const field_ty = ty.fieldType(field_idx, zcu);
                                 const want_bit_off = ty.structFieldOffset(field_idx, zcu) * 8 + field_ty.bitSize(zcu);
                                 try pack.padding(cur_bit_off - want_bit_off);
                                 elems[field_idx] = (try pack.get(field_ty)).toIntern();
@@ -578,7 +578,7 @@ const PackValueBits = struct {
                     // This is identical between LE and BE targets.
                     const elems = try arena.alloc(InternPool.Index, ty.structFieldCount(zcu));
                     for (elems, 0..) |*elem, i| {
-                        const field_ty = ty.structFieldType(i, zcu);
+                        const field_ty = ty.fieldType(i, zcu);
                         elem.* = (try pack.get(field_ty)).toIntern();
                     }
                     return Value.fromInterned(try pt.intern(.{ .aggregate = .{

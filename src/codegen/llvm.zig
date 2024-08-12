@@ -2496,16 +2496,10 @@ pub const Object = struct {
                     const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
                     if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
                     const field_size = field_ty.abiSize(zcu);
-                    const field_align = pt.structFieldAlignment(
-                        struct_type.fieldAlign(ip, field_index),
-                        field_ty,
-                        struct_type.layout,
-                    );
+                    const field_align = ty.fieldAlignment(field_index, zcu);
                     const field_offset = ty.structFieldOffset(field_index, zcu);
-
                     const field_name = struct_type.fieldName(ip, field_index).unwrap() orelse
                         try ip.getOrPutStringFmt(gpa, pt.tid, "{d}", .{field_index}, .no_embedded_nulls);
-
                     fields.appendAssumeCapacity(try o.builder.debugMemberType(
                         try o.builder.metadataString(field_name.toSlice(ip)),
                         .none, // File
@@ -2598,7 +2592,7 @@ pub const Object = struct {
                     const field_size = Type.fromInterned(field_ty).abiSize(zcu);
                     const field_align: InternPool.Alignment = switch (union_type.flagsUnordered(ip).layout) {
                         .@"packed" => .none,
-                        .auto, .@"extern" => Type.unionFieldNormalAlignment(union_type, @intCast(field_index), zcu),
+                        .auto, .@"extern" => ty.fieldAlignment(field_index, zcu),
                     };
 
                     const field_name = tag_type.names.get(ip)[field_index];
@@ -3315,11 +3309,7 @@ pub const Object = struct {
                     var it = struct_type.iterateRuntimeOrder(ip);
                     while (it.next()) |field_index| {
                         const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
-                        const field_align = pt.structFieldAlignment(
-                            struct_type.fieldAlign(ip, field_index),
-                            field_ty,
-                            struct_type.layout,
-                        );
+                        const field_align = t.fieldAlignment(field_index, zcu);
                         const field_ty_align = field_ty.abiAlignment(zcu);
                         if (field_align.compare(.lt, field_ty_align)) struct_kind = .@"packed";
                         big_align = big_align.max(field_align);
@@ -4127,11 +4117,7 @@ pub const Object = struct {
                     var field_it = struct_type.iterateRuntimeOrder(ip);
                     while (field_it.next()) |field_index| {
                         const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
-                        const field_align = pt.structFieldAlignment(
-                            struct_type.fieldAlign(ip, field_index),
-                            field_ty,
-                            struct_type.layout,
-                        );
+                        const field_align = ty.fieldAlignment(field_index, zcu);
                         big_align = big_align.max(field_align);
                         const prev_offset = offset;
                         offset = field_align.forward(offset);
@@ -6528,7 +6514,7 @@ pub const FuncGen = struct {
         const struct_ty = self.typeOf(struct_field.struct_operand);
         const struct_llvm_val = try self.resolveInst(struct_field.struct_operand);
         const field_index = struct_field.field_index;
-        const field_ty = struct_ty.structFieldType(field_index, zcu);
+        const field_ty = struct_ty.fieldType(field_index, zcu);
         if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) return .none;
 
         if (!isByRef(struct_ty, zcu)) {
@@ -6590,7 +6576,7 @@ pub const FuncGen = struct {
                 const llvm_field_index = o.llvmFieldIndex(struct_ty, field_index).?;
                 const field_ptr =
                     try self.wip.gepStruct(struct_llvm_ty, struct_llvm_val, llvm_field_index, "");
-                const alignment = struct_ty.structFieldAlign(field_index, zcu);
+                const alignment = struct_ty.fieldAlignment(field_index, zcu);
                 const field_ptr_ty = try pt.ptrType(.{
                     .child = field_ty.toIntern(),
                     .flags = .{ .alignment = alignment },
@@ -7471,8 +7457,8 @@ pub const FuncGen = struct {
         assert(self.err_ret_trace != .none);
         const field_ptr =
             try self.wip.gepStruct(struct_llvm_ty, self.err_ret_trace, llvm_field_index, "");
-        const field_alignment = struct_ty.structFieldAlign(field_index, zcu);
-        const field_ty = struct_ty.structFieldType(field_index, zcu);
+        const field_alignment = struct_ty.fieldAlignment(field_index, zcu);
+        const field_ty = struct_ty.fieldType(field_index, zcu);
         const field_ptr_ty = try pt.ptrType(.{
             .child = field_ty.toIntern(),
             .flags = .{ .alignment = field_alignment },
@@ -10080,7 +10066,7 @@ pub const FuncGen = struct {
                         const field_ptr_ty = try pt.ptrType(.{
                             .child = self.typeOf(elem).toIntern(),
                             .flags = .{
-                                .alignment = result_ty.structFieldAlign(i, zcu),
+                                .alignment = result_ty.fieldAlignment(i, zcu),
                             },
                         });
                         try self.store(field_ptr, field_ptr_ty, llvm_elem, .none);
@@ -10185,7 +10171,7 @@ pub const FuncGen = struct {
         const field_ty = Type.fromInterned(union_obj.field_types.get(ip)[extra.field_index]);
         const field_llvm_ty = try o.lowerType(field_ty);
         const field_size = field_ty.abiSize(zcu);
-        const field_align = Type.unionFieldNormalAlignment(union_obj, extra.field_index, zcu);
+        const field_align = union_ty.fieldAlignment(extra.field_index, zcu);
         const llvm_usize = try o.lowerType(Type.usize);
         const usize_zero = try o.builder.intValue(llvm_usize, 0);
 
@@ -11188,7 +11174,7 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
                             var types_len: usize = 0;
                             var types: [8]Builder.Type = undefined;
                             for (0..return_type.structFieldCount(zcu)) |field_index| {
-                                const field_ty = return_type.structFieldType(field_index, zcu);
+                                const field_ty = return_type.fieldType(field_index, zcu);
                                 if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
                                 types[types_len] = try o.lowerType(field_ty);
                                 types_len += 1;
@@ -11444,7 +11430,7 @@ const ParamTypeIterator = struct {
                         .fields => {
                             it.types_len = 0;
                             for (0..ty.structFieldCount(zcu)) |field_index| {
-                                const field_ty = ty.structFieldType(field_index, zcu);
+                                const field_ty = ty.fieldType(field_index, zcu);
                                 if (!field_ty.hasRuntimeBitsIgnoreComptime(zcu)) continue;
                                 it.types_buffer[it.types_len] = try it.object.lowerType(field_ty);
                                 it.types_len += 1;
