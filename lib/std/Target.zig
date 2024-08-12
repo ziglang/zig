@@ -17,53 +17,60 @@ pub const Os = struct {
 
     pub const Tag = enum {
         freestanding,
-        dragonfly,
-        freebsd,
-        fuchsia,
-        ios,
-        linux,
-        ps3,
-        macos,
-        netbsd,
-        openbsd,
-        solaris,
-        uefi,
-        windows,
-        zos,
-        haiku,
-        minix,
-        rtems,
-        aix,
-        cuda,
-        nvcl,
-        amdhsa,
-        ps4,
-        ps5,
-        elfiamcu,
-        tvos,
-        watchos,
-        driverkit,
-        visionos,
-        mesa3d,
-        contiki,
-        amdpal,
-        hermit,
-        hurd,
-        wasi,
-        emscripten,
-        shadermodel,
-        liteos,
-        serenity,
-        opencl,
-        glsl450,
-        vulkan,
-        plan9,
-        illumos,
         other,
 
+        contiki,
+        elfiamcu,
+        fuchsia,
+        hermit,
+
+        aix,
+        haiku,
+        hurd,
+        linux,
+        plan9,
+        rtems,
+        serenity,
+        zos,
+
+        dragonfly,
+        freebsd,
+        netbsd,
+        openbsd,
+
+        driverkit,
+        ios,
+        macos,
+        tvos,
+        visionos,
+        watchos,
+
+        illumos,
+        solaris,
+
+        windows,
+        uefi,
+
+        ps3,
+        ps4,
+        ps5,
+
+        emscripten,
+        wasi,
+
+        amdhsa,
+        amdpal,
+        cuda,
+        mesa3d,
+        nvcl,
+        opencl,
+        opengl,
+        shadermodel,
+        vulkan,
+
         // LLVM tags deliberately omitted:
-        // - kfreebsd
         // - darwin
+        // - kfreebsd
         // - nacl
 
         pub inline fn isDarwin(tag: Tag) bool {
@@ -142,7 +149,6 @@ pub const Os = struct {
                 .ps3,
                 .zos,
                 .haiku,
-                .minix,
                 .rtems,
                 .aix,
                 .cuda,
@@ -159,10 +165,9 @@ pub const Os = struct {
                 .emscripten,
                 .driverkit,
                 .shadermodel,
-                .liteos,
                 .uefi,
                 .opencl, // TODO: OpenCL versions
-                .glsl450, // TODO: GLSL versions
+                .opengl, // TODO: GLSL versions
                 .vulkan,
                 .plan9,
                 .illumos,
@@ -373,7 +378,6 @@ pub const Os = struct {
                 .ps3,
                 .zos,
                 .haiku,
-                .minix,
                 .rtems,
                 .aix,
                 .cuda,
@@ -390,10 +394,9 @@ pub const Os = struct {
                 .emscripten,
                 .driverkit,
                 .shadermodel,
-                .liteos,
                 .uefi,
                 .opencl, // TODO: OpenCL versions
-                .glsl450, // TODO: GLSL versions
+                .opengl, // TODO: GLSL versions
                 .vulkan,
                 .plan9,
                 .illumos,
@@ -571,7 +574,6 @@ pub const Os = struct {
             .fuchsia,
             .ps3,
             .zos,
-            .minix,
             .rtems,
             .aix,
             .cuda,
@@ -589,10 +591,9 @@ pub const Os = struct {
             .emscripten,
             .driverkit,
             .shadermodel,
-            .liteos,
             .uefi,
             .opencl,
-            .glsl450,
+            .opengl,
             .vulkan,
             .plan9,
             .other,
@@ -676,7 +677,6 @@ pub const Abi = enum {
             .dragonfly,
             .ps3,
             .zos,
-            .minix,
             .rtems,
             .aix,
             .cuda,
@@ -704,9 +704,8 @@ pub const Abi = enum {
             .wasi,
             .emscripten,
             => .musl,
-            .liteos => .ohos,
-            .opencl, // TODO: SPIR-V ABIs with Linkage capability
-            .glsl450,
+            .opencl,
+            .opengl,
             .vulkan,
             .plan9, // TODO specify abi
             .macos,
@@ -1001,17 +1000,22 @@ pub const Cpu = struct {
     };
 
     pub const Arch = enum {
+        amdgcn,
+        arc,
         arm,
         armeb,
+        thumb,
+        thumbeb,
         aarch64,
         aarch64_be,
-        arc,
         avr,
         bpfel,
         bpfeb,
         csky,
         dxil,
         hexagon,
+        kalimba,
+        lanai,
         loongarch32,
         loongarch64,
         m68k,
@@ -1020,51 +1024,46 @@ pub const Cpu = struct {
         mips64,
         mips64el,
         msp430,
+        nvptx,
+        nvptx64,
         powerpc,
         powerpcle,
         powerpc64,
         powerpc64le,
-        amdgcn,
         riscv32,
         riscv64,
+        s390x,
         sparc,
         sparc64,
-        s390x,
-        thumb,
-        thumbeb,
+        spirv,
+        spirv32,
+        spirv64,
+        spu_2,
+        ve,
+        wasm32,
+        wasm64,
         x86,
         x86_64,
         xcore,
         xtensa,
-        nvptx,
-        nvptx64,
-        spirv,
-        spirv32,
-        spirv64,
-        kalimba,
-        lanai,
-        wasm32,
-        wasm64,
-        ve,
-        spu_2,
 
         // LLVM tags deliberately omitted:
         // - aarch64_32
-        // - r600
-        // - sparcel
-        // - tce
-        // - tcele
-        // - le32
-        // - le64
         // - amdil
         // - amdil64
+        // - le32
+        // - le64
+        // - r600
         // - hsail
         // - hsail64
-        // - spir
-        // - spir64
-        // - shave
         // - renderscript32
         // - renderscript64
+        // - shave
+        // - sparcel
+        // - spir
+        // - spir64
+        // - tce
+        // - tcele
 
         pub inline fn isX86(arch: Arch) bool {
             return switch (arch) {
@@ -1539,12 +1538,12 @@ pub const Cpu = struct {
         pub fn baseline(arch: Arch) *const Model {
             return switch (arch) {
                 .arm, .armeb, .thumb, .thumbeb => &arm.cpu.baseline,
-                .hexagon => &hexagon.cpu.hexagonv60,
+                .hexagon => &hexagon.cpu.hexagonv60, // gcc/clang do not have a generic hexagon model.
                 .riscv32 => &riscv.cpu.baseline_rv32,
                 .riscv64 => &riscv.cpu.baseline_rv64,
                 .x86 => &x86.cpu.pentium4,
                 .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
-                .s390x => &s390x.cpu.arch8,
+                .s390x => &s390x.cpu.arch8, // gcc/clang do not have a generic s390x model.
                 .sparc => &sparc.cpu.v9, // glibc does not work with 'plain' v8.
                 .loongarch64 => &loongarch.cpu.loongarch64,
 
@@ -1624,10 +1623,6 @@ pub inline fn isGnuLibC(target: Target) bool {
     return target.os.tag.isGnuLibC(target.abi);
 }
 
-pub inline fn supportsNewStackCall(target: Target) bool {
-    return !target.cpu.arch.isWasm();
-}
-
 pub inline fn isSpirV(target: Target) bool {
     return target.cpu.arch.isSpirV();
 }
@@ -1656,7 +1651,7 @@ pub inline fn hasDynamicLinker(target: Target) bool {
         .windows,
         .emscripten,
         .opencl,
-        .glsl450,
+        .opengl,
         .vulkan,
         .plan9,
         .other,
@@ -1824,7 +1819,7 @@ pub const DynamicLinker = struct {
             .emscripten,
             .wasi,
             .opencl,
-            .glsl450,
+            .opengl,
             .vulkan,
             .other,
             .plan9,
@@ -1838,7 +1833,6 @@ pub const DynamicLinker = struct {
             .fuchsia,
             .ps3,
             .zos,
-            .minix,
             .rtems,
             .aix,
             .cuda,
@@ -1854,7 +1848,6 @@ pub const DynamicLinker = struct {
             .hurd,
             .driverkit,
             .shadermodel,
-            .liteos,
             => none,
         };
     }
@@ -2139,7 +2132,6 @@ pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
         .illumos,
         .haiku,
         .fuchsia,
-        .minix,
         .serenity,
         => switch (target.cpu.arch) {
             .msp430 => switch (c_type) {
@@ -2341,10 +2333,9 @@ pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
         .contiki,
         .hermit,
         .hurd,
-        .glsl450,
+        .opengl,
         .driverkit,
         .shadermodel,
-        .liteos,
         => @panic("TODO specify the C integer and float type sizes for this OS"),
     }
 }
