@@ -3092,6 +3092,10 @@ pub fn totalErrorCount(comp: *Compilation) u32 {
         if (zcu.intern_pool.global_error_set.getNamesFromMainThread().len > zcu.error_limit) {
             total += 1;
         }
+
+        for (zcu.failed_codegen.keys()) |_| {
+            total += 1;
+        }
     }
 
     // The "no entry point found" error only counts if there are no semantic analysis errors.
@@ -3236,6 +3240,9 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                     });
                 }
             }
+        }
+        for (zcu.failed_codegen.values()) |error_msg| {
+            try addModuleErrorMsg(zcu, &bundle, error_msg.*, &all_references);
         }
         for (zcu.failed_exports.values()) |value| {
             try addModuleErrorMsg(zcu, &bundle, value.*, &all_references);
