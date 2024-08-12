@@ -1904,6 +1904,7 @@ test "reinterpret packed union" {
 
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21050
     if (builtin.cpu.arch.isWasm()) return error.SkipZigTest; // TODO
     try S.doTheTest();
 }
