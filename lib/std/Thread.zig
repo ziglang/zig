@@ -1159,8 +1159,8 @@ const LinuxThreadImpl = struct {
                 ),
                 .powerpc, .powerpcle, .powerpc64, .powerpc64le => asm volatile (
                     \\  li 0, 91 # SYS_munmap
-                    \\  mr %[ptr], 3
-                    \\  mr %[len], 4
+                    \\  mr 3, %[ptr]
+                    \\  mr 4, %[len]
                     \\  sc
                     \\  li 0, 1 # SYS_exit
                     \\  li 3, 0
