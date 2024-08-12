@@ -164,6 +164,16 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
         if (metadata.rodata_state != .unused) metadata.rodata_state = .flushed;
     }
 
+    if (build_options.enable_logging) {
+        const pt: Zcu.PerThread = .{ .zcu = elf_file.base.comp.module.?, .tid = tid };
+        for (self.navs.keys(), self.navs.values()) |nav_index, meta| {
+            checkNavAllocated(pt, nav_index, meta);
+        }
+        for (self.uavs.keys(), self.uavs.values()) |uav_index, meta| {
+            checkUavAllocated(pt, uav_index, meta);
+        }
+    }
+
     if (self.dwarf) |*dw| {
         const pt: Zcu.PerThread = .{ .zcu = elf_file.base.comp.module.?, .tid = tid };
         try dw.flushModule(pt);
@@ -701,6 +711,7 @@ pub fn lowerUav(
         else => explicit_alignment,
     };
     if (self.uavs.get(uav)) |metadata| {
+        assert(metadata.allocated);
         const sym = self.symbol(metadata.symbol_index);
         const existing_alignment = sym.atom(elf_file).?.alignment;
         if (uav_alignment.order(existing_alignment).compare(.lte))
@@ -732,7 +743,7 @@ pub fn lowerUav(
         .ok => |sym_index| sym_index,
         .fail => |em| return .{ .fail = em },
     };
-    try self.uavs.put(gpa, uav, .{ .symbol_index = sym_index });
+    try self.uavs.put(gpa, uav, .{ .symbol_index = sym_index, .allocated = true });
     return .{ .mcv = .{ .load_symbol = sym_index } };
 }
 
@@ -921,6 +932,8 @@ fn updateNavCode(
         esym.st_value = 0;
     }
 
+    self.navs.getPtr(nav_index).?.allocated = true;
+
     if (elf_file.base.child_pid) |pid| {
         switch (builtin.os.tag) {
             .linux => {
@@ -987,6 +1000,8 @@ fn updateTlv(
 
     atom_ptr.alignment = required_alignment;
     atom_ptr.size = code.len;
+
+    self.navs.getPtr(nav_index).?.allocated = true;
 
     {
         const gop = try self.tls_variables.getOrPut(gpa, atom_ptr.atom_index);
@@ -1695,6 +1710,8 @@ const AvMetadata = struct {
     symbol_index: Symbol.Index,
     /// A list of all exports aliases of this Av.
     exports: std.ArrayListUnmanaged(Symbol.Index) = .{},
+    /// Set to true if the AV has been initialized and allocated.
+    allocated: bool = false,
 
     fn @"export"(m: AvMetadata, zig_object: *ZigObject, name: []const u8) ?*u32 {
         for (m.exports.items) |*exp| {
@@ -1704,6 +1721,32 @@ const AvMetadata = struct {
         return null;
     }
 };
+
+fn checkNavAllocated(pt: Zcu.PerThread, index: InternPool.Nav.Index, meta: AvMetadata) void {
+    if (!meta.allocated) {
+        const zcu = pt.zcu;
+        const ip = &zcu.intern_pool;
+        const nav = ip.getNav(index);
+        log.err("NAV {}({d}) assigned symbol {d} but not allocated!", .{
+            nav.fqn.fmt(ip),
+            index,
+            meta.symbol_index,
+        });
+    }
+}
+
+fn checkUavAllocated(pt: Zcu.PerThread, index: InternPool.Index, meta: AvMetadata) void {
+    if (!meta.allocated) {
+        const zcu = pt.zcu;
+        const uav = Value.fromInterned(index);
+        const ty = uav.typeOf(zcu);
+        log.err("UAV {}({d}) assigned symbol {d} but not allocated!", .{
+            ty.fmt(pt),
+            index,
+            meta.symbol_index,
+        });
+    }
+}
 
 const TlsVariable = struct {
     symbol_index: Symbol.Index,
@@ -1881,6 +1924,7 @@ pub const OffsetTable = struct {
 };
 
 const assert = std.debug.assert;
+const build_options = @import("build_options");
 const builtin = @import("builtin");
 const codegen = @import("../../codegen.zig");
 const elf = std.elf;
