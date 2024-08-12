@@ -2923,10 +2923,23 @@ pub fn addGlobalAssembly(zcu: *Zcu, cau: InternPool.Cau.Index, source: []const u
 }
 
 pub const Feature = enum {
+    /// When this feature is enabled, Sema will emit calls to `std.builtin.panic`
+    /// for things like safety checks and unreachables. Otherwise traps will be emitted.
     panic_fn,
+    /// When this feature is enabled, Sema will emit calls to `std.builtin.panicUnwrapError`.
+    /// This error message requires more advanced formatting, hence it being seperate from `panic_fn`.
+    /// Otherwise traps will be emitted.
     panic_unwrap_error,
+    /// When this feature is enabled, Sema will emit calls to the more complex panic functions
+    /// that use formatting to add detail to error messages. Similar to `panic_unwrap_error`.
+    /// Otherwise traps will be emitted.
     safety_check_formatted,
+    /// When this feature is enabled, Sema will insert tracer functions for gathering a stack
+    /// trace for error returns.
     error_return_trace,
+    /// When this feature is enabled, Sema will emit the `is_named_enum_value` AIR instructions
+    /// and use it to check for corrupt switches. Backends currently need to implement their own
+    /// logic to determine whether an enum value is in the set of named values.
     is_named_enum_value,
     error_set_has_value,
     field_reordering,
