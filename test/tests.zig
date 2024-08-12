@@ -296,14 +296,13 @@ const test_targets = blk: {
             }) catch unreachable,
             .link_libc = true,
         },
-        // https://github.com/ziglang/zig/issues/3287
-        //.{
-        //    .target = std.Target.Query.parse(.{
-        //        .arch_os_abi = "arm-linux-gnueabihf",
-        //        .cpu_features = "generic+v8a",
-        //    }) catch unreachable,
-        //    .link_libc = true,
-        //},
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "arm-linux-gnueabihf",
+                .cpu_features = "generic+v8a",
+            }) catch unreachable,
+            .link_libc = true,
+        },
 
         // https://github.com/ziglang/zig/issues/16846
         //.{
