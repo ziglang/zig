@@ -3542,8 +3542,7 @@ fn performAllTheWorkInner(
         //    in the `astgen_wait_group`.
         if (comp.job_queued_update_builtin_zig) b: {
             comp.job_queued_update_builtin_zig = false;
-            const zcu = comp.zcu orelse break :b;
-            _ = zcu;
+            if (comp.zcu == null) break :b;
             // TODO put all the modules in a flat array to make them easy to iterate.
             var seen: std.AutoArrayHashMapUnmanaged(*Package.Module, void) = .{};
             defer seen.deinit(comp.gpa);
