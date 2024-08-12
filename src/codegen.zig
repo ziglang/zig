@@ -828,6 +828,9 @@ pub const GenResult = union(enum) {
         /// Reference to memory location but deferred until linker allocated the Decl in memory.
         /// Traditionally, this corresponds to emitting a relocation in a relocatable object file.
         load_symbol: u32,
+        /// Reference to memory location but deferred until linker allocated the Decl in memory.
+        /// Traditionally, this corresponds to emitting a relocation in a relocatable object file.
+        lea_symbol: u32,
     };
 
     fn mcv(val: MCValue) GenResult {
@@ -904,7 +907,7 @@ fn genNavRef(
         if (!single_threaded and is_threadlocal) {
             return GenResult.mcv(.{ .load_tlv = sym_index });
         }
-        return GenResult.mcv(.{ .load_symbol = sym_index });
+        return GenResult.mcv(.{ .lea_symbol = sym_index });
     } else if (lf.cast(.macho)) |macho_file| {
         const zo = macho_file.getZigObject().?;
         if (is_extern) {
