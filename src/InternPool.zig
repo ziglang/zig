@@ -457,7 +457,7 @@ pub const Cau = struct {
                     unwrapped.index);
             }
         };
-        fn unwrap(cau_index: Cau.Index, ip: *const InternPool) Unwrapped {
+        pub fn unwrap(cau_index: Cau.Index, ip: *const InternPool) Unwrapped {
             return .{
                 .tid = @enumFromInt(@intFromEnum(cau_index) >> ip.tid_shift_31 & ip.getTidMask()),
                 .index = @intFromEnum(cau_index) & ip.getIndexMask(u31),
@@ -1464,7 +1464,7 @@ pub const NamespaceIndex = enum(u32) {
                 unwrapped.index);
         }
     };
-    fn unwrap(namespace_index: NamespaceIndex, ip: *const InternPool) Unwrapped {
+    pub fn unwrap(namespace_index: NamespaceIndex, ip: *const InternPool) Unwrapped {
         const index = @intFromEnum(namespace_index) & ip.getIndexMask(u32);
         return .{
             .tid = @enumFromInt(@intFromEnum(namespace_index) >> ip.tid_shift_32 & ip.getTidMask()),

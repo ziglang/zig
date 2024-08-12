@@ -526,7 +526,11 @@ pub fn zigBackend(target: std.Target, use_llvm: bool) std.builtin.CompilerBacken
 pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, comptime feature: Feature) bool {
     return switch (feature) {
         .panic_fn => switch (backend) {
-            .stage2_c, .stage2_llvm, .stage2_x86_64, .stage2_riscv64 => true,
+            .stage2_c,
+            .stage2_llvm,
+            .stage2_x86_64,
+            .stage2_riscv64,
+            => true,
             else => false,
         },
         .panic_unwrap_error => switch (backend) {

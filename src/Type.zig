@@ -3911,11 +3911,12 @@ fn resolveStructInner(
     var comptime_err_ret_trace = std.ArrayList(Zcu.LazySrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
+    const zir = zcu.namespacePtr(struct_obj.namespace.unwrap().?).fileScope(zcu).zir;
     var sema: Sema = .{
         .pt = pt,
         .gpa = gpa,
         .arena = analysis_arena.allocator(),
-        .code = undefined, // This ZIR will not be used.
+        .code = zir,
         .owner = owner,
         .func_index = .none,
         .func_is_naked = false,
@@ -3925,8 +3926,10 @@ fn resolveStructInner(
     };
     defer sema.deinit();
 
+    assert(sema.owner.unwrap().cau == struct_obj.cau.unwrap().?);
+
     (switch (resolution) {
-        .fields => sema.resolveTypeFieldsStruct(ty.toIntern(), struct_obj),
+        .fields => sema.resolveStructFieldTypes(ty.toIntern(), struct_obj),
         .inits => sema.resolveStructFieldInits(ty),
         .alignment => sema.resolveStructAlignment(ty.toIntern(), struct_obj),
         .layout => sema.resolveStructLayout(ty),
@@ -3964,11 +3967,12 @@ fn resolveUnionInner(
     var comptime_err_ret_trace = std.ArrayList(Zcu.LazySrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
+    const zir = zcu.namespacePtr(union_obj.namespace).fileScope(zcu).zir;
     var sema: Sema = .{
         .pt = pt,
         .gpa = gpa,
         .arena = analysis_arena.allocator(),
-        .code = undefined, // This ZIR will not be used.
+        .code = zir,
         .owner = owner,
         .func_index = .none,
         .func_is_naked = false,
@@ -3978,8 +3982,10 @@ fn resolveUnionInner(
     };
     defer sema.deinit();
 
+    assert(sema.owner.unwrap().cau == union_obj.cau);
+
     (switch (resolution) {
-        .fields => sema.resolveTypeFieldsUnion(ty, union_obj),
+        .fields => sema.resolveUnionFieldTypes(ty, union_obj),
         .alignment => sema.resolveUnionAlignment(ty, union_obj),
         .layout => sema.resolveUnionLayout(ty),
         .full => sema.resolveUnionFully(ty),

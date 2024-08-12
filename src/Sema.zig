@@ -35277,7 +35277,7 @@ pub fn resolveStructAlignment(
     // might require explicit alignment.
     if (struct_type.assumePointerAlignedIfFieldTypesWip(ip, ptr_align)) return;
 
-    try sema.resolveTypeFieldsStruct(ty, struct_type);
+    try sema.resolveStructFieldTypes(ty, struct_type);
 
     // We'll guess "pointer-aligned", if the struct has an
     // underaligned pointer field then some allocations
@@ -35316,7 +35316,7 @@ pub fn resolveStructLayout(sema: *Sema, ty: Type) SemaError!void {
     try sema.resolveTypeFieldsStruct(ty.toIntern(), struct_type);
 
     if (struct_type.layout == .@"packed") {
-        semaBackingIntType(pt, struct_type) catch |err| switch (err) {
+        sema.backingIntType(struct_type) catch |err| switch (err) {
             error.OutOfMemory, error.AnalysisFail => |e| return e,
             error.ComptimeBreak, error.ComptimeReturn, error.GenericPoison => unreachable,
         };
@@ -35444,14 +35444,16 @@ pub fn resolveStructLayout(sema: *Sema, ty: Type) SemaError!void {
     _ = try ty.comptimeOnlySema(pt);
 }
 
-fn semaBackingIntType(pt: Zcu.PerThread, struct_type: InternPool.LoadedStructType) CompileError!void {
+fn backingIntType(
+    sema: *Sema,
+    struct_type: InternPool.LoadedStructType,
+) CompileError!void {
+    const pt = sema.pt;
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
 
     const cau_index = struct_type.cau.unwrap().?;
-
-    const zir = zcu.namespacePtr(struct_type.namespace.unwrap().?).fileScope(zcu).zir;
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
@@ -35459,23 +35461,9 @@ fn semaBackingIntType(pt: Zcu.PerThread, struct_type: InternPool.LoadedStructTyp
     var comptime_err_ret_trace = std.ArrayList(LazySrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
-    var sema: Sema = .{
-        .pt = pt,
-        .gpa = gpa,
-        .arena = analysis_arena.allocator(),
-        .code = zir,
-        .owner = AnalUnit.wrap(.{ .cau = cau_index }),
-        .func_index = .none,
-        .func_is_naked = false,
-        .fn_ret_ty = Type.void,
-        .fn_ret_ty_ies = null,
-        .comptime_err_ret_trace = &comptime_err_ret_trace,
-    };
-    defer sema.deinit();
-
     var block: Block = .{
         .parent = null,
-        .sema = &sema,
+        .sema = sema,
         .namespace = ip.getCau(cau_index).namespace,
         .instructions = .{},
         .inlining = null,
@@ -35494,6 +35482,7 @@ fn semaBackingIntType(pt: Zcu.PerThread, struct_type: InternPool.LoadedStructTyp
         break :blk accumulator;
     };
 
+    const zir = zcu.namespacePtr(struct_type.namespace.unwrap().?).fileScope(zcu).zir;
     const zir_index = struct_type.zir_index.unwrap().?.resolve(ip) orelse return error.AnalysisFail;
     const extended = zir.instructions.items(.data)[@intFromEnum(zir_index)].extended;
     assert(extended.opcode == .struct_decl);
@@ -35618,7 +35607,7 @@ pub fn resolveUnionAlignment(
     // might require explicit alignment.
     if (union_type.assumePointerAlignedIfFieldTypesWip(ip, ptr_align)) return;
 
-    try sema.resolveTypeFieldsUnion(ty, union_type);
+    try sema.resolveUnionFieldTypes(ty, union_type);
 
     var max_align: Alignment = .@"1";
     for (0..union_type.field_types.len) |field_index| {
@@ -35642,7 +35631,7 @@ pub fn resolveUnionLayout(sema: *Sema, ty: Type) SemaError!void {
     const pt = sema.pt;
     const ip = &pt.zcu.intern_pool;
 
-    try sema.resolveTypeFieldsUnion(ty, ip.loadUnionType(ty.ip_index));
+    try sema.resolveUnionFieldTypes(ty, ip.loadUnionType(ty.ip_index));
 
     // Load again, since the tag type might have changed due to resolution.
     const union_type = ip.loadUnionType(ty.ip_index);
@@ -35810,7 +35799,7 @@ pub fn resolveUnionFully(sema: *Sema, ty: Type) SemaError!void {
     _ = try ty.comptimeOnlySema(pt);
 }
 
-pub fn resolveTypeFieldsStruct(
+pub fn resolveStructFieldTypes(
     sema: *Sema,
     ty: InternPool.Index,
     struct_type: InternPool.LoadedStructType,
@@ -35833,7 +35822,7 @@ pub fn resolveTypeFieldsStruct(
     }
     defer struct_type.clearFieldTypesWip(ip);
 
-    semaStructFields(pt, sema.arena, struct_type) catch |err| switch (err) {
+    sema.structFields(struct_type) catch |err| switch (err) {
         error.AnalysisFail, error.OutOfMemory => |e| return e,
         error.ComptimeBreak, error.ComptimeReturn, error.GenericPoison => unreachable,
     };
@@ -35862,14 +35851,14 @@ pub fn resolveStructFieldInits(sema: *Sema, ty: Type) SemaError!void {
     }
     defer struct_type.clearInitsWip(ip);
 
-    semaStructFieldInits(pt, sema.arena, struct_type) catch |err| switch (err) {
+    sema.structFieldInits(struct_type) catch |err| switch (err) {
         error.AnalysisFail, error.OutOfMemory => |e| return e,
         error.ComptimeBreak, error.ComptimeReturn, error.GenericPoison => unreachable,
     };
     struct_type.setHaveFieldInits(ip);
 }
 
-pub fn resolveTypeFieldsUnion(sema: *Sema, ty: Type, union_type: InternPool.LoadedUnionType) SemaError!void {
+pub fn resolveUnionFieldTypes(sema: *Sema, ty: Type, union_type: InternPool.LoadedUnionType) SemaError!void {
     const pt = sema.pt;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -35896,7 +35885,7 @@ pub fn resolveTypeFieldsUnion(sema: *Sema, ty: Type, union_type: InternPool.Load
 
     union_type.setStatus(ip, .field_types_wip);
     errdefer union_type.setStatus(ip, .none);
-    semaUnionFields(pt, sema.arena, ty.toIntern(), union_type) catch |err| switch (err) {
+    sema.unionFields(ty.toIntern(), union_type) catch |err| switch (err) {
         error.AnalysisFail, error.OutOfMemory => |e| return e,
         error.ComptimeBreak, error.ComptimeReturn, error.GenericPoison => unreachable,
     };
@@ -36099,11 +36088,11 @@ fn structZirInfo(zir: Zir, zir_index: Zir.Inst.Index) struct {
     return .{ fields_len, small, extra_index };
 }
 
-fn semaStructFields(
-    pt: Zcu.PerThread,
-    arena: Allocator,
+fn structFields(
+    sema: *Sema,
     struct_type: InternPool.LoadedStructType,
 ) CompileError!void {
+    const pt = sema.pt;
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
@@ -36116,7 +36105,7 @@ fn semaStructFields(
 
     if (fields_len == 0) switch (struct_type.layout) {
         .@"packed" => {
-            try semaBackingIntType(pt, struct_type);
+            try sema.backingIntType(struct_type);
             return;
         },
         .auto, .@"extern" => {
@@ -36128,23 +36117,9 @@ fn semaStructFields(
     var comptime_err_ret_trace = std.ArrayList(LazySrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
-    var sema: Sema = .{
-        .pt = pt,
-        .gpa = gpa,
-        .arena = arena,
-        .code = zir,
-        .owner = AnalUnit.wrap(.{ .cau = cau_index }),
-        .func_index = .none,
-        .func_is_naked = false,
-        .fn_ret_ty = Type.void,
-        .fn_ret_ty_ies = null,
-        .comptime_err_ret_trace = &comptime_err_ret_trace,
-    };
-    defer sema.deinit();
-
     var block_scope: Block = .{
         .parent = null,
-        .sema = &sema,
+        .sema = sema,
         .namespace = namespace_index,
         .instructions = .{},
         .inlining = null,
@@ -36318,12 +36293,12 @@ fn semaStructFields(
     try sema.flushExports();
 }
 
-// This logic must be kept in sync with `semaStructFields`
-fn semaStructFieldInits(
-    pt: Zcu.PerThread,
-    arena: Allocator,
+// This logic must be kept in sync with `structFields`
+fn structFieldInits(
+    sema: *Sema,
     struct_type: InternPool.LoadedStructType,
 ) CompileError!void {
+    const pt = sema.pt;
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
@@ -36339,23 +36314,9 @@ fn semaStructFieldInits(
     var comptime_err_ret_trace = std.ArrayList(LazySrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
-    var sema: Sema = .{
-        .pt = pt,
-        .gpa = gpa,
-        .arena = arena,
-        .code = zir,
-        .owner = AnalUnit.wrap(.{ .cau = cau_index }),
-        .func_index = .none,
-        .func_is_naked = false,
-        .fn_ret_ty = Type.void,
-        .fn_ret_ty_ies = null,
-        .comptime_err_ret_trace = &comptime_err_ret_trace,
-    };
-    defer sema.deinit();
-
     var block_scope: Block = .{
         .parent = null,
-        .sema = &sema,
+        .sema = sema,
         .namespace = namespace_index,
         .instructions = .{},
         .inlining = null,
@@ -36458,14 +36419,18 @@ fn semaStructFieldInits(
     try sema.flushExports();
 }
 
-fn semaUnionFields(pt: Zcu.PerThread, arena: Allocator, union_ty: InternPool.Index, union_type: InternPool.LoadedUnionType) CompileError!void {
+fn unionFields(
+    sema: *Sema,
+    union_ty: InternPool.Index,
+    union_type: InternPool.LoadedUnionType,
+) CompileError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    const pt = sema.pt;
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
-    const cau_index = union_type.cau;
     const zir = zcu.namespacePtr(union_type.namespace).fileScope(zcu).zir;
     const zir_index = union_type.zir_index.resolve(ip) orelse return error.AnalysisFail;
     const extended = zir.instructions.items(.data)[@intFromEnum(zir_index)].extended;
@@ -36513,10 +36478,12 @@ fn semaUnionFields(pt: Zcu.PerThread, arena: Allocator, union_ty: InternPool.Ind
     var comptime_err_ret_trace = std.ArrayList(LazySrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
-    var sema: Sema = .{
+    const cau_index = union_type.cau;
+
+    var inner_sema: Sema = .{
         .pt = pt,
         .gpa = gpa,
-        .arena = arena,
+        .arena = sema.arena,
         .code = zir,
         .owner = AnalUnit.wrap(.{ .cau = cau_index }),
         .func_index = .none,
@@ -36525,11 +36492,11 @@ fn semaUnionFields(pt: Zcu.PerThread, arena: Allocator, union_ty: InternPool.Ind
         .fn_ret_ty_ies = null,
         .comptime_err_ret_trace = &comptime_err_ret_trace,
     };
-    defer sema.deinit();
+    defer inner_sema.deinit();
 
     var block_scope: Block = .{
         .parent = null,
-        .sema = &sema,
+        .sema = &inner_sema,
         .namespace = union_type.namespace,
         .instructions = .{},
         .inlining = null,
@@ -36672,7 +36639,10 @@ fn semaUnionFields(pt: Zcu.PerThread, arena: Allocator, union_ty: InternPool.Ind
 
         if (enum_field_vals.capacity() > 0) {
             const enum_tag_val = if (tag_ref != .none) blk: {
-                const val = try sema.semaUnionFieldVal(&block_scope, value_src, int_tag_ty, tag_ref);
+                const coerced = try sema.coerce(&block_scope, int_tag_ty, tag_ref, value_src);
+                const val = try sema.resolveConstDefinedValue(&block_scope, value_src, coerced, .{
+                    .needed_comptime_reason = "enum tag value must be comptime-known",
+                });
                 last_tag_val = val;
 
                 break :blk val;
@@ -36692,7 +36662,11 @@ fn semaUnionFields(pt: Zcu.PerThread, arena: Allocator, union_ty: InternPool.Ind
                     .offset = .{ .container_field_value = @intCast(gop.index) },
                 };
                 const msg = msg: {
-                    const msg = try sema.errMsg(value_src, "enum tag value {} already taken", .{enum_tag_val.fmtValueSema(pt, &sema)});
+                    const msg = try sema.errMsg(
+                        value_src,
+                        "enum tag value {} already taken",
+                        .{enum_tag_val.fmtValueSema(pt, sema)},
+                    );
                     errdefer msg.destroy(gpa);
                     try sema.errNote(other_value_src, msg, "other occurrence here", .{});
                     break :msg msg;
@@ -36830,13 +36804,6 @@ fn semaUnionFields(pt: Zcu.PerThread, arena: Allocator, union_ty: InternPool.Ind
     }
 
     try sema.flushExports();
-}
-
-fn semaUnionFieldVal(sema: *Sema, block: *Block, src: LazySrcLoc, int_tag_ty: Type, tag_ref: Air.Inst.Ref) CompileError!Value {
-    const coerced = try sema.coerce(block, int_tag_ty, tag_ref, src);
-    return sema.resolveConstDefinedValue(block, src, coerced, .{
-        .needed_comptime_reason = "enum tag value must be comptime-known",
-    });
 }
 
 fn generateUnionTagTypeNumbered(
