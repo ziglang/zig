@@ -1130,6 +1130,10 @@ const LinuxThreadImpl = struct {
                       [len] "r" (self.mapped.len),
                     : "memory"
                 ),
+                // We set `sp` to the address of the current function as a workaround for a Linux
+                // kernel bug that caused syscalls to return EFAULT if the stack pointer is invalid.
+                // The bug was introduced in 46e12c07b3b9603c60fc1d421ff18618241cb081 and fixed in
+                // 7928eb0370d1133d0d8cd2f5ddfca19c309079d5.
                 .mips, .mipsel => asm volatile (
                     \\  move $sp, $25
                     \\  li $2, 4091 # SYS_munmap
