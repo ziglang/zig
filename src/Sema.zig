@@ -110,6 +110,7 @@ exports: std.ArrayListUnmanaged(Zcu.Export) = .{},
 /// of data stored in `Zcu.all_references`. It exists to avoid adding references to
 /// a given `AnalUnit` multiple times.
 references: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .{},
+type_references: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .{},
 
 const MaybeComptimeAlloc = struct {
     /// The runtime index of the `alloc` instruction.
@@ -877,6 +878,7 @@ pub fn deinit(sema: *Sema) void {
     sema.comptime_allocs.deinit(gpa);
     sema.exports.deinit(gpa);
     sema.references.deinit(gpa);
+    sema.type_references.deinit(gpa);
     sema.* = undefined;
 }
 
@@ -2809,7 +2811,11 @@ fn zirStructDecl(
     };
     const wip_ty = sema.wrapWipTy(switch (try ip.getStructType(gpa, pt.tid, struct_init)) {
         .existing => |ty| wip: {
-            if (!try sema.maybeRemoveOutdatedType(ty)) return Air.internedToRef(ty);
+            if (!try sema.maybeRemoveOutdatedType(ty)) {
+                try sema.declareDependency(.{ .interned = ty });
+                try sema.addTypeReferenceEntry(src, ty);
+                return Air.internedToRef(ty);
+            }
             break :wip (try ip.getStructType(gpa, pt.tid, struct_init)).wip;
         },
         .wip => |wip| wip,
@@ -2850,8 +2856,8 @@ fn zirStructDecl(
         if (block.ownerModule().strip) break :codegen_type;
         try mod.comp.queueJob(.{ .codegen_type = wip_ty.index });
     }
-    try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .cau = new_cau_index }));
     try sema.declareDependency(.{ .interned = wip_ty.index });
+    try sema.addTypeReferenceEntry(src, wip_ty.index);
     return Air.internedToRef(wip_ty.finish(ip, new_cau_index.toOptional(), new_namespace_index));
 }
 
@@ -3031,7 +3037,11 @@ fn zirEnumDecl(
     };
     const wip_ty = sema.wrapWipTy(switch (try ip.getEnumType(gpa, pt.tid, enum_init)) {
         .existing => |ty| wip: {
-            if (!try sema.maybeRemoveOutdatedType(ty)) return Air.internedToRef(ty);
+            if (!try sema.maybeRemoveOutdatedType(ty)) {
+                try sema.declareDependency(.{ .interned = ty });
+                try sema.addTypeReferenceEntry(src, ty);
+                return Air.internedToRef(ty);
+            }
             break :wip (try ip.getEnumType(gpa, pt.tid, enum_init)).wip;
         },
         .wip => |wip| wip,
@@ -3071,8 +3081,8 @@ fn zirEnumDecl(
 
     try pt.scanNamespace(new_namespace_index, decls);
 
-    try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .cau = new_cau_index }));
     try sema.declareDependency(.{ .interned = wip_ty.index });
+    try sema.addTypeReferenceEntry(src, wip_ty.index);
 
     // We've finished the initial construction of this type, and are about to perform analysis.
     // Set the Cau and namespace appropriately, and don't destroy anything on failure.
@@ -3297,7 +3307,11 @@ fn zirUnionDecl(
     };
     const wip_ty = sema.wrapWipTy(switch (try ip.getUnionType(gpa, pt.tid, union_init)) {
         .existing => |ty| wip: {
-            if (!try sema.maybeRemoveOutdatedType(ty)) return Air.internedToRef(ty);
+            if (!try sema.maybeRemoveOutdatedType(ty)) {
+                try sema.declareDependency(.{ .interned = ty });
+                try sema.addTypeReferenceEntry(src, ty);
+                return Air.internedToRef(ty);
+            }
             break :wip (try ip.getUnionType(gpa, pt.tid, union_init)).wip;
         },
         .wip => |wip| wip,
@@ -3338,8 +3352,8 @@ fn zirUnionDecl(
         if (block.ownerModule().strip) break :codegen_type;
         try mod.comp.queueJob(.{ .codegen_type = wip_ty.index });
     }
-    try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .cau = new_cau_index }));
     try sema.declareDependency(.{ .interned = wip_ty.index });
+    try sema.addTypeReferenceEntry(src, wip_ty.index);
     return Air.internedToRef(wip_ty.finish(ip, new_cau_index.toOptional(), new_namespace_index));
 }
 
@@ -3388,7 +3402,10 @@ fn zirOpaqueDecl(
     // No `wrapWipTy` needed as no std.builtin types are opaque.
     const wip_ty = switch (try ip.getOpaqueType(gpa, pt.tid, opaque_init)) {
         // No `maybeRemoveOutdatedType` as opaque types are never outdated.
-        .existing => |ty| return Air.internedToRef(ty),
+        .existing => |ty| {
+            try sema.addTypeReferenceEntry(src, ty);
+            return Air.internedToRef(ty);
+        },
         .wip => |wip| wip,
     };
     errdefer wip_ty.cancel(ip, pt.tid);
@@ -3416,6 +3433,7 @@ fn zirOpaqueDecl(
         if (block.ownerModule().strip) break :codegen_type;
         try mod.comp.queueJob(.{ .codegen_type = wip_ty.index });
     }
+    try sema.addTypeReferenceEntry(src, wip_ty.index);
     return Air.internedToRef(wip_ty.finish(ip, .none, new_namespace_index));
 }
 
@@ -21820,7 +21838,10 @@ fn zirReify(
                     .zir_index = try block.trackZir(inst),
                 } },
             })) {
-                .existing => |ty| return Air.internedToRef(ty),
+                .existing => |ty| {
+                    try sema.addTypeReferenceEntry(src, ty);
+                    return Air.internedToRef(ty);
+                },
                 .wip => |wip| wip,
             };
             errdefer wip_ty.cancel(ip, pt.tid);
@@ -21839,6 +21860,7 @@ fn zirReify(
                 .file_scope = block.getFileScopeIndex(mod),
             });
 
+            try sema.addTypeReferenceEntry(src, wip_ty.index);
             return Air.internedToRef(wip_ty.finish(ip, .none, new_namespace_index));
         },
         .Union => {
@@ -22020,7 +22042,11 @@ fn reifyEnum(
         } },
     })) {
         .wip => |wip| wip,
-        .existing => |ty| return Air.internedToRef(ty),
+        .existing => |ty| {
+            try sema.declareDependency(.{ .interned = ty });
+            try sema.addTypeReferenceEntry(src, ty);
+            return Air.internedToRef(ty);
+        },
     };
     errdefer wip_ty.cancel(ip, pt.tid);
 
@@ -22044,6 +22070,8 @@ fn reifyEnum(
 
     const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, new_namespace_index, wip_ty.index);
 
+    try sema.declareDependency(.{ .interned = wip_ty.index });
+    try sema.addTypeReferenceEntry(src, wip_ty.index);
     wip_ty.prepare(ip, new_cau_index, new_namespace_index);
     wip_ty.setTagTy(ip, tag_ty.toIntern());
 
@@ -22182,7 +22210,11 @@ fn reifyUnion(
         } },
     })) {
         .wip => |wip| wip,
-        .existing => |ty| return Air.internedToRef(ty),
+        .existing => |ty| {
+            try sema.declareDependency(.{ .interned = ty });
+            try sema.addTypeReferenceEntry(src, ty);
+            return Air.internedToRef(ty);
+        },
     };
     errdefer wip_ty.cancel(ip, pt.tid);
 
@@ -22347,7 +22379,8 @@ fn reifyUnion(
         if (block.ownerModule().strip) break :codegen_type;
         try mod.comp.queueJob(.{ .codegen_type = wip_ty.index });
     }
-    try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .cau = new_cau_index }));
+    try sema.declareDependency(.{ .interned = wip_ty.index });
+    try sema.addTypeReferenceEntry(src, wip_ty.index);
     return Air.internedToRef(wip_ty.finish(ip, new_cau_index.toOptional(), new_namespace_index));
 }
 
@@ -22447,7 +22480,11 @@ fn reifyStruct(
         } },
     })) {
         .wip => |wip| wip,
-        .existing => |ty| return Air.internedToRef(ty),
+        .existing => |ty| {
+            try sema.declareDependency(.{ .interned = ty });
+            try sema.addTypeReferenceEntry(src, ty);
+            return Air.internedToRef(ty);
+        },
     };
     errdefer wip_ty.cancel(ip, pt.tid);
 
@@ -22625,7 +22662,8 @@ fn reifyStruct(
         if (block.ownerModule().strip) break :codegen_type;
         try mod.comp.queueJob(.{ .codegen_type = wip_ty.index });
     }
-    try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .cau = new_cau_index }));
+    try sema.declareDependency(.{ .interned = wip_ty.index });
+    try sema.addTypeReferenceEntry(src, wip_ty.index);
     return Air.internedToRef(wip_ty.finish(ip, new_cau_index.toOptional(), new_namespace_index));
 }
 
@@ -32229,6 +32267,18 @@ fn addReferenceEntry(
     // They aren't references in the analysis sense, but ought to show up in the reference trace!
     // Would representing inline calls in the reference table cause excessive memory usage?
     try zcu.addUnitReference(sema.owner, referenced_unit, src);
+}
+
+fn addTypeReferenceEntry(
+    sema: *Sema,
+    src: LazySrcLoc,
+    referenced_type: InternPool.Index,
+) !void {
+    const zcu = sema.pt.zcu;
+    if (zcu.comp.reference_trace == 0) return;
+    const gop = try sema.type_references.getOrPut(sema.gpa, referenced_type);
+    if (gop.found_existing) return;
+    try zcu.addTypeReference(sema.owner, referenced_type, src);
 }
 
 pub fn ensureNavResolved(sema: *Sema, src: LazySrcLoc, nav_index: InternPool.Nav.Index) CompileError!void {

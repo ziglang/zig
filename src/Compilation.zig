@@ -2264,13 +2264,19 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             }
         }
 
+        zcu.analysis_roots.resize(0) catch unreachable;
+
         try comp.queueJob(.{ .analyze_mod = std_mod });
+        zcu.analysis_roots.appendAssumeCapacity(std_mod);
+
         if (comp.config.is_test) {
             try comp.queueJob(.{ .analyze_mod = zcu.main_mod });
+            zcu.analysis_roots.appendAssumeCapacity(zcu.main_mod);
         }
 
         if (zcu.root_mod.deps.get("compiler_rt")) |compiler_rt_mod| {
             try comp.queueJob(.{ .analyze_mod = compiler_rt_mod });
+            zcu.analysis_roots.appendAssumeCapacity(compiler_rt_mod);
         }
     }
 
@@ -3059,6 +3065,9 @@ pub fn totalErrorCount(comp: *Compilation) u32 {
     if (comp.module) |zcu| {
         const ip = &zcu.intern_pool;
 
+        var all_references = try zcu.resolveReferences();
+        defer all_references.deinit(zcu.gpa);
+
         total += zcu.failed_exports.count();
         total += zcu.failed_embed_files.count();
 
@@ -3079,6 +3088,7 @@ pub fn totalErrorCount(comp: *Compilation) u32 {
         // the previous parse success, including compile errors, but we cannot
         // emit them until the file succeeds parsing.
         for (zcu.failed_analysis.keys()) |anal_unit| {
+            if (!all_references.contains(anal_unit)) continue;
             const file_index = switch (anal_unit.unwrap()) {
                 .cau => |cau| zcu.namespacePtr(ip.getCau(cau).namespace).file_scope,
                 .func => |ip_index| (zcu.funcInfo(ip_index).zir_body_inst.resolveFull(ip) orelse continue).file,
@@ -3113,12 +3123,6 @@ pub fn totalErrorCount(comp: *Compilation) u32 {
     if (total == 0) {
         if (comp.module) |zcu| {
             total += @intFromBool(zcu.compile_log_sources.count() != 0);
-        }
-    }
-
-    if (comp.module) |zcu| {
-        if (total == 0 and zcu.transitive_failed_analysis.count() > 0) {
-            @panic("Transitive analysis errors, but none actually emitted");
         }
     }
 
@@ -3167,11 +3171,12 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             .msg = try bundle.addString("memory allocation failure"),
         });
     }
+
+    var all_references = if (comp.module) |zcu| try zcu.resolveReferences() else undefined;
+    defer if (comp.module != null) all_references.deinit(gpa);
+
     if (comp.module) |zcu| {
         const ip = &zcu.intern_pool;
-
-        var all_references = try zcu.resolveReferences();
-        defer all_references.deinit(gpa);
 
         for (zcu.failed_files.keys(), zcu.failed_files.values()) |file, error_msg| {
             if (error_msg) |msg| {
@@ -3220,6 +3225,8 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             if (err) |e| return e;
         }
         for (zcu.failed_analysis.keys(), zcu.failed_analysis.values()) |anal_unit, error_msg| {
+            if (!all_references.contains(anal_unit)) continue;
+
             const file_index = switch (anal_unit.unwrap()) {
                 .cau => |cau| zcu.namespacePtr(ip.getCau(cau).namespace).file_scope,
                 .func => |ip_index| (zcu.funcInfo(ip_index).zir_body_inst.resolveFull(ip) orelse continue).file,
@@ -3313,9 +3320,6 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
 
     if (comp.module) |zcu| {
         if (bundle.root_list.items.len == 0 and zcu.compile_log_sources.count() != 0) {
-            var all_references = try zcu.resolveReferences();
-            defer all_references.deinit(gpa);
-
             const values = zcu.compile_log_sources.values();
             // First one will be the error; subsequent ones will be notes.
             const src_loc = values[0].src();
@@ -3338,6 +3342,17 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
     }
 
     assert(comp.totalErrorCount() == bundle.root_list.items.len);
+
+    if (comp.module) |zcu| {
+        if (bundle.root_list.items.len == 0) {
+            const should_have_error = for (zcu.transitive_failed_analysis.keys()) |failed_unit| {
+                if (all_references.contains(failed_unit)) break true;
+            } else false;
+            if (should_have_error) {
+                @panic("referenced transitive analysis errors, but none actually emitted");
+            }
+        }
+    }
 
     const compile_log_text = if (comp.module) |m| m.compile_log_text.items else "";
     return bundle.toOwnedBundle(compile_log_text);
@@ -3393,7 +3408,7 @@ pub fn addModuleErrorMsg(
     mod: *Zcu,
     eb: *ErrorBundle.Wip,
     module_err_msg: Zcu.ErrorMsg,
-    all_references: *const std.AutoHashMapUnmanaged(InternPool.AnalUnit, Zcu.ResolvedReference),
+    all_references: *const std.AutoHashMapUnmanaged(InternPool.AnalUnit, ?Zcu.ResolvedReference),
 ) !void {
     const gpa = eb.gpa;
     const ip = &mod.intern_pool;
@@ -3423,7 +3438,8 @@ pub fn addModuleErrorMsg(
         const max_references = mod.comp.reference_trace orelse Sema.default_reference_trace_len;
 
         var referenced_by = rt_root;
-        while (all_references.get(referenced_by)) |ref| {
+        while (all_references.get(referenced_by)) |maybe_ref| {
+            const ref = maybe_ref orelse break;
             const gop = try seen.getOrPut(gpa, ref.referencer);
             if (gop.found_existing) break;
             if (ref_traces.items.len < max_references) {

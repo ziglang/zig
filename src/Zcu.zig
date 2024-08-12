@@ -168,6 +168,10 @@ outdated_ready: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .{},
 /// it as outdated.
 retryable_failures: std.ArrayListUnmanaged(AnalUnit) = .{},
 
+/// These are the modules which we initially queue for analysis in `Compilation.update`.
+/// `resolveReferences` will use these as the root of its reachability traversal.
+analysis_roots: std.BoundedArray(*Package.Module, 3) = .{},
+
 stage1_flags: packed struct {
     have_winmain: bool = false,
     have_wwinmain: bool = false,
@@ -186,13 +190,23 @@ global_assembly: std.AutoArrayHashMapUnmanaged(InternPool.Cau.Index, []u8) = .{}
 
 /// Key is the `AnalUnit` *performing* the reference. This representation allows
 /// incremental updates to quickly delete references caused by a specific `AnalUnit`.
-/// Value is index into `all_reference` of the first reference triggered by the unit.
+/// Value is index into `all_references` of the first reference triggered by the unit.
 /// The `next` field on the `Reference` forms a linked list of all references
 /// triggered by the key `AnalUnit`.
 reference_table: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .{},
 all_references: std.ArrayListUnmanaged(Reference) = .{},
 /// Freelist of indices in `all_references`.
 free_references: std.ArrayListUnmanaged(u32) = .{},
+
+/// Key is the `AnalUnit` *performing* the reference. This representation allows
+/// incremental updates to quickly delete references caused by a specific `AnalUnit`.
+/// Value is index into `all_type_reference` of the first reference triggered by the unit.
+/// The `next` field on the `TypeReference` forms a linked list of all type references
+/// triggered by the key `AnalUnit`.
+type_reference_table: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .{},
+all_type_references: std.ArrayListUnmanaged(TypeReference) = .{},
+/// Freelist of indices in `all_type_references`.
+free_type_references: std.ArrayListUnmanaged(u32) = .{},
 
 panic_messages: [PanicId.len]InternPool.Nav.Index.Optional = .{.none} ** PanicId.len,
 /// The panic function body.
@@ -296,6 +310,16 @@ pub const Reference = struct {
     /// The `AnalUnit` whose semantic analysis was triggered by this reference.
     referenced: AnalUnit,
     /// Index into `all_references` of the next `Reference` triggered by the same `AnalUnit`.
+    /// `std.math.maxInt(u32)` is the sentinel.
+    next: u32,
+    /// The source location of the reference.
+    src: LazySrcLoc,
+};
+
+pub const TypeReference = struct {
+    /// The container type which was referenced.
+    referenced: InternPool.Index,
+    /// Index into `all_type_references` of the next `TypeReference` triggered by the same `AnalUnit`.
     /// `std.math.maxInt(u32)` is the sentinel.
     next: u32,
     /// The source location of the reference.
@@ -2155,6 +2179,10 @@ pub fn deinit(zcu: *Zcu) void {
     zcu.all_references.deinit(gpa);
     zcu.free_references.deinit(gpa);
 
+    zcu.type_reference_table.deinit(gpa);
+    zcu.all_type_references.deinit(gpa);
+    zcu.free_type_references.deinit(gpa);
+
     zcu.intern_pool.deinit(gpa);
 }
 
@@ -2660,16 +2688,32 @@ pub fn deleteUnitExports(zcu: *Zcu, anal_unit: AnalUnit) void {
 pub fn deleteUnitReferences(zcu: *Zcu, anal_unit: AnalUnit) void {
     const gpa = zcu.gpa;
 
-    const kv = zcu.reference_table.fetchSwapRemove(anal_unit) orelse return;
-    var idx = kv.value;
+    unit_refs: {
+        const kv = zcu.reference_table.fetchSwapRemove(anal_unit) orelse return;
+        var idx = kv.value;
 
-    while (idx != std.math.maxInt(u32)) {
-        zcu.free_references.append(gpa, idx) catch {
-            // This space will be reused eventually, so we need not propagate this error.
-            // Just leak it for now, and let GC reclaim it later on.
-            return;
-        };
-        idx = zcu.all_references.items[idx].next;
+        while (idx != std.math.maxInt(u32)) {
+            zcu.free_references.append(gpa, idx) catch {
+                // This space will be reused eventually, so we need not propagate this error.
+                // Just leak it for now, and let GC reclaim it later on.
+                break :unit_refs;
+            };
+            idx = zcu.all_references.items[idx].next;
+        }
+    }
+
+    type_refs: {
+        const kv = zcu.type_reference_table.fetchSwapRemove(anal_unit) orelse return;
+        var idx = kv.value;
+
+        while (idx != std.math.maxInt(u32)) {
+            zcu.free_type_references.append(gpa, idx) catch {
+                // This space will be reused eventually, so we need not propagate this error.
+                // Just leak it for now, and let GC reclaim it later on.
+                break :type_refs;
+            };
+            idx = zcu.all_type_references.items[idx].next;
+        }
     }
 }
 
@@ -2689,6 +2733,29 @@ pub fn addUnitReference(zcu: *Zcu, src_unit: AnalUnit, referenced_unit: AnalUnit
 
     zcu.all_references.items[ref_idx] = .{
         .referenced = referenced_unit,
+        .next = if (gop.found_existing) gop.value_ptr.* else std.math.maxInt(u32),
+        .src = ref_src,
+    };
+
+    gop.value_ptr.* = @intCast(ref_idx);
+}
+
+pub fn addTypeReference(zcu: *Zcu, src_unit: AnalUnit, referenced_type: InternPool.Index, ref_src: LazySrcLoc) Allocator.Error!void {
+    const gpa = zcu.gpa;
+
+    try zcu.type_reference_table.ensureUnusedCapacity(gpa, 1);
+
+    const ref_idx = zcu.free_type_references.popOrNull() orelse idx: {
+        _ = try zcu.all_type_references.addOne(gpa);
+        break :idx zcu.all_type_references.items.len - 1;
+    };
+
+    errdefer comptime unreachable;
+
+    const gop = zcu.type_reference_table.getOrPutAssumeCapacity(src_unit);
+
+    zcu.all_type_references.items[ref_idx] = .{
+        .referenced = referenced_type,
         .next = if (gop.found_existing) gop.value_ptr.* else std.math.maxInt(u32),
         .src = ref_src,
     };
@@ -2990,28 +3057,175 @@ pub const ResolvedReference = struct {
 };
 
 /// Returns a mapping from an `AnalUnit` to where it is referenced.
-/// TODO: in future, this must be adapted to traverse from roots of analysis. That way, we can
-/// use the returned map to determine which units have become unreferenced in an incremental update.
-pub fn resolveReferences(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ResolvedReference) {
+/// If the value is `null`, the `AnalUnit` is a root of analysis.
+/// If an `AnalUnit` is not in the returned map, it is unreferenced.
+pub fn resolveReferences(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) {
     const gpa = zcu.gpa;
+    const comp = zcu.comp;
+    const ip = &zcu.intern_pool;
 
-    var result: std.AutoHashMapUnmanaged(AnalUnit, ResolvedReference) = .{};
+    var result: std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) = .{};
     errdefer result.deinit(gpa);
+
+    var checked_types: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .{};
+    var type_queue: std.AutoArrayHashMapUnmanaged(InternPool.Index, ?ResolvedReference) = .{};
+    var unit_queue: std.AutoArrayHashMapUnmanaged(AnalUnit, ?ResolvedReference) = .{};
+    defer {
+        checked_types.deinit(gpa);
+        type_queue.deinit(gpa);
+        unit_queue.deinit(gpa);
+    }
 
     // This is not a sufficient size, but a lower bound.
     try result.ensureTotalCapacity(gpa, @intCast(zcu.reference_table.count()));
 
-    for (zcu.reference_table.keys(), zcu.reference_table.values()) |referencer, first_ref_idx| {
-        assert(first_ref_idx != std.math.maxInt(u32));
-        var ref_idx = first_ref_idx;
-        while (ref_idx != std.math.maxInt(u32)) {
-            const ref = zcu.all_references.items[ref_idx];
-            const gop = try result.getOrPut(gpa, ref.referenced);
-            if (!gop.found_existing) {
-                gop.value_ptr.* = .{ .referencer = referencer, .src = ref.src };
+    try type_queue.ensureTotalCapacity(gpa, zcu.analysis_roots.len);
+    for (zcu.analysis_roots.slice()) |mod| {
+        // Logic ripped from `Zcu.PerThread.importPkg`.
+        // TODO: this is silly, `Module` should just store a reference to its root `File`.
+        const resolved_path = try std.fs.path.resolve(gpa, &.{
+            mod.root.root_dir.path orelse ".",
+            mod.root.sub_path,
+            mod.root_src_path,
+        });
+        defer gpa.free(resolved_path);
+        const file = zcu.import_table.get(resolved_path).?;
+        if (zcu.fileByIndex(file).status != .success_zir) continue;
+        const root_ty = zcu.fileRootType(file);
+        if (root_ty == .none) continue;
+        type_queue.putAssumeCapacityNoClobber(root_ty, null);
+    }
+
+    while (true) {
+        if (type_queue.popOrNull()) |kv| {
+            const ty = kv.key;
+            const referencer = kv.value;
+            try checked_types.putNoClobber(gpa, ty, {});
+
+            // If this type has a `Cau` for resolution, it's automatically referenced.
+            const resolution_cau: InternPool.Cau.Index.Optional = switch (ip.indexToKey(ty)) {
+                .struct_type => ip.loadStructType(ty).cau,
+                .union_type => ip.loadUnionType(ty).cau.toOptional(),
+                .enum_type => ip.loadEnumType(ty).cau,
+                .opaque_type => .none,
+                else => unreachable,
+            };
+            if (resolution_cau.unwrap()) |cau| {
+                // this should only be referenced by the type
+                const unit = AnalUnit.wrap(.{ .cau = cau });
+                assert(!result.contains(unit));
+                try unit_queue.putNoClobber(gpa, unit, referencer);
             }
-            ref_idx = ref.next;
+
+            // If this is a union with a generated tag, its tag type is automatically referenced.
+            // We don't add this reference for non-generated tags, as those will already be referenced via the union's `Cau`, with a better source location.
+            if (zcu.typeToUnion(Type.fromInterned(ty))) |union_obj| {
+                const tag_ty = union_obj.enum_tag_ty;
+                if (tag_ty != .none) {
+                    if (ip.indexToKey(tag_ty).enum_type == .generated_tag) {
+                        if (!checked_types.contains(tag_ty)) {
+                            try type_queue.put(gpa, tag_ty, referencer);
+                        }
+                    }
+                }
+            }
+
+            // Queue any decls within this type which would be automatically analyzed.
+            // Keep in sync with analysis queueing logic in `Zcu.PerThread.ScanDeclIter.scanDecl`.
+            const ns = Type.fromInterned(ty).getNamespace(zcu).unwrap() orelse continue;
+            for (zcu.namespacePtr(ns).other_decls.items) |cau| {
+                // These are `comptime` and `test` declarations.
+                // `comptime` decls are always analyzed; `test` declarations are analyzed depending on the test filter.
+                const inst_info = ip.getCau(cau).zir_index.resolveFull(ip) orelse continue;
+                const file = zcu.fileByIndex(inst_info.file);
+                const zir = file.zir;
+                const declaration = zir.getDeclaration(inst_info.inst)[0];
+                const want_analysis = switch (declaration.name) {
+                    .@"usingnamespace" => unreachable,
+                    .@"comptime" => true,
+                    else => a: {
+                        if (!comp.config.is_test) break :a false;
+                        if (file.mod != zcu.main_mod) break :a false;
+                        if (declaration.name.isNamedTest(zir) or declaration.name == .decltest) {
+                            const nav = ip.getCau(cau).owner.unwrap().nav;
+                            const fqn_slice = ip.getNav(nav).fqn.toSlice(ip);
+                            for (comp.test_filters) |test_filter| {
+                                if (std.mem.indexOf(u8, fqn_slice, test_filter) != null) break;
+                            } else break :a false;
+                        }
+                        break :a true;
+                    },
+                };
+                if (want_analysis) {
+                    const unit = AnalUnit.wrap(.{ .cau = cau });
+                    if (!result.contains(unit)) try unit_queue.put(gpa, unit, referencer);
+                }
+            }
+            for (zcu.namespacePtr(ns).pub_decls.keys()) |nav| {
+                // These are named declarations. They are analyzed only if marked `export`.
+                const cau = ip.getNav(nav).analysis_owner.unwrap().?;
+                const inst_info = ip.getCau(cau).zir_index.resolveFull(ip) orelse continue;
+                const declaration = zcu.fileByIndex(inst_info.file).zir.getDeclaration(inst_info.inst)[0];
+                if (declaration.flags.is_export) {
+                    const unit = AnalUnit.wrap(.{ .cau = cau });
+                    if (!result.contains(unit)) try unit_queue.put(gpa, unit, referencer);
+                }
+            }
+            for (zcu.namespacePtr(ns).priv_decls.keys()) |nav| {
+                // These are named declarations. They are analyzed only if marked `export`.
+                const cau = ip.getNav(nav).analysis_owner.unwrap().?;
+                const inst_info = ip.getCau(cau).zir_index.resolveFull(ip) orelse continue;
+                const declaration = zcu.fileByIndex(inst_info.file).zir.getDeclaration(inst_info.inst)[0];
+                if (declaration.flags.is_export) {
+                    const unit = AnalUnit.wrap(.{ .cau = cau });
+                    if (!result.contains(unit)) try unit_queue.put(gpa, unit, referencer);
+                }
+            }
+            // Incremental compilation does not support `usingnamespace`.
+            // These are only included to keep good reference traces in non-incremental updates.
+            for (zcu.namespacePtr(ns).pub_usingnamespace.items) |nav| {
+                const cau = ip.getNav(nav).analysis_owner.unwrap().?;
+                const unit = AnalUnit.wrap(.{ .cau = cau });
+                if (!result.contains(unit)) try unit_queue.put(gpa, unit, referencer);
+            }
+            for (zcu.namespacePtr(ns).priv_usingnamespace.items) |nav| {
+                const cau = ip.getNav(nav).analysis_owner.unwrap().?;
+                const unit = AnalUnit.wrap(.{ .cau = cau });
+                if (!result.contains(unit)) try unit_queue.put(gpa, unit, referencer);
+            }
+            continue;
         }
+        if (unit_queue.popOrNull()) |kv| {
+            const unit = kv.key;
+            try result.putNoClobber(gpa, unit, kv.value);
+
+            if (zcu.reference_table.get(unit)) |first_ref_idx| {
+                assert(first_ref_idx != std.math.maxInt(u32));
+                var ref_idx = first_ref_idx;
+                while (ref_idx != std.math.maxInt(u32)) {
+                    const ref = zcu.all_references.items[ref_idx];
+                    if (!result.contains(ref.referenced)) try unit_queue.put(gpa, ref.referenced, .{
+                        .referencer = unit,
+                        .src = ref.src,
+                    });
+                    ref_idx = ref.next;
+                }
+            }
+            if (zcu.type_reference_table.get(unit)) |first_ref_idx| {
+                assert(first_ref_idx != std.math.maxInt(u32));
+                var ref_idx = first_ref_idx;
+                while (ref_idx != std.math.maxInt(u32)) {
+                    const ref = zcu.all_type_references.items[ref_idx];
+                    if (!checked_types.contains(ref.referenced)) try type_queue.put(gpa, ref.referenced, .{
+                        .referencer = unit,
+                        .src = ref.src,
+                    });
+                    ref_idx = ref.next;
+                }
+            }
+            continue;
+        }
+        break;
     }
 
     return result;
