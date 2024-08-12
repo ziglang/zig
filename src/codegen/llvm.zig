@@ -11767,7 +11767,9 @@ fn backendSupportsF16(target: std.Target) bool {
 /// or if it produces miscompilations.
 fn backendSupportsF128(target: std.Target) bool {
     return switch (target.cpu.arch) {
-        .amdgcn => false,
+        .amdgcn,
+        .sparc,
+        => false,
         .aarch64 => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
         else => true,
     };
