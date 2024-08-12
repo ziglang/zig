@@ -750,8 +750,8 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) RelocError!voi
         const S = target.address(.{}, elf_file);
         // Address of the global offset table.
         const GOT = elf_file.gotAddress();
-        // Address of the offset table entry if any.
-        const ZIG_GOT = target.zigOffsetTableAddress(elf_file);
+        // Address of the zig jump table entry if any.
+        const ZJT = target.zigJumpTableAddress(elf_file);
         // Relative offset to the start of the global offset table.
         const G = target.gotAddress(elf_file) - GOT;
         // // Address of the thread pointer.
@@ -759,19 +759,19 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) RelocError!voi
         // Address of the dynamic thread pointer.
         const DTP = elf_file.dtpAddress();
 
-        relocs_log.debug("  {s}: {x}: [{x} => {x}] G({x}) ZG({x}) ({s})", .{
+        relocs_log.debug("  {s}: {x}: [{x} => {x}] GOT({x}) ZJT({x}) ({s})", .{
             relocation.fmtRelocType(rel.r_type(), cpu_arch),
             r_offset,
             P,
             S + A,
             G + GOT + A,
-            ZIG_GOT + A,
+            ZJT + A,
             target.name(elf_file),
         });
 
         try stream.seekTo(r_offset);
 
-        const args = ResolveArgs{ P, A, S, GOT, G, TP, DTP, ZIG_GOT };
+        const args = ResolveArgs{ P, A, S, GOT, G, TP, DTP, ZJT };
 
         switch (cpu_arch) {
             .x86_64 => x86_64.resolveRelocAlloc(self, elf_file, rel, target, args, &it, code, &stream) catch |err| switch (err) {
@@ -1200,7 +1200,7 @@ const x86_64 = struct {
 
         const cwriter = stream.writer();
 
-        const P, const A, const S, const GOT, const G, const TP, const DTP, const ZIG_GOT = args;
+        const P, const A, const S, const GOT, const G, const TP, const DTP, const ZJT = args;
 
         switch (r_type) {
             .NONE => unreachable,
@@ -1218,7 +1218,7 @@ const x86_64 = struct {
             .PLT32 => try cwriter.writeInt(i32, @as(i32, @intCast(S + A - P)), .little),
 
             .PC32 => {
-                const S_ = if (target.flags.zig_offset_table) ZIG_GOT else S;
+                const S_ = if (target.flags.zig_jump_table) ZJT else S;
                 try cwriter.writeInt(i32, @as(i32, @intCast(S_ + A - P)), .little);
             },
 
@@ -1245,7 +1245,7 @@ const x86_64 = struct {
             },
 
             .@"32" => {
-                const S_ = if (target.flags.zig_offset_table) ZIG_GOT else S;
+                const S_ = if (target.flags.zig_jump_table) ZJT else S;
                 try cwriter.writeInt(u32, @as(u32, @truncate(@as(u64, @intCast(S_ + A)))), .little);
             },
             .@"32S" => try cwriter.writeInt(i32, @as(i32, @truncate(S + A)), .little),
@@ -1729,9 +1729,9 @@ const aarch64 = struct {
         const code = code_buffer[r_offset..][0..4];
         const file_ptr = atom.file(elf_file).?;
 
-        const P, const A, const S, const GOT, const G, const TP, const DTP, const ZIG_GOT = args;
+        const P, const A, const S, const GOT, const G, const TP, const DTP, const ZJT = args;
         _ = DTP;
-        _ = ZIG_GOT;
+        _ = ZJT;
 
         switch (r_type) {
             .NONE => unreachable,
@@ -2013,10 +2013,10 @@ const riscv = struct {
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
         const cwriter = stream.writer();
 
-        const P, const A, const S, const GOT, const G, const TP, const DTP, const ZIG_GOT = args;
+        const P, const A, const S, const GOT, const G, const TP, const DTP, const ZJT = args;
         _ = TP;
         _ = DTP;
-        _ = ZIG_GOT;
+        _ = ZJT;
 
         switch (r_type) {
             .NONE => unreachable,

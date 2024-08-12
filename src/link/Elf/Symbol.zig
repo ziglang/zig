@@ -217,12 +217,12 @@ pub fn tlsDescAddress(symbol: Symbol, elf_file: *Elf) i64 {
     return entry.address(elf_file);
 }
 
-pub fn zigOffsetTableAddress(symbol: Symbol, elf_file: *Elf) i64 {
-    if (!symbol.flags.zig_offset_table) return 0;
+pub fn zigJumpTableAddress(symbol: Symbol, elf_file: *Elf) i64 {
+    if (!symbol.flags.zig_jump_table) return 0;
     const zo = elf_file.zigObjectPtr().?;
-    const offset_table = zo.offsetTablePtr().?;
-    const ot_index = symbol.extra(elf_file).zig_offset_table;
-    return offset_table.entryAddress(ot_index, zo, elf_file);
+    const jump_table = zo.jumpTablePtr().?;
+    const jt_index = symbol.extra(elf_file).zig_jump_table;
+    return jump_table.entryAddress(jt_index, zo, elf_file);
 }
 
 pub fn dsoAlignment(symbol: Symbol, elf_file: *Elf) !u64 {
@@ -248,7 +248,7 @@ const AddExtraOpts = struct {
     tlsgd: ?u32 = null,
     gottp: ?u32 = null,
     tlsdesc: ?u32 = null,
-    zig_offset_table: ?u32 = null,
+    zig_jump_table: ?u32 = null,
 };
 
 pub fn addExtra(symbol: *Symbol, opts: AddExtraOpts, elf_file: *Elf) void {
@@ -453,8 +453,8 @@ pub const Flags = packed struct {
     /// Whether the symbol is a merge subsection.
     merge_subsection: bool = false,
 
-    /// Whether the symbol has __zig_offset_table indirection.
-    zig_offset_table: bool = false,
+    /// Whether the symbol has __zig_jump_table indirection.
+    zig_jump_table: bool = false,
 };
 
 pub const Extra = struct {
@@ -468,7 +468,7 @@ pub const Extra = struct {
     gottp: u32 = 0,
     tlsdesc: u32 = 0,
     merge_section: u32 = 0,
-    zig_offset_table: u32 = 0,
+    zig_jump_table: u32 = 0,
 };
 
 pub const Index = u32;

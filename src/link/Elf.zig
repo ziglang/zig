@@ -5599,8 +5599,8 @@ fn fmtDumpState(
             zig_object.fmtAtoms(self),
             zig_object.fmtSymtab(self),
         });
-        if (zig_object.offset_table) |ot| {
-            try writer.print("{}", .{ot.fmt(zig_object, self)});
+        if (zig_object.jump_table) |jt| {
+            try writer.print("{}", .{jt.fmt(zig_object, self)});
         }
         try writer.writeByte('\n');
     }

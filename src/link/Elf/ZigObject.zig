@@ -55,10 +55,10 @@ debug_str_section_zig_size: u64 = 0,
 debug_aranges_section_zig_size: u64 = 0,
 debug_line_section_zig_size: u64 = 0,
 
-/// Function offset table containing pointers to Zig generated functions.
+/// Function jump table containing trampolines to Zcu functions.
 /// The table is used for Zig's incremental compilation and is embedded with
 /// the machine code section.
-offset_table: ?OffsetTable = null,
+jump_table: ?JumpTable = null,
 
 pub const global_symbol_bit: u32 = 0x80000000;
 pub const symbol_mask: u32 = 0x7fffffff;
@@ -128,8 +128,8 @@ pub fn deinit(self: *ZigObject, allocator: Allocator) void {
         dw.deinit();
     }
 
-    if (self.offset_table) |*ot| {
-        ot.deinit(allocator);
+    if (self.jump_table) |*jt| {
+        jt.deinit(allocator);
     }
 }
 
@@ -917,8 +917,8 @@ fn updateNavCode(
 
                 if (stt_bits == elf.STT_FUNC) {
                     const extra = sym.extra(elf_file);
-                    const offset_table = self.offsetTablePtr().?;
-                    offset_table.entries.items(.dirty)[extra.zig_offset_table] = true;
+                    const jump_table = self.jumpTablePtr().?;
+                    jump_table.entries.items(.dirty)[extra.zig_jump_table] = true;
                 }
             }
         } else if (code.len < old_size) {
@@ -1036,7 +1036,7 @@ pub fn updateFunc(
     const ip = &zcu.intern_pool;
     const gpa = elf_file.base.comp.gpa;
     const func = zcu.funcInfo(func_index);
-    const offset_table = self.offsetTablePtr() orelse try self.initOffsetTable(gpa, elf_file);
+    const jump_table = self.jumpTablePtr() orelse try self.initJumpTable(gpa, elf_file);
 
     log.debug("updateFunc {}({d})", .{ ip.getNav(func.owner_nav).fqn.fmt(ip), func.owner_nav });
 
@@ -1045,16 +1045,16 @@ pub fn updateFunc(
 
     {
         const sym = self.symbol(sym_index);
-        if (!sym.flags.zig_offset_table) {
-            const index = try offset_table.addSymbol(gpa, sym_index);
-            sym.flags.zig_offset_table = true;
-            sym.addExtra(.{ .zig_offset_table = index }, elf_file);
-            try offset_table.updateSize(self, elf_file);
-            const old_vaddr = offset_table.address(self, elf_file);
-            try self.symbol(offset_table.sym_index).atom(elf_file).?.allocate(elf_file);
-            const new_vaddr = offset_table.address(self, elf_file);
+        if (!sym.flags.zig_jump_table) {
+            const index = try jump_table.addSymbol(gpa, sym_index);
+            sym.flags.zig_jump_table = true;
+            sym.addExtra(.{ .zig_jump_table = index }, elf_file);
+            try jump_table.updateSize(self, elf_file);
+            const old_vaddr = jump_table.address(self, elf_file);
+            try self.symbol(jump_table.sym_index).atom(elf_file).?.allocate(elf_file);
+            const new_vaddr = jump_table.address(self, elf_file);
             if (old_vaddr != new_vaddr) {
-                offset_table.dirty = true;
+                jump_table.dirty = true;
             }
         }
     }
@@ -1100,21 +1100,21 @@ pub fn updateFunc(
 
     // Exports will be updated by `Zcu.processExports` after the update.
 
-    if (offset_table.dirty) {
+    if (jump_table.dirty) {
         // TODO write in bulk
-        for (offset_table.entries.items(.dirty), 0..) |*dirty, i| {
-            try offset_table.writeEntry(@intCast(i), self, elf_file);
+        for (jump_table.entries.items(.dirty), 0..) |*dirty, i| {
+            try jump_table.writeEntry(@intCast(i), self, elf_file);
             dirty.* = false;
         }
     } else {
         const sym = self.symbol(sym_index);
-        const ot_index = sym.extra(elf_file).zig_offset_table;
-        var ot_entry = offset_table.entries.get(ot_index);
-        if (ot_entry.dirty) {
-            try offset_table.writeEntry(ot_index, self, elf_file);
-            ot_entry.dirty = false;
+        const jt_index = sym.extra(elf_file).zig_jump_table;
+        var jt_entry = jump_table.entries.get(jt_index);
+        if (jt_entry.dirty) {
+            try jump_table.writeEntry(jt_index, self, elf_file);
+            jt_entry.dirty = false;
         }
-        offset_table.entries.set(ot_index, ot_entry);
+        jump_table.entries.set(jt_index, jt_entry);
     }
 }
 
@@ -1470,22 +1470,22 @@ pub fn getGlobalSymbol(self: *ZigObject, elf_file: *Elf, name: []const u8, lib_n
     return lookup_gop.value_ptr.*;
 }
 
-pub fn offsetTablePtr(self: *ZigObject) ?*OffsetTable {
-    return if (self.offset_table) |*ot| ot else null;
+pub fn jumpTablePtr(self: *ZigObject) ?*JumpTable {
+    return if (self.jump_table) |*jt| jt else null;
 }
 
-fn initOffsetTable(self: *ZigObject, allocator: Allocator, elf_file: *Elf) error{OutOfMemory}!*OffsetTable {
-    const name_off = try self.addString(allocator, "__zig_offset_table");
+fn initJumpTable(self: *ZigObject, allocator: Allocator, elf_file: *Elf) error{OutOfMemory}!*JumpTable {
+    const name_off = try self.addString(allocator, "__zig_jump_table");
     const sym_index = try self.newSymbolWithAtom(allocator, name_off);
     const sym = self.symbol(sym_index);
     const esym = &self.symtab.items(.elf_sym)[sym.esym_index];
     esym.st_info |= elf.STT_OBJECT;
     const atom_ptr = sym.atom(elf_file).?;
     atom_ptr.alive = true;
-    atom_ptr.alignment = Atom.Alignment.fromNonzeroByteUnits(OffsetTable.alignment(elf_file.getTarget().cpu.arch));
+    atom_ptr.alignment = Atom.Alignment.fromNonzeroByteUnits(JumpTable.alignment(elf_file.getTarget().cpu.arch));
     atom_ptr.output_section_index = elf_file.zig_text_section_index.?;
-    self.offset_table = OffsetTable{ .sym_index = sym_index };
-    return &(self.offset_table.?);
+    self.jump_table = JumpTable{ .sym_index = sym_index };
+    return &(self.jump_table.?);
 }
 
 pub fn asFile(self: *ZigObject) File {
@@ -1763,28 +1763,28 @@ const UavTable = std.AutoArrayHashMapUnmanaged(InternPool.Index, AvMetadata);
 const LazySymbolTable = std.AutoArrayHashMapUnmanaged(InternPool.Index, LazySymbolMetadata);
 const TlsTable = std.AutoArrayHashMapUnmanaged(Atom.Index, TlsVariable);
 
-pub const OffsetTable = struct {
+pub const JumpTable = struct {
     sym_index: Symbol.Index,
     entries: std.MultiArrayList(Entry) = .{},
     dirty: bool = false,
 
-    pub fn deinit(ot: *OffsetTable, allocator: Allocator) void {
-        ot.entries.deinit(allocator);
+    pub fn deinit(jt: *JumpTable, allocator: Allocator) void {
+        jt.entries.deinit(allocator);
     }
 
-    pub fn addSymbol(ot: *OffsetTable, allocator: Allocator, sym_index: Symbol.Index) !Index {
-        const index: Index = @intCast(try ot.entries.addOne(allocator));
-        ot.entries.set(index, .{ .sym_index = sym_index });
+    pub fn addSymbol(jt: *JumpTable, allocator: Allocator, sym_index: Symbol.Index) !Index {
+        const index: Index = @intCast(try jt.entries.addOne(allocator));
+        jt.entries.set(index, .{ .sym_index = sym_index });
         return index;
     }
 
-    pub fn address(ot: OffsetTable, zo: *ZigObject, elf_file: *Elf) i64 {
-        const sym = zo.symbol(ot.sym_index);
+    pub fn address(jt: JumpTable, zo: *ZigObject, elf_file: *Elf) i64 {
+        const sym = zo.symbol(jt.sym_index);
         return sym.address(.{}, elf_file);
     }
 
-    pub fn size(ot: OffsetTable, zo: *ZigObject, elf_file: *Elf) u64 {
-        const sym = zo.symbol(ot.sym_index);
+    pub fn size(jt: JumpTable, zo: *ZigObject, elf_file: *Elf) u64 {
+        const sym = zo.symbol(jt.sym_index);
         return sym.atom(elf_file).?.size;
     }
 
@@ -1795,12 +1795,12 @@ pub const OffsetTable = struct {
         };
     }
 
-    pub fn entryAddress(ot: OffsetTable, index: Index, zo: *ZigObject, elf_file: *Elf) i64 {
-        return ot.address(zo, elf_file) + @as(i64, @intCast(index * entrySize(elf_file.getTarget().cpu.arch)));
+    pub fn entryAddress(jt: JumpTable, index: Index, zo: *ZigObject, elf_file: *Elf) i64 {
+        return jt.address(zo, elf_file) + @as(i64, @intCast(index * entrySize(elf_file.getTarget().cpu.arch)));
     }
 
-    pub fn entryOffset(ot: OffsetTable, index: Index, zo: *ZigObject, elf_file: *Elf) u64 {
-        const sym = zo.symbol(ot.sym_index);
+    pub fn entryOffset(jt: JumpTable, index: Index, zo: *ZigObject, elf_file: *Elf) u64 {
+        const sym = zo.symbol(jt.sym_index);
         const atom_ptr = sym.atom(elf_file).?;
         const shdr = elf_file.shdrs.items[atom_ptr.output_section_index];
         return shdr.sh_offset + @as(u64, @intCast(atom_ptr.value)) + index * entrySize(elf_file.getTarget().cpu.arch);
@@ -1815,17 +1815,17 @@ pub const OffsetTable = struct {
         return seq_len;
     }
 
-    pub fn targetAddress(ot: OffsetTable, index: Index, zo: *ZigObject, elf_file: *Elf) i64 {
-        const sym_index = ot.entries.items(.sym_index)[index];
+    pub fn targetAddress(jt: JumpTable, index: Index, zo: *ZigObject, elf_file: *Elf) i64 {
+        const sym_index = jt.entries.items(.sym_index)[index];
         return zo.symbol(sym_index).address(.{}, elf_file);
     }
 
     const max_jump_seq_len = 12;
 
-    pub fn writeEntry(ot: OffsetTable, index: Index, zo: *ZigObject, elf_file: *Elf) !void {
-        const fileoff = ot.entryOffset(index, zo, elf_file);
-        const source_addr = ot.entryAddress(index, zo, elf_file);
-        const target_addr = @as(i64, @intCast(ot.targetAddress(index, zo, elf_file)));
+    pub fn writeEntry(jt: JumpTable, index: Index, zo: *ZigObject, elf_file: *Elf) !void {
+        const fileoff = jt.entryOffset(index, zo, elf_file);
+        const source_addr = jt.entryAddress(index, zo, elf_file);
+        const target_addr = @as(i64, @intCast(jt.targetAddress(index, zo, elf_file)));
         var buf: [max_jump_seq_len]u8 = undefined;
         const out = switch (elf_file.getTarget().cpu.arch) {
             .x86_64 => try x86_64.writeEntry(source_addr, target_addr, &buf),
@@ -1855,46 +1855,46 @@ pub const OffsetTable = struct {
         }
     }
 
-    pub fn updateSize(ot: OffsetTable, zo: *ZigObject, elf_file: *Elf) !void {
-        const ot_size: u64 = @intCast(ot.entries.items(.sym_index).len * entrySize(elf_file.getTarget().cpu.arch));
-        const sym = zo.symbol(ot.sym_index);
+    pub fn updateSize(jt: JumpTable, zo: *ZigObject, elf_file: *Elf) !void {
+        const jt_size: u64 = @intCast(jt.entries.items(.sym_index).len * entrySize(elf_file.getTarget().cpu.arch));
+        const sym = zo.symbol(jt.sym_index);
         const esym = &zo.symtab.items(.elf_sym)[sym.esym_index];
-        esym.st_size = ot_size;
+        esym.st_size = jt_size;
         const atom_ptr = sym.atom(elf_file).?;
-        atom_ptr.size = ot_size;
+        atom_ptr.size = jt_size;
     }
 
-    const OffsetTableFormatContext = struct { OffsetTable, *ZigObject, *Elf };
+    const JumpTableFormatContext = struct { JumpTable, *ZigObject, *Elf };
 
     pub fn format(
-        ot: OffsetTable,
+        jt: JumpTable,
         comptime unused_fmt_string: []const u8,
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        _ = ot;
+        _ = jt;
         _ = unused_fmt_string;
         _ = options;
         _ = writer;
-        @compileError("do not format OffsetTable directly");
+        @compileError("do not format JumpTable directly");
     }
 
-    pub fn fmt(ot: OffsetTable, zo: *ZigObject, elf_file: *Elf) std.fmt.Formatter(format2) {
-        return .{ .data = .{ ot, zo, elf_file } };
+    pub fn fmt(jt: JumpTable, zo: *ZigObject, elf_file: *Elf) std.fmt.Formatter(format2) {
+        return .{ .data = .{ jt, zo, elf_file } };
     }
 
     fn format2(
-        ctx: OffsetTableFormatContext,
+        ctx: JumpTableFormatContext,
         comptime unused_fmt_string: []const u8,
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
         _ = options;
         _ = unused_fmt_string;
-        const ot, const zo, const ef = ctx;
-        try writer.writeAll("offset table\n");
-        try writer.print("  @{x} : size({x})\n", .{ ot.address(zo, ef), ot.size(zo, ef) });
-        for (ot.entries.items(.sym_index), ot.entries.items(.dirty)) |sym_index, dirty| {
+        const jt, const zo, const ef = ctx;
+        try writer.writeAll("__zig_jump_table\n");
+        try writer.print("  @{x} : size({x})\n", .{ jt.address(zo, ef), jt.size(zo, ef) });
+        for (jt.entries.items(.sym_index), jt.entries.items(.dirty)) |sym_index, dirty| {
             const sym = zo.symbol(sym_index);
             try writer.print("    %{d} : {s} : @{x}", .{ sym_index, sym.name(ef), sym.address(.{}, ef) });
             if (dirty) try writer.writeAll(" : [!]");
