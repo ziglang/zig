@@ -451,8 +451,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
 
         /// Invalidates all element pointers.
         pub fn clearAndFree(self: *Self) void {
-            self.pointer_stability.lock();
-            self.pointer_stability.unlock();
+            self.pointer_stability.assertUnlocked();
 
             self.allocator.free(self.allocatedSlice());
             self.items.len = 0;
