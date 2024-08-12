@@ -7,8 +7,6 @@ const BigIntMutable = std.math.big.int.Mutable;
 const Target = std.Target;
 const Allocator = std.mem.Allocator;
 const Zcu = @import("Zcu.zig");
-/// Deprecated.
-const Module = Zcu;
 const Sema = @import("Sema.zig");
 const InternPool = @import("InternPool.zig");
 const print_value = @import("print_value.zig");
@@ -193,7 +191,7 @@ pub fn toBigIntAdvanced(
     comptime strat: ResolveStrat,
     zcu: *Zcu,
     tid: strat.Tid(),
-) Module.CompileError!BigIntConst {
+) Zcu.CompileError!BigIntConst {
     return switch (val.toIntern()) {
         .bool_false => BigIntMutable.init(&space.limbs, 0).toConst(),
         .bool_true => BigIntMutable.init(&space.limbs, 1).toConst(),
@@ -221,18 +219,18 @@ pub fn toBigIntAdvanced(
     };
 }
 
-pub fn isFuncBody(val: Value, zcu: *Module) bool {
+pub fn isFuncBody(val: Value, zcu: *Zcu) bool {
     return zcu.intern_pool.isFuncBody(val.toIntern());
 }
 
-pub fn getFunction(val: Value, zcu: *Module) ?InternPool.Key.Func {
+pub fn getFunction(val: Value, zcu: *Zcu) ?InternPool.Key.Func {
     return switch (zcu.intern_pool.indexToKey(val.toIntern())) {
         .func => |x| x,
         else => null,
     };
 }
 
-pub fn getVariable(val: Value, mod: *Module) ?InternPool.Key.Variable {
+pub fn getVariable(val: Value, mod: *Zcu) ?InternPool.Key.Variable {
     return switch (mod.intern_pool.indexToKey(val.toIntern())) {
         .variable => |variable| variable,
         else => null,
@@ -1036,7 +1034,7 @@ pub fn floatCast(val: Value, dest_ty: Type, pt: Zcu.PerThread) !Value {
 }
 
 /// Asserts the value is a float
-pub fn floatHasFraction(self: Value, zcu: *const Module) bool {
+pub fn floatHasFraction(self: Value, zcu: *const Zcu) bool {
     return switch (zcu.intern_pool.indexToKey(self.toIntern())) {
         .float => |float| switch (float.storage) {
             inline else => |x| @rem(x, 1) != 0,
@@ -1058,7 +1056,7 @@ pub fn orderAgainstZeroInner(
     comptime strat: ResolveStrat,
     zcu: *Zcu,
     tid: strat.Tid(),
-) Module.CompileError!std.math.Order {
+) Zcu.CompileError!std.math.Order {
     return switch (lhs.toIntern()) {
         .bool_false => .eq,
         .bool_true => .gt,
@@ -1218,7 +1216,7 @@ pub fn compareAllWithZeroSema(
     lhs: Value,
     op: std.math.CompareOperator,
     pt: Zcu.PerThread,
-) Module.CompileError!bool {
+) Zcu.CompileError!bool {
     return compareAllWithZeroAdvancedExtra(lhs, op, .sema, pt.zcu, pt.tid);
 }
 
@@ -1228,7 +1226,7 @@ pub fn compareAllWithZeroAdvancedExtra(
     comptime strat: ResolveStrat,
     zcu: *Zcu,
     tid: strat.Tid(),
-) Module.CompileError!bool {
+) Zcu.CompileError!bool {
     if (lhs.isInf(zcu)) {
         switch (op) {
             .neq => return true,
@@ -1257,7 +1255,7 @@ pub fn compareAllWithZeroAdvancedExtra(
     return (try orderAgainstZeroInner(lhs, strat, zcu, tid)).compare(op);
 }
 
-pub fn eql(a: Value, b: Value, ty: Type, zcu: *Module) bool {
+pub fn eql(a: Value, b: Value, ty: Type, zcu: *Zcu) bool {
     assert(zcu.intern_pool.typeOf(a.toIntern()) == ty.toIntern());
     assert(zcu.intern_pool.typeOf(b.toIntern()) == ty.toIntern());
     return a.toIntern() == b.toIntern();
@@ -1311,7 +1309,7 @@ pub fn pointerNav(val: Value, zcu: *Zcu) ?InternPool.Nav.Index {
 pub const slice_ptr_index = 0;
 pub const slice_len_index = 1;
 
-pub fn slicePtr(val: Value, zcu: *Module) Value {
+pub fn slicePtr(val: Value, zcu: *Zcu) Value {
     return Value.fromInterned(zcu.intern_pool.slicePtr(val.toIntern()));
 }
 
@@ -1346,14 +1344,14 @@ pub fn elemValue(val: Value, pt: Zcu.PerThread, index: usize) Allocator.Error!Va
     }
 }
 
-pub fn isLazyAlign(val: Value, zcu: *Module) bool {
+pub fn isLazyAlign(val: Value, zcu: *Zcu) bool {
     return switch (zcu.intern_pool.indexToKey(val.toIntern())) {
         .int => |int| int.storage == .lazy_align,
         else => false,
     };
 }
 
-pub fn isLazySize(val: Value, zcu: *Module) bool {
+pub fn isLazySize(val: Value, zcu: *Zcu) bool {
     return switch (zcu.intern_pool.indexToKey(val.toIntern())) {
         .int => |int| int.storage == .lazy_size,
         else => false,
@@ -1430,7 +1428,7 @@ pub fn fieldValue(val: Value, pt: Zcu.PerThread, index: usize) !Value {
     };
 }
 
-pub fn unionTag(val: Value, zcu: *Module) ?Value {
+pub fn unionTag(val: Value, zcu: *Zcu) ?Value {
     return switch (zcu.intern_pool.indexToKey(val.toIntern())) {
         .undef, .enum_tag => val,
         .un => |un| if (un.tag != .none) Value.fromInterned(un.tag) else return null,
@@ -1438,27 +1436,27 @@ pub fn unionTag(val: Value, zcu: *Module) ?Value {
     };
 }
 
-pub fn unionValue(val: Value, zcu: *Module) Value {
+pub fn unionValue(val: Value, zcu: *Zcu) Value {
     return switch (zcu.intern_pool.indexToKey(val.toIntern())) {
         .un => |un| Value.fromInterned(un.val),
         else => unreachable,
     };
 }
 
-pub fn isUndef(val: Value, zcu: *Module) bool {
+pub fn isUndef(val: Value, zcu: *Zcu) bool {
     return zcu.intern_pool.isUndef(val.toIntern());
 }
 
 /// TODO: check for cases such as array that is not marked undef but all the element
 /// values are marked undef, or struct that is not marked undef but all fields are marked
 /// undef, etc.
-pub fn isUndefDeep(val: Value, zcu: *Module) bool {
+pub fn isUndefDeep(val: Value, zcu: *Zcu) bool {
     return val.isUndef(zcu);
 }
 
 /// Asserts the value is not undefined and not unreachable.
 /// C pointers with an integer value of 0 are also considered null.
-pub fn isNull(val: Value, zcu: *Module) bool {
+pub fn isNull(val: Value, zcu: *Zcu) bool {
     return switch (val.toIntern()) {
         .undef => unreachable,
         .unreachable_value => unreachable,
@@ -1476,7 +1474,7 @@ pub fn isNull(val: Value, zcu: *Module) bool {
 }
 
 /// Valid only for error (union) types. Asserts the value is not undefined and not unreachable.
-pub fn getErrorName(val: Value, zcu: *const Module) InternPool.OptionalNullTerminatedString {
+pub fn getErrorName(val: Value, zcu: *const Zcu) InternPool.OptionalNullTerminatedString {
     return switch (zcu.intern_pool.indexToKey(val.toIntern())) {
         .err => |err| err.name.toOptional(),
         .error_union => |error_union| switch (error_union.val) {
@@ -1487,7 +1485,7 @@ pub fn getErrorName(val: Value, zcu: *const Module) InternPool.OptionalNullTermi
     };
 }
 
-pub fn getErrorInt(val: Value, zcu: *Zcu) Module.ErrorInt {
+pub fn getErrorInt(val: Value, zcu: *Zcu) Zcu.ErrorInt {
     return if (getErrorName(val, zcu).unwrap()) |err_name|
         zcu.intern_pool.getErrorValueIfExists(err_name).?
     else
@@ -1496,12 +1494,12 @@ pub fn getErrorInt(val: Value, zcu: *Zcu) Module.ErrorInt {
 
 /// Assumes the type is an error union. Returns true if and only if the value is
 /// the error union payload, not an error.
-pub fn errorUnionIsPayload(val: Value, zcu: *const Module) bool {
+pub fn errorUnionIsPayload(val: Value, zcu: *const Zcu) bool {
     return zcu.intern_pool.indexToKey(val.toIntern()).error_union.val == .payload;
 }
 
 /// Value of the optional, null if optional has no payload.
-pub fn optionalValue(val: Value, zcu: *const Module) ?Value {
+pub fn optionalValue(val: Value, zcu: *const Zcu) ?Value {
     return switch (zcu.intern_pool.indexToKey(val.toIntern())) {
         .opt => |opt| switch (opt.val) {
             .none => null,
@@ -1513,7 +1511,7 @@ pub fn optionalValue(val: Value, zcu: *const Module) ?Value {
 }
 
 /// Valid for all types. Asserts the value is not undefined.
-pub fn isFloat(self: Value, zcu: *const Module) bool {
+pub fn isFloat(self: Value, zcu: *const Zcu) bool {
     return switch (self.toIntern()) {
         .undef => unreachable,
         else => switch (zcu.intern_pool.indexToKey(self.toIntern())) {
@@ -1524,7 +1522,7 @@ pub fn isFloat(self: Value, zcu: *const Module) bool {
     };
 }
 
-pub fn floatFromInt(val: Value, arena: Allocator, int_ty: Type, float_ty: Type, zcu: *Module) !Value {
+pub fn floatFromInt(val: Value, arena: Allocator, int_ty: Type, float_ty: Type, zcu: *Zcu) !Value {
     return floatFromIntAdvanced(val, arena, int_ty, float_ty, zcu, .normal) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => unreachable,
@@ -2320,7 +2318,7 @@ pub fn intModScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: 
 }
 
 /// Returns true if the value is a floating point type and is NaN. Returns false otherwise.
-pub fn isNan(val: Value, zcu: *const Module) bool {
+pub fn isNan(val: Value, zcu: *const Zcu) bool {
     return switch (zcu.intern_pool.indexToKey(val.toIntern())) {
         .float => |float| switch (float.storage) {
             inline else => |x| std.math.isNan(x),
@@ -2330,7 +2328,7 @@ pub fn isNan(val: Value, zcu: *const Module) bool {
 }
 
 /// Returns true if the value is a floating point type and is infinite. Returns false otherwise.
-pub fn isInf(val: Value, zcu: *const Module) bool {
+pub fn isInf(val: Value, zcu: *const Zcu) bool {
     return switch (zcu.intern_pool.indexToKey(val.toIntern())) {
         .float => |float| switch (float.storage) {
             inline else => |x| std.math.isInf(x),
@@ -2339,7 +2337,7 @@ pub fn isInf(val: Value, zcu: *const Module) bool {
     };
 }
 
-pub fn isNegativeInf(val: Value, zcu: *const Module) bool {
+pub fn isNegativeInf(val: Value, zcu: *const Zcu) bool {
     return switch (zcu.intern_pool.indexToKey(val.toIntern())) {
         .float => |float| switch (float.storage) {
             inline else => |x| std.math.isNegativeInf(x),
