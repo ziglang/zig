@@ -7560,14 +7560,14 @@ fn analyzeCall(
     operation: CallOperation,
 ) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
-    const mod = pt.zcu;
-    const ip = &mod.intern_pool;
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
 
     const callee_ty = sema.typeOf(func);
-    const func_ty_info = mod.typeToFunc(func_ty).?;
+    const func_ty_info = zcu.typeToFunc(func_ty).?;
     const cc = func_ty_info.cc;
     if (try sema.resolveValue(func)) |func_val|
-        if (func_val.isUndef(mod))
+        if (func_val.isUndef(zcu))
             return sema.failWithUseOfUndef(block, call_src);
     if (cc == .Naked) {
         const maybe_func_inst = try sema.funcDeclSrcInst(func);
@@ -7679,7 +7679,7 @@ fn analyzeCall(
             .needed_comptime_reason = "function being called at comptime must be comptime-known",
             .block_comptime_reason = comptime_reason,
         });
-        const module_fn_index = switch (mod.intern_pool.indexToKey(func_val.toIntern())) {
+        const module_fn_index = switch (zcu.intern_pool.indexToKey(func_val.toIntern())) {
             .@"extern" => return sema.fail(block, call_src, "{s} call of extern function", .{
                 @as([]const u8, if (is_comptime_call) "comptime" else "inline"),
             }),
@@ -7696,7 +7696,7 @@ fn analyzeCall(
                     },
                     else => {},
                 }
-                assert(callee_ty.isPtrAtRuntime(mod));
+                assert(callee_ty.isPtrAtRuntime(zcu));
                 return sema.fail(block, call_src, "{s} call of function pointer", .{
                     if (is_comptime_call) "comptime" else "inline",
                 });
@@ -7736,7 +7736,7 @@ fn analyzeCall(
             },
         };
 
-        const module_fn = mod.funcInfo(module_fn_index);
+        const module_fn = zcu.funcInfo(module_fn_index);
 
         // This is not a function instance, so the function's `Nav` has a
         // `Cau` -- we don't need to check `generic_owner`.
@@ -7750,7 +7750,7 @@ fn analyzeCall(
         // whenever performing an operation where the difference matters.
         var ics = InlineCallSema.init(
             sema,
-            mod.cauFileScope(fn_cau_index).zir,
+            zcu.cauFileScope(fn_cau_index).zir,
             module_fn_index,
             block.error_return_trace_index,
         );
@@ -7784,13 +7784,16 @@ fn analyzeCall(
 
         // Whether this call should be memoized, set to false if the call can
         // mutate comptime state.
-        var should_memoize = true;
+        // TODO: comptime call memoization is currently not supported under incremental compilation
+        // since dependencies are not marked on callers. If we want to keep this around (we should
+        // check that it's worthwhile first!), each memoized call needs a `Cau`.
+        var should_memoize = !zcu.comp.incremental;
 
         // If it's a comptime function call, we need to memoize it as long as no external
         // comptime memory is mutated.
         const memoized_arg_values = try sema.arena.alloc(InternPool.Index, func_ty_info.param_types.len);
 
-        const owner_info = mod.typeToFunc(Type.fromInterned(module_fn.ty)).?;
+        const owner_info = zcu.typeToFunc(Type.fromInterned(module_fn.ty)).?;
         const new_param_types = try sema.arena.alloc(InternPool.Index, owner_info.param_types.len);
         var new_fn_info: InternPool.GetFuncTypeKey = .{
             .param_types = new_param_types,
@@ -7875,12 +7878,12 @@ fn analyzeCall(
         // bug generating invalid LLVM IR.
         const res2: Air.Inst.Ref = res2: {
             if (should_memoize and is_comptime_call) {
-                if (mod.intern_pool.getIfExists(.{ .memoized_call = .{
+                if (zcu.intern_pool.getIfExists(.{ .memoized_call = .{
                     .func = module_fn_index,
                     .arg_values = memoized_arg_values,
                     .result = .none,
                 } })) |memoized_call_index| {
-                    const memoized_call = mod.intern_pool.indexToKey(memoized_call_index).memoized_call;
+                    const memoized_call = zcu.intern_pool.indexToKey(memoized_call_index).memoized_call;
                     break :res2 Air.internedToRef(memoized_call.result);
                 }
             }
@@ -7939,7 +7942,7 @@ fn analyzeCall(
                 // a reference to `comptime_allocs` so is not stable across instances of `Sema`.
                 // TODO: check whether any external comptime memory was mutated by the
                 // comptime function call. If so, then do not memoize the call here.
-                if (should_memoize and !Value.fromInterned(result_interned).canMutateComptimeVarState(mod)) {
+                if (should_memoize and !Value.fromInterned(result_interned).canMutateComptimeVarState(zcu)) {
                     _ = try pt.intern(.{ .memoized_call = .{
                         .func = module_fn_index,
                         .arg_values = memoized_arg_values,
@@ -7978,7 +7981,7 @@ fn analyzeCall(
             if (param_ty) |t| assert(!t.isGenericPoison());
             arg_out.* = try args_info.analyzeArg(sema, block, arg_idx, param_ty, func_ty_info, func);
             try sema.validateRuntimeValue(block, args_info.argSrc(block, arg_idx), arg_out.*);
-            if (sema.typeOf(arg_out.*).zigTypeTag(mod) == .NoReturn) {
+            if (sema.typeOf(arg_out.*).zigTypeTag(zcu) == .NoReturn) {
                 return arg_out.*;
             }
         }
@@ -7987,15 +7990,15 @@ fn analyzeCall(
 
         switch (sema.owner.unwrap()) {
             .cau => {},
-            .func => |owner_func| if (Type.fromInterned(func_ty_info.return_type).isError(mod)) {
+            .func => |owner_func| if (Type.fromInterned(func_ty_info.return_type).isError(zcu)) {
                 ip.funcSetCallsOrAwaitsErrorableFn(owner_func);
             },
         }
 
         if (try sema.resolveValue(func)) |func_val| {
-            if (mod.intern_pool.isFuncBody(func_val.toIntern())) {
+            if (zcu.intern_pool.isFuncBody(func_val.toIntern())) {
                 try sema.addReferenceEntry(call_src, AnalUnit.wrap(.{ .func = func_val.toIntern() }));
-                try mod.ensureFuncBodyAnalysisQueued(func_val.toIntern());
+                try zcu.ensureFuncBodyAnalysisQueued(func_val.toIntern());
             }
         }
 
@@ -8022,7 +8025,7 @@ fn analyzeCall(
             // Function pointers and extern functions aren't guaranteed to
             // actually be noreturn so we add a safety check for them.
             if (try sema.resolveValue(func)) |func_val| {
-                switch (mod.intern_pool.indexToKey(func_val.toIntern())) {
+                switch (zcu.intern_pool.indexToKey(func_val.toIntern())) {
                     .func => break :skip_safety,
                     .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
                         .nav => |nav| if (!ip.getNav(nav).isExtern(ip)) break :skip_safety,
