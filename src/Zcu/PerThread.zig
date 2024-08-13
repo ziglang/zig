@@ -2040,6 +2040,9 @@ const ScanDeclIter = struct {
                 const want_analysis = switch (kind) {
                     .@"comptime" => unreachable,
                     .@"usingnamespace" => a: {
+                        if (comp.incremental) {
+                            @panic("'usingnamespace' is not supported by incremental compilation");
+                        }
                         if (declaration.flags.is_pub) {
                             try namespace.pub_usingnamespace.append(gpa, nav);
                         } else {
