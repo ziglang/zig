@@ -965,6 +965,7 @@ pub fn addRunTranslatedCTests(
 
 const ModuleTestOptions = struct {
     test_filters: []const []const u8,
+    test_target_filters: []const []const u8,
     root_src: []const u8,
     name: []const u8,
     desc: []const u8,
@@ -986,6 +987,13 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
         const resolved_target = b.resolveTargetQuery(test_target.target);
         const target = resolved_target.result;
+        const triple_txt = target.zigTriple(b.allocator) catch @panic("OOM");
+
+        if (options.test_target_filters.len > 0) {
+            for (options.test_target_filters) |filter| {
+                if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
+            } else continue;
+        }
 
         if (options.skip_libc and test_target.link_libc == true)
             continue;
@@ -1034,7 +1042,6 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         if (!want_this_mode) continue;
 
         const libc_suffix = if (test_target.link_libc == true) "-libc" else "";
-        const triple_txt = target.zigTriple(b.allocator) catch @panic("OOM");
         const model_txt = target.cpu.model.name;
 
         // wasm32-wasi builds need more RAM, idk why
