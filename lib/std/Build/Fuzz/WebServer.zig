@@ -456,7 +456,6 @@ fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
             },
         },
     });
-    const w = response.writer();
 
     const DedupeTable = std.ArrayHashMapUnmanaged(Build.Cache.Path, void, Build.Cache.Path.TableAdapter, false);
     var dedupe_table: DedupeTable = .{};
@@ -490,6 +489,8 @@ fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
 
     var cwd_cache: ?[]const u8 = null;
 
+    var archiver = std.tar.writer(response.writer());
+
     for (deduped_paths) |joined_path| {
         var file = joined_path.root_dir.handle.openFile(joined_path.sub_path, .{}) catch |err| {
             log.err("failed to open {}: {s}", .{ joined_path, @errorName(err) });
@@ -497,33 +498,12 @@ fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
         };
         defer file.close();
 
-        const stat = file.stat() catch |err| {
-            log.err("failed to stat {}: {s}", .{ joined_path, @errorName(err) });
-            continue;
-        };
-        if (stat.kind != .file)
-            continue;
-
-        const padding = p: {
-            const remainder = stat.size % 512;
-            break :p if (remainder > 0) 512 - remainder else 0;
-        };
-
-        var file_header = std.tar.output.Header.init();
-        file_header.typeflag = .regular;
-        try file_header.setPath(
-            joined_path.root_dir.path orelse try memoizedCwd(arena, &cwd_cache),
-            joined_path.sub_path,
-        );
-        try file_header.setSize(stat.size);
-        try file_header.updateChecksum();
-        try w.writeAll(std.mem.asBytes(&file_header));
-        try w.writeFile(file);
-        try w.writeByteNTimes(0, padding);
+        archiver.prefix = joined_path.root_dir.path orelse try memoizedCwd(arena, &cwd_cache);
+        try archiver.writeFile(joined_path.sub_path, file);
     }
 
     // intentionally omitting the pointless trailer
-    //try w.writeByteNTimes(0, 512 * 2);
+    //try archiver.finish();
     try response.end();
 }
 
