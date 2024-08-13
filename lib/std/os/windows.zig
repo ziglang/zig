@@ -154,6 +154,146 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
     }
 }
 
+pub const CreateFileMappingError = error{
+    NameTooLong,
+} || UnexpectedError;
+
+pub const CreateSectionOptions = struct {
+    /// One or more of the `SECTION_*` flags.
+    access: ACCESS_MASK,
+    /// The size of the section in bytes.
+    size: u64,
+    /// One or more of the `PAGE_*` flags.
+    page_attributes: ULONG,
+    /// One or more of the `SEC_*` flags.
+    section_attributes: ULONG = SEC_COMMIT,
+    /// A backing file from which pages should be mapped.
+    ///
+    /// If `null`, then the page file is used.
+    file: ?HANDLE = null,
+    /// The security attributes which should be applied to the kernel object.
+    sa: ?*const SECURITY_ATTRIBUTES = null,
+    /// The name of the kernel object.
+    ///
+    /// See [CreateFileMappingEx](https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-createfilemappingw)
+    /// for more information on what format this may take.
+    name: ?[]const u16 = null,
+};
+
+/// Allocate virtual memory for memory-mapping pages from a file into this process.
+///
+/// Asserts `options.size` is non-zero if `options.file == null`.
+pub fn CreateSection(options: CreateSectionOptions) CreateFileMappingError!HANDLE {
+    std.debug.assert(options.file != null or options.size > 0);
+
+    var result: HANDLE = undefined;
+
+    // Create the string struct for the name. Since the name is optional, this is complicated
+    // somewhat compared to `OpenFile`.
+    var nt_name = if (options.name) |n| blk: {
+        const name_len_bytes = math.cast(u16, n.len * 2) orelse return error.NameTooLong;
+        break :blk UNICODE_STRING{
+            .Length = name_len_bytes,
+            .MaximumLength = name_len_bytes,
+            .Buffer = @constCast(n.ptr),
+        };
+    } else UNICODE_STRING{
+        .Length = 0,
+        .MaximumLength = 0,
+        .Buffer = null,
+    };
+
+    // Create the object attributes for the section. This includes the name and a decomposition of
+    // the `sattr` into ntdll terms.
+    var attr = OBJECT_ATTRIBUTES{
+        .Length = @sizeOf(OBJECT_ATTRIBUTES),
+        .RootDirectory = null,
+        .Attributes = if (options.sa) |ptr|
+            if (ptr.bInheritHandle == TRUE) OBJ_INHERIT else 0
+        else
+            0,
+        .ObjectName = &nt_name,
+        .SecurityDescriptor = if (options.sa) |ptr| ptr.lpSecurityDescriptor else null,
+        .SecurityQualityOfService = null,
+    };
+
+    var max_size: LARGE_INTEGER = @intCast(options.size);
+
+    const status = ntdll.NtCreateSection(
+        &result,
+        options.access,
+        &attr,
+        &max_size,
+        options.page_attributes,
+        options.section_attributes,
+        options.file,
+    );
+    return switch (status) {
+        .SUCCESS => result,
+        // TODO: Map out all the possible failure modes of this function. It isn't documented
+        // anywhere immediately obvious, so it will have to be done as and when people find errors
+        // from which they want to recover.
+        else => unexpectedStatus(status),
+    };
+}
+
+pub const MapViewOfFileError = UnexpectedError;
+
+pub const MapViewOfSectionOptions = struct {
+    /// Whether the mapping should be inherited by subprocesses.
+    inheritance: SECTION_INHERIT,
+    /// One of the `PAGE_*` flags.
+    protection: ULONG,
+    /// The number of bytes starting at `offset` which should be mapped.
+    length: usize,
+    /// The byte offset within the file to start mapping.
+    offset: u64 = 0,
+    /// Optionally, a pointer which hints to the kernel where to place the map in virtual memory.
+    hint: ?[*]align(std.mem.page_size) u8 = null,
+};
+
+/// Memory-map a range within a section into virtual memory.
+pub fn MapViewOfSection(
+    section_handle: HANDLE,
+    options: MapViewOfSectionOptions,
+) MapViewOfFileError![]align(std.mem.page_size) volatile u8 {
+    const process_handle = GetCurrentProcess();
+    var result: usize = @intFromPtr(options.hint);
+    var section_offset: LARGE_INTEGER = @intCast(options.offset);
+    var actual_length: SIZE_T = @intCast(options.length);
+
+    const status = ntdll.NtMapViewOfSection(
+        section_handle,
+        process_handle,
+        @ptrCast(&result),
+        null, // zero bits
+        0, // commit size
+        &section_offset,
+        &actual_length,
+        options.inheritance,
+        0, // allocation type
+        options.protection,
+    );
+    switch (status) {
+        .SUCCESS => {
+            // Ensure the actual size meets the requested size.
+            std.debug.assert(actual_length >= options.length);
+            const ptr: [*]align(std.mem.page_size) volatile u8 = @ptrFromInt(result);
+            return ptr[0..options.length];
+        },
+        // TODO: Map out all the possible failure modes of this function. It isn't documented
+        // anywhere immediately obvious, so it will have to be done as and when people find errors
+        // from which they want to recover.
+        else => return unexpectedStatus(status),
+    }
+}
+
+pub fn UnmapViewOfSection(base: [*]align(std.mem.page_size) u8) void {
+    const process_handle = GetCurrentProcess();
+    const status = ntdll.NtUnmapViewOfSection(process_handle, @ptrCast(base));
+    std.debug.assert(status == .SUCCESS); // Resource deallocation must succeed.
+}
+
 pub fn GetCurrentProcess() HANDLE {
     const process_pseudo_handle: usize = @bitCast(@as(isize, -1));
     return @ptrFromInt(process_pseudo_handle);
