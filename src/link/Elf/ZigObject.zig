@@ -1817,7 +1817,7 @@ pub const JumpTable = struct {
 
     pub fn targetAddress(jt: JumpTable, index: Index, zo: *ZigObject, elf_file: *Elf) i64 {
         const sym_index = jt.entries.items(.sym_index)[index];
-        return zo.symbol(sym_index).address(.{}, elf_file);
+        return zo.symbol(sym_index).address(.{ .zjt = false }, elf_file);
     }
 
     const max_jump_seq_len = 12;
