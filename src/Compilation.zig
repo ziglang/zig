@@ -2236,21 +2236,13 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             });
             defer gpa.free(test_source_dir_path);
             
-            var test_source_dir = std.fs.cwd().openDir(test_source_dir_path, .{}) catch |err| switch (err) {
-                error.FileNotFound => {
-                    std.debug.print("unable to access directory '{s}'\n", .{test_source_dir_path});
-                    return error.FileNotFound;
-                },
-                else => |e| return e
+            var test_source_dir = std.fs.cwd().openDir(test_source_dir_path, .{}) catch |err| {
+                fatal("unable to access directory '{s}': {s}", .{ test_source_dir_path, @errorName(err) });
             };
             defer test_source_dir.close();
             
-            _ = test_source_dir.access(zcu.main_mod.root_src_path, .{}) catch |err| switch (err) {
-                error.FileNotFound => {
-                    std.debug.print("unable to load file '{s}/{s}'\n", .{test_source_dir_path, zcu.main_mod.root_src_path});
-                    return error.FileNotFound;
-                },
-                else => |e| return e
+            _ = test_source_dir.access(zcu.main_mod.root_src_path, .{}) catch |err| {
+                fatal("unable to load file '{s}/{s}': {s}", .{ test_source_dir_path, zcu.main_mod.root_src_path, @errorName(err) });
             };
 
             _ = try pt.importPkg(zcu.main_mod);
