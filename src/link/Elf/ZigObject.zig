@@ -1036,7 +1036,7 @@ pub fn updateFunc(
     const ip = &zcu.intern_pool;
     const gpa = elf_file.base.comp.gpa;
     const func = zcu.funcInfo(func_index);
-    if (elf_file.base.isRelocatable() and self.jumpTablePtr() == null) {
+    if (!elf_file.base.isRelocatable() and self.jumpTablePtr() == null) {
         try self.initJumpTable(gpa, elf_file);
     }
 

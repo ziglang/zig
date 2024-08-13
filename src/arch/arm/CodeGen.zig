@@ -4333,22 +4333,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     // Due to incremental compilation, how function calls are generated depends
     // on linking.
     if (try self.air.value(callee, pt)) |func_value| switch (ip.indexToKey(func_value.toIntern())) {
-        .func => |func| {
-            if (self.bin_file.cast(.elf)) |elf_file| {
-                const zo = elf_file.zigObjectPtr().?;
-                const sym_index = try zo.getOrCreateMetadataForNav(elf_file, func.owner_nav);
-                const sym = zo.symbol(sym_index);
-                _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
-                const got_addr: u32 = @intCast(sym.zigGotAddress(elf_file));
-                try self.genSetReg(Type.usize, .lr, .{ .memory = got_addr });
-            } else if (self.bin_file.cast(.macho)) |_| {
-                unreachable; // unsupported architecture for MachO
-            } else {
-                return self.fail("TODO implement call on {s} for {s}", .{
-                    @tagName(self.bin_file.tag),
-                    @tagName(self.target.cpu.arch),
-                });
-            }
+        .func => {
+            return self.fail("TODO implement calling functions", .{});
         },
         .@"extern" => {
             return self.fail("TODO implement calling extern functions", .{});
@@ -6184,7 +6170,7 @@ fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
             .undef => .undef,
-            .load_got, .load_symbol, .load_direct, .load_tlv => unreachable, // TODO
+            .load_got, .load_symbol, .load_direct, .load_tlv, .lea_symbol => unreachable, // TODO
             .immediate => |imm| .{ .immediate = @truncate(imm) },
             .memory => |addr| .{ .memory = addr },
         },

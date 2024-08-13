@@ -8026,6 +8026,7 @@ fn genTypedValue(func: *Func, val: Value) InnerError!MCValue {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
             .undef => unreachable,
+            .lea_symbol => |sym_index| .{ .lea_symbol = .{ .sym = sym_index } },
             .load_symbol => |sym_index| .{ .load_symbol = .{ .sym = sym_index } },
             .load_tlv => |sym_index| .{ .lea_tlv = sym_index },
             .immediate => |imm| .{ .immediate = imm },
