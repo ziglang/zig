@@ -17729,7 +17729,7 @@ fn zirClosureGet(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
         const msg = msg: {
             const name = name: {
                 // TODO: we should probably store this name in the ZIR to avoid this complexity.
-                const file, const src_base_node = Module.LazySrcLoc.resolveBaseNode(block.src_base_inst, mod);
+                const file, const src_base_node = Module.LazySrcLoc.resolveBaseNode(block.src_base_inst, mod).?;
                 const tree = file.getTree(sema.gpa) catch |err| {
                     // In this case we emit a warning + a less precise source location.
                     log.warn("unable to load {s}: {s}", .{
@@ -17757,7 +17757,7 @@ fn zirClosureGet(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     if (!block.is_typeof and !block.is_comptime and sema.func_index != .none) {
         const msg = msg: {
             const name = name: {
-                const file, const src_base_node = Module.LazySrcLoc.resolveBaseNode(block.src_base_inst, mod);
+                const file, const src_base_node = Module.LazySrcLoc.resolveBaseNode(block.src_base_inst, mod).?;
                 const tree = file.getTree(sema.gpa) catch |err| {
                     // In this case we emit a warning + a less precise source location.
                     log.warn("unable to load {s}: {s}", .{

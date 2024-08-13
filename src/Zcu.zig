@@ -2042,10 +2042,11 @@ pub const LazySrcLoc = struct {
         .offset = .unneeded,
     };
 
-    pub fn resolveBaseNode(base_node_inst: InternPool.TrackedInst.Index, zcu: *Zcu) struct { *File, Ast.Node.Index } {
+    /// Returns `null` if the ZIR instruction has been lost across incremental updates.
+    pub fn resolveBaseNode(base_node_inst: InternPool.TrackedInst.Index, zcu: *Zcu) ?struct { *File, Ast.Node.Index } {
         const ip = &zcu.intern_pool;
         const file_index, const zir_inst = inst: {
-            const info = base_node_inst.resolveFull(ip) orelse @panic("TODO: resolve source location relative to lost inst");
+            const info = base_node_inst.resolveFull(ip) orelse return null;
             break :inst .{ info.file, info.inst };
         };
         const file = zcu.fileByIndex(file_index);
@@ -2071,7 +2072,15 @@ pub const LazySrcLoc = struct {
     /// Resolve the file and AST node of `base_node_inst` to get a resolved `SrcLoc`.
     /// The resulting `SrcLoc` should only be used ephemerally, as it is not correct across incremental updates.
     pub fn upgrade(lazy: LazySrcLoc, zcu: *Zcu) SrcLoc {
-        const file, const base_node = resolveBaseNode(lazy.base_node_inst, zcu);
+        return lazy.upgradeOrLost(zcu).?;
+    }
+
+    /// Like `upgrade`, but returns `null` if the source location has been lost across incremental updates.
+    pub fn upgradeOrLost(lazy: LazySrcLoc, zcu: *Zcu) ?SrcLoc {
+        const file, const base_node: Ast.Node.Index = if (lazy.offset == .entire_file) .{
+            zcu.fileByIndex(lazy.base_node_inst.resolveFile(&zcu.intern_pool)),
+            0,
+        } else resolveBaseNode(lazy.base_node_inst, zcu) orelse return null;
         return .{
             .file_scope = file,
             .base_node = base_node,

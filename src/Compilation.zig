@@ -3203,8 +3203,14 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 pub fn lessThan(ctx: @This(), lhs_index: usize, rhs_index: usize) bool {
                     if (ctx.err.*) |_| return lhs_index < rhs_index;
                     const errors = ctx.zcu.failed_analysis.values();
-                    const lhs_src_loc = errors[lhs_index].src_loc.upgrade(ctx.zcu);
-                    const rhs_src_loc = errors[rhs_index].src_loc.upgrade(ctx.zcu);
+                    const lhs_src_loc = errors[lhs_index].src_loc.upgradeOrLost(ctx.zcu) orelse {
+                        // LHS source location lost, so should never be referenced. Just sort it to the end.
+                        return false;
+                    };
+                    const rhs_src_loc = errors[rhs_index].src_loc.upgradeOrLost(ctx.zcu) orelse {
+                        // RHS source location lost, so should never be referenced. Just sort it to the end.
+                        return true;
+                    };
                     return if (lhs_src_loc.file_scope != rhs_src_loc.file_scope) std.mem.order(
                         u8,
                         lhs_src_loc.file_scope.sub_file_path,
