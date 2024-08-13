@@ -101,13 +101,16 @@ pub fn symbolRank(symbol: Symbol, elf_file: *Elf) u32 {
     return file_ptr.symbolRank(sym, in_archive);
 }
 
-pub fn address(symbol: Symbol, opts: struct { plt: bool = true }, elf_file: *Elf) i64 {
+pub fn address(symbol: Symbol, opts: struct { plt: bool = true, zjt: bool = true }, elf_file: *Elf) i64 {
     if (symbol.mergeSubsection(elf_file)) |msub| {
         if (!msub.alive) return 0;
         return msub.address(elf_file) + symbol.value;
     }
     if (symbol.flags.has_copy_rel) {
         return symbol.copyRelAddress(elf_file);
+    }
+    if (symbol.flags.has_zjt and opts.zjt) {
+        return symbol.zjtAddress(elf_file);
     }
     if (symbol.flags.has_plt and opts.plt) {
         if (!symbol.flags.is_canonical and symbol.flags.has_got) {
@@ -217,12 +220,12 @@ pub fn tlsDescAddress(symbol: Symbol, elf_file: *Elf) i64 {
     return entry.address(elf_file);
 }
 
-pub fn zigJumpTableAddress(symbol: Symbol, elf_file: *Elf) i64 {
-    if (!symbol.flags.zig_jump_table) return 0;
+pub fn zjtAddress(symbol: Symbol, elf_file: *Elf) i64 {
+    if (!symbol.flags.has_zjt) return 0;
     const zo = elf_file.zigObjectPtr().?;
     const jump_table = zo.jumpTablePtr().?;
-    const jt_index = symbol.extra(elf_file).zig_jump_table;
-    return jump_table.entryAddress(jt_index, zo, elf_file);
+    const index = symbol.extra(elf_file).zjt;
+    return jump_table.entryAddress(index, zo, elf_file);
 }
 
 pub fn dsoAlignment(symbol: Symbol, elf_file: *Elf) !u64 {
@@ -248,7 +251,7 @@ const AddExtraOpts = struct {
     tlsgd: ?u32 = null,
     gottp: ?u32 = null,
     tlsdesc: ?u32 = null,
-    zig_jump_table: ?u32 = null,
+    zjt: ?u32 = null,
 };
 
 pub fn addExtra(symbol: *Symbol, opts: AddExtraOpts, elf_file: *Elf) void {
@@ -377,7 +380,7 @@ fn format2(
     try writer.print("%{d} : {s} : @{x}", .{
         symbol.esym_index,
         symbol.fmtName(elf_file),
-        symbol.address(.{}, elf_file),
+        symbol.address(.{ .plt = false, .zjt = false }, elf_file),
     });
     if (symbol.file(elf_file)) |file_ptr| {
         if (symbol.isAbs(elf_file)) {
@@ -454,7 +457,7 @@ pub const Flags = packed struct {
     merge_subsection: bool = false,
 
     /// Whether the symbol has __zig_jump_table indirection.
-    zig_jump_table: bool = false,
+    has_zjt: bool = false,
 };
 
 pub const Extra = struct {
@@ -468,7 +471,7 @@ pub const Extra = struct {
     gottp: u32 = 0,
     tlsdesc: u32 = 0,
     merge_section: u32 = 0,
-    zig_jump_table: u32 = 0,
+    zjt: u32 = 0,
 };
 
 pub const Index = u32;

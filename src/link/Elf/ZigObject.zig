@@ -918,7 +918,7 @@ fn updateNavCode(
                 if (stt_bits == elf.STT_FUNC) {
                     const extra = sym.extra(elf_file);
                     const jump_table = self.jumpTablePtr().?;
-                    jump_table.entries.items(.dirty)[extra.zig_jump_table] = true;
+                    jump_table.entries.items(.dirty)[extra.zjt] = true;
                 }
             }
         } else if (code.len < old_size) {
@@ -1045,10 +1045,10 @@ pub fn updateFunc(
 
     {
         const sym = self.symbol(sym_index);
-        if (!sym.flags.zig_jump_table) {
+        if (!sym.flags.has_zjt) {
             const index = try jump_table.addSymbol(gpa, sym_index);
-            sym.flags.zig_jump_table = true;
-            sym.addExtra(.{ .zig_jump_table = index }, elf_file);
+            sym.flags.has_zjt = true;
+            sym.addExtra(.{ .zjt = index }, elf_file);
             try jump_table.updateSize(self, elf_file);
             const old_vaddr = jump_table.address(self, elf_file);
             try self.symbol(jump_table.sym_index).atom(elf_file).?.allocate(elf_file);
@@ -1108,7 +1108,7 @@ pub fn updateFunc(
         }
     } else {
         const sym = self.symbol(sym_index);
-        const jt_index = sym.extra(elf_file).zig_jump_table;
+        const jt_index = sym.extra(elf_file).zjt;
         var jt_entry = jump_table.entries.get(jt_index);
         if (jt_entry.dirty) {
             try jump_table.writeEntry(jt_index, self, elf_file);
@@ -1896,7 +1896,12 @@ pub const JumpTable = struct {
         try writer.print("  @{x} : size({x})\n", .{ jt.address(zo, ef), jt.size(zo, ef) });
         for (jt.entries.items(.sym_index), jt.entries.items(.dirty)) |sym_index, dirty| {
             const sym = zo.symbol(sym_index);
-            try writer.print("    %{d} : {s} : @{x}", .{ sym_index, sym.name(ef), sym.address(.{}, ef) });
+            try writer.print("    {x} => {x} : %{d} : {s}", .{
+                sym.address(.{}, ef),
+                sym.address(.{ .zjt = false }, ef),
+                sym_index,
+                sym.name(ef),
+            });
             if (dirty) try writer.writeAll(" : [!]");
             try writer.writeByte('\n');
         }
