@@ -11760,7 +11760,9 @@ fn backendSupportsF16(target: std.Target) bool {
         .mips64el,
         .s390x,
         => false,
-        .aarch64 => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
+        .aarch64,
+        .aarch64_be,
+        => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
         else => true,
     };
 }
@@ -11773,7 +11775,9 @@ fn backendSupportsF128(target: std.Target) bool {
         .amdgcn,
         .sparc,
         => false,
-        .aarch64 => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
+        .aarch64,
+        .aarch64_be,
+        => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
         else => true,
     };
 }
