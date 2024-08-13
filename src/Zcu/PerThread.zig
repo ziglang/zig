@@ -432,7 +432,7 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
                         new_zir.nullTerminatedString(name_zir),
                         .no_embedded_nulls,
                     );
-                    if (!old_names.swapRemove(name_ip)) continue;
+                    if (old_names.swapRemove(name_ip)) continue;
                     // Name added
                     any_change = true;
                     try zcu.markDependeeOutdated(.not_marked_po, .{ .namespace_name = .{
