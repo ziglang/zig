@@ -101,7 +101,7 @@ pub fn symbolRank(symbol: Symbol, elf_file: *Elf) u32 {
     return file_ptr.symbolRank(sym, in_archive);
 }
 
-pub fn address(symbol: Symbol, opts: struct { plt: bool = true, zjt: bool = true }, elf_file: *Elf) i64 {
+pub fn address(symbol: Symbol, opts: struct { plt: bool = true, zjt: bool = false }, elf_file: *Elf) i64 {
     if (symbol.mergeSubsection(elf_file)) |msub| {
         if (!msub.alive) return 0;
         return msub.address(elf_file) + symbol.value;
@@ -300,11 +300,11 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
             if (symbol.flags.is_canonical) break :blk symbol.address(.{}, elf_file);
             break :blk 0;
         }
-        if (st_shndx == elf.SHN_ABS or st_shndx == elf.SHN_COMMON) break :blk symbol.address(.{ .plt = false, .zjt = false }, elf_file);
+        if (st_shndx == elf.SHN_ABS or st_shndx == elf.SHN_COMMON) break :blk symbol.address(.{ .plt = false }, elf_file);
         const shdr = elf_file.shdrs.items[st_shndx];
         if (shdr.sh_flags & elf.SHF_TLS != 0 and file_ptr != .linker_defined)
-            break :blk symbol.address(.{ .plt = false, .zjt = false }, elf_file) - elf_file.tlsAddress();
-        break :blk symbol.address(.{ .plt = false, .zjt = false }, elf_file);
+            break :blk symbol.address(.{ .plt = false }, elf_file) - elf_file.tlsAddress();
+        break :blk symbol.address(.{ .plt = false }, elf_file);
     };
     out.st_info = (st_bind << 4) | st_type;
     out.st_other = esym.st_other;
@@ -380,7 +380,7 @@ fn format2(
     try writer.print("%{d} : {s} : @{x}", .{
         symbol.esym_index,
         symbol.fmtName(elf_file),
-        symbol.address(.{ .plt = false, .zjt = false }, elf_file),
+        symbol.address(.{ .plt = false }, elf_file),
     });
     if (symbol.file(elf_file)) |file_ptr| {
         if (symbol.isAbs(elf_file)) {

@@ -2798,7 +2798,7 @@ pub fn writeElfHeader(self: *Elf) !void {
 
     const e_entry: u64 = if (self.linkerDefinedPtr()) |obj| blk: {
         const entry_sym = obj.entrySymbol(self) orelse break :blk 0;
-        break :blk @intCast(entry_sym.address(.{}, self));
+        break :blk @intCast(entry_sym.address(.{ .zjt = true }, self));
     } else 0;
     const phdr_table_offset = if (self.phdr_table_index) |phndx| self.phdrs.items[phndx].p_offset else 0;
     switch (self.ptr_width) {

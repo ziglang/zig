@@ -665,7 +665,7 @@ pub fn getNavVAddr(
         else => try self.getOrCreateMetadataForNav(elf_file, nav_index),
     };
     const this_sym = self.symbol(this_sym_index);
-    const vaddr = this_sym.address(.{}, elf_file);
+    const vaddr = this_sym.address(.{ .zjt = true }, elf_file);
     const parent_atom = self.symbol(reloc_info.parent_atom_index).atom(elf_file).?;
     const r_type = relocation.encode(.abs, elf_file.getTarget().cpu.arch);
     try parent_atom.addReloc(elf_file, .{
@@ -942,7 +942,7 @@ fn updateNavCode(
                     .len = code.len,
                 }};
                 var remote_vec: [1]std.posix.iovec_const = .{.{
-                    .base = @as([*]u8, @ptrFromInt(@as(usize, @intCast(sym.address(.{}, elf_file))))),
+                    .base = @as([*]u8, @ptrFromInt(@as(usize, @intCast(sym.address(.{ .zjt = true }, elf_file))))),
                     .len = code.len,
                 }};
                 const rc = std.os.linux.process_vm_writev(pid, &code_vec, &remote_vec, 0);
@@ -1092,7 +1092,7 @@ pub fn updateFunc(
         try self.dwarf.?.commitNavState(
             pt,
             func.owner_nav,
-            @intCast(sym.address(.{}, elf_file)),
+            @intCast(sym.address(.{ .zjt = true }, elf_file)),
             sym.atom(elf_file).?.size,
             ds,
         );
@@ -1189,7 +1189,7 @@ pub fn updateNav(
         try self.dwarf.?.commitNavState(
             pt,
             nav_index,
-            @intCast(sym.address(.{}, elf_file)),
+            @intCast(sym.address(.{ .zjt = true }, elf_file)),
             sym.atom(elf_file).?.size,
             ns,
         );
@@ -1817,7 +1817,7 @@ pub const JumpTable = struct {
 
     pub fn targetAddress(jt: JumpTable, index: Index, zo: *ZigObject, elf_file: *Elf) i64 {
         const sym_index = jt.entries.items(.sym_index)[index];
-        return zo.symbol(sym_index).address(.{ .zjt = false }, elf_file);
+        return zo.symbol(sym_index).address(.{}, elf_file);
     }
 
     const max_jump_seq_len = 12;
@@ -1897,8 +1897,8 @@ pub const JumpTable = struct {
         for (jt.entries.items(.sym_index), jt.entries.items(.dirty)) |sym_index, dirty| {
             const sym = zo.symbol(sym_index);
             try writer.print("    {x} => {x} : %{d} : {s}", .{
+                sym.address(.{ .zjt = true }, ef),
                 sym.address(.{}, ef),
-                sym.address(.{ .zjt = false }, ef),
                 sym_index,
                 sym.name(ef),
             });

@@ -747,7 +747,7 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) RelocError!voi
         // Addend from the relocation.
         const A = rel.r_addend;
         // Address of the target symbol - can be address of the symbol within an atom or address of PLT stub.
-        const S = target.address(.{}, elf_file);
+        const S = target.address(.{ .zjt = false }, elf_file);
         // Address of the global offset table.
         const GOT = elf_file.gotAddress();
         // Relative offset to the start of the global offset table.
@@ -1212,7 +1212,10 @@ const x86_64 = struct {
                 );
             },
 
-            .PLT32 => try cwriter.writeInt(i32, @as(i32, @intCast(S + A - P)), .little),
+            .PLT32 => {
+                const S_ = if (target.flags.has_zjt) target.address(.{ .zjt = true }, elf_file) else S;
+                try cwriter.writeInt(i32, @as(i32, @intCast(S_ + A - P)), .little);
+            },
             .PC32 => try cwriter.writeInt(i32, @as(i32, @intCast(S + A - P)), .little),
 
             .GOTPCREL => try cwriter.writeInt(i32, @as(i32, @intCast(G + GOT + A - P)), .little),
