@@ -90,8 +90,18 @@ pub fn getExternalExecutor(
             .m68k => Executor{ .qemu = "qemu-m68k" },
             .mips => Executor{ .qemu = "qemu-mips" },
             .mipsel => Executor{ .qemu = "qemu-mipsel" },
-            .mips64 => Executor{ .qemu = "qemu-mips64" },
-            .mips64el => Executor{ .qemu = "qemu-mips64el" },
+            .mips64 => Executor{
+                .qemu = if (candidate.abi == .gnuabin32)
+                    "qemu-mipsn32"
+                else
+                    "qemu-mips64",
+            },
+            .mips64el => Executor{
+                .qemu = if (candidate.abi == .gnuabin32)
+                    "qemu-mipsn32el"
+                else
+                    "qemu-mips64el",
+            },
             .powerpc => Executor{ .qemu = "qemu-ppc" },
             .powerpc64 => Executor{ .qemu = "qemu-ppc64" },
             .powerpc64le => Executor{ .qemu = "qemu-ppc64le" },
