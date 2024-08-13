@@ -101,9 +101,9 @@ pub const Base64Encoder = struct {
 
     // dest must be compatible with std.io.Writer's writeAll interface
     pub fn encodeWriter(encoder: *const Base64Encoder, dest: anytype, source: []const u8) !void {
-        var temp = [_]u8{0} ** 5;
         var chunker = window(u8, source, 3, 3);
         while (chunker.next()) |chunk| {
+            var temp: [5]u8 = undefined;
             const s = encoder.encode(&temp, chunk);
             try dest.writeAll(s);
         }
