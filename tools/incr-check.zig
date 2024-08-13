@@ -2,7 +2,7 @@ const std = @import("std");
 const fatal = std.process.fatal;
 const Allocator = std.mem.Allocator;
 
-const usage = "usage: incr-check <zig binary path> <input file> [-fno-emit-bin] [--zig-lib-dir lib]";
+const usage = "usage: incr-check <zig binary path> <input file> [-fno-emit-bin] [--zig-lib-dir lib] [--debug-zcu]";
 
 pub fn main() !void {
     var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -13,6 +13,7 @@ pub fn main() !void {
     var opt_input_file_name: ?[]const u8 = null;
     var opt_lib_dir: ?[]const u8 = null;
     var no_bin = false;
+    var debug_zcu = false;
 
     var arg_it = try std.process.argsWithAllocator(arena);
     _ = arg_it.skip();
@@ -20,6 +21,8 @@ pub fn main() !void {
         if (arg.len > 0 and arg[0] == '-') {
             if (std.mem.eql(u8, arg, "-fno-emit-bin")) {
                 no_bin = true;
+            } else if (std.mem.eql(u8, arg, "--debug-zcu")) {
+                debug_zcu = true;
             } else if (std.mem.eql(u8, arg, "--zig-lib-dir")) {
                 opt_lib_dir = arg_it.next() orelse fatal("expected arg after '--zig-lib-dir'\n{s}", .{usage});
             } else {
@@ -48,6 +51,13 @@ pub fn main() !void {
     const tmp_dir_path = "tmp_" ++ std.fmt.hex(rand_int);
     const tmp_dir = try std.fs.cwd().makeOpenPath(tmp_dir_path, .{});
 
+    if (opt_lib_dir) |lib_dir| {
+        if (!std.fs.path.isAbsolute(lib_dir)) {
+            // The cwd of the subprocess is within the tmp dir, so prepend `..` to the path.
+            opt_lib_dir = try std.fs.path.join(arena, &.{ "..", lib_dir });
+        }
+    }
+
     const child_prog_node = prog_node.start("zig build-exe", 0);
     defer child_prog_node.end();
 
@@ -74,6 +84,9 @@ pub fn main() !void {
     } else {
         try child_args.appendSlice(arena, &.{ "-fno-llvm", "-fno-lld" });
     }
+    if (debug_zcu) {
+        try child_args.appendSlice(arena, &.{ "--debug-log", "zcu" });
+    }
 
     var child = std.process.Child.init(child_args.items, arena);
     child.stdin_behavior = .Pipe;
@@ -89,6 +102,7 @@ pub fn main() !void {
         .tmp_dir = tmp_dir,
         .tmp_dir_path = tmp_dir_path,
         .child = &child,
+        .allow_stderr = debug_zcu,
     };
 
     try child.spawn();
@@ -102,6 +116,11 @@ pub fn main() !void {
     for (case.updates) |update| {
         var update_node = prog_node.start(update.name, 0);
         defer update_node.end();
+
+        if (debug_zcu) {
+            std.log.info("=== START UPDATE '{s}' ===", .{update.name});
+        }
+
         eval.write(update);
         try eval.requestUpdate();
         try eval.check(&poller, update);
@@ -118,6 +137,7 @@ const Eval = struct {
     tmp_dir: std.fs.Dir,
     tmp_dir_path: []const u8,
     child: *std.process.Child,
+    allow_stderr: bool,
 
     const StreamEnum = enum { stdout, stderr };
     const Poller = std.io.Poller(StreamEnum);
@@ -173,7 +193,11 @@ const Eval = struct {
                     };
                     if (stderr.readableLength() > 0) {
                         const stderr_data = try stderr.toOwnedSlice();
-                        fatal("error_bundle included unexpected stderr:\n{s}", .{stderr_data});
+                        if (eval.allow_stderr) {
+                            std.log.info("error_bundle included stderr:\n{s}", .{stderr_data});
+                        } else {
+                            fatal("error_bundle included unexpected stderr:\n{s}", .{stderr_data});
+                        }
                     }
                     if (result_error_bundle.errorMessageCount() == 0) {
                         // Empty bundle indicates successful update in a `-fno-emit-bin` build.
@@ -197,7 +221,11 @@ const Eval = struct {
                     const result_binary = try arena.dupe(u8, body[@sizeOf(EbpHdr)..]);
                     if (stderr.readableLength() > 0) {
                         const stderr_data = try stderr.toOwnedSlice();
-                        fatal("emit_bin_path included unexpected stderr:\n{s}", .{stderr_data});
+                        if (eval.allow_stderr) {
+                            std.log.info("emit_bin_path included stderr:\n{s}", .{stderr_data});
+                        } else {
+                            fatal("emit_bin_path included unexpected stderr:\n{s}", .{stderr_data});
+                        }
                     }
                     try eval.checkSuccessOutcome(update, result_binary);
                     // This message indicates the end of the update.
@@ -213,7 +241,11 @@ const Eval = struct {
 
         if (stderr.readableLength() > 0) {
             const stderr_data = try stderr.toOwnedSlice();
-            fatal("update '{s}' failed:\n{s}", .{ update.name, stderr_data });
+            if (eval.allow_stderr) {
+                std.log.info("update '{s}' included stderr:\n{s}", .{ update.name, stderr_data });
+            } else {
+                fatal("update '{s}' failed:\n{s}", .{ update.name, stderr_data });
+            }
         }
 
         waitChild(eval.child);
