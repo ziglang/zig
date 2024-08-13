@@ -1036,14 +1036,16 @@ pub fn updateFunc(
     const ip = &zcu.intern_pool;
     const gpa = elf_file.base.comp.gpa;
     const func = zcu.funcInfo(func_index);
-    const jump_table = self.jumpTablePtr() orelse try self.initJumpTable(gpa, elf_file);
+    if (elf_file.base.isRelocatable() and self.jumpTablePtr() == null) {
+        try self.initJumpTable(gpa, elf_file);
+    }
 
     log.debug("updateFunc {}({d})", .{ ip.getNav(func.owner_nav).fqn.fmt(ip), func.owner_nav });
 
     const sym_index = try self.getOrCreateMetadataForNav(elf_file, func.owner_nav);
     self.symbol(sym_index).atom(elf_file).?.freeRelocs(elf_file);
 
-    {
+    if (self.jumpTablePtr()) |jump_table| {
         const sym = self.symbol(sym_index);
         if (!sym.flags.has_zjt) {
             const index = try jump_table.addSymbol(gpa, sym_index);
@@ -1100,21 +1102,23 @@ pub fn updateFunc(
 
     // Exports will be updated by `Zcu.processExports` after the update.
 
-    if (jump_table.dirty) {
-        // TODO write in bulk
-        for (jump_table.entries.items(.dirty), 0..) |*dirty, i| {
-            try jump_table.writeEntry(@intCast(i), self, elf_file);
-            dirty.* = false;
+    if (self.jumpTablePtr()) |jump_table| {
+        if (jump_table.dirty) {
+            // TODO write in bulk
+            for (jump_table.entries.items(.dirty), 0..) |*dirty, i| {
+                try jump_table.writeEntry(@intCast(i), self, elf_file);
+                dirty.* = false;
+            }
+        } else {
+            const sym = self.symbol(sym_index);
+            const jt_index = sym.extra(elf_file).zjt;
+            var jt_entry = jump_table.entries.get(jt_index);
+            if (jt_entry.dirty) {
+                try jump_table.writeEntry(jt_index, self, elf_file);
+                jt_entry.dirty = false;
+            }
+            jump_table.entries.set(jt_index, jt_entry);
         }
-    } else {
-        const sym = self.symbol(sym_index);
-        const jt_index = sym.extra(elf_file).zjt;
-        var jt_entry = jump_table.entries.get(jt_index);
-        if (jt_entry.dirty) {
-            try jump_table.writeEntry(jt_index, self, elf_file);
-            jt_entry.dirty = false;
-        }
-        jump_table.entries.set(jt_index, jt_entry);
     }
 }
 
@@ -1474,7 +1478,7 @@ pub fn jumpTablePtr(self: *ZigObject) ?*JumpTable {
     return if (self.jump_table) |*jt| jt else null;
 }
 
-fn initJumpTable(self: *ZigObject, allocator: Allocator, elf_file: *Elf) error{OutOfMemory}!*JumpTable {
+fn initJumpTable(self: *ZigObject, allocator: Allocator, elf_file: *Elf) error{OutOfMemory}!void {
     const name_off = try self.addString(allocator, "__zig_jump_table");
     const sym_index = try self.newSymbolWithAtom(allocator, name_off);
     const sym = self.symbol(sym_index);
@@ -1485,7 +1489,6 @@ fn initJumpTable(self: *ZigObject, allocator: Allocator, elf_file: *Elf) error{O
     atom_ptr.alignment = Atom.Alignment.fromNonzeroByteUnits(JumpTable.alignment(elf_file.getTarget().cpu.arch));
     atom_ptr.output_section_index = elf_file.zig_text_section_index.?;
     self.jump_table = JumpTable{ .sym_index = sym_index };
-    return &(self.jump_table.?);
 }
 
 pub fn asFile(self: *ZigObject) File {
