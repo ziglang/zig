@@ -457,7 +457,9 @@ pub fn build(b: *std.Build) !void {
     });
     test_step.dependOn(test_cases_step);
 
-    test_step.dependOn(tests.addModuleTests(b, .{
+    const test_modules_step = b.step("test-modules", "Run the per-target module tests");
+
+    test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
         .test_slow_targets = test_slow_targets,
@@ -472,7 +474,7 @@ pub fn build(b: *std.Build) !void {
         .max_rss = 1 * 1024 * 1024 * 1024,
     }));
 
-    test_step.dependOn(tests.addModuleTests(b, .{
+    test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
         .test_slow_targets = test_slow_targets,
@@ -486,7 +488,7 @@ pub fn build(b: *std.Build) !void {
         .skip_libc = skip_libc,
     }));
 
-    test_step.dependOn(tests.addModuleTests(b, .{
+    test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
         .test_slow_targets = test_slow_targets,
@@ -501,7 +503,7 @@ pub fn build(b: *std.Build) !void {
         .no_builtin = true,
     }));
 
-    test_step.dependOn(tests.addModuleTests(b, .{
+    test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
         .test_slow_targets = test_slow_targets,
@@ -516,20 +518,7 @@ pub fn build(b: *std.Build) !void {
         .no_builtin = true,
     }));
 
-    test_step.dependOn(tests.addCompareOutputTests(b, test_filters, optimization_modes));
-    test_step.dependOn(tests.addStandaloneTests(
-        b,
-        optimization_modes,
-        enable_macos_sdk,
-        enable_ios_sdk,
-        enable_symlinks_windows,
-    ));
-    test_step.dependOn(tests.addCAbiTests(b, skip_non_native, skip_release));
-    test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, enable_ios_sdk, enable_symlinks_windows));
-    test_step.dependOn(tests.addStackTraceTests(b, test_filters, optimization_modes));
-    test_step.dependOn(tests.addCliTests(b));
-    test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filters, optimization_modes));
-    test_step.dependOn(tests.addModuleTests(b, .{
+    test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
         .test_slow_targets = test_slow_targets,
@@ -544,6 +533,22 @@ pub fn build(b: *std.Build) !void {
         // I observed a value of 4572626944 on the M2 CI.
         .max_rss = 5029889638,
     }));
+
+    test_step.dependOn(test_modules_step);
+
+    test_step.dependOn(tests.addCompareOutputTests(b, test_filters, optimization_modes));
+    test_step.dependOn(tests.addStandaloneTests(
+        b,
+        optimization_modes,
+        enable_macos_sdk,
+        enable_ios_sdk,
+        enable_symlinks_windows,
+    ));
+    test_step.dependOn(tests.addCAbiTests(b, skip_non_native, skip_release));
+    test_step.dependOn(tests.addLinkTests(b, enable_macos_sdk, enable_ios_sdk, enable_symlinks_windows));
+    test_step.dependOn(tests.addStackTraceTests(b, test_filters, optimization_modes));
+    test_step.dependOn(tests.addCliTests(b));
+    test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filters, optimization_modes));
 
     try addWasiUpdateStep(b, version);
 
