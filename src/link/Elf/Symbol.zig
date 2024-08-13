@@ -300,11 +300,11 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
             if (symbol.flags.is_canonical) break :blk symbol.address(.{}, elf_file);
             break :blk 0;
         }
-        if (st_shndx == elf.SHN_ABS or st_shndx == elf.SHN_COMMON) break :blk symbol.address(.{ .plt = false }, elf_file);
+        if (st_shndx == elf.SHN_ABS or st_shndx == elf.SHN_COMMON) break :blk symbol.address(.{ .plt = false, .zjt = false }, elf_file);
         const shdr = elf_file.shdrs.items[st_shndx];
         if (shdr.sh_flags & elf.SHF_TLS != 0 and file_ptr != .linker_defined)
-            break :blk symbol.address(.{ .plt = false }, elf_file) - elf_file.tlsAddress();
-        break :blk symbol.address(.{ .plt = false }, elf_file);
+            break :blk symbol.address(.{ .plt = false, .zjt = false }, elf_file) - elf_file.tlsAddress();
+        break :blk symbol.address(.{ .plt = false, .zjt = false }, elf_file);
     };
     out.st_info = (st_bind << 4) | st_type;
     out.st_other = esym.st_other;
@@ -323,7 +323,7 @@ pub fn format(
     _ = unused_fmt_string;
     _ = options;
     _ = writer;
-    @compileError("do not format symbols directly");
+    @compileError("do not format Symbol directly");
 }
 
 const FormatContext = struct {
