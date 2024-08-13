@@ -15304,7 +15304,7 @@ fn genLazySymbolRef(
         if (self.mod.pic) {
             switch (tag) {
                 .lea, .call => try self.genSetReg(reg, Type.usize, .{
-                    .load_symbol = .{ .sym = sym_index },
+                    .lea_symbol = .{ .sym = sym_index },
                 }, .{}),
                 .mov => try self.genSetReg(reg, Type.usize, .{
                     .load_symbol = .{ .sym = sym_index },
@@ -15322,14 +15322,11 @@ fn genLazySymbolRef(
                 .sym_index = sym_index,
             };
             switch (tag) {
-                .lea, .mov => try self.asmRegisterMemory(.{ ._, .mov }, reg.to64(), .{
+                .lea, .mov => try self.asmRegisterMemory(.{ ._, tag }, reg.to64(), .{
                     .base = .{ .reloc = reloc },
                     .mod = .{ .rm = .{ .size = .qword } },
                 }),
-                .call => try self.asmMemory(.{ ._, .call }, .{
-                    .base = .{ .reloc = reloc },
-                    .mod = .{ .rm = .{ .size = .qword } },
-                }),
+                .call => try self.asmImmediate(.{ ._, .call }, Immediate.rel(reloc)),
                 else => unreachable,
             }
         }
