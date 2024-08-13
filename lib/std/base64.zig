@@ -112,13 +112,14 @@ pub const Base64Encoder = struct {
     // destWriter must be compatible with std.io.Writer's writeAll interface
     // sourceReader must be compatible with std.io.Reader's read interface
     pub fn encodeFromReaderToWriter(encoder: *const Base64Encoder, destWriter: anytype, sourceReader: anytype) !void {
-        var temp = [_]u8{0} ** 5;
-        var tempSource = [_]u8{0} ** 3;
         while (true) {
+            var tempSource: [3]u8 = undefined;
             const bytesRead = try sourceReader.read(&tempSource);
             if (bytesRead == 0) {
                 break;
             }
+
+            var temp: [5]u8 = undefined;
             const s = encoder.encode(&temp, tempSource[0..bytesRead]);
             try destWriter.writeAll(s);
         }
