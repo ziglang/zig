@@ -70,7 +70,8 @@ stage3-debug/bin/zig build test docs \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \
-  -Denable-tidy
+  -Denable-tidy \
+  -Dtest-slow-targets
 
 # Ensure that updating the wasm binary from this commit will result in a viable build.
 stage3-debug/bin/zig build update-zig1

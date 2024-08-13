@@ -55,4 +55,5 @@ stage3-debug/bin/zig build test docs \
   -Denable-macos-sdk \
   -Dstatic-llvm \
   -Dskip-non-native \
-  --search-prefix "$PREFIX"
+  --search-prefix "$PREFIX" \
+  -Dtest-slow-targets
