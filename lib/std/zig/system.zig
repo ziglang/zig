@@ -86,7 +86,6 @@ pub fn getExternalExecutor(
             .arm => Executor{ .qemu = "qemu-arm" },
             .armeb => Executor{ .qemu = "qemu-armeb" },
             .hexagon => Executor{ .qemu = "qemu-hexagon" },
-            .x86 => Executor{ .qemu = "qemu-i386" },
             .m68k => Executor{ .qemu = "qemu-m68k" },
             .mips => Executor{ .qemu = "qemu-mips" },
             .mipsel => Executor{ .qemu = "qemu-mipsel" },
@@ -115,7 +114,9 @@ pub fn getExternalExecutor(
                     "qemu-sparc",
             },
             .sparc64 => Executor{ .qemu = "qemu-sparc64" },
+            .x86 => Executor{ .qemu = "qemu-i386" },
             .x86_64 => Executor{ .qemu = "qemu-x86_64" },
+            .xtensa => Executor{ .qemu = "qemu-xtensa" },
             else => return bad_result,
         };
     }
