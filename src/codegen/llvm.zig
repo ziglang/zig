@@ -6720,8 +6720,6 @@ pub const FuncGen = struct {
         const operand_ty = self.typeOf(pl_op.operand);
         const name = self.air.nullTerminatedString(pl_op.payload);
 
-        if (needDbgVarWorkaround(o)) return .none;
-
         const debug_local_var = try o.builder.debugLocalVar(
             try o.builder.metadataString(name),
             self.file,
@@ -8826,7 +8824,6 @@ pub const FuncGen = struct {
         if (self.is_naked) return arg_val;
 
         const inst_ty = self.typeOfIndex(inst);
-        if (needDbgVarWorkaround(o)) return arg_val;
 
         const name = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
         if (name == .none) return arg_val;
@@ -11830,16 +11827,6 @@ const struct_layout_version = 2;
 const optional_layout_version = 3;
 
 const lt_errors_fn_name = "__zig_lt_errors_len";
-
-/// Without this workaround, LLVM crashes with "unknown codeview register H1"
-/// https://github.com/llvm/llvm-project/issues/56484
-fn needDbgVarWorkaround(o: *Object) bool {
-    const target = o.pt.zcu.getTarget();
-    if (target.os.tag == .windows and target.cpu.arch == .aarch64) {
-        return true;
-    }
-    return false;
-}
 
 fn compilerRtIntBits(bits: u16) u16 {
     inline for (.{ 32, 64, 128 }) |b| {
