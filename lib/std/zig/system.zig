@@ -98,7 +98,12 @@ pub fn getExternalExecutor(
             .riscv32 => Executor{ .qemu = "qemu-riscv32" },
             .riscv64 => Executor{ .qemu = "qemu-riscv64" },
             .s390x => Executor{ .qemu = "qemu-s390x" },
-            .sparc => Executor{ .qemu = "qemu-sparc" },
+            .sparc => Executor{
+                .qemu = if (std.Target.sparc.featureSetHas(candidate.cpu.features, .v9))
+                    "qemu-sparc32plus"
+                else
+                    "qemu-sparc",
+            },
             .sparc64 => Executor{ .qemu = "qemu-sparc64" },
             .x86_64 => Executor{ .qemu = "qemu-x86_64" },
             else => return bad_result,
