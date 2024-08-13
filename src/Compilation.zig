@@ -2300,7 +2300,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             zcu.intern_pool.dumpGenericInstances(gpa);
         }
 
-        if (comp.config.is_test and comp.totalErrorCount() == 0) {
+        if (comp.config.is_test and try comp.totalErrorCount() == 0) {
             // The `test_functions` decl has been intentionally postponed until now,
             // at which point we must populate it with the list of test functions that
             // have been discovered and not filtered out.
@@ -2310,7 +2310,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         try pt.processExports();
     }
 
-    if (comp.totalErrorCount() != 0) {
+    if (try comp.totalErrorCount() != 0) {
         // Skip flushing and keep source files loaded for error reporting.
         comp.link_error_flags = .{};
         return;
@@ -2394,7 +2394,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             }
 
             try flush(comp, arena, .main, main_progress_node);
-            if (comp.totalErrorCount() != 0) return;
+            if (try comp.totalErrorCount() != 0) return;
 
             // Failure here only means an unnecessary cache miss.
             man.writeManifest() catch |err| {
@@ -2411,7 +2411,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         },
         .incremental => {
             try flush(comp, arena, .main, main_progress_node);
-            if (comp.totalErrorCount() != 0) return;
+            if (try comp.totalErrorCount() != 0) return;
         },
     }
 }
@@ -3048,7 +3048,7 @@ fn addBuf(list: *std.ArrayList(std.posix.iovec_const), buf: []const u8) void {
 }
 
 /// This function is temporally single-threaded.
-pub fn totalErrorCount(comp: *Compilation) u32 {
+pub fn totalErrorCount(comp: *Compilation) Allocator.Error!u32 {
     var total: usize =
         comp.misc_failures.count() +
         @intFromBool(comp.alloc_failure_occurred) +
@@ -3088,7 +3088,7 @@ pub fn totalErrorCount(comp: *Compilation) u32 {
         // the previous parse success, including compile errors, but we cannot
         // emit them until the file succeeds parsing.
         for (zcu.failed_analysis.keys()) |anal_unit| {
-            if (!all_references.contains(anal_unit)) continue;
+            if (comp.incremental and !all_references.contains(anal_unit)) continue;
             const file_index = switch (anal_unit.unwrap()) {
                 .cau => |cau| zcu.namespacePtr(ip.getCau(cau).namespace).file_scope,
                 .func => |ip_index| (zcu.funcInfo(ip_index).zir_body_inst.resolveFull(ip) orelse continue).file,
@@ -3225,7 +3225,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             if (err) |e| return e;
         }
         for (zcu.failed_analysis.keys(), zcu.failed_analysis.values()) |anal_unit, error_msg| {
-            if (!all_references.contains(anal_unit)) continue;
+            if (comp.incremental and !all_references.contains(anal_unit)) continue;
 
             const file_index = switch (anal_unit.unwrap()) {
                 .cau => |cau| zcu.namespacePtr(ip.getCau(cau).namespace).file_scope,
@@ -3341,10 +3341,10 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         }
     }
 
-    assert(comp.totalErrorCount() == bundle.root_list.items.len);
+    assert(try comp.totalErrorCount() == bundle.root_list.items.len);
 
     if (comp.module) |zcu| {
-        if (bundle.root_list.items.len == 0) {
+        if (comp.incremental and bundle.root_list.items.len == 0) {
             const should_have_error = for (zcu.transitive_failed_analysis.keys()) |failed_unit| {
                 if (all_references.contains(failed_unit)) break true;
             } else false;
@@ -3448,6 +3448,7 @@ pub fn addModuleErrorMsg(
                 const span = try src.span(gpa);
                 const loc = std.zig.findLineColumn(source.bytes, span.main);
                 const rt_file_path = try src.file_scope.fullPath(gpa);
+                defer gpa.free(rt_file_path);
                 const name = switch (ref.referencer.unwrap()) {
                     .cau => |cau| switch (ip.getCau(cau).owner.unwrap()) {
                         .nav => |nav| ip.getNav(nav).name.toSlice(ip),

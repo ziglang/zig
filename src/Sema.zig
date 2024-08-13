@@ -112,6 +112,11 @@ exports: std.ArrayListUnmanaged(Zcu.Export) = .{},
 references: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .{},
 type_references: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .{},
 
+/// All dependencies registered so far by this `Sema`. This is a temporary duplicate
+/// of the main dependency data. It exists to avoid adding dependencies to a given
+/// `AnalUnit` multiple times.
+dependencies: std.AutoArrayHashMapUnmanaged(InternPool.Dependee, void) = .{},
+
 const MaybeComptimeAlloc = struct {
     /// The runtime index of the `alloc` instruction.
     runtime_index: Value.RuntimeIndex,
@@ -879,6 +884,7 @@ pub fn deinit(sema: *Sema) void {
     sema.exports.deinit(gpa);
     sema.references.deinit(gpa);
     sema.type_references.deinit(gpa);
+    sema.dependencies.deinit(gpa);
     sema.* = undefined;
 }
 
@@ -2740,7 +2746,7 @@ fn maybeRemoveOutdatedType(sema: *Sema, ty: InternPool.Index) !bool {
     _ = zcu.outdated_ready.swapRemove(cau_unit);
     zcu.intern_pool.removeDependenciesForDepender(zcu.gpa, cau_unit);
     zcu.intern_pool.remove(pt.tid, ty);
-    try zcu.markDependeeOutdated(.{ .interned = ty });
+    try zcu.markDependeeOutdated(.marked_po, .{ .interned = ty });
     return true;
 }
 
@@ -6066,7 +6072,9 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     // That way, if this returns `error.AnalysisFail`, we have the dependency banked ready to
     // trigger re-analysis later.
     try pt.ensureFileAnalyzed(result.file_index);
-    return Air.internedToRef(zcu.fileRootType(result.file_index));
+    const ty = zcu.fileRootType(result.file_index);
+    try sema.addTypeReferenceEntry(src, ty);
+    return Air.internedToRef(ty);
 }
 
 fn zirSuspendBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -6819,6 +6827,13 @@ fn lookupInNamespace(
     const adapter: Zcu.Namespace.NameAdapter = .{ .zcu = zcu };
 
     const src_file = zcu.namespacePtr(block.namespace).file_scope;
+
+    if (Type.fromInterned(namespace.owner_type).typeDeclInst(zcu)) |type_decl_inst| {
+        try sema.declareDependency(.{ .namespace_name = .{
+            .namespace = type_decl_inst,
+            .name = ident_name,
+        } });
+    }
 
     if (observe_usingnamespace and (namespace.pub_usingnamespace.items.len != 0 or namespace.priv_usingnamespace.items.len != 0)) {
         const gpa = sema.gpa;
@@ -13981,12 +13996,6 @@ fn zirHasDecl(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     });
 
     try sema.checkNamespaceType(block, lhs_src, container_type);
-    if (container_type.typeDeclInst(mod)) |type_decl_inst| {
-        try sema.declareDependency(.{ .namespace_name = .{
-            .namespace = type_decl_inst,
-            .name = decl_name,
-        } });
-    }
 
     const namespace = container_type.getNamespace(mod).unwrap() orelse return .bool_false;
     if (try sema.lookupInNamespace(block, src, namespace, decl_name, true)) |lookup| {
@@ -14026,7 +14035,9 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     // That way, if this returns `error.AnalysisFail`, we have the dependency banked ready to
     // trigger re-analysis later.
     try pt.ensureFileAnalyzed(result.file_index);
-    return Air.internedToRef(zcu.fileRootType(result.file_index));
+    const ty = zcu.fileRootType(result.file_index);
+    try sema.addTypeReferenceEntry(operand_src, ty);
+    return Air.internedToRef(ty);
 }
 
 fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -27696,13 +27707,6 @@ fn fieldVal(
             const val = (try sema.resolveDefinedValue(block, object_src, dereffed_type)).?;
             const child_type = val.toType();
 
-            if (child_type.typeDeclInst(mod)) |type_decl_inst| {
-                try sema.declareDependency(.{ .namespace_name = .{
-                    .namespace = type_decl_inst,
-                    .name = field_name,
-                } });
-            }
-
             switch (try child_type.zigTypeTagOrPoison(mod)) {
                 .ErrorSet => {
                     switch (ip.indexToKey(child_type.toIntern())) {
@@ -27933,13 +27937,6 @@ fn fieldPtr(
 
             const val = (sema.resolveDefinedValue(block, src, inner) catch unreachable).?;
             const child_type = val.toType();
-
-            if (child_type.typeDeclInst(mod)) |type_decl_inst| {
-                try sema.declareDependency(.{ .namespace_name = .{
-                    .namespace = type_decl_inst,
-                    .name = field_name,
-                } });
-            }
 
             switch (child_type.zigTypeTag(mod)) {
                 .ErrorSet => {
@@ -32260,7 +32257,7 @@ fn addReferenceEntry(
     referenced_unit: AnalUnit,
 ) !void {
     const zcu = sema.pt.zcu;
-    if (zcu.comp.reference_trace == 0) return;
+    if (!zcu.comp.incremental and zcu.comp.reference_trace == 0) return;
     const gop = try sema.references.getOrPut(sema.gpa, referenced_unit);
     if (gop.found_existing) return;
     // TODO: we need to figure out how to model inline calls here.
@@ -32275,7 +32272,7 @@ fn addTypeReferenceEntry(
     referenced_type: InternPool.Index,
 ) !void {
     const zcu = sema.pt.zcu;
-    if (zcu.comp.reference_trace == 0) return;
+    if (!zcu.comp.incremental and zcu.comp.reference_trace == 0) return;
     const gop = try sema.type_references.getOrPut(sema.gpa, referenced_type);
     if (gop.found_existing) return;
     try zcu.addTypeReference(sema.owner, referenced_type, src);
@@ -38271,6 +38268,9 @@ fn isKnownZigType(sema: *Sema, ref: Air.Inst.Ref, tag: std.builtin.TypeId) bool 
 pub fn declareDependency(sema: *Sema, dependee: InternPool.Dependee) !void {
     const zcu = sema.pt.zcu;
     if (!zcu.comp.incremental) return;
+
+    const gop = try sema.dependencies.getOrPut(sema.gpa, dependee);
+    if (gop.found_existing) return;
 
     // Avoid creating dependencies on ourselves. This situation can arise when we analyze the fields
     // of a type and they use `@This()`. This dependency would be unnecessary, and in fact would

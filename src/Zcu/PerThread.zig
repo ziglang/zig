@@ -360,7 +360,7 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
                 // Tracking failed for this instruction. Invalidate associated `src_hash` deps.
                 log.debug("tracking failed for %{d}", .{old_inst});
                 tracked_inst.inst = .lost;
-                try zcu.markDependeeOutdated(.{ .src_hash = tracked_inst_index });
+                try zcu.markDependeeOutdated(.not_marked_po, .{ .src_hash = tracked_inst_index });
                 continue;
             };
             tracked_inst.inst = InternPool.TrackedInst.MaybeLost.ZirIndex.wrap(new_inst);
@@ -383,7 +383,7 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
                     });
                 }
                 // The source hash associated with this instruction changed - invalidate relevant dependencies.
-                try zcu.markDependeeOutdated(.{ .src_hash = tracked_inst_index });
+                try zcu.markDependeeOutdated(.not_marked_po, .{ .src_hash = tracked_inst_index });
             }
 
             // If this is a `struct_decl` etc, we must invalidate any outdated namespace dependencies.
@@ -435,7 +435,7 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
                     if (!old_names.swapRemove(name_ip)) continue;
                     // Name added
                     any_change = true;
-                    try zcu.markDependeeOutdated(.{ .namespace_name = .{
+                    try zcu.markDependeeOutdated(.not_marked_po, .{ .namespace_name = .{
                         .namespace = tracked_inst_index,
                         .name = name_ip,
                     } });
@@ -444,14 +444,14 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
             // The only elements remaining in `old_names` now are any names which were removed.
             for (old_names.keys()) |name_ip| {
                 any_change = true;
-                try zcu.markDependeeOutdated(.{ .namespace_name = .{
+                try zcu.markDependeeOutdated(.not_marked_po, .{ .namespace_name = .{
                     .namespace = tracked_inst_index,
                     .name = name_ip,
                 } });
             }
 
             if (any_change) {
-                try zcu.markDependeeOutdated(.{ .namespace = tracked_inst_index });
+                try zcu.markDependeeOutdated(.not_marked_po, .{ .namespace = tracked_inst_index });
             }
         }
     }
@@ -508,7 +508,7 @@ pub fn ensureCauAnalyzed(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) Zcu
     const anal_unit = InternPool.AnalUnit.wrap(.{ .cau = cau_index });
     const cau = ip.getCau(cau_index);
 
-    log.debug("ensureCauAnalyzed {d}", .{@intFromEnum(cau_index)});
+    //log.debug("ensureCauAnalyzed {d}", .{@intFromEnum(cau_index)});
 
     assert(!zcu.analysis_in_progress.contains(anal_unit));
 
@@ -527,7 +527,90 @@ pub fn ensureCauAnalyzed(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) Zcu
 
     if (cau_outdated) {
         _ = zcu.outdated_ready.swapRemove(anal_unit);
+    } else {
+        // We can trust the current information about this `Cau`.
+        if (zcu.failed_analysis.contains(anal_unit) or zcu.transitive_failed_analysis.contains(anal_unit)) {
+            return error.AnalysisFail;
+        }
+        // If it wasn't failed and wasn't marked outdated, then either...
+        // * it is a type and is up-to-date, or
+        // * it is a `comptime` decl and is up-to-date, or
+        // * it is another decl and is EITHER up-to-date OR never-referenced (so unresolved)
+        // We just need to check for that last case.
+        switch (cau.owner.unwrap()) {
+            .type, .none => return,
+            .nav => |nav| if (ip.getNav(nav).status == .resolved) return,
+        }
     }
+
+    const sema_result: SemaCauResult, const analysis_fail = if (pt.ensureCauAnalyzedInner(cau_index, cau_outdated)) |result|
+        .{ result, false }
+    else |err| switch (err) {
+        error.AnalysisFail => res: {
+            if (!zcu.failed_analysis.contains(anal_unit)) {
+                // If this `Cau` caused the error, it would have an entry in `failed_analysis`.
+                // Since it does not, this must be a transitive failure.
+                try zcu.transitive_failed_analysis.put(gpa, anal_unit, {});
+            }
+            // We treat errors as up-to-date, since those uses would just trigger a transitive error
+            break :res .{ .{
+                .invalidate_decl_val = false,
+                .invalidate_decl_ref = false,
+            }, true };
+        },
+        error.OutOfMemory => res: {
+            try zcu.failed_analysis.ensureUnusedCapacity(gpa, 1);
+            try zcu.retryable_failures.ensureUnusedCapacity(gpa, 1);
+            const msg = try Zcu.ErrorMsg.create(
+                gpa,
+                .{ .base_node_inst = cau.zir_index, .offset = Zcu.LazySrcLoc.Offset.nodeOffset(0) },
+                "unable to analyze: OutOfMemory",
+                .{},
+            );
+            zcu.retryable_failures.appendAssumeCapacity(anal_unit);
+            zcu.failed_analysis.putAssumeCapacityNoClobber(anal_unit, msg);
+            // We treat errors as up-to-date, since those uses would just trigger a transitive error
+            break :res .{ .{
+                .invalidate_decl_val = false,
+                .invalidate_decl_ref = false,
+            }, true };
+        },
+    };
+
+    if (cau_outdated) {
+        // TODO: we do not yet have separate dependencies for decl values vs types.
+        const invalidate = sema_result.invalidate_decl_val or sema_result.invalidate_decl_ref;
+        const dependee: InternPool.Dependee = switch (cau.owner.unwrap()) {
+            .none => return, // there are no dependencies on a `comptime` decl!
+            .nav => |nav_index| .{ .nav_val = nav_index },
+            .type => |ty| .{ .interned = ty },
+        };
+
+        if (invalidate) {
+            // This dependency was marked as PO, meaning dependees were waiting
+            // on its analysis result, and it has turned out to be outdated.
+            // Update dependees accordingly.
+            try zcu.markDependeeOutdated(.marked_po, dependee);
+        } else {
+            // This dependency was previously PO, but turned out to be up-to-date.
+            // We do not need to queue successive analysis.
+            try zcu.markPoDependeeUpToDate(dependee);
+        }
+    }
+
+    if (analysis_fail) return error.AnalysisFail;
+}
+
+fn ensureCauAnalyzedInner(
+    pt: Zcu.PerThread,
+    cau_index: InternPool.Cau.Index,
+    cau_outdated: bool,
+) Zcu.SemaError!SemaCauResult {
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+
+    const cau = ip.getCau(cau_index);
+    const anal_unit = InternPool.AnalUnit.wrap(.{ .cau = cau_index });
 
     const inst_info = cau.zir_index.resolveFull(ip) orelse return error.AnalysisFail;
 
@@ -550,22 +633,6 @@ pub fn ensureCauAnalyzed(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) Zcu
         return error.AnalysisFail;
     }
 
-    if (!cau_outdated) {
-        // We can trust the current information about this `Cau`.
-        if (zcu.failed_analysis.contains(anal_unit) or zcu.transitive_failed_analysis.contains(anal_unit)) {
-            return error.AnalysisFail;
-        }
-        // If it wasn't failed and wasn't marked outdated, then either...
-        // * it is a type and is up-to-date, or
-        // * it is a `comptime` decl and is up-to-date, or
-        // * it is another decl and is EITHER up-to-date OR never-referenced (so unresolved)
-        // We just need to check for that last case.
-        switch (cau.owner.unwrap()) {
-            .type, .none => return,
-            .nav => |nav| if (ip.getNav(nav).status == .resolved) return,
-        }
-    }
-
     // `cau_outdated` can be true in the initial update for `comptime` declarations,
     // so this isn't a `dev.check`.
     if (cau_outdated and dev.env.supports(.incremental)) {
@@ -573,76 +640,34 @@ pub fn ensureCauAnalyzed(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) Zcu
         // prior to re-analysis.
         zcu.deleteUnitExports(anal_unit);
         zcu.deleteUnitReferences(anal_unit);
-    }
-
-    const sema_result: SemaCauResult = res: {
-        if (inst_info.inst == .main_struct_inst) {
-            // Note that this is definitely a *recreation* due to outdated, because
-            // this instruction indicates that `cau.owner` is a `type`, which only
-            // reaches here if `cau_outdated`.
-            try pt.recreateFileRoot(inst_info.file);
-            break :res .{
-                .invalidate_decl_val = true,
-                .invalidate_decl_ref = true,
-            };
+        if (zcu.failed_analysis.fetchSwapRemove(anal_unit)) |kv| {
+            kv.value.destroy(zcu.gpa);
         }
+        _ = zcu.transitive_failed_analysis.swapRemove(anal_unit);
+    }
 
-        const decl_prog_node = zcu.sema_prog_node.start(switch (cau.owner.unwrap()) {
-            .nav => |nav| ip.getNav(nav).fqn.toSlice(ip),
-            .type => |ty| Type.fromInterned(ty).containerTypeName(ip).toSlice(ip),
-            .none => "comptime",
-        }, 0);
-        defer decl_prog_node.end();
-
-        break :res pt.semaCau(cau_index) catch |err| switch (err) {
-            error.AnalysisFail => {
-                if (!zcu.failed_analysis.contains(anal_unit)) {
-                    // If this `Cau` caused the error, it would have an entry in `failed_analysis`.
-                    // Since it does not, this must be a transitive failure.
-                    try zcu.transitive_failed_analysis.put(gpa, anal_unit, {});
-                }
-                return error.AnalysisFail;
-            },
-            error.GenericPoison => unreachable,
-            error.ComptimeBreak => unreachable,
-            error.ComptimeReturn => unreachable,
-            error.OutOfMemory => {
-                try zcu.failed_analysis.ensureUnusedCapacity(gpa, 1);
-                try zcu.retryable_failures.append(gpa, anal_unit);
-                zcu.failed_analysis.putAssumeCapacityNoClobber(anal_unit, try Zcu.ErrorMsg.create(
-                    gpa,
-                    .{ .base_node_inst = cau.zir_index, .offset = Zcu.LazySrcLoc.Offset.nodeOffset(0) },
-                    "unable to analyze: OutOfMemory",
-                    .{},
-                ));
-                return error.AnalysisFail;
-            },
+    if (inst_info.inst == .main_struct_inst) {
+        // Note that this is definitely a *recreation* due to outdated, because
+        // this instruction indicates that `cau.owner` is a `type`, which only
+        // reaches here if `cau_outdated`.
+        try pt.recreateFileRoot(inst_info.file);
+        return .{
+            .invalidate_decl_val = true,
+            .invalidate_decl_ref = true,
         };
-    };
-
-    if (!cau_outdated) {
-        // We definitely don't need to do any dependency tracking, so our work is done.
-        return;
     }
 
-    // TODO: we do not yet have separate dependencies for decl values vs types.
-    const invalidate = sema_result.invalidate_decl_val or sema_result.invalidate_decl_ref;
-    const dependee: InternPool.Dependee = switch (cau.owner.unwrap()) {
-        .none => return, // there are no dependencies on a `comptime` decl!
-        .nav => |nav_index| .{ .nav_val = nav_index },
-        .type => |ty| .{ .interned = ty },
-    };
+    const decl_prog_node = zcu.sema_prog_node.start(switch (cau.owner.unwrap()) {
+        .nav => |nav| ip.getNav(nav).fqn.toSlice(ip),
+        .type => |ty| Type.fromInterned(ty).containerTypeName(ip).toSlice(ip),
+        .none => "comptime",
+    }, 0);
+    defer decl_prog_node.end();
 
-    if (invalidate) {
-        // This dependency was marked as PO, meaning dependees were waiting
-        // on its analysis result, and it has turned out to be outdated.
-        // Update dependees accordingly.
-        try zcu.markDependeeOutdated(dependee);
-    } else {
-        // This dependency was previously PO, but turned out to be up-to-date.
-        // We do not need to queue successive analysis.
-        try zcu.markPoDependeeUpToDate(dependee);
-    }
+    return pt.semaCau(cau_index) catch |err| switch (err) {
+        error.GenericPoison, error.ComptimeBreak, error.ComptimeReturn => unreachable,
+        error.AnalysisFail, error.OutOfMemory => |e| return e,
+    };
 }
 
 pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: InternPool.Index) Zcu.SemaError!void {
@@ -660,7 +685,64 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
 
     const func = zcu.funcInfo(maybe_coerced_func_index);
 
-    log.debug("ensureFuncBodyAnalyzed {d}", .{@intFromEnum(func_index)});
+    //log.debug("ensureFuncBodyAnalyzed {d}", .{@intFromEnum(func_index)});
+
+    const anal_unit = InternPool.AnalUnit.wrap(.{ .func = func_index });
+    const func_outdated = zcu.outdated.swapRemove(anal_unit) or
+        zcu.potentially_outdated.swapRemove(anal_unit);
+
+    if (func_outdated) {
+        _ = zcu.outdated_ready.swapRemove(anal_unit);
+    } else {
+        // We can trust the current information about this function.
+        if (zcu.failed_analysis.contains(anal_unit) or zcu.transitive_failed_analysis.contains(anal_unit)) {
+            return error.AnalysisFail;
+        }
+        switch (func.analysisUnordered(ip).state) {
+            .unreferenced => {}, // this is the first reference
+            .queued => {}, // we're waiting on first-time analysis
+            .analyzed => return, // up-to-date
+        }
+    }
+
+    const ies_outdated, const analysis_fail = if (pt.ensureFuncBodyAnalyzedInner(func_index, func_outdated)) |result|
+        .{ result.ies_outdated, false }
+    else |err| switch (err) {
+        error.AnalysisFail => res: {
+            if (!zcu.failed_analysis.contains(anal_unit)) {
+                // If this function caused the error, it would have an entry in `failed_analysis`.
+                // Since it does not, this must be a transitive failure.
+                try zcu.transitive_failed_analysis.put(gpa, anal_unit, {});
+            }
+            break :res .{ false, true }; // we treat errors as up-to-date IES, since those uses would just trigger a transitive error
+        },
+        error.OutOfMemory => return error.OutOfMemory, // TODO: graceful handling like `ensureCauAnalyzed`
+    };
+
+    if (func_outdated) {
+        if (ies_outdated) {
+            log.debug("func IES invalidated ('{d}')", .{@intFromEnum(func_index)});
+            try zcu.markDependeeOutdated(.marked_po, .{ .interned = func_index });
+        } else {
+            log.debug("func IES up-to-date ('{d}')", .{@intFromEnum(func_index)});
+            try zcu.markPoDependeeUpToDate(.{ .interned = func_index });
+        }
+    }
+
+    if (analysis_fail) return error.AnalysisFail;
+}
+
+fn ensureFuncBodyAnalyzedInner(
+    pt: Zcu.PerThread,
+    func_index: InternPool.Index,
+    func_outdated: bool,
+) Zcu.SemaError!struct { ies_outdated: bool } {
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
+
+    const func = zcu.funcInfo(func_index);
+    const anal_unit = InternPool.AnalUnit.wrap(.{ .func = func_index });
 
     // Here's an interesting question: is this function actually valid?
     // Maybe the signature changed, so we'll end up creating a whole different `func`
@@ -681,7 +763,9 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
     });
 
     if (ip.isRemoved(func_index) or (func.generic_owner != .none and ip.isRemoved(func.generic_owner))) {
-        try zcu.markDependeeOutdated(.{ .interned = func_index }); // IES
+        if (func_outdated) {
+            try zcu.markDependeeOutdated(.marked_po, .{ .interned = func_index }); // IES
+        }
         ip.removeDependenciesForDepender(gpa, InternPool.AnalUnit.wrap(.{ .func = func_index }));
         ip.remove(pt.tid, func_index);
         @panic("TODO: remove orphaned function from binary");
@@ -694,15 +778,14 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
     else
         .none;
 
-    const anal_unit = InternPool.AnalUnit.wrap(.{ .func = func_index });
-    const func_outdated = zcu.outdated.swapRemove(anal_unit) or
-        zcu.potentially_outdated.swapRemove(anal_unit);
-
     if (func_outdated) {
-        _ = zcu.outdated_ready.swapRemove(anal_unit);
         dev.check(.incremental);
         zcu.deleteUnitExports(anal_unit);
         zcu.deleteUnitReferences(anal_unit);
+        if (zcu.failed_analysis.fetchSwapRemove(anal_unit)) |kv| {
+            kv.value.destroy(gpa);
+        }
+        _ = zcu.transitive_failed_analysis.swapRemove(anal_unit);
     }
 
     if (!func_outdated) {
@@ -713,7 +796,7 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
         switch (func.analysisUnordered(ip).state) {
             .unreferenced => {}, // this is the first reference
             .queued => {}, // we're waiting on first-time analysis
-            .analyzed => return, // up-to-date
+            .analyzed => return .{ .ies_outdated = false }, // up-to-date
         }
     }
 
@@ -722,28 +805,11 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
         if (func_outdated) "outdated" else "never analyzed",
     });
 
-    var air = pt.analyzeFnBody(func_index) catch |err| switch (err) {
-        error.AnalysisFail => {
-            if (!zcu.failed_analysis.contains(anal_unit)) {
-                // If this function caused the error, it would have an entry in `failed_analysis`.
-                // Since it does not, this must be a transitive failure.
-                try zcu.transitive_failed_analysis.put(gpa, anal_unit, {});
-            }
-            return error.AnalysisFail;
-        },
-        error.OutOfMemory => return error.OutOfMemory,
-    };
+    var air = try pt.analyzeFnBody(func_index);
     errdefer air.deinit(gpa);
 
-    if (func_outdated) {
-        if (!func.analysisUnordered(ip).inferred_error_set or func.resolvedErrorSetUnordered(ip) != old_resolved_ies) {
-            log.debug("func IES invalidated ('{d}')", .{@intFromEnum(func_index)});
-            try zcu.markDependeeOutdated(.{ .interned = func_index });
-        } else {
-            log.debug("func IES up-to-date ('{d}')", .{@intFromEnum(func_index)});
-            try zcu.markPoDependeeUpToDate(.{ .interned = func_index });
-        }
-    }
+    const ies_outdated = func_outdated and
+        (!func.analysisUnordered(ip).inferred_error_set or func.resolvedErrorSetUnordered(ip) != old_resolved_ies);
 
     const comp = zcu.comp;
 
@@ -752,13 +818,15 @@ pub fn ensureFuncBodyAnalyzed(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
 
     if (comp.bin_file == null and zcu.llvm_object == null and !dump_air and !dump_llvm_ir) {
         air.deinit(gpa);
-        return;
+        return .{ .ies_outdated = ies_outdated };
     }
 
     try comp.queueJob(.{ .codegen_func = .{
         .func = func_index,
         .air = air,
     } });
+
+    return .{ .ies_outdated = ies_outdated };
 }
 
 /// Takes ownership of `air`, even on error.
@@ -1934,6 +2002,8 @@ const ScanDeclIter = struct {
         const cau, const want_analysis = switch (kind) {
             .@"comptime" => cau: {
                 const cau = existing_cau orelse try ip.createComptimeCau(gpa, pt.tid, tracked_inst, namespace_index);
+
+                try namespace.other_decls.append(gpa, cau);
 
                 // For a `comptime` declaration, whether to re-analyze is based solely on whether the
                 // `Cau` is outdated. So, add this one to `outdated` and `outdated_ready` if not already.
