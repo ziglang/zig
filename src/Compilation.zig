@@ -2227,6 +2227,32 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         // Likewise, in the case of `zig test`, the test runner is the root source file,
         // and so there is nothing to import the main file.
         if (comp.config.is_test) {
+            
+            // Additionally, importing root source from std will check for non-existent files
+            // But `zig test` won't automatically get that check
+            const test_source_dir_path = try std.fs.path.resolve(gpa, &.{
+                zcu.main_mod.root.root_dir.path orelse ".",
+                zcu.main_mod.root.sub_path,
+            });
+            defer gpa.free(test_source_dir_path);
+            
+            var test_source_dir = std.fs.cwd().openDir(test_source_dir_path, .{}) catch |err| switch (err) {
+                error.FileNotFound => {
+                    std.debug.print("unable to access directory '{s}'\n", .{test_source_dir_path});
+                    return error.FileNotFound;
+                },
+                else => |e| return e
+            };
+            defer test_source_dir.close();
+            
+            _ = test_source_dir.access(zcu.main_mod.root_src_path, .{}) catch |err| switch (err) {
+                error.FileNotFound => {
+                    std.debug.print("unable to load file '{s}/{s}'\n", .{test_source_dir_path, zcu.main_mod.root_src_path});
+                    return error.FileNotFound;
+                },
+                else => |e| return e
+            };
+
             _ = try pt.importPkg(zcu.main_mod);
         }
 
