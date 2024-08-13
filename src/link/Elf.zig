@@ -604,7 +604,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .type = elf.PT_LOAD,
                 .offset = off,
                 .filesz = filesz,
-                .addr = if (ptr_bit_width >= 32) 0x8000000 else 0x8000,
+                .addr = if (ptr_bit_width >= 32) 0x4000000 else 0x4000,
                 .memsz = filesz,
                 .@"align" = self.page_size,
                 .flags = elf.PF_X | elf.PF_R | elf.PF_W,
