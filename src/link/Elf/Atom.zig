@@ -1215,12 +1215,11 @@ const x86_64 = struct {
                 );
             },
 
-            .PLT32 => try cwriter.writeInt(i32, @as(i32, @intCast(S + A - P)), .little),
-
-            .PC32 => {
+            .PLT32 => {
                 const S_ = if (target.flags.zig_jump_table) ZJT else S;
                 try cwriter.writeInt(i32, @as(i32, @intCast(S_ + A - P)), .little);
             },
+            .PC32 => try cwriter.writeInt(i32, @as(i32, @intCast(S + A - P)), .little),
 
             .GOTPCREL => try cwriter.writeInt(i32, @as(i32, @intCast(G + GOT + A - P)), .little),
             .GOTPC32 => try cwriter.writeInt(i32, @as(i32, @intCast(GOT + A - P)), .little),
@@ -1620,7 +1619,7 @@ const x86_64 = struct {
     const bits = @import("../../arch/x86_64/bits.zig");
     const encoder = @import("../../arch/x86_64/encoder.zig");
     const Disassembler = @import("../../arch/x86_64/Disassembler.zig");
-    const Immediate = bits.Immediate;
+    const Immediate = Instruction.Immediate;
     const Instruction = encoder.Instruction;
 };
 

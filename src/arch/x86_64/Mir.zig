@@ -769,7 +769,7 @@ pub const Inst = struct {
         /// Uses `imm` payload.
         i_u,
         /// Relative displacement operand.
-        /// Uses `imm` payload.
+        /// Uses `reloc` payload.
         rel,
         /// Register, memory operands.
         /// Uses `rx` payload with extra data of type `Memory`.

@@ -475,7 +475,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         .rrmi => inst.data.rrix.fixes,
         .mi_u, .mi_s => inst.data.x.fixes,
         .m => inst.data.x.fixes,
-        .extern_fn_reloc, .got_reloc, .direct_reloc, .import_reloc, .tlv_reloc => ._,
+        .extern_fn_reloc, .got_reloc, .direct_reloc, .import_reloc, .tlv_reloc, .rel => ._,
         else => return lower.fail("TODO lower .{s}", .{@tagName(inst.ops)}),
     };
     try lower.emit(switch (fixes) {
@@ -607,7 +607,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .mem = lower.mem(inst.data.rrix.payload) },
             .{ .imm = lower.imm(inst.ops, inst.data.rrix.i) },
         },
-        .extern_fn_reloc => &.{
+        .extern_fn_reloc, .rel => &.{
             .{ .imm = lower.reloc(.{ .linker_extern_fn = inst.data.reloc }) },
         },
         .got_reloc, .direct_reloc, .import_reloc => ops: {
@@ -650,7 +650,7 @@ const std = @import("std");
 const Air = @import("../../Air.zig");
 const Allocator = std.mem.Allocator;
 const ErrorMsg = Zcu.ErrorMsg;
-const Immediate = bits.Immediate;
+const Immediate = Instruction.Immediate;
 const Instruction = encoder.Instruction;
 const Lower = @This();
 const Memory = Instruction.Memory;
