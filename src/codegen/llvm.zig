@@ -11773,6 +11773,8 @@ fn backendSupportsF16(target: std.Target) bool {
 fn backendSupportsF128(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .amdgcn,
+        .mips64,
+        .mips64el,
         .sparc,
         => false,
         .aarch64,
