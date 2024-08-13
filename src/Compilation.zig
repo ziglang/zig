@@ -2269,7 +2269,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         try comp.queueJob(.{ .analyze_mod = std_mod });
         zcu.analysis_roots.appendAssumeCapacity(std_mod);
 
-        if (comp.config.is_test) {
+        if (comp.config.is_test and zcu.main_mod != std_mod) {
             try comp.queueJob(.{ .analyze_mod = zcu.main_mod });
             zcu.analysis_roots.appendAssumeCapacity(zcu.main_mod);
         }
