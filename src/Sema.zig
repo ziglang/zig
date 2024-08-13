@@ -22062,7 +22062,8 @@ fn reifyEnum(
             return Air.internedToRef(ty);
         },
     };
-    errdefer wip_ty.cancel(ip, pt.tid);
+    var done = false;
+    errdefer if (!done) wip_ty.cancel(ip, pt.tid);
 
     if (tag_ty.zigTypeTag(mod) != .Int) {
         return sema.fail(block, src, "Type.Enum.tag_type must be an integer type", .{});
@@ -22088,6 +22089,7 @@ fn reifyEnum(
     try sema.addTypeReferenceEntry(src, wip_ty.index);
     wip_ty.prepare(ip, new_cau_index, new_namespace_index);
     wip_ty.setTagTy(ip, tag_ty.toIntern());
+    done = true;
 
     for (0..fields_len) |field_idx| {
         const field_info = try fields_val.elemValue(pt, field_idx);
