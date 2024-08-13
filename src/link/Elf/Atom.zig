@@ -1022,7 +1022,7 @@ pub fn format(
     _ = unused_fmt_string;
     _ = options;
     _ = writer;
-    @compileError("do not format symbols directly");
+    @compileError("do not format Atom directly");
 }
 
 pub fn fmt(atom: Atom, elf_file: *Elf) std.fmt.Formatter(format2) {
@@ -1048,8 +1048,8 @@ fn format2(
     const atom = ctx.atom;
     const elf_file = ctx.elf_file;
     try writer.print("atom({d}) : {s} : @{x} : shdr({d}) : align({x}) : size({x})", .{
-        atom.atom_index,           atom.name(elf_file), atom.address(elf_file),
-        atom.output_section_index, atom.alignment,      atom.size,
+        atom.atom_index,           atom.name(elf_file),                   atom.address(elf_file),
+        atom.output_section_index, atom.alignment.toByteUnits() orelse 0, atom.size,
     });
     if (atom.fdes(elf_file).len > 0) {
         try writer.writeAll(" : fdes{ ");
