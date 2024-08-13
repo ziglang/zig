@@ -6732,7 +6732,10 @@ pub const FuncGen = struct {
                 },
                 "",
             );
-        } else if (owner_mod.optimize_mode == .Debug) {
+        } else if (owner_mod.optimize_mode == .Debug and !self.is_naked) {
+            // We avoid taking this path for naked functions because there's no guarantee that such
+            // functions even have a valid stack pointer, making the `alloca` + `store` unsafe.
+
             const alignment = operand_ty.abiAlignment(pt).toLlvm();
             const alloca = try self.buildAlloca(operand.typeOfWip(&self.wip), alignment);
             _ = try self.wip.store(.normal, operand, alloca, alignment);
