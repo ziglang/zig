@@ -2909,7 +2909,17 @@ pub const Object = struct {
             function_index.setAlignment(resolved.alignment.toLlvm(), &o.builder);
 
         // Function attributes that are independent of analysis results of the function body.
-        try o.addCommonFnAttributes(&attributes, owner_mod);
+        try o.addCommonFnAttributes(
+            &attributes,
+            owner_mod,
+            // Some backends don't respect the `naked` attribute in `TargetFrameLowering::hasFP()`,
+            // so for these backends, LLVM will happily emit code that accesses the stack through
+            // the frame pointer. This is nonsensical since what the `naked` attribute does is
+            // suppress generation of the prologue and epilogue, and the prologue is where the
+            // frame pointer normally gets set up. At time of writing, this is the case for at
+            // least x86 and RISC-V.
+            owner_mod.omit_frame_pointer or fn_info.cc == .Naked,
+        );
 
         if (fn_info.return_type == .noreturn_type) try attributes.addFnAttr(.noreturn, &o.builder);
 
@@ -2956,13 +2966,14 @@ pub const Object = struct {
         o: *Object,
         attributes: *Builder.FunctionAttributes.Wip,
         owner_mod: *Package.Module,
+        omit_frame_pointer: bool,
     ) Allocator.Error!void {
         const comp = o.pt.zcu.comp;
 
         if (!owner_mod.red_zone) {
             try attributes.addFnAttr(.noredzone, &o.builder);
         }
-        if (owner_mod.omit_frame_pointer) {
+        if (omit_frame_pointer) {
             try attributes.addFnAttr(.{ .string = .{
                 .kind = try o.builder.string("frame-pointer"),
                 .value = try o.builder.string("none"),
@@ -4528,7 +4539,7 @@ pub const Object = struct {
 
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
-        try o.addCommonFnAttributes(&attributes, zcu.root_mod);
+        try o.addCommonFnAttributes(&attributes, zcu.root_mod, zcu.root_mod.omit_frame_pointer);
 
         function_index.setLinkage(.internal, &o.builder);
         function_index.setCallConv(.fastcc, &o.builder);
@@ -4557,7 +4568,7 @@ pub const Object = struct {
 
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
-        try o.addCommonFnAttributes(&attributes, zcu.root_mod);
+        try o.addCommonFnAttributes(&attributes, zcu.root_mod, zcu.root_mod.omit_frame_pointer);
 
         function_index.setLinkage(.internal, &o.builder);
         function_index.setCallConv(.fastcc, &o.builder);
@@ -9676,7 +9687,7 @@ pub const FuncGen = struct {
 
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
-        try o.addCommonFnAttributes(&attributes, zcu.root_mod);
+        try o.addCommonFnAttributes(&attributes, zcu.root_mod, zcu.root_mod.omit_frame_pointer);
 
         function_index.setLinkage(.internal, &o.builder);
         function_index.setCallConv(.fastcc, &o.builder);
