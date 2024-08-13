@@ -12357,7 +12357,16 @@ fn genCall(self: *Self, info: union(enum) {
                         });
                     } else unreachable;
                 },
-                .@"extern" => |@"extern"| try self.genExternSymbolRef(
+                .@"extern" => |@"extern"| if (self.bin_file.cast(.elf)) |elf_file| {
+                    const target_sym_index = try elf_file.getGlobalSymbol(
+                        @"extern".name.toSlice(ip),
+                        @"extern".lib_name.toSlice(ip),
+                    );
+                    try self.asmImmediate(.{ ._, .call }, Immediate.rel(.{
+                        .atom_index = try self.owner.getSymbolIndex(self),
+                        .sym_index = target_sym_index,
+                    }));
+                } else try self.genExternSymbolRef(
                     .call,
                     @"extern".lib_name.toSlice(ip),
                     @"extern".name.toSlice(ip),
@@ -12369,7 +12378,13 @@ fn genCall(self: *Self, info: union(enum) {
             try self.genSetReg(.rax, Type.usize, .{ .air_ref = callee }, .{});
             try self.asmRegister(.{ ._, .call }, .rax);
         },
-        .lib => |lib| try self.genExternSymbolRef(.call, lib.lib, lib.callee),
+        .lib => |lib| if (self.bin_file.cast(.elf)) |elf_file| {
+            const target_sym_index = try elf_file.getGlobalSymbol(lib.callee, lib.lib);
+            try self.asmImmediate(.{ ._, .call }, Immediate.rel(.{
+                .atom_index = try self.owner.getSymbolIndex(self),
+                .sym_index = target_sym_index,
+            }));
+        } else try self.genExternSymbolRef(.call, lib.lib, lib.callee),
     }
     return call_info.return_value.short;
 }
@@ -15245,16 +15260,7 @@ fn genExternSymbolRef(
     callee: []const u8,
 ) InnerError!void {
     const atom_index = try self.owner.getSymbolIndex(self);
-    if (self.bin_file.cast(.elf)) |elf_file| {
-        _ = try self.addInst(.{
-            .tag = tag,
-            .ops = .extern_fn_reloc,
-            .data = .{ .reloc = .{
-                .atom_index = atom_index,
-                .sym_index = try elf_file.getGlobalSymbol(callee, lib),
-            } },
-        });
-    } else if (self.bin_file.cast(.coff)) |coff_file| {
+    if (self.bin_file.cast(.coff)) |coff_file| {
         const global_index = try coff_file.getGlobalSymbol(callee, lib);
         _ = try self.addInst(.{
             .tag = .mov,
