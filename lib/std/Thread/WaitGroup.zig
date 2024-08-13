@@ -9,11 +9,13 @@ const one_pending: usize = 1 << 1;
 state: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
 event: std.Thread.ResetEvent = .{},
 
+// Increments the wait group counter to indicate a new task has started.
 pub fn start(self: *WaitGroup) void {
     const state = self.state.fetchAdd(one_pending, .monotonic);
     assert((state / one_pending) < (std.math.maxInt(usize) / one_pending));
 }
 
+// Decrements the wait group counter to indicate a task has finished.
 pub fn finish(self: *WaitGroup) void {
     const state = self.state.fetchSub(one_pending, .release);
     assert((state / one_pending) > 0);
@@ -24,6 +26,7 @@ pub fn finish(self: *WaitGroup) void {
     }
 }
 
+// Waits for all tasks to complete.
 pub fn wait(self: *WaitGroup) void {
     const state = self.state.fetchAdd(is_waiting, .acquire);
     assert(state & is_waiting == 0);
@@ -33,11 +36,13 @@ pub fn wait(self: *WaitGroup) void {
     }
 }
 
+// Resets the wait group to its initial state for reuse.
 pub fn reset(self: *WaitGroup) void {
     self.state.store(0, .monotonic);
     self.event.reset();
 }
 
+// Checks if all tasks have completed.
 pub fn isDone(wg: *WaitGroup) bool {
     const state = wg.state.load(.acquire);
     assert(state & is_waiting == 0);
