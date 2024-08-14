@@ -3685,7 +3685,10 @@ fn performAllTheWorkInner(
         zcu.codegen_prog_node = main_progress_node.start("Code Generation", 0);
     }
 
-    if (!InternPool.single_threaded) comp.thread_pool.spawnWgId(&work_queue_wait_group, codegenThread, .{comp});
+    if (!InternPool.single_threaded) {
+        comp.codegen_work.done = false; // may be `true` from a prior update
+        comp.thread_pool.spawnWgId(&work_queue_wait_group, codegenThread, .{comp});
+    }
     defer if (!InternPool.single_threaded) {
         {
             comp.codegen_work.mutex.lock();
