@@ -7077,6 +7077,7 @@ fn getOrPutKeyEnsuringAdditionalCapacity(
         const index = entry.acquire();
         if (index == .none) break;
         if (entry.hash != hash) continue;
+        if (ip.isRemoved(index)) continue;
         if (ip.indexToKey(index).eql(key, ip)) return .{ .existing = index };
     }
     shard.mutate.map.mutex.lock();
@@ -7144,6 +7145,43 @@ fn getOrPutKeyEnsuringAdditionalCapacity(
         shard.shared.map.release(new_map);
     }
     map.entries[map_index].hash = hash;
+    return .{ .new = .{
+        .ip = ip,
+        .tid = tid,
+        .shard = shard,
+        .map_index = map_index,
+    } };
+}
+/// Like `getOrPutKey`, but asserts that the key already exists, and prepares to replace
+/// its shard entry with a new `Index` anyway. After finalizing this, the old index remains
+/// valid (in that `indexToKey` and similar queries will behave as before), but it will
+/// never be returned from a lookup (`getOrPutKey` etc).
+/// This is used by incremental compilation when an existing container type is outdated. In
+/// this case, the type must be recreated at a new `InternPool.Index`, but the old index must
+/// remain valid since now-unreferenced `AnalUnit`s may retain references to it. The old index
+/// will be cleaned up when the `Zcu` undergoes garbage collection.
+fn putKeyReplace(
+    ip: *InternPool,
+    tid: Zcu.PerThread.Id,
+    key: Key,
+) GetOrPutKey {
+    const full_hash = key.hash64(ip);
+    const hash: u32 = @truncate(full_hash >> 32);
+    const shard = &ip.shards[@intCast(full_hash & (ip.shards.len - 1))];
+    shard.mutate.map.mutex.lock();
+    errdefer shard.mutate.map.mutex.unlock();
+    const map = shard.shared.map;
+    const map_mask = map.header().mask();
+    var map_index = hash;
+    while (true) : (map_index += 1) {
+        map_index &= map_mask;
+        const entry = &map.entries[map_index];
+        const index = entry.value;
+        assert(index != .none); // key not present
+        if (entry.hash == hash and ip.indexToKey(index).eql(key, ip)) {
+            break; // we found the entry to replace
+        }
+    }
     return .{ .new = .{
         .ip = ip,
         .tid = tid,
@@ -7990,8 +8028,11 @@ pub fn getUnionType(
     gpa: Allocator,
     tid: Zcu.PerThread.Id,
     ini: UnionTypeInit,
+    /// If it is known that there is an existing type with this key which is outdated,
+    /// this is passed as `true`, and the type is replaced with one at a fresh index.
+    replace_existing: bool,
 ) Allocator.Error!WipNamespaceType.Result {
-    var gop = try ip.getOrPutKey(gpa, tid, .{ .union_type = switch (ini.key) {
+    const key: Key = .{ .union_type = switch (ini.key) {
         .declared => |d| .{ .declared = .{
             .zir_index = d.zir_index,
             .captures = .{ .external = d.captures },
@@ -8000,7 +8041,11 @@ pub fn getUnionType(
             .zir_index = r.zir_index,
             .type_hash = r.type_hash,
         } },
-    } });
+    } };
+    var gop = if (replace_existing)
+        ip.putKeyReplace(tid, key)
+    else
+        try ip.getOrPutKey(gpa, tid, key);
     defer gop.deinit();
     if (gop == .existing) return .{ .existing = gop.existing };
 
@@ -8166,8 +8211,11 @@ pub fn getStructType(
     gpa: Allocator,
     tid: Zcu.PerThread.Id,
     ini: StructTypeInit,
+    /// If it is known that there is an existing type with this key which is outdated,
+    /// this is passed as `true`, and the type is replaced with one at a fresh index.
+    replace_existing: bool,
 ) Allocator.Error!WipNamespaceType.Result {
-    var gop = try ip.getOrPutKey(gpa, tid, .{ .struct_type = switch (ini.key) {
+    const key: Key = .{ .struct_type = switch (ini.key) {
         .declared => |d| .{ .declared = .{
             .zir_index = d.zir_index,
             .captures = .{ .external = d.captures },
@@ -8176,7 +8224,11 @@ pub fn getStructType(
             .zir_index = r.zir_index,
             .type_hash = r.type_hash,
         } },
-    } });
+    } };
+    var gop = if (replace_existing)
+        ip.putKeyReplace(tid, key)
+    else
+        try ip.getOrPutKey(gpa, tid, key);
     defer gop.deinit();
     if (gop == .existing) return .{ .existing = gop.existing };
 
@@ -9200,8 +9252,11 @@ pub fn getEnumType(
     gpa: Allocator,
     tid: Zcu.PerThread.Id,
     ini: EnumTypeInit,
+    /// If it is known that there is an existing type with this key which is outdated,
+    /// this is passed as `true`, and the type is replaced with one at a fresh index.
+    replace_existing: bool,
 ) Allocator.Error!WipEnumType.Result {
-    var gop = try ip.getOrPutKey(gpa, tid, .{ .enum_type = switch (ini.key) {
+    const key: Key = .{ .enum_type = switch (ini.key) {
         .declared => |d| .{ .declared = .{
             .zir_index = d.zir_index,
             .captures = .{ .external = d.captures },
@@ -9210,7 +9265,11 @@ pub fn getEnumType(
             .zir_index = r.zir_index,
             .type_hash = r.type_hash,
         } },
-    } });
+    } };
+    var gop = if (replace_existing)
+        ip.putKeyReplace(tid, key)
+    else
+        try ip.getOrPutKey(gpa, tid, key);
     defer gop.deinit();
     if (gop == .existing) return .{ .existing = gop.existing };
 

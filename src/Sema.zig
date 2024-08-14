@@ -2724,9 +2724,9 @@ fn wrapWipTy(sema: *Sema, wip_ty: anytype) @TypeOf(wip_ty) {
 }
 
 /// Given a type just looked up in the `InternPool`, check whether it is
-/// considered outdated on this update. If so, remove it from the pool
-/// and return `true`.
-fn maybeRemoveOutdatedType(sema: *Sema, ty: InternPool.Index) !bool {
+/// considered outdated on this update. If so, returns `true`, and the
+/// caller must replace the outdated type with a fresh one.
+fn checkOutdatedType(sema: *Sema, ty: InternPool.Index) !bool {
     const pt = sema.pt;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -2745,7 +2745,6 @@ fn maybeRemoveOutdatedType(sema: *Sema, ty: InternPool.Index) !bool {
     if (!was_outdated) return false;
     _ = zcu.outdated_ready.swapRemove(cau_unit);
     zcu.intern_pool.removeDependenciesForDepender(zcu.gpa, cau_unit);
-    zcu.intern_pool.remove(pt.tid, ty);
     try zcu.markDependeeOutdated(.marked_po, .{ .interned = ty });
     return true;
 }
@@ -2815,14 +2814,14 @@ fn zirStructDecl(
             .captures = captures,
         } },
     };
-    const wip_ty = sema.wrapWipTy(switch (try ip.getStructType(gpa, pt.tid, struct_init)) {
+    const wip_ty = sema.wrapWipTy(switch (try ip.getStructType(gpa, pt.tid, struct_init, false)) {
         .existing => |ty| wip: {
-            if (!try sema.maybeRemoveOutdatedType(ty)) {
+            if (!try sema.checkOutdatedType(ty)) {
                 try sema.declareDependency(.{ .interned = ty });
                 try sema.addTypeReferenceEntry(src, ty);
                 return Air.internedToRef(ty);
             }
-            break :wip (try ip.getStructType(gpa, pt.tid, struct_init)).wip;
+            break :wip (try ip.getStructType(gpa, pt.tid, struct_init, true)).wip;
         },
         .wip => |wip| wip,
     });
@@ -3041,14 +3040,14 @@ fn zirEnumDecl(
             .captures = captures,
         } },
     };
-    const wip_ty = sema.wrapWipTy(switch (try ip.getEnumType(gpa, pt.tid, enum_init)) {
+    const wip_ty = sema.wrapWipTy(switch (try ip.getEnumType(gpa, pt.tid, enum_init, false)) {
         .existing => |ty| wip: {
-            if (!try sema.maybeRemoveOutdatedType(ty)) {
+            if (!try sema.checkOutdatedType(ty)) {
                 try sema.declareDependency(.{ .interned = ty });
                 try sema.addTypeReferenceEntry(src, ty);
                 return Air.internedToRef(ty);
             }
-            break :wip (try ip.getEnumType(gpa, pt.tid, enum_init)).wip;
+            break :wip (try ip.getEnumType(gpa, pt.tid, enum_init, true)).wip;
         },
         .wip => |wip| wip,
     });
@@ -3311,14 +3310,14 @@ fn zirUnionDecl(
             .captures = captures,
         } },
     };
-    const wip_ty = sema.wrapWipTy(switch (try ip.getUnionType(gpa, pt.tid, union_init)) {
+    const wip_ty = sema.wrapWipTy(switch (try ip.getUnionType(gpa, pt.tid, union_init, false)) {
         .existing => |ty| wip: {
-            if (!try sema.maybeRemoveOutdatedType(ty)) {
+            if (!try sema.checkOutdatedType(ty)) {
                 try sema.declareDependency(.{ .interned = ty });
                 try sema.addTypeReferenceEntry(src, ty);
                 return Air.internedToRef(ty);
             }
-            break :wip (try ip.getUnionType(gpa, pt.tid, union_init)).wip;
+            break :wip (try ip.getUnionType(gpa, pt.tid, union_init, true)).wip;
         },
         .wip => |wip| wip,
     });
@@ -3407,7 +3406,7 @@ fn zirOpaqueDecl(
     };
     // No `wrapWipTy` needed as no std.builtin types are opaque.
     const wip_ty = switch (try ip.getOpaqueType(gpa, pt.tid, opaque_init)) {
-        // No `maybeRemoveOutdatedType` as opaque types are never outdated.
+        // No `checkOutdatedType` as opaque types are never outdated.
         .existing => |ty| {
             try sema.addTypeReferenceEntry(src, ty);
             return Air.internedToRef(ty);
@@ -22054,7 +22053,7 @@ fn reifyEnum(
             .zir_index = tracked_inst,
             .type_hash = hasher.final(),
         } },
-    })) {
+    }, false)) {
         .wip => |wip| wip,
         .existing => |ty| {
             try sema.declareDependency(.{ .interned = ty });
@@ -22224,7 +22223,7 @@ fn reifyUnion(
             .zir_index = tracked_inst,
             .type_hash = hasher.final(),
         } },
-    })) {
+    }, false)) {
         .wip => |wip| wip,
         .existing => |ty| {
             try sema.declareDependency(.{ .interned = ty });
@@ -22494,7 +22493,7 @@ fn reifyStruct(
             .zir_index = tracked_inst,
             .type_hash = hasher.final(),
         } },
-    })) {
+    }, false)) {
         .wip => |wip| wip,
         .existing => |ty| {
             try sema.declareDependency(.{ .interned = ty });

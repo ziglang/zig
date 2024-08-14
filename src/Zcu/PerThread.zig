@@ -925,6 +925,7 @@ fn createFileRootStruct(
     pt: Zcu.PerThread,
     file_index: Zcu.File.Index,
     namespace_index: Zcu.Namespace.Index,
+    replace_existing: bool,
 ) Allocator.Error!InternPool.Index {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -968,7 +969,7 @@ fn createFileRootStruct(
             .zir_index = tracked_inst,
             .captures = &.{},
         } },
-    })) {
+    }, replace_existing)) {
         .existing => unreachable, // we wouldn't be analysing the file root if this type existed
         .wip => |wip| wip,
     };
@@ -1023,8 +1024,7 @@ fn recreateFileRoot(pt: Zcu.PerThread, file_index: Zcu.File.Index) Zcu.SemaError
         zcu.gpa,
         InternPool.AnalUnit.wrap(.{ .cau = file_root_type_cau }),
     );
-    ip.remove(pt.tid, file_root_type);
-    _ = try pt.createFileRootStruct(file_index, namespace_index);
+    _ = try pt.createFileRootStruct(file_index, namespace_index, true);
 }
 
 /// Re-scan the namespace of a file's root struct type on an incremental update.
@@ -1062,8 +1062,6 @@ fn updateFileNamespace(pt: Zcu.PerThread, file_index: Zcu.File.Index) Allocator.
     try pt.scanNamespace(namespace_index, decls);
 }
 
-/// Regardless of the file status, will create a `Decl` if none exists so that we can track
-/// dependencies and re-analyze when the file becomes outdated.
 fn semaFile(pt: Zcu.PerThread, file_index: Zcu.File.Index) Zcu.SemaError!void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -1083,7 +1081,7 @@ fn semaFile(pt: Zcu.PerThread, file_index: Zcu.File.Index) Zcu.SemaError!void {
         .owner_type = undefined, // set in `createFileRootStruct`
         .file_scope = file_index,
     });
-    const struct_ty = try pt.createFileRootStruct(file_index, new_namespace_index);
+    const struct_ty = try pt.createFileRootStruct(file_index, new_namespace_index, false);
     errdefer zcu.intern_pool.remove(pt.tid, struct_ty);
 
     switch (zcu.comp.cache_use) {
@@ -1153,11 +1151,10 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
             // This declaration has no value so is definitely not a std.builtin type.
             break :ip_index .none;
         },
-        .type => |ty| {
+        .type => {
             // This is an incremental update, and this type is being re-analyzed because it is outdated.
             // The type must be recreated at a new `InternPool.Index`.
-            // Remove it from the InternPool and mark it outdated so that creation sites are re-analyzed.
-            ip.remove(pt.tid, ty);
+            // Mark it outdated so that creation sites are re-analyzed.
             return .{
                 .invalidate_decl_val = true,
                 .invalidate_decl_ref = true,
