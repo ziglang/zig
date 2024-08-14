@@ -26,7 +26,6 @@ const cast = std.math.cast;
 const maxInt = std.math.maxInt;
 const MemoryAccessor = std.debug.MemoryAccessor;
 const Path = std.Build.Cache.Path;
-
 const FixedBufferReader = std.debug.FixedBufferReader;
 
 const Dwarf = @This();
@@ -34,6 +33,9 @@ const Dwarf = @This();
 pub const expression = @import("Dwarf/expression.zig");
 pub const abi = @import("Dwarf/abi.zig");
 pub const call_frame = @import("Dwarf/call_frame.zig");
+
+/// Useful to temporarily enable while working on this file.
+const debug_debug_mode = false;
 
 endian: std.builtin.Endian,
 sections: SectionArray = null_section_array,
@@ -165,6 +167,16 @@ pub const CompileUnit = struct {
             column: u32,
             /// Offset by 1 depending on whether Dwarf version is >= 5.
             file: u32,
+
+            pub const invalid: LineEntry = .{
+                .line = undefined,
+                .column = undefined,
+                .file = std.math.maxInt(u32),
+            };
+
+            pub fn isInvalid(le: LineEntry) bool {
+                return le.file == invalid.file;
+            }
         };
 
         pub fn findSource(slc: *const SrcLocCache, address: u64) !LineEntry {
@@ -1400,6 +1412,7 @@ fn parseDie(
     };
 }
 
+/// Ensures that addresses in the returned LineTable are monotonically increasing.
 fn runLineNumberProgram(d: *Dwarf, gpa: Allocator, compile_unit: *CompileUnit) !CompileUnit.SrcLocCache {
     const compile_unit_cwd = try compile_unit.die.getAttrString(d, AT.comp_dir, d.section(.debug_line_str), compile_unit.*);
     const line_info_offset = try compile_unit.die.getAttrSecOffset(AT.stmt_list);
@@ -1575,8 +1588,19 @@ fn runLineNumberProgram(d: *Dwarf, gpa: Allocator, compile_unit: *CompileUnit) !
             const sub_op = try fbr.readByte();
             switch (sub_op) {
                 DW.LNE.end_sequence => {
-                    prog.end_sequence = true;
-                    try prog.addRow(gpa, &line_table);
+                    // The row being added here is an "end" address, meaning
+                    // that it does not map to the source location here -
+                    // rather it marks the previous address as the last address
+                    // that maps to this source location.
+
+                    // In this implementation we don't mark end of addresses.
+                    // This is a performance optimization based on the fact
+                    // that we don't need to know if an address is missing
+                    // source location info; we are only interested in being
+                    // able to look up source location info for addresses that
+                    // are known to have debug info.
+                    //if (debug_debug_mode) assert(!line_table.contains(prog.address));
+                    //try line_table.put(gpa, prog.address, CompileUnit.SrcLocCache.LineEntry.invalid);
                     prog.reset();
                 },
                 DW.LNE.set_address => {
@@ -1650,6 +1674,17 @@ fn runLineNumberProgram(d: *Dwarf, gpa: Allocator, compile_unit: *CompileUnit) !
             }
         }
     }
+
+    // Dwarf standard v5, 6.2.5 says
+    // > Within a sequence, addresses and operation pointers may only increase.
+    // However, this is empirically not the case in reality, so we sort here.
+    line_table.sortUnstable(struct {
+        keys: []const u64,
+
+        pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
+            return ctx.keys[a_index] < ctx.keys[b_index];
+        }
+    }{ .keys = line_table.keys() });
 
     return .{
         .line_table = line_table,
@@ -1895,7 +1930,6 @@ const LineNumberProgram = struct {
     version: u16,
     is_stmt: bool,
     basic_block: bool,
-    end_sequence: bool,
 
     default_is_stmt: bool,
 
@@ -1907,7 +1941,6 @@ const LineNumberProgram = struct {
         self.column = 0;
         self.is_stmt = self.default_is_stmt;
         self.basic_block = false;
-        self.end_sequence = false;
     }
 
     pub fn init(is_stmt: bool, version: u16) LineNumberProgram {
@@ -1919,13 +1952,16 @@ const LineNumberProgram = struct {
             .version = version,
             .is_stmt = is_stmt,
             .basic_block = false,
-            .end_sequence = false,
             .default_is_stmt = is_stmt,
         };
     }
 
     pub fn addRow(prog: *LineNumberProgram, gpa: Allocator, table: *CompileUnit.SrcLocCache.LineTable) !void {
-        if (prog.line == 0) return; // garbage data
+        if (prog.line == 0) {
+            //if (debug_debug_mode) @panic("garbage line data");
+            return;
+        }
+        if (debug_debug_mode) assert(!table.contains(prog.address));
         try table.put(gpa, prog.address, .{
             .line = cast(u32, prog.line) orelse maxInt(u32),
             .column = cast(u32, prog.column) orelse maxInt(u32),
@@ -1972,12 +2008,12 @@ pub fn compactUnwindToDwarfRegNumber(unwind_reg_number: u3) !u8 {
 /// This function is to make it handy to comment out the return and make it
 /// into a crash when working on this file.
 pub fn bad() error{InvalidDebugInfo} {
-    //if (true) @panic("bad dwarf"); // can be handy to uncomment when working on this file
+    if (debug_debug_mode) @panic("bad dwarf");
     return error.InvalidDebugInfo;
 }
 
 fn missing() error{MissingDebugInfo} {
-    //if (true) @panic("missing dwarf"); // can be handy to uncomment when working on this file
+    if (debug_debug_mode) @panic("missing dwarf");
     return error.MissingDebugInfo;
 }
 
