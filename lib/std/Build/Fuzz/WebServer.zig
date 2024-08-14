@@ -634,10 +634,28 @@ fn prepareTables(
     const pcs = header.pcAddrs();
     const source_locations = try gpa.alloc(Coverage.SourceLocation, pcs.len);
     errdefer gpa.free(source_locations);
-    debug_info.resolveAddresses(gpa, pcs, source_locations) catch |err| {
+
+    // Unfortunately the PCs array that LLVM gives us from the 8-bit PC
+    // counters feature is not sorted.
+    var sorted_pcs: std.MultiArrayList(struct { pc: u64, index: u32, sl: Coverage.SourceLocation }) = .{};
+    defer sorted_pcs.deinit(gpa);
+    try sorted_pcs.resize(gpa, pcs.len);
+    @memcpy(sorted_pcs.items(.pc), pcs);
+    for (sorted_pcs.items(.index), 0..) |*v, i| v.* = @intCast(i);
+    sorted_pcs.sortUnstable(struct {
+        addrs: []const u64,
+
+        pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
+            return ctx.addrs[a_index] < ctx.addrs[b_index];
+        }
+    }{ .addrs = sorted_pcs.items(.pc) });
+
+    debug_info.resolveAddresses(gpa, sorted_pcs.items(.pc), sorted_pcs.items(.sl)) catch |err| {
         log.err("failed to resolve addresses to source locations: {s}", .{@errorName(err)});
         return error.AlreadyReported;
     };
+
+    for (sorted_pcs.items(.index), sorted_pcs.items(.sl)) |i, sl| source_locations[i] = sl;
     gop.value_ptr.source_locations = source_locations;
 
     ws.coverage_condition.broadcast();
