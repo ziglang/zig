@@ -55,11 +55,6 @@ debug_str_section_zig_size: u64 = 0,
 debug_aranges_section_zig_size: u64 = 0,
 debug_line_section_zig_size: u64 = 0,
 
-/// Function jump table containing trampolines to Zcu functions.
-/// The table is used for Zig's incremental compilation and is embedded with
-/// the machine code section.
-jump_table: ?JumpTable = null,
-
 pub const global_symbol_bit: u32 = 0x80000000;
 pub const symbol_mask: u32 = 0x7fffffff;
 pub const SHN_ATOM: u16 = 0x100;
@@ -126,10 +121,6 @@ pub fn deinit(self: *ZigObject, allocator: Allocator) void {
 
     if (self.dwarf) |*dw| {
         dw.deinit();
-    }
-
-    if (self.jump_table) |*jt| {
-        jt.deinit(allocator);
     }
 }
 
@@ -665,7 +656,7 @@ pub fn getNavVAddr(
         else => try self.getOrCreateMetadataForNav(elf_file, nav_index),
     };
     const this_sym = self.symbol(this_sym_index);
-    const vaddr = this_sym.address(.{ .zjt = true }, elf_file);
+    const vaddr = this_sym.address(.{}, elf_file);
     const parent_atom = self.symbol(reloc_info.parent_atom_index).atom(elf_file).?;
     const r_type = relocation.encode(.abs, elf_file.getTarget().cpu.arch);
     try parent_atom.addReloc(elf_file, .{
@@ -914,12 +905,6 @@ fn updateNavCode(
             if (old_vaddr != atom_ptr.value) {
                 sym.value = 0;
                 esym.st_value = 0;
-
-                if (stt_bits == elf.STT_FUNC) {
-                    const extra = sym.extra(elf_file);
-                    const jump_table = self.jumpTablePtr().?;
-                    jump_table.entries.items(.dirty)[extra.zjt] = true;
-                }
             }
         } else if (code.len < old_size) {
             atom_ptr.shrink(elf_file);
@@ -942,7 +927,7 @@ fn updateNavCode(
                     .len = code.len,
                 }};
                 var remote_vec: [1]std.posix.iovec_const = .{.{
-                    .base = @as([*]u8, @ptrFromInt(@as(usize, @intCast(sym.address(.{ .zjt = true }, elf_file))))),
+                    .base = @as([*]u8, @ptrFromInt(@as(usize, @intCast(sym.address(.{}, elf_file))))),
                     .len = code.len,
                 }};
                 const rc = std.os.linux.process_vm_writev(pid, &code_vec, &remote_vec, 0);
@@ -1036,30 +1021,11 @@ pub fn updateFunc(
     const ip = &zcu.intern_pool;
     const gpa = elf_file.base.comp.gpa;
     const func = zcu.funcInfo(func_index);
-    if (!elf_file.base.isRelocatable() and self.jumpTablePtr() == null) {
-        try self.initJumpTable(gpa, elf_file);
-    }
 
     log.debug("updateFunc {}({d})", .{ ip.getNav(func.owner_nav).fqn.fmt(ip), func.owner_nav });
 
     const sym_index = try self.getOrCreateMetadataForNav(elf_file, func.owner_nav);
     self.symbol(sym_index).atom(elf_file).?.freeRelocs(elf_file);
-
-    if (self.jumpTablePtr()) |jump_table| {
-        const sym = self.symbol(sym_index);
-        if (!sym.flags.has_zjt) {
-            const index = try jump_table.addSymbol(gpa, sym_index);
-            sym.flags.has_zjt = true;
-            sym.addExtra(.{ .zjt = index }, elf_file);
-            try jump_table.updateSize(self, elf_file);
-            const old_vaddr = jump_table.address(self, elf_file);
-            try self.symbol(jump_table.sym_index).atom(elf_file).?.allocate(elf_file);
-            const new_vaddr = jump_table.address(self, elf_file);
-            if (old_vaddr != new_vaddr) {
-                jump_table.dirty = true;
-            }
-        }
-    }
 
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
@@ -1087,14 +1053,22 @@ pub fn updateFunc(
     };
 
     const shndx = try self.getNavShdrIndex(elf_file, zcu, func.owner_nav, code);
+    const old_rva, const old_alignment = blk: {
+        const atom_ptr = self.symbol(sym_index).atom(elf_file).?;
+        break :blk .{ atom_ptr.value, atom_ptr.alignment };
+    };
     try self.updateNavCode(elf_file, pt, func.owner_nav, sym_index, shndx, code, elf.STT_FUNC);
+    const new_rva, const new_alignment = blk: {
+        const atom_ptr = self.symbol(sym_index).atom(elf_file).?;
+        break :blk .{ atom_ptr.value, atom_ptr.alignment };
+    };
 
     if (dwarf_state) |*ds| {
         const sym = self.symbol(sym_index);
         try self.dwarf.?.commitNavState(
             pt,
             func.owner_nav,
-            @intCast(sym.address(.{ .zjt = true }, elf_file)),
+            @intCast(sym.address(.{}, elf_file)),
             sym.atom(elf_file).?.size,
             ds,
         );
@@ -1102,23 +1076,39 @@ pub fn updateFunc(
 
     // Exports will be updated by `Zcu.processExports` after the update.
 
-    if (self.jumpTablePtr()) |jump_table| {
-        if (jump_table.dirty) {
-            // TODO write in bulk
-            for (jump_table.entries.items(.dirty), 0..) |*dirty, i| {
-                try jump_table.writeEntry(@intCast(i), self, elf_file);
-                dirty.* = false;
-            }
-        } else {
-            const sym = self.symbol(sym_index);
-            const jt_index = sym.extra(elf_file).zjt;
-            var jt_entry = jump_table.entries.get(jt_index);
-            if (jt_entry.dirty) {
-                try jump_table.writeEntry(jt_index, self, elf_file);
-                jt_entry.dirty = false;
-            }
-            jump_table.entries.set(jt_index, jt_entry);
+    if (old_rva != new_rva and old_rva > 0) {
+        // If we had to reallocate the function, we re-use the existing slot for a trampoline.
+        // In the rare case that the function has been further overaligned we skip creating a
+        // trampoline and update all symbols referring this function.
+        if (old_alignment.order(new_alignment) == .lt) {
+            @panic("TODO update all symbols referring this function");
         }
+
+        // Create a trampoline to the new location at `old_rva`.
+        if (!self.symbol(sym_index).flags.has_trampoline) {
+            const name = try std.fmt.allocPrint(gpa, "{s}$trampoline", .{
+                self.symbol(sym_index).name(elf_file),
+            });
+            defer gpa.free(name);
+            const name_off = try self.addString(gpa, name);
+            const tr_size = trampolineSize(elf_file.getTarget().cpu.arch);
+            const tr_sym_index = try self.newSymbolWithAtom(gpa, name_off);
+            const tr_sym = self.symbol(tr_sym_index);
+            const tr_esym = &self.symtab.items(.elf_sym)[tr_sym.esym_index];
+            tr_esym.st_info |= elf.STT_OBJECT;
+            tr_esym.st_size = tr_size;
+            const tr_atom_ptr = tr_sym.atom(elf_file).?;
+            tr_atom_ptr.value = old_rva;
+            tr_atom_ptr.alive = true;
+            tr_atom_ptr.alignment = old_alignment;
+            tr_atom_ptr.output_section_index = elf_file.zig_text_section_index.?;
+            tr_atom_ptr.size = tr_size;
+            const target_sym = self.symbol(sym_index);
+            target_sym.addExtra(.{ .trampoline = tr_sym_index }, elf_file);
+            target_sym.flags.has_trampoline = true;
+        }
+        const target_sym = self.symbol(sym_index);
+        try writeTrampoline(self.symbol(target_sym.extra(elf_file).trampoline).*, target_sym.*, elf_file);
     }
 }
 
@@ -1193,7 +1183,7 @@ pub fn updateNav(
         try self.dwarf.?.commitNavState(
             pt,
             nav_index,
-            @intCast(sym.address(.{ .zjt = true }, elf_file)),
+            @intCast(sym.address(.{}, elf_file)),
             sym.atom(elf_file).?.size,
             ns,
         );
@@ -1474,21 +1464,50 @@ pub fn getGlobalSymbol(self: *ZigObject, elf_file: *Elf, name: []const u8, lib_n
     return lookup_gop.value_ptr.*;
 }
 
-pub fn jumpTablePtr(self: *ZigObject) ?*JumpTable {
-    return if (self.jump_table) |*jt| jt else null;
+const max_trampoline_len = 12;
+
+fn trampolineSize(cpu_arch: std.Target.Cpu.Arch) u64 {
+    const len = switch (cpu_arch) {
+        .x86_64 => 5, // jmp rel32
+        else => @panic("TODO implement trampoline size for this CPU arch"),
+    };
+    comptime assert(len <= max_trampoline_len);
+    return len;
 }
 
-fn initJumpTable(self: *ZigObject, allocator: Allocator, elf_file: *Elf) error{OutOfMemory}!void {
-    const name_off = try self.addString(allocator, "__zig_jump_table");
-    const sym_index = try self.newSymbolWithAtom(allocator, name_off);
-    const sym = self.symbol(sym_index);
-    const esym = &self.symtab.items(.elf_sym)[sym.esym_index];
-    esym.st_info |= elf.STT_OBJECT;
-    const atom_ptr = sym.atom(elf_file).?;
-    atom_ptr.alive = true;
-    atom_ptr.alignment = Atom.Alignment.fromNonzeroByteUnits(JumpTable.alignment(elf_file.getTarget().cpu.arch));
-    atom_ptr.output_section_index = elf_file.zig_text_section_index.?;
-    self.jump_table = JumpTable{ .sym_index = sym_index };
+fn writeTrampoline(tr_sym: Symbol, target: Symbol, elf_file: *Elf) !void {
+    const atom_ptr = tr_sym.atom(elf_file).?;
+    const shdr = elf_file.shdrs.items[atom_ptr.output_section_index];
+    const fileoff = shdr.sh_offset + @as(u64, @intCast(atom_ptr.value));
+    const source_addr = tr_sym.address(.{}, elf_file);
+    const target_addr = target.address(.{ .trampoline = false }, elf_file);
+    var buf: [max_trampoline_len]u8 = undefined;
+    const out = switch (elf_file.getTarget().cpu.arch) {
+        .x86_64 => try x86_64.writeTrampolineCode(source_addr, target_addr, &buf),
+        else => @panic("TODO implement write trampoline for this CPU arch"),
+    };
+    try elf_file.base.file.?.pwriteAll(out, fileoff);
+
+    if (elf_file.base.child_pid) |pid| {
+        switch (builtin.os.tag) {
+            .linux => {
+                var local_vec: [1]std.posix.iovec_const = .{.{
+                    .base = out.ptr,
+                    .len = out.len,
+                }};
+                var remote_vec: [1]std.posix.iovec_const = .{.{
+                    .base = @as([*]u8, @ptrFromInt(@as(usize, @intCast(source_addr)))),
+                    .len = out.len,
+                }};
+                const rc = std.os.linux.process_vm_writev(pid, &local_vec, &remote_vec, 0);
+                switch (std.os.linux.E.init(rc)) {
+                    .SUCCESS => assert(rc == out.len),
+                    else => |errno| log.warn("process_vm_writev failure: {s}", .{@tagName(errno)}),
+                }
+            },
+            else => return error.HotSwapUnavailableOnHostOperatingSystem,
+        }
+    }
 }
 
 pub fn asFile(self: *ZigObject) File {
@@ -1766,169 +1785,17 @@ const UavTable = std.AutoArrayHashMapUnmanaged(InternPool.Index, AvMetadata);
 const LazySymbolTable = std.AutoArrayHashMapUnmanaged(InternPool.Index, LazySymbolMetadata);
 const TlsTable = std.AutoArrayHashMapUnmanaged(Atom.Index, TlsVariable);
 
-pub const JumpTable = struct {
-    sym_index: Symbol.Index,
-    entries: std.MultiArrayList(Entry) = .{},
-    dirty: bool = false,
-
-    pub fn deinit(jt: *JumpTable, allocator: Allocator) void {
-        jt.entries.deinit(allocator);
-    }
-
-    pub fn addSymbol(jt: *JumpTable, allocator: Allocator, sym_index: Symbol.Index) !Index {
-        const index: Index = @intCast(try jt.entries.addOne(allocator));
-        jt.entries.set(index, .{ .sym_index = sym_index });
-        return index;
-    }
-
-    pub fn address(jt: JumpTable, zo: *ZigObject, elf_file: *Elf) i64 {
-        const sym = zo.symbol(jt.sym_index);
-        return sym.address(.{}, elf_file);
-    }
-
-    pub fn size(jt: JumpTable, zo: *ZigObject, elf_file: *Elf) u64 {
-        const sym = zo.symbol(jt.sym_index);
-        return sym.atom(elf_file).?.size;
-    }
-
-    pub fn alignment(cpu_arch: std.Target.Cpu.Arch) u64 {
-        return switch (cpu_arch) {
-            .x86_64 => 1,
-            else => @panic("TODO implement alignment for this CPU arch"),
+const x86_64 = struct {
+    fn writeTrampolineCode(source_addr: i64, target_addr: i64, buf: *[max_trampoline_len]u8) ![]u8 {
+        const disp = @as(i64, @intCast(target_addr)) - source_addr - 5;
+        var bytes = [_]u8{
+            0xe9, 0x00, 0x00, 0x00, 0x00, // jmp rel32
         };
+        assert(bytes.len == trampolineSize(.x86_64));
+        mem.writeInt(i32, bytes[1..][0..4], @intCast(disp), .little);
+        @memcpy(buf[0..bytes.len], &bytes);
+        return buf[0..bytes.len];
     }
-
-    pub fn entryAddress(jt: JumpTable, index: Index, zo: *ZigObject, elf_file: *Elf) i64 {
-        return jt.address(zo, elf_file) + @as(i64, @intCast(index * entrySize(elf_file.getTarget().cpu.arch)));
-    }
-
-    pub fn entryOffset(jt: JumpTable, index: Index, zo: *ZigObject, elf_file: *Elf) u64 {
-        const sym = zo.symbol(jt.sym_index);
-        const atom_ptr = sym.atom(elf_file).?;
-        const shdr = elf_file.shdrs.items[atom_ptr.output_section_index];
-        return shdr.sh_offset + @as(u64, @intCast(atom_ptr.value)) + index * entrySize(elf_file.getTarget().cpu.arch);
-    }
-
-    pub fn entrySize(cpu_arch: std.Target.Cpu.Arch) u64 {
-        const seq_len = switch (cpu_arch) {
-            .x86_64 => 5, // jmp rel32
-            else => @panic("TODO implement entry size for this CPU arch"),
-        };
-        comptime assert(seq_len <= max_jump_seq_len);
-        return seq_len;
-    }
-
-    pub fn targetAddress(jt: JumpTable, index: Index, zo: *ZigObject, elf_file: *Elf) i64 {
-        const sym_index = jt.entries.items(.sym_index)[index];
-        return zo.symbol(sym_index).address(.{}, elf_file);
-    }
-
-    const max_jump_seq_len = 12;
-
-    pub fn writeEntry(jt: JumpTable, index: Index, zo: *ZigObject, elf_file: *Elf) !void {
-        const fileoff = jt.entryOffset(index, zo, elf_file);
-        const source_addr = jt.entryAddress(index, zo, elf_file);
-        const target_addr = @as(i64, @intCast(jt.targetAddress(index, zo, elf_file)));
-        var buf: [max_jump_seq_len]u8 = undefined;
-        const out = switch (elf_file.getTarget().cpu.arch) {
-            .x86_64 => try x86_64.writeEntry(source_addr, target_addr, &buf),
-            else => @panic("TODO implement write entry for this CPU arch"),
-        };
-        try elf_file.base.file.?.pwriteAll(out, fileoff);
-
-        if (elf_file.base.child_pid) |pid| {
-            switch (builtin.os.tag) {
-                .linux => {
-                    var local_vec: [1]std.posix.iovec_const = .{.{
-                        .base = out.ptr,
-                        .len = out.len,
-                    }};
-                    var remote_vec: [1]std.posix.iovec_const = .{.{
-                        .base = @as([*]u8, @ptrFromInt(@as(usize, @intCast(source_addr)))),
-                        .len = out.len,
-                    }};
-                    const rc = std.os.linux.process_vm_writev(pid, &local_vec, &remote_vec, 0);
-                    switch (std.os.linux.E.init(rc)) {
-                        .SUCCESS => assert(rc == out.len),
-                        else => |errno| log.warn("process_vm_writev failure: {s}", .{@tagName(errno)}),
-                    }
-                },
-                else => return error.HotSwapUnavailableOnHostOperatingSystem,
-            }
-        }
-    }
-
-    pub fn updateSize(jt: JumpTable, zo: *ZigObject, elf_file: *Elf) !void {
-        const jt_size: u64 = @intCast(jt.entries.items(.sym_index).len * entrySize(elf_file.getTarget().cpu.arch));
-        const sym = zo.symbol(jt.sym_index);
-        const esym = &zo.symtab.items(.elf_sym)[sym.esym_index];
-        esym.st_size = jt_size;
-        const atom_ptr = sym.atom(elf_file).?;
-        atom_ptr.size = jt_size;
-    }
-
-    const JumpTableFormatContext = struct { JumpTable, *ZigObject, *Elf };
-
-    pub fn format(
-        jt: JumpTable,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = jt;
-        _ = unused_fmt_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format JumpTable directly");
-    }
-
-    pub fn fmt(jt: JumpTable, zo: *ZigObject, elf_file: *Elf) std.fmt.Formatter(format2) {
-        return .{ .data = .{ jt, zo, elf_file } };
-    }
-
-    fn format2(
-        ctx: JumpTableFormatContext,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = options;
-        _ = unused_fmt_string;
-        const jt, const zo, const ef = ctx;
-        try writer.writeAll("__zig_jump_table\n");
-        try writer.print("  @{x} : size({x})\n", .{ jt.address(zo, ef), jt.size(zo, ef) });
-        for (jt.entries.items(.sym_index), jt.entries.items(.dirty)) |sym_index, dirty| {
-            const sym = zo.symbol(sym_index);
-            try writer.print("    {x} => {x} : %{d} : {s}", .{
-                sym.address(.{ .zjt = true }, ef),
-                sym.address(.{}, ef),
-                sym_index,
-                sym.name(ef),
-            });
-            if (dirty) try writer.writeAll(" : [!]");
-            try writer.writeByte('\n');
-        }
-    }
-
-    const Entry = struct {
-        sym_index: Symbol.Index,
-        dirty: bool = true,
-    };
-
-    pub const Index = u32;
-
-    const x86_64 = struct {
-        fn writeEntry(source_addr: i64, target_addr: i64, buf: *[max_jump_seq_len]u8) ![]u8 {
-            const disp = @as(i64, @intCast(target_addr)) - source_addr - 5;
-            var bytes = [_]u8{
-                0xe9, 0x00, 0x00, 0x00, 0x00, // jmp rel32
-            };
-            assert(bytes.len == entrySize(.x86_64));
-            mem.writeInt(i32, bytes[1..][0..4], @intCast(disp), .little);
-            @memcpy(buf[0..bytes.len], &bytes);
-            return buf[0..bytes.len];
-        }
-    };
 };
 
 const assert = std.debug.assert;
