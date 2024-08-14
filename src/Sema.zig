@@ -36641,11 +36641,11 @@ fn semaUnionFields(pt: Zcu.PerThread, arena: Allocator, union_ty: InternPool.Ind
             }
         } else {
             // The provided type is the enum tag type.
-            union_type.setTagType(ip, provided_ty.toIntern());
             const enum_type = switch (ip.indexToKey(provided_ty.toIntern())) {
                 .enum_type => ip.loadEnumType(provided_ty.toIntern()),
                 else => return sema.fail(&block_scope, tag_ty_src, "expected enum tag type, found '{}'", .{provided_ty.fmt(pt)}),
             };
+            union_type.setTagType(ip, provided_ty.toIntern());
             // The fields of the union must match the enum exactly.
             // A flag per field is used to check for missing and extraneous fields.
             explicit_tags_seen = try sema.arena.alloc(bool, enum_type.names.len);
