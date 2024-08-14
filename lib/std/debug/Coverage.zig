@@ -145,6 +145,7 @@ pub const ResolveAddressesDwarfError = Dwarf.ScanError;
 pub fn resolveAddressesDwarf(
     cov: *Coverage,
     gpa: Allocator,
+    /// Asserts the addresses are in ascending order.
     sorted_pc_addrs: []const u64,
     /// Asserts its length equals length of `sorted_pc_addrs`.
     output: []SourceLocation,
@@ -156,11 +157,15 @@ pub fn resolveAddressesDwarf(
     var range_i: usize = 0;
     var range: *std.debug.Dwarf.Range = &d.ranges.items[0];
     var line_table_i: usize = undefined;
+    var prev_pc: u64 = 0;
     var prev_cu: ?*std.debug.Dwarf.CompileUnit = null;
     // Protects directories and files tables from other threads.
     cov.mutex.lock();
     defer cov.mutex.unlock();
     next_pc: for (sorted_pc_addrs, output) |pc, *out| {
+        assert(pc >= prev_pc);
+        prev_pc = pc;
+
         while (pc >= range.end) {
             range_i += 1;
             if (range_i >= d.ranges.items.len) {

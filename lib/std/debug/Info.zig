@@ -51,6 +51,7 @@ pub const ResolveAddressesError = Coverage.ResolveAddressesDwarfError;
 pub fn resolveAddresses(
     info: *Info,
     gpa: Allocator,
+    /// Asserts the addresses are in ascending order.
     sorted_pc_addrs: []const u64,
     /// Asserts its length equals length of `sorted_pc_addrs`.
     output: []SourceLocation,
