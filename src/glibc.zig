@@ -461,6 +461,8 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
         } else {
             try result.appendSlice("powerpc" ++ s ++ "powerpc32");
         }
+    } else if (arch.isLoongArch()) {
+        try result.appendSlice("loongarch");
     }
 
     try result.appendSlice(s);
@@ -649,6 +651,9 @@ fn add_include_dirs_arch(
             try args.append("-I");
             try args.append(try path.join(arena, &[_][]const u8{ dir, "riscv" }));
         }
+    } else if (arch.isLoongArch()) {
+        try args.append("-I");
+        try args.append(try path.join(arena, &[_][]const u8{ dir, "loongarch" }));
     }
 }
 
