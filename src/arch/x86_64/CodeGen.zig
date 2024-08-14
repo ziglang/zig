@@ -19374,7 +19374,7 @@ fn promoteVarArg(self: *Self, ty: Type) Type {
     switch (ty.floatBits(self.target.*)) {
         32, 64 => return Type.f64,
         else => |float_bits| {
-            assert(float_bits == self.target.c_type_bit_size(.longdouble));
+            assert(float_bits == self.target.cTypeBitSize(.longdouble));
             return Type.c_longdouble;
         },
     }

@@ -964,7 +964,7 @@ pub const Cpu = struct {
             }
         };
 
-        pub fn feature_set_fns(comptime F: type) type {
+        pub fn FeatureSetFns(comptime F: type) type {
             return struct {
                 /// Populates only the feature bits specified.
                 pub fn featureSet(features: []const F) Set {
@@ -2017,7 +2017,7 @@ pub const CType = enum {
     longdouble,
 };
 
-pub fn c_type_byte_size(t: Target, c_type: CType) u16 {
+pub fn cTypeByteSize(t: Target, c_type: CType) u16 {
     return switch (c_type) {
         .char,
         .short,
@@ -2030,20 +2030,20 @@ pub fn c_type_byte_size(t: Target, c_type: CType) u16 {
         .ulonglong,
         .float,
         .double,
-        => @divExact(c_type_bit_size(t, c_type), 8),
+        => @divExact(cTypeBitSize(t, c_type), 8),
 
-        .longdouble => switch (c_type_bit_size(t, c_type)) {
+        .longdouble => switch (cTypeBitSize(t, c_type)) {
             16 => 2,
             32 => 4,
             64 => 8,
-            80 => @intCast(std.mem.alignForward(usize, 10, c_type_alignment(t, .longdouble))),
+            80 => @intCast(std.mem.alignForward(usize, 10, cTypeAlignment(t, .longdouble))),
             128 => 16,
             else => unreachable,
         },
     };
 }
 
-pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
+pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
     switch (target.os.tag) {
         .freestanding, .other => switch (target.cpu.arch) {
             .msp430 => switch (c_type) {
@@ -2340,7 +2340,7 @@ pub fn c_type_bit_size(target: Target, c_type: CType) u16 {
     }
 }
 
-pub fn c_type_alignment(target: Target, c_type: CType) u16 {
+pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
     // Overrides for unusual alignments
     switch (target.cpu.arch) {
         .avr => return 1,
@@ -2360,7 +2360,7 @@ pub fn c_type_alignment(target: Target, c_type: CType) u16 {
 
     // Next-power-of-two-aligned, up to a maximum.
     return @min(
-        std.math.ceilPowerOfTwoAssert(u16, (c_type_bit_size(target, c_type) + 7) / 8),
+        std.math.ceilPowerOfTwoAssert(u16, (cTypeBitSize(target, c_type) + 7) / 8),
         @as(u16, switch (target.cpu.arch) {
             .arm, .armeb, .thumb, .thumbeb => switch (target.os.tag) {
                 .netbsd => switch (target.abi) {
@@ -2432,7 +2432,7 @@ pub fn c_type_alignment(target: Target, c_type: CType) u16 {
     );
 }
 
-pub fn c_type_preferred_alignment(target: Target, c_type: CType) u16 {
+pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
     // Overrides for unusual alignments
     switch (target.cpu.arch) {
         .arm, .armeb, .thumb, .thumbeb => switch (target.os.tag) {
@@ -2485,7 +2485,7 @@ pub fn c_type_preferred_alignment(target: Target, c_type: CType) u16 {
 
     // Next-power-of-two-aligned, up to a maximum.
     return @min(
-        std.math.ceilPowerOfTwoAssert(u16, (c_type_bit_size(target, c_type) + 7) / 8),
+        std.math.ceilPowerOfTwoAssert(u16, (cTypeBitSize(target, c_type) + 7) / 8),
         @as(u16, switch (target.cpu.arch) {
             .msp430 => 2,
 

@@ -564,9 +564,9 @@ const DataLayoutBuilder = struct {
             .float => &.{ .float, .double, .longdouble },
             .vector, .aggregate => &.{},
         })) |cty| {
-            if (self.target.c_type_bit_size(cty) != size) continue;
-            abi = self.target.c_type_alignment(cty) * 8;
-            pref = self.target.c_type_preferred_alignment(cty) * 8;
+            if (self.target.cTypeBitSize(cty) != size) continue;
+            abi = self.target.cTypeAlignment(cty) * 8;
+            pref = self.target.cTypePreferredAlignment(cty) * 8;
             break;
         }
         switch (kind) {
@@ -3122,7 +3122,7 @@ pub const Object = struct {
             .c_ulong_type,
             .c_longlong_type,
             .c_ulonglong_type,
-            => |tag| try o.builder.intType(target.c_type_bit_size(
+            => |tag| try o.builder.intType(target.cTypeBitSize(
                 @field(std.Target.CType, @tagName(tag)["c_".len .. @tagName(tag).len - "_type".len]),
             )),
             .c_longdouble_type,
@@ -11799,8 +11799,8 @@ fn backendSupportsF128(target: std.Target) bool {
 fn intrinsicsAllowed(scalar_ty: Type, target: std.Target) bool {
     return switch (scalar_ty.toIntern()) {
         .f16_type => backendSupportsF16(target),
-        .f80_type => (target.c_type_bit_size(.longdouble) == 80) and backendSupportsF80(target),
-        .f128_type => (target.c_type_bit_size(.longdouble) == 128) and backendSupportsF128(target),
+        .f80_type => (target.cTypeBitSize(.longdouble) == 80) and backendSupportsF80(target),
+        .f128_type => (target.cTypeBitSize(.longdouble) == 128) and backendSupportsF128(target),
         else => true,
     };
 }
