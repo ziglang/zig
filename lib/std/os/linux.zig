@@ -874,6 +874,11 @@ pub const MSF = struct {
     pub const SYNC = 4;
 };
 
+/// Can only be called on 64 bit systems.
+pub fn mseal(address: [*]const u8, length: usize, flags: usize) usize {
+    return syscall3(.mseal, @intFromPtr(address), length, flags);
+}
+
 pub fn msync(address: [*]const u8, length: usize, flags: i32) usize {
     return syscall3(.msync, @intFromPtr(address), length, @as(u32, @bitCast(flags)));
 }
