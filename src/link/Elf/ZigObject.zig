@@ -1141,13 +1141,12 @@ pub fn updateNav(
         .variable => |variable| Value.fromInterned(variable.init),
         .@"extern" => |@"extern"| {
             if (ip.isFunctionType(@"extern".ty)) return;
-            // Extern variable gets a .got entry only.
             const sym_index = try self.getGlobalSymbol(
                 elf_file,
                 nav.name.toSlice(ip),
                 @"extern".lib_name.toSlice(ip),
             );
-            self.symbol(sym_index).flags.needs_got = true;
+            self.symbol(sym_index).flags.is_extern_ptr = true;
             return;
         },
         else => nav_val,

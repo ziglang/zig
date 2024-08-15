@@ -447,16 +447,18 @@ pub const Flags = packed struct {
     needs_tlsdesc: bool = false,
     has_tlsdesc: bool = false,
 
-    /// Whether the symbol is a TLS variable.
-    /// TODO this is really not needed if only we operated on esyms between
-    /// codegen and ZigObject.
-    is_tls: bool = false,
-
     /// Whether the symbol is a merge subsection.
     merge_subsection: bool = false,
 
+    /// ZigObject specific flags
     /// Whether the symbol has a trampoline.
     has_trampoline: bool = false,
+
+    /// Whether the symbol is a TLS variable.
+    is_tls: bool = false,
+
+    /// Whether the symbol is an extern pointer (as opposed to function).
+    is_extern_ptr: bool = false,
 };
 
 pub const Extra = struct {

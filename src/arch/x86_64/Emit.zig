@@ -114,7 +114,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     const atom = zo.symbol(data.atom_index).atom(elf_file).?;
                     const sym = zo.symbol(data.sym_index);
                     if (emit.lower.pic) {
-                        const r_type: u32 = if (sym.flags.needs_got)
+                        const r_type: u32 = if (sym.flags.is_extern_ptr)
                             @intFromEnum(std.elf.R_X86_64.GOTPCREL)
                         else
                             @intFromEnum(std.elf.R_X86_64.PC32);
@@ -124,7 +124,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             .r_addend = -4,
                         });
                     } else {
-                        const r_type: u32 = if (sym.flags.needs_got)
+                        const r_type: u32 = if (sym.flags.is_extern_ptr)
                             @intFromEnum(std.elf.R_X86_64.GOT32)
                         else if (sym.flags.is_tls)
                             @intFromEnum(std.elf.R_X86_64.TPOFF32)

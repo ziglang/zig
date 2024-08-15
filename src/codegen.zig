@@ -898,9 +898,8 @@ fn genNavRef(
     if (lf.cast(.elf)) |elf_file| {
         const zo = elf_file.zigObjectPtr().?;
         if (is_extern) {
-            // TODO audit this
             const sym_index = try elf_file.getGlobalSymbol(name.toSlice(ip), lib_name.toSlice(ip));
-            zo.symbol(sym_index).flags.needs_got = true;
+            zo.symbol(sym_index).flags.is_extern_ptr = true;
             return GenResult.mcv(.{ .load_symbol = sym_index });
         }
         const sym_index = try zo.getOrCreateMetadataForNav(elf_file, nav_index);
