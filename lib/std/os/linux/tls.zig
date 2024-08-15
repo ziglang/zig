@@ -269,7 +269,7 @@ pub fn setThreadPointer(addr: usize) void {
         },
         .loongarch32, .loongarch64 => {
             asm volatile (
-                \\ or $tp, $zero, %[addr]
+                \\ move $tp, %[addr]
                 :
                 : [addr] "r" (addr),
             );
