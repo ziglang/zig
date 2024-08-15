@@ -49,12 +49,8 @@ pub fn emitMir(emit: *Emit) Error!void {
                     const atom_ptr = zo.symbol(symbol.atom_index).atom(elf_file).?;
                     const sym = zo.symbol(symbol.sym_index);
 
-                    if (sym.flags.is_extern_ptr) blk: {
-                        const name = sym.name(elf_file);
-                        if (mem.eql(u8, "__init_array_start", name) or mem.eql(u8, "__init_array_end", name) or
-                            mem.eql(u8, "__fini_array_start", name) or mem.eql(u8, "__fini_array_end", name))
-                            break :blk;
-                        return emit.fail("emit GOT relocation for symbol '{s}'", .{name});
+                    if (sym.flags.is_extern_ptr and emit.lower.pic) {
+                        return emit.fail("emit GOT relocation for symbol '{s}'", .{sym.name(elf_file)});
                     }
 
                     const hi_r_type: u32 = @intFromEnum(std.elf.R_RISCV.HI20);
