@@ -49,13 +49,16 @@ pub fn emitMir(emit: *Emit) Error!void {
                     const atom_ptr = zo.symbol(symbol.atom_index).atom(elf_file).?;
                     const sym = zo.symbol(symbol.sym_index);
 
-                    var hi_r_type: u32 = @intFromEnum(std.elf.R_RISCV.HI20);
-                    var lo_r_type: u32 = @intFromEnum(std.elf.R_RISCV.LO12_I);
-
-                    if (sym.flags.needs_got) {
-                        hi_r_type = Elf.R_GOT_HI20_STATIC; // TODO: rework this #20887
-                        lo_r_type = Elf.R_GOT_LO12_I_STATIC; // TODO: rework this #20887
+                    if (sym.flags.is_extern_ptr) blk: {
+                        const name = sym.name(elf_file);
+                        if (mem.eql(u8, "__init_array_start", name) or mem.eql(u8, "__init_array_end", name) or
+                            mem.eql(u8, "__fini_array_start", name) or mem.eql(u8, "__fini_array_end", name))
+                            break :blk;
+                        return emit.fail("emit GOT relocation for symbol '{s}'", .{name});
                     }
+
+                    const hi_r_type: u32 = @intFromEnum(std.elf.R_RISCV.HI20);
+                    const lo_r_type: u32 = @intFromEnum(std.elf.R_RISCV.LO12_I);
 
                     try atom_ptr.addReloc(elf_file, .{
                         .r_offset = start_offset,

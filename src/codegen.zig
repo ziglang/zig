@@ -900,7 +900,7 @@ fn genNavRef(
         if (is_extern) {
             const sym_index = try elf_file.getGlobalSymbol(name.toSlice(ip), lib_name.toSlice(ip));
             zo.symbol(sym_index).flags.is_extern_ptr = true;
-            return GenResult.mcv(.{ .load_symbol = sym_index });
+            return GenResult.mcv(.{ .lea_symbol = sym_index });
         }
         const sym_index = try zo.getOrCreateMetadataForNav(elf_file, nav_index);
         if (!single_threaded and is_threadlocal) {

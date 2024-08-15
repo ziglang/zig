@@ -1978,13 +1978,7 @@ const riscv = struct {
             .SUB32,
             => {},
 
-            else => |x| switch (@intFromEnum(x)) {
-                Elf.R_GOT_HI20_STATIC,
-                Elf.R_GOT_LO12_I_STATIC,
-                => symbol.flags.needs_got = true,
-
-                else => try atom.reportUnhandledRelocError(rel, elf_file),
-            },
+            else => try atom.reportUnhandledRelocError(rel, elf_file),
         }
     }
 
@@ -2121,22 +2115,7 @@ const riscv = struct {
                 // TODO: annotates an ADD instruction that can be removed when TPREL is relaxed
             },
 
-            else => |x| switch (@intFromEnum(x)) {
-                // Zig custom relocations
-                Elf.R_GOT_HI20_STATIC => {
-                    assert(target.flags.has_got);
-                    const disp: u32 = @bitCast(math.cast(i32, G + GOT + A) orelse return error.Overflow);
-                    riscv_util.writeInstU(code[r_offset..][0..4], disp);
-                },
-
-                Elf.R_GOT_LO12_I_STATIC => {
-                    assert(target.flags.has_got);
-                    const disp: u32 = @bitCast(math.cast(i32, G + GOT + A) orelse return error.Overflow);
-                    riscv_util.writeInstI(code[r_offset..][0..4], disp);
-                },
-
-                else => try atom.reportUnhandledRelocError(rel, elf_file),
-            },
+            else => try atom.reportUnhandledRelocError(rel, elf_file),
         }
     }
 

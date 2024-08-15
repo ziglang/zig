@@ -112,15 +112,11 @@ fn formatRelocType(
     _ = unused_fmt_string;
     _ = options;
     const r_type = ctx.r_type;
-    switch (r_type) {
-        Elf.R_GOT_HI20_STATIC => try writer.writeAll("R_GOT_HI20_STATIC"),
-        Elf.R_GOT_LO12_I_STATIC => try writer.writeAll("R_GOT_LO12_I_STATIC"),
-        else => switch (ctx.cpu_arch) {
-            .x86_64 => try writer.print("R_X86_64_{s}", .{@tagName(@as(elf.R_X86_64, @enumFromInt(r_type)))}),
-            .aarch64 => try writer.print("R_AARCH64_{s}", .{@tagName(@as(elf.R_AARCH64, @enumFromInt(r_type)))}),
-            .riscv64 => try writer.print("R_RISCV_{s}", .{@tagName(@as(elf.R_RISCV, @enumFromInt(r_type)))}),
-            else => unreachable,
-        },
+    switch (ctx.cpu_arch) {
+        .x86_64 => try writer.print("R_X86_64_{s}", .{@tagName(@as(elf.R_X86_64, @enumFromInt(r_type)))}),
+        .aarch64 => try writer.print("R_AARCH64_{s}", .{@tagName(@as(elf.R_AARCH64, @enumFromInt(r_type)))}),
+        .riscv64 => try writer.print("R_RISCV_{s}", .{@tagName(@as(elf.R_RISCV, @enumFromInt(r_type)))}),
+        else => unreachable,
     }
 }
 

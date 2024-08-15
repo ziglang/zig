@@ -5934,33 +5934,6 @@ const RelaSection = struct {
 };
 const RelaSectionTable = std.AutoArrayHashMapUnmanaged(u32, RelaSection);
 
-pub const R_GOT_HI20_STATIC: u32 = 0xff04;
-pub const R_GOT_LO12_I_STATIC: u32 = 0xff05;
-
-// Comptime asserts that no Zig relocs overlap with another ISA's reloc number
-comptime {
-    const zig_relocs = .{
-        R_GOT_HI20_STATIC,
-        R_GOT_LO12_I_STATIC,
-    };
-
-    const other_relocs = .{
-        elf.R_X86_64,
-        elf.R_AARCH64,
-        elf.R_RISCV,
-        elf.R_PPC64,
-    };
-
-    @setEvalBranchQuota(@min(other_relocs.len * zig_relocs.len * 256, 6200));
-    for (other_relocs) |relocs| {
-        for (@typeInfo(relocs).Enum.fields) |reloc| {
-            for (zig_relocs) |zig_reloc| {
-                assert(reloc.value != zig_reloc);
-            }
-        }
-    }
-}
-
 fn defaultEntrySymbolName(cpu_arch: std.Target.Cpu.Arch) []const u8 {
     return switch (cpu_arch) {
         .mips, .mipsel, .mips64, .mips64el => "__start",
