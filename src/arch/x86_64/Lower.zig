@@ -402,7 +402,21 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                 if (elf_sym.flags.is_extern_ptr) emit_mnemonic = .mov;
                                 break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
                             },
-                            .mov => break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) },
+                            .mov => {
+                                if (elf_sym.flags.is_extern_ptr) {
+                                    const reg = ops[0].reg;
+                                    lower.result_insts[lower.result_insts_len] =
+                                        try Instruction.new(.none, .mov, &[_]Operand{
+                                        .{ .reg = reg.to64() },
+                                        .{ .mem = Memory.rip(.qword, 0) },
+                                    });
+                                    lower.result_insts_len += 1;
+                                    break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{ .base = .{
+                                        .reg = reg.to64(),
+                                    } }) };
+                                }
+                                break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
+                            },
                             else => unreachable,
                         } else switch (mnemonic) {
                             .call => break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
