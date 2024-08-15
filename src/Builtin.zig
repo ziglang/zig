@@ -218,7 +218,7 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
 
     if (opts.is_test) {
         try buffer.appendSlice(
-            \\pub var test_functions: []const std.builtin.TestFn = undefined; // overwritten later
+            \\pub var test_functions: []const std.builtin.TestFn = &.{}; // overwritten later
             \\
         );
     }
