@@ -328,7 +328,7 @@ fn _start() callconv(.Naked) noreturn {
             \\ andi sp, sp, -16
             \\ tail %[posixCallMainAndExit]@plt
             ,
-            // zig fmt: off
+            // zig fmt: on
             .m68k =>
             // Note that the - 8 is needed because pc in the jsr instruction points into the middle
             // of the jsr instruction. (The lea is 6 bytes, the jsr is 4 bytes.)
@@ -426,7 +426,7 @@ fn _start() callconv(.Naked) noreturn {
             else => @compileError("unsupported arch"),
         }
         :
-        : [_start] "X" (_start),
+        : [_start] "X" (&_start),
           [posixCallMainAndExit] "X" (&posixCallMainAndExit),
     );
 }
