@@ -397,8 +397,11 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                         }
 
                         _ = lower.reloc(.{ .linker_reloc = sym });
-                        break :op if (lower.pic) switch (mnemonic) {
-                            .lea => break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) },
+                        if (lower.pic) switch (mnemonic) {
+                            .lea => {
+                                if (elf_sym.flags.is_extern_ptr) emit_mnemonic = .mov;
+                                break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
+                            },
                             .mov => break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) },
                             else => unreachable,
                         } else switch (mnemonic) {
@@ -413,7 +416,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                 .base = .{ .reg = .ds },
                             }) },
                             else => unreachable,
-                        };
+                        }
                     } else if (lower.bin_file.cast(.macho)) |macho_file| {
                         const zo = macho_file.getZigObject().?;
                         const macho_sym = zo.symbols.items[sym.sym_index];

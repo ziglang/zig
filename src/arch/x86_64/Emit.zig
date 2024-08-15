@@ -124,9 +124,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             .r_addend = -4,
                         });
                     } else {
-                        const r_type: u32 = if (sym.flags.is_extern_ptr)
-                            @intFromEnum(std.elf.R_X86_64.GOT32)
-                        else if (sym.flags.is_tls)
+                        const r_type: u32 = if (sym.flags.is_tls)
                             @intFromEnum(std.elf.R_X86_64.TPOFF32)
                         else
                             @intFromEnum(std.elf.R_X86_64.@"32");
