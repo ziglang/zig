@@ -857,6 +857,11 @@ pub fn growAllocSection(self: *Elf, shdr_index: u32, needed_size: u64) !void {
     const shdr = &self.shdrs.items[shdr_index];
     const maybe_phdr = if (self.phdr_to_shdr_table.get(shdr_index)) |phndx| &self.phdrs.items[phndx] else null;
     const is_zerofill = shdr.sh_type == elf.SHT_NOBITS;
+    log.debug("allocated size {x} of {s}, needed size {x}", .{
+        self.allocatedSize(shdr.sh_offset),
+        self.getShString(shdr.sh_name),
+        needed_size,
+    });
 
     if (needed_size > self.allocatedSize(shdr.sh_offset) and !is_zerofill) {
         const existing_size = shdr.sh_size;

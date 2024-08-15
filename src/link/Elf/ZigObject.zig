@@ -816,9 +816,9 @@ fn getNavShdrIndex(
     elf_file: *Elf,
     zcu: *Zcu,
     nav_index: InternPool.Nav.Index,
+    sym_index: Symbol.Index,
     code: []const u8,
 ) error{OutOfMemory}!u32 {
-    _ = self;
     const ip = &zcu.intern_pool;
     const any_non_single_threaded = elf_file.base.comp.config.any_non_single_threaded;
     const nav_val = zcu.navValue(nav_index);
@@ -828,10 +828,12 @@ fn getNavShdrIndex(
         .@"extern" => |@"extern"| .{ @"extern".is_const, @"extern".is_threadlocal, .none },
         else => .{ true, false, nav_val.toIntern() },
     };
+    const has_relocs = self.symbol(sym_index).atom(elf_file).?.relocs(elf_file).len > 0;
     if (any_non_single_threaded and is_threadlocal) {
-        for (code) |byte| {
-            if (byte != 0) break;
-        } else return elf_file.sectionByName(".tbss") orelse try elf_file.addSection(.{
+        const is_bss = !has_relocs and for (code) |byte| {
+            if (byte != 0) break false;
+        } else true;
+        if (is_bss) return elf_file.sectionByName(".tbss") orelse try elf_file.addSection(.{
             .type = elf.SHT_NOBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE | elf.SHF_TLS,
             .name = try elf_file.insertShString(".tbss"),
@@ -850,9 +852,10 @@ fn getNavShdrIndex(
             .Debug, .ReleaseSafe => elf_file.zig_data_section_index.?,
             .ReleaseFast, .ReleaseSmall => elf_file.zig_bss_section_index.?,
         };
-    for (code) |byte| {
-        if (byte != 0) break;
-    } else return elf_file.zig_bss_section_index.?;
+    const is_bss = !has_relocs and for (code) |byte| {
+        if (byte != 0) break false;
+    } else true;
+    if (is_bss) return elf_file.zig_bss_section_index.?;
     return elf_file.zig_data_section_index.?;
 }
 
@@ -944,6 +947,7 @@ fn updateNavCode(
     if (shdr.sh_type != elf.SHT_NOBITS) {
         const file_offset = shdr.sh_offset + @as(u64, @intCast(atom_ptr.value));
         try elf_file.base.file.?.pwriteAll(code, file_offset);
+        log.debug("writing {} from 0x{x} to 0x{x}", .{ nav.fqn.fmt(ip), file_offset, file_offset + code.len });
     }
 }
 
@@ -1052,7 +1056,12 @@ pub fn updateFunc(
         },
     };
 
-    const shndx = try self.getNavShdrIndex(elf_file, zcu, func.owner_nav, code);
+    const shndx = try self.getNavShdrIndex(elf_file, zcu, func.owner_nav, sym_index, code);
+    log.debug("setting shdr({x},{s}) for {}", .{
+        shndx,
+        elf_file.getShString(elf_file.shdrs.items[shndx].sh_name),
+        ip.getNav(func.owner_nav).fqn.fmt(ip),
+    });
     const old_rva, const old_alignment = blk: {
         const atom_ptr = self.symbol(sym_index).atom(elf_file).?;
         break :blk .{ atom_ptr.value, atom_ptr.alignment };
@@ -1172,7 +1181,12 @@ pub fn updateNav(
         },
     };
 
-    const shndx = try self.getNavShdrIndex(elf_file, zcu, nav_index, code);
+    const shndx = try self.getNavShdrIndex(elf_file, zcu, nav_index, sym_index, code);
+    log.debug("setting shdr({x},{s}) for {}", .{
+        shndx,
+        elf_file.getShString(elf_file.shdrs.items[shndx].sh_name),
+        nav.fqn.fmt(ip),
+    });
     if (elf_file.shdrs.items[shndx].sh_flags & elf.SHF_TLS != 0)
         try self.updateTlv(elf_file, pt, nav_index, sym_index, shndx, code)
     else
