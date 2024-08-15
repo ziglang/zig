@@ -1314,7 +1314,7 @@ const x86_64 = struct {
                 }
             },
 
-            .GOT32 => try cwriter.writeInt(i32, @as(i32, @intCast(G + GOT + A)), .little),
+            .GOT32 => try cwriter.writeInt(i32, @as(i32, @intCast(G + A)), .little),
 
             else => try atom.reportUnhandledRelocError(rel, elf_file),
         }
