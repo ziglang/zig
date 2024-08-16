@@ -2811,7 +2811,7 @@ pub const Object = struct {
                 if (Type.fromInterned(fn_info.return_type).isError(zcu) and
                     zcu.comp.config.any_error_tracing)
                 {
-                    const ptr_ty = try pt.singleMutPtrType(try getStackTraceType(pt));
+                    const ptr_ty = try pt.ptrType(.{ .child = zcu.stack_trace_type });
                     debug_param_types.appendAssumeCapacity(try o.lowerDebugType(pt, ptr_ty));
                 }
 
@@ -3718,7 +3718,7 @@ pub const Object = struct {
         if (Type.fromInterned(fn_info.return_type).isError(zcu) and
             zcu.comp.config.any_error_tracing)
         {
-            const ptr_ty = try pt.singleMutPtrType(try getStackTraceType(pt));
+            const ptr_ty = try pt.ptrType(.{ .child = zcu.stack_trace_type });
             try llvm_params.append(o.gpa, try o.lowerType(pt, ptr_ty));
         }
 
@@ -12703,28 +12703,6 @@ const struct_layout_version = 2;
 const optional_layout_version = 3;
 
 const lt_errors_fn_name = "__zig_lt_errors_len";
-
-fn getStackTraceType(pt: Zcu.PerThread) Allocator.Error!Type {
-    const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
-
-    const std_mod = zcu.std_mod;
-    const std_file_imported = pt.importPkg(std_mod) catch unreachable;
-
-    const builtin_str = try ip.getOrPutString(zcu.gpa, pt.tid, "builtin", .no_embedded_nulls);
-    const std_file_root_type = Type.fromInterned(zcu.fileRootType(std_file_imported.file_index));
-    const std_namespace = ip.namespacePtr(std_file_root_type.getNamespaceIndex(zcu));
-    const builtin_nav = std_namespace.pub_decls.getKeyAdapted(builtin_str, Zcu.Namespace.NameAdapter{ .zcu = zcu }).?;
-
-    const stack_trace_str = try ip.getOrPutString(zcu.gpa, pt.tid, "StackTrace", .no_embedded_nulls);
-    // buffer is only used for int_type, `builtin` is a struct.
-    const builtin_ty = zcu.navValue(builtin_nav).toType();
-    const builtin_namespace = zcu.namespacePtr(builtin_ty.getNamespaceIndex(zcu));
-    const stack_trace_nav = builtin_namespace.pub_decls.getKeyAdapted(stack_trace_str, Zcu.Namespace.NameAdapter{ .zcu = zcu }).?;
-
-    // Sema should have ensured that StackTrace was analyzed.
-    return zcu.navValue(stack_trace_nav).toType();
-}
 
 fn compilerRtIntBits(bits: u16) u16 {
     inline for (.{ 32, 64, 128 }) |b| {

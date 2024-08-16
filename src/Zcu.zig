@@ -221,6 +221,7 @@ panic_messages: [PanicId.len]InternPool.Nav.Index.Optional = .{.none} ** PanicId
 /// The panic function body.
 panic_func_index: InternPool.Index = .none,
 null_stack_trace: InternPool.Index = .none,
+stack_trace_type: InternPool.Index = .none,
 
 generation: u32 = 0,
 
