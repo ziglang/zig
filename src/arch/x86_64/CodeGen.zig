@@ -12364,13 +12364,10 @@ fn genCall(self: *Self, info: union(enum) {
                         const zo = macho_file.getZigObject().?;
                         const sym_index = try zo.getOrCreateMetadataForNav(macho_file, func.owner_nav);
                         const sym = zo.symbols.items[sym_index];
-                        try self.genSetReg(
-                            .rax,
-                            Type.usize,
-                            .{ .load_symbol = .{ .sym = sym.nlist_idx } },
-                            .{},
-                        );
-                        try self.asmRegister(.{ ._, .call }, .rax);
+                        try self.asmImmediate(.{ ._, .call }, Immediate.rel(.{
+                            .atom_index = try self.owner.getSymbolIndex(self),
+                            .sym_index = sym.nlist_idx,
+                        }));
                     } else if (self.bin_file.cast(.plan9)) |p9| {
                         const atom_index = try p9.seeNav(pt, func.owner_nav);
                         const atom = p9.getAtom(atom_index);
@@ -12392,6 +12389,15 @@ fn genCall(self: *Self, info: union(enum) {
                         .atom_index = try self.owner.getSymbolIndex(self),
                         .sym_index = target_sym_index,
                     }));
+                } else if (self.bin_file.cast(.macho)) |macho_file| {
+                    const target_sym_index = try macho_file.getGlobalSymbol(
+                        @"extern".name.toSlice(ip),
+                        @"extern".lib_name.toSlice(ip),
+                    );
+                    try self.asmImmediate(.{ ._, .call }, Immediate.rel(.{
+                        .atom_index = try self.owner.getSymbolIndex(self),
+                        .sym_index = target_sym_index,
+                    }));
                 } else try self.genExternSymbolRef(
                     .call,
                     @"extern".lib_name.toSlice(ip),
@@ -12406,6 +12412,12 @@ fn genCall(self: *Self, info: union(enum) {
         },
         .lib => |lib| if (self.bin_file.cast(.elf)) |elf_file| {
             const target_sym_index = try elf_file.getGlobalSymbol(lib.callee, lib.lib);
+            try self.asmImmediate(.{ ._, .call }, Immediate.rel(.{
+                .atom_index = try self.owner.getSymbolIndex(self),
+                .sym_index = target_sym_index,
+            }));
+        } else if (self.bin_file.cast(.macho)) |macho_file| {
+            const target_sym_index = try macho_file.getGlobalSymbol(lib.callee, lib.lib);
             try self.asmImmediate(.{ ._, .call }, Immediate.rel(.{
                 .atom_index = try self.owner.getSymbolIndex(self),
                 .sym_index = target_sym_index,
@@ -15335,15 +15347,6 @@ fn genExternSymbolRef(
             .call => try self.asmRegister(.{ ._, .call }, .rax),
             else => unreachable,
         }
-    } else if (self.bin_file.cast(.macho)) |macho_file| {
-        _ = try self.addInst(.{
-            .tag = .call,
-            .ops = .extern_fn_reloc,
-            .data = .{ .reloc = .{
-                .atom_index = atom_index,
-                .sym_index = try macho_file.getGlobalSymbol(callee, lib),
-            } },
-        });
     } else return self.fail("TODO implement calling extern functions", .{});
 }
 
@@ -15434,13 +15437,12 @@ fn genLazySymbolRef(
             return self.fail("{s} creating lazy symbol", .{@errorName(err)});
         const sym = zo.symbols.items[sym_index];
         switch (tag) {
-            .lea, .call => try self.genSetReg(
-                reg,
-                Type.usize,
-                .{ .load_symbol = .{ .sym = sym.nlist_idx } },
-                .{},
-            ),
-            .mov => try self.genSetReg(reg, Type.usize, .{ .load_symbol = .{ .sym = sym.nlist_idx } }, .{}),
+            .lea, .call => try self.genSetReg(reg, Type.usize, .{
+                .lea_symbol = .{ .sym = sym.nlist_idx },
+            }, .{}),
+            .mov => try self.genSetReg(reg, Type.usize, .{
+                .load_symbol = .{ .sym = sym.nlist_idx },
+            }, .{}),
             else => unreachable,
         }
         switch (tag) {
