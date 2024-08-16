@@ -14,7 +14,8 @@ const timespec = linux.timespec;
 pub fn syscall0(number: SYS) usize {
     return asm volatile (
         \\ syscall
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
@@ -28,7 +29,7 @@ pub fn syscall_pipe(fd: *[2]i32) usize {
         \\ .set noat
         \\ .set noreorder
         \\ syscall
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
         \\ nop
         \\ b 2f
         \\ subu $2, $0, $2
@@ -46,7 +47,8 @@ pub fn syscall_pipe(fd: *[2]i32) usize {
 pub fn syscall1(number: SYS, arg1: usize) usize {
     return asm volatile (
         \\ syscall
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
@@ -59,7 +61,8 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
     return asm volatile (
         \\ syscall
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
@@ -73,7 +76,8 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
     return asm volatile (
         \\ syscall
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
@@ -88,7 +92,8 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
     return asm volatile (
         \\ syscall
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
@@ -108,7 +113,8 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
         \\ sw %[arg5], 16($sp)
         \\ syscall
         \\ addu $sp, $sp, 24
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
@@ -141,7 +147,8 @@ pub fn syscall6(
         \\ sw %[arg6], 20($sp)
         \\ syscall
         \\ addu $sp, $sp, 24
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
@@ -174,7 +181,8 @@ pub fn syscall7(
         \\ sw %[arg7], 24($sp)
         \\ syscall
         \\ addu $sp, $sp, 32
-        \\ blez $7, 1f
+        \\ beq $7, $zero, 1f
+        \\ blez $2, 1f
         \\ subu $2, $0, $2
         \\ 1:
         : [ret] "={$2}" (-> usize),
