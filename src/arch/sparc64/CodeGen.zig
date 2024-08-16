@@ -1349,34 +1349,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     // Due to incremental compilation, how function calls are generated depends
     // on linking.
     if (try self.air.value(callee, pt)) |func_value| switch (ip.indexToKey(func_value.toIntern())) {
-        .func => |func| {
-            const got_addr = if (self.bin_file.cast(.elf)) |elf_file| blk: {
-                const zo = elf_file.zigObjectPtr().?;
-                const sym_index = try zo.getOrCreateMetadataForNav(elf_file, func.owner_nav);
-                const sym = zo.symbol(sym_index);
-                _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
-                break :blk @as(u32, @intCast(sym.zigGotAddress(elf_file)));
-            } else @panic("TODO SPARCv9 currently does not support non-ELF binaries");
-
-            try self.genSetReg(Type.usize, .o7, .{ .memory = got_addr });
-
-            _ = try self.addInst(.{
-                .tag = .jmpl,
-                .data = .{
-                    .arithmetic_3op = .{
-                        .is_imm = false,
-                        .rd = .o7,
-                        .rs1 = .o7,
-                        .rs2_or_imm = .{ .rs2 = .g0 },
-                    },
-                },
-            });
-
-            // TODO Find a way to fill this delay slot
-            _ = try self.addInst(.{
-                .tag = .nop,
-                .data = .{ .nop = {} },
-            });
+        .func => {
+            return self.fail("TODO implement calling functions", .{});
         },
         .@"extern" => {
             return self.fail("TODO implement calling extern functions", .{});
@@ -4153,7 +4127,7 @@ fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
             .undef => .undef,
-            .load_got, .load_symbol, .load_direct, .load_tlv => unreachable, // TODO
+            .load_got, .load_symbol, .load_direct, .load_tlv, .lea_symbol => unreachable, // TODO
             .immediate => |imm| .{ .immediate = imm },
             .memory => |addr| .{ .memory = addr },
         },

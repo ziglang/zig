@@ -8,7 +8,7 @@ const bits = @import("bits.zig");
 const encoder = @import("encoder.zig");
 
 const Encoding = @import("Encoding.zig");
-const Immediate = bits.Immediate;
+const Immediate = Instruction.Immediate;
 const Instruction = encoder.Instruction;
 const LegacyPrefixes = encoder.LegacyPrefixes;
 const Memory = Instruction.Memory;

@@ -1379,14 +1379,22 @@ fn asmImmediate(self: *Self, tag: Mir.Inst.FixedTag, imm: Immediate) !void {
         .ops = switch (imm) {
             .signed => .i_s,
             .unsigned => .i_u,
+            .reloc => .rel,
         },
-        .data = .{ .i = .{
-            .fixes = tag[0],
-            .i = switch (imm) {
-                .signed => |s| @bitCast(s),
-                .unsigned => |u| @intCast(u),
+        .data = switch (imm) {
+            .reloc => |x| reloc: {
+                assert(tag[0] == ._);
+                break :reloc .{ .reloc = x };
             },
-        } },
+            .signed, .unsigned => .{ .i = .{
+                .fixes = tag[0],
+                .i = switch (imm) {
+                    .signed => |s| @bitCast(s),
+                    .unsigned => |u| @intCast(u),
+                    .reloc => unreachable,
+                },
+            } },
+        },
     });
 }
 
@@ -1406,6 +1414,7 @@ fn asmRegisterImmediate(self: *Self, tag: Mir.Inst.FixedTag, reg: Register, imm:
     const ops: Mir.Inst.Ops = switch (imm) {
         .signed => .ri_s,
         .unsigned => |u| if (math.cast(u32, u)) |_| .ri_u else .ri64,
+        .reloc => unreachable,
     };
     _ = try self.addInst(.{
         .tag = tag[1],
@@ -1417,6 +1426,7 @@ fn asmRegisterImmediate(self: *Self, tag: Mir.Inst.FixedTag, reg: Register, imm:
                 .i = switch (imm) {
                     .signed => |s| @bitCast(s),
                     .unsigned => |u| @intCast(u),
+                    .reloc => unreachable,
                 },
             } },
             .ri64 => .{ .rx = .{
@@ -1488,6 +1498,7 @@ fn asmRegisterRegisterRegisterImmediate(
             .i = switch (imm) {
                 .signed => |s| @bitCast(@as(i8, @intCast(s))),
                 .unsigned => |u| @intCast(u),
+                .reloc => unreachable,
             },
         } },
     });
@@ -1505,6 +1516,7 @@ fn asmRegisterRegisterImmediate(
         .ops = switch (imm) {
             .signed => .rri_s,
             .unsigned => .rri_u,
+            .reloc => unreachable,
         },
         .data = .{ .rri = .{
             .fixes = tag[0],
@@ -1513,6 +1525,7 @@ fn asmRegisterRegisterImmediate(
             .i = switch (imm) {
                 .signed => |s| @bitCast(s),
                 .unsigned => |u| @intCast(u),
+                .reloc => unreachable,
             },
         } },
     });
@@ -1610,6 +1623,7 @@ fn asmRegisterMemoryImmediate(
     if (switch (imm) {
         .signed => |s| if (math.cast(i16, s)) |x| @as(u16, @bitCast(x)) else null,
         .unsigned => |u| math.cast(u16, u),
+        .reloc => unreachable,
     }) |small_imm| {
         _ = try self.addInst(.{
             .tag = tag[1],
@@ -1625,6 +1639,7 @@ fn asmRegisterMemoryImmediate(
         const payload = try self.addExtra(Mir.Imm32{ .imm = switch (imm) {
             .signed => |s| @bitCast(s),
             .unsigned => unreachable,
+            .reloc => unreachable,
         } });
         assert(payload + 1 == try self.addExtra(Mir.Memory.encode(m)));
         _ = try self.addInst(.{
@@ -1632,6 +1647,7 @@ fn asmRegisterMemoryImmediate(
             .ops = switch (imm) {
                 .signed => .rmi_s,
                 .unsigned => .rmi_u,
+                .reloc => unreachable,
             },
             .data = .{ .rx = .{
                 .fixes = tag[0],
@@ -1679,6 +1695,7 @@ fn asmMemoryImmediate(self: *Self, tag: Mir.Inst.FixedTag, m: Memory, imm: Immed
     const payload = try self.addExtra(Mir.Imm32{ .imm = switch (imm) {
         .signed => |s| @bitCast(s),
         .unsigned => |u| @intCast(u),
+        .reloc => unreachable,
     } });
     assert(payload + 1 == try self.addExtra(Mir.Memory.encode(m)));
     _ = try self.addInst(.{
@@ -1686,6 +1703,7 @@ fn asmMemoryImmediate(self: *Self, tag: Mir.Inst.FixedTag, m: Memory, imm: Immed
         .ops = switch (imm) {
             .signed => .mi_s,
             .unsigned => .mi_u,
+            .reloc => unreachable,
         },
         .data = .{ .x = .{
             .fixes = tag[0],
@@ -12310,33 +12328,10 @@ fn genCall(self: *Self, info: union(enum) {
                     if (self.bin_file.cast(.elf)) |elf_file| {
                         const zo = elf_file.zigObjectPtr().?;
                         const sym_index = try zo.getOrCreateMetadataForNav(elf_file, func.owner_nav);
-                        if (self.mod.pic) {
-                            const callee_reg: Register = switch (resolved_cc) {
-                                .SysV => callee: {
-                                    if (!fn_info.is_var_args) break :callee .rax;
-                                    const param_regs = abi.getCAbiIntParamRegs(resolved_cc);
-                                    break :callee if (call_info.gp_count < param_regs.len)
-                                        param_regs[call_info.gp_count]
-                                    else
-                                        .r10;
-                                },
-                                .Win64 => .rax,
-                                else => unreachable,
-                            };
-                            try self.genSetReg(
-                                callee_reg,
-                                Type.usize,
-                                .{ .load_symbol = .{ .sym = sym_index } },
-                                .{},
-                            );
-                            try self.asmRegister(.{ ._, .call }, callee_reg);
-                        } else try self.asmMemory(.{ ._, .call }, .{
-                            .base = .{ .reloc = .{
-                                .atom_index = try self.owner.getSymbolIndex(self),
-                                .sym_index = sym_index,
-                            } },
-                            .mod = .{ .rm = .{ .size = .qword } },
-                        });
+                        try self.asmImmediate(.{ ._, .call }, Immediate.rel(.{
+                            .atom_index = try self.owner.getSymbolIndex(self),
+                            .sym_index = sym_index,
+                        }));
                     } else if (self.bin_file.cast(.coff)) |coff_file| {
                         const atom = try coff_file.getOrCreateAtomForNav(func.owner_nav);
                         const sym_index = coff_file.getAtom(atom).getSymbolIndex().?;
@@ -12365,7 +12360,16 @@ fn genCall(self: *Self, info: union(enum) {
                         });
                     } else unreachable;
                 },
-                .@"extern" => |@"extern"| try self.genExternSymbolRef(
+                .@"extern" => |@"extern"| if (self.bin_file.cast(.elf)) |elf_file| {
+                    const target_sym_index = try elf_file.getGlobalSymbol(
+                        @"extern".name.toSlice(ip),
+                        @"extern".lib_name.toSlice(ip),
+                    );
+                    try self.asmImmediate(.{ ._, .call }, Immediate.rel(.{
+                        .atom_index = try self.owner.getSymbolIndex(self),
+                        .sym_index = target_sym_index,
+                    }));
+                } else try self.genExternSymbolRef(
                     .call,
                     @"extern".lib_name.toSlice(ip),
                     @"extern".name.toSlice(ip),
@@ -12377,7 +12381,13 @@ fn genCall(self: *Self, info: union(enum) {
             try self.genSetReg(.rax, Type.usize, .{ .air_ref = callee }, .{});
             try self.asmRegister(.{ ._, .call }, .rax);
         },
-        .lib => |lib| try self.genExternSymbolRef(.call, lib.lib, lib.callee),
+        .lib => |lib| if (self.bin_file.cast(.elf)) |elf_file| {
+            const target_sym_index = try elf_file.getGlobalSymbol(lib.callee, lib.lib);
+            try self.asmImmediate(.{ ._, .call }, Immediate.rel(.{
+                .atom_index = try self.owner.getSymbolIndex(self),
+                .sym_index = target_sym_index,
+            }));
+        } else try self.genExternSymbolRef(.call, lib.lib, lib.callee),
     }
     return call_info.return_value.short;
 }
@@ -14096,8 +14106,8 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
                         .{ .reg = try self.copyToTmpRegister(Type.usize, .{ .lea_got = sym_index }) }
                     else
                         return self.fail("invalid modifier: '{s}'", .{modifier}),
-                    .load_symbol => |sym_off| if (mem.eql(u8, modifier, "P"))
-                        .{ .reg = try self.copyToTmpRegister(Type.usize, .{ .load_symbol = sym_off }) }
+                    .lea_symbol => |sym_off| if (mem.eql(u8, modifier, "P"))
+                        .{ .reg = try self.copyToTmpRegister(Type.usize, .{ .lea_symbol = sym_off }) }
                     else
                         return self.fail("invalid modifier: '{s}'", .{modifier}),
                     else => return self.fail("invalid constraint: '{s}'", .{op_str}),
@@ -15253,16 +15263,7 @@ fn genExternSymbolRef(
     callee: []const u8,
 ) InnerError!void {
     const atom_index = try self.owner.getSymbolIndex(self);
-    if (self.bin_file.cast(.elf)) |elf_file| {
-        _ = try self.addInst(.{
-            .tag = tag,
-            .ops = .extern_fn_reloc,
-            .data = .{ .reloc = .{
-                .atom_index = atom_index,
-                .sym_index = try elf_file.getGlobalSymbol(callee, lib),
-            } },
-        });
-    } else if (self.bin_file.cast(.coff)) |coff_file| {
+    if (self.bin_file.cast(.coff)) |coff_file| {
         const global_index = try coff_file.getGlobalSymbol(callee, lib);
         _ = try self.addInst(.{
             .tag = .mov,
@@ -15306,7 +15307,7 @@ fn genLazySymbolRef(
         if (self.mod.pic) {
             switch (tag) {
                 .lea, .call => try self.genSetReg(reg, Type.usize, .{
-                    .load_symbol = .{ .sym = sym_index },
+                    .lea_symbol = .{ .sym = sym_index },
                 }, .{}),
                 .mov => try self.genSetReg(reg, Type.usize, .{
                     .load_symbol = .{ .sym = sym_index },
@@ -15324,14 +15325,11 @@ fn genLazySymbolRef(
                 .sym_index = sym_index,
             };
             switch (tag) {
-                .lea, .mov => try self.asmRegisterMemory(.{ ._, .mov }, reg.to64(), .{
+                .lea, .mov => try self.asmRegisterMemory(.{ ._, tag }, reg.to64(), .{
                     .base = .{ .reloc = reloc },
                     .mod = .{ .rm = .{ .size = .qword } },
                 }),
-                .call => try self.asmMemory(.{ ._, .call }, .{
-                    .base = .{ .reloc = reloc },
-                    .mod = .{ .rm = .{ .size = .qword } },
-                }),
+                .call => try self.asmImmediate(.{ ._, .call }, Immediate.rel(reloc)),
                 else => unreachable,
             }
         }
@@ -18790,6 +18788,7 @@ fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
             .immediate => |imm| .{ .immediate = imm },
             .memory => |addr| .{ .memory = addr },
             .load_symbol => |sym_index| .{ .load_symbol = .{ .sym = sym_index } },
+            .lea_symbol => |sym_index| .{ .lea_symbol = .{ .sym = sym_index } },
             .load_direct => |sym_index| .{ .load_direct = sym_index },
             .load_got => |sym_index| .{ .lea_got = sym_index },
             .load_tlv => |sym_index| .{ .lea_tlv = sym_index },

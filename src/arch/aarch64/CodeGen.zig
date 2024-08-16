@@ -4352,24 +4352,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     // on linking.
     if (try self.air.value(callee, pt)) |func_value| switch (ip.indexToKey(func_value.toIntern())) {
         .func => |func| {
-            if (self.bin_file.cast(.elf)) |elf_file| {
-                const zo = elf_file.zigObjectPtr().?;
-                const sym_index = try zo.getOrCreateMetadataForNav(elf_file, func.owner_nav);
-                const sym = zo.symbol(sym_index);
-                _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
-                const got_addr = @as(u32, @intCast(sym.zigGotAddress(elf_file)));
-                try self.genSetReg(Type.usize, .x30, .{ .memory = got_addr });
-            } else if (self.bin_file.cast(.macho)) |macho_file| {
-                _ = macho_file;
-                @panic("TODO airCall");
-                // const atom = try macho_file.getOrCreateAtomForNav(func.owner_nav);
-                // const sym_index = macho_file.getAtom(atom).getSymbolIndex().?;
-                // try self.genSetReg(Type.u64, .x30, .{
-                //     .linker_load = .{
-                //         .type = .got,
-                //         .sym_index = sym_index,
-                //     },
-                // });
+            if (self.bin_file.cast(.elf)) |_| {
+                return self.fail("TODO implement calling functions for Elf", .{});
+            } else if (self.bin_file.cast(.macho)) |_| {
+                return self.fail("TODO implement calling functions for MachO", .{});
             } else if (self.bin_file.cast(.coff)) |coff_file| {
                 const atom = try coff_file.getOrCreateAtomForNav(func.owner_nav);
                 const sym_index = coff_file.getAtom(atom).getSymbolIndex().?;
@@ -4393,21 +4379,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
         .@"extern" => |@"extern"| {
             const nav_name = ip.getNav(@"extern".owner_nav).name.toSlice(ip);
             const lib_name = @"extern".lib_name.toSlice(ip);
-            if (self.bin_file.cast(.macho)) |macho_file| {
-                _ = macho_file;
-                @panic("TODO airCall");
-                // const sym_index = try macho_file.getGlobalSymbol(nav_name, lib_name);
-                // const atom = try macho_file.getOrCreateAtomForNav(self.owner_nav);
-                // const atom_index = macho_file.getAtom(atom).getSymbolIndex().?;
-                // _ = try self.addInst(.{
-                //     .tag = .call_extern,
-                //     .data = .{
-                //         .relocation = .{
-                //             .atom_index = atom_index,
-                //             .sym_index = sym_index,
-                //         },
-                //     },
-                // });
+            if (self.bin_file.cast(.macho)) |_| {
+                return self.fail("TODO implement calling extern functions for MachO", .{});
             } else if (self.bin_file.cast(.coff)) |coff_file| {
                 const sym_index = try coff_file.getGlobalSymbol(nav_name, lib_name);
                 try self.genSetReg(Type.u64, .x30, .{
@@ -6234,7 +6207,7 @@ fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
             .memory => |addr| .{ .memory = addr },
             .load_got => |sym_index| .{ .linker_load = .{ .type = .got, .sym_index = sym_index } },
             .load_direct => |sym_index| .{ .linker_load = .{ .type = .direct, .sym_index = sym_index } },
-            .load_symbol, .load_tlv => unreachable, // TODO
+            .load_symbol, .load_tlv, .lea_symbol => unreachable, // TODO
         },
         .fail => |msg| {
             self.err_msg = msg;

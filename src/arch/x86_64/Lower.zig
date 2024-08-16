@@ -397,33 +397,40 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                         }
 
                         _ = lower.reloc(.{ .linker_reloc = sym });
-                        break :op if (lower.pic) switch (mnemonic) {
+                        if (lower.pic) switch (mnemonic) {
                             .lea => {
+                                if (elf_sym.flags.is_extern_ptr) emit_mnemonic = .mov;
                                 break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
                             },
                             .mov => {
-                                if (is_obj_or_static_lib and elf_sym.flags.needs_zig_got) emit_mnemonic = .lea;
+                                if (elf_sym.flags.is_extern_ptr) {
+                                    const reg = ops[0].reg;
+                                    lower.result_insts[lower.result_insts_len] =
+                                        try Instruction.new(.none, .mov, &[_]Operand{
+                                        .{ .reg = reg.to64() },
+                                        .{ .mem = Memory.rip(.qword, 0) },
+                                    });
+                                    lower.result_insts_len += 1;
+                                    break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{ .base = .{
+                                        .reg = reg.to64(),
+                                    } }) };
+                                }
                                 break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
                             },
                             else => unreachable,
                         } else switch (mnemonic) {
-                            .call => break :op if (is_obj_or_static_lib and elf_sym.flags.needs_zig_got) .{
-                                .imm = Immediate.s(0),
-                            } else .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                            .call => break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
                                 .base = .{ .reg = .ds },
                             }) },
                             .lea => {
                                 emit_mnemonic = .mov;
                                 break :op .{ .imm = Immediate.s(0) };
                             },
-                            .mov => {
-                                if (is_obj_or_static_lib and elf_sym.flags.needs_zig_got) emit_mnemonic = .lea;
-                                break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
-                                    .base = .{ .reg = .ds },
-                                }) };
-                            },
+                            .mov => break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                                .base = .{ .reg = .ds },
+                            }) },
                             else => unreachable,
-                        };
+                        }
                     } else if (lower.bin_file.cast(.macho)) |macho_file| {
                         const zo = macho_file.getZigObject().?;
                         const macho_sym = zo.symbols.items[sym.sym_index];
@@ -485,7 +492,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         .rrmi => inst.data.rrix.fixes,
         .mi_u, .mi_s => inst.data.x.fixes,
         .m => inst.data.x.fixes,
-        .extern_fn_reloc, .got_reloc, .direct_reloc, .import_reloc, .tlv_reloc => ._,
+        .extern_fn_reloc, .got_reloc, .direct_reloc, .import_reloc, .tlv_reloc, .rel => ._,
         else => return lower.fail("TODO lower .{s}", .{@tagName(inst.ops)}),
     };
     try lower.emit(switch (fixes) {
@@ -617,7 +624,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .mem = lower.mem(inst.data.rrix.payload) },
             .{ .imm = lower.imm(inst.ops, inst.data.rrix.i) },
         },
-        .extern_fn_reloc => &.{
+        .extern_fn_reloc, .rel => &.{
             .{ .imm = lower.reloc(.{ .linker_extern_fn = inst.data.reloc }) },
         },
         .got_reloc, .direct_reloc, .import_reloc => ops: {
@@ -660,7 +667,7 @@ const std = @import("std");
 const Air = @import("../../Air.zig");
 const Allocator = std.mem.Allocator;
 const ErrorMsg = Zcu.ErrorMsg;
-const Immediate = bits.Immediate;
+const Immediate = Instruction.Immediate;
 const Instruction = encoder.Instruction;
 const Lower = @This();
 const Memory = Instruction.Memory;

@@ -1773,25 +1773,41 @@ fn testImportingDataDynamic(b: *Build, opts: Options) *Step {
         .use_llvm = true,
     }, .{
         .name = "a",
-        .c_source_bytes = "int foo = 42;",
+        .c_source_bytes =
+        \\#include <stdio.h>
+        \\int foo = 42;
+        \\void printFoo() { fprintf(stderr, "lib foo=%d\n", foo); }
+        ,
     });
+    dso.linkLibC();
 
     const main = addExecutable(b, opts, .{
         .name = "main",
         .zig_source_bytes =
+        \\const std = @import("std");
         \\extern var foo: i32;
+        \\extern fn printFoo() void;
         \\pub fn main() void {
-        \\    @import("std").debug.print("{d}\n", .{foo});
+        \\    std.debug.print("exe foo={d}\n", .{foo});
+        \\    printFoo();
+        \\    foo += 1;
+        \\    std.debug.print("exe foo={d}\n", .{foo});
+        \\    printFoo();
         \\}
         ,
         .strip = true, // TODO temp hack
     });
     main.pie = true;
     main.linkLibrary(dso);
-    main.linkLibC();
 
     const run = addRunArtifact(main);
-    run.expectStdErrEqual("42\n");
+    run.expectStdErrEqual(
+        \\exe foo=42
+        \\lib foo=42
+        \\exe foo=43
+        \\lib foo=43
+        \\
+    );
     test_step.dependOn(&run.step);
 
     return test_step;

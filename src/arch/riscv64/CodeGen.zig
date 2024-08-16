@@ -4937,7 +4937,7 @@ fn genCall(
                             if (func.mod.pic) {
                                 return func.fail("TODO: genCall pic", .{});
                             } else {
-                                try func.genSetReg(Type.u64, .ra, .{ .load_symbol = .{ .sym = sym_index } });
+                                try func.genSetReg(Type.u64, .ra, .{ .lea_symbol = .{ .sym = sym_index } });
                                 _ = try func.addInst(.{
                                     .tag = .jalr,
                                     .data = .{ .i_type = .{
@@ -6120,7 +6120,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
                     arg_map.get(op_str["%[".len .. mod_index orelse op_str.len - "]".len]) orelse
                         return func.fail("no matching constraint: '{s}'", .{op_str})
                 ]) {
-                    .load_symbol => |sym_off| if (mem.eql(u8, modifier, "plt")) blk: {
+                    .lea_symbol => |sym_off| if (mem.eql(u8, modifier, "plt")) blk: {
                         assert(sym_off.off == 0);
                         break :blk .{ .sym = sym_off };
                     } else return func.fail("invalid modifier: '{s}'", .{modifier}),
@@ -6388,7 +6388,7 @@ fn genCopy(func: *Func, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
             ty,
             src_mcv,
         ),
-        .load_tlv => {
+        .load_symbol, .load_tlv => {
             const addr_reg, const addr_lock = try func.allocReg(.int);
             defer func.register_manager.unlockReg(addr_lock);
 
@@ -6433,7 +6433,7 @@ fn genCopy(func: *Func, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
                 part_disp += @intCast(dst_ty.abiSize(func.pt));
             }
         },
-        else => return func.fail("TODO: genCopy to {s} from {s}", .{ @tagName(dst_mcv), @tagName(src_mcv) }),
+        else => return std.debug.panic("TODO: genCopy to {s} from {s}", .{ @tagName(dst_mcv), @tagName(src_mcv) }),
     }
 }
 
@@ -6594,7 +6594,7 @@ fn genInlineMemset(
         .tag = .beq,
         .data = .{
             .b_type = .{
-                .inst = @intCast(func.mir_instructions.len + 4), // points after the last inst
+                .inst = @intCast(func.mir_instructions.len + 3), // points after the last inst
                 .rs1 = count,
                 .rs2 = .zero,
             },
@@ -8026,6 +8026,7 @@ fn genTypedValue(func: *Func, val: Value) InnerError!MCValue {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
             .undef => unreachable,
+            .lea_symbol => |sym_index| .{ .lea_symbol = .{ .sym = sym_index } },
             .load_symbol => |sym_index| .{ .load_symbol = .{ .sym = sym_index } },
             .load_tlv => |sym_index| .{ .lea_tlv = sym_index },
             .immediate => |imm| .{ .immediate = imm },
