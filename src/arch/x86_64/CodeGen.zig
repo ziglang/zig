@@ -1382,7 +1382,10 @@ fn asmImmediate(self: *Self, tag: Mir.Inst.FixedTag, imm: Immediate) !void {
             .reloc => .rel,
         },
         .data = switch (imm) {
-            .reloc => |x| .{ .reloc = x },
+            .reloc => |x| reloc: {
+                assert(tag[0] == ._);
+                break :reloc .{ .reloc = x };
+            },
             .signed, .unsigned => .{ .i = .{
                 .fixes = tag[0],
                 .i = switch (imm) {
