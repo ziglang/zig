@@ -672,6 +672,7 @@ pub const F = switch (native_os) {
     .linux => linux.F,
     .emscripten => emscripten.F,
     .wasi => struct {
+        // Match F_* constants from lib/libc/include/wasm-wasi-musl/__header_fcntl.h
         pub const GETFD = 1;
         pub const SETFD = 2;
         pub const GETFL = 3;
@@ -1703,14 +1704,20 @@ pub const S = switch (native_os) {
     .linux => linux.S,
     .emscripten => emscripten.S,
     .wasi => struct {
-        // Match wasi-libc's libc-bottom-half/headers/public/__mode_t.h
+        // Match S_* constants from lib/libc/include/wasm-wasi-musl/__mode_t.h
+        //
+        // Note, a bug in wasi-libc means both IFIFO and IFSOCK have the same value (0xc000).
+        // IFIFO should be 0x1000 (see https://github.com/WebAssembly/wasi-libc/pull/463), and
+        // 0x1000 is used by the wasi-libc bottom-half.  So we use 0x1000 here.  But the actual bit
+        // values we get back from a wasi-libc may get masked with the wrong values, or may get
+        // mistranslated.  So the FIFO and Socket file-type bits are not trustworthy.
         pub const IFBLK = 0x6000;
         pub const IFCHR = 0x2000;
         pub const IFDIR = 0x4000;
-        pub const IFIFO = 0x1000;
+        pub const IFIFO = 0x1000; // buggy
         pub const IFLNK = 0xa000;
         pub const IFREG = 0x8000;
-        pub const IFSOCK = 0xc000;
+        pub const IFSOCK = 0xc000; // buggy
         pub const IFMT = IFBLK | IFCHR | IFDIR | IFIFO | IFLNK | IFREG | IFSOCK;
 
         pub fn ISBLK(m: u32) bool {
@@ -6513,7 +6520,7 @@ pub const Stat = switch (native_os) {
     },
     .emscripten => emscripten.Stat,
     .wasi => extern struct {
-        // Matches wasi-libc's libc-bottom-half/headers/public/__struct_stat.h
+        // Matches wasi-libc's struct stat in lib/libc/include/wasm-wasi-musl/__struct_stat.h
         dev: dev_t,
         ino: ino_t,
         nlink: nlink_t,
@@ -7213,7 +7220,7 @@ pub const AT = switch (native_os) {
         pub const RECURSIVE = 0x8000;
     },
     .wasi => struct {
-        // Match AT_* constants in wasi-libc libc-bottom-half/headers/public/__header_fcntl.h
+        // Match AT_* constants in lib/libc/include/wasm-wasi-musl/__header_fcntl.h
         pub const FDCWD = -2;
         pub const EACCESS = 0x0;
         pub const SYMLINK_NOFOLLOW = 0x1;
@@ -7248,7 +7255,7 @@ pub const O = switch (native_os) {
         _: u9 = 0,
     },
     .wasi => packed struct(u32) {
-        // Match layout from wasi-libc libc-bottom-half/headers/public/__header_fcntl.h
+        // Match O_* bits from lib/libc/include/wasm-wasi-musl/__header_fcntl.h
         APPEND: bool = false,
         DSYNC: bool = false,
         NONBLOCK: bool = false,
