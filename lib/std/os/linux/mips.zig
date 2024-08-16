@@ -322,7 +322,7 @@ pub const msghdr_const = extern struct {
     flags: i32,
 };
 
-pub const blksize_t = i32;
+pub const blksize_t = u32;
 pub const nlink_t = u32;
 pub const time_t = i32;
 pub const mode_t = u32;
@@ -331,36 +331,47 @@ pub const ino_t = u64;
 pub const dev_t = u64;
 pub const blkcnt_t = i64;
 
-// The `stat` definition used by the Linux kernel.
+// The `stat64` definition used by the Linux kernel.
 pub const Stat = extern struct {
-    dev: u32,
-    __pad0: [3]u32, // Reserved for st_dev expansion
+    dev: dev_t,
+    __pad0: [2]u32, // -1 because our dev_t is u64 (kernel dev_t is really u32).
     ino: ino_t,
     mode: mode_t,
     nlink: nlink_t,
     uid: uid_t,
     gid: gid_t,
-    rdev: u32,
-    __pad1: [3]u32,
+    rdev: dev_t,
+    __pad1: [2]u32, // -1 because our dev_t is u64 (kernel dev_t is really u32).
     size: off_t,
-    atim: timespec,
-    mtim: timespec,
-    ctim: timespec,
+    atim: i32,
+    atim_nsec: u32,
+    mtim: i32,
+    mtim_nsec: u32,
+    ctim: i32,
+    ctim_nsec: u32,
     blksize: blksize_t,
     __pad3: u32,
     blocks: blkcnt_t,
-    __pad4: [14]usize,
 
     pub fn atime(self: @This()) timespec {
-        return self.atim;
+        return .{
+            .sec = self.atim,
+            .nsec = self.atim_nsec,
+        };
     }
 
     pub fn mtime(self: @This()) timespec {
-        return self.mtim;
+        return .{
+            .sec = self.mtim,
+            .nsec = self.mtim_nsec,
+        };
     }
 
     pub fn ctime(self: @This()) timespec {
-        return self.ctim;
+        return .{
+            .sec = self.ctim,
+            .nsec = self.ctim_nsec,
+        };
     }
 };
 
