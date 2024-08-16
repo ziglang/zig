@@ -4,9 +4,7 @@ format: DW.Format,
 endian: std.builtin.Endian,
 address_size: AddressSize,
 
-mods: std.AutoArrayHashMapUnmanaged(*Module, struct {
-    files: Files,
-}),
+mods: std.AutoArrayHashMapUnmanaged(*Module, ModInfo),
 types: std.AutoArrayHashMapUnmanaged(InternPool.Index, Entry.Index),
 navs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, Entry.Index),
 
@@ -39,7 +37,19 @@ pub const AddressSize = enum(u8) {
     _,
 };
 
-const Files = std.AutoArrayHashMapUnmanaged(Zcu.File.Index, void);
+const ModInfo = struct {
+    root_dir_path: Entry.Index,
+    dirs: std.AutoArrayHashMapUnmanaged(Unit.Index, void),
+    files: Files,
+
+    const Files = std.AutoArrayHashMapUnmanaged(Zcu.File.Index, void);
+
+    fn deinit(mod_info: *ModInfo, gpa: std.mem.Allocator) void {
+        mod_info.dirs.deinit(gpa);
+        mod_info.files.deinit(gpa);
+        mod_info.* = undefined;
+    }
+};
 
 const DebugAbbrev = struct {
     section: Section,
@@ -92,10 +102,20 @@ const DebugLine = struct {
         opcode_base: u8,
     };
 
-    fn headerBytes(dwarf: *Dwarf, file_count: u32) u32 {
+    fn dirIndexInfo(dir_count: u32) struct { bytes: u8, form: DeclValEnum(DW.FORM) } {
+        return if (dir_count <= 1 << 8)
+            .{ .bytes = 1, .form = .data1 }
+        else if (dir_count <= 1 << 16)
+            .{ .bytes = 2, .form = .data2 }
+        else
+            unreachable;
+    }
+
+    fn headerBytes(dwarf: *Dwarf, dir_count: u32, file_count: u32) u32 {
+        const dir_index_info = dirIndexInfo(dir_count);
         return dwarf.unitLengthBytes() + 2 + 1 + 1 + dwarf.sectionOffsetBytes() + 1 + 1 + 1 + 1 + 1 + 1 + 1 * (dwarf.debug_line.header.opcode_base - 1) +
-            1 + uleb128Bytes(DW.LNCT.path) + uleb128Bytes(DW.FORM.line_strp) + uleb128Bytes(1) + (dwarf.sectionOffsetBytes()) * 1 +
-            1 + uleb128Bytes(DW.LNCT.path) + uleb128Bytes(DW.FORM.line_strp) + uleb128Bytes(DW.LNCT.LLVM_source) + uleb128Bytes(DW.FORM.line_strp) + uleb128Bytes(file_count) + (dwarf.sectionOffsetBytes() + dwarf.sectionOffsetBytes()) * file_count;
+            1 + uleb128Bytes(DW.LNCT.path) + uleb128Bytes(DW.FORM.line_strp) + uleb128Bytes(dir_count) + (dwarf.sectionOffsetBytes()) * dir_count +
+            1 + uleb128Bytes(DW.LNCT.path) + uleb128Bytes(DW.FORM.line_strp) + uleb128Bytes(DW.LNCT.directory_index) + uleb128Bytes(@intFromEnum(dir_index_info.form)) + uleb128Bytes(DW.LNCT.LLVM_source) + uleb128Bytes(DW.FORM.line_strp) + uleb128Bytes(file_count) + (dwarf.sectionOffsetBytes() + dir_index_info.bytes + dwarf.sectionOffsetBytes()) * file_count;
     }
 
     const trailer_bytes = 1 + uleb128Bytes(0) +
@@ -1066,6 +1086,7 @@ pub const WipNav = struct {
         const new_func_info = zcu.funcInfo(func);
         const new_file = zcu.navFileScopeIndex(new_func_info.owner_nav);
         const new_unit = try dwarf.getUnit(zcu.fileByIndex(new_file).mod);
+
         const dlw = wip_nav.debug_line.writer(dwarf.gpa);
         if (dwarf.incremental()) {
             const new_nav_gop = try dwarf.navs.getOrPut(dwarf.gpa, new_func_info.owner_nav);
@@ -1089,9 +1110,14 @@ pub const WipNav = struct {
         const old_func_info = zcu.funcInfo(wip_nav.func);
         const old_file = zcu.navFileScopeIndex(old_func_info.owner_nav);
         if (old_file != new_file) {
-            const new_file_gop = try dwarf.getUnitFiles(new_unit).getOrPut(dwarf.gpa, new_file);
+            const mod_info = dwarf.getModInfo(wip_nav.unit);
+            const mod_gop = try mod_info.dirs.getOrPut(dwarf.gpa, new_unit);
+            errdefer _ = if (!mod_gop.found_existing) mod_info.dirs.pop();
+            const file_gop = try mod_info.files.getOrPut(dwarf.gpa, new_file);
+            errdefer _ = if (!file_gop.found_existing) mod_info.files.pop();
+
             try dlw.writeByte(DW.LNS.set_file);
-            try uleb128(dlw, new_file_gop.index);
+            try uleb128(dlw, file_gop.index);
         }
 
         const old_src_line: i33 = zcu.navSrcLine(old_func_info.owner_nav);
@@ -1437,7 +1463,7 @@ pub fn initMetadata(dwarf: *Dwarf) UpdateError!void {
 
 pub fn deinit(dwarf: *Dwarf) void {
     const gpa = dwarf.gpa;
-    for (dwarf.mods.values()) |*mod_info| mod_info.files.deinit(gpa);
+    for (dwarf.mods.values()) |*mod_info| mod_info.deinit(gpa);
     dwarf.mods.deinit(gpa);
     dwarf.types.deinit(gpa);
     dwarf.navs.deinit(gpa);
@@ -1458,8 +1484,12 @@ fn getUnit(dwarf: *Dwarf, mod: *Module) UpdateError!Unit.Index {
     if (!mod_gop.found_existing) {
         errdefer _ = dwarf.mods.pop();
         mod_gop.value_ptr.* = .{
+            .root_dir_path = undefined,
+            .dirs = .{},
             .files = .{},
         };
+        errdefer mod_gop.value_ptr.dirs.deinit(dwarf.gpa);
+        try mod_gop.value_ptr.dirs.putNoClobber(dwarf.gpa, unit, {});
         assert(try dwarf.debug_aranges.section.addUnit(
             DebugAranges.headerBytes(dwarf),
             DebugAranges.trailerBytes(dwarf),
@@ -1473,7 +1503,7 @@ fn getUnit(dwarf: *Dwarf, mod: *Module) UpdateError!Unit.Index {
         ) == unit);
         errdefer dwarf.debug_info.section.popUnit();
         assert(try dwarf.debug_line.section.addUnit(
-            DebugLine.headerBytes(dwarf, 25),
+            DebugLine.headerBytes(dwarf, 5, 25),
             DebugLine.trailer_bytes,
             dwarf,
         ) == unit);
@@ -1494,8 +1524,12 @@ fn getUnit(dwarf: *Dwarf, mod: *Module) UpdateError!Unit.Index {
     return unit;
 }
 
-fn getUnitFiles(dwarf: *Dwarf, unit: Unit.Index) *Files {
-    return &dwarf.mods.values()[@intFromEnum(unit)].files;
+fn getUnitIfExists(dwarf: *const Dwarf, mod: *Module) ?Unit.Index {
+    return @enumFromInt(dwarf.mods.getIndex(mod) orelse return null);
+}
+
+fn getModInfo(dwarf: *Dwarf, unit: Unit.Index) *ModInfo {
+    return &dwarf.mods.values()[@intFromEnum(unit)];
 }
 
 pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index, sym_index: u32) UpdateError!?WipNav {
@@ -1745,7 +1779,7 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
                 });
                 try dlw.writeByteNTimes(0, @intFromEnum(dwarf.address_size));
 
-                const file_gop = try dwarf.getUnitFiles(unit).getOrPut(dwarf.gpa, inst_info.file);
+                const file_gop = try dwarf.getModInfo(unit).files.getOrPut(dwarf.gpa, inst_info.file);
                 try dlw.writeByte(DW.LNS.set_file);
                 try uleb128(dlw, file_gop.index);
 
@@ -2698,7 +2732,7 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
 
         const diw = wip_nav.debug_info.writer(dwarf.gpa);
         try uleb128(diw, @intFromEnum(@as(AbbrevCode, if (loaded_struct.field_types.len == 0) .namespace_file else .file)));
-        const file_gop = try dwarf.getUnitFiles(unit).getOrPut(dwarf.gpa, inst_info.file);
+        const file_gop = try dwarf.getModInfo(unit).files.getOrPut(dwarf.gpa, inst_info.file);
         try uleb128(diw, file_gop.index);
         try wip_nav.strp(loaded_struct.name.toSlice(ip));
         if (loaded_struct.field_types.len > 0) {
@@ -2945,8 +2979,19 @@ pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
         try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.items);
     }
 
-    const cwd = try std.process.getCwdAlloc(dwarf.gpa);
-    defer dwarf.gpa.free(cwd);
+    {
+        const cwd = try std.process.getCwdAlloc(dwarf.gpa);
+        defer dwarf.gpa.free(cwd);
+        for (dwarf.mods.keys(), dwarf.mods.values()) |mod, *mod_info| {
+            const root_dir_path = try std.fs.path.resolve(dwarf.gpa, &.{
+                cwd,
+                mod.root.root_dir.path orelse "",
+                mod.root.sub_path,
+            });
+            defer dwarf.gpa.free(root_dir_path);
+            mod_info.root_dir_path = try dwarf.debug_line_str.addString(dwarf, root_dir_path);
+        }
+    }
 
     var header = std.ArrayList(u8).init(dwarf.gpa);
     defer header.deinit();
@@ -2997,7 +3042,7 @@ pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
         dwarf.debug_aranges.section.dirty = false;
     }
     if (dwarf.debug_info.section.dirty) {
-        for (dwarf.mods.keys(), dwarf.debug_info.section.units.items, 0..) |mod, *unit_ptr, unit_index| {
+        for (dwarf.mods.keys(), dwarf.mods.values(), dwarf.debug_info.section.units.items, 0..) |mod, mod_info, *unit_ptr, unit_index| {
             const unit: Unit.Index = @enumFromInt(unit_index);
             try unit_ptr.cross_unit_relocs.ensureUnusedCapacity(dwarf.gpa, 1);
             try unit_ptr.cross_section_relocs.ensureUnusedCapacity(dwarf.gpa, 7);
@@ -3032,22 +3077,14 @@ pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
                 .target_unit = StringSection.unit,
                 .target_entry = (try dwarf.debug_line_str.addString(dwarf, "zig " ++ @import("build_options").version)).toOptional(),
             });
-            {
-                const mod_root_path = try std.fs.path.resolve(dwarf.gpa, &.{
-                    cwd,
-                    mod.root.root_dir.path orelse "",
-                    mod.root.sub_path,
-                });
-                defer dwarf.gpa.free(mod_root_path);
-                header.appendNTimesAssumeCapacity(0, dwarf.sectionOffsetBytes());
-                unit_ptr.cross_section_relocs.appendAssumeCapacity(.{
-                    .source_off = @intCast(header.items.len),
-                    .target_sec = .debug_line_str,
-                    .target_unit = StringSection.unit,
-                    .target_entry = (try dwarf.debug_line_str.addString(dwarf, mod_root_path)).toOptional(),
-                });
-                header.appendNTimesAssumeCapacity(0, dwarf.sectionOffsetBytes());
-            }
+            header.appendNTimesAssumeCapacity(0, dwarf.sectionOffsetBytes());
+            unit_ptr.cross_section_relocs.appendAssumeCapacity(.{
+                .source_off = @intCast(header.items.len),
+                .target_sec = .debug_line_str,
+                .target_unit = StringSection.unit,
+                .target_entry = mod_info.root_dir_path.toOptional(),
+            });
+            header.appendNTimesAssumeCapacity(0, dwarf.sectionOffsetBytes());
             unit_ptr.cross_section_relocs.appendAssumeCapacity(.{
                 .source_off = @intCast(header.items.len),
                 .target_sec = .debug_line_str,
@@ -3097,8 +3134,8 @@ pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
     }
     if (dwarf.debug_line.section.dirty) {
         for (dwarf.mods.values(), dwarf.debug_line.section.units.items) |mod_info, *unit|
-            try unit.resizeHeader(&dwarf.debug_line.section, dwarf, DebugLine.headerBytes(dwarf, @intCast(mod_info.files.count())));
-        for (dwarf.mods.keys(), dwarf.mods.values(), dwarf.debug_line.section.units.items) |mod, mod_info, *unit| {
+            try unit.resizeHeader(&dwarf.debug_line.section, dwarf, DebugLine.headerBytes(dwarf, @intCast(mod_info.dirs.count()), @intCast(mod_info.files.count())));
+        for (dwarf.mods.values(), dwarf.debug_line.section.units.items) |mod_info, *unit| {
             try unit.cross_section_relocs.ensureUnusedCapacity(dwarf.gpa, 2 * (1 + mod_info.files.count()));
             header.clearRetainingCapacity();
             try header.ensureTotalCapacity(unit.header_len);
@@ -3150,25 +3187,22 @@ pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
             header.appendAssumeCapacity(1);
             uleb128(header.fixedWriter(), DW.LNCT.path) catch unreachable;
             uleb128(header.fixedWriter(), DW.FORM.line_strp) catch unreachable;
-            uleb128(header.fixedWriter(), 1) catch unreachable;
-            {
-                const mod_root_path = try std.fs.path.resolve(dwarf.gpa, &.{
-                    cwd,
-                    mod.root.root_dir.path orelse "",
-                    mod.root.sub_path,
-                });
-                defer dwarf.gpa.free(mod_root_path);
+            uleb128(header.fixedWriter(), mod_info.dirs.count()) catch unreachable;
+            for (mod_info.dirs.keys()) |dir_unit| {
                 unit.cross_section_relocs.appendAssumeCapacity(.{
                     .source_off = @intCast(header.items.len),
                     .target_sec = .debug_line_str,
                     .target_unit = StringSection.unit,
-                    .target_entry = (try dwarf.debug_line_str.addString(dwarf, mod_root_path)).toOptional(),
+                    .target_entry = dwarf.getModInfo(dir_unit).root_dir_path.toOptional(),
                 });
                 header.appendNTimesAssumeCapacity(0, dwarf.sectionOffsetBytes());
             }
-            header.appendAssumeCapacity(2);
+            const dir_index_info = DebugLine.dirIndexInfo(@intCast(mod_info.dirs.count()));
+            header.appendAssumeCapacity(3);
             uleb128(header.fixedWriter(), DW.LNCT.path) catch unreachable;
             uleb128(header.fixedWriter(), DW.FORM.line_strp) catch unreachable;
+            uleb128(header.fixedWriter(), DW.LNCT.directory_index) catch unreachable;
+            uleb128(header.fixedWriter(), @intFromEnum(dir_index_info.form)) catch unreachable;
             uleb128(header.fixedWriter(), DW.LNCT.LLVM_source) catch unreachable;
             uleb128(header.fixedWriter(), DW.FORM.line_strp) catch unreachable;
             uleb128(header.fixedWriter(), mod_info.files.count()) catch unreachable;
@@ -3181,6 +3215,10 @@ pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
                     .target_entry = (try dwarf.debug_line_str.addString(dwarf, file.sub_file_path)).toOptional(),
                 });
                 header.appendNTimesAssumeCapacity(0, dwarf.sectionOffsetBytes());
+                dwarf.writeInt(
+                    header.addManyAsSliceAssumeCapacity(dir_index_info.bytes),
+                    mod_info.dirs.getIndex(dwarf.getUnitIfExists(file.mod).?).?,
+                );
                 unit.cross_section_relocs.appendAssumeCapacity(.{
                     .source_off = @intCast(header.items.len),
                     .target_sec = .debug_line_str,

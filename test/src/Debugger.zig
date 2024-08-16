@@ -108,7 +108,7 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         \\breakpoint set --file basic.zig --source-pattern-regexp '_ = basic;'
         \\process launch
         \\frame variable --show-types basic
-        \\breakpoint delete --force
+        \\breakpoint delete --force 1
     ,
         &.{
             \\(lldb) frame variable --show-types basic
@@ -178,6 +178,8 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\  (f80) f80_-91625968981.3330078125 = -91625968981.3330078125
             \\  (f128) f128_384307168202282325.333332061767578125 = 384307168202282325.333332061767578125
             \\}
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
     );
     db.addLldbTest(
@@ -228,7 +230,7 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         \\process launch
         \\target variable --show-types --format hex global_const global_var global_threadlocal1 global_threadlocal2
         \\frame variable --show-types --format hex param1 param2 param3 param4 param5 param6 param7 param8 local_comptime_val local_comptime_ptr.0 local_const local_var
-        \\breakpoint delete --force
+        \\breakpoint delete --force 1
     ,
         &.{
             \\(lldb) target variable --show-types --format hex global_const global_var global_threadlocal1 global_threadlocal2
@@ -249,6 +251,8 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\(u64) local_comptime_ptr.0 = 0x82e834dae74767a1
             \\(u64) local_const = 0xdffceb8b2f41e205
             \\(u64) local_var = 0x5d14df51c80685a4
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
     );
     db.addLldbTest(
@@ -272,7 +276,7 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         \\breakpoint set --file slices.zig --source-pattern-regexp '_ = slice;'
         \\process launch
         \\frame variable --show-types array slice
-        \\breakpoint delete --force
+        \\breakpoint delete --force 1
     ,
         &.{
             \\(lldb) frame variable --show-types array slice
@@ -288,6 +292,8 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\  (u32) [2] = 4
             \\  (u32) [3] = 8
             \\}
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
     );
     db.addLldbTest(
@@ -313,18 +319,20 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         \\breakpoint set --file optionals.zig --source-pattern-regexp 'maybe_u32 = 123;'
         \\process launch
         \\frame variable null_u32 maybe_u32 nonnull_u32
-        \\breakpoint delete --force
+        \\breakpoint delete --force 1
         \\
         \\breakpoint set --file optionals.zig --source-pattern-regexp '_ = .{ &null_u32, &nonnull_u32 };'
         \\process continue
         \\frame variable --show-types null_u32 maybe_u32 nonnull_u32
-        \\breakpoint delete --force
+        \\breakpoint delete --force 2
     ,
         &.{
             \\(lldb) frame variable null_u32 maybe_u32 nonnull_u32
             \\(?u32) null_u32 = null
             \\(?u32) maybe_u32 = null
             \\(?u32) nonnull_u32 = (nonnull_u32.? = 456)
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
             ,
             \\(lldb) frame variable --show-types null_u32 maybe_u32 nonnull_u32
             \\(?u32) null_u32 = null
@@ -334,11 +342,60 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\(?u32) nonnull_u32 = {
             \\  (u32) nonnull_u32.? = 456
             \\}
+            \\(lldb) breakpoint delete --force 2
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
+        "cross_module_call",
+        target,
+        &.{
+            .{
+                .path = "main.zig",
+                .source =
+                \\const module = @import("module");
+                \\pub fn main() void {
+                \\    module.foo(123);
+                \\    module.bar(456);
+                \\}
+                ,
+            },
+            .{
+                .import = "module",
+                .path = "module.zig",
+                .source =
+                \\pub fn foo(x: u32) void {
+                \\    _ = x;
+                \\}
+                \\pub inline fn bar(y: u32) void {
+                \\    _ = y;
+                \\}
+                ,
+            },
+        },
+        \\breakpoint set --file module.zig --source-pattern-regexp '_ = x;'
+        \\process launch
+        \\source info
+        \\breakpoint delete --force 1
+        \\
+        \\breakpoint set --file module.zig --line 5
+        \\process continue
+        \\source info
+        \\breakpoint delete --force 2
+    ,
+        &.{
+            \\/module.zig:2:5
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+            ,
+            \\/module.zig:5:5
+            \\(lldb) breakpoint delete --force 2
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
     );
 }
 
-const File = struct { path: []const u8, source: []const u8 };
+const File = struct { import: ?[]const u8 = null, path: []const u8, source: []const u8 };
 
 fn addGdbTest(
     db: *Debugger,
@@ -421,7 +478,12 @@ fn addTest(
         .use_llvm = false,
         .use_lld = false,
     });
-    for (files[1..]) |file| _ = files_wf.add(file.path, file.source);
+    for (files[1..]) |file| {
+        const path = files_wf.add(file.path, file.source);
+        if (file.import) |import| exe.root_module.addImport(import, db.b.createModule(.{
+            .root_source_file = path,
+        }));
+    }
     const commands_wf = db.b.addWriteFiles();
     const run = std.Build.Step.Run.create(db.b, db.b.fmt("run {s} {s}", .{ name, target.test_name_suffix }));
     run.addArgs(db_argv1);
