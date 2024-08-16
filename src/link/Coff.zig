@@ -1694,7 +1694,7 @@ pub fn flushModule(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
         .tid = tid,
     };
 
-    if (self.lazy_syms.getPtr(.none)) |metadata| {
+    if (self.lazy_syms.getPtr(.anyerror_type)) |metadata| {
         // Most lazy symbols can be updated on first use, but
         // anyerror needs to wait for everything to be flushed.
         if (metadata.text_state != .unused) self.updateLazySymbolAtom(
