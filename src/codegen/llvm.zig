@@ -2909,7 +2909,17 @@ pub const Object = struct {
             function_index.setAlignment(resolved.alignment.toLlvm(), &o.builder);
 
         // Function attributes that are independent of analysis results of the function body.
-        try o.addCommonFnAttributes(&attributes, owner_mod);
+        try o.addCommonFnAttributes(
+            &attributes,
+            owner_mod,
+            // Some backends don't respect the `naked` attribute in `TargetFrameLowering::hasFP()`,
+            // so for these backends, LLVM will happily emit code that accesses the stack through
+            // the frame pointer. This is nonsensical since what the `naked` attribute does is
+            // suppress generation of the prologue and epilogue, and the prologue is where the
+            // frame pointer normally gets set up. At time of writing, this is the case for at
+            // least x86 and RISC-V.
+            owner_mod.omit_frame_pointer or fn_info.cc == .Naked,
+        );
 
         if (fn_info.return_type == .noreturn_type) try attributes.addFnAttr(.noreturn, &o.builder);
 
@@ -2956,13 +2966,14 @@ pub const Object = struct {
         o: *Object,
         attributes: *Builder.FunctionAttributes.Wip,
         owner_mod: *Package.Module,
+        omit_frame_pointer: bool,
     ) Allocator.Error!void {
         const comp = o.pt.zcu.comp;
 
         if (!owner_mod.red_zone) {
             try attributes.addFnAttr(.noredzone, &o.builder);
         }
-        if (owner_mod.omit_frame_pointer) {
+        if (omit_frame_pointer) {
             try attributes.addFnAttr(.{ .string = .{
                 .kind = try o.builder.string("frame-pointer"),
                 .value = try o.builder.string("none"),
@@ -4528,7 +4539,7 @@ pub const Object = struct {
 
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
-        try o.addCommonFnAttributes(&attributes, zcu.root_mod);
+        try o.addCommonFnAttributes(&attributes, zcu.root_mod, zcu.root_mod.omit_frame_pointer);
 
         function_index.setLinkage(.internal, &o.builder);
         function_index.setCallConv(.fastcc, &o.builder);
@@ -4557,7 +4568,7 @@ pub const Object = struct {
 
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
-        try o.addCommonFnAttributes(&attributes, zcu.root_mod);
+        try o.addCommonFnAttributes(&attributes, zcu.root_mod, zcu.root_mod.omit_frame_pointer);
 
         function_index.setLinkage(.internal, &o.builder);
         function_index.setCallConv(.fastcc, &o.builder);
@@ -6709,8 +6720,6 @@ pub const FuncGen = struct {
         const operand_ty = self.typeOf(pl_op.operand);
         const name = self.air.nullTerminatedString(pl_op.payload);
 
-        if (needDbgVarWorkaround(o)) return .none;
-
         const debug_local_var = try o.builder.debugLocalVar(
             try o.builder.metadataString(name),
             self.file,
@@ -6734,7 +6743,10 @@ pub const FuncGen = struct {
                 },
                 "",
             );
-        } else if (owner_mod.optimize_mode == .Debug) {
+        } else if (owner_mod.optimize_mode == .Debug and !self.is_naked) {
+            // We avoid taking this path for naked functions because there's no guarantee that such
+            // functions even have a valid stack pointer, making the `alloca` + `store` unsafe.
+
             const alignment = operand_ty.abiAlignment(pt).toLlvm();
             const alloca = try self.buildAlloca(operand.typeOfWip(&self.wip), alignment);
             _ = try self.wip.store(.normal, operand, alloca, alignment);
@@ -8815,7 +8827,6 @@ pub const FuncGen = struct {
         if (self.is_naked) return arg_val;
 
         const inst_ty = self.typeOfIndex(inst);
-        if (needDbgVarWorkaround(o)) return arg_val;
 
         const name = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
         if (name == .none) return arg_val;
@@ -9676,7 +9687,7 @@ pub const FuncGen = struct {
 
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
-        try o.addCommonFnAttributes(&attributes, zcu.root_mod);
+        try o.addCommonFnAttributes(&attributes, zcu.root_mod, zcu.root_mod.omit_frame_pointer);
 
         function_index.setLinkage(.internal, &o.builder);
         function_index.setCallConv(.fastcc, &o.builder);
@@ -11819,16 +11830,6 @@ const struct_layout_version = 2;
 const optional_layout_version = 3;
 
 const lt_errors_fn_name = "__zig_lt_errors_len";
-
-/// Without this workaround, LLVM crashes with "unknown codeview register H1"
-/// https://github.com/llvm/llvm-project/issues/56484
-fn needDbgVarWorkaround(o: *Object) bool {
-    const target = o.pt.zcu.getTarget();
-    if (target.os.tag == .windows and target.cpu.arch == .aarch64) {
-        return true;
-    }
-    return false;
-}
 
 fn compilerRtIntBits(bits: u16) u16 {
     inline for (.{ 32, 64, 128 }) |b| {
