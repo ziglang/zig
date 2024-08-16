@@ -1969,11 +1969,45 @@ fn gen(self: *Self) InnerError!void {
     });
 }
 
+fn checkInvariantsAfterAirInst(self: *Self, inst: Air.Inst.Index, old_air_bookkeeping: @TypeOf(air_bookkeeping_init)) void {
+    assert(!self.register_manager.lockedRegsExist());
+
+    if (std.debug.runtime_safety) {
+        if (self.air_bookkeeping < old_air_bookkeeping + 1) {
+            std.debug.panic("in codegen.zig, handling of AIR instruction %{d} ('{}') did not do proper bookkeeping. Look for a missing call to finishAir.", .{ inst, self.air.instructions.items(.tag)[@intFromEnum(inst)] });
+        }
+
+        { // check consistency of tracked registers
+            var it = self.register_manager.free_registers.iterator(.{ .kind = .unset });
+            while (it.next()) |index| {
+                const tracked_inst = self.register_manager.registers[index];
+                const tracking = self.getResolvedInstValue(tracked_inst);
+                for (tracking.getRegs()) |reg| {
+                    if (RegisterManager.indexOfRegIntoTracked(reg).? == index) break;
+                } else unreachable; // tracked register not in use
+            }
+        }
+    }
+}
+
 fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
     const pt = self.pt;
     const mod = pt.zcu;
     const ip = &mod.intern_pool;
     const air_tags = self.air.instructions.items(.tag);
+
+    for (body) |inst| {
+        wip_mir_log.debug("{}", .{self.fmtAir(inst)});
+        verbose_tracking_log.debug("{}", .{self.fmtTracking()});
+
+        const old_air_bookkeeping = self.air_bookkeeping;
+        try self.inst_tracking.ensureUnusedCapacity(self.gpa, 1);
+        switch (air_tags[@intFromEnum(inst)]) {
+            .arg => try self.airArg(inst),
+            else => break,
+        }
+        self.checkInvariantsAfterAirInst(inst, old_air_bookkeeping);
+    }
 
     for (body) |inst| {
         if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip)) continue;
@@ -2054,7 +2088,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
             .alloc           => try self.airAlloc(inst),
             .ret_ptr         => try self.airRetPtr(inst),
-            .arg             => try self.airArg(inst),
+            .arg             => try self.airDbgArg(inst),
             .assembly        => try self.airAsm(inst),
             .bitcast         => try self.airBitCast(inst),
             .block           => try self.airBlock(inst),
@@ -2218,25 +2252,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .work_group_id => unreachable,
             // zig fmt: on
         }
-
-        assert(!self.register_manager.lockedRegsExist());
-
-        if (std.debug.runtime_safety) {
-            if (self.air_bookkeeping < old_air_bookkeeping + 1) {
-                std.debug.panic("in codegen.zig, handling of AIR instruction %{d} ('{}') did not do proper bookkeeping. Look for a missing call to finishAir.", .{ inst, air_tags[@intFromEnum(inst)] });
-            }
-
-            { // check consistency of tracked registers
-                var it = self.register_manager.free_registers.iterator(.{ .kind = .unset });
-                while (it.next()) |index| {
-                    const tracked_inst = self.register_manager.registers[index];
-                    const tracking = self.getResolvedInstValue(tracked_inst);
-                    for (tracking.getRegs()) |reg| {
-                        if (RegisterManager.indexOfRegIntoTracked(reg).? == index) break;
-                    } else unreachable; // tracked register not in use
-                }
-            }
-        }
+        self.checkInvariantsAfterAirInst(inst, old_air_bookkeeping);
     }
     verbose_tracking_log.debug("{}", .{self.fmtTracking()});
 }
@@ -2351,7 +2367,7 @@ fn finishAirBookkeeping(self: *Self) void {
 }
 
 fn finishAirResult(self: *Self, inst: Air.Inst.Index, result: MCValue) void {
-    if (self.liveness.isUnused(inst)) switch (result) {
+    if (self.liveness.isUnused(inst) and self.air.instructions.items(.tag)[@intFromEnum(inst)] != .arg) switch (result) {
         .none, .dead, .unreach => {},
         else => unreachable, // Why didn't the result die?
     } else {
@@ -11820,39 +11836,30 @@ fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: M
 
 fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     const pt = self.pt;
-    const mod = pt.zcu;
+    const zcu = pt.zcu;
     // skip zero-bit arguments as they don't have a corresponding arg instruction
     var arg_index = self.arg_index;
     while (self.args[arg_index] == .none) arg_index += 1;
     self.arg_index = arg_index + 1;
 
     const result: MCValue = if (self.debug_output == .none and self.liveness.isUnused(inst)) .unreach else result: {
-        const name = switch (self.debug_output) {
-            .none => "",
-            else => name: {
-                const name_nts = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
-                break :name self.air.nullTerminatedString(@intFromEnum(name_nts));
-            },
-        };
-        if (name.len == 0 and self.liveness.isUnused(inst)) break :result .unreach;
-
         const arg_ty = self.typeOfIndex(inst);
         const src_mcv = self.args[arg_index];
-        const dst_mcv = switch (src_mcv) {
-            .register, .register_pair, .load_frame => dst: {
+        switch (src_mcv) {
+            .register, .register_pair, .load_frame => {
                 for (src_mcv.getRegs()) |reg| self.register_manager.getRegAssumeFree(reg, inst);
-                break :dst src_mcv;
+                break :result src_mcv;
             },
-            .indirect => |reg_off| dst: {
+            .indirect => |reg_off| {
                 self.register_manager.getRegAssumeFree(reg_off.reg, inst);
                 const dst_mcv = try self.allocRegOrMem(inst, false);
                 try self.genCopy(arg_ty, dst_mcv, src_mcv, .{});
-                break :dst dst_mcv;
+                break :result dst_mcv;
             },
-            .elementwise_regs_then_frame => |regs_frame_addr| dst: {
+            .elementwise_regs_then_frame => |regs_frame_addr| {
                 try self.spillEflagsIfOccupied();
 
-                const fn_info = mod.typeToFunc(self.fn_type).?;
+                const fn_info = zcu.typeToFunc(self.fn_type).?;
                 const cc = abi.resolveCallingConvention(fn_info.cc, self.target.*);
                 const param_int_regs = abi.getCAbiIntParamRegs(cc);
                 var prev_reg: Register = undefined;
@@ -11929,25 +11936,29 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
                 try self.asmRegisterImmediate(
                     .{ ._, .cmp },
                     index_reg.to32(),
-                    Immediate.u(arg_ty.vectorLen(mod)),
+                    Immediate.u(arg_ty.vectorLen(zcu)),
                 );
                 _ = try self.asmJccReloc(.b, loop);
 
-                break :dst dst_mcv;
+                break :result dst_mcv;
             },
             else => return self.fail("TODO implement arg for {}", .{src_mcv}),
-        };
-
-        if (name.len > 0) try self.genVarDebugInfo(.local_arg, .dbg_var_val, name, arg_ty, dst_mcv);
-
-        if (self.liveness.isUnused(inst)) {
-            assert(self.debug_output != .none and name.len > 0);
-            try self.freeValue(dst_mcv);
-            break :result .none;
         }
-        break :result dst_mcv;
     };
     return self.finishAir(inst, result, .{ .none, .none, .none });
+}
+
+fn airDbgArg(self: *Self, inst: Air.Inst.Index) !void {
+    defer self.finishAirBookkeeping();
+    if (self.debug_output == .none) return;
+    const name_nts = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
+    const name = self.air.nullTerminatedString(@intFromEnum(name_nts));
+    if (name.len > 0) {
+        const arg_ty = self.typeOfIndex(inst);
+        const arg_mcv = self.getResolvedInstValue(inst).short;
+        try self.genVarDebugInfo(.local_arg, .dbg_var_val, name, arg_ty, arg_mcv);
+    }
+    if (self.liveness.isUnused(inst)) try self.processDeath(inst);
 }
 
 fn genVarDebugInfo(
