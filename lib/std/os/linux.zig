@@ -2272,7 +2272,7 @@ pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
             length_halves[0],
             length_halves[1],
         );
-    } else if (comptime native_arch == .mips or native_arch == .mipsel) {
+    } else if (native_arch.isMIPS32()) {
         // MIPS O32 does not deal with the register alignment issue, so pass a dummy value.
 
         const offset_halves = splitValue64(offset);
@@ -2382,7 +2382,7 @@ pub fn map_shadow_stack(addr: u64, size: u64, flags: u32) usize {
 }
 
 pub const E = switch (native_arch) {
-    .mips, .mipsel => enum(u16) {
+    .mips, .mipsel, .mips64, .mips64el => enum(u16) {
         /// No error occurred.
         SUCCESS = 0,
 
