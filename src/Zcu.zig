@@ -2557,10 +2557,10 @@ pub fn mapOldZirToNew(
     });
 
     // Used as temporary buffers for namespace declaration instructions
-    var old_decls = std.ArrayList(Zir.Inst.Index).init(gpa);
-    defer old_decls.deinit();
-    var new_decls = std.ArrayList(Zir.Inst.Index).init(gpa);
-    defer new_decls.deinit();
+    var old_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .{};
+    defer old_decls.deinit(gpa);
+    var new_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .{};
+    defer new_decls.deinit(gpa);
 
     while (match_stack.popOrNull()) |match_item| {
         // Match the namespace declaration itself
@@ -2647,11 +2647,11 @@ pub fn mapOldZirToNew(
             // Match the `declaration` instruction
             try inst_map.put(gpa, old_decl_inst, new_decl_inst);
 
-            // Find namespace declarations within this declaration
-            try old_zir.findDecls(&old_decls, old_decl_inst);
-            try new_zir.findDecls(&new_decls, new_decl_inst);
+            // Find container type declarations within this declaration
+            try old_zir.findDecls(gpa, &old_decls, old_decl_inst);
+            try new_zir.findDecls(gpa, &new_decls, new_decl_inst);
 
-            // We don't have any smart way of matching up these namespace declarations, so we always
+            // We don't have any smart way of matching up these type declarations, so we always
             // correlate them based on source order.
             const n = @min(old_decls.items.len, new_decls.items.len);
             try match_stack.ensureUnusedCapacity(gpa, n);
