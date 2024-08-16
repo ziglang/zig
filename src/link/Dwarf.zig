@@ -1855,12 +1855,10 @@ pub fn finishWipNav(
 
     try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.items);
     if (wip_nav.debug_line.items.len > 0) {
-        if (!dwarf.incremental()) {
-            const dlw = wip_nav.debug_line.writer(dwarf.gpa);
-            try dlw.writeByte(DW.LNS.extended_op);
-            try uleb128(dlw, 1);
-            try dlw.writeByte(DW.LNE.end_sequence);
-        }
+        const dlw = wip_nav.debug_line.writer(dwarf.gpa);
+        try dlw.writeByte(DW.LNS.extended_op);
+        try uleb128(dlw, 1);
+        try dlw.writeByte(DW.LNE.end_sequence);
         try dwarf.debug_line.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_line.items);
     }
     try dwarf.debug_loclists.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_loclists.items);
