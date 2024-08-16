@@ -6326,16 +6326,46 @@ pub const Stat = switch (native_os) {
                 return self.ctim;
             }
         },
-        .mips, .mipsel => extern struct {
+        .mips, .mipsel => if (builtin.target.isMusl()) extern struct {
             dev: dev_t,
-            __pad0: [2]u32,
+            __pad0: [2]i32,
             ino: ino_t,
             mode: mode_t,
             nlink: nlink_t,
             uid: uid_t,
             gid: gid_t,
             rdev: dev_t,
-            __pad1: [2]u32,
+            __pad1: [2]i32,
+            size: off_t,
+            atim: timespec,
+            mtim: timespec,
+            ctim: timespec,
+            blksize: blksize_t,
+            __pad3: i32,
+            blocks: blkcnt_t,
+            __pad4: [14]i32,
+
+            pub fn atime(self: @This()) timespec {
+                return self.atim;
+            }
+
+            pub fn mtime(self: @This()) timespec {
+                return self.mtim;
+            }
+
+            pub fn ctime(self: @This()) timespec {
+                return self.ctim;
+            }
+        } else extern struct {
+            dev: dev_t,
+            __pad0: [3]u32,
+            ino: ino_t,
+            mode: mode_t,
+            nlink: nlink_t,
+            uid: uid_t,
+            gid: gid_t,
+            rdev: dev_t,
+            __pad1: [3]u32,
             size: off_t,
             atim: timespec,
             mtim: timespec,
@@ -6344,6 +6374,68 @@ pub const Stat = switch (native_os) {
             __pad3: u32,
             blocks: blkcnt_t,
             __pad4: [14]u32,
+
+            pub fn atime(self: @This()) timespec {
+                return self.atim;
+            }
+
+            pub fn mtime(self: @This()) timespec {
+                return self.mtim;
+            }
+
+            pub fn ctime(self: @This()) timespec {
+                return self.ctim;
+            }
+        },
+        .mips64, .mips64el => if (builtin.target.isMusl()) extern struct {
+            dev: dev_t,
+            __pad0: [3]i32,
+            ino: ino_t,
+            mode: mode_t,
+            nlink: nlink_t,
+            uid: uid_t,
+            gid: gid_t,
+            rdev: dev_t,
+            __pad1: [2]u32,
+            size: off_t,
+            __pad2: i32,
+            atim: timespec,
+            mtim: timespec,
+            ctim: timespec,
+            blksize: blksize_t,
+            __pad3: u32,
+            blocks: blkcnt_t,
+            __pad4: [14]i32,
+
+            pub fn atime(self: @This()) timespec {
+                return self.atim;
+            }
+
+            pub fn mtime(self: @This()) timespec {
+                return self.mtim;
+            }
+
+            pub fn ctime(self: @This()) timespec {
+                return self.ctim;
+            }
+        } else extern struct {
+            dev: dev_t,
+            __pad0: [3]u32,
+            ino: ino_t,
+            mode: mode_t,
+            nlink: nlink_t,
+            uid: uid_t,
+            gid: gid_t,
+            rdev: dev_t,
+            __pad1: [3]u32,
+            size: off_t,
+            atim: timespec,
+            mtim: timespec,
+            ctim: timespec,
+            blksize: blksize_t,
+            __pad3: u32,
+            blocks: blkcnt_t,
+            __pad4: [14]i32,
 
             pub fn atime(self: @This()) timespec {
                 return self.atim;
