@@ -1360,6 +1360,9 @@ test "manage resources correctly" {
         return error.SkipZigTest;
     }
 
+    // self-hosted debug info is still too buggy
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest;
+
     const writer = std.io.null_writer;
     var di = try SelfInfo.open(testing.allocator);
     defer di.deinit();
