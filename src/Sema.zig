@@ -10017,6 +10017,8 @@ fn finishFunc(
         // lower this fn type.
         const unresolved_stack_trace_ty = try pt.getBuiltinType("StackTrace");
         try unresolved_stack_trace_ty.resolveFields(pt);
+
+        if (zcu.stack_trace_type == .none) zcu.stack_trace_type = unresolved_stack_trace_ty.toIntern();
     }
 
     return Air.internedToRef(if (opt_func_index != .none) opt_func_index else func_ty);
