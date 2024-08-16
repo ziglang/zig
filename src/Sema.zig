@@ -2723,32 +2723,6 @@ fn wrapWipTy(sema: *Sema, wip_ty: anytype) @TypeOf(wip_ty) {
     return new;
 }
 
-/// Given a type just looked up in the `InternPool`, check whether it is
-/// considered outdated on this update. If so, returns `true`, and the
-/// caller must replace the outdated type with a fresh one.
-fn checkOutdatedType(sema: *Sema, ty: InternPool.Index) !bool {
-    const pt = sema.pt;
-    const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
-
-    if (!zcu.comp.incremental) return false;
-
-    const cau_index = switch (ip.indexToKey(ty)) {
-        .struct_type => ip.loadStructType(ty).cau.unwrap().?,
-        .union_type => ip.loadUnionType(ty).cau,
-        .enum_type => ip.loadEnumType(ty).cau.unwrap().?,
-        else => unreachable,
-    };
-    const cau_unit = AnalUnit.wrap(.{ .cau = cau_index });
-    const was_outdated = zcu.outdated.swapRemove(cau_unit) or
-        zcu.potentially_outdated.swapRemove(cau_unit);
-    if (!was_outdated) return false;
-    _ = zcu.outdated_ready.swapRemove(cau_unit);
-    zcu.intern_pool.removeDependenciesForDepender(zcu.gpa, cau_unit);
-    try zcu.markDependeeOutdated(.marked_po, .{ .interned = ty });
-    return true;
-}
-
 fn zirStructDecl(
     sema: *Sema,
     block: *Block,
@@ -2815,13 +2789,16 @@ fn zirStructDecl(
         } },
     };
     const wip_ty = sema.wrapWipTy(switch (try ip.getStructType(gpa, pt.tid, struct_init, false)) {
-        .existing => |ty| wip: {
-            if (!try sema.checkOutdatedType(ty)) {
-                try sema.declareDependency(.{ .interned = ty });
-                try sema.addTypeReferenceEntry(src, ty);
-                return Air.internedToRef(ty);
-            }
-            break :wip (try ip.getStructType(gpa, pt.tid, struct_init, true)).wip;
+        .existing => |ty| {
+            const new_ty = try pt.ensureTypeUpToDate(ty, false);
+
+            // Make sure we update the namespace if the declaration is re-analyzed, to pick
+            // up on e.g. changed comptime decls.
+            try pt.ensureNamespaceUpToDate(Type.fromInterned(new_ty).getNamespaceIndex(mod));
+
+            try sema.declareDependency(.{ .interned = new_ty });
+            try sema.addTypeReferenceEntry(src, new_ty);
+            return Air.internedToRef(new_ty);
         },
         .wip => |wip| wip,
     });
@@ -2839,6 +2816,7 @@ fn zirStructDecl(
         .parent = block.namespace.toOptional(),
         .owner_type = wip_ty.index,
         .file_scope = block.getFileScopeIndex(mod),
+        .generation = mod.generation,
     });
     errdefer pt.destroyNamespace(new_namespace_index);
 
@@ -2977,7 +2955,6 @@ fn zirEnumDecl(
 
     const tracked_inst = try block.trackZir(inst);
     const src: LazySrcLoc = .{ .base_node_inst = tracked_inst, .offset = LazySrcLoc.Offset.nodeOffset(0) };
-    const tag_ty_src: LazySrcLoc = .{ .base_node_inst = tracked_inst, .offset = .{ .node_offset_container_tag = 0 } };
 
     const tag_type_ref = if (small.has_tag_type) blk: {
         const tag_type_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
@@ -3041,13 +3018,16 @@ fn zirEnumDecl(
         } },
     };
     const wip_ty = sema.wrapWipTy(switch (try ip.getEnumType(gpa, pt.tid, enum_init, false)) {
-        .existing => |ty| wip: {
-            if (!try sema.checkOutdatedType(ty)) {
-                try sema.declareDependency(.{ .interned = ty });
-                try sema.addTypeReferenceEntry(src, ty);
-                return Air.internedToRef(ty);
-            }
-            break :wip (try ip.getEnumType(gpa, pt.tid, enum_init, true)).wip;
+        .existing => |ty| {
+            const new_ty = try pt.ensureTypeUpToDate(ty, false);
+
+            // Make sure we update the namespace if the declaration is re-analyzed, to pick
+            // up on e.g. changed comptime decls.
+            try pt.ensureNamespaceUpToDate(Type.fromInterned(new_ty).getNamespaceIndex(mod));
+
+            try sema.declareDependency(.{ .interned = new_ty });
+            try sema.addTypeReferenceEntry(src, new_ty);
+            return Air.internedToRef(new_ty);
         },
         .wip => |wip| wip,
     });
@@ -3071,18 +3051,11 @@ fn zirEnumDecl(
         .parent = block.namespace.toOptional(),
         .owner_type = wip_ty.index,
         .file_scope = block.getFileScopeIndex(mod),
+        .generation = mod.generation,
     });
     errdefer if (!done) pt.destroyNamespace(new_namespace_index);
 
     const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, new_namespace_index, wip_ty.index);
-
-    if (pt.zcu.comp.incremental) {
-        try mod.intern_pool.addDependency(
-            gpa,
-            AnalUnit.wrap(.{ .cau = new_cau_index }),
-            .{ .src_hash = try block.trackZir(inst) },
-        );
-    }
 
     try pt.scanNamespace(new_namespace_index, decls);
 
@@ -3094,144 +3067,22 @@ fn zirEnumDecl(
     wip_ty.prepare(ip, new_cau_index, new_namespace_index);
     done = true;
 
-    const int_tag_ty = ty: {
-        // We create a block for the field type instructions because they
-        // may need to reference Decls from inside the enum namespace.
-        // Within the field type, default value, and alignment expressions, the owner should be the enum's `Cau`.
-
-        const prev_owner = sema.owner;
-        sema.owner = AnalUnit.wrap(.{ .cau = new_cau_index });
-        defer sema.owner = prev_owner;
-
-        const prev_func_index = sema.func_index;
-        sema.func_index = .none;
-        defer sema.func_index = prev_func_index;
-
-        var enum_block: Block = .{
-            .parent = null,
-            .sema = sema,
-            .namespace = new_namespace_index,
-            .instructions = .{},
-            .inlining = null,
-            .is_comptime = true,
-            .src_base_inst = tracked_inst,
-            .type_name_ctx = type_name,
-        };
-        defer enum_block.instructions.deinit(sema.gpa);
-
-        if (body.len != 0) {
-            _ = try sema.analyzeInlineBody(&enum_block, body, inst);
-        }
-
-        if (tag_type_ref != .none) {
-            const ty = try sema.resolveType(&enum_block, tag_ty_src, tag_type_ref);
-            if (ty.zigTypeTag(mod) != .Int and ty.zigTypeTag(mod) != .ComptimeInt) {
-                return sema.fail(&enum_block, tag_ty_src, "expected integer tag type, found '{}'", .{ty.fmt(pt)});
-            }
-            break :ty ty;
-        } else if (fields_len == 0) {
-            break :ty try pt.intType(.unsigned, 0);
-        } else {
-            const bits = std.math.log2_int_ceil(usize, fields_len);
-            break :ty try pt.intType(.unsigned, bits);
-        }
-    };
-
-    wip_ty.setTagTy(ip, int_tag_ty.toIntern());
-
-    if (small.nonexhaustive and int_tag_ty.toIntern() != .comptime_int_type) {
-        if (fields_len > 1 and std.math.log2_int(u64, fields_len) == int_tag_ty.bitSize(pt)) {
-            return sema.fail(block, src, "non-exhaustive enum specifies every value", .{});
-        }
-    }
-
-    var bit_bag_index: usize = body_end;
-    var cur_bit_bag: u32 = undefined;
-    var field_i: u32 = 0;
-    var last_tag_val: ?Value = null;
-    while (field_i < fields_len) : (field_i += 1) {
-        if (field_i % 32 == 0) {
-            cur_bit_bag = sema.code.extra[bit_bag_index];
-            bit_bag_index += 1;
-        }
-        const has_tag_value = @as(u1, @truncate(cur_bit_bag)) != 0;
-        cur_bit_bag >>= 1;
-
-        const field_name_index: Zir.NullTerminatedString = @enumFromInt(sema.code.extra[extra_index]);
-        const field_name_zir = sema.code.nullTerminatedString(field_name_index);
-        extra_index += 2; // field name, doc comment
-
-        const field_name = try mod.intern_pool.getOrPutString(gpa, pt.tid, field_name_zir, .no_embedded_nulls);
-
-        const value_src: LazySrcLoc = .{
-            .base_node_inst = tracked_inst,
-            .offset = .{ .container_field_value = field_i },
-        };
-
-        const tag_overflow = if (has_tag_value) overflow: {
-            const tag_val_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
-            extra_index += 1;
-            const tag_inst = try sema.resolveInst(tag_val_ref);
-            last_tag_val = try sema.resolveConstDefinedValue(block, .{
-                .base_node_inst = tracked_inst,
-                .offset = .{ .container_field_name = field_i },
-            }, tag_inst, .{
-                .needed_comptime_reason = "enum tag value must be comptime-known",
-            });
-            if (!(try sema.intFitsInType(last_tag_val.?, int_tag_ty, null))) break :overflow true;
-            last_tag_val = try pt.getCoerced(last_tag_val.?, int_tag_ty);
-            if (wip_ty.nextField(&mod.intern_pool, field_name, last_tag_val.?.toIntern())) |conflict| {
-                assert(conflict.kind == .value); // AstGen validated names are unique
-                const other_field_src: LazySrcLoc = .{
-                    .base_node_inst = tracked_inst,
-                    .offset = .{ .container_field_value = conflict.prev_field_idx },
-                };
-                const msg = msg: {
-                    const msg = try sema.errMsg(value_src, "enum tag value {} already taken", .{last_tag_val.?.fmtValueSema(pt, sema)});
-                    errdefer msg.destroy(gpa);
-                    try sema.errNote(other_field_src, msg, "other occurrence here", .{});
-                    break :msg msg;
-                };
-                return sema.failWithOwnedErrorMsg(block, msg);
-            }
-            break :overflow false;
-        } else if (any_values) overflow: {
-            var overflow: ?usize = null;
-            last_tag_val = if (last_tag_val) |val|
-                try sema.intAdd(val, try pt.intValue(int_tag_ty, 1), int_tag_ty, &overflow)
-            else
-                try pt.intValue(int_tag_ty, 0);
-            if (overflow != null) break :overflow true;
-            if (wip_ty.nextField(&mod.intern_pool, field_name, last_tag_val.?.toIntern())) |conflict| {
-                assert(conflict.kind == .value); // AstGen validated names are unique
-                const other_field_src: LazySrcLoc = .{
-                    .base_node_inst = tracked_inst,
-                    .offset = .{ .container_field_value = conflict.prev_field_idx },
-                };
-                const msg = msg: {
-                    const msg = try sema.errMsg(value_src, "enum tag value {} already taken", .{last_tag_val.?.fmtValueSema(pt, sema)});
-                    errdefer msg.destroy(gpa);
-                    try sema.errNote(other_field_src, msg, "other occurrence here", .{});
-                    break :msg msg;
-                };
-                return sema.failWithOwnedErrorMsg(block, msg);
-            }
-            break :overflow false;
-        } else overflow: {
-            assert(wip_ty.nextField(&mod.intern_pool, field_name, .none) == null);
-            last_tag_val = try pt.intValue(Type.comptime_int, field_i);
-            if (!try sema.intFitsInType(last_tag_val.?, int_tag_ty, null)) break :overflow true;
-            last_tag_val = try pt.getCoerced(last_tag_val.?, int_tag_ty);
-            break :overflow false;
-        };
-
-        if (tag_overflow) {
-            const msg = try sema.errMsg(value_src, "enumeration value '{}' too large for type '{}'", .{
-                last_tag_val.?.fmtValueSema(pt, sema), int_tag_ty.fmt(pt),
-            });
-            return sema.failWithOwnedErrorMsg(block, msg);
-        }
-    }
+    try Sema.resolveDeclaredEnum(
+        pt,
+        wip_ty,
+        inst,
+        tracked_inst,
+        new_namespace_index,
+        type_name,
+        new_cau_index,
+        small,
+        body,
+        tag_type_ref,
+        any_values,
+        fields_len,
+        sema.code,
+        body_end,
+    );
 
     codegen_type: {
         if (mod.comp.config.use_llvm) break :codegen_type;
@@ -3311,13 +3162,16 @@ fn zirUnionDecl(
         } },
     };
     const wip_ty = sema.wrapWipTy(switch (try ip.getUnionType(gpa, pt.tid, union_init, false)) {
-        .existing => |ty| wip: {
-            if (!try sema.checkOutdatedType(ty)) {
-                try sema.declareDependency(.{ .interned = ty });
-                try sema.addTypeReferenceEntry(src, ty);
-                return Air.internedToRef(ty);
-            }
-            break :wip (try ip.getUnionType(gpa, pt.tid, union_init, true)).wip;
+        .existing => |ty| {
+            const new_ty = try pt.ensureTypeUpToDate(ty, false);
+
+            // Make sure we update the namespace if the declaration is re-analyzed, to pick
+            // up on e.g. changed comptime decls.
+            try pt.ensureNamespaceUpToDate(Type.fromInterned(new_ty).getNamespaceIndex(mod));
+
+            try sema.declareDependency(.{ .interned = new_ty });
+            try sema.addTypeReferenceEntry(src, new_ty);
+            return Air.internedToRef(new_ty);
         },
         .wip => |wip| wip,
     });
@@ -3335,6 +3189,7 @@ fn zirUnionDecl(
         .parent = block.namespace.toOptional(),
         .owner_type = wip_ty.index,
         .file_scope = block.getFileScopeIndex(mod),
+        .generation = mod.generation,
     });
     errdefer pt.destroyNamespace(new_namespace_index);
 
@@ -3344,7 +3199,7 @@ fn zirUnionDecl(
         try mod.intern_pool.addDependency(
             gpa,
             AnalUnit.wrap(.{ .cau = new_cau_index }),
-            .{ .src_hash = try block.trackZir(inst) },
+            .{ .src_hash = tracked_inst },
         );
     }
 
@@ -3406,8 +3261,12 @@ fn zirOpaqueDecl(
     };
     // No `wrapWipTy` needed as no std.builtin types are opaque.
     const wip_ty = switch (try ip.getOpaqueType(gpa, pt.tid, opaque_init)) {
-        // No `checkOutdatedType` as opaque types are never outdated.
         .existing => |ty| {
+            // Make sure we update the namespace if the declaration is re-analyzed, to pick
+            // up on e.g. changed comptime decls.
+            try pt.ensureNamespaceUpToDate(Type.fromInterned(ty).getNamespaceIndex(mod));
+
+            try sema.declareDependency(.{ .interned = ty });
             try sema.addTypeReferenceEntry(src, ty);
             return Air.internedToRef(ty);
         },
@@ -3427,6 +3286,7 @@ fn zirOpaqueDecl(
         .parent = block.namespace.toOptional(),
         .owner_type = wip_ty.index,
         .file_scope = block.getFileScopeIndex(mod),
+        .generation = mod.generation,
     });
     errdefer pt.destroyNamespace(new_namespace_index);
 
@@ -6072,6 +5932,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     // trigger re-analysis later.
     try pt.ensureFileAnalyzed(result.file_index);
     const ty = zcu.fileRootType(result.file_index);
+    try sema.declareDependency(.{ .interned = ty });
     try sema.addTypeReferenceEntry(src, ty);
     return Air.internedToRef(ty);
 }
@@ -6820,6 +6681,8 @@ fn lookupInNamespace(
     const pt = sema.pt;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
+
+    try pt.ensureNamespaceUpToDate(namespace_index);
 
     const namespace = zcu.namespacePtr(namespace_index);
 
@@ -14038,6 +13901,7 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     // trigger re-analysis later.
     try pt.ensureFileAnalyzed(result.file_index);
     const ty = zcu.fileRootType(result.file_index);
+    try sema.declareDependency(.{ .interned = ty });
     try sema.addTypeReferenceEntry(operand_src, ty);
     return Air.internedToRef(ty);
 }
@@ -17703,7 +17567,13 @@ fn zirThis(
     _ = extended;
     const pt = sema.pt;
     const namespace = pt.zcu.namespacePtr(block.namespace);
-    return Air.internedToRef(namespace.owner_type);
+    const new_ty = try pt.ensureTypeUpToDate(namespace.owner_type, false);
+    switch (pt.zcu.intern_pool.indexToKey(new_ty)) {
+        .struct_type, .union_type, .enum_type => try sema.declareDependency(.{ .interned = new_ty }),
+        .opaque_type => {},
+        else => unreachable,
+    }
+    return Air.internedToRef(new_ty);
 }
 
 fn zirClosureGet(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
@@ -19005,6 +18875,7 @@ fn typeInfoNamespaceDecls(
     const ip = &zcu.intern_pool;
 
     const namespace_index = opt_namespace_index.unwrap() orelse return;
+    try pt.ensureNamespaceUpToDate(namespace_index);
     const namespace = zcu.namespacePtr(namespace_index);
 
     const gop = try seen_namespaces.getOrPut(namespace);
@@ -21871,6 +21742,7 @@ fn zirReify(
                 .parent = block.namespace.toOptional(),
                 .owner_type = wip_ty.index,
                 .file_scope = block.getFileScopeIndex(mod),
+                .generation = mod.generation,
             });
 
             try sema.addTypeReferenceEntry(src, wip_ty.index);
@@ -22080,6 +21952,7 @@ fn reifyEnum(
         .parent = block.namespace.toOptional(),
         .owner_type = wip_ty.index,
         .file_scope = block.getFileScopeIndex(mod),
+        .generation = mod.generation,
     });
 
     const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, new_namespace_index, wip_ty.index);
@@ -22384,6 +22257,7 @@ fn reifyUnion(
         .parent = block.namespace.toOptional(),
         .owner_type = wip_ty.index,
         .file_scope = block.getFileScopeIndex(mod),
+        .generation = mod.generation,
     });
 
     const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, new_namespace_index, wip_ty.index);
@@ -22667,6 +22541,7 @@ fn reifyStruct(
         .parent = block.namespace.toOptional(),
         .owner_type = wip_ty.index,
         .file_scope = block.getFileScopeIndex(mod),
+        .generation = mod.generation,
     });
 
     const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, new_namespace_index, wip_ty.index);
@@ -35373,7 +35248,7 @@ pub fn resolveStructLayout(sema: *Sema, ty: Type) SemaError!void {
     if (struct_type.haveLayout(ip))
         return;
 
-    try ty.resolveFields(pt);
+    try sema.resolveTypeFieldsStruct(ty.toIntern(), struct_type);
 
     if (struct_type.layout == .@"packed") {
         semaBackingIntType(pt, struct_type) catch |err| switch (err) {
@@ -38497,6 +38372,187 @@ fn getOwnerFuncDeclInst(sema: *Sema) InternPool.TrackedInst.Index {
         break :cau ip.getNav(generic_owner.owner_nav).analysis_owner.unwrap().?;
     };
     return ip.getCau(cau).zir_index;
+}
+
+/// Called as soon as a `declared` enum type is created.
+/// Resolves the tag type and field inits.
+/// Marks the `src_inst` dependency on the enum's declaration, so call sites need not do this.
+pub fn resolveDeclaredEnum(
+    pt: Zcu.PerThread,
+    wip_ty: InternPool.WipEnumType,
+    inst: Zir.Inst.Index,
+    tracked_inst: InternPool.TrackedInst.Index,
+    namespace: InternPool.NamespaceIndex,
+    type_name: InternPool.NullTerminatedString,
+    enum_cau: InternPool.Cau.Index,
+    small: Zir.Inst.EnumDecl.Small,
+    body: []const Zir.Inst.Index,
+    tag_type_ref: Zir.Inst.Ref,
+    any_values: bool,
+    fields_len: u32,
+    zir: Zir,
+    body_end: usize,
+) Zcu.CompileError!void {
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
+
+    const bit_bags_count = std.math.divCeil(usize, fields_len, 32) catch unreachable;
+
+    const src: LazySrcLoc = .{ .base_node_inst = tracked_inst, .offset = LazySrcLoc.Offset.nodeOffset(0) };
+    const tag_ty_src: LazySrcLoc = .{ .base_node_inst = tracked_inst, .offset = .{ .node_offset_container_tag = 0 } };
+
+    const anal_unit = AnalUnit.wrap(.{ .cau = enum_cau });
+
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+
+    var comptime_err_ret_trace = std.ArrayList(Zcu.LazySrcLoc).init(gpa);
+    defer comptime_err_ret_trace.deinit();
+
+    var sema: Sema = .{
+        .pt = pt,
+        .gpa = gpa,
+        .arena = arena.allocator(),
+        .code = zir,
+        .owner = anal_unit,
+        .func_index = .none,
+        .func_is_naked = false,
+        .fn_ret_ty = Type.void,
+        .fn_ret_ty_ies = null,
+        .comptime_err_ret_trace = &comptime_err_ret_trace,
+    };
+    defer sema.deinit();
+
+    try sema.declareDependency(.{ .src_hash = tracked_inst });
+
+    var block: Block = .{
+        .parent = null,
+        .sema = &sema,
+        .namespace = namespace,
+        .instructions = .{},
+        .inlining = null,
+        .is_comptime = true,
+        .src_base_inst = tracked_inst,
+        .type_name_ctx = type_name,
+    };
+    defer block.instructions.deinit(gpa);
+
+    const int_tag_ty = ty: {
+        if (body.len != 0) {
+            _ = try sema.analyzeInlineBody(&block, body, inst);
+        }
+
+        if (tag_type_ref != .none) {
+            const ty = try sema.resolveType(&block, tag_ty_src, tag_type_ref);
+            if (ty.zigTypeTag(zcu) != .Int and ty.zigTypeTag(zcu) != .ComptimeInt) {
+                return sema.fail(&block, tag_ty_src, "expected integer tag type, found '{}'", .{ty.fmt(pt)});
+            }
+            break :ty ty;
+        } else if (fields_len == 0) {
+            break :ty try pt.intType(.unsigned, 0);
+        } else {
+            const bits = std.math.log2_int_ceil(usize, fields_len);
+            break :ty try pt.intType(.unsigned, bits);
+        }
+    };
+
+    wip_ty.setTagTy(ip, int_tag_ty.toIntern());
+
+    if (small.nonexhaustive and int_tag_ty.toIntern() != .comptime_int_type) {
+        if (fields_len > 1 and std.math.log2_int(u64, fields_len) == int_tag_ty.bitSize(pt)) {
+            return sema.fail(&block, src, "non-exhaustive enum specifies every value", .{});
+        }
+    }
+
+    var extra_index = body_end + bit_bags_count;
+    var bit_bag_index: usize = body_end;
+    var cur_bit_bag: u32 = undefined;
+    var last_tag_val: ?Value = null;
+    for (0..fields_len) |field_i_usize| {
+        const field_i: u32 = @intCast(field_i_usize);
+        if (field_i % 32 == 0) {
+            cur_bit_bag = zir.extra[bit_bag_index];
+            bit_bag_index += 1;
+        }
+        const has_tag_value = @as(u1, @truncate(cur_bit_bag)) != 0;
+        cur_bit_bag >>= 1;
+
+        const field_name_index: Zir.NullTerminatedString = @enumFromInt(zir.extra[extra_index]);
+        const field_name_zir = zir.nullTerminatedString(field_name_index);
+        extra_index += 2; // field name, doc comment
+
+        const field_name = try ip.getOrPutString(gpa, pt.tid, field_name_zir, .no_embedded_nulls);
+
+        const value_src: LazySrcLoc = .{
+            .base_node_inst = tracked_inst,
+            .offset = .{ .container_field_value = field_i },
+        };
+
+        const tag_overflow = if (has_tag_value) overflow: {
+            const tag_val_ref: Zir.Inst.Ref = @enumFromInt(zir.extra[extra_index]);
+            extra_index += 1;
+            const tag_inst = try sema.resolveInst(tag_val_ref);
+            last_tag_val = try sema.resolveConstDefinedValue(&block, .{
+                .base_node_inst = tracked_inst,
+                .offset = .{ .container_field_name = field_i },
+            }, tag_inst, .{
+                .needed_comptime_reason = "enum tag value must be comptime-known",
+            });
+            if (!(try sema.intFitsInType(last_tag_val.?, int_tag_ty, null))) break :overflow true;
+            last_tag_val = try pt.getCoerced(last_tag_val.?, int_tag_ty);
+            if (wip_ty.nextField(ip, field_name, last_tag_val.?.toIntern())) |conflict| {
+                assert(conflict.kind == .value); // AstGen validated names are unique
+                const other_field_src: LazySrcLoc = .{
+                    .base_node_inst = tracked_inst,
+                    .offset = .{ .container_field_value = conflict.prev_field_idx },
+                };
+                const msg = msg: {
+                    const msg = try sema.errMsg(value_src, "enum tag value {} already taken", .{last_tag_val.?.fmtValueSema(pt, &sema)});
+                    errdefer msg.destroy(gpa);
+                    try sema.errNote(other_field_src, msg, "other occurrence here", .{});
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(&block, msg);
+            }
+            break :overflow false;
+        } else if (any_values) overflow: {
+            var overflow: ?usize = null;
+            last_tag_val = if (last_tag_val) |val|
+                try sema.intAdd(val, try pt.intValue(int_tag_ty, 1), int_tag_ty, &overflow)
+            else
+                try pt.intValue(int_tag_ty, 0);
+            if (overflow != null) break :overflow true;
+            if (wip_ty.nextField(ip, field_name, last_tag_val.?.toIntern())) |conflict| {
+                assert(conflict.kind == .value); // AstGen validated names are unique
+                const other_field_src: LazySrcLoc = .{
+                    .base_node_inst = tracked_inst,
+                    .offset = .{ .container_field_value = conflict.prev_field_idx },
+                };
+                const msg = msg: {
+                    const msg = try sema.errMsg(value_src, "enum tag value {} already taken", .{last_tag_val.?.fmtValueSema(pt, &sema)});
+                    errdefer msg.destroy(gpa);
+                    try sema.errNote(other_field_src, msg, "other occurrence here", .{});
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(&block, msg);
+            }
+            break :overflow false;
+        } else overflow: {
+            assert(wip_ty.nextField(ip, field_name, .none) == null);
+            last_tag_val = try pt.intValue(Type.comptime_int, field_i);
+            if (!try sema.intFitsInType(last_tag_val.?, int_tag_ty, null)) break :overflow true;
+            last_tag_val = try pt.getCoerced(last_tag_val.?, int_tag_ty);
+            break :overflow false;
+        };
+
+        if (tag_overflow) {
+            const msg = try sema.errMsg(value_src, "enumeration value '{}' too large for type '{}'", .{
+                last_tag_val.?.fmtValueSema(pt, &sema), int_tag_ty.fmt(pt),
+            });
+            return sema.failWithOwnedErrorMsg(&block, msg);
+        }
+    }
 }
 
 pub const bitCastVal = @import("Sema/bitcast.zig").bitCast;

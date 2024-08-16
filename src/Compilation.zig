@@ -3569,6 +3569,8 @@ pub fn performAllTheWork(
         mod.sema_prog_node = std.Progress.Node.none;
         mod.codegen_prog_node.end();
         mod.codegen_prog_node = std.Progress.Node.none;
+
+        mod.generation += 1;
     };
     try comp.performAllTheWorkInner(main_progress_node);
     if (!InternPool.single_threaded) if (comp.codegen_work.job_error) |job_error| return job_error;

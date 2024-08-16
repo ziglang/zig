@@ -684,10 +684,6 @@ pub fn dependencyIterator(ip: *const InternPool, dependee: Dependee) DependencyI
         .ip = ip,
         .next_entry = .none,
     };
-    if (ip.dep_entries.items[@intFromEnum(first_entry)].depender == .none) return .{
-        .ip = ip,
-        .next_entry = .none,
-    };
     return .{
         .ip = ip,
         .next_entry = first_entry.toOptional(),
@@ -724,7 +720,6 @@ pub fn addDependency(ip: *InternPool, gpa: Allocator, depender: AnalUnit, depend
 
             if (gop.found_existing and ip.dep_entries.items[@intFromEnum(gop.value_ptr.*)].depender == .none) {
                 // Dummy entry, so we can reuse it rather than allocating a new one!
-                ip.dep_entries.items[@intFromEnum(gop.value_ptr.*)].next = .none;
                 break :new_index gop.value_ptr.*;
             }
 
@@ -732,7 +727,12 @@ pub fn addDependency(ip: *InternPool, gpa: Allocator, depender: AnalUnit, depend
             const new_index: DepEntry.Index, const ptr = if (ip.free_dep_entries.popOrNull()) |new_index| new: {
                 break :new .{ new_index, &ip.dep_entries.items[@intFromEnum(new_index)] };
             } else .{ @enumFromInt(ip.dep_entries.items.len), ip.dep_entries.addOneAssumeCapacity() };
-            ptr.next = if (gop.found_existing) gop.value_ptr.*.toOptional() else .none;
+            if (gop.found_existing) {
+                ptr.next = gop.value_ptr.*.toOptional();
+                ip.dep_entries.items[@intFromEnum(gop.value_ptr.*)].prev = new_index.toOptional();
+            } else {
+                ptr.next = .none;
+            }
             gop.value_ptr.* = new_index;
             break :new_index new_index;
         },
@@ -754,10 +754,9 @@ pub const NamespaceNameKey = struct {
 };
 
 pub const DepEntry = extern struct {
-    /// If null, this is a dummy entry - all other fields are `undefined`. It is
-    /// the first and only entry in one of `intern_pool.*_deps`, and does not
-    /// appear in any list by `first_dependency`, but is not in
-    /// `free_dep_entries` since `*_deps` stores a reference to it.
+    /// If null, this is a dummy entry. `next_dependee` is undefined. This is the first
+    /// entry in one of `*_deps`, and does not appear in any list by `first_dependency`,
+    /// but is not in `free_dep_entries` since `*_deps` stores a reference to it.
     depender: AnalUnit.Optional,
     /// Index into `dep_entries` forming a doubly linked list of all dependencies on this dependee.
     /// Used to iterate all dependers for a given dependee during an update.
@@ -2689,7 +2688,12 @@ pub const Key = union(enum) {
 
             .variable => |a_info| {
                 const b_info = b.variable;
-                return a_info.owner_nav == b_info.owner_nav;
+                return a_info.owner_nav == b_info.owner_nav and
+                    a_info.ty == b_info.ty and
+                    a_info.init == b_info.init and
+                    a_info.lib_name == b_info.lib_name and
+                    a_info.is_threadlocal == b_info.is_threadlocal and
+                    a_info.is_weak_linkage == b_info.is_weak_linkage;
             },
             .@"extern" => |a_info| {
                 const b_info = b.@"extern";
@@ -8016,6 +8020,10 @@ pub const UnionTypeInit = struct {
             zir_index: TrackedInst.Index,
             captures: []const CaptureValue,
         },
+        declared_owned_captures: struct {
+            zir_index: TrackedInst.Index,
+            captures: CaptureValue.Slice,
+        },
         reified: struct {
             zir_index: TrackedInst.Index,
             type_hash: u64,
@@ -8036,6 +8044,10 @@ pub fn getUnionType(
         .declared => |d| .{ .declared = .{
             .zir_index = d.zir_index,
             .captures = .{ .external = d.captures },
+        } },
+        .declared_owned_captures => |d| .{ .declared = .{
+            .zir_index = d.zir_index,
+            .captures = .{ .owned = d.captures },
         } },
         .reified => |r| .{ .reified = .{
             .zir_index = r.zir_index,
@@ -8060,7 +8072,7 @@ pub fn getUnionType(
         // TODO: fmt bug
         // zig fmt: off
         switch (ini.key) {
-            .declared => |d| @intFromBool(d.captures.len != 0) + d.captures.len,
+            inline .declared, .declared_owned_captures => |d| @intFromBool(d.captures.len != 0) + d.captures.len,
             .reified => 2, // type_hash: PackedU64
         } +
         // zig fmt: on
@@ -8069,7 +8081,10 @@ pub fn getUnionType(
 
     const extra_index = addExtraAssumeCapacity(extra, Tag.TypeUnion{
         .flags = .{
-            .any_captures = ini.key == .declared and ini.key.declared.captures.len != 0,
+            .any_captures = switch (ini.key) {
+                inline .declared, .declared_owned_captures => |d| d.captures.len != 0,
+                .reified => false,
+            },
             .runtime_tag = ini.flags.runtime_tag,
             .any_aligned_fields = ini.flags.any_aligned_fields,
             .layout = ini.flags.layout,
@@ -8078,7 +8093,10 @@ pub fn getUnionType(
             .assumed_runtime_bits = ini.flags.assumed_runtime_bits,
             .assumed_pointer_aligned = ini.flags.assumed_pointer_aligned,
             .alignment = ini.flags.alignment,
-            .is_reified = ini.key == .reified,
+            .is_reified = switch (ini.key) {
+                .declared, .declared_owned_captures => false,
+                .reified => true,
+            },
         },
         .fields_len = ini.fields_len,
         .size = std.math.maxInt(u32),
@@ -8101,6 +8119,10 @@ pub fn getUnionType(
         .declared => |d| if (d.captures.len != 0) {
             extra.appendAssumeCapacity(.{@intCast(d.captures.len)});
             extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures)});
+        },
+        .declared_owned_captures => |d| if (d.captures.len != 0) {
+            extra.appendAssumeCapacity(.{@intCast(d.captures.len)});
+            extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures.get(ip))});
         },
         .reified => |r| _ = addExtraAssumeCapacity(extra, PackedU64.init(r.type_hash)),
     }
@@ -8199,6 +8221,10 @@ pub const StructTypeInit = struct {
             zir_index: TrackedInst.Index,
             captures: []const CaptureValue,
         },
+        declared_owned_captures: struct {
+            zir_index: TrackedInst.Index,
+            captures: CaptureValue.Slice,
+        },
         reified: struct {
             zir_index: TrackedInst.Index,
             type_hash: u64,
@@ -8219,6 +8245,10 @@ pub fn getStructType(
         .declared => |d| .{ .declared = .{
             .zir_index = d.zir_index,
             .captures = .{ .external = d.captures },
+        } },
+        .declared_owned_captures => |d| .{ .declared = .{
+            .zir_index = d.zir_index,
+            .captures = .{ .owned = d.captures },
         } },
         .reified => |r| .{ .reified = .{
             .zir_index = r.zir_index,
@@ -8251,7 +8281,7 @@ pub fn getStructType(
                 // TODO: fmt bug
                 // zig fmt: off
                 switch (ini.key) {
-                    .declared => |d| @intFromBool(d.captures.len != 0) + d.captures.len,
+                    inline .declared, .declared_owned_captures => |d| @intFromBool(d.captures.len != 0) + d.captures.len,
                     .reified => 2, // type_hash: PackedU64
                 } +
                 // zig fmt: on
@@ -8267,10 +8297,16 @@ pub fn getStructType(
                 .backing_int_ty = .none,
                 .names_map = names_map,
                 .flags = .{
-                    .any_captures = ini.key == .declared and ini.key.declared.captures.len != 0,
+                    .any_captures = switch (ini.key) {
+                        inline .declared, .declared_owned_captures => |d| d.captures.len != 0,
+                        .reified => false,
+                    },
                     .field_inits_wip = false,
                     .inits_resolved = ini.inits_resolved,
-                    .is_reified = ini.key == .reified,
+                    .is_reified = switch (ini.key) {
+                        .declared, .declared_owned_captures => false,
+                        .reified => true,
+                    },
                 },
             });
             try items.append(.{
@@ -8281,6 +8317,10 @@ pub fn getStructType(
                 .declared => |d| if (d.captures.len != 0) {
                     extra.appendAssumeCapacity(.{@intCast(d.captures.len)});
                     extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures)});
+                },
+                .declared_owned_captures => |d| if (d.captures.len != 0) {
+                    extra.appendAssumeCapacity(.{@intCast(d.captures.len)});
+                    extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures.get(ip))});
                 },
                 .reified => |r| {
                     _ = addExtraAssumeCapacity(extra, PackedU64.init(r.type_hash));
@@ -8309,7 +8349,7 @@ pub fn getStructType(
         // TODO: fmt bug
         // zig fmt: off
         switch (ini.key) {
-            .declared => |d| @intFromBool(d.captures.len != 0) + d.captures.len,
+            inline .declared, .declared_owned_captures => |d| @intFromBool(d.captures.len != 0) + d.captures.len,
             .reified => 2, // type_hash: PackedU64
         } +
         // zig fmt: on
@@ -8324,7 +8364,10 @@ pub fn getStructType(
         .fields_len = ini.fields_len,
         .size = std.math.maxInt(u32),
         .flags = .{
-            .any_captures = ini.key == .declared and ini.key.declared.captures.len != 0,
+            .any_captures = switch (ini.key) {
+                inline .declared, .declared_owned_captures => |d| d.captures.len != 0,
+                .reified => false,
+            },
             .is_extern = is_extern,
             .known_non_opv = ini.known_non_opv,
             .requires_comptime = ini.requires_comptime,
@@ -8342,7 +8385,10 @@ pub fn getStructType(
             .field_inits_wip = false,
             .inits_resolved = ini.inits_resolved,
             .fully_resolved = false,
-            .is_reified = ini.key == .reified,
+            .is_reified = switch (ini.key) {
+                .declared, .declared_owned_captures => false,
+                .reified => true,
+            },
         },
     });
     try items.append(.{
@@ -8353,6 +8399,10 @@ pub fn getStructType(
         .declared => |d| if (d.captures.len != 0) {
             extra.appendAssumeCapacity(.{@intCast(d.captures.len)});
             extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures)});
+        },
+        .declared_owned_captures => |d| if (d.captures.len != 0) {
+            extra.appendAssumeCapacity(.{@intCast(d.captures.len)});
+            extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures.get(ip))});
         },
         .reified => |r| {
             _ = addExtraAssumeCapacity(extra, PackedU64.init(r.type_hash));
@@ -9157,6 +9207,10 @@ pub const EnumTypeInit = struct {
             zir_index: TrackedInst.Index,
             captures: []const CaptureValue,
         },
+        declared_owned_captures: struct {
+            zir_index: TrackedInst.Index,
+            captures: CaptureValue.Slice,
+        },
         reified: struct {
             zir_index: TrackedInst.Index,
             type_hash: u64,
@@ -9261,6 +9315,10 @@ pub fn getEnumType(
             .zir_index = d.zir_index,
             .captures = .{ .external = d.captures },
         } },
+        .declared_owned_captures => |d| .{ .declared = .{
+            .zir_index = d.zir_index,
+            .captures = .{ .owned = d.captures },
+        } },
         .reified => |r| .{ .reified = .{
             .zir_index = r.zir_index,
             .type_hash = r.type_hash,
@@ -9288,7 +9346,7 @@ pub fn getEnumType(
                 // TODO: fmt bug
                 // zig fmt: off
                 switch (ini.key) {
-                    .declared => |d| d.captures.len,
+                    inline .declared, .declared_owned_captures => |d| d.captures.len,
                     .reified => 2, // type_hash: PackedU64
                 } +
                 // zig fmt: on
@@ -9298,7 +9356,7 @@ pub fn getEnumType(
             const extra_index = addExtraAssumeCapacity(extra, EnumAuto{
                 .name = undefined, // set by `prepare`
                 .captures_len = switch (ini.key) {
-                    .declared => |d| @intCast(d.captures.len),
+                    inline .declared, .declared_owned_captures => |d| @intCast(d.captures.len),
                     .reified => std.math.maxInt(u32),
                 },
                 .namespace = undefined, // set by `prepare`
@@ -9317,6 +9375,7 @@ pub fn getEnumType(
             extra.appendAssumeCapacity(undefined); // `cau` will be set by `finish`
             switch (ini.key) {
                 .declared => |d| extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures)}),
+                .declared_owned_captures => |d| extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures.get(ip))}),
                 .reified => |r| _ = addExtraAssumeCapacity(extra, PackedU64.init(r.type_hash)),
             }
             const names_start = extra.mutate.len;
@@ -9347,7 +9406,7 @@ pub fn getEnumType(
                 // TODO: fmt bug
                 // zig fmt: off
                 switch (ini.key) {
-                    .declared => |d| d.captures.len,
+                    inline .declared, .declared_owned_captures => |d| d.captures.len,
                     .reified => 2, // type_hash: PackedU64
                 } +
                 // zig fmt: on
@@ -9358,7 +9417,7 @@ pub fn getEnumType(
             const extra_index = addExtraAssumeCapacity(extra, EnumExplicit{
                 .name = undefined, // set by `prepare`
                 .captures_len = switch (ini.key) {
-                    .declared => |d| @intCast(d.captures.len),
+                    inline .declared, .declared_owned_captures => |d| @intCast(d.captures.len),
                     .reified => std.math.maxInt(u32),
                 },
                 .namespace = undefined, // set by `prepare`
@@ -9382,6 +9441,7 @@ pub fn getEnumType(
             extra.appendAssumeCapacity(undefined); // `cau` will be set by `finish`
             switch (ini.key) {
                 .declared => |d| extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures)}),
+                .declared_owned_captures => |d| extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures.get(ip))}),
                 .reified => |r| _ = addExtraAssumeCapacity(extra, PackedU64.init(r.type_hash)),
             }
             const names_start = extra.mutate.len;
@@ -9445,10 +9505,12 @@ pub fn getGeneratedTagEnumType(
         .tid = tid,
         .index = items.mutate.len,
     }, ip);
+    const parent_namespace = ip.namespacePtr(ini.parent_namespace);
     const namespace = try ip.createNamespace(gpa, tid, .{
         .parent = ini.parent_namespace.toOptional(),
         .owner_type = enum_index,
-        .file_scope = ip.namespacePtr(ini.parent_namespace).file_scope,
+        .file_scope = parent_namespace.file_scope,
+        .generation = parent_namespace.generation,
     });
     errdefer ip.destroyNamespace(tid, namespace);
 
@@ -11044,6 +11106,7 @@ pub fn destroyNamespace(
         .parent = undefined,
         .file_scope = undefined,
         .owner_type = undefined,
+        .generation = undefined,
     };
     @field(namespace, Local.namespace_next_free_field) =
         @enumFromInt(local.mutate.namespaces.free_list);
