@@ -6594,7 +6594,7 @@ fn genInlineMemset(
         .tag = .beq,
         .data = .{
             .b_type = .{
-                .inst = @intCast(func.mir_instructions.len + 4), // points after the last inst
+                .inst = @intCast(func.mir_instructions.len + 3), // points after the last inst
                 .rs1 = count,
                 .rs2 = .zero,
             },
