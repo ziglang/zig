@@ -2596,7 +2596,7 @@ pub const Object = struct {
                 }
 
                 if (fn_info.cc == .auto and zcu.comp.config.any_error_tracing) {
-                    const ptr_ty = try pt.singleMutPtrType(try getStackTraceType(pt));
+                    const ptr_ty = try pt.ptrType(.{ .child = zcu.stack_trace_type });
                     debug_param_types.appendAssumeCapacity(try o.lowerDebugType(pt, ptr_ty));
                 }
 
@@ -3509,7 +3509,7 @@ pub const Object = struct {
         }
 
         if (fn_info.cc == .auto and zcu.comp.config.any_error_tracing) {
-            const ptr_ty = try pt.singleMutPtrType(try getStackTraceType(pt));
+            const ptr_ty = try pt.ptrType(.{ .child = zcu.stack_trace_type });
             try llvm_params.append(o.gpa, try o.lowerType(pt, ptr_ty));
         }
 
