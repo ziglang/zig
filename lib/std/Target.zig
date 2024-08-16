@@ -75,7 +75,13 @@ pub const Os = struct {
 
         pub inline fn isDarwin(tag: Tag) bool {
             return switch (tag) {
-                .ios, .macos, .watchos, .tvos, .visionos => true,
+                .driverkit,
+                .ios,
+                .macos,
+                .tvos,
+                .visionos,
+                .watchos,
+                => true,
                 else => false,
             };
         }
@@ -116,7 +122,13 @@ pub const Os = struct {
         pub fn dynamicLibSuffix(tag: Tag) [:0]const u8 {
             return switch (tag) {
                 .windows, .uefi => ".dll",
-                .ios, .macos, .watchos, .tvos, .visionos => ".dylib",
+                .driverkit,
+                .ios,
+                .macos,
+                .tvos,
+                .visionos,
+                .watchos,
+                => ".dylib",
                 else => ".so",
             };
         }
@@ -132,7 +144,7 @@ pub const Os = struct {
         }
 
         pub inline fn isGnuLibC(tag: Os.Tag, abi: Abi) bool {
-            return tag == .linux and abi.isGnu();
+            return (tag == .hurd or tag == .linux) and abi.isGnu();
         }
 
         pub fn defaultVersionRange(tag: Tag, arch: Cpu.Arch) Os {
@@ -163,7 +175,6 @@ pub const Os = struct {
                 .hermit,
                 .hurd,
                 .emscripten,
-                .driverkit,
                 .shadermodel,
                 .uefi,
                 .opencl, // TODO: OpenCL versions
@@ -175,6 +186,7 @@ pub const Os = struct {
                 .other,
                 => .none,
 
+                .driverkit,
                 .freebsd,
                 .macos,
                 .ios,
@@ -392,7 +404,6 @@ pub const Os = struct {
                 .hermit,
                 .hurd,
                 .emscripten,
-                .driverkit,
                 .shadermodel,
                 .uefi,
                 .opencl, // TODO: OpenCL versions
@@ -408,6 +419,12 @@ pub const Os = struct {
                     .semver = std.SemanticVersion.Range{
                         .min = .{ .major = 12, .minor = 0, .patch = 0 },
                         .max = .{ .major = 14, .minor = 0, .patch = 0 },
+                    },
+                },
+                .driverkit => .{
+                    .semver = .{
+                        .min = .{ .major = 19, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 24, .minor = 0, .patch = 0 },
                     },
                 },
                 .macos => switch (arch) {
@@ -554,7 +571,9 @@ pub const Os = struct {
     pub fn requiresLibC(os: Os) bool {
         return switch (os.tag) {
             .freebsd,
+            .aix,
             .netbsd,
+            .driverkit,
             .macos,
             .ios,
             .tvos,
@@ -575,7 +594,6 @@ pub const Os = struct {
             .ps3,
             .zos,
             .rtems,
-            .aix,
             .cuda,
             .nvcl,
             .amdhsa,
@@ -589,7 +607,6 @@ pub const Os = struct {
             .hurd,
             .wasi,
             .emscripten,
-            .driverkit,
             .shadermodel,
             .uefi,
             .opencl,
@@ -817,6 +834,102 @@ pub const ObjectFormat = enum {
         };
     }
 };
+
+pub fn toElfMachine(target: Target) std.elf.EM {
+    if (target.os.tag == .elfiamcu) return .IAMCU;
+
+    return switch (target.cpu.arch) {
+        .amdgcn => .AMDGPU,
+        .arc => .ARC_COMPACT2,
+        .arm, .armeb, .thumb, .thumbeb => .ARM,
+        .aarch64, .aarch64_be => .AARCH64,
+        .avr => .AVR,
+        .bpfel, .bpfeb => .BPF,
+        .csky => .CSKY,
+        .hexagon => .HEXAGON,
+        .kalimba => .CSR_KALIMBA,
+        .lanai => .LANAI,
+        .loongarch32, .loongarch64 => .LOONGARCH,
+        .m68k => .@"68K",
+        .mips, .mips64, .mipsel, .mips64el => .MIPS,
+        .msp430 => .MSP430,
+        .powerpc, .powerpcle => .PPC,
+        .powerpc64, .powerpc64le => .PPC64,
+        .riscv32, .riscv64 => .RISCV,
+        .s390x => .S390,
+        .sparc => if (Target.sparc.featureSetHas(target.cpu.features, .v9)) .SPARC32PLUS else .SPARC,
+        .sparc64 => .SPARCV9,
+        .spu_2 => .SPU_2,
+        .x86 => .@"386",
+        .x86_64 => .X86_64,
+        .xcore => .XCORE,
+        .xtensa => .XTENSA,
+
+        .dxil,
+        .nvptx,
+        .nvptx64,
+        .spirv,
+        .spirv32,
+        .spirv64,
+        .ve,
+        .wasm32,
+        .wasm64,
+        => .NONE,
+    };
+}
+
+pub fn toCoffMachine(target: Target) std.coff.MachineType {
+    return switch (target.cpu.arch) {
+        .arm => .ARM,
+        .thumb => .THUMB,
+        .aarch64 => .ARM64,
+        .loongarch32 => .LOONGARCH32,
+        .loongarch64 => .LOONGARCH64,
+        .riscv32 => .RISCV32,
+        .riscv64 => .RISCV64,
+        .x86 => .I386,
+        .x86_64 => .X64,
+
+        .amdgcn,
+        .arc,
+        .armeb,
+        .thumbeb,
+        .aarch64_be,
+        .avr,
+        .bpfel,
+        .bpfeb,
+        .csky,
+        .dxil,
+        .hexagon,
+        .kalimba,
+        .lanai,
+        .m68k,
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        .msp430,
+        .nvptx,
+        .nvptx64,
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        .s390x,
+        .sparc,
+        .sparc64,
+        .spirv,
+        .spirv32,
+        .spirv64,
+        .spu_2,
+        .ve,
+        .wasm32,
+        .wasm64,
+        .xcore,
+        .xtensa,
+        => .UNKNOWN,
+    };
+}
 
 pub const SubSystem = enum {
     Console,
@@ -1189,106 +1302,6 @@ pub const Cpu = struct {
                 }
             }
             return error.UnknownCpuModel;
-        }
-
-        pub fn toElfMachine(arch: Arch) std.elf.EM {
-            return switch (arch) {
-                .avr => .AVR,
-                .msp430 => .MSP430,
-                .arc => .ARC,
-                .arm => .ARM,
-                .armeb => .ARM,
-                .hexagon => .HEXAGON,
-                .dxil => .NONE,
-                .m68k => .@"68K",
-                .mips => .MIPS,
-                .mipsel => .MIPS_RS3_LE,
-                .powerpc, .powerpcle => .PPC,
-                .riscv32 => .RISCV,
-                .sparc => .SPARC,
-                .thumb => .ARM,
-                .thumbeb => .ARM,
-                .x86 => .@"386",
-                .xcore => .XCORE,
-                .xtensa => .XTENSA,
-                .nvptx => .NONE,
-                .kalimba => .CSR_KALIMBA,
-                .lanai => .LANAI,
-                .wasm32 => .NONE,
-                .aarch64 => .AARCH64,
-                .aarch64_be => .AARCH64,
-                .mips64 => .MIPS,
-                .mips64el => .MIPS_RS3_LE,
-                .powerpc64 => .PPC64,
-                .powerpc64le => .PPC64,
-                .riscv64 => .RISCV,
-                .x86_64 => .X86_64,
-                .nvptx64 => .NONE,
-                .wasm64 => .NONE,
-                .amdgcn => .AMDGPU,
-                .bpfel => .BPF,
-                .bpfeb => .BPF,
-                .csky => .CSKY,
-                .sparc64 => .SPARCV9,
-                .s390x => .S390,
-                .ve => .NONE,
-                .spu_2 => .SPU_2,
-                .spirv => .NONE,
-                .spirv32 => .NONE,
-                .spirv64 => .NONE,
-                .loongarch32 => .LOONGARCH,
-                .loongarch64 => .LOONGARCH,
-            };
-        }
-
-        pub fn toCoffMachine(arch: Arch) std.coff.MachineType {
-            return switch (arch) {
-                .avr => .Unknown,
-                .msp430 => .Unknown,
-                .arc => .Unknown,
-                .arm => .ARM,
-                .armeb => .Unknown,
-                .dxil => .Unknown,
-                .hexagon => .Unknown,
-                .m68k => .Unknown,
-                .mips => .Unknown,
-                .mipsel => .Unknown,
-                .powerpc, .powerpcle => .POWERPC,
-                .riscv32 => .RISCV32,
-                .sparc => .Unknown,
-                .thumb => .Thumb,
-                .thumbeb => .Thumb,
-                .x86 => .I386,
-                .xcore => .Unknown,
-                .xtensa => .Unknown,
-                .nvptx => .Unknown,
-                .kalimba => .Unknown,
-                .lanai => .Unknown,
-                .wasm32 => .Unknown,
-                .aarch64 => .ARM64,
-                .aarch64_be => .ARM64,
-                .mips64 => .Unknown,
-                .mips64el => .Unknown,
-                .powerpc64 => .Unknown,
-                .powerpc64le => .Unknown,
-                .riscv64 => .RISCV64,
-                .x86_64 => .X64,
-                .nvptx64 => .Unknown,
-                .wasm64 => .Unknown,
-                .amdgcn => .Unknown,
-                .bpfel => .Unknown,
-                .bpfeb => .Unknown,
-                .csky => .Unknown,
-                .sparc64 => .Unknown,
-                .s390x => .Unknown,
-                .ve => .Unknown,
-                .spu_2 => .Unknown,
-                .spirv => .Unknown,
-                .spirv32 => .Unknown,
-                .spirv64 => .Unknown,
-                .loongarch32 => .LOONGARCH32,
-                .loongarch64 => .LOONGARCH64,
-            };
         }
 
         pub fn endian(arch: Arch) std.builtin.Endian {
@@ -1802,6 +1815,7 @@ pub const DynamicLinker = struct {
                 => none,
             },
 
+            .driverkit,
             .ios,
             .tvos,
             .watchos,
@@ -1846,7 +1860,6 @@ pub const DynamicLinker = struct {
             .amdpal,
             .hermit,
             .hurd,
-            .driverkit,
             .shadermodel,
             => none,
         };
@@ -2261,7 +2274,13 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
             },
         },
 
-        .macos, .ios, .tvos, .watchos, .visionos => switch (c_type) {
+        .driverkit,
+        .ios,
+        .macos,
+        .tvos,
+        .visionos,
+        .watchos,
+        => switch (c_type) {
             .char => return 8,
             .short, .ushort => return 16,
             .int, .uint, .float => return 32,
@@ -2334,7 +2353,6 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
         .hermit,
         .hurd,
         .opengl,
-        .driverkit,
         .shadermodel,
         => @panic("TODO specify the C integer and float type sizes for this OS"),
     }
