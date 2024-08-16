@@ -11787,7 +11787,9 @@ fn backendSupportsF16(target: std.Target) bool {
         .mips64el,
         .s390x,
         => false,
-        .aarch64 => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
+        .aarch64,
+        .aarch64_be,
+        => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
         else => true,
     };
 }
@@ -11798,9 +11800,18 @@ fn backendSupportsF16(target: std.Target) bool {
 fn backendSupportsF128(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .amdgcn,
+        .mips64,
+        .mips64el,
         .sparc,
         => false,
-        .aarch64 => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        => target.os.tag != .aix,
+        .aarch64,
+        .aarch64_be,
+        => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
         else => true,
     };
 }
