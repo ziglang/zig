@@ -143,6 +143,9 @@ debug_abbrev_section_index: ?u32 = null,
 debug_str_section_index: ?u32 = null,
 debug_aranges_section_index: ?u32 = null,
 debug_line_section_index: ?u32 = null,
+debug_line_str_section_index: ?u32 = null,
+debug_loclists_section_index: ?u32 = null,
+debug_rnglists_section_index: ?u32 = null,
 
 copy_rel_section_index: ?u32 = null,
 dynamic_section_index: ?u32 = null,
@@ -492,12 +495,13 @@ pub fn getUavVAddr(self: *Elf, uav: InternPool.Index, reloc_info: link.File.Relo
 }
 
 /// Returns end pos of collision, if any.
-fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
+fn detectAllocCollision(self: *Elf, start: u64, size: u64) !?u64 {
     const small_ptr = self.ptr_width == .p32;
     const ehdr_size: u64 = if (small_ptr) @sizeOf(elf.Elf32_Ehdr) else @sizeOf(elf.Elf64_Ehdr);
     if (start < ehdr_size)
         return ehdr_size;
 
+    var at_end = true;
     const end = start + padToIdeal(size);
 
     if (self.shdr_table_offset) |off| {
@@ -505,8 +509,9 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
         const tight_size = self.shdrs.items.len * shdr_size;
         const increased_size = padToIdeal(tight_size);
         const test_end = off +| increased_size;
-        if (end > off and start < test_end) {
-            return test_end;
+        if (start < test_end) {
+            if (end > off) return test_end;
+            if (test_end < std.math.maxInt(u64)) at_end = false;
         }
     }
 
@@ -514,8 +519,9 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
         if (shdr.sh_type == elf.SHT_NOBITS) continue;
         const increased_size = padToIdeal(shdr.sh_size);
         const test_end = shdr.sh_offset +| increased_size;
-        if (end > shdr.sh_offset and start < test_end) {
-            return test_end;
+        if (start < test_end) {
+            if (end > shdr.sh_offset) return test_end;
+            if (test_end < std.math.maxInt(u64)) at_end = false;
         }
     }
 
@@ -523,11 +529,13 @@ fn detectAllocCollision(self: *Elf, start: u64, size: u64) ?u64 {
         if (phdr.p_type != elf.PT_LOAD) continue;
         const increased_size = padToIdeal(phdr.p_filesz);
         const test_end = phdr.p_offset +| increased_size;
-        if (end > phdr.p_offset and start < test_end) {
-            return test_end;
+        if (start < test_end) {
+            if (end > phdr.p_offset) return test_end;
+            if (test_end < std.math.maxInt(u64)) at_end = false;
         }
     }
 
+    if (at_end) try self.base.file.?.setEndPos(end);
     return null;
 }
 
@@ -558,9 +566,9 @@ fn allocatedVirtualSize(self: *Elf, start: u64) u64 {
     return min_pos - start;
 }
 
-pub fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u64) u64 {
+pub fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u64) !u64 {
     var start: u64 = 0;
-    while (self.detectAllocCollision(start, object_size)) |item_end| {
+    while (try self.detectAllocCollision(start, object_size)) |item_end| {
         start = mem.alignForward(u64, item_end, min_alignment);
     }
     return start;
@@ -580,9 +588,9 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
     const zig_object = self.zigObjectPtr().?;
 
     const fillSection = struct {
-        fn fillSection(elf_file: *Elf, shdr: *elf.Elf64_Shdr, size: u64, phndx: ?u16) void {
+        fn fillSection(elf_file: *Elf, shdr: *elf.Elf64_Shdr, size: u64, phndx: ?u16) !void {
             if (elf_file.base.isRelocatable()) {
-                const off = elf_file.findFreeSpace(size, shdr.sh_addralign);
+                const off = try elf_file.findFreeSpace(size, shdr.sh_addralign);
                 shdr.sh_offset = off;
                 shdr.sh_size = size;
             } else {
@@ -599,7 +607,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
     if (!self.base.isRelocatable()) {
         if (self.phdr_zig_load_re_index == null) {
             const filesz = options.program_code_size_hint;
-            const off = self.findFreeSpace(filesz, self.page_size);
+            const off = try self.findFreeSpace(filesz, self.page_size);
             self.phdr_zig_load_re_index = try self.addPhdr(.{
                 .type = elf.PT_LOAD,
                 .offset = off,
@@ -614,7 +622,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         if (self.phdr_zig_load_ro_index == null) {
             const alignment = self.page_size;
             const filesz: u64 = 1024;
-            const off = self.findFreeSpace(filesz, alignment);
+            const off = try self.findFreeSpace(filesz, alignment);
             self.phdr_zig_load_ro_index = try self.addPhdr(.{
                 .type = elf.PT_LOAD,
                 .offset = off,
@@ -629,7 +637,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         if (self.phdr_zig_load_rw_index == null) {
             const alignment = self.page_size;
             const filesz: u64 = 1024;
-            const off = self.findFreeSpace(filesz, alignment);
+            const off = try self.findFreeSpace(filesz, alignment);
             self.phdr_zig_load_rw_index = try self.addPhdr(.{
                 .type = elf.PT_LOAD,
                 .offset = off,
@@ -662,7 +670,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
             .offset = std.math.maxInt(u64),
         });
         const shdr = &self.shdrs.items[self.zig_text_section_index.?];
-        fillSection(self, shdr, options.program_code_size_hint, self.phdr_zig_load_re_index);
+        try fillSection(self, shdr, options.program_code_size_hint, self.phdr_zig_load_re_index);
         if (self.base.isRelocatable()) {
             const rela_shndx = try self.addRelaShdr(try self.insertShString(".rela.text.zig"), self.zig_text_section_index.?);
             try self.output_rela_sections.putNoClobber(gpa, self.zig_text_section_index.?, .{
@@ -688,7 +696,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
             .offset = std.math.maxInt(u64),
         });
         const shdr = &self.shdrs.items[self.zig_data_rel_ro_section_index.?];
-        fillSection(self, shdr, 1024, self.phdr_zig_load_ro_index);
+        try fillSection(self, shdr, 1024, self.phdr_zig_load_ro_index);
         if (self.base.isRelocatable()) {
             const rela_shndx = try self.addRelaShdr(
                 try self.insertShString(".rela.data.rel.ro.zig"),
@@ -717,7 +725,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
             .offset = std.math.maxInt(u64),
         });
         const shdr = &self.shdrs.items[self.zig_data_section_index.?];
-        fillSection(self, shdr, 1024, self.phdr_zig_load_rw_index);
+        try fillSection(self, shdr, 1024, self.phdr_zig_load_rw_index);
         if (self.base.isRelocatable()) {
             const rela_shndx = try self.addRelaShdr(
                 try self.insertShString(".rela.data.zig"),
@@ -758,24 +766,16 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.zig_bss_section_index.?, .{});
     }
 
-    if (zig_object.dwarf) |*dw| {
+    if (zig_object.dwarf) |*dwarf| {
         if (self.debug_str_section_index == null) {
-            assert(dw.strtab.buffer.items.len == 0);
-            try dw.strtab.buffer.append(gpa, 0);
             self.debug_str_section_index = try self.addSection(.{
                 .name = try self.insertShString(".debug_str"),
                 .flags = elf.SHF_MERGE | elf.SHF_STRINGS,
                 .entsize = 1,
                 .type = elf.SHT_PROGBITS,
                 .addralign = 1,
-                .offset = std.math.maxInt(u64),
             });
-            const shdr = &self.shdrs.items[self.debug_str_section_index.?];
-            const size = @as(u64, @intCast(dw.strtab.buffer.items.len));
-            const off = self.findFreeSpace(size, 1);
-            shdr.sh_offset = off;
-            shdr.sh_size = size;
-            zig_object.debug_strtab_dirty = true;
+            zig_object.debug_str_section_dirty = true;
             try self.output_sections.putNoClobber(gpa, self.debug_str_section_index.?, .{});
         }
 
@@ -784,14 +784,8 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .name = try self.insertShString(".debug_info"),
                 .type = elf.SHT_PROGBITS,
                 .addralign = 1,
-                .offset = std.math.maxInt(u64),
             });
-            const shdr = &self.shdrs.items[self.debug_info_section_index.?];
-            const size: u64 = 200;
-            const off = self.findFreeSpace(size, 1);
-            shdr.sh_offset = off;
-            shdr.sh_size = size;
-            zig_object.debug_info_header_dirty = true;
+            zig_object.debug_info_section_dirty = true;
             try self.output_sections.putNoClobber(gpa, self.debug_info_section_index.?, .{});
         }
 
@@ -800,13 +794,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .name = try self.insertShString(".debug_abbrev"),
                 .type = elf.SHT_PROGBITS,
                 .addralign = 1,
-                .offset = std.math.maxInt(u64),
             });
-            const shdr = &self.shdrs.items[self.debug_abbrev_section_index.?];
-            const size: u64 = 128;
-            const off = self.findFreeSpace(size, 1);
-            shdr.sh_offset = off;
-            shdr.sh_size = size;
             zig_object.debug_abbrev_section_dirty = true;
             try self.output_sections.putNoClobber(gpa, self.debug_abbrev_section_index.?, .{});
         }
@@ -816,13 +804,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .name = try self.insertShString(".debug_aranges"),
                 .type = elf.SHT_PROGBITS,
                 .addralign = 16,
-                .offset = std.math.maxInt(u64),
             });
-            const shdr = &self.shdrs.items[self.debug_aranges_section_index.?];
-            const size: u64 = 160;
-            const off = self.findFreeSpace(size, 16);
-            shdr.sh_offset = off;
-            shdr.sh_size = size;
             zig_object.debug_aranges_section_dirty = true;
             try self.output_sections.putNoClobber(gpa, self.debug_aranges_section_index.?, .{});
         }
@@ -832,62 +814,83 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .name = try self.insertShString(".debug_line"),
                 .type = elf.SHT_PROGBITS,
                 .addralign = 1,
-                .offset = std.math.maxInt(u64),
             });
-            const shdr = &self.shdrs.items[self.debug_line_section_index.?];
-            const size: u64 = 250;
-            const off = self.findFreeSpace(size, 1);
-            shdr.sh_offset = off;
-            shdr.sh_size = size;
-            zig_object.debug_line_header_dirty = true;
+            zig_object.debug_line_section_dirty = true;
             try self.output_sections.putNoClobber(gpa, self.debug_line_section_index.?, .{});
         }
-    }
 
-    // We need to find current max assumed file offset, and actually write to file to make it a reality.
-    var end_pos: u64 = 0;
-    for (self.shdrs.items) |shdr| {
-        if (shdr.sh_offset == std.math.maxInt(u64)) continue;
-        end_pos = @max(end_pos, shdr.sh_offset + shdr.sh_size);
+        if (self.debug_line_str_section_index == null) {
+            self.debug_line_str_section_index = try self.addSection(.{
+                .name = try self.insertShString(".debug_line_str"),
+                .flags = elf.SHF_MERGE | elf.SHF_STRINGS,
+                .entsize = 1,
+                .type = elf.SHT_PROGBITS,
+                .addralign = 1,
+            });
+            zig_object.debug_line_str_section_dirty = true;
+            try self.output_sections.putNoClobber(gpa, self.debug_line_str_section_index.?, .{});
+        }
+
+        if (self.debug_loclists_section_index == null) {
+            self.debug_loclists_section_index = try self.addSection(.{
+                .name = try self.insertShString(".debug_loclists"),
+                .type = elf.SHT_PROGBITS,
+                .addralign = 1,
+            });
+            zig_object.debug_loclists_section_dirty = true;
+            try self.output_sections.putNoClobber(gpa, self.debug_loclists_section_index.?, .{});
+        }
+
+        if (self.debug_rnglists_section_index == null) {
+            self.debug_rnglists_section_index = try self.addSection(.{
+                .name = try self.insertShString(".debug_rnglists"),
+                .type = elf.SHT_PROGBITS,
+                .addralign = 1,
+            });
+            zig_object.debug_rnglists_section_dirty = true;
+            try self.output_sections.putNoClobber(gpa, self.debug_rnglists_section_index.?, .{});
+        }
+
+        try dwarf.initMetadata();
     }
-    try self.base.file.?.pwriteAll(&[1]u8{0}, end_pos);
 }
 
 pub fn growAllocSection(self: *Elf, shdr_index: u32, needed_size: u64) !void {
     const shdr = &self.shdrs.items[shdr_index];
     const maybe_phdr = if (self.phdr_to_shdr_table.get(shdr_index)) |phndx| &self.phdrs.items[phndx] else null;
-    const is_zerofill = shdr.sh_type == elf.SHT_NOBITS;
     log.debug("allocated size {x} of {s}, needed size {x}", .{
         self.allocatedSize(shdr.sh_offset),
         self.getShString(shdr.sh_name),
         needed_size,
     });
 
-    if (needed_size > self.allocatedSize(shdr.sh_offset) and !is_zerofill) {
-        const existing_size = shdr.sh_size;
-        shdr.sh_size = 0;
-        // Must move the entire section.
-        const alignment = if (maybe_phdr) |phdr| phdr.p_align else shdr.sh_addralign;
-        const new_offset = self.findFreeSpace(needed_size, alignment);
+    if (shdr.sh_type != elf.SHT_NOBITS) {
+        const allocated_size = self.allocatedSize(shdr.sh_offset);
+        if (shdr.sh_offset + allocated_size == std.math.maxInt(u64)) {
+            try self.base.file.?.setEndPos(shdr.sh_offset + needed_size);
+        } else if (needed_size > allocated_size) {
+            const existing_size = shdr.sh_size;
+            shdr.sh_size = 0;
+            // Must move the entire section.
+            const alignment = if (maybe_phdr) |phdr| phdr.p_align else shdr.sh_addralign;
+            const new_offset = try self.findFreeSpace(needed_size, alignment);
 
-        log.debug("new '{s}' file offset 0x{x} to 0x{x}", .{
-            self.getShString(shdr.sh_name),
-            new_offset,
-            new_offset + existing_size,
-        });
+            log.debug("new '{s}' file offset 0x{x} to 0x{x}", .{
+                self.getShString(shdr.sh_name),
+                new_offset,
+                new_offset + existing_size,
+            });
 
-        const amt = try self.base.file.?.copyRangeAll(shdr.sh_offset, self.base.file.?, new_offset, existing_size);
-        // TODO figure out what to about this error condition - how to communicate it up.
-        if (amt != existing_size) return error.InputOutput;
+            const amt = try self.base.file.?.copyRangeAll(shdr.sh_offset, self.base.file.?, new_offset, existing_size);
+            // TODO figure out what to about this error condition - how to communicate it up.
+            if (amt != existing_size) return error.InputOutput;
 
-        shdr.sh_offset = new_offset;
-        if (maybe_phdr) |phdr| phdr.p_offset = new_offset;
-    }
-
-    shdr.sh_size = needed_size;
-    if (!is_zerofill) {
+            shdr.sh_offset = new_offset;
+            if (maybe_phdr) |phdr| phdr.p_offset = new_offset;
+        }
         if (maybe_phdr) |phdr| phdr.p_filesz = needed_size;
     }
+    shdr.sh_size = needed_size;
 
     if (maybe_phdr) |phdr| {
         const mem_capacity = self.allocatedVirtualSize(phdr.p_vaddr);
@@ -915,11 +918,14 @@ pub fn growNonAllocSection(
 ) !void {
     const shdr = &self.shdrs.items[shdr_index];
 
-    if (needed_size > self.allocatedSize(shdr.sh_offset)) {
+    const allocated_size = self.allocatedSize(shdr.sh_offset);
+    if (shdr.sh_offset + allocated_size == std.math.maxInt(u64)) {
+        try self.base.file.?.setEndPos(shdr.sh_offset + needed_size);
+    } else if (needed_size > allocated_size) {
         const existing_size = shdr.sh_size;
         shdr.sh_size = 0;
         // Move all the symbols to a new file location.
-        const new_offset = self.findFreeSpace(needed_size, min_alignment);
+        const new_offset = try self.findFreeSpace(needed_size, min_alignment);
 
         log.debug("new '{s}' file offset 0x{x} to 0x{x}", .{
             self.getShString(shdr.sh_name),
@@ -939,7 +945,6 @@ pub fn growNonAllocSection(
 
         shdr.sh_offset = new_offset;
     }
-
     shdr.sh_size = needed_size;
 
     self.markDirty(shdr_index);
@@ -949,15 +954,21 @@ pub fn markDirty(self: *Elf, shdr_index: u32) void {
     const zig_object = self.zigObjectPtr().?;
     if (zig_object.dwarf) |_| {
         if (self.debug_info_section_index.? == shdr_index) {
-            zig_object.debug_info_header_dirty = true;
-        } else if (self.debug_line_section_index.? == shdr_index) {
-            zig_object.debug_line_header_dirty = true;
+            zig_object.debug_info_section_dirty = true;
         } else if (self.debug_abbrev_section_index.? == shdr_index) {
             zig_object.debug_abbrev_section_dirty = true;
         } else if (self.debug_str_section_index.? == shdr_index) {
-            zig_object.debug_strtab_dirty = true;
+            zig_object.debug_str_section_dirty = true;
         } else if (self.debug_aranges_section_index.? == shdr_index) {
             zig_object.debug_aranges_section_dirty = true;
+        } else if (self.debug_line_section_index.? == shdr_index) {
+            zig_object.debug_line_section_dirty = true;
+        } else if (self.debug_line_str_section_index.? == shdr_index) {
+            zig_object.debug_line_str_section_dirty = true;
+        } else if (self.debug_loclists_section_index.? == shdr_index) {
+            zig_object.debug_loclists_section_dirty = true;
+        } else if (self.debug_rnglists_section_index.? == shdr_index) {
+            zig_object.debug_rnglists_section_dirty = true;
         }
     }
 }
@@ -1305,6 +1316,8 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
             };
             try self.base.file.?.pwriteAll(code, file_offset);
         }
+
+        if (zo.dwarf) |*dwarf| try dwarf.resolveRelocs();
 
         if (has_reloc_errors) return error.FlushFailure;
     }
@@ -2667,7 +2680,7 @@ pub fn writeShdrTable(self: *Elf) !void {
 
     if (needed_size > self.allocatedSize(shoff)) {
         self.shdr_table_offset = null;
-        self.shdr_table_offset = self.findFreeSpace(needed_size, shalign);
+        self.shdr_table_offset = try self.findFreeSpace(needed_size, shalign);
     }
 
     log.debug("writing section headers from 0x{x} to 0x{x}", .{
@@ -2898,6 +2911,18 @@ pub fn updateNav(
     }
     if (self.llvm_object) |llvm_object| return llvm_object.updateNav(pt, nav);
     return self.zigObjectPtr().?.updateNav(self, pt, nav);
+}
+
+pub fn updateContainerType(
+    self: *Elf,
+    pt: Zcu.PerThread,
+    ty: InternPool.Index,
+) link.File.UpdateNavError!void {
+    if (build_options.skip_non_native and builtin.object_format != .elf) {
+        @panic("Attempted to compile for object format that was disabled by build configuration");
+    }
+    if (self.llvm_object) |_| return;
+    return self.zigObjectPtr().?.updateContainerType(pt, ty);
 }
 
 pub fn updateExports(
@@ -3658,11 +3683,14 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) !void {
         &self.zig_data_rel_ro_section_index,
         &self.zig_data_section_index,
         &self.zig_bss_section_index,
-        &self.debug_str_section_index,
         &self.debug_info_section_index,
         &self.debug_abbrev_section_index,
+        &self.debug_str_section_index,
         &self.debug_aranges_section_index,
         &self.debug_line_section_index,
+        &self.debug_line_str_section_index,
+        &self.debug_loclists_section_index,
+        &self.debug_rnglists_section_index,
     }) |maybe_index| {
         if (maybe_index.*) |*index| {
             index.* = backlinks[index.*];
@@ -3787,6 +3815,7 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) !void {
             const atom_ptr = zo.atom(atom_index) orelse continue;
             atom_ptr.output_section_index = backlinks[atom_ptr.output_section_index];
         }
+        if (zo.dwarf) |*dwarf| dwarf.reloadSectionMetadata();
     }
 
     for (self.output_rela_sections.keys(), self.output_rela_sections.values()) |shndx, sec| {
@@ -3992,7 +4021,7 @@ fn allocatePhdrTable(self: *Elf) error{OutOfMemory}!void {
 
 /// Allocates alloc sections and creates load segments for sections
 /// extracted from input object files.
-pub fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
+pub fn allocateAllocSections(self: *Elf) !void {
     // We use this struct to track maximum alignment of all TLS sections.
     // According to https://github.com/rui314/mold/commit/bd46edf3f0fe9e1a787ea453c4657d535622e61f in mold,
     // in-file offsets have to be aligned against the start of TLS program header.
@@ -4112,7 +4141,7 @@ pub fn allocateAllocSections(self: *Elf) error{OutOfMemory}!void {
         }
 
         const first = self.shdrs.items[cover.items[0]];
-        var off = self.findFreeSpace(filesz, @"align");
+        var off = try self.findFreeSpace(filesz, @"align");
         const phndx = try self.addPhdr(.{
             .type = elf.PT_LOAD,
             .offset = off,
@@ -4147,7 +4176,7 @@ pub fn allocateNonAllocSections(self: *Elf) !void {
         const needed_size = shdr.sh_size;
         if (needed_size > self.allocatedSize(shdr.sh_offset)) {
             shdr.sh_size = 0;
-            const new_offset = self.findFreeSpace(needed_size, shdr.sh_addralign);
+            const new_offset = try self.findFreeSpace(needed_size, shdr.sh_addralign);
 
             if (self.isDebugSection(@intCast(shndx))) {
                 log.debug("moving {s} from 0x{x} to 0x{x}", .{
@@ -4167,6 +4196,12 @@ pub fn allocateNonAllocSections(self: *Elf) !void {
                         break :blk zig_object.debug_aranges_section_zig_size;
                     if (shndx == self.debug_line_section_index.?)
                         break :blk zig_object.debug_line_section_zig_size;
+                    if (shndx == self.debug_line_str_section_index.?)
+                        break :blk zig_object.debug_line_str_section_zig_size;
+                    if (shndx == self.debug_loclists_section_index.?)
+                        break :blk zig_object.debug_loclists_section_zig_size;
+                    if (shndx == self.debug_rnglists_section_index.?)
+                        break :blk zig_object.debug_rnglists_section_zig_size;
                     unreachable;
                 };
                 const amt = try self.base.file.?.copyRangeAll(
@@ -4275,6 +4310,12 @@ fn writeAtoms(self: *Elf) !void {
                 break :blk zig_object.debug_aranges_section_zig_size;
             if (shndx == self.debug_line_section_index.?)
                 break :blk zig_object.debug_line_section_zig_size;
+            if (shndx == self.debug_line_str_section_index.?)
+                break :blk zig_object.debug_line_str_section_zig_size;
+            if (shndx == self.debug_loclists_section_index.?)
+                break :blk zig_object.debug_loclists_section_zig_size;
+            if (shndx == self.debug_rnglists_section_index.?)
+                break :blk zig_object.debug_rnglists_section_zig_size;
             unreachable;
         } else 0;
         const sh_offset = shdr.sh_offset + base_offset;
@@ -5044,6 +5085,9 @@ pub fn isDebugSection(self: Elf, shndx: u32) bool {
         self.debug_str_section_index,
         self.debug_aranges_section_index,
         self.debug_line_section_index,
+        self.debug_line_str_section_index,
+        self.debug_loclists_section_index,
+        self.debug_rnglists_section_index,
     }) |maybe_index| {
         if (maybe_index) |index| {
             if (index == shndx) return true;
@@ -5109,7 +5153,7 @@ pub const AddSectionOpts = struct {
 
 pub fn addSection(self: *Elf, opts: AddSectionOpts) !u32 {
     const gpa = self.base.comp.gpa;
-    const index = @as(u32, @intCast(self.shdrs.items.len));
+    const index: u32 = @intCast(self.shdrs.items.len);
     const shdr = try self.shdrs.addOne(gpa);
     shdr.* = .{
         .sh_name = opts.name,

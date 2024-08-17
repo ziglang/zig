@@ -14,7 +14,7 @@ relocs: std.ArrayListUnmanaged(Reloc) = .{},
 
 pub const Error = Lower.Error || error{
     EmitFail,
-};
+} || link.File.UpdateDebugInfoError;
 
 pub fn emitMir(emit: *Emit) Error!void {
     for (0..emit.lower.mir.instructions.len) |mir_i| {
@@ -222,13 +222,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     else => unreachable,
                     .pseudo_dbg_prologue_end_none => {
                         switch (emit.debug_output) {
-                            .dwarf => |dw| {
-                                try dw.setPrologueEnd();
-                                log.debug("mirDbgPrologueEnd (line={d}, col={d})", .{
-                                    emit.prev_di_line, emit.prev_di_column,
-                                });
-                                try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
-                            },
+                            .dwarf => |dw| try dw.setPrologueEnd(),
                             .plan9 => {},
                             .none => {},
                         }

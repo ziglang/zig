@@ -419,7 +419,7 @@ pub const tty = @import("io/tty.zig");
 /// A Writer that doesn't write to anything.
 pub const null_writer: NullWriter = .{ .context = {} };
 
-const NullWriter = Writer(void, error{}, dummyWrite);
+pub const NullWriter = Writer(void, error{}, dummyWrite);
 fn dummyWrite(context: void, data: []const u8) error{}!usize {
     _ = context;
     return data.len;

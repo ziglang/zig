@@ -746,7 +746,7 @@ const Writer = struct {
     fn writeIntBig(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].str;
         const byte_count = inst_data.len * @sizeOf(std.math.big.Limb);
-        const limb_bytes = self.code.nullTerminatedString(inst_data.start)[0..byte_count];
+        const limb_bytes = self.code.string_bytes[@intFromEnum(inst_data.start)..][0..byte_count];
         // limb_bytes is not aligned properly; we must allocate and copy the bytes
         // in order to accomplish this.
         const limbs = try self.gpa.alloc(std.math.big.Limb, inst_data.len);

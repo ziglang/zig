@@ -401,7 +401,7 @@ fn allocateAllocSections(elf_file: *Elf) !void {
         const needed_size = shdr.sh_size;
         if (needed_size > elf_file.allocatedSize(shdr.sh_offset)) {
             shdr.sh_size = 0;
-            const new_offset = elf_file.findFreeSpace(needed_size, shdr.sh_addralign);
+            const new_offset = try elf_file.findFreeSpace(needed_size, shdr.sh_addralign);
             shdr.sh_offset = new_offset;
             shdr.sh_size = needed_size;
         }
@@ -434,6 +434,12 @@ fn writeAtoms(elf_file: *Elf) !void {
                 break :blk zig_object.debug_aranges_section_zig_size;
             if (shndx == elf_file.debug_line_section_index.?)
                 break :blk zig_object.debug_line_section_zig_size;
+            if (shndx == elf_file.debug_line_str_section_index.?)
+                break :blk zig_object.debug_line_str_section_zig_size;
+            if (shndx == elf_file.debug_loclists_section_index.?)
+                break :blk zig_object.debug_loclists_section_zig_size;
+            if (shndx == elf_file.debug_rnglists_section_index.?)
+                break :blk zig_object.debug_rnglists_section_zig_size;
             unreachable;
         } else 0;
         const sh_offset = shdr.sh_offset + base_offset;

@@ -2737,7 +2737,7 @@ pub fn addUnitReference(zcu: *Zcu, src_unit: AnalUnit, referenced_unit: AnalUnit
 
 pub fn errorSetBits(mod: *Zcu) u16 {
     if (mod.error_limit == 0) return 0;
-    return std.math.log2_int_ceil(ErrorInt, mod.error_limit + 1); // +1 for no error
+    return @as(u16, std.math.log2_int(ErrorInt, mod.error_limit)) + 1;
 }
 
 pub fn errNote(
@@ -3005,6 +3005,14 @@ pub const UnionLayout = struct {
     tag_align: Alignment,
     tag_size: u64,
     padding: u32,
+
+    pub fn tagOffset(layout: UnionLayout) u64 {
+        return if (layout.tag_align.compare(.lt, layout.payload_align)) layout.payload_size else 0;
+    }
+
+    pub fn payloadOffset(layout: UnionLayout) u64 {
+        return if (layout.tag_align.compare(.lt, layout.payload_align)) 0 else layout.tag_size;
+    }
 };
 
 /// Returns the index of the active field, given the current tag value

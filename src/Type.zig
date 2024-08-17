@@ -2208,7 +2208,7 @@ pub fn errorSetHasField(ty: Type, name: []const u8, mod: *Module) bool {
                 const field_name_interned = ip.getString(name).unwrap() orelse return false;
                 return error_set_type.nameIndex(ip, field_name_interned) != null;
             },
-            .inferred_error_set_type => |i| switch (ip.funcIesResolved(i).*) {
+            .inferred_error_set_type => |i| switch (ip.funcIesResolvedUnordered(i)) {
                 .anyerror_type => true,
                 .none => false,
                 else => |t| {

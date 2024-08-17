@@ -3579,18 +3579,15 @@ fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Live
 }
 
 fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, mcv: MCValue) !void {
-    const pt = self.pt;
-    const mod = pt.zcu;
     const arg = self.air.instructions.items(.data)[@intFromEnum(inst)].arg;
     const ty = arg.ty.toType();
-    const owner_nav = mod.funcInfo(self.func_index).owner_nav;
     if (arg.name == .none) return;
     const name = self.air.nullTerminatedString(@intFromEnum(arg.name));
 
     switch (self.debug_output) {
         .dwarf => |dw| switch (mcv) {
-            .register => |reg| try dw.genArgDbgInfo(name, ty, owner_nav, .{
-                .register = reg.dwarfLocOp(),
+            .register => |reg| try dw.genVarDebugInfo(.local_arg, name, ty, .{
+                .reg = reg.dwarfNum(),
             }),
             else => {},
         },
@@ -4127,7 +4124,7 @@ fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
             .undef => .undef,
-            .load_got, .load_symbol, .load_direct, .load_tlv, .lea_symbol => unreachable, // TODO
+            .load_got, .load_symbol, .load_direct, .load_tlv, .lea_symbol, .lea_direct => unreachable, // TODO
             .immediate => |imm| .{ .immediate = imm },
             .memory => |addr| .{ .memory = addr },
         },

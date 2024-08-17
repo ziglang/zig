@@ -742,7 +742,7 @@ const InnerError = error{
     CodegenFail,
     /// Compiler implementation could not handle a large integer.
     Overflow,
-};
+} || link.File.UpdateDebugInfoError;
 
 pub fn deinit(func: *CodeGen) void {
     // in case of an error and we still have branches
@@ -2588,8 +2588,8 @@ fn airArg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const name_nts = func.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
             if (name_nts != .none) {
                 const name = func.air.nullTerminatedString(@intFromEnum(name_nts));
-                try dwarf.genArgDbgInfo(name, arg_ty, func.owner_nav, .{
-                    .wasm_local = arg.local.value,
+                try dwarf.genVarDebugInfo(.local_arg, name, arg_ty, .{
+                    .wasm_ext = .{ .local = arg.local.value },
                 });
             }
         },
@@ -6455,6 +6455,7 @@ fn airDbgInlineBlock(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airDbgVar(func: *CodeGen, inst: Air.Inst.Index, is_ptr: bool) InnerError!void {
+    _ = is_ptr;
     if (func.debug_output != .dwarf) return func.finishAir(inst, .none, &.{});
 
     const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
@@ -6466,14 +6467,14 @@ fn airDbgVar(func: *CodeGen, inst: Air.Inst.Index, is_ptr: bool) InnerError!void
     const name = func.air.nullTerminatedString(pl_op.payload);
     log.debug(" var name = ({s})", .{name});
 
-    const loc: link.File.Dwarf.NavState.DbgInfoLoc = switch (operand) {
-        .local => |local| .{ .wasm_local = local.value },
+    const loc: link.File.Dwarf.Loc = switch (operand) {
+        .local => |local| .{ .wasm_ext = .{ .local = local.value } },
         else => blk: {
             log.debug("TODO generate debug info for {}", .{operand});
-            break :blk .nop;
+            break :blk .empty;
         },
     };
-    try func.debug_output.dwarf.genVarDbgInfo(name, ty, func.owner_nav, is_ptr, loc);
+    try func.debug_output.dwarf.genVarDebugInfo(.local_var, name, ty, loc);
 
     return func.finishAir(inst, .none, &.{});
 }

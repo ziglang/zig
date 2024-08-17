@@ -17,6 +17,7 @@ pub const TranslateCContext = @import("src/TranslateC.zig");
 pub const RunTranslatedCContext = @import("src/RunTranslatedC.zig");
 pub const CompareOutputContext = @import("src/CompareOutput.zig");
 pub const StackTracesContext = @import("src/StackTrace.zig");
+pub const DebuggerContext = @import("src/Debugger.zig");
 
 const TestTarget = struct {
     target: std.Target.Query = .{},
@@ -1282,4 +1283,37 @@ pub fn addCases(
         parent_step,
         test_filters,
     );
+}
+
+pub fn addDebuggerTests(b: *std.Build, options: DebuggerContext.Options) ?*Step {
+    const step = b.step("test-debugger", "Run the debugger tests");
+    if (options.gdb == null and options.lldb == null) {
+        step.dependOn(&b.addFail("test-debugger requires -Dgdb and/or -Dlldb").step);
+        return null;
+    }
+
+    var context: DebuggerContext = .{
+        .b = b,
+        .options = options,
+        .root_step = step,
+    };
+    context.addTestsForTarget(.{
+        .resolved = b.resolveTargetQuery(.{
+            .cpu_arch = .x86_64,
+            .os_tag = .linux,
+            .abi = .none,
+        }),
+        .pic = false,
+        .test_name_suffix = "x86_64-linux",
+    });
+    context.addTestsForTarget(.{
+        .resolved = b.resolveTargetQuery(.{
+            .cpu_arch = .x86_64,
+            .os_tag = .linux,
+            .abi = .none,
+        }),
+        .pic = true,
+        .test_name_suffix = "x86_64-linux-pic",
+    });
+    return step;
 }

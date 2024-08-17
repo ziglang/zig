@@ -2845,6 +2845,11 @@ fn zirStructDecl(
     try pt.scanNamespace(new_namespace_index, decls);
 
     try mod.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
+    codegen_type: {
+        if (mod.comp.config.use_llvm) break :codegen_type;
+        if (block.ownerModule().strip) break :codegen_type;
+        try mod.comp.queueJob(.{ .codegen_type = wip_ty.index });
+    }
     try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .cau = new_cau_index }));
     try sema.declareDependency(.{ .interned = wip_ty.index });
     return Air.internedToRef(wip_ty.finish(ip, new_cau_index.toOptional(), new_namespace_index));
@@ -3213,6 +3218,11 @@ fn zirEnumDecl(
         }
     }
 
+    codegen_type: {
+        if (mod.comp.config.use_llvm) break :codegen_type;
+        if (block.ownerModule().strip) break :codegen_type;
+        try mod.comp.queueJob(.{ .codegen_type = wip_ty.index });
+    }
     return Air.internedToRef(wip_ty.index);
 }
 
@@ -3323,6 +3333,11 @@ fn zirUnionDecl(
     try pt.scanNamespace(new_namespace_index, decls);
 
     try mod.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
+    codegen_type: {
+        if (mod.comp.config.use_llvm) break :codegen_type;
+        if (block.ownerModule().strip) break :codegen_type;
+        try mod.comp.queueJob(.{ .codegen_type = wip_ty.index });
+    }
     try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .cau = new_cau_index }));
     try sema.declareDependency(.{ .interned = wip_ty.index });
     return Air.internedToRef(wip_ty.finish(ip, new_cau_index.toOptional(), new_namespace_index));
@@ -3396,6 +3411,11 @@ fn zirOpaqueDecl(
     const decls = sema.code.bodySlice(extra_index, decls_len);
     try pt.scanNamespace(new_namespace_index, decls);
 
+    codegen_type: {
+        if (mod.comp.config.use_llvm) break :codegen_type;
+        if (block.ownerModule().strip) break :codegen_type;
+        try mod.comp.queueJob(.{ .codegen_type = wip_ty.index });
+    }
     return Air.internedToRef(wip_ty.finish(ip, .none, new_namespace_index));
 }
 
@@ -22071,6 +22091,11 @@ fn reifyEnum(
         return sema.fail(block, src, "non-exhaustive enum specified every value", .{});
     }
 
+    codegen_type: {
+        if (mod.comp.config.use_llvm) break :codegen_type;
+        if (block.ownerModule().strip) break :codegen_type;
+        try mod.comp.queueJob(.{ .codegen_type = wip_ty.index });
+    }
     return Air.internedToRef(wip_ty.index);
 }
 
@@ -22318,6 +22343,11 @@ fn reifyUnion(
     const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, new_namespace_index, wip_ty.index);
 
     try mod.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
+    codegen_type: {
+        if (mod.comp.config.use_llvm) break :codegen_type;
+        if (block.ownerModule().strip) break :codegen_type;
+        try mod.comp.queueJob(.{ .codegen_type = wip_ty.index });
+    }
     try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .cau = new_cau_index }));
     return Air.internedToRef(wip_ty.finish(ip, new_cau_index.toOptional(), new_namespace_index));
 }
@@ -22591,6 +22621,11 @@ fn reifyStruct(
     const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, new_namespace_index, wip_ty.index);
 
     try mod.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
+    codegen_type: {
+        if (mod.comp.config.use_llvm) break :codegen_type;
+        if (block.ownerModule().strip) break :codegen_type;
+        try mod.comp.queueJob(.{ .codegen_type = wip_ty.index });
+    }
     try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .cau = new_cau_index }));
     return Air.internedToRef(wip_ty.finish(ip, new_cau_index.toOptional(), new_namespace_index));
 }

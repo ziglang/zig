@@ -18,7 +18,6 @@ const Allocator = mem.Allocator;
 const CodeGenError = codegen.CodeGenError;
 const Compilation = @import("../../Compilation.zig");
 const DebugInfoOutput = codegen.DebugInfoOutput;
-const DW = std.dwarf;
 const ErrorMsg = Zcu.ErrorMsg;
 const Result = codegen.Result;
 const Emit = @import("Emit.zig");
@@ -81,6 +80,9 @@ eflags_inst: ?Air.Inst.Index = null,
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
 /// MIR extra data
 mir_extra: std.ArrayListUnmanaged(u32) = .{},
+
+stack_args: std.ArrayListUnmanaged(StackVar) = .{},
+stack_vars: std.ArrayListUnmanaged(StackVar) = .{},
 
 /// Byte offset within the source file of the ending curly.
 end_di_line: u32,
@@ -726,6 +728,12 @@ const InstTracking = struct {
     }
 };
 
+const StackVar = struct {
+    name: []const u8,
+    type: Type,
+    frame_addr: FrameAddr,
+};
+
 const FrameAlloc = struct {
     abi_size: u31,
     spill_pad: u3,
@@ -831,6 +839,8 @@ pub fn generate(
         function.exitlude_jump_relocs.deinit(gpa);
         function.mir_instructions.deinit(gpa);
         function.mir_extra.deinit(gpa);
+        function.stack_args.deinit(gpa);
+        function.stack_vars.deinit(gpa);
     }
 
     wip_mir_log.debug("{}:", .{fmtNav(func.owner_nav, ip)});
@@ -903,14 +913,17 @@ pub fn generate(
         else => |e| return e,
     };
 
-    var mir = Mir{
+    try function.genStackVarDebugInfo(.local_arg, function.stack_args.items);
+    try function.genStackVarDebugInfo(.local_var, function.stack_vars.items);
+
+    var mir: Mir = .{
         .instructions = function.mir_instructions.toOwnedSlice(),
         .extra = try function.mir_extra.toOwnedSlice(gpa),
         .frame_locs = function.frame_locs.toOwnedSlice(),
     };
     defer mir.deinit(gpa);
 
-    var emit = Emit{
+    var emit: Emit = .{
         .lower = .{
             .bin_file = bin_file,
             .allocator = gpa,
@@ -1956,11 +1969,45 @@ fn gen(self: *Self) InnerError!void {
     });
 }
 
+fn checkInvariantsAfterAirInst(self: *Self, inst: Air.Inst.Index, old_air_bookkeeping: @TypeOf(air_bookkeeping_init)) void {
+    assert(!self.register_manager.lockedRegsExist());
+
+    if (std.debug.runtime_safety) {
+        if (self.air_bookkeeping < old_air_bookkeeping + 1) {
+            std.debug.panic("in codegen.zig, handling of AIR instruction %{d} ('{}') did not do proper bookkeeping. Look for a missing call to finishAir.", .{ inst, self.air.instructions.items(.tag)[@intFromEnum(inst)] });
+        }
+
+        { // check consistency of tracked registers
+            var it = self.register_manager.free_registers.iterator(.{ .kind = .unset });
+            while (it.next()) |index| {
+                const tracked_inst = self.register_manager.registers[index];
+                const tracking = self.getResolvedInstValue(tracked_inst);
+                for (tracking.getRegs()) |reg| {
+                    if (RegisterManager.indexOfRegIntoTracked(reg).? == index) break;
+                } else unreachable; // tracked register not in use
+            }
+        }
+    }
+}
+
 fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
     const pt = self.pt;
     const mod = pt.zcu;
     const ip = &mod.intern_pool;
     const air_tags = self.air.instructions.items(.tag);
+
+    for (body) |inst| {
+        wip_mir_log.debug("{}", .{self.fmtAir(inst)});
+        verbose_tracking_log.debug("{}", .{self.fmtTracking()});
+
+        const old_air_bookkeeping = self.air_bookkeeping;
+        try self.inst_tracking.ensureUnusedCapacity(self.gpa, 1);
+        switch (air_tags[@intFromEnum(inst)]) {
+            .arg => try self.airArg(inst),
+            else => break,
+        }
+        self.checkInvariantsAfterAirInst(inst, old_air_bookkeeping);
+    }
 
     for (body) |inst| {
         if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip)) continue;
@@ -2041,7 +2088,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
             .alloc           => try self.airAlloc(inst),
             .ret_ptr         => try self.airRetPtr(inst),
-            .arg             => try self.airArg(inst),
+            .arg             => try self.airDbgArg(inst),
             .assembly        => try self.airAsm(inst),
             .bitcast         => try self.airBitCast(inst),
             .block           => try self.airBlock(inst),
@@ -2205,25 +2252,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .work_group_id => unreachable,
             // zig fmt: on
         }
-
-        assert(!self.register_manager.lockedRegsExist());
-
-        if (std.debug.runtime_safety) {
-            if (self.air_bookkeeping < old_air_bookkeeping + 1) {
-                std.debug.panic("in codegen.zig, handling of AIR instruction %{d} ('{}') did not do proper bookkeeping. Look for a missing call to finishAir.", .{ inst, air_tags[@intFromEnum(inst)] });
-            }
-
-            { // check consistency of tracked registers
-                var it = self.register_manager.free_registers.iterator(.{ .kind = .unset });
-                while (it.next()) |index| {
-                    const tracked_inst = self.register_manager.registers[index];
-                    const tracking = self.getResolvedInstValue(tracked_inst);
-                    for (tracking.getRegs()) |reg| {
-                        if (RegisterManager.indexOfRegIntoTracked(reg).? == index) break;
-                    } else unreachable; // tracked register not in use
-                }
-            }
-        }
+        self.checkInvariantsAfterAirInst(inst, old_air_bookkeeping);
     }
     verbose_tracking_log.debug("{}", .{self.fmtTracking()});
 }
@@ -2338,7 +2367,7 @@ fn finishAirBookkeeping(self: *Self) void {
 }
 
 fn finishAirResult(self: *Self, inst: Air.Inst.Index, result: MCValue) void {
-    if (self.liveness.isUnused(inst)) switch (result) {
+    if (self.liveness.isUnused(inst) and self.air.instructions.items(.tag)[@intFromEnum(inst)] != .arg) switch (result) {
         .none, .dead, .unreach => {},
         else => unreachable, // Why didn't the result die?
     } else {
@@ -2425,7 +2454,7 @@ fn computeFrameLayout(self: *Self, cc: std.builtin.CallingConvention) !FrameLayo
     const callee_preserved_regs =
         abi.getCalleePreservedRegs(abi.resolveCallingConvention(cc, self.target.*));
     for (callee_preserved_regs) |reg| {
-        if (self.register_manager.isRegAllocated(reg) or true) {
+        if (self.register_manager.isRegAllocated(reg)) {
             save_reg_list.push(callee_preserved_regs, reg);
         }
     }
@@ -5985,10 +6014,7 @@ fn airGetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
         switch (operand) {
             .load_frame => |frame_addr| {
                 if (tag_abi_size <= 8) {
-                    const off: i32 = if (layout.tag_align.compare(.lt, layout.payload_align))
-                        @intCast(layout.payload_size)
-                    else
-                        0;
+                    const off: i32 = @intCast(layout.tagOffset());
                     break :blk try self.copyToRegisterWithInstTracking(inst, tag_ty, .{
                         .load_frame = .{ .index = frame_addr.index, .off = frame_addr.off + off },
                     });
@@ -6000,10 +6026,7 @@ fn airGetUnionTag(self: *Self, inst: Air.Inst.Index) !void {
                 );
             },
             .register => {
-                const shift: u6 = if (layout.tag_align.compare(.lt, layout.payload_align))
-                    @intCast(layout.payload_size * 8)
-                else
-                    0;
+                const shift: u6 = @intCast(layout.tagOffset() * 8);
                 const result = try self.copyToRegisterWithInstTracking(inst, union_ty, operand);
                 try self.genShiftBinOpMir(
                     .{ ._r, .sh },
@@ -11813,30 +11836,30 @@ fn genIntMulComplexOpMir(self: *Self, dst_ty: Type, dst_mcv: MCValue, src_mcv: M
 
 fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     const pt = self.pt;
-    const mod = pt.zcu;
+    const zcu = pt.zcu;
     // skip zero-bit arguments as they don't have a corresponding arg instruction
     var arg_index = self.arg_index;
     while (self.args[arg_index] == .none) arg_index += 1;
     self.arg_index = arg_index + 1;
 
-    const result: MCValue = if (self.liveness.isUnused(inst)) .unreach else result: {
+    const result: MCValue = if (self.debug_output == .none and self.liveness.isUnused(inst)) .unreach else result: {
         const arg_ty = self.typeOfIndex(inst);
         const src_mcv = self.args[arg_index];
-        const dst_mcv = switch (src_mcv) {
-            .register, .register_pair, .load_frame => dst: {
+        switch (src_mcv) {
+            .register, .register_pair, .load_frame => {
                 for (src_mcv.getRegs()) |reg| self.register_manager.getRegAssumeFree(reg, inst);
-                break :dst src_mcv;
+                break :result src_mcv;
             },
-            .indirect => |reg_off| dst: {
+            .indirect => |reg_off| {
                 self.register_manager.getRegAssumeFree(reg_off.reg, inst);
                 const dst_mcv = try self.allocRegOrMem(inst, false);
                 try self.genCopy(arg_ty, dst_mcv, src_mcv, .{});
-                break :dst dst_mcv;
+                break :result dst_mcv;
             },
-            .elementwise_regs_then_frame => |regs_frame_addr| dst: {
+            .elementwise_regs_then_frame => |regs_frame_addr| {
                 try self.spillEflagsIfOccupied();
 
-                const fn_info = mod.typeToFunc(self.fn_type).?;
+                const fn_info = zcu.typeToFunc(self.fn_type).?;
                 const cc = abi.resolveCallingConvention(fn_info.cc, self.target.*);
                 const param_int_regs = abi.getCAbiIntParamRegs(cc);
                 var prev_reg: Register = undefined;
@@ -11913,99 +11936,99 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
                 try self.asmRegisterImmediate(
                     .{ ._, .cmp },
                     index_reg.to32(),
-                    Immediate.u(arg_ty.vectorLen(mod)),
+                    Immediate.u(arg_ty.vectorLen(zcu)),
                 );
                 _ = try self.asmJccReloc(.b, loop);
 
-                break :dst dst_mcv;
+                break :result dst_mcv;
             },
             else => return self.fail("TODO implement arg for {}", .{src_mcv}),
-        };
-
-        const name_nts = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
-        switch (name_nts) {
-            .none => {},
-            _ => try self.genArgDbgInfo(arg_ty, self.air.nullTerminatedString(@intFromEnum(name_nts)), src_mcv),
         }
-
-        break :result dst_mcv;
     };
     return self.finishAir(inst, result, .{ .none, .none, .none });
 }
 
-fn genArgDbgInfo(self: Self, ty: Type, name: [:0]const u8, mcv: MCValue) !void {
+fn airDbgArg(self: *Self, inst: Air.Inst.Index) !void {
+    defer self.finishAirBookkeeping();
+    if (self.debug_output == .none) return;
+    const name_nts = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
+    const name = self.air.nullTerminatedString(@intFromEnum(name_nts));
+    if (name.len > 0) {
+        const arg_ty = self.typeOfIndex(inst);
+        const arg_mcv = self.getResolvedInstValue(inst).short;
+        try self.genVarDebugInfo(.local_arg, .dbg_var_val, name, arg_ty, arg_mcv);
+    }
+    if (self.liveness.isUnused(inst)) try self.processDeath(inst);
+}
+
+fn genVarDebugInfo(
+    self: *Self,
+    var_tag: link.File.Dwarf.WipNav.VarTag,
+    tag: Air.Inst.Tag,
+    name: []const u8,
+    ty: Type,
+    mcv: MCValue,
+) !void {
+    const stack_vars = switch (var_tag) {
+        .local_arg => &self.stack_args,
+        .local_var => &self.stack_vars,
+    };
     switch (self.debug_output) {
-        .dwarf => |dw| {
-            const loc: link.File.Dwarf.NavState.DbgInfoLoc = switch (mcv) {
-                .register => |reg| .{ .register = reg.dwarfNum() },
-                .register_pair => |regs| .{ .register_pair = .{
-                    regs[0].dwarfNum(), regs[1].dwarfNum(),
-                } },
-                // TODO use a frame index
-                .load_frame, .elementwise_regs_then_frame => return,
-                //.stack_offset => |off| .{
-                //    .stack = .{
-                //        // TODO handle -fomit-frame-pointer
-                //        .fp_register = Register.rbp.dwarfNum(),
-                //        .offset = -off,
-                //    },
-                //},
-                else => unreachable, // not a valid function parameter
-            };
-            // TODO: this might need adjusting like the linkers do.
-            // Instead of flattening the owner and passing Decl.Index here we may
-            // want to special case LazySymbol in DWARF linker too.
-            try dw.genArgDbgInfo(name, ty, self.owner.nav_index, loc);
+        .dwarf => |dwarf| switch (tag) {
+            else => unreachable,
+            .dbg_var_ptr => {
+                const var_ty = ty.childType(self.pt.zcu);
+                switch (mcv) {
+                    else => {
+                        log.info("dbg_var_ptr({s}({}))", .{ @tagName(mcv), mcv });
+                        unreachable;
+                    },
+                    .unreach, .dead, .elementwise_regs_then_frame, .reserved_frame, .air_ref => unreachable,
+                    .lea_frame => |frame_addr| try stack_vars.append(self.gpa, .{
+                        .name = name,
+                        .type = var_ty,
+                        .frame_addr = frame_addr,
+                    }),
+                    .lea_symbol => |sym_off| try dwarf.genVarDebugInfo(var_tag, name, var_ty, .{ .plus = .{
+                        &.{ .addr = .{ .sym = sym_off.sym } },
+                        &.{ .consts = sym_off.off },
+                    } }),
+                }
+            },
+            .dbg_var_val => switch (mcv) {
+                .none => try dwarf.genVarDebugInfo(var_tag, name, ty, .empty),
+                .unreach, .dead, .elementwise_regs_then_frame, .reserved_frame, .air_ref => unreachable,
+                .immediate => |immediate| try dwarf.genVarDebugInfo(var_tag, name, ty, .{ .stack_value = &.{
+                    .constu = immediate,
+                } }),
+                else => {
+                    const frame_index = try self.allocFrameIndex(FrameAlloc.initSpill(ty, self.pt));
+                    try self.genSetMem(.{ .frame = frame_index }, 0, ty, mcv, .{});
+                    try stack_vars.append(self.gpa, .{
+                        .name = name,
+                        .type = ty,
+                        .frame_addr = .{ .index = frame_index },
+                    });
+                },
+            },
         },
         .plan9 => {},
         .none => {},
     }
 }
 
-fn genVarDbgInfo(
+fn genStackVarDebugInfo(
     self: Self,
-    tag: Air.Inst.Tag,
-    ty: Type,
-    mcv: MCValue,
-    name: [:0]const u8,
+    var_tag: link.File.Dwarf.WipNav.VarTag,
+    stack_vars: []const StackVar,
 ) !void {
-    const is_ptr = switch (tag) {
-        .dbg_var_ptr => true,
-        .dbg_var_val => false,
-        else => unreachable,
-    };
-
     switch (self.debug_output) {
-        .dwarf => |dw| {
-            const loc: link.File.Dwarf.NavState.DbgInfoLoc = switch (mcv) {
-                .register => |reg| .{ .register = reg.dwarfNum() },
-                // TODO use a frame index
-                .load_frame, .lea_frame => return,
-                //=> |off| .{ .stack = .{
-                //    .fp_register = Register.rbp.dwarfNum(),
-                //    .offset = -off,
-                //} },
-                .memory => |address| .{ .memory = address },
-                .load_symbol => |sym_off| loc: {
-                    assert(sym_off.off == 0);
-                    break :loc .{ .linker_load = .{ .type = .direct, .sym_index = sym_off.sym } };
-                }, // TODO
-                .load_got => |sym_index| .{ .linker_load = .{ .type = .got, .sym_index = sym_index } },
-                .load_direct => |sym_index| .{
-                    .linker_load = .{ .type = .direct, .sym_index = sym_index },
-                },
-                .immediate => |x| .{ .immediate = x },
-                .undef => .undef,
-                .none => .none,
-                else => blk: {
-                    log.debug("TODO generate debug info for {}", .{mcv});
-                    break :blk .nop;
-                },
-            };
-            // TODO: this might need adjusting like the linkers do.
-            // Instead of flattening the owner and passing Decl.Index here we may
-            // want to special case LazySymbol in DWARF linker too.
-            try dw.genVarDbgInfo(name, ty, self.owner.nav_index, is_ptr, loc);
+        .dwarf => |dwarf| for (stack_vars) |stack_var| {
+            const frame_loc = self.frame_locs.get(@intFromEnum(stack_var.frame_addr.index));
+            try dwarf.genVarDebugInfo(var_tag, stack_var.name, stack_var.type, .{ .plus = .{
+                &.{ .breg = frame_loc.base.dwarfNum() },
+                &.{ .consts = @as(i33, frame_loc.disp) + stack_var.frame_addr.off },
+            } });
         },
         .plan9 => {},
         .none => {},
@@ -13045,7 +13068,7 @@ fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
     const name = self.air.nullTerminatedString(pl_op.payload);
 
     const tag = self.air.instructions.items(.tag)[@intFromEnum(inst)];
-    try self.genVarDbgInfo(tag, ty, mcv, name);
+    try self.genVarDebugInfo(.local_var, tag, name, ty, mcv);
 
     return self.finishAir(inst, .unreach, .{ operand, .none, .none });
 }
@@ -13154,12 +13177,16 @@ fn isNull(self: *Self, inst: Air.Inst.Index, opt_ty: Type, opt_mcv: MCValue) !MC
         .lea_direct,
         .lea_got,
         .lea_tlv,
-        .lea_frame,
         .lea_symbol,
         .elementwise_regs_then_frame,
         .reserved_frame,
         .air_ref,
         => unreachable,
+
+        .lea_frame => {
+            self.eflags_inst = null;
+            return .{ .immediate = @intFromBool(false) };
+        },
 
         .register => |opt_reg| {
             if (some_info.off == 0) {
@@ -13402,7 +13429,8 @@ fn airIsNonNull(self: *Self, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try self.resolveInst(un_op);
     const ty = self.typeOf(un_op);
-    const result = switch (try self.isNull(inst, ty, operand)) {
+    const result: MCValue = switch (try self.isNull(inst, ty, operand)) {
+        .immediate => |imm| .{ .immediate = @intFromBool(imm == 0) },
         .eflags => |cc| .{ .eflags = cc.negate() },
         else => unreachable,
     };
@@ -15156,7 +15184,7 @@ fn genSetMem(
             })).write(
                 self,
                 .{ .base = base, .mod = .{ .rm = .{
-                    .size = self.memSize(ty),
+                    .size = Memory.Size.fromBitSize(@min(self.memSize(ty).bitSize(), src_alias.bitSize())),
                     .disp = disp,
                 } } },
                 src_alias,
@@ -15202,7 +15230,33 @@ fn genSetMem(
                 @tagName(src_mcv), ty.fmt(pt),
             }),
         },
-        .register_offset,
+        .register_offset => |reg_off| {
+            const src_reg = self.copyToTmpRegister(ty, src_mcv) catch |err| switch (err) {
+                error.OutOfRegisters => {
+                    const src_reg = registerAlias(reg_off.reg, abi_size);
+                    try self.asmRegisterMemory(.{ ._, .lea }, src_reg, .{
+                        .base = .{ .reg = src_reg },
+                        .mod = .{ .rm = .{
+                            .size = .qword,
+                            .disp = reg_off.off,
+                        } },
+                    });
+                    try self.genSetMem(base, disp, ty, .{ .register = reg_off.reg }, opts);
+                    return self.asmRegisterMemory(.{ ._, .lea }, src_reg, .{
+                        .base = .{ .reg = src_reg },
+                        .mod = .{ .rm = .{
+                            .size = .qword,
+                            .disp = -reg_off.off,
+                        } },
+                    });
+                },
+                else => |e| return e,
+            };
+            const src_lock = self.register_manager.lockRegAssumeUnused(src_reg);
+            defer self.register_manager.unlockReg(src_lock);
+
+            try self.genSetMem(base, disp, ty, .{ .register = src_reg }, opts);
+        },
         .memory,
         .indirect,
         .load_direct,
@@ -15422,9 +15476,14 @@ fn airBitCast(self: *Self, inst: Air.Inst.Index) !void {
     const src_ty = self.typeOf(ty_op.operand);
 
     const result = result: {
+        const src_mcv = try self.resolveInst(ty_op.operand);
+        if (dst_ty.isPtrAtRuntime(mod) and src_ty.isPtrAtRuntime(mod)) switch (src_mcv) {
+            .lea_frame => break :result src_mcv,
+            else => if (self.reuseOperand(inst, ty_op.operand, 0, src_mcv)) break :result src_mcv,
+        };
+
         const dst_rc = self.regClassForType(dst_ty);
         const src_rc = self.regClassForType(src_ty);
-        const src_mcv = try self.resolveInst(ty_op.operand);
 
         const src_lock = if (src_mcv.getReg()) |reg| self.register_manager.lockReg(reg) else null;
         defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
@@ -18236,10 +18295,7 @@ fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
         const tag_val = try pt.enumValueFieldIndex(tag_ty, field_index);
         const tag_int_val = try tag_val.intFromEnum(tag_ty, pt);
         const tag_int = tag_int_val.toUnsignedInt(pt);
-        const tag_off: i32 = if (layout.tag_align.compare(.lt, layout.payload_align))
-            @intCast(layout.payload_size)
-        else
-            0;
+        const tag_off: i32 = @intCast(layout.tagOffset());
         try self.genCopy(
             tag_ty,
             dst_mcv.address().offset(tag_off).deref(),
@@ -18247,10 +18303,7 @@ fn airUnionInit(self: *Self, inst: Air.Inst.Index) !void {
             .{},
         );
 
-        const pl_off: i32 = if (layout.tag_align.compare(.lt, layout.payload_align))
-            0
-        else
-            @intCast(layout.tag_size);
+        const pl_off: i32 = @intCast(layout.payloadOffset());
         try self.genCopy(src_ty, dst_mcv.address().offset(pl_off).deref(), src_mcv, .{});
 
         break :result dst_mcv;
@@ -18790,6 +18843,7 @@ fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
             .load_symbol => |sym_index| .{ .load_symbol = .{ .sym = sym_index } },
             .lea_symbol => |sym_index| .{ .lea_symbol = .{ .sym = sym_index } },
             .load_direct => |sym_index| .{ .load_direct = sym_index },
+            .lea_direct => |sym_index| .{ .lea_direct = sym_index },
             .load_got => |sym_index| .{ .lea_got = sym_index },
             .load_tlv => |sym_index| .{ .lea_tlv = sym_index },
         },
