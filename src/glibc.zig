@@ -286,7 +286,11 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
                     .owner = undefined,
                 };
             };
-            var files = [_]Compilation.CSourceFile{ start_o, abi_note_o };
+            const init_o: Compilation.CSourceFile = .{
+                .src_path = try lib_path(comp, arena, lib_libc_glibc ++ "csu" ++ path.sep_str ++ "init.c"),
+                .owner = undefined,
+            };
+            var files = [_]Compilation.CSourceFile{ start_o, abi_note_o, init_o };
             return comp.build_crt_file("Scrt1", .Obj, .@"glibc Scrt1.o", prog_node, &files);
         },
         .libc_nonshared_a => {
@@ -682,6 +686,12 @@ pub const BuiltSharedObjects = struct {
 
 const all_map_basename = "all.map";
 
+fn wordDirective(target: std.Target) []const u8 {
+    // Based on its description in the GNU `as` manual, you might assume that `.word` is sized
+    // according to the target word size. But no; that would just make too much sense.
+    return if (target.ptrBitWidth() == 64) ".quad" else ".long";
+}
+
 pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -922,6 +932,31 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
         }
 
         try stubs_asm.appendSlice(".data\n");
+
+        // For some targets, the real `libc.so.6` will contain a weak reference to `_IO_stdin_used`,
+        // making the linker put the symbol in the dynamic symbol table. We likewise need to emit a
+        // reference to it here for that effect, or it will not show up, which in turn will cause
+        // the real glibc to think that the program was built against an ancient `FILE` structure
+        // (pre-glibc 2.1).
+        //
+        // Note that glibc only compiles in the legacy compatibility code for some targets; it
+        // depends on what is defined in the `shlib-versions` file for the particular architecture
+        // and ABI. Those files are preprocessed by 2 separate tools during the glibc build to get
+        // the final `abi-versions.h`, so it would be quite brittle to try to condition our emission
+        // of the `_IO_stdin_used` reference in the exact same way. The only downside of emitting
+        // the reference unconditionally is that it ends up being unused for newer targets; it
+        // otherwise has no negative effect.
+        //
+        // glibc uses a weak reference because it has to work with programs compiled against pre-2.1
+        // versions where the symbol didn't exist. We only care about modern glibc versions, so use
+        // a strong reference.
+        if (std.mem.eql(u8, lib.name, "c")) {
+            try stubs_asm.writer().print(
+                \\.globl _IO_stdin_used
+                \\{s} _IO_stdin_used
+                \\
+            , .{wordDirective(target)});
+        }
 
         const obj_inclusions_len = mem.readInt(u16, metadata.inclusions[inc_i..][0..2], .little);
         inc_i += 2;
