@@ -3257,9 +3257,12 @@ fn buildOutputType(
         else => false,
     };
 
+    const incremental = opt_incremental orelse false;
+
     const disable_lld_caching = !output_to_cache;
 
     const cache_mode: Compilation.CacheMode = b: {
+        if (incremental) break :b .incremental;
         if (disable_lld_caching) break :b .incremental;
         if (!create_module.resolved_options.have_zcu) break :b .whole;
 
@@ -3271,8 +3274,6 @@ fn buildOutputType(
 
         break :b .incremental;
     };
-
-    const incremental = opt_incremental orelse false;
 
     process.raiseFileDescriptorLimit();
 
