@@ -1156,6 +1156,11 @@ pub const CPUFAMILY = enum(u32) {
     ARM_FIRESTORM_ICESTORM = 0x1b588bb3,
     ARM_BLIZZARD_AVALANCHE = 0xda33d83d,
     ARM_EVEREST_SAWTOOTH = 0x8765edea,
+    ARM_COLL = 0x2876f5b5,
+    ARM_IBIZA = 0xfa33415e,
+    ARM_LOBOS = 0x5f4dea93,
+    ARM_PALMA = 0x72015832,
+    ARM_DONAN = 0x6f5129ac,
     _,
 };
 
