@@ -2264,7 +2264,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             }
         }
 
-        zcu.analysis_roots.resize(0) catch unreachable;
+        zcu.analysis_roots.clear();
 
         try comp.queueJob(.{ .analyze_mod = std_mod });
         zcu.analysis_roots.appendAssumeCapacity(std_mod);
