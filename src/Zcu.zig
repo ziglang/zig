@@ -2429,7 +2429,11 @@ fn markTransitiveDependersPotentiallyOutdated(zcu: *Zcu, maybe_outdated: AnalUni
 pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?AnalUnit {
     if (!zcu.comp.incremental) return null;
 
-    if (zcu.outdated.count() == 0 and zcu.potentially_outdated.count() == 0) {
+    if (zcu.outdated.count() == 0) {
+        // Any units in `potentially_outdated` must just be stuck in loops with one another: none of those
+        // units have had any outdated dependencies so far, and all of their remaining PO deps are triggered
+        // by other units in `potentially_outdated`. So, we can safety assume those units up-to-date.
+        zcu.potentially_outdated.clear();
         log.debug("findOutdatedToAnalyze: no outdated depender", .{});
         return null;
     }
