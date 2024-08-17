@@ -2504,12 +2504,12 @@ pub fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Module.Error
     const mod = sema.pt.zcu;
 
     if (build_options.enable_debug_extensions and mod.comp.debug_compile_errors) {
-        var all_references = mod.resolveReferences() catch @panic("out of memory");
+        var all_references: ?std.AutoHashMapUnmanaged(AnalUnit, ?Zcu.ResolvedReference) = null;
         var wip_errors: std.zig.ErrorBundle.Wip = undefined;
         wip_errors.init(gpa) catch @panic("out of memory");
-        Compilation.addModuleErrorMsg(mod, &wip_errors, err_msg.*, &all_references) catch unreachable;
+        Compilation.addModuleErrorMsg(mod, &wip_errors, err_msg.*, &all_references) catch @panic("out of memory");
         std.debug.print("compile error during Sema:\n", .{});
-        var error_bundle = wip_errors.toOwnedBundle("") catch unreachable;
+        var error_bundle = wip_errors.toOwnedBundle("") catch @panic("out of memory");
         error_bundle.renderToStdErr(.{ .ttyconf = .no_color });
         crash_report.compilerPanic("unexpected compile error occurred", null, null);
     }
