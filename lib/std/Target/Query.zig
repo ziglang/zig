@@ -588,14 +588,7 @@ test parse {
         const text = try query.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
 
-        var buf: [256]u8 = undefined;
-        const triple = std.fmt.bufPrint(
-            buf[0..],
-            "native-native-{s}.2.1.1",
-            .{@tagName(builtin.target.abi)},
-        ) catch unreachable;
-
-        try std.testing.expectEqualSlices(u8, triple, text);
+        try std.testing.expectEqualSlices(u8, "native-native-gnu.2.1.1", text);
     }
     {
         const query = try Query.parse(.{
