@@ -2300,7 +2300,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             zcu.intern_pool.dumpGenericInstances(gpa);
         }
 
-        if (comp.config.is_test and try comp.totalErrorCount() == 0) {
+        if (comp.config.is_test) {
             // The `test_functions` decl has been intentionally postponed until now,
             // at which point we must populate it with the list of test functions that
             // have been discovered and not filtered out.
@@ -2394,6 +2394,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             }
 
             try flush(comp, arena, .main, main_progress_node);
+
             if (try comp.totalErrorCount() != 0) return;
 
             // Failure here only means an unnecessary cache miss.
@@ -2411,7 +2412,6 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         },
         .incremental => {
             try flush(comp, arena, .main, main_progress_node);
-            if (try comp.totalErrorCount() != 0) return;
         },
     }
 }
@@ -3048,93 +3048,6 @@ fn addBuf(list: *std.ArrayList(std.posix.iovec_const), buf: []const u8) void {
 }
 
 /// This function is temporally single-threaded.
-pub fn totalErrorCount(comp: *Compilation) Allocator.Error!u32 {
-    var total: usize =
-        comp.misc_failures.count() +
-        @intFromBool(comp.alloc_failure_occurred) +
-        comp.lld_errors.items.len;
-
-    for (comp.failed_c_objects.values()) |bundle| {
-        total += bundle.diags.len;
-    }
-
-    for (comp.failed_win32_resources.values()) |errs| {
-        total += errs.errorMessageCount();
-    }
-
-    if (comp.module) |zcu| {
-        const ip = &zcu.intern_pool;
-
-        var all_references: ?std.AutoHashMapUnmanaged(InternPool.AnalUnit, ?Zcu.ResolvedReference) = null;
-        defer if (all_references) |*a| a.deinit(zcu.gpa);
-
-        total += zcu.failed_exports.count();
-        total += zcu.failed_embed_files.count();
-
-        for (zcu.failed_files.keys(), zcu.failed_files.values()) |file, error_msg| {
-            if (error_msg) |_| {
-                total += 1;
-            } else {
-                assert(file.zir_loaded);
-                const payload_index = file.zir.extra[@intFromEnum(Zir.ExtraIndex.compile_errors)];
-                assert(payload_index != 0);
-                const header = file.zir.extraData(Zir.Inst.CompileErrors, payload_index);
-                total += header.data.items_len;
-            }
-        }
-
-        // Skip errors for Decls within files that failed parsing.
-        // When a parse error is introduced, we keep all the semantic analysis for
-        // the previous parse success, including compile errors, but we cannot
-        // emit them until the file succeeds parsing.
-        for (zcu.failed_analysis.keys()) |anal_unit| {
-            if (comp.incremental) {
-                if (all_references == null) {
-                    all_references = try zcu.resolveReferences();
-                }
-                if (!all_references.?.contains(anal_unit)) continue;
-            }
-            const file_index = switch (anal_unit.unwrap()) {
-                .cau => |cau| zcu.namespacePtr(ip.getCau(cau).namespace).file_scope,
-                .func => |ip_index| (zcu.funcInfo(ip_index).zir_body_inst.resolveFull(ip) orelse continue).file,
-            };
-            if (zcu.fileByIndex(file_index).okToReportErrors()) {
-                total += 1;
-                if (zcu.cimport_errors.get(anal_unit)) |errors| {
-                    total += errors.errorMessageCount();
-                }
-            }
-        }
-
-        for (zcu.failed_codegen.keys()) |nav| {
-            if (zcu.navFileScope(nav).okToReportErrors()) {
-                total += 1;
-            }
-        }
-
-        if (zcu.intern_pool.global_error_set.getNamesFromMainThread().len > zcu.error_limit) {
-            total += 1;
-        }
-    }
-
-    // The "no entry point found" error only counts if there are no semantic analysis errors.
-    if (total == 0) {
-        total += @intFromBool(comp.link_error_flags.no_entry_point_found);
-    }
-    total += @intFromBool(comp.link_error_flags.missing_libc);
-    total += comp.link_errors.items.len;
-
-    // Compile log errors only count if there are no other errors.
-    if (total == 0) {
-        if (comp.module) |zcu| {
-            total += @intFromBool(zcu.compile_log_sources.count() != 0);
-        }
-    }
-
-    return @intCast(total);
-}
-
-/// This function is temporally single-threaded.
 pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
     const gpa = comp.gpa;
 
@@ -3357,8 +3270,6 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         }
     }
 
-    assert(try comp.totalErrorCount() == bundle.root_list.items.len);
-
     if (comp.module) |zcu| {
         if (comp.incremental and bundle.root_list.items.len == 0) {
             const should_have_error = for (zcu.transitive_failed_analysis.keys()) |failed_unit| {
@@ -3375,6 +3286,12 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
 
     const compile_log_text = if (comp.module) |m| m.compile_log_text.items else "";
     return bundle.toOwnedBundle(compile_log_text);
+}
+
+fn totalErrorCount(comp: *Compilation) !u32 {
+    var errors = try comp.getAllErrorsAlloc();
+    defer errors.deinit(comp.gpa);
+    return errors.errorMessageCount();
 }
 
 pub const ErrorNoteHashContext = struct {
