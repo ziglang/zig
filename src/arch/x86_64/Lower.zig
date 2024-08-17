@@ -328,12 +328,6 @@ fn reloc(lower: *Lower, target: Reloc.Target) Immediate {
 }
 
 fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand) Error!void {
-    const is_obj_or_static_lib = switch (lower.output_mode) {
-        .Exe => false,
-        .Obj => true,
-        .Lib => lower.link_mode == .static,
-    };
-
     const emit_prefix = prefix;
     var emit_mnemonic = mnemonic;
     var emit_ops_storage: [4]Operand = undefined;
@@ -455,10 +449,22 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                         _ = lower.reloc(.{ .linker_reloc = sym });
                         break :op switch (mnemonic) {
                             .lea => {
+                                if (macho_sym.flags.is_extern_ptr) emit_mnemonic = .mov;
                                 break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
                             },
                             .mov => {
-                                if (is_obj_or_static_lib and macho_sym.getSectionFlags().needs_zig_got) emit_mnemonic = .lea;
+                                if (macho_sym.flags.is_extern_ptr) {
+                                    const reg = ops[0].reg;
+                                    lower.result_insts[lower.result_insts_len] =
+                                        try Instruction.new(.none, .mov, &[_]Operand{
+                                        .{ .reg = reg.to64() },
+                                        .{ .mem = Memory.rip(.qword, 0) },
+                                    });
+                                    lower.result_insts_len += 1;
+                                    break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{ .base = .{
+                                        .reg = reg.to64(),
+                                    } }) };
+                                }
                                 break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
                             },
                             else => unreachable,

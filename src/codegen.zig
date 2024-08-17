@@ -910,15 +910,15 @@ fn genNavRef(
         const zo = macho_file.getZigObject().?;
         if (is_extern) {
             const sym_index = try macho_file.getGlobalSymbol(name.toSlice(ip), lib_name.toSlice(ip));
-            zo.symbols.items[sym_index].setSectionFlags(.{ .needs_got = true });
-            return .{ .mcv = .{ .load_symbol = sym_index } };
+            zo.symbols.items[sym_index].flags.is_extern_ptr = true;
+            return .{ .mcv = .{ .lea_symbol = sym_index } };
         }
         const sym_index = try zo.getOrCreateMetadataForNav(macho_file, nav_index);
         const sym = zo.symbols.items[sym_index];
         if (!single_threaded and is_threadlocal) {
             return .{ .mcv = .{ .load_tlv = sym.nlist_idx } };
         }
-        return .{ .mcv = .{ .load_symbol = sym.nlist_idx } };
+        return .{ .mcv = .{ .lea_symbol = sym.nlist_idx } };
     } else if (lf.cast(.coff)) |coff_file| {
         if (is_extern) {
             // TODO audit this

@@ -59,7 +59,6 @@ symtab: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
 indsymtab: Indsymtab = .{},
 got: GotSection = .{},
-zig_got: ZigGotSection = .{},
 stubs: StubsSection = .{},
 stubs_helper: StubsHelperSection = .{},
 objc_stubs: ObjcStubsSection = .{},
@@ -75,14 +74,12 @@ data_in_code: DataInCode = .{},
 
 /// Tracked loadable segments during incremental linking.
 zig_text_seg_index: ?u8 = null,
-zig_got_seg_index: ?u8 = null,
 zig_const_seg_index: ?u8 = null,
 zig_data_seg_index: ?u8 = null,
 zig_bss_seg_index: ?u8 = null,
 
 /// Tracked section headers with incremental updates to Zig object.
 zig_text_sect_index: ?u8 = null,
-zig_got_sect_index: ?u8 = null,
 zig_const_sect_index: ?u8 = null,
 zig_data_sect_index: ?u8 = null,
 zig_bss_sect_index: ?u8 = null,
@@ -324,7 +321,6 @@ pub fn deinit(self: *MachO) void {
     self.symtab.deinit(gpa);
     self.strtab.deinit(gpa);
     self.got.deinit(gpa);
-    self.zig_got.deinit(gpa);
     self.stubs.deinit(gpa);
     self.objc_stubs.deinit(gpa);
     self.tlv_ptr.deinit(gpa);
@@ -1796,7 +1792,6 @@ pub fn sortSections(self: *MachO) !void {
         &self.data_sect_index,
         &self.got_sect_index,
         &self.zig_text_sect_index,
-        &self.zig_got_sect_index,
         &self.zig_const_sect_index,
         &self.zig_data_sect_index,
         &self.zig_bss_sect_index,
@@ -2114,7 +2109,6 @@ fn initSegments(self: *MachO) !void {
         &self.text_seg_index,
         &self.linkedit_seg_index,
         &self.zig_text_seg_index,
-        &self.zig_got_seg_index,
         &self.zig_const_seg_index,
         &self.zig_data_seg_index,
         &self.zig_bss_seg_index,
@@ -3232,18 +3226,6 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
         }
 
         {
-            const filesize = options.symbol_count_hint * @sizeOf(u64);
-            const off = try self.findFreeSpace(filesize, self.getPageSize());
-            self.zig_got_seg_index = try self.addSegment("__GOT_ZIG", .{
-                .fileoff = off,
-                .filesize = filesize,
-                .vmaddr = base_vmaddr + 0x4000000,
-                .vmsize = filesize,
-                .prot = macho.PROT.READ | macho.PROT.WRITE,
-            });
-        }
-
-        {
             const filesize: u64 = 1024;
             const off = try self.findFreeSpace(filesize, self.getPageSize());
             self.zig_const_seg_index = try self.addSegment("__CONST_ZIG", .{
@@ -3341,13 +3323,6 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
         } else {
             appendSect(self, self.zig_text_sect_index.?, self.zig_text_seg_index.?);
         }
-    }
-
-    if (!self.base.isRelocatable()) {
-        self.zig_got_sect_index = try self.addSection("__GOT_ZIG", "__got_zig", .{
-            .alignment = 3,
-        });
-        appendSect(self, self.zig_got_sect_index.?, self.zig_got_seg_index.?);
     }
 
     {
@@ -3572,7 +3547,6 @@ inline fn requiresThunks(self: MachO) bool {
 pub fn isZigSegment(self: MachO, seg_id: u8) bool {
     inline for (&[_]?u8{
         self.zig_text_seg_index,
-        self.zig_got_seg_index,
         self.zig_const_seg_index,
         self.zig_data_seg_index,
         self.zig_bss_seg_index,
@@ -3587,7 +3561,6 @@ pub fn isZigSegment(self: MachO, seg_id: u8) bool {
 pub fn isZigSection(self: MachO, sect_id: u8) bool {
     inline for (&[_]?u8{
         self.zig_text_sect_index,
-        self.zig_got_sect_index,
         self.zig_const_sect_index,
         self.zig_data_sect_index,
         self.zig_bss_sect_index,
@@ -3957,7 +3930,6 @@ fn fmtDumpState(
     try writer.print("stubs\n{}\n", .{self.stubs.fmt(self)});
     try writer.print("objc_stubs\n{}\n", .{self.objc_stubs.fmt(self)});
     try writer.print("got\n{}\n", .{self.got.fmt(self)});
-    try writer.print("zig_got\n{}\n", .{self.zig_got.fmt(self)});
     try writer.print("tlv_ptr\n{}\n", .{self.tlv_ptr.fmt(self)});
     try writer.writeByte('\n');
     try writer.print("sections\n{}\n", .{self.fmtSections()});
@@ -4665,7 +4637,6 @@ const Value = @import("../Value.zig");
 const UnwindInfo = @import("MachO/UnwindInfo.zig");
 const WaitGroup = std.Thread.WaitGroup;
 const WeakBind = bind.WeakBind;
-const ZigGotSection = synthetic.ZigGotSection;
 const ZigObject = @import("MachO/ZigObject.zig");
 const dev = @import("../dev.zig");
 
