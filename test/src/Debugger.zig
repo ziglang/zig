@@ -190,7 +190,7 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
                 .path = "pointers.zig",
                 .source =
                 \\const Pointers = struct {
-                \\    var array: [8]u32 = .{
+                \\    var array: [7]u32 = .{
                 \\        3010,
                 \\        3014,
                 \\        3018,
@@ -198,7 +198,6 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
                 \\        3026,
                 \\        3030,
                 \\        3034,
-                \\        3038,
                 \\    };
                 \\
                 \\    single: *u32 = @ptrFromInt(0x1010),
@@ -222,17 +221,17 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
                 \\    slice_const: []const u32 = array[0..2],
                 \\    slice_volatile: []volatile u32 = array[0..3],
                 \\    slice_const_volatile: []const volatile u32 = array[0..4],
-                \\    slice_allowzero: []allowzero u32 = array[4..5],
-                \\    slice_const_allowzero: []const allowzero u32 = array[4..6],
-                \\    slice_volatile_allowzero: []volatile allowzero u32 = array[4..7],
-                \\    slice_const_volatile_allowzero: []const volatile allowzero u32 = array[4..8],
+                \\    slice_allowzero: []allowzero u32 = array[4..4],
+                \\    slice_const_allowzero: []const allowzero u32 = array[4..5],
+                \\    slice_volatile_allowzero: []volatile allowzero u32 = array[4..6],
+                \\    slice_const_volatile_allowzero: []const volatile allowzero u32 = array[4..7],
                 \\
                 \\    c: [*c]u32 = @ptrFromInt(0x4010),
                 \\    c_const: [*c]const u32 = @ptrFromInt(0x4014),
                 \\    c_volatile: [*c]volatile u32 = @ptrFromInt(0x4018),
                 \\    c_const_volatile: [*c]const volatile u32 = @ptrFromInt(0x401c),
                 \\};
-                \\pub fn testPointers(pointers: Pointers) void {
+                \\fn testPointers(pointers: Pointers) void {
                 \\    _ = pointers;
                 \\}
                 \\pub fn main() void {
@@ -266,41 +265,36 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\  ([*]const allowzero u32) many_const_allowzero = 0x0000000000002024
             \\  ([*]volatile allowzero u32) many_volatile_allowzero = 0x0000000000002028
             \\  ([*]const volatile allowzero u32) many_const_volatile_allowzero = 0x000000000000202c
-            \\  ([]u32) slice = {
+            \\  ([]u32) slice = len=1 {
             \\    (u32) [0] = 3010
             \\  }
-            \\  ([]const u32) slice_const = {
+            \\  ([]const u32) slice_const = len=2 {
             \\    (u32) [0] = 3010
             \\    (u32) [1] = 3014
             \\  }
-            \\  ([]volatile u32) slice_volatile = {
+            \\  ([]volatile u32) slice_volatile = len=3 {
             \\    (u32) [0] = 3010
             \\    (u32) [1] = 3014
             \\    (u32) [2] = 3018
             \\  }
-            \\  ([]const volatile u32) slice_const_volatile = {
+            \\  ([]const volatile u32) slice_const_volatile = len=4 {
             \\    (u32) [0] = 3010
             \\    (u32) [1] = 3014
             \\    (u32) [2] = 3018
             \\    (u32) [3] = 3022
             \\  }
-            \\  ([]allowzero u32) slice_allowzero = {
+            \\  ([]allowzero u32) slice_allowzero = len=0 {}
+            \\  ([]const allowzero u32) slice_const_allowzero = len=1 {
             \\    (u32) [0] = 3026
             \\  }
-            \\  ([]const allowzero u32) slice_const_allowzero = {
-            \\    (u32) [0] = 3026
-            \\    (u32) [1] = 3030
-            \\  }
-            \\  ([]volatile allowzero u32) slice_volatile_allowzero = {
+            \\  ([]volatile allowzero u32) slice_volatile_allowzero = len=2 {
             \\    (u32) [0] = 3026
             \\    (u32) [1] = 3030
-            \\    (u32) [2] = 3034
             \\  }
-            \\  ([]const volatile allowzero u32) slice_const_volatile_allowzero = {
+            \\  ([]const volatile allowzero u32) slice_const_volatile_allowzero = len=3 {
             \\    (u32) [0] = 3026
             \\    (u32) [1] = 3030
             \\    (u32) [2] = 3034
-            \\    (u32) [3] = 3038
             \\  }
             \\  ([*c]u32) c = 0x0000000000004010
             \\  ([*c]const u32) c_const = 0x0000000000004014
@@ -308,6 +302,104 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\  ([*c]const volatile u32) c_const_volatile = 0x000000000000401c
             \\}
             \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
+        "errors",
+        target,
+        &.{
+            .{
+                .path = "errors.zig",
+                .source =
+                \\const Errors = struct {
+                \\    one: error{One} = error.One,
+                \\    two: error{One,Two} = error.Two,
+                \\    three: error{One,Two,Three} = error.Three,
+                \\    any: anyerror = error.Any,
+                \\    any_void: anyerror!void = error.NotVoid,
+                \\    any_u32: error{One}!u32 = 42,
+                \\};
+                \\fn testErrors(errors: Errors) void {
+                \\    _ = errors;
+                \\}
+                \\pub fn main() void {
+                \\    testErrors(.{});
+                \\}
+                \\
+                ,
+            },
+        },
+        \\breakpoint set --file errors.zig --source-pattern-regexp '_ = errors;'
+        \\process launch
+        \\frame variable --show-types errors
+        \\breakpoint delete --force 1
+    ,
+        &.{
+            \\(lldb) frame variable --show-types errors
+            \\(root.errors.Errors) errors = {
+            \\  (error{One}) one = error.One
+            \\  (error{One,Two}) two = error.Two
+            \\  (error{One,Two,Three}) three = error.Three
+            \\  (anyerror) any = error.Any
+            \\  (anyerror!void) any_void = {
+            \\    (anyerror) error = error.NotVoid
+            \\  }
+            \\  (error{One}!u32) any_u32 = {
+            \\    (u32) value = 42
+            \\  }
+            \\}
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
+        "optionals",
+        target,
+        &.{
+            .{
+                .path = "optionals.zig",
+                .source =
+                \\pub fn main() void {
+                \\    {
+                \\        var null_u32: ?u32 = null;
+                \\        var maybe_u32: ?u32 = null;
+                \\        var nonnull_u32: ?u32 = 456;
+                \\        maybe_u32 = 123;
+                \\        _ = .{ &null_u32, &nonnull_u32 };
+                \\    }
+                \\}
+                \\
+                ,
+            },
+        },
+        \\breakpoint set --file optionals.zig --source-pattern-regexp 'maybe_u32 = 123;'
+        \\process launch
+        \\frame variable null_u32 maybe_u32 nonnull_u32
+        \\breakpoint delete --force 1
+        \\
+        \\breakpoint set --file optionals.zig --source-pattern-regexp '_ = .{ &null_u32, &nonnull_u32 };'
+        \\process continue
+        \\frame variable --show-types null_u32 maybe_u32 nonnull_u32
+        \\breakpoint delete --force 2
+    ,
+        &.{
+            \\(lldb) frame variable null_u32 maybe_u32 nonnull_u32
+            \\(?u32) null_u32 = null
+            \\(?u32) maybe_u32 = null
+            \\(?u32) nonnull_u32 = (nonnull_u32.? = 456)
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+            ,
+            \\(lldb) frame variable --show-types null_u32 maybe_u32 nonnull_u32
+            \\(?u32) null_u32 = null
+            \\(?u32) maybe_u32 = {
+            \\  (u32) maybe_u32.? = 123
+            \\}
+            \\(?u32) nonnull_u32 = {
+            \\  (u32) nonnull_u32.? = 456
+            \\}
+            \\(lldb) breakpoint delete --force 2
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
     );
@@ -381,56 +473,6 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\(u64) local_const = 0xdffceb8b2f41e205
             \\(u64) local_var = 0x5d14df51c80685a4
             \\(lldb) breakpoint delete --force 1
-            \\1 breakpoints deleted; 0 breakpoint locations disabled.
-        },
-    );
-    db.addLldbTest(
-        "optionals",
-        target,
-        &.{
-            .{
-                .path = "optionals.zig",
-                .source =
-                \\pub fn main() void {
-                \\    {
-                \\        var null_u32: ?u32 = null;
-                \\        var maybe_u32: ?u32 = null;
-                \\        var nonnull_u32: ?u32 = 456;
-                \\        maybe_u32 = 123;
-                \\        _ = .{ &null_u32, &nonnull_u32 };
-                \\    }
-                \\}
-                \\
-                ,
-            },
-        },
-        \\breakpoint set --file optionals.zig --source-pattern-regexp 'maybe_u32 = 123;'
-        \\process launch
-        \\frame variable null_u32 maybe_u32 nonnull_u32
-        \\breakpoint delete --force 1
-        \\
-        \\breakpoint set --file optionals.zig --source-pattern-regexp '_ = .{ &null_u32, &nonnull_u32 };'
-        \\process continue
-        \\frame variable --show-types null_u32 maybe_u32 nonnull_u32
-        \\breakpoint delete --force 2
-    ,
-        &.{
-            \\(lldb) frame variable null_u32 maybe_u32 nonnull_u32
-            \\(?u32) null_u32 = null
-            \\(?u32) maybe_u32 = null
-            \\(?u32) nonnull_u32 = (nonnull_u32.? = 456)
-            \\(lldb) breakpoint delete --force 1
-            \\1 breakpoints deleted; 0 breakpoint locations disabled.
-            ,
-            \\(lldb) frame variable --show-types null_u32 maybe_u32 nonnull_u32
-            \\(?u32) null_u32 = null
-            \\(?u32) maybe_u32 = {
-            \\  (u32) maybe_u32.? = 123
-            \\}
-            \\(?u32) nonnull_u32 = {
-            \\  (u32) nonnull_u32.? = 456
-            \\}
-            \\(lldb) breakpoint delete --force 2
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
     );

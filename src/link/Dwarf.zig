@@ -2485,10 +2485,10 @@ fn updateType(
                 {
                     try uleb128(diw, @intFromEnum(AbbrevCode.generated_field));
                     try wip_nav.strp("is_error");
-                    const is_error_field_type = Type.fromInterned(try pt.intern(.{
-                        .opt_type = error_union_type.error_set_type,
-                    }));
-                    try wip_nav.refType(is_error_field_type);
+                    try wip_nav.refType(Type.fromInterned(try pt.intern(.{ .int_type = .{
+                        .signedness = .unsigned,
+                        .bits = pt.zcu.errorSetBits(),
+                    } })));
                     try uleb128(diw, error_union_error_set_offset);
 
                     try uleb128(diw, @intFromEnum(AbbrevCode.unsigned_tagged_union_field));
