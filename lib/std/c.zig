@@ -2722,7 +2722,39 @@ pub const SYS = switch (native_os) {
 };
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with function name.
 pub const Sigaction = switch (native_os) {
-    .linux => linux.Sigaction,
+    .linux => switch (native_arch) {
+        .mips,
+        .mipsel,
+        .mips64,
+        .mips64el,
+        => if (builtin.target.isMusl())
+            linux.Sigaction
+        else if (builtin.target.ptrBitWidth() == 64) extern struct {
+            pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
+            pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+
+            flags: c_uint,
+            handler: extern union {
+                handler: ?handler_fn,
+                sigaction: ?sigaction_fn,
+            },
+            mask: sigset_t,
+            restorer: ?*const fn () callconv(.C) void = null,
+        } else extern struct {
+            pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
+            pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+
+            flags: c_uint,
+            handler: extern union {
+                handler: ?handler_fn,
+                sigaction: ?sigaction_fn,
+            },
+            mask: sigset_t,
+            restorer: ?*const fn () callconv(.C) void = null,
+            __resv: [1]c_int = .{0},
+        },
+        else => linux.Sigaction,
+    },
     .emscripten => emscripten.Sigaction,
     .netbsd, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
         pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
