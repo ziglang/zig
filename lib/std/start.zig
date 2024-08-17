@@ -233,7 +233,7 @@ fn _start() callconv(.Naked) noreturn {
     }
 
     // Move this to the riscv prong below when this is resolved: https://github.com/ziglang/zig/issues/20918
-    if (builtin.cpu.arch.isRISCV() and builtin.zig_backend != .stage2_riscv64) asm volatile (
+    if (comptime builtin.cpu.arch.isRISCV() and builtin.zig_backend != .stage2_riscv64) asm volatile (
         \\ .weak __global_pointer$
         \\ .hidden __global_pointer$
         \\ .option push
