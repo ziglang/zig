@@ -1,3 +1,6 @@
+//! This type provides a wrapper around a `*Zcu` for uses which require a thread `Id`.
+//! Any operation which mutates `InternPool` state lives here rather than on `Zcu`.
+
 zcu: *Zcu,
 
 /// Dense, per-thread unique index.

@@ -62,10 +62,18 @@ const want_multi_threaded = true;
 /// Whether a single-threaded intern pool impl is in use.
 pub const single_threaded = builtin.single_threaded or !want_multi_threaded;
 
+/// A `TrackedInst.Index` provides a single, unchanging reference to a ZIR instruction across a whole
+/// compilation. From this index, you can acquire a `TrackedInst`, which containss a reference to both
+/// the file which the instruction lives in, and the instruction index itself, which is updated on
+/// incremental updates by `Zcu.updateZirRefs`.
 pub const TrackedInst = extern struct {
     file: FileIndex,
     inst: Zir.Inst.Index,
 
+    /// It is possible on an incremental update that we "lose" a ZIR instruction: some tracked `%x` in
+    /// the old ZIR failed to map to any `%y` in the new ZIR. For this reason, we actually store values
+    /// of type `MaybeLost`, which uses `ZirIndex.lost` to represent this case. `Index.resolve` etc
+    /// return `null` when the `TrackedInst` being resolved has been lost.
     pub const MaybeLost = extern struct {
         file: FileIndex,
         inst: ZirIndex,
@@ -244,14 +252,17 @@ pub fn trackZir(
     return index;
 }
 
+/// At the start of an incremental update, we update every entry in `tracked_insts` to include
+/// the new ZIR index. Once this is done, we must update the hashmap metadata so that lookups
+/// return correct entries where they already exist.
 pub fn rehashTrackedInsts(
     ip: *InternPool,
     gpa: Allocator,
-    /// TODO: maybe don't take this? it doesn't actually matter, only one thread is running at this point
     tid: Zcu.PerThread.Id,
 ) Allocator.Error!void {
+    assert(tid == .main); // we shouldn't have any other threads active right now
+
     // TODO: this function doesn't handle OOM well. What should it do?
-    //       Indeed, what should anyone do when they run out of memory?
 
     // We don't lock anything, as this function assumes that no other thread is
     // accessing `tracked_insts`. This is necessary because we're going to be
@@ -795,6 +806,14 @@ const Local = struct {
     /// This state is fully local to the owning thread and does not require any
     /// atomic access.
     mutate: struct {
+        /// When we need to allocate any long-lived buffer for mutating the `InternPool`, it is
+        /// allocated into this `arena` (for the `Id` of the thread performing the mutation). An
+        /// arena is used to avoid contention on the GPA, and to ensure that any code which retains
+        /// references to old state remains valid. For instance, when reallocing hashmap metadata,
+        /// a racing lookup on another thread may still retain a handle to the old metadata pointer,
+        /// so it must remain valid.
+        /// This arena's lifetime is tied to that of `Compilation`, although it can be cleared on
+        /// garbage collection (currently vaporware).
         arena: std.heap.ArenaAllocator.State,
 
         items: ListMutate,
