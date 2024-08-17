@@ -1029,7 +1029,10 @@ pub const File = struct {
         llvm_object: LlvmObject.Ptr,
         prog_node: std.Progress.Node,
     ) !void {
-        return base.comp.emitLlvmObject(arena, base.emit, .{
+        return base.comp.emitLlvmObject(arena, .{
+            .root_dir = base.emit.directory,
+            .sub_path = std.fs.path.dirname(base.emit.sub_path) orelse "",
+        }, .{
             .directory = null,
             .basename = base.zcu_object_sub_path.?,
         }, llvm_object, prog_node);

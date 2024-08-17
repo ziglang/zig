@@ -39,6 +39,8 @@ const Air = @import("Air.zig");
 const Builtin = @import("Builtin.zig");
 const LlvmObject = @import("codegen/llvm.zig").Object;
 const dev = @import("dev.zig");
+pub const Directory = Cache.Directory;
+const Path = Cache.Path;
 
 pub const Config = @import("Compilation/Config.zig");
 
@@ -269,6 +271,11 @@ llvm_opt_bisect_limit: c_int,
 
 file_system_inputs: ?*std.ArrayListUnmanaged(u8),
 
+/// This is the digest of the cache for the current compilation.
+/// This digest will be known after update() is called.
+digest: ?[Cache.bin_digest_len]u8 = null,
+
+/// TODO(robin): Remove because it is the same as Cache.Path
 pub const Emit = struct {
     /// Where the output will go.
     directory: Directory,
@@ -867,8 +874,6 @@ pub const LldError = struct {
         gpa.free(self.msg);
     }
 };
-
-pub const Directory = Cache.Directory;
 
 pub const EmitLoc = struct {
     /// If this is `null` it means the file will be output to the cache directory.
@@ -1672,7 +1677,9 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 // In the case of incremental cache mode, this `artifact_directory`
                 // is computed based on a hash of non-linker inputs, and it is where all
                 // build artifacts are stored (even while in-progress).
+                comp.digest = hash.peekBin();
                 const digest = hash.final();
+
                 const artifact_sub_dir = "o" ++ std.fs.path.sep_str ++ digest;
                 var artifact_dir = try options.local_cache_directory.handle.makeOpenPath(artifact_sub_dir, .{});
                 errdefer artifact_dir.close();
@@ -2121,9 +2128,11 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
 
                 comp.last_update_was_cache_hit = true;
                 log.debug("CacheMode.whole cache hit for {s}", .{comp.root_name});
-                const digest = man.final();
+                const bin_digest = man.finalBin();
+                const hex_digest = Cache.binToHex(bin_digest);
 
-                comp.wholeCacheModeSetBinFilePath(whole, &digest);
+                comp.digest = bin_digest;
+                comp.wholeCacheModeSetBinFilePath(whole, &hex_digest);
 
                 assert(whole.lock == null);
                 whole.lock = man.toOwnedLock();
@@ -2329,7 +2338,8 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                 try man.populateOtherManifest(pwc.manifest, pwc.prefix_map);
             }
 
-            const digest = man.final();
+            const bin_digest = man.finalBin();
+            const hex_digest = Cache.binToHex(bin_digest);
 
             // Rename the temporary directory into place.
             // Close tmp dir and link.File to avoid open handle during rename.
@@ -2341,7 +2351,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
 
             const s = std.fs.path.sep_str;
             const tmp_dir_sub_path = "tmp" ++ s ++ std.fmt.hex(tmp_dir_rand_int);
-            const o_sub_path = "o" ++ s ++ digest;
+            const o_sub_path = "o" ++ s ++ hex_digest;
 
             // Work around windows `AccessDenied` if any files within this
             // directory are open by closing and reopening the file handles.
@@ -2376,7 +2386,8 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                     },
                 );
             };
-            comp.wholeCacheModeSetBinFilePath(whole, &digest);
+            comp.digest = bin_digest;
+            comp.wholeCacheModeSetBinFilePath(whole, &hex_digest);
 
             // The linker flush functions need to know the final output path
             // for debug info purposes because executable debug info contains
@@ -2393,9 +2404,10 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                 }
             }
 
-            try flush(comp, arena, .main, main_progress_node);
-
-            if (try comp.totalErrorCount() != 0) return;
+            try flush(comp, arena, .{
+                .root_dir = comp.local_cache_directory,
+                .sub_path = o_sub_path,
+            }, .main, main_progress_node);
 
             // Failure here only means an unnecessary cache miss.
             man.writeManifest() catch |err| {
@@ -2410,8 +2422,10 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             assert(whole.lock == null);
             whole.lock = man.toOwnedLock();
         },
-        .incremental => {
-            try flush(comp, arena, .main, main_progress_node);
+        .incremental => |incremental| {
+            try flush(comp, arena, .{
+                .root_dir = incremental.artifact_directory,
+            }, .main, main_progress_node);
         },
     }
 }
@@ -2440,7 +2454,13 @@ pub fn appendFileSystemInput(
     std.debug.panic("missing prefix directory: {}, {s}", .{ root, sub_file_path });
 }
 
-fn flush(comp: *Compilation, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
+fn flush(
+    comp: *Compilation,
+    arena: Allocator,
+    default_artifact_directory: Path,
+    tid: Zcu.PerThread.Id,
+    prog_node: std.Progress.Node,
+) !void {
     if (comp.bin_file) |lf| {
         // This is needed before reading the error flags.
         lf.flush(arena, tid, prog_node) catch |err| switch (err) {
@@ -2454,17 +2474,7 @@ fn flush(comp: *Compilation, arena: Allocator, tid: Zcu.PerThread.Id, prog_node:
         try link.File.C.flushEmitH(zcu);
 
         if (zcu.llvm_object) |llvm_object| {
-            const default_emit = switch (comp.cache_use) {
-                .whole => |whole| .{
-                    .directory = whole.tmp_artifact_directory.?,
-                    .sub_path = "dummy",
-                },
-                .incremental => |incremental| .{
-                    .directory = incremental.artifact_directory,
-                    .sub_path = "dummy",
-                },
-            };
-            try emitLlvmObject(comp, arena, default_emit, null, llvm_object, prog_node);
+            try emitLlvmObject(comp, arena, default_artifact_directory, null, llvm_object, prog_node);
         }
     }
 }
@@ -2745,7 +2755,7 @@ fn emitOthers(comp: *Compilation) void {
 pub fn emitLlvmObject(
     comp: *Compilation,
     arena: Allocator,
-    default_emit: Emit,
+    default_artifact_directory: Path,
     bin_emit_loc: ?EmitLoc,
     llvm_object: LlvmObject.Ptr,
     prog_node: std.Progress.Node,
@@ -2756,10 +2766,10 @@ pub fn emitLlvmObject(
     try llvm_object.emit(.{
         .pre_ir_path = comp.verbose_llvm_ir,
         .pre_bc_path = comp.verbose_llvm_bc,
-        .bin_path = try resolveEmitLoc(arena, default_emit, bin_emit_loc),
-        .asm_path = try resolveEmitLoc(arena, default_emit, comp.emit_asm),
-        .post_ir_path = try resolveEmitLoc(arena, default_emit, comp.emit_llvm_ir),
-        .post_bc_path = try resolveEmitLoc(arena, default_emit, comp.emit_llvm_bc),
+        .bin_path = try resolveEmitLoc(arena, default_artifact_directory, bin_emit_loc),
+        .asm_path = try resolveEmitLoc(arena, default_artifact_directory, comp.emit_asm),
+        .post_ir_path = try resolveEmitLoc(arena, default_artifact_directory, comp.emit_llvm_ir),
+        .post_bc_path = try resolveEmitLoc(arena, default_artifact_directory, comp.emit_llvm_bc),
 
         .is_debug = comp.root_mod.optimize_mode == .Debug,
         .is_small = comp.root_mod.optimize_mode == .ReleaseSmall,
@@ -2772,14 +2782,14 @@ pub fn emitLlvmObject(
 
 fn resolveEmitLoc(
     arena: Allocator,
-    default_emit: Emit,
+    default_artifact_directory: Path,
     opt_loc: ?EmitLoc,
 ) Allocator.Error!?[*:0]const u8 {
     const loc = opt_loc orelse return null;
     const slice = if (loc.directory) |directory|
         try directory.joinZ(arena, &.{loc.basename})
     else
-        try default_emit.basenamePath(arena, loc.basename);
+        try default_artifact_directory.joinStringZ(arena, loc.basename);
     return slice.ptr;
 }
 
@@ -4403,7 +4413,7 @@ pub fn obtainWin32ResourceCacheManifest(comp: *const Compilation) Cache.Manifest
 }
 
 pub const CImportResult = struct {
-    out_zig_path: []u8,
+    digest: [Cache.bin_digest_len]u8,
     cache_hit: bool,
     errors: std.zig.ErrorBundle,
 
@@ -4413,8 +4423,6 @@ pub const CImportResult = struct {
 };
 
 /// Caller owns returned memory.
-/// This API is currently coupled pretty tightly to stage1's needs; it will need to be reworked
-/// a bit when we want to start using it from self-hosted.
 pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module) !CImportResult {
     dev.check(.translate_c_command);
 
@@ -4503,7 +4511,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
                     error.OutOfMemory => return error.OutOfMemory,
                     error.SemanticAnalyzeFail => {
                         return CImportResult{
-                            .out_zig_path = "",
+                            .digest = undefined,
                             .cache_hit = actual_hit,
                             .errors = errors,
                         };
@@ -4528,8 +4536,9 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
             .incremental => {},
         }
 
-        const digest = man.final();
-        const o_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
+        const bin_digest = man.finalBin();
+        const hex_digest = Cache.binToHex(bin_digest);
+        const o_sub_path = "o" ++ std.fs.path.sep_str ++ hex_digest;
         var o_dir = try comp.local_cache_directory.handle.makeOpenPath(o_sub_path, .{});
         defer o_dir.close();
 
@@ -4541,8 +4550,8 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
 
         try out_zig_file.writeAll(formatted);
 
-        break :digest digest;
-    } else man.final();
+        break :digest bin_digest;
+    } else man.finalBin();
 
     if (man.have_exclusive_lock) {
         // Write the updated manifest. This is a no-op if the manifest is not dirty. Note that it is
@@ -4554,14 +4563,8 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
         };
     }
 
-    const out_zig_path = try comp.local_cache_directory.join(comp.arena, &.{
-        "o", &digest, cimport_zig_basename,
-    });
-    if (comp.verbose_cimport) {
-        log.info("C import output: {s}", .{out_zig_path});
-    }
     return CImportResult{
-        .out_zig_path = out_zig_path,
+        .digest = digest,
         .cache_hit = actual_hit,
         .errors = std.zig.ErrorBundle.empty,
     };

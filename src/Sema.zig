@@ -183,6 +183,7 @@ const InternPool = @import("InternPool.zig");
 const Alignment = InternPool.Alignment;
 const AnalUnit = InternPool.AnalUnit;
 const ComptimeAllocIndex = InternPool.ComptimeAllocIndex;
+const Cache = std.Build.Cache;
 
 pub const default_branch_quota = 1000;
 pub const default_reference_trace_len = 2;
@@ -5871,16 +5872,18 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
         return sema.failWithOwnedErrorMsg(&child_block, msg);
     }
     const parent_mod = parent_block.ownerModule();
+    const digest = Cache.binToHex(c_import_res.digest);
+    const c_import_zig_path = try comp.arena.dupe(u8, "o" ++ std.fs.path.sep_str ++ digest);
     const c_import_mod = Package.Module.create(comp.arena, .{
         .global_cache_directory = comp.global_cache_directory,
         .paths = .{
             .root = .{
-                .root_dir = Compilation.Directory.cwd(),
-                .sub_path = std.fs.path.dirname(c_import_res.out_zig_path) orelse "",
+                .root_dir = comp.local_cache_directory,
+                .sub_path = c_import_zig_path,
             },
-            .root_src_path = std.fs.path.basename(c_import_res.out_zig_path),
+            .root_src_path = "cimport.zig",
         },
-        .fully_qualified_name = c_import_res.out_zig_path,
+        .fully_qualified_name = c_import_zig_path,
         .cc_argv = parent_mod.cc_argv,
         .inherited = .{},
         .global = comp.config,

@@ -153,12 +153,12 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         try argv_list.append(c_macro);
     }
 
-    try argv_list.append(translate_c.source.getPath2(b, step));
+    const c_source_path = translate_c.source.getPath2(b, step);
+    try argv_list.append(c_source_path);
 
-    const output_path = try step.evalZigProcess(argv_list.items, prog_node, false);
+    const output_dir = try step.evalZigProcess(argv_list.items, prog_node, false);
 
-    translate_c.out_basename = fs.path.basename(output_path.?);
-    const output_dir = fs.path.dirname(output_path.?).?;
-
-    translate_c.output_file.path = b.pathJoin(&.{ output_dir, translate_c.out_basename });
+    const basename = std.fs.path.stem(std.fs.path.basename(c_source_path));
+    translate_c.out_basename = b.fmt("{s}.zig", .{basename});
+    translate_c.output_file.path = output_dir.?.joinString(b.allocator, translate_c.out_basename) catch @panic("OOM");
 }

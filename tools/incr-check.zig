@@ -1,6 +1,7 @@
 const std = @import("std");
 const fatal = std.process.fatal;
 const Allocator = std.mem.Allocator;
+const Cache = std.Build.Cache;
 
 const usage = "usage: incr-check <zig binary path> <input file> [--zig-lib-dir lib] [--debug-zcu] [--emit none|bin|c] [--zig-cc-binary /path/to/zig]";
 
@@ -233,30 +234,52 @@ const Eval = struct {
                             fatal("error_bundle included unexpected stderr:\n{s}", .{stderr_data});
                         }
                     }
-                    if (result_error_bundle.errorMessageCount() == 0) {
-                        // Empty bundle indicates successful update in a `-fno-emit-bin` build.
-                        try eval.checkSuccessOutcome(update, null, prog_node);
-                    } else {
+                    if (result_error_bundle.errorMessageCount() != 0) {
                         try eval.checkErrorOutcome(update, result_error_bundle);
                     }
                     // This message indicates the end of the update.
                     stdout.discard(body.len);
                     return;
                 },
-                .emit_bin_path => {
-                    const EbpHdr = std.zig.Server.Message.EmitBinPath;
+                .emit_digest => {
+                    const EbpHdr = std.zig.Server.Message.EmitDigest;
                     const ebp_hdr = @as(*align(1) const EbpHdr, @ptrCast(body));
                     _ = ebp_hdr;
-                    const result_binary = try arena.dupe(u8, body[@sizeOf(EbpHdr)..]);
                     if (stderr.readableLength() > 0) {
                         const stderr_data = try stderr.toOwnedSlice();
                         if (eval.allow_stderr) {
-                            std.log.info("emit_bin_path included stderr:\n{s}", .{stderr_data});
+                            std.log.info("emit_digest included stderr:\n{s}", .{stderr_data});
                         } else {
-                            fatal("emit_bin_path included unexpected stderr:\n{s}", .{stderr_data});
+                            fatal("emit_digest included unexpected stderr:\n{s}", .{stderr_data});
                         }
                     }
-                    try eval.checkSuccessOutcome(update, result_binary, prog_node);
+
+                    if (eval.emit == .none) {
+                        try eval.checkSuccessOutcome(update, null, prog_node);
+                        // This message indicates the end of the update.
+                        stdout.discard(body.len);
+                        return;
+                    }
+
+                    const digest = body[@sizeOf(EbpHdr)..][0..Cache.bin_digest_len];
+                    const result_dir = ".local-cache" ++ std.fs.path.sep_str ++ "o" ++ std.fs.path.sep_str ++ Cache.binToHex(digest.*);
+
+                    const name = std.fs.path.stem(std.fs.path.basename(eval.case.root_source_file));
+                    const bin_name = try std.zig.binNameAlloc(arena, .{
+                        .root_name = name,
+                        .target = try std.zig.system.resolveTargetQuery(try std.Build.parseTargetQuery(.{
+                            .arch_os_abi = eval.case.target_query,
+                            .object_format = switch (eval.emit) {
+                                .none => unreachable,
+                                .bin => null,
+                                .c => "c",
+                            },
+                        })),
+                        .output_mode = .Exe,
+                    });
+                    const bin_path = try std.fs.path.join(arena, &.{ result_dir, bin_name });
+
+                    try eval.checkSuccessOutcome(update, bin_path, prog_node);
                     // This message indicates the end of the update.
                     stdout.discard(body.len);
                     return;
