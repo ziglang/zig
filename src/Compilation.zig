@@ -3065,8 +3065,8 @@ pub fn totalErrorCount(comp: *Compilation) Allocator.Error!u32 {
     if (comp.module) |zcu| {
         const ip = &zcu.intern_pool;
 
-        var all_references = try zcu.resolveReferences();
-        defer all_references.deinit(zcu.gpa);
+        var all_references: ?std.AutoHashMapUnmanaged(InternPool.AnalUnit, ?Zcu.ResolvedReference) = null;
+        defer if (all_references) |*a| a.deinit(zcu.gpa);
 
         total += zcu.failed_exports.count();
         total += zcu.failed_embed_files.count();
@@ -3088,7 +3088,12 @@ pub fn totalErrorCount(comp: *Compilation) Allocator.Error!u32 {
         // the previous parse success, including compile errors, but we cannot
         // emit them until the file succeeds parsing.
         for (zcu.failed_analysis.keys()) |anal_unit| {
-            if (comp.incremental and !all_references.contains(anal_unit)) continue;
+            if (comp.incremental) {
+                if (all_references == null) {
+                    all_references = try zcu.resolveReferences();
+                }
+                if (!all_references.?.contains(anal_unit)) continue;
+            }
             const file_index = switch (anal_unit.unwrap()) {
                 .cau => |cau| zcu.namespacePtr(ip.getCau(cau).namespace).file_scope,
                 .func => |ip_index| (zcu.funcInfo(ip_index).zir_body_inst.resolveFull(ip) orelse continue).file,
@@ -3172,8 +3177,8 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         });
     }
 
-    var all_references = if (comp.module) |zcu| try zcu.resolveReferences() else undefined;
-    defer if (comp.module != null) all_references.deinit(gpa);
+    var all_references: ?std.AutoHashMapUnmanaged(InternPool.AnalUnit, ?Zcu.ResolvedReference) = null;
+    defer if (all_references) |*a| a.deinit(gpa);
 
     if (comp.module) |zcu| {
         const ip = &zcu.intern_pool;
@@ -3231,7 +3236,12 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             if (err) |e| return e;
         }
         for (zcu.failed_analysis.keys(), zcu.failed_analysis.values()) |anal_unit, error_msg| {
-            if (comp.incremental and !all_references.contains(anal_unit)) continue;
+            if (comp.incremental) {
+                if (all_references == null) {
+                    all_references = try zcu.resolveReferences();
+                }
+                if (!all_references.?.contains(anal_unit)) continue;
+            }
 
             const file_index = switch (anal_unit.unwrap()) {
                 .cau => |cau| zcu.namespacePtr(ip.getCau(cau).namespace).file_scope,
@@ -3352,7 +3362,10 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
     if (comp.module) |zcu| {
         if (comp.incremental and bundle.root_list.items.len == 0) {
             const should_have_error = for (zcu.transitive_failed_analysis.keys()) |failed_unit| {
-                if (all_references.contains(failed_unit)) break true;
+                if (all_references == null) {
+                    all_references = try zcu.resolveReferences();
+                }
+                if (all_references.?.contains(failed_unit)) break true;
             } else false;
             if (should_have_error) {
                 @panic("referenced transitive analysis errors, but none actually emitted");
@@ -3414,7 +3427,7 @@ pub fn addModuleErrorMsg(
     mod: *Zcu,
     eb: *ErrorBundle.Wip,
     module_err_msg: Zcu.ErrorMsg,
-    all_references: *const std.AutoHashMapUnmanaged(InternPool.AnalUnit, ?Zcu.ResolvedReference),
+    all_references: *?std.AutoHashMapUnmanaged(InternPool.AnalUnit, ?Zcu.ResolvedReference),
 ) !void {
     const gpa = eb.gpa;
     const ip = &mod.intern_pool;
@@ -3438,13 +3451,17 @@ pub fn addModuleErrorMsg(
     defer ref_traces.deinit(gpa);
 
     if (module_err_msg.reference_trace_root.unwrap()) |rt_root| {
+        if (all_references.* == null) {
+            all_references.* = try mod.resolveReferences();
+        }
+
         var seen: std.AutoHashMapUnmanaged(InternPool.AnalUnit, void) = .{};
         defer seen.deinit(gpa);
 
         const max_references = mod.comp.reference_trace orelse Sema.default_reference_trace_len;
 
         var referenced_by = rt_root;
-        while (all_references.get(referenced_by)) |maybe_ref| {
+        while (all_references.*.?.get(referenced_by)) |maybe_ref| {
             const ref = maybe_ref orelse break;
             const gop = try seen.getOrPut(gpa, ref.referencer);
             if (gop.found_existing) break;
