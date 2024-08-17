@@ -224,7 +224,6 @@ pub const ZIG_parent = 0x2ccd;
 pub const ZIG_padding = 0x2cce;
 pub const ZIG_relative_decl = 0x2cd0;
 pub const ZIG_decl_line_relative = 0x2cd1;
-pub const ZIG_is_allowzero = 0x2ce1;
 pub const ZIG_sentinel = 0x2ce2;
 
 // UPC extension.

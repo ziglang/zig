@@ -2338,7 +2338,6 @@ fn updateType(
                 const ptr_child_type = Type.fromInterned(ptr_type.child);
                 try uleb128(diw, @intFromEnum(AbbrevCode.ptr_type));
                 try wip_nav.strp(name);
-                try diw.writeByte(@intFromBool(ptr_type.flags.is_allowzero));
                 try uleb128(diw, ptr_type.flags.alignment.toByteUnits() orelse
                     ptr_child_type.abiAlignment(pt).toByteUnits().?);
                 try diw.writeByte(@intFromEnum(ptr_type.flags.address_space));
@@ -2486,10 +2485,10 @@ fn updateType(
                 {
                     try uleb128(diw, @intFromEnum(AbbrevCode.generated_field));
                     try wip_nav.strp("is_error");
-                    const is_error_field_type = Type.fromInterned(try pt.intern(.{
-                        .opt_type = error_union_type.error_set_type,
-                    }));
-                    try wip_nav.refType(is_error_field_type);
+                    try wip_nav.refType(Type.fromInterned(try pt.intern(.{ .int_type = .{
+                        .signedness = .unsigned,
+                        .bits = pt.zcu.errorSetBits(),
+                    } })));
                     try uleb128(diw, error_union_error_set_offset);
 
                     try uleb128(diw, @intFromEnum(AbbrevCode.unsigned_tagged_union_field));
@@ -3612,7 +3611,6 @@ const AbbrevCode = enum(u8) {
             .tag = .pointer_type,
             .attrs = &.{
                 .{ .name, .strp },
-                .{ .ZIG_is_allowzero, .flag },
                 .{ .alignment, .udata },
                 .{ .address_class, .data1 },
                 .{ .type, .ref_addr },
