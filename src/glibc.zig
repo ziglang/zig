@@ -369,6 +369,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
                     "-fmath-errno",
                     "-ftls-model=initial-exec",
                     "-Wno-ignored-attributes",
+                    "-Qunused-arguments",
                 });
                 try add_include_dirs(comp, arena, &args);
 
