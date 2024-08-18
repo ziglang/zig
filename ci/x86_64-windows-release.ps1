@@ -67,8 +67,7 @@ Write-Output "Main test suite..."
   --search-prefix "$PREFIX_PATH" `
   -Dstatic-llvm `
   -Dskip-non-native `
-  -Denable-symlinks-windows `
-  -Dtest-slow-targets
+  -Denable-symlinks-windows
 CheckLastExitCode
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.
