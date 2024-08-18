@@ -62,22 +62,60 @@ const want_multi_threaded = true;
 /// Whether a single-threaded intern pool impl is in use.
 pub const single_threaded = builtin.single_threaded or !want_multi_threaded;
 
+/// A `TrackedInst.Index` provides a single, unchanging reference to a ZIR instruction across a whole
+/// compilation. From this index, you can acquire a `TrackedInst`, which containss a reference to both
+/// the file which the instruction lives in, and the instruction index itself, which is updated on
+/// incremental updates by `Zcu.updateZirRefs`.
 pub const TrackedInst = extern struct {
     file: FileIndex,
     inst: Zir.Inst.Index,
-    comptime {
-        // The fields should be tightly packed. See also serialiation logic in `Compilation.saveState`.
-        assert(@sizeOf(@This()) == @sizeOf(FileIndex) + @sizeOf(Zir.Inst.Index));
-    }
+
+    /// It is possible on an incremental update that we "lose" a ZIR instruction: some tracked `%x` in
+    /// the old ZIR failed to map to any `%y` in the new ZIR. For this reason, we actually store values
+    /// of type `MaybeLost`, which uses `ZirIndex.lost` to represent this case. `Index.resolve` etc
+    /// return `null` when the `TrackedInst` being resolved has been lost.
+    pub const MaybeLost = extern struct {
+        file: FileIndex,
+        inst: ZirIndex,
+        pub const ZirIndex = enum(u32) {
+            /// Tracking failed for this ZIR instruction. Uses of it should fail.
+            lost = std.math.maxInt(u32),
+            _,
+            pub fn unwrap(inst: ZirIndex) ?Zir.Inst.Index {
+                return switch (inst) {
+                    .lost => null,
+                    _ => @enumFromInt(@intFromEnum(inst)),
+                };
+            }
+            pub fn wrap(inst: Zir.Inst.Index) ZirIndex {
+                return @enumFromInt(@intFromEnum(inst));
+            }
+        };
+        comptime {
+            // The fields should be tightly packed. See also serialiation logic in `Compilation.saveState`.
+            assert(@sizeOf(@This()) == @sizeOf(FileIndex) + @sizeOf(ZirIndex));
+        }
+    };
+
     pub const Index = enum(u32) {
         _,
-        pub fn resolveFull(tracked_inst_index: TrackedInst.Index, ip: *const InternPool) TrackedInst {
+        pub fn resolveFull(tracked_inst_index: TrackedInst.Index, ip: *const InternPool) ?TrackedInst {
             const tracked_inst_unwrapped = tracked_inst_index.unwrap(ip);
             const tracked_insts = ip.getLocalShared(tracked_inst_unwrapped.tid).tracked_insts.acquire();
-            return tracked_insts.view().items(.@"0")[tracked_inst_unwrapped.index];
+            const maybe_lost = tracked_insts.view().items(.@"0")[tracked_inst_unwrapped.index];
+            return .{
+                .file = maybe_lost.file,
+                .inst = maybe_lost.inst.unwrap() orelse return null,
+            };
         }
-        pub fn resolve(i: TrackedInst.Index, ip: *const InternPool) Zir.Inst.Index {
-            return i.resolveFull(ip).inst;
+        pub fn resolveFile(tracked_inst_index: TrackedInst.Index, ip: *const InternPool) FileIndex {
+            const tracked_inst_unwrapped = tracked_inst_index.unwrap(ip);
+            const tracked_insts = ip.getLocalShared(tracked_inst_unwrapped.tid).tracked_insts.acquire();
+            const maybe_lost = tracked_insts.view().items(.@"0")[tracked_inst_unwrapped.index];
+            return maybe_lost.file;
+        }
+        pub fn resolve(i: TrackedInst.Index, ip: *const InternPool) ?Zir.Inst.Index {
+            return (i.resolveFull(ip) orelse return null).inst;
         }
 
         pub fn toOptional(i: TrackedInst.Index) Optional {
@@ -120,7 +158,11 @@ pub fn trackZir(
     tid: Zcu.PerThread.Id,
     key: TrackedInst,
 ) Allocator.Error!TrackedInst.Index {
-    const full_hash = Hash.hash(0, std.mem.asBytes(&key));
+    const maybe_lost_key: TrackedInst.MaybeLost = .{
+        .file = key.file,
+        .inst = TrackedInst.MaybeLost.ZirIndex.wrap(key.inst),
+    };
+    const full_hash = Hash.hash(0, std.mem.asBytes(&maybe_lost_key));
     const hash: u32 = @truncate(full_hash >> 32);
     const shard = &ip.shards[@intCast(full_hash & (ip.shards.len - 1))];
     var map = shard.shared.tracked_inst_map.acquire();
@@ -132,12 +174,11 @@ pub fn trackZir(
         const entry = &map.entries[map_index];
         const index = entry.acquire().unwrap() orelse break;
         if (entry.hash != hash) continue;
-        if (std.meta.eql(index.resolveFull(ip), key)) return index;
+        if (std.meta.eql(index.resolveFull(ip) orelse continue, key)) return index;
     }
     shard.mutate.tracked_inst_map.mutex.lock();
     defer shard.mutate.tracked_inst_map.mutex.unlock();
     if (map.entries != shard.shared.tracked_inst_map.entries) {
-        shard.mutate.tracked_inst_map.len += 1;
         map = shard.shared.tracked_inst_map;
         map_mask = map.header().mask();
         map_index = hash;
@@ -147,7 +188,7 @@ pub fn trackZir(
         const entry = &map.entries[map_index];
         const index = entry.acquire().unwrap() orelse break;
         if (entry.hash != hash) continue;
-        if (std.meta.eql(index.resolveFull(ip), key)) return index;
+        if (std.meta.eql(index.resolveFull(ip) orelse continue, key)) return index;
     }
     defer shard.mutate.tracked_inst_map.len += 1;
     const local = ip.getLocal(tid);
@@ -161,7 +202,7 @@ pub fn trackZir(
             .tid = tid,
             .index = list.mutate.len,
         }).wrap(ip);
-        list.appendAssumeCapacity(.{key});
+        list.appendAssumeCapacity(.{maybe_lost_key});
         entry.release(index.toOptional());
         return index;
     }
@@ -205,10 +246,92 @@ pub fn trackZir(
         .tid = tid,
         .index = list.mutate.len,
     }).wrap(ip);
-    list.appendAssumeCapacity(.{key});
+    list.appendAssumeCapacity(.{maybe_lost_key});
     map.entries[map_index] = .{ .value = index.toOptional(), .hash = hash };
     shard.shared.tracked_inst_map.release(new_map);
     return index;
+}
+
+/// At the start of an incremental update, we update every entry in `tracked_insts` to include
+/// the new ZIR index. Once this is done, we must update the hashmap metadata so that lookups
+/// return correct entries where they already exist.
+pub fn rehashTrackedInsts(
+    ip: *InternPool,
+    gpa: Allocator,
+    tid: Zcu.PerThread.Id,
+) Allocator.Error!void {
+    assert(tid == .main); // we shouldn't have any other threads active right now
+
+    // TODO: this function doesn't handle OOM well. What should it do?
+
+    // We don't lock anything, as this function assumes that no other thread is
+    // accessing `tracked_insts`. This is necessary because we're going to be
+    // iterating the `TrackedInst`s in each `Local`, so we have to know that
+    // none will be added as we work.
+
+    // Figure out how big each shard need to be and store it in its mutate `len`.
+    for (ip.shards) |*shard| shard.mutate.tracked_inst_map.len = 0;
+    for (ip.locals) |*local| {
+        // `getMutableTrackedInsts` is okay only because no other thread is currently active.
+        // We need the `mutate` for the len.
+        for (local.getMutableTrackedInsts(gpa).viewAllowEmpty().items(.@"0")) |tracked_inst| {
+            if (tracked_inst.inst == .lost) continue; // we can ignore this one!
+            const full_hash = Hash.hash(0, std.mem.asBytes(&tracked_inst));
+            const shard = &ip.shards[@intCast(full_hash & (ip.shards.len - 1))];
+            shard.mutate.tracked_inst_map.len += 1;
+        }
+    }
+
+    const Map = Shard.Map(TrackedInst.Index.Optional);
+
+    const arena_state = &ip.getLocal(tid).mutate.arena;
+
+    // We know how big each shard must be, so ensure we have the capacity we need.
+    for (ip.shards) |*shard| {
+        const want_capacity = std.math.ceilPowerOfTwo(u32, shard.mutate.tracked_inst_map.len * 5 / 3) catch unreachable;
+        const have_capacity = shard.shared.tracked_inst_map.header().capacity; // no acquire because we hold the mutex
+        if (have_capacity >= want_capacity) {
+            @memset(shard.shared.tracked_inst_map.entries[0..have_capacity], .{ .value = .none, .hash = undefined });
+            continue;
+        }
+        var arena = arena_state.promote(gpa);
+        defer arena_state.* = arena.state;
+        const new_map_buf = try arena.allocator().alignedAlloc(
+            u8,
+            Map.alignment,
+            Map.entries_offset + want_capacity * @sizeOf(Map.Entry),
+        );
+        const new_map: Map = .{ .entries = @ptrCast(new_map_buf[Map.entries_offset..].ptr) };
+        new_map.header().* = .{ .capacity = want_capacity };
+        @memset(new_map.entries[0..want_capacity], .{ .value = .none, .hash = undefined });
+        shard.shared.tracked_inst_map.release(new_map);
+    }
+
+    // Now, actually insert the items.
+    for (ip.locals, 0..) |*local, local_tid| {
+        // `getMutableTrackedInsts` is okay only because no other thread is currently active.
+        // We need the `mutate` for the len.
+        for (local.getMutableTrackedInsts(gpa).viewAllowEmpty().items(.@"0"), 0..) |tracked_inst, local_inst_index| {
+            if (tracked_inst.inst == .lost) continue; // we can ignore this one!
+            const full_hash = Hash.hash(0, std.mem.asBytes(&tracked_inst));
+            const hash: u32 = @truncate(full_hash >> 32);
+            const shard = &ip.shards[@intCast(full_hash & (ip.shards.len - 1))];
+            const map = shard.shared.tracked_inst_map; // no acquire because we hold the mutex
+            const map_mask = map.header().mask();
+            var map_index = hash;
+            const entry = while (true) : (map_index += 1) {
+                map_index &= map_mask;
+                const entry = &map.entries[map_index];
+                if (entry.acquire() == .none) break entry;
+            };
+            const index = TrackedInst.Index.Unwrapped.wrap(.{
+                .tid = @enumFromInt(local_tid),
+                .index = @intCast(local_inst_index),
+            }, ip);
+            entry.hash = hash;
+            entry.release(index.toOptional());
+        }
+    }
 }
 
 /// Analysis Unit. Represents a single entity which undergoes semantic analysis.
@@ -572,10 +695,6 @@ pub fn dependencyIterator(ip: *const InternPool, dependee: Dependee) DependencyI
         .ip = ip,
         .next_entry = .none,
     };
-    if (ip.dep_entries.items[@intFromEnum(first_entry)].depender == .none) return .{
-        .ip = ip,
-        .next_entry = .none,
-    };
     return .{
         .ip = ip,
         .next_entry = first_entry.toOptional(),
@@ -612,7 +731,6 @@ pub fn addDependency(ip: *InternPool, gpa: Allocator, depender: AnalUnit, depend
 
             if (gop.found_existing and ip.dep_entries.items[@intFromEnum(gop.value_ptr.*)].depender == .none) {
                 // Dummy entry, so we can reuse it rather than allocating a new one!
-                ip.dep_entries.items[@intFromEnum(gop.value_ptr.*)].next = .none;
                 break :new_index gop.value_ptr.*;
             }
 
@@ -620,7 +738,12 @@ pub fn addDependency(ip: *InternPool, gpa: Allocator, depender: AnalUnit, depend
             const new_index: DepEntry.Index, const ptr = if (ip.free_dep_entries.popOrNull()) |new_index| new: {
                 break :new .{ new_index, &ip.dep_entries.items[@intFromEnum(new_index)] };
             } else .{ @enumFromInt(ip.dep_entries.items.len), ip.dep_entries.addOneAssumeCapacity() };
-            ptr.next = if (gop.found_existing) gop.value_ptr.*.toOptional() else .none;
+            if (gop.found_existing) {
+                ptr.next = gop.value_ptr.*.toOptional();
+                ip.dep_entries.items[@intFromEnum(gop.value_ptr.*)].prev = new_index.toOptional();
+            } else {
+                ptr.next = .none;
+            }
             gop.value_ptr.* = new_index;
             break :new_index new_index;
         },
@@ -642,10 +765,9 @@ pub const NamespaceNameKey = struct {
 };
 
 pub const DepEntry = extern struct {
-    /// If null, this is a dummy entry - all other fields are `undefined`. It is
-    /// the first and only entry in one of `intern_pool.*_deps`, and does not
-    /// appear in any list by `first_dependency`, but is not in
-    /// `free_dep_entries` since `*_deps` stores a reference to it.
+    /// If null, this is a dummy entry. `next_dependee` is undefined. This is the first
+    /// entry in one of `*_deps`, and does not appear in any list by `first_dependency`,
+    /// but is not in `free_dep_entries` since `*_deps` stores a reference to it.
     depender: AnalUnit.Optional,
     /// Index into `dep_entries` forming a doubly linked list of all dependencies on this dependee.
     /// Used to iterate all dependers for a given dependee during an update.
@@ -684,6 +806,14 @@ const Local = struct {
     /// This state is fully local to the owning thread and does not require any
     /// atomic access.
     mutate: struct {
+        /// When we need to allocate any long-lived buffer for mutating the `InternPool`, it is
+        /// allocated into this `arena` (for the `Id` of the thread performing the mutation). An
+        /// arena is used to avoid contention on the GPA, and to ensure that any code which retains
+        /// references to old state remains valid. For instance, when reallocing hashmap metadata,
+        /// a racing lookup on another thread may still retain a handle to the old metadata pointer,
+        /// so it must remain valid.
+        /// This arena's lifetime is tied to that of `Compilation`, although it can be cleared on
+        /// garbage collection (currently vaporware).
         arena: std.heap.ArenaAllocator.State,
 
         items: ListMutate,
@@ -728,7 +858,7 @@ const Local = struct {
         else => @compileError("unsupported host"),
     };
     const Strings = List(struct { u8 });
-    const TrackedInsts = List(struct { TrackedInst });
+    const TrackedInsts = List(struct { TrackedInst.MaybeLost });
     const Maps = List(struct { FieldMap });
     const Caus = List(struct { Cau });
     const Navs = List(Nav.Repr);
@@ -959,6 +1089,14 @@ const Local = struct {
                     mutable.list.release(new_list);
                 }
 
+                pub fn viewAllowEmpty(mutable: Mutable) View {
+                    const capacity = mutable.list.header().capacity;
+                    return .{
+                        .bytes = mutable.list.bytes,
+                        .len = mutable.mutate.len,
+                        .capacity = capacity,
+                    };
+                }
                 pub fn view(mutable: Mutable) View {
                     const capacity = mutable.list.header().capacity;
                     assert(capacity > 0); // optimizes `MultiArrayList.Slice.items`
@@ -996,7 +1134,6 @@ const Local = struct {
             fn header(list: ListSelf) *Header {
                 return @ptrFromInt(@intFromPtr(list.bytes) - bytes_offset);
             }
-
             pub fn view(list: ListSelf) View {
                 const capacity = list.header().capacity;
                 assert(capacity > 0); // optimizes `MultiArrayList.Slice.items`
@@ -2570,7 +2707,12 @@ pub const Key = union(enum) {
 
             .variable => |a_info| {
                 const b_info = b.variable;
-                return a_info.owner_nav == b_info.owner_nav;
+                return a_info.owner_nav == b_info.owner_nav and
+                    a_info.ty == b_info.ty and
+                    a_info.init == b_info.init and
+                    a_info.lib_name == b_info.lib_name and
+                    a_info.is_threadlocal == b_info.is_threadlocal and
+                    a_info.is_weak_linkage == b_info.is_weak_linkage;
             },
             .@"extern" => |a_info| {
                 const b_info = b.@"extern";
@@ -6958,6 +7100,7 @@ fn getOrPutKeyEnsuringAdditionalCapacity(
         const index = entry.acquire();
         if (index == .none) break;
         if (entry.hash != hash) continue;
+        if (ip.isRemoved(index)) continue;
         if (ip.indexToKey(index).eql(key, ip)) return .{ .existing = index };
     }
     shard.mutate.map.mutex.lock();
@@ -7025,6 +7168,43 @@ fn getOrPutKeyEnsuringAdditionalCapacity(
         shard.shared.map.release(new_map);
     }
     map.entries[map_index].hash = hash;
+    return .{ .new = .{
+        .ip = ip,
+        .tid = tid,
+        .shard = shard,
+        .map_index = map_index,
+    } };
+}
+/// Like `getOrPutKey`, but asserts that the key already exists, and prepares to replace
+/// its shard entry with a new `Index` anyway. After finalizing this, the old index remains
+/// valid (in that `indexToKey` and similar queries will behave as before), but it will
+/// never be returned from a lookup (`getOrPutKey` etc).
+/// This is used by incremental compilation when an existing container type is outdated. In
+/// this case, the type must be recreated at a new `InternPool.Index`, but the old index must
+/// remain valid since now-unreferenced `AnalUnit`s may retain references to it. The old index
+/// will be cleaned up when the `Zcu` undergoes garbage collection.
+fn putKeyReplace(
+    ip: *InternPool,
+    tid: Zcu.PerThread.Id,
+    key: Key,
+) GetOrPutKey {
+    const full_hash = key.hash64(ip);
+    const hash: u32 = @truncate(full_hash >> 32);
+    const shard = &ip.shards[@intCast(full_hash & (ip.shards.len - 1))];
+    shard.mutate.map.mutex.lock();
+    errdefer shard.mutate.map.mutex.unlock();
+    const map = shard.shared.map;
+    const map_mask = map.header().mask();
+    var map_index = hash;
+    while (true) : (map_index += 1) {
+        map_index &= map_mask;
+        const entry = &map.entries[map_index];
+        const index = entry.value;
+        assert(index != .none); // key not present
+        if (entry.hash == hash and ip.indexToKey(index).eql(key, ip)) {
+            break; // we found the entry to replace
+        }
+    }
     return .{ .new = .{
         .ip = ip,
         .tid = tid,
@@ -7859,6 +8039,10 @@ pub const UnionTypeInit = struct {
             zir_index: TrackedInst.Index,
             captures: []const CaptureValue,
         },
+        declared_owned_captures: struct {
+            zir_index: TrackedInst.Index,
+            captures: CaptureValue.Slice,
+        },
         reified: struct {
             zir_index: TrackedInst.Index,
             type_hash: u64,
@@ -7871,17 +8055,28 @@ pub fn getUnionType(
     gpa: Allocator,
     tid: Zcu.PerThread.Id,
     ini: UnionTypeInit,
+    /// If it is known that there is an existing type with this key which is outdated,
+    /// this is passed as `true`, and the type is replaced with one at a fresh index.
+    replace_existing: bool,
 ) Allocator.Error!WipNamespaceType.Result {
-    var gop = try ip.getOrPutKey(gpa, tid, .{ .union_type = switch (ini.key) {
+    const key: Key = .{ .union_type = switch (ini.key) {
         .declared => |d| .{ .declared = .{
             .zir_index = d.zir_index,
             .captures = .{ .external = d.captures },
+        } },
+        .declared_owned_captures => |d| .{ .declared = .{
+            .zir_index = d.zir_index,
+            .captures = .{ .owned = d.captures },
         } },
         .reified => |r| .{ .reified = .{
             .zir_index = r.zir_index,
             .type_hash = r.type_hash,
         } },
-    } });
+    } };
+    var gop = if (replace_existing)
+        ip.putKeyReplace(tid, key)
+    else
+        try ip.getOrPutKey(gpa, tid, key);
     defer gop.deinit();
     if (gop == .existing) return .{ .existing = gop.existing };
 
@@ -7896,7 +8091,7 @@ pub fn getUnionType(
         // TODO: fmt bug
         // zig fmt: off
         switch (ini.key) {
-            .declared => |d| @intFromBool(d.captures.len != 0) + d.captures.len,
+            inline .declared, .declared_owned_captures => |d| @intFromBool(d.captures.len != 0) + d.captures.len,
             .reified => 2, // type_hash: PackedU64
         } +
         // zig fmt: on
@@ -7905,7 +8100,10 @@ pub fn getUnionType(
 
     const extra_index = addExtraAssumeCapacity(extra, Tag.TypeUnion{
         .flags = .{
-            .any_captures = ini.key == .declared and ini.key.declared.captures.len != 0,
+            .any_captures = switch (ini.key) {
+                inline .declared, .declared_owned_captures => |d| d.captures.len != 0,
+                .reified => false,
+            },
             .runtime_tag = ini.flags.runtime_tag,
             .any_aligned_fields = ini.flags.any_aligned_fields,
             .layout = ini.flags.layout,
@@ -7914,7 +8112,10 @@ pub fn getUnionType(
             .assumed_runtime_bits = ini.flags.assumed_runtime_bits,
             .assumed_pointer_aligned = ini.flags.assumed_pointer_aligned,
             .alignment = ini.flags.alignment,
-            .is_reified = ini.key == .reified,
+            .is_reified = switch (ini.key) {
+                .declared, .declared_owned_captures => false,
+                .reified => true,
+            },
         },
         .fields_len = ini.fields_len,
         .size = std.math.maxInt(u32),
@@ -7937,6 +8138,10 @@ pub fn getUnionType(
         .declared => |d| if (d.captures.len != 0) {
             extra.appendAssumeCapacity(.{@intCast(d.captures.len)});
             extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures)});
+        },
+        .declared_owned_captures => |d| if (d.captures.len != 0) {
+            extra.appendAssumeCapacity(.{@intCast(d.captures.len)});
+            extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures.get(ip))});
         },
         .reified => |r| _ = addExtraAssumeCapacity(extra, PackedU64.init(r.type_hash)),
     }
@@ -8035,6 +8240,10 @@ pub const StructTypeInit = struct {
             zir_index: TrackedInst.Index,
             captures: []const CaptureValue,
         },
+        declared_owned_captures: struct {
+            zir_index: TrackedInst.Index,
+            captures: CaptureValue.Slice,
+        },
         reified: struct {
             zir_index: TrackedInst.Index,
             type_hash: u64,
@@ -8047,17 +8256,28 @@ pub fn getStructType(
     gpa: Allocator,
     tid: Zcu.PerThread.Id,
     ini: StructTypeInit,
+    /// If it is known that there is an existing type with this key which is outdated,
+    /// this is passed as `true`, and the type is replaced with one at a fresh index.
+    replace_existing: bool,
 ) Allocator.Error!WipNamespaceType.Result {
-    var gop = try ip.getOrPutKey(gpa, tid, .{ .struct_type = switch (ini.key) {
+    const key: Key = .{ .struct_type = switch (ini.key) {
         .declared => |d| .{ .declared = .{
             .zir_index = d.zir_index,
             .captures = .{ .external = d.captures },
+        } },
+        .declared_owned_captures => |d| .{ .declared = .{
+            .zir_index = d.zir_index,
+            .captures = .{ .owned = d.captures },
         } },
         .reified => |r| .{ .reified = .{
             .zir_index = r.zir_index,
             .type_hash = r.type_hash,
         } },
-    } });
+    } };
+    var gop = if (replace_existing)
+        ip.putKeyReplace(tid, key)
+    else
+        try ip.getOrPutKey(gpa, tid, key);
     defer gop.deinit();
     if (gop == .existing) return .{ .existing = gop.existing };
 
@@ -8080,7 +8300,7 @@ pub fn getStructType(
                 // TODO: fmt bug
                 // zig fmt: off
                 switch (ini.key) {
-                    .declared => |d| @intFromBool(d.captures.len != 0) + d.captures.len,
+                    inline .declared, .declared_owned_captures => |d| @intFromBool(d.captures.len != 0) + d.captures.len,
                     .reified => 2, // type_hash: PackedU64
                 } +
                 // zig fmt: on
@@ -8096,10 +8316,16 @@ pub fn getStructType(
                 .backing_int_ty = .none,
                 .names_map = names_map,
                 .flags = .{
-                    .any_captures = ini.key == .declared and ini.key.declared.captures.len != 0,
+                    .any_captures = switch (ini.key) {
+                        inline .declared, .declared_owned_captures => |d| d.captures.len != 0,
+                        .reified => false,
+                    },
                     .field_inits_wip = false,
                     .inits_resolved = ini.inits_resolved,
-                    .is_reified = ini.key == .reified,
+                    .is_reified = switch (ini.key) {
+                        .declared, .declared_owned_captures => false,
+                        .reified => true,
+                    },
                 },
             });
             try items.append(.{
@@ -8110,6 +8336,10 @@ pub fn getStructType(
                 .declared => |d| if (d.captures.len != 0) {
                     extra.appendAssumeCapacity(.{@intCast(d.captures.len)});
                     extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures)});
+                },
+                .declared_owned_captures => |d| if (d.captures.len != 0) {
+                    extra.appendAssumeCapacity(.{@intCast(d.captures.len)});
+                    extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures.get(ip))});
                 },
                 .reified => |r| {
                     _ = addExtraAssumeCapacity(extra, PackedU64.init(r.type_hash));
@@ -8138,7 +8368,7 @@ pub fn getStructType(
         // TODO: fmt bug
         // zig fmt: off
         switch (ini.key) {
-            .declared => |d| @intFromBool(d.captures.len != 0) + d.captures.len,
+            inline .declared, .declared_owned_captures => |d| @intFromBool(d.captures.len != 0) + d.captures.len,
             .reified => 2, // type_hash: PackedU64
         } +
         // zig fmt: on
@@ -8153,7 +8383,10 @@ pub fn getStructType(
         .fields_len = ini.fields_len,
         .size = std.math.maxInt(u32),
         .flags = .{
-            .any_captures = ini.key == .declared and ini.key.declared.captures.len != 0,
+            .any_captures = switch (ini.key) {
+                inline .declared, .declared_owned_captures => |d| d.captures.len != 0,
+                .reified => false,
+            },
             .is_extern = is_extern,
             .known_non_opv = ini.known_non_opv,
             .requires_comptime = ini.requires_comptime,
@@ -8171,7 +8404,10 @@ pub fn getStructType(
             .field_inits_wip = false,
             .inits_resolved = ini.inits_resolved,
             .fully_resolved = false,
-            .is_reified = ini.key == .reified,
+            .is_reified = switch (ini.key) {
+                .declared, .declared_owned_captures => false,
+                .reified => true,
+            },
         },
     });
     try items.append(.{
@@ -8182,6 +8418,10 @@ pub fn getStructType(
         .declared => |d| if (d.captures.len != 0) {
             extra.appendAssumeCapacity(.{@intCast(d.captures.len)});
             extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures)});
+        },
+        .declared_owned_captures => |d| if (d.captures.len != 0) {
+            extra.appendAssumeCapacity(.{@intCast(d.captures.len)});
+            extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures.get(ip))});
         },
         .reified => |r| {
             _ = addExtraAssumeCapacity(extra, PackedU64.init(r.type_hash));
@@ -8986,6 +9226,10 @@ pub const EnumTypeInit = struct {
             zir_index: TrackedInst.Index,
             captures: []const CaptureValue,
         },
+        declared_owned_captures: struct {
+            zir_index: TrackedInst.Index,
+            captures: CaptureValue.Slice,
+        },
         reified: struct {
             zir_index: TrackedInst.Index,
             type_hash: u64,
@@ -9081,17 +9325,28 @@ pub fn getEnumType(
     gpa: Allocator,
     tid: Zcu.PerThread.Id,
     ini: EnumTypeInit,
+    /// If it is known that there is an existing type with this key which is outdated,
+    /// this is passed as `true`, and the type is replaced with one at a fresh index.
+    replace_existing: bool,
 ) Allocator.Error!WipEnumType.Result {
-    var gop = try ip.getOrPutKey(gpa, tid, .{ .enum_type = switch (ini.key) {
+    const key: Key = .{ .enum_type = switch (ini.key) {
         .declared => |d| .{ .declared = .{
             .zir_index = d.zir_index,
             .captures = .{ .external = d.captures },
+        } },
+        .declared_owned_captures => |d| .{ .declared = .{
+            .zir_index = d.zir_index,
+            .captures = .{ .owned = d.captures },
         } },
         .reified => |r| .{ .reified = .{
             .zir_index = r.zir_index,
             .type_hash = r.type_hash,
         } },
-    } });
+    } };
+    var gop = if (replace_existing)
+        ip.putKeyReplace(tid, key)
+    else
+        try ip.getOrPutKey(gpa, tid, key);
     defer gop.deinit();
     if (gop == .existing) return .{ .existing = gop.existing };
 
@@ -9110,7 +9365,7 @@ pub fn getEnumType(
                 // TODO: fmt bug
                 // zig fmt: off
                 switch (ini.key) {
-                    .declared => |d| d.captures.len,
+                    inline .declared, .declared_owned_captures => |d| d.captures.len,
                     .reified => 2, // type_hash: PackedU64
                 } +
                 // zig fmt: on
@@ -9120,7 +9375,7 @@ pub fn getEnumType(
             const extra_index = addExtraAssumeCapacity(extra, EnumAuto{
                 .name = undefined, // set by `prepare`
                 .captures_len = switch (ini.key) {
-                    .declared => |d| @intCast(d.captures.len),
+                    inline .declared, .declared_owned_captures => |d| @intCast(d.captures.len),
                     .reified => std.math.maxInt(u32),
                 },
                 .namespace = undefined, // set by `prepare`
@@ -9139,6 +9394,7 @@ pub fn getEnumType(
             extra.appendAssumeCapacity(undefined); // `cau` will be set by `finish`
             switch (ini.key) {
                 .declared => |d| extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures)}),
+                .declared_owned_captures => |d| extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures.get(ip))}),
                 .reified => |r| _ = addExtraAssumeCapacity(extra, PackedU64.init(r.type_hash)),
             }
             const names_start = extra.mutate.len;
@@ -9169,7 +9425,7 @@ pub fn getEnumType(
                 // TODO: fmt bug
                 // zig fmt: off
                 switch (ini.key) {
-                    .declared => |d| d.captures.len,
+                    inline .declared, .declared_owned_captures => |d| d.captures.len,
                     .reified => 2, // type_hash: PackedU64
                 } +
                 // zig fmt: on
@@ -9180,7 +9436,7 @@ pub fn getEnumType(
             const extra_index = addExtraAssumeCapacity(extra, EnumExplicit{
                 .name = undefined, // set by `prepare`
                 .captures_len = switch (ini.key) {
-                    .declared => |d| @intCast(d.captures.len),
+                    inline .declared, .declared_owned_captures => |d| @intCast(d.captures.len),
                     .reified => std.math.maxInt(u32),
                 },
                 .namespace = undefined, // set by `prepare`
@@ -9204,6 +9460,7 @@ pub fn getEnumType(
             extra.appendAssumeCapacity(undefined); // `cau` will be set by `finish`
             switch (ini.key) {
                 .declared => |d| extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures)}),
+                .declared_owned_captures => |d| extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures.get(ip))}),
                 .reified => |r| _ = addExtraAssumeCapacity(extra, PackedU64.init(r.type_hash)),
             }
             const names_start = extra.mutate.len;
@@ -9267,10 +9524,12 @@ pub fn getGeneratedTagEnumType(
         .tid = tid,
         .index = items.mutate.len,
     }, ip);
+    const parent_namespace = ip.namespacePtr(ini.parent_namespace);
     const namespace = try ip.createNamespace(gpa, tid, .{
         .parent = ini.parent_namespace.toOptional(),
         .owner_type = enum_index,
-        .file_scope = ip.namespacePtr(ini.parent_namespace).file_scope,
+        .file_scope = parent_namespace.file_scope,
+        .generation = parent_namespace.generation,
     });
     errdefer ip.destroyNamespace(tid, namespace);
 
@@ -10866,6 +11125,7 @@ pub fn destroyNamespace(
         .parent = undefined,
         .file_scope = undefined,
         .owner_type = undefined,
+        .generation = undefined,
     };
     @field(namespace, Local.namespace_next_free_field) =
         @enumFromInt(local.mutate.namespaces.free_list);
@@ -11000,7 +11260,6 @@ pub fn getOrPutTrailingString(
     shard.mutate.string_map.mutex.lock();
     defer shard.mutate.string_map.mutex.unlock();
     if (map.entries != shard.shared.string_map.entries) {
-        shard.mutate.string_map.len += 1;
         map = shard.shared.string_map;
         map_mask = map.header().mask();
         map_index = hash;

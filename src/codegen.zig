@@ -98,7 +98,7 @@ pub fn generateLazyFunction(
     debug_output: DebugInfoOutput,
 ) CodeGenError!Result {
     const zcu = pt.zcu;
-    const file = Type.fromInterned(lazy_sym.ty).typeDeclInstAllowGeneratedTag(zcu).?.resolveFull(&zcu.intern_pool).file;
+    const file = Type.fromInterned(lazy_sym.ty).typeDeclInstAllowGeneratedTag(zcu).?.resolveFile(&zcu.intern_pool);
     const target = zcu.fileByIndex(file).mod.resolved_target.result;
     switch (target_util.zigBackend(target, false)) {
         else => unreachable,

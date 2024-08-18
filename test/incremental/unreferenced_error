@@ -1,0 +1,38 @@
+#target=x86_64-linux
+#update=initial version
+#file=main.zig
+const std = @import("std");
+pub fn main() !void {
+    try std.io.getStdOut().writeAll(a);
+}
+const a = "Hello, World!\n";
+#expect_stdout="Hello, World!\n"
+
+#update=introduce compile error
+#file=main.zig
+const std = @import("std");
+pub fn main() !void {
+    try std.io.getStdOut().writeAll(a);
+}
+const a = @compileError("bad a");
+#expect_error=ignored
+
+#update=remove error reference
+#file=main.zig
+const std = @import("std");
+pub fn main() !void {
+    try std.io.getStdOut().writeAll(b);
+}
+const a = @compileError("bad a");
+const b = "Hi there!\n";
+#expect_stdout="Hi there!\n"
+
+#update=introduce and remove reference to error
+#file=main.zig
+const std = @import("std");
+pub fn main() !void {
+    try std.io.getStdOut().writeAll(a);
+}
+const a = "Back to a\n";
+const b = @compileError("bad b");
+#expect_stdout="Back to a\n"

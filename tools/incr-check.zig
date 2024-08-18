@@ -2,14 +2,55 @@ const std = @import("std");
 const fatal = std.process.fatal;
 const Allocator = std.mem.Allocator;
 
+const usage = "usage: incr-check <zig binary path> <input file> [--zig-lib-dir lib] [--debug-zcu] [--emit none|bin|c] [--zig-cc-binary /path/to/zig]";
+
+const EmitMode = enum {
+    none,
+    bin,
+    c,
+};
+
 pub fn main() !void {
     var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    const args = try std.process.argsAlloc(arena);
-    const zig_exe = args[1];
-    const input_file_name = args[2];
+    var opt_zig_exe: ?[]const u8 = null;
+    var opt_input_file_name: ?[]const u8 = null;
+    var opt_lib_dir: ?[]const u8 = null;
+    var opt_cc_zig: ?[]const u8 = null;
+    var emit: EmitMode = .bin;
+    var debug_zcu = false;
+
+    var arg_it = try std.process.argsWithAllocator(arena);
+    _ = arg_it.skip();
+    while (arg_it.next()) |arg| {
+        if (arg.len > 0 and arg[0] == '-') {
+            if (std.mem.eql(u8, arg, "--emit")) {
+                const emit_str = arg_it.next() orelse fatal("expected arg after '--emit'\n{s}", .{usage});
+                emit = std.meta.stringToEnum(EmitMode, emit_str) orelse
+                    fatal("invalid emit mode '{s}'\n{s}", .{ emit_str, usage });
+            } else if (std.mem.eql(u8, arg, "--zig-lib-dir")) {
+                opt_lib_dir = arg_it.next() orelse fatal("expected arg after '--zig-lib-dir'\n{s}", .{usage});
+            } else if (std.mem.eql(u8, arg, "--debug-zcu")) {
+                debug_zcu = true;
+            } else if (std.mem.eql(u8, arg, "--zig-cc-binary")) {
+                opt_cc_zig = arg_it.next() orelse fatal("expect arg after '--zig-cc-binary'\n{s}", .{usage});
+            } else {
+                fatal("unknown option '{s}'\n{s}", .{ arg, usage });
+            }
+            continue;
+        }
+        if (opt_zig_exe == null) {
+            opt_zig_exe = arg;
+        } else if (opt_input_file_name == null) {
+            opt_input_file_name = arg;
+        } else {
+            fatal("unknown argument '{s}'\n{s}", .{ arg, usage });
+        }
+    }
+    const zig_exe = opt_zig_exe orelse fatal("missing path to zig\n{s}", .{usage});
+    const input_file_name = opt_input_file_name orelse fatal("missing input file\n{s}", .{usage});
 
     const input_file_bytes = try std.fs.cwd().readFileAlloc(arena, input_file_name, std.math.maxInt(u32));
     const case = try Case.parse(arena, input_file_bytes);
@@ -24,13 +65,18 @@ pub fn main() !void {
     const child_prog_node = prog_node.start("zig build-exe", 0);
     defer child_prog_node.end();
 
-    var child = std.process.Child.init(&.{
-        // Convert incr-check-relative path to subprocess-relative path.
-        try std.fs.path.relative(arena, tmp_dir_path, zig_exe),
+    // Convert paths to be relative to the cwd of the subprocess.
+    const resolved_zig_exe = try std.fs.path.relative(arena, tmp_dir_path, zig_exe);
+    const opt_resolved_lib_dir = if (opt_lib_dir) |lib_dir|
+        try std.fs.path.relative(arena, tmp_dir_path, lib_dir)
+    else
+        null;
+
+    var child_args: std.ArrayListUnmanaged([]const u8) = .{};
+    try child_args.appendSlice(arena, &.{
+        resolved_zig_exe,
         "build-exe",
         case.root_source_file,
-        "-fno-llvm",
-        "-fno-lld",
         "-fincremental",
         "-target",
         case.target_query,
@@ -39,8 +85,20 @@ pub fn main() !void {
         "--global-cache-dir",
         ".global_cache",
         "--listen=-",
-    }, arena);
+    });
+    if (opt_resolved_lib_dir) |resolved_lib_dir| {
+        try child_args.appendSlice(arena, &.{ "--zig-lib-dir", resolved_lib_dir });
+    }
+    switch (emit) {
+        .bin => try child_args.appendSlice(arena, &.{ "-fno-llvm", "-fno-lld" }),
+        .none => try child_args.append(arena, "-fno-emit-bin"),
+        .c => try child_args.appendSlice(arena, &.{ "-ofmt=c", "-lc" }),
+    }
+    if (debug_zcu) {
+        try child_args.appendSlice(arena, &.{ "--debug-log", "zcu" });
+    }
 
+    var child = std.process.Child.init(child_args.items, arena);
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
@@ -48,12 +106,33 @@ pub fn main() !void {
     child.cwd_dir = tmp_dir;
     child.cwd = tmp_dir_path;
 
+    var cc_child_args: std.ArrayListUnmanaged([]const u8) = .{};
+    if (emit == .c) {
+        const resolved_cc_zig_exe = if (opt_cc_zig) |cc_zig_exe|
+            try std.fs.path.relative(arena, tmp_dir_path, cc_zig_exe)
+        else
+            resolved_zig_exe;
+
+        try cc_child_args.appendSlice(arena, &.{
+            resolved_cc_zig_exe,
+            "cc",
+            "-target",
+            case.target_query,
+            "-I",
+            opt_resolved_lib_dir orelse fatal("'--zig-lib-dir' required when using '--emit c'", .{}),
+            "-o",
+        });
+    }
+
     var eval: Eval = .{
         .arena = arena,
         .case = case,
         .tmp_dir = tmp_dir,
         .tmp_dir_path = tmp_dir_path,
         .child = &child,
+        .allow_stderr = debug_zcu,
+        .emit = emit,
+        .cc_child_args = &cc_child_args,
     };
 
     try child.spawn();
@@ -65,9 +144,16 @@ pub fn main() !void {
     defer poller.deinit();
 
     for (case.updates) |update| {
+        var update_node = prog_node.start(update.name, 0);
+        defer update_node.end();
+
+        if (debug_zcu) {
+            std.log.info("=== START UPDATE '{s}' ===", .{update.name});
+        }
+
         eval.write(update);
         try eval.requestUpdate();
-        try eval.check(&poller, update);
+        try eval.check(&poller, update, update_node);
     }
 
     try eval.end(&poller);
@@ -81,6 +167,11 @@ const Eval = struct {
     tmp_dir: std.fs.Dir,
     tmp_dir_path: []const u8,
     child: *std.process.Child,
+    allow_stderr: bool,
+    emit: EmitMode,
+    /// When `emit == .c`, this contains the first few arguments to `zig cc` to build the generated binary.
+    /// The arguments `out.c in.c` must be appended before spawning the subprocess.
+    cc_child_args: *std.ArrayListUnmanaged([]const u8),
 
     const StreamEnum = enum { stdout, stderr };
     const Poller = std.io.Poller(StreamEnum);
@@ -102,7 +193,7 @@ const Eval = struct {
         }
     }
 
-    fn check(eval: *Eval, poller: *Poller, update: Case.Update) !void {
+    fn check(eval: *Eval, poller: *Poller, update: Case.Update, prog_node: std.Progress.Node) !void {
         const arena = eval.arena;
         const Header = std.zig.Server.Message.Header;
         const stdout = poller.fifo(.stdout);
@@ -136,9 +227,18 @@ const Eval = struct {
                     };
                     if (stderr.readableLength() > 0) {
                         const stderr_data = try stderr.toOwnedSlice();
-                        fatal("error_bundle included unexpected stderr:\n{s}", .{stderr_data});
+                        if (eval.allow_stderr) {
+                            std.log.info("error_bundle included stderr:\n{s}", .{stderr_data});
+                        } else {
+                            fatal("error_bundle included unexpected stderr:\n{s}", .{stderr_data});
+                        }
                     }
-                    try eval.checkErrorOutcome(update, result_error_bundle);
+                    if (result_error_bundle.errorMessageCount() == 0) {
+                        // Empty bundle indicates successful update in a `-fno-emit-bin` build.
+                        try eval.checkSuccessOutcome(update, null, prog_node);
+                    } else {
+                        try eval.checkErrorOutcome(update, result_error_bundle);
+                    }
                     // This message indicates the end of the update.
                     stdout.discard(body.len);
                     return;
@@ -150,9 +250,13 @@ const Eval = struct {
                     const result_binary = try arena.dupe(u8, body[@sizeOf(EbpHdr)..]);
                     if (stderr.readableLength() > 0) {
                         const stderr_data = try stderr.toOwnedSlice();
-                        fatal("emit_bin_path included unexpected stderr:\n{s}", .{stderr_data});
+                        if (eval.allow_stderr) {
+                            std.log.info("emit_bin_path included stderr:\n{s}", .{stderr_data});
+                        } else {
+                            fatal("emit_bin_path included unexpected stderr:\n{s}", .{stderr_data});
+                        }
                     }
-                    try eval.checkSuccessOutcome(update, result_binary);
+                    try eval.checkSuccessOutcome(update, result_binary, prog_node);
                     // This message indicates the end of the update.
                     stdout.discard(body.len);
                     return;
@@ -166,7 +270,11 @@ const Eval = struct {
 
         if (stderr.readableLength() > 0) {
             const stderr_data = try stderr.toOwnedSlice();
-            fatal("update '{s}' failed:\n{s}", .{ update.name, stderr_data });
+            if (eval.allow_stderr) {
+                std.log.info("update '{s}' included stderr:\n{s}", .{ update.name, stderr_data });
+            } else {
+                fatal("update '{s}' failed:\n{s}", .{ update.name, stderr_data });
+            }
         }
 
         waitChild(eval.child);
@@ -191,12 +299,28 @@ const Eval = struct {
         }
     }
 
-    fn checkSuccessOutcome(eval: *Eval, update: Case.Update, binary_path: []const u8) !void {
+    fn checkSuccessOutcome(eval: *Eval, update: Case.Update, opt_emitted_path: ?[]const u8, prog_node: std.Progress.Node) !void {
         switch (update.outcome) {
             .unknown => return,
             .compile_errors => fatal("expected compile errors but compilation incorrectly succeeded", .{}),
             .stdout, .exit_code => {},
         }
+        const emitted_path = opt_emitted_path orelse {
+            std.debug.assert(eval.emit == .none);
+            return;
+        };
+
+        const binary_path = switch (eval.emit) {
+            .none => unreachable,
+            .bin => emitted_path,
+            .c => bin: {
+                const rand_int = std.crypto.random.int(u64);
+                const out_bin_name = "./out_" ++ std.fmt.hex(rand_int);
+                try eval.buildCOutput(update, emitted_path, out_bin_name, prog_node);
+                break :bin out_bin_name;
+            },
+        };
+
         const result = std.process.Child.run(.{
             .allocator = eval.arena,
             .argv = &.{binary_path},
@@ -264,6 +388,50 @@ const Eval = struct {
         if (stderr.readableLength() > 0) {
             const stderr_data = try stderr.toOwnedSlice();
             fatal("unexpected stderr:\n{s}", .{stderr_data});
+        }
+    }
+
+    fn buildCOutput(eval: *Eval, update: Case.Update, c_path: []const u8, out_path: []const u8, prog_node: std.Progress.Node) !void {
+        std.debug.assert(eval.cc_child_args.items.len > 0);
+
+        const child_prog_node = prog_node.start("build cbe output", 0);
+        defer child_prog_node.end();
+
+        try eval.cc_child_args.appendSlice(eval.arena, &.{ out_path, c_path });
+        defer eval.cc_child_args.items.len -= 2;
+
+        const result = std.process.Child.run(.{
+            .allocator = eval.arena,
+            .argv = eval.cc_child_args.items,
+            .cwd_dir = eval.tmp_dir,
+            .cwd = eval.tmp_dir_path,
+            .progress_node = child_prog_node,
+        }) catch |err| {
+            fatal("update '{s}': failed to spawn zig cc for '{s}': {s}", .{
+                update.name, c_path, @errorName(err),
+            });
+        };
+        switch (result.term) {
+            .Exited => |code| if (code != 0) {
+                if (result.stderr.len != 0) {
+                    std.log.err("update '{s}': zig cc stderr:\n{s}", .{
+                        update.name, result.stderr,
+                    });
+                }
+                fatal("update '{s}': zig cc for '{s}' failed with code {d}", .{
+                    update.name, c_path, code,
+                });
+            },
+            .Signal, .Stopped, .Unknown => {
+                if (result.stderr.len != 0) {
+                    std.log.err("update '{s}': zig cc stderr:\n{s}", .{
+                        update.name, result.stderr,
+                    });
+                }
+                fatal("update '{s}': zig cc for '{s}' terminated unexpectedly", .{
+                    update.name, c_path,
+                });
+            },
         }
     }
 };
@@ -357,6 +525,11 @@ const Case = struct {
                             fatal("line {d}: bad string literal: {s}", .{ line_n, @errorName(err) });
                         },
                     };
+                } else if (std.mem.eql(u8, key, "expect_error")) {
+                    if (updates.items.len == 0) fatal("line {d}: expect directive before update", .{line_n});
+                    const last_update = &updates.items[updates.items.len - 1];
+                    if (last_update.outcome != .unknown) fatal("line {d}: conflicting expect directive", .{line_n});
+                    last_update.outcome = .{ .compile_errors = &.{} };
                 } else {
                     fatal("line {d}: unrecognized key '{s}'", .{ line_n, key });
                 }
