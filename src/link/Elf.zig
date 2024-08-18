@@ -2652,15 +2652,6 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
     }
 }
 
-fn writeDwarfAddrAssumeCapacity(self: *Elf, buf: *std.ArrayList(u8), addr: u64) void {
-    const target = self.base.comp.root_mod.resolved_target.result;
-    const target_endian = target.cpu.arch.endian();
-    switch (self.ptr_width) {
-        .p32 => mem.writeInt(u32, buf.addManyAsArrayAssumeCapacity(4), @as(u32, @intCast(addr)), target_endian),
-        .p64 => mem.writeInt(u64, buf.addManyAsArrayAssumeCapacity(8), addr, target_endian),
-    }
-}
-
 pub fn writeShdrTable(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
     const target = self.base.comp.root_mod.resolved_target.result;
