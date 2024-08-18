@@ -59,6 +59,9 @@
         //.issue_12588 = .{
         //    .path = "issue_12588",
         //},
+        .emit_asm_no_bin = .{
+           .path = "emit_asm_no_bin",
+        },
         .child_process = .{
             .path = "child_process",
         },
