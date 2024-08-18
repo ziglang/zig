@@ -1188,6 +1188,17 @@ const LinuxThreadImpl = struct {
                       [len] "r" (self.mapped.len),
                     : "memory"
                 ),
+                .s390x => asm volatile (
+                    \\  lgr %%r2, %[ptr]
+                    \\  lgr %%r3, %[len]
+                    \\  svc 91 # SYS_munmap
+                    \\  lghi %%r2, 0
+                    \\  svc 1 # SYS_exit
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
+                ),
                 .sparc => asm volatile (
                     \\ # See sparc64 comments below.
                     \\ 1:
