@@ -27,7 +27,7 @@ test "simple test" {
 }
 
 test "fuzz example" {
-    // Try passing `--fuzz` to `zig build` and see if it manages to fail this test case!
+    // Try passing `--fuzz` to `zig build test` and see if it manages to fail this test case!
     const input_bytes = std.testing.fuzzInput(.{});
     try std.testing.expect(!std.mem.eql(u8, "canyoufindme", input_bytes));
 }
