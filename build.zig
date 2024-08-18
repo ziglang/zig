@@ -647,6 +647,10 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.St
         .strip = options.strip,
         .sanitize_thread = options.sanitize_thread,
         .single_threaded = options.single_threaded,
+        .code_model = switch (options.target.result.cpu.arch) {
+            .loongarch64 => .medium,
+            else => .default,
+        }
     });
     exe.root_module.valgrind = options.valgrind;
     exe.stack_size = stack_size;
