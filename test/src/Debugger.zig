@@ -306,6 +306,51 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
     );
     db.addLldbTest(
+        "enums",
+        target,
+        &.{
+            .{
+                .path = "enums.zig",
+                .source =
+                \\const Enums = struct {
+                \\    const Zero = enum(u4) { _ };
+                \\    const One = enum { first };
+                \\    const Two = enum(i32) { first, second, _ };
+                \\    const Three = enum { first, second, third };
+                \\
+                \\    zero: Zero = @enumFromInt(13),
+                \\    one: One = .first,
+                \\    two: Two = @enumFromInt(-1234),
+                \\    three: Three = .second,
+                \\};
+                \\fn testEnums(enums: Enums) void {
+                \\    _ = enums;
+                \\}
+                \\pub fn main() void {
+                \\    testEnums(.{});
+                \\}
+                \\
+                ,
+            },
+        },
+        \\breakpoint set --file enums.zig --source-pattern-regexp '_ = enums;'
+        \\process launch
+        \\frame variable --show-types enums
+        \\breakpoint delete --force 1
+    ,
+        &.{
+            \\(lldb) frame variable --show-types enums
+            \\(root.enums.Enums) enums = {
+            \\  (root.enums.Enums.Zero) zero = @enumFromInt(13)
+            \\  (root.enums.Enums.One) one = .first
+            \\  (root.enums.Enums.Two) two = @enumFromInt(-1234)
+            \\  (root.enums.Enums.Three) three = .second
+            \\}
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
         "errors",
         target,
         &.{
