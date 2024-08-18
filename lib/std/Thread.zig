@@ -1188,6 +1188,28 @@ const LinuxThreadImpl = struct {
                       [len] "r" (self.mapped.len),
                     : "memory"
                 ),
+                .sparc => asm volatile (
+                    \\ # See sparc64 comments below.
+                    \\ 1:
+                    \\  cmp %%fp, 0
+                    \\  beq 2f
+                    \\  nop
+                    \\  ba 1b
+                    \\  restore
+                    \\ 2:
+                    \\  mov 73, %%g1 # SYS_munmap
+                    \\  mov %[ptr], %%o0
+                    \\  mov %[len], %%o1
+                    \\  t 0x3 # ST_FLUSH_WINDOWS
+                    \\  t 0x10
+                    \\  mov 1, %%g1 # SYS_exit
+                    \\  mov 0, %%o0
+                    \\  t 0x10
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
+                ),
                 .sparc64 => asm volatile (
                     \\ # SPARCs really don't like it when active stack frames
                     \\ # is unmapped (it will result in a segfault), so we
