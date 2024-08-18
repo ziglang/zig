@@ -181,6 +181,43 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
         const pt: Zcu.PerThread = .{ .zcu = elf_file.base.comp.module.?, .tid = tid };
         try dwarf.flushModule(pt);
 
+        // TODO invert this logic so that we manage the output section with the atom, not the
+        // other way around
+        for ([_]u32{
+            self.debug_info_index.?,
+            self.debug_abbrev_index.?,
+            self.debug_str_index.?,
+            self.debug_aranges_index.?,
+            self.debug_line_index.?,
+            self.debug_line_str_index.?,
+            self.debug_loclists_index.?,
+            self.debug_rnglists_index.?,
+        }, [_]Dwarf.Section{
+            dwarf.debug_info.section,
+            dwarf.debug_abbrev.section,
+            dwarf.debug_str.section,
+            dwarf.debug_aranges.section,
+            dwarf.debug_line.section,
+            dwarf.debug_line_str.section,
+            dwarf.debug_loclists.section,
+            dwarf.debug_rnglists.section,
+        }) |sym_index, sect| {
+            const sym = self.symbol(sym_index);
+            const atom_ptr = self.atom(sym.ref.index).?;
+            if (!atom_ptr.alive) continue;
+            const shdr = elf_file.shdrs.items[sym.outputShndx(elf_file).?];
+            const esym = &self.symtab.items(.elf_sym)[sym.esym_index];
+            esym.st_size = shdr.sh_size;
+            atom_ptr.size = shdr.sh_size;
+            atom_ptr.alignment = Atom.Alignment.fromNonzeroByteUnits(shdr.sh_addralign);
+
+            const relocs = &self.relocs.items[atom_ptr.relocsShndx().?];
+            _ = relocs;
+            for (sect.units.items) |unit| {
+                _ = unit;
+            }
+        }
+
         self.debug_abbrev_section_dirty = false;
         self.debug_aranges_section_dirty = false;
         self.debug_rnglists_section_dirty = false;

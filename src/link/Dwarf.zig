@@ -201,7 +201,7 @@ const StringSection = struct {
 };
 
 /// A linker section containing a sequence of `Unit`s.
-const Section = struct {
+pub const Section = struct {
     dirty: bool,
     pad_to_ideal: bool,
     alignment: InternPool.Alignment,
