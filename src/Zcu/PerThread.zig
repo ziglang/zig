@@ -1102,12 +1102,9 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
     // We are about to re-analyze this `Cau`; drop its depenndencies.
     zcu.intern_pool.removeDependenciesForDepender(gpa, anal_unit);
 
-    const builtin_type_target_index: InternPool.Index = switch (cau.owner.unwrap()) {
-        .none => ip_index: {
-            // `comptime` decl -- we will re-analyze its body.
-            // This declaration has no value so is definitely not a std.builtin type.
-            break :ip_index .none;
-        },
+    switch (cau.owner.unwrap()) {
+        .none => {}, // `comptime` decl -- we will re-analyze its body.
+        .nav => {}, // Other decl -- we will re-analyze its value.
         .type => |ty| {
             // This is an incremental update, and this type is being re-analyzed because it is outdated.
             // Create a new type in its place, and mark the old one as outdated so that use sites will
@@ -1119,53 +1116,7 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
                 .invalidate_decl_ref = true,
             };
         },
-        .nav => |nav| ip_index: {
-            // Other decl -- we will re-analyze its value.
-            // This might be a type in `builtin.zig` -- check.
-            if (file.mod != zcu.std_mod) break :ip_index .none;
-            // We're in the std module.
-            const nav_name = ip.getNav(nav).name;
-            const std_file_imported = try pt.importPkg(zcu.std_mod);
-            const std_type = Type.fromInterned(zcu.fileRootType(std_file_imported.file_index));
-            const std_namespace = zcu.namespacePtr(std_type.getNamespace(zcu).unwrap().?);
-            const builtin_str = try ip.getOrPutString(gpa, pt.tid, "builtin", .no_embedded_nulls);
-            const builtin_nav = ip.getNav(std_namespace.pub_decls.getKeyAdapted(builtin_str, Zcu.Namespace.NameAdapter{ .zcu = zcu }) orelse break :ip_index .none);
-            const builtin_namespace = switch (builtin_nav.status) {
-                .unresolved => break :ip_index .none,
-                .resolved => |r| Type.fromInterned(r.val).getNamespace(zcu).unwrap().?,
-            };
-            if (cau.namespace != builtin_namespace) break :ip_index .none;
-            // We're in builtin.zig. This could be a builtin we need to add to a specific InternPool index.
-            for ([_][]const u8{
-                "AtomicOrder",
-                "AtomicRmwOp",
-                "CallingConvention",
-                "AddressSpace",
-                "FloatMode",
-                "ReduceOp",
-                "CallModifier",
-                "PrefetchOptions",
-                "ExportOptions",
-                "ExternOptions",
-                "Type",
-            }, [_]InternPool.Index{
-                .atomic_order_type,
-                .atomic_rmw_op_type,
-                .calling_convention_type,
-                .address_space_type,
-                .float_mode_type,
-                .reduce_op_type,
-                .call_modifier_type,
-                .prefetch_options_type,
-                .export_options_type,
-                .extern_options_type,
-                .type_info_type,
-            }) |type_name, type_ip| {
-                if (nav_name.eqlSlice(type_name, ip)) break :ip_index type_ip;
-            }
-            break :ip_index .none;
-        },
-    };
+    }
 
     const is_usingnamespace = switch (cau.owner.unwrap()) {
         .nav => |nav| ip.getNav(nav).is_usingnamespace,
@@ -1194,7 +1145,6 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
         .fn_ret_ty = Type.void,
         .fn_ret_ty_ies = null,
         .comptime_err_ret_trace = &comptime_err_ret_trace,
-        .builtin_type_target_index = builtin_type_target_index,
     };
     defer sema.deinit();
 
@@ -1248,9 +1198,6 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
         .nav => |nav| nav, // We will resolve this `Nav` below.
         .type => unreachable, // Handled at top of function.
     };
-
-    // We'll do more work with the Sema. Clear the target type index just in case we analyze any type.
-    sema.builtin_type_target_index = .none;
 
     const align_src = block.src(.{ .node_offset_var_decl_align = 0 });
     const section_src = block.src(.{ .node_offset_var_decl_section = 0 });
@@ -3349,7 +3296,7 @@ pub fn ensureTypeUpToDate(pt: Zcu.PerThread, ty: InternPool.Index, already_updat
                 break :o o;
             };
             if (!outdated) return ty;
-            return pt.recreateStructType(ty, key, struct_obj);
+            return pt.recreateStructType(key, struct_obj);
         },
         .union_type => |key| {
             const union_obj = ip.loadUnionType(ty);
@@ -3364,7 +3311,7 @@ pub fn ensureTypeUpToDate(pt: Zcu.PerThread, ty: InternPool.Index, already_updat
                 break :o o;
             };
             if (!outdated) return ty;
-            return pt.recreateUnionType(ty, key, union_obj);
+            return pt.recreateUnionType(key, union_obj);
         },
         .enum_type => |key| {
             const enum_obj = ip.loadEnumType(ty);
@@ -3379,7 +3326,7 @@ pub fn ensureTypeUpToDate(pt: Zcu.PerThread, ty: InternPool.Index, already_updat
                 break :o o;
             };
             if (!outdated) return ty;
-            return pt.recreateEnumType(ty, key, enum_obj);
+            return pt.recreateEnumType(key, enum_obj);
         },
         .opaque_type => {
             assert(!already_updating);
@@ -3391,7 +3338,6 @@ pub fn ensureTypeUpToDate(pt: Zcu.PerThread, ty: InternPool.Index, already_updat
 
 fn recreateStructType(
     pt: Zcu.PerThread,
-    ty: InternPool.Index,
     full_key: InternPool.Key.NamespaceType,
     struct_obj: InternPool.LoadedStructType,
 ) Zcu.SemaError!InternPool.Index {
@@ -3405,10 +3351,6 @@ fn recreateStructType(
         .generated_tag => unreachable, // not a struct
         .declared => |d| d,
     };
-
-    if (@intFromEnum(ty) <= InternPool.static_len) {
-        @panic("TODO: recreate resolved builtin type");
-    }
 
     const inst_info = key.zir_index.resolveFull(ip) orelse return error.AnalysisFail;
     const file = zcu.fileByIndex(inst_info.file);
@@ -3482,7 +3424,6 @@ fn recreateStructType(
 
 fn recreateUnionType(
     pt: Zcu.PerThread,
-    ty: InternPool.Index,
     full_key: InternPool.Key.NamespaceType,
     union_obj: InternPool.LoadedUnionType,
 ) Zcu.SemaError!InternPool.Index {
@@ -3496,10 +3437,6 @@ fn recreateUnionType(
         .generated_tag => unreachable, // not a union
         .declared => |d| d,
     };
-
-    if (@intFromEnum(ty) <= InternPool.static_len) {
-        @panic("TODO: recreate resolved builtin type");
-    }
 
     const inst_info = key.zir_index.resolveFull(ip) orelse return error.AnalysisFail;
     const file = zcu.fileByIndex(inst_info.file);
@@ -3581,7 +3518,6 @@ fn recreateUnionType(
 
 fn recreateEnumType(
     pt: Zcu.PerThread,
-    ty: InternPool.Index,
     full_key: InternPool.Key.NamespaceType,
     enum_obj: InternPool.LoadedEnumType,
 ) Zcu.SemaError!InternPool.Index {
@@ -3595,10 +3531,6 @@ fn recreateEnumType(
         .generated_tag => unreachable, // never outdated
         .declared => |d| d,
     };
-
-    if (@intFromEnum(ty) <= InternPool.static_len) {
-        @panic("TODO: recreate resolved builtin type");
-    }
 
     const inst_info = key.zir_index.resolveFull(ip) orelse return error.AnalysisFail;
     const file = zcu.fileByIndex(inst_info.file);

@@ -4411,17 +4411,6 @@ pub const Index = enum(u32) {
     null_type,
     undefined_type,
     enum_literal_type,
-    atomic_order_type,
-    atomic_rmw_op_type,
-    calling_convention_type,
-    address_space_type,
-    float_mode_type,
-    reduce_op_type,
-    call_modifier_type,
-    prefetch_options_type,
-    export_options_type,
-    extern_options_type,
-    type_info_type,
     manyptr_u8_type,
     manyptr_const_u8_type,
     manyptr_const_u8_sentinel_0_type,
@@ -4454,10 +4443,6 @@ pub const Index = enum(u32) {
     four_u8,
     /// `-1` (comptime_int)
     negative_one,
-    /// `std.builtin.CallingConvention.C`
-    calling_convention_c,
-    /// `std.builtin.CallingConvention.Inline`
-    calling_convention_inline,
     /// `{}`
     void_value,
     /// `unreachable` (noreturn type)
@@ -4837,17 +4822,6 @@ pub const static_keys = [_]Key{
     .{ .simple_type = .null },
     .{ .simple_type = .undefined },
     .{ .simple_type = .enum_literal },
-    .{ .simple_type = .atomic_order },
-    .{ .simple_type = .atomic_rmw_op },
-    .{ .simple_type = .calling_convention },
-    .{ .simple_type = .address_space },
-    .{ .simple_type = .float_mode },
-    .{ .simple_type = .reduce_op },
-    .{ .simple_type = .call_modifier },
-    .{ .simple_type = .prefetch_options },
-    .{ .simple_type = .export_options },
-    .{ .simple_type = .extern_options },
-    .{ .simple_type = .type_info },
 
     // [*]u8
     .{ .ptr_type = .{
@@ -4876,7 +4850,7 @@ pub const static_keys = [_]Key{
         },
     } },
 
-    // comptime_int
+    // *const comptime_int
     .{ .ptr_type = .{
         .child = .comptime_int_type,
         .flags = .{
@@ -4966,16 +4940,6 @@ pub const static_keys = [_]Key{
     .{ .int = .{
         .ty = .comptime_int_type,
         .storage = .{ .i64 = -1 },
-    } },
-    // calling_convention_c
-    .{ .enum_tag = .{
-        .ty = .calling_convention_type,
-        .int = .one_u8,
-    } },
-    // calling_convention_inline
-    .{ .enum_tag = .{
-        .ty = .calling_convention_type,
-        .int = .four_u8,
     } },
 
     .{ .simple_value = .void },
@@ -5690,18 +5654,6 @@ pub const SimpleType = enum(u32) {
     undefined = @intFromEnum(Index.undefined_type),
     enum_literal = @intFromEnum(Index.enum_literal_type),
 
-    atomic_order = @intFromEnum(Index.atomic_order_type),
-    atomic_rmw_op = @intFromEnum(Index.atomic_rmw_op_type),
-    calling_convention = @intFromEnum(Index.calling_convention_type),
-    address_space = @intFromEnum(Index.address_space_type),
-    float_mode = @intFromEnum(Index.float_mode_type),
-    reduce_op = @intFromEnum(Index.reduce_op_type),
-    call_modifier = @intFromEnum(Index.call_modifier_type),
-    prefetch_options = @intFromEnum(Index.prefetch_options_type),
-    export_options = @intFromEnum(Index.export_options_type),
-    extern_options = @intFromEnum(Index.extern_options_type),
-    type_info = @intFromEnum(Index.type_info_type),
-
     adhoc_inferred_error_set = @intFromEnum(Index.adhoc_inferred_error_set_type),
     generic_poison = @intFromEnum(Index.generic_poison_type),
 };
@@ -6281,18 +6233,6 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
         // Sanity check.
         assert(ip.indexToKey(.bool_true).simple_value == .true);
         assert(ip.indexToKey(.bool_false).simple_value == .false);
-
-        const cc_inline = ip.indexToKey(.calling_convention_inline).enum_tag.int;
-        const cc_c = ip.indexToKey(.calling_convention_c).enum_tag.int;
-
-        assert(ip.indexToKey(cc_inline).int.storage.u64 ==
-            @intFromEnum(std.builtin.CallingConvention.Inline));
-
-        assert(ip.indexToKey(cc_c).int.storage.u64 ==
-            @intFromEnum(std.builtin.CallingConvention.C));
-
-        assert(ip.indexToKey(ip.typeOf(cc_inline)).int_type.bits ==
-            @typeInfo(@typeInfo(std.builtin.CallingConvention).Enum.tag_type).Int.bits);
     }
 }
 
@@ -9743,14 +9683,6 @@ fn addMap(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, cap: usize) Al
 /// Invalidates all references to this index.
 pub fn remove(ip: *InternPool, tid: Zcu.PerThread.Id, index: Index) void {
     const unwrapped_index = index.unwrap(ip);
-    if (@intFromEnum(index) < static_keys.len) {
-        // The item being removed replaced a special index via `InternPool.resolveBuiltinType`.
-        // Restore the original item at this index.
-        assert(static_keys[@intFromEnum(index)] == .simple_type);
-        const items = ip.getLocalShared(unwrapped_index.tid).items.acquire().view();
-        @atomicStore(Tag, &items.items(.tag)[unwrapped_index.index], .simple_type, .unordered);
-        return;
-    }
 
     if (unwrapped_index.tid == tid) {
         const items_len = &ip.getLocal(unwrapped_index.tid).mutate.items.len;
@@ -10390,17 +10322,7 @@ pub fn isIntegerType(ip: *const InternPool, ty: Index) bool {
 
 /// does not include .enum_literal_type
 pub fn isEnumType(ip: *const InternPool, ty: Index) bool {
-    return switch (ty) {
-        .atomic_order_type,
-        .atomic_rmw_op_type,
-        .calling_convention_type,
-        .address_space_type,
-        .float_mode_type,
-        .reduce_op_type,
-        .call_modifier_type,
-        => true,
-        else => ip.indexToKey(ty) == .enum_type,
-    };
+    return ip.indexToKey(ty) == .enum_type;
 }
 
 pub fn isUnion(ip: *const InternPool, ty: Index) bool {
@@ -11401,17 +11323,6 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         .null_type,
         .undefined_type,
         .enum_literal_type,
-        .atomic_order_type,
-        .atomic_rmw_op_type,
-        .calling_convention_type,
-        .address_space_type,
-        .float_mode_type,
-        .reduce_op_type,
-        .call_modifier_type,
-        .prefetch_options_type,
-        .export_options_type,
-        .extern_options_type,
-        .type_info_type,
         .manyptr_u8_type,
         .manyptr_const_u8_type,
         .manyptr_const_u8_sentinel_0_type,
@@ -11429,7 +11340,6 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         .zero, .one, .negative_one => .comptime_int_type,
         .zero_usize, .one_usize => .usize_type,
         .zero_u8, .one_u8, .four_u8 => .u8_type,
-        .calling_convention_c, .calling_convention_inline => .calling_convention_type,
         .void_value => .void_type,
         .unreachable_value => .noreturn_type,
         .null_value => .null_type,
@@ -11725,22 +11635,6 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
         .undefined_type => .Undefined,
         .enum_literal_type => .EnumLiteral,
 
-        .atomic_order_type,
-        .atomic_rmw_op_type,
-        .calling_convention_type,
-        .address_space_type,
-        .float_mode_type,
-        .reduce_op_type,
-        .call_modifier_type,
-        => .Enum,
-
-        .prefetch_options_type,
-        .export_options_type,
-        .extern_options_type,
-        => .Struct,
-
-        .type_info_type => .Union,
-
         .manyptr_u8_type,
         .manyptr_const_u8_type,
         .manyptr_const_u8_sentinel_0_type,
@@ -11765,8 +11659,6 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
         .one_u8 => unreachable,
         .four_u8 => unreachable,
         .negative_one => unreachable,
-        .calling_convention_c => unreachable,
-        .calling_convention_inline => unreachable,
         .void_value => unreachable,
         .unreachable_value => unreachable,
         .null_value => unreachable,
@@ -12083,34 +11975,6 @@ pub fn unwrapCoercedFunc(ip: *const InternPool, index: Index) Index {
         .func_instance, .func_decl => index,
         else => unreachable,
     };
-}
-
-/// Having resolved a builtin type to a real struct/union/enum (which is now at `resolverd_index`),
-/// make `want_index` refer to this type instead. This invalidates `resolved_index`, so must be
-/// called only when it is guaranteed that no reference to `resolved_index` exists.
-pub fn resolveBuiltinType(
-    ip: *InternPool,
-    tid: Zcu.PerThread.Id,
-    want_index: Index,
-    resolved_index: Index,
-) void {
-    assert(@intFromEnum(want_index) >= @intFromEnum(Index.first_type));
-    assert(@intFromEnum(want_index) <= @intFromEnum(Index.last_type));
-
-    // Make sure the type isn't already resolved!
-    assert(ip.indexToKey(want_index) == .simple_type);
-
-    // Make sure it's the same kind of type
-    assert((ip.zigTypeTagOrPoison(want_index) catch unreachable) ==
-        (ip.zigTypeTagOrPoison(resolved_index) catch unreachable));
-
-    // Copy the data
-    const item = resolved_index.unwrap(ip).getItem(ip);
-    const unwrapped_index = want_index.unwrap(ip);
-    var items = ip.getLocalShared(unwrapped_index.tid).items.acquire().view().slice();
-    items.items(.data)[unwrapped_index.index] = item.data;
-    @atomicStore(Tag, &items.items(.tag)[unwrapped_index.index], item.tag, .release);
-    ip.remove(tid, resolved_index);
 }
 
 pub fn anonStructFieldTypes(ip: *const InternPool, i: Index) []const Index {

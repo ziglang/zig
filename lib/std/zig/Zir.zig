@@ -2055,6 +2055,10 @@ pub const Inst = struct {
         /// Guaranteed to not have the `ptr_cast` flag.
         /// Uses the `pl_node` union field with payload `FieldParentPtr`.
         field_parent_ptr,
+        /// Get a type or value from `std.builtin`.
+        /// `operand` is `src_node: i32`.
+        /// `small` is an `Inst.BuiltinValue`.
+        builtin_value,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -2071,7 +2075,7 @@ pub const Inst = struct {
         ref_start_index = static_len,
         _,
 
-        pub const static_len = 84;
+        pub const static_len = 71;
 
         pub fn toRef(i: Index) Inst.Ref {
             return @enumFromInt(@intFromEnum(Index.ref_start_index) + @intFromEnum(i));
@@ -2148,17 +2152,6 @@ pub const Inst = struct {
         null_type,
         undefined_type,
         enum_literal_type,
-        atomic_order_type,
-        atomic_rmw_op_type,
-        calling_convention_type,
-        address_space_type,
-        float_mode_type,
-        reduce_op_type,
-        call_modifier_type,
-        prefetch_options_type,
-        export_options_type,
-        extern_options_type,
-        type_info_type,
         manyptr_u8_type,
         manyptr_const_u8_type,
         manyptr_const_u8_sentinel_0_type,
@@ -2179,8 +2172,6 @@ pub const Inst = struct {
         one_u8,
         four_u8,
         negative_one,
-        calling_convention_c,
-        calling_convention_inline,
         void_value,
         unreachable_value,
         null_value,
@@ -3146,6 +3137,24 @@ pub const Inst = struct {
         }
     };
 
+    pub const BuiltinValue = enum(u16) {
+        // Types
+        atomic_order,
+        atomic_rmw_op,
+        calling_convention,
+        address_space,
+        float_mode,
+        reduce_op,
+        call_modifier,
+        prefetch_options,
+        export_options,
+        extern_options,
+        type_info,
+        // Values
+        calling_convention_c,
+        calling_convention_inline,
+    };
+
     /// Trailing:
     /// 0. tag_type: Ref, // if has_tag_type
     /// 1. captures_len: u32, // if has_captures_len
@@ -3977,6 +3986,7 @@ fn findDeclsInner(
                 .restore_err_ret_index,
                 .closure_get,
                 .field_parent_ptr,
+                .builtin_value,
                 => return,
 
                 // `@TypeOf` has a body.

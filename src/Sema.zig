@@ -76,10 +76,6 @@ no_partial_func_ty: bool = false,
 /// here so the values can be dropped without any cleanup.
 unresolved_inferred_allocs: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, InferredAlloc) = .{},
 
-/// While analyzing a type which has a special InternPool index, this is set to the index at which
-/// the struct/enum/union type created should be placed. Otherwise, it is `.none`.
-builtin_type_target_index: InternPool.Index = .none,
-
 /// Links every pointer derived from a base `alloc` back to that `alloc`. Used
 /// to detect comptime-known `const`s.
 /// TODO: ZIR liveness analysis would allow us to remove elements from this map.
@@ -1327,6 +1323,7 @@ fn analyzeBodyInner(
                     },
                     .value_placeholder => unreachable, // never appears in a body
                     .field_parent_ptr => try sema.zirFieldParentPtr(block, extended),
+                    .builtin_value => try sema.zirBuiltinValue(extended),
                 };
             },
 
@@ -2712,17 +2709,6 @@ fn getCaptures(sema: *Sema, block: *Block, type_src: LazySrcLoc, extra_index: us
     return captures;
 }
 
-/// Given an `InternPool.WipNamespaceType` or `InternPool.WipEnumType`, apply
-/// `sema.builtin_type_target_index` to it if necessary.
-fn wrapWipTy(sema: *Sema, wip_ty: anytype) @TypeOf(wip_ty) {
-    const pt = sema.pt;
-    if (sema.builtin_type_target_index == .none) return wip_ty;
-    var new = wip_ty;
-    new.index = sema.builtin_type_target_index;
-    pt.zcu.intern_pool.resolveBuiltinType(pt.tid, new.index, wip_ty.index);
-    return new;
-}
-
 fn zirStructDecl(
     sema: *Sema,
     block: *Block,
@@ -2788,7 +2774,7 @@ fn zirStructDecl(
             .captures = captures,
         } },
     };
-    const wip_ty = sema.wrapWipTy(switch (try ip.getStructType(gpa, pt.tid, struct_init, false)) {
+    const wip_ty = switch (try ip.getStructType(gpa, pt.tid, struct_init, false)) {
         .existing => |ty| {
             const new_ty = try pt.ensureTypeUpToDate(ty, false);
 
@@ -2801,7 +2787,7 @@ fn zirStructDecl(
             return Air.internedToRef(new_ty);
         },
         .wip => |wip| wip,
-    });
+    };
     errdefer wip_ty.cancel(ip, pt.tid);
 
     wip_ty.setName(ip, try sema.createTypeName(
@@ -3017,7 +3003,7 @@ fn zirEnumDecl(
             .captures = captures,
         } },
     };
-    const wip_ty = sema.wrapWipTy(switch (try ip.getEnumType(gpa, pt.tid, enum_init, false)) {
+    const wip_ty = switch (try ip.getEnumType(gpa, pt.tid, enum_init, false)) {
         .existing => |ty| {
             const new_ty = try pt.ensureTypeUpToDate(ty, false);
 
@@ -3030,7 +3016,7 @@ fn zirEnumDecl(
             return Air.internedToRef(new_ty);
         },
         .wip => |wip| wip,
-    });
+    };
 
     // Once this is `true`, we will not delete the decl or type even upon failure, since we
     // have finished constructing the type and are in the process of analyzing it.
@@ -3161,7 +3147,7 @@ fn zirUnionDecl(
             .captures = captures,
         } },
     };
-    const wip_ty = sema.wrapWipTy(switch (try ip.getUnionType(gpa, pt.tid, union_init, false)) {
+    const wip_ty = switch (try ip.getUnionType(gpa, pt.tid, union_init, false)) {
         .existing => |ty| {
             const new_ty = try pt.ensureTypeUpToDate(ty, false);
 
@@ -3174,7 +3160,7 @@ fn zirUnionDecl(
             return Air.internedToRef(new_ty);
         },
         .wip => |wip| wip,
-    });
+    };
     errdefer wip_ty.cancel(ip, pt.tid);
 
     wip_ty.setName(ip, try sema.createTypeName(
@@ -3259,7 +3245,6 @@ fn zirOpaqueDecl(
             .captures = captures,
         } },
     };
-    // No `wrapWipTy` needed as no std.builtin types are opaque.
     const wip_ty = switch (try ip.getOpaqueType(gpa, pt.tid, opaque_init)) {
         .existing => |ty| {
             // Make sure we update the namespace if the declaration is re-analyzed, to pick
@@ -26179,7 +26164,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         const body = sema.code.bodySlice(extra_index, body_len);
         extra_index += body.len;
 
-        const addrspace_ty = Type.fromInterned(.address_space_type);
+        const addrspace_ty = try pt.getBuiltinType("AddressSpace");
         const val = try sema.resolveGenericBody(block, addrspace_src, body, inst, addrspace_ty, .{
             .needed_comptime_reason = "addrspace must be comptime-known",
         });
@@ -26190,7 +26175,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     } else if (extra.data.bits.has_addrspace_ref) blk: {
         const addrspace_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
         extra_index += 1;
-        const addrspace_ty = Type.fromInterned(.address_space_type);
+        const addrspace_ty = try pt.getBuiltinType("AddressSpace");
         const uncoerced_addrspace = sema.resolveInst(addrspace_ref) catch |err| switch (err) {
             error.GenericPoison => break :blk null,
             else => |e| return e,
@@ -26255,7 +26240,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     } else if (extra.data.bits.has_cc_ref) blk: {
         const cc_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
         extra_index += 1;
-        const cc_ty = Type.fromInterned(.calling_convention_type);
+        const cc_ty = try pt.getBuiltinType("CallingConvention");
         const uncoerced_cc = sema.resolveInst(cc_ref) catch |err| switch (err) {
             error.GenericPoison => break :blk null,
             else => |e| return e,
@@ -26711,6 +26696,46 @@ fn zirInComptime(
 ) CompileError!Air.Inst.Ref {
     _ = sema;
     return if (block.is_comptime) .bool_true else .bool_false;
+}
+
+fn zirBuiltinValue(sema: *Sema, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+    const pt = sema.pt;
+    const value: Zir.Inst.BuiltinValue = @enumFromInt(extended.small);
+    const type_name = switch (value) {
+        .atomic_order => "AtomicOrder",
+        .atomic_rmw_op => "AtomicRmwOp",
+        .calling_convention => "CallingConvention",
+        .address_space => "AddressSpace",
+        .float_mode => "FloatMode",
+        .reduce_op => "ReduceOp",
+        .call_modifier => "CallModifier",
+        .prefetch_options => "PrefetchOptions",
+        .export_options => "ExportOptions",
+        .extern_options => "ExternOptions",
+        .type_info => "Type",
+
+        // Values are handled here.
+        .calling_convention_c => {
+            const callconv_ty = try pt.getBuiltinType("CallingConvention");
+            comptime assert(@intFromEnum(std.builtin.CallingConvention.C) == 1);
+            const val = try pt.intern(.{ .enum_tag = .{
+                .ty = callconv_ty.toIntern(),
+                .int = .one_u8,
+            } });
+            return Air.internedToRef(val);
+        },
+        .calling_convention_inline => {
+            const callconv_ty = try pt.getBuiltinType("CallingConvention");
+            comptime assert(@intFromEnum(std.builtin.CallingConvention.Inline) == 4);
+            const val = try pt.intern(.{ .enum_tag = .{
+                .ty = callconv_ty.toIntern(),
+                .int = .four_u8,
+            } });
+            return Air.internedToRef(val);
+        },
+    };
+    const ty = try pt.getBuiltinType(type_name);
+    return Air.internedToRef(ty.toIntern());
 }
 
 fn requireRuntimeBlock(sema: *Sema, block: *Block, src: LazySrcLoc, runtime_src: ?LazySrcLoc) !void {
@@ -36899,17 +36924,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .comptime_int_type,
         .comptime_float_type,
         .enum_literal_type,
-        .atomic_order_type,
-        .atomic_rmw_op_type,
-        .calling_convention_type,
-        .address_space_type,
-        .float_mode_type,
-        .reduce_op_type,
-        .call_modifier_type,
-        .prefetch_options_type,
-        .export_options_type,
-        .extern_options_type,
-        .type_info_type,
         .manyptr_u8_type,
         .manyptr_const_u8_type,
         .manyptr_const_u8_sentinel_0_type,
@@ -36936,8 +36950,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .one_u8,
         .four_u8,
         .negative_one,
-        .calling_convention_c,
-        .calling_convention_inline,
         .void_value,
         .unreachable_value,
         .null_value,
@@ -37291,7 +37303,8 @@ pub fn analyzeAsAddressSpace(
 ) !std.builtin.AddressSpace {
     const pt = sema.pt;
     const mod = pt.zcu;
-    const coerced = try sema.coerce(block, Type.fromInterned(.address_space_type), air_ref, src);
+    const addrspace_ty = try pt.getBuiltinType("AddressSpace");
+    const coerced = try sema.coerce(block, addrspace_ty, air_ref, src);
     const addrspace_val = try sema.resolveConstDefinedValue(block, src, coerced, .{
         .needed_comptime_reason = "address space must be comptime-known",
     });
