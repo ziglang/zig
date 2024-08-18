@@ -585,7 +585,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
     const ptr_size = self.ptrWidthBytes();
     const target = self.base.comp.root_mod.resolved_target.result;
     const ptr_bit_width = target.ptrBitWidth();
-    const zig_object = self.zigObjectPtr().?;
+    const zo = self.zigObjectPtr().?;
 
     const fillSection = struct {
         fn fillSection(elf_file: *Elf, shdr: *elf.Elf64_Shdr, size: u64, phndx: ?u16) !void {
@@ -766,7 +766,27 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.zig_bss_section_index.?, .{});
     }
 
-    if (zig_object.dwarf) |*dwarf| {
+    if (zo.dwarf) |*dwarf| {
+        const addSectionSymbol = struct {
+            fn addSectionSymbol(
+                zig_object: *ZigObject,
+                alloc: Allocator,
+                name: [:0]const u8,
+                alignment: Atom.Alignment,
+                shndx: u32,
+            ) !Symbol.Index {
+                const name_off = try zig_object.addString(alloc, name);
+                const index = try zig_object.newSymbolWithAtom(alloc, name_off);
+                const sym = zig_object.symbol(index);
+                const esym = &zig_object.symtab.items(.elf_sym)[sym.esym_index];
+                esym.st_info |= elf.STT_SECTION;
+                const atom_ptr = zig_object.atom(sym.ref.index).?;
+                atom_ptr.alignment = alignment;
+                atom_ptr.output_section_index = shndx;
+                return index;
+            }
+        }.addSectionSymbol;
+
         if (self.debug_str_section_index == null) {
             self.debug_str_section_index = try self.addSection(.{
                 .name = try self.insertShString(".debug_str"),
@@ -775,7 +795,8 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .type = elf.SHT_PROGBITS,
                 .addralign = 1,
             });
-            zig_object.debug_str_section_dirty = true;
+            zo.debug_str_section_dirty = true;
+            zo.debug_str_index = try addSectionSymbol(zo, gpa, ".debug_str", .@"1", self.debug_str_section_index.?);
             try self.output_sections.putNoClobber(gpa, self.debug_str_section_index.?, .{});
         }
 
@@ -785,7 +806,8 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .type = elf.SHT_PROGBITS,
                 .addralign = 1,
             });
-            zig_object.debug_info_section_dirty = true;
+            zo.debug_info_section_dirty = true;
+            zo.debug_info_index = try addSectionSymbol(zo, gpa, ".debug_info", .@"1", self.debug_info_section_index.?);
             try self.output_sections.putNoClobber(gpa, self.debug_info_section_index.?, .{});
         }
 
@@ -795,7 +817,8 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .type = elf.SHT_PROGBITS,
                 .addralign = 1,
             });
-            zig_object.debug_abbrev_section_dirty = true;
+            zo.debug_abbrev_section_dirty = true;
+            zo.debug_abbrev_index = try addSectionSymbol(zo, gpa, ".debug_abbrev", .@"1", self.debug_abbrev_section_index.?);
             try self.output_sections.putNoClobber(gpa, self.debug_abbrev_section_index.?, .{});
         }
 
@@ -805,7 +828,8 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .type = elf.SHT_PROGBITS,
                 .addralign = 16,
             });
-            zig_object.debug_aranges_section_dirty = true;
+            zo.debug_aranges_section_dirty = true;
+            zo.debug_aranges_index = try addSectionSymbol(zo, gpa, ".debug_aranges", .@"16", self.debug_aranges_section_index.?);
             try self.output_sections.putNoClobber(gpa, self.debug_aranges_section_index.?, .{});
         }
 
@@ -815,7 +839,8 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .type = elf.SHT_PROGBITS,
                 .addralign = 1,
             });
-            zig_object.debug_line_section_dirty = true;
+            zo.debug_line_section_dirty = true;
+            zo.debug_line_index = try addSectionSymbol(zo, gpa, ".debug_line", .@"1", self.debug_line_section_index.?);
             try self.output_sections.putNoClobber(gpa, self.debug_line_section_index.?, .{});
         }
 
@@ -827,7 +852,8 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .type = elf.SHT_PROGBITS,
                 .addralign = 1,
             });
-            zig_object.debug_line_str_section_dirty = true;
+            zo.debug_line_str_section_dirty = true;
+            zo.debug_line_str_index = try addSectionSymbol(zo, gpa, ".debug_line_str", .@"1", self.debug_line_str_section_index.?);
             try self.output_sections.putNoClobber(gpa, self.debug_line_str_section_index.?, .{});
         }
 
@@ -837,7 +863,8 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .type = elf.SHT_PROGBITS,
                 .addralign = 1,
             });
-            zig_object.debug_loclists_section_dirty = true;
+            zo.debug_loclists_section_dirty = true;
+            zo.debug_loclists_index = try addSectionSymbol(zo, gpa, ".debug_loclists", .@"1", self.debug_loclists_section_index.?);
             try self.output_sections.putNoClobber(gpa, self.debug_loclists_section_index.?, .{});
         }
 
@@ -847,7 +874,8 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .type = elf.SHT_PROGBITS,
                 .addralign = 1,
             });
-            zig_object.debug_rnglists_section_dirty = true;
+            zo.debug_rnglists_section_dirty = true;
+            zo.debug_rnglists_index = try addSectionSymbol(zo, gpa, ".debug_rnglists", .@"1", self.debug_rnglists_section_index.?);
             try self.output_sections.putNoClobber(gpa, self.debug_rnglists_section_index.?, .{});
         }
 

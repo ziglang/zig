@@ -50,6 +50,15 @@ debug_line_str_section_dirty: bool = false,
 debug_loclists_section_dirty: bool = false,
 debug_rnglists_section_dirty: bool = false,
 
+debug_info_index: ?Symbol.Index = null,
+debug_abbrev_index: ?Symbol.Index = null,
+debug_aranges_index: ?Symbol.Index = null,
+debug_str_index: ?Symbol.Index = null,
+debug_line_index: ?Symbol.Index = null,
+debug_line_str_index: ?Symbol.Index = null,
+debug_loclists_index: ?Symbol.Index = null,
+debug_rnglists_index: ?Symbol.Index = null,
+
 /// Size contribution of Zig's metadata to each debug section.
 /// Used to track start of metadata from input object files.
 debug_info_section_zig_size: u64 = 0,
@@ -278,7 +287,7 @@ fn newAtom(self: *ZigObject, allocator: Allocator, name_off: u32) !Atom.Index {
     return index;
 }
 
-fn newSymbolWithAtom(self: *ZigObject, allocator: Allocator, name_off: u32) !Symbol.Index {
+pub fn newSymbolWithAtom(self: *ZigObject, allocator: Allocator, name_off: u32) !Symbol.Index {
     const atom_index = try self.newAtom(allocator, name_off);
     const sym_index = try self.newLocalSymbol(allocator, name_off);
     const sym = self.symbol(sym_index);
@@ -1529,7 +1538,7 @@ pub fn asFile(self: *ZigObject) File {
     return .{ .zig_object = self };
 }
 
-fn addString(self: *ZigObject, allocator: Allocator, string: []const u8) !u32 {
+pub fn addString(self: *ZigObject, allocator: Allocator, string: []const u8) !u32 {
     return self.strtab.insert(allocator, string);
 }
 
