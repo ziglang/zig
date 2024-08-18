@@ -3519,7 +3519,7 @@ fn buildOutputType(
         if (test_exec_args.items.len == 0 and target.ofmt == .c) default_exec_args: {
             // Default to using `zig run` to execute the produced .c code from `zig test`.
             const c_code_loc = emit_bin_loc orelse break :default_exec_args;
-            const c_code_directory = c_code_loc.directory orelse comp.bin_file.?.emit.directory;
+            const c_code_directory = c_code_loc.directory orelse comp.bin_file.?.emit.root_dir;
             const c_code_path = try fs.path.join(arena, &[_][]const u8{
                 c_code_directory.path orelse ".", c_code_loc.basename,
             });
@@ -4256,7 +4256,7 @@ fn runOrTest(
     // A naive `directory.join` here will indeed get the correct path to the binary,
     // however, in the case of cwd, we actually want `./foo` so that the path can be executed.
     const exe_path = try fs.path.join(arena, &[_][]const u8{
-        lf.emit.directory.path orelse ".", lf.emit.sub_path,
+        lf.emit.root_dir.path orelse ".", lf.emit.sub_path,
     });
 
     var argv = std.ArrayList([]const u8).init(gpa);
@@ -4368,7 +4368,7 @@ fn runOrTestHotSwap(
         // tmp zig-cache and use it to spawn the child process. This way we are free to update
         // the binary with each requested hot update.
         .windows => blk: {
-            try lf.emit.directory.handle.copyFile(lf.emit.sub_path, comp.local_cache_directory.handle, lf.emit.sub_path, .{});
+            try lf.emit.root_dir.handle.copyFile(lf.emit.sub_path, comp.local_cache_directory.handle, lf.emit.sub_path, .{});
             break :blk try fs.path.join(gpa, &[_][]const u8{
                 comp.local_cache_directory.path orelse ".", lf.emit.sub_path,
             });
@@ -4377,7 +4377,7 @@ fn runOrTestHotSwap(
         // A naive `directory.join` here will indeed get the correct path to the binary,
         // however, in the case of cwd, we actually want `./foo` so that the path can be executed.
         else => try fs.path.join(gpa, &[_][]const u8{
-            lf.emit.directory.path orelse ".", lf.emit.sub_path,
+            lf.emit.root_dir.path orelse ".", lf.emit.sub_path,
         }),
     };
     defer gpa.free(exe_path);

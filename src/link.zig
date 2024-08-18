@@ -11,6 +11,7 @@ const wasi_libc = @import("wasi_libc.zig");
 const Air = @import("Air.zig");
 const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
+const Path = Cache.Path;
 const Compilation = @import("Compilation.zig");
 const LibCInstallation = std.zig.LibCInstallation;
 const Liveness = @import("Liveness.zig");
@@ -56,7 +57,7 @@ pub const File = struct {
 
     /// The owner of this output File.
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
 
     file: ?fs.File,
     /// When linking with LLD, this linker code will output an object file only at
@@ -189,7 +190,7 @@ pub const File = struct {
     pub fn open(
         arena: Allocator,
         comp: *Compilation,
-        emit: Compilation.Emit,
+        emit: Path,
         options: OpenOptions,
     ) !*File {
         switch (Tag.fromObjectFormat(comp.root_mod.resolved_target.result.ofmt)) {
@@ -204,7 +205,7 @@ pub const File = struct {
     pub fn createEmpty(
         arena: Allocator,
         comp: *Compilation,
-        emit: Compilation.Emit,
+        emit: Path,
         options: OpenOptions,
     ) !*File {
         switch (Tag.fromObjectFormat(comp.root_mod.resolved_target.result.ofmt)) {
@@ -243,8 +244,8 @@ pub const File = struct {
                             emit.sub_path, std.crypto.random.int(u32),
                         });
                         defer gpa.free(tmp_sub_path);
-                        try emit.directory.handle.copyFile(emit.sub_path, emit.directory.handle, tmp_sub_path, .{});
-                        try emit.directory.handle.rename(tmp_sub_path, emit.sub_path);
+                        try emit.root_dir.handle.copyFile(emit.sub_path, emit.root_dir.handle, tmp_sub_path, .{});
+                        try emit.root_dir.handle.rename(tmp_sub_path, emit.sub_path);
                         switch (builtin.os.tag) {
                             .linux => std.posix.ptrace(std.os.linux.PTRACE.ATTACH, pid, 0, 0) catch |err| {
                                 log.warn("ptrace failure: {s}", .{@errorName(err)});
@@ -260,7 +261,7 @@ pub const File = struct {
                 const use_lld = build_options.have_llvm and comp.config.use_lld;
                 const output_mode = comp.config.output_mode;
                 const link_mode = comp.config.link_mode;
-                base.file = try emit.directory.handle.createFile(emit.sub_path, .{
+                base.file = try emit.root_dir.handle.createFile(emit.sub_path, .{
                     .truncate = false,
                     .read = true,
                     .mode = determineMode(use_lld, output_mode, link_mode),
@@ -603,7 +604,7 @@ pub const File = struct {
             // Until then, we do `lld -r -o output.o input.o` even though the output is the same
             // as the input. For the preprocessing case (`zig cc -E -o foo`) we copy the file
             // to the final location. See also the corresponding TODO in Coff linking.
-            const full_out_path = try emit.directory.join(gpa, &[_][]const u8{emit.sub_path});
+            const full_out_path = try emit.root_dir.join(gpa, &[_][]const u8{emit.sub_path});
             defer gpa.free(full_out_path);
             assert(comp.c_object_table.count() == 1);
             const the_key = comp.c_object_table.keys()[0];
@@ -751,7 +752,7 @@ pub const File = struct {
         const comp = base.comp;
         const gpa = comp.gpa;
 
-        const directory = base.emit.directory; // Just an alias to make it shorter to type.
+        const directory = base.emit.root_dir; // Just an alias to make it shorter to type.
         const full_out_path = try directory.join(arena, &[_][]const u8{base.emit.sub_path});
         const full_out_path_z = try arena.dupeZ(u8, full_out_path);
         const opt_zcu = comp.module;
@@ -1030,7 +1031,7 @@ pub const File = struct {
         prog_node: std.Progress.Node,
     ) !void {
         return base.comp.emitLlvmObject(arena, .{
-            .root_dir = base.emit.directory,
+            .root_dir = base.emit.root_dir,
             .sub_path = std.fs.path.dirname(base.emit.sub_path) orelse "",
         }, .{
             .directory = null,

@@ -72,9 +72,9 @@ bin_file: ?*link.File,
 /// The root path for the dynamic linker and system libraries (as well as frameworks on Darwin)
 sysroot: ?[]const u8,
 /// This is `null` when not building a Windows DLL, or when `-fno-emit-implib` is used.
-implib_emit: ?Emit,
+implib_emit: ?Path,
 /// This is non-null when `-femit-docs` is provided.
-docs_emit: ?Emit,
+docs_emit: ?Path,
 root_name: [:0]const u8,
 include_compiler_rt: bool,
 objects: []Compilation.LinkObject,
@@ -274,29 +274,6 @@ file_system_inputs: ?*std.ArrayListUnmanaged(u8),
 /// This is the digest of the cache for the current compilation.
 /// This digest will be known after update() is called.
 digest: ?[Cache.bin_digest_len]u8 = null,
-
-/// TODO(robin): Remove because it is the same as Cache.Path
-pub const Emit = struct {
-    /// Where the output will go.
-    directory: Directory,
-    /// Path to the output file, relative to `directory`.
-    sub_path: []const u8,
-
-    /// Returns the full path to `basename` if it were in the same directory as the
-    /// `Emit` sub_path.
-    pub fn basenamePath(emit: Emit, arena: Allocator, basename: []const u8) ![:0]const u8 {
-        const full_path = if (emit.directory.path) |p|
-            try std.fs.path.join(arena, &[_][]const u8{ p, emit.sub_path })
-        else
-            emit.sub_path;
-
-        if (std.fs.path.dirname(full_path)) |dirname| {
-            return try std.fs.path.joinZ(arena, &.{ dirname, basename });
-        } else {
-            return try arena.dupeZ(u8, basename);
-        }
-    }
-};
 
 pub const default_stack_protector_buffer_size = target_util.default_stack_protector_buffer_size;
 pub const SemaError = Zcu.SemaError;
@@ -1695,8 +1672,8 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 comp.cache_use = .{ .incremental = incremental };
 
                 if (options.emit_bin) |emit_bin| {
-                    const emit: Emit = .{
-                        .directory = emit_bin.directory orelse artifact_directory,
+                    const emit: Path = .{
+                        .root_dir = emit_bin.directory orelse artifact_directory,
                         .sub_path = emit_bin.basename,
                     };
                     comp.bin_file = try link.File.open(arena, comp, emit, lf_open_opts);
@@ -1704,14 +1681,14 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
                 if (options.emit_implib) |emit_implib| {
                     comp.implib_emit = .{
-                        .directory = emit_implib.directory orelse artifact_directory,
+                        .root_dir = emit_implib.directory orelse artifact_directory,
                         .sub_path = emit_implib.basename,
                     };
                 }
 
                 if (options.emit_docs) |emit_docs| {
                     comp.docs_emit = .{
-                        .directory = emit_docs.directory orelse artifact_directory,
+                        .root_dir = emit_docs.directory orelse artifact_directory,
                         .sub_path = emit_docs.basename,
                     };
                 }
@@ -2164,21 +2141,21 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
 
             if (whole.implib_sub_path) |sub_path| {
                 comp.implib_emit = .{
-                    .directory = tmp_artifact_directory,
+                    .root_dir = tmp_artifact_directory,
                     .sub_path = std.fs.path.basename(sub_path),
                 };
             }
 
             if (whole.docs_sub_path) |sub_path| {
                 comp.docs_emit = .{
-                    .directory = tmp_artifact_directory,
+                    .root_dir = tmp_artifact_directory,
                     .sub_path = std.fs.path.basename(sub_path),
                 };
             }
 
             if (whole.bin_sub_path) |sub_path| {
-                const emit: Emit = .{
-                    .directory = tmp_artifact_directory,
+                const emit: Path = .{
+                    .root_dir = tmp_artifact_directory,
                     .sub_path = std.fs.path.basename(sub_path),
                 };
                 comp.bin_file = try link.File.createEmpty(arena, comp, emit, whole.lf_open_opts);
@@ -2394,7 +2371,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             // references object file paths.
             if (comp.bin_file) |lf| {
                 lf.emit = .{
-                    .directory = comp.local_cache_directory,
+                    .root_dir = comp.local_cache_directory,
                     .sub_path = whole.bin_sub_path.?,
                 };
 
@@ -2543,7 +2520,7 @@ fn wholeCacheModeSetBinFilePath(
         @memcpy(sub_path[digest_start..][0..digest.len], digest);
 
         comp.implib_emit = .{
-            .directory = comp.local_cache_directory,
+            .root_dir = comp.local_cache_directory,
             .sub_path = sub_path,
         };
     }
@@ -2552,7 +2529,7 @@ fn wholeCacheModeSetBinFilePath(
         @memcpy(sub_path[digest_start..][0..digest.len], digest);
 
         comp.docs_emit = .{
-            .directory = comp.local_cache_directory,
+            .root_dir = comp.local_cache_directory,
             .sub_path = sub_path,
         };
     }
@@ -3045,7 +3022,7 @@ pub fn saveState(comp: *Compilation) !void {
 
     // Using an atomic file prevents a crash or power failure from corrupting
     // the previous incremental compilation state.
-    var af = try lf.emit.directory.handle.atomicFile(basename, .{});
+    var af = try lf.emit.root_dir.handle.atomicFile(basename, .{});
     defer af.deinit();
     try af.file.pwritevAll(bufs.items, 0);
     try af.finish();
@@ -4010,11 +3987,11 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
         return comp.lockAndSetMiscFailure(.docs_copy, "no Zig code to document", .{});
 
     const emit = comp.docs_emit.?;
-    var out_dir = emit.directory.handle.makeOpenPath(emit.sub_path, .{}) catch |err| {
+    var out_dir = emit.root_dir.handle.makeOpenPath(emit.sub_path, .{}) catch |err| {
         return comp.lockAndSetMiscFailure(
             .docs_copy,
             "unable to create output directory '{}{s}': {s}",
-            .{ emit.directory, emit.sub_path, @errorName(err) },
+            .{ emit.root_dir, emit.sub_path, @errorName(err) },
         );
     };
     defer out_dir.close();
@@ -4034,7 +4011,7 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
         return comp.lockAndSetMiscFailure(
             .docs_copy,
             "unable to create '{}{s}/sources.tar': {s}",
-            .{ emit.directory, emit.sub_path, @errorName(err) },
+            .{ emit.root_dir, emit.sub_path, @errorName(err) },
         );
     };
     defer tar_file.close();
@@ -4233,11 +4210,11 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
     try comp.updateSubCompilation(sub_compilation, .docs_wasm, prog_node);
 
     const emit = comp.docs_emit.?;
-    var out_dir = emit.directory.handle.makeOpenPath(emit.sub_path, .{}) catch |err| {
+    var out_dir = emit.root_dir.handle.makeOpenPath(emit.sub_path, .{}) catch |err| {
         return comp.lockAndSetMiscFailure(
             .docs_copy,
             "unable to create output directory '{}{s}': {s}",
-            .{ emit.directory, emit.sub_path, @errorName(err) },
+            .{ emit.root_dir, emit.sub_path, @errorName(err) },
         );
     };
     defer out_dir.close();
@@ -4251,7 +4228,7 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
         return comp.lockAndSetMiscFailure(.docs_copy, "unable to copy '{}{s}' to '{}{s}': {s}", .{
             sub_compilation.local_cache_directory,
             sub_compilation.cache_use.whole.bin_sub_path.?,
-            emit.directory,
+            emit.root_dir,
             emit.sub_path,
             @errorName(err),
         });
@@ -4803,7 +4780,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
             try argv.appendSlice(c_object.src.cache_exempt_flags);
 
             const out_obj_path = if (comp.bin_file) |lf|
-                try lf.emit.directory.join(arena, &.{lf.emit.sub_path})
+                try lf.emit.root_dir.join(arena, &.{lf.emit.sub_path})
             else
                 "/dev/null";
 

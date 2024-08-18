@@ -23,6 +23,7 @@ const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.link);
 const assert = std.debug.assert;
+const Path = std.Build.Cache.Path;
 
 base: link.File,
 sixtyfour_bit: bool,
@@ -275,7 +276,7 @@ pub fn defaultBaseAddrs(arch: std.Target.Cpu.Arch) Bases {
 pub fn createEmpty(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*Plan9 {
     const target = comp.root_mod.resolved_target.result;
@@ -1199,7 +1200,7 @@ pub fn deinit(self: *Plan9) void {
 pub fn open(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*Plan9 {
     const target = comp.root_mod.resolved_target.result;
@@ -1213,7 +1214,7 @@ pub fn open(
     const self = try createEmpty(arena, comp, emit, options);
     errdefer self.base.destroy();
 
-    const file = try emit.directory.handle.createFile(emit.sub_path, .{
+    const file = try emit.root_dir.handle.createFile(emit.sub_path, .{
         .read = true,
         .mode = link.File.determineMode(
             use_lld,

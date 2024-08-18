@@ -27,7 +27,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
     const comp = self.base.comp;
     const gpa = comp.gpa;
 
-    const directory = self.base.emit.directory; // Just an alias to make it shorter to type.
+    const directory = self.base.emit.root_dir; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
@@ -248,7 +248,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
         try argv.append(try allocPrint(arena, "-OUT:{s}", .{full_out_path}));
 
         if (comp.implib_emit) |emit| {
-            const implib_out_path = try emit.directory.join(arena, &[_][]const u8{emit.sub_path});
+            const implib_out_path = try emit.root_dir.join(arena, &[_][]const u8{emit.sub_path});
             try argv.append(try allocPrint(arena, "-IMPLIB:{s}", .{implib_out_path}));
         }
 
