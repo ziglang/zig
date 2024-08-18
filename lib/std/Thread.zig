@@ -1215,13 +1215,13 @@ const LinuxThreadImpl = struct {
                     \\ # is unmapped (it will result in a segfault), so we
                     \\ # force-deactivate it by running `restore` until
                     \\ # all frames are cleared.
-                    \\  1:
+                    \\ 1:
                     \\  cmp %%fp, 0
                     \\  beq 2f
                     \\  nop
                     \\  ba 1b
                     \\  restore
-                    \\  2:
+                    \\ 2:
                     \\  mov 73, %%g1 # SYS_munmap
                     \\  mov %[ptr], %%o0
                     \\  mov %[len], %%o1
@@ -1230,7 +1230,7 @@ const LinuxThreadImpl = struct {
                     \\  flushw
                     \\  t 0x6d
                     \\  mov 1, %%g1 # SYS_exit
-                    \\  mov 1, %%o0
+                    \\  mov 0, %%o0
                     \\  t 0x6d
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
