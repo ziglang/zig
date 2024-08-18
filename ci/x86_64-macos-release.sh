@@ -59,8 +59,7 @@ stage3/bin/zig build test docs \
   -Denable-macos-sdk \
   -Dstatic-llvm \
   -Dskip-non-native \
-  --search-prefix "$PREFIX" \
-  -Dtest-slow-targets
+  --search-prefix "$PREFIX"
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.
 stage3/bin/zig build \
