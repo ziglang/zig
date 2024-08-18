@@ -5095,7 +5095,7 @@ pub const epoll_event = extern struct {
 
 pub const VFS_CAP_REVISION_MASK = 0xFF000000;
 pub const VFS_CAP_REVISION_SHIFT = 24;
-pub const VFS_CAP_FLAGS_MASK = ~VFS_CAP_REVISION_MASK;
+pub const VFS_CAP_FLAGS_MASK = ~@as(u32, VFS_CAP_REVISION_MASK);
 pub const VFS_CAP_FLAGS_EFFECTIVE = 0x000001;
 
 pub const VFS_CAP_REVISION_1 = 0x01000000;
@@ -5113,7 +5113,7 @@ pub const VFS_CAP_REVISION = VFS_CAP_REVISION_2;
 pub const vfs_cap_data = extern struct {
     //all of these are mandated as little endian
     //when on disk.
-    const Data = struct {
+    const Data = extern struct {
         permitted: u32,
         inheritable: u32,
     };
