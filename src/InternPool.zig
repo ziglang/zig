@@ -2160,6 +2160,14 @@ pub const Key = union(enum) {
         pub fn resolvedErrorSetUnordered(func: Func, ip: *const InternPool) Index {
             return @atomicLoad(Index, func.resolvedErrorSetPtr(@constCast(ip)), .unordered);
         }
+
+        pub fn setResolvedErrorSet(func: Func, ip: *InternPool, ies: Index) void {
+            const extra_mutex = &ip.getLocal(func.tid).mutate.extra.mutex;
+            extra_mutex.lock();
+            defer extra_mutex.unlock();
+
+            @atomicStore(Index, func.resolvedErrorSetPtr(ip), ies, .release);
+        }
     };
 
     pub const Int = struct {

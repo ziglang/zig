@@ -2072,6 +2072,9 @@ fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaError!
     errdefer _ = zcu.analysis_in_progress.swapRemove(anal_unit);
 
     func.setAnalysisState(ip, .analyzed);
+    if (func.analysisUnordered(ip).inferred_error_set) {
+        func.setResolvedErrorSet(ip, .none);
+    }
 
     // This is the `Cau` corresponding to the `declaration` instruction which the function or its generic owner originates from.
     const decl_cau = ip.getCau(cau: {
@@ -2278,7 +2281,7 @@ fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaError!
             else => |e| return e,
         };
         assert(ies.resolved != .none);
-        ip.funcSetIesResolved(func_index, ies.resolved);
+        func.setResolvedErrorSet(ip, ies.resolved);
     }
 
     assert(zcu.analysis_in_progress.swapRemove(anal_unit));

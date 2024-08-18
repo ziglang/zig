@@ -32527,6 +32527,7 @@ fn analyzeIsNonErrComptimeOnly(
                 // If the error set is empty, we must return a comptime true or false.
                 // However we want to avoid unnecessarily resolving an inferred error set
                 // in case it is already non-empty.
+                try mod.maybeUnresolveIes(func_index);
                 switch (ip.funcIesResolvedUnordered(func_index)) {
                     .anyerror_type => break :blk,
                     .none => {},
@@ -33596,6 +33597,7 @@ fn wrapErrorUnionSet(
                 .inferred_error_set_type => |func_index| ok: {
                     // We carefully do this in an order that avoids unnecessarily
                     // resolving the destination error set type.
+                    try mod.maybeUnresolveIes(func_index);
                     switch (ip.funcIesResolvedUnordered(func_index)) {
                         .anyerror_type => break :ok,
                         .none => if (.ok == try sema.coerceInMemoryAllowedErrorSets(block, dest_err_set_ty, inst_ty, inst_src, inst_src)) {
@@ -35853,8 +35855,7 @@ fn resolveInferredErrorSet(
 
     try sema.declareDependency(.{ .interned = func_index }); // resolved IES
 
-    // TODO: during an incremental update this might not be `.none`, but the
-    // function might be out-of-date!
+    try zcu.maybeUnresolveIes(func_index);
     const resolved_ty = func.resolvedErrorSetUnordered(ip);
     if (resolved_ty != .none) return resolved_ty;
 

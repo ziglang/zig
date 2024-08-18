@@ -3468,3 +3468,29 @@ fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, com
         },
     }
 }
+
+/// Given the `InternPool.Index` of a function, set its resolved IES to `.none` if it
+/// may be outdated. `Sema` should do this before ever loading a resolved IES.
+pub fn maybeUnresolveIes(zcu: *Zcu, func_index: InternPool.Index) !void {
+    const unit = AnalUnit.wrap(.{ .func = func_index });
+    if (zcu.outdated.contains(unit) or zcu.potentially_outdated.contains(unit)) {
+        // We're consulting the resolved IES now, but the function is outdated, so its
+        // IES may have changed. We have to assume the IES is outdated and set the resolved
+        // set back to `.none`.
+        //
+        // This will cause `PerThread.analyzeFnBody` to mark the IES as outdated when it's
+        // eventually hit.
+        //
+        // Since the IES needs to be resolved, the function body will now definitely need
+        // re-analysis (even if the IES turns out to be the same!), so mark it as
+        // definitely-outdated if it's only PO.
+        if (zcu.potentially_outdated.fetchSwapRemove(unit)) |kv| {
+            const gpa = zcu.gpa;
+            try zcu.outdated.putNoClobber(gpa, unit, kv.value);
+            if (kv.value == 0) {
+                try zcu.outdated_ready.put(gpa, unit, {});
+            }
+        }
+        zcu.intern_pool.funcSetIesResolved(func_index, .none);
+    }
+}
