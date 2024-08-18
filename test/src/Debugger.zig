@@ -404,6 +404,71 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
     );
     db.addLldbTest(
+        "unions",
+        target,
+        &.{
+            .{
+                .path = "unions.zig",
+                .source =
+                \\const Unions = struct {
+                \\    const Enum = enum { first, second, third };
+                \\    const Untagged = extern union {
+                \\        u32: u32,
+                \\        i32: i32,
+                \\        f32: f32,
+                \\    };
+                \\    const SafetyTagged = union {
+                \\        void: void,
+                \\        en: Enum,
+                \\        eu: error{Error}!Enum,
+                \\    };
+                \\    const Tagged = union(enum) {
+                \\        void: void,
+                \\        en: Enum,
+                \\        eu: error{Error}!Enum,
+                \\    };
+                \\
+                \\    untagged: Untagged = .{ .f32 = -1.5 },
+                \\    safety_tagged: SafetyTagged = .{ .en = .second },
+                \\    tagged: Tagged = .{ .eu = error.Error },
+                \\};
+                \\fn testUnions(unions: Unions) void {
+                \\    _ = unions;
+                \\}
+                \\pub fn main() void {
+                \\    testUnions(.{});
+                \\}
+                \\
+                ,
+            },
+        },
+        \\breakpoint set --file unions.zig --source-pattern-regexp '_ = unions;'
+        \\process launch
+        \\frame variable --show-types unions
+        \\breakpoint delete --force 1
+    ,
+        &.{
+            \\(lldb) frame variable --show-types unions
+            \\(root.unions.Unions) unions = {
+            \\  (root.unions.Unions.Untagged) untagged = {
+            \\    (u32) u32 = 3217031168
+            \\    (i32) i32 = -1077936128
+            \\    (f32) f32 = -1.5
+            \\  }
+            \\  (root.unions.Unions.SafetyTagged) safety_tagged = {
+            \\    (root.unions.Unions.Enum) en = .second
+            \\  }
+            \\  (root.unions.Unions.Tagged) tagged = {
+            \\    (error{Error}!root.unions.Unions.Enum) eu = {
+            \\      (error{Error}) error = error.Error
+            \\    }
+            \\  }
+            \\}
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
         "storage",
         target,
         &.{
