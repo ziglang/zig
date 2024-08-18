@@ -1380,7 +1380,8 @@ pub const Object = struct {
         } else {
             _ = try attributes.removeFnAttr(.sanitize_thread);
         }
-        if (owner_mod.fuzz and !func_analysis.disable_instrumentation) {
+        const is_naked = fn_info.cc == .Naked;
+        if (owner_mod.fuzz and !func_analysis.disable_instrumentation and !is_naked) {
             try attributes.addFnAttr(.optforfuzzing, &o.builder);
             _ = try attributes.removeFnAttr(.skipprofile);
             _ = try attributes.removeFnAttr(.nosanitize_coverage);
