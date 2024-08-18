@@ -180,6 +180,7 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
     if (self.dwarf) |*dwarf| {
         const pt: Zcu.PerThread = .{ .zcu = elf_file.base.comp.module.?, .tid = tid };
         try dwarf.flushModule(pt);
+        try dwarf.resolveRelocs();
 
         // TODO invert this logic so that we manage the output section with the atom, not the
         // other way around
@@ -213,8 +214,17 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
 
             const relocs = &self.relocs.items[atom_ptr.relocsShndx().?];
             _ = relocs;
-            for (sect.units.items) |unit| {
-                _ = unit;
+            for (sect.units.items) |*unit| {
+                for (unit.external_relocs.items) |reloc| {
+                    const tsym = self.symbol(reloc.target_sym);
+                    const r_offset = unit.off + unit.header_len + unit.getEntry(reloc.source_entry).off + reloc.source_off;
+                    const r_addend = reloc.target_off;
+                    std.debug.print("{s} <- r_off={x}, r_add={x}\n", .{
+                        tsym.name(elf_file),
+                        r_offset,
+                        r_addend,
+                    });
+                }
             }
         }
 

@@ -415,7 +415,7 @@ const Unit = struct {
         return entry;
     }
 
-    fn getEntry(unit: *Unit, entry: Entry.Index) *Entry {
+    pub fn getEntry(unit: *Unit, entry: Entry.Index) *Entry {
         return &unit.entries.items[@intFromEnum(entry)];
     }
 
