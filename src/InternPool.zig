@@ -7108,7 +7108,7 @@ fn getOrPutKeyEnsuringAdditionalCapacity(
         const index = entry.acquire();
         if (index == .none) break;
         if (entry.hash != hash) continue;
-        if (ip.isRemoved(index)) continue;
+        if (index.unwrap(ip).getTag(ip) == .removed) continue;
         if (ip.indexToKey(index).eql(key, ip)) return .{ .existing = index };
     }
     shard.mutate.map.mutex.lock();
@@ -12310,8 +12310,4 @@ pub fn getErrorValue(
 
 pub fn getErrorValueIfExists(ip: *const InternPool, name: NullTerminatedString) ?Zcu.ErrorInt {
     return @intFromEnum(ip.global_error_set.getErrorValueIfExists(name) orelse return null);
-}
-
-pub fn isRemoved(ip: *const InternPool, ty: Index) bool {
-    return ty.unwrap(ip).getTag(ip) == .removed;
 }

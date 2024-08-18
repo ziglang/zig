@@ -734,31 +734,25 @@ fn ensureFuncBodyAnalyzedInner(
     const func = zcu.funcInfo(func_index);
     const anal_unit = AnalUnit.wrap(.{ .func = func_index });
 
-    // Here's an interesting question: is this function actually valid?
-    // Maybe the signature changed, so we'll end up creating a whole different `func`
-    // in the InternPool, and this one is a waste of time to analyze. Worse, we'd be
-    // analyzing new ZIR with old data, and get bogus errors. They would be unused,
-    // but they would still hang around internally! So, let's detect this case.
-    // For function decls, we must ensure the declaration's `Cau` is up-to-date, and
-    // check if `func_index` was removed by that update.
-    // For function instances, we do that process on the generic owner.
+    // Make sure that this function is still owned by the same `Nav`. Otherwise, analyzing
+    // it would be a waste of time in the best case, and could cause codegen to give bogus
+    // results in the worst case.
 
-    try pt.ensureCauAnalyzed(cau: {
-        const func_nav = if (func.generic_owner == .none)
-            func.owner_nav
-        else
-            zcu.funcInfo(func.generic_owner).owner_nav;
-
-        break :cau ip.getNav(func_nav).analysis_owner.unwrap().?;
-    });
-
-    if (ip.isRemoved(func_index) or (func.generic_owner != .none and ip.isRemoved(func.generic_owner))) {
-        if (func_outdated) {
-            try zcu.markDependeeOutdated(.marked_po, .{ .interned = func_index }); // IES
+    if (func.generic_owner == .none) {
+        try pt.ensureCauAnalyzed(ip.getNav(func.owner_nav).analysis_owner.unwrap().?);
+        if (ip.getNav(func.owner_nav).status.resolved.val != func_index) {
+            // This function is no longer referenced! There's no point in re-analyzing it.
+            // Just mark a transitive failure and move on.
+            return error.AnalysisFail;
         }
-        ip.removeDependenciesForDepender(gpa, AnalUnit.wrap(.{ .func = func_index }));
-        ip.remove(pt.tid, func_index);
-        @panic("TODO: remove orphaned function from binary");
+    } else {
+        const go_nav = zcu.funcInfo(func.generic_owner).owner_nav;
+        try pt.ensureCauAnalyzed(ip.getNav(go_nav).analysis_owner.unwrap().?);
+        if (ip.getNav(go_nav).status.resolved.val != func.generic_owner) {
+            // The generic owner is no longer referenced, so this function is also unreferenced.
+            // There's no point in re-analyzing it. Just mark a transitive failure and move on.
+            return error.AnalysisFail;
+        }
     }
 
     // We'll want to remember what the IES used to be before the update for
