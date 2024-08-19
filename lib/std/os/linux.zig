@@ -635,7 +635,8 @@ pub fn futex2_waitv(
 }
 
 /// Wait on a futex.
-/// Identical to `FUTEX.FUTEX_WAIT_BITSET`, except it is part of the futex2 family of calls.
+/// Identical to the traditional FUTEX_WAIT_BITSET op, except it is part of the
+/// futex2 familiy of calls.
 pub fn futex2_wait(
     /// Address of the futex to wait on.
     uaddr: *const anyopaque,
@@ -661,8 +662,9 @@ pub fn futex2_wait(
     );
 }
 
-/// Wake a number of waiters.
-/// Identical to `FUTEX.FUTEX_WAKE_BITSET`, except it is part of the futex2 family of calls.
+/// Wake a number of futexes.
+/// Identical to the traditional FUTEX_WAKE_BITSET op, except it is part of the
+/// futex2 family of calls.
 pub fn futex2_wake(
     /// Address of the futex(es) to wake.
     uaddr: *const anyopaque,
