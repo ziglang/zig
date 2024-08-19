@@ -3994,6 +3994,7 @@ pub const Function = struct {
     names: [*]const String = &[0]String{},
     value_indices: [*]const u32 = &[0]u32{},
     strip: bool,
+    any_nosanitize: bool,
     debug_locations: std.AutoHashMapUnmanaged(Instruction.Index, DebugLocation) = .{},
     debug_values: []const Instruction.Index = &.{},
     extra: []const u32 = &.{},
@@ -4090,6 +4091,7 @@ pub const Function = struct {
             block,
             br,
             br_cond,
+            br_cond_nosanitize,
             call,
             @"call fast",
             cmpxchg,
@@ -4345,6 +4347,13 @@ pub const Function = struct {
                     else => unreachable,
                 };
             }
+
+            pub fn isNosanitize(self: Tag) bool {
+                return switch (self) {
+                    .br_cond_nosanitize => true,
+                    else => false,
+                };
+            }
         };
 
         pub const Index = enum(u32) {
@@ -4367,6 +4376,7 @@ pub const Function = struct {
                 return switch (wip.instructions.items(.tag)[@intFromEnum(self)]) {
                     .br,
                     .br_cond,
+                    .br_cond_nosanitize,
                     .ret,
                     .@"ret void",
                     .@"switch",
@@ -4380,6 +4390,7 @@ pub const Function = struct {
                 return switch (wip.instructions.items(.tag)[@intFromEnum(self)]) {
                     .br,
                     .br_cond,
+                    .br_cond_nosanitize,
                     .fence,
                     .ret,
                     .@"ret void",
@@ -4470,6 +4481,7 @@ pub const Function = struct {
                     .block => .label,
                     .br,
                     .br_cond,
+                    .br_cond_nosanitize,
                     .fence,
                     .ret,
                     .@"ret void",
@@ -4656,6 +4668,7 @@ pub const Function = struct {
                     .block => .label,
                     .br,
                     .br_cond,
+                    .br_cond_nosanitize,
                     .fence,
                     .ret,
                     .@"ret void",
@@ -5100,6 +5113,7 @@ pub const WipFunction = struct {
     instructions: std.MultiArrayList(Instruction),
     names: std.ArrayListUnmanaged(String),
     strip: bool,
+    any_nosanitize: bool,
     debug_locations: std.AutoArrayHashMapUnmanaged(Instruction.Index, DebugLocation),
     debug_values: std.AutoArrayHashMapUnmanaged(Instruction.Index, void),
     extra: std.ArrayListUnmanaged(u32),
@@ -5146,6 +5160,7 @@ pub const WipFunction = struct {
             .instructions = .{},
             .names = .{},
             .strip = options.strip,
+            .any_nosanitize = false,
             .debug_locations = .{},
             .debug_values = .{},
             .extra = .{},
@@ -6437,7 +6452,7 @@ pub const WipFunction = struct {
                     .@"ret void",
                     .@"unreachable",
                     => {},
-                    .br_cond => {
+                    .br_cond, .br_cond_nosanitize => {
                         const extra = self.extraData(Instruction.BrCond, instruction.data);
                         instruction.data = wip_extra.addExtra(Instruction.BrCond{
                             .cond = instructions.map(extra.cond),
@@ -6624,6 +6639,7 @@ pub const WipFunction = struct {
         function.names = names.ptr;
         function.value_indices = value_indices.ptr;
         function.strip = self.strip;
+        function.any_nosanitize = self.any_nosanitize;
         function.debug_locations = debug_locations;
         function.debug_values = debug_values;
     }
@@ -8537,6 +8553,7 @@ pub fn init(options: Options) Allocator.Error!Builder {
 
     try self.metadata_string_indices.append(self.gpa, 0);
     assert(try self.metadataString("") == .none);
+    assert(try self.debugTuple(&.{}) == .empty_tuple);
 
     return self;
 }
@@ -8934,6 +8951,7 @@ pub fn addFunctionAssumeCapacity(
             .kind = .{ .function = function_index },
         }),
         .strip = undefined,
+        .any_nosanitize = false,
     });
     return function_index;
 }
@@ -9581,6 +9599,12 @@ pub fn printUnbuffered(
             });
         }
         if (function.instructions.len > 0) {
+            const maybe_empty_tuple: ?u32 = if (!function.any_nosanitize) null else b: {
+                const gop = try metadata_formatter.map.getOrPut(self.gpa, .{
+                    .metadata = .empty_tuple,
+                });
+                break :b @intCast(gop.index);
+            };
             var block_incoming_len: u32 = undefined;
             try writer.writeAll(" {\n");
             var maybe_dbg_index: ?u32 = null;
@@ -9769,6 +9793,14 @@ pub fn printUnbuffered(
                                 try metadata_formatter.fmt(", !prof ", @as(Metadata, @enumFromInt(@intFromEnum(extra.weights)))),
                             }),
                         }
+                    },
+                    .br_cond_nosanitize => {
+                        const extra = function.extraData(Function.Instruction.BrCond, instruction.data);
+                        try writer.print("  br {%}, {%}, {%}", .{
+                            extra.cond.fmt(function_index, self),
+                            extra.then.toInst(&function).fmt(function_index, self),
+                            extra.@"else".toInst(&function).fmt(function_index, self),
+                        });
                     },
                     .call,
                     .@"call fast",
@@ -10046,8 +10078,12 @@ pub fn printUnbuffered(
                 }
 
                 if (maybe_dbg_index) |dbg_index| {
-                    try writer.print(", !dbg !{}\n", .{dbg_index});
-                } else try writer.writeByte('\n');
+                    try writer.print(", !dbg !{}", .{dbg_index});
+                }
+                if (instruction.tag.isNosanitize()) {
+                    try writer.print(", !nosanitize !{d}", .{maybe_empty_tuple.?});
+                }
+                try writer.writeByte('\n');
             }
             try writer.writeByte('}');
         }
