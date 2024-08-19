@@ -630,12 +630,12 @@ pub fn futex2_waitv(
         nr_futexes,
         flags,
         @intFromPtr(timeout),
-        @bitCast(@as(isize, clockid)),
+        @bitCast(@as(isize, @intFromEnum(clockid))),
     );
 }
 
 /// Wait on a futex.
-/// Identical to `FUTEX.WAIT`, except it is part of the futex2 family of calls.
+/// Identical to `FUTEX.FUTEX_WAIT_BITSET`, except it is part of the futex2 family of calls.
 pub fn futex2_wait(
     /// Address of the futex to wait on.
     uaddr: *const anyopaque,
@@ -646,7 +646,7 @@ pub fn futex2_wait(
     /// `FUTEX2` flags.
     flags: u32,
     /// Optional absolute timeout.
-    timeout: *const timespec,
+    timeout: ?*const timespec,
     /// Clock to be used for the timeout, realtime or monotonic.
     clockid: clockid_t,
 ) usize {
@@ -657,15 +657,15 @@ pub fn futex2_wait(
         mask,
         flags,
         @intFromPtr(timeout),
-        @bitCast(@as(isize, clockid)),
+        @bitCast(@as(isize, @intFromEnum(clockid))),
     );
 }
 
-/// Wake a number of futexes.
-/// Identical to `FUTEX.WAKE`, except it is part of the futex2 family of calls.
+/// Wake a number of waiters.
+/// Identical to `FUTEX.FUTEX_WAKE_BITSET`, except it is part of the futex2 family of calls.
 pub fn futex2_wake(
     /// Address of the futex(es) to wake.
-    uaddr: [*]const anyopaque,
+    uaddr: *const anyopaque,
     /// Bitmask
     mask: usize,
     /// Number of the futexes to wake.
