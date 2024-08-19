@@ -113,6 +113,11 @@ type_references: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .{},
 /// `AnalUnit` multiple times.
 dependencies: std.AutoArrayHashMapUnmanaged(InternPool.Dependee, void) = .{},
 
+/// Whether memoization of this call is permitted. Operations with side effects global
+/// to the `Sema`, such as `@setEvalBranchQuota`, set this to `false`. It is observed
+/// by `analyzeCall`.
+allow_memoize: bool = true,
+
 const MaybeComptimeAlloc = struct {
     /// The runtime index of the `alloc` instruction.
     runtime_index: Value.RuntimeIndex,
@@ -5524,6 +5529,7 @@ fn zirSetEvalBranchQuota(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compi
         .needed_comptime_reason = "eval branch quota must be comptime-known",
     }));
     sema.branch_quota = @max(sema.branch_quota, quota);
+    sema.allow_memoize = false;
 }
 
 fn zirStoreNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
@@ -6416,6 +6422,7 @@ fn zirSetAlignStack(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
     }
 
     zcu.intern_pool.funcMaxStackAlignment(sema.func_index, alignment);
+    sema.allow_memoize = false;
 }
 
 fn zirSetCold(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {
@@ -6434,6 +6441,7 @@ fn zirSetCold(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) 
         .cau => return, // does nothing outside a function
     };
     ip.funcSetCold(func, is_cold);
+    sema.allow_memoize = false;
 }
 
 fn zirDisableInstrumentation(sema: *Sema) CompileError!void {
@@ -6445,6 +6453,7 @@ fn zirDisableInstrumentation(sema: *Sema) CompileError!void {
         .cau => return, // does nothing outside a function
     };
     ip.funcSetDisableInstrumentation(func);
+    sema.allow_memoize = false;
 }
 
 fn zirSetFloatMode(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {
@@ -7728,15 +7737,25 @@ fn analyzeCall(
         // This `res2` is here instead of directly breaking from `res` due to a stage1
         // bug generating invalid LLVM IR.
         const res2: Air.Inst.Ref = res2: {
-            if (should_memoize and is_comptime_call) {
-                if (zcu.intern_pool.getIfExists(.{ .memoized_call = .{
-                    .func = module_fn_index,
-                    .arg_values = memoized_arg_values,
-                    .result = .none,
-                } })) |memoized_call_index| {
-                    const memoized_call = zcu.intern_pool.indexToKey(memoized_call_index).memoized_call;
-                    break :res2 Air.internedToRef(memoized_call.result);
+            memoize: {
+                if (!should_memoize) break :memoize;
+                if (!is_comptime_call) break :memoize;
+                const memoized_call_index = ip.getIfExists(.{
+                    .memoized_call = .{
+                        .func = module_fn_index,
+                        .arg_values = memoized_arg_values,
+                        .result = undefined, // ignored by hash+eql
+                        .branch_count = undefined, // ignored by hash+eql
+                    },
+                }) orelse break :memoize;
+                const memoized_call = ip.indexToKey(memoized_call_index).memoized_call;
+                if (sema.branch_count + memoized_call.branch_count > sema.branch_quota) {
+                    // Let the call play out se we get the correct source location for the
+                    // "evaluation exceeded X backwards branches" error.
+                    break :memoize;
                 }
+                sema.branch_count += memoized_call.branch_count;
+                break :res2 Air.internedToRef(memoized_call.result);
             }
 
             new_fn_info.return_type = sema.fn_ret_ty.toIntern();
@@ -7774,6 +7793,17 @@ fn analyzeCall(
                 child_block.error_return_trace_index = error_return_trace_index;
             }
 
+            // We temporarily set `allow_memoize` to `true` to track this comptime call.
+            // It is restored after this call finishes analysis, so that a caller may
+            // know whether an in-progress call (containing this call) may be memoized.
+            const old_allow_memoize = sema.allow_memoize;
+            defer sema.allow_memoize = old_allow_memoize and sema.allow_memoize;
+            sema.allow_memoize = true;
+
+            // Store the current eval branch count so we can find out how many eval branches
+            // the comptime call caused.
+            const old_branch_count = sema.branch_count;
+
             const result = result: {
                 sema.analyzeFnBody(&child_block, fn_info.body) catch |err| switch (err) {
                     error.ComptimeReturn => break :result inlining.comptime_result,
@@ -7793,11 +7823,12 @@ fn analyzeCall(
                 // a reference to `comptime_allocs` so is not stable across instances of `Sema`.
                 // TODO: check whether any external comptime memory was mutated by the
                 // comptime function call. If so, then do not memoize the call here.
-                if (should_memoize and !Value.fromInterned(result_interned).canMutateComptimeVarState(zcu)) {
+                if (should_memoize and sema.allow_memoize and !Value.fromInterned(result_interned).canMutateComptimeVarState(zcu)) {
                     _ = try pt.intern(.{ .memoized_call = .{
                         .func = module_fn_index,
                         .arg_values = memoized_arg_values,
                         .result = result_transformed,
+                        .branch_count = sema.branch_count - old_branch_count,
                     } });
                 }
 
