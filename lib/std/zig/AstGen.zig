@@ -66,6 +66,10 @@ scratch: std.ArrayListUnmanaged(u32) = .{},
 ///    of ZIR.
 /// The key is the ref operand; the value is the ref instruction.
 ref_table: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{},
+/// Any information which should trigger invalidation of incremental compilation
+/// data should be used to update this hasher. The result is the final source
+/// hash of the enclosing declaration/etc.
+src_hasher: std.zig.SrcHasher,
 
 const InnerError = error{ OutOfMemory, AnalysisFail };
 
@@ -137,6 +141,7 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
         .arena = arena.allocator(),
         .tree = &tree,
         .nodes_need_rl = &nodes_need_rl,
+        .src_hasher = undefined, // `structDeclInner` for the root struct will set this
     };
     defer astgen.deinit(gpa);
 
@@ -1422,6 +1427,8 @@ fn fnProtoExpr(
         .is_extern = false,
         .is_noinline = false,
         .noalias_bits = noalias_bits,
+
+        .proto_hash = undefined, // ignored for `body_gz == null`
     });
 
     _ = try block_scope.addBreak(.break_inline, block_inst, result);
@@ -4007,6 +4014,13 @@ fn fnDecl(
     const tree = astgen.tree;
     const token_tags = tree.tokens.items(.tag);
 
+    const old_hasher = astgen.src_hasher;
+    defer astgen.src_hasher = old_hasher;
+    astgen.src_hasher = std.zig.SrcHasher.init(.{});
+    // We don't add the full source yet, because we also need the prototype hash!
+    // The source slice is added towards the *end* of this function.
+    astgen.src_hasher.update(std.mem.asBytes(&astgen.source_column));
+
     // missing function name already happened in scanDecls()
     const fn_name_token = fn_proto.name_token orelse return error.AnalysisFail;
 
@@ -4300,10 +4314,20 @@ fn fnDecl(
             .is_extern = true,
             .is_noinline = is_noinline,
             .noalias_bits = noalias_bits,
+            .proto_hash = undefined, // ignored for `body_gz == null`
         });
     } else func: {
         // as a scope, fn_gz encloses ret_gz, but for instruction list, fn_gz stacks on ret_gz
         fn_gz.instructions_top = ret_gz.instructions.items.len;
+
+        // Construct the prototype hash.
+        // Leave `astgen.src_hasher` unmodified; this will be used for hashing
+        // the *whole* function declaration, including its body.
+        var proto_hasher = astgen.src_hasher;
+        const proto_node = tree.nodes.items(.data)[decl_node].lhs;
+        proto_hasher.update(tree.getNodeSource(proto_node));
+        var proto_hash: std.zig.SrcHash = undefined;
+        proto_hasher.final(&proto_hash);
 
         const prev_fn_block = astgen.fn_block;
         const prev_fn_ret_ty = astgen.fn_ret_ty;
@@ -4362,16 +4386,22 @@ fn fnDecl(
             .is_extern = false,
             .is_noinline = is_noinline,
             .noalias_bits = noalias_bits,
+            .proto_hash = proto_hash,
         });
     };
+
+    // *Now* we can incorporate the full source code into the hasher.
+    astgen.src_hasher.update(tree.getNodeSource(decl_node));
 
     // We add this at the end so that its instruction index marks the end range
     // of the top level declaration. addFunc already unstacked fn_gz and ret_gz.
     _ = try decl_gz.addBreak(.break_inline, decl_inst, func_inst);
 
+    var hash: std.zig.SrcHash = undefined;
+    astgen.src_hasher.final(&hash);
     try setDeclaration(
         decl_inst,
-        std.zig.hashSrc(tree.getNodeSource(decl_node)),
+        hash,
         .{ .named = fn_name_token },
         decl_gz.decl_line,
         is_pub,
@@ -4394,6 +4424,12 @@ fn globalVarDecl(
 ) InnerError!void {
     const tree = astgen.tree;
     const token_tags = tree.tokens.items(.tag);
+
+    const old_hasher = astgen.src_hasher;
+    defer astgen.src_hasher = old_hasher;
+    astgen.src_hasher = std.zig.SrcHasher.init(.{});
+    astgen.src_hasher.update(tree.getNodeSource(node));
+    astgen.src_hasher.update(std.mem.asBytes(&astgen.source_column));
 
     const is_mutable = token_tags[var_decl.ast.mut_token] == .keyword_var;
     // We do this at the beginning so that the instruction index marks the range start
@@ -4534,9 +4570,11 @@ fn globalVarDecl(
         _ = try addrspace_gz.addBreakWithSrcNode(.break_inline, decl_inst, addrspace_inst, node);
     }
 
+    var hash: std.zig.SrcHash = undefined;
+    astgen.src_hasher.final(&hash);
     try setDeclaration(
         decl_inst,
-        std.zig.hashSrc(tree.getNodeSource(node)),
+        hash,
         .{ .named = name_token },
         block_scope.decl_line,
         is_pub,
@@ -4562,6 +4600,12 @@ fn comptimeDecl(
     const node_datas = tree.nodes.items(.data);
     const body_node = node_datas[node].lhs;
 
+    const old_hasher = astgen.src_hasher;
+    defer astgen.src_hasher = old_hasher;
+    astgen.src_hasher = std.zig.SrcHasher.init(.{});
+    astgen.src_hasher.update(tree.getNodeSource(node));
+    astgen.src_hasher.update(std.mem.asBytes(&astgen.source_column));
+
     // Up top so the ZIR instruction index marks the start range of this
     // top-level declaration.
     const decl_inst = try gz.makeDeclaration(node);
@@ -4584,9 +4628,11 @@ fn comptimeDecl(
         _ = try decl_block.addBreak(.break_inline, decl_inst, .void_value);
     }
 
+    var hash: std.zig.SrcHash = undefined;
+    astgen.src_hasher.final(&hash);
     try setDeclaration(
         decl_inst,
-        std.zig.hashSrc(tree.getNodeSource(node)),
+        hash,
         .@"comptime",
         decl_block.decl_line,
         false,
@@ -4606,6 +4652,12 @@ fn usingnamespaceDecl(
 ) InnerError!void {
     const tree = astgen.tree;
     const node_datas = tree.nodes.items(.data);
+
+    const old_hasher = astgen.src_hasher;
+    defer astgen.src_hasher = old_hasher;
+    astgen.src_hasher = std.zig.SrcHasher.init(.{});
+    astgen.src_hasher.update(tree.getNodeSource(node));
+    astgen.src_hasher.update(std.mem.asBytes(&astgen.source_column));
 
     const type_expr = node_datas[node].lhs;
     const is_pub = blk: {
@@ -4634,9 +4686,11 @@ fn usingnamespaceDecl(
     const namespace_inst = try typeExpr(&decl_block, &decl_block.base, type_expr);
     _ = try decl_block.addBreak(.break_inline, decl_inst, namespace_inst);
 
+    var hash: std.zig.SrcHash = undefined;
+    astgen.src_hasher.final(&hash);
     try setDeclaration(
         decl_inst,
-        std.zig.hashSrc(tree.getNodeSource(node)),
+        hash,
         .@"usingnamespace",
         decl_block.decl_line,
         is_pub,
@@ -4657,6 +4711,12 @@ fn testDecl(
     const tree = astgen.tree;
     const node_datas = tree.nodes.items(.data);
     const body_node = node_datas[node].rhs;
+
+    const old_hasher = astgen.src_hasher;
+    defer astgen.src_hasher = old_hasher;
+    astgen.src_hasher = std.zig.SrcHasher.init(.{});
+    astgen.src_hasher.update(tree.getNodeSource(node));
+    astgen.src_hasher.update(std.mem.asBytes(&astgen.source_column));
 
     // Up top so the ZIR instruction index marks the start range of this
     // top-level declaration.
@@ -4819,13 +4879,18 @@ fn testDecl(
         .is_extern = false,
         .is_noinline = false,
         .noalias_bits = 0,
+
+        // Tests don't have a prototype that needs hashing
+        .proto_hash = .{0} ** 16,
     });
 
     _ = try decl_block.addBreak(.break_inline, decl_inst, func_inst);
 
+    var hash: std.zig.SrcHash = undefined;
+    astgen.src_hasher.final(&hash);
     try setDeclaration(
         decl_inst,
-        std.zig.hashSrc(tree.getNodeSource(node)),
+        hash,
         test_name,
         decl_block.decl_line,
         false,
@@ -4983,10 +5048,12 @@ fn structDeclInner(
         }
     };
 
-    var fields_hasher = std.zig.SrcHasher.init(.{});
-    fields_hasher.update(@tagName(layout));
+    const old_hasher = astgen.src_hasher;
+    defer astgen.src_hasher = old_hasher;
+    astgen.src_hasher = std.zig.SrcHasher.init(.{});
+    astgen.src_hasher.update(@tagName(layout));
     if (backing_int_node != 0) {
-        fields_hasher.update(tree.getNodeSource(backing_int_node));
+        astgen.src_hasher.update(tree.getNodeSource(backing_int_node));
     }
 
     var sfba = std.heap.stackFallback(256, astgen.arena);
@@ -5009,7 +5076,7 @@ fn structDeclInner(
             .field => |field| field,
         };
 
-        fields_hasher.update(tree.getNodeSource(member_node));
+        astgen.src_hasher.update(tree.getNodeSource(member_node));
 
         if (!is_tuple) {
             const field_name = try astgen.identAsString(member.ast.main_token);
@@ -5139,7 +5206,7 @@ fn structDeclInner(
     }
 
     var fields_hash: std.zig.SrcHash = undefined;
-    fields_hasher.final(&fields_hash);
+    astgen.src_hasher.final(&fields_hash);
 
     try gz.setStruct(decl_inst, .{
         .src_node = node,
@@ -5240,11 +5307,13 @@ fn unionDeclInner(
     var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, field_count, bits_per_field, max_field_size);
     defer wip_members.deinit();
 
-    var fields_hasher = std.zig.SrcHasher.init(.{});
-    fields_hasher.update(@tagName(layout));
-    fields_hasher.update(&.{@intFromBool(auto_enum_tok != null)});
+    const old_hasher = astgen.src_hasher;
+    defer astgen.src_hasher = old_hasher;
+    astgen.src_hasher = std.zig.SrcHasher.init(.{});
+    astgen.src_hasher.update(@tagName(layout));
+    astgen.src_hasher.update(&.{@intFromBool(auto_enum_tok != null)});
     if (arg_node != 0) {
-        fields_hasher.update(astgen.tree.getNodeSource(arg_node));
+        astgen.src_hasher.update(astgen.tree.getNodeSource(arg_node));
     }
 
     var sfba = std.heap.stackFallback(256, astgen.arena);
@@ -5261,7 +5330,7 @@ fn unionDeclInner(
             .decl => continue,
             .field => |field| field,
         };
-        fields_hasher.update(astgen.tree.getNodeSource(member_node));
+        astgen.src_hasher.update(astgen.tree.getNodeSource(member_node));
         member.convertToNonTupleLike(astgen.tree.nodes);
         if (member.ast.tuple_like) {
             return astgen.failTok(member.ast.main_token, "union field missing name", .{});
@@ -5364,7 +5433,7 @@ fn unionDeclInner(
     }
 
     var fields_hash: std.zig.SrcHash = undefined;
-    fields_hasher.final(&fields_hash);
+    astgen.src_hasher.final(&fields_hash);
 
     if (!block_scope.isEmpty()) {
         _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
@@ -5578,11 +5647,13 @@ fn containerDecl(
             var wip_members = try WipMembers.init(gpa, &astgen.scratch, @intCast(counts.decls), @intCast(counts.total_fields), bits_per_field, max_field_size);
             defer wip_members.deinit();
 
-            var fields_hasher = std.zig.SrcHasher.init(.{});
+            const old_hasher = astgen.src_hasher;
+            defer astgen.src_hasher = old_hasher;
+            astgen.src_hasher = std.zig.SrcHasher.init(.{});
             if (container_decl.ast.arg != 0) {
-                fields_hasher.update(tree.getNodeSource(container_decl.ast.arg));
+                astgen.src_hasher.update(tree.getNodeSource(container_decl.ast.arg));
             }
-            fields_hasher.update(&.{@intFromBool(nonexhaustive)});
+            astgen.src_hasher.update(&.{@intFromBool(nonexhaustive)});
 
             var sfba = std.heap.stackFallback(256, astgen.arena);
             const sfba_allocator = sfba.get();
@@ -5596,7 +5667,7 @@ fn containerDecl(
             for (container_decl.ast.members) |member_node| {
                 if (member_node == counts.nonexhaustive_node)
                     continue;
-                fields_hasher.update(tree.getNodeSource(member_node));
+                astgen.src_hasher.update(tree.getNodeSource(member_node));
                 var member = switch (try containerMember(&block_scope, &namespace.base, &wip_members, member_node)) {
                     .decl => continue,
                     .field => |field| field,
@@ -5676,7 +5747,7 @@ fn containerDecl(
             }
 
             var fields_hash: std.zig.SrcHash = undefined;
-            fields_hasher.final(&fields_hash);
+            astgen.src_hasher.final(&fields_hash);
 
             const body = block_scope.instructionsSlice();
             const body_len = astgen.countBodyLenAfterFixups(body);
@@ -8478,6 +8549,10 @@ fn tunnelThroughClosure(
         });
     }
 
+    // Incorporate the capture index into the source hash, so that changes in
+    // the order of captures cause suitable re-analysis.
+    astgen.src_hasher.update(std.mem.asBytes(&cur_capture_index));
+
     // Add an instruction to get the value from the closure.
     return gz.addExtendedNodeSmall(.closure_get, inner_ref_node, cur_capture_index);
 }
@@ -9306,6 +9381,13 @@ fn builtinCall(
         },
 
         .src => {
+            // Incorporate the source location into the source hash, so that
+            // changes in the source location of `@src()` result in re-analysis.
+            astgen.src_hasher.update(
+                std.mem.asBytes(&astgen.source_line) ++
+                    std.mem.asBytes(&astgen.source_column),
+            );
+
             const token_starts = tree.tokens.items(.start);
             const node_start = token_starts[tree.firstToken(node)];
             astgen.advanceSourceCursor(node_start);
@@ -12122,6 +12204,9 @@ const GenZir = struct {
         is_test: bool,
         is_extern: bool,
         is_noinline: bool,
+
+        /// Ignored if `body_gz == null`.
+        proto_hash: std.zig.SrcHash,
     }) !Zir.Inst.Ref {
         assert(args.src_node != 0);
         const astgen = gz.astgen;
@@ -12150,15 +12235,7 @@ const GenZir = struct {
 
             const columns = args.lbrace_column | (rbrace_column << 16);
 
-            const proto_hash: std.zig.SrcHash = switch (node_tags[fn_decl]) {
-                .fn_decl => sig_hash: {
-                    const proto_node = node_datas[fn_decl].lhs;
-                    break :sig_hash std.zig.hashSrc(tree.getNodeSource(proto_node));
-                },
-                .test_decl => std.zig.hashSrc(""), // tests don't have a prototype
-                else => unreachable,
-            };
-            const proto_hash_arr: [4]u32 = @bitCast(proto_hash);
+            const proto_hash_arr: [4]u32 = @bitCast(args.proto_hash);
 
             src_locs_and_hash_buffer = .{
                 args.lbrace_line,
