@@ -9,13 +9,14 @@ const one_pending: usize = 1 << 1;
 state: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
 event: std.Thread.ResetEvent = .{},
 
-/// Increments the wait group counter to indicate a new task has started.
+/// Increments the wait group counter. Thread-safe.
 pub fn start(self: *WaitGroup) void {
     const state = self.state.fetchAdd(one_pending, .monotonic);
     assert((state / one_pending) < (std.math.maxInt(usize) / one_pending));
 }
 
-/// Decrements the wait group counter to indicate a task has finished.
+/// Decrements the wait group counter. Thread-safe.
+/// If this sets the counter to zero, all waiters are woken.
 pub fn finish(self: *WaitGroup) void {
     const state = self.state.fetchSub(one_pending, .release);
     assert((state / one_pending) > 0);
@@ -26,7 +27,7 @@ pub fn finish(self: *WaitGroup) void {
     }
 }
 
-/// Waits for all tasks to complete.
+/// Blocks until the wait group counter reaches zero. Thread-safe.
 pub fn wait(self: *WaitGroup) void {
     const state = self.state.fetchAdd(is_waiting, .acquire);
     assert(state & is_waiting == 0);
@@ -42,7 +43,8 @@ pub fn reset(self: *WaitGroup) void {
     self.event.reset();
 }
 
-/// Checks if all tasks have completed.
+/// Returns `true` if the wait group counter is zero, `false` otherwise. Thread-safe.
+/// Depending on the behavior of other threads, it may be a race condition to rely on this value.
 pub fn isDone(wg: *WaitGroup) bool {
     const state = wg.state.load(.acquire);
     assert(state & is_waiting == 0);
