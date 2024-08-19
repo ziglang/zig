@@ -248,7 +248,9 @@ const DbgInfoReloc = struct {
 
     fn genDbgInfo(reloc: DbgInfoReloc, function: Self) !void {
         switch (reloc.tag) {
-            .arg => try reloc.genArgDbgInfo(function),
+            .arg,
+            .dbg_arg_inline,
+            => try reloc.genArgDbgInfo(function),
 
             .dbg_var_ptr,
             .dbg_var_val,
@@ -279,7 +281,7 @@ const DbgInfoReloc = struct {
                     else => unreachable, // not a possible argument
                 };
 
-                try dw.genVarDebugInfo(.local_arg, reloc.name, reloc.ty, loc);
+                try dw.genLocalDebugInfo(.local_arg, reloc.name, reloc.ty, loc);
             },
             .plan9 => {},
             .none => {},
@@ -315,7 +317,7 @@ const DbgInfoReloc = struct {
                         break :blk .empty;
                     },
                 };
-                try dw.genVarDebugInfo(.local_var, reloc.name, reloc.ty, loc);
+                try dw.genLocalDebugInfo(.local_var, reloc.name, reloc.ty, loc);
             },
             .plan9 => {},
             .none => {},
@@ -786,6 +788,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .dbg_inline_block => try self.airDbgInlineBlock(inst),
             .dbg_var_ptr,
             .dbg_var_val,
+            .dbg_arg_inline,
             => try self.airDbgVar(inst),
 
             .call              => try self.airCall(inst, .auto),
@@ -4199,16 +4202,13 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
     const ty = self.typeOfIndex(inst);
     const tag = self.air.instructions.items(.tag)[@intFromEnum(inst)];
 
-    const name_nts = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
-    if (name_nts != .none) {
-        const name = self.air.nullTerminatedString(@intFromEnum(name_nts));
-        try self.dbg_info_relocs.append(self.gpa, .{
-            .tag = tag,
-            .ty = ty,
-            .name = name,
-            .mcv = self.args[arg_index],
-        });
-    }
+    const name = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
+    if (name != .none) try self.dbg_info_relocs.append(self.gpa, .{
+        .tag = tag,
+        .ty = ty,
+        .name = name.toSlice(self.air),
+        .mcv = self.args[arg_index],
+    });
 
     const result: MCValue = if (self.liveness.isUnused(inst)) .dead else self.args[arg_index];
     return self.finishAir(inst, result, .{ .none, .none, .none });
@@ -4612,14 +4612,14 @@ fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
     const tag = self.air.instructions.items(.tag)[@intFromEnum(inst)];
     const ty = self.typeOf(operand);
     const mcv = try self.resolveInst(operand);
-    const name = self.air.nullTerminatedString(pl_op.payload);
+    const name: Air.NullTerminatedString = @enumFromInt(pl_op.payload);
 
     log.debug("airDbgVar: %{d}: {}, {}", .{ inst, ty.fmtDebug(), mcv });
 
     try self.dbg_info_relocs.append(self.gpa, .{
         .tag = tag,
         .ty = ty,
-        .name = name,
+        .name = name.toSlice(self.air),
         .mcv = mcv,
     });
 

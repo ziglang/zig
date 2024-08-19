@@ -81,9 +81,6 @@ mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
 /// MIR extra data
 mir_extra: std.ArrayListUnmanaged(u32) = .{},
 
-stack_args: std.ArrayListUnmanaged(StackVar) = .{},
-stack_vars: std.ArrayListUnmanaged(StackVar) = .{},
-
 /// Byte offset within the source file of the ending curly.
 end_di_line: u32,
 end_di_column: u32,
@@ -728,12 +725,6 @@ const InstTracking = struct {
     }
 };
 
-const StackVar = struct {
-    name: []const u8,
-    type: Type,
-    frame_addr: FrameAddr,
-};
-
 const FrameAlloc = struct {
     abi_size: u31,
     spill_pad: u3,
@@ -839,8 +830,6 @@ pub fn generate(
         function.exitlude_jump_relocs.deinit(gpa);
         function.mir_instructions.deinit(gpa);
         function.mir_extra.deinit(gpa);
-        function.stack_args.deinit(gpa);
-        function.stack_vars.deinit(gpa);
     }
 
     wip_mir_log.debug("{}:", .{fmtNav(func.owner_nav, ip)});
@@ -913,9 +902,6 @@ pub fn generate(
         else => |e| return e,
     };
 
-    try function.genStackVarDebugInfo(.local_arg, function.stack_args.items);
-    try function.genStackVarDebugInfo(.local_var, function.stack_vars.items);
-
     var mir: Mir = .{
         .instructions = function.mir_instructions.toOwnedSlice(),
         .extra = try function.mir_extra.toOwnedSlice(gpa),
@@ -924,6 +910,7 @@ pub fn generate(
     defer mir.deinit(gpa);
 
     var emit: Emit = .{
+        .air = function.air,
         .lower = .{
             .bin_file = bin_file,
             .allocator = gpa,
@@ -1013,14 +1000,15 @@ pub fn generateLazy(
         else => |e| return e,
     };
 
-    var mir = Mir{
+    var mir: Mir = .{
         .instructions = function.mir_instructions.toOwnedSlice(),
         .extra = try function.mir_extra.toOwnedSlice(gpa),
         .frame_locs = function.frame_locs.toOwnedSlice(),
     };
     defer mir.deinit(gpa);
 
-    var emit = Emit{
+    var emit: Emit = .{
+        .air = function.air,
         .lower = .{
             .bin_file = bin_file,
             .allocator = gpa,
@@ -1116,7 +1104,7 @@ fn formatWipMir(
 ) @TypeOf(writer).Error!void {
     const comp = data.self.bin_file.comp;
     const mod = comp.root_mod;
-    var lower = Lower{
+    var lower: Lower = .{
         .bin_file = data.self.bin_file,
         .allocator = data.self.gpa,
         .mir = .{
@@ -1357,6 +1345,56 @@ fn asmPlaceholder(self: *Self) !Mir.Inst.Index {
     });
 }
 
+const MirTagAir = enum { dbg_local };
+
+fn asmAir(self: *Self, tag: MirTagAir, inst: Air.Inst.Index) !void {
+    _ = try self.addInst(.{
+        .tag = .pseudo,
+        .ops = switch (tag) {
+            .dbg_local => .pseudo_dbg_local_a,
+        },
+        .data = .{ .a = .{ .air_inst = inst } },
+    });
+}
+
+fn asmAirImmediate(self: *Self, tag: MirTagAir, inst: Air.Inst.Index, imm: Immediate) !void {
+    const ops: Mir.Inst.Ops, const i: u32 = switch (imm) {
+        .signed => |s| .{ switch (tag) {
+            .dbg_local => .pseudo_dbg_local_ai_s,
+        }, @bitCast(s) },
+        .unsigned => |u| if (math.cast(u32, u)) |small|
+            .{ switch (tag) {
+                .dbg_local => .pseudo_dbg_local_ai_u,
+            }, small }
+        else
+            .{ switch (tag) {
+                .dbg_local => .pseudo_dbg_local_ai_64,
+            }, try self.addExtra(Mir.Imm64.encode(u)) },
+        .reloc => unreachable,
+    };
+    _ = try self.addInst(.{
+        .tag = .pseudo,
+        .ops = ops,
+        .data = .{ .ai = .{
+            .air_inst = inst,
+            .i = i,
+        } },
+    });
+}
+
+fn asmAirMemory(self: *Self, tag: MirTagAir, inst: Air.Inst.Index, m: Memory) !void {
+    _ = try self.addInst(.{
+        .tag = .pseudo,
+        .ops = switch (tag) {
+            .dbg_local => .pseudo_dbg_local_am,
+        },
+        .data = .{ .ax = .{
+            .air_inst = inst,
+            .payload = try self.addExtra(Mir.Memory.encode(m)),
+        } },
+    });
+}
+
 fn asmOpOnly(self: *Self, tag: Mir.Inst.FixedTag) !void {
     _ = try self.addInst(.{
         .tag = tag[1],
@@ -1424,31 +1462,22 @@ fn asmRegisterRegister(self: *Self, tag: Mir.Inst.FixedTag, reg1: Register, reg2
 }
 
 fn asmRegisterImmediate(self: *Self, tag: Mir.Inst.FixedTag, reg: Register, imm: Immediate) !void {
-    const ops: Mir.Inst.Ops = switch (imm) {
-        .signed => .ri_s,
-        .unsigned => |u| if (math.cast(u32, u)) |_| .ri_u else .ri64,
+    const ops: Mir.Inst.Ops, const i: u32 = switch (imm) {
+        .signed => |s| .{ .ri_s, @bitCast(s) },
+        .unsigned => |u| if (math.cast(u32, u)) |small|
+            .{ .ri_u, small }
+        else
+            .{ .ri_64, try self.addExtra(Mir.Imm64.encode(imm.unsigned)) },
         .reloc => unreachable,
     };
     _ = try self.addInst(.{
         .tag = tag[1],
         .ops = ops,
-        .data = switch (ops) {
-            .ri_s, .ri_u => .{ .ri = .{
-                .fixes = tag[0],
-                .r1 = reg,
-                .i = switch (imm) {
-                    .signed => |s| @bitCast(s),
-                    .unsigned => |u| @intCast(u),
-                    .reloc => unreachable,
-                },
-            } },
-            .ri64 => .{ .rx = .{
-                .fixes = tag[0],
-                .r1 = reg,
-                .payload = try self.addExtra(Mir.Imm64.encode(imm.unsigned)),
-            } },
-            else => unreachable,
-        },
+        .data = .{ .ri = .{
+            .fixes = tag[0],
+            .r1 = reg,
+            .i = i,
+        } },
     });
 }
 
@@ -2158,6 +2187,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .dbg_inline_block => try self.airDbgInlineBlock(inst),
             .dbg_var_ptr,
             .dbg_var_val,
+            .dbg_arg_inline,
             => try self.airDbgVar(inst),
 
             .call              => try self.airCall(inst, .auto),
@@ -11951,87 +11981,59 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
 fn airDbgArg(self: *Self, inst: Air.Inst.Index) !void {
     defer self.finishAirBookkeeping();
     if (self.debug_output == .none) return;
-    const name_nts = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
-    const name = self.air.nullTerminatedString(@intFromEnum(name_nts));
-    if (name.len > 0) {
-        const arg_ty = self.typeOfIndex(inst);
-        const arg_mcv = self.getResolvedInstValue(inst).short;
-        try self.genVarDebugInfo(.local_arg, .dbg_var_val, name, arg_ty, arg_mcv);
-    }
+    const name = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
+    if (name != .none) try self.genLocalDebugInfo(inst, self.getResolvedInstValue(inst).short);
     if (self.liveness.isUnused(inst)) try self.processDeath(inst);
 }
 
-fn genVarDebugInfo(
+fn genLocalDebugInfo(
     self: *Self,
-    var_tag: link.File.Dwarf.WipNav.VarTag,
-    tag: Air.Inst.Tag,
-    name: []const u8,
-    ty: Type,
+    inst: Air.Inst.Index,
     mcv: MCValue,
 ) !void {
-    const stack_vars = switch (var_tag) {
-        .local_arg => &self.stack_args,
-        .local_var => &self.stack_vars,
-    };
-    switch (self.debug_output) {
-        .dwarf => |dwarf| switch (tag) {
-            else => unreachable,
-            .dbg_var_ptr => {
-                const var_ty = ty.childType(self.pt.zcu);
-                switch (mcv) {
-                    else => {
-                        log.info("dbg_var_ptr({s}({}))", .{ @tagName(mcv), mcv });
-                        unreachable;
-                    },
-                    .unreach, .dead, .elementwise_regs_then_frame, .reserved_frame, .air_ref => unreachable,
-                    .lea_frame => |frame_addr| try stack_vars.append(self.gpa, .{
-                        .name = name,
-                        .type = var_ty,
-                        .frame_addr = frame_addr,
-                    }),
-                    .lea_symbol => |sym_off| try dwarf.genVarDebugInfo(var_tag, name, var_ty, .{ .plus = .{
-                        &.{ .addr = .{ .sym = sym_off.sym } },
-                        &.{ .consts = sym_off.off },
-                    } }),
-                }
-            },
-            .dbg_var_val => switch (mcv) {
-                .none => try dwarf.genVarDebugInfo(var_tag, name, ty, .empty),
+    if (self.debug_output == .none) return;
+    switch (self.air.instructions.items(.tag)[@intFromEnum(inst)]) {
+        else => unreachable,
+        .arg, .dbg_arg_inline, .dbg_var_val => |tag| {
+            switch (mcv) {
+                .none => try self.asmAir(.dbg_local, inst),
                 .unreach, .dead, .elementwise_regs_then_frame, .reserved_frame, .air_ref => unreachable,
-                .immediate => |immediate| try dwarf.genVarDebugInfo(var_tag, name, ty, .{ .stack_value = &.{
-                    .constu = immediate,
-                } }),
+                .immediate => |imm| try self.asmAirImmediate(.dbg_local, inst, Immediate.u(imm)),
                 else => {
+                    const ty = switch (tag) {
+                        else => unreachable,
+                        .arg => self.typeOfIndex(inst),
+                        .dbg_arg_inline, .dbg_var_val => self.typeOf(
+                            self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op.operand,
+                        ),
+                    };
                     const frame_index = try self.allocFrameIndex(FrameAlloc.initSpill(ty, self.pt));
                     try self.genSetMem(.{ .frame = frame_index }, 0, ty, mcv, .{});
-                    try stack_vars.append(self.gpa, .{
-                        .name = name,
-                        .type = ty,
-                        .frame_addr = .{ .index = frame_index },
+                    try self.asmAirMemory(.dbg_local, inst, .{
+                        .base = .{ .frame = frame_index },
+                        .mod = .{ .rm = .{ .size = .qword } },
                     });
                 },
-            },
+            }
         },
-        .plan9 => {},
-        .none => {},
-    }
-}
-
-fn genStackVarDebugInfo(
-    self: Self,
-    var_tag: link.File.Dwarf.WipNav.VarTag,
-    stack_vars: []const StackVar,
-) !void {
-    switch (self.debug_output) {
-        .dwarf => |dwarf| for (stack_vars) |stack_var| {
-            const frame_loc = self.frame_locs.get(@intFromEnum(stack_var.frame_addr.index));
-            try dwarf.genVarDebugInfo(var_tag, stack_var.name, stack_var.type, .{ .plus = .{
-                &.{ .breg = frame_loc.base.dwarfNum() },
-                &.{ .consts = @as(i33, frame_loc.disp) + stack_var.frame_addr.off },
-            } });
+        .dbg_var_ptr => switch (mcv) {
+            else => unreachable,
+            .unreach, .dead, .elementwise_regs_then_frame, .reserved_frame, .air_ref => unreachable,
+            .lea_frame => |frame_addr| try self.asmAirMemory(.dbg_local, inst, .{
+                .base = .{ .frame = frame_addr.index },
+                .mod = .{ .rm = .{
+                    .size = .qword,
+                    .disp = frame_addr.off,
+                } },
+            }),
+            .lea_symbol => |sym_off| try self.asmAirMemory(.dbg_local, inst, .{
+                .base = .{ .reloc = .{ .atom_index = undefined, .sym_index = sym_off.sym } },
+                .mod = .{ .rm = .{
+                    .size = .qword,
+                    .disp = sym_off.off,
+                } },
+            }),
         },
-        .plan9 => {},
-        .none => {},
     }
 }
 
@@ -13060,29 +13062,21 @@ fn airDbgInlineBlock(self: *Self, inst: Air.Inst.Index) !void {
     self.inline_func = extra.data.func;
     _ = try self.addInst(.{
         .tag = .pseudo,
-        .ops = .pseudo_dbg_inline_func,
+        .ops = .pseudo_dbg_enter_inline_func,
         .data = .{ .func = extra.data.func },
     });
     try self.lowerBlock(inst, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
     _ = try self.addInst(.{
         .tag = .pseudo,
-        .ops = .pseudo_dbg_inline_func,
+        .ops = .pseudo_dbg_leave_inline_func,
         .data = .{ .func = old_inline_func },
     });
 }
 
 fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const operand = pl_op.operand;
-    const ty = self.typeOf(operand);
-    const mcv = try self.resolveInst(operand);
-
-    const name = self.air.nullTerminatedString(pl_op.payload);
-
-    const tag = self.air.instructions.items(.tag)[@intFromEnum(inst)];
-    try self.genVarDebugInfo(.local_var, tag, name, ty, mcv);
-
-    return self.finishAir(inst, .unreach, .{ operand, .none, .none });
+    try self.genLocalDebugInfo(inst, try self.resolveInst(pl_op.operand));
+    return self.finishAir(inst, .unreach, .{ pl_op.operand, .none, .none });
 }
 
 fn genCondBrMir(self: *Self, ty: Type, mcv: MCValue) !Mir.Inst.Index {

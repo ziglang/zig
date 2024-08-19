@@ -760,8 +760,8 @@ pub const Inst = struct {
         /// Uses `ri` payload.
         ri_u,
         /// Register, 64-bit unsigned immediate operands.
-        /// Uses `rx` payload with payload type `Imm64`.
-        ri64,
+        /// Uses `ri` payload with `i` index of extra data of type `Imm64`.
+        ri_64,
         /// Immediate (sign-extended) operand.
         /// Uses `imm` payload.
         i_s,
@@ -796,7 +796,7 @@ pub const Inst = struct {
         /// Uses `rrix` payload with extra data of type `Memory`.
         rrmi,
         /// Single memory operand.
-        /// Uses `x` with extra data of type `Memory`.
+        /// Uses `x` payload with extra data of type `Memory`.
         m,
         /// Memory, immediate (sign-extend) operands.
         /// Uses `x` payload with extra data of type `Imm32` followed by `Memory`.
@@ -868,16 +868,16 @@ pub const Inst = struct {
         pseudo_j_nz_or_p_inst,
 
         /// Probe alignment
-        /// Uses `ri` payload
+        /// Uses `ri` payload.
         pseudo_probe_align_ri_s,
         /// Probe adjust unrolled
-        /// Uses `ri` payload
+        /// Uses `ri` payload.
         pseudo_probe_adjust_unrolled_ri_s,
         /// Probe adjust setup
-        /// Uses `rri` payload
+        /// Uses `rri` payload.
         pseudo_probe_adjust_setup_rri_s,
         /// Probe adjust loop
-        /// Uses `rr` payload
+        /// Uses `rr` payload.
         pseudo_probe_adjust_loop_rr,
         /// Push registers
         /// Uses `reg_list` payload.
@@ -893,8 +893,25 @@ pub const Inst = struct {
         pseudo_dbg_line_line_column,
         /// Start of epilogue
         pseudo_dbg_epilogue_begin_none,
-        /// Start or end of inline function
-        pseudo_dbg_inline_func,
+        /// Start of inline function
+        pseudo_dbg_enter_inline_func,
+        /// End of inline function
+        pseudo_dbg_leave_inline_func,
+        /// Local argument or variable.
+        /// Uses `a` payload.
+        pseudo_dbg_local_a,
+        /// Local argument or variable.
+        /// Uses `ai` payload.
+        pseudo_dbg_local_ai_s,
+        /// Local argument or variable.
+        /// Uses `ai` payload.
+        pseudo_dbg_local_ai_u,
+        /// Local argument or variable.
+        /// Uses `ax` payload with extra data of type `Imm64`.
+        pseudo_dbg_local_ai_64,
+        /// Local argument or variable.
+        /// Uses `ax` payload with extra data of type `Memory`.
+        pseudo_dbg_local_am,
 
         /// Tombstone
         /// Emitter should skip this instruction.
@@ -995,6 +1012,17 @@ pub const Inst = struct {
         /// Custom payload found in extra.
         x: struct {
             fixes: Fixes = ._,
+            payload: u32,
+        },
+        a: struct {
+            air_inst: Air.Inst.Index,
+        },
+        ai: struct {
+            air_inst: Air.Inst.Index,
+            i: u32,
+        },
+        ax: struct {
+            air_inst: Air.Inst.Index,
             payload: u32,
         },
         /// Relocation for the linker where:
@@ -1225,6 +1253,7 @@ const builtin = @import("builtin");
 const encoder = @import("encoder.zig");
 const std = @import("std");
 
+const Air = @import("../../Air.zig");
 const IntegerBitSet = std.bit_set.IntegerBitSet;
 const InternPool = @import("../../InternPool.zig");
 const Mir = @This();

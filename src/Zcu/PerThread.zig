@@ -1241,7 +1241,10 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
     }
 
     const nav_already_populated, const queue_linker_work = switch (ip.indexToKey(decl_val.toIntern())) {
-        .func => |f| .{ f.owner_nav == nav_index, false },
+        .func => |f| status: {
+            const func_type = ip.indexToKey(f.ty).func_type;
+            break :status .{ f.owner_nav == nav_index, func_type.is_generic or func_type.cc == .Inline };
+        },
         .variable => |v| .{ false, v.owner_nav == nav_index },
         .@"extern" => .{ false, false },
         else => .{ false, true },
@@ -2158,7 +2161,7 @@ fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaError!
                 .name = if (inner_block.ownerModule().strip)
                     .none
                 else
-                    @enumFromInt(try sema.appendAirString(sema.code.nullTerminatedString(param_name))),
+                    try sema.appendAirString(sema.code.nullTerminatedString(param_name)),
             } },
         });
     }

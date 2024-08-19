@@ -643,6 +643,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .dbg_inline_block => try self.airDbgInlineBlock(inst),
             .dbg_var_ptr,
             .dbg_var_val,
+            .dbg_arg_inline,
             => try self.airDbgVar(inst),
 
             .call              => try self.airCall(inst, .auto),
@@ -1662,7 +1663,7 @@ fn airDbgStmt(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airDbgVar(self: *Self, inst: Air.Inst.Index) !void {
     const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const name = self.air.nullTerminatedString(pl_op.payload);
+    const name: Air.NullTerminatedString = @enumFromInt(pl_op.payload);
     const operand = pl_op.operand;
     // TODO emit debug info for this variable
     _ = name;
@@ -3582,13 +3583,15 @@ fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, mcv: MCValue) !void {
     const arg = self.air.instructions.items(.data)[@intFromEnum(inst)].arg;
     const ty = arg.ty.toType();
     if (arg.name == .none) return;
-    const name = self.air.nullTerminatedString(@intFromEnum(arg.name));
 
     switch (self.debug_output) {
         .dwarf => |dw| switch (mcv) {
-            .register => |reg| try dw.genVarDebugInfo(.local_arg, name, ty, .{
-                .reg = reg.dwarfNum(),
-            }),
+            .register => |reg| try dw.genLocalDebugInfo(
+                .local_arg,
+                arg.name.toSlice(self.air),
+                ty,
+                .{ .reg = reg.dwarfNum() },
+            ),
             else => {},
         },
         else => {},

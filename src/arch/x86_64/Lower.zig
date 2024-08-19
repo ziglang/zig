@@ -4,10 +4,10 @@ bin_file: *link.File,
 output_mode: std.builtin.OutputMode,
 link_mode: std.builtin.LinkMode,
 pic: bool,
-allocator: Allocator,
+allocator: std.mem.Allocator,
 mir: Mir,
 cc: std.builtin.CallingConvention,
-err_msg: ?*ErrorMsg = null,
+err_msg: ?*Zcu.ErrorMsg = null,
 src_loc: Zcu.LazySrcLoc,
 result_insts_len: u8 = undefined,
 result_relocs_len: u8 = undefined,
@@ -267,7 +267,13 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             .pseudo_dbg_prologue_end_none,
             .pseudo_dbg_line_line_column,
             .pseudo_dbg_epilogue_begin_none,
-            .pseudo_dbg_inline_func,
+            .pseudo_dbg_enter_inline_func,
+            .pseudo_dbg_leave_inline_func,
+            .pseudo_dbg_local_a,
+            .pseudo_dbg_local_ai_s,
+            .pseudo_dbg_local_ai_u,
+            .pseudo_dbg_local_ai_64,
+            .pseudo_dbg_local_am,
             .pseudo_dead_none,
             => {},
             else => unreachable,
@@ -283,17 +289,18 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
 pub fn fail(lower: *Lower, comptime format: []const u8, args: anytype) Error {
     @setCold(true);
     assert(lower.err_msg == null);
-    lower.err_msg = try ErrorMsg.create(lower.allocator, lower.src_loc, format, args);
+    lower.err_msg = try Zcu.ErrorMsg.create(lower.allocator, lower.src_loc, format, args);
     return error.LowerFail;
 }
 
-fn imm(lower: Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
+pub fn imm(lower: Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
     return switch (ops) {
         .rri_s,
         .ri_s,
         .i_s,
         .mi_s,
         .rmi_s,
+        .pseudo_dbg_local_ai_s,
         => Immediate.s(@bitCast(i)),
 
         .rrri,
@@ -306,15 +313,18 @@ fn imm(lower: Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
         .mri,
         .rrm,
         .rrmi,
+        .pseudo_dbg_local_ai_u,
         => Immediate.u(i),
 
-        .ri64 => Immediate.u(lower.mir.extraData(Mir.Imm64, i).data.decode()),
+        .ri_64,
+        .pseudo_dbg_local_ai_64,
+        => Immediate.u(lower.mir.extraData(Mir.Imm64, i).data.decode()),
 
         else => unreachable,
     };
 }
 
-fn mem(lower: Lower, payload: u32) Memory {
+pub fn mem(lower: Lower, payload: u32) Memory {
     return lower.mir.resolveFrameLoc(lower.mir.extraData(Mir.Memory, payload).data).decode();
 }
 
@@ -490,8 +500,8 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         .rrrr => inst.data.rrrr.fixes,
         .rrri => inst.data.rrri.fixes,
         .rri_s, .rri_u => inst.data.rri.fixes,
-        .ri_s, .ri_u => inst.data.ri.fixes,
-        .ri64, .rm, .rmi_s, .mr => inst.data.rx.fixes,
+        .ri_s, .ri_u, .ri_64 => inst.data.ri.fixes,
+        .rm, .rmi_s, .mr => inst.data.rx.fixes,
         .mrr, .rrm, .rmr => inst.data.rrx.fixes,
         .rmi, .mri => inst.data.rix.fixes,
         .rrmr => inst.data.rrrx.fixes,
@@ -554,13 +564,9 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .reg = inst.data.rrri.r3 },
             .{ .imm = lower.imm(inst.ops, inst.data.rrri.i) },
         },
-        .ri_s, .ri_u => &.{
+        .ri_s, .ri_u, .ri_64 => &.{
             .{ .reg = inst.data.ri.r1 },
             .{ .imm = lower.imm(inst.ops, inst.data.ri.i) },
-        },
-        .ri64 => &.{
-            .{ .reg = inst.data.rx.r1 },
-            .{ .imm = lower.imm(inst.ops, inst.data.rx.payload) },
         },
         .rri_s, .rri_u => &.{
             .{ .reg = inst.data.rri.r1 },
@@ -670,9 +676,6 @@ const encoder = @import("encoder.zig");
 const link = @import("../../link.zig");
 const std = @import("std");
 
-const Air = @import("../../Air.zig");
-const Allocator = std.mem.Allocator;
-const ErrorMsg = Zcu.ErrorMsg;
 const Immediate = Instruction.Immediate;
 const Instruction = encoder.Instruction;
 const Lower = @This();

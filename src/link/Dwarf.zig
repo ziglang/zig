@@ -986,7 +986,9 @@ pub const WipNav = struct {
     entry: Entry.Index,
     any_children: bool,
     func: InternPool.Index,
+    func_sym_index: u32,
     func_high_reloc: u32,
+    inlined_funcs_high_reloc: std.ArrayListUnmanaged(u32),
     debug_info: std.ArrayListUnmanaged(u8),
     debug_line: std.ArrayListUnmanaged(u8),
     debug_loclists: std.ArrayListUnmanaged(u8),
@@ -994,6 +996,7 @@ pub const WipNav = struct {
 
     pub fn deinit(wip_nav: *WipNav) void {
         const gpa = wip_nav.dwarf.gpa;
+        if (wip_nav.func != .none) wip_nav.inlined_funcs_high_reloc.deinit(gpa);
         wip_nav.debug_info.deinit(gpa);
         wip_nav.debug_line.deinit(gpa);
         wip_nav.debug_loclists.deinit(gpa);
@@ -1004,10 +1007,10 @@ pub const WipNav = struct {
         return wip_nav.debug_info.writer(wip_nav.dwarf.gpa);
     }
 
-    pub const VarTag = enum { local_arg, local_var };
-    pub fn genVarDebugInfo(
+    pub const LocalTag = enum { local_arg, local_var };
+    pub fn genLocalDebugInfo(
         wip_nav: *WipNav,
-        tag: VarTag,
+        tag: LocalTag,
         name: []const u8,
         ty: Type,
         loc: Loc,
@@ -1078,7 +1081,45 @@ pub const WipNav = struct {
         try dlw.writeByte(DW.LNS.set_epilogue_begin);
     }
 
+    pub fn enterInlineFunc(wip_nav: *WipNav, func: InternPool.Index, code_off: u64, line: u32, column: u32) UpdateError!void {
+        const dwarf = wip_nav.dwarf;
+        const zcu = wip_nav.pt.zcu;
+        const diw = wip_nav.debug_info.writer(dwarf.gpa);
+        try wip_nav.inlined_funcs_high_reloc.ensureUnusedCapacity(dwarf.gpa, 1);
+
+        const external_relocs = &dwarf.debug_info.section.getUnit(wip_nav.unit).external_relocs;
+        try external_relocs.ensureUnusedCapacity(dwarf.gpa, 2);
+        try uleb128(diw, @intFromEnum(AbbrevCode.inlined_func));
+        try wip_nav.refNav(zcu.funcInfo(func).owner_nav);
+        try uleb128(diw, zcu.navSrcLine(zcu.funcInfo(wip_nav.func).owner_nav) + line + 1);
+        try uleb128(diw, column);
+        external_relocs.appendAssumeCapacity(.{
+            .source_entry = wip_nav.entry,
+            .source_off = @intCast(wip_nav.debug_info.items.len),
+            .target_sym = wip_nav.func_sym_index,
+            .target_off = code_off,
+        });
+        try diw.writeByteNTimes(0, @intFromEnum(dwarf.address_size));
+        wip_nav.inlined_funcs_high_reloc.appendAssumeCapacity(@intCast(external_relocs.items.len));
+        external_relocs.appendAssumeCapacity(.{
+            .source_entry = wip_nav.entry,
+            .source_off = @intCast(wip_nav.debug_info.items.len),
+            .target_sym = wip_nav.func_sym_index,
+            .target_off = undefined,
+        });
+        try diw.writeByteNTimes(0, @intFromEnum(dwarf.address_size));
+        try wip_nav.setInlineFunc(func);
+    }
+
+    pub fn leaveInlineFunc(wip_nav: *WipNav, func: InternPool.Index, code_off: u64) UpdateError!void {
+        const external_relocs = &wip_nav.dwarf.debug_info.section.getUnit(wip_nav.unit).external_relocs;
+        external_relocs.items[wip_nav.inlined_funcs_high_reloc.pop()].target_off = code_off;
+        try uleb128(wip_nav.debug_info.writer(wip_nav.dwarf.gpa), @intFromEnum(AbbrevCode.null));
+        try wip_nav.setInlineFunc(func);
+    }
+
     pub fn setInlineFunc(wip_nav: *WipNav, func: InternPool.Index) UpdateError!void {
+        wip_nav.any_children = true;
         const zcu = wip_nav.pt.zcu;
         const dwarf = wip_nav.dwarf;
         if (wip_nav.func == func) return;
@@ -1215,6 +1256,15 @@ pub const WipNav = struct {
     fn refType(wip_nav: *WipNav, ty: Type) UpdateError!void {
         const unit, const entry = try wip_nav.getTypeEntry(ty);
         try wip_nav.infoSectionOffset(.debug_info, unit, entry, 0);
+    }
+
+    fn refNav(wip_nav: *WipNav, nav_index: InternPool.Nav.Index) UpdateError!void {
+        const zcu = wip_nav.pt.zcu;
+        const ip = &zcu.intern_pool;
+        const unit = try wip_nav.dwarf.getUnit(zcu.fileByIndex(ip.getNav(nav_index).srcInst(ip).resolveFile(ip)).mod);
+        const nav_gop = try wip_nav.dwarf.navs.getOrPut(wip_nav.dwarf.gpa, nav_index);
+        if (!nav_gop.found_existing) nav_gop.value_ptr.* = try wip_nav.dwarf.addCommonEntry(unit);
+        try wip_nav.infoSectionOffset(.debug_info, unit, nav_gop.value_ptr.*, 0);
     }
 
     fn refForward(wip_nav: *WipNav) std.mem.Allocator.Error!u32 {
@@ -1554,7 +1604,9 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
         .entry = nav_gop.value_ptr.*,
         .any_children = false,
         .func = .none,
+        .func_sym_index = undefined,
         .func_high_reloc = undefined,
+        .inlined_funcs_high_reloc = undefined,
         .debug_info = .{},
         .debug_line = .{},
         .debug_loclists = .{},
@@ -1694,6 +1746,8 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
 
             const func_type = ip.indexToKey(func.ty).func_type;
             wip_nav.func = nav_val.toIntern();
+            wip_nav.func_sym_index = sym_index;
+            wip_nav.inlined_funcs_high_reloc = .{};
 
             const diw = wip_nav.debug_info.writer(dwarf.gpa);
             try uleb128(diw, @intFromEnum(AbbrevCode.decl_func));
@@ -1706,17 +1760,19 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
             try wip_nav.strp(nav.fqn.toSlice(ip));
             try wip_nav.refType(Type.fromInterned(func_type.return_type));
             const external_relocs = &dwarf.debug_info.section.getUnit(unit).external_relocs;
-            try external_relocs.append(dwarf.gpa, .{
+            try external_relocs.ensureUnusedCapacity(dwarf.gpa, 2);
+            external_relocs.appendAssumeCapacity(.{
                 .source_entry = wip_nav.entry,
                 .source_off = @intCast(wip_nav.debug_info.items.len),
                 .target_sym = sym_index,
             });
             try diw.writeByteNTimes(0, @intFromEnum(dwarf.address_size));
             wip_nav.func_high_reloc = @intCast(external_relocs.items.len);
-            try external_relocs.append(dwarf.gpa, .{
+            external_relocs.appendAssumeCapacity(.{
                 .source_entry = wip_nav.entry,
                 .source_off = @intCast(wip_nav.debug_info.items.len),
                 .target_sym = sym_index,
+                .target_off = undefined,
             });
             try diw.writeByteNTimes(0, @intFromEnum(dwarf.address_size));
             try uleb128(diw, nav.status.resolved.alignment.toByteUnits() orelse
@@ -1779,7 +1835,8 @@ pub fn finishWipNav(
     log.debug("finishWipNav({})", .{nav.fqn.fmt(ip)});
 
     if (wip_nav.func != .none) {
-        dwarf.debug_info.section.getUnit(wip_nav.unit).external_relocs.items[wip_nav.func_high_reloc].target_off = sym.size;
+        const external_relocs = &dwarf.debug_info.section.getUnit(wip_nav.unit).external_relocs;
+        external_relocs.items[wip_nav.func_high_reloc].target_off = sym.size;
         if (wip_nav.any_children) {
             const diw = wip_nav.debug_info.writer(dwarf.gpa);
             try uleb128(diw, @intFromEnum(AbbrevCode.null));
@@ -1864,7 +1921,9 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
         .entry = undefined,
         .any_children = false,
         .func = .none,
+        .func_sym_index = undefined,
         .func_high_reloc = undefined,
+        .inlined_funcs_high_reloc = undefined,
         .debug_info = .{},
         .debug_line = .{},
         .debug_loclists = .{},
@@ -1875,6 +1934,40 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
     const nav_gop = try dwarf.navs.getOrPut(dwarf.gpa, nav_index);
     errdefer _ = dwarf.navs.pop();
     switch (ip.indexToKey(nav_val.toIntern())) {
+        .func => |func| {
+            const parent_type, const accessibility: u8 = if (nav.analysis_owner.unwrap()) |cau| parent: {
+                const parent_namespace_ptr = ip.namespacePtr(ip.getCau(cau).namespace);
+                break :parent .{
+                    parent_namespace_ptr.owner_type,
+                    if (parent_namespace_ptr.pub_decls.containsContext(nav_index, .{ .zcu = zcu }))
+                        DW.ACCESS.public
+                    else if (parent_namespace_ptr.priv_decls.containsContext(nav_index, .{ .zcu = zcu }))
+                        DW.ACCESS.private
+                    else
+                        unreachable,
+                };
+            } else .{ zcu.fileRootType(inst_info.file), DW.ACCESS.private };
+
+            if (!nav_gop.found_existing) nav_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
+            wip_nav.entry = nav_gop.value_ptr.*;
+
+            const func_type = ip.indexToKey(func.ty).func_type;
+            const diw = wip_nav.debug_info.writer(dwarf.gpa);
+            try uleb128(diw, @intFromEnum(@as(AbbrevCode, if (func_type.param_types.len > 0 and func_type.is_var_args) .decl_func_generic else .decl_func_generic_empty)));
+            try wip_nav.refType(Type.fromInterned(parent_type));
+            assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
+            try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
+            try uleb128(diw, loc.column + 1);
+            try diw.writeByte(accessibility);
+            try wip_nav.strp(nav.name.toSlice(ip));
+            try wip_nav.refType(Type.fromInterned(func_type.return_type));
+            for (0..func_type.param_types.len) |param_index| {
+                try uleb128(diw, @intFromEnum(AbbrevCode.func_type_param));
+                try wip_nav.refType(Type.fromInterned(func_type.param_types.get(ip)[param_index]));
+            }
+            if (func_type.is_var_args) try uleb128(diw, @intFromEnum(AbbrevCode.is_var_args));
+            try uleb128(diw, @intFromEnum(AbbrevCode.null));
+        },
         .struct_type => done: {
             const loaded_struct = ip.loadStructType(nav_val.toIntern());
 
@@ -2277,7 +2370,9 @@ fn updateType(
         .entry = dwarf.types.get(type_index).?,
         .any_children = false,
         .func = .none,
+        .func_sym_index = undefined,
         .func_high_reloc = undefined,
+        .inlined_funcs_high_reloc = undefined,
         .debug_info = .{},
         .debug_line = .{},
         .debug_loclists = .{},
@@ -2678,7 +2773,9 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
             .entry = type_gop.value_ptr.*,
             .any_children = false,
             .func = .none,
+            .func_sym_index = undefined,
             .func_high_reloc = undefined,
+            .inlined_funcs_high_reloc = undefined,
             .debug_info = .{},
             .debug_line = .{},
             .debug_loclists = .{},
@@ -2739,7 +2836,9 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
             .entry = type_gop.value_ptr.*,
             .any_children = false,
             .func = .none,
+            .func_sym_index = undefined,
             .func_high_reloc = undefined,
+            .inlined_funcs_high_reloc = undefined,
             .debug_info = .{},
             .debug_line = .{},
             .debug_loclists = .{},
@@ -2913,7 +3012,9 @@ pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
             .entry = entry,
             .any_children = false,
             .func = .none,
+            .func_sym_index = undefined,
             .func_high_reloc = undefined,
+            .inlined_funcs_high_reloc = undefined,
             .debug_info = .{},
             .debug_line = .{},
             .debug_loclists = .{},
@@ -3283,6 +3384,8 @@ const AbbrevCode = enum(u8) {
     decl_var,
     decl_func,
     decl_func_empty,
+    decl_func_generic,
+    decl_func_generic_empty,
     // the rest are unrestricted
     compile_unit,
     module,
@@ -3317,10 +3420,11 @@ const AbbrevCode = enum(u8) {
     struct_type,
     packed_struct_type,
     union_type,
+    inlined_func,
     local_arg,
     local_var,
 
-    const decl_bytes = uleb128Bytes(@intFromEnum(AbbrevCode.decl_func_empty));
+    const decl_bytes = uleb128Bytes(@intFromEnum(AbbrevCode.decl_func_generic_empty));
 
     const Attr = struct {
         DeclValEnum(DW.AT),
@@ -3422,6 +3526,19 @@ const AbbrevCode = enum(u8) {
                 .{ .alignment, .udata },
                 .{ .external, .flag },
                 .{ .noreturn, .flag },
+            },
+        },
+        .decl_func_generic = .{
+            .tag = .subprogram,
+            .children = true,
+            .attrs = decl_abbrev_common_attrs ++ .{
+                .{ .type, .ref_addr },
+            },
+        },
+        .decl_func_generic_empty = .{
+            .tag = .subprogram,
+            .attrs = decl_abbrev_common_attrs ++ .{
+                .{ .type, .ref_addr },
             },
         },
         .compile_unit = .{
@@ -3677,6 +3794,17 @@ const AbbrevCode = enum(u8) {
                 .{ .name, .strp },
                 .{ .byte_size, .udata },
                 .{ .alignment, .udata },
+            },
+        },
+        .inlined_func = .{
+            .tag = .inlined_subroutine,
+            .children = true,
+            .attrs = &.{
+                .{ .abstract_origin, .ref_addr },
+                .{ .call_line, .udata },
+                .{ .call_column, .udata },
+                .{ .low_pc, .addr },
+                .{ .high_pc, .addr },
             },
         },
         .local_arg = .{

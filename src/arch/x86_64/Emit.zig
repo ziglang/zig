@@ -1,5 +1,6 @@
 //! This file contains the functionality for emitting x86_64 MIR as machine code
 
+air: Air,
 lower: Lower,
 debug_output: DebugInfoOutput,
 code: *std.ArrayList(u8),
@@ -232,13 +233,96 @@ pub fn emitMir(emit: *Emit) Error!void {
                             .none => {},
                         }
                     },
-                    .pseudo_dbg_inline_func => {
+                    .pseudo_dbg_enter_inline_func => {
                         switch (emit.debug_output) {
                             .dwarf => |dw| {
-                                log.debug("mirDbgInline (line={d}, col={d})", .{
+                                log.debug("mirDbgEnterInline (line={d}, col={d})", .{
                                     emit.prev_di_line, emit.prev_di_column,
                                 });
-                                try dw.setInlineFunc(mir_inst.data.func);
+                                try dw.enterInlineFunc(mir_inst.data.func, emit.code.items.len, emit.prev_di_line, emit.prev_di_column);
+                            },
+                            .plan9 => {},
+                            .none => {},
+                        }
+                    },
+                    .pseudo_dbg_leave_inline_func => {
+                        switch (emit.debug_output) {
+                            .dwarf => |dw| {
+                                log.debug("mirDbgLeaveInline (line={d}, col={d})", .{
+                                    emit.prev_di_line, emit.prev_di_column,
+                                });
+                                try dw.leaveInlineFunc(mir_inst.data.func, emit.code.items.len);
+                            },
+                            .plan9 => {},
+                            .none => {},
+                        }
+                    },
+                    .pseudo_dbg_local_a,
+                    .pseudo_dbg_local_ai_s,
+                    .pseudo_dbg_local_ai_u,
+                    .pseudo_dbg_local_ai_64,
+                    .pseudo_dbg_local_am,
+                    => {
+                        switch (emit.debug_output) {
+                            .dwarf => |dw| {
+                                var loc_buf: [2]link.File.Dwarf.Loc = undefined;
+                                const air_inst_index, const loc: link.File.Dwarf.Loc = switch (mir_inst.ops) {
+                                    else => unreachable,
+                                    .pseudo_dbg_local_a => .{ mir_inst.data.a.air_inst, .empty },
+                                    .pseudo_dbg_local_ai_s,
+                                    .pseudo_dbg_local_ai_u,
+                                    .pseudo_dbg_local_ai_64,
+                                    => .{ mir_inst.data.ai.air_inst, .{ .stack_value = stack_value: {
+                                        loc_buf[0] = switch (emit.lower.imm(mir_inst.ops, mir_inst.data.ai.i)) {
+                                            .signed => |s| .{ .consts = s },
+                                            .unsigned => |u| .{ .constu = u },
+                                        };
+                                        break :stack_value &loc_buf[0];
+                                    } } },
+                                    .pseudo_dbg_local_am => loc: {
+                                        const mem = emit.lower.mem(mir_inst.data.ax.payload);
+                                        break :loc .{ mir_inst.data.ax.air_inst, .{ .plus = .{
+                                            base: {
+                                                loc_buf[0] = switch (mem.base()) {
+                                                    .none => .{ .constu = 0 },
+                                                    .reg => |reg| .{ .breg = reg.dwarfNum() },
+                                                    .frame => unreachable,
+                                                    .reloc => |reloc| .{ .addr = .{ .sym = reloc.sym_index } },
+                                                };
+                                                break :base &loc_buf[0];
+                                            },
+                                            disp: {
+                                                loc_buf[1] = switch (mem.disp()) {
+                                                    .signed => |s| .{ .consts = s },
+                                                    .unsigned => |u| .{ .constu = u },
+                                                };
+                                                break :disp &loc_buf[1];
+                                            },
+                                        } } };
+                                    },
+                                };
+                                const ip = &emit.lower.bin_file.comp.module.?.intern_pool;
+                                const air_inst = emit.air.instructions.get(@intFromEnum(air_inst_index));
+                                const name: Air.NullTerminatedString = switch (air_inst.tag) {
+                                    else => unreachable,
+                                    .arg => air_inst.data.arg.name,
+                                    .dbg_var_ptr, .dbg_var_val, .dbg_arg_inline => @enumFromInt(air_inst.data.pl_op.payload),
+                                };
+                                try dw.genLocalDebugInfo(
+                                    switch (air_inst.tag) {
+                                        else => unreachable,
+                                        .arg, .dbg_arg_inline => .local_arg,
+                                        .dbg_var_ptr, .dbg_var_val => .local_var,
+                                    },
+                                    name.toSlice(emit.air),
+                                    switch (air_inst.tag) {
+                                        else => unreachable,
+                                        .arg => emit.air.typeOfIndex(air_inst_index, ip),
+                                        .dbg_var_ptr => emit.air.typeOf(air_inst.data.pl_op.operand, ip).childTypeIp(ip),
+                                        .dbg_var_val, .dbg_arg_inline => emit.air.typeOf(air_inst.data.pl_op.operand, ip),
+                                    },
+                                    loc,
+                                );
                             },
                             .plan9 => {},
                             .none => {},
@@ -285,7 +369,7 @@ fn fixupRelocs(emit: *Emit) Error!void {
         const target = emit.code_offset_mapping.get(reloc.target) orelse
             return emit.fail("JMP/CALL relocation target not found!", .{});
         const disp = @as(i64, @intCast(target)) - @as(i64, @intCast(reloc.source + reloc.length));
-        mem.writeInt(i32, emit.code.items[reloc.offset..][0..4], @intCast(disp), .little);
+        std.mem.writeInt(i32, emit.code.items[reloc.offset..][0..4], @intCast(disp), .little);
     }
 }
 
@@ -340,9 +424,9 @@ fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) Error!void {
 
 const link = @import("../../link.zig");
 const log = std.log.scoped(.emit);
-const mem = std.mem;
 const std = @import("std");
 
+const Air = @import("../../Air.zig");
 const DebugInfoOutput = @import("../../codegen.zig").DebugInfoOutput;
 const Emit = @This();
 const Lower = @import("Lower.zig");
