@@ -1608,16 +1608,7 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
             try wip_nav.exprloc(.{ .addr = .{ .sym = sym_index } });
             try uleb128(diw, nav.status.resolved.alignment.toByteUnits() orelse
                 ty.abiAlignment(pt).toByteUnits().?);
-            const func_unit = InternPool.AnalUnit.wrap(.{ .func = nav_val.toIntern() });
-            try diw.writeByte(@intFromBool(for (if (zcu.single_exports.get(func_unit)) |export_index|
-                zcu.all_exports.items[export_index..][0..1]
-            else if (zcu.multi_exports.get(func_unit)) |export_range|
-                zcu.all_exports.items[export_range.index..][0..export_range.len]
-            else
-                &.{}) |@"export"|
-            {
-                if (@"export".exported == .nav and @"export".exported.nav == nav_index) break true;
-            } else false));
+            try diw.writeByte(@intFromBool(false));
             wip_nav.finishForward(ty_reloc_index);
             try uleb128(diw, @intFromEnum(AbbrevCode.is_const));
             try wip_nav.refType(ty);
@@ -1668,16 +1659,7 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
             try wip_nav.exprloc(if (variable.is_threadlocal) .{ .form_tls_address = &addr } else addr);
             try uleb128(diw, nav.status.resolved.alignment.toByteUnits() orelse
                 ty.abiAlignment(pt).toByteUnits().?);
-            const func_unit = InternPool.AnalUnit.wrap(.{ .func = nav_val.toIntern() });
-            try diw.writeByte(@intFromBool(for (if (zcu.single_exports.get(func_unit)) |export_index|
-                zcu.all_exports.items[export_index..][0..1]
-            else if (zcu.multi_exports.get(func_unit)) |export_range|
-                zcu.all_exports.items[export_range.index..][0..export_range.len]
-            else
-                &.{}) |@"export"|
-            {
-                if (@"export".exported == .nav and @"export".exported.nav == nav_index) break true;
-            } else false));
+            try diw.writeByte(@intFromBool(false));
         },
         .func => |func| {
             assert(file.zir_loaded);
@@ -1739,16 +1721,7 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
             try diw.writeByteNTimes(0, @intFromEnum(dwarf.address_size));
             try uleb128(diw, nav.status.resolved.alignment.toByteUnits() orelse
                 target_info.defaultFunctionAlignment(file.mod.resolved_target.result).toByteUnits().?);
-            const func_unit = InternPool.AnalUnit.wrap(.{ .func = nav_val.toIntern() });
-            try diw.writeByte(@intFromBool(for (if (zcu.single_exports.get(func_unit)) |export_index|
-                zcu.all_exports.items[export_index..][0..1]
-            else if (zcu.multi_exports.get(func_unit)) |export_range|
-                zcu.all_exports.items[export_range.index..][0..export_range.len]
-            else
-                &.{}) |@"export"|
-            {
-                if (@"export".exported == .nav and @"export".exported.nav == nav_index) break true;
-            } else false));
+            try diw.writeByte(@intFromBool(false));
             try diw.writeByte(@intFromBool(func_type.return_type == .noreturn_type));
 
             const dlw = wip_nav.debug_line.writer(dwarf.gpa);
