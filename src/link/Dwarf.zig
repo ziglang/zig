@@ -287,7 +287,7 @@ pub const Section = struct {
         return sec.getUnit(unit).addEntry(sec, dwarf);
     }
 
-    fn getUnit(sec: *Section, unit: Unit.Index) *Unit {
+    pub fn getUnit(sec: *Section, unit: Unit.Index) *Unit {
         return &sec.units.items[@intFromEnum(unit)];
     }
 
@@ -368,7 +368,7 @@ const Unit = struct {
             none = std.math.maxInt(u32),
             _,
 
-            fn unwrap(uio: Optional) ?Index {
+            pub fn unwrap(uio: Optional) ?Index {
                 return if (uio != .none) @enumFromInt(@intFromEnum(uio)) else null;
             }
         };
@@ -614,7 +614,7 @@ const Entry = struct {
             none = std.math.maxInt(u32),
             _,
 
-            fn unwrap(eio: Optional) ?Index {
+            pub fn unwrap(eio: Optional) ?Index {
                 return if (eio != .none) @enumFromInt(@intFromEnum(eio)) else null;
             }
         };
@@ -736,7 +736,7 @@ const Entry = struct {
         }
     }
 
-    fn assertNonEmpty(entry: *Entry, unit: *Unit, sec: *Section, dwarf: *Dwarf) *Entry {
+    pub fn assertNonEmpty(entry: *Entry, unit: *Unit, sec: *Section, dwarf: *Dwarf) *Entry {
         if (entry.len > 0) return entry;
         if (std.debug.runtime_safety) {
             log.err("missing {} from {s}", .{

@@ -195,15 +195,15 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
             self.debug_line_str_index.?,
             self.debug_loclists_index.?,
             self.debug_rnglists_index.?,
-        }, [_]Dwarf.Section{
-            dwarf.debug_info.section,
-            dwarf.debug_abbrev.section,
-            dwarf.debug_str.section,
-            dwarf.debug_aranges.section,
-            dwarf.debug_line.section,
-            dwarf.debug_line_str.section,
-            dwarf.debug_loclists.section,
-            dwarf.debug_rnglists.section,
+        }, [_]*Dwarf.Section{
+            &dwarf.debug_info.section,
+            &dwarf.debug_abbrev.section,
+            &dwarf.debug_str.section,
+            &dwarf.debug_aranges.section,
+            &dwarf.debug_line.section,
+            &dwarf.debug_line_str.section,
+            &dwarf.debug_loclists.section,
+            &dwarf.debug_rnglists.section,
         }) |sym_index, sect| {
             const sym = self.symbol(sym_index);
             const atom_ptr = self.atom(sym.ref.index).?;
@@ -215,11 +215,52 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
             atom_ptr.size = shdr.sh_size;
             atom_ptr.alignment = Atom.Alignment.fromNonzeroByteUnits(shdr.sh_addralign);
 
+            log.debug("parsing relocs in {s}", .{sym.name(elf_file)});
+
             const relocs = &self.relocs.items[atom_ptr.relocsShndx().?];
             for (sect.units.items) |*unit| {
+                try relocs.ensureUnusedCapacity(gpa, unit.cross_section_relocs.items.len);
+                for (unit.cross_section_relocs.items) |reloc| {
+                    const target_sym_index = switch (reloc.target_sec) {
+                        .debug_abbrev => self.debug_abbrev_index.?,
+                        .debug_info => self.debug_info_index.?,
+                        .debug_line => self.debug_line_index.?,
+                        .debug_line_str => self.debug_line_str_index.?,
+                        .debug_loclists => self.debug_loclists_index.?,
+                        .debug_rnglists => self.debug_rnglists_index.?,
+                        .debug_str => self.debug_str_index.?,
+                    };
+                    const target_sec = switch (reloc.target_sec) {
+                        inline else => |target_sec| &@field(dwarf, @tagName(target_sec)).section,
+                    };
+                    const target_unit = target_sec.getUnit(reloc.target_unit);
+                    const r_offset = unit.off + reloc.source_off + (if (reloc.source_entry.unwrap()) |source_entry|
+                        unit.header_len + unit.getEntry(source_entry).off
+                    else
+                        0);
+                    const r_addend: i64 = @intCast(reloc.target_off + (if (reloc.target_entry.unwrap()) |target_entry|
+                        target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(unit, sect, dwarf).off
+                    else
+                        0));
+                    const r_type: elf.R_X86_64 = switch (dwarf.format) {
+                        .@"32" => .@"32",
+                        .@"64" => .@"64",
+                    };
+                    log.debug("  {s} <- r_off={x}, r_add={x}, r_type={s}", .{
+                        self.symbol(target_sym_index).name(elf_file),
+                        r_offset,
+                        r_addend,
+                        @tagName(r_type),
+                    });
+                    atom_ptr.addRelocAssumeCapacity(.{
+                        .r_offset = r_offset,
+                        .r_addend = r_addend,
+                        .r_info = (@as(u64, @intCast(target_sym_index)) << 32) | @intFromEnum(r_type),
+                    }, self);
+                }
+
                 try relocs.ensureUnusedCapacity(gpa, unit.external_relocs.items.len);
                 for (unit.external_relocs.items) |reloc| {
-                    const tsym = self.symbol(reloc.target_sym);
                     const r_offset = unit.off + unit.header_len + unit.getEntry(reloc.source_entry).off + reloc.source_off;
                     const r_addend: i64 = @intCast(reloc.target_off);
                     const r_type: elf.R_X86_64 = switch (dwarf.address_size) {
@@ -227,8 +268,8 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
                         .@"64" => .@"64",
                         else => unreachable,
                     };
-                    log.debug("{s} <- r_off={x}, r_add={x}, r_type={s}\n", .{
-                        tsym.name(elf_file),
+                    log.debug("  {s} <- r_off={x}, r_add={x}, r_type={s}", .{
+                        self.symbol(reloc.target_sym).name(elf_file),
                         r_offset,
                         r_addend,
                         @tagName(r_type),
