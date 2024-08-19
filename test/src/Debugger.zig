@@ -306,6 +306,51 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
     );
     db.addLldbTest(
+        "enums",
+        target,
+        &.{
+            .{
+                .path = "enums.zig",
+                .source =
+                \\const Enums = struct {
+                \\    const Zero = enum(u4) { _ };
+                \\    const One = enum { first };
+                \\    const Two = enum(i32) { first, second, _ };
+                \\    const Three = enum { first, second, third };
+                \\
+                \\    zero: Zero = @enumFromInt(13),
+                \\    one: One = .first,
+                \\    two: Two = @enumFromInt(-1234),
+                \\    three: Three = .second,
+                \\};
+                \\fn testEnums(enums: Enums) void {
+                \\    _ = enums;
+                \\}
+                \\pub fn main() void {
+                \\    testEnums(.{});
+                \\}
+                \\
+                ,
+            },
+        },
+        \\breakpoint set --file enums.zig --source-pattern-regexp '_ = enums;'
+        \\process launch
+        \\frame variable --show-types enums
+        \\breakpoint delete --force 1
+    ,
+        &.{
+            \\(lldb) frame variable --show-types enums
+            \\(root.enums.Enums) enums = {
+            \\  (root.enums.Enums.Zero) zero = @enumFromInt(13)
+            \\  (root.enums.Enums.One) one = .first
+            \\  (root.enums.Enums.Two) two = @enumFromInt(-1234)
+            \\  (root.enums.Enums.Three) three = .second
+            \\}
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
         "errors",
         target,
         &.{
@@ -400,6 +445,71 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\  (u32) nonnull_u32.? = 456
             \\}
             \\(lldb) breakpoint delete --force 2
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
+        "unions",
+        target,
+        &.{
+            .{
+                .path = "unions.zig",
+                .source =
+                \\const Unions = struct {
+                \\    const Enum = enum { first, second, third };
+                \\    const Untagged = extern union {
+                \\        u32: u32,
+                \\        i32: i32,
+                \\        f32: f32,
+                \\    };
+                \\    const SafetyTagged = union {
+                \\        void: void,
+                \\        en: Enum,
+                \\        eu: error{Error}!Enum,
+                \\    };
+                \\    const Tagged = union(enum) {
+                \\        void: void,
+                \\        en: Enum,
+                \\        eu: error{Error}!Enum,
+                \\    };
+                \\
+                \\    untagged: Untagged = .{ .f32 = -1.5 },
+                \\    safety_tagged: SafetyTagged = .{ .en = .second },
+                \\    tagged: Tagged = .{ .eu = error.Error },
+                \\};
+                \\fn testUnions(unions: Unions) void {
+                \\    _ = unions;
+                \\}
+                \\pub fn main() void {
+                \\    testUnions(.{});
+                \\}
+                \\
+                ,
+            },
+        },
+        \\breakpoint set --file unions.zig --source-pattern-regexp '_ = unions;'
+        \\process launch
+        \\frame variable --show-types unions
+        \\breakpoint delete --force 1
+    ,
+        &.{
+            \\(lldb) frame variable --show-types unions
+            \\(root.unions.Unions) unions = {
+            \\  (root.unions.Unions.Untagged) untagged = {
+            \\    (u32) u32 = 3217031168
+            \\    (i32) i32 = -1077936128
+            \\    (f32) f32 = -1.5
+            \\  }
+            \\  (root.unions.Unions.SafetyTagged) safety_tagged = {
+            \\    (root.unions.Unions.Enum) en = .second
+            \\  }
+            \\  (root.unions.Unions.Tagged) tagged = {
+            \\    (error{Error}!root.unions.Unions.Enum) eu = {
+            \\      (error{Error}) error = error.Error
+            \\    }
+            \\  }
+            \\}
+            \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
     );
