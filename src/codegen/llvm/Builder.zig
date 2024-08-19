@@ -3994,6 +3994,7 @@ pub const Function = struct {
     names: [*]const String = &[0]String{},
     value_indices: [*]const u32 = &[0]u32{},
     strip: bool,
+    any_nosanitize: bool,
     debug_locations: std.AutoHashMapUnmanaged(Instruction.Index, DebugLocation) = .{},
     debug_values: []const Instruction.Index = &.{},
     extra: []const u32 = &.{},
@@ -4090,6 +4091,7 @@ pub const Function = struct {
             block,
             br,
             br_cond,
+            br_cond_nosanitize,
             call,
             @"call fast",
             cmpxchg,
@@ -4345,6 +4347,13 @@ pub const Function = struct {
                     else => unreachable,
                 };
             }
+
+            pub fn isNosanitize(self: Tag) bool {
+                return switch (self) {
+                    .br_cond_nosanitize => true,
+                    else => false,
+                };
+            }
         };
 
         pub const Index = enum(u32) {
@@ -4367,6 +4376,7 @@ pub const Function = struct {
                 return switch (wip.instructions.items(.tag)[@intFromEnum(self)]) {
                     .br,
                     .br_cond,
+                    .br_cond_nosanitize,
                     .ret,
                     .@"ret void",
                     .@"switch",
@@ -4380,6 +4390,7 @@ pub const Function = struct {
                 return switch (wip.instructions.items(.tag)[@intFromEnum(self)]) {
                     .br,
                     .br_cond,
+                    .br_cond_nosanitize,
                     .fence,
                     .ret,
                     .@"ret void",
@@ -4470,6 +4481,7 @@ pub const Function = struct {
                     .block => .label,
                     .br,
                     .br_cond,
+                    .br_cond_nosanitize,
                     .fence,
                     .ret,
                     .@"ret void",
@@ -4656,6 +4668,7 @@ pub const Function = struct {
                     .block => .label,
                     .br,
                     .br_cond,
+                    .br_cond_nosanitize,
                     .fence,
                     .ret,
                     .@"ret void",
@@ -5088,6 +5101,7 @@ pub const WipFunction = struct {
     instructions: std.MultiArrayList(Instruction),
     names: std.ArrayListUnmanaged(String),
     strip: bool,
+    any_nosanitize: bool,
     debug_locations: std.AutoArrayHashMapUnmanaged(Instruction.Index, DebugLocation),
     debug_values: std.AutoArrayHashMapUnmanaged(Instruction.Index, void),
     extra: std.ArrayListUnmanaged(u32),
@@ -5134,6 +5148,7 @@ pub const WipFunction = struct {
             .instructions = .{},
             .names = .{},
             .strip = options.strip,
+            .any_nosanitize = false,
             .debug_locations = .{},
             .debug_values = .{},
             .extra = .{},
@@ -5202,10 +5217,33 @@ pub const WipFunction = struct {
         then: Block.Index,
         @"else": Block.Index,
     ) Allocator.Error!Instruction.Index {
+        return brCondTag(self, cond, then, @"else", .br_cond);
+    }
+
+    pub fn brCondNosanitize(
+        self: *WipFunction,
+        cond: Value,
+        then: Block.Index,
+        @"else": Block.Index,
+    ) Allocator.Error!Instruction.Index {
+        self.any_nosanitize = true;
+        return brCondTag(self, cond, then, @"else", .br_cond_nosanitize);
+    }
+
+    pub fn brCondTag(
+        self: *WipFunction,
+        cond: Value,
+        then: Block.Index,
+        @"else": Block.Index,
+        /// Asserted to be either `.br_cond` or `.br_cond_nosanitize`.
+        tag: Instruction.Tag,
+    ) Allocator.Error!Instruction.Index {
         assert(cond.typeOfWip(self) == .i1);
+        assert(tag == .br_cond or tag == .br_cond_nosanitize);
+        assert(tag != .br_cond_nosanitize or self.any_nosanitize);
         try self.ensureUnusedExtraCapacity(1, Instruction.BrCond, 0);
         const instruction = try self.addInst(null, .{
-            .tag = .br_cond,
+            .tag = tag,
             .data = self.addExtraAssumeCapacity(Instruction.BrCond{
                 .cond = cond,
                 .then = then,
@@ -6374,7 +6412,7 @@ pub const WipFunction = struct {
                     .@"ret void",
                     .@"unreachable",
                     => {},
-                    .br_cond => {
+                    .br_cond, .br_cond_nosanitize => {
                         const extra = self.extraData(Instruction.BrCond, instruction.data);
                         instruction.data = wip_extra.addExtra(Instruction.BrCond{
                             .cond = instructions.map(extra.cond),
@@ -6559,6 +6597,7 @@ pub const WipFunction = struct {
         function.names = names.ptr;
         function.value_indices = value_indices.ptr;
         function.strip = self.strip;
+        function.any_nosanitize = self.any_nosanitize;
         function.debug_locations = debug_locations;
         function.debug_values = debug_values;
     }
@@ -7697,6 +7736,7 @@ pub const MetadataString = enum(u32) {
 
 pub const Metadata = enum(u32) {
     none = 0,
+    empty_tuple = 1,
     _,
 
     const first_forward_reference = 1 << 29;
@@ -8355,7 +8395,7 @@ pub const Metadata = enum(u32) {
 };
 
 pub fn init(options: Options) Allocator.Error!Builder {
-    var self = Builder{
+    var self: Builder = .{
         .gpa = options.allocator,
         .strip = options.strip,
 
@@ -8458,6 +8498,7 @@ pub fn init(options: Options) Allocator.Error!Builder {
 
     try self.metadata_string_indices.append(self.gpa, 0);
     assert(try self.metadataString("") == .none);
+    assert(try self.debugTuple(&.{}) == .empty_tuple);
 
     return self;
 }
@@ -8855,6 +8896,7 @@ pub fn addFunctionAssumeCapacity(
             .kind = .{ .function = function_index },
         }),
         .strip = undefined,
+        .any_nosanitize = false,
     });
     return function_index;
 }
@@ -9502,6 +9544,12 @@ pub fn printUnbuffered(
             });
         }
         if (function.instructions.len > 0) {
+            const maybe_empty_tuple: ?u32 = if (!function.any_nosanitize) null else b: {
+                const gop = try metadata_formatter.map.getOrPut(self.gpa, .{
+                    .metadata = .empty_tuple,
+                });
+                break :b @intCast(gop.index);
+            };
             var block_incoming_len: u32 = undefined;
             try writer.writeAll(" {\n");
             var maybe_dbg_index: ?u32 = null;
@@ -9677,6 +9725,14 @@ pub fn printUnbuffered(
                         });
                     },
                     .br_cond => {
+                        const extra = function.extraData(Function.Instruction.BrCond, instruction.data);
+                        try writer.print("  br {%}, {%}, {%}", .{
+                            extra.cond.fmt(function_index, self),
+                            extra.then.toInst(&function).fmt(function_index, self),
+                            extra.@"else".toInst(&function).fmt(function_index, self),
+                        });
+                    },
+                    .br_cond_nosanitize => {
                         const extra = function.extraData(Function.Instruction.BrCond, instruction.data);
                         try writer.print("  br {%}, {%}, {%}", .{
                             extra.cond.fmt(function_index, self),
@@ -9950,8 +10006,12 @@ pub fn printUnbuffered(
                 }
 
                 if (maybe_dbg_index) |dbg_index| {
-                    try writer.print(", !dbg !{}\n", .{dbg_index});
-                } else try writer.writeByte('\n');
+                    try writer.print(", !dbg !{}", .{dbg_index});
+                }
+                if (instruction.tag.isNosanitize()) {
+                    try writer.print(", !nosanitize !{d}", .{maybe_empty_tuple.?});
+                }
+                try writer.writeByte('\n');
             }
             try writer.writeByte('}');
         }
@@ -13759,7 +13819,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
             const MetadataKindBlock = ir.MetadataKindBlock;
             var metadata_kind_block = try module_block.enterSubBlock(MetadataKindBlock, true);
 
-            inline for (@typeInfo(ir.MetadataKind).Enum.fields) |field| {
+            inline for (@typeInfo(ir.FixedMetadataKind).Enum.fields) |field| {
                 try metadata_kind_block.writeAbbrev(MetadataKindBlock.Kind{
                     .id = field.value,
                     .name = field.name,
@@ -14046,7 +14106,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                                 else
                                     -%val << 1 | 1);
                             }
-                            try metadata_block.writeUnabbrev(MetadataBlock.Enumerator.id, record.items);
+                            try metadata_block.writeUnabbrev(@intFromEnum(MetadataBlock.Enumerator.id), record.items);
                             continue;
                         };
                         try metadata_block.writeAbbrevAdapted(MetadataBlock.Enumerator{
@@ -14177,7 +14237,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 
                     try metadata_block.writeAbbrev(MetadataBlock.GlobalDeclAttachment{
                         .value = @enumFromInt(constant_adapter.getConstantIndex(global.toConst())),
-                        .kind = ir.MetadataKind.dbg,
+                        .kind = .dbg,
                         .metadata = @enumFromInt(metadata_adapter.getMetadataIndex(global_ptr.dbg) - 1),
                     });
                 }
@@ -14220,20 +14280,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                 constant_adapter: ConstantAdapter,
                 metadata_adapter: MetadataAdapter,
                 func: *const Function,
-                instruction_index: u32 = 0,
-
-                pub fn init(
-                    const_adapter: ConstantAdapter,
-                    meta_adapter: MetadataAdapter,
-                    func: *const Function,
-                ) @This() {
-                    return .{
-                        .constant_adapter = const_adapter,
-                        .metadata_adapter = meta_adapter,
-                        .func = func,
-                        .instruction_index = 0,
-                    };
-                }
+                instruction_index: Function.Instruction.Index,
 
                 pub fn get(adapter: @This(), value: anytype, comptime field_name: []const u8) @TypeOf(value) {
                     _ = field_name;
@@ -14282,18 +14329,11 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                 }
 
                 pub fn offset(adapter: @This()) u32 {
-                    return @as(
-                        Function.Instruction.Index,
-                        @enumFromInt(adapter.instruction_index),
-                    ).valueIndex(adapter.func) + adapter.firstInstr();
+                    return adapter.instruction_index.valueIndex(adapter.func) + adapter.firstInstr();
                 }
 
                 fn firstInstr(adapter: @This()) u32 {
                     return adapter.constant_adapter.numConstants();
-                }
-
-                pub fn next(adapter: *@This()) void {
-                    adapter.instruction_index += 1;
                 }
             };
 
@@ -14307,7 +14347,12 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 
                 try function_block.writeAbbrev(FunctionBlock.DeclareBlocks{ .num_blocks = func.blocks.len });
 
-                var adapter = FunctionAdapter.init(constant_adapter, metadata_adapter, &func);
+                var adapter: FunctionAdapter = .{
+                    .constant_adapter = constant_adapter,
+                    .metadata_adapter = metadata_adapter,
+                    .func = &func,
+                    .instruction_index = @enumFromInt(0),
+                };
 
                 // Emit function level metadata block
                 if (!func.strip and func.debug_values.len > 0) {
@@ -14330,21 +14375,23 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                 var has_location = false;
 
                 var block_incoming_len: u32 = undefined;
-                for (0..func.instructions.len) |instr_index| {
-                    const tag = tags[instr_index];
-
+                for (tags, datas, 0..) |tag, data, instr_index| {
+                    adapter.instruction_index = @enumFromInt(instr_index);
                     record.clearRetainingCapacity();
 
                     switch (tag) {
-                        .block => block_incoming_len = datas[instr_index],
-                        .arg => {},
+                        .arg => continue,
+                        .block => {
+                            block_incoming_len = data;
+                            continue;
+                        },
                         .@"unreachable" => try function_block.writeAbbrev(FunctionBlock.Unreachable{}),
                         .call,
                         .@"musttail call",
                         .@"notail call",
                         .@"tail call",
                         => |kind| {
-                            var extra = func.extraDataTrail(Function.Instruction.Call, datas[instr_index]);
+                            var extra = func.extraDataTrail(Function.Instruction.Call, data);
 
                             const call_conv = extra.data.info.call_conv;
                             const args = extra.trail.next(extra.data.args_len, Value, &func);
@@ -14367,7 +14414,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         .@"notail call fast",
                         .@"tail call fast",
                         => |kind| {
-                            var extra = func.extraDataTrail(Function.Instruction.Call, datas[instr_index]);
+                            var extra = func.extraDataTrail(Function.Instruction.Call, data);
 
                             const call_conv = extra.data.info.call_conv;
                             const args = extra.trail.next(extra.data.args_len, Value, &func);
@@ -14405,7 +14452,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         .srem,
                         .ashr,
                         => |kind| {
-                            const extra = func.extraData(Function.Instruction.Binary, datas[instr_index]);
+                            const extra = func.extraData(Function.Instruction.Binary, data);
                             try function_block.writeAbbrev(FunctionBlock.Binary{
                                 .opcode = kind.toBinaryOpcode(),
                                 .lhs = adapter.getOffsetValueIndex(extra.lhs),
@@ -14417,7 +14464,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         .@"lshr exact",
                         .@"ashr exact",
                         => |kind| {
-                            const extra = func.extraData(Function.Instruction.Binary, datas[instr_index]);
+                            const extra = func.extraData(Function.Instruction.Binary, data);
                             try function_block.writeAbbrev(FunctionBlock.BinaryExact{
                                 .opcode = kind.toBinaryOpcode(),
                                 .lhs = adapter.getOffsetValueIndex(extra.lhs),
@@ -14437,7 +14484,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         .@"shl nuw",
                         .@"shl nuw nsw",
                         => |kind| {
-                            const extra = func.extraData(Function.Instruction.Binary, datas[instr_index]);
+                            const extra = func.extraData(Function.Instruction.Binary, data);
                             try function_block.writeAbbrev(FunctionBlock.BinaryNoWrap{
                                 .opcode = kind.toBinaryOpcode(),
                                 .lhs = adapter.getOffsetValueIndex(extra.lhs),
@@ -14468,7 +14515,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         .@"frem fast",
                         .@"fsub fast",
                         => |kind| {
-                            const extra = func.extraData(Function.Instruction.Binary, datas[instr_index]);
+                            const extra = func.extraData(Function.Instruction.Binary, data);
                             try function_block.writeAbbrev(FunctionBlock.BinaryFast{
                                 .opcode = kind.toBinaryOpcode(),
                                 .lhs = adapter.getOffsetValueIndex(extra.lhs),
@@ -14479,7 +14526,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         .alloca,
                         .@"alloca inalloca",
                         => |kind| {
-                            const extra = func.extraData(Function.Instruction.Alloca, datas[instr_index]);
+                            const extra = func.extraData(Function.Instruction.Alloca, data);
                             const alignment = extra.info.alignment.toLlvm();
                             try function_block.writeAbbrev(FunctionBlock.Alloca{
                                 .inst_type = extra.type,
@@ -14508,7 +14555,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         .sext,
                         .zext,
                         => |kind| {
-                            const extra = func.extraData(Function.Instruction.Cast, datas[instr_index]);
+                            const extra = func.extraData(Function.Instruction.Cast, data);
                             try function_block.writeAbbrev(FunctionBlock.Cast{
                                 .val = adapter.getOffsetValueIndex(extra.val),
                                 .type_index = extra.type,
@@ -14542,7 +14589,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         .@"icmp ule",
                         .@"icmp ult",
                         => |kind| {
-                            const extra = func.extraData(Function.Instruction.Binary, datas[instr_index]);
+                            const extra = func.extraData(Function.Instruction.Binary, data);
                             try function_block.writeAbbrev(FunctionBlock.Cmp{
                                 .lhs = adapter.getOffsetValueIndex(extra.lhs),
                                 .rhs = adapter.getOffsetValueIndex(extra.rhs),
@@ -14566,7 +14613,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         .@"fcmp fast une",
                         .@"fcmp fast uno",
                         => |kind| {
-                            const extra = func.extraData(Function.Instruction.Binary, datas[instr_index]);
+                            const extra = func.extraData(Function.Instruction.Binary, data);
                             try function_block.writeAbbrev(FunctionBlock.CmpFast{
                                 .lhs = adapter.getOffsetValueIndex(extra.lhs),
                                 .rhs = adapter.getOffsetValueIndex(extra.rhs),
@@ -14575,14 +14622,14 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             });
                         },
                         .fneg => try function_block.writeAbbrev(FunctionBlock.FNeg{
-                            .val = adapter.getOffsetValueIndex(@enumFromInt(datas[instr_index])),
+                            .val = adapter.getOffsetValueIndex(@enumFromInt(data)),
                         }),
                         .@"fneg fast" => try function_block.writeAbbrev(FunctionBlock.FNegFast{
-                            .val = adapter.getOffsetValueIndex(@enumFromInt(datas[instr_index])),
+                            .val = adapter.getOffsetValueIndex(@enumFromInt(data)),
                             .fast_math = FastMath.fast,
                         }),
                         .extractvalue => {
-                            var extra = func.extraDataTrail(Function.Instruction.ExtractValue, datas[instr_index]);
+                            var extra = func.extraDataTrail(Function.Instruction.ExtractValue, data);
                             const indices = extra.trail.next(extra.data.indices_len, u32, &func);
                             try function_block.writeAbbrev(FunctionBlock.ExtractValue{
                                 .val = adapter.getOffsetValueIndex(extra.data.val),
@@ -14590,7 +14637,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             });
                         },
                         .insertvalue => {
-                            var extra = func.extraDataTrail(Function.Instruction.InsertValue, datas[instr_index]);
+                            var extra = func.extraDataTrail(Function.Instruction.InsertValue, data);
                             const indices = extra.trail.next(extra.data.indices_len, u32, &func);
                             try function_block.writeAbbrev(FunctionBlock.InsertValue{
                                 .val = adapter.getOffsetValueIndex(extra.data.val),
@@ -14599,14 +14646,14 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             });
                         },
                         .extractelement => {
-                            const extra = func.extraData(Function.Instruction.ExtractElement, datas[instr_index]);
+                            const extra = func.extraData(Function.Instruction.ExtractElement, data);
                             try function_block.writeAbbrev(FunctionBlock.ExtractElement{
                                 .val = adapter.getOffsetValueIndex(extra.val),
                                 .index = adapter.getOffsetValueIndex(extra.index),
                             });
                         },
                         .insertelement => {
-                            const extra = func.extraData(Function.Instruction.InsertElement, datas[instr_index]);
+                            const extra = func.extraData(Function.Instruction.InsertElement, data);
                             try function_block.writeAbbrev(FunctionBlock.InsertElement{
                                 .val = adapter.getOffsetValueIndex(extra.val),
                                 .elem = adapter.getOffsetValueIndex(extra.elem),
@@ -14614,7 +14661,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             });
                         },
                         .select => {
-                            const extra = func.extraData(Function.Instruction.Select, datas[instr_index]);
+                            const extra = func.extraData(Function.Instruction.Select, data);
                             try function_block.writeAbbrev(FunctionBlock.Select{
                                 .lhs = adapter.getOffsetValueIndex(extra.lhs),
                                 .rhs = adapter.getOffsetValueIndex(extra.rhs),
@@ -14622,7 +14669,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             });
                         },
                         .@"select fast" => {
-                            const extra = func.extraData(Function.Instruction.Select, datas[instr_index]);
+                            const extra = func.extraData(Function.Instruction.Select, data);
                             try function_block.writeAbbrev(FunctionBlock.SelectFast{
                                 .lhs = adapter.getOffsetValueIndex(extra.lhs),
                                 .rhs = adapter.getOffsetValueIndex(extra.rhs),
@@ -14631,7 +14678,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             });
                         },
                         .shufflevector => {
-                            const extra = func.extraData(Function.Instruction.ShuffleVector, datas[instr_index]);
+                            const extra = func.extraData(Function.Instruction.ShuffleVector, data);
                             try function_block.writeAbbrev(FunctionBlock.ShuffleVector{
                                 .lhs = adapter.getOffsetValueIndex(extra.lhs),
                                 .rhs = adapter.getOffsetValueIndex(extra.rhs),
@@ -14641,7 +14688,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         .getelementptr,
                         .@"getelementptr inbounds",
                         => |kind| {
-                            var extra = func.extraDataTrail(Function.Instruction.GetElementPtr, datas[instr_index]);
+                            var extra = func.extraDataTrail(Function.Instruction.GetElementPtr, data);
                             const indices = extra.trail.next(extra.data.indices_len, Value, &func);
                             try function_block.writeAbbrevAdapted(
                                 FunctionBlock.GetElementPtr{
@@ -14654,7 +14701,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             );
                         },
                         .load => {
-                            const extra = func.extraData(Function.Instruction.Load, datas[instr_index]);
+                            const extra = func.extraData(Function.Instruction.Load, data);
                             try function_block.writeAbbrev(FunctionBlock.Load{
                                 .ptr = adapter.getOffsetValueIndex(extra.ptr),
                                 .ty = extra.type,
@@ -14663,7 +14710,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             });
                         },
                         .@"load atomic" => {
-                            const extra = func.extraData(Function.Instruction.Load, datas[instr_index]);
+                            const extra = func.extraData(Function.Instruction.Load, data);
                             try function_block.writeAbbrev(FunctionBlock.LoadAtomic{
                                 .ptr = adapter.getOffsetValueIndex(extra.ptr),
                                 .ty = extra.type,
@@ -14674,7 +14721,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             });
                         },
                         .store => {
-                            const extra = func.extraData(Function.Instruction.Store, datas[instr_index]);
+                            const extra = func.extraData(Function.Instruction.Store, data);
                             try function_block.writeAbbrev(FunctionBlock.Store{
                                 .ptr = adapter.getOffsetValueIndex(extra.ptr),
                                 .val = adapter.getOffsetValueIndex(extra.val),
@@ -14683,7 +14730,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             });
                         },
                         .@"store atomic" => {
-                            const extra = func.extraData(Function.Instruction.Store, datas[instr_index]);
+                            const extra = func.extraData(Function.Instruction.Store, data);
                             try function_block.writeAbbrev(FunctionBlock.StoreAtomic{
                                 .ptr = adapter.getOffsetValueIndex(extra.ptr),
                                 .val = adapter.getOffsetValueIndex(extra.val),
@@ -14695,11 +14742,11 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         },
                         .br => {
                             try function_block.writeAbbrev(FunctionBlock.BrUnconditional{
-                                .block = datas[instr_index],
+                                .block = data,
                             });
                         },
-                        .br_cond => {
-                            const extra = func.extraData(Function.Instruction.BrCond, datas[instr_index]);
+                        .br_cond, .br_cond_nosanitize => {
+                            const extra = func.extraData(Function.Instruction.BrCond, data);
                             try function_block.writeAbbrev(FunctionBlock.BrConditional{
                                 .then_block = @intFromEnum(extra.then),
                                 .else_block = @intFromEnum(extra.@"else"),
@@ -14707,7 +14754,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             });
                         },
                         .@"switch" => {
-                            var extra = func.extraDataTrail(Function.Instruction.Switch, datas[instr_index]);
+                            var extra = func.extraDataTrail(Function.Instruction.Switch, data);
 
                             try record.ensureUnusedCapacity(self.gpa, 3 + extra.data.cases_len * 2);
 
@@ -14730,7 +14777,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             try function_block.writeUnabbrev(12, record.items);
                         },
                         .va_arg => {
-                            const extra = func.extraData(Function.Instruction.VaArg, datas[instr_index]);
+                            const extra = func.extraData(Function.Instruction.VaArg, data);
                             try function_block.writeAbbrev(FunctionBlock.VaArg{
                                 .list_type = extra.list.typeOf(@enumFromInt(func_index), self),
                                 .list = adapter.getOffsetValueIndex(extra.list),
@@ -14740,7 +14787,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         .phi,
                         .@"phi fast",
                         => |kind| {
-                            var extra = func.extraDataTrail(Function.Instruction.Phi, datas[instr_index]);
+                            var extra = func.extraDataTrail(Function.Instruction.Phi, data);
                             const vals = extra.trail.next(block_incoming_len, Value, &func);
                             const blocks = extra.trail.next(block_incoming_len, Function.Block.Index, &func);
 
@@ -14764,11 +14811,11 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             try function_block.writeUnabbrev(16, record.items);
                         },
                         .ret => try function_block.writeAbbrev(FunctionBlock.Ret{
-                            .val = adapter.getOffsetValueIndex(@enumFromInt(datas[instr_index])),
+                            .val = adapter.getOffsetValueIndex(@enumFromInt(data)),
                         }),
                         .@"ret void" => try function_block.writeAbbrev(FunctionBlock.RetVoid{}),
                         .atomicrmw => {
-                            const extra = func.extraData(Function.Instruction.AtomicRmw, datas[instr_index]);
+                            const extra = func.extraData(Function.Instruction.AtomicRmw, data);
                             try function_block.writeAbbrev(FunctionBlock.AtomicRmw{
                                 .ptr = adapter.getOffsetValueIndex(extra.ptr),
                                 .val = adapter.getOffsetValueIndex(extra.val),
@@ -14782,7 +14829,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         .cmpxchg,
                         .@"cmpxchg weak",
                         => |kind| {
-                            const extra = func.extraData(Function.Instruction.CmpXchg, datas[instr_index]);
+                            const extra = func.extraData(Function.Instruction.CmpXchg, data);
 
                             try function_block.writeAbbrev(FunctionBlock.CmpXchg{
                                 .ptr = adapter.getOffsetValueIndex(extra.ptr),
@@ -14797,7 +14844,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             });
                         },
                         .fence => {
-                            const info: MemoryAccessInfo = @bitCast(datas[instr_index]);
+                            const info: MemoryAccessInfo = @bitCast(data);
                             try function_block.writeAbbrev(FunctionBlock.Fence{
                                 .ordering = info.success_ordering,
                                 .sync_scope = info.sync_scope,
@@ -14806,7 +14853,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     }
 
                     if (!func.strip) {
-                        if (func.debug_locations.get(@enumFromInt(instr_index))) |debug_location| {
+                        if (func.debug_locations.get(adapter.instruction_index)) |debug_location| {
                             switch (debug_location) {
                                 .no_location => has_location = false,
                                 .location => |location| {
@@ -14823,8 +14870,6 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             try function_block.writeAbbrev(FunctionBlock.DebugLocAgain{});
                         }
                     }
-
-                    adapter.next();
                 }
 
                 // VALUE_SYMTAB
@@ -14850,18 +14895,34 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                 }
 
                 // METADATA_ATTACHMENT_BLOCK
-                if (!func.strip) blk: {
-                    const dbg = func.global.ptrConst(self).dbg;
-
-                    if (dbg == .none) break :blk;
-
+                if (!func.strip or func.any_nosanitize) {
                     const MetadataAttachmentBlock = ir.MetadataAttachmentBlock;
                     var metadata_attach_block = try function_block.enterSubBlock(MetadataAttachmentBlock, false);
 
-                    try metadata_attach_block.writeAbbrev(MetadataAttachmentBlock.AttachmentSingle{
-                        .kind = ir.MetadataKind.dbg,
-                        .metadata = @enumFromInt(metadata_adapter.getMetadataIndex(dbg) - 1),
-                    });
+                    if (!func.strip) blk: {
+                        const dbg = func.global.ptrConst(self).dbg;
+                        if (dbg == .none) break :blk;
+                        try metadata_attach_block.writeAbbrev(MetadataAttachmentBlock.AttachmentGlobalSingle{
+                            .kind = .dbg,
+                            .metadata = @enumFromInt(metadata_adapter.getMetadataIndex(dbg) - 1),
+                        });
+                    }
+
+                    var instr_index: u32 = 0;
+                    for (func.instructions.items(.tag)) |instr_tag| switch (instr_tag) {
+                        .arg, .block => {},
+                        .br_cond_nosanitize => {
+                            try metadata_attach_block.writeAbbrev(MetadataAttachmentBlock.AttachmentInstructionSingle{
+                                .inst = instr_index,
+                                .kind = .nosanitize,
+                                .metadata = @enumFromInt(metadata_adapter.getMetadataIndex(.empty_tuple) - 1),
+                            });
+                            instr_index += 1;
+                        },
+                        else => {
+                            instr_index += 1;
+                        },
+                    };
 
                     try metadata_attach_block.end();
                 }
