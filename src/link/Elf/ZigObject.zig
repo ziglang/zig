@@ -238,7 +238,7 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
                         unit.header_len + unit.getEntry(source_entry).off
                     else
                         0);
-                    const r_addend: i64 = @intCast(reloc.target_off + (if (reloc.target_entry.unwrap()) |target_entry|
+                    const r_addend: i64 = @intCast(target_unit.off + reloc.target_off + (if (reloc.target_entry.unwrap()) |target_entry|
                         target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(unit, sect, dwarf).off
                     else
                         0));
