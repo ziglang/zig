@@ -1345,8 +1345,6 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
             try self.base.file.?.pwriteAll(code, file_offset);
         }
 
-        if (zo.dwarf) |*dwarf| try dwarf.resolveRelocs();
-
         if (has_reloc_errors) return error.FlushFailure;
     }
 
