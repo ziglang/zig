@@ -615,6 +615,7 @@ const Writer = struct {
             .restore_err_ret_index => try self.writeRestoreErrRetIndex(stream, extended),
             .closure_get => try self.writeClosureGet(stream, extended),
             .field_parent_ptr => try self.writeFieldParentPtr(stream, extended),
+            .builtin_value => try self.writeBuiltinValue(stream, extended),
         }
     }
 
@@ -2779,6 +2780,12 @@ const Writer = struct {
 
     fn writeClosureGet(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
         try stream.print("{d})) ", .{extended.small});
+        try self.writeSrcNode(stream, @bitCast(extended.operand));
+    }
+
+    fn writeBuiltinValue(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
+        const val: Zir.Inst.BuiltinValue = @enumFromInt(extended.small);
+        try stream.print("{s})) ", .{@tagName(val)});
         try self.writeSrcNode(stream, @bitCast(extended.operand));
     }
 

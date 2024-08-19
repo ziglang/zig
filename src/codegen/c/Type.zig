@@ -1389,21 +1389,6 @@ pub const Pool = struct {
             .anyframe_type,
             .generic_poison_type,
             => unreachable,
-            .atomic_order_type,
-            .atomic_rmw_op_type,
-            .calling_convention_type,
-            .address_space_type,
-            .float_mode_type,
-            .reduce_op_type,
-            .call_modifier_type,
-            => |ip_index| return pool.fromType(
-                allocator,
-                scratch,
-                Type.fromInterned(ip.loadEnumType(ip_index).tag_ty),
-                pt,
-                mod,
-                kind,
-            ),
             .anyerror_type,
             .anyerror_void_error_union_type,
             .adhoc_inferred_error_set_type,
@@ -1459,8 +1444,6 @@ pub const Pool = struct {
             .one_u8,
             .four_u8,
             .negative_one,
-            .calling_convention_c,
-            .calling_convention_inline,
             .void_value,
             .unreachable_value,
             .null_value,
@@ -1471,12 +1454,7 @@ pub const Pool = struct {
             .none,
             => unreachable,
 
-            //.prefetch_options_type,
-            //.export_options_type,
-            //.extern_options_type,
-            //.type_info_type,
-            //_,
-            else => |ip_index| switch (ip.indexToKey(ip_index)) {
+            _ => |ip_index| switch (ip.indexToKey(ip_index)) {
                 .int_type => |int_info| return pool.fromIntInfo(allocator, int_info, mod, kind),
                 .ptr_type => |ptr_info| switch (ptr_info.flags.size) {
                     .One, .Many, .C => {
