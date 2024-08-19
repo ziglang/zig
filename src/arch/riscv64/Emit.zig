@@ -56,17 +56,17 @@ pub fn emitMir(emit: *Emit) Error!void {
                     const hi_r_type: u32 = @intFromEnum(std.elf.R_RISCV.HI20);
                     const lo_r_type: u32 = @intFromEnum(std.elf.R_RISCV.LO12_I);
 
-                    try atom_ptr.addReloc(elf_file, .{
+                    try atom_ptr.addReloc(elf_file.base.comp.gpa, .{
                         .r_offset = start_offset,
                         .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | hi_r_type,
                         .r_addend = 0,
-                    });
+                    }, zo);
 
-                    try atom_ptr.addReloc(elf_file, .{
+                    try atom_ptr.addReloc(elf_file.base.comp.gpa, .{
                         .r_offset = start_offset + 4,
                         .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | lo_r_type,
                         .r_addend = 0,
-                    });
+                    }, zo);
                 },
                 .load_tlv_reloc => |symbol| {
                     const elf_file = emit.bin_file.cast(.elf).?;
@@ -76,23 +76,23 @@ pub fn emitMir(emit: *Emit) Error!void {
 
                     const R_RISCV = std.elf.R_RISCV;
 
-                    try atom_ptr.addReloc(elf_file, .{
+                    try atom_ptr.addReloc(elf_file.base.comp.gpa, .{
                         .r_offset = start_offset,
                         .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | @intFromEnum(R_RISCV.TPREL_HI20),
                         .r_addend = 0,
-                    });
+                    }, zo);
 
-                    try atom_ptr.addReloc(elf_file, .{
+                    try atom_ptr.addReloc(elf_file.base.comp.gpa, .{
                         .r_offset = start_offset + 4,
                         .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | @intFromEnum(R_RISCV.TPREL_ADD),
                         .r_addend = 0,
-                    });
+                    }, zo);
 
-                    try atom_ptr.addReloc(elf_file, .{
+                    try atom_ptr.addReloc(elf_file.base.comp.gpa, .{
                         .r_offset = start_offset + 8,
                         .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | @intFromEnum(R_RISCV.TPREL_LO12_I),
                         .r_addend = 0,
-                    });
+                    }, zo);
                 },
                 .call_extern_fn_reloc => |symbol| {
                     const elf_file = emit.bin_file.cast(.elf).?;
@@ -101,11 +101,11 @@ pub fn emitMir(emit: *Emit) Error!void {
 
                     const r_type: u32 = @intFromEnum(std.elf.R_RISCV.CALL_PLT);
 
-                    try atom_ptr.addReloc(elf_file, .{
+                    try atom_ptr.addReloc(elf_file.base.comp.gpa, .{
                         .r_offset = start_offset,
                         .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | r_type,
                         .r_addend = 0,
-                    });
+                    }, zo);
                 },
             };
         }

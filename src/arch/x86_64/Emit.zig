@@ -48,11 +48,11 @@ pub fn emitMir(emit: *Emit) Error!void {
                     const zo = elf_file.zigObjectPtr().?;
                     const atom_ptr = zo.symbol(emit.atom_index).atom(elf_file).?;
                     const r_type = @intFromEnum(std.elf.R_X86_64.PLT32);
-                    try atom_ptr.addReloc(elf_file, .{
+                    try atom_ptr.addReloc(elf_file.base.comp.gpa, .{
                         .r_offset = end_offset - 4,
                         .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
                         .r_addend = lowered_relocs[0].off - 4,
-                    });
+                    }, zo);
                 } else if (emit.lower.bin_file.cast(.macho)) |macho_file| {
                     // Add relocation to the decl.
                     const zo = macho_file.getZigObject().?;
@@ -95,22 +95,22 @@ pub fn emitMir(emit: *Emit) Error!void {
                     const zo = elf_file.zigObjectPtr().?;
                     const atom = zo.symbol(emit.atom_index).atom(elf_file).?;
                     const r_type = @intFromEnum(std.elf.R_X86_64.TLSLD);
-                    try atom.addReloc(elf_file, .{
+                    try atom.addReloc(elf_file.base.comp.gpa, .{
                         .r_offset = end_offset - 4,
                         .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
                         .r_addend = lowered_relocs[0].off - 4,
-                    });
+                    }, zo);
                 },
                 .linker_dtpoff => |sym_index| {
                     const elf_file = emit.lower.bin_file.cast(.elf).?;
                     const zo = elf_file.zigObjectPtr().?;
                     const atom = zo.symbol(emit.atom_index).atom(elf_file).?;
                     const r_type = @intFromEnum(std.elf.R_X86_64.DTPOFF32);
-                    try atom.addReloc(elf_file, .{
+                    try atom.addReloc(elf_file.base.comp.gpa, .{
                         .r_offset = end_offset - 4,
                         .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
                         .r_addend = lowered_relocs[0].off,
-                    });
+                    }, zo);
                 },
                 .linker_reloc => |sym_index| if (emit.lower.bin_file.cast(.elf)) |elf_file| {
                     const zo = elf_file.zigObjectPtr().?;
@@ -121,21 +121,21 @@ pub fn emitMir(emit: *Emit) Error!void {
                             @intFromEnum(std.elf.R_X86_64.GOTPCREL)
                         else
                             @intFromEnum(std.elf.R_X86_64.PC32);
-                        try atom.addReloc(elf_file, .{
+                        try atom.addReloc(elf_file.base.comp.gpa, .{
                             .r_offset = end_offset - 4,
                             .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
                             .r_addend = lowered_relocs[0].off - 4,
-                        });
+                        }, zo);
                     } else {
                         const r_type: u32 = if (sym.flags.is_tls)
                             @intFromEnum(std.elf.R_X86_64.TPOFF32)
                         else
                             @intFromEnum(std.elf.R_X86_64.@"32");
-                        try atom.addReloc(elf_file, .{
+                        try atom.addReloc(elf_file.base.comp.gpa, .{
                             .r_offset = end_offset - 4,
                             .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
                             .r_addend = lowered_relocs[0].off,
-                        });
+                        }, zo);
                     }
                 } else if (emit.lower.bin_file.cast(.macho)) |macho_file| {
                     const zo = macho_file.getZigObject().?;

@@ -182,6 +182,8 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
         try dwarf.flushModule(pt);
         try dwarf.resolveRelocs();
 
+        const gpa = elf_file.base.comp.gpa;
+
         // TODO invert this logic so that we manage the output section with the atom, not the
         // other way around
         for ([_]u32{
@@ -206,24 +208,47 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
             const sym = self.symbol(sym_index);
             const atom_ptr = self.atom(sym.ref.index).?;
             if (!atom_ptr.alive) continue;
-            const shdr = elf_file.shdrs.items[sym.outputShndx(elf_file).?];
+            const shndx = sym.outputShndx(elf_file).?;
+            const shdr = elf_file.shdrs.items[shndx];
             const esym = &self.symtab.items(.elf_sym)[sym.esym_index];
             esym.st_size = shdr.sh_size;
             atom_ptr.size = shdr.sh_size;
             atom_ptr.alignment = Atom.Alignment.fromNonzeroByteUnits(shdr.sh_addralign);
 
             const relocs = &self.relocs.items[atom_ptr.relocsShndx().?];
-            _ = relocs;
             for (sect.units.items) |*unit| {
+                try relocs.ensureUnusedCapacity(gpa, unit.external_relocs.items.len);
                 for (unit.external_relocs.items) |reloc| {
                     const tsym = self.symbol(reloc.target_sym);
                     const r_offset = unit.off + unit.header_len + unit.getEntry(reloc.source_entry).off + reloc.source_off;
-                    const r_addend = reloc.target_off;
-                    std.debug.print("{s} <- r_off={x}, r_add={x}\n", .{
+                    const r_addend: i64 = @intCast(reloc.target_off);
+                    const r_type: elf.R_X86_64 = switch (dwarf.address_size) {
+                        .@"32" => .@"32",
+                        .@"64" => .@"64",
+                        else => unreachable,
+                    };
+                    log.debug("{s} <- r_off={x}, r_add={x}, r_type={s}\n", .{
                         tsym.name(elf_file),
                         r_offset,
                         r_addend,
+                        @tagName(r_type),
                     });
+                    atom_ptr.addRelocAssumeCapacity(.{
+                        .r_offset = r_offset,
+                        .r_addend = r_addend,
+                        .r_info = (@as(u64, @intCast(reloc.target_sym)) << 32) | @intFromEnum(r_type),
+                    }, self);
+                }
+            }
+
+            if (elf_file.base.isRelocatable() and relocs.items.len > 0) {
+                const gop = try elf_file.output_rela_sections.getOrPut(gpa, shndx);
+                if (!gop.found_existing) {
+                    const rela_sect_name = try std.fmt.allocPrintZ(gpa, ".rela{s}", .{elf_file.getShString(shdr.sh_name)});
+                    defer gpa.free(rela_sect_name);
+                    const rela_sh_name = try elf_file.insertShString(rela_sect_name);
+                    const rela_shndx = try elf_file.addRelaShdr(rela_sh_name, shndx);
+                    gop.value_ptr.* = .{ .shndx = rela_shndx };
                 }
             }
         }
@@ -698,11 +723,11 @@ pub fn getNavVAddr(
     const vaddr = this_sym.address(.{}, elf_file);
     const parent_atom = self.symbol(reloc_info.parent_atom_index).atom(elf_file).?;
     const r_type = relocation.encode(.abs, elf_file.getTarget().cpu.arch);
-    try parent_atom.addReloc(elf_file, .{
+    try parent_atom.addReloc(elf_file.base.comp.gpa, .{
         .r_offset = reloc_info.offset,
         .r_info = (@as(u64, @intCast(this_sym_index)) << 32) | r_type,
         .r_addend = reloc_info.addend,
-    });
+    }, self);
     return @intCast(vaddr);
 }
 
@@ -717,11 +742,11 @@ pub fn getUavVAddr(
     const vaddr = sym.address(.{}, elf_file);
     const parent_atom = self.symbol(reloc_info.parent_atom_index).atom(elf_file).?;
     const r_type = relocation.encode(.abs, elf_file.getTarget().cpu.arch);
-    try parent_atom.addReloc(elf_file, .{
+    try parent_atom.addReloc(elf_file.base.comp.gpa, .{
         .r_offset = reloc_info.offset,
         .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
         .r_addend = reloc_info.addend,
-    });
+    }, self);
     return @intCast(vaddr);
 }
 
@@ -1068,7 +1093,7 @@ pub fn updateFunc(
     log.debug("updateFunc {}({d})", .{ ip.getNav(func.owner_nav).fqn.fmt(ip), func.owner_nav });
 
     const sym_index = try self.getOrCreateMetadataForNav(elf_file, func.owner_nav);
-    self.symbol(sym_index).atom(elf_file).?.freeRelocs(elf_file);
+    self.symbol(sym_index).atom(elf_file).?.freeRelocs(self);
 
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
@@ -1196,7 +1221,7 @@ pub fn updateNav(
 
     if (nav_init != .none and Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(pt)) {
         const sym_index = try self.getOrCreateMetadataForNav(elf_file, nav_index);
-        self.symbol(sym_index).atom(elf_file).?.freeRelocs(elf_file);
+        self.symbol(sym_index).atom(elf_file).?.freeRelocs(self);
 
         var code_buffer = std.ArrayList(u8).init(zcu.gpa);
         defer code_buffer.deinit();
