@@ -6825,7 +6825,6 @@ pub const PACKET = struct {
     pub const LOOPBACK = 5;
     pub const USER = 6;
     pub const KERNEL = 7;
-    pub const FASTROUTE = 8;
 
     pub const ADD_MEMBERSHIP = 1;
     pub const DROP_MEMBERSHIP = 2;
