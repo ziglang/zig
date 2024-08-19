@@ -246,11 +246,11 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
                         .@"32" => .@"32",
                         .@"64" => .@"64",
                     };
-                    log.debug("  {s} <- r_off={x}, r_add={x}, r_type={s}", .{
+                    log.debug("  {s} <- r_off={x}, r_add={x}, r_type={}", .{
                         self.symbol(target_sym_index).name(elf_file),
                         r_offset,
                         r_addend,
-                        @tagName(r_type),
+                        relocation.fmtRelocType(@intFromEnum(r_type), elf_file.getTarget().cpu.arch),
                     });
                     atom_ptr.addRelocAssumeCapacity(.{
                         .r_offset = r_offset,
@@ -261,18 +261,19 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
 
                 try relocs.ensureUnusedCapacity(gpa, unit.external_relocs.items.len);
                 for (unit.external_relocs.items) |reloc| {
+                    const target_sym = self.symbol(reloc.target_sym);
                     const r_offset = unit.off + unit.header_len + unit.getEntry(reloc.source_entry).off + reloc.source_off;
                     const r_addend: i64 = @intCast(reloc.target_off);
                     const r_type: elf.R_X86_64 = switch (dwarf.address_size) {
-                        .@"32" => .@"32",
-                        .@"64" => .@"64",
+                        .@"32" => if (target_sym.flags.is_tls) .DTPOFF32 else .@"32",
+                        .@"64" => if (target_sym.flags.is_tls) .DTPOFF64 else .@"64",
                         else => unreachable,
                     };
-                    log.debug("  {s} <- r_off={x}, r_add={x}, r_type={s}", .{
-                        self.symbol(reloc.target_sym).name(elf_file),
+                    log.debug("  {s} <- r_off={x}, r_add={x}, r_type={}", .{
+                        target_sym.name(elf_file),
                         r_offset,
                         r_addend,
-                        @tagName(r_type),
+                        relocation.fmtRelocType(@intFromEnum(r_type), elf_file.getTarget().cpu.arch),
                     });
                     atom_ptr.addRelocAssumeCapacity(.{
                         .r_offset = r_offset,
