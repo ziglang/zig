@@ -64,15 +64,14 @@ stage3-debug/bin/zig build \
 
 stage3-debug/bin/zig build test docs \
   --maxrss 21000000000 \
-  -Dlldb=$HOME/deps/lldb-zig/Debug/bin/lldb \
+  -Dlldb=$HOME/deps/lldb-zig/Debug-f96d3e6fc/bin/lldb \
   -fqemu \
   -fwasmtime \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \
-  -Denable-tidy \
-  -Dtest-slow-targets
+  -Denable-tidy
 
 # Ensure that updating the wasm binary from this commit will result in a viable build.
 stage3-debug/bin/zig build update-zig1

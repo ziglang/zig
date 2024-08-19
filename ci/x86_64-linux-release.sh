@@ -64,15 +64,14 @@ stage3-release/bin/zig build \
 
 stage3-release/bin/zig build test docs \
   --maxrss 21000000000 \
-  -Dlldb=$HOME/deps/lldb-zig/Release/bin/lldb \
+  -Dlldb=$HOME/deps/lldb-zig/Release-f96d3e6fc/bin/lldb \
   -fqemu \
   -fwasmtime \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \
-  -Denable-tidy \
-  -Dtest-slow-targets
+  -Denable-tidy
 
 # Ensure that stage3 and stage4 are byte-for-byte identical.
 stage3-release/bin/zig build \

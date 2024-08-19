@@ -1380,7 +1380,8 @@ pub const Object = struct {
         } else {
             _ = try attributes.removeFnAttr(.sanitize_thread);
         }
-        if (owner_mod.fuzz and !func_analysis.disable_instrumentation) {
+        const is_naked = fn_info.cc == .Naked;
+        if (owner_mod.fuzz and !func_analysis.disable_instrumentation and !is_naked) {
             try attributes.addFnAttr(.optforfuzzing, &o.builder);
             _ = try attributes.removeFnAttr(.skipprofile);
             _ = try attributes.removeFnAttr(.nosanitize_coverage);
@@ -1959,7 +1960,7 @@ pub const Object = struct {
                     );
                 }
 
-                const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFull(ip).file);
+                const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFile(ip));
                 const scope = if (ty.getParentNamespace(zcu).unwrap()) |parent_namespace|
                     try o.namespaceToDebugScope(parent_namespace)
                 else
@@ -2137,7 +2138,7 @@ pub const Object = struct {
                 const name = try o.allocTypeName(ty);
                 defer gpa.free(name);
 
-                const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFull(ip).file);
+                const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFile(ip));
                 const scope = if (ty.getParentNamespace(zcu).unwrap()) |parent_namespace|
                     try o.namespaceToDebugScope(parent_namespace)
                 else
@@ -2772,7 +2773,7 @@ pub const Object = struct {
     fn makeEmptyNamespaceDebugType(o: *Object, ty: Type) !Builder.Metadata {
         const zcu = o.pt.zcu;
         const ip = &zcu.intern_pool;
-        const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFull(ip).file);
+        const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFile(ip));
         const scope = if (ty.getParentNamespace(zcu).unwrap()) |parent_namespace|
             try o.namespaceToDebugScope(parent_namespace)
         else
@@ -3194,8 +3195,6 @@ pub const Object = struct {
             .one_u8,
             .four_u8,
             .negative_one,
-            .calling_convention_c,
-            .calling_convention_inline,
             .void_value,
             .unreachable_value,
             .null_value,

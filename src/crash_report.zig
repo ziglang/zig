@@ -78,7 +78,13 @@ fn dumpStatusReport() !void {
     const block: *Sema.Block = anal.block;
     const zcu = anal.sema.pt.zcu;
 
-    const file, const src_base_node = Zcu.LazySrcLoc.resolveBaseNode(block.src_base_inst, zcu);
+    const file, const src_base_node = Zcu.LazySrcLoc.resolveBaseNode(block.src_base_inst, zcu) orelse {
+        const file = zcu.fileByIndex(block.src_base_inst.resolveFile(&zcu.intern_pool));
+        try stderr.writeAll("Analyzing lost instruction in file '");
+        try writeFilePath(file, stderr);
+        try stderr.writeAll("'. This should not happen!\n\n");
+        return;
+    };
 
     try stderr.writeAll("Analyzing ");
     try writeFilePath(file, stderr);
@@ -104,7 +110,13 @@ fn dumpStatusReport() !void {
     while (parent) |curr| {
         fba.reset();
         try stderr.writeAll("  in ");
-        const cur_block_file, const cur_block_src_base_node = Zcu.LazySrcLoc.resolveBaseNode(curr.block.src_base_inst, zcu);
+        const cur_block_file, const cur_block_src_base_node = Zcu.LazySrcLoc.resolveBaseNode(curr.block.src_base_inst, zcu) orelse {
+            const cur_block_file = zcu.fileByIndex(curr.block.src_base_inst.resolveFile(&zcu.intern_pool));
+            try writeFilePath(cur_block_file, stderr);
+            try stderr.writeAll("\n    > [lost instruction; this should not happen]\n");
+            parent = curr.parent;
+            continue;
+        };
         try writeFilePath(cur_block_file, stderr);
         try stderr.writeAll("\n    > ");
         print_zir.renderSingleInstruction(

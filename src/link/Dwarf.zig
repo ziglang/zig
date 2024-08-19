@@ -786,7 +786,7 @@ const Entry = struct {
             const ip = &zcu.intern_pool;
             for (dwarf.types.keys(), dwarf.types.values()) |ty, other_entry| {
                 const ty_unit: Unit.Index = if (Type.fromInterned(ty).typeDeclInst(zcu)) |inst_index|
-                    dwarf.getUnit(zcu.fileByIndex(inst_index.resolveFull(ip).file).mod) catch unreachable
+                    dwarf.getUnit(zcu.fileByIndex(inst_index.resolveFile(ip)).mod) catch unreachable
                 else
                     .main;
                 if (sec.getUnit(ty_unit) == unit and unit.getEntry(other_entry) == entry)
@@ -796,7 +796,7 @@ const Entry = struct {
                     });
             }
             for (dwarf.navs.keys(), dwarf.navs.values()) |nav, other_entry| {
-                const nav_unit = dwarf.getUnit(zcu.fileByIndex(ip.getNav(nav).srcInst(ip).resolveFull(ip).file).mod) catch unreachable;
+                const nav_unit = dwarf.getUnit(zcu.fileByIndex(ip.getNav(nav).srcInst(ip).resolveFile(ip)).mod) catch unreachable;
                 if (sec.getUnit(nav_unit) == unit and unit.getEntry(other_entry) == entry)
                     log.err("missing Nav({}({d}))", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) });
             }
@@ -1201,7 +1201,7 @@ pub const WipNav = struct {
         const ip = &zcu.intern_pool;
         const maybe_inst_index = ty.typeDeclInst(zcu);
         const unit = if (maybe_inst_index) |inst_index|
-            try wip_nav.dwarf.getUnit(zcu.fileByIndex(inst_index.resolveFull(ip).file).mod)
+            try wip_nav.dwarf.getUnit(zcu.fileByIndex(inst_index.resolveFile(ip)).mod)
         else
             .main;
         const gop = try wip_nav.dwarf.types.getOrPut(wip_nav.dwarf.gpa, ty.toIntern());
@@ -1539,7 +1539,7 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
     const nav = ip.getNav(nav_index);
     log.debug("initWipNav({})", .{nav.fqn.fmt(ip)});
 
-    const inst_info = nav.srcInst(ip).resolveFull(ip);
+    const inst_info = nav.srcInst(ip).resolveFull(ip).?;
     const file = zcu.fileByIndex(inst_info.file);
 
     const unit = try dwarf.getUnit(file.mod);
@@ -1874,7 +1874,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
     const nav = ip.getNav(nav_index);
     log.debug("updateComptimeNav({})", .{nav.fqn.fmt(ip)});
 
-    const inst_info = nav.srcInst(ip).resolveFull(ip);
+    const inst_info = nav.srcInst(ip).resolveFull(ip).?;
     const file = zcu.fileByIndex(inst_info.file);
     assert(file.zir_loaded);
     const decl_inst = file.zir.instructions.get(@intFromEnum(inst_info.inst));
@@ -1937,7 +1937,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                     };
                     break :value_inst value_inst;
                 };
-                const type_inst_info = loaded_struct.zir_index.unwrap().?.resolveFull(ip);
+                const type_inst_info = loaded_struct.zir_index.unwrap().?.resolveFull(ip).?;
                 if (type_inst_info.inst != value_inst) break :decl_struct;
 
                 const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
@@ -2053,7 +2053,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                     };
                     break :value_inst value_inst;
                 };
-                const type_inst_info = loaded_enum.zir_index.unwrap().?.resolveFull(ip);
+                const type_inst_info = loaded_enum.zir_index.unwrap().?.resolveFull(ip).?;
                 if (type_inst_info.inst != value_inst) break :decl_enum;
 
                 const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
@@ -2127,7 +2127,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                     };
                     break :value_inst value_inst;
                 };
-                const type_inst_info = loaded_union.zir_index.resolveFull(ip);
+                const type_inst_info = loaded_union.zir_index.resolveFull(ip).?;
                 if (type_inst_info.inst != value_inst) break :decl_union;
 
                 const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
@@ -2240,7 +2240,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                     };
                     break :value_inst value_inst;
                 };
-                const type_inst_info = loaded_opaque.zir_index.resolveFull(ip);
+                const type_inst_info = loaded_opaque.zir_index.resolveFull(ip).?;
                 if (type_inst_info.inst != value_inst) break :decl_opaque;
 
                 const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
@@ -2565,19 +2565,7 @@ fn updateType(
                 try wip_nav.strp(if (type_index == .generic_poison_type) "anytype" else name);
             },
             .anyerror => return, // delay until flush
-            .atomic_order,
-            .atomic_rmw_op,
-            .calling_convention,
-            .address_space,
-            .float_mode,
-            .reduce_op,
-            .call_modifier,
-            .prefetch_options,
-            .export_options,
-            .extern_options,
-            .type_info,
-            .adhoc_inferred_error_set,
-            => unreachable,
+            .adhoc_inferred_error_set => unreachable,
         },
         .struct_type,
         .union_type,
@@ -2704,7 +2692,7 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
     const ty = Type.fromInterned(type_index);
     log.debug("updateContainerType({}({d}))", .{ ty.fmt(pt), @intFromEnum(type_index) });
 
-    const inst_info = ty.typeDeclInst(zcu).?.resolveFull(ip);
+    const inst_info = ty.typeDeclInst(zcu).?.resolveFull(ip).?;
     const file = zcu.fileByIndex(inst_info.file);
     if (inst_info.inst == .main_struct_inst) {
         const unit = try dwarf.getUnit(file.mod);
@@ -2922,7 +2910,7 @@ pub fn updateNavLineNumber(dwarf: *Dwarf, zcu: *Zcu, nav_index: InternPool.Nav.I
     const ip = &zcu.intern_pool;
 
     const zir_index = ip.getCau(ip.getNav(nav_index).analysis_owner.unwrap() orelse return).zir_index;
-    const inst_info = zir_index.resolveFull(ip);
+    const inst_info = zir_index.resolveFull(ip).?;
     assert(inst_info.inst != .main_struct_inst);
     const file = zcu.fileByIndex(inst_info.file);
 
