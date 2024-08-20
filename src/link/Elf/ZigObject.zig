@@ -235,10 +235,7 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
                         inline else => |target_sec| &@field(dwarf, @tagName(target_sec)).section,
                     };
                     const target_unit = target_sec.getUnit(reloc.target_unit);
-                    const r_offset = unit.off + reloc.source_off + (if (reloc.source_entry.unwrap()) |source_entry|
-                        unit.header_len + unit.getEntry(source_entry).off
-                    else
-                        0);
+                    const r_offset = unit.off + reloc.source_off;
                     const r_addend: i64 = @intCast(target_unit.off + reloc.target_off + (if (reloc.target_entry.unwrap()) |target_entry|
                         target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(unit, sect, dwarf).off
                     else
@@ -257,23 +254,61 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
                     }, self);
                 }
 
-                try relocs.ensureUnusedCapacity(gpa, unit.external_relocs.items.len);
-                for (unit.external_relocs.items) |reloc| {
-                    const target_sym = self.symbol(reloc.target_sym);
-                    const r_offset = unit.off + unit.header_len + unit.getEntry(reloc.source_entry).off + reloc.source_off;
-                    const r_addend: i64 = @intCast(reloc.target_off);
-                    const r_type = relocation.dwarf.externalRelocType(target_sym.*, dwarf.address_size, cpu_arch);
-                    log.debug("  {s} <- r_off={x}, r_add={x}, r_type={}", .{
-                        target_sym.name(elf_file),
-                        r_offset,
-                        r_addend,
-                        relocation.fmtRelocType(r_type, cpu_arch),
-                    });
-                    atom_ptr.addRelocAssumeCapacity(.{
-                        .r_offset = r_offset,
-                        .r_addend = r_addend,
-                        .r_info = (@as(u64, @intCast(reloc.target_sym)) << 32) | r_type,
-                    }, self);
+                for (unit.entries.items) |*entry| {
+                    const entry_off = unit.off + unit.header_len + entry.off;
+
+                    try relocs.ensureUnusedCapacity(gpa, entry.cross_section_relocs.items.len);
+                    for (entry.cross_section_relocs.items) |reloc| {
+                        const target_sym_index = switch (reloc.target_sec) {
+                            .debug_abbrev => self.debug_abbrev_index.?,
+                            .debug_info => self.debug_info_index.?,
+                            .debug_line => self.debug_line_index.?,
+                            .debug_line_str => self.debug_line_str_index.?,
+                            .debug_loclists => self.debug_loclists_index.?,
+                            .debug_rnglists => self.debug_rnglists_index.?,
+                            .debug_str => self.debug_str_index.?,
+                        };
+                        const target_sec = switch (reloc.target_sec) {
+                            inline else => |target_sec| &@field(dwarf, @tagName(target_sec)).section,
+                        };
+                        const target_unit = target_sec.getUnit(reloc.target_unit);
+                        const r_offset = entry_off + reloc.source_off;
+                        const r_addend: i64 = @intCast(target_unit.off + reloc.target_off + (if (reloc.target_entry.unwrap()) |target_entry|
+                            target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(unit, sect, dwarf).off
+                        else
+                            0));
+                        const r_type = relocation.dwarf.crossSectionRelocType(dwarf.format, cpu_arch);
+                        log.debug("  {s} <- r_off={x}, r_add={x}, r_type={}", .{
+                            self.symbol(target_sym_index).name(elf_file),
+                            r_offset,
+                            r_addend,
+                            relocation.fmtRelocType(r_type, cpu_arch),
+                        });
+                        atom_ptr.addRelocAssumeCapacity(.{
+                            .r_offset = r_offset,
+                            .r_addend = r_addend,
+                            .r_info = (@as(u64, @intCast(target_sym_index)) << 32) | r_type,
+                        }, self);
+                    }
+
+                    try relocs.ensureUnusedCapacity(gpa, entry.external_relocs.items.len);
+                    for (entry.external_relocs.items) |reloc| {
+                        const target_sym = self.symbol(reloc.target_sym);
+                        const r_offset = entry_off + reloc.source_off;
+                        const r_addend: i64 = @intCast(reloc.target_off);
+                        const r_type = relocation.dwarf.externalRelocType(target_sym.*, dwarf.address_size, cpu_arch);
+                        log.debug("  {s} <- r_off={x}, r_add={x}, r_type={}", .{
+                            target_sym.name(elf_file),
+                            r_offset,
+                            r_addend,
+                            relocation.fmtRelocType(r_type, cpu_arch),
+                        });
+                        atom_ptr.addRelocAssumeCapacity(.{
+                            .r_offset = r_offset,
+                            .r_addend = r_addend,
+                            .r_info = (@as(u64, @intCast(reloc.target_sym)) << 32) | r_type,
+                        }, self);
+                    }
                 }
             }
 
