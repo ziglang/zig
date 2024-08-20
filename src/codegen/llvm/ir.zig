@@ -910,7 +910,7 @@ pub const MetadataBlock = struct {
 
     pub const LexicalBlock = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = @intFromEnum(MetadataCode.SUBPROGRAM) },
+            .{ .literal = @intFromEnum(MetadataCode.LEXICAL_BLOCK) },
             .{ .literal = 0 }, // is distinct
             MetadataAbbrev, // scope
             MetadataAbbrev, // file

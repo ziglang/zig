@@ -14222,20 +14222,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                 constant_adapter: ConstantAdapter,
                 metadata_adapter: MetadataAdapter,
                 func: *const Function,
-                instruction_index: u32 = 0,
-
-                pub fn init(
-                    const_adapter: ConstantAdapter,
-                    meta_adapter: MetadataAdapter,
-                    func: *const Function,
-                ) @This() {
-                    return .{
-                        .constant_adapter = const_adapter,
-                        .metadata_adapter = meta_adapter,
-                        .func = func,
-                        .instruction_index = 0,
-                    };
-                }
+                instruction_index: Function.Instruction.Index,
 
                 pub fn get(adapter: @This(), value: anytype, comptime field_name: []const u8) @TypeOf(value) {
                     _ = field_name;
@@ -14284,18 +14271,11 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                 }
 
                 pub fn offset(adapter: @This()) u32 {
-                    return @as(
-                        Function.Instruction.Index,
-                        @enumFromInt(adapter.instruction_index),
-                    ).valueIndex(adapter.func) + adapter.firstInstr();
+                    return adapter.instruction_index.valueIndex(adapter.func) + adapter.firstInstr();
                 }
 
                 fn firstInstr(adapter: @This()) u32 {
                     return adapter.constant_adapter.numConstants();
-                }
-
-                pub fn next(adapter: *@This()) void {
-                    adapter.instruction_index += 1;
                 }
             };
 
@@ -14309,7 +14289,12 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 
                 try function_block.writeAbbrev(FunctionBlock.DeclareBlocks{ .num_blocks = func.blocks.len });
 
-                var adapter = FunctionAdapter.init(constant_adapter, metadata_adapter, &func);
+                var adapter: FunctionAdapter = .{
+                    .constant_adapter = constant_adapter,
+                    .metadata_adapter = metadata_adapter,
+                    .func = &func,
+                    .instruction_index = @enumFromInt(0),
+                };
 
                 // Emit function level metadata block
                 if (!func.strip and func.debug_values.len > 0) {
@@ -14333,11 +14318,15 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
 
                 var block_incoming_len: u32 = undefined;
                 for (tags, datas, 0..) |tag, data, instr_index| {
+                    adapter.instruction_index = @enumFromInt(instr_index);
                     record.clearRetainingCapacity();
 
                     switch (tag) {
-                        .block => block_incoming_len = data,
-                        .arg => {},
+                        .arg => continue,
+                        .block => {
+                            block_incoming_len = data;
+                            continue;
+                        },
                         .@"unreachable" => try function_block.writeAbbrev(FunctionBlock.Unreachable{}),
                         .call,
                         .@"musttail call",
@@ -14806,7 +14795,7 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     }
 
                     if (!func.strip) {
-                        if (func.debug_locations.get(@enumFromInt(instr_index))) |debug_location| {
+                        if (func.debug_locations.get(adapter.instruction_index)) |debug_location| {
                             switch (debug_location) {
                                 .no_location => has_location = false,
                                 .location => |location| {
@@ -14823,8 +14812,6 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                             try function_block.writeAbbrev(FunctionBlock.DebugLocAgain{});
                         }
                     }
-
-                    adapter.next();
                 }
 
                 // VALUE_SYMTAB
@@ -14864,13 +14851,18 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         });
                     }
 
-                    for (0..func.instructions.len) |instr_index| {
-                        try metadata_attach_block.writeAbbrev(MetadataAttachmentBlock.AttachmentInstructionSingle{
-                            .inst = @intCast(instr_index),
-                            .kind = .nosanitize,
-                            .metadata = .empty_tuple,
-                        });
-                    }
+                    var instr_index: u32 = 0;
+                    for (func.instructions.items(.tag)) |instr_tag| switch (instr_tag) {
+                        .arg, .block => {},
+                        else => {
+                            try metadata_attach_block.writeAbbrev(MetadataAttachmentBlock.AttachmentInstructionSingle{
+                                .inst = instr_index,
+                                .kind = .nosanitize,
+                                .metadata = @enumFromInt(metadata_adapter.getMetadataIndex(.empty_tuple) - 1),
+                            });
+                            instr_index += 1;
+                        },
+                    };
 
                     try metadata_attach_block.end();
                 }
