@@ -1,5 +1,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const windows = std.os.windows;
+
+extern "kernel32" fn GetProcessId(Process: windows.HANDLE) callconv(windows.WINAPI) windows.HANDLE;
+extern "kernel32" fn GetConsoleProcessList(
+    lpdwProcessList: [*]windows.DWORD,
+    dwProcessCount: windows.DWORD,
+) callconv(windows.WINAPI) windows.DWORD;
 
 pub fn main() !void {
     var gpa_state = std.heap.GeneralPurposeAllocator(.{ .safety = true }){};
@@ -30,8 +37,8 @@ pub fn main() !void {
 
     switch (builtin.os.tag) {
         .windows => {
-            const windows = std.os.windows;
-            const child_pid = try windows.GetProcessId(child.id);
+            const child_pid = GetProcessId(child.id);
+            if (child_pid == 0) return error.GetProcessIdFailed;
 
             var proc_buffer: []windows.DWORD = undefined;
             var proc_count: windows.DWORD = 16;
@@ -39,7 +46,7 @@ pub fn main() !void {
                 proc_buffer = try gpa.alloc(windows.DWORD, proc_count);
                 defer gpa.free(proc_buffer);
 
-                proc_count = try windows.GetConsoleProcessList(proc_buffer);
+                proc_count = GetConsoleProcessList(proc_buffer);
                 if (proc_count == 0) return error.ConsoleProcessListFailed;
 
                 if (proc_count <= proc_buffer.len) {

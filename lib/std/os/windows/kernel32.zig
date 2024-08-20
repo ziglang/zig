@@ -340,8 +340,6 @@ pub extern "kernel32" fn GetExitCodeProcess(
 // TODO: Already a wrapper for this, see `windows.GetCurrentProcess`.
 pub extern "kernel32" fn GetCurrentProcess() callconv(WINAPI) HANDLE;
 
-pub extern "kernel32" fn GetProcessId(Process: HANDLE) callconv(WINAPI) DWORD;
-
 // TODO: memcpy peb().ProcessParameters.Environment, mem.span(0). Requires locking the PEB.
 pub extern "kernel32" fn GetEnvironmentStringsW() callconv(WINAPI) ?LPWSTR;
 
@@ -520,11 +518,6 @@ pub extern "kernel32" fn ReadConsoleOutputCharacterW(
     dwReadCoord: COORD,
     lpNumberOfCharsRead: *DWORD,
 ) callconv(windows.WINAPI) BOOL;
-
-pub extern "kernel32" fn GetConsoleProcessList(
-    lpdwProcessList: [*]DWORD,
-    dwProcessCount: DWORD,
-) callconv(WINAPI) DWORD;
 
 // Memory Mapping/Allocation
 
