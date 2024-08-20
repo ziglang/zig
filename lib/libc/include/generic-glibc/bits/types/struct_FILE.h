@@ -92,10 +92,10 @@ struct _IO_FILE_complete
   struct _IO_wide_data *_wide_data;
   struct _IO_FILE *_freeres_list;
   void *_freeres_buf;
-  size_t __pad5;
+  struct _IO_FILE **_prevchain;
   int _mode;
   /* Make sure we don't get into trouble again.  */
-  char _unused2[15 * sizeof (int) - 4 * sizeof (void *) - sizeof (size_t)];
+  char _unused2[15 * sizeof (int) - 5 * sizeof (void *)];
 };
 
 /* These macros are used by bits/stdio.h and internal headers.  */

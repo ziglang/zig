@@ -17,12 +17,15 @@ pub const DynLib = struct {
             DlDynLib,
         .windows => WindowsDynLib,
         .macos, .tvos, .watchos, .ios, .visionos, .freebsd, .netbsd, .openbsd, .dragonfly, .solaris, .illumos => DlDynLib,
-        else => @compileError("unsupported platform"),
+        else => struct {
+            const open = @compileError("unsupported platform");
+            const openZ = @compileError("unsupported platform");
+        },
     };
 
     inner: InnerType,
 
-    pub const Error = ElfDynLib.Error || DlDynLib.Error || WindowsDynLib.Error;
+    pub const Error = ElfDynLibError || DlDynLibError || WindowsDynLibError;
 
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
     pub fn open(path: []const u8) Error!DynLib {
@@ -122,6 +125,18 @@ pub fn linkmap_iterator(phdrs: []elf.Phdr) error{InvalidExe}!LinkMap.Iterator {
     return .{ .current = link_map_ptr };
 }
 
+/// Separated to avoid referencing `ElfDynLib`, because its field types may not
+/// be valid on other targets.
+const ElfDynLibError = error{
+    FileTooBig,
+    NotElfFile,
+    NotDynamicLibrary,
+    MissingDynamicLinkingInformation,
+    ElfStringSectionNotFound,
+    ElfSymSectionNotFound,
+    ElfHashTableNotFound,
+} || posix.OpenError || posix.MMapError;
+
 pub const ElfDynLib = struct {
     strings: [*:0]u8,
     syms: [*]elf.Sym,
@@ -130,15 +145,7 @@ pub const ElfDynLib = struct {
     verdef: ?*elf.Verdef,
     memory: []align(mem.page_size) u8,
 
-    pub const Error = error{
-        FileTooBig,
-        NotElfFile,
-        NotDynamicLibrary,
-        MissingDynamicLinkingInformation,
-        ElfStringSectionNotFound,
-        ElfSymSectionNotFound,
-        ElfHashTableNotFound,
-    } || posix.OpenError || posix.MMapError;
+    pub const Error = ElfDynLibError;
 
     /// Trusts the file. Malicious file will be able to execute arbitrary code.
     pub fn open(path: []const u8) Error!ElfDynLib {
@@ -350,11 +357,15 @@ test "ElfDynLib" {
     try testing.expectError(error.FileNotFound, ElfDynLib.open("invalid_so.so"));
 }
 
+/// Separated to avoid referencing `WindowsDynLib`, because its field types may not
+/// be valid on other targets.
+const WindowsDynLibError = error{
+    FileNotFound,
+    InvalidPath,
+} || windows.LoadLibraryError;
+
 pub const WindowsDynLib = struct {
-    pub const Error = error{
-        FileNotFound,
-        InvalidPath,
-    } || windows.LoadLibraryError;
+    pub const Error = WindowsDynLibError;
 
     dll: windows.HMODULE,
 
@@ -413,8 +424,12 @@ pub const WindowsDynLib = struct {
     }
 };
 
+/// Separated to avoid referencing `DlDynLib`, because its field types may not
+/// be valid on other targets.
+const DlDynLibError = error{ FileNotFound, NameTooLong };
+
 pub const DlDynLib = struct {
-    pub const Error = error{ FileNotFound, NameTooLong };
+    pub const Error = DlDynLibError;
 
     handle: *anyopaque,
 
@@ -425,7 +440,7 @@ pub const DlDynLib = struct {
 
     pub fn openZ(path_c: [*:0]const u8) Error!DlDynLib {
         return .{
-            .handle = std.c.dlopen(path_c, std.c.RTLD.LAZY) orelse {
+            .handle = std.c.dlopen(path_c, .{ .LAZY = true }) orelse {
                 return error.FileNotFound;
             },
         };

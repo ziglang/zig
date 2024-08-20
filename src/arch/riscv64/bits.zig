@@ -1,11 +1,9 @@
 const std = @import("std");
-const DW = std.dwarf;
 const assert = std.debug.assert;
 const testing = std.testing;
 const Target = std.Target;
 
 const Zcu = @import("../../Zcu.zig");
-const Encoding = @import("Encoding.zig");
 const Mir = @import("Mir.zig");
 const abi = @import("abi.zig");
 
@@ -16,7 +14,6 @@ pub const Memory = struct {
     pub const Base = union(enum) {
         reg: Register,
         frame: FrameIndex,
-        reloc: Symbol,
     };
 
     pub const Mod = struct {
@@ -41,7 +38,7 @@ pub const Memory = struct {
                 2...2 => .hword,
                 3...4 => .word,
                 5...8 => .dword,
-                else => unreachable,
+                else => std.debug.panic("fromByteSize {}", .{size}),
             };
         }
 
@@ -83,7 +80,6 @@ pub const Memory = struct {
                     .disp = base_loc.disp + offset,
                 };
             },
-            .reloc => unreachable,
         }
     }
 };
@@ -128,6 +124,12 @@ pub const Immediate = union(enum) {
     }
 };
 
+pub const CSR = enum(u12) {
+    vl = 0xC20,
+    vtype = 0xC21,
+    vlenb = 0xC22,
+};
+
 pub const Register = enum(u8) {
     // zig fmt: off
 
@@ -169,6 +171,13 @@ pub const Register = enum(u8) {
     f16, f17, f18, f19, f20, f21, f22, f23, 
     f24, f25, f26, f27, f28, f29, f30, f31, 
 
+
+    // V extension registers
+    v0,  v1,  v2,  v3,  v4,  v5,  v6,  v7,
+    v8,  v9,  v10, v11, v12, v13, v14, v15,
+    v16, v17, v18, v19, v20, v21, v22, v23,
+    v24, v25, v26, v27, v28, v29, v30, v31,
+
     // zig fmt: on
 
     /// in RISC-V registers are stored as 5 bit IDs and a register can have
@@ -180,11 +189,12 @@ pub const Register = enum(u8) {
     /// The goal of this function is to return the same ID for `zero` and `x0` but two
     /// seperate IDs for `x0` and `f0`. We will assume that each register set has 32 registers
     /// and is repeated twice, once for the named version, once for the number version.
-    pub fn id(reg: Register) u7 {
+    pub fn id(reg: Register) std.math.IntFittingRange(0, @typeInfo(Register).Enum.fields.len) {
         const base = switch (@intFromEnum(reg)) {
             // zig fmt: off
             @intFromEnum(Register.zero) ... @intFromEnum(Register.x31) => @intFromEnum(Register.zero),
             @intFromEnum(Register.ft0)  ... @intFromEnum(Register.f31) => @intFromEnum(Register.ft0),
+            @intFromEnum(Register.v0)   ... @intFromEnum(Register.v31) => @intFromEnum(Register.v0),
             else => unreachable,
             // zig fmt: on
         };
@@ -196,8 +206,8 @@ pub const Register = enum(u8) {
         return @truncate(@intFromEnum(reg));
     }
 
-    pub fn dwarfLocOp(reg: Register) u8 {
-        return @as(u8, reg.id());
+    pub fn dwarfNum(reg: Register) u8 {
+        return reg.id();
     }
 
     pub fn bitSize(reg: Register, zcu: *const Zcu) u32 {
@@ -207,6 +217,7 @@ pub const Register = enum(u8) {
             // zig fmt: off
             @intFromEnum(Register.zero) ... @intFromEnum(Register.x31) => 64,
             @intFromEnum(Register.ft0)  ... @intFromEnum(Register.f31) => if (Target.riscv.featureSetHas(features, .d)) 64 else 32,
+            @intFromEnum(Register.v0)   ... @intFromEnum(Register.v31) => 256, // TODO: look at suggestVectorSize
             else => unreachable,
             // zig fmt: on
         };
@@ -217,6 +228,7 @@ pub const Register = enum(u8) {
             // zig fmt: off
             @intFromEnum(Register.zero) ... @intFromEnum(Register.x31) => .int,
             @intFromEnum(Register.ft0)  ... @intFromEnum(Register.f31) => .float,
+            @intFromEnum(Register.v0)   ... @intFromEnum(Register.v31) => .vector,
             else => unreachable,
             // zig fmt: on
         };
@@ -235,8 +247,7 @@ pub const FrameIndex = enum(u32) {
     /// This index referes to a frame dedicated to setting up args for function called
     /// in this function. Useful for aligning args separately.
     call_frame,
-    /// This index referes to the frame where callee saved registers are spilled and restore
-    /// from.
+    /// This index referes to the frame where callee saved registers are spilled and restored from.
     spill_frame,
     /// Other indices are used for local variable stack slots
     _,
@@ -271,4 +282,28 @@ pub const Symbol = struct {
     atom_index: u32,
     /// Index into the linker's symbol table.
     sym_index: u32,
+};
+
+pub const VType = packed struct(u8) {
+    vlmul: VlMul,
+    vsew: VSew,
+    vta: bool,
+    vma: bool,
+};
+
+const VSew = enum(u3) {
+    @"8" = 0b000,
+    @"16" = 0b001,
+    @"32" = 0b010,
+    @"64" = 0b011,
+};
+
+const VlMul = enum(u3) {
+    mf8 = 0b101,
+    mf4 = 0b110,
+    mf2 = 0b111,
+    m1 = 0b000,
+    m2 = 0b001,
+    m4 = 0b010,
+    m8 = 0b011,
 };

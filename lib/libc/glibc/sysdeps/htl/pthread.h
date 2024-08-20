@@ -892,6 +892,17 @@ extern int pthread_setschedparam (pthread_t __thr, int __policy,
 extern int pthread_setschedprio (pthread_t __thr, int __prio) __THROW;
 
 #ifdef __USE_GNU
+/* Get thread name visible in the kernel and its interfaces.  */
+extern int pthread_getname_np (pthread_t __target_thread, char *__buf,
+			       size_t __buflen)
+     __THROW __nonnull ((2)) __attr_access ((__write_only__, 2));
+
+/* Set thread name visible in the kernel and its interfaces.  */
+extern int pthread_setname_np (pthread_t __target_thread, const char *__name)
+     __THROW __nonnull ((2)) __attr_access ((__read_only__, 2));
+#endif
+
+#ifdef __USE_GNU
 /* Yield the processor to another thread or process.
    This function is similar to the POSIX `sched_yield' function but
    might be differently implemented in the case of a m-on-n thread

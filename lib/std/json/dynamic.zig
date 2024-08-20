@@ -22,6 +22,7 @@ pub const Array = ArrayList(Value);
 /// Represents any JSON value, potentially containing other JSON values.
 /// A .float value may be an approximation of the original value.
 /// Arbitrary precision numbers can be represented by .number_string values.
+/// See also `std.json.ParseOptions.parse_numbers`.
 pub const Value = union(enum) {
     null,
     bool: bool,
@@ -97,7 +98,11 @@ pub const Value = union(enum) {
                     return try handleCompleteValue(&stack, allocator, source, Value{ .string = s }, options) orelse continue;
                 },
                 .allocated_number => |slice| {
-                    return try handleCompleteValue(&stack, allocator, source, Value.parseFromNumberSlice(slice), options) orelse continue;
+                    if (options.parse_numbers) {
+                        return try handleCompleteValue(&stack, allocator, source, Value.parseFromNumberSlice(slice), options) orelse continue;
+                    } else {
+                        return try handleCompleteValue(&stack, allocator, source, Value{ .number_string = slice }, options) orelse continue;
+                    }
                 },
 
                 .null => return try handleCompleteValue(&stack, allocator, source, .null, options) orelse continue,
@@ -147,7 +152,19 @@ fn handleCompleteValue(stack: *Array, allocator: Allocator, source: anytype, val
 
                 // stack: [..., .object]
                 var object = &stack.items[stack.items.len - 1].object;
-                try object.put(key, value);
+
+                const gop = try object.getOrPut(key);
+                if (gop.found_existing) {
+                    switch (options.duplicate_field_behavior) {
+                        .use_first => {},
+                        .@"error" => return error.DuplicateField,
+                        .use_last => {
+                            gop.value_ptr.* = value;
+                        },
+                    }
+                } else {
+                    gop.value_ptr.* = value;
+                }
 
                 // This is an invalid state to leave the stack in,
                 // so we have to process the next token before we return.

@@ -681,7 +681,7 @@ test Tag {
     try testing.expect(Tag(U) == E);
 }
 
-///Returns the active tag of a tagged union
+/// Returns the active tag of a tagged union
 pub fn activeTag(u: anytype) Tag(@TypeOf(u)) {
     const T = @TypeOf(u);
     return @as(Tag(T), u);
@@ -902,7 +902,7 @@ pub fn intToEnum(comptime EnumTag: type, tag_int: anytype) IntToEnumError!EnumTa
         return error.InvalidEnumTag;
     }
 
-    // We don't direcly iterate over the fields of EnumTag, as that
+    // We don't directly iterate over the fields of EnumTag, as that
     // would require an inline loop. Instead, we create an array of
     // values that is comptime-know, but can be iterated at runtime
     // without requiring an inline loop. This generates better

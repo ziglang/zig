@@ -170,7 +170,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// operations.
         /// Invalidates pre-existing pointers to elements at and after `index`.
         /// Invalidates all pre-existing element pointers if capacity must be
-        /// increased to accomodate the new elements.
+        /// increased to accommodate the new elements.
         /// Asserts that the index is in bounds or equal to the length.
         pub fn addManyAt(self: *Self, index: usize, count: usize) Allocator.Error![]T {
             const new_len = try addOrOom(self.items.len, count);
@@ -227,7 +227,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// This operation is O(N).
         /// Invalidates pre-existing pointers to elements at and after `index`.
         /// Invalidates all pre-existing element pointers if capacity must be
-        /// increased to accomodate the new elements.
+        /// increased to accommodate the new elements.
         /// Asserts that the index is in bounds or equal to the length.
         pub fn insertSlice(
             self: *Self,
@@ -356,6 +356,24 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Invalidates element pointers if additional memory is needed.
         fn appendWrite(self: *Self, m: []const u8) Allocator.Error!usize {
             try self.appendSlice(m);
+            return m.len;
+        }
+
+        pub const FixedWriter = std.io.Writer(*Self, Allocator.Error, appendWriteFixed);
+
+        /// Initializes a Writer which will append to the list but will return
+        /// `error.OutOfMemory` rather than increasing capacity.
+        pub fn fixedWriter(self: *Self) FixedWriter {
+            return .{ .context = self };
+        }
+
+        /// The purpose of this function existing is to match `std.io.Writer` API.
+        fn appendWriteFixed(self: *Self, m: []const u8) error{OutOfMemory}!usize {
+            const available_capacity = self.capacity - self.items.len;
+            if (m.len > available_capacity)
+                return error.OutOfMemory;
+
+            self.appendSliceAssumeCapacity(m);
             return m.len;
         }
 
@@ -566,7 +584,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// This can be useful for writing directly into an ArrayList.
         /// Note that such an operation must be followed up with a direct
         /// modification of `self.items.len`.
-        pub fn unusedCapacitySlice(self: Self) Slice {
+        pub fn unusedCapacitySlice(self: Self) []T {
             return self.allocatedSlice()[self.items.len..];
         }
 
@@ -740,7 +758,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// operations.
         /// Invalidates pre-existing pointers to elements at and after `index`.
         /// Invalidates all pre-existing element pointers if capacity must be
-        /// increased to accomodate the new elements.
+        /// increased to accommodate the new elements.
         /// Asserts that the index is in bounds or equal to the length.
         pub fn addManyAt(
             self: *Self,
@@ -776,7 +794,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// This operation is O(N).
         /// Invalidates pre-existing pointers to elements at and after `index`.
         /// Invalidates all pre-existing element pointers if capacity must be
-        /// increased to accomodate the new elements.
+        /// increased to accommodate the new elements.
         /// Asserts that the index is in bounds or equal to the length.
         pub fn insertSlice(
             self: *Self,
@@ -1193,7 +1211,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// This can be useful for writing directly into an ArrayList.
         /// Note that such an operation must be followed up with a direct
         /// modification of `self.items.len`.
-        pub fn unusedCapacitySlice(self: Self) Slice {
+        pub fn unusedCapacitySlice(self: Self) []T {
             return self.allocatedSlice()[self.items.len..];
         }
 
@@ -2241,4 +2259,11 @@ test "return OutOfMemory when capacity would exceed maximum usize integer value"
         try testing.expectError(error.OutOfMemory, list.insertSlice(0, items));
         try testing.expectError(error.OutOfMemory, list.ensureUnusedCapacity(2));
     }
+}
+
+test "ArrayListAligned with non-native alignment compiles unusedCapabitySlice" {
+    var list = ArrayListAligned(u8, 4).init(testing.allocator);
+    defer list.deinit();
+    try list.appendNTimes(1, 4);
+    _ = list.unusedCapacitySlice();
 }

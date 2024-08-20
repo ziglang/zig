@@ -42,8 +42,8 @@ pub const Fde = struct {
         const object = elf_file.file(fde.file_index).?.object;
         const rel = fde.relocs(elf_file)[0];
         const sym = object.symtab.items[rel.r_sym()];
-        const atom_index = object.atoms.items[sym.st_shndx];
-        return elf_file.atom(atom_index).?;
+        const atom_index = object.atoms_indexes.items[sym.st_shndx];
+        return object.atom(atom_index).?;
     }
 
     pub fn relocs(fde: Fde, elf_file: *Elf) []align(1) const elf.Elf64_Rela {
@@ -145,10 +145,10 @@ pub const Cie = struct {
             if (cie_rel.r_addend != other_rel.r_addend) return false;
 
             const cie_object = elf_file.file(cie.file_index).?.object;
+            const cie_ref = cie_object.resolveSymbol(cie_rel.r_sym(), elf_file);
             const other_object = elf_file.file(other.file_index).?.object;
-            const cie_sym = cie_object.symbols.items[cie_rel.r_sym()];
-            const other_sym = other_object.symbols.items[other_rel.r_sym()];
-            if (!std.mem.eql(u8, std.mem.asBytes(&cie_sym), std.mem.asBytes(&other_sym))) return false;
+            const other_ref = other_object.resolveSymbol(other_rel.r_sym(), elf_file);
+            if (!cie_ref.eql(other_ref)) return false;
         }
         return true;
     }
@@ -339,7 +339,8 @@ pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
             const contents = cie.data(elf_file);
 
             for (cie.relocs(elf_file)) |rel| {
-                const sym = elf_file.symbol(object.symbols.items[rel.r_sym()]);
+                const ref = object.resolveSymbol(rel.r_sym(), elf_file);
+                const sym = elf_file.symbol(ref).?;
                 resolveReloc(cie, sym, rel, elf_file, contents) catch |err| switch (err) {
                     error.RelocFailure => has_reloc_errors = true,
                     else => |e| return e,
@@ -366,7 +367,8 @@ pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
             );
 
             for (fde.relocs(elf_file)) |rel| {
-                const sym = elf_file.symbol(object.symbols.items[rel.r_sym()]);
+                const ref = object.resolveSymbol(rel.r_sym(), elf_file);
+                const sym = elf_file.symbol(ref).?;
                 resolveReloc(fde, sym, rel, elf_file, contents) catch |err| switch (err) {
                     error.RelocFailure => has_reloc_errors = true,
                     else => |e| return e,
@@ -421,7 +423,7 @@ fn emitReloc(elf_file: *Elf, rec: anytype, sym: *const Symbol, rel: elf.Elf64_Re
     switch (sym.type(elf_file)) {
         elf.STT_SECTION => {
             r_addend += @intCast(sym.address(.{}, elf_file));
-            r_sym = elf_file.sectionSymbolOutputSymtabIndex(sym.outputShndx().?);
+            r_sym = elf_file.sectionSymbolOutputSymtabIndex(sym.outputShndx(elf_file).?);
         },
         else => {
             r_sym = sym.outputSymtabIndex(elf_file) orelse 0;
@@ -452,7 +454,8 @@ pub fn writeEhFrameRelocs(elf_file: *Elf, writer: anytype) !void {
         for (object.cies.items) |cie| {
             if (!cie.alive) continue;
             for (cie.relocs(elf_file)) |rel| {
-                const sym = elf_file.symbol(object.symbols.items[rel.r_sym()]);
+                const ref = object.resolveSymbol(rel.r_sym(), elf_file);
+                const sym = elf_file.symbol(ref).?;
                 const out_rel = emitReloc(elf_file, cie, sym, rel);
                 try writer.writeStruct(out_rel);
             }
@@ -461,7 +464,8 @@ pub fn writeEhFrameRelocs(elf_file: *Elf, writer: anytype) !void {
         for (object.fdes.items) |fde| {
             if (!fde.alive) continue;
             for (fde.relocs(elf_file)) |rel| {
-                const sym = elf_file.symbol(object.symbols.items[rel.r_sym()]);
+                const ref = object.resolveSymbol(rel.r_sym(), elf_file);
+                const sym = elf_file.symbol(ref).?;
                 const out_rel = emitReloc(elf_file, fde, sym, rel);
                 try writer.writeStruct(out_rel);
             }
@@ -513,7 +517,8 @@ pub fn writeEhFrameHdr(elf_file: *Elf, writer: anytype) !void {
             const relocs = fde.relocs(elf_file);
             assert(relocs.len > 0); // Should this be an error? Things are completely broken anyhow if this trips...
             const rel = relocs[0];
-            const sym = elf_file.symbol(object.symbols.items[rel.r_sym()]);
+            const ref = object.resolveSymbol(rel.r_sym(), elf_file);
+            const sym = elf_file.symbol(ref).?;
             const P = @as(i64, @intCast(fde.address(elf_file)));
             const S = @as(i64, @intCast(sym.address(.{}, elf_file)));
             const A = rel.r_addend;
@@ -591,12 +596,12 @@ const riscv = struct {
 };
 
 fn reportInvalidReloc(rec: anytype, elf_file: *Elf, rel: elf.Elf64_Rela) !void {
-    var err = try elf_file.addErrorWithNotes(1);
-    try err.addMsg(elf_file, "invalid relocation type {} at offset 0x{x}", .{
+    var err = try elf_file.base.addErrorWithNotes(1);
+    try err.addMsg("invalid relocation type {} at offset 0x{x}", .{
         relocation.fmtRelocType(rel.r_type(), elf_file.getTarget().cpu.arch),
         rel.r_offset,
     });
-    try err.addNote(elf_file, "in {}:.eh_frame", .{elf_file.file(rec.file_index).?.fmtPath()});
+    try err.addNote("in {}:.eh_frame", .{elf_file.file(rec.file_index).?.fmtPath()});
     return error.RelocFailure;
 }
 

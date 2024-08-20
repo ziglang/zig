@@ -17,6 +17,7 @@ const Module = std.Build.Module;
 const InstallDir = std.Build.InstallDir;
 const GeneratedFile = std.Build.GeneratedFile;
 const Compile = @This();
+const Path = std.Build.Cache.Path;
 
 pub const base_id: Step.Id = .compile;
 
@@ -213,6 +214,18 @@ is_linking_libcpp: bool = false,
 
 no_builtin: bool = false,
 
+/// Populated during the make phase when there is a long-lived compiler process.
+/// Managed by the build runner, not user build script.
+zig_process: ?*Step.ZigProcess,
+
+/// Enables deprecated coverage instrumentation that is only useful if you
+/// are using third party fuzzers that depend on it. Otherwise, slows down
+/// the instrumented binary with unnecessary function calls.
+///
+/// To enable fuzz testing instrumentation on a compilation, see the `fuzz`
+/// flag in `Module`.
+sanitize_coverage_trace_pc_guard: ?bool = null,
+
 pub const ExpectedCompileErrors = union(enum) {
     contains: []const u8,
     exact: []const []const u8,
@@ -398,6 +411,8 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
+
+        .zig_process = null,
     };
 
     compile.root_module.init(owner, options.root_module, compile);
@@ -701,8 +716,9 @@ fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
     };
 
     var code: u8 = undefined;
+    const pkg_config_exe = b.graph.env_map.get("PKG_CONFIG") orelse "pkg-config";
     const stdout = if (b.runAllowFail(&[_][]const u8{
-        "pkg-config",
+        pkg_config_exe,
         pkg_name,
         "--cflags",
         "--libs",
@@ -989,7 +1005,7 @@ fn getGeneratedFilePath(compile: *Compile, comptime tag_name: []const u8, asking
     return path;
 }
 
-fn getZigArgs(compile: *Compile) ![][]const u8 {
+fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     const step = &compile.step;
     const b = step.owner;
     const arena = b.allocator;
@@ -1038,6 +1054,10 @@ fn getZigArgs(compile: *Compile) ![][]const u8 {
     if (compile.stack_size) |stack_size| {
         try zig_args.append("--stack");
         try zig_args.append(try std.fmt.allocPrint(arena, "{}", .{stack_size}));
+    }
+
+    if (fuzz) {
+        try zig_args.append("-ffuzz");
     }
 
     {
@@ -1464,6 +1484,8 @@ fn getZigArgs(compile: *Compile) ![][]const u8 {
     try zig_args.append("--global-cache-dir");
     try zig_args.append(b.graph.global_cache_root.path orelse ".");
 
+    if (b.graph.debug_compiler_runtime_libs) try zig_args.append("--debug-rt");
+
     try zig_args.append("--name");
     try zig_args.append(compile.name);
 
@@ -1635,13 +1657,21 @@ fn getZigArgs(compile: *Compile) ![][]const u8 {
         });
     }
 
-    if (compile.zig_lib_dir) |dir| {
+    const opt_zig_lib_dir = if (compile.zig_lib_dir) |dir|
+        dir.getPath2(b, step)
+    else if (b.graph.zig_lib_directory.path) |_|
+        b.fmt("{}", .{b.graph.zig_lib_directory})
+    else
+        null;
+
+    if (opt_zig_lib_dir) |zig_lib_dir| {
         try zig_args.append("--zig-lib-dir");
-        try zig_args.append(dir.getPath2(b, step));
+        try zig_args.append(zig_lib_dir);
     }
 
     try addFlag(&zig_args, "PIE", compile.pie);
     try addFlag(&zig_args, "lto", compile.want_lto);
+    try addFlag(&zig_args, "sanitize-coverage-trace-pc-guard", compile.sanitize_coverage_trace_pc_guard);
 
     if (compile.subsystem) |subsystem| {
         try zig_args.append("--subsystem");
@@ -1665,6 +1695,8 @@ fn getZigArgs(compile: *Compile) ![][]const u8 {
         "--error-limit",
         b.fmt("{}", .{err_limit}),
     });
+
+    try addFlag(&zig_args, "incremental", b.graph.incremental);
 
     try zig_args.append("--listen=-");
 
@@ -1728,13 +1760,17 @@ fn getZigArgs(compile: *Compile) ![][]const u8 {
     return try zig_args.toOwnedSlice();
 }
 
-fn make(step: *Step, prog_node: std.Progress.Node) !void {
+fn make(step: *Step, options: Step.MakeOptions) !void {
     const b = step.owner;
     const compile: *Compile = @fieldParentPtr("step", step);
 
-    const zig_args = try getZigArgs(compile);
+    const zig_args = try getZigArgs(compile, false);
 
-    const maybe_output_bin_path = step.evalZigProcess(zig_args, prog_node) catch |err| switch (err) {
+    const maybe_output_dir = step.evalZigProcess(
+        zig_args,
+        options.progress_node,
+        (b.graph.incremental == true) and options.watch,
+    ) catch |err| switch (err) {
         error.NeedCompileErrorCheck => {
             assert(compile.expect_errors != null);
             try checkCompileErrors(compile);
@@ -1744,53 +1780,51 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
     };
 
     // Update generated files
-    if (maybe_output_bin_path) |output_bin_path| {
-        const output_dir = fs.path.dirname(output_bin_path).?;
-
+    if (maybe_output_dir) |output_dir| {
         if (compile.emit_directory) |lp| {
-            lp.path = output_dir;
+            lp.path = b.fmt("{}", .{output_dir});
         }
 
         // -femit-bin[=path]         (default) Output machine code
         if (compile.generated_bin) |bin| {
-            bin.path = b.pathJoin(&.{ output_dir, compile.out_filename });
+            bin.path = output_dir.joinString(b.allocator, compile.out_filename) catch @panic("OOM");
         }
 
-        const sep = std.fs.path.sep;
+        const sep = std.fs.path.sep_str;
 
         // output PDB if someone requested it
         if (compile.generated_pdb) |pdb| {
-            pdb.path = b.fmt("{s}{c}{s}.pdb", .{ output_dir, sep, compile.name });
+            pdb.path = b.fmt("{}" ++ sep ++ "{s}.pdb", .{ output_dir, compile.name });
         }
 
         // -femit-implib[=path]      (default) Produce an import .lib when building a Windows DLL
         if (compile.generated_implib) |implib| {
-            implib.path = b.fmt("{s}{c}{s}.lib", .{ output_dir, sep, compile.name });
+            implib.path = b.fmt("{}" ++ sep ++ "{s}.lib", .{ output_dir, compile.name });
         }
 
         // -femit-h[=path]           Generate a C header file (.h)
         if (compile.generated_h) |lp| {
-            lp.path = b.fmt("{s}{c}{s}.h", .{ output_dir, sep, compile.name });
+            lp.path = b.fmt("{}" ++ sep ++ "{s}.h", .{ output_dir, compile.name });
         }
 
         // -femit-docs[=path]        Create a docs/ dir with html documentation
         if (compile.generated_docs) |generated_docs| {
-            generated_docs.path = b.pathJoin(&.{ output_dir, "docs" });
+            generated_docs.path = output_dir.joinString(b.allocator, "docs") catch @panic("OOM");
         }
 
         // -femit-asm[=path]         Output .s (assembly code)
         if (compile.generated_asm) |lp| {
-            lp.path = b.fmt("{s}{c}{s}.s", .{ output_dir, sep, compile.name });
+            lp.path = b.fmt("{}" ++ sep ++ "{s}.s", .{ output_dir, compile.name });
         }
 
         // -femit-llvm-ir[=path]     Produce a .ll file with optimized LLVM IR (requires LLVM extensions)
         if (compile.generated_llvm_ir) |lp| {
-            lp.path = b.fmt("{s}{c}{s}.ll", .{ output_dir, sep, compile.name });
+            lp.path = b.fmt("{}" ++ sep ++ "{s}.ll", .{ output_dir, compile.name });
         }
 
         // -femit-llvm-bc[=path]     Produce an optimized LLVM module as a .bc file (requires LLVM extensions)
         if (compile.generated_llvm_bc) |lp| {
-            lp.path = b.fmt("{s}{c}{s}.bc", .{ output_dir, sep, compile.name });
+            lp.path = b.fmt("{}" ++ sep ++ "{s}.bc", .{ output_dir, compile.name });
         }
     }
 
@@ -1806,6 +1840,20 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
     }
 }
 
+pub fn rebuildInFuzzMode(c: *Compile, progress_node: std.Progress.Node) !Path {
+    const gpa = c.step.owner.allocator;
+
+    c.step.result_error_msgs.clearRetainingCapacity();
+    c.step.result_stderr = "";
+
+    c.step.result_error_bundle.deinit(gpa);
+    c.step.result_error_bundle = std.zig.ErrorBundle.empty;
+
+    const zig_args = try getZigArgs(c, true);
+    const maybe_output_bin_path = try c.step.evalZigProcess(zig_args, progress_node, false);
+    return maybe_output_bin_path.?;
+}
+
 pub fn doAtomicSymLinks(
     step: *Step,
     output_path: []const u8,
@@ -1813,28 +1861,28 @@ pub fn doAtomicSymLinks(
     filename_name_only: []const u8,
 ) !void {
     const b = step.owner;
-    const arena = b.allocator;
     const out_dir = fs.path.dirname(output_path) orelse ".";
     const out_basename = fs.path.basename(output_path);
     // sym link for libfoo.so.1 to libfoo.so.1.2.3
     const major_only_path = b.pathJoin(&.{ out_dir, filename_major_only });
-    fs.atomicSymLink(arena, out_basename, major_only_path) catch |err| {
+    fs.cwd().atomicSymLink(out_basename, major_only_path, .{}) catch |err| {
         return step.fail("unable to symlink {s} -> {s}: {s}", .{
             major_only_path, out_basename, @errorName(err),
         });
     };
     // sym link for libfoo.so to libfoo.so.1
     const name_only_path = b.pathJoin(&.{ out_dir, filename_name_only });
-    fs.atomicSymLink(arena, filename_major_only, name_only_path) catch |err| {
+    fs.cwd().atomicSymLink(filename_major_only, name_only_path, .{}) catch |err| {
         return step.fail("Unable to symlink {s} -> {s}: {s}", .{
             name_only_path, filename_major_only, @errorName(err),
         });
     };
 }
 
-fn execPkgConfigList(compile: *std.Build, out_code: *u8) (PkgConfigError || RunError)![]const PkgConfigPkg {
-    const stdout = try compile.runAllowFail(&[_][]const u8{ "pkg-config", "--list-all" }, out_code, .Ignore);
-    var list = ArrayList(PkgConfigPkg).init(compile.allocator);
+fn execPkgConfigList(b: *std.Build, out_code: *u8) (PkgConfigError || RunError)![]const PkgConfigPkg {
+    const pkg_config_exe = b.graph.env_map.get("PKG_CONFIG") orelse "pkg-config";
+    const stdout = try b.runAllowFail(&[_][]const u8{ pkg_config_exe, "--list-all" }, out_code, .Ignore);
+    var list = ArrayList(PkgConfigPkg).init(b.allocator);
     errdefer list.deinit();
     var line_it = mem.tokenizeAny(u8, stdout, "\r\n");
     while (line_it.next()) |line| {
@@ -1848,13 +1896,13 @@ fn execPkgConfigList(compile: *std.Build, out_code: *u8) (PkgConfigError || RunE
     return list.toOwnedSlice();
 }
 
-fn getPkgConfigList(compile: *std.Build) ![]const PkgConfigPkg {
-    if (compile.pkg_config_pkg_list) |res| {
+fn getPkgConfigList(b: *std.Build) ![]const PkgConfigPkg {
+    if (b.pkg_config_pkg_list) |res| {
         return res;
     }
     var code: u8 = undefined;
-    if (execPkgConfigList(compile, &code)) |list| {
-        compile.pkg_config_pkg_list = list;
+    if (execPkgConfigList(b, &code)) |list| {
+        b.pkg_config_pkg_list = list;
         return list;
     } else |err| {
         const result = switch (err) {
@@ -1866,7 +1914,7 @@ fn getPkgConfigList(compile: *std.Build) ![]const PkgConfigPkg {
             error.PkgConfigInvalidOutput => error.PkgConfigInvalidOutput,
             else => return err,
         };
-        compile.pkg_config_pkg_list = result;
+        b.pkg_config_pkg_list = result;
         return result;
     }
 }

@@ -17,6 +17,7 @@ pub const TranslateCContext = @import("src/TranslateC.zig");
 pub const RunTranslatedCContext = @import("src/RunTranslatedC.zig");
 pub const CompareOutputContext = @import("src/CompareOutput.zig");
 pub const StackTracesContext = @import("src/StackTrace.zig");
+pub const DebuggerContext = @import("src/Debugger.zig");
 
 const TestTarget = struct {
     target: std.Target.Query = .{},
@@ -27,6 +28,12 @@ const TestTarget = struct {
     use_lld: ?bool = null,
     pic: ?bool = null,
     strip: ?bool = null,
+
+    // This is intended for targets that are known to be slow to compile. These are acceptable to
+    // run in CI, but should not be run on developer machines by default. As an example, at the time
+    // of writing, this includes LLVM's MIPS backend which takes upwards of 20 minutes longer to
+    // compile tests than other backends.
+    slow_backend: bool = false,
 };
 
 const test_targets = blk: {
@@ -296,72 +303,67 @@ const test_targets = blk: {
             }) catch unreachable,
             .link_libc = true,
         },
-        // https://github.com/ziglang/zig/issues/3287
-        //.{
-        //    .target = std.Target.Query.parse(.{
-        //        .arch_os_abi = "arm-linux-gnueabihf",
-        //        .cpu_features = "generic+v8a",
-        //    }) catch unreachable,
-        //    .link_libc = true,
-        //},
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "arm-linux-gnueabihf",
+                .cpu_features = "generic+v8a",
+            }) catch unreachable,
+            .link_libc = true,
+        },
 
-        // https://github.com/ziglang/zig/issues/16846
-        //.{
-        //    .target = .{
-        //        .cpu_arch = .mips,
-        //        .os_tag = .linux,
-        //        .abi = .none,
-        //    },
-        //},
+        .{
+            .target = .{
+                .cpu_arch = .mips,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+            .slow_backend = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .mips,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+            .slow_backend = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .mips,
+                .os_tag = .linux,
+                .abi = .gnueabihf,
+            },
+            .link_libc = true,
+            .slow_backend = true,
+        },
 
-        // https://github.com/ziglang/zig/issues/16846
-        //.{
-        //    .target = .{
-        //        .cpu_arch = .mips,
-        //        .os_tag = .linux,
-        //        .abi = .musl,
-        //    },
-        //    .link_libc = true,
-        //},
-
-        // https://github.com/ziglang/zig/issues/4927
-        //.{
-        //    .target = .{
-        //        .cpu_arch = .mips,
-        //        .os_tag = .linux,
-        //        .abi = .gnueabihf,
-        //    },
-        //    .link_libc = true,
-        //},
-
-        // https://github.com/ziglang/zig/issues/16846
-        //.{
-        //    .target = .{
-        //        .cpu_arch = .mipsel,
-        //        .os_tag = .linux,
-        //        .abi = .none,
-        //    },
-        //},
-
-        // https://github.com/ziglang/zig/issues/16846
-        //.{
-        //    .target = .{
-        //        .cpu_arch = .mipsel,
-        //        .os_tag = .linux,
-        //        .abi = .musl,
-        //    },
-        //    .link_libc = true,
-        //},
-
-        // https://github.com/ziglang/zig/issues/4927
-        //.{
-        //    .target = .{
-        //        .cpu_arch = .mipsel,
-        //        .os_tag = .linux,
-        //        .abi = .gnueabihf,
-        //    },
-        //    .link_libc = true,
-        //},
+        .{
+            .target = .{
+                .cpu_arch = .mipsel,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+            .slow_backend = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .mipsel,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+            .slow_backend = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .mipsel,
+                .os_tag = .linux,
+                .abi = .gnueabihf,
+            },
+            .link_libc = true,
+            .slow_backend = true,
+        },
 
         .{
             .target = .{
@@ -412,7 +414,8 @@ const test_targets = blk: {
             .link_libc = true,
         },
 
-        // Disabled until LLVM fixes their O(N^2) codegen.
+        // Disabled until LLVM fixes their O(N^2) codegen. Note that this is so bad that we don't
+        // even want to include this in CI with `slow_backend`.
         // https://github.com/ziglang/zig/issues/18872
         //.{
         //    .target = .{
@@ -423,7 +426,8 @@ const test_targets = blk: {
         //    .use_llvm = true,
         //},
 
-        // Disabled until LLVM fixes their O(N^2) codegen.
+        // Disabled until LLVM fixes their O(N^2) codegen. Note that this is so bad that we don't
+        // even want to include this in CI with `slow_backend`.
         // https://github.com/ziglang/zig/issues/18872
         //.{
         //    .target = .{
@@ -436,11 +440,12 @@ const test_targets = blk: {
         //},
 
         .{
-            .target = .{
-                .cpu_arch = .riscv64,
-                .os_tag = .linux,
-                .abi = .musl,
-            },
+            .target = std.Target.Query.parse(
+                .{
+                    .arch_os_abi = "riscv64-linux-musl",
+                    .cpu_features = "baseline+v+zbb",
+                },
+            ) catch @panic("OOM"),
             .use_llvm = false,
             .use_lld = false,
         },
@@ -771,7 +776,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         run_run.expectStdErrEqual("All your codebase are belong to us.\n");
         run_run.step.dependOn(&init_exe.step);
 
-        const cleanup = b.addRemoveDirTree(tmp_path);
+        const cleanup = b.addRemoveDirTree(.{ .cwd_relative = tmp_path });
         cleanup.step.dependOn(&run_test.step);
         cleanup.step.dependOn(&run_run.step);
         cleanup.step.dependOn(&run_bad.step);
@@ -783,7 +788,7 @@ pub fn addCliTests(b: *std.Build) *Step {
     if (builtin.os.tag == .linux and builtin.cpu.arch == .x86_64) {
         const tmp_path = b.makeTempPath();
 
-        const writefile = b.addWriteFile("example.zig",
+        const example_zig = b.addWriteFiles().add("example.zig",
             \\// Type your code here, or load an example.
             \\export fn square(num: i32) i32 {
             \\    return num * num;
@@ -804,7 +809,7 @@ pub fn addCliTests(b: *std.Build) *Step {
             "-fno-emit-bin", "-fno-emit-h",
             "-fstrip",       "-OReleaseFast",
         });
-        run.addFileArg(writefile.files.items[0].getPath());
+        run.addFileArg(example_zig);
         const example_s = run.addPrefixedOutputFileArg("-femit-asm=", "example.s");
 
         const checkfile = b.addCheckFile(example_s, .{
@@ -816,7 +821,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         });
         checkfile.setName("check godbolt.org CLI usage generating valid asm");
 
-        const cleanup = b.addRemoveDirTree(tmp_path);
+        const cleanup = b.addRemoveDirTree(.{ .cwd_relative = tmp_path });
         cleanup.step.dependOn(&checkfile.step);
 
         step.dependOn(&cleanup.step);
@@ -882,7 +887,7 @@ pub fn addCliTests(b: *std.Build) *Step {
 
         const unformatted_code_utf16 = "\xff\xfe \x00 \x00 \x00 \x00/\x00/\x00 \x00n\x00o\x00 \x00r\x00e\x00a\x00s\x00o\x00n\x00";
         const fmt6_path = std.fs.path.join(b.allocator, &.{ tmp_path, "fmt6.zig" }) catch @panic("OOM");
-        const write6 = b.addWriteFiles();
+        const write6 = b.addUpdateSourceFiles();
         write6.addBytesToSource(unformatted_code_utf16, fmt6_path);
         write6.step.dependOn(&run5.step);
 
@@ -902,7 +907,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         });
         check6.step.dependOn(&run6.step);
 
-        const cleanup = b.addRemoveDirTree(tmp_path);
+        const cleanup = b.addRemoveDirTree(.{ .cwd_relative = tmp_path });
         cleanup.step.dependOn(&check6.step);
 
         step.dependOn(&cleanup.step);
@@ -975,6 +980,8 @@ pub fn addRunTranslatedCTests(
 
 const ModuleTestOptions = struct {
     test_filters: []const []const u8,
+    test_target_filters: []const []const u8,
+    test_slow_targets: bool,
     root_src: []const u8,
     name: []const u8,
     desc: []const u8,
@@ -991,15 +998,20 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
     const step = b.step(b.fmt("test-{s}", .{options.name}), options.desc);
 
     for (test_targets) |test_target| {
-        const is_native = test_target.target.isNative() or
-            (test_target.target.os_tag == builtin.os.tag and
-            test_target.target.cpu_arch == builtin.cpu.arch);
+        if (!options.test_slow_targets and test_target.slow_backend) continue;
 
-        if (options.skip_non_native and !is_native)
+        if (options.skip_non_native and !test_target.target.isNative())
             continue;
 
         const resolved_target = b.resolveTargetQuery(test_target.target);
         const target = resolved_target.result;
+        const triple_txt = target.zigTriple(b.allocator) catch @panic("OOM");
+
+        if (options.test_target_filters.len > 0) {
+            for (options.test_target_filters) |filter| {
+                if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
+            } else continue;
+        }
 
         if (options.skip_libc and test_target.link_libc == true)
             continue;
@@ -1048,7 +1060,6 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         if (!want_this_mode) continue;
 
         const libc_suffix = if (test_target.link_libc == true) "-libc" else "";
-        const triple_txt = target.zigTriple(b.allocator) catch @panic("OOM");
         const model_txt = target.cpu.model.name;
 
         // wasm32-wasi builds need more RAM, idk why
@@ -1250,7 +1261,6 @@ pub fn addCases(
     b: *std.Build,
     parent_step: *Step,
     test_filters: []const []const u8,
-    check_case_exe: *std.Build.Step.Compile,
     target: std.Build.ResolvedTarget,
     translate_c_options: @import("src/Cases.zig").TranslateCOptions,
     build_options: @import("cases.zig").BuildOptions,
@@ -1268,12 +1278,42 @@ pub fn addCases(
 
     cases.lowerToTranslateCSteps(b, parent_step, test_filters, target, translate_c_options);
 
-    const cases_dir_path = try b.build_root.join(b.allocator, &.{ "test", "cases" });
     cases.lowerToBuildSteps(
         b,
         parent_step,
         test_filters,
-        cases_dir_path,
-        check_case_exe,
     );
+}
+
+pub fn addDebuggerTests(b: *std.Build, options: DebuggerContext.Options) ?*Step {
+    const step = b.step("test-debugger", "Run the debugger tests");
+    if (options.gdb == null and options.lldb == null) {
+        step.dependOn(&b.addFail("test-debugger requires -Dgdb and/or -Dlldb").step);
+        return null;
+    }
+
+    var context: DebuggerContext = .{
+        .b = b,
+        .options = options,
+        .root_step = step,
+    };
+    context.addTestsForTarget(.{
+        .resolved = b.resolveTargetQuery(.{
+            .cpu_arch = .x86_64,
+            .os_tag = .linux,
+            .abi = .none,
+        }),
+        .pic = false,
+        .test_name_suffix = "x86_64-linux",
+    });
+    context.addTestsForTarget(.{
+        .resolved = b.resolveTargetQuery(.{
+            .cpu_arch = .x86_64,
+            .os_tag = .linux,
+            .abi = .none,
+        }),
+        .pic = true,
+        .test_name_suffix = "x86_64-linux-pic",
+    });
+    return step;
 }

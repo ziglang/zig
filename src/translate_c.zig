@@ -1734,6 +1734,48 @@ const ClangAlignment = struct {
     }
 };
 
+/// Translate an "extern" variable that's been declared within a scoped block.
+/// Similar to static local variables, this will be wrapped in a struct to work with Zig's syntax requirements.
+///
+/// Assumptions made:
+///     - No need to mangle the actual NamedDecl, as by definition this MUST be the same name as the external symbol it's referencing
+///     - It's not valid C to have an initializer with this type of declaration, so we can safely operate assuming no initializer
+///     - No need to look for any cleanup attributes with getCleanupAttribute(), not relevant for this type of decl
+fn transLocalExternStmt(c: *Context, scope: *Scope, var_decl: *const clang.VarDecl, block_scope: *Scope.Block) TransError!void {
+    const extern_var_name = try c.str(@as(*const clang.NamedDecl, @ptrCast(var_decl)).getName_bytes_begin());
+
+    // Special naming convention for local extern variable wrapper struct
+    const name = try std.fmt.allocPrint(c.arena, "{s}_{s}", .{ Scope.Block.extern_inner_prepend, extern_var_name });
+
+    // On the off chance there's already a variable in scope named "ExternLocal_[extern_var_name]"
+    const mangled_name = try block_scope.makeMangledName(c, name);
+
+    const qual_type = var_decl.getTypeSourceInfo_getType();
+    const is_const = qual_type.isConstQualified();
+    const loc = var_decl.getLocation();
+    const type_node = try transQualType(c, scope, qual_type, loc);
+
+    // Inner Node for the extern variable declaration
+    var node = try Tag.var_decl.create(c.arena, .{
+        .is_pub = false,
+        .is_const = is_const,
+        .is_extern = true,
+        .is_export = false,
+        .is_threadlocal = var_decl.getTLSKind() != .None, // TODO: Neccessary?
+        .linksection_string = null, // TODO: Neccessary?
+        .alignment = ClangAlignment.forVar(c, var_decl).zigAlignment(),
+        .name = extern_var_name,
+        .type = type_node,
+        .init = null,
+    });
+
+    // Outer Node for the wrapper struct
+    node = try Tag.extern_local_var.create(c.arena, .{ .name = mangled_name, .init = node });
+
+    try block_scope.statements.append(node);
+    try block_scope.discardVariable(c, mangled_name);
+}
+
 fn transDeclStmtOne(
     c: *Context,
     scope: *Scope,
@@ -1743,6 +1785,13 @@ fn transDeclStmtOne(
     switch (decl.getKind()) {
         .Var => {
             const var_decl = @as(*const clang.VarDecl, @ptrCast(decl));
+
+            // Translation behavior for a block scope declared "extern" variable
+            // is enough of an outlier that it needs it's own function
+            if (var_decl.getStorageClass() == .Extern) {
+                return transLocalExternStmt(c, scope, var_decl, block_scope);
+            }
+
             const decl_init = var_decl.getInit();
             const loc = decl.getLocation();
 
@@ -1750,11 +1799,7 @@ fn transDeclStmtOne(
             const name = try c.str(@as(*const clang.NamedDecl, @ptrCast(var_decl)).getName_bytes_begin());
             const mangled_name = try block_scope.makeMangledName(c, name);
 
-            if (var_decl.getStorageClass() == .Extern) {
-                // This is actually a global variable, put it in the global scope and reference it.
-                // `_ = mangled_name;`
-                return visitVarDecl(c, var_decl, mangled_name);
-            } else if (qualTypeWasDemotedToOpaque(c, qual_type)) {
+            if (qualTypeWasDemotedToOpaque(c, qual_type)) {
                 return fail(c, error.UnsupportedTranslation, loc, "local variable has opaque type", .{});
             }
 
@@ -1851,17 +1896,36 @@ fn transDeclRefExpr(
     const value_decl = expr.getDecl();
     const name = try c.str(@as(*const clang.NamedDecl, @ptrCast(value_decl)).getName_bytes_begin());
     const mangled_name = scope.getAlias(name);
-    var ref_expr = if (cIsFunctionDeclRef(@as(*const clang.Expr, @ptrCast(expr))))
-        try Tag.fn_identifier.create(c.arena, mangled_name)
-    else
-        try Tag.identifier.create(c.arena, mangled_name);
+    const decl_is_var = @as(*const clang.Decl, @ptrCast(value_decl)).getKind() == .Var;
+    const potential_local_extern = if (decl_is_var) ((@as(*const clang.VarDecl, @ptrCast(value_decl)).getStorageClass() == .Extern) and (scope.id != .root)) else false;
 
-    if (@as(*const clang.Decl, @ptrCast(value_decl)).getKind() == .Var) {
+    var confirmed_local_extern = false;
+    var ref_expr = val: {
+        if (cIsFunctionDeclRef(@as(*const clang.Expr, @ptrCast(expr)))) {
+            break :val try Tag.fn_identifier.create(c.arena, mangled_name);
+        } else if (potential_local_extern) {
+            if (scope.getLocalExternAlias(name)) |v| {
+                confirmed_local_extern = true;
+                break :val try Tag.identifier.create(c.arena, v);
+            } else {
+                break :val try Tag.identifier.create(c.arena, mangled_name);
+            }
+        } else {
+            break :val try Tag.identifier.create(c.arena, mangled_name);
+        }
+    };
+
+    if (decl_is_var) {
         const var_decl = @as(*const clang.VarDecl, @ptrCast(value_decl));
         if (var_decl.isStaticLocal()) {
             ref_expr = try Tag.field_access.create(c.arena, .{
                 .lhs = ref_expr,
                 .field_name = Scope.Block.static_inner_name,
+            });
+        } else if (confirmed_local_extern) {
+            ref_expr = try Tag.field_access.create(c.arena, .{
+                .lhs = ref_expr,
+                .field_name = name, // by necessity, name will always == mangled_name
             });
         }
     }

@@ -24,12 +24,50 @@
 // ATTENTION: If you modify this file, be sure to update the corresponding
 // extern function declarations in the self-hosted compiler.
 
-ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
-        char **error_message, bool is_debug,
-        bool is_small, bool time_report, bool tsan, bool lto,
-        const char *asm_filename, const char *bin_filename,
-        const char *llvm_ir_filename, const char *bitcode_filename);
 
+enum ZigLLVMCoverageType {
+    ZigLLVMCoverageType_None = 0,
+    ZigLLVMCoverageType_Function,
+    ZigLLVMCoverageType_BB,
+    ZigLLVMCoverageType_Edge
+};
+
+struct ZigLLVMCoverageOptions {
+    ZigLLVMCoverageType CoverageType;
+    bool IndirectCalls;
+    bool TraceBB;
+    bool TraceCmp;
+    bool TraceDiv;
+    bool TraceGep;
+    bool Use8bitCounters;
+    bool TracePC;
+    bool TracePCGuard;
+    bool Inline8bitCounters;
+    bool InlineBoolFlag;
+    bool PCTable;
+    bool NoPrune;
+    bool StackDepth;
+    bool TraceLoads;
+    bool TraceStores;
+    bool CollectControlFlow;
+};
+
+struct ZigLLVMEmitOptions {
+    bool is_debug;
+    bool is_small;
+    bool time_report;
+    bool tsan;
+    bool sancov;
+    bool lto;
+    const char *asm_filename;
+    const char *bin_filename;
+    const char *llvm_ir_filename;
+    const char *bitcode_filename;
+    ZigLLVMCoverageOptions coverage;
+};
+
+ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
+        char **error_message, struct ZigLLVMEmitOptions options);
 
 enum ZigLLVMABIType {
     ZigLLVMABITypeDefault, // Target-specific (either soft or hard depending on triple, etc).

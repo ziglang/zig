@@ -9,6 +9,7 @@ const builtin = @import("builtin");
 const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 const Cache = std.Build.Cache;
+const dev = @import("dev.zig");
 
 pub const CRTFile = enum {
     crt2_o,
@@ -157,7 +158,8 @@ fn add_cc_args(
 }
 
 pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
-    if (build_options.only_c) @compileError("building import libs not included in core functionality");
+    dev.check(.build_import_lib);
+
     var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
@@ -222,7 +224,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     const target_defines = switch (target.cpu.arch) {
         .x86 => "#define DEF_I386\n",
         .x86_64 => "#define DEF_X64\n",
-        .arm, .armeb, .thumb, .thumbeb, .aarch64_32 => "#define DEF_ARM32\n",
+        .arm, .armeb, .thumb, .thumbeb => "#define DEF_ARM32\n",
         .aarch64, .aarch64_be => "#define DEF_ARM64\n",
         else => unreachable,
     };
@@ -321,7 +323,7 @@ fn findDef(
     const lib_path = switch (target.cpu.arch) {
         .x86 => "lib32",
         .x86_64 => "lib64",
-        .arm, .armeb, .thumb, .thumbeb, .aarch64_32 => "libarm32",
+        .arm, .armeb, .thumb, .thumbeb => "libarm32",
         .aarch64, .aarch64_be => "libarm64",
         else => unreachable,
     };

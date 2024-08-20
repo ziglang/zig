@@ -72,7 +72,7 @@ pub const max_path_bytes = switch (native_os) {
 /// On Windows, `[]u8` file name components are encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, file name components are encoded as valid UTF-8.
 /// On other platforms, `[]u8` components are an opaque sequence of bytes with no particular encoding.
-pub const MAX_NAME_BYTES = switch (native_os) {
+pub const max_name_bytes = switch (native_os) {
     .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .solaris, .illumos => posix.NAME_MAX,
     // Haiku's NAME_MAX includes the null terminator, so subtract one.
     .haiku => posix.NAME_MAX - 1,
@@ -81,7 +81,7 @@ pub const MAX_NAME_BYTES = switch (native_os) {
     // pair in the WTF-16LE, and we (over)account 3 bytes for it that way.
     .windows => windows.NAME_MAX * 3,
     // For WASI, the MAX_NAME will depend on the host OS, so it needs to be
-    // as large as the largest MAX_NAME_BYTES (Windows) in order to work on any host OS.
+    // as large as the largest max_name_bytes (Windows) in order to work on any host OS.
     // TODO determine if this is a reasonable approach
     .wasi => windows.NAME_MAX * 3,
     else => if (@hasDecl(root, "os") and @hasDecl(root.os, "NAME_MAX"))
@@ -89,6 +89,9 @@ pub const MAX_NAME_BYTES = switch (native_os) {
     else
         @compileError("NAME_MAX not implemented for " ++ @tagName(native_os)),
 };
+
+/// Deprecated: use `max_name_bytes`
+pub const MAX_NAME_BYTES = max_name_bytes;
 
 pub const base64_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".*;
 
@@ -98,37 +101,9 @@ pub const base64_encoder = base64.Base64Encoder.init(base64_alphabet, null);
 /// Base64 decoder, replacing the standard `+/` with `-_` so that it can be used in a file name on any filesystem.
 pub const base64_decoder = base64.Base64Decoder.init(base64_alphabet, null);
 
-/// TODO remove the allocator requirement from this API
-/// TODO move to Dir
-/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
-/// On WASI, both paths should be encoded as valid UTF-8.
-/// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
-pub fn atomicSymLink(allocator: Allocator, existing_path: []const u8, new_path: []const u8) !void {
-    if (cwd().symLink(existing_path, new_path, .{})) {
-        return;
-    } else |err| switch (err) {
-        error.PathAlreadyExists => {},
-        else => return err, // TODO zig should know this set does not include PathAlreadyExists
-    }
-
-    const dirname = path.dirname(new_path) orelse ".";
-
-    var rand_buf: [AtomicFile.random_bytes_len]u8 = undefined;
-    const tmp_path = try allocator.alloc(u8, dirname.len + 1 + base64_encoder.calcSize(rand_buf.len));
-    defer allocator.free(tmp_path);
-    @memcpy(tmp_path[0..dirname.len], dirname);
-    tmp_path[dirname.len] = path.sep;
-    while (true) {
-        crypto.random.bytes(rand_buf[0..]);
-        _ = base64_encoder.encode(tmp_path[dirname.len + 1 ..], &rand_buf);
-
-        if (cwd().symLink(existing_path, tmp_path, .{})) {
-            return cwd().rename(tmp_path, new_path);
-        } else |err| switch (err) {
-            error.PathAlreadyExists => continue,
-            else => return err, // TODO zig should know this set does not include PathAlreadyExists
-        }
-    }
+/// Deprecated. Use `cwd().atomicSymLink()` instead.
+pub fn atomicSymLink(_: Allocator, existing_path: []const u8, new_path: []const u8) !void {
+    try cwd().atomicSymLink(existing_path, new_path, .{});
 }
 
 /// Same as `Dir.updateFile`, except asserts that both `source_path` and `dest_path`
@@ -275,18 +250,18 @@ pub fn defaultWasiCwd() std.os.wasi.fd_t {
 /// On Windows, `absolute_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, `absolute_path` should be encoded as valid UTF-8.
 /// On other platforms, `absolute_path` is an opaque sequence of bytes with no particular encoding.
-pub fn openDirAbsolute(absolute_path: []const u8, flags: Dir.OpenDirOptions) File.OpenError!Dir {
+pub fn openDirAbsolute(absolute_path: []const u8, flags: Dir.OpenOptions) File.OpenError!Dir {
     assert(path.isAbsolute(absolute_path));
     return cwd().openDir(absolute_path, flags);
 }
 
 /// Same as `openDirAbsolute` but the path parameter is null-terminated.
-pub fn openDirAbsoluteZ(absolute_path_c: [*:0]const u8, flags: Dir.OpenDirOptions) File.OpenError!Dir {
+pub fn openDirAbsoluteZ(absolute_path_c: [*:0]const u8, flags: Dir.OpenOptions) File.OpenError!Dir {
     assert(path.isAbsoluteZ(absolute_path_c));
     return cwd().openDirZ(absolute_path_c, flags);
 }
 /// Same as `openDirAbsolute` but the path parameter is null-terminated.
-pub fn openDirAbsoluteW(absolute_path_c: [*:0]const u16, flags: Dir.OpenDirOptions) File.OpenError!Dir {
+pub fn openDirAbsoluteW(absolute_path_c: [*:0]const u16, flags: Dir.OpenOptions) File.OpenError!Dir {
     assert(path.isAbsoluteWindowsW(absolute_path_c));
     return cwd().openDirW(absolute_path_c, flags);
 }

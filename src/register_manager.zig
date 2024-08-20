@@ -5,13 +5,12 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Air = @import("Air.zig");
 const StaticBitSet = std.bit_set.StaticBitSet;
-const Type = @import("type.zig").Type;
+const Type = @import("Type.zig");
 const Zcu = @import("Zcu.zig");
-/// Deprecated.
-const Module = Zcu;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
+const link = @import("link.zig");
 
 const log = std.log.scoped(.register_manager);
 
@@ -27,7 +26,7 @@ pub const AllocateRegistersError = error{
     /// Can happen when spilling an instruction triggers a codegen
     /// error, so we propagate that error
     CodegenFail,
-};
+} || link.File.UpdateDebugInfoError;
 
 pub fn RegisterManager(
     comptime Function: type,

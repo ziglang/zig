@@ -13,11 +13,9 @@ Documentation** corresponding to the version of Zig that you are using by
 following the appropriate link on the
 [download page](https://ziglang.org/download).
 
-Otherwise, you're looking at a release of Zig, and you can find documentation
-here:
-
- * doc/langref.html
- * doc/std/index.html
+Otherwise, you're looking at a release of Zig, so you can find the language
+reference at `doc/langref.html`, and the standard library documentation by
+running `zig std`, which will open a browser tab.
 
 ## Installation
 

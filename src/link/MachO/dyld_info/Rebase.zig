@@ -1,14 +1,3 @@
-const Rebase = @This();
-
-const std = @import("std");
-const assert = std.debug.assert;
-const leb = std.leb;
-const log = std.log.scoped(.link_dyld_info);
-const macho = std.macho;
-const testing = std.testing;
-
-const Allocator = std.mem.Allocator;
-
 entries: std.ArrayListUnmanaged(Entry) = .{},
 buffer: std.ArrayListUnmanaged(u8) = .{},
 
@@ -30,11 +19,95 @@ pub fn deinit(rebase: *Rebase, gpa: Allocator) void {
     rebase.buffer.deinit(gpa);
 }
 
-pub fn size(rebase: Rebase) u64 {
-    return @as(u64, @intCast(rebase.buffer.items.len));
+pub fn updateSize(rebase: *Rebase, macho_file: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = macho_file.base.comp.gpa;
+
+    var objects = try std.ArrayList(File.Index).initCapacity(gpa, macho_file.objects.items.len + 2);
+    defer objects.deinit();
+    objects.appendSliceAssumeCapacity(macho_file.objects.items);
+    if (macho_file.getZigObject()) |obj| objects.appendAssumeCapacity(obj.index);
+    if (macho_file.getInternalObject()) |obj| objects.appendAssumeCapacity(obj.index);
+
+    for (objects.items) |index| {
+        const file = macho_file.getFile(index).?;
+        for (file.getAtoms()) |atom_index| {
+            const atom = file.getAtom(atom_index) orelse continue;
+            if (!atom.isAlive()) continue;
+            if (atom.getInputSection(macho_file).isZerofill()) continue;
+            const atom_addr = atom.getAddress(macho_file);
+            const seg_id = macho_file.sections.items(.segment_id)[atom.out_n_sect];
+            const seg = macho_file.segments.items[seg_id];
+            for (atom.getRelocs(macho_file)) |rel| {
+                if (rel.type != .unsigned or rel.meta.length != 3) continue;
+                if (rel.tag == .@"extern") {
+                    const sym = rel.getTargetSymbol(atom.*, macho_file);
+                    if (sym.isTlvInit(macho_file)) continue;
+                    if (sym.flags.import) continue;
+                }
+                const rel_offset = rel.offset - atom.off;
+                try rebase.entries.append(gpa, .{
+                    .offset = atom_addr + rel_offset - seg.vmaddr,
+                    .segment_id = seg_id,
+                });
+            }
+        }
+    }
+
+    if (macho_file.got_sect_index) |sid| {
+        const seg_id = macho_file.sections.items(.segment_id)[sid];
+        const seg = macho_file.segments.items[seg_id];
+        for (macho_file.got.symbols.items, 0..) |ref, idx| {
+            const sym = ref.getSymbol(macho_file).?;
+            const addr = macho_file.got.getAddress(@intCast(idx), macho_file);
+            if (!sym.flags.import) {
+                try rebase.entries.append(gpa, .{
+                    .offset = addr - seg.vmaddr,
+                    .segment_id = seg_id,
+                });
+            }
+        }
+    }
+
+    if (macho_file.la_symbol_ptr_sect_index) |sid| {
+        const sect = macho_file.sections.items(.header)[sid];
+        const seg_id = macho_file.sections.items(.segment_id)[sid];
+        const seg = macho_file.segments.items[seg_id];
+        for (macho_file.stubs.symbols.items, 0..) |ref, idx| {
+            const sym = ref.getSymbol(macho_file).?;
+            const addr = sect.addr + idx * @sizeOf(u64);
+            const rebase_entry = Rebase.Entry{
+                .offset = addr - seg.vmaddr,
+                .segment_id = seg_id,
+            };
+            if ((sym.flags.import and !sym.flags.weak) or !sym.flags.import) {
+                try rebase.entries.append(gpa, rebase_entry);
+            }
+        }
+    }
+
+    if (macho_file.tlv_ptr_sect_index) |sid| {
+        const seg_id = macho_file.sections.items(.segment_id)[sid];
+        const seg = macho_file.segments.items[seg_id];
+        for (macho_file.tlv_ptr.symbols.items, 0..) |ref, idx| {
+            const sym = ref.getSymbol(macho_file).?;
+            const addr = macho_file.tlv_ptr.getAddress(@intCast(idx), macho_file);
+            if (!sym.flags.import) {
+                try rebase.entries.append(gpa, .{
+                    .offset = addr - seg.vmaddr,
+                    .segment_id = seg_id,
+                });
+            }
+        }
+    }
+
+    try rebase.finalize(gpa);
+    macho_file.dyld_info_cmd.rebase_size = mem.alignForward(u32, @intCast(rebase.buffer.items.len), @alignOf(u64));
 }
 
-pub fn finalize(rebase: *Rebase, gpa: Allocator) !void {
+fn finalize(rebase: *Rebase, gpa: Allocator) !void {
     if (rebase.entries.items.len == 0) return;
 
     const writer = rebase.buffer.writer(gpa);
@@ -198,7 +271,6 @@ fn done(writer: anytype) !void {
 }
 
 pub fn write(rebase: Rebase, writer: anytype) !void {
-    if (rebase.size() == 0) return;
     try writer.writeAll(rebase.buffer.items);
 }
 
@@ -574,3 +646,17 @@ test "rebase - composite" {
         macho.REBASE_OPCODE_DONE,
     }, rebase.buffer.items);
 }
+
+const std = @import("std");
+const assert = std.debug.assert;
+const leb = std.leb;
+const log = std.log.scoped(.link_dyld_info);
+const macho = std.macho;
+const mem = std.mem;
+const testing = std.testing;
+const trace = @import("../../../tracy.zig").trace;
+
+const Allocator = mem.Allocator;
+const File = @import("../file.zig").File;
+const MachO = @import("../../MachO.zig");
+const Rebase = @This();

@@ -84,7 +84,10 @@ pub const DT_ENCODING = 32;
 pub const DT_PREINIT_ARRAY = 32;
 pub const DT_PREINIT_ARRAYSZ = 33;
 pub const DT_SYMTAB_SHNDX = 34;
-pub const DT_NUM = 35;
+pub const DT_RELRSZ = 35;
+pub const DT_RELR = 36;
+pub const DT_RELRENT = 37;
+pub const DT_NUM = 38;
 pub const DT_LOOS = 0x6000000d;
 pub const DT_HIOS = 0x6ffff000;
 pub const DT_LOPROC = 0x70000000;
@@ -859,6 +862,8 @@ pub const Elf64_Rela = extern struct {
         return @truncate(self.r_info);
     }
 };
+pub const Elf32_Relr = Elf32_Word;
+pub const Elf64_Relr = Elf64_Xword;
 pub const Elf32_Dyn = extern struct {
     d_tag: Elf32_Sword,
     d_val: Elf32_Addr,
@@ -1052,6 +1057,11 @@ pub const Rela = switch (@sizeOf(usize)) {
     8 => Elf64_Rela,
     else => @compileError("expected pointer size of 32 or 64"),
 };
+pub const Relr = switch (@sizeOf(usize)) {
+    4 => Elf32_Relr,
+    8 => Elf64_Relr,
+    else => @compileError("expected pointer size of 32 or 64"),
+};
 pub const Shdr = switch (@sizeOf(usize)) {
     4 => Elf32_Shdr,
     8 => Elf64_Shdr,
@@ -1082,11 +1092,7 @@ pub const Addr = switch (@sizeOf(usize)) {
     8 => Elf64_Addr,
     else => @compileError("expected pointer size of 32 or 64"),
 };
-pub const Half = switch (@sizeOf(usize)) {
-    4 => Elf32_Half,
-    8 => Elf64_Half,
-    else => @compileError("expected pointer size of 32 or 64"),
-};
+pub const Half = u16;
 
 /// Machine architectures.
 ///
@@ -1525,6 +1531,9 @@ pub const EM = enum(u16) {
     /// Tilera TILEPro multicore architecture family
     TILEPRO = 188,
 
+    /// Xilinx MicroBlaze
+    MICROBLAZE = 189,
+
     /// NVIDIA CUDA architecture
     CUDA = 190,
 
@@ -1630,6 +1639,9 @@ pub const EM = enum(u16) {
     /// C-SKY
     CSKY = 252,
 
+    /// LoongArch
+    LOONGARCH = 258,
+
     /// Fujitsu FR-V
     FRV = 0x5441,
 
@@ -1659,6 +1671,14 @@ pub const EM = enum(u16) {
             .SPARCV9 => .sparc64,
             .S390 => .s390x,
             .SPU_2 => .spu_2,
+            // FIXME:
+            // No support for .loongarch32 yet so it is safe to assume we are on .loongarch64.
+            //
+            // However, when e_machine is .LOONGARCH, we should check
+            // ei_class's value to decide the CPU architecture.
+            // - ELFCLASS32 => .loongarch32
+            // - ELFCLASS64 => .loongarch64
+            .LOONGARCH => .loongarch64,
             // there's many cases we don't (yet) handle, or will never have a
             // zig target cpu arch equivalent (such as null).
             else => null,

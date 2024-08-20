@@ -7,7 +7,6 @@ test "anyopaque extern symbol" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const a = @extern(*anyopaque, .{ .name = "a_mystery_symbol" });
     const b: *i32 = @alignCast(@ptrCast(a));
@@ -44,4 +43,17 @@ test "function extern symbol matches extern decl" {
 
 export fn another_mystery_function() u32 {
     return 12345;
+}
+
+extern fn c_extern_function() [*c]u32;
+
+test "coerce extern function types" {
+    const S = struct {
+        export fn c_extern_function() [*c]u32 {
+            return null;
+        }
+    };
+    _ = S;
+
+    _ = @as(fn () callconv(.C) ?*u32, c_extern_function);
 }

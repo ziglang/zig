@@ -16,7 +16,6 @@ test "global variable alignment" {
 }
 
 test "large alignment of local constant" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // flaky
@@ -26,7 +25,6 @@ test "large alignment of local constant" {
 }
 
 test "slicing array of length 1 can not assume runtime index is always zero" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // flaky
@@ -94,11 +92,9 @@ test "alignment and size of structs with 128-bit fields" {
         .mipsel,
         .powerpc,
         .powerpcle,
-        .r600,
         .amdgcn,
         .riscv32,
         .sparc,
-        .sparcel,
         .s390x,
         .lanai,
         .wasm32,
@@ -178,7 +174,6 @@ test "alignment and size of structs with 128-bit fields" {
         .x86,
         .aarch64,
         .aarch64_be,
-        .aarch64_32,
         .riscv64,
         .bpfel,
         .bpfeb,
@@ -512,7 +507,6 @@ test "read 128-bit field from default aligned struct in global memory" {
 }
 
 test "struct field explicit alignment" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO

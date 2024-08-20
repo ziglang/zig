@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const DW = std.dwarf;
 const assert = std.debug.assert;
 const testing = std.testing;
 
@@ -295,15 +294,8 @@ pub const Register = enum(u8) {
         };
     }
 
-    pub fn dwarfLocOp(self: Register) u8 {
-        return @as(u8, self.enc()) + DW.OP.reg0;
-    }
-
-    /// DWARF encodings that push a value onto the DWARF stack that is either
-    /// the contents of a register or the result of adding the contents a given
-    /// register to a given signed offset.
-    pub fn dwarfLocOpDeref(self: Register) u8 {
-        return @as(u8, self.enc()) + DW.OP.breg0;
+    pub fn dwarfNum(self: Register) u5 {
+        return self.enc();
     }
 };
 

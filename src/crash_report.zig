@@ -76,9 +76,15 @@ fn dumpStatusReport() !void {
 
     const stderr = io.getStdErr().writer();
     const block: *Sema.Block = anal.block;
-    const mod = anal.sema.mod;
+    const zcu = anal.sema.pt.zcu;
 
-    const file, const src_base_node = Zcu.LazySrcLoc.resolveBaseNode(block.src_base_inst, mod);
+    const file, const src_base_node = Zcu.LazySrcLoc.resolveBaseNode(block.src_base_inst, zcu) orelse {
+        const file = zcu.fileByIndex(block.src_base_inst.resolveFile(&zcu.intern_pool));
+        try stderr.writeAll("Analyzing lost instruction in file '");
+        try writeFilePath(file, stderr);
+        try stderr.writeAll("'. This should not happen!\n\n");
+        return;
+    };
 
     try stderr.writeAll("Analyzing ");
     try writeFilePath(file, stderr);
@@ -104,7 +110,13 @@ fn dumpStatusReport() !void {
     while (parent) |curr| {
         fba.reset();
         try stderr.writeAll("  in ");
-        const cur_block_file, const cur_block_src_base_node = Zcu.LazySrcLoc.resolveBaseNode(curr.block.src_base_inst, mod);
+        const cur_block_file, const cur_block_src_base_node = Zcu.LazySrcLoc.resolveBaseNode(curr.block.src_base_inst, zcu) orelse {
+            const cur_block_file = zcu.fileByIndex(curr.block.src_base_inst.resolveFile(&zcu.intern_pool));
+            try writeFilePath(cur_block_file, stderr);
+            try stderr.writeAll("\n    > [lost instruction; this should not happen]\n");
+            parent = curr.parent;
+            continue;
+        };
         try writeFilePath(cur_block_file, stderr);
         try stderr.writeAll("\n    > ");
         print_zir.renderSingleInstruction(
@@ -163,9 +175,7 @@ pub fn attachSegfaultHandler() void {
         .flags = (posix.SA.SIGINFO | posix.SA.RESTART | posix.SA.RESETHAND),
     };
 
-    debug.updateSegfaultHandler(&act) catch {
-        @panic("unable to install segfault handler, maybe adjust have_segfault_handling_support in std/debug.zig");
-    };
+    debug.updateSegfaultHandler(&act);
 }
 
 fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.C) noreturn {
@@ -258,7 +268,7 @@ const StackContext = union(enum) {
     current: struct {
         ret_addr: ?usize,
     },
-    exception: *const debug.ThreadContext,
+    exception: *debug.ThreadContext,
     not_supported: void,
 
     pub fn dumpStackTrace(ctx: @This()) void {

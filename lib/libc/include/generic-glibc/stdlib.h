@@ -210,7 +210,7 @@ extern unsigned long long int strtoull (const char *__restrict __nptr,
 
 /* Versions of the above functions that handle '0b' and '0B' prefixes
    in base 0 or 2.  */
-#if __GLIBC_USE (C2X_STRTOL)
+#if __GLIBC_USE (C23_STRTOL)
 # ifdef __REDIRECT
 extern long int __REDIRECT_NTH (strtol, (const char *__restrict __nptr,
 					 char **__restrict __endptr,
@@ -274,7 +274,7 @@ extern unsigned long long int __isoc23_strtoull (const char *__restrict __nptr,
 #endif
 
 /* Convert a floating-point number to a string.  */
-#if __GLIBC_USE (IEC_60559_BFP_EXT_C2X)
+#if __GLIBC_USE (IEC_60559_BFP_EXT_C23)
 extern int strfromd (char *__dest, size_t __size, const char *__format,
 		     double __f)
      __THROW __nonnull ((3));
@@ -360,7 +360,7 @@ extern unsigned long long int strtoull_l (const char *__restrict __nptr,
 
 /* Versions of the above functions that handle '0b' and '0B' prefixes
    in base 0 or 2.  */
-# if __GLIBC_USE (C2X_STRTOL)
+# if __GLIBC_USE (C23_STRTOL)
 #  ifdef __REDIRECT
 extern long int __REDIRECT_NTH (strtol_l, (const char *__restrict __nptr,
 					   char **__restrict __endptr,
@@ -653,6 +653,11 @@ extern int lcong48_r (unsigned short int __param[7],
 		      struct drand48_data *__buffer)
      __THROW __nonnull ((1, 2));
 
+/*
+ * arc4random* symbols introduced in glibc 2.36:
+ * https://sourceware.org/git/?p=glibc.git;a=blob;f=NEWS;h=8420a65cd06874ee09518366b8fba746a557212a;hb=6f4e0fcfa2d2b0915816a3a3a1d48b4763a7dee2
+ */
+#  if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 36) || __GLIBC__ > 2
 /* Return a random integer between zero and 2**32-1 (inclusive).  */
 extern __uint32_t arc4random (void)
      __THROW __wur;
@@ -665,6 +670,7 @@ extern void arc4random_buf (void *__buf, size_t __size)
    limit (exclusive).  */
 extern __uint32_t arc4random_uniform (__uint32_t __upper_bound)
      __THROW __wur;
+#  endif /* glibc v2.36 and later */
 # endif	/* Use misc.  */
 #endif	/* Use misc or X/Open.  */
 

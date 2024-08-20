@@ -750,7 +750,7 @@ const MsvcLibDir = struct {
         var instances_dir = try findInstancesDir(allocator);
         defer instances_dir.close();
 
-        var state_subpath_buf: [std.fs.MAX_NAME_BYTES + 32]u8 = undefined;
+        var state_subpath_buf: [std.fs.max_name_bytes + 32]u8 = undefined;
         var latest_version_lib_dir = std.ArrayListUnmanaged(u8){};
         errdefer latest_version_lib_dir.deinit(allocator);
 
@@ -878,7 +878,7 @@ const MsvcLibDir = struct {
                 error.OutOfMemory => return error.OutOfMemory,
                 else => continue,
             };
-            if (source_directories_value.len > (std.fs.max_path_bytes * 30)) { // note(bratishkaerik): guessing from the fact that on my computer it has 15 pathes and at least some of them are not of max length
+            if (source_directories_value.len > (std.fs.max_path_bytes * 30)) { // note(bratishkaerik): guessing from the fact that on my computer it has 15 paths and at least some of them are not of max length
                 allocator.free(source_directories_value);
                 continue;
             }
@@ -887,10 +887,10 @@ const MsvcLibDir = struct {
         } else return error.PathNotFound;
         defer allocator.free(source_directories);
 
-        var source_directories_splitted = std.mem.splitScalar(u8, source_directories, ';');
+        var source_directories_split = std.mem.splitScalar(u8, source_directories, ';');
 
         const msvc_dir: []const u8 = msvc_dir: {
-            const msvc_include_dir_maybe_with_trailing_slash = try allocator.dupe(u8, source_directories_splitted.first());
+            const msvc_include_dir_maybe_with_trailing_slash = try allocator.dupe(u8, source_directories_split.first());
 
             if (msvc_include_dir_maybe_with_trailing_slash.len > std.fs.max_path_bytes or !std.fs.path.isAbsolute(msvc_include_dir_maybe_with_trailing_slash)) {
                 allocator.free(msvc_include_dir_maybe_with_trailing_slash);

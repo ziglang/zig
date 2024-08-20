@@ -5,90 +5,71 @@ const BOOL = windows.BOOL;
 const BOOLEAN = windows.BOOLEAN;
 const CONDITION_VARIABLE = windows.CONDITION_VARIABLE;
 const CONSOLE_SCREEN_BUFFER_INFO = windows.CONSOLE_SCREEN_BUFFER_INFO;
-const CONTEXT = windows.CONTEXT;
 const COORD = windows.COORD;
+const CRITICAL_SECTION = windows.CRITICAL_SECTION;
 const DWORD = windows.DWORD;
-const DWORD64 = windows.DWORD64;
-const FILE_INFO_BY_HANDLE_CLASS = windows.FILE_INFO_BY_HANDLE_CLASS;
+const FARPROC = windows.FARPROC;
+const FILETIME = windows.FILETIME;
 const HANDLE = windows.HANDLE;
+const HANDLER_ROUTINE = windows.HANDLER_ROUTINE;
+const HLOCAL = windows.HLOCAL;
 const HMODULE = windows.HMODULE;
-const HKEY = windows.HKEY;
-const HRESULT = windows.HRESULT;
+const INIT_ONCE = windows.INIT_ONCE;
+const INIT_ONCE_FN = windows.INIT_ONCE_FN;
 const LARGE_INTEGER = windows.LARGE_INTEGER;
+const LPCSTR = windows.LPCSTR;
+const LPCVOID = windows.LPCVOID;
 const LPCWSTR = windows.LPCWSTR;
 const LPTHREAD_START_ROUTINE = windows.LPTHREAD_START_ROUTINE;
 const LPVOID = windows.LPVOID;
 const LPWSTR = windows.LPWSTR;
-const MODULEINFO = windows.MODULEINFO;
+const MODULEENTRY32 = windows.MODULEENTRY32;
 const OVERLAPPED = windows.OVERLAPPED;
-const PERFORMANCE_INFORMATION = windows.PERFORMANCE_INFORMATION;
-const PROCESS_MEMORY_COUNTERS = windows.PROCESS_MEMORY_COUNTERS;
-const PSAPI_WS_WATCH_INFORMATION = windows.PSAPI_WS_WATCH_INFORMATION;
-const PSAPI_WS_WATCH_INFORMATION_EX = windows.PSAPI_WS_WATCH_INFORMATION_EX;
+const OVERLAPPED_ENTRY = windows.OVERLAPPED_ENTRY;
+const PMEMORY_BASIC_INFORMATION = windows.PMEMORY_BASIC_INFORMATION;
+const PROCESS_INFORMATION = windows.PROCESS_INFORMATION;
 const SECURITY_ATTRIBUTES = windows.SECURITY_ATTRIBUTES;
 const SIZE_T = windows.SIZE_T;
 const SRWLOCK = windows.SRWLOCK;
+const STARTUPINFOW = windows.STARTUPINFOW;
+const UCHAR = windows.UCHAR;
 const UINT = windows.UINT;
+const ULONG = windows.ULONG;
+const ULONG_PTR = windows.ULONG_PTR;
+const va_list = windows.va_list;
 const VECTORED_EXCEPTION_HANDLER = windows.VECTORED_EXCEPTION_HANDLER;
 const WCHAR = windows.WCHAR;
+const WIN32_FIND_DATAW = windows.WIN32_FIND_DATAW;
+const Win32Error = windows.Win32Error;
 const WINAPI = windows.WINAPI;
 const WORD = windows.WORD;
-const Win32Error = windows.Win32Error;
-const va_list = windows.va_list;
-const HLOCAL = windows.HLOCAL;
-const FILETIME = windows.FILETIME;
-const STARTUPINFOW = windows.STARTUPINFOW;
-const PROCESS_INFORMATION = windows.PROCESS_INFORMATION;
-const OVERLAPPED_ENTRY = windows.OVERLAPPED_ENTRY;
-const LPHEAP_SUMMARY = windows.LPHEAP_SUMMARY;
-const ULONG_PTR = windows.ULONG_PTR;
-const FILE_NOTIFY_INFORMATION = windows.FILE_NOTIFY_INFORMATION;
-const HANDLER_ROUTINE = windows.HANDLER_ROUTINE;
-const ULONG = windows.ULONG;
-const PVOID = windows.PVOID;
-const LPSTR = windows.LPSTR;
-const PENUM_PAGE_FILE_CALLBACKA = windows.PENUM_PAGE_FILE_CALLBACKA;
-const PENUM_PAGE_FILE_CALLBACKW = windows.PENUM_PAGE_FILE_CALLBACKW;
-const INIT_ONCE = windows.INIT_ONCE;
-const CRITICAL_SECTION = windows.CRITICAL_SECTION;
-const WIN32_FIND_DATAW = windows.WIN32_FIND_DATAW;
-const CHAR = windows.CHAR;
-const BY_HANDLE_FILE_INFORMATION = windows.BY_HANDLE_FILE_INFORMATION;
-const SYSTEM_INFO = windows.SYSTEM_INFO;
-const LPOVERLAPPED_COMPLETION_ROUTINE = windows.LPOVERLAPPED_COMPLETION_ROUTINE;
-const UCHAR = windows.UCHAR;
-const FARPROC = windows.FARPROC;
-const INIT_ONCE_FN = windows.INIT_ONCE_FN;
-const PMEMORY_BASIC_INFORMATION = windows.PMEMORY_BASIC_INFORMATION;
-const REGSAM = windows.REGSAM;
-const LSTATUS = windows.LSTATUS;
-const UNWIND_HISTORY_TABLE = windows.UNWIND_HISTORY_TABLE;
-const RUNTIME_FUNCTION = windows.RUNTIME_FUNCTION;
-const KNONVOLATILE_CONTEXT_POINTERS = windows.KNONVOLATILE_CONTEXT_POINTERS;
-const EXCEPTION_ROUTINE = windows.EXCEPTION_ROUTINE;
-const MODULEENTRY32 = windows.MODULEENTRY32;
-const ULONGLONG = windows.ULONGLONG;
 
-pub extern "kernel32" fn AddVectoredExceptionHandler(First: c_ulong, Handler: ?VECTORED_EXCEPTION_HANDLER) callconv(WINAPI) ?*anyopaque;
-pub extern "kernel32" fn RemoveVectoredExceptionHandler(Handle: HANDLE) callconv(WINAPI) c_ulong;
+// I/O - Filesystem
 
-pub extern "kernel32" fn CancelIo(hFile: HANDLE) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn CancelIoEx(hFile: HANDLE, lpOverlapped: ?*OVERLAPPED) callconv(WINAPI) BOOL;
+pub extern "kernel32" fn ReadDirectoryChangesW(
+    hDirectory: windows.HANDLE,
+    lpBuffer: [*]align(@alignOf(windows.FILE_NOTIFY_INFORMATION)) u8,
+    nBufferLength: windows.DWORD,
+    bWatchSubtree: windows.BOOL,
+    dwNotifyFilter: windows.FileNotifyChangeFilter,
+    lpBytesReturned: ?*windows.DWORD,
+    lpOverlapped: ?*windows.OVERLAPPED,
+    lpCompletionRoutine: windows.LPOVERLAPPED_COMPLETION_ROUTINE,
+) callconv(windows.WINAPI) windows.BOOL;
 
-pub extern "kernel32" fn CloseHandle(hObject: HANDLE) callconv(WINAPI) BOOL;
+// TODO: Wrapper around NtCancelIoFile.
+pub extern "kernel32" fn CancelIo(
+    hFile: HANDLE,
+) callconv(WINAPI) BOOL;
 
-pub extern "kernel32" fn CreateDirectoryW(lpPathName: [*:0]const u16, lpSecurityAttributes: ?*SECURITY_ATTRIBUTES) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn SetEndOfFile(hFile: HANDLE) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn CreateEventExW(
-    lpEventAttributes: ?*SECURITY_ATTRIBUTES,
-    lpName: ?LPCWSTR,
-    dwFlags: DWORD,
-    dwDesiredAccess: DWORD,
-) callconv(WINAPI) ?HANDLE;
+// TODO: Wrapper around NtCancelIoFileEx.
+pub extern "kernel32" fn CancelIoEx(
+    hFile: HANDLE,
+    lpOverlapped: ?*OVERLAPPED,
+) callconv(WINAPI) BOOL;
 
 pub extern "kernel32" fn CreateFileW(
-    lpFileName: [*:0]const u16,
+    lpFileName: LPCWSTR,
     dwDesiredAccess: DWORD,
     dwShareMode: DWORD,
     lpSecurityAttributes: ?*SECURITY_ATTRIBUTES,
@@ -97,13 +78,7 @@ pub extern "kernel32" fn CreateFileW(
     hTemplateFile: ?HANDLE,
 ) callconv(WINAPI) HANDLE;
 
-pub extern "kernel32" fn CreatePipe(
-    hReadPipe: *HANDLE,
-    hWritePipe: *HANDLE,
-    lpPipeAttributes: *const SECURITY_ATTRIBUTES,
-    nSize: DWORD,
-) callconv(WINAPI) BOOL;
-
+// TODO A bunch of logic around NtCreateNamedPipe
 pub extern "kernel32" fn CreateNamedPipeW(
     lpName: LPCWSTR,
     dwOpenMode: DWORD,
@@ -115,272 +90,50 @@ pub extern "kernel32" fn CreateNamedPipeW(
     lpSecurityAttributes: ?*const SECURITY_ATTRIBUTES,
 ) callconv(WINAPI) HANDLE;
 
-pub extern "kernel32" fn CreateProcessW(
-    lpApplicationName: ?LPCWSTR,
-    lpCommandLine: ?LPWSTR,
-    lpProcessAttributes: ?*SECURITY_ATTRIBUTES,
-    lpThreadAttributes: ?*SECURITY_ATTRIBUTES,
-    bInheritHandles: BOOL,
-    dwCreationFlags: DWORD,
-    lpEnvironment: ?*anyopaque,
-    lpCurrentDirectory: ?LPCWSTR,
-    lpStartupInfo: *STARTUPINFOW,
-    lpProcessInformation: *PROCESS_INFORMATION,
+pub extern "kernel32" fn FindFirstFileW(
+    lpFileName: LPCWSTR,
+    lpFindFileData: *WIN32_FIND_DATAW,
+) callconv(WINAPI) HANDLE;
+
+pub extern "kernel32" fn FindClose(
+    hFindFile: HANDLE,
 ) callconv(WINAPI) BOOL;
 
-pub extern "kernel32" fn CreateSymbolicLinkW(lpSymlinkFileName: [*:0]const u16, lpTargetFileName: [*:0]const u16, dwFlags: DWORD) callconv(WINAPI) BOOLEAN;
-
-pub extern "kernel32" fn CreateIoCompletionPort(FileHandle: HANDLE, ExistingCompletionPort: ?HANDLE, CompletionKey: ULONG_PTR, NumberOfConcurrentThreads: DWORD) callconv(WINAPI) ?HANDLE;
-
-pub extern "kernel32" fn CreateThread(lpThreadAttributes: ?*SECURITY_ATTRIBUTES, dwStackSize: SIZE_T, lpStartAddress: LPTHREAD_START_ROUTINE, lpParameter: ?LPVOID, dwCreationFlags: DWORD, lpThreadId: ?*DWORD) callconv(WINAPI) ?HANDLE;
-
-pub extern "kernel32" fn CreateToolhelp32Snapshot(dwFlags: DWORD, th32ProcessID: DWORD) callconv(WINAPI) HANDLE;
-
-pub extern "kernel32" fn DeviceIoControl(
-    h: HANDLE,
-    dwIoControlCode: DWORD,
-    lpInBuffer: ?*const anyopaque,
-    nInBufferSize: DWORD,
-    lpOutBuffer: ?LPVOID,
-    nOutBufferSize: DWORD,
-    lpBytesReturned: ?*DWORD,
-    lpOverlapped: ?*OVERLAPPED,
-) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn DeleteFileW(lpFileName: [*:0]const u16) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn DuplicateHandle(hSourceProcessHandle: HANDLE, hSourceHandle: HANDLE, hTargetProcessHandle: HANDLE, lpTargetHandle: *HANDLE, dwDesiredAccess: DWORD, bInheritHandle: BOOL, dwOptions: DWORD) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn ExitProcess(exit_code: UINT) callconv(WINAPI) noreturn;
-
-pub extern "kernel32" fn FindFirstFileW(lpFileName: [*:0]const u16, lpFindFileData: *WIN32_FIND_DATAW) callconv(WINAPI) HANDLE;
-pub extern "kernel32" fn FindClose(hFindFile: HANDLE) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn FindNextFileW(hFindFile: HANDLE, lpFindFileData: *WIN32_FIND_DATAW) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn FormatMessageW(dwFlags: DWORD, lpSource: ?LPVOID, dwMessageId: Win32Error, dwLanguageId: DWORD, lpBuffer: [*]u16, nSize: DWORD, Arguments: ?*va_list) callconv(WINAPI) DWORD;
-
-pub extern "kernel32" fn FreeEnvironmentStringsW(penv: [*:0]u16) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn GetCommandLineA() callconv(WINAPI) LPSTR;
-pub extern "kernel32" fn GetCommandLineW() callconv(WINAPI) LPWSTR;
-
-pub extern "kernel32" fn GetConsoleMode(in_hConsoleHandle: HANDLE, out_lpMode: *DWORD) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn SetConsoleMode(in_hConsoleHandle: HANDLE, in_dwMode: DWORD) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn GetConsoleOutputCP() callconv(WINAPI) UINT;
-
-pub extern "kernel32" fn GetConsoleScreenBufferInfo(hConsoleOutput: HANDLE, lpConsoleScreenBufferInfo: *CONSOLE_SCREEN_BUFFER_INFO) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn FillConsoleOutputCharacterA(hConsoleOutput: HANDLE, cCharacter: CHAR, nLength: DWORD, dwWriteCoord: COORD, lpNumberOfCharsWritten: *DWORD) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn FillConsoleOutputCharacterW(hConsoleOutput: HANDLE, cCharacter: WCHAR, nLength: DWORD, dwWriteCoord: COORD, lpNumberOfCharsWritten: *DWORD) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn FillConsoleOutputAttribute(hConsoleOutput: HANDLE, wAttribute: WORD, nLength: DWORD, dwWriteCoord: COORD, lpNumberOfAttrsWritten: *DWORD) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn SetConsoleCursorPosition(hConsoleOutput: HANDLE, dwCursorPosition: COORD) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn WriteConsoleW(hConsoleOutput: HANDLE, lpBuffer: [*]const u16, nNumberOfCharsToWrite: DWORD, lpNumberOfCharsWritten: ?*DWORD, lpReserved: ?LPVOID) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn ReadConsoleOutputCharacterW(
-    hConsoleOutput: windows.HANDLE,
-    lpCharacter: [*]u16,
-    nLength: windows.DWORD,
-    dwReadCoord: windows.COORD,
-    lpNumberOfCharsRead: *windows.DWORD,
-) callconv(windows.WINAPI) windows.BOOL;
-
-pub extern "kernel32" fn GetCurrentDirectoryW(nBufferLength: DWORD, lpBuffer: ?[*]WCHAR) callconv(WINAPI) DWORD;
-
-pub extern "kernel32" fn GetCurrentThread() callconv(WINAPI) HANDLE;
-pub extern "kernel32" fn GetCurrentThreadId() callconv(WINAPI) DWORD;
-
-pub extern "kernel32" fn GetCurrentProcessId() callconv(WINAPI) DWORD;
-
-pub extern "kernel32" fn GetCurrentProcess() callconv(WINAPI) HANDLE;
-
-pub extern "kernel32" fn GetEnvironmentStringsW() callconv(WINAPI) ?[*:0]u16;
-
-pub extern "kernel32" fn GetEnvironmentVariableW(lpName: LPWSTR, lpBuffer: [*]u16, nSize: DWORD) callconv(WINAPI) DWORD;
-
-pub extern "kernel32" fn SetEnvironmentVariableW(lpName: LPCWSTR, lpValue: ?LPCWSTR) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn GetExitCodeProcess(hProcess: HANDLE, lpExitCode: *DWORD) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn GetFileSizeEx(hFile: HANDLE, lpFileSize: *LARGE_INTEGER) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn GetFileAttributesW(lpFileName: [*:0]const WCHAR) callconv(WINAPI) DWORD;
-
-pub extern "kernel32" fn GetModuleFileNameW(hModule: ?HMODULE, lpFilename: [*]u16, nSize: DWORD) callconv(WINAPI) DWORD;
-
-pub extern "kernel32" fn GetModuleHandleW(lpModuleName: ?[*:0]const WCHAR) callconv(WINAPI) ?HMODULE;
-
-pub extern "kernel32" fn GetLastError() callconv(WINAPI) Win32Error;
-pub extern "kernel32" fn SetLastError(dwErrCode: Win32Error) callconv(WINAPI) void;
-
-pub extern "kernel32" fn GetFileInformationByHandleEx(
-    in_hFile: HANDLE,
-    in_FileInformationClass: FILE_INFO_BY_HANDLE_CLASS,
-    out_lpFileInformation: *anyopaque,
-    in_dwBufferSize: DWORD,
-) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn GetFinalPathNameByHandleW(
-    hFile: HANDLE,
-    lpszFilePath: [*]u16,
-    cchFilePath: DWORD,
-    dwFlags: DWORD,
+// TODO: Wrapper around RtlGetFullPathName_UEx
+pub extern "kernel32" fn GetFullPathNameW(
+    lpFileName: LPCWSTR,
+    nBufferLength: DWORD,
+    lpBuffer: LPWSTR,
+    lpFilePart: ?*?LPWSTR,
 ) callconv(WINAPI) DWORD;
 
-pub extern "kernel32" fn GetFullPathNameW(
-    lpFileName: [*:0]const u16,
-    nBufferLength: u32,
-    lpBuffer: [*]u16,
-    lpFilePart: ?*?[*:0]u16,
-) callconv(@import("std").os.windows.WINAPI) u32;
-
-pub extern "kernel32" fn GetOverlappedResult(hFile: HANDLE, lpOverlapped: *OVERLAPPED, lpNumberOfBytesTransferred: *DWORD, bWait: BOOL) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn GetProcessHeap() callconv(WINAPI) ?HANDLE;
-
-pub extern "kernel32" fn GetProcessTimes(in_hProcess: HANDLE, out_lpCreationTime: *FILETIME, out_lpExitTime: *FILETIME, out_lpKernelTime: *FILETIME, out_lpUserTime: *FILETIME) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn GetQueuedCompletionStatus(CompletionPort: HANDLE, lpNumberOfBytesTransferred: *DWORD, lpCompletionKey: *ULONG_PTR, lpOverlapped: *?*OVERLAPPED, dwMilliseconds: DWORD) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn GetQueuedCompletionStatusEx(
-    CompletionPort: HANDLE,
-    lpCompletionPortEntries: [*]OVERLAPPED_ENTRY,
-    ulCount: ULONG,
-    ulNumEntriesRemoved: *ULONG,
-    dwMilliseconds: DWORD,
-    fAlertable: BOOL,
-) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn GetSystemInfo(lpSystemInfo: *SYSTEM_INFO) callconv(WINAPI) void;
-pub extern "kernel32" fn GetSystemTimeAsFileTime(*FILETIME) callconv(WINAPI) void;
-pub extern "kernel32" fn IsProcessorFeaturePresent(ProcessorFeature: DWORD) BOOL;
-
-pub extern "kernel32" fn GetSystemDirectoryW(lpBuffer: LPWSTR, uSize: UINT) callconv(WINAPI) UINT;
-
-pub extern "kernel32" fn HeapCreate(flOptions: DWORD, dwInitialSize: SIZE_T, dwMaximumSize: SIZE_T) callconv(WINAPI) ?HANDLE;
-pub extern "kernel32" fn HeapDestroy(hHeap: HANDLE) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn HeapReAlloc(hHeap: HANDLE, dwFlags: DWORD, lpMem: *anyopaque, dwBytes: SIZE_T) callconv(WINAPI) ?*anyopaque;
-pub extern "kernel32" fn HeapSize(hHeap: HANDLE, dwFlags: DWORD, lpMem: *const anyopaque) callconv(WINAPI) SIZE_T;
-pub extern "kernel32" fn HeapCompact(hHeap: HANDLE, dwFlags: DWORD) callconv(WINAPI) SIZE_T;
-pub extern "kernel32" fn HeapSummary(hHeap: HANDLE, dwFlags: DWORD, lpSummary: LPHEAP_SUMMARY) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn GetStdHandle(in_nStdHandle: DWORD) callconv(WINAPI) ?HANDLE;
-
-pub extern "kernel32" fn HeapAlloc(hHeap: HANDLE, dwFlags: DWORD, dwBytes: SIZE_T) callconv(WINAPI) ?*anyopaque;
-
-pub extern "kernel32" fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: *anyopaque) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn HeapValidate(hHeap: HANDLE, dwFlags: DWORD, lpMem: ?*const anyopaque) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn VirtualAlloc(lpAddress: ?LPVOID, dwSize: SIZE_T, flAllocationType: DWORD, flProtect: DWORD) callconv(WINAPI) ?LPVOID;
-pub extern "kernel32" fn VirtualFree(lpAddress: ?LPVOID, dwSize: SIZE_T, dwFreeType: DWORD) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn VirtualQuery(lpAddress: ?LPVOID, lpBuffer: PMEMORY_BASIC_INFORMATION, dwLength: SIZE_T) callconv(WINAPI) SIZE_T;
-
-pub extern "kernel32" fn LocalFree(hMem: HLOCAL) callconv(WINAPI) ?HLOCAL;
-
-pub extern "kernel32" fn Module32First(hSnapshot: HANDLE, lpme: *MODULEENTRY32) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn Module32Next(hSnapshot: HANDLE, lpme: *MODULEENTRY32) callconv(WINAPI) BOOL;
+// TODO: Matches `STD_*_HANDLE` to peb().ProcessParameters.Standard*
+pub extern "kernel32" fn GetStdHandle(
+    nStdHandle: DWORD,
+) callconv(WINAPI) ?HANDLE;
 
 pub extern "kernel32" fn MoveFileExW(
-    lpExistingFileName: [*:0]const u16,
-    lpNewFileName: [*:0]const u16,
+    lpExistingFileName: LPCWSTR,
+    lpNewFileName: LPCWSTR,
     dwFlags: DWORD,
 ) callconv(WINAPI) BOOL;
 
-pub extern "kernel32" fn PostQueuedCompletionStatus(CompletionPort: HANDLE, dwNumberOfBytesTransferred: DWORD, dwCompletionKey: ULONG_PTR, lpOverlapped: ?*OVERLAPPED) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn ReadDirectoryChangesW(
-    hDirectory: HANDLE,
-    lpBuffer: [*]align(@alignOf(FILE_NOTIFY_INFORMATION)) u8,
-    nBufferLength: DWORD,
-    bWatchSubtree: BOOL,
-    dwNotifyFilter: DWORD,
-    lpBytesReturned: ?*DWORD,
-    lpOverlapped: ?*OVERLAPPED,
-    lpCompletionRoutine: LPOVERLAPPED_COMPLETION_ROUTINE,
-) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn ReadFile(
-    in_hFile: HANDLE,
-    out_lpBuffer: [*]u8,
-    in_nNumberOfBytesToRead: DWORD,
-    out_lpNumberOfBytesRead: ?*DWORD,
-    in_out_lpOverlapped: ?*OVERLAPPED,
-) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn RemoveDirectoryW(lpPathName: [*:0]const u16) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn RtlCaptureContext(ContextRecord: *CONTEXT) callconv(WINAPI) void;
-
-pub extern "kernel32" fn RtlLookupFunctionEntry(
-    ControlPc: DWORD64,
-    ImageBase: *DWORD64,
-    HistoryTable: *UNWIND_HISTORY_TABLE,
-) callconv(WINAPI) ?*RUNTIME_FUNCTION;
-
-pub extern "kernel32" fn RtlVirtualUnwind(
-    HandlerType: DWORD,
-    ImageBase: DWORD64,
-    ControlPc: DWORD64,
-    FunctionEntry: *RUNTIME_FUNCTION,
-    ContextRecord: *CONTEXT,
-    HandlerData: *?PVOID,
-    EstablisherFrame: *DWORD64,
-    ContextPointers: ?*KNONVOLATILE_CONTEXT_POINTERS,
-) callconv(WINAPI) *EXCEPTION_ROUTINE;
-
-pub extern "kernel32" fn SetConsoleTextAttribute(hConsoleOutput: HANDLE, wAttributes: WORD) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn SetConsoleCtrlHandler(
-    HandlerRoutine: ?HANDLER_ROUTINE,
-    Add: BOOL,
-) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn SetConsoleOutputCP(wCodePageID: UINT) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn SetFileCompletionNotificationModes(
-    FileHandle: HANDLE,
-    Flags: UCHAR,
-) callconv(WINAPI) BOOL;
-
+// TODO: Wrapper around NtSetInformationFile + `FILE_POSITION_INFORMATION`.
+//  `FILE_STANDARD_INFORMATION` is also used if dwMoveMethod is `FILE_END`
 pub extern "kernel32" fn SetFilePointerEx(
-    in_fFile: HANDLE,
-    in_liDistanceToMove: LARGE_INTEGER,
-    out_opt_ldNewFilePointer: ?*LARGE_INTEGER,
-    in_dwMoveMethod: DWORD,
+    hFile: HANDLE,
+    liDistanceToMove: LARGE_INTEGER,
+    lpNewFilePointer: ?*LARGE_INTEGER,
+    dwMoveMethod: DWORD,
 ) callconv(WINAPI) BOOL;
 
+// TODO: Wrapper around NtSetInformationFile + `FILE_BASIC_INFORMATION`
 pub extern "kernel32" fn SetFileTime(
     hFile: HANDLE,
     lpCreationTime: ?*const FILETIME,
     lpLastAccessTime: ?*const FILETIME,
     lpLastWriteTime: ?*const FILETIME,
 ) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn SetHandleInformation(hObject: HANDLE, dwMask: DWORD, dwFlags: DWORD) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn Sleep(dwMilliseconds: DWORD) callconv(WINAPI) void;
-
-pub extern "kernel32" fn SwitchToThread() callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn TerminateProcess(hProcess: HANDLE, uExitCode: UINT) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn TlsAlloc() callconv(WINAPI) DWORD;
-
-pub extern "kernel32" fn TlsFree(dwTlsIndex: DWORD) callconv(WINAPI) BOOL;
-
-pub extern "kernel32" fn WaitForSingleObject(hHandle: HANDLE, dwMilliseconds: DWORD) callconv(WINAPI) DWORD;
-
-pub extern "kernel32" fn WaitForSingleObjectEx(hHandle: HANDLE, dwMilliseconds: DWORD, bAlertable: BOOL) callconv(WINAPI) DWORD;
-
-pub extern "kernel32" fn WaitForMultipleObjects(nCount: DWORD, lpHandle: [*]const HANDLE, bWaitAll: BOOL, dwMilliseconds: DWORD) callconv(WINAPI) DWORD;
-
-pub extern "kernel32" fn WaitForMultipleObjectsEx(
-    nCount: DWORD,
-    lpHandle: [*]const HANDLE,
-    bWaitAll: BOOL,
-    dwMilliseconds: DWORD,
-    bAlertable: BOOL,
-) callconv(WINAPI) DWORD;
 
 pub extern "kernel32" fn WriteFile(
     in_hFile: HANDLE,
@@ -390,77 +143,531 @@ pub extern "kernel32" fn WriteFile(
     in_out_lpOverlapped: ?*OVERLAPPED,
 ) callconv(WINAPI) BOOL;
 
-pub extern "kernel32" fn WriteFileEx(
+// TODO: wrapper for NtQueryInformationFile + `FILE_STANDARD_INFORMATION`
+pub extern "kernel32" fn GetFileSizeEx(
     hFile: HANDLE,
-    lpBuffer: [*]const u8,
-    nNumberOfBytesToWrite: DWORD,
+    lpFileSize: *LARGE_INTEGER,
+) callconv(WINAPI) BOOL;
+
+// TODO: Wrapper around GetStdHandle + NtFlushBuffersFile.
+pub extern "kernel32" fn FlushFileBuffers(
+    hFile: HANDLE,
+) callconv(WINAPI) BOOL;
+
+// TODO: Wrapper around NtSetInformationFile + `FILE_IO_COMPLETION_NOTIFICATION_INFORMATION`.
+pub extern "kernel32" fn SetFileCompletionNotificationModes(
+    FileHandle: HANDLE,
+    Flags: UCHAR,
+) callconv(WINAPI) BOOL;
+
+// TODO: `RtlGetCurrentDirectory_U(nBufferLength * 2, lpBuffer)`
+pub extern "kernel32" fn GetCurrentDirectoryW(
+    nBufferLength: DWORD,
+    lpBuffer: ?[*]WCHAR,
+) callconv(WINAPI) DWORD;
+
+// TODO: RtlDosPathNameToNtPathNameU_WithStatus + NtQueryAttributesFile.
+pub extern "kernel32" fn GetFileAttributesW(
+    lpFileName: LPCWSTR,
+) callconv(WINAPI) DWORD;
+
+pub extern "kernel32" fn ReadFile(
+    hFile: HANDLE,
+    lpBuffer: LPVOID,
+    nNumberOfBytesToRead: DWORD,
+    lpNumberOfBytesRead: ?*DWORD,
+    lpOverlapped: ?*OVERLAPPED,
+) callconv(WINAPI) BOOL;
+
+pub extern "kernel32" fn GetSystemDirectoryW(
+    lpBuffer: LPWSTR,
+    uSize: UINT,
+) callconv(WINAPI) UINT;
+
+// I/O - Kernel Objects
+
+// TODO: Wrapper around NtCreateEvent.
+pub extern "kernel32" fn CreateEventExW(
+    lpEventAttributes: ?*SECURITY_ATTRIBUTES,
+    lpName: ?LPCWSTR,
+    dwFlags: DWORD,
+    dwDesiredAccess: DWORD,
+) callconv(WINAPI) ?HANDLE;
+
+// TODO: Wrapper around GetStdHandle + NtDuplicateObject.
+pub extern "kernel32" fn DuplicateHandle(
+    hSourceProcessHandle: HANDLE,
+    hSourceHandle: HANDLE,
+    hTargetProcessHandle: HANDLE,
+    lpTargetHandle: *HANDLE,
+    dwDesiredAccess: DWORD,
+    bInheritHandle: BOOL,
+    dwOptions: DWORD,
+) callconv(WINAPI) BOOL;
+
+// TODO: Wrapper around GetStdHandle + NtQueryObject + NtSetInformationObject with .ObjectHandleFlagInformation.
+pub extern "kernel32" fn SetHandleInformation(
+    hObject: HANDLE,
+    dwMask: DWORD,
+    dwFlags: DWORD,
+) callconv(WINAPI) BOOL;
+
+// TODO: Wrapper around NtRemoveIoCompletion.
+pub extern "kernel32" fn GetQueuedCompletionStatus(
+    CompletionPort: HANDLE,
+    lpNumberOfBytesTransferred: *DWORD,
+    lpCompletionKey: *ULONG_PTR,
+    lpOverlapped: *?*OVERLAPPED,
+    dwMilliseconds: DWORD,
+) callconv(WINAPI) BOOL;
+
+// TODO: Wrapper around NtRemoveIoCompletionEx.
+pub extern "kernel32" fn GetQueuedCompletionStatusEx(
+    CompletionPort: HANDLE,
+    lpCompletionPortEntries: [*]OVERLAPPED_ENTRY,
+    ulCount: ULONG,
+    ulNumEntriesRemoved: *ULONG,
+    dwMilliseconds: DWORD,
+    fAlertable: BOOL,
+) callconv(WINAPI) BOOL;
+
+// TODO: Wrapper around NtSetIoCompletion with `IoStatus = .SUCCESS`.
+pub extern "kernel32" fn PostQueuedCompletionStatus(
+    CompletionPort: HANDLE,
+    dwNumberOfBytesTransferred: DWORD,
+    dwCompletionKey: ULONG_PTR,
+    lpOverlapped: ?*OVERLAPPED,
+) callconv(WINAPI) BOOL;
+
+// TODO:
+// GetOverlappedResultEx with bAlertable=false, which calls: GetStdHandle + WaitForSingleObjectEx.
+// Uses the SwitchBack system to run implementations for older programs; Do we care about this?
+pub extern "kernel32" fn GetOverlappedResult(
+    hFile: HANDLE,
     lpOverlapped: *OVERLAPPED,
-    lpCompletionRoutine: LPOVERLAPPED_COMPLETION_ROUTINE,
+    lpNumberOfBytesTransferred: *DWORD,
+    bWait: BOOL,
 ) callconv(WINAPI) BOOL;
 
-pub extern "kernel32" fn LoadLibraryW(lpLibFileName: [*:0]const u16) callconv(WINAPI) ?HMODULE;
-pub extern "kernel32" fn LoadLibraryExW(lpLibFileName: [*:0]const u16, hFile: ?HANDLE, dwFlags: DWORD) callconv(WINAPI) ?HMODULE;
+// TODO: Wrapper around NtCreateIoCompletion + NtSetInformationFile with FILE_COMPLETION_INFORMATION.
+// This would be better splitting into two functions.
+pub extern "kernel32" fn CreateIoCompletionPort(
+    FileHandle: HANDLE,
+    ExistingCompletionPort: ?HANDLE,
+    CompletionKey: ULONG_PTR,
+    NumberOfConcurrentThreads: DWORD,
+) callconv(WINAPI) ?HANDLE;
 
-pub extern "kernel32" fn GetProcAddress(hModule: HMODULE, lpProcName: [*:0]const u8) callconv(WINAPI) ?FARPROC;
+// TODO: Forwarder to NtAddVectoredExceptionHandler.
+pub extern "kernel32" fn AddVectoredExceptionHandler(
+    First: ULONG,
+    Handler: ?VECTORED_EXCEPTION_HANDLER,
+) callconv(WINAPI) ?LPVOID;
 
-pub extern "kernel32" fn FreeLibrary(hModule: HMODULE) callconv(WINAPI) BOOL;
+// TODO: Forwarder to NtRemoveVectoredExceptionHandler.
+pub extern "kernel32" fn RemoveVectoredExceptionHandler(
+    Handle: HANDLE,
+) callconv(WINAPI) ULONG;
 
-pub extern "kernel32" fn InitializeCriticalSection(lpCriticalSection: *CRITICAL_SECTION) callconv(WINAPI) void;
-pub extern "kernel32" fn EnterCriticalSection(lpCriticalSection: *CRITICAL_SECTION) callconv(WINAPI) void;
-pub extern "kernel32" fn LeaveCriticalSection(lpCriticalSection: *CRITICAL_SECTION) callconv(WINAPI) void;
-pub extern "kernel32" fn DeleteCriticalSection(lpCriticalSection: *CRITICAL_SECTION) callconv(WINAPI) void;
+// TODO: Wrapper around RtlReportSilentProcessExit + NtTerminateProcess.
+pub extern "kernel32" fn TerminateProcess(
+    hProcess: HANDLE,
+    uExitCode: UINT,
+) callconv(WINAPI) BOOL;
 
-pub extern "kernel32" fn InitOnceExecuteOnce(InitOnce: *INIT_ONCE, InitFn: INIT_ONCE_FN, Parameter: ?*anyopaque, Context: ?*anyopaque) callconv(WINAPI) BOOL;
+// TODO: WaitForSingleObjectEx with bAlertable=false.
+pub extern "kernel32" fn WaitForSingleObject(
+    hHandle: HANDLE,
+    dwMilliseconds: DWORD,
+) callconv(WINAPI) DWORD;
 
-pub extern "kernel32" fn K32EmptyWorkingSet(hProcess: HANDLE) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn K32EnumDeviceDrivers(lpImageBase: [*]LPVOID, cb: DWORD, lpcbNeeded: *DWORD) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn K32EnumPageFilesA(pCallBackRoutine: PENUM_PAGE_FILE_CALLBACKA, pContext: LPVOID) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn K32EnumPageFilesW(pCallBackRoutine: PENUM_PAGE_FILE_CALLBACKW, pContext: LPVOID) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn K32EnumProcessModules(hProcess: HANDLE, lphModule: [*]HMODULE, cb: DWORD, lpcbNeeded: *DWORD) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn K32EnumProcessModulesEx(hProcess: HANDLE, lphModule: [*]HMODULE, cb: DWORD, lpcbNeeded: *DWORD, dwFilterFlag: DWORD) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn K32EnumProcesses(lpidProcess: [*]DWORD, cb: DWORD, cbNeeded: *DWORD) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn K32GetDeviceDriverBaseNameA(ImageBase: LPVOID, lpBaseName: LPSTR, nSize: DWORD) callconv(WINAPI) DWORD;
-pub extern "kernel32" fn K32GetDeviceDriverBaseNameW(ImageBase: LPVOID, lpBaseName: LPWSTR, nSize: DWORD) callconv(WINAPI) DWORD;
-pub extern "kernel32" fn K32GetDeviceDriverFileNameA(ImageBase: LPVOID, lpFilename: LPSTR, nSize: DWORD) callconv(WINAPI) DWORD;
-pub extern "kernel32" fn K32GetDeviceDriverFileNameW(ImageBase: LPVOID, lpFilename: LPWSTR, nSize: DWORD) callconv(WINAPI) DWORD;
-pub extern "kernel32" fn K32GetMappedFileNameA(hProcess: HANDLE, lpv: ?LPVOID, lpFilename: LPSTR, nSize: DWORD) callconv(WINAPI) DWORD;
-pub extern "kernel32" fn K32GetMappedFileNameW(hProcess: HANDLE, lpv: ?LPVOID, lpFilename: LPWSTR, nSize: DWORD) callconv(WINAPI) DWORD;
-pub extern "kernel32" fn K32GetModuleBaseNameA(hProcess: HANDLE, hModule: ?HMODULE, lpBaseName: LPSTR, nSize: DWORD) callconv(WINAPI) DWORD;
-pub extern "kernel32" fn K32GetModuleBaseNameW(hProcess: HANDLE, hModule: ?HMODULE, lpBaseName: LPWSTR, nSize: DWORD) callconv(WINAPI) DWORD;
-pub extern "kernel32" fn K32GetModuleFileNameExA(hProcess: HANDLE, hModule: ?HMODULE, lpFilename: LPSTR, nSize: DWORD) callconv(WINAPI) DWORD;
-pub extern "kernel32" fn K32GetModuleFileNameExW(hProcess: HANDLE, hModule: ?HMODULE, lpFilename: LPWSTR, nSize: DWORD) callconv(WINAPI) DWORD;
-pub extern "kernel32" fn K32GetModuleInformation(hProcess: HANDLE, hModule: HMODULE, lpmodinfo: *MODULEINFO, cb: DWORD) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn K32GetPerformanceInfo(pPerformanceInformation: *PERFORMANCE_INFORMATION, cb: DWORD) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn K32GetProcessImageFileNameA(hProcess: HANDLE, lpImageFileName: LPSTR, nSize: DWORD) callconv(WINAPI) DWORD;
-pub extern "kernel32" fn K32GetProcessImageFileNameW(hProcess: HANDLE, lpImageFileName: LPWSTR, nSize: DWORD) callconv(WINAPI) DWORD;
-pub extern "kernel32" fn K32GetProcessMemoryInfo(Process: HANDLE, ppsmemCounters: *PROCESS_MEMORY_COUNTERS, cb: DWORD) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn K32GetWsChanges(hProcess: HANDLE, lpWatchInfo: *PSAPI_WS_WATCH_INFORMATION, cb: DWORD) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn K32GetWsChangesEx(hProcess: HANDLE, lpWatchInfoEx: *PSAPI_WS_WATCH_INFORMATION_EX, cb: DWORD) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn K32InitializeProcessForWsWatch(hProcess: HANDLE) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn K32QueryWorkingSet(hProcess: HANDLE, pv: PVOID, cb: DWORD) callconv(WINAPI) BOOL;
-pub extern "kernel32" fn K32QueryWorkingSetEx(hProcess: HANDLE, pv: PVOID, cb: DWORD) callconv(WINAPI) BOOL;
+// TODO: Wrapper for GetStdHandle + NtWaitForSingleObject.
+// Sets up an activation context before calling NtWaitForSingleObject.
+pub extern "kernel32" fn WaitForSingleObjectEx(
+    hHandle: HANDLE,
+    dwMilliseconds: DWORD,
+    bAlertable: BOOL,
+) callconv(WINAPI) DWORD;
 
-pub extern "kernel32" fn FlushFileBuffers(hFile: HANDLE) callconv(WINAPI) BOOL;
+// TODO: WaitForMultipleObjectsEx with alertable=false
+pub extern "kernel32" fn WaitForMultipleObjects(
+    nCount: DWORD,
+    lpHandle: [*]const HANDLE,
+    bWaitAll: BOOL,
+    dwMilliseconds: DWORD,
+) callconv(WINAPI) DWORD;
 
-pub extern "kernel32" fn WakeAllConditionVariable(c: *CONDITION_VARIABLE) callconv(WINAPI) void;
-pub extern "kernel32" fn WakeConditionVariable(c: *CONDITION_VARIABLE) callconv(WINAPI) void;
+// TODO: Wrapper around NtWaitForMultipleObjects.
+pub extern "kernel32" fn WaitForMultipleObjectsEx(
+    nCount: DWORD,
+    lpHandle: [*]const HANDLE,
+    bWaitAll: BOOL,
+    dwMilliseconds: DWORD,
+    bAlertable: BOOL,
+) callconv(WINAPI) DWORD;
+
+// Process Management
+
+pub extern "kernel32" fn CreateProcessW(
+    lpApplicationName: ?LPCWSTR,
+    lpCommandLine: ?LPWSTR,
+    lpProcessAttributes: ?*SECURITY_ATTRIBUTES,
+    lpThreadAttributes: ?*SECURITY_ATTRIBUTES,
+    bInheritHandles: BOOL,
+    dwCreationFlags: DWORD,
+    lpEnvironment: ?LPVOID,
+    lpCurrentDirectory: ?LPCWSTR,
+    lpStartupInfo: *STARTUPINFOW,
+    lpProcessInformation: *PROCESS_INFORMATION,
+) callconv(WINAPI) BOOL;
+
+// TODO: Fowarder to RtlExitUserProcess.
+pub extern "kernel32" fn ExitProcess(
+    exit_code: UINT,
+) callconv(WINAPI) noreturn;
+
+// TODO: SleepEx with bAlertable=false.
+pub extern "kernel32" fn Sleep(
+    dwMilliseconds: DWORD,
+) callconv(WINAPI) void;
+
+// TODO: Wrapper around NtQueryInformationProcess with `PROCESS_BASIC_INFORMATION`.
+pub extern "kernel32" fn GetExitCodeProcess(
+    hProcess: HANDLE,
+    lpExitCode: *DWORD,
+) callconv(WINAPI) BOOL;
+
+// TODO: Already a wrapper for this, see `windows.GetCurrentProcess`.
+pub extern "kernel32" fn GetCurrentProcess() callconv(WINAPI) HANDLE;
+
+// TODO: memcpy peb().ProcessParameters.Environment, mem.span(0). Requires locking the PEB.
+pub extern "kernel32" fn GetEnvironmentStringsW() callconv(WINAPI) ?LPWSTR;
+
+// TODO: RtlFreeHeap on the output of GetEnvironmentStringsW.
+pub extern "kernel32" fn FreeEnvironmentStringsW(
+    penv: LPWSTR,
+) callconv(WINAPI) BOOL;
+
+// TODO: Wrapper around RtlQueryEnvironmentVariable.
+pub extern "kernel32" fn GetEnvironmentVariableW(
+    lpName: ?LPCWSTR,
+    lpBuffer: ?[*]WCHAR,
+    nSize: DWORD,
+) callconv(WINAPI) DWORD;
+
+// TODO: Wrapper around RtlSetEnvironmentVar.
+pub extern "kernel32" fn SetEnvironmentVariableW(
+    lpName: LPCWSTR,
+    lpValue: ?LPCWSTR,
+) callconv(WINAPI) BOOL;
+
+pub extern "kernel32" fn CreateToolhelp32Snapshot(
+    dwFlags: DWORD,
+    th32ProcessID: DWORD,
+) callconv(WINAPI) HANDLE;
+
+// Threading
+
+// TODO: Already a wrapper for this, see `windows.GetCurrentThreadId`.
+pub extern "kernel32" fn GetCurrentThreadId() callconv(WINAPI) DWORD;
+
+// TODO: CreateRemoteThread with hProcess=NtCurrentProcess().
+pub extern "kernel32" fn CreateThread(
+    lpThreadAttributes: ?*SECURITY_ATTRIBUTES,
+    dwStackSize: SIZE_T,
+    lpStartAddress: LPTHREAD_START_ROUTINE,
+    lpParameter: ?LPVOID,
+    dwCreationFlags: DWORD,
+    lpThreadId: ?*DWORD,
+) callconv(WINAPI) ?HANDLE;
+
+// TODO: Wrapper around RtlDelayExecution.
+pub extern "kernel32" fn SwitchToThread() callconv(WINAPI) BOOL;
+
+// Locks, critical sections, initializers
+
+// TODO: Forwarder to RtlInitializeCriticalSection
+pub extern "kernel32" fn InitializeCriticalSection(
+    lpCriticalSection: *CRITICAL_SECTION,
+) callconv(WINAPI) void;
+
+// TODO: Forwarder to RtlEnterCriticalSection
+pub extern "kernel32" fn EnterCriticalSection(
+    lpCriticalSection: *CRITICAL_SECTION,
+) callconv(WINAPI) void;
+
+// TODO: Forwarder to RtlLeaveCriticalSection
+pub extern "kernel32" fn LeaveCriticalSection(
+    lpCriticalSection: *CRITICAL_SECTION,
+) callconv(WINAPI) void;
+
+// TODO: Forwarder to RtlDeleteCriticalSection
+pub extern "kernel32" fn DeleteCriticalSection(
+    lpCriticalSection: *CRITICAL_SECTION,
+) callconv(WINAPI) void;
+
+// TODO: Forwarder to RtlTryAcquireSRWLockExclusive
+pub extern "kernel32" fn TryAcquireSRWLockExclusive(
+    SRWLock: *SRWLOCK,
+) callconv(WINAPI) BOOLEAN;
+
+// TODO: Forwarder to RtlAcquireSRWLockExclusive
+pub extern "kernel32" fn AcquireSRWLockExclusive(
+    SRWLock: *SRWLOCK,
+) callconv(WINAPI) void;
+
+// TODO: Forwarder to RtlReleaseSRWLockExclusive
+pub extern "kernel32" fn ReleaseSRWLockExclusive(
+    SRWLock: *SRWLOCK,
+) callconv(WINAPI) void;
+
+pub extern "kernel32" fn InitOnceExecuteOnce(
+    InitOnce: *INIT_ONCE,
+    InitFn: INIT_ONCE_FN,
+    Parameter: ?*anyopaque,
+    Context: ?*anyopaque,
+) callconv(WINAPI) BOOL;
+
+// TODO: Forwarder to RtlWakeConditionVariable
+pub extern "kernel32" fn WakeConditionVariable(
+    ConditionVariable: *CONDITION_VARIABLE,
+) callconv(WINAPI) void;
+
+// TODO: Forwarder to RtlWakeAllConditionVariable
+pub extern "kernel32" fn WakeAllConditionVariable(
+    ConditionVariable: *CONDITION_VARIABLE,
+) callconv(WINAPI) void;
+
+// TODO:
+//  - dwMilliseconds -> LARGE_INTEGER.
+//  - RtlSleepConditionVariableSRW
+//  - return rc != .TIMEOUT
 pub extern "kernel32" fn SleepConditionVariableSRW(
-    c: *CONDITION_VARIABLE,
-    s: *SRWLOCK,
-    t: DWORD,
-    f: ULONG,
+    ConditionVariable: *CONDITION_VARIABLE,
+    SRWLock: *SRWLOCK,
+    dwMilliseconds: DWORD,
+    Flags: ULONG,
 ) callconv(WINAPI) BOOL;
 
-pub extern "kernel32" fn TryAcquireSRWLockExclusive(s: *SRWLOCK) callconv(WINAPI) BOOLEAN;
-pub extern "kernel32" fn AcquireSRWLockExclusive(s: *SRWLOCK) callconv(WINAPI) void;
-pub extern "kernel32" fn ReleaseSRWLockExclusive(s: *SRWLOCK) callconv(WINAPI) void;
+// Console management
 
-pub extern "kernel32" fn RegOpenKeyExW(
-    hkey: HKEY,
-    lpSubKey: LPCWSTR,
-    ulOptions: DWORD,
-    samDesired: REGSAM,
-    phkResult: *HKEY,
-) callconv(WINAPI) LSTATUS;
+pub extern "kernel32" fn GetConsoleMode(
+    hConsoleHandle: HANDLE,
+    lpMode: *DWORD,
+) callconv(WINAPI) BOOL;
 
-pub extern "kernel32" fn GetPhysicallyInstalledSystemMemory(TotalMemoryInKilobytes: *ULONGLONG) BOOL;
+pub extern "kernel32" fn SetConsoleMode(
+    hConsoleHandle: HANDLE,
+    dwMode: DWORD,
+) callconv(WINAPI) BOOL;
+
+pub extern "kernel32" fn GetConsoleScreenBufferInfo(
+    hConsoleOutput: HANDLE,
+    lpConsoleScreenBufferInfo: *CONSOLE_SCREEN_BUFFER_INFO,
+) callconv(WINAPI) BOOL;
+
+pub extern "kernel32" fn SetConsoleTextAttribute(
+    hConsoleOutput: HANDLE,
+    wAttributes: WORD,
+) callconv(WINAPI) BOOL;
+
+pub extern "kernel32" fn SetConsoleCtrlHandler(
+    HandlerRoutine: ?HANDLER_ROUTINE,
+    Add: BOOL,
+) callconv(WINAPI) BOOL;
+
+pub extern "kernel32" fn SetConsoleOutputCP(
+    wCodePageID: UINT,
+) callconv(WINAPI) BOOL;
+
+pub extern "kernel32" fn GetConsoleOutputCP() callconv(WINAPI) UINT;
+
+pub extern "kernel32" fn FillConsoleOutputAttribute(
+    hConsoleOutput: HANDLE,
+    wAttribute: WORD,
+    nLength: DWORD,
+    dwWriteCoord: COORD,
+    lpNumberOfAttrsWritten: *DWORD,
+) callconv(WINAPI) BOOL;
+
+pub extern "kernel32" fn FillConsoleOutputCharacterW(
+    hConsoleOutput: HANDLE,
+    cCharacter: WCHAR,
+    nLength: DWORD,
+    dwWriteCoord: COORD,
+    lpNumberOfCharsWritten: *DWORD,
+) callconv(WINAPI) BOOL;
+
+pub extern "kernel32" fn SetConsoleCursorPosition(
+    hConsoleOutput: HANDLE,
+    dwCursorPosition: COORD,
+) callconv(WINAPI) BOOL;
+
+pub extern "kernel32" fn WriteConsoleW(
+    hConsoleOutput: HANDLE,
+    lpBuffer: [*]const u16,
+    nNumberOfCharsToWrite: DWORD,
+    lpNumberOfCharsWritten: ?*DWORD,
+    lpReserved: ?LPVOID,
+) callconv(WINAPI) BOOL;
+
+pub extern "kernel32" fn ReadConsoleOutputCharacterW(
+    hConsoleOutput: HANDLE,
+    lpCharacter: [*]u16,
+    nLength: DWORD,
+    dwReadCoord: COORD,
+    lpNumberOfCharsRead: *DWORD,
+) callconv(windows.WINAPI) BOOL;
+
+// Memory Mapping/Allocation
+
+// TODO: Wrapper around RtlCreateHeap.
+pub extern "kernel32" fn HeapCreate(
+    flOptions: DWORD,
+    dwInitialSize: SIZE_T,
+    dwMaximumSize: SIZE_T,
+) callconv(WINAPI) ?HANDLE;
+
+// TODO: Wrapper around RtlDestroyHeap (BOOLEAN -> BOOL).
+pub extern "kernel32" fn HeapDestroy(
+    hHeap: HANDLE,
+) callconv(WINAPI) BOOL;
+
+// TODO: Forwarder to RtlReAllocateHeap.
+pub extern "kernel32" fn HeapReAlloc(
+    hHeap: HANDLE,
+    dwFlags: DWORD,
+    lpMem: *anyopaque,
+    dwBytes: SIZE_T,
+) callconv(WINAPI) ?*anyopaque;
+
+// TODO: Fowrarder to RtlAllocateHeap.
+pub extern "kernel32" fn HeapAlloc(
+    hHeap: HANDLE,
+    dwFlags: DWORD,
+    dwBytes: SIZE_T,
+) callconv(WINAPI) ?*anyopaque;
+
+// TODO: Fowrarder to RtlFreeHeap.
+pub extern "kernel32" fn HeapFree(
+    hHeap: HANDLE,
+    dwFlags: DWORD,
+    lpMem: LPVOID,
+) callconv(WINAPI) BOOL;
+
+// TODO: Wrapper around RtlValidateHeap (BOOLEAN -> BOOL)
+pub extern "kernel32" fn HeapValidate(
+    hHeap: HANDLE,
+    dwFlags: DWORD,
+    lpMem: ?*const anyopaque,
+) callconv(WINAPI) BOOL;
+
+// TODO: Wrapper around NtAllocateVirtualMemory.
+pub extern "kernel32" fn VirtualAlloc(
+    lpAddress: ?LPVOID,
+    dwSize: SIZE_T,
+    flAllocationType: DWORD,
+    flProtect: DWORD,
+) callconv(WINAPI) ?LPVOID;
+
+// TODO: Wrapper around NtFreeVirtualMemory.
+// If the return value is .INVALID_PAGE_PROTECTION, calls RtlFlushSecureMemoryCache and try again.
+pub extern "kernel32" fn VirtualFree(
+    lpAddress: ?LPVOID,
+    dwSize: SIZE_T,
+    dwFreeType: DWORD,
+) callconv(WINAPI) BOOL;
+
+// TODO: Wrapper around NtQueryVirtualMemory.
+pub extern "kernel32" fn VirtualQuery(
+    lpAddress: ?LPVOID,
+    lpBuffer: PMEMORY_BASIC_INFORMATION,
+    dwLength: SIZE_T,
+) callconv(WINAPI) SIZE_T;
+
+pub extern "kernel32" fn LocalFree(
+    hMem: HLOCAL,
+) callconv(WINAPI) ?HLOCAL;
+
+// TODO: Getter for peb.ProcessHeap
+pub extern "kernel32" fn GetProcessHeap() callconv(WINAPI) ?HANDLE;
+
+// Code Libraries/Modules
+
+// TODO: Wrapper around LdrGetDllFullName.
+pub extern "kernel32" fn GetModuleFileNameW(
+    hModule: ?HMODULE,
+    lpFilename: [*]WCHAR,
+    nSize: DWORD,
+) callconv(WINAPI) DWORD;
+
+extern "kernel32" fn K32GetModuleFileNameExW(
+    hProcess: HANDLE,
+    hModule: ?HMODULE,
+    lpFilename: LPWSTR,
+    nSize: DWORD,
+) callconv(WINAPI) DWORD;
+pub const GetModuleFileNameExW = K32GetModuleFileNameExW;
+
+// TODO: Wrapper around ntdll.LdrGetDllHandle, which is a wrapper around LdrGetDllHandleEx
+pub extern "kernel32" fn GetModuleHandleW(
+    lpModuleName: ?LPCWSTR,
+) callconv(WINAPI) ?HMODULE;
+
+pub extern "kernel32" fn Module32First(
+    hSnapshot: HANDLE,
+    lpme: *MODULEENTRY32,
+) callconv(WINAPI) BOOL;
+
+pub extern "kernel32" fn Module32Next(
+    hSnapshot: HANDLE,
+    lpme: *MODULEENTRY32,
+) callconv(WINAPI) BOOL;
+
+pub extern "kernel32" fn LoadLibraryW(
+    lpLibFileName: LPCWSTR,
+) callconv(WINAPI) ?HMODULE;
+
+pub extern "kernel32" fn LoadLibraryExW(
+    lpLibFileName: LPCWSTR,
+    hFile: ?HANDLE,
+    dwFlags: DWORD,
+) callconv(WINAPI) ?HMODULE;
+
+pub extern "kernel32" fn GetProcAddress(
+    hModule: HMODULE,
+    lpProcName: LPCSTR,
+) callconv(WINAPI) ?FARPROC;
+
+pub extern "kernel32" fn FreeLibrary(
+    hModule: HMODULE,
+) callconv(WINAPI) BOOL;
+
+// Error Management
+
+pub extern "kernel32" fn FormatMessageW(
+    dwFlags: DWORD,
+    lpSource: ?LPCVOID,
+    dwMessageId: Win32Error,
+    dwLanguageId: DWORD,
+    lpBuffer: LPWSTR,
+    nSize: DWORD,
+    Arguments: ?*va_list,
+) callconv(WINAPI) DWORD;
+
+// TODO: Getter for teb().LastErrorValue.
+pub extern "kernel32" fn GetLastError() callconv(WINAPI) Win32Error;
+
+// TODO: Wrapper around RtlSetLastWin32Error.
+pub extern "kernel32" fn SetLastError(
+    dwErrCode: Win32Error,
+) callconv(WINAPI) void;
+
+// Everything Else
+
+// TODO:
+//  Wrapper around KUSER_SHARED_DATA.SystemTime.
+//  Much better to use NtQuerySystemTime or NtQuerySystemTimePrecise for guaranteed 0.1ns precision.
+pub extern "kernel32" fn GetSystemTimeAsFileTime(
+    lpSystemTimeAsFileTime: *FILETIME,
+) callconv(WINAPI) void;

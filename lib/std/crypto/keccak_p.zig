@@ -132,7 +132,7 @@ pub fn KeccakF(comptime f: u11) type {
 
         /// Clear the entire state, disabling compiler optimizations.
         pub fn secureZero(self: *Self) void {
-            std.crypto.utils.secureZero(T, &self.st);
+            std.crypto.secureZero(T, &self.st);
         }
 
         inline fn round(self: *Self, rc: T) void {

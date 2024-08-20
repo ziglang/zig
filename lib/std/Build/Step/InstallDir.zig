@@ -41,7 +41,6 @@ pub const Options = struct {
 };
 
 pub fn create(owner: *std.Build, options: Options) *InstallDir {
-    owner.pushInstalledFile(options.install_dir, options.install_subdir);
     const install_dir = owner.allocator.create(InstallDir) catch @panic("OOM");
     install_dir.* = .{
         .step = Step.init(.{
@@ -56,16 +55,18 @@ pub fn create(owner: *std.Build, options: Options) *InstallDir {
     return install_dir;
 }
 
-fn make(step: *Step, prog_node: std.Progress.Node) !void {
-    _ = prog_node;
+fn make(step: *Step, options: Step.MakeOptions) !void {
+    _ = options;
     const b = step.owner;
     const install_dir: *InstallDir = @fieldParentPtr("step", step);
+    step.clearWatchInputs();
     const arena = b.allocator;
     const dest_prefix = b.getInstallPath(install_dir.options.install_dir, install_dir.options.install_subdir);
-    const src_dir_path = install_dir.options.source_dir.getPath2(b, step);
-    var src_dir = b.build_root.handle.openDir(src_dir_path, .{ .iterate = true }) catch |err| {
-        return step.fail("unable to open source directory '{}{s}': {s}", .{
-            b.build_root, src_dir_path, @errorName(err),
+    const src_dir_path = install_dir.options.source_dir.getPath3(b, step);
+    const need_derived_inputs = try step.addDirectoryWatchInput(install_dir.options.source_dir);
+    var src_dir = src_dir_path.root_dir.handle.openDir(src_dir_path.subPathOrDot(), .{ .iterate = true }) catch |err| {
+        return step.fail("unable to open source directory '{}': {s}", .{
+            src_dir_path, @errorName(err),
         });
     };
     defer src_dir.close();
@@ -89,12 +90,16 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
         }
 
         // relative to src build root
-        const src_sub_path = b.pathJoin(&.{ src_dir_path, entry.path });
+        const src_sub_path = try src_dir_path.join(arena, entry.path);
         const dest_path = b.pathJoin(&.{ dest_prefix, entry.path });
         const cwd = fs.cwd();
 
         switch (entry.kind) {
-            .directory => try cwd.makePath(dest_path),
+            .directory => {
+                if (need_derived_inputs) try step.addDirectoryWatchInputFromPath(src_sub_path);
+                try cwd.makePath(dest_path);
+                // TODO: set result_cached=false if the directory did not already exist.
+            },
             .file => {
                 for (install_dir.options.blank_extensions) |ext| {
                     if (mem.endsWith(u8, entry.path, ext)) {
@@ -104,14 +109,14 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
                 }
 
                 const prev_status = fs.Dir.updateFile(
-                    b.build_root.handle,
-                    src_sub_path,
+                    src_sub_path.root_dir.handle,
+                    src_sub_path.sub_path,
                     cwd,
                     dest_path,
                     .{},
                 ) catch |err| {
-                    return step.fail("unable to update file from '{}{s}' to '{s}': {s}", .{
-                        b.build_root, src_sub_path, dest_path, @errorName(err),
+                    return step.fail("unable to update file from '{}' to '{s}': {s}", .{
+                        src_sub_path, dest_path, @errorName(err),
                     });
                 };
                 all_cached = all_cached and prev_status == .fresh;

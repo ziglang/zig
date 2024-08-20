@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test it");
@@ -92,5 +93,46 @@ pub fn build(b: *std.Build) void {
 
         const run_cmd = b.addRunArtifact(exe);
         test_step.dependOn(&run_cmd.step);
+
+        // Separate debug info ELF file
+        if (target.result.ofmt == .elf) {
+            const filename = b.fmt("{s}_stripped", .{exe.out_filename});
+            const stripped_exe = b.addObjCopy(exe.getEmittedBin(), .{
+                .basename = filename, // set the name for the debuglink
+                .compress_debug = true,
+                .strip = .debug,
+                .extract_to_separate_file = true,
+            });
+
+            const run_stripped = std.Build.Step.Run.create(b, b.fmt("run {s}", .{filename}));
+            run_stripped.addFileArg(stripped_exe.getOutput());
+            test_step.dependOn(&run_stripped.step);
+        }
+    }
+
+    // Unwinding without libc/posix
+    //
+    // No "getcontext" or "ucontext_t"
+    {
+        const exe = b.addExecutable(.{
+            .name = "unwind_freestanding",
+            .root_source_file = b.path("unwind_freestanding.zig"),
+            .target = b.resolveTargetQuery(.{
+                .cpu_arch = .x86_64,
+                .os_tag = .freestanding,
+            }),
+            .optimize = optimize,
+            .unwind_tables = null,
+            .omit_frame_pointer = false,
+        });
+
+        // This "freestanding" binary is runnable because it invokes the
+        // Linux exit syscall directly.
+        if (builtin.os.tag == .linux and builtin.cpu.arch == .x86_64) {
+            const run_cmd = b.addRunArtifact(exe);
+            test_step.dependOn(&run_cmd.step);
+        } else {
+            test_step.dependOn(&exe.step);
+        }
     }
 }

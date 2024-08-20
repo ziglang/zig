@@ -115,8 +115,8 @@ pub fn create(owner: *std.Build, artifact: *Step.Compile, options: Options) *Ins
     return install_artifact;
 }
 
-fn make(step: *Step, prog_node: std.Progress.Node) !void {
-    _ = prog_node;
+fn make(step: *Step, options: Step.MakeOptions) !void {
+    _ = options;
     const install_artifact: *InstallArtifact = @fieldParentPtr("step", step);
     const b = step.owner;
     const cwd = fs.cwd();
@@ -125,10 +125,10 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
 
     if (install_artifact.dest_dir) |dest_dir| {
         const full_dest_path = b.getInstallPath(dest_dir, install_artifact.dest_sub_path);
-        const full_src_path = install_artifact.emitted_bin.?.getPath2(b, step);
-        const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_dest_path, .{}) catch |err| {
+        const src_path = install_artifact.emitted_bin.?.getPath3(b, step);
+        const p = fs.Dir.updateFile(src_path.root_dir.handle, src_path.sub_path, cwd, full_dest_path, .{}) catch |err| {
             return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
-                full_src_path, full_dest_path, @errorName(err),
+                src_path.sub_path, full_dest_path, @errorName(err),
             });
         };
         all_cached = all_cached and p == .fresh;
@@ -141,22 +141,22 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
     }
 
     if (install_artifact.implib_dir) |implib_dir| {
-        const full_src_path = install_artifact.emitted_implib.?.getPath2(b, step);
-        const full_implib_path = b.getInstallPath(implib_dir, fs.path.basename(full_src_path));
-        const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_implib_path, .{}) catch |err| {
+        const src_path = install_artifact.emitted_implib.?.getPath3(b, step);
+        const full_implib_path = b.getInstallPath(implib_dir, fs.path.basename(src_path.sub_path));
+        const p = fs.Dir.updateFile(src_path.root_dir.handle, src_path.sub_path, cwd, full_implib_path, .{}) catch |err| {
             return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
-                full_src_path, full_implib_path, @errorName(err),
+                src_path.sub_path, full_implib_path, @errorName(err),
             });
         };
         all_cached = all_cached and p == .fresh;
     }
 
     if (install_artifact.pdb_dir) |pdb_dir| {
-        const full_src_path = install_artifact.emitted_pdb.?.getPath2(b, step);
-        const full_pdb_path = b.getInstallPath(pdb_dir, fs.path.basename(full_src_path));
-        const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_pdb_path, .{}) catch |err| {
+        const src_path = install_artifact.emitted_pdb.?.getPath3(b, step);
+        const full_pdb_path = b.getInstallPath(pdb_dir, fs.path.basename(src_path.sub_path));
+        const p = fs.Dir.updateFile(src_path.root_dir.handle, src_path.sub_path, cwd, full_pdb_path, .{}) catch |err| {
             return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
-                full_src_path, full_pdb_path, @errorName(err),
+                src_path.sub_path, full_pdb_path, @errorName(err),
             });
         };
         all_cached = all_cached and p == .fresh;
@@ -164,11 +164,11 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
 
     if (install_artifact.h_dir) |h_dir| {
         if (install_artifact.emitted_h) |emitted_h| {
-            const full_src_path = emitted_h.getPath2(b, step);
-            const full_h_path = b.getInstallPath(h_dir, fs.path.basename(full_src_path));
-            const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_h_path, .{}) catch |err| {
+            const src_path = emitted_h.getPath3(b, step);
+            const full_h_path = b.getInstallPath(h_dir, fs.path.basename(src_path.sub_path));
+            const p = fs.Dir.updateFile(src_path.root_dir.handle, src_path.sub_path, cwd, full_h_path, .{}) catch |err| {
                 return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
-                    full_src_path, full_h_path, @errorName(err),
+                    src_path.sub_path, full_h_path, @errorName(err),
                 });
             };
             all_cached = all_cached and p == .fresh;
@@ -176,22 +176,22 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
 
         for (install_artifact.artifact.installed_headers.items) |installation| switch (installation) {
             .file => |file| {
-                const full_src_path = file.source.getPath2(b, step);
+                const src_path = file.source.getPath3(b, step);
                 const full_h_path = b.getInstallPath(h_dir, file.dest_rel_path);
-                const p = fs.Dir.updateFile(cwd, full_src_path, cwd, full_h_path, .{}) catch |err| {
+                const p = fs.Dir.updateFile(src_path.root_dir.handle, src_path.sub_path, cwd, full_h_path, .{}) catch |err| {
                     return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
-                        full_src_path, full_h_path, @errorName(err),
+                        src_path.sub_path, full_h_path, @errorName(err),
                     });
                 };
                 all_cached = all_cached and p == .fresh;
             },
             .directory => |dir| {
-                const full_src_dir_path = dir.source.getPath2(b, step);
+                const src_dir_path = dir.source.getPath3(b, step);
                 const full_h_prefix = b.getInstallPath(h_dir, dir.dest_rel_path);
 
-                var src_dir = b.build_root.handle.openDir(full_src_dir_path, .{ .iterate = true }) catch |err| {
+                var src_dir = src_dir_path.root_dir.handle.openDir(src_dir_path.sub_path, .{ .iterate = true }) catch |err| {
                     return step.fail("unable to open source directory '{s}': {s}", .{
-                        full_src_dir_path, @errorName(err),
+                        src_dir_path.sub_path, @errorName(err),
                     });
                 };
                 defer src_dir.close();
@@ -208,14 +208,15 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
                             continue :next_entry;
                         }
                     }
-                    const full_src_entry_path = b.pathJoin(&.{ full_src_dir_path, entry.path });
+
+                    const src_entry_path = src_dir_path.join(b.allocator, entry.path) catch @panic("OOM");
                     const full_dest_path = b.pathJoin(&.{ full_h_prefix, entry.path });
                     switch (entry.kind) {
                         .directory => try cwd.makePath(full_dest_path),
                         .file => {
-                            const p = fs.Dir.updateFile(cwd, full_src_entry_path, cwd, full_dest_path, .{}) catch |err| {
+                            const p = fs.Dir.updateFile(src_entry_path.root_dir.handle, src_entry_path.sub_path, cwd, full_dest_path, .{}) catch |err| {
                                 return step.fail("unable to update file from '{s}' to '{s}': {s}", .{
-                                    full_src_entry_path, full_dest_path, @errorName(err),
+                                    src_entry_path.sub_path, full_dest_path, @errorName(err),
                                 });
                             };
                             all_cached = all_cached and p == .fresh;

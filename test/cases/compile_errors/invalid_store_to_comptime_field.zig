@@ -82,6 +82,6 @@ pub export fn entry8() void {
 // :36:29: note: default value set here
 // :46:12: error: value stored in comptime field does not match the default value of the field
 // :55:25: error: value stored in comptime field does not match the default value of the field
-// :68:36: error: value stored in comptime field does not match the default value of the field
 // :61:30: error: value stored in comptime field does not match the default value of the field
 // :59:29: note: default value set here
+// :68:36: error: value stored in comptime field does not match the default value of the field

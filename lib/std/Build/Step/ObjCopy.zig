@@ -90,16 +90,14 @@ pub fn getOutputSeparatedDebug(objcopy: *const ObjCopy) ?std.Build.LazyPath {
     return if (objcopy.output_file_debug) |*file| .{ .generated = .{ .file = file } } else null;
 }
 
-fn make(step: *Step, prog_node: std.Progress.Node) !void {
+fn make(step: *Step, options: Step.MakeOptions) !void {
+    const prog_node = options.progress_node;
     const b = step.owner;
     const objcopy: *ObjCopy = @fieldParentPtr("step", step);
+    try step.singleUnchangingWatchInput(objcopy.input_file);
 
     var man = b.graph.cache.obtain();
     defer man.deinit();
-
-    // Random bytes to make ObjCopy unique. Refresh this with new random
-    // bytes when ObjCopy implementation is modified incompatibly.
-    man.hash.add(@as(u32, 0xe18b7baf));
 
     const full_src_path = objcopy.input_file.getPath2(b, step);
     _ = try man.addFile(full_src_path, null);
@@ -161,7 +159,7 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
     try argv.appendSlice(&.{ full_src_path, full_dest_path });
 
     try argv.append("--listen=-");
-    _ = try step.evalZigProcess(argv.items, prog_node);
+    _ = try step.evalZigProcess(argv.items, prog_node, false);
 
     objcopy.output_file.path = full_dest_path;
     if (objcopy.output_file_debug) |*file| file.path = full_dest_path_debug;

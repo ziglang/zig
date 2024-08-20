@@ -427,7 +427,7 @@ pub fn ArrayHashMap(
         /// Set the map to an empty state, making deinitialization a no-op, and
         /// returning a copy of the original.
         pub fn move(self: *Self) Self {
-            self.pointer_stability.assertUnlocked();
+            self.unmanaged.pointer_stability.assertUnlocked();
             const result = self.*;
             self.unmanaged = .{};
             return result;
@@ -454,14 +454,23 @@ pub fn ArrayHashMap(
             return self.unmanaged.sortContext(sort_ctx, self.ctx);
         }
 
-        /// Shrinks the underlying `Entry` array to `new_len` elements and discards any associated
-        /// index entries. Keeps capacity the same.
+        /// Shrinks the underlying `Entry` array to `new_len` elements and
+        /// discards any associated index entries. Keeps capacity the same.
+        ///
+        /// Asserts the discarded entries remain initialized and capable of
+        /// performing hash and equality checks. Any deinitialization of
+        /// discarded entries must take place *after* calling this function.
         pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
             return self.unmanaged.shrinkRetainingCapacityContext(new_len, self.ctx);
         }
 
-        /// Shrinks the underlying `Entry` array to `new_len` elements and discards any associated
-        /// index entries. Reduces allocated capacity.
+        /// Shrinks the underlying `Entry` array to `new_len` elements and
+        /// discards any associated index entries. Reduces allocated capacity.
+        ///
+        /// Asserts the discarded entries remain initialized and capable of
+        /// performing hash and equality checks. It is a bug to call this
+        /// function if the discarded entries require deinitialization. For
+        /// that use case, `shrinkRetainingCapacity` can be used instead.
         pub fn shrinkAndFree(self: *Self, new_len: usize) void {
             return self.unmanaged.shrinkAndFreeContext(self.allocator, new_len, self.ctx);
         }
@@ -1359,13 +1368,24 @@ pub fn ArrayHashMapUnmanaged(
             self.insertAllEntriesIntoNewHeader(if (store_hash) {} else ctx, header);
         }
 
-        /// Shrinks the underlying `Entry` array to `new_len` elements and discards any associated
-        /// index entries. Keeps capacity the same.
+        /// Shrinks the underlying `Entry` array to `new_len` elements and
+        /// discards any associated index entries. Keeps capacity the same.
+        ///
+        /// Asserts the discarded entries remain initialized and capable of
+        /// performing hash and equality checks. Any deinitialization of
+        /// discarded entries must take place *after* calling this function.
         pub fn shrinkRetainingCapacity(self: *Self, new_len: usize) void {
             if (@sizeOf(ByIndexContext) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call shrinkRetainingCapacityContext instead.");
             return self.shrinkRetainingCapacityContext(new_len, undefined);
         }
+
+        /// Shrinks the underlying `Entry` array to `new_len` elements and
+        /// discards any associated index entries. Keeps capacity the same.
+        ///
+        /// Asserts the discarded entries remain initialized and capable of
+        /// performing hash and equality checks. Any deinitialization of
+        /// discarded entries must take place *after* calling this function.
         pub fn shrinkRetainingCapacityContext(self: *Self, new_len: usize, ctx: Context) void {
             self.pointer_stability.lock();
             defer self.pointer_stability.unlock();
@@ -1381,13 +1401,27 @@ pub fn ArrayHashMapUnmanaged(
             self.entries.shrinkRetainingCapacity(new_len);
         }
 
-        /// Shrinks the underlying `Entry` array to `new_len` elements and discards any associated
-        /// index entries. Reduces allocated capacity.
+        /// Shrinks the underlying `Entry` array to `new_len` elements and
+        /// discards any associated index entries. Reduces allocated capacity.
+        ///
+        /// Asserts the discarded entries remain initialized and capable of
+        /// performing hash and equality checks. It is a bug to call this
+        /// function if the discarded entries require deinitialization. For
+        /// that use case, `shrinkRetainingCapacity` can be used instead.
         pub fn shrinkAndFree(self: *Self, allocator: Allocator, new_len: usize) void {
             if (@sizeOf(ByIndexContext) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call shrinkAndFreeContext instead.");
             return self.shrinkAndFreeContext(allocator, new_len, undefined);
         }
+
+        /// Shrinks the underlying `Entry` array to `new_len` elements and
+        /// discards any associated index entries. Reduces allocated capacity.
+        ///
+        /// Asserts the discarded entries remain initialized and capable of
+        /// performing hash and equality checks. It is a bug to call this
+        /// function if the discarded entries require deinitialization. For
+        /// that use case, `shrinkRetainingCapacityContext` can be used
+        /// instead.
         pub fn shrinkAndFreeContext(self: *Self, allocator: Allocator, new_len: usize, ctx: Context) void {
             self.pointer_stability.lock();
             defer self.pointer_stability.unlock();

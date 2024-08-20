@@ -445,7 +445,7 @@ fn runResource(
     const s = fs.path.sep_str;
     const cache_root = f.job_queue.global_cache;
     const rand_int = std.crypto.random.int(u64);
-    const tmp_dir_sub_path = "tmp" ++ s ++ Manifest.hex64(rand_int);
+    const tmp_dir_sub_path = "tmp" ++ s ++ std.fmt.hex(rand_int);
 
     const package_sub_path = blk: {
         const tmp_directory_path = try cache_root.join(arena, &.{tmp_dir_sub_path});
@@ -1189,6 +1189,7 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackRes
                 .unable_to_create_file => |i| res.unableToCreateFile(stripRoot(i.file_name, res.root_dir), i.code),
                 .unable_to_create_sym_link => |i| res.unableToCreateSymLink(stripRoot(i.file_name, res.root_dir), i.link_name, i.code),
                 .unsupported_file_type => |i| res.unsupportedFileType(stripRoot(i.file_name, res.root_dir), @intFromEnum(i.file_type)),
+                .components_outside_stripped_prefix => unreachable, // unreachable with strip_components = 0
             }
         }
     }

@@ -22,7 +22,7 @@ code: *std.ArrayList(u8),
 /// List of allocated locals.
 locals: []const u8,
 /// The declaration that code is being generated for.
-decl_index: InternPool.DeclIndex,
+owner_nav: InternPool.Nav.Index,
 
 // Debug information
 /// Holds the debug information for this emission
@@ -257,7 +257,7 @@ fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
     const comp = emit.bin_file.base.comp;
     const zcu = comp.module.?;
     const gpa = comp.gpa;
-    emit.error_msg = try Zcu.ErrorMsg.create(gpa, zcu.declPtr(emit.decl_index).navSrcLoc(zcu).upgrade(zcu), format, args);
+    emit.error_msg = try Zcu.ErrorMsg.create(gpa, zcu.navSrcLoc(emit.owner_nav), format, args);
     return error.EmitFail;
 }
 
@@ -310,7 +310,7 @@ fn emitGlobal(emit: *Emit, tag: Mir.Inst.Tag, inst: Mir.Inst.Index) !void {
     const global_offset = emit.offset();
     try emit.code.appendSlice(&buf);
 
-    const atom_index = emit.bin_file.zigObjectPtr().?.decls_map.get(emit.decl_index).?.atom;
+    const atom_index = emit.bin_file.zigObjectPtr().?.navs.get(emit.owner_nav).?.atom;
     const atom = emit.bin_file.getAtomPtr(atom_index);
     try atom.relocs.append(gpa, .{
         .index = label,
@@ -370,7 +370,7 @@ fn emitCall(emit: *Emit, inst: Mir.Inst.Index) !void {
     try emit.code.appendSlice(&buf);
 
     if (label != 0) {
-        const atom_index = emit.bin_file.zigObjectPtr().?.decls_map.get(emit.decl_index).?.atom;
+        const atom_index = emit.bin_file.zigObjectPtr().?.navs.get(emit.owner_nav).?.atom;
         const atom = emit.bin_file.getAtomPtr(atom_index);
         try atom.relocs.append(gpa, .{
             .offset = call_offset,
@@ -390,7 +390,7 @@ fn emitCallIndirect(emit: *Emit, inst: Mir.Inst.Index) !void {
     leb128.writeUnsignedFixed(5, &buf, type_index);
     try emit.code.appendSlice(&buf);
     if (type_index != 0) {
-        const atom_index = emit.bin_file.zigObjectPtr().?.decls_map.get(emit.decl_index).?.atom;
+        const atom_index = emit.bin_file.zigObjectPtr().?.navs.get(emit.owner_nav).?.atom;
         const atom = emit.bin_file.getAtomPtr(atom_index);
         try atom.relocs.append(emit.bin_file.base.comp.gpa, .{
             .offset = call_offset,
@@ -412,7 +412,7 @@ fn emitFunctionIndex(emit: *Emit, inst: Mir.Inst.Index) !void {
     try emit.code.appendSlice(&buf);
 
     if (symbol_index != 0) {
-        const atom_index = emit.bin_file.zigObjectPtr().?.decls_map.get(emit.decl_index).?.atom;
+        const atom_index = emit.bin_file.zigObjectPtr().?.navs.get(emit.owner_nav).?.atom;
         const atom = emit.bin_file.getAtomPtr(atom_index);
         try atom.relocs.append(gpa, .{
             .offset = index_offset,
@@ -443,7 +443,7 @@ fn emitMemAddress(emit: *Emit, inst: Mir.Inst.Index) !void {
     }
 
     if (mem.pointer != 0) {
-        const atom_index = emit.bin_file.zigObjectPtr().?.decls_map.get(emit.decl_index).?.atom;
+        const atom_index = emit.bin_file.zigObjectPtr().?.navs.get(emit.owner_nav).?.atom;
         const atom = emit.bin_file.getAtomPtr(atom_index);
         try atom.relocs.append(gpa, .{
             .offset = mem_offset,

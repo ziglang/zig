@@ -190,10 +190,48 @@ pub fn syscall7(
     );
 }
 
-const CloneFn = *const fn (arg: usize) callconv(.C) u8;
-
-/// This matches the libc clone function.
-pub extern fn clone(func: CloneFn, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
+pub fn clone() callconv(.Naked) usize {
+    // __clone(func, stack, flags, arg, ptid, tls, ctid)
+    //         3,    4,     5,     6,   7,    8,   9
+    //
+    // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
+    //         2          4,     5,     6,    7,   8
+    asm volatile (
+        \\  # Save function pointer and argument pointer on new thread stack
+        \\  and $5, $5, -8
+        \\  subu $5, $5, 16
+        \\  sw $4, 0($5)
+        \\  sw $7, 4($5)
+        \\  # Shuffle (fn,sp,fl,arg,ptid,tls,ctid) to (fl,sp,ptid,tls,ctid)
+        \\  move $4, $6
+        \\  lw $6, 16($sp)
+        \\  lw $7, 20($sp)
+        \\  lw $9, 24($sp)
+        \\  subu $sp, $sp, 16
+        \\  sw $9, 16($sp)
+        \\  li $2, 4120 # SYS_clone
+        \\  syscall
+        \\  beq $7, $0, 1f
+        \\  nop
+        \\  addu $sp, $sp, 16
+        \\  jr $ra
+        \\  subu $2, $0, $2
+        \\1:
+        \\  beq $2, $0, 1f
+        \\  nop
+        \\  addu $sp, $sp, 16
+        \\  jr $ra
+        \\  nop
+        \\1:
+        \\  lw $25, 0($sp)
+        \\  lw $4, 4($sp)
+        \\  jalr $25
+        \\  nop
+        \\  move $4, $2
+        \\  li $2, 4001 # SYS_exit
+        \\  syscall
+    );
+}
 
 pub fn restore() callconv(.Naked) noreturn {
     asm volatile (
@@ -239,18 +277,11 @@ pub const F = struct {
     pub const GETOWNER_UIDS = 17;
 };
 
-pub const LOCK = struct {
-    pub const SH = 1;
-    pub const EX = 2;
-    pub const UN = 8;
-    pub const NB = 4;
-};
-
 pub const MMAP2_UNIT = 4096;
 
 pub const VDSO = struct {
-    pub const CGT_SYM = "__kernel_clock_gettime";
-    pub const CGT_VER = "LINUX_2.6.39";
+    pub const CGT_SYM = "__vdso_clock_gettime";
+    pub const CGT_VER = "LINUX_2.6";
 };
 
 pub const Flock = extern struct {
@@ -326,13 +357,13 @@ pub const Stat = extern struct {
 };
 
 pub const timeval = extern struct {
-    tv_sec: isize,
-    tv_usec: isize,
+    sec: isize,
+    usec: isize,
 };
 
 pub const timezone = extern struct {
-    tz_minuteswest: i32,
-    tz_dsttime: i32,
+    minuteswest: i32,
+    dsttime: i32,
 };
 
 pub const Elf_Symndx = u32;
@@ -385,7 +416,7 @@ pub const rlimit_resource = enum(c_int) {
     /// values of this resource limit.
     NICE,
 
-    /// Maximum realtime priority allowed for non-priviledged
+    /// Maximum realtime priority allowed for non-privileged
     /// processes.
     RTPRIO,
 
@@ -396,3 +427,9 @@ pub const rlimit_resource = enum(c_int) {
 
     _,
 };
+
+/// TODO
+pub const ucontext_t = void;
+
+/// TODO
+pub const getcontext = {};

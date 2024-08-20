@@ -7,6 +7,7 @@ const log = std.log.scoped(.link);
 const macho = std.macho;
 const mem = std.mem;
 const testing = std.testing;
+const trace = @import("../../tracy.zig").trace;
 const Allocator = mem.Allocator;
 const Hasher = @import("hasher.zig").ParallelHasher;
 const MachO = @import("../MachO.zig");
@@ -264,6 +265,9 @@ pub fn writeAdhocSignature(
     opts: WriteOpts,
     writer: anytype,
 ) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const allocator = macho_file.base.comp.gpa;
 
     var header: macho.SuperBlob = .{

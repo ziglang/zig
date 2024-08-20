@@ -84,20 +84,53 @@ pub const TargetMachine = opaque {
     pub const dispose = LLVMDisposeTargetMachine;
     extern fn LLVMDisposeTargetMachine(T: *TargetMachine) void;
 
-    pub const emitToFile = ZigLLVMTargetMachineEmitToFile;
-    extern fn ZigLLVMTargetMachineEmitToFile(
-        T: *TargetMachine,
-        M: *Module,
-        ErrorMessage: *[*:0]const u8,
+    pub const EmitOptions = extern struct {
         is_debug: bool,
         is_small: bool,
         time_report: bool,
         tsan: bool,
+        sancov: bool,
         lto: bool,
         asm_filename: ?[*:0]const u8,
         bin_filename: ?[*:0]const u8,
         llvm_ir_filename: ?[*:0]const u8,
         bitcode_filename: ?[*:0]const u8,
+        coverage: Coverage,
+
+        pub const Coverage = extern struct {
+            CoverageType: Coverage.Type,
+            IndirectCalls: bool,
+            TraceBB: bool,
+            TraceCmp: bool,
+            TraceDiv: bool,
+            TraceGep: bool,
+            Use8bitCounters: bool,
+            TracePC: bool,
+            TracePCGuard: bool,
+            Inline8bitCounters: bool,
+            InlineBoolFlag: bool,
+            PCTable: bool,
+            NoPrune: bool,
+            StackDepth: bool,
+            TraceLoads: bool,
+            TraceStores: bool,
+            CollectControlFlow: bool,
+
+            pub const Type = enum(c_uint) {
+                None = 0,
+                Function,
+                BB,
+                Edge,
+            };
+        };
+    };
+
+    pub const emitToFile = ZigLLVMTargetMachineEmitToFile;
+    extern fn ZigLLVMTargetMachineEmitToFile(
+        T: *TargetMachine,
+        M: *Module,
+        ErrorMessage: *[*:0]const u8,
+        options: EmitOptions,
     ) bool;
 
     pub const createTargetDataLayout = LLVMCreateTargetDataLayout;

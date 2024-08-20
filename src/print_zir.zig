@@ -7,13 +7,12 @@ const InternPool = @import("InternPool.zig");
 
 const Zir = std.zig.Zir;
 const Zcu = @import("Zcu.zig");
-const Module = Zcu;
 const LazySrcLoc = Zcu.LazySrcLoc;
 
 /// Write human-readable, debug formatted ZIR code to a file.
 pub fn renderAsTextToFile(
     gpa: Allocator,
-    scope_file: *Module.File,
+    scope_file: *Zcu.File,
     fs_file: std.fs.File,
 ) !void {
     var arena = std.heap.ArenaAllocator.init(gpa);
@@ -64,7 +63,7 @@ pub fn renderInstructionContext(
     gpa: Allocator,
     block: []const Zir.Inst.Index,
     block_index: usize,
-    scope_file: *Module.File,
+    scope_file: *Zcu.File,
     parent_decl_node: Ast.Node.Index,
     indent: u32,
     stream: anytype,
@@ -96,7 +95,7 @@ pub fn renderInstructionContext(
 pub fn renderSingleInstruction(
     gpa: Allocator,
     inst: Zir.Inst.Index,
-    scope_file: *Module.File,
+    scope_file: *Zcu.File,
     parent_decl_node: Ast.Node.Index,
     indent: u32,
     stream: anytype,
@@ -122,7 +121,7 @@ pub fn renderSingleInstruction(
 const Writer = struct {
     gpa: Allocator,
     arena: Allocator,
-    file: *Module.File,
+    file: *Zcu.File,
     code: Zir,
     indent: u32,
     parent_decl_node: Ast.Node.Index,
@@ -525,6 +524,7 @@ const Writer = struct {
             .frame,
             .frame_address,
             .breakpoint,
+            .disable_instrumentation,
             .c_va_start,
             .in_comptime,
             .value_placeholder,
@@ -615,6 +615,7 @@ const Writer = struct {
             .restore_err_ret_index => try self.writeRestoreErrRetIndex(stream, extended),
             .closure_get => try self.writeClosureGet(stream, extended),
             .field_parent_ptr => try self.writeFieldParentPtr(stream, extended),
+            .builtin_value => try self.writeBuiltinValue(stream, extended),
         }
     }
 
@@ -746,7 +747,7 @@ const Writer = struct {
     fn writeIntBig(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].str;
         const byte_count = inst_data.len * @sizeOf(std.math.big.Limb);
-        const limb_bytes = self.code.nullTerminatedString(inst_data.start)[0..byte_count];
+        const limb_bytes = self.code.string_bytes[@intFromEnum(inst_data.start)..][0..byte_count];
         // limb_bytes is not aligned properly; we must allocate and copy the bytes
         // in order to accomplish this.
         const limbs = try self.gpa.alloc(std.math.big.Limb, inst_data.len);
@@ -2779,6 +2780,12 @@ const Writer = struct {
 
     fn writeClosureGet(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
         try stream.print("{d})) ", .{extended.small});
+        try self.writeSrcNode(stream, @bitCast(extended.operand));
+    }
+
+    fn writeBuiltinValue(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
+        const val: Zir.Inst.BuiltinValue = @enumFromInt(extended.small);
+        try stream.print("{s})) ", .{@tagName(val)});
         try self.writeSrcNode(stream, @bitCast(extended.operand));
     }
 

@@ -1,7 +1,7 @@
 base: link.File,
 
 /// If this is not null, an object file is created by LLVM and emitted to zcu_object_sub_path.
-llvm_object: ?*LlvmObject = null,
+llvm_object: ?LlvmObject.Ptr = null,
 
 /// Debug symbols bundle (or dSym).
 d_sym: ?DebugSymbols = null,
@@ -22,16 +22,13 @@ dylibs: std.ArrayListUnmanaged(File.Index) = .{},
 segments: std.ArrayListUnmanaged(macho.segment_command_64) = .{},
 sections: std.MultiArrayList(Section) = .{},
 
-symbols: std.ArrayListUnmanaged(Symbol) = .{},
-symbols_extra: std.ArrayListUnmanaged(u32) = .{},
-symbols_free_list: std.ArrayListUnmanaged(Symbol.Index) = .{},
-globals: std.AutoArrayHashMapUnmanaged(u32, Symbol.Index) = .{},
+resolver: SymbolResolver = .{},
 /// This table will be populated after `scanRelocs` has run.
 /// Key is symbol index.
-undefs: std.AutoHashMapUnmanaged(Symbol.Index, std.ArrayListUnmanaged(Atom.Index)) = .{},
-/// Global symbols we need to resolve for the link to succeed.
-undefined_symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
-boundary_symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
+undefs: std.AutoArrayHashMapUnmanaged(SymbolResolver.Index, std.ArrayListUnmanaged(Ref)) = .{},
+undefs_mutex: std.Thread.Mutex = .{},
+dupes: std.AutoArrayHashMapUnmanaged(SymbolResolver.Index, std.ArrayListUnmanaged(File.Index)) = .{},
+dupes_mutex: std.Thread.Mutex = .{},
 
 dyld_info_cmd: macho.dyld_info_command = .{},
 symtab_cmd: macho.symtab_command = .{},
@@ -55,51 +52,34 @@ eh_frame_sect_index: ?u8 = null,
 unwind_info_sect_index: ?u8 = null,
 objc_stubs_sect_index: ?u8 = null,
 
-mh_execute_header_index: ?Symbol.Index = null,
-mh_dylib_header_index: ?Symbol.Index = null,
-dyld_private_index: ?Symbol.Index = null,
-dyld_stub_binder_index: ?Symbol.Index = null,
-dso_handle_index: ?Symbol.Index = null,
-objc_msg_send_index: ?Symbol.Index = null,
-entry_index: ?Symbol.Index = null,
-
-/// List of atoms that are either synthetic or map directly to the Zig source program.
-atoms: std.ArrayListUnmanaged(Atom) = .{},
-atoms_extra: std.ArrayListUnmanaged(u32) = .{},
 thunks: std.ArrayListUnmanaged(Thunk) = .{},
-unwind_records: std.ArrayListUnmanaged(UnwindInfo.Record) = .{},
-
-/// String interning table
-strings: StringTable = .{},
 
 /// Output synthetic sections
 symtab: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
 indsymtab: Indsymtab = .{},
 got: GotSection = .{},
-zig_got: ZigGotSection = .{},
 stubs: StubsSection = .{},
 stubs_helper: StubsHelperSection = .{},
 objc_stubs: ObjcStubsSection = .{},
 la_symbol_ptr: LaSymbolPtrSection = .{},
 tlv_ptr: TlvPtrSection = .{},
-rebase: RebaseSection = .{},
-bind: BindSection = .{},
-weak_bind: WeakBindSection = .{},
-lazy_bind: LazyBindSection = .{},
-export_trie: ExportTrieSection = .{},
+rebase: Rebase = .{},
+bind: Bind = .{},
+weak_bind: WeakBind = .{},
+lazy_bind: LazyBind = .{},
+export_trie: ExportTrie = .{},
 unwind_info: UnwindInfo = .{},
+data_in_code: DataInCode = .{},
 
 /// Tracked loadable segments during incremental linking.
 zig_text_seg_index: ?u8 = null,
-zig_got_seg_index: ?u8 = null,
 zig_const_seg_index: ?u8 = null,
 zig_data_seg_index: ?u8 = null,
 zig_bss_seg_index: ?u8 = null,
 
 /// Tracked section headers with incremental updates to Zig object.
 zig_text_sect_index: ?u8 = null,
-zig_got_sect_index: ?u8 = null,
 zig_const_sect_index: ?u8 = null,
 zig_data_sect_index: ?u8 = null,
 zig_bss_sect_index: ?u8 = null,
@@ -111,10 +91,14 @@ debug_abbrev_sect_index: ?u8 = null,
 debug_str_sect_index: ?u8 = null,
 debug_aranges_sect_index: ?u8 = null,
 debug_line_sect_index: ?u8 = null,
+debug_line_str_sect_index: ?u8 = null,
+debug_loclists_sect_index: ?u8 = null,
+debug_rnglists_sect_index: ?u8 = null,
 
-has_tlv: bool = false,
-binds_to_weak: bool = false,
-weak_defines: bool = false,
+has_tlv: AtomicBool = AtomicBool.init(false),
+binds_to_weak: AtomicBool = AtomicBool.init(false),
+weak_defines: AtomicBool = AtomicBool.init(false),
+has_errors: AtomicBool = AtomicBool.init(false),
 
 /// Options
 /// SDK layout
@@ -172,7 +156,7 @@ pub fn hashAddFrameworks(man: *Cache.Manifest, hm: []const Framework) !void {
 pub fn createEmpty(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*MachO {
     const target = comp.root_mod.resolved_target.result;
@@ -192,7 +176,7 @@ pub fn createEmpty(
         null
     else
         try std.fmt.allocPrint(arena, "{s}.o", .{emit.sub_path});
-    const allow_shlib_undefined = options.allow_shlib_undefined orelse comp.config.any_sanitize_thread;
+    const allow_shlib_undefined = options.allow_shlib_undefined orelse false;
 
     const self = try arena.create(MachO);
     self.* = .{
@@ -237,7 +221,7 @@ pub fn createEmpty(
     }
     errdefer self.base.destroy();
 
-    self.base.file = try emit.directory.handle.createFile(emit.sub_path, .{
+    self.base.file = try emit.root_dir.handle.createFile(emit.sub_path, .{
         .truncate = true,
         .read = true,
         .mode = link.File.determineMode(false, output_mode, link_mode),
@@ -245,15 +229,8 @@ pub fn createEmpty(
 
     // Append null file
     try self.files.append(gpa, .null);
-    // Atom at index 0 is reserved as null atom
-    try self.atoms.append(gpa, .{});
-    try self.atoms_extra.append(gpa, 0);
     // Append empty string to string tables
-    try self.strings.buffer.append(gpa, 0);
     try self.strtab.append(gpa, 0);
-    // Append null symbols
-    try self.symbols.append(gpa, .{});
-    try self.symbols_extra.append(gpa, 0);
 
     if (opt_zcu) |zcu| {
         if (!use_llvm) {
@@ -283,7 +260,7 @@ pub fn createEmpty(
 pub fn open(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*MachO {
     // TODO: restore saved linker state, don't truncate the file, and
@@ -317,30 +294,33 @@ pub fn deinit(self: *MachO) void {
     self.dylibs.deinit(gpa);
 
     self.segments.deinit(gpa);
-    for (self.sections.items(.atoms)) |*list| {
-        list.deinit(gpa);
+    for (
+        self.sections.items(.atoms),
+        self.sections.items(.out),
+        self.sections.items(.thunks),
+        self.sections.items(.relocs),
+    ) |*atoms, *out, *thnks, *relocs| {
+        atoms.deinit(gpa);
+        out.deinit(gpa);
+        thnks.deinit(gpa);
+        relocs.deinit(gpa);
     }
     self.sections.deinit(gpa);
 
-    self.symbols.deinit(gpa);
-    self.symbols_extra.deinit(gpa);
-    self.symbols_free_list.deinit(gpa);
-    self.globals.deinit(gpa);
-    {
-        var it = self.undefs.iterator();
-        while (it.next()) |entry| {
-            entry.value_ptr.deinit(gpa);
-        }
-        self.undefs.deinit(gpa);
-    }
-    self.undefined_symbols.deinit(gpa);
-    self.boundary_symbols.deinit(gpa);
+    self.resolver.deinit(gpa);
 
-    self.strings.deinit(gpa);
+    for (self.undefs.values()) |*val| {
+        val.deinit(gpa);
+    }
+    self.undefs.deinit(gpa);
+    for (self.dupes.values()) |*val| {
+        val.deinit(gpa);
+    }
+    self.dupes.deinit(gpa);
+
     self.symtab.deinit(gpa);
     self.strtab.deinit(gpa);
     self.got.deinit(gpa);
-    self.zig_got.deinit(gpa);
     self.stubs.deinit(gpa);
     self.objc_stubs.deinit(gpa);
     self.tlv_ptr.deinit(gpa);
@@ -350,21 +330,16 @@ pub fn deinit(self: *MachO) void {
     self.lazy_bind.deinit(gpa);
     self.export_trie.deinit(gpa);
     self.unwind_info.deinit(gpa);
+    self.data_in_code.deinit(gpa);
 
-    self.atoms.deinit(gpa);
-    self.atoms_extra.deinit(gpa);
-    for (self.thunks.items) |*thunk| {
-        thunk.deinit(gpa);
-    }
     self.thunks.deinit(gpa);
-    self.unwind_records.deinit(gpa);
 }
 
-pub fn flush(self: *MachO, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
-    try self.flushModule(arena, prog_node);
+pub fn flush(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
+    try self.flushModule(arena, tid, prog_node);
 }
 
-pub fn flushModule(self: *MachO, arena: Allocator, prog_node: std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -378,7 +353,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: std.Progress.Node)
     const sub_prog_node = prog_node.start("MachO Flush", 0);
     defer sub_prog_node.end();
 
-    const directory = self.base.emit.directory;
+    const directory = self.base.emit.root_dir;
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
     const module_obj_path: ?[]const u8 = if (self.base.zcu_object_sub_path) |path| blk: {
         if (fs.path.dirname(full_out_path)) |dirname| {
@@ -391,7 +366,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: std.Progress.Node)
     // --verbose-link
     if (comp.verbose_link) try self.dumpArgv(comp);
 
-    if (self.getZigObject()) |zo| try zo.flushModule(self);
+    if (self.getZigObject()) |zo| try zo.flushModule(self, tid);
     if (self.base.isStaticLib()) return relocatable.flushStaticLib(self, comp, module_obj_path);
     if (self.base.isObject()) return relocatable.flushObject(self, comp, module_obj_path);
 
@@ -411,23 +386,20 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: std.Progress.Node)
 
     if (module_obj_path) |path| try positionals.append(.{ .path = path });
 
-    // TSAN
     if (comp.config.any_sanitize_thread) {
-        try positionals.append(.{ .path = comp.tsan_static_lib.?.full_object_path });
+        try positionals.append(.{ .path = comp.tsan_lib.?.full_object_path });
+    }
+
+    if (comp.config.any_fuzz) {
+        try positionals.append(.{ .path = comp.fuzzer_lib.?.full_object_path });
     }
 
     for (positionals.items) |obj| {
-        self.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
-            error.MalformedObject,
-            error.MalformedArchive,
-            error.MalformedDylib,
-            error.InvalidCpuArch,
-            error.InvalidTarget,
-            => continue, // already reported
-            error.UnknownFileType => try self.reportParseError(obj.path, "unknown file type for an object file", .{}),
+        self.classifyInputFile(obj.path, .{ .path = obj.path }, obj.must_link) catch |err| switch (err) {
+            error.UnknownFileType => try self.reportParseError(obj.path, "unknown file type for an input file", .{}),
             else => |e| try self.reportParseError(
                 obj.path,
-                "unexpected error: parsing input file failed with error {s}",
+                "unexpected error: reading input file failed with error {s}",
                 .{@errorName(e)},
             ),
         };
@@ -470,15 +442,11 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: std.Progress.Node)
     };
 
     for (system_libs.items) |lib| {
-        self.parseLibrary(lib, false) catch |err| switch (err) {
-            error.MalformedArchive,
-            error.MalformedDylib,
-            error.InvalidCpuArch,
-            => continue, // already reported
-            error.UnknownFileType => try self.reportParseError(lib.path, "unknown file type for a library", .{}),
+        self.classifyInputFile(lib.path, lib, false) catch |err| switch (err) {
+            error.UnknownFileType => try self.reportParseError(lib.path, "unknown file type for an input file", .{}),
             else => |e| try self.reportParseError(
                 lib.path,
-                "unexpected error: parsing library failed with error {s}",
+                "unexpected error: parsing input file failed with error {s}",
                 .{@errorName(e)},
             ),
         };
@@ -491,13 +459,8 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: std.Progress.Node)
         break :blk null;
     };
     if (compiler_rt_path) |path| {
-        self.parsePositional(path, false) catch |err| switch (err) {
-            error.MalformedObject,
-            error.MalformedArchive,
-            error.InvalidCpuArch,
-            error.InvalidTarget,
-            => {}, // already reported
-            error.UnknownFileType => try self.reportParseError(path, "unknown file type for a library", .{}),
+        self.classifyInputFile(path, .{ .path = path }, false) catch |err| switch (err) {
+            error.UnknownFileType => try self.reportParseError(path, "unknown file type for an input file", .{}),
             else => |e| try self.reportParseError(
                 path,
                 "unexpected error: parsing input file failed with error {s}",
@@ -506,46 +469,31 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: std.Progress.Node)
         };
     }
 
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+    try self.parseInputFiles();
+    self.parseDependentDylibs() catch |err| {
+        switch (err) {
+            error.MissingLibraryDependencies => {},
+            else => |e| try self.reportUnexpectedError(
+                "unexpected error while parsing dependent libraries: {s}",
+                .{@errorName(e)},
+            ),
+        }
+    };
 
-    for (self.dylibs.items) |index| {
-        self.getFile(index).?.dylib.umbrella = index;
-    }
-
-    if (self.dylibs.items.len > 0) {
-        self.parseDependentDylibs() catch |err| {
-            switch (err) {
-                error.MissingLibraryDependencies => {},
-                else => |e| try self.reportUnexpectedError(
-                    "unexpected error while parsing dependent libraries: {s}",
-                    .{@errorName(e)},
-                ),
-            }
-            return error.FlushFailure;
-        };
-    }
-
-    for (self.dylibs.items) |index| {
-        const dylib = self.getFile(index).?.dylib;
-        if (!dylib.explicit and !dylib.hoisted) continue;
-        try dylib.initSymbols(self);
-    }
+    if (self.base.hasErrors()) return error.FlushFailure;
 
     {
         const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
         self.files.set(index, .{ .internal = .{ .index = index } });
         self.internal_object = index;
+        const object = self.getInternalObject().?;
+        try object.init(gpa);
+        try object.initSymbols(self);
     }
 
-    try self.addUndefinedGlobals();
     try self.resolveSymbols();
-    try self.parseDebugInfo();
-    try self.resolveSyntheticSymbols();
-
-    try self.convertTentativeDefinitions();
-    try self.createObjcSections();
+    try self.convertTentativeDefsAndResolveSpecialSymbols();
     try self.dedupLiterals();
-    try self.claimUnresolved();
 
     if (self.base.gc_sections) {
         try dead_strip.gcAtoms(self);
@@ -567,6 +515,8 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: std.Progress.Node)
         dylib.ordinal = @intCast(ord);
     }
 
+    self.claimUnresolved();
+
     self.scanRelocs() catch |err| switch (err) {
         error.HasUndefinedSymbols => return error.FlushFailure,
         else => |e| {
@@ -580,92 +530,33 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: std.Progress.Node)
     try self.sortSections();
     try self.addAtomsToSections();
     try self.calcSectionSizes();
-    try self.generateUnwindInfo();
-    try self.initSegments();
 
+    try self.generateUnwindInfo();
+
+    try self.initSegments();
     try self.allocateSections();
     self.allocateSegments();
     self.allocateSyntheticSymbols();
-    try self.allocateLinkeditSegment();
 
     if (build_options.enable_logging) {
         state_log.debug("{}", .{self.dumpState()});
     }
 
-    try self.initDyldInfoSections();
-
     // Beyond this point, everything has been allocated a virtual address and we can resolve
     // the relocations, and commit objects to file.
+    try self.resizeSections();
+
     if (self.getZigObject()) |zo| {
-        var has_resolve_error = false;
-
-        for (zo.atoms.items) |atom_index| {
-            const atom = self.getAtom(atom_index) orelse continue;
-            if (!atom.flags.alive) continue;
-            const sect = &self.sections.items(.header)[atom.out_n_sect];
-            if (sect.isZerofill()) continue;
-            if (!self.isZigSection(atom.out_n_sect)) continue; // Non-Zig sections are handled separately
-            if (atom.getRelocs(self).len == 0) continue;
-            // TODO: we will resolve and write ZigObject's TLS data twice:
-            // once here, and once in writeAtoms
-            const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
-            const code = try gpa.alloc(u8, atom_size);
-            defer gpa.free(code);
-            atom.getData(self, code) catch |err| switch (err) {
-                error.InputOutput => {
-                    try self.reportUnexpectedError("fetching code for '{s}' failed", .{
-                        atom.getName(self),
-                    });
-                    return error.FlushFailure;
-                },
-                else => |e| {
-                    try self.reportUnexpectedError("unexpected error while fetching code for '{s}': {s}", .{
-                        atom.getName(self),
-                        @errorName(e),
-                    });
-                    return error.FlushFailure;
-                },
-            };
-            const file_offset = sect.offset + atom.value;
-            atom.resolveRelocs(self, code) catch |err| switch (err) {
-                error.ResolveFailed => has_resolve_error = true,
-                else => |e| {
-                    try self.reportUnexpectedError("unexpected error while resolving relocations", .{});
-                    return e;
-                },
-            };
-            try self.base.file.?.pwriteAll(code, file_offset);
-        }
-
-        if (has_resolve_error) return error.FlushFailure;
+        zo.resolveRelocs(self) catch |err| switch (err) {
+            error.ResolveFailed => return error.FlushFailure,
+            else => |e| return e,
+        };
     }
+    try self.writeSectionsAndUpdateLinkeditSizes();
 
-    self.writeAtoms() catch |err| switch (err) {
-        error.ResolveFailed => return error.FlushFailure,
-        else => |e| {
-            try self.reportUnexpectedError("unexpected error while resolving relocations", .{});
-            return e;
-        },
-    };
-    try self.writeUnwindInfo();
-    try self.finalizeDyldInfoSections();
-    try self.writeSyntheticSections();
-
-    var off = math.cast(u32, self.getLinkeditSegment().fileoff) orelse return error.Overflow;
-    off = try self.writeDyldInfoSections(off);
-    off = mem.alignForward(u32, off, @alignOf(u64));
-    off = try self.writeFunctionStarts(off);
-    off = mem.alignForward(u32, off, @alignOf(u64));
-    off = try self.writeDataInCode(self.getTextSegment().vmaddr, off);
-    try self.calcSymtabSize();
-    off = mem.alignForward(u32, off, @alignOf(u64));
-    off = try self.writeSymtab(off);
-    off = mem.alignForward(u32, off, @alignOf(u32));
-    off = try self.writeIndsymtab(off);
-    off = mem.alignForward(u32, off, @alignOf(u64));
-    off = try self.writeStrtab(off);
-
-    self.getLinkeditSegment().filesize = off - self.getLinkeditSegment().fileoff;
+    try self.writeSectionsToFile();
+    try self.allocateLinkeditSegment();
+    try self.writeLinkeditSectionsToFile();
 
     var codesig: ?CodeSignature = if (self.requiresCodeSig()) blk: {
         // Preallocate space for the code signature.
@@ -695,7 +586,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, prog_node: std.Progress.Node)
     if (codesig) |*csig| {
         try self.writeCodeSignature(csig); // code signing always comes last
         const emit = self.base.emit;
-        try invalidateKernelCache(emit.directory.handle, emit.sub_path);
+        try invalidateKernelCache(emit.root_dir.handle, emit.sub_path);
     }
 }
 
@@ -706,7 +597,7 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const directory = self.base.emit.directory;
+    const directory = self.base.emit.root_dir;
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
     const module_obj_path: ?[]const u8 = if (self.base.zcu_object_sub_path) |path| blk: {
         if (fs.path.dirname(full_out_path)) |dirname| {
@@ -831,7 +722,13 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
         }
 
         if (comp.config.any_sanitize_thread) {
-            try argv.append(comp.tsan_static_lib.?.full_object_path);
+            const path = comp.tsan_lib.?.full_object_path;
+            try argv.append(path);
+            try argv.appendSlice(&.{ "-rpath", std.fs.path.dirname(path) orelse "." });
+        }
+
+        if (comp.config.any_fuzz) {
+            try argv.append(comp.fuzzer_lib.?.full_object_path);
         }
 
         for (self.lib_dirs) |lib_dir| {
@@ -916,178 +813,186 @@ pub fn resolveLibSystem(
     });
 }
 
-pub const ParseError = error{
-    MalformedObject,
-    MalformedArchive,
-    MalformedDylib,
-    MalformedTbd,
-    NotLibStub,
-    InvalidCpuArch,
-    InvalidTarget,
-    InvalidTargetFatLibrary,
-    IncompatibleDylibVersion,
-    OutOfMemory,
-    Overflow,
-    InputOutput,
-    EndOfStream,
-    FileSystem,
-    NotSupported,
-    Unhandled,
-    UnknownFileType,
-} || fs.File.SeekError || fs.File.OpenError || fs.File.ReadError || tapi.TapiError;
-
-pub fn parsePositional(self: *MachO, path: []const u8, must_link: bool) ParseError!void {
+pub fn classifyInputFile(self: *MachO, path: []const u8, lib: SystemLib, must_link: bool) !void {
     const tracy = trace(@src());
     defer tracy.end();
-    if (try Object.isObject(path)) {
-        try self.parseObject(path);
-    } else {
-        try self.parseLibrary(.{ .path = path }, must_link);
+
+    log.debug("classifying input file {s}", .{path});
+
+    const file = try std.fs.cwd().openFile(path, .{});
+    const fh = try self.addFileHandle(file);
+    var buffer: [Archive.SARMAG]u8 = undefined;
+
+    const fat_arch: ?fat.Arch = try self.parseFatFile(file, path);
+    const offset = if (fat_arch) |fa| fa.offset else 0;
+
+    if (readMachHeader(file, offset) catch null) |h| blk: {
+        if (h.magic != macho.MH_MAGIC_64) break :blk;
+        switch (h.filetype) {
+            macho.MH_OBJECT => try self.addObject(path, fh, offset),
+            macho.MH_DYLIB => _ = try self.addDylib(lib, true, fh, offset),
+            else => return error.UnknownFileType,
+        }
+        return;
     }
+    if (readArMagic(file, offset, &buffer) catch null) |ar_magic| blk: {
+        if (!mem.eql(u8, ar_magic, Archive.ARMAG)) break :blk;
+        try self.addArchive(lib, must_link, fh, fat_arch);
+        return;
+    }
+    _ = try self.addTbd(lib, true, fh);
 }
 
-fn parseLibrary(self: *MachO, lib: SystemLib, must_link: bool) ParseError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-    if (try fat.isFatLibrary(lib.path)) {
-        const fat_arch = try self.parseFatLibrary(lib.path);
-        if (try Archive.isArchive(lib.path, fat_arch)) {
-            try self.parseArchive(lib, must_link, fat_arch);
-        } else if (try Dylib.isDylib(lib.path, fat_arch)) {
-            _ = try self.parseDylib(lib, true, fat_arch);
-        } else return error.UnknownFileType;
-    } else if (try Archive.isArchive(lib.path, null)) {
-        try self.parseArchive(lib, must_link, null);
-    } else if (try Dylib.isDylib(lib.path, null)) {
-        _ = try self.parseDylib(lib, true, null);
-    } else {
-        _ = self.parseTbd(lib, true) catch |err| switch (err) {
-            error.MalformedTbd => return error.UnknownFileType,
-            else => |e| return e,
-        };
+fn parseFatFile(self: *MachO, file: std.fs.File, path: []const u8) !?fat.Arch {
+    const fat_h = fat.readFatHeader(file) catch return null;
+    if (fat_h.magic != macho.FAT_MAGIC and fat_h.magic != macho.FAT_MAGIC_64) return null;
+    var fat_archs_buffer: [2]fat.Arch = undefined;
+    const fat_archs = try fat.parseArchs(file, fat_h, &fat_archs_buffer);
+    const cpu_arch = self.getTarget().cpu.arch;
+    for (fat_archs) |arch| {
+        if (arch.tag == cpu_arch) return arch;
     }
+    try self.reportParseError(path, "missing arch in universal file: expected {s}", .{
+        @tagName(cpu_arch),
+    });
+    return error.MissingCpuArch;
 }
 
-fn parseObject(self: *MachO, path: []const u8) ParseError!void {
+pub fn readMachHeader(file: std.fs.File, offset: usize) !macho.mach_header_64 {
+    var buffer: [@sizeOf(macho.mach_header_64)]u8 = undefined;
+    const nread = try file.preadAll(&buffer, offset);
+    if (nread != buffer.len) return error.InputOutput;
+    const hdr = @as(*align(1) const macho.mach_header_64, @ptrCast(&buffer)).*;
+    return hdr;
+}
+
+pub fn readArMagic(file: std.fs.File, offset: usize, buffer: *[Archive.SARMAG]u8) ![]const u8 {
+    const nread = try file.preadAll(buffer, offset);
+    if (nread != buffer.len) return error.InputOutput;
+    return buffer[0..Archive.SARMAG];
+}
+
+fn addObject(self: *MachO, path: []const u8, handle: File.HandleIndex, offset: u64) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
-    const file = try fs.cwd().openFile(path, .{});
-    const handle = try self.addFileHandle(file);
     const mtime: u64 = mtime: {
+        const file = self.getFileHandle(handle);
         const stat = file.stat() catch break :mtime 0;
         break :mtime @as(u64, @intCast(@divFloor(stat.mtime, 1_000_000_000)));
     };
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
     self.files.set(index, .{ .object = .{
+        .offset = offset,
         .path = try gpa.dupe(u8, path),
         .file_handle = handle,
         .mtime = mtime,
         .index = index,
     } });
     try self.objects.append(gpa, index);
-
-    const object = self.getFile(index).?.object;
-    try object.parse(self);
 }
 
-pub fn parseFatLibrary(self: *MachO, path: []const u8) !fat.Arch {
-    var buffer: [2]fat.Arch = undefined;
-    const fat_archs = try fat.parseArchs(path, &buffer);
-    const cpu_arch = self.getTarget().cpu.arch;
-    for (fat_archs) |arch| {
-        if (arch.tag == cpu_arch) return arch;
+pub fn parseInputFiles(self: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const tp = self.base.comp.thread_pool;
+    var wg: WaitGroup = .{};
+
+    {
+        wg.reset();
+        defer wg.wait();
+
+        for (self.objects.items) |index| {
+            tp.spawnWg(&wg, parseInputFileWorker, .{ self, self.getFile(index).? });
+        }
+        for (self.dylibs.items) |index| {
+            tp.spawnWg(&wg, parseInputFileWorker, .{ self, self.getFile(index).? });
+        }
     }
-    try self.reportParseError(path, "missing arch in universal file: expected {s}", .{@tagName(cpu_arch)});
-    return error.InvalidCpuArch;
+
+    if (self.has_errors.swap(false, .seq_cst)) return error.FlushFailure;
 }
 
-fn parseArchive(self: *MachO, lib: SystemLib, must_link: bool, fat_arch: ?fat.Arch) ParseError!void {
+fn parseInputFileWorker(self: *MachO, file: File) void {
+    file.parse(self) catch |err| {
+        switch (err) {
+            error.MalformedObject,
+            error.MalformedDylib,
+            error.MalformedTbd,
+            error.InvalidCpuArch,
+            error.InvalidTarget,
+            => {}, // already reported
+            else => |e| self.reportParseError2(file.getIndex(), "unexpected error: parsing input file failed with error {s}", .{@errorName(e)}) catch {},
+        }
+        _ = self.has_errors.swap(true, .seq_cst);
+    };
+}
+
+fn addArchive(self: *MachO, lib: SystemLib, must_link: bool, handle: File.HandleIndex, fat_arch: ?fat.Arch) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
 
-    const file = try fs.cwd().openFile(lib.path, .{});
-    const handle = try self.addFileHandle(file);
-
     var archive = Archive{};
     defer archive.deinit(gpa);
-    try archive.parse(self, lib.path, handle, fat_arch);
+    try archive.unpack(self, lib.path, handle, fat_arch);
 
-    var has_parse_error = false;
-    for (archive.objects.items) |extracted| {
-        const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
-        self.files.set(index, .{ .object = extracted });
+    for (archive.objects.items) |unpacked| {
+        const index: File.Index = @intCast(try self.files.addOne(gpa));
+        self.files.set(index, .{ .object = unpacked });
         const object = &self.files.items(.data)[index].object;
         object.index = index;
         object.alive = must_link or lib.needed; // TODO: or self.options.all_load;
         object.hidden = lib.hidden;
-        object.parse(self) catch |err| switch (err) {
-            error.MalformedObject,
-            error.InvalidCpuArch,
-            error.InvalidTarget,
-            => has_parse_error = true,
-            else => |e| return e,
-        };
         try self.objects.append(gpa, index);
-
-        // Finally, we do a post-parse check for -ObjC to see if we need to force load this member
-        // anyhow.
-        object.alive = object.alive or (self.force_load_objc and object.hasObjc());
     }
-    if (has_parse_error) return error.MalformedArchive;
 }
 
-fn parseDylib(self: *MachO, lib: SystemLib, explicit: bool, fat_arch: ?fat.Arch) ParseError!File.Index {
+fn addDylib(self: *MachO, lib: SystemLib, explicit: bool, handle: File.HandleIndex, offset: u64) !File.Index {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
 
-    const file = try fs.cwd().openFile(lib.path, .{});
-    defer file.close();
-
-    const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
+    const index: File.Index = @intCast(try self.files.addOne(gpa));
     self.files.set(index, .{ .dylib = .{
+        .offset = offset,
+        .file_handle = handle,
+        .tag = .dylib,
         .path = try gpa.dupe(u8, lib.path),
         .index = index,
         .needed = lib.needed,
         .weak = lib.weak,
         .reexport = lib.reexport,
         .explicit = explicit,
+        .umbrella = index,
     } });
-    const dylib = &self.files.items(.data)[index].dylib;
-    try dylib.parse(self, file, fat_arch);
-
     try self.dylibs.append(gpa, index);
 
     return index;
 }
 
-fn parseTbd(self: *MachO, lib: SystemLib, explicit: bool) ParseError!File.Index {
+fn addTbd(self: *MachO, lib: SystemLib, explicit: bool, handle: File.HandleIndex) !File.Index {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
-    const file = try fs.cwd().openFile(lib.path, .{});
-    defer file.close();
-
-    var lib_stub = LibStub.loadFromFile(gpa, file) catch return error.MalformedTbd; // TODO actually handle different errors
-    defer lib_stub.deinit();
-
-    const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
+    const index: File.Index = @intCast(try self.files.addOne(gpa));
     self.files.set(index, .{ .dylib = .{
+        .offset = 0,
+        .file_handle = handle,
+        .tag = .tbd,
         .path = try gpa.dupe(u8, lib.path),
         .index = index,
         .needed = lib.needed,
         .weak = lib.weak,
         .reexport = lib.reexport,
         .explicit = explicit,
+        .umbrella = index,
     } });
-    const dylib = &self.files.items(.data)[index].dylib;
-    try dylib.parseTbd(self.getTarget().cpu.arch, self.platform, lib_stub, self);
     try self.dylibs.append(gpa, index);
 
     return index;
@@ -1164,6 +1069,8 @@ fn parseDependentDylibs(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    if (self.dylibs.items.len == 0) return;
+
     const gpa = self.base.comp.gpa;
     const lib_dirs = self.lib_dirs;
     const framework_dirs = self.framework_dirs;
@@ -1180,7 +1087,7 @@ fn parseDependentDylibs(self: *MachO) !void {
     while (index < self.dylibs.items.len) : (index += 1) {
         const dylib_index = self.dylibs.items[index];
 
-        var dependents = std.ArrayList(struct { id: Dylib.Id, file: File.Index }).init(gpa);
+        var dependents = std.ArrayList(File.Index).init(gpa);
         defer dependents.deinit();
         try dependents.ensureTotalCapacityPrecise(self.getFile(dylib_index).?.dylib.dependents.items.len);
 
@@ -1271,38 +1178,34 @@ fn parseDependentDylibs(self: *MachO) !void {
                 .path = full_path,
                 .weak = is_weak,
             };
+            const file = try std.fs.cwd().openFile(lib.path, .{});
+            const fh = try self.addFileHandle(file);
+            const fat_arch = try self.parseFatFile(file, lib.path);
+            const offset = if (fat_arch) |fa| fa.offset else 0;
             const file_index = file_index: {
-                if (try fat.isFatLibrary(lib.path)) {
-                    const fat_arch = try self.parseFatLibrary(lib.path);
-                    if (try Dylib.isDylib(lib.path, fat_arch)) {
-                        break :file_index try self.parseDylib(lib, false, fat_arch);
-                    } else break :file_index @as(File.Index, 0);
-                } else if (try Dylib.isDylib(lib.path, null)) {
-                    break :file_index try self.parseDylib(lib, false, null);
-                } else {
-                    const file_index = self.parseTbd(lib, false) catch |err| switch (err) {
-                        error.MalformedTbd => @as(File.Index, 0),
-                        else => |e| return e,
-                    };
-                    break :file_index file_index;
+                if (readMachHeader(file, offset) catch null) |h| blk: {
+                    if (h.magic != macho.MH_MAGIC_64) break :blk;
+                    switch (h.filetype) {
+                        macho.MH_DYLIB => break :file_index try self.addDylib(lib, false, fh, offset),
+                        else => break :file_index @as(File.Index, 0),
+                    }
                 }
+                break :file_index try self.addTbd(lib, false, fh);
             };
-            dependents.appendAssumeCapacity(.{ .id = id, .file = file_index });
+            dependents.appendAssumeCapacity(file_index);
         }
 
         const dylib = self.getFile(dylib_index).?.dylib;
-        for (dependents.items) |entry| {
-            const id = entry.id;
-            const file_index = entry.file;
+        for (dylib.dependents.items, dependents.items) |id, file_index| {
             if (self.getFile(file_index)) |file| {
                 const dep_dylib = file.dylib;
+                try dep_dylib.parse(self); // TODO in parallel
                 dep_dylib.hoisted = self.isHoisted(id.name);
-                if (self.getFile(dep_dylib.umbrella) == null) {
-                    dep_dylib.umbrella = dylib.umbrella;
-                }
+                dep_dylib.umbrella = dylib.umbrella;
                 if (!dep_dylib.hoisted) {
                     const umbrella = dep_dylib.getUmbrella(self);
                     for (dep_dylib.exports.items(.name), dep_dylib.exports.items(.flags)) |off, flags| {
+                        // TODO rethink this entire algorithm
                         try umbrella.addExport(gpa, dep_dylib.getString(off), flags);
                     }
                     try umbrella.rpaths.ensureUnusedCapacity(gpa, dep_dylib.rpaths.keys().len);
@@ -1310,48 +1213,17 @@ fn parseDependentDylibs(self: *MachO) !void {
                         umbrella.rpaths.putAssumeCapacity(try gpa.dupe(u8, rpath), {});
                     }
                 }
-            } else {
-                try self.reportDependencyError(
-                    dylib.getUmbrella(self).index,
-                    id.name,
-                    "unable to resolve dependency",
-                    .{},
-                );
-                has_errors = true;
-            }
+            } else try self.reportDependencyError(
+                dylib.getUmbrella(self).index,
+                id.name,
+                "unable to resolve dependency",
+                .{},
+            );
+            has_errors = true;
         }
     }
 
     if (has_errors) return error.MissingLibraryDependencies;
-}
-
-pub fn addUndefinedGlobals(self: *MachO) !void {
-    const gpa = self.base.comp.gpa;
-
-    try self.undefined_symbols.ensureUnusedCapacity(gpa, self.base.comp.force_undefined_symbols.keys().len);
-    for (self.base.comp.force_undefined_symbols.keys()) |name| {
-        const off = try self.strings.insert(gpa, name);
-        const gop = try self.getOrCreateGlobal(off);
-        self.undefined_symbols.appendAssumeCapacity(gop.index);
-    }
-
-    if (!self.base.isDynLib() and self.entry_name != null) {
-        const off = try self.strings.insert(gpa, self.entry_name.?);
-        const gop = try self.getOrCreateGlobal(off);
-        self.entry_index = gop.index;
-    }
-
-    {
-        const off = try self.strings.insert(gpa, "dyld_stub_binder");
-        const gop = try self.getOrCreateGlobal(off);
-        self.dyld_stub_binder_index = gop.index;
-    }
-
-    {
-        const off = try self.strings.insert(gpa, "_objc_msgSend");
-        const gop = try self.getOrCreateGlobal(off);
-        self.objc_msg_send_index = gop.index;
-    }
 }
 
 /// When resolving symbols, we approach the problem similarly to `mold`.
@@ -1366,18 +1238,17 @@ pub fn resolveSymbols(self: *MachO) !void {
     defer tracy.end();
 
     // Resolve symbols in the ZigObject. For now, we assume that it's always live.
-    if (self.getZigObject()) |zo| zo.asFile().resolveSymbols(self);
+    if (self.getZigObject()) |zo| try zo.asFile().resolveSymbols(self);
     // Resolve symbols on the set of all objects and shared objects (even if some are unneeded).
-    for (self.objects.items) |index| self.getFile(index).?.resolveSymbols(self);
-    for (self.dylibs.items) |index| self.getFile(index).?.resolveSymbols(self);
+    for (self.objects.items) |index| try self.getFile(index).?.resolveSymbols(self);
+    for (self.dylibs.items) |index| try self.getFile(index).?.resolveSymbols(self);
+    if (self.getInternalObject()) |obj| try obj.resolveSymbols(self);
 
     // Mark live objects.
     self.markLive();
 
     // Reset state of all globals after marking live objects.
-    if (self.getZigObject()) |zo| zo.asFile().resetGlobals(self);
-    for (self.objects.items) |index| self.getFile(index).?.resetGlobals(self);
-    for (self.dylibs.items) |index| self.getFile(index).?.resetGlobals(self);
+    self.resolver.reset();
 
     // Prune dead objects.
     var i: usize = 0;
@@ -1391,127 +1262,79 @@ pub fn resolveSymbols(self: *MachO) !void {
     }
 
     // Re-resolve the symbols.
-    if (self.getZigObject()) |zo| zo.resolveSymbols(self);
-    for (self.objects.items) |index| self.getFile(index).?.resolveSymbols(self);
-    for (self.dylibs.items) |index| self.getFile(index).?.resolveSymbols(self);
+    if (self.getZigObject()) |zo| try zo.resolveSymbols(self);
+    for (self.objects.items) |index| try self.getFile(index).?.resolveSymbols(self);
+    for (self.dylibs.items) |index| try self.getFile(index).?.resolveSymbols(self);
+    if (self.getInternalObject()) |obj| try obj.resolveSymbols(self);
+
+    // Merge symbol visibility
+    if (self.getZigObject()) |zo| zo.mergeSymbolVisibility(self);
+    for (self.objects.items) |index| self.getFile(index).?.object.mergeSymbolVisibility(self);
 }
 
 fn markLive(self: *MachO) void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    for (self.undefined_symbols.items) |index| {
-        if (self.getSymbol(index).getFile(self)) |file| {
-            if (file == .object) file.object.alive = true;
-        }
-    }
-    if (self.entry_index) |index| {
-        const sym = self.getSymbol(index);
-        if (sym.getFile(self)) |file| {
-            if (file == .object) file.object.alive = true;
-        }
-    }
     if (self.getZigObject()) |zo| zo.markLive(self);
     for (self.objects.items) |index| {
         const object = self.getFile(index).?.object;
         if (object.alive) object.markLive(self);
     }
+    if (self.getInternalObject()) |obj| obj.markLive(self);
 }
 
-pub fn parseDebugInfo(self: *MachO) !void {
-    for (self.objects.items) |index| {
-        try self.getFile(index).?.object.parseDebugInfo(self);
-    }
-}
-
-fn resolveSyntheticSymbols(self: *MachO) !void {
-    const internal = self.getInternalObject() orelse return;
-
-    if (!self.base.isDynLib()) {
-        self.mh_execute_header_index = try internal.addSymbol("__mh_execute_header", self);
-        const sym = self.getSymbol(self.mh_execute_header_index.?);
-        sym.flags.@"export" = true;
-        sym.flags.dyn_ref = true;
-        sym.visibility = .global;
-    } else {
-        self.mh_dylib_header_index = try internal.addSymbol("__mh_dylib_header", self);
-    }
-
-    self.dso_handle_index = try internal.addSymbol("___dso_handle", self);
-    self.dyld_private_index = try internal.addSymbol("dyld_private", self);
-
+fn convertTentativeDefsAndResolveSpecialSymbols(self: *MachO) !void {
+    const tp = self.base.comp.thread_pool;
+    var wg: WaitGroup = .{};
     {
-        const gpa = self.base.comp.gpa;
-        var boundary_symbols = std.AutoHashMap(Symbol.Index, void).init(gpa);
-        defer boundary_symbols.deinit();
-
+        wg.reset();
+        defer wg.wait();
         for (self.objects.items) |index| {
-            const object = self.getFile(index).?.object;
-            for (object.symbols.items, 0..) |sym_index, i| {
-                const nlist = object.symtab.items(.nlist)[i];
-                const name = self.getSymbol(sym_index).getName(self);
-                if (!nlist.undf() or !nlist.ext()) continue;
-                if (mem.startsWith(u8, name, "segment$start$") or
-                    mem.startsWith(u8, name, "segment$stop$") or
-                    mem.startsWith(u8, name, "section$start$") or
-                    mem.startsWith(u8, name, "section$stop$"))
-                {
-                    _ = try boundary_symbols.put(sym_index, {});
-                }
-            }
+            tp.spawnWg(&wg, convertTentativeDefinitionsWorker, .{ self, self.getFile(index).?.object });
         }
-
-        try self.boundary_symbols.ensureTotalCapacityPrecise(gpa, boundary_symbols.count());
-
-        var it = boundary_symbols.iterator();
-        while (it.next()) |entry| {
-            _ = try internal.addSymbol(self.getSymbol(entry.key_ptr.*).getName(self), self);
-            self.boundary_symbols.appendAssumeCapacity(entry.key_ptr.*);
+        if (self.getInternalObject()) |obj| {
+            tp.spawnWg(&wg, resolveSpecialSymbolsWorker, .{ self, obj });
         }
     }
+    if (self.has_errors.swap(false, .seq_cst)) return error.FlushFailure;
 }
 
-fn convertTentativeDefinitions(self: *MachO) !void {
-    for (self.objects.items) |index| {
-        try self.getFile(index).?.object.convertTentativeDefinitions(self);
-    }
+fn convertTentativeDefinitionsWorker(self: *MachO, object: *Object) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+    object.convertTentativeDefinitions(self) catch |err| {
+        self.reportParseError2(
+            object.index,
+            "unexpected error occurred while converting tentative symbols into defined symbols: {s}",
+            .{@errorName(err)},
+        ) catch {};
+        _ = self.has_errors.swap(true, .seq_cst);
+    };
 }
 
-fn createObjcSections(self: *MachO) !void {
-    const gpa = self.base.comp.gpa;
-    var objc_msgsend_syms = std.AutoArrayHashMap(Symbol.Index, void).init(gpa);
-    defer objc_msgsend_syms.deinit();
-
-    for (self.objects.items) |index| {
-        const object = self.getFile(index).?.object;
-
-        for (object.symbols.items, 0..) |sym_index, i| {
-            const nlist_idx = @as(Symbol.Index, @intCast(i));
-            const nlist = object.symtab.items(.nlist)[nlist_idx];
-            if (!nlist.ext()) continue;
-            if (!nlist.undf()) continue;
-
-            const sym = self.getSymbol(sym_index);
-            if (sym.getFile(self) != null) continue;
-            if (mem.startsWith(u8, sym.getName(self), "_objc_msgSend$")) {
-                _ = try objc_msgsend_syms.put(sym_index, {});
-            }
-        }
-    }
-
-    for (objc_msgsend_syms.keys()) |sym_index| {
-        const internal = self.getInternalObject().?;
-        const sym = self.getSymbol(sym_index);
-        _ = try internal.addSymbol(sym.getName(self), self);
-        sym.visibility = .hidden;
-        const name = eatPrefix(sym.getName(self), "_objc_msgSend$").?;
-        const selrefs_index = try internal.addObjcMsgsendSections(name, self);
-        try sym.addExtra(.{ .objc_selrefs = selrefs_index }, self);
-        sym.flags.objc_stubs = true;
-    }
+fn resolveSpecialSymbolsWorker(self: *MachO, obj: *InternalObject) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+    obj.resolveBoundarySymbols(self) catch |err| {
+        self.reportUnexpectedError("unexpected error occurred while resolving boundary symbols: {s}", .{
+            @errorName(err),
+        }) catch {};
+        _ = self.has_errors.swap(true, .seq_cst);
+        return;
+    };
+    obj.resolveObjcMsgSendSymbols(self) catch |err| {
+        self.reportUnexpectedError("unexpected error occurred while resolving ObjC msgsend stubs: {s}", .{
+            @errorName(err),
+        }) catch {};
+        _ = self.has_errors.swap(true, .seq_cst);
+    };
 }
 
 pub fn dedupLiterals(self: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     const gpa = self.base.comp.gpa;
     var lp: LiteralPool = .{};
     defer lp.deinit(gpa);
@@ -1526,91 +1349,86 @@ pub fn dedupLiterals(self: *MachO) !void {
         try object.resolveLiterals(&lp, self);
     }
 
-    if (self.getZigObject()) |zo| {
-        zo.dedupLiterals(lp, self);
-    }
-    for (self.objects.items) |index| {
-        self.getFile(index).?.object.dedupLiterals(lp, self);
-    }
-    if (self.getInternalObject()) |object| {
-        object.dedupLiterals(lp, self);
+    const tp = self.base.comp.thread_pool;
+    var wg: WaitGroup = .{};
+    {
+        wg.reset();
+        defer wg.wait();
+        if (self.getZigObject()) |zo| {
+            tp.spawnWg(&wg, File.dedupLiterals, .{ zo.asFile(), lp, self });
+        }
+        for (self.objects.items) |index| {
+            tp.spawnWg(&wg, File.dedupLiterals, .{ self.getFile(index).?, lp, self });
+        }
+        if (self.getInternalObject()) |object| {
+            tp.spawnWg(&wg, File.dedupLiterals, .{ object.asFile(), lp, self });
+        }
     }
 }
 
-fn claimUnresolved(self: *MachO) error{OutOfMemory}!void {
+fn claimUnresolved(self: *MachO) void {
     if (self.getZigObject()) |zo| {
-        try zo.asFile().claimUnresolved(self);
+        zo.asFile().claimUnresolved(self);
     }
     for (self.objects.items) |index| {
-        try self.getFile(index).?.claimUnresolved(self);
+        self.getFile(index).?.claimUnresolved(self);
     }
 }
 
 fn checkDuplicates(self: *MachO) !void {
-    const gpa = self.base.comp.gpa;
+    const tracy = trace(@src());
+    defer tracy.end();
 
-    var dupes = std.AutoArrayHashMap(Symbol.Index, std.ArrayListUnmanaged(File.Index)).init(gpa);
-    defer {
-        for (dupes.values()) |*list| {
-            list.deinit(gpa);
+    const tp = self.base.comp.thread_pool;
+    var wg: WaitGroup = .{};
+    {
+        wg.reset();
+        defer wg.wait();
+        if (self.getZigObject()) |zo| {
+            tp.spawnWg(&wg, checkDuplicatesWorker, .{ self, zo.asFile() });
         }
-        dupes.deinit();
+        for (self.objects.items) |index| {
+            tp.spawnWg(&wg, checkDuplicatesWorker, .{ self, self.getFile(index).? });
+        }
+        if (self.getInternalObject()) |obj| {
+            tp.spawnWg(&wg, checkDuplicatesWorker, .{ self, obj.asFile() });
+        }
     }
 
-    if (self.getZigObject()) |zo| {
-        try zo.checkDuplicates(&dupes, self);
-    }
+    if (self.has_errors.swap(false, .seq_cst)) return error.FlushFailure;
 
-    for (self.objects.items) |index| {
-        try self.getFile(index).?.object.checkDuplicates(&dupes, self);
-    }
+    try self.reportDuplicates();
+}
 
-    try self.reportDuplicates(dupes);
+fn checkDuplicatesWorker(self: *MachO, file: File) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+    file.checkDuplicates(self) catch |err| {
+        self.reportParseError2(file.getIndex(), "failed to check for duplicate definitions: {s}", .{
+            @errorName(err),
+        }) catch {};
+        _ = self.has_errors.swap(true, .seq_cst);
+    };
 }
 
 fn markImportsAndExports(self: *MachO) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     if (self.getZigObject()) |zo| {
         zo.asFile().markImportsExports(self);
     }
     for (self.objects.items) |index| {
         self.getFile(index).?.markImportsExports(self);
     }
-
-    for (self.undefined_symbols.items) |index| {
-        const sym = self.getSymbol(index);
-        if (sym.getFile(self)) |file| {
-            if (sym.visibility != .global) continue;
-            if (file == .dylib and !sym.flags.abs) sym.flags.import = true;
-        }
-    }
-
-    for (&[_]?Symbol.Index{
-        self.entry_index,
-        self.dyld_stub_binder_index,
-        self.objc_msg_send_index,
-    }) |index| {
-        if (index) |idx| {
-            const sym = self.getSymbol(idx);
-            if (sym.getFile(self)) |file| {
-                if (file == .dylib) sym.flags.import = true;
-            }
-        }
+    if (self.getInternalObject()) |obj| {
+        obj.asFile().markImportsExports(self);
     }
 }
 
 fn deadStripDylibs(self: *MachO) void {
-    for (&[_]?Symbol.Index{
-        self.entry_index,
-        self.dyld_stub_binder_index,
-        self.objc_msg_send_index,
-    }) |index| {
-        if (index) |idx| {
-            const sym = self.getSymbol(idx);
-            if (sym.getFile(self)) |file| {
-                if (file == .dylib) file.dylib.referenced = true;
-            }
-        }
-    }
+    const tracy = trace(@src());
+    defer tracy.end();
 
     for (self.dylibs.items) |index| {
         self.getFile(index).?.dylib.markReferenced(self);
@@ -1631,145 +1449,124 @@ fn scanRelocs(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    if (self.getZigObject()) |zo| try zo.scanRelocs(self);
+    const tp = self.base.comp.thread_pool;
+    var wg: WaitGroup = .{};
 
-    for (self.objects.items) |index| {
-        try self.getFile(index).?.object.scanRelocs(self);
+    {
+        wg.reset();
+        defer wg.wait();
+
+        if (self.getZigObject()) |zo| {
+            tp.spawnWg(&wg, scanRelocsWorker, .{ self, zo.asFile() });
+        }
+        for (self.objects.items) |index| {
+            tp.spawnWg(&wg, scanRelocsWorker, .{ self, self.getFile(index).? });
+        }
+        if (self.getInternalObject()) |obj| {
+            tp.spawnWg(&wg, scanRelocsWorker, .{ self, obj.asFile() });
+        }
     }
+
+    if (self.has_errors.swap(false, .seq_cst)) return error.FlushFailure;
 
     try self.reportUndefs();
 
-    if (self.entry_index) |index| {
-        const sym = self.getSymbol(index);
-        if (sym.getFile(self) != null) {
-            if (sym.flags.import) sym.flags.stubs = true;
-        }
+    if (self.getZigObject()) |zo| {
+        try zo.asFile().createSymbolIndirection(self);
     }
+    for (self.objects.items) |index| {
+        try self.getFile(index).?.createSymbolIndirection(self);
+    }
+    for (self.dylibs.items) |index| {
+        try self.getFile(index).?.createSymbolIndirection(self);
+    }
+    if (self.getInternalObject()) |obj| {
+        try obj.asFile().createSymbolIndirection(self);
+    }
+}
 
-    if (self.dyld_stub_binder_index) |index| {
-        const sym = self.getSymbol(index);
-        if (sym.getFile(self) != null) sym.flags.needs_got = true;
-    }
+fn scanRelocsWorker(self: *MachO, file: File) void {
+    file.scanRelocs(self) catch |err| {
+        self.reportParseError2(file.getIndex(), "failed to scan relocations: {s}", .{
+            @errorName(err),
+        }) catch {};
+        _ = self.has_errors.swap(true, .seq_cst);
+    };
+}
 
-    if (self.objc_msg_send_index) |index| {
-        const sym = self.getSymbol(index);
-        if (sym.getFile(self) != null)
-            sym.flags.needs_got = true; // TODO is it always needed, or only if we are synthesising fast stubs?
-    }
-
-    for (self.symbols.items, 0..) |*symbol, i| {
-        const index = @as(Symbol.Index, @intCast(i));
-        if (symbol.flags.needs_got) {
-            log.debug("'{s}' needs GOT", .{symbol.getName(self)});
-            try self.got.addSymbol(index, self);
+fn sortGlobalSymbolsByName(self: *MachO, symbols: []SymbolResolver.Index) void {
+    const lessThan = struct {
+        fn lessThan(ctx: *MachO, lhs: SymbolResolver.Index, rhs: SymbolResolver.Index) bool {
+            const lhs_name = ctx.resolver.keys.items[lhs - 1].getName(ctx);
+            const rhs_name = ctx.resolver.keys.items[rhs - 1].getName(ctx);
+            return mem.order(u8, lhs_name, rhs_name) == .lt;
         }
-        if (symbol.flags.stubs) {
-            log.debug("'{s}' needs STUBS", .{symbol.getName(self)});
-            try self.stubs.addSymbol(index, self);
-        }
-        if (symbol.flags.tlv_ptr) {
-            log.debug("'{s}' needs TLV pointer", .{symbol.getName(self)});
-            try self.tlv_ptr.addSymbol(index, self);
-        }
-        if (symbol.flags.objc_stubs) {
-            log.debug("'{s}' needs OBJC STUBS", .{symbol.getName(self)});
-            try self.objc_stubs.addSymbol(index, self);
-        }
-    }
+    }.lessThan;
+    mem.sort(SymbolResolver.Index, symbols, self, lessThan);
 }
 
 fn reportUndefs(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    switch (self.undefined_treatment) {
-        .dynamic_lookup, .suppress => return,
-        .@"error", .warn => {},
-    }
+    if (self.undefined_treatment == .suppress or
+        self.undefined_treatment == .dynamic_lookup) return;
+    if (self.undefs.keys().len == 0) return; // Nothing to do
 
+    const gpa = self.base.comp.gpa;
     const max_notes = 4;
 
-    var has_undefs = false;
-    var it = self.undefs.iterator();
-    while (it.next()) |entry| {
-        const undef_sym = self.getSymbol(entry.key_ptr.*);
-        const notes = entry.value_ptr.*;
+    // We will sort by name, and then by file to ensure deterministic output.
+    var keys = try std.ArrayList(SymbolResolver.Index).initCapacity(gpa, self.undefs.keys().len);
+    defer keys.deinit();
+    keys.appendSliceAssumeCapacity(self.undefs.keys());
+    self.sortGlobalSymbolsByName(keys.items);
+
+    const refLessThan = struct {
+        fn lessThan(ctx: void, lhs: Ref, rhs: Ref) bool {
+            _ = ctx;
+            return lhs.lessThan(rhs);
+        }
+    }.lessThan;
+
+    for (self.undefs.values()) |*refs| {
+        mem.sort(Ref, refs.items, {}, refLessThan);
+    }
+
+    for (keys.items) |key| {
+        const undef_sym = self.resolver.keys.items[key - 1];
+        const notes = self.undefs.get(key).?;
         const nnotes = @min(notes.items.len, max_notes) + @intFromBool(notes.items.len > max_notes);
 
-        var err = try self.addErrorWithNotes(nnotes);
-        try err.addMsg(self, "undefined symbol: {s}", .{undef_sym.getName(self)});
-        has_undefs = true;
+        var err = try self.base.addErrorWithNotes(nnotes);
+        try err.addMsg("undefined symbol: {s}", .{undef_sym.getName(self)});
 
         var inote: usize = 0;
         while (inote < @min(notes.items.len, max_notes)) : (inote += 1) {
-            const atom = self.getAtom(notes.items[inote]).?;
-            const file = atom.getFile(self);
-            try err.addNote(self, "referenced by {}:{s}", .{ file.fmtPath(), atom.getName(self) });
+            const note = notes.items[inote];
+            const file = self.getFile(note.file).?;
+            const atom = note.getAtom(self).?;
+            try err.addNote("referenced by {}:{s}", .{ file.fmtPath(), atom.getName(self) });
         }
 
         if (notes.items.len > max_notes) {
             const remaining = notes.items.len - max_notes;
-            try err.addNote(self, "referenced {d} more times", .{remaining});
+            try err.addNote("referenced {d} more times", .{remaining});
         }
     }
 
-    for (self.undefined_symbols.items) |index| {
-        const sym = self.getSymbol(index);
-        if (sym.getFile(self) != null) continue; // If undefined in an object file, will be reported above
-        has_undefs = true;
-        var err = try self.addErrorWithNotes(1);
-        try err.addMsg(self, "undefined symbol: {s}", .{sym.getName(self)});
-        try err.addNote(self, "-u command line option", .{});
-    }
-
-    if (self.entry_index) |index| {
-        const sym = self.getSymbol(index);
-        if (sym.getFile(self) == null) {
-            has_undefs = true;
-            var err = try self.addErrorWithNotes(1);
-            try err.addMsg(self, "undefined symbol: {s}", .{sym.getName(self)});
-            try err.addNote(self, "implicit entry/start for main executable", .{});
-        }
-    }
-
-    if (self.dyld_stub_binder_index) |index| {
-        const sym = self.getSymbol(index);
-        if (sym.getFile(self) == null and self.stubs_sect_index != null) {
-            has_undefs = true;
-            var err = try self.addErrorWithNotes(1);
-            try err.addMsg(self, "undefined symbol: {s}", .{sym.getName(self)});
-            try err.addNote(self, "implicit -u command line option", .{});
-        }
-    }
-
-    if (self.objc_msg_send_index) |index| {
-        const sym = self.getSymbol(index);
-        if (sym.getFile(self) == null and self.objc_stubs_sect_index != null) {
-            has_undefs = true;
-            var err = try self.addErrorWithNotes(1);
-            try err.addMsg(self, "undefined symbol: {s}", .{sym.getName(self)});
-            try err.addNote(self, "implicit -u command line option", .{});
-        }
-    }
-
-    if (has_undefs) return error.HasUndefinedSymbols;
+    return error.HasUndefinedSymbols;
 }
 
 fn initOutputSections(self: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
     for (self.objects.items) |index| {
-        const object = self.getFile(index).?.object;
-        for (object.atoms.items) |atom_index| {
-            const atom = self.getAtom(atom_index) orelse continue;
-            if (!atom.flags.alive) continue;
-            atom.out_n_sect = try Atom.initOutputSection(atom.getInputSection(self), self);
-        }
+        try self.getFile(index).?.initOutputSections(self);
     }
-    if (self.getInternalObject()) |object| {
-        for (object.atoms.items) |atom_index| {
-            const atom = self.getAtom(atom_index) orelse continue;
-            if (!atom.flags.alive) continue;
-            atom.out_n_sect = try Atom.initOutputSection(atom.getInputSection(self), self);
-        }
+    if (self.getInternalObject()) |obj| {
+        try obj.asFile().initOutputSections(self);
     }
     self.text_sect_index = self.getSectionByName("__TEXT", "__text") orelse
         try self.addSection("__TEXT", "__text", .{
@@ -1842,46 +1639,50 @@ fn initSyntheticSections(self: *MachO) !void {
         self.eh_frame_sect_index = try self.addSection("__TEXT", "__eh_frame", .{});
     }
 
-    for (self.boundary_symbols.items) |sym_index| {
+    if (self.getInternalObject()) |obj| {
         const gpa = self.base.comp.gpa;
-        const sym = self.getSymbol(sym_index);
-        const name = sym.getName(self);
 
-        if (eatPrefix(name, "segment$start$")) |segname| {
-            if (self.getSegmentByName(segname) == null) { // TODO check segname is valid
-                const prot = getSegmentProt(segname);
-                _ = try self.segments.append(gpa, .{
-                    .cmdsize = @sizeOf(macho.segment_command_64),
-                    .segname = makeStaticString(segname),
-                    .initprot = prot,
-                    .maxprot = prot,
-                });
-            }
-        } else if (eatPrefix(name, "segment$stop$")) |segname| {
-            if (self.getSegmentByName(segname) == null) { // TODO check segname is valid
-                const prot = getSegmentProt(segname);
-                _ = try self.segments.append(gpa, .{
-                    .cmdsize = @sizeOf(macho.segment_command_64),
-                    .segname = makeStaticString(segname),
-                    .initprot = prot,
-                    .maxprot = prot,
-                });
-            }
-        } else if (eatPrefix(name, "section$start$")) |actual_name| {
-            const sep = mem.indexOfScalar(u8, actual_name, '$').?; // TODO error rather than a panic
-            const segname = actual_name[0..sep]; // TODO check segname is valid
-            const sectname = actual_name[sep + 1 ..]; // TODO check sectname is valid
-            if (self.getSectionByName(segname, sectname) == null) {
-                _ = try self.addSection(segname, sectname, .{});
-            }
-        } else if (eatPrefix(name, "section$stop$")) |actual_name| {
-            const sep = mem.indexOfScalar(u8, actual_name, '$').?; // TODO error rather than a panic
-            const segname = actual_name[0..sep]; // TODO check segname is valid
-            const sectname = actual_name[sep + 1 ..]; // TODO check sectname is valid
-            if (self.getSectionByName(segname, sectname) == null) {
-                _ = try self.addSection(segname, sectname, .{});
-            }
-        } else unreachable;
+        for (obj.boundary_symbols.items) |sym_index| {
+            const ref = obj.getSymbolRef(sym_index, self);
+            const sym = ref.getSymbol(self).?;
+            const name = sym.getName(self);
+
+            if (eatPrefix(name, "segment$start$")) |segname| {
+                if (self.getSegmentByName(segname) == null) { // TODO check segname is valid
+                    const prot = getSegmentProt(segname);
+                    _ = try self.segments.append(gpa, .{
+                        .cmdsize = @sizeOf(macho.segment_command_64),
+                        .segname = makeStaticString(segname),
+                        .initprot = prot,
+                        .maxprot = prot,
+                    });
+                }
+            } else if (eatPrefix(name, "segment$end$")) |segname| {
+                if (self.getSegmentByName(segname) == null) { // TODO check segname is valid
+                    const prot = getSegmentProt(segname);
+                    _ = try self.segments.append(gpa, .{
+                        .cmdsize = @sizeOf(macho.segment_command_64),
+                        .segname = makeStaticString(segname),
+                        .initprot = prot,
+                        .maxprot = prot,
+                    });
+                }
+            } else if (eatPrefix(name, "section$start$")) |actual_name| {
+                const sep = mem.indexOfScalar(u8, actual_name, '$').?; // TODO error rather than a panic
+                const segname = actual_name[0..sep]; // TODO check segname is valid
+                const sectname = actual_name[sep + 1 ..]; // TODO check sectname is valid
+                if (self.getSectionByName(segname, sectname) == null) {
+                    _ = try self.addSection(segname, sectname, .{});
+                }
+            } else if (eatPrefix(name, "section$end$")) |actual_name| {
+                const sep = mem.indexOfScalar(u8, actual_name, '$').?; // TODO error rather than a panic
+                const segname = actual_name[0..sep]; // TODO check segname is valid
+                const sectname = actual_name[sep + 1 ..]; // TODO check sectname is valid
+                if (self.getSectionByName(segname, sectname) == null) {
+                    _ = try self.addSection(segname, sectname, .{});
+                }
+            } else unreachable;
+        }
     }
 }
 
@@ -1987,49 +1788,10 @@ pub fn sortSections(self: *MachO) !void {
         self.sections.appendAssumeCapacity(slice.get(sorted.index));
     }
 
-    if (self.getZigObject()) |zo| {
-        for (zo.atoms.items) |atom_index| {
-            const atom = self.getAtom(atom_index) orelse continue;
-            if (!atom.flags.alive) continue;
-            atom.out_n_sect = backlinks[atom.out_n_sect];
-        }
-
-        for (zo.symtab.items(.nlist)) |*sym| {
-            if (sym.sect()) {
-                sym.n_sect = backlinks[sym.n_sect - 1] + 1;
-            }
-        }
-
-        for (zo.symbols.items) |sym_index| {
-            const sym = self.getSymbol(sym_index);
-            const atom = sym.getAtom(self) orelse continue;
-            if (!atom.flags.alive) continue;
-            if (sym.getFile(self).?.getIndex() != zo.index) continue;
-            sym.out_n_sect = backlinks[sym.out_n_sect];
-        }
-    }
-
-    for (self.objects.items) |index| {
-        for (self.getFile(index).?.object.atoms.items) |atom_index| {
-            const atom = self.getAtom(atom_index) orelse continue;
-            if (!atom.flags.alive) continue;
-            atom.out_n_sect = backlinks[atom.out_n_sect];
-        }
-    }
-
-    if (self.getInternalObject()) |object| {
-        for (object.atoms.items) |atom_index| {
-            const atom = self.getAtom(atom_index) orelse continue;
-            if (!atom.flags.alive) continue;
-            atom.out_n_sect = backlinks[atom.out_n_sect];
-        }
-    }
-
     for (&[_]*?u8{
         &self.data_sect_index,
         &self.got_sect_index,
         &self.zig_text_sect_index,
-        &self.zig_got_sect_index,
         &self.zig_const_sect_index,
         &self.zig_data_sect_index,
         &self.zig_bss_sect_index,
@@ -2040,14 +1802,43 @@ pub fn sortSections(self: *MachO) !void {
         &self.eh_frame_sect_index,
         &self.unwind_info_sect_index,
         &self.objc_stubs_sect_index,
-        &self.debug_info_sect_index,
         &self.debug_str_sect_index,
-        &self.debug_line_sect_index,
-        &self.debug_abbrev_sect_index,
         &self.debug_info_sect_index,
+        &self.debug_abbrev_sect_index,
+        &self.debug_aranges_sect_index,
+        &self.debug_line_sect_index,
+        &self.debug_line_str_sect_index,
+        &self.debug_loclists_sect_index,
+        &self.debug_rnglists_sect_index,
     }) |maybe_index| {
         if (maybe_index.*) |*index| {
             index.* = backlinks[index.*];
+        }
+    }
+
+    if (self.getZigObject()) |zo| {
+        for (zo.getAtoms()) |atom_index| {
+            const atom = zo.getAtom(atom_index) orelse continue;
+            if (!atom.isAlive()) continue;
+            atom.out_n_sect = backlinks[atom.out_n_sect];
+        }
+        if (zo.dwarf) |*dwarf| dwarf.reloadSectionMetadata();
+    }
+
+    for (self.objects.items) |index| {
+        const file = self.getFile(index).?;
+        for (file.getAtoms()) |atom_index| {
+            const atom = file.getAtom(atom_index) orelse continue;
+            if (!atom.isAlive()) continue;
+            atom.out_n_sect = backlinks[atom.out_n_sect];
+        }
+    }
+
+    if (self.getInternalObject()) |object| {
+        for (object.getAtoms()) |atom_index| {
+            const atom = object.getAtom(atom_index) orelse continue;
+            if (!atom.isAlive()) continue;
+            atom.out_n_sect = backlinks[atom.out_n_sect];
         }
     }
 }
@@ -2056,35 +1847,32 @@ pub fn addAtomsToSections(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    for (self.objects.items) |index| {
-        const object = self.getFile(index).?.object;
-        for (object.atoms.items) |atom_index| {
-            const atom = self.getAtom(atom_index) orelse continue;
-            if (!atom.flags.alive) continue;
+    const gpa = self.base.comp.gpa;
+
+    if (self.getZigObject()) |zo| {
+        for (zo.getAtoms()) |atom_index| {
+            const atom = zo.getAtom(atom_index) orelse continue;
+            if (!atom.isAlive()) continue;
+            if (self.isZigSection(atom.out_n_sect)) continue;
             const atoms = &self.sections.items(.atoms)[atom.out_n_sect];
-            try atoms.append(self.base.comp.gpa, atom_index);
+            try atoms.append(gpa, .{ .index = atom_index, .file = zo.index });
         }
-        for (object.symbols.items) |sym_index| {
-            const sym = self.getSymbol(sym_index);
-            const atom = sym.getAtom(self) orelse continue;
-            if (!atom.flags.alive) continue;
-            if (sym.getFile(self).?.getIndex() != index) continue;
-            sym.out_n_sect = atom.out_n_sect;
+    }
+    for (self.objects.items) |index| {
+        const file = self.getFile(index).?;
+        for (file.getAtoms()) |atom_index| {
+            const atom = file.getAtom(atom_index) orelse continue;
+            if (!atom.isAlive()) continue;
+            const atoms = &self.sections.items(.atoms)[atom.out_n_sect];
+            try atoms.append(gpa, .{ .index = atom_index, .file = index });
         }
     }
     if (self.getInternalObject()) |object| {
-        for (object.atoms.items) |atom_index| {
-            const atom = self.getAtom(atom_index) orelse continue;
-            if (!atom.flags.alive) continue;
+        for (object.getAtoms()) |atom_index| {
+            const atom = object.getAtom(atom_index) orelse continue;
+            if (!atom.isAlive()) continue;
             const atoms = &self.sections.items(.atoms)[atom.out_n_sect];
-            try atoms.append(self.base.comp.gpa, atom_index);
-        }
-        for (object.symbols.items) |sym_index| {
-            const sym = self.getSymbol(sym_index);
-            const atom = sym.getAtom(self) orelse continue;
-            if (!atom.flags.alive) continue;
-            if (sym.getFile(self).?.getIndex() != object.index) continue;
-            sym.out_n_sect = atom.out_n_sect;
+            try atoms.append(gpa, .{ .index = atom_index, .file = object.index });
         }
     }
 }
@@ -2101,31 +1889,44 @@ fn calcSectionSizes(self: *MachO) !void {
         header.@"align" = 3;
     }
 
-    const slice = self.sections.slice();
-    for (slice.items(.header), slice.items(.atoms)) |*header, atoms| {
-        if (atoms.items.len == 0) continue;
-        if (self.requiresThunks() and header.isCode()) continue;
-
-        for (atoms.items) |atom_index| {
-            const atom = self.getAtom(atom_index).?;
-            const atom_alignment = atom.alignment.toByteUnits() orelse 1;
-            const offset = mem.alignForward(u64, header.size, atom_alignment);
-            const padding = offset - header.size;
-            atom.value = offset;
-            header.size += padding + atom.size;
-            header.@"align" = @max(header.@"align", atom.alignment.toLog2Units());
-        }
-    }
-
-    if (self.requiresThunks()) {
+    const tp = self.base.comp.thread_pool;
+    var wg: WaitGroup = .{};
+    {
+        wg.reset();
+        defer wg.wait();
+        const slice = self.sections.slice();
         for (slice.items(.header), slice.items(.atoms), 0..) |header, atoms, i| {
-            if (!header.isCode()) continue;
             if (atoms.items.len == 0) continue;
+            if (self.requiresThunks() and header.isCode()) continue;
+            tp.spawnWg(&wg, calcSectionSizeWorker, .{ self, @as(u8, @intCast(i)) });
+        }
 
-            // Create jump/branch range extenders if needed.
-            try thunks.createThunks(@intCast(i), self);
+        if (self.requiresThunks()) {
+            for (slice.items(.header), slice.items(.atoms), 0..) |header, atoms, i| {
+                if (!header.isCode()) continue;
+                if (atoms.items.len == 0) continue;
+                tp.spawnWg(&wg, createThunksWorker, .{ self, @as(u8, @intCast(i)) });
+            }
+        }
+
+        // At this point, we can also calculate symtab and data-in-code linkedit section sizes
+        if (self.getZigObject()) |zo| {
+            tp.spawnWg(&wg, File.calcSymtabSize, .{ zo.asFile(), self });
+        }
+        for (self.objects.items) |index| {
+            tp.spawnWg(&wg, File.calcSymtabSize, .{ self.getFile(index).?, self });
+        }
+        for (self.dylibs.items) |index| {
+            tp.spawnWg(&wg, File.calcSymtabSize, .{ self.getFile(index).?, self });
+        }
+        if (self.getInternalObject()) |obj| {
+            tp.spawnWg(&wg, File.calcSymtabSize, .{ obj.asFile(), self });
         }
     }
+
+    if (self.has_errors.swap(false, .seq_cst)) return error.FlushFailure;
+
+    try self.calcSymtabSize();
 
     if (self.got_sect_index) |idx| {
         const header = &self.sections.items(.header)[idx];
@@ -2170,6 +1971,49 @@ fn calcSectionSizes(self: *MachO) !void {
             else => 0,
         };
     }
+}
+
+fn calcSectionSizeWorker(self: *MachO, sect_id: u8) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+    const doWork = struct {
+        fn doWork(macho_file: *MachO, header: *macho.section_64, atoms: []const Ref) !void {
+            for (atoms) |ref| {
+                const atom = ref.getAtom(macho_file).?;
+                const atom_alignment = atom.alignment.toByteUnits() orelse 1;
+                const offset = mem.alignForward(u64, header.size, atom_alignment);
+                const padding = offset - header.size;
+                atom.value = offset;
+                header.size += padding + atom.size;
+                header.@"align" = @max(header.@"align", atom.alignment.toLog2Units());
+            }
+        }
+    }.doWork;
+    const slice = self.sections.slice();
+    const header = &slice.items(.header)[sect_id];
+    const atoms = slice.items(.atoms)[sect_id].items;
+    doWork(self, header, atoms) catch |err| {
+        self.reportUnexpectedError("failed to calculate size of section '{s},{s}': {s}", .{
+            header.segName(),
+            header.sectName(),
+            @errorName(err),
+        }) catch {};
+        _ = self.has_errors.swap(true, .seq_cst);
+    };
+}
+
+fn createThunksWorker(self: *MachO, sect_id: u8) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+    thunks.createThunks(sect_id, self) catch |err| {
+        const header = self.sections.items(.header)[sect_id];
+        self.reportUnexpectedError("failed to create thunks and calculate size of section '{s},{s}': {s}", .{
+            header.segName(),
+            header.sectName(),
+            @errorName(err),
+        }) catch {};
+        _ = self.has_errors.swap(true, .seq_cst);
+    };
 }
 
 fn generateUnwindInfo(self: *MachO) !void {
@@ -2265,7 +2109,6 @@ fn initSegments(self: *MachO) !void {
         &self.text_seg_index,
         &self.linkedit_seg_index,
         &self.zig_text_seg_index,
-        &self.zig_got_seg_index,
         &self.zig_const_seg_index,
         &self.zig_data_seg_index,
         &self.zig_bss_seg_index,
@@ -2347,7 +2190,7 @@ fn allocateSections(self: *MachO) !void {
             header.size = 0;
 
             // Must move the entire section.
-            const new_offset = self.findFreeSpace(existing_size, page_size);
+            const new_offset = try self.findFreeSpace(existing_size, page_size);
 
             log.debug("moving '{s},{s}' from 0x{x} to 0x{x}", .{
                 header.segName(),
@@ -2407,77 +2250,61 @@ fn allocateSegments(self: *MachO) void {
 }
 
 fn allocateSyntheticSymbols(self: *MachO) void {
-    const text_seg = self.getTextSegment();
+    if (self.getInternalObject()) |obj| {
+        obj.allocateSyntheticSymbols(self);
 
-    if (self.mh_execute_header_index) |index| {
-        const global = self.getSymbol(index);
-        global.value = text_seg.vmaddr;
-    }
+        const text_seg = self.getTextSegment();
 
-    if (self.data_sect_index) |idx| {
-        const sect = self.sections.items(.header)[idx];
-        for (&[_]?Symbol.Index{
-            self.dso_handle_index,
-            self.mh_dylib_header_index,
-            self.dyld_private_index,
-        }) |maybe_index| {
-            if (maybe_index) |index| {
-                const global = self.getSymbol(index);
-                global.value = sect.addr;
-                global.out_n_sect = idx;
-            }
+        for (obj.boundary_symbols.items) |sym_index| {
+            const ref = obj.getSymbolRef(sym_index, self);
+            const sym = ref.getSymbol(self).?;
+            const name = sym.getName(self);
+
+            sym.value = text_seg.vmaddr;
+
+            if (mem.startsWith(u8, name, "segment$start$")) {
+                const segname = name["segment$start$".len..];
+                if (self.getSegmentByName(segname)) |seg_id| {
+                    const seg = self.segments.items[seg_id];
+                    sym.value = seg.vmaddr;
+                }
+            } else if (mem.startsWith(u8, name, "segment$end$")) {
+                const segname = name["segment$end$".len..];
+                if (self.getSegmentByName(segname)) |seg_id| {
+                    const seg = self.segments.items[seg_id];
+                    sym.value = seg.vmaddr + seg.vmsize;
+                }
+            } else if (mem.startsWith(u8, name, "section$start$")) {
+                const actual_name = name["section$start$".len..];
+                const sep = mem.indexOfScalar(u8, actual_name, '$').?; // TODO error rather than a panic
+                const segname = actual_name[0..sep];
+                const sectname = actual_name[sep + 1 ..];
+                if (self.getSectionByName(segname, sectname)) |sect_id| {
+                    const sect = self.sections.items(.header)[sect_id];
+                    sym.value = sect.addr;
+                    sym.out_n_sect = sect_id;
+                }
+            } else if (mem.startsWith(u8, name, "section$end$")) {
+                const actual_name = name["section$end$".len..];
+                const sep = mem.indexOfScalar(u8, actual_name, '$').?; // TODO error rather than a panic
+                const segname = actual_name[0..sep];
+                const sectname = actual_name[sep + 1 ..];
+                if (self.getSectionByName(segname, sectname)) |sect_id| {
+                    const sect = self.sections.items(.header)[sect_id];
+                    sym.value = sect.addr + sect.size;
+                    sym.out_n_sect = sect_id;
+                }
+            } else unreachable;
         }
-    }
 
-    for (self.boundary_symbols.items) |sym_index| {
-        const sym = self.getSymbol(sym_index);
-        const name = sym.getName(self);
+        if (self.objc_stubs.symbols.items.len > 0) {
+            const addr = self.sections.items(.header)[self.objc_stubs_sect_index.?].addr;
 
-        sym.flags.@"export" = false;
-        sym.value = text_seg.vmaddr;
-
-        if (mem.startsWith(u8, name, "segment$start$")) {
-            const segname = name["segment$start$".len..];
-            if (self.getSegmentByName(segname)) |seg_id| {
-                const seg = self.segments.items[seg_id];
-                sym.value = seg.vmaddr;
+            for (self.objc_stubs.symbols.items, 0..) |ref, idx| {
+                const sym = ref.getSymbol(self).?;
+                sym.value = addr + idx * ObjcStubsSection.entrySize(self.getTarget().cpu.arch);
+                sym.out_n_sect = self.objc_stubs_sect_index.?;
             }
-        } else if (mem.startsWith(u8, name, "segment$stop$")) {
-            const segname = name["segment$stop$".len..];
-            if (self.getSegmentByName(segname)) |seg_id| {
-                const seg = self.segments.items[seg_id];
-                sym.value = seg.vmaddr + seg.vmsize;
-            }
-        } else if (mem.startsWith(u8, name, "section$start$")) {
-            const actual_name = name["section$start$".len..];
-            const sep = mem.indexOfScalar(u8, actual_name, '$').?; // TODO error rather than a panic
-            const segname = actual_name[0..sep];
-            const sectname = actual_name[sep + 1 ..];
-            if (self.getSectionByName(segname, sectname)) |sect_id| {
-                const sect = self.sections.items(.header)[sect_id];
-                sym.value = sect.addr;
-                sym.out_n_sect = sect_id;
-            }
-        } else if (mem.startsWith(u8, name, "section$stop$")) {
-            const actual_name = name["section$stop$".len..];
-            const sep = mem.indexOfScalar(u8, actual_name, '$').?; // TODO error rather than a panic
-            const segname = actual_name[0..sep];
-            const sectname = actual_name[sep + 1 ..];
-            if (self.getSectionByName(segname, sectname)) |sect_id| {
-                const sect = self.sections.items(.header)[sect_id];
-                sym.value = sect.addr + sect.size;
-                sym.out_n_sect = sect_id;
-            }
-        } else unreachable;
-    }
-
-    if (self.objc_stubs.symbols.items.len > 0) {
-        const addr = self.sections.items(.header)[self.objc_stubs_sect_index.?].addr;
-
-        for (self.objc_stubs.symbols.items, 0..) |sym_index, idx| {
-            const sym = self.getSymbol(sym_index);
-            sym.value = addr + idx * ObjcStubsSection.entrySize(self.getTarget().cpu.arch);
-            sym.out_n_sect = self.objc_stubs_sect_index.?;
         }
     }
 }
@@ -2495,137 +2322,362 @@ fn allocateLinkeditSegment(self: *MachO) !void {
     const seg = self.getLinkeditSegment();
     seg.vmaddr = mem.alignForward(u64, vmaddr, page_size);
     seg.fileoff = mem.alignForward(u64, fileoff, page_size);
+
+    var off = math.cast(u32, seg.fileoff) orelse return error.Overflow;
+    // DYLD_INFO_ONLY
+    {
+        const cmd = &self.dyld_info_cmd;
+        cmd.rebase_off = off;
+        off += cmd.rebase_size;
+        cmd.bind_off = off;
+        off += cmd.bind_size;
+        cmd.weak_bind_off = off;
+        off += cmd.weak_bind_size;
+        cmd.lazy_bind_off = off;
+        off += cmd.lazy_bind_size;
+        cmd.export_off = off;
+        off += cmd.export_size;
+        off = mem.alignForward(u32, off, @alignOf(u64));
+    }
+
+    // FUNCTION_STARTS
+    {
+        const cmd = &self.function_starts_cmd;
+        cmd.dataoff = off;
+        off += cmd.datasize;
+        off = mem.alignForward(u32, off, @alignOf(u64));
+    }
+
+    // DATA_IN_CODE
+    {
+        const cmd = &self.data_in_code_cmd;
+        cmd.dataoff = off;
+        off += cmd.datasize;
+        off = mem.alignForward(u32, off, @alignOf(u64));
+    }
+
+    // SYMTAB (symtab)
+    {
+        const cmd = &self.symtab_cmd;
+        cmd.symoff = off;
+        off += cmd.nsyms * @sizeOf(macho.nlist_64);
+        off = mem.alignForward(u32, off, @alignOf(u32));
+    }
+
+    // DYSYMTAB
+    {
+        const cmd = &self.dysymtab_cmd;
+        cmd.indirectsymoff = off;
+        off += cmd.nindirectsyms * @sizeOf(u32);
+        off = mem.alignForward(u32, off, @alignOf(u64));
+    }
+
+    // SYMTAB (strtab)
+    {
+        const cmd = &self.symtab_cmd;
+        cmd.stroff = off;
+        off += cmd.strsize;
+    }
+
+    seg.filesize = off - seg.fileoff;
 }
 
-fn initDyldInfoSections(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const gpa = self.base.comp.gpa;
-
-    if (self.zig_got_sect_index != null) try self.zig_got.addDyldRelocs(self);
-    if (self.got_sect_index != null) try self.got.addDyldRelocs(self);
-    if (self.tlv_ptr_sect_index != null) try self.tlv_ptr.addDyldRelocs(self);
-    if (self.la_symbol_ptr_sect_index != null) try self.la_symbol_ptr.addDyldRelocs(self);
-    try self.initExportTrie();
-
-    var objects = try std.ArrayList(File.Index).initCapacity(gpa, self.objects.items.len + 1);
-    defer objects.deinit();
-    if (self.getZigObject()) |zo| objects.appendAssumeCapacity(zo.index);
-    objects.appendSliceAssumeCapacity(self.objects.items);
-
-    var nrebases: usize = 0;
-    var nbinds: usize = 0;
-    var nweak_binds: usize = 0;
-    for (objects.items) |index| {
-        const ctx = switch (self.getFile(index).?) {
-            .zig_object => |x| x.dynamic_relocs,
-            .object => |x| x.dynamic_relocs,
-            else => unreachable,
-        };
-        nrebases += ctx.rebase_relocs;
-        nbinds += ctx.bind_relocs;
-        nweak_binds += ctx.weak_bind_relocs;
-    }
-    if (self.getInternalObject()) |int| {
-        nrebases += int.num_rebase_relocs;
-    }
-    try self.rebase.entries.ensureUnusedCapacity(gpa, nrebases);
-    try self.bind.entries.ensureUnusedCapacity(gpa, nbinds);
-    try self.weak_bind.entries.ensureUnusedCapacity(gpa, nweak_binds);
-}
-
-fn initExportTrie(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const gpa = self.base.comp.gpa;
-    try self.export_trie.init(gpa);
-
-    const seg = self.getTextSegment();
-    for (self.objects.items) |index| {
-        for (self.getFile(index).?.getSymbols()) |sym_index| {
-            const sym = self.getSymbol(sym_index);
-            if (!sym.flags.@"export") continue;
-            if (sym.getAtom(self)) |atom| if (!atom.flags.alive) continue;
-            if (sym.getFile(self).?.getIndex() != index) continue;
-            var flags: u64 = if (sym.flags.abs)
-                macho.EXPORT_SYMBOL_FLAGS_KIND_ABSOLUTE
-            else if (sym.flags.tlv)
-                macho.EXPORT_SYMBOL_FLAGS_KIND_THREAD_LOCAL
-            else
-                macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR;
-            if (sym.flags.weak) {
-                flags |= macho.EXPORT_SYMBOL_FLAGS_WEAK_DEFINITION;
-                self.weak_defines = true;
-                self.binds_to_weak = true;
-            }
-            try self.export_trie.put(gpa, .{
-                .name = sym.getName(self),
-                .vmaddr_offset = sym.getAddress(.{ .stubs = false }, self) - seg.vmaddr,
-                .export_flags = flags,
-            });
-        }
-    }
-
-    if (self.mh_execute_header_index) |index| {
-        const sym = self.getSymbol(index);
-        try self.export_trie.put(gpa, .{
-            .name = sym.getName(self),
-            .vmaddr_offset = sym.getAddress(.{}, self) - seg.vmaddr,
-            .export_flags = macho.EXPORT_SYMBOL_FLAGS_KIND_REGULAR,
-        });
-    }
-}
-
-fn writeAtoms(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const gpa = self.base.comp.gpa;
-    var arena = std.heap.ArenaAllocator.init(gpa);
-    defer arena.deinit();
-
-    const cpu_arch = self.getTarget().cpu.arch;
+fn resizeSections(self: *MachO) !void {
     const slice = self.sections.slice();
-
-    var has_resolve_error = false;
-    for (slice.items(.header), slice.items(.atoms)) |header, atoms| {
-        if (atoms.items.len == 0) continue;
+    for (slice.items(.header), slice.items(.out), 0..) |header, *out, n_sect| {
         if (header.isZerofill()) continue;
-
+        if (self.isZigSection(@intCast(n_sect))) continue; // TODO this is horrible
+        const cpu_arch = self.getTarget().cpu.arch;
         const size = math.cast(usize, header.size) orelse return error.Overflow;
-        const buffer = try gpa.alloc(u8, size);
-        defer gpa.free(buffer);
+        try out.resize(self.base.comp.gpa, size);
         const padding_byte: u8 = if (header.isCode() and cpu_arch == .x86_64) 0xcc else 0;
-        @memset(buffer, padding_byte);
+        @memset(out.items, padding_byte);
+    }
+}
 
-        for (atoms.items) |atom_index| {
-            const atom = self.getAtom(atom_index).?;
-            assert(atom.flags.alive);
-            const off = math.cast(usize, atom.value) orelse return error.Overflow;
-            const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
-            try atom.getData(self, buffer[off..][0..atom_size]);
-            atom.resolveRelocs(self, buffer[off..][0..atom_size]) catch |err| switch (err) {
-                error.ResolveFailed => has_resolve_error = true,
-                else => |e| return e,
-            };
+fn writeSectionsAndUpdateLinkeditSizes(self: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = self.base.comp.gpa;
+
+    const cmd = self.symtab_cmd;
+    try self.symtab.resize(gpa, cmd.nsyms);
+    try self.strtab.resize(gpa, cmd.strsize);
+    self.strtab.items[0] = 0;
+
+    const tp = self.base.comp.thread_pool;
+    var wg: WaitGroup = .{};
+    {
+        wg.reset();
+        defer wg.wait();
+
+        for (self.objects.items) |index| {
+            tp.spawnWg(&wg, writeAtomsWorker, .{ self, self.getFile(index).? });
+        }
+        if (self.getZigObject()) |zo| {
+            tp.spawnWg(&wg, writeAtomsWorker, .{ self, zo.asFile() });
+        }
+        if (self.getInternalObject()) |obj| {
+            tp.spawnWg(&wg, writeAtomsWorker, .{ self, obj.asFile() });
+        }
+        for (self.thunks.items) |thunk| {
+            tp.spawnWg(&wg, writeThunkWorker, .{ self, thunk });
         }
 
-        try self.base.file.?.pwriteAll(buffer, header.offset);
+        const slice = self.sections.slice();
+        for (&[_]?u8{
+            self.eh_frame_sect_index,
+            self.unwind_info_sect_index,
+            self.got_sect_index,
+            self.stubs_sect_index,
+            self.la_symbol_ptr_sect_index,
+            self.tlv_ptr_sect_index,
+            self.objc_stubs_sect_index,
+        }) |maybe_sect_id| {
+            if (maybe_sect_id) |sect_id| {
+                const out = slice.items(.out)[sect_id].items;
+                tp.spawnWg(&wg, writeSyntheticSectionWorker, .{ self, sect_id, out });
+            }
+        }
+
+        if (self.la_symbol_ptr_sect_index) |_| {
+            tp.spawnWg(&wg, updateLazyBindSizeWorker, .{self});
+        }
+
+        tp.spawnWg(&wg, updateLinkeditSizeWorker, .{ self, .rebase });
+        tp.spawnWg(&wg, updateLinkeditSizeWorker, .{ self, .bind });
+        tp.spawnWg(&wg, updateLinkeditSizeWorker, .{ self, .weak_bind });
+        tp.spawnWg(&wg, updateLinkeditSizeWorker, .{ self, .export_trie });
+        tp.spawnWg(&wg, updateLinkeditSizeWorker, .{ self, .data_in_code });
+
+        if (self.getZigObject()) |zo| {
+            tp.spawnWg(&wg, File.writeSymtab, .{ zo.asFile(), self, self });
+        }
+        for (self.objects.items) |index| {
+            tp.spawnWg(&wg, File.writeSymtab, .{ self.getFile(index).?, self, self });
+        }
+        for (self.dylibs.items) |index| {
+            tp.spawnWg(&wg, File.writeSymtab, .{ self.getFile(index).?, self, self });
+        }
+        if (self.getInternalObject()) |obj| {
+            tp.spawnWg(&wg, File.writeSymtab, .{ obj.asFile(), self, self });
+        }
     }
 
-    for (self.thunks.items) |thunk| {
-        const header = slice.items(.header)[thunk.out_n_sect];
-        const offset = thunk.value + header.offset;
-        const buffer = try gpa.alloc(u8, thunk.size());
-        defer gpa.free(buffer);
-        var stream = std.io.fixedBufferStream(buffer);
-        try thunk.write(self, stream.writer());
-        try self.base.file.?.pwriteAll(buffer, offset);
-    }
+    if (self.has_errors.swap(false, .seq_cst)) return error.FlushFailure;
+}
 
-    if (has_resolve_error) return error.ResolveFailed;
+fn writeAtomsWorker(self: *MachO, file: File) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+    file.writeAtoms(self) catch |err| {
+        self.reportParseError2(file.getIndex(), "failed to resolve relocations and write atoms: {s}", .{
+            @errorName(err),
+        }) catch {};
+        _ = self.has_errors.swap(true, .seq_cst);
+    };
+}
+
+fn writeThunkWorker(self: *MachO, thunk: Thunk) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+    const doWork = struct {
+        fn doWork(th: Thunk, buffer: []u8, macho_file: *MachO) !void {
+            const off = math.cast(usize, th.value) orelse return error.Overflow;
+            const size = th.size();
+            var stream = std.io.fixedBufferStream(buffer[off..][0..size]);
+            try th.write(macho_file, stream.writer());
+        }
+    }.doWork;
+    const out = self.sections.items(.out)[thunk.out_n_sect].items;
+    doWork(thunk, out, self) catch |err| {
+        self.reportUnexpectedError("failed to write contents of thunk: {s}", .{@errorName(err)}) catch {};
+        _ = self.has_errors.swap(true, .seq_cst);
+    };
+}
+
+fn writeSyntheticSectionWorker(self: *MachO, sect_id: u8, out: []u8) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const Tag = enum {
+        eh_frame,
+        unwind_info,
+        got,
+        stubs,
+        la_symbol_ptr,
+        tlv_ptr,
+        objc_stubs,
+    };
+
+    const doWork = struct {
+        fn doWork(macho_file: *MachO, tag: Tag, buffer: []u8) !void {
+            var stream = std.io.fixedBufferStream(buffer);
+            switch (tag) {
+                .eh_frame => eh_frame.write(macho_file, buffer),
+                .unwind_info => try macho_file.unwind_info.write(macho_file, buffer),
+                .got => try macho_file.got.write(macho_file, stream.writer()),
+                .stubs => try macho_file.stubs.write(macho_file, stream.writer()),
+                .la_symbol_ptr => try macho_file.la_symbol_ptr.write(macho_file, stream.writer()),
+                .tlv_ptr => try macho_file.tlv_ptr.write(macho_file, stream.writer()),
+                .objc_stubs => try macho_file.objc_stubs.write(macho_file, stream.writer()),
+            }
+        }
+    }.doWork;
+
+    const header = self.sections.items(.header)[sect_id];
+    const tag: Tag = tag: {
+        if (self.eh_frame_sect_index != null and
+            self.eh_frame_sect_index.? == sect_id) break :tag .eh_frame;
+        if (self.unwind_info_sect_index != null and
+            self.unwind_info_sect_index.? == sect_id) break :tag .unwind_info;
+        if (self.got_sect_index != null and
+            self.got_sect_index.? == sect_id) break :tag .got;
+        if (self.stubs_sect_index != null and
+            self.stubs_sect_index.? == sect_id) break :tag .stubs;
+        if (self.la_symbol_ptr_sect_index != null and
+            self.la_symbol_ptr_sect_index.? == sect_id) break :tag .la_symbol_ptr;
+        if (self.tlv_ptr_sect_index != null and
+            self.tlv_ptr_sect_index.? == sect_id) break :tag .tlv_ptr;
+        if (self.objc_stubs_sect_index != null and
+            self.objc_stubs_sect_index.? == sect_id) break :tag .objc_stubs;
+        unreachable;
+    };
+    doWork(self, tag, out) catch |err| {
+        self.reportUnexpectedError("could not write section '{s},{s}': {s}", .{
+            header.segName(),
+            header.sectName(),
+            @errorName(err),
+        }) catch {};
+        _ = self.has_errors.swap(true, .seq_cst);
+    };
+}
+
+fn updateLazyBindSizeWorker(self: *MachO) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+    const doWork = struct {
+        fn doWork(macho_file: *MachO) !void {
+            try macho_file.lazy_bind.updateSize(macho_file);
+            const sect_id = macho_file.stubs_helper_sect_index.?;
+            const out = &macho_file.sections.items(.out)[sect_id];
+            var stream = std.io.fixedBufferStream(out.items);
+            try macho_file.stubs_helper.write(macho_file, stream.writer());
+        }
+    }.doWork;
+    doWork(self) catch |err| {
+        self.reportUnexpectedError("could not calculate size of lazy binding section: {s}", .{
+            @errorName(err),
+        }) catch {};
+        _ = self.has_errors.swap(true, .seq_cst);
+    };
+}
+
+pub fn updateLinkeditSizeWorker(self: *MachO, tag: enum {
+    rebase,
+    bind,
+    weak_bind,
+    export_trie,
+    data_in_code,
+}) void {
+    const res = switch (tag) {
+        .rebase => self.rebase.updateSize(self),
+        .bind => self.bind.updateSize(self),
+        .weak_bind => self.weak_bind.updateSize(self),
+        .export_trie => self.export_trie.updateSize(self),
+        .data_in_code => self.data_in_code.updateSize(self),
+    };
+    res catch |err| {
+        self.reportUnexpectedError("could not calculate size of {s} section: {s}", .{
+            @tagName(tag),
+            @errorName(err),
+        }) catch {};
+        _ = self.has_errors.swap(true, .seq_cst);
+    };
+}
+
+fn writeSectionsToFile(self: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const slice = self.sections.slice();
+    for (slice.items(.header), slice.items(.out)) |header, out| {
+        try self.base.file.?.pwriteAll(out.items, header.offset);
+    }
+}
+
+fn writeLinkeditSectionsToFile(self: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+    try self.writeDyldInfo();
+    try self.writeDataInCode();
+    try self.writeSymtabToFile();
+    try self.writeIndsymtab();
+}
+
+fn writeDyldInfo(self: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = self.base.comp.gpa;
+    const base_off = self.getLinkeditSegment().fileoff;
+    const cmd = self.dyld_info_cmd;
+    var needed_size: u32 = 0;
+    needed_size += cmd.rebase_size;
+    needed_size += cmd.bind_size;
+    needed_size += cmd.weak_bind_size;
+    needed_size += cmd.lazy_bind_size;
+    needed_size += cmd.export_size;
+
+    const buffer = try gpa.alloc(u8, needed_size);
+    defer gpa.free(buffer);
+    @memset(buffer, 0);
+
+    var stream = std.io.fixedBufferStream(buffer);
+    const writer = stream.writer();
+
+    try self.rebase.write(writer);
+    try stream.seekTo(cmd.bind_off - base_off);
+    try self.bind.write(writer);
+    try stream.seekTo(cmd.weak_bind_off - base_off);
+    try self.weak_bind.write(writer);
+    try stream.seekTo(cmd.lazy_bind_off - base_off);
+    try self.lazy_bind.write(writer);
+    try stream.seekTo(cmd.export_off - base_off);
+    try self.export_trie.write(writer);
+    try self.base.file.?.pwriteAll(buffer, cmd.rebase_off);
+}
+
+pub fn writeDataInCode(self: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+    const gpa = self.base.comp.gpa;
+    const cmd = self.data_in_code_cmd;
+    var buffer = try std.ArrayList(u8).initCapacity(gpa, self.data_in_code.size());
+    defer buffer.deinit();
+    try self.data_in_code.write(self, buffer.writer());
+    try self.base.file.?.pwriteAll(buffer.items, cmd.dataoff);
+}
+
+fn writeIndsymtab(self: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+    const gpa = self.base.comp.gpa;
+    const cmd = self.dysymtab_cmd;
+    const needed_size = cmd.nindirectsyms * @sizeOf(u32);
+    var buffer = try std.ArrayList(u8).initCapacity(gpa, needed_size);
+    defer buffer.deinit();
+    try self.indsymtab.write(self, buffer.writer());
+    try self.base.file.?.pwriteAll(buffer.items, cmd.indirectsymoff);
+}
+
+pub fn writeSymtabToFile(self: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+    const cmd = self.symtab_cmd;
+    try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.symtab.items), cmd.symoff);
+    try self.base.file.?.pwriteAll(self.strtab.items, cmd.stroff);
 }
 
 fn writeUnwindInfo(self: *MachO) !void {
@@ -2653,204 +2705,11 @@ fn writeUnwindInfo(self: *MachO) !void {
     }
 }
 
-fn finalizeDyldInfoSections(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-    const gpa = self.base.comp.gpa;
-
-    try self.rebase.finalize(gpa);
-    try self.bind.finalize(gpa, self);
-    try self.weak_bind.finalize(gpa, self);
-    try self.lazy_bind.finalize(gpa, self);
-    try self.export_trie.finalize(gpa);
-}
-
-fn writeSyntheticSections(self: *MachO) !void {
+fn calcSymtabSize(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
-
-    if (self.got_sect_index) |sect_id| {
-        const header = self.sections.items(.header)[sect_id];
-        const size = math.cast(usize, header.size) orelse return error.Overflow;
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, size);
-        defer buffer.deinit();
-        try self.got.write(self, buffer.writer());
-        assert(buffer.items.len == header.size);
-        try self.base.file.?.pwriteAll(buffer.items, header.offset);
-    }
-
-    if (self.stubs_sect_index) |sect_id| {
-        const header = self.sections.items(.header)[sect_id];
-        const size = math.cast(usize, header.size) orelse return error.Overflow;
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, size);
-        defer buffer.deinit();
-        try self.stubs.write(self, buffer.writer());
-        assert(buffer.items.len == header.size);
-        try self.base.file.?.pwriteAll(buffer.items, header.offset);
-    }
-
-    if (self.stubs_helper_sect_index) |sect_id| {
-        const header = self.sections.items(.header)[sect_id];
-        const size = math.cast(usize, header.size) orelse return error.Overflow;
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, size);
-        defer buffer.deinit();
-        try self.stubs_helper.write(self, buffer.writer());
-        assert(buffer.items.len == header.size);
-        try self.base.file.?.pwriteAll(buffer.items, header.offset);
-    }
-
-    if (self.la_symbol_ptr_sect_index) |sect_id| {
-        const header = self.sections.items(.header)[sect_id];
-        const size = math.cast(usize, header.size) orelse return error.Overflow;
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, size);
-        defer buffer.deinit();
-        try self.la_symbol_ptr.write(self, buffer.writer());
-        assert(buffer.items.len == header.size);
-        try self.base.file.?.pwriteAll(buffer.items, header.offset);
-    }
-
-    if (self.tlv_ptr_sect_index) |sect_id| {
-        const header = self.sections.items(.header)[sect_id];
-        const size = math.cast(usize, header.size) orelse return error.Overflow;
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, size);
-        defer buffer.deinit();
-        try self.tlv_ptr.write(self, buffer.writer());
-        assert(buffer.items.len == header.size);
-        try self.base.file.?.pwriteAll(buffer.items, header.offset);
-    }
-
-    if (self.objc_stubs_sect_index) |sect_id| {
-        const header = self.sections.items(.header)[sect_id];
-        const size = math.cast(usize, header.size) orelse return error.Overflow;
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, size);
-        defer buffer.deinit();
-        try self.objc_stubs.write(self, buffer.writer());
-        assert(buffer.items.len == header.size);
-        try self.base.file.?.pwriteAll(buffer.items, header.offset);
-    }
-}
-
-fn writeDyldInfoSections(self: *MachO, off: u32) !u32 {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const gpa = self.base.comp.gpa;
-    const cmd = &self.dyld_info_cmd;
-    var needed_size: u32 = 0;
-
-    cmd.rebase_off = needed_size;
-    cmd.rebase_size = mem.alignForward(u32, @intCast(self.rebase.size()), @alignOf(u64));
-    needed_size += cmd.rebase_size;
-
-    cmd.bind_off = needed_size;
-    cmd.bind_size = mem.alignForward(u32, @intCast(self.bind.size()), @alignOf(u64));
-    needed_size += cmd.bind_size;
-
-    cmd.weak_bind_off = needed_size;
-    cmd.weak_bind_size = mem.alignForward(u32, @intCast(self.weak_bind.size()), @alignOf(u64));
-    needed_size += cmd.weak_bind_size;
-
-    cmd.lazy_bind_off = needed_size;
-    cmd.lazy_bind_size = mem.alignForward(u32, @intCast(self.lazy_bind.size()), @alignOf(u64));
-    needed_size += cmd.lazy_bind_size;
-
-    cmd.export_off = needed_size;
-    cmd.export_size = mem.alignForward(u32, @intCast(self.export_trie.size), @alignOf(u64));
-    needed_size += cmd.export_size;
-
-    const buffer = try gpa.alloc(u8, needed_size);
-    defer gpa.free(buffer);
-    @memset(buffer, 0);
-
-    var stream = std.io.fixedBufferStream(buffer);
-    const writer = stream.writer();
-
-    try self.rebase.write(writer);
-    try stream.seekTo(cmd.bind_off);
-    try self.bind.write(writer);
-    try stream.seekTo(cmd.weak_bind_off);
-    try self.weak_bind.write(writer);
-    try stream.seekTo(cmd.lazy_bind_off);
-    try self.lazy_bind.write(writer);
-    try stream.seekTo(cmd.export_off);
-    try self.export_trie.write(writer);
-
-    cmd.rebase_off += off;
-    cmd.bind_off += off;
-    cmd.weak_bind_off += off;
-    cmd.lazy_bind_off += off;
-    cmd.export_off += off;
-
-    try self.base.file.?.pwriteAll(buffer, off);
-
-    return off + needed_size;
-}
-
-fn writeFunctionStarts(self: *MachO, off: u32) !u32 {
-    // TODO actually write it out
-    const cmd = &self.function_starts_cmd;
-    cmd.dataoff = off;
-    return off;
-}
-
-pub fn writeDataInCode(self: *MachO, base_address: u64, off: u32) !u32 {
-    const cmd = &self.data_in_code_cmd;
-    cmd.dataoff = off;
-
-    const gpa = self.base.comp.gpa;
-    var dices = std.ArrayList(macho.data_in_code_entry).init(gpa);
-    defer dices.deinit();
-
-    for (self.objects.items) |index| {
-        const object = self.getFile(index).?.object;
-        const in_dices = object.getDataInCode();
-
-        try dices.ensureUnusedCapacity(in_dices.len);
-
-        var next_dice: usize = 0;
-        for (object.atoms.items) |atom_index| {
-            if (next_dice >= in_dices.len) break;
-            const atom = self.getAtom(atom_index) orelse continue;
-            const start_off = atom.getInputAddress(self);
-            const end_off = start_off + atom.size;
-            const start_dice = next_dice;
-
-            if (end_off < in_dices[next_dice].offset) continue;
-
-            while (next_dice < in_dices.len and
-                in_dices[next_dice].offset < end_off) : (next_dice += 1)
-            {}
-
-            if (atom.flags.alive) for (in_dices[start_dice..next_dice]) |dice| {
-                dices.appendAssumeCapacity(.{
-                    .offset = @intCast(atom.getAddress(self) + dice.offset - start_off - base_address),
-                    .length = dice.length,
-                    .kind = dice.kind,
-                });
-            };
-        }
-    }
-
-    const needed_size = math.cast(u32, dices.items.len * @sizeOf(macho.data_in_code_entry)) orelse return error.Overflow;
-    cmd.datasize = needed_size;
-
-    try self.base.file.?.pwriteAll(mem.sliceAsBytes(dices.items), cmd.dataoff);
-
-    return off + needed_size;
-}
-
-pub fn calcSymtabSize(self: *MachO) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-    const gpa = self.base.comp.gpa;
-
-    var nlocals: u32 = 0;
-    var nstabs: u32 = 0;
-    var nexports: u32 = 0;
-    var nimports: u32 = 0;
-    var strsize: u32 = 0;
 
     var files = std.ArrayList(File.Index).init(gpa);
     defer files.deinit();
@@ -2859,6 +2718,12 @@ pub fn calcSymtabSize(self: *MachO) !void {
     for (self.objects.items) |index| files.appendAssumeCapacity(index);
     for (self.dylibs.items) |index| files.appendAssumeCapacity(index);
     if (self.internal_object) |index| files.appendAssumeCapacity(index);
+
+    var nlocals: u32 = 0;
+    var nstabs: u32 = 0;
+    var nexports: u32 = 0;
+    var nimports: u32 = 0;
+    var strsize: u32 = 1;
 
     for (files.items) |index| {
         const file = self.getFile(index).?;
@@ -2869,7 +2734,7 @@ pub fn calcSymtabSize(self: *MachO) !void {
         ctx.istab = nstabs;
         ctx.iexport = nexports;
         ctx.iimport = nimports;
-        try file.calcSymtabSize(self);
+        ctx.stroff = strsize;
         nlocals += ctx.nlocals;
         nstabs += ctx.nstabs;
         nexports += ctx.nexports;
@@ -2887,10 +2752,12 @@ pub fn calcSymtabSize(self: *MachO) !void {
         ctx.iimport += nlocals + nstabs + nexports;
     }
 
+    try self.indsymtab.updateSize(self);
+
     {
         const cmd = &self.symtab_cmd;
         cmd.nsyms = nlocals + nstabs + nexports + nimports;
-        cmd.strsize = strsize + 1;
+        cmd.strsize = strsize;
     }
 
     {
@@ -2904,62 +2771,9 @@ pub fn calcSymtabSize(self: *MachO) !void {
     }
 }
 
-pub fn writeSymtab(self: *MachO, off: u32) !u32 {
-    const tracy = trace(@src());
-    defer tracy.end();
-    const gpa = self.base.comp.gpa;
-    const cmd = &self.symtab_cmd;
-    cmd.symoff = off;
-
-    try self.symtab.resize(gpa, cmd.nsyms);
-    try self.strtab.ensureUnusedCapacity(gpa, cmd.strsize - 1);
-
-    if (self.getZigObject()) |zo| {
-        zo.writeSymtab(self, self);
-    }
-    for (self.objects.items) |index| {
-        try self.getFile(index).?.writeSymtab(self, self);
-    }
-    for (self.dylibs.items) |index| {
-        try self.getFile(index).?.writeSymtab(self, self);
-    }
-    if (self.getInternalObject()) |internal| {
-        internal.writeSymtab(self, self);
-    }
-
-    assert(self.strtab.items.len == cmd.strsize);
-
-    try self.base.file.?.pwriteAll(mem.sliceAsBytes(self.symtab.items), cmd.symoff);
-
-    return off + cmd.nsyms * @sizeOf(macho.nlist_64);
-}
-
-fn writeIndsymtab(self: *MachO, off: u32) !u32 {
-    const gpa = self.base.comp.gpa;
-    const cmd = &self.dysymtab_cmd;
-    cmd.indirectsymoff = off;
-    cmd.nindirectsyms = self.indsymtab.nsyms(self);
-
-    const needed_size = cmd.nindirectsyms * @sizeOf(u32);
-    var buffer = try std.ArrayList(u8).initCapacity(gpa, needed_size);
-    defer buffer.deinit();
-    try self.indsymtab.write(self, buffer.writer());
-
-    try self.base.file.?.pwriteAll(buffer.items, cmd.indirectsymoff);
-    assert(buffer.items.len == needed_size);
-
-    return off + needed_size;
-}
-
-pub fn writeStrtab(self: *MachO, off: u32) !u32 {
-    const cmd = &self.symtab_cmd;
-    cmd.stroff = off;
-    try self.base.file.?.pwriteAll(self.strtab.items, cmd.stroff);
-    return off + cmd.strsize;
-}
-
 fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
-    const gpa = self.base.comp.gpa;
+    const comp = self.base.comp;
+    const gpa = comp.gpa;
     const needed_size = try load_commands.calcLoadCommandsSize(self, false);
     const buffer = try gpa.alloc(u8, needed_size);
     defer gpa.free(buffer);
@@ -2996,18 +2810,20 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
     try load_commands.writeDylinkerLC(writer);
     ncmds += 1;
 
-    if (self.entry_index) |global_index| {
-        const sym = self.getSymbol(global_index);
-        const seg = self.getTextSegment();
-        const entryoff: u32 = if (sym.getFile(self) == null)
-            0
-        else
-            @as(u32, @intCast(sym.getAddress(.{ .stubs = true }, self) - seg.vmaddr));
-        try writer.writeStruct(macho.entry_point_command{
-            .entryoff = entryoff,
-            .stacksize = self.base.stack_size,
-        });
-        ncmds += 1;
+    if (self.getInternalObject()) |obj| {
+        if (obj.getEntryRef(self)) |ref| {
+            const sym = ref.getSymbol(self).?;
+            const seg = self.getTextSegment();
+            const entryoff: u32 = if (sym.getFile(self) == null)
+                0
+            else
+                @as(u32, @intCast(sym.getAddress(.{ .stubs = true }, self) - seg.vmaddr));
+            try writer.writeStruct(macho.entry_point_command{
+                .entryoff = entryoff,
+                .stacksize = self.base.stack_size,
+            });
+            ncmds += 1;
+        }
     }
 
     if (self.base.isDynLib()) {
@@ -3015,8 +2831,16 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
         ncmds += 1;
     }
 
-    try load_commands.writeRpathLCs(self.base.rpath_list, writer);
-    ncmds += self.base.rpath_list.len;
+    for (self.base.rpath_list) |rpath| {
+        try load_commands.writeRpathLC(rpath, writer);
+        ncmds += 1;
+    }
+    if (comp.config.any_sanitize_thread) {
+        const path = comp.tsan_lib.?.full_object_path;
+        const rpath = std.fs.path.dirname(path) orelse ".";
+        try load_commands.writeRpathLC(rpath, writer);
+        ncmds += 1;
+    }
 
     try writer.writeStruct(macho.source_version_command{ .version = 0 });
     ncmds += 1;
@@ -3098,13 +2922,13 @@ fn writeHeader(self: *MachO, ncmds: usize, sizeofcmds: usize) !void {
         header.flags |= macho.MH_NO_REEXPORTED_DYLIBS;
     }
 
-    if (self.has_tlv) {
+    if (self.has_tlv.load(.seq_cst)) {
         header.flags |= macho.MH_HAS_TLV_DESCRIPTORS;
     }
-    if (self.binds_to_weak) {
+    if (self.binds_to_weak.load(.seq_cst)) {
         header.flags |= macho.MH_BINDS_TO_WEAK;
     }
-    if (self.weak_defines) {
+    if (self.weak_defines.load(.seq_cst)) {
         header.flags |= macho.MH_WEAK_DEFINES;
     }
 
@@ -3167,75 +2991,72 @@ pub fn writeCodeSignature(self: *MachO, code_sig: *CodeSignature) !void {
     try self.base.file.?.pwriteAll(buffer.items, offset);
 }
 
-pub fn updateFunc(self: *MachO, mod: *Module, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(self: *MachO, pt: Zcu.PerThread, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(mod, func_index, air, liveness);
-    return self.getZigObject().?.updateFunc(self, mod, func_index, air, liveness);
+    if (self.llvm_object) |llvm_object| return llvm_object.updateFunc(pt, func_index, air, liveness);
+    return self.getZigObject().?.updateFunc(self, pt, func_index, air, liveness);
 }
 
-pub fn lowerUnnamedConst(self: *MachO, val: Value, decl_index: InternPool.DeclIndex) !u32 {
-    return self.getZigObject().?.lowerUnnamedConst(self, val, decl_index);
-}
-
-pub fn updateDecl(self: *MachO, mod: *Module, decl_index: InternPool.DeclIndex) !void {
+pub fn updateNav(self: *MachO, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !void {
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object| return llvm_object.updateDecl(mod, decl_index);
-    return self.getZigObject().?.updateDecl(self, mod, decl_index);
+    if (self.llvm_object) |llvm_object| return llvm_object.updateNav(pt, nav);
+    return self.getZigObject().?.updateNav(self, pt, nav);
 }
 
-pub fn updateDeclLineNumber(self: *MachO, module: *Module, decl_index: InternPool.DeclIndex) !void {
+pub fn updateNavLineNumber(self: *MachO, pt: Zcu.PerThread, nav: InternPool.NavIndex) !void {
     if (self.llvm_object) |_| return;
-    return self.getZigObject().?.updateDeclLineNumber(module, decl_index);
+    return self.getZigObject().?.updateNavLineNumber(pt, nav);
 }
 
 pub fn updateExports(
     self: *MachO,
-    mod: *Module,
+    pt: Zcu.PerThread,
     exported: Module.Exported,
-    exports: []const *Module.Export,
+    export_indices: []const u32,
 ) link.File.UpdateExportsError!void {
     if (build_options.skip_non_native and builtin.object_format != .macho) {
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
-    if (self.llvm_object) |llvm_object| return llvm_object.updateExports(mod, exported, exports);
-    return self.getZigObject().?.updateExports(self, mod, exported, exports);
+    if (self.llvm_object) |llvm_object| return llvm_object.updateExports(pt, exported, export_indices);
+    return self.getZigObject().?.updateExports(self, pt, exported, export_indices);
 }
 
-pub fn deleteDeclExport(
+pub fn deleteExport(
     self: *MachO,
-    decl_index: InternPool.DeclIndex,
+    exported: Zcu.Exported,
     name: InternPool.NullTerminatedString,
-) Allocator.Error!void {
+) void {
     if (self.llvm_object) |_| return;
-    return self.getZigObject().?.deleteDeclExport(self, decl_index, name);
+    return self.getZigObject().?.deleteExport(self, exported, name);
 }
 
-pub fn freeDecl(self: *MachO, decl_index: InternPool.DeclIndex) void {
-    if (self.llvm_object) |llvm_object| return llvm_object.freeDecl(decl_index);
-    return self.getZigObject().?.freeDecl(decl_index);
+pub fn freeNav(self: *MachO, nav: InternPool.Nav.Index) void {
+    if (self.llvm_object) |llvm_object| return llvm_object.freeNav(nav);
+    return self.getZigObject().?.freeNav(nav);
 }
 
-pub fn getDeclVAddr(self: *MachO, decl_index: InternPool.DeclIndex, reloc_info: link.File.RelocInfo) !u64 {
+pub fn getNavVAddr(self: *MachO, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
-    return self.getZigObject().?.getDeclVAddr(self, decl_index, reloc_info);
+    return self.getZigObject().?.getNavVAddr(self, pt, nav_index, reloc_info);
 }
 
-pub fn lowerAnonDecl(
+pub fn lowerUav(
     self: *MachO,
-    decl_val: InternPool.Index,
+    pt: Zcu.PerThread,
+    uav: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
-    src_loc: Module.SrcLoc,
-) !codegen.Result {
-    return self.getZigObject().?.lowerAnonDecl(self, decl_val, explicit_alignment, src_loc);
+    src_loc: Module.LazySrcLoc,
+) !codegen.GenResult {
+    return self.getZigObject().?.lowerUav(self, pt, uav, explicit_alignment, src_loc);
 }
 
-pub fn getAnonDeclVAddr(self: *MachO, decl_val: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
+pub fn getUavVAddr(self: *MachO, uav: InternPool.Index, reloc_info: link.File.RelocInfo) !u64 {
     assert(self.llvm_object == null);
-    return self.getZigObject().?.getAnonDeclVAddr(self, decl_val, reloc_info);
+    return self.getZigObject().?.getUavVAddr(self, uav, reloc_info);
 }
 
 pub fn getGlobalSymbol(self: *MachO, name: []const u8, lib_name: ?[]const u8) !u32 {
@@ -3246,32 +3067,36 @@ pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
     return actual_size +| (actual_size / ideal_factor);
 }
 
-fn detectAllocCollision(self: *MachO, start: u64, size: u64) ?u64 {
+fn detectAllocCollision(self: *MachO, start: u64, size: u64) !?u64 {
     // Conservatively commit one page size as reserved space for the headers as we
     // expect it to grow and everything else be moved in flush anyhow.
     const header_size = self.getPageSize();
     if (start < header_size)
         return header_size;
 
+    var at_end = true;
     const end = start + padToIdeal(size);
 
     for (self.sections.items(.header)) |header| {
         if (header.isZerofill()) continue;
         const increased_size = padToIdeal(header.size);
         const test_end = header.offset +| increased_size;
-        if (end > header.offset and start < test_end) {
-            return test_end;
+        if (start < test_end) {
+            if (end > header.offset) return test_end;
+            if (test_end < std.math.maxInt(u64)) at_end = false;
         }
     }
 
     for (self.segments.items) |seg| {
         const increased_size = padToIdeal(seg.filesize);
         const test_end = seg.fileoff +| increased_size;
-        if (end > seg.fileoff and start < test_end) {
-            return test_end;
+        if (start < test_end) {
+            if (end > seg.fileoff) return test_end;
+            if (test_end < std.math.maxInt(u64)) at_end = false;
         }
     }
 
+    if (at_end) try self.base.file.?.setEndPos(end);
     return null;
 }
 
@@ -3339,9 +3164,9 @@ pub fn allocatedSizeVirtual(self: *MachO, start: u64) u64 {
     return min_pos - start;
 }
 
-pub fn findFreeSpace(self: *MachO, object_size: u64, min_alignment: u32) u64 {
+pub fn findFreeSpace(self: *MachO, object_size: u64, min_alignment: u32) !u64 {
     var start: u64 = 0;
-    while (self.detectAllocCollision(start, object_size)) |item_end| {
+    while (try self.detectAllocCollision(start, object_size)) |item_end| {
         start = mem.alignForward(u64, item_end, min_alignment);
     }
     return start;
@@ -3374,7 +3199,7 @@ fn copyRangeAllZeroOut(self: *MachO, old_offset: u64, new_offset: u64, size: u64
 }
 
 const InitMetadataOptions = struct {
-    emit: Compilation.Emit,
+    emit: Path,
     zo: *ZigObject,
     symbol_count_hint: u64,
     program_code_size_hint: u64,
@@ -3390,7 +3215,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
 
         {
             const filesize = options.program_code_size_hint;
-            const off = self.findFreeSpace(filesize, self.getPageSize());
+            const off = try self.findFreeSpace(filesize, self.getPageSize());
             self.zig_text_seg_index = try self.addSegment("__TEXT_ZIG", .{
                 .fileoff = off,
                 .filesize = filesize,
@@ -3401,20 +3226,8 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
         }
 
         {
-            const filesize = options.symbol_count_hint * @sizeOf(u64);
-            const off = self.findFreeSpace(filesize, self.getPageSize());
-            self.zig_got_seg_index = try self.addSegment("__GOT_ZIG", .{
-                .fileoff = off,
-                .filesize = filesize,
-                .vmaddr = base_vmaddr + 0x4000000,
-                .vmsize = filesize,
-                .prot = macho.PROT.READ | macho.PROT.WRITE,
-            });
-        }
-
-        {
             const filesize: u64 = 1024;
-            const off = self.findFreeSpace(filesize, self.getPageSize());
+            const off = try self.findFreeSpace(filesize, self.getPageSize());
             self.zig_const_seg_index = try self.addSegment("__CONST_ZIG", .{
                 .fileoff = off,
                 .filesize = filesize,
@@ -3426,7 +3239,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
 
         {
             const filesize: u64 = 1024;
-            const off = self.findFreeSpace(filesize, self.getPageSize());
+            const off = try self.findFreeSpace(filesize, self.getPageSize());
             self.zig_data_seg_index = try self.addSegment("__DATA_ZIG", .{
                 .fileoff = off,
                 .filesize = filesize,
@@ -3445,7 +3258,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
             });
         }
 
-        if (options.zo.dwarf) |_| {
+        if (options.zo.dwarf) |*dwarf| {
             // Create dSYM bundle.
             log.debug("creating {s}.dSYM bundle", .{options.emit.sub_path});
 
@@ -3458,7 +3271,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
             );
             defer gpa.free(d_sym_path);
 
-            var d_sym_bundle = try options.emit.directory.handle.makeOpenPath(d_sym_path, .{});
+            var d_sym_bundle = try options.emit.root_dir.handle.makeOpenPath(d_sym_path, .{});
             defer d_sym_bundle.close();
 
             const d_sym_file = try d_sym_bundle.createFile(options.emit.sub_path, .{
@@ -3468,6 +3281,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
 
             self.d_sym = .{ .allocator = gpa, .file = d_sym_file };
             try self.d_sym.?.initMetadata(self);
+            try dwarf.initMetadata();
         }
     }
 
@@ -3487,7 +3301,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
             const sect = &macho_file.sections.items(.header)[sect_id];
             const alignment = try math.powi(u32, 2, sect.@"align");
             if (!sect.isZerofill()) {
-                sect.offset = math.cast(u32, macho_file.findFreeSpace(size, alignment)) orelse
+                sect.offset = math.cast(u32, try macho_file.findFreeSpace(size, alignment)) orelse
                     return error.Overflow;
             }
             sect.addr = macho_file.findFreeSpaceVirtual(size, alignment);
@@ -3509,13 +3323,6 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
         } else {
             appendSect(self, self.zig_text_sect_index.?, self.zig_text_seg_index.?);
         }
-    }
-
-    if (!self.base.isRelocatable()) {
-        self.zig_got_sect_index = try self.addSection("__GOT_ZIG", "__got_zig", .{
-            .alignment = 3,
-        });
-        appendSect(self, self.zig_got_sect_index.?, self.zig_got_seg_index.?);
     }
 
     {
@@ -3547,43 +3354,34 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
         }
     }
 
-    if (self.base.isRelocatable() and options.zo.dwarf != null) {
-        {
-            self.debug_str_sect_index = try self.addSection("__DWARF", "__debug_str", .{
-                .flags = macho.S_ATTR_DEBUG,
-            });
-            try allocSect(self, self.debug_str_sect_index.?, 200);
-        }
-
-        {
-            self.debug_info_sect_index = try self.addSection("__DWARF", "__debug_info", .{
-                .flags = macho.S_ATTR_DEBUG,
-            });
-            try allocSect(self, self.debug_info_sect_index.?, 200);
-        }
-
-        {
-            self.debug_abbrev_sect_index = try self.addSection("__DWARF", "__debug_abbrev", .{
-                .flags = macho.S_ATTR_DEBUG,
-            });
-            try allocSect(self, self.debug_abbrev_sect_index.?, 128);
-        }
-
-        {
-            self.debug_aranges_sect_index = try self.addSection("__DWARF", "__debug_aranges", .{
-                .alignment = 4,
-                .flags = macho.S_ATTR_DEBUG,
-            });
-            try allocSect(self, self.debug_aranges_sect_index.?, 160);
-        }
-
-        {
-            self.debug_line_sect_index = try self.addSection("__DWARF", "__debug_line", .{
-                .flags = macho.S_ATTR_DEBUG,
-            });
-            try allocSect(self, self.debug_line_sect_index.?, 250);
-        }
-    }
+    if (self.base.isRelocatable()) if (options.zo.dwarf) |*dwarf| {
+        self.debug_str_sect_index = try self.addSection("__DWARF", "__debug_str", .{
+            .flags = macho.S_ATTR_DEBUG,
+        });
+        self.debug_info_sect_index = try self.addSection("__DWARF", "__debug_info", .{
+            .flags = macho.S_ATTR_DEBUG,
+        });
+        self.debug_abbrev_sect_index = try self.addSection("__DWARF", "__debug_abbrev", .{
+            .flags = macho.S_ATTR_DEBUG,
+        });
+        self.debug_aranges_sect_index = try self.addSection("__DWARF", "__debug_aranges", .{
+            .alignment = 4,
+            .flags = macho.S_ATTR_DEBUG,
+        });
+        self.debug_line_sect_index = try self.addSection("__DWARF", "__debug_line", .{
+            .flags = macho.S_ATTR_DEBUG,
+        });
+        self.debug_line_str_sect_index = try self.addSection("__DWARF", "__debug_line_str", .{
+            .flags = macho.S_ATTR_DEBUG,
+        });
+        self.debug_loclists_sect_index = try self.addSection("__DWARF", "__debug_loclists", .{
+            .flags = macho.S_ATTR_DEBUG,
+        });
+        self.debug_rnglists_sect_index = try self.addSection("__DWARF", "__debug_rnglists", .{
+            .flags = macho.S_ATTR_DEBUG,
+        });
+        try dwarf.initMetadata();
+    };
 }
 
 pub fn growSection(self: *MachO, sect_index: u8, needed_size: u64) !void {
@@ -3597,45 +3395,46 @@ pub fn growSection(self: *MachO, sect_index: u8, needed_size: u64) !void {
 fn growSectionNonRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !void {
     const sect = &self.sections.items(.header)[sect_index];
 
-    if (needed_size > self.allocatedSize(sect.offset) and !sect.isZerofill()) {
-        const existing_size = sect.size;
-        sect.size = 0;
-
-        // Must move the entire section.
-        const alignment = self.getPageSize();
-        const new_offset = self.findFreeSpace(needed_size, alignment);
-
-        log.debug("moving '{s},{s}' from 0x{x} to 0x{x}", .{
-            sect.segName(),
-            sect.sectName(),
-            sect.offset,
-            new_offset,
-        });
-
-        try self.copyRangeAllZeroOut(sect.offset, new_offset, existing_size);
-
-        sect.offset = @intCast(new_offset);
-    }
-
-    sect.size = needed_size;
-
     const seg_id = self.sections.items(.segment_id)[sect_index];
     const seg = &self.segments.items[seg_id];
-    seg.fileoff = sect.offset;
 
     if (!sect.isZerofill()) {
+        const allocated_size = self.allocatedSize(sect.offset);
+        if (sect.offset + allocated_size == std.math.maxInt(u64)) {
+            try self.base.file.?.setEndPos(sect.offset + needed_size);
+        } else if (needed_size > allocated_size) {
+            const existing_size = sect.size;
+            sect.size = 0;
+
+            // Must move the entire section.
+            const alignment = self.getPageSize();
+            const new_offset = try self.findFreeSpace(needed_size, alignment);
+
+            log.debug("moving '{s},{s}' from 0x{x} to 0x{x}", .{
+                sect.segName(),
+                sect.sectName(),
+                sect.offset,
+                new_offset,
+            });
+
+            try self.copyRangeAllZeroOut(sect.offset, new_offset, existing_size);
+
+            sect.offset = @intCast(new_offset);
+        }
         seg.filesize = needed_size;
     }
+    sect.size = needed_size;
+    seg.fileoff = sect.offset;
 
     const mem_capacity = self.allocatedSizeVirtual(seg.vmaddr);
     if (needed_size > mem_capacity) {
-        var err = try self.addErrorWithNotes(2);
-        try err.addMsg(self, "fatal linker error: cannot expand segment seg({d})({s}) in virtual memory", .{
+        var err = try self.base.addErrorWithNotes(2);
+        try err.addMsg("fatal linker error: cannot expand segment seg({d})({s}) in virtual memory", .{
             seg_id,
             seg.segName(),
         });
-        try err.addNote(self, "TODO: emit relocations to memory locations in self-hosted backends", .{});
-        try err.addNote(self, "as a workaround, try increasing pre-allocated virtual memory of each segment", .{});
+        try err.addNote("TODO: emit relocations to memory locations in self-hosted backends", .{});
+        try err.addNote("as a workaround, try increasing pre-allocated virtual memory of each segment", .{});
     }
 
     seg.vmsize = needed_size;
@@ -3644,30 +3443,34 @@ fn growSectionNonRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !vo
 fn growSectionRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !void {
     const sect = &self.sections.items(.header)[sect_index];
 
-    if (needed_size > self.allocatedSize(sect.offset) and !sect.isZerofill()) {
-        const existing_size = sect.size;
-        sect.size = 0;
+    if (!sect.isZerofill()) {
+        const allocated_size = self.allocatedSize(sect.offset);
+        if (sect.offset + allocated_size == std.math.maxInt(u64)) {
+            try self.base.file.?.setEndPos(sect.offset + needed_size);
+        } else if (needed_size > allocated_size) {
+            const existing_size = sect.size;
+            sect.size = 0;
 
-        // Must move the entire section.
-        const alignment = try math.powi(u32, 2, sect.@"align");
-        const new_offset = self.findFreeSpace(needed_size, alignment);
-        const new_addr = self.findFreeSpaceVirtual(needed_size, alignment);
+            // Must move the entire section.
+            const alignment = try math.powi(u32, 2, sect.@"align");
+            const new_offset = try self.findFreeSpace(needed_size, alignment);
+            const new_addr = self.findFreeSpaceVirtual(needed_size, alignment);
 
-        log.debug("new '{s},{s}' file offset 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
-            sect.segName(),
-            sect.sectName(),
-            new_offset,
-            new_offset + existing_size,
-            new_addr,
-            new_addr + existing_size,
-        });
+            log.debug("new '{s},{s}' file offset 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
+                sect.segName(),
+                sect.sectName(),
+                new_offset,
+                new_offset + existing_size,
+                new_addr,
+                new_addr + existing_size,
+            });
 
-        try self.copyRangeAll(sect.offset, new_offset, existing_size);
+            try self.copyRangeAll(sect.offset, new_offset, existing_size);
 
-        sect.offset = @intCast(new_offset);
-        sect.addr = new_addr;
+            sect.offset = @intCast(new_offset);
+            sect.addr = new_addr;
+        }
     }
-
     sect.size = needed_size;
 }
 
@@ -3700,6 +3503,8 @@ pub fn getTarget(self: MachO) std.Target {
 /// the original file. This is super messy, but there doesn't seem any other
 /// way to please the XNU.
 pub fn invalidateKernelCache(dir: fs.Dir, sub_path: []const u8) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
     if (comptime builtin.target.isDarwin() and builtin.target.cpu.arch == .aarch64) {
         try dir.copyFile(sub_path, dir, sub_path, .{});
     }
@@ -3742,7 +3547,6 @@ inline fn requiresThunks(self: MachO) bool {
 pub fn isZigSegment(self: MachO, seg_id: u8) bool {
     inline for (&[_]?u8{
         self.zig_text_seg_index,
-        self.zig_got_seg_index,
         self.zig_const_seg_index,
         self.zig_data_seg_index,
         self.zig_bss_seg_index,
@@ -3757,7 +3561,6 @@ pub fn isZigSegment(self: MachO, seg_id: u8) bool {
 pub fn isZigSection(self: MachO, sect_id: u8) bool {
     inline for (&[_]?u8{
         self.zig_text_sect_index,
-        self.zig_got_sect_index,
         self.zig_const_sect_index,
         self.zig_data_sect_index,
         self.zig_bss_sect_index,
@@ -3907,157 +3710,6 @@ pub fn getFileHandle(self: MachO, index: File.HandleIndex) File.Handle {
     return self.file_handles.items[index];
 }
 
-pub fn addAtom(self: *MachO) error{OutOfMemory}!Atom.Index {
-    const index = @as(Atom.Index, @intCast(self.atoms.items.len));
-    const atom = try self.atoms.addOne(self.base.comp.gpa);
-    atom.* = .{};
-    return index;
-}
-
-pub fn getAtom(self: *MachO, index: Atom.Index) ?*Atom {
-    if (index == 0) return null;
-    assert(index < self.atoms.items.len);
-    return &self.atoms.items[index];
-}
-
-pub fn addAtomExtra(self: *MachO, extra: Atom.Extra) !u32 {
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
-    try self.atoms_extra.ensureUnusedCapacity(self.base.comp.gpa, fields.len);
-    return self.addAtomExtraAssumeCapacity(extra);
-}
-
-pub fn addAtomExtraAssumeCapacity(self: *MachO, extra: Atom.Extra) u32 {
-    const index = @as(u32, @intCast(self.atoms_extra.items.len));
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
-    inline for (fields) |field| {
-        self.atoms_extra.appendAssumeCapacity(switch (field.type) {
-            u32 => @field(extra, field.name),
-            else => @compileError("bad field type"),
-        });
-    }
-    return index;
-}
-
-pub fn getAtomExtra(self: *MachO, index: u32) ?Atom.Extra {
-    if (index == 0) return null;
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
-    var i: usize = index;
-    var result: Atom.Extra = undefined;
-    inline for (fields) |field| {
-        @field(result, field.name) = switch (field.type) {
-            u32 => self.atoms_extra.items[i],
-            else => @compileError("bad field type"),
-        };
-        i += 1;
-    }
-    return result;
-}
-
-pub fn setAtomExtra(self: *MachO, index: u32, extra: Atom.Extra) void {
-    assert(index > 0);
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
-    inline for (fields, 0..) |field, i| {
-        self.atoms_extra.items[index + i] = switch (field.type) {
-            u32 => @field(extra, field.name),
-            else => @compileError("bad field type"),
-        };
-    }
-}
-
-pub fn addSymbol(self: *MachO) !Symbol.Index {
-    const index = @as(Symbol.Index, @intCast(self.symbols.items.len));
-    const symbol = try self.symbols.addOne(self.base.comp.gpa);
-    symbol.* = .{};
-    return index;
-}
-
-pub fn getSymbol(self: *MachO, index: Symbol.Index) *Symbol {
-    assert(index < self.symbols.items.len);
-    return &self.symbols.items[index];
-}
-
-pub fn addSymbolExtra(self: *MachO, extra: Symbol.Extra) !u32 {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
-    try self.symbols_extra.ensureUnusedCapacity(self.base.comp.gpa, fields.len);
-    return self.addSymbolExtraAssumeCapacity(extra);
-}
-
-pub fn addSymbolExtraAssumeCapacity(self: *MachO, extra: Symbol.Extra) u32 {
-    const index = @as(u32, @intCast(self.symbols_extra.items.len));
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
-    inline for (fields) |field| {
-        self.symbols_extra.appendAssumeCapacity(switch (field.type) {
-            u32 => @field(extra, field.name),
-            else => @compileError("bad field type"),
-        });
-    }
-    return index;
-}
-
-pub fn getSymbolExtra(self: MachO, index: u32) ?Symbol.Extra {
-    if (index == 0) return null;
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
-    var i: usize = index;
-    var result: Symbol.Extra = undefined;
-    inline for (fields) |field| {
-        @field(result, field.name) = switch (field.type) {
-            u32 => self.symbols_extra.items[i],
-            else => @compileError("bad field type"),
-        };
-        i += 1;
-    }
-    return result;
-}
-
-pub fn setSymbolExtra(self: *MachO, index: u32, extra: Symbol.Extra) void {
-    assert(index > 0);
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
-    inline for (fields, 0..) |field, i| {
-        self.symbols_extra.items[index + i] = switch (field.type) {
-            u32 => @field(extra, field.name),
-            else => @compileError("bad field type"),
-        };
-    }
-}
-
-const GetOrCreateGlobalResult = struct {
-    found_existing: bool,
-    index: Symbol.Index,
-};
-
-pub fn getOrCreateGlobal(self: *MachO, off: u32) !GetOrCreateGlobalResult {
-    const gpa = self.base.comp.gpa;
-    const gop = try self.globals.getOrPut(gpa, off);
-    if (!gop.found_existing) {
-        const index = try self.addSymbol();
-        const global = self.getSymbol(index);
-        global.name = off;
-        global.flags.global = true;
-        gop.value_ptr.* = index;
-    }
-    return .{
-        .found_existing = gop.found_existing,
-        .index = gop.value_ptr.*,
-    };
-}
-
-pub fn getGlobalByName(self: *MachO, name: []const u8) ?Symbol.Index {
-    const off = self.strings.getOffset(name) orelse return null;
-    return self.globals.get(off);
-}
-
-pub fn addUnwindRecord(self: *MachO) !UnwindInfo.Record.Index {
-    const index = @as(UnwindInfo.Record.Index, @intCast(self.unwind_records.items.len));
-    const rec = try self.unwind_records.addOne(self.base.comp.gpa);
-    rec.* = .{};
-    return index;
-}
-
-pub fn getUnwindRecord(self: *MachO, index: UnwindInfo.Record.Index) *UnwindInfo.Record {
-    assert(index < self.unwind_records.items.len);
-    return &self.unwind_records.items[index];
-}
-
 pub fn addThunk(self: *MachO) !Thunk.Index {
     const index = @as(Thunk.Index, @intCast(self.thunks.items.len));
     const thunk = try self.thunks.addOne(self.base.comp.gpa);
@@ -4075,65 +3727,15 @@ pub fn eatPrefix(path: []const u8, prefix: []const u8) ?[]const u8 {
     return null;
 }
 
-const ErrorWithNotes = struct {
-    /// Allocated index in comp.link_errors array.
-    index: usize,
-
-    /// Next available note slot.
-    note_slot: usize = 0,
-
-    pub fn addMsg(
-        err: ErrorWithNotes,
-        macho_file: *MachO,
-        comptime format: []const u8,
-        args: anytype,
-    ) error{OutOfMemory}!void {
-        const comp = macho_file.base.comp;
-        const gpa = comp.gpa;
-        const err_msg = &comp.link_errors.items[err.index];
-        err_msg.msg = try std.fmt.allocPrint(gpa, format, args);
-    }
-
-    pub fn addNote(
-        err: *ErrorWithNotes,
-        macho_file: *MachO,
-        comptime format: []const u8,
-        args: anytype,
-    ) error{OutOfMemory}!void {
-        const comp = macho_file.base.comp;
-        const gpa = comp.gpa;
-        const err_msg = &comp.link_errors.items[err.index];
-        assert(err.note_slot < err_msg.notes.len);
-        err_msg.notes[err.note_slot] = .{ .msg = try std.fmt.allocPrint(gpa, format, args) };
-        err.note_slot += 1;
-    }
-};
-
-pub fn addErrorWithNotes(self: *MachO, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
-    const comp = self.base.comp;
-    const gpa = comp.gpa;
-    try comp.link_errors.ensureUnusedCapacity(gpa, 1);
-    return self.addErrorWithNotesAssumeCapacity(note_count);
-}
-
-fn addErrorWithNotesAssumeCapacity(self: *MachO, note_count: usize) error{OutOfMemory}!ErrorWithNotes {
-    const comp = self.base.comp;
-    const gpa = comp.gpa;
-    const index = comp.link_errors.items.len;
-    const err = comp.link_errors.addOneAssumeCapacity();
-    err.* = .{ .msg = undefined, .notes = try gpa.alloc(link.File.ErrorMsg, note_count) };
-    return .{ .index = index };
-}
-
 pub fn reportParseError(
     self: *MachO,
     path: []const u8,
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
-    var err = try self.addErrorWithNotes(1);
-    try err.addMsg(self, format, args);
-    try err.addNote(self, "while parsing {s}", .{path});
+    var err = try self.base.addErrorWithNotes(1);
+    try err.addMsg(format, args);
+    try err.addNote("while parsing {s}", .{path});
 }
 
 pub fn reportParseError2(
@@ -4142,9 +3744,9 @@ pub fn reportParseError2(
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
-    var err = try self.addErrorWithNotes(1);
-    try err.addMsg(self, format, args);
-    try err.addNote(self, "while parsing {}", .{self.getFile(file_index).?.fmtPath()});
+    var err = try self.base.addErrorWithNotes(1);
+    try err.addMsg(format, args);
+    try err.addNote("while parsing {}", .{self.getFile(file_index).?.fmtPath()});
 }
 
 fn reportMissingLibraryError(
@@ -4153,10 +3755,10 @@ fn reportMissingLibraryError(
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
-    var err = try self.addErrorWithNotes(checked_paths.len);
-    try err.addMsg(self, format, args);
+    var err = try self.base.addErrorWithNotes(checked_paths.len);
+    try err.addMsg(format, args);
     for (checked_paths) |path| {
-        try err.addNote(self, "tried {s}", .{path});
+        try err.addNote("tried {s}", .{path});
     }
 }
 
@@ -4168,12 +3770,12 @@ fn reportMissingDependencyError(
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
-    var err = try self.addErrorWithNotes(2 + checked_paths.len);
-    try err.addMsg(self, format, args);
-    try err.addNote(self, "while resolving {s}", .{path});
-    try err.addNote(self, "a dependency of {}", .{self.getFile(parent).?.fmtPath()});
+    var err = try self.base.addErrorWithNotes(2 + checked_paths.len);
+    try err.addMsg(format, args);
+    try err.addNote("while resolving {s}", .{path});
+    try err.addNote("a dependency of {}", .{self.getFile(parent).?.fmtPath()});
     for (checked_paths) |p| {
-        try err.addNote(self, "tried {s}", .{p});
+        try err.addNote("tried {s}", .{p});
     }
 }
 
@@ -4184,50 +3786,58 @@ fn reportDependencyError(
     comptime format: []const u8,
     args: anytype,
 ) error{OutOfMemory}!void {
-    var err = try self.addErrorWithNotes(2);
-    try err.addMsg(self, format, args);
-    try err.addNote(self, "while parsing {s}", .{path});
-    try err.addNote(self, "a dependency of {}", .{self.getFile(parent).?.fmtPath()});
+    var err = try self.base.addErrorWithNotes(2);
+    try err.addMsg(format, args);
+    try err.addNote("while parsing {s}", .{path});
+    try err.addNote("a dependency of {}", .{self.getFile(parent).?.fmtPath()});
 }
 
 pub fn reportUnexpectedError(self: *MachO, comptime format: []const u8, args: anytype) error{OutOfMemory}!void {
-    var err = try self.addErrorWithNotes(1);
-    try err.addMsg(self, format, args);
-    try err.addNote(self, "please report this as a linker bug on https://github.com/ziglang/zig/issues/new/choose", .{});
+    var err = try self.base.addErrorWithNotes(1);
+    try err.addMsg(format, args);
+    try err.addNote("please report this as a linker bug on https://github.com/ziglang/zig/issues/new/choose", .{});
 }
 
-fn reportDuplicates(self: *MachO, dupes: anytype) error{ HasDuplicates, OutOfMemory }!void {
+fn reportDuplicates(self: *MachO) error{ HasDuplicates, OutOfMemory }!void {
     const tracy = trace(@src());
     defer tracy.end();
 
+    if (self.dupes.keys().len == 0) return; // Nothing to do
+
+    const gpa = self.base.comp.gpa;
     const max_notes = 3;
 
-    var has_dupes = false;
-    var it = dupes.iterator();
-    while (it.next()) |entry| {
-        const sym = self.getSymbol(entry.key_ptr.*);
-        const notes = entry.value_ptr.*;
+    // We will sort by name, and then by file to ensure deterministic output.
+    var keys = try std.ArrayList(SymbolResolver.Index).initCapacity(gpa, self.dupes.keys().len);
+    defer keys.deinit();
+    keys.appendSliceAssumeCapacity(self.dupes.keys());
+    self.sortGlobalSymbolsByName(keys.items);
+
+    for (self.dupes.values()) |*refs| {
+        mem.sort(File.Index, refs.items, {}, std.sort.asc(File.Index));
+    }
+
+    for (keys.items) |key| {
+        const sym = self.resolver.keys.items[key - 1];
+        const notes = self.dupes.get(key).?;
         const nnotes = @min(notes.items.len, max_notes) + @intFromBool(notes.items.len > max_notes);
 
-        var err = try self.addErrorWithNotes(nnotes + 1);
-        try err.addMsg(self, "duplicate symbol definition: {s}", .{sym.getName(self)});
-        try err.addNote(self, "defined by {}", .{sym.getFile(self).?.fmtPath()});
+        var err = try self.base.addErrorWithNotes(nnotes + 1);
+        try err.addMsg("duplicate symbol definition: {s}", .{sym.getName(self)});
+        try err.addNote("defined by {}", .{sym.getFile(self).?.fmtPath()});
 
         var inote: usize = 0;
         while (inote < @min(notes.items.len, max_notes)) : (inote += 1) {
             const file = self.getFile(notes.items[inote]).?;
-            try err.addNote(self, "defined by {}", .{file.fmtPath()});
+            try err.addNote("defined by {}", .{file.fmtPath()});
         }
 
         if (notes.items.len > max_notes) {
             const remaining = notes.items.len - max_notes;
-            try err.addNote(self, "defined {d} more times", .{remaining});
+            try err.addNote("defined {d} more times", .{remaining});
         }
-
-        has_dupes = true;
     }
-
-    if (has_dupes) return error.HasDuplicates;
+    return error.HasDuplicates;
 }
 
 pub fn getDebugSymbols(self: *MachO) ?*DebugSymbols {
@@ -4238,7 +3848,7 @@ pub fn getDebugSymbols(self: *MachO) ?*DebugSymbols {
 pub fn ptraceAttach(self: *MachO, pid: std.posix.pid_t) !void {
     if (!is_hot_update_compatible) return;
 
-    const mach_task = try std.c.machTaskForPid(pid);
+    const mach_task = try machTaskForPid(pid);
     log.debug("Mach task for pid {d}: {any}", .{ pid, mach_task });
     self.hot_state.mach_task = mach_task;
 
@@ -4320,7 +3930,6 @@ fn fmtDumpState(
     try writer.print("stubs\n{}\n", .{self.stubs.fmt(self)});
     try writer.print("objc_stubs\n{}\n", .{self.objc_stubs.fmt(self)});
     try writer.print("got\n{}\n", .{self.got.fmt(self)});
-    try writer.print("zig_got\n{}\n", .{self.zig_got.fmt(self)});
     try writer.print("tlv_ptr\n{}\n", .{self.tlv_ptr.fmt(self)});
     try writer.writeByte('\n');
     try writer.print("sections\n{}\n", .{self.fmtSections()});
@@ -4418,20 +4027,21 @@ const is_hot_update_compatible = switch (builtin.target.os.tag) {
 
 const default_entry_symbol_name = "_main";
 
-pub const base_tag: link.File.Tag = link.File.Tag.macho;
-
 const Section = struct {
     header: macho.section_64,
     segment_id: u8,
-    atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
+    atoms: std.ArrayListUnmanaged(Ref) = .{},
     free_list: std.ArrayListUnmanaged(Atom.Index) = .{},
     last_atom_index: Atom.Index = 0,
+    thunks: std.ArrayListUnmanaged(Thunk.Index) = .{},
+    out: std.ArrayListUnmanaged(u8) = .{},
+    relocs: std.ArrayListUnmanaged(macho.relocation_info) = .{},
 };
 
 pub const LiteralPool = struct {
     table: std.AutoArrayHashMapUnmanaged(void, void) = .{},
     keys: std.ArrayListUnmanaged(Key) = .{},
-    values: std.ArrayListUnmanaged(Atom.Index) = .{},
+    values: std.ArrayListUnmanaged(MachO.Ref) = .{},
     data: std.ArrayListUnmanaged(u8) = .{},
 
     pub fn deinit(lp: *LiteralPool, allocator: Allocator) void {
@@ -4441,16 +4051,20 @@ pub const LiteralPool = struct {
         lp.data.deinit(allocator);
     }
 
-    pub fn getAtom(lp: LiteralPool, index: Index, macho_file: *MachO) *Atom {
-        assert(index < lp.values.items.len);
-        return macho_file.getAtom(lp.values.items[index]).?;
-    }
-
     const InsertResult = struct {
         found_existing: bool,
         index: Index,
-        atom: *Atom.Index,
+        ref: *MachO.Ref,
     };
+
+    pub fn getSymbolRef(lp: LiteralPool, index: Index) MachO.Ref {
+        assert(index < lp.values.items.len);
+        return lp.values.items[index];
+    }
+
+    pub fn getSymbol(lp: LiteralPool, index: Index, macho_file: *MachO) *Symbol {
+        return lp.getSymbolRef(index).getSymbol(macho_file).?;
+    }
 
     pub fn insert(lp: *LiteralPool, allocator: Allocator, @"type": u8, string: []const u8) !InsertResult {
         const size: u32 = @intCast(string.len);
@@ -4467,7 +4081,7 @@ pub const LiteralPool = struct {
         return .{
             .found_existing = gop.found_existing,
             .index = @intCast(gop.index),
-            .atom = &lp.values.items[gop.index],
+            .ref = &lp.values.items[gop.index],
         };
     }
 
@@ -4510,13 +4124,7 @@ pub const LiteralPool = struct {
 };
 
 const HotUpdateState = struct {
-    mach_task: ?std.c.MachTask = null,
-};
-
-pub const DynamicRelocs = struct {
-    rebase_relocs: u32 = 0,
-    bind_relocs: u32 = 0,
-    weak_bind_relocs: u32 = 0,
+    mach_task: ?MachTask = null,
 };
 
 pub const SymtabCtx = struct {
@@ -4528,6 +4136,7 @@ pub const SymtabCtx = struct {
     nstabs: u32 = 0,
     nexports: u32 = 0,
     nimports: u32 = 0,
+    stroff: u32 = 0,
     strsize: u32 = 0,
 };
 
@@ -4814,13 +4423,154 @@ const UndefinedTreatment = enum {
     dynamic_lookup,
 };
 
+/// A reference to atom or symbol in an input file.
+/// If file == 0, symbol is an undefined global.
+pub const Ref = struct {
+    index: u32,
+    file: File.Index,
+
+    pub fn eql(ref: Ref, other: Ref) bool {
+        return ref.index == other.index and ref.file == other.file;
+    }
+
+    pub fn lessThan(ref: Ref, other: Ref) bool {
+        if (ref.file == other.file) {
+            return ref.index < other.index;
+        }
+        return ref.file < other.file;
+    }
+
+    pub fn getFile(ref: Ref, macho_file: *MachO) ?File {
+        return macho_file.getFile(ref.file);
+    }
+
+    pub fn getAtom(ref: Ref, macho_file: *MachO) ?*Atom {
+        const file = ref.getFile(macho_file) orelse return null;
+        return file.getAtom(ref.index);
+    }
+
+    pub fn getSymbol(ref: Ref, macho_file: *MachO) ?*Symbol {
+        const file = ref.getFile(macho_file) orelse return null;
+        return switch (file) {
+            inline else => |x| &x.symbols.items[ref.index],
+        };
+    }
+
+    pub fn format(
+        ref: Ref,
+        comptime unused_fmt_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = unused_fmt_string;
+        _ = options;
+        try writer.print("%{d} in file({d})", .{ ref.index, ref.file });
+    }
+};
+
+pub const SymbolResolver = struct {
+    keys: std.ArrayListUnmanaged(Key) = .{},
+    values: std.ArrayListUnmanaged(Ref) = .{},
+    table: std.AutoArrayHashMapUnmanaged(void, void) = .{},
+
+    const Result = struct {
+        found_existing: bool,
+        index: Index,
+        ref: *Ref,
+    };
+
+    pub fn deinit(resolver: *SymbolResolver, allocator: Allocator) void {
+        resolver.keys.deinit(allocator);
+        resolver.values.deinit(allocator);
+        resolver.table.deinit(allocator);
+    }
+
+    pub fn getOrPut(
+        resolver: *SymbolResolver,
+        allocator: Allocator,
+        ref: Ref,
+        macho_file: *MachO,
+    ) !Result {
+        const adapter = Adapter{ .keys = resolver.keys.items, .macho_file = macho_file };
+        const key = Key{ .index = ref.index, .file = ref.file };
+        const gop = try resolver.table.getOrPutAdapted(allocator, key, adapter);
+        if (!gop.found_existing) {
+            try resolver.keys.append(allocator, key);
+            _ = try resolver.values.addOne(allocator);
+        }
+        return .{
+            .found_existing = gop.found_existing,
+            .index = @intCast(gop.index + 1),
+            .ref = &resolver.values.items[gop.index],
+        };
+    }
+
+    pub fn get(resolver: SymbolResolver, index: Index) ?Ref {
+        if (index == 0) return null;
+        return resolver.values.items[index - 1];
+    }
+
+    pub fn reset(resolver: *SymbolResolver) void {
+        resolver.keys.clearRetainingCapacity();
+        resolver.values.clearRetainingCapacity();
+        resolver.table.clearRetainingCapacity();
+    }
+
+    const Key = struct {
+        index: Symbol.Index,
+        file: File.Index,
+
+        fn getName(key: Key, macho_file: *MachO) [:0]const u8 {
+            const ref = Ref{ .index = key.index, .file = key.file };
+            return ref.getSymbol(macho_file).?.getName(macho_file);
+        }
+
+        pub fn getFile(key: Key, macho_file: *MachO) ?File {
+            const ref = Ref{ .index = key.index, .file = key.file };
+            return ref.getFile(macho_file);
+        }
+
+        fn eql(key: Key, other: Key, macho_file: *MachO) bool {
+            const key_name = key.getName(macho_file);
+            const other_name = other.getName(macho_file);
+            return mem.eql(u8, key_name, other_name);
+        }
+
+        fn hash(key: Key, macho_file: *MachO) u32 {
+            const name = key.getName(macho_file);
+            return @truncate(Hash.hash(0, name));
+        }
+    };
+
+    const Adapter = struct {
+        keys: []const Key,
+        macho_file: *MachO,
+
+        pub fn eql(ctx: @This(), key: Key, b_void: void, b_map_index: usize) bool {
+            _ = b_void;
+            const other = ctx.keys[b_map_index];
+            return key.eql(other, ctx.macho_file);
+        }
+
+        pub fn hash(ctx: @This(), key: Key) u32 {
+            return key.hash(ctx.macho_file);
+        }
+    };
+
+    pub const Index = u32;
+};
+
+pub const String = struct {
+    pos: u32 = 0,
+    len: u32 = 0,
+};
+
 const MachO = @This();
 
 const std = @import("std");
 const build_options = @import("build_options");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const dwarf = std.dwarf;
 const fs = std.fs;
 const log = std.log.scoped(.link);
 const state_log = std.log.scoped(.link_state);
@@ -4830,13 +4580,13 @@ const mem = std.mem;
 const meta = std.meta;
 
 const aarch64 = @import("../arch/aarch64/bits.zig");
+const bind = @import("MachO/dyld_info/bind.zig");
 const calcUuid = @import("MachO/uuid.zig").calcUuid;
 const codegen = @import("../codegen.zig");
 const dead_strip = @import("MachO/dead_strip.zig");
 const eh_frame = @import("MachO/eh_frame.zig");
 const fat = @import("MachO/fat.zig");
 const link = @import("../link.zig");
-const llvm_backend = @import("../codegen/llvm.zig");
 const load_commands = @import("MachO/load_commands.zig");
 const relocatable = @import("MachO/relocatable.zig");
 const tapi = @import("tapi.zig");
@@ -4850,13 +4600,16 @@ const Alignment = Atom.Alignment;
 const Allocator = mem.Allocator;
 const Archive = @import("MachO/Archive.zig");
 pub const Atom = @import("MachO/Atom.zig");
-const BindSection = synthetic.BindSection;
+const AtomicBool = std.atomic.Value(bool);
+const Bind = bind.Bind;
 const Cache = std.Build.Cache;
+const Path = Cache.Path;
 const CodeSignature = @import("MachO/CodeSignature.zig");
 const Compilation = @import("../Compilation.zig");
+const DataInCode = synthetic.DataInCode;
 pub const DebugSymbols = @import("MachO/DebugSymbols.zig");
 const Dylib = @import("MachO/Dylib.zig");
-const ExportTrieSection = synthetic.ExportTrieSection;
+const ExportTrie = @import("MachO/dyld_info/Trie.zig");
 const File = @import("MachO/file.zig").File;
 const GotSection = synthetic.GotSection;
 const Hash = std.hash.Wyhash;
@@ -4864,9 +4617,8 @@ const Indsymtab = synthetic.Indsymtab;
 const InternalObject = @import("MachO/InternalObject.zig");
 const ObjcStubsSection = synthetic.ObjcStubsSection;
 const Object = @import("MachO/Object.zig");
-const LazyBindSection = synthetic.LazyBindSection;
+const LazyBind = bind.LazyBind;
 const LaSymbolPtrSection = synthetic.LaSymbolPtrSection;
-const LibStub = tapi.LibStub;
 const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Md5 = std.crypto.hash.Md5;
@@ -4874,7 +4626,7 @@ const Zcu = @import("../Zcu.zig");
 /// Deprecated.
 const Module = Zcu;
 const InternPool = @import("../InternPool.zig");
-const RebaseSection = synthetic.RebaseSection;
+const Rebase = @import("MachO/dyld_info/Rebase.zig");
 pub const Relocation = @import("MachO/Relocation.zig");
 const StringTable = @import("StringTable.zig");
 const StubsSection = synthetic.StubsSection;
@@ -4884,6 +4636,650 @@ const Thunk = thunks.Thunk;
 const TlvPtrSection = synthetic.TlvPtrSection;
 const Value = @import("../Value.zig");
 const UnwindInfo = @import("MachO/UnwindInfo.zig");
-const WeakBindSection = synthetic.WeakBindSection;
-const ZigGotSection = synthetic.ZigGotSection;
+const WaitGroup = std.Thread.WaitGroup;
+const WeakBind = bind.WeakBind;
 const ZigObject = @import("MachO/ZigObject.zig");
+const dev = @import("../dev.zig");
+
+pub const MachError = error{
+    /// Not enough permissions held to perform the requested kernel
+    /// call.
+    PermissionDenied,
+} || std.posix.UnexpectedError;
+
+pub const MachTask = extern struct {
+    port: std.c.mach_port_name_t,
+
+    pub fn isValid(self: MachTask) bool {
+        return self.port != std.c.TASK_NULL;
+    }
+
+    pub fn pidForTask(self: MachTask) MachError!std.c.pid_t {
+        var pid: std.c.pid_t = undefined;
+        switch (getKernError(std.c.pid_for_task(self.port, &pid))) {
+            .SUCCESS => return pid,
+            .FAILURE => return error.PermissionDenied,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    pub fn allocatePort(self: MachTask, right: std.c.MACH_PORT_RIGHT) MachError!MachTask {
+        var out_port: std.c.mach_port_name_t = undefined;
+        switch (getKernError(std.c.mach_port_allocate(
+            self.port,
+            @intFromEnum(right),
+            &out_port,
+        ))) {
+            .SUCCESS => return .{ .port = out_port },
+            .FAILURE => return error.PermissionDenied,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    pub fn deallocatePort(self: MachTask, port: MachTask) void {
+        _ = getKernError(std.c.mach_port_deallocate(self.port, port.port));
+    }
+
+    pub fn insertRight(self: MachTask, port: MachTask, msg: std.c.MACH_MSG_TYPE) !void {
+        switch (getKernError(std.c.mach_port_insert_right(
+            self.port,
+            port.port,
+            port.port,
+            @intFromEnum(msg),
+        ))) {
+            .SUCCESS => return,
+            .FAILURE => return error.PermissionDenied,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    pub const PortInfo = struct {
+        mask: std.c.exception_mask_t,
+        masks: [std.c.EXC.TYPES_COUNT]std.c.exception_mask_t,
+        ports: [std.c.EXC.TYPES_COUNT]std.c.mach_port_t,
+        behaviors: [std.c.EXC.TYPES_COUNT]std.c.exception_behavior_t,
+        flavors: [std.c.EXC.TYPES_COUNT]std.c.thread_state_flavor_t,
+        count: std.c.mach_msg_type_number_t,
+    };
+
+    pub fn getExceptionPorts(self: MachTask, mask: std.c.exception_mask_t) !PortInfo {
+        var info: PortInfo = .{
+            .mask = mask,
+            .masks = undefined,
+            .ports = undefined,
+            .behaviors = undefined,
+            .flavors = undefined,
+            .count = 0,
+        };
+        info.count = info.ports.len / @sizeOf(std.c.mach_port_t);
+
+        switch (getKernError(std.c.task_get_exception_ports(
+            self.port,
+            info.mask,
+            &info.masks,
+            &info.count,
+            &info.ports,
+            &info.behaviors,
+            &info.flavors,
+        ))) {
+            .SUCCESS => return info,
+            .FAILURE => return error.PermissionDenied,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    pub fn setExceptionPorts(
+        self: MachTask,
+        mask: std.c.exception_mask_t,
+        new_port: MachTask,
+        behavior: std.c.exception_behavior_t,
+        new_flavor: std.c.thread_state_flavor_t,
+    ) !void {
+        switch (getKernError(std.c.task_set_exception_ports(
+            self.port,
+            mask,
+            new_port.port,
+            behavior,
+            new_flavor,
+        ))) {
+            .SUCCESS => return,
+            .FAILURE => return error.PermissionDenied,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    pub const RegionInfo = struct {
+        pub const Tag = enum {
+            basic,
+            extended,
+            top,
+        };
+
+        base_addr: u64,
+        tag: Tag,
+        info: union {
+            basic: std.c.vm_region_basic_info_64,
+            extended: std.c.vm_region_extended_info,
+            top: std.c.vm_region_top_info,
+        },
+    };
+
+    pub fn getRegionInfo(
+        task: MachTask,
+        address: u64,
+        len: usize,
+        tag: RegionInfo.Tag,
+    ) MachError!RegionInfo {
+        var info: RegionInfo = .{
+            .base_addr = address,
+            .tag = tag,
+            .info = undefined,
+        };
+        switch (tag) {
+            .basic => info.info = .{ .basic = undefined },
+            .extended => info.info = .{ .extended = undefined },
+            .top => info.info = .{ .top = undefined },
+        }
+        var base_len: std.c.mach_vm_size_t = if (len == 1) 2 else len;
+        var objname: std.c.mach_port_t = undefined;
+        var count: std.c.mach_msg_type_number_t = switch (tag) {
+            .basic => std.c.VM.REGION.BASIC_INFO_COUNT,
+            .extended => std.c.VM.REGION.EXTENDED_INFO_COUNT,
+            .top => std.c.VM.REGION.TOP_INFO_COUNT,
+        };
+        switch (getKernError(std.c.mach_vm_region(
+            task.port,
+            &info.base_addr,
+            &base_len,
+            switch (tag) {
+                .basic => std.c.VM.REGION.BASIC_INFO_64,
+                .extended => std.c.VM.REGION.EXTENDED_INFO,
+                .top => std.c.VM.REGION.TOP_INFO,
+            },
+            switch (tag) {
+                .basic => @as(std.c.vm_region_info_t, @ptrCast(&info.info.basic)),
+                .extended => @as(std.c.vm_region_info_t, @ptrCast(&info.info.extended)),
+                .top => @as(std.c.vm_region_info_t, @ptrCast(&info.info.top)),
+            },
+            &count,
+            &objname,
+        ))) {
+            .SUCCESS => return info,
+            .FAILURE => return error.PermissionDenied,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    pub const RegionSubmapInfo = struct {
+        pub const Tag = enum {
+            short,
+            full,
+        };
+
+        tag: Tag,
+        base_addr: u64,
+        info: union {
+            short: std.c.vm_region_submap_short_info_64,
+            full: std.c.vm_region_submap_info_64,
+        },
+    };
+
+    pub fn getRegionSubmapInfo(
+        task: MachTask,
+        address: u64,
+        len: usize,
+        nesting_depth: u32,
+        tag: RegionSubmapInfo.Tag,
+    ) MachError!RegionSubmapInfo {
+        var info: RegionSubmapInfo = .{
+            .base_addr = address,
+            .tag = tag,
+            .info = undefined,
+        };
+        switch (tag) {
+            .short => info.info = .{ .short = undefined },
+            .full => info.info = .{ .full = undefined },
+        }
+        var nesting = nesting_depth;
+        var base_len: std.c.mach_vm_size_t = if (len == 1) 2 else len;
+        var count: std.c.mach_msg_type_number_t = switch (tag) {
+            .short => std.c.VM.REGION.SUBMAP_SHORT_INFO_COUNT_64,
+            .full => std.c.VM.REGION.SUBMAP_INFO_COUNT_64,
+        };
+        switch (getKernError(std.c.mach_vm_region_recurse(
+            task.port,
+            &info.base_addr,
+            &base_len,
+            &nesting,
+            switch (tag) {
+                .short => @as(std.c.vm_region_recurse_info_t, @ptrCast(&info.info.short)),
+                .full => @as(std.c.vm_region_recurse_info_t, @ptrCast(&info.info.full)),
+            },
+            &count,
+        ))) {
+            .SUCCESS => return info,
+            .FAILURE => return error.PermissionDenied,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    pub fn getCurrProtection(task: MachTask, address: u64, len: usize) MachError!std.c.vm_prot_t {
+        const info = try task.getRegionSubmapInfo(address, len, 0, .short);
+        return info.info.short.protection;
+    }
+
+    pub fn setMaxProtection(task: MachTask, address: u64, len: usize, prot: std.c.vm_prot_t) MachError!void {
+        return task.setProtectionImpl(address, len, true, prot);
+    }
+
+    pub fn setCurrProtection(task: MachTask, address: u64, len: usize, prot: std.c.vm_prot_t) MachError!void {
+        return task.setProtectionImpl(address, len, false, prot);
+    }
+
+    fn setProtectionImpl(task: MachTask, address: u64, len: usize, set_max: bool, prot: std.c.vm_prot_t) MachError!void {
+        switch (getKernError(std.c.mach_vm_protect(task.port, address, len, @intFromBool(set_max), prot))) {
+            .SUCCESS => return,
+            .FAILURE => return error.PermissionDenied,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    /// Will write to VM even if current protection attributes specifically prohibit
+    /// us from doing so, by temporarily setting protection level to a level with VM_PROT_COPY
+    /// variant, and resetting after a successful or unsuccessful write.
+    pub fn writeMemProtected(task: MachTask, address: u64, buf: []const u8, arch: std.Target.Cpu.Arch) MachError!usize {
+        const curr_prot = try task.getCurrProtection(address, buf.len);
+        try task.setCurrProtection(
+            address,
+            buf.len,
+            std.c.PROT.READ | std.c.PROT.WRITE | std.c.PROT.COPY,
+        );
+        defer {
+            task.setCurrProtection(address, buf.len, curr_prot) catch {};
+        }
+        return task.writeMem(address, buf, arch);
+    }
+
+    pub fn writeMem(task: MachTask, address: u64, buf: []const u8, arch: std.Target.Cpu.Arch) MachError!usize {
+        const count = buf.len;
+        var total_written: usize = 0;
+        var curr_addr = address;
+        const page_size = try MachTask.getPageSize(task); // TODO we probably can assume value here
+        var out_buf = buf[0..];
+
+        while (total_written < count) {
+            const curr_size = maxBytesLeftInPage(page_size, curr_addr, count - total_written);
+            switch (getKernError(std.c.mach_vm_write(
+                task.port,
+                curr_addr,
+                @intFromPtr(out_buf.ptr),
+                @as(std.c.mach_msg_type_number_t, @intCast(curr_size)),
+            ))) {
+                .SUCCESS => {},
+                .FAILURE => return error.PermissionDenied,
+                else => |err| return unexpectedKernError(err),
+            }
+
+            switch (arch) {
+                .aarch64 => {
+                    var mattr_value: std.c.vm_machine_attribute_val_t = std.c.MATTR.VAL_CACHE_FLUSH;
+                    switch (getKernError(std.c.vm_machine_attribute(
+                        task.port,
+                        curr_addr,
+                        curr_size,
+                        std.c.MATTR.CACHE,
+                        &mattr_value,
+                    ))) {
+                        .SUCCESS => {},
+                        .FAILURE => return error.PermissionDenied,
+                        else => |err| return unexpectedKernError(err),
+                    }
+                },
+                .x86_64 => {},
+                else => unreachable,
+            }
+
+            out_buf = out_buf[curr_size..];
+            total_written += curr_size;
+            curr_addr += curr_size;
+        }
+
+        return total_written;
+    }
+
+    pub fn readMem(task: MachTask, address: u64, buf: []u8) MachError!usize {
+        const count = buf.len;
+        var total_read: usize = 0;
+        var curr_addr = address;
+        const page_size = try MachTask.getPageSize(task); // TODO we probably can assume value here
+        var out_buf = buf[0..];
+
+        while (total_read < count) {
+            const curr_size = maxBytesLeftInPage(page_size, curr_addr, count - total_read);
+            var curr_bytes_read: std.c.mach_msg_type_number_t = 0;
+            var vm_memory: std.c.vm_offset_t = undefined;
+            switch (getKernError(std.c.mach_vm_read(task.port, curr_addr, curr_size, &vm_memory, &curr_bytes_read))) {
+                .SUCCESS => {},
+                .FAILURE => return error.PermissionDenied,
+                else => |err| return unexpectedKernError(err),
+            }
+
+            @memcpy(out_buf[0..curr_bytes_read], @as([*]const u8, @ptrFromInt(vm_memory)));
+            _ = std.c.vm_deallocate(std.c.mach_task_self(), vm_memory, curr_bytes_read);
+
+            out_buf = out_buf[curr_bytes_read..];
+            curr_addr += curr_bytes_read;
+            total_read += curr_bytes_read;
+        }
+
+        return total_read;
+    }
+
+    fn maxBytesLeftInPage(page_size: usize, address: u64, count: usize) usize {
+        var left = count;
+        if (page_size > 0) {
+            const page_offset = address % page_size;
+            const bytes_left_in_page = page_size - page_offset;
+            if (count > bytes_left_in_page) {
+                left = bytes_left_in_page;
+            }
+        }
+        return left;
+    }
+
+    fn getPageSize(task: MachTask) MachError!usize {
+        if (task.isValid()) {
+            var info_count = std.c.TASK_VM_INFO_COUNT;
+            var vm_info: std.c.task_vm_info_data_t = undefined;
+            switch (getKernError(std.c.task_info(
+                task.port,
+                std.c.TASK_VM_INFO,
+                @as(std.c.task_info_t, @ptrCast(&vm_info)),
+                &info_count,
+            ))) {
+                .SUCCESS => return @as(usize, @intCast(vm_info.page_size)),
+                else => {},
+            }
+        }
+        var page_size: std.c.vm_size_t = undefined;
+        switch (getKernError(std.c._host_page_size(std.c.mach_host_self(), &page_size))) {
+            .SUCCESS => return page_size,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    pub fn basicTaskInfo(task: MachTask) MachError!std.c.mach_task_basic_info {
+        var info: std.c.mach_task_basic_info = undefined;
+        var count = std.c.MACH_TASK_BASIC_INFO_COUNT;
+        switch (getKernError(std.c.task_info(
+            task.port,
+            std.c.MACH_TASK_BASIC_INFO,
+            @as(std.c.task_info_t, @ptrCast(&info)),
+            &count,
+        ))) {
+            .SUCCESS => return info,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    pub fn @"resume"(task: MachTask) MachError!void {
+        switch (getKernError(std.c.task_resume(task.port))) {
+            .SUCCESS => {},
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    pub fn @"suspend"(task: MachTask) MachError!void {
+        switch (getKernError(std.c.task_suspend(task.port))) {
+            .SUCCESS => {},
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    const ThreadList = struct {
+        buf: []MachThread,
+
+        pub fn deinit(list: ThreadList) void {
+            const self_task = machTaskForSelf();
+            _ = std.c.vm_deallocate(
+                self_task.port,
+                @intFromPtr(list.buf.ptr),
+                @as(std.c.vm_size_t, @intCast(list.buf.len * @sizeOf(std.c.mach_port_t))),
+            );
+        }
+    };
+
+    pub fn getThreads(task: MachTask) MachError!ThreadList {
+        var thread_list: std.c.mach_port_array_t = undefined;
+        var thread_count: std.c.mach_msg_type_number_t = undefined;
+        switch (getKernError(std.c.task_threads(task.port, &thread_list, &thread_count))) {
+            .SUCCESS => return ThreadList{ .buf = @as([*]MachThread, @ptrCast(thread_list))[0..thread_count] },
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+};
+
+pub const MachThread = extern struct {
+    port: std.c.mach_port_t,
+
+    pub fn isValid(thread: MachThread) bool {
+        return thread.port != std.c.THREAD_NULL;
+    }
+
+    pub fn getBasicInfo(thread: MachThread) MachError!std.c.thread_basic_info {
+        var info: std.c.thread_basic_info = undefined;
+        var count = std.c.THREAD_BASIC_INFO_COUNT;
+        switch (getKernError(std.c.thread_info(
+            thread.port,
+            std.c.THREAD_BASIC_INFO,
+            @as(std.c.thread_info_t, @ptrCast(&info)),
+            &count,
+        ))) {
+            .SUCCESS => return info,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+
+    pub fn getIdentifierInfo(thread: MachThread) MachError!std.c.thread_identifier_info {
+        var info: std.c.thread_identifier_info = undefined;
+        var count = std.c.THREAD_IDENTIFIER_INFO_COUNT;
+        switch (getKernError(std.c.thread_info(
+            thread.port,
+            std.c.THREAD_IDENTIFIER_INFO,
+            @as(std.c.thread_info_t, @ptrCast(&info)),
+            &count,
+        ))) {
+            .SUCCESS => return info,
+            else => |err| return unexpectedKernError(err),
+        }
+    }
+};
+
+pub fn machTaskForPid(pid: std.c.pid_t) MachError!MachTask {
+    var port: std.c.mach_port_name_t = undefined;
+    switch (getKernError(std.c.task_for_pid(std.c.mach_task_self(), pid, &port))) {
+        .SUCCESS => {},
+        .FAILURE => return error.PermissionDenied,
+        else => |err| return unexpectedKernError(err),
+    }
+    return MachTask{ .port = port };
+}
+
+pub fn machTaskForSelf() MachTask {
+    return .{ .port = std.c.mach_task_self() };
+}
+
+pub fn getKernError(err: std.c.kern_return_t) KernE {
+    return @as(KernE, @enumFromInt(@as(u32, @truncate(@as(usize, @intCast(err))))));
+}
+
+pub fn unexpectedKernError(err: KernE) std.posix.UnexpectedError {
+    if (std.posix.unexpected_error_tracing) {
+        std.debug.print("unexpected error: {d}\n", .{@intFromEnum(err)});
+        std.debug.dumpCurrentStackTrace(null);
+    }
+    return error.Unexpected;
+}
+
+/// Kernel return values
+pub const KernE = enum(u32) {
+    SUCCESS = 0,
+    /// Specified address is not currently valid
+    INVALID_ADDRESS = 1,
+    /// Specified memory is valid, but does not permit the
+    /// required forms of access.
+    PROTECTION_FAILURE = 2,
+    /// The address range specified is already in use, or
+    /// no address range of the size specified could be
+    /// found.
+    NO_SPACE = 3,
+    /// The function requested was not applicable to this
+    /// type of argument, or an argument is invalid
+    INVALID_ARGUMENT = 4,
+    /// The function could not be performed.  A catch-all.
+    FAILURE = 5,
+    /// A system resource could not be allocated to fulfill
+    /// this request.  This failure may not be permanent.
+    RESOURCE_SHORTAGE = 6,
+    /// The task in question does not hold receive rights
+    /// for the port argument.
+    NOT_RECEIVER = 7,
+    /// Bogus access restriction.
+    NO_ACCESS = 8,
+    /// During a page fault, the target address refers to a
+    /// memory object that has been destroyed.  This
+    /// failure is permanent.
+    MEMORY_FAILURE = 9,
+    /// During a page fault, the memory object indicated
+    /// that the data could not be returned.  This failure
+    /// may be temporary; future attempts to access this
+    /// same data may succeed, as defined by the memory
+    /// object.
+    MEMORY_ERROR = 10,
+    /// The receive right is already a member of the portset.
+    ALREADY_IN_SET = 11,
+    /// The receive right is not a member of a port set.
+    NOT_IN_SET = 12,
+    /// The name already denotes a right in the task.
+    NAME_EXISTS = 13,
+    /// The operation was aborted.  Ipc code will
+    /// catch this and reflect it as a message error.
+    ABORTED = 14,
+    /// The name doesn't denote a right in the task.
+    INVALID_NAME = 15,
+    /// Target task isn't an active task.
+    INVALID_TASK = 16,
+    /// The name denotes a right, but not an appropriate right.
+    INVALID_RIGHT = 17,
+    /// A blatant range error.
+    INVALID_VALUE = 18,
+    /// Operation would overflow limit on user-references.
+    UREFS_OVERFLOW = 19,
+    /// The supplied (port) capability is improper.
+    INVALID_CAPABILITY = 20,
+    /// The task already has send or receive rights
+    /// for the port under another name.
+    RIGHT_EXISTS = 21,
+    /// Target host isn't actually a host.
+    INVALID_HOST = 22,
+    /// An attempt was made to supply "precious" data
+    /// for memory that is already present in a
+    /// memory object.
+    MEMORY_PRESENT = 23,
+    /// A page was requested of a memory manager via
+    /// memory_object_data_request for an object using
+    /// a MEMORY_OBJECT_COPY_CALL strategy, with the
+    /// VM_PROT_WANTS_COPY flag being used to specify
+    /// that the page desired is for a copy of the
+    /// object, and the memory manager has detected
+    /// the page was pushed into a copy of the object
+    /// while the kernel was walking the shadow chain
+    /// from the copy to the object. This error code
+    /// is delivered via memory_object_data_error
+    /// and is handled by the kernel (it forces the
+    /// kernel to restart the fault). It will not be
+    /// seen by users.
+    MEMORY_DATA_MOVED = 24,
+    /// A strategic copy was attempted of an object
+    /// upon which a quicker copy is now possible.
+    /// The caller should retry the copy using
+    /// vm_object_copy_quickly. This error code
+    /// is seen only by the kernel.
+    MEMORY_RESTART_COPY = 25,
+    /// An argument applied to assert processor set privilege
+    /// was not a processor set control port.
+    INVALID_PROCESSOR_SET = 26,
+    /// The specified scheduling attributes exceed the thread's
+    /// limits.
+    POLICY_LIMIT = 27,
+    /// The specified scheduling policy is not currently
+    /// enabled for the processor set.
+    INVALID_POLICY = 28,
+    /// The external memory manager failed to initialize the
+    /// memory object.
+    INVALID_OBJECT = 29,
+    /// A thread is attempting to wait for an event for which
+    /// there is already a waiting thread.
+    ALREADY_WAITING = 30,
+    /// An attempt was made to destroy the default processor
+    /// set.
+    DEFAULT_SET = 31,
+    /// An attempt was made to fetch an exception port that is
+    /// protected, or to abort a thread while processing a
+    /// protected exception.
+    EXCEPTION_PROTECTED = 32,
+    /// A ledger was required but not supplied.
+    INVALID_LEDGER = 33,
+    /// The port was not a memory cache control port.
+    INVALID_MEMORY_CONTROL = 34,
+    /// An argument supplied to assert security privilege
+    /// was not a host security port.
+    INVALID_SECURITY = 35,
+    /// thread_depress_abort was called on a thread which
+    /// was not currently depressed.
+    NOT_DEPRESSED = 36,
+    /// Object has been terminated and is no longer available
+    TERMINATED = 37,
+    /// Lock set has been destroyed and is no longer available.
+    LOCK_SET_DESTROYED = 38,
+    /// The thread holding the lock terminated before releasing
+    /// the lock
+    LOCK_UNSTABLE = 39,
+    /// The lock is already owned by another thread
+    LOCK_OWNED = 40,
+    /// The lock is already owned by the calling thread
+    LOCK_OWNED_SELF = 41,
+    /// Semaphore has been destroyed and is no longer available.
+    SEMAPHORE_DESTROYED = 42,
+    /// Return from RPC indicating the target server was
+    /// terminated before it successfully replied
+    RPC_SERVER_TERMINATED = 43,
+    /// Terminate an orphaned activation.
+    RPC_TERMINATE_ORPHAN = 44,
+    /// Allow an orphaned activation to continue executing.
+    RPC_CONTINUE_ORPHAN = 45,
+    /// Empty thread activation (No thread linked to it)
+    NOT_SUPPORTED = 46,
+    /// Remote node down or inaccessible.
+    NODE_DOWN = 47,
+    /// A signalled thread was not actually waiting.
+    NOT_WAITING = 48,
+    /// Some thread-oriented operation (semaphore_wait) timed out
+    OPERATION_TIMED_OUT = 49,
+    /// During a page fault, indicates that the page was rejected
+    /// as a result of a signature check.
+    CODESIGN_ERROR = 50,
+    /// The requested property cannot be changed at this time.
+    POLICY_STATIC = 51,
+    /// The provided buffer is of insufficient size for the requested data.
+    INSUFFICIENT_BUFFER_SIZE = 52,
+    /// Denied by security policy
+    DENIED = 53,
+    /// The KC on which the function is operating is missing
+    MISSING_KC = 54,
+    /// The KC on which the function is operating is invalid
+    INVALID_KC = 55,
+    /// A search or query operation did not return a result
+    NOT_FOUND = 56,
+    _,
+};

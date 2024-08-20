@@ -8,7 +8,7 @@ set -e
 ARCH="$(uname -m)"
 TARGET="$ARCH-linux-musl"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.13.0-dev.130+98a30acad"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.14.0-dev.418+ebd9efa85"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
@@ -63,6 +63,22 @@ stage3-release/bin/zig build test docs \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \
   -Denable-tidy
+
+# Ensure that stage3 and stage4 are byte-for-byte identical.
+stage3-release/bin/zig build \
+  --prefix stage4-release \
+  -Denable-llvm \
+  -Dno-lib \
+  -Doptimize=ReleaseFast \
+  -Dstrip \
+  -Dtarget=$TARGET \
+  -Duse-zig-libcxx \
+  -Dversion-string="$(stage3-release/bin/zig version)"
+
+# diff returns an error code if the files differ.
+echo "If the following command fails, it means nondeterminism has been"
+echo "introduced, making stage3 and stage4 no longer byte-for-byte identical."
+diff stage3-release/bin/zig stage4-release/bin/zig
 
 # Ensure that updating the wasm binary from this commit will result in a viable build.
 stage3-release/bin/zig build update-zig1

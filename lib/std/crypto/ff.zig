@@ -41,7 +41,7 @@ pub const OverflowError = error{Overflow};
 /// Invalid modulus. Modulus must be odd.
 pub const InvalidModulusError = error{ EvenModulus, ModulusTooSmall };
 
-/// Exponentation with a null exponent.
+/// Exponentiation with a null exponent.
 /// Exponentiation in cryptographic protocols is almost always a sign of a bug which can lead to trivial attacks.
 /// Therefore, this module returns an error when a null exponent is encountered, encouraging applications to handle this case explicitly.
 pub const NullExponentError = error{NullExponent};
@@ -225,12 +225,12 @@ pub fn Uint(comptime max_bits: comptime_int) type {
 
         /// Returns `true` if both integers are equal.
         pub fn eql(x: Self, y: Self) bool {
-            return crypto.utils.timingSafeEql([max_limbs_count]Limb, x.limbs_buffer, y.limbs_buffer);
+            return crypto.timing_safe.eql([max_limbs_count]Limb, x.limbs_buffer, y.limbs_buffer);
         }
 
         /// Compares two integers.
         pub fn compare(x: Self, y: Self) math.Order {
-            return crypto.utils.timingSafeCompare(
+            return crypto.timing_safe.compare(
                 Limb,
                 x.limbsConst(),
                 y.limbsConst(),
@@ -305,7 +305,7 @@ fn Fe_(comptime bits: comptime_int) type {
         /// The element value as a `Uint`.
         v: FeUint,
 
-        /// `true` is the element is in Montgomery form.
+        /// `true` if the element is in Montgomery form.
         montgomery: bool = false,
 
         /// The maximum number of bytes required to encode a field element.

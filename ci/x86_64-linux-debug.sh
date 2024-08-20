@@ -8,7 +8,7 @@ set -e
 ARCH="$(uname -m)"
 TARGET="$ARCH-linux-musl"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.13.0-dev.130+98a30acad"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.14.0-dev.418+ebd9efa85"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
@@ -64,6 +64,7 @@ stage3-debug/bin/zig build \
 
 stage3-debug/bin/zig build test docs \
   --maxrss 21000000000 \
+  -Dlldb=$HOME/deps/lldb-zig/Debug-f96d3e6fc/bin/lldb \
   -fqemu \
   -fwasmtime \
   -Dstatic-llvm \

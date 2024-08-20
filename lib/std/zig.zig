@@ -163,7 +163,7 @@ pub fn binNameAlloc(allocator: Allocator, options: BinNameOptions) error{OutOfMe
             },
             .Obj => return std.fmt.allocPrint(allocator, "{s}.obj", .{root_name}),
         },
-        .elf => switch (options.output_mode) {
+        .elf, .goff, .xcoff => switch (options.output_mode) {
             .Exe => return allocator.dupe(u8, root_name),
             .Lib => {
                 switch (options.link_mode orelse .static) {
@@ -667,10 +667,8 @@ pub fn parseTargetQueryOrReportFatalError(
     };
 }
 
-pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
-    std.log.err(format, args);
-    std.process.exit(1);
-}
+/// Deprecated; see `std.process.fatal`.
+pub const fatal = std.process.fatal;
 
 /// Collects all the environment variables that Zig could possibly inspect, so
 /// that we can do reflection on this and print them with `zig env`.
