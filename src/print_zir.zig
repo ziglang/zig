@@ -615,6 +615,7 @@ const Writer = struct {
             .restore_err_ret_index => try self.writeRestoreErrRetIndex(stream, extended),
             .closure_get => try self.writeClosureGet(stream, extended),
             .field_parent_ptr => try self.writeFieldParentPtr(stream, extended),
+            .builtin_value => try self.writeBuiltinValue(stream, extended),
         }
     }
 
@@ -746,7 +747,7 @@ const Writer = struct {
     fn writeIntBig(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].str;
         const byte_count = inst_data.len * @sizeOf(std.math.big.Limb);
-        const limb_bytes = self.code.nullTerminatedString(inst_data.start)[0..byte_count];
+        const limb_bytes = self.code.string_bytes[@intFromEnum(inst_data.start)..][0..byte_count];
         // limb_bytes is not aligned properly; we must allocate and copy the bytes
         // in order to accomplish this.
         const limbs = try self.gpa.alloc(std.math.big.Limb, inst_data.len);
@@ -2779,6 +2780,12 @@ const Writer = struct {
 
     fn writeClosureGet(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
         try stream.print("{d})) ", .{extended.small});
+        try self.writeSrcNode(stream, @bitCast(extended.operand));
+    }
+
+    fn writeBuiltinValue(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
+        const val: Zir.Inst.BuiltinValue = @enumFromInt(extended.small);
+        try stream.print("{s})) ", .{@tagName(val)});
         try self.writeSrcNode(stream, @bitCast(extended.operand));
     }
 

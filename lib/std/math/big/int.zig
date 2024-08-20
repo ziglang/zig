@@ -2092,6 +2092,12 @@ pub const Const = struct {
         return bits;
     }
 
+    /// Returns the number of bits required to represent the integer in twos-complement form
+    /// with the given signedness.
+    pub fn bitCountTwosCompForSignedness(self: Const, signedness: std.builtin.Signedness) usize {
+        return self.bitCountTwosComp() + @intFromBool(self.positive and signedness == .signed);
+    }
+
     /// @popCount with two's complement semantics.
     ///
     /// This returns the number of 1 bits set when the value would be represented in
@@ -2147,9 +2153,7 @@ pub const Const = struct {
         if (signedness == .unsigned and !self.positive) {
             return false;
         }
-
-        const req_bits = self.bitCountTwosComp() + @intFromBool(self.positive and signedness == .signed);
-        return bit_count >= req_bits;
+        return bit_count >= self.bitCountTwosCompForSignedness(signedness);
     }
 
     /// Returns whether self can fit into an integer of the requested type.

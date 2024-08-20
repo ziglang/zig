@@ -219,7 +219,7 @@ pub const min_text_capacity = padToIdeal(minimum_text_block_size);
 pub fn createEmpty(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*Coff {
     const target = comp.root_mod.resolved_target.result;
@@ -315,7 +315,7 @@ pub fn createEmpty(
     // If using LLD to link, this code should produce an object file so that it
     // can be passed to LLD.
     const sub_path = if (use_lld) zcu_object_sub_path.? else emit.sub_path;
-    self.base.file = try emit.directory.handle.createFile(sub_path, .{
+    self.base.file = try emit.root_dir.handle.createFile(sub_path, .{
         .truncate = true,
         .read = true,
         .mode = link.File.determineMode(use_lld, output_mode, link_mode),
@@ -416,7 +416,7 @@ pub fn createEmpty(
 pub fn open(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*Coff {
     // TODO: restore saved linker state, don't truncate the file, and
@@ -1205,10 +1205,11 @@ pub fn updateNav(
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
 
-    const init_val = switch (ip.indexToKey(nav.status.resolved.val)) {
-        .variable => |variable| variable.init,
+    const nav_val = zcu.navValue(nav_index);
+    const nav_init = switch (ip.indexToKey(nav_val.toIntern())) {
+        .variable => |variable| Value.fromInterned(variable.init),
         .@"extern" => |@"extern"| {
-            if (ip.isFunctionType(nav.typeOf(ip))) return;
+            if (ip.isFunctionType(@"extern".ty)) return;
             // TODO make this part of getGlobalSymbol
             const name = nav.name.toSlice(ip);
             const lib_name = @"extern".lib_name.toSlice(ip);
@@ -1216,34 +1217,36 @@ pub fn updateNav(
             try self.need_got_table.put(gpa, global_index, {});
             return;
         },
-        else => nav.status.resolved.val,
+        else => nav_val,
     };
 
-    const atom_index = try self.getOrCreateAtomForNav(nav_index);
-    Atom.freeRelocations(self, atom_index);
-    const atom = self.getAtom(atom_index);
+    if (nav_init.typeOf(zcu).isFnOrHasRuntimeBits(pt)) {
+        const atom_index = try self.getOrCreateAtomForNav(nav_index);
+        Atom.freeRelocations(self, atom_index);
+        const atom = self.getAtom(atom_index);
 
-    var code_buffer = std.ArrayList(u8).init(gpa);
-    defer code_buffer.deinit();
+        var code_buffer = std.ArrayList(u8).init(gpa);
+        defer code_buffer.deinit();
 
-    const res = try codegen.generateSymbol(
-        &self.base,
-        pt,
-        zcu.navSrcLoc(nav_index),
-        Value.fromInterned(init_val),
-        &code_buffer,
-        .none,
-        .{ .parent_atom_index = atom.getSymbolIndex().? },
-    );
-    const code = switch (res) {
-        .ok => code_buffer.items,
-        .fail => |em| {
-            try zcu.failed_codegen.put(gpa, nav_index, em);
-            return;
-        },
-    };
+        const res = try codegen.generateSymbol(
+            &self.base,
+            pt,
+            zcu.navSrcLoc(nav_index),
+            nav_init,
+            &code_buffer,
+            .none,
+            .{ .parent_atom_index = atom.getSymbolIndex().? },
+        );
+        const code = switch (res) {
+            .ok => code_buffer.items,
+            .fail => |em| {
+                try zcu.failed_codegen.put(gpa, nav_index, em);
+                return;
+            },
+        };
 
-    try self.updateNavCode(pt, nav_index, code, .NULL);
+        try self.updateNavCode(pt, nav_index, code, .NULL);
+    }
 
     // Exports will be updated by `Zcu.processExports` after the update.
 }
@@ -1290,10 +1293,10 @@ fn updateLazySymbolAtom(
         },
     };
 
-    const code_len = @as(u32, @intCast(code.len));
+    const code_len: u32 = @intCast(code.len);
     const symbol = atom.getSymbolPtr(self);
     try self.setSymbolName(symbol, name);
-    symbol.section_number = @as(coff.SectionNumber, @enumFromInt(section_index + 1));
+    symbol.section_number = @enumFromInt(section_index + 1);
     symbol.type = .{ .complex_type = .NULL, .base_type = .NULL };
 
     const vaddr = try self.allocateAtom(atom_index, code_len, @intCast(required_alignment.toByteUnits() orelse 0));
@@ -1691,7 +1694,7 @@ pub fn flushModule(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
         .tid = tid,
     };
 
-    if (self.lazy_syms.getPtr(.none)) |metadata| {
+    if (self.lazy_syms.getPtr(.anyerror_type)) |metadata| {
         // Most lazy symbols can be updated on first use, but
         // anyerror needs to wait for everything to be flushed.
         if (metadata.text_state != .unused) self.updateLazySymbolAtom(
@@ -2259,7 +2262,7 @@ fn writeHeader(self: *Coff) !void {
     const timestamp = if (self.repro) 0 else std.time.timestamp();
     const size_of_optional_header = @as(u16, @intCast(self.getOptionalHeaderSize() + self.getDataDirectoryHeadersSize()));
     var coff_header = coff.CoffHeader{
-        .machine = coff.MachineType.fromTargetCpuArch(target.cpu.arch),
+        .machine = target.toCoffMachine(),
         .number_of_sections = @as(u16, @intCast(self.sections.slice().len)), // TODO what if we prune a section
         .time_date_stamp = @as(u32, @truncate(@as(u64, @bitCast(timestamp)))),
         .pointer_to_symbol_table = self.strtab_offset orelse 0,
@@ -2711,6 +2714,7 @@ const math = std.math;
 const mem = std.mem;
 
 const Allocator = std.mem.Allocator;
+const Path = std.Build.Cache.Path;
 
 const codegen = @import("../codegen.zig");
 const link = @import("../link.zig");

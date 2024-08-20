@@ -56,18 +56,6 @@ pub fn updateSize(rebase: *Rebase, macho_file: *MachO) !void {
         }
     }
 
-    if (macho_file.zig_got_sect_index) |sid| {
-        const seg_id = macho_file.sections.items(.segment_id)[sid];
-        const seg = macho_file.segments.items[seg_id];
-        for (0..macho_file.zig_got.entries.items.len) |idx| {
-            const addr = macho_file.zig_got.entryAddress(@intCast(idx), macho_file);
-            try rebase.entries.append(gpa, .{
-                .offset = addr - seg.vmaddr,
-                .segment_id = seg_id,
-            });
-        }
-    }
-
     if (macho_file.got_sect_index) |sid| {
         const seg_id = macho_file.sections.items(.segment_id)[sid];
         const seg = macho_file.segments.items[seg_id];

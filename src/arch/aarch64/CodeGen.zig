@@ -18,7 +18,6 @@ const ErrorMsg = Zcu.ErrorMsg;
 const Target = std.Target;
 const Allocator = mem.Allocator;
 const trace = @import("../../tracy.zig").trace;
-const DW = std.dwarf;
 const leb128 = std.leb;
 const log = std.log.scoped(.codegen);
 const build_options = @import("build_options");
@@ -181,11 +180,11 @@ const DbgInfoReloc = struct {
         }
     }
 
-    fn genArgDbgInfo(reloc: DbgInfoReloc, function: Self) error{OutOfMemory}!void {
+    fn genArgDbgInfo(reloc: DbgInfoReloc, function: Self) !void {
         switch (function.debug_output) {
             .dwarf => |dw| {
-                const loc: link.File.Dwarf.NavState.DbgInfoLoc = switch (reloc.mcv) {
-                    .register => |reg| .{ .register = reg.dwarfLocOp() },
+                const loc: link.File.Dwarf.Loc = switch (reloc.mcv) {
+                    .register => |reg| .{ .reg = reg.dwarfNum() },
                     .stack_offset,
                     .stack_argument_offset,
                     => |offset| blk: {
@@ -194,15 +193,15 @@ const DbgInfoReloc = struct {
                             .stack_argument_offset => @as(i32, @intCast(function.saved_regs_stack_space + offset)),
                             else => unreachable,
                         };
-                        break :blk .{ .stack = .{
-                            .fp_register = Register.x29.dwarfLocOpDeref(),
-                            .offset = adjusted_offset,
+                        break :blk .{ .plus = .{
+                            &.{ .breg = Register.x29.dwarfNum() },
+                            &.{ .consts = adjusted_offset },
                         } };
                     },
                     else => unreachable, // not a possible argument
 
                 };
-                try dw.genArgDbgInfo(reloc.name, reloc.ty, function.owner_nav, loc);
+                try dw.genVarDebugInfo(.local_arg, reloc.name, reloc.ty, loc);
             },
             .plan9 => {},
             .none => {},
@@ -210,16 +209,10 @@ const DbgInfoReloc = struct {
     }
 
     fn genVarDbgInfo(reloc: DbgInfoReloc, function: Self) !void {
-        const is_ptr = switch (reloc.tag) {
-            .dbg_var_ptr => true,
-            .dbg_var_val => false,
-            else => unreachable,
-        };
-
         switch (function.debug_output) {
-            .dwarf => |dw| {
-                const loc: link.File.Dwarf.NavState.DbgInfoLoc = switch (reloc.mcv) {
-                    .register => |reg| .{ .register = reg.dwarfLocOp() },
+            .dwarf => |dwarf| {
+                const loc: link.File.Dwarf.Loc = switch (reloc.mcv) {
+                    .register => |reg| .{ .reg = reg.dwarfNum() },
                     .ptr_stack_offset,
                     .stack_offset,
                     .stack_argument_offset,
@@ -231,24 +224,20 @@ const DbgInfoReloc = struct {
                             .stack_argument_offset => @as(i32, @intCast(function.saved_regs_stack_space + offset)),
                             else => unreachable,
                         };
-                        break :blk .{
-                            .stack = .{
-                                .fp_register = Register.x29.dwarfLocOpDeref(),
-                                .offset = adjusted_offset,
-                            },
-                        };
+                        break :blk .{ .plus = .{
+                            &.{ .reg = Register.x29.dwarfNum() },
+                            &.{ .consts = adjusted_offset },
+                        } };
                     },
-                    .memory => |address| .{ .memory = address },
-                    .linker_load => |linker_load| .{ .linker_load = linker_load },
-                    .immediate => |x| .{ .immediate = x },
-                    .undef => .undef,
-                    .none => .none,
+                    .memory => |address| .{ .constu = address },
+                    .immediate => |x| .{ .constu = x },
+                    .none => .empty,
                     else => blk: {
                         log.debug("TODO generate debug info for {}", .{reloc.mcv});
-                        break :blk .nop;
+                        break :blk .empty;
                     },
                 };
-                try dw.genVarDbgInfo(reloc.name, reloc.ty, function.owner_nav, is_ptr, loc);
+                try dwarf.genVarDebugInfo(.local_var, reloc.name, reloc.ty, loc);
             },
             .plan9 => {},
             .none => {},
@@ -4352,24 +4341,10 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     // on linking.
     if (try self.air.value(callee, pt)) |func_value| switch (ip.indexToKey(func_value.toIntern())) {
         .func => |func| {
-            if (self.bin_file.cast(.elf)) |elf_file| {
-                const zo = elf_file.zigObjectPtr().?;
-                const sym_index = try zo.getOrCreateMetadataForNav(elf_file, func.owner_nav);
-                const sym = zo.symbol(sym_index);
-                _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
-                const got_addr = @as(u32, @intCast(sym.zigGotAddress(elf_file)));
-                try self.genSetReg(Type.usize, .x30, .{ .memory = got_addr });
-            } else if (self.bin_file.cast(.macho)) |macho_file| {
-                _ = macho_file;
-                @panic("TODO airCall");
-                // const atom = try macho_file.getOrCreateAtomForNav(func.owner_nav);
-                // const sym_index = macho_file.getAtom(atom).getSymbolIndex().?;
-                // try self.genSetReg(Type.u64, .x30, .{
-                //     .linker_load = .{
-                //         .type = .got,
-                //         .sym_index = sym_index,
-                //     },
-                // });
+            if (self.bin_file.cast(.elf)) |_| {
+                return self.fail("TODO implement calling functions for Elf", .{});
+            } else if (self.bin_file.cast(.macho)) |_| {
+                return self.fail("TODO implement calling functions for MachO", .{});
             } else if (self.bin_file.cast(.coff)) |coff_file| {
                 const atom = try coff_file.getOrCreateAtomForNav(func.owner_nav);
                 const sym_index = coff_file.getAtom(atom).getSymbolIndex().?;
@@ -4393,21 +4368,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
         .@"extern" => |@"extern"| {
             const nav_name = ip.getNav(@"extern".owner_nav).name.toSlice(ip);
             const lib_name = @"extern".lib_name.toSlice(ip);
-            if (self.bin_file.cast(.macho)) |macho_file| {
-                _ = macho_file;
-                @panic("TODO airCall");
-                // const sym_index = try macho_file.getGlobalSymbol(nav_name, lib_name);
-                // const atom = try macho_file.getOrCreateAtomForNav(self.owner_nav);
-                // const atom_index = macho_file.getAtom(atom).getSymbolIndex().?;
-                // _ = try self.addInst(.{
-                //     .tag = .call_extern,
-                //     .data = .{
-                //         .relocation = .{
-                //             .atom_index = atom_index,
-                //             .sym_index = sym_index,
-                //         },
-                //     },
-                // });
+            if (self.bin_file.cast(.macho)) |_| {
+                return self.fail("TODO implement calling extern functions for MachO", .{});
             } else if (self.bin_file.cast(.coff)) |coff_file| {
                 const sym_index = try coff_file.getGlobalSymbol(nav_name, lib_name);
                 try self.genSetReg(Type.u64, .x30, .{
@@ -6234,7 +6196,7 @@ fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
             .memory => |addr| .{ .memory = addr },
             .load_got => |sym_index| .{ .linker_load = .{ .type = .got, .sym_index = sym_index } },
             .load_direct => |sym_index| .{ .linker_load = .{ .type = .direct, .sym_index = sym_index } },
-            .load_symbol, .load_tlv => unreachable, // TODO
+            .load_symbol, .load_tlv, .lea_symbol, .lea_direct => unreachable, // TODO
         },
         .fail => |msg| {
             self.err_msg = msg;

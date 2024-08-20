@@ -59,7 +59,6 @@ symtab: std.ArrayListUnmanaged(macho.nlist_64) = .{},
 strtab: std.ArrayListUnmanaged(u8) = .{},
 indsymtab: Indsymtab = .{},
 got: GotSection = .{},
-zig_got: ZigGotSection = .{},
 stubs: StubsSection = .{},
 stubs_helper: StubsHelperSection = .{},
 objc_stubs: ObjcStubsSection = .{},
@@ -75,14 +74,12 @@ data_in_code: DataInCode = .{},
 
 /// Tracked loadable segments during incremental linking.
 zig_text_seg_index: ?u8 = null,
-zig_got_seg_index: ?u8 = null,
 zig_const_seg_index: ?u8 = null,
 zig_data_seg_index: ?u8 = null,
 zig_bss_seg_index: ?u8 = null,
 
 /// Tracked section headers with incremental updates to Zig object.
 zig_text_sect_index: ?u8 = null,
-zig_got_sect_index: ?u8 = null,
 zig_const_sect_index: ?u8 = null,
 zig_data_sect_index: ?u8 = null,
 zig_bss_sect_index: ?u8 = null,
@@ -94,6 +91,9 @@ debug_abbrev_sect_index: ?u8 = null,
 debug_str_sect_index: ?u8 = null,
 debug_aranges_sect_index: ?u8 = null,
 debug_line_sect_index: ?u8 = null,
+debug_line_str_sect_index: ?u8 = null,
+debug_loclists_sect_index: ?u8 = null,
+debug_rnglists_sect_index: ?u8 = null,
 
 has_tlv: AtomicBool = AtomicBool.init(false),
 binds_to_weak: AtomicBool = AtomicBool.init(false),
@@ -156,7 +156,7 @@ pub fn hashAddFrameworks(man: *Cache.Manifest, hm: []const Framework) !void {
 pub fn createEmpty(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*MachO {
     const target = comp.root_mod.resolved_target.result;
@@ -221,7 +221,7 @@ pub fn createEmpty(
     }
     errdefer self.base.destroy();
 
-    self.base.file = try emit.directory.handle.createFile(emit.sub_path, .{
+    self.base.file = try emit.root_dir.handle.createFile(emit.sub_path, .{
         .truncate = true,
         .read = true,
         .mode = link.File.determineMode(false, output_mode, link_mode),
@@ -260,7 +260,7 @@ pub fn createEmpty(
 pub fn open(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*MachO {
     // TODO: restore saved linker state, don't truncate the file, and
@@ -321,7 +321,6 @@ pub fn deinit(self: *MachO) void {
     self.symtab.deinit(gpa);
     self.strtab.deinit(gpa);
     self.got.deinit(gpa);
-    self.zig_got.deinit(gpa);
     self.stubs.deinit(gpa);
     self.objc_stubs.deinit(gpa);
     self.tlv_ptr.deinit(gpa);
@@ -354,7 +353,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     const sub_prog_node = prog_node.start("MachO Flush", 0);
     defer sub_prog_node.end();
 
-    const directory = self.base.emit.directory;
+    const directory = self.base.emit.root_dir;
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
     const module_obj_path: ?[]const u8 = if (self.base.zcu_object_sub_path) |path| blk: {
         if (fs.path.dirname(full_out_path)) |dirname| {
@@ -587,7 +586,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     if (codesig) |*csig| {
         try self.writeCodeSignature(csig); // code signing always comes last
         const emit = self.base.emit;
-        try invalidateKernelCache(emit.directory.handle, emit.sub_path);
+        try invalidateKernelCache(emit.root_dir.handle, emit.sub_path);
     }
 }
 
@@ -598,7 +597,7 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const directory = self.base.emit.directory;
+    const directory = self.base.emit.root_dir;
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
     const module_obj_path: ?[]const u8 = if (self.base.zcu_object_sub_path) |path| blk: {
         if (fs.path.dirname(full_out_path)) |dirname| {
@@ -1789,12 +1788,41 @@ pub fn sortSections(self: *MachO) !void {
         self.sections.appendAssumeCapacity(slice.get(sorted.index));
     }
 
+    for (&[_]*?u8{
+        &self.data_sect_index,
+        &self.got_sect_index,
+        &self.zig_text_sect_index,
+        &self.zig_const_sect_index,
+        &self.zig_data_sect_index,
+        &self.zig_bss_sect_index,
+        &self.stubs_sect_index,
+        &self.stubs_helper_sect_index,
+        &self.la_symbol_ptr_sect_index,
+        &self.tlv_ptr_sect_index,
+        &self.eh_frame_sect_index,
+        &self.unwind_info_sect_index,
+        &self.objc_stubs_sect_index,
+        &self.debug_str_sect_index,
+        &self.debug_info_sect_index,
+        &self.debug_abbrev_sect_index,
+        &self.debug_aranges_sect_index,
+        &self.debug_line_sect_index,
+        &self.debug_line_str_sect_index,
+        &self.debug_loclists_sect_index,
+        &self.debug_rnglists_sect_index,
+    }) |maybe_index| {
+        if (maybe_index.*) |*index| {
+            index.* = backlinks[index.*];
+        }
+    }
+
     if (self.getZigObject()) |zo| {
         for (zo.getAtoms()) |atom_index| {
             const atom = zo.getAtom(atom_index) orelse continue;
             if (!atom.isAlive()) continue;
             atom.out_n_sect = backlinks[atom.out_n_sect];
         }
+        if (zo.dwarf) |*dwarf| dwarf.reloadSectionMetadata();
     }
 
     for (self.objects.items) |index| {
@@ -1811,32 +1839,6 @@ pub fn sortSections(self: *MachO) !void {
             const atom = object.getAtom(atom_index) orelse continue;
             if (!atom.isAlive()) continue;
             atom.out_n_sect = backlinks[atom.out_n_sect];
-        }
-    }
-
-    for (&[_]*?u8{
-        &self.data_sect_index,
-        &self.got_sect_index,
-        &self.zig_text_sect_index,
-        &self.zig_got_sect_index,
-        &self.zig_const_sect_index,
-        &self.zig_data_sect_index,
-        &self.zig_bss_sect_index,
-        &self.stubs_sect_index,
-        &self.stubs_helper_sect_index,
-        &self.la_symbol_ptr_sect_index,
-        &self.tlv_ptr_sect_index,
-        &self.eh_frame_sect_index,
-        &self.unwind_info_sect_index,
-        &self.objc_stubs_sect_index,
-        &self.debug_info_sect_index,
-        &self.debug_str_sect_index,
-        &self.debug_line_sect_index,
-        &self.debug_abbrev_sect_index,
-        &self.debug_info_sect_index,
-    }) |maybe_index| {
-        if (maybe_index.*) |*index| {
-            index.* = backlinks[index.*];
         }
     }
 }
@@ -2107,7 +2109,6 @@ fn initSegments(self: *MachO) !void {
         &self.text_seg_index,
         &self.linkedit_seg_index,
         &self.zig_text_seg_index,
-        &self.zig_got_seg_index,
         &self.zig_const_seg_index,
         &self.zig_data_seg_index,
         &self.zig_bss_seg_index,
@@ -2189,7 +2190,7 @@ fn allocateSections(self: *MachO) !void {
             header.size = 0;
 
             // Must move the entire section.
-            const new_offset = self.findFreeSpace(existing_size, page_size);
+            const new_offset = try self.findFreeSpace(existing_size, page_size);
 
             log.debug("moving '{s},{s}' from 0x{x} to 0x{x}", .{
                 header.segName(),
@@ -3066,32 +3067,36 @@ pub fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
     return actual_size +| (actual_size / ideal_factor);
 }
 
-fn detectAllocCollision(self: *MachO, start: u64, size: u64) ?u64 {
+fn detectAllocCollision(self: *MachO, start: u64, size: u64) !?u64 {
     // Conservatively commit one page size as reserved space for the headers as we
     // expect it to grow and everything else be moved in flush anyhow.
     const header_size = self.getPageSize();
     if (start < header_size)
         return header_size;
 
+    var at_end = true;
     const end = start + padToIdeal(size);
 
     for (self.sections.items(.header)) |header| {
         if (header.isZerofill()) continue;
         const increased_size = padToIdeal(header.size);
         const test_end = header.offset +| increased_size;
-        if (end > header.offset and start < test_end) {
-            return test_end;
+        if (start < test_end) {
+            if (end > header.offset) return test_end;
+            if (test_end < std.math.maxInt(u64)) at_end = false;
         }
     }
 
     for (self.segments.items) |seg| {
         const increased_size = padToIdeal(seg.filesize);
         const test_end = seg.fileoff +| increased_size;
-        if (end > seg.fileoff and start < test_end) {
-            return test_end;
+        if (start < test_end) {
+            if (end > seg.fileoff) return test_end;
+            if (test_end < std.math.maxInt(u64)) at_end = false;
         }
     }
 
+    if (at_end) try self.base.file.?.setEndPos(end);
     return null;
 }
 
@@ -3159,9 +3164,9 @@ pub fn allocatedSizeVirtual(self: *MachO, start: u64) u64 {
     return min_pos - start;
 }
 
-pub fn findFreeSpace(self: *MachO, object_size: u64, min_alignment: u32) u64 {
+pub fn findFreeSpace(self: *MachO, object_size: u64, min_alignment: u32) !u64 {
     var start: u64 = 0;
-    while (self.detectAllocCollision(start, object_size)) |item_end| {
+    while (try self.detectAllocCollision(start, object_size)) |item_end| {
         start = mem.alignForward(u64, item_end, min_alignment);
     }
     return start;
@@ -3194,7 +3199,7 @@ fn copyRangeAllZeroOut(self: *MachO, old_offset: u64, new_offset: u64, size: u64
 }
 
 const InitMetadataOptions = struct {
-    emit: Compilation.Emit,
+    emit: Path,
     zo: *ZigObject,
     symbol_count_hint: u64,
     program_code_size_hint: u64,
@@ -3210,7 +3215,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
 
         {
             const filesize = options.program_code_size_hint;
-            const off = self.findFreeSpace(filesize, self.getPageSize());
+            const off = try self.findFreeSpace(filesize, self.getPageSize());
             self.zig_text_seg_index = try self.addSegment("__TEXT_ZIG", .{
                 .fileoff = off,
                 .filesize = filesize,
@@ -3221,20 +3226,8 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
         }
 
         {
-            const filesize = options.symbol_count_hint * @sizeOf(u64);
-            const off = self.findFreeSpace(filesize, self.getPageSize());
-            self.zig_got_seg_index = try self.addSegment("__GOT_ZIG", .{
-                .fileoff = off,
-                .filesize = filesize,
-                .vmaddr = base_vmaddr + 0x4000000,
-                .vmsize = filesize,
-                .prot = macho.PROT.READ | macho.PROT.WRITE,
-            });
-        }
-
-        {
             const filesize: u64 = 1024;
-            const off = self.findFreeSpace(filesize, self.getPageSize());
+            const off = try self.findFreeSpace(filesize, self.getPageSize());
             self.zig_const_seg_index = try self.addSegment("__CONST_ZIG", .{
                 .fileoff = off,
                 .filesize = filesize,
@@ -3246,7 +3239,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
 
         {
             const filesize: u64 = 1024;
-            const off = self.findFreeSpace(filesize, self.getPageSize());
+            const off = try self.findFreeSpace(filesize, self.getPageSize());
             self.zig_data_seg_index = try self.addSegment("__DATA_ZIG", .{
                 .fileoff = off,
                 .filesize = filesize,
@@ -3265,7 +3258,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
             });
         }
 
-        if (options.zo.dwarf) |_| {
+        if (options.zo.dwarf) |*dwarf| {
             // Create dSYM bundle.
             log.debug("creating {s}.dSYM bundle", .{options.emit.sub_path});
 
@@ -3278,7 +3271,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
             );
             defer gpa.free(d_sym_path);
 
-            var d_sym_bundle = try options.emit.directory.handle.makeOpenPath(d_sym_path, .{});
+            var d_sym_bundle = try options.emit.root_dir.handle.makeOpenPath(d_sym_path, .{});
             defer d_sym_bundle.close();
 
             const d_sym_file = try d_sym_bundle.createFile(options.emit.sub_path, .{
@@ -3288,6 +3281,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
 
             self.d_sym = .{ .allocator = gpa, .file = d_sym_file };
             try self.d_sym.?.initMetadata(self);
+            try dwarf.initMetadata();
         }
     }
 
@@ -3307,7 +3301,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
             const sect = &macho_file.sections.items(.header)[sect_id];
             const alignment = try math.powi(u32, 2, sect.@"align");
             if (!sect.isZerofill()) {
-                sect.offset = math.cast(u32, macho_file.findFreeSpace(size, alignment)) orelse
+                sect.offset = math.cast(u32, try macho_file.findFreeSpace(size, alignment)) orelse
                     return error.Overflow;
             }
             sect.addr = macho_file.findFreeSpaceVirtual(size, alignment);
@@ -3329,13 +3323,6 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
         } else {
             appendSect(self, self.zig_text_sect_index.?, self.zig_text_seg_index.?);
         }
-    }
-
-    if (!self.base.isRelocatable()) {
-        self.zig_got_sect_index = try self.addSection("__GOT_ZIG", "__got_zig", .{
-            .alignment = 3,
-        });
-        appendSect(self, self.zig_got_sect_index.?, self.zig_got_seg_index.?);
     }
 
     {
@@ -3367,43 +3354,34 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
         }
     }
 
-    if (self.base.isRelocatable() and options.zo.dwarf != null) {
-        {
-            self.debug_str_sect_index = try self.addSection("__DWARF", "__debug_str", .{
-                .flags = macho.S_ATTR_DEBUG,
-            });
-            try allocSect(self, self.debug_str_sect_index.?, 200);
-        }
-
-        {
-            self.debug_info_sect_index = try self.addSection("__DWARF", "__debug_info", .{
-                .flags = macho.S_ATTR_DEBUG,
-            });
-            try allocSect(self, self.debug_info_sect_index.?, 200);
-        }
-
-        {
-            self.debug_abbrev_sect_index = try self.addSection("__DWARF", "__debug_abbrev", .{
-                .flags = macho.S_ATTR_DEBUG,
-            });
-            try allocSect(self, self.debug_abbrev_sect_index.?, 128);
-        }
-
-        {
-            self.debug_aranges_sect_index = try self.addSection("__DWARF", "__debug_aranges", .{
-                .alignment = 4,
-                .flags = macho.S_ATTR_DEBUG,
-            });
-            try allocSect(self, self.debug_aranges_sect_index.?, 160);
-        }
-
-        {
-            self.debug_line_sect_index = try self.addSection("__DWARF", "__debug_line", .{
-                .flags = macho.S_ATTR_DEBUG,
-            });
-            try allocSect(self, self.debug_line_sect_index.?, 250);
-        }
-    }
+    if (self.base.isRelocatable()) if (options.zo.dwarf) |*dwarf| {
+        self.debug_str_sect_index = try self.addSection("__DWARF", "__debug_str", .{
+            .flags = macho.S_ATTR_DEBUG,
+        });
+        self.debug_info_sect_index = try self.addSection("__DWARF", "__debug_info", .{
+            .flags = macho.S_ATTR_DEBUG,
+        });
+        self.debug_abbrev_sect_index = try self.addSection("__DWARF", "__debug_abbrev", .{
+            .flags = macho.S_ATTR_DEBUG,
+        });
+        self.debug_aranges_sect_index = try self.addSection("__DWARF", "__debug_aranges", .{
+            .alignment = 4,
+            .flags = macho.S_ATTR_DEBUG,
+        });
+        self.debug_line_sect_index = try self.addSection("__DWARF", "__debug_line", .{
+            .flags = macho.S_ATTR_DEBUG,
+        });
+        self.debug_line_str_sect_index = try self.addSection("__DWARF", "__debug_line_str", .{
+            .flags = macho.S_ATTR_DEBUG,
+        });
+        self.debug_loclists_sect_index = try self.addSection("__DWARF", "__debug_loclists", .{
+            .flags = macho.S_ATTR_DEBUG,
+        });
+        self.debug_rnglists_sect_index = try self.addSection("__DWARF", "__debug_rnglists", .{
+            .flags = macho.S_ATTR_DEBUG,
+        });
+        try dwarf.initMetadata();
+    };
 }
 
 pub fn growSection(self: *MachO, sect_index: u8, needed_size: u64) !void {
@@ -3417,35 +3395,36 @@ pub fn growSection(self: *MachO, sect_index: u8, needed_size: u64) !void {
 fn growSectionNonRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !void {
     const sect = &self.sections.items(.header)[sect_index];
 
-    if (needed_size > self.allocatedSize(sect.offset) and !sect.isZerofill()) {
-        const existing_size = sect.size;
-        sect.size = 0;
-
-        // Must move the entire section.
-        const alignment = self.getPageSize();
-        const new_offset = self.findFreeSpace(needed_size, alignment);
-
-        log.debug("moving '{s},{s}' from 0x{x} to 0x{x}", .{
-            sect.segName(),
-            sect.sectName(),
-            sect.offset,
-            new_offset,
-        });
-
-        try self.copyRangeAllZeroOut(sect.offset, new_offset, existing_size);
-
-        sect.offset = @intCast(new_offset);
-    }
-
-    sect.size = needed_size;
-
     const seg_id = self.sections.items(.segment_id)[sect_index];
     const seg = &self.segments.items[seg_id];
-    seg.fileoff = sect.offset;
 
     if (!sect.isZerofill()) {
+        const allocated_size = self.allocatedSize(sect.offset);
+        if (sect.offset + allocated_size == std.math.maxInt(u64)) {
+            try self.base.file.?.setEndPos(sect.offset + needed_size);
+        } else if (needed_size > allocated_size) {
+            const existing_size = sect.size;
+            sect.size = 0;
+
+            // Must move the entire section.
+            const alignment = self.getPageSize();
+            const new_offset = try self.findFreeSpace(needed_size, alignment);
+
+            log.debug("moving '{s},{s}' from 0x{x} to 0x{x}", .{
+                sect.segName(),
+                sect.sectName(),
+                sect.offset,
+                new_offset,
+            });
+
+            try self.copyRangeAllZeroOut(sect.offset, new_offset, existing_size);
+
+            sect.offset = @intCast(new_offset);
+        }
         seg.filesize = needed_size;
     }
+    sect.size = needed_size;
+    seg.fileoff = sect.offset;
 
     const mem_capacity = self.allocatedSizeVirtual(seg.vmaddr);
     if (needed_size > mem_capacity) {
@@ -3464,30 +3443,34 @@ fn growSectionNonRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !vo
 fn growSectionRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !void {
     const sect = &self.sections.items(.header)[sect_index];
 
-    if (needed_size > self.allocatedSize(sect.offset) and !sect.isZerofill()) {
-        const existing_size = sect.size;
-        sect.size = 0;
+    if (!sect.isZerofill()) {
+        const allocated_size = self.allocatedSize(sect.offset);
+        if (sect.offset + allocated_size == std.math.maxInt(u64)) {
+            try self.base.file.?.setEndPos(sect.offset + needed_size);
+        } else if (needed_size > allocated_size) {
+            const existing_size = sect.size;
+            sect.size = 0;
 
-        // Must move the entire section.
-        const alignment = try math.powi(u32, 2, sect.@"align");
-        const new_offset = self.findFreeSpace(needed_size, alignment);
-        const new_addr = self.findFreeSpaceVirtual(needed_size, alignment);
+            // Must move the entire section.
+            const alignment = try math.powi(u32, 2, sect.@"align");
+            const new_offset = try self.findFreeSpace(needed_size, alignment);
+            const new_addr = self.findFreeSpaceVirtual(needed_size, alignment);
 
-        log.debug("new '{s},{s}' file offset 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
-            sect.segName(),
-            sect.sectName(),
-            new_offset,
-            new_offset + existing_size,
-            new_addr,
-            new_addr + existing_size,
-        });
+            log.debug("new '{s},{s}' file offset 0x{x} to 0x{x} (0x{x} - 0x{x})", .{
+                sect.segName(),
+                sect.sectName(),
+                new_offset,
+                new_offset + existing_size,
+                new_addr,
+                new_addr + existing_size,
+            });
 
-        try self.copyRangeAll(sect.offset, new_offset, existing_size);
+            try self.copyRangeAll(sect.offset, new_offset, existing_size);
 
-        sect.offset = @intCast(new_offset);
-        sect.addr = new_addr;
+            sect.offset = @intCast(new_offset);
+            sect.addr = new_addr;
+        }
     }
-
     sect.size = needed_size;
 }
 
@@ -3564,7 +3547,6 @@ inline fn requiresThunks(self: MachO) bool {
 pub fn isZigSegment(self: MachO, seg_id: u8) bool {
     inline for (&[_]?u8{
         self.zig_text_seg_index,
-        self.zig_got_seg_index,
         self.zig_const_seg_index,
         self.zig_data_seg_index,
         self.zig_bss_seg_index,
@@ -3579,7 +3561,6 @@ pub fn isZigSegment(self: MachO, seg_id: u8) bool {
 pub fn isZigSection(self: MachO, sect_id: u8) bool {
     inline for (&[_]?u8{
         self.zig_text_sect_index,
-        self.zig_got_sect_index,
         self.zig_const_sect_index,
         self.zig_data_sect_index,
         self.zig_bss_sect_index,
@@ -3949,7 +3930,6 @@ fn fmtDumpState(
     try writer.print("stubs\n{}\n", .{self.stubs.fmt(self)});
     try writer.print("objc_stubs\n{}\n", .{self.objc_stubs.fmt(self)});
     try writer.print("got\n{}\n", .{self.got.fmt(self)});
-    try writer.print("zig_got\n{}\n", .{self.zig_got.fmt(self)});
     try writer.print("tlv_ptr\n{}\n", .{self.tlv_ptr.fmt(self)});
     try writer.writeByte('\n');
     try writer.print("sections\n{}\n", .{self.fmtSections()});
@@ -4591,7 +4571,6 @@ const std = @import("std");
 const build_options = @import("build_options");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const dwarf = std.dwarf;
 const fs = std.fs;
 const log = std.log.scoped(.link);
 const state_log = std.log.scoped(.link_state);
@@ -4624,6 +4603,7 @@ pub const Atom = @import("MachO/Atom.zig");
 const AtomicBool = std.atomic.Value(bool);
 const Bind = bind.Bind;
 const Cache = std.Build.Cache;
+const Path = Cache.Path;
 const CodeSignature = @import("MachO/CodeSignature.zig");
 const Compilation = @import("../Compilation.zig");
 const DataInCode = synthetic.DataInCode;
@@ -4658,7 +4638,6 @@ const Value = @import("../Value.zig");
 const UnwindInfo = @import("MachO/UnwindInfo.zig");
 const WaitGroup = std.Thread.WaitGroup;
 const WeakBind = bind.WeakBind;
-const ZigGotSection = synthetic.ZigGotSection;
 const ZigObject = @import("MachO/ZigObject.zig");
 const dev = @import("../dev.zig");
 

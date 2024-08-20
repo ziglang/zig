@@ -14,8 +14,8 @@ pub const Message = struct {
         zig_version,
         /// Body is an ErrorBundle.
         error_bundle,
-        /// Body is a EmitBinPath.
-        emit_bin_path,
+        /// Body is a EmitDigest.
+        emit_digest,
         /// Body is a TestMetadata
         test_metadata,
         /// Body is a TestResults
@@ -82,8 +82,8 @@ pub const Message = struct {
     };
 
     /// Trailing:
-    /// * file system path where the emitted binary can be found
-    pub const EmitBinPath = extern struct {
+    /// * the hex digest of the cache directory within the /o/ subdirectory.
+    pub const EmitDigest = extern struct {
         flags: Flags,
 
         pub const Flags = packed struct(u8) {
@@ -196,17 +196,17 @@ pub fn serveU64Message(s: *Server, tag: OutMessage.Tag, int: u64) !void {
     }, &.{std.mem.asBytes(&msg_le)});
 }
 
-pub fn serveEmitBinPath(
+pub fn serveEmitDigest(
     s: *Server,
-    fs_path: []const u8,
-    header: OutMessage.EmitBinPath,
+    digest: *const [Cache.bin_digest_len]u8,
+    header: OutMessage.EmitDigest,
 ) !void {
     try s.serveMessage(.{
-        .tag = .emit_bin_path,
-        .bytes_len = @intCast(fs_path.len + @sizeOf(OutMessage.EmitBinPath)),
+        .tag = .emit_digest,
+        .bytes_len = @intCast(digest.len + @sizeOf(OutMessage.EmitDigest)),
     }, &.{
         std.mem.asBytes(&header),
-        fs_path,
+        digest,
     });
 }
 
@@ -328,3 +328,4 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const native_endian = builtin.target.cpu.arch.endian();
 const need_bswap = native_endian != .little;
+const Cache = std.Build.Cache;

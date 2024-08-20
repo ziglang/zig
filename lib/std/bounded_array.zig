@@ -72,6 +72,11 @@ pub fn BoundedArrayAligned(
             self.len = @intCast(len);
         }
 
+        /// Remove all elements from the slice.
+        pub fn clear(self: *Self) void {
+            self.len = 0;
+        }
+
         /// Copy the content of an existing slice.
         pub fn fromSlice(m: []const T) error{Overflow}!Self {
             var list = try init(m.len);

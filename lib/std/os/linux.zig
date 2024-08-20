@@ -874,6 +874,11 @@ pub const MSF = struct {
     pub const SYNC = 4;
 };
 
+/// Can only be called on 64 bit systems.
+pub fn mseal(address: [*]const u8, length: usize, flags: usize) usize {
+    return syscall3(.mseal, @intFromPtr(address), length, flags);
+}
+
 pub fn msync(address: [*]const u8, length: usize, flags: i32) usize {
     return syscall3(.msync, @intFromPtr(address), length, @as(u32, @bitCast(flags)));
 }
@@ -6779,7 +6784,258 @@ pub const termios2 = if (is_mips) extern struct {
     ospeed: speed_t,
 };
 
+/// Linux-specific socket ioctls
+pub const SIOCINQ = T.FIONREAD;
+
+/// Linux-specific socket ioctls
+/// output queue size (not sent + not acked)
+pub const SIOCOUTQ = T.IOCOUTQ;
+
+pub const SOCK_IOC_TYPE = 0x89;
+
+pub const SIOCGSTAMP_NEW = IOCTL.IOR(SOCK_IOC_TYPE, 0x06, i64[2]);
+pub const SIOCGSTAMP_OLD = IOCTL.IOR('s', 100, timeval);
+
+/// Get stamp (timeval)
+pub const SIOCGSTAMP = if (native_arch == .x86_64 or @sizeOf(timeval) == 8) SIOCGSTAMP_OLD else SIOCGSTAMP_NEW;
+
+pub const SIOCGSTAMPNS_NEW = IOCTL.IOR(SOCK_IOC_TYPE, 0x07, i64[2]);
+pub const SIOCGSTAMPNS_OLD = IOCTL.IOR('s', 101, kernel_timespec);
+
+/// Get stamp (timespec)
+pub const SIOCGSTAMPNS = if (native_arch == .x86_64 or @sizeOf(timespec) == 8) SIOCGSTAMPNS_OLD else SIOCGSTAMPNS_NEW;
+
+// Routing table calls.
+/// Add routing table entry
+pub const SIOCADDRT = 0x890B;
+
+/// Delete routing table entry
+pub const SIOCDELRT = 0x890C;
+
+/// Unused
+pub const SIOCRTMSG = 0x890D;
+
+// Socket configuration controls.
+/// Get iface name
+pub const SIOCGIFNAME = 0x8910;
+
+/// Set iface channel
+pub const SIOCSIFLINK = 0x8911;
+
+/// Get iface list
+pub const SIOCGIFCONF = 0x8912;
+
+/// Get flags
+pub const SIOCGIFFLAGS = 0x8913;
+
+/// Set flags
+pub const SIOCSIFFLAGS = 0x8914;
+
+/// Get PA address
+pub const SIOCGIFADDR = 0x8915;
+
+/// Set PA address
+pub const SIOCSIFADDR = 0x8916;
+
+/// Get remote PA address
+pub const SIOCGIFDSTADDR = 0x8917;
+
+/// Set remote PA address
+pub const SIOCSIFDSTADDR = 0x8918;
+
+/// Get broadcast PA address
+pub const SIOCGIFBRDADDR = 0x8919;
+
+/// Set broadcast PA address
+pub const SIOCSIFBRDADDR = 0x891a;
+
+/// Get network PA mask
+pub const SIOCGIFNETMASK = 0x891b;
+
+/// Set network PA mask
+pub const SIOCSIFNETMASK = 0x891c;
+
+/// Get metric
+pub const SIOCGIFMETRIC = 0x891d;
+
+/// Set metric
+pub const SIOCSIFMETRIC = 0x891e;
+
+/// Get memory address (BSD)
+pub const SIOCGIFMEM = 0x891f;
+
+/// Set memory address (BSD)
+pub const SIOCSIFMEM = 0x8920;
+
+/// Get MTU size
+pub const SIOCGIFMTU = 0x8921;
+
+/// Set MTU size
+pub const SIOCSIFMTU = 0x8922;
+
+/// Set interface name
+pub const SIOCSIFNAME = 0x8923;
+
+/// Set hardware address
+pub const SIOCSIFHWADDR = 0x8924;
+
+/// Get encapsulations
+pub const SIOCGIFENCAP = 0x8925;
+
+/// Set encapsulations
+pub const SIOCSIFENCAP = 0x8926;
+
+/// Get hardware address
+pub const SIOCGIFHWADDR = 0x8927;
+
+/// Driver slaving support
+pub const SIOCGIFSLAVE = 0x8929;
+
+/// Driver slaving support
+pub const SIOCSIFSLAVE = 0x8930;
+
+/// Add to Multicast address lists
+pub const SIOCADDMULTI = 0x8931;
+
+/// Delete from Multicast address lists
+pub const SIOCDELMULTI = 0x8932;
+
+/// name -> if_index mapping
 pub const SIOCGIFINDEX = 0x8933;
+
+/// Set extended flags set
+pub const SIOCSIFPFLAGS = 0x8934;
+
+/// Get extended flags set
+pub const SIOCGIFPFLAGS = 0x8935;
+
+/// Delete PA address
+pub const SIOCDIFADDR = 0x8936;
+
+/// Set hardware broadcast addr
+pub const SIOCSIFHWBROADCAST = 0x8937;
+
+/// Get number of devices
+pub const SIOCGIFCOUNT = 0x8938;
+
+/// Bridging support
+pub const SIOCGIFBR = 0x8940;
+
+/// Set bridging options
+pub const SIOCSIFBR = 0x8941;
+
+/// Get the tx queue length
+pub const SIOCGIFTXQLEN = 0x8942;
+
+/// Set the tx queue length
+pub const SIOCSIFTXQLEN = 0x8943;
+
+/// Ethtool interface
+pub const SIOCETHTOOL = 0x8946;
+
+/// Get address of MII PHY in use.
+pub const SIOCGMIIPHY = 0x8947;
+
+/// Read MII PHY register.
+pub const SIOCGMIIREG = 0x8948;
+
+/// Write MII PHY register.
+pub const SIOCSMIIREG = 0x8949;
+
+/// Get / Set netdev parameters
+pub const SIOCWANDEV = 0x894A;
+
+/// Output queue size (not sent only)
+pub const SIOCOUTQNSD = 0x894B;
+
+/// Get socket network namespace
+pub const SIOCGSKNS = 0x894C;
+
+// ARP cache control calls.
+//  0x8950 - 0x8952 obsolete calls.
+/// Delete ARP table entry
+pub const SIOCDARP = 0x8953;
+
+/// Get ARP table entry
+pub const SIOCGARP = 0x8954;
+
+/// Set ARP table entry
+pub const SIOCSARP = 0x8955;
+
+// RARP cache control calls.
+/// Delete RARP table entry
+pub const SIOCDRARP = 0x8960;
+
+/// Get RARP table entry
+pub const SIOCGRARP = 0x8961;
+
+/// Set RARP table entry
+pub const SIOCSRARP = 0x8962;
+
+// Driver configuration calls
+/// Get device parameters
+pub const SIOCGIFMAP = 0x8970;
+
+/// Set device parameters
+pub const SIOCSIFMAP = 0x8971;
+
+// DLCI configuration calls
+/// Create new DLCI device
+pub const SIOCADDDLCI = 0x8980;
+
+/// Delete DLCI device
+pub const SIOCDELDLCI = 0x8981;
+
+/// 802.1Q VLAN support
+pub const SIOCGIFVLAN = 0x8982;
+
+/// Set 802.1Q VLAN options
+pub const SIOCSIFVLAN = 0x8983;
+
+// bonding calls
+/// Enslave a device to the bond
+pub const SIOCBONDENSLAVE = 0x8990;
+
+/// Release a slave from the bond
+pub const SIOCBONDRELEASE = 0x8991;
+
+/// Set the hw addr of the bond
+pub const SIOCBONDSETHWADDR = 0x8992;
+
+/// rtn info about slave state
+pub const SIOCBONDSLAVEINFOQUERY = 0x8993;
+
+/// rtn info about bond state
+pub const SIOCBONDINFOQUERY = 0x8994;
+
+/// Update to a new active slave
+pub const SIOCBONDCHANGEACTIVE = 0x8995;
+
+// Bridge calls
+/// Create new bridge device
+pub const SIOCBRADDBR = 0x89a0;
+
+/// Remove bridge device
+pub const SIOCBRDELBR = 0x89a1;
+
+/// Add interface to bridge
+pub const SIOCBRADDIF = 0x89a2;
+
+/// Remove interface from bridge
+pub const SIOCBRDELIF = 0x89a3;
+
+/// Get hardware time stamp config
+pub const SIOCSHWTSTAMP = 0x89b0;
+
+/// Set hardware time stamp config
+pub const SIOCGHWTSTAMP = 0x89b1;
+
+/// Device private ioctl calls
+pub const SIOCDEVPRIVATE = 0x89F0;
+
+/// These 16 ioctl calls are protocol private
+pub const SIOCPROTOPRIVATE = 0x89E0;
+
 pub const IFNAMESIZE = 16;
 
 pub const ifmap = extern struct {

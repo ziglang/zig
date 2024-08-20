@@ -326,9 +326,9 @@ pub fn renderLiteralSuffix(ctype: CType, writer: anytype, pool: *const Pool) @Ty
 pub fn floatActiveBits(ctype: CType, mod: *Module) u16 {
     const target = &mod.resolved_target.result;
     return switch (ctype.index) {
-        .float => target.c_type_bit_size(.float),
-        .double => target.c_type_bit_size(.double),
-        .@"long double", .zig_c_longdouble => target.c_type_bit_size(.longdouble),
+        .float => target.cTypeBitSize(.float),
+        .double => target.cTypeBitSize(.double),
+        .@"long double", .zig_c_longdouble => target.cTypeBitSize(.longdouble),
         .zig_f16 => 16,
         .zig_f32 => 32,
         .zig_f64 => 64,
@@ -344,17 +344,17 @@ pub fn byteSize(ctype: CType, pool: *const Pool, mod: *Module) u64 {
         .basic => |basic_info| switch (basic_info) {
             .void => 0,
             .char, .@"signed char", ._Bool, .@"unsigned char", .bool, .uint8_t, .int8_t => 1,
-            .short => target.c_type_byte_size(.short),
-            .int => target.c_type_byte_size(.int),
-            .long => target.c_type_byte_size(.long),
-            .@"long long" => target.c_type_byte_size(.longlong),
-            .@"unsigned short" => target.c_type_byte_size(.ushort),
-            .@"unsigned int" => target.c_type_byte_size(.uint),
-            .@"unsigned long" => target.c_type_byte_size(.ulong),
-            .@"unsigned long long" => target.c_type_byte_size(.ulonglong),
-            .float => target.c_type_byte_size(.float),
-            .double => target.c_type_byte_size(.double),
-            .@"long double" => target.c_type_byte_size(.longdouble),
+            .short => target.cTypeByteSize(.short),
+            .int => target.cTypeByteSize(.int),
+            .long => target.cTypeByteSize(.long),
+            .@"long long" => target.cTypeByteSize(.longlong),
+            .@"unsigned short" => target.cTypeByteSize(.ushort),
+            .@"unsigned int" => target.cTypeByteSize(.uint),
+            .@"unsigned long" => target.cTypeByteSize(.ulong),
+            .@"unsigned long long" => target.cTypeByteSize(.ulonglong),
+            .float => target.cTypeByteSize(.float),
+            .double => target.cTypeByteSize(.double),
+            .@"long double" => target.cTypeByteSize(.longdouble),
             .size_t,
             .ptrdiff_t,
             .uintptr_t,
@@ -364,11 +364,11 @@ pub fn byteSize(ctype: CType, pool: *const Pool, mod: *Module) u64 {
             .uint32_t, .int32_t, .zig_f32 => 4,
             .uint64_t, .int64_t, .zig_f64 => 8,
             .zig_u128, .zig_i128, .zig_f128 => 16,
-            .zig_f80 => if (target.c_type_bit_size(.longdouble) == 80)
-                target.c_type_byte_size(.longdouble)
+            .zig_f80 => if (target.cTypeBitSize(.longdouble) == 80)
+                target.cTypeByteSize(.longdouble)
             else
                 16,
-            .zig_c_longdouble => target.c_type_byte_size(.longdouble),
+            .zig_c_longdouble => target.cTypeByteSize(.longdouble),
             .va_list => unreachable,
             _ => unreachable,
         },
@@ -1389,21 +1389,6 @@ pub const Pool = struct {
             .anyframe_type,
             .generic_poison_type,
             => unreachable,
-            .atomic_order_type,
-            .atomic_rmw_op_type,
-            .calling_convention_type,
-            .address_space_type,
-            .float_mode_type,
-            .reduce_op_type,
-            .call_modifier_type,
-            => |ip_index| return pool.fromType(
-                allocator,
-                scratch,
-                Type.fromInterned(ip.loadEnumType(ip_index).tag_ty),
-                pt,
-                mod,
-                kind,
-            ),
             .anyerror_type,
             .anyerror_void_error_union_type,
             .adhoc_inferred_error_set_type,
@@ -1459,8 +1444,6 @@ pub const Pool = struct {
             .one_u8,
             .four_u8,
             .negative_one,
-            .calling_convention_c,
-            .calling_convention_inline,
             .void_value,
             .unreachable_value,
             .null_value,
@@ -1471,12 +1454,7 @@ pub const Pool = struct {
             .none,
             => unreachable,
 
-            //.prefetch_options_type,
-            //.export_options_type,
-            //.extern_options_type,
-            //.type_info_type,
-            //_,
-            else => |ip_index| switch (ip.indexToKey(ip_index)) {
+            _ => |ip_index| switch (ip.indexToKey(ip_index)) {
                 .int_type => |int_info| return pool.fromIntInfo(allocator, int_info, mod, kind),
                 .ptr_type => |ptr_info| switch (ptr_info.flags.size) {
                     .One, .Many, .C => {

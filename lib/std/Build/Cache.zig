@@ -896,8 +896,8 @@ pub const Manifest = struct {
         }
     }
 
-    /// Returns a hex encoded hash of the inputs.
-    pub fn final(self: *Manifest) HexDigest {
+    /// Returns a binary hash of the inputs.
+    pub fn finalBin(self: *Manifest) BinDigest {
         assert(self.manifest_file != null);
 
         // We don't close the manifest file yet, because we want to
@@ -908,7 +908,12 @@ pub const Manifest = struct {
 
         var bin_digest: BinDigest = undefined;
         self.hash.hasher.final(&bin_digest);
+        return bin_digest;
+    }
 
+    /// Returns a hex encoded hash of the inputs.
+    pub fn final(self: *Manifest) HexDigest {
+        const bin_digest = self.finalBin();
         return binToHex(bin_digest);
     }
 

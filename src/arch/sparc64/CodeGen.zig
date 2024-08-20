@@ -1349,34 +1349,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     // Due to incremental compilation, how function calls are generated depends
     // on linking.
     if (try self.air.value(callee, pt)) |func_value| switch (ip.indexToKey(func_value.toIntern())) {
-        .func => |func| {
-            const got_addr = if (self.bin_file.cast(.elf)) |elf_file| blk: {
-                const zo = elf_file.zigObjectPtr().?;
-                const sym_index = try zo.getOrCreateMetadataForNav(elf_file, func.owner_nav);
-                const sym = zo.symbol(sym_index);
-                _ = try sym.getOrCreateZigGotEntry(sym_index, elf_file);
-                break :blk @as(u32, @intCast(sym.zigGotAddress(elf_file)));
-            } else @panic("TODO SPARCv9 currently does not support non-ELF binaries");
-
-            try self.genSetReg(Type.usize, .o7, .{ .memory = got_addr });
-
-            _ = try self.addInst(.{
-                .tag = .jmpl,
-                .data = .{
-                    .arithmetic_3op = .{
-                        .is_imm = false,
-                        .rd = .o7,
-                        .rs1 = .o7,
-                        .rs2_or_imm = .{ .rs2 = .g0 },
-                    },
-                },
-            });
-
-            // TODO Find a way to fill this delay slot
-            _ = try self.addInst(.{
-                .tag = .nop,
-                .data = .{ .nop = {} },
-            });
+        .func => {
+            return self.fail("TODO implement calling functions", .{});
         },
         .@"extern" => {
             return self.fail("TODO implement calling extern functions", .{});
@@ -3605,18 +3579,15 @@ fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Live
 }
 
 fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, mcv: MCValue) !void {
-    const pt = self.pt;
-    const mod = pt.zcu;
     const arg = self.air.instructions.items(.data)[@intFromEnum(inst)].arg;
     const ty = arg.ty.toType();
-    const owner_nav = mod.funcInfo(self.func_index).owner_nav;
     if (arg.name == .none) return;
     const name = self.air.nullTerminatedString(@intFromEnum(arg.name));
 
     switch (self.debug_output) {
         .dwarf => |dw| switch (mcv) {
-            .register => |reg| try dw.genArgDbgInfo(name, ty, owner_nav, .{
-                .register = reg.dwarfLocOp(),
+            .register => |reg| try dw.genVarDebugInfo(.local_arg, name, ty, .{
+                .reg = reg.dwarfNum(),
             }),
             else => {},
         },
@@ -4153,7 +4124,7 @@ fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
             .undef => .undef,
-            .load_got, .load_symbol, .load_direct, .load_tlv => unreachable, // TODO
+            .load_got, .load_symbol, .load_direct, .load_tlv, .lea_symbol, .lea_direct => unreachable, // TODO
             .immediate => |imm| .{ .immediate = imm },
             .memory => |addr| .{ .memory = addr },
         },

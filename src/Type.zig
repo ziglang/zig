@@ -316,17 +316,6 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
             => try writer.print("@TypeOf({s})", .{@tagName(s)}),
 
             .enum_literal => try writer.print("@TypeOf(.{s})", .{@tagName(s)}),
-            .atomic_order => try writer.writeAll("std.builtin.AtomicOrder"),
-            .atomic_rmw_op => try writer.writeAll("std.builtin.AtomicRmwOp"),
-            .calling_convention => try writer.writeAll("std.builtin.CallingConvention"),
-            .address_space => try writer.writeAll("std.builtin.AddressSpace"),
-            .float_mode => try writer.writeAll("std.builtin.FloatMode"),
-            .reduce_op => try writer.writeAll("std.builtin.ReduceOp"),
-            .call_modifier => try writer.writeAll("std.builtin.CallModifier"),
-            .prefetch_options => try writer.writeAll("std.builtin.PrefetchOptions"),
-            .export_options => try writer.writeAll("std.builtin.ExportOptions"),
-            .extern_options => try writer.writeAll("std.builtin.ExternOptions"),
-            .type_info => try writer.writeAll("std.builtin.Type"),
 
             .generic_poison => unreachable,
         },
@@ -544,16 +533,6 @@ pub fn hasRuntimeBitsAdvanced(
                 .anyerror,
                 .adhoc_inferred_error_set,
                 .anyopaque,
-                .atomic_order,
-                .atomic_rmw_op,
-                .calling_convention,
-                .address_space,
-                .float_mode,
-                .reduce_op,
-                .call_modifier,
-                .prefetch_options,
-                .export_options,
-                .extern_options,
                 => true,
 
                 // These are false because they are comptime-only types.
@@ -565,7 +544,6 @@ pub fn hasRuntimeBitsAdvanced(
                 .null,
                 .undefined,
                 .enum_literal,
-                .type_info,
                 => false,
 
                 .generic_poison => unreachable,
@@ -711,16 +689,6 @@ pub fn hasWellDefinedLayout(ty: Type, mod: *Module) bool {
             .anyerror,
             .adhoc_inferred_error_set,
             .anyopaque,
-            .atomic_order,
-            .atomic_rmw_op,
-            .calling_convention,
-            .address_space,
-            .float_mode,
-            .reduce_op,
-            .call_modifier,
-            .prefetch_options,
-            .export_options,
-            .extern_options,
             .type,
             .comptime_int,
             .comptime_float,
@@ -728,7 +696,6 @@ pub fn hasWellDefinedLayout(ty: Type, mod: *Module) bool {
             .null,
             .undefined,
             .enum_literal,
-            .type_info,
             .generic_poison,
             => false,
         },
@@ -972,25 +939,12 @@ pub fn abiAlignmentAdvanced(
 
             .simple_type => |t| switch (t) {
                 .bool,
-                .atomic_order,
-                .atomic_rmw_op,
-                .calling_convention,
-                .address_space,
-                .float_mode,
-                .reduce_op,
-                .call_modifier,
-                .prefetch_options,
                 .anyopaque,
                 => return .{ .scalar = .@"1" },
 
                 .usize,
                 .isize,
                 => return .{ .scalar = intAbiAlignment(target.ptrBitWidth(), target, use_llvm) },
-
-                .export_options,
-                .extern_options,
-                .type_info,
-                => return .{ .scalar = ptrAbiAlignment(target) },
 
                 .c_char => return .{ .scalar = cTypeAlign(target, .char) },
                 .c_short => return .{ .scalar = cTypeAlign(target, .short) },
@@ -1005,15 +959,15 @@ pub fn abiAlignmentAdvanced(
 
                 .f16 => return .{ .scalar = .@"2" },
                 .f32 => return .{ .scalar = cTypeAlign(target, .float) },
-                .f64 => switch (target.c_type_bit_size(.double)) {
+                .f64 => switch (target.cTypeBitSize(.double)) {
                     64 => return .{ .scalar = cTypeAlign(target, .double) },
                     else => return .{ .scalar = .@"8" },
                 },
-                .f80 => switch (target.c_type_bit_size(.longdouble)) {
+                .f80 => switch (target.cTypeBitSize(.longdouble)) {
                     80 => return .{ .scalar = cTypeAlign(target, .longdouble) },
                     else => return .{ .scalar = Type.u80.abiAlignment(pt) },
                 },
-                .f128 => switch (target.c_type_bit_size(.longdouble)) {
+                .f128 => switch (target.cTypeBitSize(.longdouble)) {
                     128 => return .{ .scalar = cTypeAlign(target, .longdouble) },
                     else => return .{ .scalar = .@"16" },
                 },
@@ -1352,22 +1306,14 @@ pub fn abiSizeAdvanced(
             },
             .func_type => unreachable, // represents machine code; not a pointer
             .simple_type => |t| switch (t) {
-                .bool,
-                .atomic_order,
-                .atomic_rmw_op,
-                .calling_convention,
-                .address_space,
-                .float_mode,
-                .reduce_op,
-                .call_modifier,
-                => return .{ .scalar = 1 },
+                .bool => return .{ .scalar = 1 },
 
                 .f16 => return .{ .scalar = 2 },
                 .f32 => return .{ .scalar = 4 },
                 .f64 => return .{ .scalar = 8 },
                 .f128 => return .{ .scalar = 16 },
-                .f80 => switch (target.c_type_bit_size(.longdouble)) {
-                    80 => return .{ .scalar = target.c_type_byte_size(.longdouble) },
+                .f80 => switch (target.cTypeBitSize(.longdouble)) {
+                    80 => return .{ .scalar = target.cTypeByteSize(.longdouble) },
                     else => return .{ .scalar = Type.u80.abiSize(pt) },
                 },
 
@@ -1375,16 +1321,16 @@ pub fn abiSizeAdvanced(
                 .isize,
                 => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) },
 
-                .c_char => return .{ .scalar = target.c_type_byte_size(.char) },
-                .c_short => return .{ .scalar = target.c_type_byte_size(.short) },
-                .c_ushort => return .{ .scalar = target.c_type_byte_size(.ushort) },
-                .c_int => return .{ .scalar = target.c_type_byte_size(.int) },
-                .c_uint => return .{ .scalar = target.c_type_byte_size(.uint) },
-                .c_long => return .{ .scalar = target.c_type_byte_size(.long) },
-                .c_ulong => return .{ .scalar = target.c_type_byte_size(.ulong) },
-                .c_longlong => return .{ .scalar = target.c_type_byte_size(.longlong) },
-                .c_ulonglong => return .{ .scalar = target.c_type_byte_size(.ulonglong) },
-                .c_longdouble => return .{ .scalar = target.c_type_byte_size(.longdouble) },
+                .c_char => return .{ .scalar = target.cTypeByteSize(.char) },
+                .c_short => return .{ .scalar = target.cTypeByteSize(.short) },
+                .c_ushort => return .{ .scalar = target.cTypeByteSize(.ushort) },
+                .c_int => return .{ .scalar = target.cTypeByteSize(.int) },
+                .c_uint => return .{ .scalar = target.cTypeByteSize(.uint) },
+                .c_long => return .{ .scalar = target.cTypeByteSize(.long) },
+                .c_ulong => return .{ .scalar = target.cTypeByteSize(.ulong) },
+                .c_longlong => return .{ .scalar = target.cTypeByteSize(.longlong) },
+                .c_ulonglong => return .{ .scalar = target.cTypeByteSize(.ulonglong) },
+                .c_longdouble => return .{ .scalar = target.cTypeByteSize(.longdouble) },
 
                 .anyopaque,
                 .void,
@@ -1402,11 +1348,6 @@ pub fn abiSizeAdvanced(
                     return .{ .scalar = intAbiSize(bits, target, use_llvm) };
                 },
 
-                .prefetch_options => unreachable, // missing call to resolveTypeFields
-                .export_options => unreachable, // missing call to resolveTypeFields
-                .extern_options => unreachable, // missing call to resolveTypeFields
-
-                .type_info => unreachable,
                 .noreturn => unreachable,
                 .generic_poison => unreachable,
             },
@@ -1724,16 +1665,16 @@ pub fn bitSizeAdvanced(
             .isize,
             => return target.ptrBitWidth(),
 
-            .c_char => return target.c_type_bit_size(.char),
-            .c_short => return target.c_type_bit_size(.short),
-            .c_ushort => return target.c_type_bit_size(.ushort),
-            .c_int => return target.c_type_bit_size(.int),
-            .c_uint => return target.c_type_bit_size(.uint),
-            .c_long => return target.c_type_bit_size(.long),
-            .c_ulong => return target.c_type_bit_size(.ulong),
-            .c_longlong => return target.c_type_bit_size(.longlong),
-            .c_ulonglong => return target.c_type_bit_size(.ulonglong),
-            .c_longdouble => return target.c_type_bit_size(.longdouble),
+            .c_char => return target.cTypeBitSize(.char),
+            .c_short => return target.cTypeBitSize(.short),
+            .c_ushort => return target.cTypeBitSize(.ushort),
+            .c_int => return target.cTypeBitSize(.int),
+            .c_uint => return target.cTypeBitSize(.uint),
+            .c_long => return target.cTypeBitSize(.long),
+            .c_ulong => return target.cTypeBitSize(.ulong),
+            .c_longlong => return target.cTypeBitSize(.longlong),
+            .c_ulonglong => return target.cTypeBitSize(.ulonglong),
+            .c_longdouble => return target.cTypeBitSize(.longdouble),
 
             .bool => return 1,
             .void => return 0,
@@ -1751,18 +1692,6 @@ pub fn bitSizeAdvanced(
             .undefined => unreachable,
             .enum_literal => unreachable,
             .generic_poison => unreachable,
-
-            .atomic_order => unreachable,
-            .atomic_rmw_op => unreachable,
-            .calling_convention => unreachable,
-            .address_space => unreachable,
-            .float_mode => unreachable,
-            .reduce_op => unreachable,
-            .call_modifier => unreachable,
-            .prefetch_options => unreachable,
-            .export_options => unreachable,
-            .extern_options => unreachable,
-            .type_info => unreachable,
         },
         .struct_type => {
             const struct_type = ip.loadStructType(ty.toIntern());
@@ -2208,7 +2137,7 @@ pub fn errorSetHasField(ty: Type, name: []const u8, mod: *Module) bool {
                 const field_name_interned = ip.getString(name).unwrap() orelse return false;
                 return error_set_type.nameIndex(ip, field_name_interned) != null;
             },
-            .inferred_error_set_type => |i| switch (ip.funcIesResolved(i).*) {
+            .inferred_error_set_type => |i| switch (ip.funcIesResolvedUnordered(i)) {
                 .anyerror_type => true,
                 .none => false,
                 else => |t| {
@@ -2310,15 +2239,15 @@ pub fn intInfo(starting_ty: Type, mod: *Module) InternPool.Key.IntType {
         },
         .usize_type => return .{ .signedness = .unsigned, .bits = target.ptrBitWidth() },
         .isize_type => return .{ .signedness = .signed, .bits = target.ptrBitWidth() },
-        .c_char_type => return .{ .signedness = mod.getTarget().charSignedness(), .bits = target.c_type_bit_size(.char) },
-        .c_short_type => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.short) },
-        .c_ushort_type => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.ushort) },
-        .c_int_type => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.int) },
-        .c_uint_type => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.uint) },
-        .c_long_type => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.long) },
-        .c_ulong_type => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.ulong) },
-        .c_longlong_type => return .{ .signedness = .signed, .bits = target.c_type_bit_size(.longlong) },
-        .c_ulonglong_type => return .{ .signedness = .unsigned, .bits = target.c_type_bit_size(.ulonglong) },
+        .c_char_type => return .{ .signedness = mod.getTarget().charSignedness(), .bits = target.cTypeBitSize(.char) },
+        .c_short_type => return .{ .signedness = .signed, .bits = target.cTypeBitSize(.short) },
+        .c_ushort_type => return .{ .signedness = .unsigned, .bits = target.cTypeBitSize(.ushort) },
+        .c_int_type => return .{ .signedness = .signed, .bits = target.cTypeBitSize(.int) },
+        .c_uint_type => return .{ .signedness = .unsigned, .bits = target.cTypeBitSize(.uint) },
+        .c_long_type => return .{ .signedness = .signed, .bits = target.cTypeBitSize(.long) },
+        .c_ulong_type => return .{ .signedness = .unsigned, .bits = target.cTypeBitSize(.ulong) },
+        .c_longlong_type => return .{ .signedness = .signed, .bits = target.cTypeBitSize(.longlong) },
+        .c_ulonglong_type => return .{ .signedness = .unsigned, .bits = target.cTypeBitSize(.ulonglong) },
         else => switch (ip.indexToKey(ty.toIntern())) {
             .int_type => |int_type| return int_type,
             .struct_type => ty = Type.fromInterned(ip.loadStructType(ty.toIntern()).backingIntTypeUnordered(ip)),
@@ -2427,7 +2356,7 @@ pub fn floatBits(ty: Type, target: Target) u16 {
         .f64_type => 64,
         .f80_type => 80,
         .f128_type, .comptime_float_type => 128,
-        .c_longdouble_type => target.c_type_bit_size(.longdouble),
+        .c_longdouble_type => target.cTypeBitSize(.longdouble),
 
         else => unreachable,
     };
@@ -2565,17 +2494,6 @@ pub fn onePossibleValue(starting_type: Type, pt: Zcu.PerThread) !?Value {
                 .comptime_int,
                 .comptime_float,
                 .enum_literal,
-                .atomic_order,
-                .atomic_rmw_op,
-                .calling_convention,
-                .address_space,
-                .float_mode,
-                .reduce_op,
-                .call_modifier,
-                .prefetch_options,
-                .export_options,
-                .extern_options,
-                .type_info,
                 .adhoc_inferred_error_set,
                 => return null,
 
@@ -2782,16 +2700,6 @@ pub fn comptimeOnlyAdvanced(ty: Type, pt: Zcu.PerThread, comptime strat: Resolve
                 .adhoc_inferred_error_set,
                 .noreturn,
                 .generic_poison,
-                .atomic_order,
-                .atomic_rmw_op,
-                .calling_convention,
-                .address_space,
-                .float_mode,
-                .reduce_op,
-                .call_modifier,
-                .prefetch_options,
-                .export_options,
-                .extern_options,
                 => false,
 
                 .type,
@@ -2800,7 +2708,6 @@ pub fn comptimeOnlyAdvanced(ty: Type, pt: Zcu.PerThread, comptime strat: Resolve
                 .null,
                 .undefined,
                 .enum_literal,
-                .type_info,
                 => true,
             },
             .struct_type => {
@@ -3437,7 +3344,7 @@ pub fn typeDeclSrcLine(ty: Type, zcu: *Zcu) ?u32 {
         },
         else => return null,
     };
-    const info = tracked.resolveFull(&zcu.intern_pool);
+    const info = tracked.resolveFull(&zcu.intern_pool) orelse return null;
     const file = zcu.fileByIndex(info.file);
     assert(file.zir_loaded);
     const zir = file.zir;
@@ -3534,10 +3441,6 @@ pub fn packedStructFieldPtrInfo(struct_ty: Type, parent_ptr_ty: Type, field_idx:
 pub fn resolveLayout(ty: Type, pt: Zcu.PerThread) SemaError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
-    switch (ip.indexToKey(ty.toIntern())) {
-        .simple_type => |simple_type| return resolveSimpleType(simple_type, pt),
-        else => {},
-    }
     switch (ty.zigTypeTag(zcu)) {
         .Struct => switch (ip.indexToKey(ty.toIntern())) {
             .anon_struct_type => |anon_struct_type| for (0..anon_struct_type.types.len) |i| {
@@ -3651,8 +3554,6 @@ pub fn resolveFields(ty: Type, pt: Zcu.PerThread) SemaError!void {
         .one_u8 => unreachable,
         .four_u8 => unreachable,
         .negative_one => unreachable,
-        .calling_convention_c => unreachable,
-        .calling_convention_inline => unreachable,
         .void_value => unreachable,
         .unreachable_value => unreachable,
         .null_value => unreachable,
@@ -3669,8 +3570,6 @@ pub fn resolveFields(ty: Type, pt: Zcu.PerThread) SemaError!void {
 
             .type_union => return ty.resolveUnionInner(pt, .fields),
 
-            .simple_type => return resolveSimpleType(ip.indexToKey(ty_ip).simple_type, pt),
-
             else => {},
         },
     }
@@ -3679,11 +3578,6 @@ pub fn resolveFields(ty: Type, pt: Zcu.PerThread) SemaError!void {
 pub fn resolveFully(ty: Type, pt: Zcu.PerThread) SemaError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
-
-    switch (ip.indexToKey(ty.toIntern())) {
-        .simple_type => |simple_type| return resolveSimpleType(simple_type, pt),
-        else => {},
-    }
 
     switch (ty.zigTypeTag(zcu)) {
         .Type,
@@ -3850,28 +3744,6 @@ fn resolveUnionInner(
     };
 }
 
-/// Fully resolves a simple type. This is usually a nop, but for builtin types with
-/// special InternPool indices (such as std.builtin.Type) it will analyze and fully
-/// resolve the type.
-fn resolveSimpleType(simple_type: InternPool.SimpleType, pt: Zcu.PerThread) Allocator.Error!void {
-    const builtin_type_name: []const u8 = switch (simple_type) {
-        .atomic_order => "AtomicOrder",
-        .atomic_rmw_op => "AtomicRmwOp",
-        .calling_convention => "CallingConvention",
-        .address_space => "AddressSpace",
-        .float_mode => "FloatMode",
-        .reduce_op => "ReduceOp",
-        .call_modifier => "CallModifer",
-        .prefetch_options => "PrefetchOptions",
-        .export_options => "ExportOptions",
-        .extern_options => "ExternOptions",
-        .type_info => "Type",
-        else => return,
-    };
-    // This will fully resolve the type.
-    _ = try pt.getBuiltinType(builtin_type_name);
-}
-
 /// Returns the type of a pointer to an element.
 /// Asserts that the type is a pointer, and that the element type is indexable.
 /// If the element index is comptime-known, it must be passed in `offset`.
@@ -4025,5 +3897,5 @@ pub fn smallestUnsignedBits(max: u64) u16 {
 pub const packed_struct_layout_version = 2;
 
 fn cTypeAlign(target: Target, c_type: Target.CType) Alignment {
-    return Alignment.fromByteUnits(target.c_type_alignment(c_type));
+    return Alignment.fromByteUnits(target.cTypeAlignment(c_type));
 }

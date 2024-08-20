@@ -133,7 +133,7 @@ pub const MonthAndDay = struct {
     day_index: u5, // days into the month (0 to 30)
 };
 
-// days since epoch Oct 1, 1970
+/// days since epoch Jan 1, 1970
 pub const EpochDay = struct {
     day: u47, // u47 = u64 - u17 (because day = sec(u64) / secs_per_day(u17)
     pub fn calculateYearDay(self: EpochDay) YearAndDay {
@@ -168,7 +168,7 @@ pub const DaySeconds = struct {
     }
 };
 
-/// seconds since epoch Oct 1, 1970 at 12:00 AM
+/// seconds since epoch Jan 1, 1970 at 12:00 AM
 pub const EpochSeconds = struct {
     secs: u64,
 

@@ -769,7 +769,7 @@ pub const Inst = struct {
         /// Uses `imm` payload.
         i_u,
         /// Relative displacement operand.
-        /// Uses `imm` payload.
+        /// Uses `reloc` payload.
         rel,
         /// Register, memory operands.
         /// Uses `rx` payload with extra data of type `Memory`.
@@ -1204,7 +1204,7 @@ pub const FrameLoc = struct {
 pub fn resolveFrameLoc(mir: Mir, mem: Memory) Memory {
     return switch (mem.info.base) {
         .none, .reg, .reloc => mem,
-        .frame => if (mir.frame_locs.len > 0) Memory{
+        .frame => if (mir.frame_locs.len > 0) .{
             .info = .{
                 .base = .reg,
                 .mod = mem.info.mod,

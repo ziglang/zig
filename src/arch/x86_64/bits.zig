@@ -4,7 +4,6 @@ const expect = std.testing.expect;
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
-const DW = std.dwarf;
 
 /// EFLAGS condition codes
 pub const Condition = enum(u5) {
@@ -569,6 +568,7 @@ pub const Memory = struct {
 pub const Immediate = union(enum) {
     signed: i32,
     unsigned: u64,
+    reloc: Symbol,
 
     pub fn u(x: u64) Immediate {
         return .{ .unsigned = x };
@@ -578,39 +578,19 @@ pub const Immediate = union(enum) {
         return .{ .signed = x };
     }
 
-    pub fn asSigned(imm: Immediate, bit_size: u64) i64 {
-        return switch (imm) {
-            .signed => |x| switch (bit_size) {
-                1, 8 => @as(i8, @intCast(x)),
-                16 => @as(i16, @intCast(x)),
-                32, 64 => x,
-                else => unreachable,
-            },
-            .unsigned => |x| switch (bit_size) {
-                1, 8 => @as(i8, @bitCast(@as(u8, @intCast(x)))),
-                16 => @as(i16, @bitCast(@as(u16, @intCast(x)))),
-                32 => @as(i32, @bitCast(@as(u32, @intCast(x)))),
-                64 => @bitCast(x),
-                else => unreachable,
-            },
-        };
+    pub fn rel(symbol: Symbol) Immediate {
+        return .{ .reloc = symbol };
     }
 
-    pub fn asUnsigned(imm: Immediate, bit_size: u64) u64 {
-        return switch (imm) {
-            .signed => |x| switch (bit_size) {
-                1, 8 => @as(u8, @bitCast(@as(i8, @intCast(x)))),
-                16 => @as(u16, @bitCast(@as(i16, @intCast(x)))),
-                32, 64 => @as(u32, @bitCast(x)),
-                else => unreachable,
-            },
-            .unsigned => |x| switch (bit_size) {
-                1, 8 => @as(u8, @intCast(x)),
-                16 => @as(u16, @intCast(x)),
-                32 => @as(u32, @intCast(x)),
-                64 => x,
-                else => unreachable,
-            },
-        };
+    pub fn format(
+        imm: Immediate,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        switch (imm) {
+            .reloc => |x| try std.fmt.formatType(x, fmt, options, writer, 0),
+            inline else => |x| try writer.print("{d}", .{x}),
+        }
     }
 };

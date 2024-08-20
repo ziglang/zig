@@ -101,13 +101,16 @@ pub fn symbolRank(symbol: Symbol, elf_file: *Elf) u32 {
     return file_ptr.symbolRank(sym, in_archive);
 }
 
-pub fn address(symbol: Symbol, opts: struct { plt: bool = true }, elf_file: *Elf) i64 {
+pub fn address(symbol: Symbol, opts: struct { plt: bool = true, trampoline: bool = true }, elf_file: *Elf) i64 {
     if (symbol.mergeSubsection(elf_file)) |msub| {
         if (!msub.alive) return 0;
         return msub.address(elf_file) + symbol.value;
     }
     if (symbol.flags.has_copy_rel) {
         return symbol.copyRelAddress(elf_file);
+    }
+    if (symbol.flags.has_trampoline and opts.trampoline) {
+        return symbol.trampolineAddress(elf_file);
     }
     if (symbol.flags.has_plt and opts.plt) {
         if (!symbol.flags.is_canonical and symbol.flags.has_got) {
@@ -217,23 +220,11 @@ pub fn tlsDescAddress(symbol: Symbol, elf_file: *Elf) i64 {
     return entry.address(elf_file);
 }
 
-const GetOrCreateZigGotEntryResult = struct {
-    found_existing: bool,
-    index: ZigGotSection.Index,
-};
-
-pub fn getOrCreateZigGotEntry(symbol: *Symbol, symbol_index: Index, elf_file: *Elf) !GetOrCreateZigGotEntryResult {
-    assert(!elf_file.base.isRelocatable());
-    assert(symbol.flags.needs_zig_got);
-    if (symbol.flags.has_zig_got) return .{ .found_existing = true, .index = symbol.extra(elf_file).zig_got };
-    const index = try elf_file.zig_got.addSymbol(symbol_index, elf_file);
-    return .{ .found_existing = false, .index = index };
-}
-
-pub fn zigGotAddress(symbol: Symbol, elf_file: *Elf) i64 {
-    if (!symbol.flags.has_zig_got) return 0;
-    const extras = symbol.extra(elf_file);
-    return elf_file.zig_got.entryAddress(extras.zig_got, elf_file);
+pub fn trampolineAddress(symbol: Symbol, elf_file: *Elf) i64 {
+    if (!symbol.flags.has_trampoline) return 0;
+    const zo = elf_file.zigObjectPtr().?;
+    const index = symbol.extra(elf_file).trampoline;
+    return zo.symbol(index).address(.{}, elf_file);
 }
 
 pub fn dsoAlignment(symbol: Symbol, elf_file: *Elf) !u64 {
@@ -259,7 +250,7 @@ const AddExtraOpts = struct {
     tlsgd: ?u32 = null,
     gottp: ?u32 = null,
     tlsdesc: ?u32 = null,
-    zig_got: ?u32 = null,
+    trampoline: ?u32 = null,
 };
 
 pub fn addExtra(symbol: *Symbol, opts: AddExtraOpts, elf_file: *Elf) void {
@@ -312,7 +303,7 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
         const shdr = elf_file.shdrs.items[st_shndx];
         if (shdr.sh_flags & elf.SHF_TLS != 0 and file_ptr != .linker_defined)
             break :blk symbol.address(.{ .plt = false }, elf_file) - elf_file.tlsAddress();
-        break :blk symbol.address(.{ .plt = false }, elf_file);
+        break :blk symbol.address(.{ .plt = false, .trampoline = false }, elf_file);
     };
     out.st_info = (st_bind << 4) | st_type;
     out.st_other = esym.st_other;
@@ -331,7 +322,7 @@ pub fn format(
     _ = unused_fmt_string;
     _ = options;
     _ = writer;
-    @compileError("do not format symbols directly");
+    @compileError("do not format Symbol directly");
 }
 
 const FormatContext = struct {
@@ -388,7 +379,7 @@ fn format2(
     try writer.print("%{d} : {s} : @{x}", .{
         symbol.esym_index,
         symbol.fmtName(elf_file),
-        symbol.address(.{}, elf_file),
+        symbol.address(.{ .plt = false, .trampoline = false }, elf_file),
     });
     if (symbol.file(elf_file)) |file_ptr| {
         if (symbol.isAbs(elf_file)) {
@@ -456,17 +447,18 @@ pub const Flags = packed struct {
     needs_tlsdesc: bool = false,
     has_tlsdesc: bool = false,
 
-    /// Whether the symbol contains .zig.got indirection.
-    needs_zig_got: bool = false,
-    has_zig_got: bool = false,
-
-    /// Whether the symbol is a TLS variable.
-    /// TODO this is really not needed if only we operated on esyms between
-    /// codegen and ZigObject.
-    is_tls: bool = false,
-
     /// Whether the symbol is a merge subsection.
     merge_subsection: bool = false,
+
+    /// ZigObject specific flags
+    /// Whether the symbol has a trampoline.
+    has_trampoline: bool = false,
+
+    /// Whether the symbol is a TLS variable.
+    is_tls: bool = false,
+
+    /// Whether the symbol is an extern pointer (as opposed to function).
+    is_extern_ptr: bool = false,
 };
 
 pub const Extra = struct {
@@ -479,8 +471,8 @@ pub const Extra = struct {
     tlsgd: u32 = 0,
     gottp: u32 = 0,
     tlsdesc: u32 = 0,
-    zig_got: u32 = 0,
     merge_section: u32 = 0,
+    trampoline: u32 = 0,
 };
 
 pub const Index = u32;

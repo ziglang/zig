@@ -201,11 +201,12 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
             // The .debug_info section has `low_pc` and `high_pc` values which is the virtual address
             // range of the compilation unit. When we expand the text section, this range changes,
             // so the DW_TAG.compile_unit tag of the .debug_info section becomes dirty.
-            zig_object.debug_info_header_dirty = true;
+            zig_object.debug_info_section_dirty = true;
             // This becomes dirty for the same reason. We could potentially make this more
             // fine-grained with the addition of support for more compilation units. It is planned to
             // model each package as a different compilation unit.
             zig_object.debug_aranges_section_dirty = true;
+            zig_object.debug_rnglists_section_dirty = true;
         }
     }
     shdr.sh_addralign = @max(shdr.sh_addralign, self.alignment.toByteUnits().?);
@@ -746,12 +747,10 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) RelocError!voi
         const P = self.address(elf_file) + @as(i64, @intCast(rel.r_offset));
         // Addend from the relocation.
         const A = rel.r_addend;
-        // Address of the target symbol - can be address of the symbol within an atom or address of PLT stub.
+        // Address of the target symbol - can be address of the symbol within an atom or address of PLT stub, or address of a Zig trampoline.
         const S = target.address(.{}, elf_file);
         // Address of the global offset table.
         const GOT = elf_file.gotAddress();
-        // Address of the .zig.got table entry if any.
-        const ZIG_GOT = target.zigGotAddress(elf_file);
         // Relative offset to the start of the global offset table.
         const G = target.gotAddress(elf_file) - GOT;
         // // Address of the thread pointer.
@@ -759,19 +758,18 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) RelocError!voi
         // Address of the dynamic thread pointer.
         const DTP = elf_file.dtpAddress();
 
-        relocs_log.debug("  {s}: {x}: [{x} => {x}] G({x}) ZG({x}) ({s})", .{
+        relocs_log.debug("  {s}: {x}: [{x} => {x}] GOT({x}) ({s})", .{
             relocation.fmtRelocType(rel.r_type(), cpu_arch),
             r_offset,
             P,
             S + A,
             G + GOT + A,
-            ZIG_GOT + A,
             target.name(elf_file),
         });
 
         try stream.seekTo(r_offset);
 
-        const args = ResolveArgs{ P, A, S, GOT, G, TP, DTP, ZIG_GOT };
+        const args = ResolveArgs{ P, A, S, GOT, G, TP, DTP };
 
         switch (cpu_arch) {
             .x86_64 => x86_64.resolveRelocAlloc(self, elf_file, rel, target, args, &it, code, &stream) catch |err| switch (err) {
@@ -956,7 +954,7 @@ pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: any
         // Address of the dynamic thread pointer.
         const DTP = elf_file.dtpAddress();
 
-        const args = ResolveArgs{ P, A, S, GOT, 0, 0, DTP, 0 };
+        const args = ResolveArgs{ P, A, S, GOT, 0, 0, DTP };
 
         relocs_log.debug("  {}: {x}: [{x} => {x}] ({s})", .{
             relocation.fmtRelocType(rel.r_type(), cpu_arch),
@@ -1025,7 +1023,7 @@ pub fn format(
     _ = unused_fmt_string;
     _ = options;
     _ = writer;
-    @compileError("do not format symbols directly");
+    @compileError("do not format Atom directly");
 }
 
 pub fn fmt(atom: Atom, elf_file: *Elf) std.fmt.Formatter(format2) {
@@ -1051,8 +1049,8 @@ fn format2(
     const atom = ctx.atom;
     const elf_file = ctx.elf_file;
     try writer.print("atom({d}) : {s} : @{x} : shdr({d}) : align({x}) : size({x})", .{
-        atom.atom_index,           atom.name(elf_file), atom.address(elf_file),
-        atom.output_section_index, atom.alignment,      atom.size,
+        atom.atom_index,           atom.name(elf_file),                   atom.address(elf_file),
+        atom.output_section_index, atom.alignment.toByteUnits() orelse 0, atom.size,
     });
     if (atom.fdes(elf_file).len > 0) {
         try writer.writeAll(" : fdes{ ");
@@ -1180,16 +1178,7 @@ const x86_64 = struct {
             .TLSDESC_CALL,
             => {},
 
-            else => |x| switch (@intFromEnum(x)) {
-                // Zig custom relocations
-                Elf.R_ZIG_GOT32,
-                Elf.R_ZIG_GOTPCREL,
-                => {
-                    assert(symbol.flags.has_zig_got);
-                },
-
-                else => try atom.reportUnhandledRelocError(rel, elf_file),
-            },
+            else => try atom.reportUnhandledRelocError(rel, elf_file),
         }
     }
 
@@ -1209,7 +1198,7 @@ const x86_64 = struct {
 
         const cwriter = stream.writer();
 
-        const P, const A, const S, const GOT, const G, const TP, const DTP, const ZIG_GOT = args;
+        const P, const A, const S, const GOT, const G, const TP, const DTP = args;
 
         switch (r_type) {
             .NONE => unreachable,
@@ -1224,9 +1213,8 @@ const x86_64 = struct {
                 );
             },
 
-            .PLT32,
-            .PC32,
-            => try cwriter.writeInt(i32, @as(i32, @intCast(S + A - P)), .little),
+            .PLT32 => try cwriter.writeInt(i32, @as(i32, @intCast(S + A - P)), .little),
+            .PC32 => try cwriter.writeInt(i32, @as(i32, @intCast(S + A - P)), .little),
 
             .GOTPCREL => try cwriter.writeInt(i32, @as(i32, @intCast(G + GOT + A - P)), .little),
             .GOTPC32 => try cwriter.writeInt(i32, @as(i32, @intCast(GOT + A - P)), .little),
@@ -1327,15 +1315,9 @@ const x86_64 = struct {
                 }
             },
 
-            .GOT32 => try cwriter.writeInt(i32, @as(i32, @intCast(G + GOT + A)), .little),
+            .GOT32 => try cwriter.writeInt(i32, @as(i32, @intCast(G + A)), .little),
 
-            else => |x| switch (@intFromEnum(x)) {
-                // Zig custom relocations
-                Elf.R_ZIG_GOT32 => try cwriter.writeInt(u32, @as(u32, @intCast(ZIG_GOT + A)), .little),
-                Elf.R_ZIG_GOTPCREL => try cwriter.writeInt(i32, @as(i32, @intCast(ZIG_GOT + A - P)), .little),
-
-                else => try atom.reportUnhandledRelocError(rel, elf_file),
-            },
+            else => try atom.reportUnhandledRelocError(rel, elf_file),
         }
     }
 
@@ -1355,7 +1337,7 @@ const x86_64 = struct {
         const r_type: elf.R_X86_64 = @enumFromInt(rel.r_type());
         const cwriter = stream.writer();
 
-        _, const A, const S, const GOT, _, _, const DTP, _ = args;
+        _, const A, const S, const GOT, _, _, const DTP = args;
 
         switch (r_type) {
             .NONE => unreachable,
@@ -1629,7 +1611,7 @@ const x86_64 = struct {
     const bits = @import("../../arch/x86_64/bits.zig");
     const encoder = @import("../../arch/x86_64/encoder.zig");
     const Disassembler = @import("../../arch/x86_64/Disassembler.zig");
-    const Immediate = bits.Immediate;
+    const Immediate = Instruction.Immediate;
     const Instruction = encoder.Instruction;
 };
 
@@ -1738,9 +1720,8 @@ const aarch64 = struct {
         const code = code_buffer[r_offset..][0..4];
         const file_ptr = atom.file(elf_file).?;
 
-        const P, const A, const S, const GOT, const G, const TP, const DTP, const ZIG_GOT = args;
+        const P, const A, const S, const GOT, const G, const TP, const DTP = args;
         _ = DTP;
-        _ = ZIG_GOT;
 
         switch (r_type) {
             .NONE => unreachable,
@@ -1942,7 +1923,7 @@ const aarch64 = struct {
         const r_type: elf.R_AARCH64 = @enumFromInt(rel.r_type());
         const cwriter = stream.writer();
 
-        _, const A, const S, _, _, _, _, _ = args;
+        _, const A, const S, _, _, _, _ = args;
 
         switch (r_type) {
             .NONE => unreachable,
@@ -1998,19 +1979,7 @@ const riscv = struct {
             .SUB32,
             => {},
 
-            else => |x| switch (@intFromEnum(x)) {
-                Elf.R_ZIG_GOT_HI20,
-                Elf.R_ZIG_GOT_LO12,
-                => {
-                    assert(symbol.flags.has_zig_got);
-                },
-
-                Elf.R_GOT_HI20_STATIC,
-                Elf.R_GOT_LO12_I_STATIC,
-                => symbol.flags.needs_got = true,
-
-                else => try atom.reportUnhandledRelocError(rel, elf_file),
-            },
+            else => try atom.reportUnhandledRelocError(rel, elf_file),
         }
     }
 
@@ -2028,7 +1997,7 @@ const riscv = struct {
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
         const cwriter = stream.writer();
 
-        const P, const A, const S, const GOT, const G, const TP, const DTP, const ZIG_GOT = args;
+        const P, const A, const S, const GOT, const G, const TP, const DTP = args;
         _ = TP;
         _ = DTP;
 
@@ -2147,34 +2116,7 @@ const riscv = struct {
                 // TODO: annotates an ADD instruction that can be removed when TPREL is relaxed
             },
 
-            else => |x| switch (@intFromEnum(x)) {
-                // Zig custom relocations
-                Elf.R_ZIG_GOT_HI20 => {
-                    assert(target.flags.has_zig_got);
-                    const disp: u32 = @bitCast(math.cast(i32, ZIG_GOT + A) orelse return error.Overflow);
-                    riscv_util.writeInstU(code[r_offset..][0..4], disp);
-                },
-
-                Elf.R_ZIG_GOT_LO12 => {
-                    assert(target.flags.has_zig_got);
-                    const value: u32 = @bitCast(math.cast(i32, ZIG_GOT + A) orelse return error.Overflow);
-                    riscv_util.writeInstI(code[r_offset..][0..4], value);
-                },
-
-                Elf.R_GOT_HI20_STATIC => {
-                    assert(target.flags.has_got);
-                    const disp: u32 = @bitCast(math.cast(i32, G + GOT + A) orelse return error.Overflow);
-                    riscv_util.writeInstU(code[r_offset..][0..4], disp);
-                },
-
-                Elf.R_GOT_LO12_I_STATIC => {
-                    assert(target.flags.has_got);
-                    const disp: u32 = @bitCast(math.cast(i32, G + GOT + A) orelse return error.Overflow);
-                    riscv_util.writeInstI(code[r_offset..][0..4], disp);
-                },
-
-                else => try atom.reportUnhandledRelocError(rel, elf_file),
-            },
+            else => try atom.reportUnhandledRelocError(rel, elf_file),
         }
     }
 
@@ -2194,7 +2136,7 @@ const riscv = struct {
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
         const cwriter = stream.writer();
 
-        _, const A, const S, const GOT, _, _, const DTP, _ = args;
+        _, const A, const S, const GOT, _, _, const DTP = args;
         _ = GOT;
         _ = DTP;
 
@@ -2230,7 +2172,7 @@ const riscv = struct {
     const riscv_util = @import("../riscv.zig");
 };
 
-const ResolveArgs = struct { i64, i64, i64, i64, i64, i64, i64, i64 };
+const ResolveArgs = struct { i64, i64, i64, i64, i64, i64, i64 };
 
 const RelocError = error{
     Overflow,

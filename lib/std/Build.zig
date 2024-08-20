@@ -2373,7 +2373,7 @@ pub const LazyPath = union(enum) {
                 // basis for not traversing up too many directories.
 
                 var file_path: Cache.Path = .{
-                    .root_dir = gen.file.step.owner.build_root,
+                    .root_dir = Cache.Directory.cwd(),
                     .sub_path = gen.file.path orelse {
                         std.debug.lockStdErr();
                         const stderr = std.io.getStdErr();

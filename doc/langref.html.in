@@ -5618,9 +5618,11 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_open|@round#}
       <pre>{#syntax#}@round(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
-      Rounds the given floating point number to an integer, away from zero. Uses a dedicated hardware instruction
-      when available.
+      Rounds the given floating point number to the nearest integer. If two integers are equally close, rounds away from zero.
+      Uses a dedicated hardware instruction when available.
       </p>
+      {#code|test_round_builtin.zig#}
+
       <p>
       Supports {#link|Floats#} and {#link|Vectors#} of floats.
       </p>

@@ -4677,9 +4677,7 @@ fn genArgDbgInfo(func: Func, inst: Air.Inst.Index, mcv: MCValue) !void {
 
     switch (func.debug_output) {
         .dwarf => |dw| switch (mcv) {
-            .register => |reg| try dw.genArgDbgInfo(name, ty, func.owner.nav_index, .{
-                .register = reg.dwarfLocOp(),
-            }),
+            .register => |reg| try dw.genVarDebugInfo(.local_arg, name, ty, .{ .reg = reg.dwarfNum() }),
             .load_frame => {},
             else => {},
         },
@@ -4937,7 +4935,7 @@ fn genCall(
                             if (func.mod.pic) {
                                 return func.fail("TODO: genCall pic", .{});
                             } else {
-                                try func.genSetReg(Type.u64, .ra, .{ .load_symbol = .{ .sym = sym_index } });
+                                try func.genSetReg(Type.u64, .ra, .{ .lea_symbol = .{ .sym = sym_index } });
                                 _ = try func.addInst(.{
                                     .tag = .jalr,
                                     .data = .{ .i_type = .{
@@ -5184,43 +5182,30 @@ fn airDbgVar(func: *Func, inst: Air.Inst.Index) !void {
 
     const name = func.air.nullTerminatedString(pl_op.payload);
 
-    const tag = func.air.instructions.items(.tag)[@intFromEnum(inst)];
-    try func.genVarDbgInfo(tag, ty, mcv, name);
+    try func.genVarDbgInfo(ty, mcv, name);
 
     return func.finishAir(inst, .unreach, .{ operand, .none, .none });
 }
 
 fn genVarDbgInfo(
     func: Func,
-    tag: Air.Inst.Tag,
     ty: Type,
     mcv: MCValue,
-    name: [:0]const u8,
+    name: []const u8,
 ) !void {
-    const is_ptr = switch (tag) {
-        .dbg_var_ptr => true,
-        .dbg_var_val => false,
-        else => unreachable,
-    };
-
     switch (func.debug_output) {
-        .dwarf => |dw| {
-            const loc: link.File.Dwarf.NavState.DbgInfoLoc = switch (mcv) {
-                .register => |reg| .{ .register = reg.dwarfLocOp() },
-                .memory => |address| .{ .memory = address },
-                .load_symbol => |sym_off| loc: {
-                    assert(sym_off.off == 0);
-                    break :loc .{ .linker_load = .{ .type = .direct, .sym_index = sym_off.sym } };
-                },
-                .immediate => |x| .{ .immediate = x },
-                .undef => .undef,
-                .none => .none,
+        .dwarf => |dwarf| {
+            const loc: link.File.Dwarf.Loc = switch (mcv) {
+                .register => |reg| .{ .reg = reg.dwarfNum() },
+                .memory => |address| .{ .constu = address },
+                .immediate => |x| .{ .constu = x },
+                .none => .empty,
                 else => blk: {
                     // log.warn("TODO generate debug info for {}", .{mcv});
-                    break :blk .nop;
+                    break :blk .empty;
                 },
             };
-            try dw.genVarDbgInfo(name, ty, func.owner.nav_index, is_ptr, loc);
+            try dwarf.genVarDebugInfo(.local_var, name, ty, loc);
         },
         .plan9 => {},
         .none => {},
@@ -6120,7 +6105,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
                     arg_map.get(op_str["%[".len .. mod_index orelse op_str.len - "]".len]) orelse
                         return func.fail("no matching constraint: '{s}'", .{op_str})
                 ]) {
-                    .load_symbol => |sym_off| if (mem.eql(u8, modifier, "plt")) blk: {
+                    .lea_symbol => |sym_off| if (mem.eql(u8, modifier, "plt")) blk: {
                         assert(sym_off.off == 0);
                         break :blk .{ .sym = sym_off };
                     } else return func.fail("invalid modifier: '{s}'", .{modifier}),
@@ -6388,7 +6373,7 @@ fn genCopy(func: *Func, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
             ty,
             src_mcv,
         ),
-        .load_tlv => {
+        .load_symbol, .load_tlv => {
             const addr_reg, const addr_lock = try func.allocReg(.int);
             defer func.register_manager.unlockReg(addr_lock);
 
@@ -6433,7 +6418,7 @@ fn genCopy(func: *Func, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
                 part_disp += @intCast(dst_ty.abiSize(func.pt));
             }
         },
-        else => return func.fail("TODO: genCopy to {s} from {s}", .{ @tagName(dst_mcv), @tagName(src_mcv) }),
+        else => return std.debug.panic("TODO: genCopy to {s} from {s}", .{ @tagName(dst_mcv), @tagName(src_mcv) }),
     }
 }
 
@@ -6594,7 +6579,7 @@ fn genInlineMemset(
         .tag = .beq,
         .data = .{
             .b_type = .{
-                .inst = @intCast(func.mir_instructions.len + 4), // points after the last inst
+                .inst = @intCast(func.mir_instructions.len + 3), // points after the last inst
                 .rs1 = count,
                 .rs2 = .zero,
             },
@@ -8026,11 +8011,12 @@ fn genTypedValue(func: *Func, val: Value) InnerError!MCValue {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
             .undef => unreachable,
+            .lea_symbol => |sym_index| .{ .lea_symbol = .{ .sym = sym_index } },
             .load_symbol => |sym_index| .{ .load_symbol = .{ .sym = sym_index } },
             .load_tlv => |sym_index| .{ .lea_tlv = sym_index },
             .immediate => |imm| .{ .immediate = imm },
             .memory => |addr| .{ .memory = addr },
-            .load_got, .load_direct => {
+            .load_got, .load_direct, .lea_direct => {
                 return func.fail("TODO: genTypedValue {s}", .{@tagName(mcv)});
             },
         },
@@ -8304,7 +8290,7 @@ fn promoteVarArg(func: *Func, ty: Type) Type {
     switch (ty.floatBits(func.target.*)) {
         32, 64 => return Type.f64,
         else => |float_bits| {
-            assert(float_bits == func.target.c_type_bit_size(.longdouble));
+            assert(float_bits == func.target.cTypeBitSize(.longdouble));
             return Type.c_longdouble;
         },
     }

@@ -567,10 +567,12 @@ pub const StackIterator = struct {
     } else void = if (have_ucontext) null else {},
 
     pub fn init(first_address: ?usize, fp: ?usize) StackIterator {
-        if (native_arch == .sparc64) {
+        if (native_arch.isSPARC()) {
             // Flush all the register windows on stack.
-            asm volatile (
-                \\ flushw
+            asm volatile (if (std.Target.sparc.featureSetHas(builtin.cpu.features, .v9))
+                    "flushw"
+                else
+                    "ta 3" // ST_FLUSH_WINDOWS
                 ::: "memory");
         }
 
@@ -1357,6 +1359,9 @@ test "manage resources correctly" {
         // https://github.com/ziglang/zig/issues/13963
         return error.SkipZigTest;
     }
+
+    // self-hosted debug info is still too buggy
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest;
 
     const writer = std.io.null_writer;
     var di = try SelfInfo.open(testing.allocator);

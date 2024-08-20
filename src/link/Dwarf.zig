@@ -1,895 +1,1036 @@
-allocator: Allocator,
-bin_file: *File,
-format: Format,
-ptr_width: PtrWidth,
+gpa: std.mem.Allocator,
+bin_file: *link.File,
+format: DW.Format,
+endian: std.builtin.Endian,
+address_size: AddressSize,
 
-/// A list of `Atom`s whose Line Number Programs have surplus capacity.
-/// This is the same concept as `Section.free_list` in Elf; see those doc comments.
-src_fn_free_list: std.AutoHashMapUnmanaged(Atom.Index, void) = .{},
-src_fn_first_index: ?Atom.Index = null,
-src_fn_last_index: ?Atom.Index = null,
-src_fns: std.ArrayListUnmanaged(Atom) = .{},
-src_fn_navs: AtomTable = .{},
+mods: std.AutoArrayHashMapUnmanaged(*Module, ModInfo),
+types: std.AutoArrayHashMapUnmanaged(InternPool.Index, Entry.Index),
+navs: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, Entry.Index),
 
-/// A list of `Atom`s whose corresponding .debug_info tags have surplus capacity.
-/// This is the same concept as `text_block_free_list`; see those doc comments.
-di_atom_free_list: std.AutoHashMapUnmanaged(Atom.Index, void) = .{},
-di_atom_first_index: ?Atom.Index = null,
-di_atom_last_index: ?Atom.Index = null,
-di_atoms: std.ArrayListUnmanaged(Atom) = .{},
-di_atom_navs: AtomTable = .{},
+debug_abbrev: DebugAbbrev,
+debug_aranges: DebugAranges,
+debug_info: DebugInfo,
+debug_line: DebugLine,
+debug_line_str: StringSection,
+debug_loclists: DebugLocLists,
+debug_rnglists: DebugRngLists,
+debug_str: StringSection,
 
-dbg_line_header: DbgLineHeader,
+pub const UpdateError =
+    std.fs.File.OpenError ||
+    std.fs.File.SetEndPosError ||
+    std.fs.File.CopyRangeError ||
+    std.fs.File.PWriteError ||
+    error{ Overflow, Underflow, UnexpectedEndOfFile };
 
-abbrev_table_offset: ?u64 = null,
+pub const FlushError =
+    UpdateError ||
+    std.process.GetCwdError;
 
-/// TODO replace with InternPool
-/// Table of debug symbol names.
-strtab: StringTable = .{},
+pub const RelocError =
+    std.fs.File.PWriteError;
 
-/// Quick lookup array of all defined source files referenced by at least one Nav.
-/// They will end up in the DWARF debug_line header as two lists:
-/// * []include_directory
-/// * []file_names
-di_files: std.AutoArrayHashMapUnmanaged(*const Zcu.File, void) = .{},
-
-global_abbrev_relocs: std.ArrayListUnmanaged(AbbrevRelocation) = .{},
-
-const AtomTable = std.AutoHashMapUnmanaged(InternPool.Nav.Index, Atom.Index);
-
-const Atom = struct {
-    /// Offset into .debug_info pointing to the tag for this Nav, or
-    /// offset from the beginning of the Debug Line Program header that contains this function.
-    off: u32,
-    /// Size of the .debug_info tag for this Nav, not including padding, or
-    /// size of the line number program component belonging to this function, not
-    /// including padding.
-    len: u32,
-
-    prev_index: ?Index,
-    next_index: ?Index,
-
-    pub const Index = u32;
+pub const AddressSize = enum(u8) {
+    @"32" = 4,
+    @"64" = 8,
+    _,
 };
 
-const DbgLineHeader = struct {
-    minimum_instruction_length: u8,
-    maximum_operations_per_instruction: u8,
-    default_is_stmt: bool,
-    line_base: i8,
-    line_range: u8,
-    opcode_base: u8,
+const ModInfo = struct {
+    root_dir_path: Entry.Index,
+    dirs: std.AutoArrayHashMapUnmanaged(Unit.Index, void),
+    files: Files,
+
+    const Files = std.AutoArrayHashMapUnmanaged(Zcu.File.Index, void);
+
+    fn deinit(mod_info: *ModInfo, gpa: std.mem.Allocator) void {
+        mod_info.dirs.deinit(gpa);
+        mod_info.files.deinit(gpa);
+        mod_info.* = undefined;
+    }
 };
 
-/// Represents state of the analysed Nav.
-/// Includes Nav's abbrev table of type Types, matching arena
-/// and a set of relocations that will be resolved once this
-/// Nav's inner Atom is assigned an offset within the DWARF section.
-pub const NavState = struct {
-    dwarf: *Dwarf,
-    pt: Zcu.PerThread,
-    di_atom_navs: *const AtomTable,
-    dbg_line_func: InternPool.Index,
-    dbg_line: std.ArrayList(u8),
-    dbg_info: std.ArrayList(u8),
-    abbrev_type_arena: std.heap.ArenaAllocator,
-    abbrev_table: std.ArrayListUnmanaged(AbbrevEntry),
-    abbrev_resolver: std.AutoHashMapUnmanaged(InternPool.Index, u32),
-    abbrev_relocs: std.ArrayListUnmanaged(AbbrevRelocation),
-    exprloc_relocs: std.ArrayListUnmanaged(ExprlocRelocation),
+const DebugAbbrev = struct {
+    section: Section,
+    const unit: Unit.Index = @enumFromInt(0);
+    const entry: Entry.Index = @enumFromInt(0);
+};
 
-    pub fn deinit(ns: *NavState) void {
-        const gpa = ns.dwarf.allocator;
-        ns.dbg_line.deinit();
-        ns.dbg_info.deinit();
-        ns.abbrev_type_arena.deinit();
-        ns.abbrev_table.deinit(gpa);
-        ns.abbrev_resolver.deinit(gpa);
-        ns.abbrev_relocs.deinit(gpa);
-        ns.exprloc_relocs.deinit(gpa);
+const DebugAranges = struct {
+    section: Section,
+
+    fn headerBytes(dwarf: *Dwarf) u32 {
+        return std.mem.alignForwardAnyAlign(
+            u32,
+            dwarf.unitLengthBytes() + 2 + dwarf.sectionOffsetBytes() + 1 + 1,
+            @intFromEnum(dwarf.address_size) * 2,
+        );
     }
 
-    /// Adds local type relocation of the form: @offset => @this + addend
-    /// @this signifies the offset within the .debug_abbrev section of the containing atom.
-    fn addTypeRelocLocal(self: *NavState, atom_index: Atom.Index, offset: u32, addend: u32) !void {
-        log.debug("{x}: @this + {x}", .{ offset, addend });
-        try self.abbrev_relocs.append(self.dwarf.allocator, .{
-            .target = null,
-            .atom_index = atom_index,
-            .offset = offset,
-            .addend = addend,
-        });
+    fn trailerBytes(dwarf: *Dwarf) u32 {
+        return @intFromEnum(dwarf.address_size) * 2;
+    }
+};
+
+const DebugInfo = struct {
+    section: Section,
+
+    fn headerBytes(dwarf: *Dwarf) u32 {
+        return dwarf.unitLengthBytes() + 2 + 1 + 1 + dwarf.sectionOffsetBytes() +
+            uleb128Bytes(@intFromEnum(AbbrevCode.compile_unit)) + 1 + dwarf.sectionOffsetBytes() * 6 + uleb128Bytes(0) +
+            uleb128Bytes(@intFromEnum(AbbrevCode.module)) + dwarf.sectionOffsetBytes() + uleb128Bytes(0);
     }
 
-    /// Adds global type relocation of the form: @offset => @symbol + 0
-    /// @symbol signifies a type abbreviation posititioned somewhere in the .debug_abbrev section
-    /// which we use as our target of the relocation.
-    fn addTypeRelocGlobal(self: *NavState, atom_index: Atom.Index, ty: Type, offset: u32) !void {
-        const gpa = self.dwarf.allocator;
-        const resolv = self.abbrev_resolver.get(ty.toIntern()) orelse blk: {
-            const sym_index: u32 = @intCast(self.abbrev_table.items.len);
-            try self.abbrev_table.append(gpa, .{
-                .atom_index = atom_index,
-                .type = ty,
-                .offset = undefined,
-            });
-            log.debug("%{d}: {}", .{ sym_index, ty.fmt(self.pt) });
-            try self.abbrev_resolver.putNoClobber(gpa, ty.toIntern(), sym_index);
-            break :blk sym_index;
-        };
-        log.debug("{x}: %{d} + 0", .{ offset, resolv });
-        try self.abbrev_relocs.append(gpa, .{
-            .target = resolv,
-            .atom_index = atom_index,
-            .offset = offset,
-            .addend = 0,
-        });
+    fn declEntryLineOff(dwarf: *Dwarf) u32 {
+        return AbbrevCode.decl_bytes + dwarf.sectionOffsetBytes();
     }
 
-    fn addDbgInfoType(
-        self: *NavState,
-        pt: Zcu.PerThread,
-        atom_index: Atom.Index,
-        ty: Type,
-    ) error{OutOfMemory}!void {
-        const zcu = pt.zcu;
-        const dbg_info_buffer = &self.dbg_info;
-        const target = zcu.getTarget();
-        const target_endian = target.cpu.arch.endian();
-        const ip = &zcu.intern_pool;
+    const trailer_bytes = 1 + 1;
+};
 
-        switch (ty.zigTypeTag(zcu)) {
-            .NoReturn => unreachable,
-            .Void => {
-                try dbg_info_buffer.append(@intFromEnum(AbbrevCode.zero_bit_type));
-            },
-            .Bool => {
-                try dbg_info_buffer.ensureUnusedCapacity(12);
-                dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.base_type));
-                // DW.AT.encoding, DW.FORM.data1
-                dbg_info_buffer.appendAssumeCapacity(DW.ATE.boolean);
-                // DW.AT.byte_size, DW.FORM.udata
-                try leb128.writeUleb128(dbg_info_buffer.writer(), ty.abiSize(pt));
-                // DW.AT.name, DW.FORM.string
-                try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(pt)});
-            },
-            .Int => {
-                const info = ty.intInfo(zcu);
-                try dbg_info_buffer.ensureUnusedCapacity(12);
-                dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.base_type));
-                // DW.AT.encoding, DW.FORM.data1
-                dbg_info_buffer.appendAssumeCapacity(switch (info.signedness) {
-                    .signed => DW.ATE.signed,
-                    .unsigned => DW.ATE.unsigned,
-                });
-                // DW.AT.byte_size, DW.FORM.udata
-                try leb128.writeUleb128(dbg_info_buffer.writer(), ty.abiSize(pt));
-                // DW.AT.name, DW.FORM.string
-                try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(pt)});
-            },
-            .Optional => {
-                if (ty.isPtrLikeOptional(zcu)) {
-                    try dbg_info_buffer.ensureUnusedCapacity(12);
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.base_type));
-                    // DW.AT.encoding, DW.FORM.data1
-                    dbg_info_buffer.appendAssumeCapacity(DW.ATE.address);
-                    // DW.AT.byte_size, DW.FORM.udata
-                    try leb128.writeUleb128(dbg_info_buffer.writer(), ty.abiSize(pt));
-                    // DW.AT.name, DW.FORM.string
-                    try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(pt)});
-                } else {
-                    // Non-pointer optionals are structs: struct { .maybe = *, .val = * }
-                    const payload_ty = ty.optionalChild(zcu);
-                    // DW.AT.structure_type
-                    try dbg_info_buffer.append(@intFromEnum(AbbrevCode.struct_type));
-                    // DW.AT.byte_size, DW.FORM.udata
-                    const abi_size = ty.abiSize(pt);
-                    try leb128.writeUleb128(dbg_info_buffer.writer(), abi_size);
-                    // DW.AT.name, DW.FORM.string
-                    try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(pt)});
-                    // DW.AT.member
-                    try dbg_info_buffer.ensureUnusedCapacity(21);
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.struct_member));
-                    // DW.AT.name, DW.FORM.string
-                    dbg_info_buffer.appendSliceAssumeCapacity("maybe");
-                    dbg_info_buffer.appendAssumeCapacity(0);
-                    // DW.AT.type, DW.FORM.ref4
-                    var index = dbg_info_buffer.items.len;
-                    dbg_info_buffer.appendNTimesAssumeCapacity(0, 4);
-                    try self.addTypeRelocGlobal(atom_index, Type.bool, @intCast(index));
-                    // DW.AT.data_member_location, DW.FORM.udata
-                    dbg_info_buffer.appendAssumeCapacity(0);
-                    // DW.AT.member
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.struct_member));
-                    // DW.AT.name, DW.FORM.string
-                    dbg_info_buffer.appendSliceAssumeCapacity("val");
-                    dbg_info_buffer.appendAssumeCapacity(0);
-                    // DW.AT.type, DW.FORM.ref4
-                    index = dbg_info_buffer.items.len;
-                    dbg_info_buffer.appendNTimesAssumeCapacity(0, 4);
-                    try self.addTypeRelocGlobal(atom_index, payload_ty, @intCast(index));
-                    // DW.AT.data_member_location, DW.FORM.udata
-                    const offset = abi_size - payload_ty.abiSize(pt);
-                    try leb128.writeUleb128(dbg_info_buffer.writer(), offset);
-                    // DW.AT.structure_type delimit children
-                    try dbg_info_buffer.append(0);
-                }
-            },
-            .Pointer => {
-                if (ty.isSlice(zcu)) {
-                    // Slices are structs: struct { .ptr = *, .len = N }
-                    const ptr_bits = target.ptrBitWidth();
-                    const ptr_bytes: u8 = @intCast(@divExact(ptr_bits, 8));
-                    // DW.AT.structure_type
-                    try dbg_info_buffer.ensureUnusedCapacity(2);
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.struct_type));
-                    // DW.AT.byte_size, DW.FORM.udata
-                    try leb128.writeUleb128(dbg_info_buffer.writer(), ty.abiSize(pt));
-                    // DW.AT.name, DW.FORM.string
-                    try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(pt)});
-                    // DW.AT.member
-                    try dbg_info_buffer.ensureUnusedCapacity(21);
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.struct_member));
-                    // DW.AT.name, DW.FORM.string
-                    dbg_info_buffer.appendSliceAssumeCapacity("ptr");
-                    dbg_info_buffer.appendAssumeCapacity(0);
-                    // DW.AT.type, DW.FORM.ref4
-                    var index = dbg_info_buffer.items.len;
-                    dbg_info_buffer.appendNTimesAssumeCapacity(0, 4);
-                    const ptr_ty = ty.slicePtrFieldType(zcu);
-                    try self.addTypeRelocGlobal(atom_index, ptr_ty, @intCast(index));
-                    // DW.AT.data_member_location, DW.FORM.udata
-                    dbg_info_buffer.appendAssumeCapacity(0);
-                    // DW.AT.member
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.struct_member));
-                    // DW.AT.name, DW.FORM.string
-                    dbg_info_buffer.appendSliceAssumeCapacity("len");
-                    dbg_info_buffer.appendAssumeCapacity(0);
-                    // DW.AT.type, DW.FORM.ref4
-                    index = dbg_info_buffer.items.len;
-                    dbg_info_buffer.appendNTimesAssumeCapacity(0, 4);
-                    try self.addTypeRelocGlobal(atom_index, Type.usize, @intCast(index));
-                    // DW.AT.data_member_location, DW.FORM.udata
-                    dbg_info_buffer.appendAssumeCapacity(ptr_bytes);
-                    // DW.AT.structure_type delimit children
-                    dbg_info_buffer.appendAssumeCapacity(0);
-                } else {
-                    try dbg_info_buffer.ensureUnusedCapacity(9);
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.ptr_type));
-                    // DW.AT.type, DW.FORM.ref4
-                    const index = dbg_info_buffer.items.len;
-                    dbg_info_buffer.appendNTimesAssumeCapacity(0, 4);
-                    try self.addTypeRelocGlobal(atom_index, ty.childType(zcu), @intCast(index));
-                }
-            },
-            .Array => {
-                // DW.AT.array_type
-                try dbg_info_buffer.append(@intFromEnum(AbbrevCode.array_type));
-                // DW.AT.name, DW.FORM.string
-                try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(pt)});
-                // DW.AT.type, DW.FORM.ref4
-                var index = dbg_info_buffer.items.len;
-                try dbg_info_buffer.ensureUnusedCapacity(9);
-                dbg_info_buffer.appendNTimesAssumeCapacity(0, 4);
-                try self.addTypeRelocGlobal(atom_index, ty.childType(zcu), @intCast(index));
-                // DW.AT.subrange_type
-                dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.array_dim));
-                // DW.AT.type, DW.FORM.ref4
-                index = dbg_info_buffer.items.len;
-                dbg_info_buffer.appendNTimesAssumeCapacity(0, 4);
-                try self.addTypeRelocGlobal(atom_index, Type.usize, @intCast(index));
-                // DW.AT.count, DW.FORM.udata
-                const len = ty.arrayLenIncludingSentinel(pt.zcu);
-                try leb128.writeUleb128(dbg_info_buffer.writer(), len);
-                // DW.AT.array_type delimit children
-                try dbg_info_buffer.append(0);
-            },
-            .Struct => {
-                // DW.AT.structure_type
-                try dbg_info_buffer.append(@intFromEnum(AbbrevCode.struct_type));
-                // DW.AT.byte_size, DW.FORM.udata
-                try leb128.writeUleb128(dbg_info_buffer.writer(), ty.abiSize(pt));
+const DebugLine = struct {
+    header: Header,
+    section: Section,
 
-                blk: {
-                    switch (ip.indexToKey(ty.ip_index)) {
-                        .anon_struct_type => |fields| {
-                            // DW.AT.name, DW.FORM.string
-                            try dbg_info_buffer.writer().print("{}\x00", .{ty.fmt(pt)});
-
-                            for (fields.types.get(ip), 0..) |field_ty, field_index| {
-                                // DW.AT.member
-                                try dbg_info_buffer.append(@intFromEnum(AbbrevCode.struct_member));
-                                // DW.AT.name, DW.FORM.string
-                                try dbg_info_buffer.writer().print("{d}\x00", .{field_index});
-                                // DW.AT.type, DW.FORM.ref4
-                                const index = dbg_info_buffer.items.len;
-                                try dbg_info_buffer.appendNTimes(0, 4);
-                                try self.addTypeRelocGlobal(atom_index, Type.fromInterned(field_ty), @intCast(index));
-                                // DW.AT.data_member_location, DW.FORM.udata
-                                const field_off = ty.structFieldOffset(field_index, pt);
-                                try leb128.writeUleb128(dbg_info_buffer.writer(), field_off);
-                            }
-                        },
-                        .struct_type => {
-                            const struct_type = ip.loadStructType(ty.toIntern());
-                            // DW.AT.name, DW.FORM.string
-                            try ty.print(dbg_info_buffer.writer(), pt);
-                            try dbg_info_buffer.append(0);
-
-                            if (struct_type.layout == .@"packed") {
-                                log.debug("TODO implement .debug_info for packed structs", .{});
-                                break :blk;
-                            }
-
-                            if (struct_type.isTuple(ip)) {
-                                for (struct_type.field_types.get(ip), struct_type.offsets.get(ip), 0..) |field_ty, field_off, field_index| {
-                                    if (!Type.fromInterned(field_ty).hasRuntimeBits(pt)) continue;
-                                    // DW.AT.member
-                                    try dbg_info_buffer.append(@intFromEnum(AbbrevCode.struct_member));
-                                    // DW.AT.name, DW.FORM.string
-                                    try dbg_info_buffer.writer().print("{d}\x00", .{field_index});
-                                    // DW.AT.type, DW.FORM.ref4
-                                    const index = dbg_info_buffer.items.len;
-                                    try dbg_info_buffer.appendNTimes(0, 4);
-                                    try self.addTypeRelocGlobal(atom_index, Type.fromInterned(field_ty), @intCast(index));
-                                    // DW.AT.data_member_location, DW.FORM.udata
-                                    try leb128.writeUleb128(dbg_info_buffer.writer(), field_off);
-                                }
-                            } else {
-                                for (
-                                    struct_type.field_names.get(ip),
-                                    struct_type.field_types.get(ip),
-                                    struct_type.offsets.get(ip),
-                                ) |field_name, field_ty, field_off| {
-                                    if (!Type.fromInterned(field_ty).hasRuntimeBits(pt)) continue;
-                                    const field_name_slice = field_name.toSlice(ip);
-                                    // DW.AT.member
-                                    try dbg_info_buffer.ensureUnusedCapacity(field_name_slice.len + 2);
-                                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.struct_member));
-                                    // DW.AT.name, DW.FORM.string
-                                    dbg_info_buffer.appendSliceAssumeCapacity(field_name_slice[0 .. field_name_slice.len + 1]);
-                                    // DW.AT.type, DW.FORM.ref4
-                                    const index = dbg_info_buffer.items.len;
-                                    try dbg_info_buffer.appendNTimes(0, 4);
-                                    try self.addTypeRelocGlobal(atom_index, Type.fromInterned(field_ty), @intCast(index));
-                                    // DW.AT.data_member_location, DW.FORM.udata
-                                    try leb128.writeUleb128(dbg_info_buffer.writer(), field_off);
-                                }
-                            }
-                        },
-                        else => unreachable,
-                    }
-                }
-
-                // DW.AT.structure_type delimit children
-                try dbg_info_buffer.append(0);
-            },
-            .Enum => {
-                // DW.AT.enumeration_type
-                try dbg_info_buffer.append(@intFromEnum(AbbrevCode.enum_type));
-                // DW.AT.byte_size, DW.FORM.udata
-                try leb128.writeUleb128(dbg_info_buffer.writer(), ty.abiSize(pt));
-                // DW.AT.name, DW.FORM.string
-                try ty.print(dbg_info_buffer.writer(), pt);
-                try dbg_info_buffer.append(0);
-
-                const enum_type = ip.loadEnumType(ty.ip_index);
-                for (enum_type.names.get(ip), 0..) |field_name, field_i| {
-                    const field_name_slice = field_name.toSlice(ip);
-                    // DW.AT.enumerator
-                    try dbg_info_buffer.ensureUnusedCapacity(field_name_slice.len + 2 + @sizeOf(u64));
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.enum_variant));
-                    // DW.AT.name, DW.FORM.string
-                    dbg_info_buffer.appendSliceAssumeCapacity(field_name_slice[0 .. field_name_slice.len + 1]);
-                    // DW.AT.const_value, DW.FORM.data8
-                    const value: u64 = value: {
-                        if (enum_type.values.len == 0) break :value field_i; // auto-numbered
-                        const value = enum_type.values.get(ip)[field_i];
-                        // TODO do not assume a 64bit enum value - could be bigger.
-                        // See https://github.com/ziglang/zig/issues/645
-                        const field_int_val = try Value.fromInterned(value).intFromEnum(ty, pt);
-                        break :value @bitCast(field_int_val.toSignedInt(pt));
-                    };
-                    mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), value, target_endian);
-                }
-
-                // DW.AT.enumeration_type delimit children
-                try dbg_info_buffer.append(0);
-            },
-            .Union => {
-                const union_obj = zcu.typeToUnion(ty).?;
-                const layout = pt.getUnionLayout(union_obj);
-                const payload_offset = if (layout.tag_align.compare(.gte, layout.payload_align)) layout.tag_size else 0;
-                const tag_offset = if (layout.tag_align.compare(.gte, layout.payload_align)) 0 else layout.payload_size;
-                // TODO this is temporary to match current state of unions in Zig - we don't yet have
-                // safety checks implemented meaning the implicit tag is not yet stored and generated
-                // for untagged unions.
-                const is_tagged = layout.tag_size > 0;
-                if (is_tagged) {
-                    // DW.AT.structure_type
-                    try dbg_info_buffer.append(@intFromEnum(AbbrevCode.struct_type));
-                    // DW.AT.byte_size, DW.FORM.udata
-                    try leb128.writeUleb128(dbg_info_buffer.writer(), layout.abi_size);
-                    // DW.AT.name, DW.FORM.string
-                    try ty.print(dbg_info_buffer.writer(), pt);
-                    try dbg_info_buffer.append(0);
-
-                    // DW.AT.member
-                    try dbg_info_buffer.ensureUnusedCapacity(13);
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.struct_member));
-                    // DW.AT.name, DW.FORM.string
-                    dbg_info_buffer.appendSliceAssumeCapacity("payload");
-                    dbg_info_buffer.appendAssumeCapacity(0);
-                    // DW.AT.type, DW.FORM.ref4
-                    const inner_union_index = dbg_info_buffer.items.len;
-                    dbg_info_buffer.appendNTimesAssumeCapacity(0, 4);
-                    try self.addTypeRelocLocal(atom_index, @intCast(inner_union_index), 5);
-                    // DW.AT.data_member_location, DW.FORM.udata
-                    try leb128.writeUleb128(dbg_info_buffer.writer(), payload_offset);
-                }
-
-                // DW.AT.union_type
-                try dbg_info_buffer.append(@intFromEnum(AbbrevCode.union_type));
-                // DW.AT.byte_size, DW.FORM.udata,
-                try leb128.writeUleb128(dbg_info_buffer.writer(), layout.payload_size);
-                // DW.AT.name, DW.FORM.string
-                if (is_tagged) {
-                    try dbg_info_buffer.writer().print("AnonUnion\x00", .{});
-                } else {
-                    try ty.print(dbg_info_buffer.writer(), pt);
-                    try dbg_info_buffer.append(0);
-                }
-
-                for (union_obj.field_types.get(ip), union_obj.loadTagType(ip).names.get(ip)) |field_ty, field_name| {
-                    if (!Type.fromInterned(field_ty).hasRuntimeBits(pt)) continue;
-                    const field_name_slice = field_name.toSlice(ip);
-                    // DW.AT.member
-                    try dbg_info_buffer.append(@intFromEnum(AbbrevCode.struct_member));
-                    // DW.AT.name, DW.FORM.string
-                    try dbg_info_buffer.appendSlice(field_name_slice[0 .. field_name_slice.len + 1]);
-                    // DW.AT.type, DW.FORM.ref4
-                    const index = dbg_info_buffer.items.len;
-                    try dbg_info_buffer.appendNTimes(0, 4);
-                    try self.addTypeRelocGlobal(atom_index, Type.fromInterned(field_ty), @intCast(index));
-                    // DW.AT.data_member_location, DW.FORM.udata
-                    try dbg_info_buffer.append(0);
-                }
-                // DW.AT.union_type delimit children
-                try dbg_info_buffer.append(0);
-
-                if (is_tagged) {
-                    // DW.AT.member
-                    try dbg_info_buffer.ensureUnusedCapacity(9);
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.struct_member));
-                    // DW.AT.name, DW.FORM.string
-                    dbg_info_buffer.appendSliceAssumeCapacity("tag");
-                    dbg_info_buffer.appendAssumeCapacity(0);
-                    // DW.AT.type, DW.FORM.ref4
-                    const index = dbg_info_buffer.items.len;
-                    dbg_info_buffer.appendNTimesAssumeCapacity(0, 4);
-                    try self.addTypeRelocGlobal(atom_index, Type.fromInterned(union_obj.enum_tag_ty), @intCast(index));
-                    // DW.AT.data_member_location, DW.FORM.udata
-                    try leb128.writeUleb128(dbg_info_buffer.writer(), tag_offset);
-
-                    // DW.AT.structure_type delimit children
-                    try dbg_info_buffer.append(0);
-                }
-            },
-            .ErrorSet => try addDbgInfoErrorSet(pt, ty, target, &self.dbg_info),
-            .ErrorUnion => {
-                const error_ty = ty.errorUnionSet(zcu);
-                const payload_ty = ty.errorUnionPayload(zcu);
-                const payload_align = if (payload_ty.isNoReturn(zcu)) .none else payload_ty.abiAlignment(pt);
-                const error_align = Type.anyerror.abiAlignment(pt);
-                const abi_size = ty.abiSize(pt);
-                const payload_off = if (error_align.compare(.gte, payload_align)) Type.anyerror.abiSize(pt) else 0;
-                const error_off = if (error_align.compare(.gte, payload_align)) 0 else payload_ty.abiSize(pt);
-
-                // DW.AT.structure_type
-                try dbg_info_buffer.append(@intFromEnum(AbbrevCode.struct_type));
-                // DW.AT.byte_size, DW.FORM.udata
-                try leb128.writeUleb128(dbg_info_buffer.writer(), abi_size);
-                // DW.AT.name, DW.FORM.string
-                try ty.print(dbg_info_buffer.writer(), pt);
-                try dbg_info_buffer.append(0);
-
-                if (!payload_ty.isNoReturn(zcu)) {
-                    // DW.AT.member
-                    try dbg_info_buffer.ensureUnusedCapacity(11);
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.struct_member));
-                    // DW.AT.name, DW.FORM.string
-                    dbg_info_buffer.appendSliceAssumeCapacity("value");
-                    dbg_info_buffer.appendAssumeCapacity(0);
-                    // DW.AT.type, DW.FORM.ref4
-                    const index = dbg_info_buffer.items.len;
-                    dbg_info_buffer.appendNTimesAssumeCapacity(0, 4);
-                    try self.addTypeRelocGlobal(atom_index, payload_ty, @intCast(index));
-                    // DW.AT.data_member_location, DW.FORM.udata
-                    try leb128.writeUleb128(dbg_info_buffer.writer(), payload_off);
-                }
-
-                {
-                    // DW.AT.member
-                    try dbg_info_buffer.ensureUnusedCapacity(9);
-                    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.struct_member));
-                    // DW.AT.name, DW.FORM.string
-                    dbg_info_buffer.appendSliceAssumeCapacity("err");
-                    dbg_info_buffer.appendAssumeCapacity(0);
-                    // DW.AT.type, DW.FORM.ref4
-                    const index = dbg_info_buffer.items.len;
-                    dbg_info_buffer.appendNTimesAssumeCapacity(0, 4);
-                    try self.addTypeRelocGlobal(atom_index, error_ty, @intCast(index));
-                    // DW.AT.data_member_location, DW.FORM.udata
-                    try leb128.writeUleb128(dbg_info_buffer.writer(), error_off);
-                }
-
-                // DW.AT.structure_type delimit children
-                try dbg_info_buffer.append(0);
-            },
-            else => {
-                log.debug("TODO implement .debug_info for type '{}'", .{ty.fmt(pt)});
-                try dbg_info_buffer.append(@intFromEnum(AbbrevCode.zero_bit_type));
-            },
-        }
-    }
-
-    pub const DbgInfoLoc = union(enum) {
-        register: u8,
-        register_pair: [2]u8,
-        stack: struct {
-            fp_register: u8,
-            offset: i32,
-        },
-        wasm_local: u32,
-        memory: u64,
-        linker_load: LinkerLoad,
-        immediate: u64,
-        undef,
-        none,
-        nop,
+    const Header = struct {
+        minimum_instruction_length: u8,
+        maximum_operations_per_instruction: u8,
+        default_is_stmt: bool,
+        line_base: i8,
+        line_range: u8,
+        opcode_base: u8,
     };
 
-    pub fn genArgDbgInfo(
-        self: *NavState,
-        name: [:0]const u8,
-        ty: Type,
-        owner_nav: InternPool.Nav.Index,
-        loc: DbgInfoLoc,
-    ) error{OutOfMemory}!void {
-        const pt = self.pt;
-        const dbg_info = &self.dbg_info;
-        const atom_index = self.di_atom_navs.get(owner_nav).?;
-        const name_with_null = name.ptr[0 .. name.len + 1];
-
-        switch (loc) {
-            .register => |reg| {
-                try dbg_info.ensureUnusedCapacity(4);
-                dbg_info.appendAssumeCapacity(@intFromEnum(AbbrevCode.parameter));
-                // DW.AT.location, DW.FORM.exprloc
-                var expr_len = std.io.countingWriter(std.io.null_writer);
-                if (reg < 32) {
-                    expr_len.writer().writeByte(DW.OP.reg0 + reg) catch unreachable;
-                } else {
-                    expr_len.writer().writeByte(DW.OP.regx) catch unreachable;
-                    leb128.writeUleb128(expr_len.writer(), reg) catch unreachable;
-                }
-                leb128.writeUleb128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
-                if (reg < 32) {
-                    dbg_info.appendAssumeCapacity(DW.OP.reg0 + reg);
-                } else {
-                    dbg_info.appendAssumeCapacity(DW.OP.regx);
-                    leb128.writeUleb128(dbg_info.writer(), reg) catch unreachable;
-                }
-            },
-            .register_pair => |regs| {
-                const reg_bits = pt.zcu.getTarget().ptrBitWidth();
-                const reg_bytes: u8 = @intCast(@divExact(reg_bits, 8));
-                const abi_size = ty.abiSize(pt);
-                try dbg_info.ensureUnusedCapacity(10);
-                dbg_info.appendAssumeCapacity(@intFromEnum(AbbrevCode.parameter));
-                // DW.AT.location, DW.FORM.exprloc
-                var expr_len = std.io.countingWriter(std.io.null_writer);
-                for (regs, 0..) |reg, reg_i| {
-                    if (reg < 32) {
-                        expr_len.writer().writeByte(DW.OP.reg0 + reg) catch unreachable;
-                    } else {
-                        expr_len.writer().writeByte(DW.OP.regx) catch unreachable;
-                        leb128.writeUleb128(expr_len.writer(), reg) catch unreachable;
-                    }
-                    expr_len.writer().writeByte(DW.OP.piece) catch unreachable;
-                    leb128.writeUleb128(
-                        expr_len.writer(),
-                        @min(abi_size - reg_i * reg_bytes, reg_bytes),
-                    ) catch unreachable;
-                }
-                leb128.writeUleb128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
-                for (regs, 0..) |reg, reg_i| {
-                    if (reg < 32) {
-                        dbg_info.appendAssumeCapacity(DW.OP.reg0 + reg);
-                    } else {
-                        dbg_info.appendAssumeCapacity(DW.OP.regx);
-                        leb128.writeUleb128(dbg_info.writer(), reg) catch unreachable;
-                    }
-                    dbg_info.appendAssumeCapacity(DW.OP.piece);
-                    leb128.writeUleb128(
-                        dbg_info.writer(),
-                        @min(abi_size - reg_i * reg_bytes, reg_bytes),
-                    ) catch unreachable;
-                }
-            },
-            .stack => |info| {
-                try dbg_info.ensureUnusedCapacity(9);
-                dbg_info.appendAssumeCapacity(@intFromEnum(AbbrevCode.parameter));
-                // DW.AT.location, DW.FORM.exprloc
-                var expr_len = std.io.countingWriter(std.io.null_writer);
-                if (info.fp_register < 32) {
-                    expr_len.writer().writeByte(DW.OP.breg0 + info.fp_register) catch unreachable;
-                } else {
-                    expr_len.writer().writeByte(DW.OP.bregx) catch unreachable;
-                    leb128.writeUleb128(expr_len.writer(), info.fp_register) catch unreachable;
-                }
-                leb128.writeIleb128(expr_len.writer(), info.offset) catch unreachable;
-                leb128.writeUleb128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
-                if (info.fp_register < 32) {
-                    dbg_info.appendAssumeCapacity(DW.OP.breg0 + info.fp_register);
-                } else {
-                    dbg_info.appendAssumeCapacity(DW.OP.bregx);
-                    leb128.writeUleb128(dbg_info.writer(), info.fp_register) catch unreachable;
-                }
-                leb128.writeIleb128(dbg_info.writer(), info.offset) catch unreachable;
-            },
-            .wasm_local => |value| {
-                @import("../dev.zig").check(.wasm_linker);
-                const leb_size = link.File.Wasm.getUleb128Size(value);
-                try dbg_info.ensureUnusedCapacity(3 + leb_size);
-                // wasm locations are encoded as follow:
-                // DW_OP_WASM_location wasm-op
-                // where wasm-op is defined as
-                // wasm-op := wasm-local | wasm-global | wasm-operand_stack
-                // where each argument is encoded as
-                // <opcode> i:uleb128
-                dbg_info.appendSliceAssumeCapacity(&.{
-                    @intFromEnum(AbbrevCode.parameter),
-                    DW.OP.WASM_location,
-                    DW.OP.WASM_local,
-                });
-                leb128.writeUleb128(dbg_info.writer(), value) catch unreachable;
-            },
-            else => unreachable,
-        }
-
-        try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-        const index = dbg_info.items.len;
-        dbg_info.appendNTimesAssumeCapacity(0, 4);
-        try self.addTypeRelocGlobal(atom_index, ty, @intCast(index)); // DW.AT.type, DW.FORM.ref4
-        dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
+    fn dirIndexInfo(dir_count: u32) struct { bytes: u8, form: DeclValEnum(DW.FORM) } {
+        return if (dir_count <= 1 << 8)
+            .{ .bytes = 1, .form = .data1 }
+        else if (dir_count <= 1 << 16)
+            .{ .bytes = 2, .form = .data2 }
+        else
+            unreachable;
     }
 
-    pub fn genVarDbgInfo(
-        self: *NavState,
-        name: [:0]const u8,
-        ty: Type,
-        owner_nav: InternPool.Nav.Index,
-        is_ptr: bool,
-        loc: DbgInfoLoc,
-    ) error{OutOfMemory}!void {
-        const dbg_info = &self.dbg_info;
-        const atom_index = self.di_atom_navs.get(owner_nav).?;
-        const name_with_null = name.ptr[0 .. name.len + 1];
-        try dbg_info.append(@intFromEnum(AbbrevCode.variable));
-        const gpa = self.dwarf.allocator;
-        const pt = self.pt;
-        const target = pt.zcu.getTarget();
-        const endian = target.cpu.arch.endian();
-        const child_ty = if (is_ptr) ty.childType(pt.zcu) else ty;
+    fn headerBytes(dwarf: *Dwarf, dir_count: u32, file_count: u32) u32 {
+        const dir_index_info = dirIndexInfo(dir_count);
+        return dwarf.unitLengthBytes() + 2 + 1 + 1 + dwarf.sectionOffsetBytes() + 1 + 1 + 1 + 1 + 1 + 1 + 1 * (dwarf.debug_line.header.opcode_base - 1) +
+            1 + uleb128Bytes(DW.LNCT.path) + uleb128Bytes(DW.FORM.line_strp) + uleb128Bytes(dir_count) + (dwarf.sectionOffsetBytes()) * dir_count +
+            1 + uleb128Bytes(DW.LNCT.path) + uleb128Bytes(DW.FORM.line_strp) + uleb128Bytes(DW.LNCT.directory_index) + uleb128Bytes(@intFromEnum(dir_index_info.form)) + uleb128Bytes(DW.LNCT.LLVM_source) + uleb128Bytes(DW.FORM.line_strp) + uleb128Bytes(file_count) + (dwarf.sectionOffsetBytes() + dir_index_info.bytes + dwarf.sectionOffsetBytes()) * file_count;
+    }
 
-        switch (loc) {
-            .register => |reg| {
-                try dbg_info.ensureUnusedCapacity(3);
-                // DW.AT.location, DW.FORM.exprloc
-                var expr_len = std.io.countingWriter(std.io.null_writer);
-                if (reg < 32) {
-                    expr_len.writer().writeByte(DW.OP.reg0 + reg) catch unreachable;
-                } else {
-                    expr_len.writer().writeByte(DW.OP.regx) catch unreachable;
-                    leb128.writeUleb128(expr_len.writer(), reg) catch unreachable;
-                }
-                leb128.writeUleb128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
-                if (reg < 32) {
-                    dbg_info.appendAssumeCapacity(DW.OP.reg0 + reg);
-                } else {
-                    dbg_info.appendAssumeCapacity(DW.OP.regx);
-                    leb128.writeUleb128(dbg_info.writer(), reg) catch unreachable;
-                }
-            },
+    const trailer_bytes = 1 + uleb128Bytes(0) +
+        1 + uleb128Bytes(1) + 1;
+};
 
-            .register_pair => |regs| {
-                const reg_bits = pt.zcu.getTarget().ptrBitWidth();
-                const reg_bytes: u8 = @intCast(@divExact(reg_bits, 8));
-                const abi_size = child_ty.abiSize(pt);
-                try dbg_info.ensureUnusedCapacity(9);
-                // DW.AT.location, DW.FORM.exprloc
-                var expr_len = std.io.countingWriter(std.io.null_writer);
-                for (regs, 0..) |reg, reg_i| {
-                    if (reg < 32) {
-                        expr_len.writer().writeByte(DW.OP.reg0 + reg) catch unreachable;
-                    } else {
-                        expr_len.writer().writeByte(DW.OP.regx) catch unreachable;
-                        leb128.writeUleb128(expr_len.writer(), reg) catch unreachable;
-                    }
-                    expr_len.writer().writeByte(DW.OP.piece) catch unreachable;
-                    leb128.writeUleb128(
-                        expr_len.writer(),
-                        @min(abi_size - reg_i * reg_bytes, reg_bytes),
-                    ) catch unreachable;
-                }
-                leb128.writeUleb128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
-                for (regs, 0..) |reg, reg_i| {
-                    if (reg < 32) {
-                        dbg_info.appendAssumeCapacity(DW.OP.reg0 + reg);
-                    } else {
-                        dbg_info.appendAssumeCapacity(DW.OP.regx);
-                        leb128.writeUleb128(dbg_info.writer(), reg) catch unreachable;
-                    }
-                    dbg_info.appendAssumeCapacity(DW.OP.piece);
-                    leb128.writeUleb128(
-                        dbg_info.writer(),
-                        @min(abi_size - reg_i * reg_bytes, reg_bytes),
-                    ) catch unreachable;
-                }
-            },
+const DebugLocLists = struct {
+    section: Section,
 
-            .stack => |info| {
-                try dbg_info.ensureUnusedCapacity(9);
-                // DW.AT.location, DW.FORM.exprloc
-                var expr_len = std.io.countingWriter(std.io.null_writer);
-                if (info.fp_register < 32) {
-                    expr_len.writer().writeByte(DW.OP.breg0 + info.fp_register) catch unreachable;
-                } else {
-                    expr_len.writer().writeByte(DW.OP.bregx) catch unreachable;
-                    leb128.writeUleb128(expr_len.writer(), info.fp_register) catch unreachable;
-                }
-                leb128.writeIleb128(expr_len.writer(), info.offset) catch unreachable;
-                leb128.writeUleb128(dbg_info.writer(), expr_len.bytes_written) catch unreachable;
-                if (info.fp_register < 32) {
-                    dbg_info.appendAssumeCapacity(DW.OP.breg0 + info.fp_register);
-                } else {
-                    dbg_info.appendAssumeCapacity(DW.OP.bregx);
-                    leb128.writeUleb128(dbg_info.writer(), info.fp_register) catch unreachable;
-                }
-                leb128.writeIleb128(dbg_info.writer(), info.offset) catch unreachable;
-            },
+    fn baseOffset(dwarf: *Dwarf) u32 {
+        return dwarf.unitLengthBytes() + 2 + 1 + 1 + 4;
+    }
 
-            .wasm_local => |value| {
-                const leb_size = link.File.Wasm.getUleb128Size(value);
-                try dbg_info.ensureUnusedCapacity(2 + leb_size);
-                // wasm locals are encoded as follow:
-                // DW_OP_WASM_location wasm-op
-                // where wasm-op is defined as
-                // wasm-op := wasm-local | wasm-global | wasm-operand_stack
-                // where wasm-local is encoded as
-                // wasm-local := 0x00 i:uleb128
-                dbg_info.appendSliceAssumeCapacity(&.{
-                    DW.OP.WASM_location,
-                    DW.OP.WASM_local,
-                });
-                leb128.writeUleb128(dbg_info.writer(), value) catch unreachable;
-            },
+    fn headerBytes(dwarf: *Dwarf) u32 {
+        return baseOffset(dwarf);
+    }
 
-            .memory,
-            .linker_load,
-            => {
-                const ptr_width: u8 = @intCast(@divExact(target.ptrBitWidth(), 8));
-                try dbg_info.ensureUnusedCapacity(2 + ptr_width);
-                dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
-                    1 + ptr_width + @intFromBool(is_ptr),
-                    DW.OP.addr, // literal address
-                });
-                const offset: u32 = @intCast(dbg_info.items.len);
-                const addr = switch (loc) {
-                    .memory => |x| x,
-                    else => 0,
-                };
-                switch (ptr_width) {
-                    0...4 => {
-                        try dbg_info.writer().writeInt(u32, @intCast(addr), endian);
-                    },
-                    5...8 => {
-                        try dbg_info.writer().writeInt(u64, addr, endian);
-                    },
-                    else => unreachable,
-                }
-                if (is_ptr) {
-                    // We need deref the address as we point to the value via GOT entry.
-                    try dbg_info.append(DW.OP.deref);
-                }
-                switch (loc) {
-                    .linker_load => |load_struct| switch (load_struct.type) {
-                        .direct => {
-                            log.debug("{x}: target sym %{d}", .{ offset, load_struct.sym_index });
-                            try self.exprloc_relocs.append(gpa, .{
-                                .type = .direct_load,
-                                .target = load_struct.sym_index,
-                                .offset = offset,
-                            });
-                        },
-                        .got => {
-                            log.debug("{x}: target sym %{d} via GOT", .{ offset, load_struct.sym_index });
-                            try self.exprloc_relocs.append(gpa, .{
-                                .type = .got_load,
-                                .target = load_struct.sym_index,
-                                .offset = offset,
-                            });
-                        },
-                        else => {}, // TODO
-                    },
-                    else => {},
-                }
-            },
+    const trailer_bytes = 0;
+};
 
-            .immediate => |x| {
-                try dbg_info.ensureUnusedCapacity(2);
-                const fixup = dbg_info.items.len;
-                dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
-                    1,
-                    if (child_ty.isSignedInt(pt.zcu)) DW.OP.consts else DW.OP.constu,
-                });
-                if (child_ty.isSignedInt(pt.zcu)) {
-                    try leb128.writeIleb128(dbg_info.writer(), @as(i64, @bitCast(x)));
-                } else {
-                    try leb128.writeUleb128(dbg_info.writer(), x);
-                }
-                try dbg_info.append(DW.OP.stack_value);
-                dbg_info.items[fixup] += @intCast(dbg_info.items.len - fixup - 2);
-            },
+const DebugRngLists = struct {
+    section: Section,
 
-            .undef => {
-                // DW.AT.location, DW.FORM.exprloc
-                // uleb128(exprloc_len)
-                // DW.OP.implicit_value uleb128(len_of_bytes) bytes
-                const abi_size: u32 = @intCast(child_ty.abiSize(self.pt));
-                var implicit_value_len = std.ArrayList(u8).init(gpa);
-                defer implicit_value_len.deinit();
-                try leb128.writeUleb128(implicit_value_len.writer(), abi_size);
-                const total_exprloc_len = 1 + implicit_value_len.items.len + abi_size;
-                try leb128.writeUleb128(dbg_info.writer(), total_exprloc_len);
-                try dbg_info.ensureUnusedCapacity(total_exprloc_len);
-                dbg_info.appendAssumeCapacity(DW.OP.implicit_value);
-                dbg_info.appendSliceAssumeCapacity(implicit_value_len.items);
-                dbg_info.appendNTimesAssumeCapacity(0xaa, abi_size);
-            },
+    const baseOffset = DebugLocLists.baseOffset;
 
-            .none => {
-                try dbg_info.ensureUnusedCapacity(3);
-                dbg_info.appendSliceAssumeCapacity(&[3]u8{ // DW.AT.location, DW.FORM.exprloc
-                    2, DW.OP.lit0, DW.OP.stack_value,
-                });
-            },
+    fn headerBytes(dwarf: *Dwarf) u32 {
+        return baseOffset(dwarf) + dwarf.sectionOffsetBytes() * 1;
+    }
 
-            .nop => {
-                try dbg_info.ensureUnusedCapacity(2);
-                dbg_info.appendSliceAssumeCapacity(&[2]u8{ // DW.AT.location, DW.FORM.exprloc
-                    1, DW.OP.nop,
-                });
-            },
+    const trailer_bytes = 1;
+};
+
+const StringSection = struct {
+    contents: std.ArrayListUnmanaged(u8),
+    map: std.AutoArrayHashMapUnmanaged(void, void),
+    section: Section,
+
+    const unit: Unit.Index = @enumFromInt(0);
+
+    const init: StringSection = .{
+        .contents = .{},
+        .map = .{},
+        .section = Section.init,
+    };
+
+    fn deinit(str_sec: *StringSection, gpa: std.mem.Allocator) void {
+        str_sec.contents.deinit(gpa);
+        str_sec.map.deinit(gpa);
+        str_sec.section.deinit(gpa);
+    }
+
+    fn addString(str_sec: *StringSection, dwarf: *Dwarf, str: []const u8) UpdateError!Entry.Index {
+        const gop = try str_sec.map.getOrPutAdapted(dwarf.gpa, str, Adapter{ .str_sec = str_sec });
+        errdefer _ = str_sec.map.pop();
+        const entry: Entry.Index = @enumFromInt(gop.index);
+        if (!gop.found_existing) {
+            assert(try str_sec.section.addEntry(unit, dwarf) == entry);
+            errdefer _ = str_sec.section.getUnit(unit).entries.pop();
+            const entry_ptr = str_sec.section.getUnit(unit).getEntry(entry);
+            assert(entry_ptr.off == str_sec.contents.items.len);
+            entry_ptr.len = @intCast(str.len + 1);
+            try str_sec.contents.ensureUnusedCapacity(dwarf.gpa, str.len + 1);
+            str_sec.contents.appendSliceAssumeCapacity(str);
+            str_sec.contents.appendAssumeCapacity(0);
+            str_sec.section.dirty = true;
+        }
+        return entry;
+    }
+
+    const Adapter = struct {
+        str_sec: *StringSection,
+
+        pub fn hash(_: Adapter, key: []const u8) u32 {
+            return @truncate(std.hash.Wyhash.hash(0, key));
         }
 
-        try dbg_info.ensureUnusedCapacity(5 + name_with_null.len);
-        const index = dbg_info.items.len;
-        dbg_info.appendNTimesAssumeCapacity(0, 4); // dw.at.type, dw.form.ref4
-        try self.addTypeRelocGlobal(atom_index, child_ty, @intCast(index));
-        dbg_info.appendSliceAssumeCapacity(name_with_null); // DW.AT.name, DW.FORM.string
+        pub fn eql(adapter: Adapter, key: []const u8, _: void, rhs_index: usize) bool {
+            const entry = adapter.str_sec.section.getUnit(unit).getEntry(@enumFromInt(rhs_index));
+            return std.mem.eql(u8, key, adapter.str_sec.contents.items[entry.off..][0 .. entry.len - 1 :0]);
+        }
+    };
+};
+
+/// A linker section containing a sequence of `Unit`s.
+const Section = struct {
+    dirty: bool,
+    pad_to_ideal: bool,
+    alignment: InternPool.Alignment,
+    index: u32,
+    first: Unit.Index.Optional,
+    last: Unit.Index.Optional,
+    off: u64,
+    len: u64,
+    units: std.ArrayListUnmanaged(Unit),
+
+    const Index = enum {
+        debug_abbrev,
+        debug_info,
+        debug_line,
+        debug_line_str,
+        debug_loclists,
+        debug_rnglists,
+        debug_str,
+    };
+
+    const init: Section = .{
+        .dirty = true,
+        .pad_to_ideal = true,
+        .alignment = .@"1",
+        .index = std.math.maxInt(u32),
+        .first = .none,
+        .last = .none,
+        .off = 0,
+        .len = 0,
+        .units = .{},
+    };
+
+    fn deinit(sec: *Section, gpa: std.mem.Allocator) void {
+        for (sec.units.items) |*unit| unit.deinit(gpa);
+        sec.units.deinit(gpa);
+        sec.* = undefined;
+    }
+
+    fn addUnit(sec: *Section, header_len: u32, trailer_len: u32, dwarf: *Dwarf) UpdateError!Unit.Index {
+        const unit: Unit.Index = @enumFromInt(sec.units.items.len);
+        const unit_ptr = try sec.units.addOne(dwarf.gpa);
+        errdefer sec.popUnit();
+        unit_ptr.* = .{
+            .prev = sec.last,
+            .next = .none,
+            .first = .none,
+            .last = .none,
+            .off = 0,
+            .header_len = header_len,
+            .trailer_len = trailer_len,
+            .len = header_len + trailer_len,
+            .entries = .{},
+            .cross_entry_relocs = .{},
+            .cross_unit_relocs = .{},
+            .cross_section_relocs = .{},
+            .external_relocs = .{},
+        };
+        if (sec.last.unwrap()) |last_unit| {
+            const last_unit_ptr = sec.getUnit(last_unit);
+            last_unit_ptr.next = unit.toOptional();
+            unit_ptr.off = last_unit_ptr.off + sec.padToIdeal(last_unit_ptr.len);
+        }
+        if (sec.first == .none)
+            sec.first = unit.toOptional();
+        sec.last = unit.toOptional();
+        try sec.resize(dwarf, unit_ptr.off + sec.padToIdeal(unit_ptr.len));
+        return unit;
+    }
+
+    fn unlinkUnit(sec: *Section, unit: Unit.Index) void {
+        const unit_ptr = sec.getUnit(unit);
+        if (unit_ptr.prev.unwrap()) |prev_unit| sec.getUnit(prev_unit).next = unit_ptr.next;
+        if (unit_ptr.next.unwrap()) |next_unit| sec.getUnit(next_unit).prev = unit_ptr.prev;
+        if (sec.first.unwrap().? == unit) sec.first = unit_ptr.next;
+        if (sec.last.unwrap().? == unit) sec.last = unit_ptr.prev;
+    }
+
+    fn popUnit(sec: *Section) void {
+        const unit: Unit.Index = @enumFromInt(sec.units.items.len - 1);
+        sec.unlinkUnit(unit);
+        _ = sec.units.pop();
+    }
+
+    fn addEntry(sec: *Section, unit: Unit.Index, dwarf: *Dwarf) UpdateError!Entry.Index {
+        return sec.getUnit(unit).addEntry(sec, dwarf);
+    }
+
+    fn getUnit(sec: *Section, unit: Unit.Index) *Unit {
+        return &sec.units.items[@intFromEnum(unit)];
+    }
+
+    fn replaceEntry(sec: *Section, unit: Unit.Index, entry: Entry.Index, dwarf: *Dwarf, contents: []const u8) UpdateError!void {
+        const unit_ptr = sec.getUnit(unit);
+        try unit_ptr.getEntry(entry).replace(unit_ptr, sec, dwarf, contents);
+    }
+
+    fn resize(sec: *Section, dwarf: *Dwarf, len: u64) UpdateError!void {
+        if (dwarf.bin_file.cast(.elf)) |elf_file| {
+            try elf_file.growNonAllocSection(sec.index, len, @intCast(sec.alignment.toByteUnits().?), true);
+            const shdr = &elf_file.shdrs.items[sec.index];
+            sec.off = shdr.sh_offset;
+            sec.len = shdr.sh_size;
+        } else if (dwarf.bin_file.cast(.macho)) |macho_file| {
+            const header = if (macho_file.d_sym) |*d_sym| header: {
+                try d_sym.growSection(@intCast(sec.index), len, true, macho_file);
+                break :header &d_sym.sections.items[sec.index];
+            } else header: {
+                try macho_file.growSection(@intCast(sec.index), len);
+                break :header &macho_file.sections.items(.header)[sec.index];
+            };
+            sec.off = header.offset;
+            sec.len = header.size;
+        }
+    }
+
+    fn trim(sec: *Section, dwarf: *Dwarf) void {
+        const len = sec.getUnit(sec.first.unwrap() orelse return).off;
+        if (len == 0) return;
+        for (sec.units.items) |*unit| unit.off -= len;
+        sec.off += len;
+        sec.len -= len;
+        if (dwarf.bin_file.cast(.elf)) |elf_file| {
+            const shdr = &elf_file.shdrs.items[sec.index];
+            shdr.sh_offset = sec.off;
+            shdr.sh_size = sec.len;
+        } else if (dwarf.bin_file.cast(.macho)) |macho_file| {
+            const header = if (macho_file.d_sym) |*d_sym|
+                &d_sym.sections.items[sec.index]
+            else
+                &macho_file.sections.items(.header)[sec.index];
+            header.offset = @intCast(sec.off);
+            header.size = sec.len;
+        }
+    }
+
+    fn resolveRelocs(sec: *Section, dwarf: *Dwarf) RelocError!void {
+        for (sec.units.items) |*unit| try unit.resolveRelocs(sec, dwarf);
+    }
+
+    fn padToIdeal(sec: *Section, actual_size: anytype) @TypeOf(actual_size) {
+        return if (sec.pad_to_ideal) Dwarf.padToIdeal(actual_size) else actual_size;
+    }
+};
+
+/// A unit within a `Section` containing a sequence of `Entry`s.
+const Unit = struct {
+    prev: Index.Optional,
+    next: Index.Optional,
+    first: Entry.Index.Optional,
+    last: Entry.Index.Optional,
+    /// offset within containing section
+    off: u32,
+    header_len: u32,
+    trailer_len: u32,
+    /// data length in bytes
+    len: u32,
+    entries: std.ArrayListUnmanaged(Entry),
+    cross_entry_relocs: std.ArrayListUnmanaged(CrossEntryReloc),
+    cross_unit_relocs: std.ArrayListUnmanaged(CrossUnitReloc),
+    cross_section_relocs: std.ArrayListUnmanaged(CrossSectionReloc),
+    external_relocs: std.ArrayListUnmanaged(ExternalReloc),
+
+    const Index = enum(u32) {
+        main,
+        _,
+
+        const Optional = enum(u32) {
+            none = std.math.maxInt(u32),
+            _,
+
+            fn unwrap(uio: Optional) ?Index {
+                return if (uio != .none) @enumFromInt(@intFromEnum(uio)) else null;
+            }
+        };
+
+        fn toOptional(ui: Index) Optional {
+            return @enumFromInt(@intFromEnum(ui));
+        }
+    };
+
+    fn deinit(unit: *Unit, gpa: std.mem.Allocator) void {
+        unit.entries.deinit(gpa);
+        unit.cross_entry_relocs.deinit(gpa);
+        unit.cross_unit_relocs.deinit(gpa);
+        unit.cross_section_relocs.deinit(gpa);
+        unit.external_relocs.deinit(gpa);
+        unit.* = undefined;
+    }
+
+    fn addEntry(unit: *Unit, sec: *Section, dwarf: *Dwarf) UpdateError!Entry.Index {
+        const entry: Entry.Index = @enumFromInt(unit.entries.items.len);
+        const entry_ptr = try unit.entries.addOne(dwarf.gpa);
+        entry_ptr.* = .{
+            .prev = unit.last,
+            .next = .none,
+            .off = 0,
+            .len = 0,
+        };
+        if (unit.last.unwrap()) |last_entry| {
+            const last_entry_ptr = unit.getEntry(last_entry);
+            last_entry_ptr.next = entry.toOptional();
+            entry_ptr.off = last_entry_ptr.off + sec.padToIdeal(last_entry_ptr.len);
+        }
+        if (unit.first == .none)
+            unit.first = entry.toOptional();
+        unit.last = entry.toOptional();
+        return entry;
+    }
+
+    fn getEntry(unit: *Unit, entry: Entry.Index) *Entry {
+        return &unit.entries.items[@intFromEnum(entry)];
+    }
+
+    fn resize(unit_ptr: *Unit, sec: *Section, dwarf: *Dwarf, extra_header_len: u32, len: u32) UpdateError!void {
+        const end = if (unit_ptr.next.unwrap()) |next_unit|
+            sec.getUnit(next_unit).off
+        else
+            sec.len;
+        if (extra_header_len > 0 or unit_ptr.off + len > end) {
+            unit_ptr.len = @min(unit_ptr.len, len);
+            var new_off = unit_ptr.off;
+            if (unit_ptr.next.unwrap()) |next_unit| {
+                const next_unit_ptr = sec.getUnit(next_unit);
+                if (unit_ptr.prev.unwrap()) |prev_unit|
+                    sec.getUnit(prev_unit).next = unit_ptr.next
+                else
+                    sec.first = unit_ptr.next;
+                const unit = next_unit_ptr.prev;
+                next_unit_ptr.prev = unit_ptr.prev;
+                const last_unit_ptr = sec.getUnit(sec.last.unwrap().?);
+                last_unit_ptr.next = unit;
+                unit_ptr.prev = sec.last;
+                unit_ptr.next = .none;
+                new_off = last_unit_ptr.off + sec.padToIdeal(last_unit_ptr.len);
+                sec.last = unit;
+                sec.dirty = true;
+            } else if (extra_header_len > 0) {
+                // `copyRangeAll` in `move` does not support overlapping ranges
+                // so make sure new location is disjoint from current location.
+                new_off += unit_ptr.len -| extra_header_len;
+            }
+            try sec.resize(dwarf, new_off + len);
+            try unit_ptr.move(sec, dwarf, new_off + extra_header_len);
+            unit_ptr.off -= extra_header_len;
+            unit_ptr.header_len += extra_header_len;
+            sec.trim(dwarf);
+        }
+        unit_ptr.len = len;
+    }
+
+    fn move(unit: *Unit, sec: *Section, dwarf: *Dwarf, new_off: u32) UpdateError!void {
+        if (unit.off == new_off) return;
+        if (try dwarf.getFile().?.copyRangeAll(
+            sec.off + unit.off,
+            dwarf.getFile().?,
+            sec.off + new_off,
+            unit.len,
+        ) != unit.len) return error.InputOutput;
+        unit.off = new_off;
+    }
+
+    fn resizeHeader(unit: *Unit, sec: *Section, dwarf: *Dwarf, len: u32) UpdateError!void {
+        if (unit.header_len == len) return;
+        const available_len = if (unit.prev.unwrap()) |prev_unit| prev_excess: {
+            const prev_unit_ptr = sec.getUnit(prev_unit);
+            break :prev_excess unit.off - prev_unit_ptr.off - prev_unit_ptr.len;
+        } else 0;
+        if (available_len + unit.header_len < len)
+            try unit.resize(sec, dwarf, len - unit.header_len, unit.len - unit.header_len + len);
+        if (unit.header_len > len) {
+            const excess_header_len = unit.header_len - len;
+            unit.off += excess_header_len;
+            unit.header_len -= excess_header_len;
+            unit.len -= excess_header_len;
+        } else if (unit.header_len < len) {
+            const needed_header_len = len - unit.header_len;
+            unit.off -= needed_header_len;
+            unit.header_len += needed_header_len;
+            unit.len += needed_header_len;
+        }
+        assert(unit.header_len == len);
+        sec.trim(dwarf);
+    }
+
+    fn replaceHeader(unit: *Unit, sec: *Section, dwarf: *Dwarf, contents: []const u8) UpdateError!void {
+        assert(contents.len == unit.header_len);
+        try dwarf.getFile().?.pwriteAll(contents, sec.off + unit.off);
+    }
+
+    fn writeTrailer(unit: *Unit, sec: *Section, dwarf: *Dwarf) UpdateError!void {
+        const start = unit.off + unit.header_len + if (unit.last.unwrap()) |last_entry| end: {
+            const last_entry_ptr = unit.getEntry(last_entry);
+            break :end last_entry_ptr.off + last_entry_ptr.len;
+        } else 0;
+        const end = if (unit.next.unwrap()) |next_unit|
+            sec.getUnit(next_unit).off
+        else
+            sec.len;
+        const trailer_len: usize = @intCast(end - start);
+        assert(trailer_len >= unit.trailer_len);
+        var trailer = try std.ArrayList(u8).initCapacity(dwarf.gpa, trailer_len);
+        defer trailer.deinit();
+        const fill_byte: u8 = if (sec == &dwarf.debug_aranges.section) fill: {
+            trailer.appendNTimesAssumeCapacity(0, @intFromEnum(dwarf.address_size) * 2);
+            break :fill 0;
+        } else if (sec == &dwarf.debug_info.section) fill: {
+            assert(uleb128Bytes(@intFromEnum(AbbrevCode.null)) == 1);
+            trailer.appendNTimesAssumeCapacity(@intFromEnum(AbbrevCode.null), 2);
+            break :fill @intFromEnum(AbbrevCode.null);
+        } else if (sec == &dwarf.debug_line.section) fill: {
+            unit.len -= unit.trailer_len;
+            const extra_len: u32 = @intCast((trailer_len - DebugLine.trailer_bytes) & 1);
+            unit.trailer_len = DebugLine.trailer_bytes + extra_len;
+            unit.len += unit.trailer_len;
+
+            // prevent end sequence from emitting an invalid file index
+            trailer.appendAssumeCapacity(DW.LNS.set_file);
+            uleb128(trailer.fixedWriter(), 0) catch unreachable;
+
+            trailer.appendAssumeCapacity(DW.LNS.extended_op);
+            std.leb.writeUnsignedExtended(trailer.addManyAsSliceAssumeCapacity(uleb128Bytes(1) + extra_len), 1);
+            trailer.appendAssumeCapacity(DW.LNE.end_sequence);
+            break :fill DW.LNS.extended_op;
+        } else if (sec == &dwarf.debug_rnglists.section) fill: {
+            trailer.appendAssumeCapacity(DW.RLE.end_of_list);
+            break :fill DW.RLE.end_of_list;
+        } else unreachable;
+        assert(trailer.items.len == unit.trailer_len);
+        trailer.appendNTimesAssumeCapacity(fill_byte, trailer_len - trailer.items.len);
+        assert(trailer.items.len == trailer_len);
+        try dwarf.getFile().?.pwriteAll(trailer.items, sec.off + start);
+    }
+
+    fn resolveRelocs(unit: *Unit, sec: *Section, dwarf: *Dwarf) RelocError!void {
+        for (unit.cross_entry_relocs.items) |reloc| {
+            try dwarf.resolveReloc(
+                sec.off + unit.off + (if (reloc.source_entry.unwrap()) |source_entry|
+                    unit.header_len + unit.getEntry(source_entry).off
+                else
+                    0) + reloc.source_off,
+                unit.off + unit.header_len + unit.getEntry(reloc.target_entry).assertNonEmpty(unit, sec, dwarf).off + reloc.target_off,
+                dwarf.sectionOffsetBytes(),
+            );
+        }
+        for (unit.cross_unit_relocs.items) |reloc| {
+            const target_unit = sec.getUnit(reloc.target_unit);
+            try dwarf.resolveReloc(
+                sec.off + unit.off + (if (reloc.source_entry.unwrap()) |source_entry|
+                    unit.header_len + unit.getEntry(source_entry).off
+                else
+                    0) + reloc.source_off,
+                target_unit.off + (if (reloc.target_entry.unwrap()) |target_entry|
+                    target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(unit, sec, dwarf).off
+                else
+                    0) + reloc.target_off,
+                dwarf.sectionOffsetBytes(),
+            );
+        }
+        for (unit.cross_section_relocs.items) |reloc| {
+            const target_sec = switch (reloc.target_sec) {
+                inline else => |target_sec| &@field(dwarf, @tagName(target_sec)).section,
+            };
+            const target_unit = target_sec.getUnit(reloc.target_unit);
+            try dwarf.resolveReloc(
+                sec.off + unit.off + (if (reloc.source_entry.unwrap()) |source_entry|
+                    unit.header_len + unit.getEntry(source_entry).off
+                else
+                    0) + reloc.source_off,
+                target_unit.off + (if (reloc.target_entry.unwrap()) |target_entry|
+                    target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(unit, sec, dwarf).off
+                else
+                    0) + reloc.target_off,
+                dwarf.sectionOffsetBytes(),
+            );
+        }
+        if (dwarf.bin_file.cast(.elf)) |elf_file| {
+            const zo = elf_file.zigObjectPtr().?;
+            for (unit.external_relocs.items) |reloc| {
+                const symbol = zo.symbol(reloc.target_sym);
+                try dwarf.resolveReloc(
+                    sec.off + unit.off + unit.header_len + unit.getEntry(reloc.source_entry).off + reloc.source_off,
+                    @bitCast(symbol.address(.{}, elf_file) + @as(i64, @intCast(reloc.target_off)) -
+                        if (symbol.flags.is_tls) elf_file.dtpAddress() else 0),
+                    @intFromEnum(dwarf.address_size),
+                );
+            }
+        } else if (dwarf.bin_file.cast(.macho)) |macho_file| {
+            const zo = macho_file.getZigObject().?;
+            for (unit.external_relocs.items) |reloc| {
+                const ref = zo.getSymbolRef(reloc.target_sym, macho_file);
+                try dwarf.resolveReloc(
+                    sec.off + unit.off + unit.header_len + unit.getEntry(reloc.source_entry).off + reloc.source_off,
+                    ref.getSymbol(macho_file).?.getAddress(.{}, macho_file),
+                    @intFromEnum(dwarf.address_size),
+                );
+            }
+        }
+    }
+
+    const CrossEntryReloc = struct {
+        source_entry: Entry.Index.Optional = .none,
+        source_off: u32 = 0,
+        target_entry: Entry.Index,
+        target_off: u32 = 0,
+    };
+    const CrossUnitReloc = struct {
+        source_entry: Entry.Index.Optional = .none,
+        source_off: u32 = 0,
+        target_unit: Unit.Index,
+        target_entry: Entry.Index.Optional = .none,
+        target_off: u32 = 0,
+    };
+    const CrossSectionReloc = struct {
+        source_entry: Entry.Index.Optional = .none,
+        source_off: u32 = 0,
+        target_sec: Section.Index,
+        target_unit: Unit.Index,
+        target_entry: Entry.Index.Optional = .none,
+        target_off: u32 = 0,
+    };
+    const ExternalReloc = struct {
+        source_entry: Entry.Index,
+        source_off: u32 = 0,
+        target_sym: u32,
+        target_off: u64 = 0,
+    };
+};
+
+/// An indivisible entry within a `Unit` containing section-specific data.
+const Entry = struct {
+    prev: Index.Optional,
+    next: Index.Optional,
+    /// offset from end of containing unit header
+    off: u32,
+    /// data length in bytes
+    len: u32,
+
+    const Index = enum(u32) {
+        _,
+
+        const Optional = enum(u32) {
+            none = std.math.maxInt(u32),
+            _,
+
+            fn unwrap(eio: Optional) ?Index {
+                return if (eio != .none) @enumFromInt(@intFromEnum(eio)) else null;
+            }
+        };
+
+        fn toOptional(ei: Index) Optional {
+            return @enumFromInt(@intFromEnum(ei));
+        }
+    };
+
+    fn pad(entry: *Entry, unit: *Unit, sec: *Section, dwarf: *Dwarf) UpdateError!void {
+        const start = entry.off + entry.len;
+        const len = unit.getEntry(entry.next.unwrap() orelse return).off - start;
+        if (sec == &dwarf.debug_info.section) {
+            var buf: [
+                @max(
+                    uleb128Bytes(@intFromEnum(AbbrevCode.pad_1)),
+                    uleb128Bytes(@intFromEnum(AbbrevCode.pad_n)) + uleb128Bytes(std.math.maxInt(u32)),
+                )
+            ]u8 = undefined;
+            var fbs = std.io.fixedBufferStream(&buf);
+            switch (len) {
+                0 => {},
+                1 => uleb128(fbs.writer(), @intFromEnum(AbbrevCode.pad_1)) catch unreachable,
+                else => {
+                    uleb128(fbs.writer(), @intFromEnum(AbbrevCode.pad_n)) catch unreachable;
+                    const abbrev_code_bytes = fbs.pos;
+                    var block_len_bytes: u5 = 1;
+                    while (true) switch (std.math.order(len - abbrev_code_bytes - block_len_bytes, @as(u32, 1) << 7 * block_len_bytes)) {
+                        .lt => break uleb128(fbs.writer(), len - abbrev_code_bytes - block_len_bytes) catch unreachable,
+                        .eq => {
+                            // no length will ever work, so undercount and futz with the leb encoding to make up the missing byte
+                            block_len_bytes += 1;
+                            std.leb.writeUnsignedExtended(buf[fbs.pos..][0..block_len_bytes], len - abbrev_code_bytes - block_len_bytes);
+                            fbs.pos += block_len_bytes;
+                            break;
+                        },
+                        .gt => block_len_bytes += 1,
+                    };
+                    assert(fbs.pos == abbrev_code_bytes + block_len_bytes);
+                },
+            }
+            assert(fbs.pos <= len);
+            try dwarf.getFile().?.pwriteAll(fbs.getWritten(), sec.off + unit.off + unit.header_len + start);
+        } else if (sec == &dwarf.debug_line.section) {
+            const buf = try dwarf.gpa.alloc(u8, len);
+            defer dwarf.gpa.free(buf);
+            @memset(buf, DW.LNS.const_add_pc);
+            try dwarf.getFile().?.pwriteAll(buf, sec.off + unit.off + unit.header_len + start);
+        } else assert(!sec.pad_to_ideal and len == 0);
+    }
+
+    fn replace(entry_ptr: *Entry, unit: *Unit, sec: *Section, dwarf: *Dwarf, contents: []const u8) UpdateError!void {
+        const end = if (entry_ptr.next.unwrap()) |next_entry|
+            unit.getEntry(next_entry).off
+        else
+            unit.len -| (unit.header_len + unit.trailer_len);
+        if (entry_ptr.off + contents.len > end) {
+            if (entry_ptr.next.unwrap()) |next_entry| {
+                if (entry_ptr.prev.unwrap()) |prev_entry| {
+                    const prev_entry_ptr = unit.getEntry(prev_entry);
+                    prev_entry_ptr.next = entry_ptr.next;
+                    try prev_entry_ptr.pad(unit, sec, dwarf);
+                } else unit.first = entry_ptr.next;
+                const next_entry_ptr = unit.getEntry(next_entry);
+                const entry = next_entry_ptr.prev;
+                next_entry_ptr.prev = entry_ptr.prev;
+                const last_entry_ptr = unit.getEntry(unit.last.unwrap().?);
+                last_entry_ptr.next = entry;
+                entry_ptr.prev = unit.last;
+                entry_ptr.next = .none;
+                entry_ptr.off = last_entry_ptr.off + sec.padToIdeal(last_entry_ptr.len);
+                unit.last = entry;
+            }
+            try unit.resize(sec, dwarf, 0, @intCast(unit.header_len + entry_ptr.off + sec.padToIdeal(contents.len) + unit.trailer_len));
+        }
+        entry_ptr.len = @intCast(contents.len);
+        {
+            var prev_entry_ptr = entry_ptr;
+            while (prev_entry_ptr.prev.unwrap()) |prev_entry| {
+                prev_entry_ptr = unit.getEntry(prev_entry);
+                if (prev_entry_ptr.len == 0) continue;
+                try prev_entry_ptr.pad(unit, sec, dwarf);
+                break;
+            }
+        }
+        try dwarf.getFile().?.pwriteAll(contents, sec.off + unit.off + unit.header_len + entry_ptr.off);
+        try entry_ptr.pad(unit, sec, dwarf);
+        if (false) {
+            const buf = try dwarf.gpa.alloc(u8, sec.len);
+            defer dwarf.gpa.free(buf);
+            _ = try dwarf.getFile().?.preadAll(buf, sec.off);
+            log.info("Section{{ .first = {}, .last = {}, .off = 0x{x}, .len = 0x{x} }}", .{
+                @intFromEnum(sec.first),
+                @intFromEnum(sec.last),
+                sec.off,
+                sec.len,
+            });
+            for (sec.units.items) |*unit_ptr| {
+                log.info("  Unit{{ .prev = {}, .next = {}, .first = {}, .last = {}, .off = 0x{x}, .header_len = 0x{x}, .trailer_len = 0x{x}, .len = 0x{x} }}", .{
+                    @intFromEnum(unit_ptr.prev),
+                    @intFromEnum(unit_ptr.next),
+                    @intFromEnum(unit_ptr.first),
+                    @intFromEnum(unit_ptr.last),
+                    unit_ptr.off,
+                    unit_ptr.header_len,
+                    unit_ptr.trailer_len,
+                    unit_ptr.len,
+                });
+                for (unit_ptr.entries.items) |*entry| {
+                    log.info("    Entry{{ .prev = {}, .next = {}, .off = 0x{x}, .len = 0x{x} }}", .{
+                        @intFromEnum(entry.prev),
+                        @intFromEnum(entry.next),
+                        entry.off,
+                        entry.len,
+                    });
+                }
+            }
+            std.debug.dumpHex(buf);
+        }
+    }
+
+    fn assertNonEmpty(entry: *Entry, unit: *Unit, sec: *Section, dwarf: *Dwarf) *Entry {
+        if (entry.len > 0) return entry;
+        if (std.debug.runtime_safety) {
+            log.err("missing {} from {s}", .{
+                @as(Entry.Index, @enumFromInt(entry - unit.entries.items.ptr)),
+                std.mem.sliceTo(if (dwarf.bin_file.cast(.elf)) |elf_file|
+                    elf_file.shstrtab.items[elf_file.shdrs.items[sec.index].sh_name..]
+                else if (dwarf.bin_file.cast(.macho)) |macho_file|
+                    if (macho_file.d_sym) |*d_sym|
+                        &d_sym.sections.items[sec.index].segname
+                    else
+                        &macho_file.sections.items(.header)[sec.index].segname
+                else
+                    "?", 0),
+            });
+            const zcu = dwarf.bin_file.comp.module.?;
+            const ip = &zcu.intern_pool;
+            for (dwarf.types.keys(), dwarf.types.values()) |ty, other_entry| {
+                const ty_unit: Unit.Index = if (Type.fromInterned(ty).typeDeclInst(zcu)) |inst_index|
+                    dwarf.getUnit(zcu.fileByIndex(inst_index.resolveFile(ip)).mod) catch unreachable
+                else
+                    .main;
+                if (sec.getUnit(ty_unit) == unit and unit.getEntry(other_entry) == entry)
+                    log.err("missing Type({}({d}))", .{
+                        Type.fromInterned(ty).fmt(.{ .tid = .main, .zcu = zcu }),
+                        @intFromEnum(ty),
+                    });
+            }
+            for (dwarf.navs.keys(), dwarf.navs.values()) |nav, other_entry| {
+                const nav_unit = dwarf.getUnit(zcu.fileByIndex(ip.getNav(nav).srcInst(ip).resolveFile(ip)).mod) catch unreachable;
+                if (sec.getUnit(nav_unit) == unit and unit.getEntry(other_entry) == entry)
+                    log.err("missing Nav({}({d}))", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) });
+            }
+        }
+        @panic("missing dwarf relocation target");
+    }
+};
+
+pub const Loc = union(enum) {
+    empty,
+    addr: union(enum) { sym: u32 },
+    constu: u64,
+    consts: i64,
+    plus: Bin,
+    reg: u32,
+    breg: u32,
+    push_object_address,
+    form_tls_address: *const Loc,
+    implicit_value: []const u8,
+    stack_value: *const Loc,
+    wasm_ext: union(enum) {
+        local: u32,
+        global: u32,
+        operand_stack: u32,
+    },
+
+    pub const Bin = struct { *const Loc, *const Loc };
+
+    fn getConst(loc: Loc, comptime Int: type) ?Int {
+        return switch (loc) {
+            .constu => |constu| std.math.cast(Int, constu),
+            .consts => |consts| std.math.cast(Int, consts),
+            else => null,
+        };
+    }
+
+    fn getBaseReg(loc: Loc) ?u32 {
+        return switch (loc) {
+            .breg => |breg| breg,
+            else => null,
+        };
+    }
+
+    fn writeReg(reg: u32, op0: u8, opx: u8, writer: anytype) @TypeOf(writer).Error!void {
+        if (std.math.cast(u5, reg)) |small_reg| {
+            try writer.writeByte(op0 + small_reg);
+        } else {
+            try writer.writeByte(opx);
+            try uleb128(writer, reg);
+        }
+    }
+
+    fn write(loc: Loc, wip: anytype) UpdateError!void {
+        const writer = wip.infoWriter();
+        switch (loc) {
+            .empty => unreachable,
+            .addr => |addr| {
+                try writer.writeByte(DW.OP.addr);
+                switch (addr) {
+                    .sym => |sym_index| try wip.addrSym(sym_index),
+                }
+            },
+            .constu => |constu| if (std.math.cast(u5, constu)) |lit| {
+                try writer.writeByte(@as(u8, DW.OP.lit0) + lit);
+            } else if (std.math.cast(u8, constu)) |const1u| {
+                try writer.writeAll(&.{ DW.OP.const1u, const1u });
+            } else if (std.math.cast(u16, constu)) |const2u| {
+                try writer.writeByte(DW.OP.const2u);
+                try writer.writeInt(u16, const2u, wip.dwarf.endian);
+            } else if (std.math.cast(u21, constu)) |const3u| {
+                try writer.writeByte(DW.OP.constu);
+                try uleb128(writer, const3u);
+            } else if (std.math.cast(u32, constu)) |const4u| {
+                try writer.writeByte(DW.OP.const4u);
+                try writer.writeInt(u32, const4u, wip.dwarf.endian);
+            } else if (std.math.cast(u49, constu)) |const7u| {
+                try writer.writeByte(DW.OP.constu);
+                try uleb128(writer, const7u);
+            } else {
+                try writer.writeByte(DW.OP.const8u);
+                try writer.writeInt(u64, constu, wip.dwarf.endian);
+            },
+            .consts => |consts| if (std.math.cast(i8, consts)) |const1s| {
+                try writer.writeAll(&.{ DW.OP.const1s, @bitCast(const1s) });
+            } else if (std.math.cast(i16, consts)) |const2s| {
+                try writer.writeByte(DW.OP.const2s);
+                try writer.writeInt(i16, const2s, wip.dwarf.endian);
+            } else if (std.math.cast(i21, consts)) |const3s| {
+                try writer.writeByte(DW.OP.consts);
+                try sleb128(writer, const3s);
+            } else if (std.math.cast(i32, consts)) |const4s| {
+                try writer.writeByte(DW.OP.const4s);
+                try writer.writeInt(i32, const4s, wip.dwarf.endian);
+            } else if (std.math.cast(i49, consts)) |const7s| {
+                try writer.writeByte(DW.OP.consts);
+                try sleb128(writer, const7s);
+            } else {
+                try writer.writeByte(DW.OP.const8s);
+                try writer.writeInt(i64, consts, wip.dwarf.endian);
+            },
+            .plus => |plus| done: {
+                if (plus[0].getConst(u0)) |_| {
+                    try plus[1].write(wip);
+                    break :done;
+                }
+                if (plus[1].getConst(u0)) |_| {
+                    try plus[0].write(wip);
+                    break :done;
+                }
+                if (plus[0].getBaseReg()) |breg| {
+                    if (plus[1].getConst(i65)) |offset| {
+                        try writeReg(breg, DW.OP.breg0, DW.OP.bregx, writer);
+                        try sleb128(writer, offset);
+                        break :done;
+                    }
+                }
+                if (plus[1].getBaseReg()) |breg| {
+                    if (plus[0].getConst(i65)) |offset| {
+                        try writeReg(breg, DW.OP.breg0, DW.OP.bregx, writer);
+                        try sleb128(writer, offset);
+                        break :done;
+                    }
+                }
+                if (plus[0].getConst(u64)) |uconst| {
+                    try plus[1].write(wip);
+                    try writer.writeByte(DW.OP.plus_uconst);
+                    try uleb128(writer, uconst);
+                    break :done;
+                }
+                if (plus[1].getConst(u64)) |uconst| {
+                    try plus[0].write(wip);
+                    try writer.writeByte(DW.OP.plus_uconst);
+                    try uleb128(writer, uconst);
+                    break :done;
+                }
+                try plus[0].write(wip);
+                try plus[1].write(wip);
+                try writer.writeByte(DW.OP.plus);
+            },
+            .reg => |reg| try writeReg(reg, DW.OP.reg0, DW.OP.regx, writer),
+            .breg => |breg| {
+                try writeReg(breg, DW.OP.breg0, DW.OP.bregx, writer);
+                try sleb128(writer, 0);
+            },
+            .push_object_address => try writer.writeByte(DW.OP.push_object_address),
+            .form_tls_address => |addr| {
+                try addr.write(wip);
+                try writer.writeByte(DW.OP.form_tls_address);
+            },
+            .implicit_value => |value| {
+                try writer.writeByte(DW.OP.implicit_value);
+                try uleb128(writer, value.len);
+                try writer.writeAll(value);
+            },
+            .stack_value => |value| {
+                try value.write(wip);
+                try writer.writeByte(DW.OP.stack_value);
+            },
+            .wasm_ext => |wasm_ext| {
+                try writer.writeByte(DW.OP.WASM_location);
+                switch (wasm_ext) {
+                    .local => |local| {
+                        try writer.writeByte(DW.OP.WASM_local);
+                        try uleb128(writer, local);
+                    },
+                    .global => |global| if (std.math.cast(u21, global)) |global_u21| {
+                        try writer.writeByte(DW.OP.WASM_global);
+                        try uleb128(writer, global_u21);
+                    } else {
+                        try writer.writeByte(DW.OP.WASM_global_u32);
+                        try writer.writeInt(u32, global, wip.dwarf.endian);
+                    },
+                    .operand_stack => |operand_stack| {
+                        try writer.writeByte(DW.OP.WASM_operand_stack);
+                        try uleb128(writer, operand_stack);
+                    },
+                }
+            },
+        }
+    }
+};
+
+pub const WipNav = struct {
+    dwarf: *Dwarf,
+    pt: Zcu.PerThread,
+    unit: Unit.Index,
+    entry: Entry.Index,
+    any_children: bool,
+    func: InternPool.Index,
+    func_high_reloc: u32,
+    debug_info: std.ArrayListUnmanaged(u8),
+    debug_line: std.ArrayListUnmanaged(u8),
+    debug_loclists: std.ArrayListUnmanaged(u8),
+    pending_types: std.ArrayListUnmanaged(InternPool.Index),
+
+    pub fn deinit(wip_nav: *WipNav) void {
+        const gpa = wip_nav.dwarf.gpa;
+        wip_nav.debug_info.deinit(gpa);
+        wip_nav.debug_line.deinit(gpa);
+        wip_nav.debug_loclists.deinit(gpa);
+        wip_nav.pending_types.deinit(gpa);
+    }
+
+    pub fn infoWriter(wip_nav: *WipNav) std.ArrayListUnmanaged(u8).Writer {
+        return wip_nav.debug_info.writer(wip_nav.dwarf.gpa);
+    }
+
+    pub const VarTag = enum { local_arg, local_var };
+    pub fn genVarDebugInfo(
+        wip_nav: *WipNav,
+        tag: VarTag,
+        name: []const u8,
+        ty: Type,
+        loc: Loc,
+    ) UpdateError!void {
+        wip_nav.any_children = true;
+        assert(wip_nav.func != .none);
+        const diw = wip_nav.debug_info.writer(wip_nav.dwarf.gpa);
+        try uleb128(diw, @intFromEnum(switch (tag) {
+            inline else => |ct_tag| @field(AbbrevCode, @tagName(ct_tag)),
+        }));
+        try wip_nav.strp(name);
+        try wip_nav.refType(ty);
+        try wip_nav.exprloc(loc);
     }
 
     pub fn advancePCAndLine(
-        self: *NavState,
+        wip_nav: *WipNav,
         delta_line: i33,
         delta_pc: u64,
     ) error{OutOfMemory}!void {
-        const dbg_line = &self.dbg_line;
-        try dbg_line.ensureUnusedCapacity(5 + 5 + 1);
+        const dlw = wip_nav.debug_line.writer(wip_nav.dwarf.gpa);
 
-        const header = self.dwarf.dbg_line_header;
+        const header = wip_nav.dwarf.debug_line.header;
         assert(header.maximum_operations_per_instruction == 1);
         const delta_op: u64 = 0;
 
@@ -897,8 +1038,8 @@ pub const NavState = struct {
             delta_line - header.line_base >= header.line_range)
         remaining: {
             assert(delta_line != 0);
-            dbg_line.appendAssumeCapacity(DW.LNS.advance_line);
-            leb128.writeIleb128(dbg_line.writer(), delta_line) catch unreachable;
+            try dlw.writeByte(DW.LNS.advance_line);
+            try sleb128(dlw, delta_line);
             break :remaining 0;
         } else delta_line);
 
@@ -906,1979 +1047,2760 @@ pub const NavState = struct {
             header.maximum_operations_per_instruction + delta_op;
         const max_op_advance: u9 = (std.math.maxInt(u8) - header.opcode_base) / header.line_range;
         const remaining_op_advance: u8 = @intCast(if (op_advance >= 2 * max_op_advance) remaining: {
-            dbg_line.appendAssumeCapacity(DW.LNS.advance_pc);
-            leb128.writeUleb128(dbg_line.writer(), op_advance) catch unreachable;
+            try dlw.writeByte(DW.LNS.advance_pc);
+            try uleb128(dlw, op_advance);
             break :remaining 0;
         } else if (op_advance >= max_op_advance) remaining: {
-            dbg_line.appendAssumeCapacity(DW.LNS.const_add_pc);
+            try dlw.writeByte(DW.LNS.const_add_pc);
             break :remaining op_advance - max_op_advance;
         } else op_advance);
 
-        if (remaining_delta_line == 0 and remaining_op_advance == 0) {
-            dbg_line.appendAssumeCapacity(DW.LNS.copy);
-        } else {
-            dbg_line.appendAssumeCapacity(@intCast((remaining_delta_line - header.line_base) +
+        if (remaining_delta_line == 0 and remaining_op_advance == 0)
+            try dlw.writeByte(DW.LNS.copy)
+        else
+            try dlw.writeByte(@intCast((remaining_delta_line - header.line_base) +
                 (header.line_range * remaining_op_advance) + header.opcode_base));
-        }
     }
 
-    pub fn setColumn(self: *NavState, column: u32) error{OutOfMemory}!void {
-        try self.dbg_line.ensureUnusedCapacity(1 + 5);
-        self.dbg_line.appendAssumeCapacity(DW.LNS.set_column);
-        leb128.writeUleb128(self.dbg_line.writer(), column + 1) catch unreachable;
+    pub fn setColumn(wip_nav: *WipNav, column: u32) error{OutOfMemory}!void {
+        const dlw = wip_nav.debug_line.writer(wip_nav.dwarf.gpa);
+        try dlw.writeByte(DW.LNS.set_column);
+        try uleb128(dlw, column + 1);
     }
 
-    pub fn setPrologueEnd(self: *NavState) error{OutOfMemory}!void {
-        try self.dbg_line.append(DW.LNS.set_prologue_end);
+    pub fn setPrologueEnd(wip_nav: *WipNav) error{OutOfMemory}!void {
+        const dlw = wip_nav.debug_line.writer(wip_nav.dwarf.gpa);
+        try dlw.writeByte(DW.LNS.set_prologue_end);
     }
 
-    pub fn setEpilogueBegin(self: *NavState) error{OutOfMemory}!void {
-        try self.dbg_line.append(DW.LNS.set_epilogue_begin);
+    pub fn setEpilogueBegin(wip_nav: *WipNav) error{OutOfMemory}!void {
+        const dlw = wip_nav.debug_line.writer(wip_nav.dwarf.gpa);
+        try dlw.writeByte(DW.LNS.set_epilogue_begin);
     }
 
-    pub fn setInlineFunc(self: *NavState, func: InternPool.Index) error{OutOfMemory}!void {
-        const zcu = self.pt.zcu;
-        if (self.dbg_line_func == func) return;
+    pub fn setInlineFunc(wip_nav: *WipNav, func: InternPool.Index) UpdateError!void {
+        const zcu = wip_nav.pt.zcu;
+        const dwarf = wip_nav.dwarf;
+        if (wip_nav.func == func) return;
 
-        try self.dbg_line.ensureUnusedCapacity((1 + 4) + (1 + 5));
-
-        const old_func_info = zcu.funcInfo(self.dbg_line_func);
         const new_func_info = zcu.funcInfo(func);
+        const new_file = zcu.navFileScopeIndex(new_func_info.owner_nav);
+        const new_unit = try dwarf.getUnit(zcu.fileByIndex(new_file).mod);
 
-        const old_file = try self.dwarf.addDIFile(zcu, old_func_info.owner_nav);
-        const new_file = try self.dwarf.addDIFile(zcu, new_func_info.owner_nav);
+        const dlw = wip_nav.debug_line.writer(dwarf.gpa);
+        if (dwarf.incremental()) {
+            const new_nav_gop = try dwarf.navs.getOrPut(dwarf.gpa, new_func_info.owner_nav);
+            errdefer _ = dwarf.navs.pop();
+            if (!new_nav_gop.found_existing) new_nav_gop.value_ptr.* = try dwarf.addCommonEntry(new_unit);
+
+            try dlw.writeByte(DW.LNS.extended_op);
+            try uleb128(dlw, 1 + dwarf.sectionOffsetBytes());
+            try dlw.writeByte(DW.LNE.ZIG_set_decl);
+            try dwarf.debug_line.section.getUnit(wip_nav.unit).cross_section_relocs.append(dwarf.gpa, .{
+                .source_entry = wip_nav.entry.toOptional(),
+                .source_off = @intCast(wip_nav.debug_line.items.len),
+                .target_sec = .debug_info,
+                .target_unit = new_unit,
+                .target_entry = new_nav_gop.value_ptr.toOptional(),
+            });
+            try dlw.writeByteNTimes(0, dwarf.sectionOffsetBytes());
+            return;
+        }
+
+        const old_func_info = zcu.funcInfo(wip_nav.func);
+        const old_file = zcu.navFileScopeIndex(old_func_info.owner_nav);
         if (old_file != new_file) {
-            self.dbg_line.appendAssumeCapacity(DW.LNS.set_file);
-            leb128.writeUnsignedFixed(4, self.dbg_line.addManyAsArrayAssumeCapacity(4), new_file);
+            const mod_info = dwarf.getModInfo(wip_nav.unit);
+            const mod_gop = try mod_info.dirs.getOrPut(dwarf.gpa, new_unit);
+            errdefer _ = if (!mod_gop.found_existing) mod_info.dirs.pop();
+            const file_gop = try mod_info.files.getOrPut(dwarf.gpa, new_file);
+            errdefer _ = if (!file_gop.found_existing) mod_info.files.pop();
+
+            try dlw.writeByte(DW.LNS.set_file);
+            try uleb128(dlw, file_gop.index);
         }
 
         const old_src_line: i33 = zcu.navSrcLine(old_func_info.owner_nav);
         const new_src_line: i33 = zcu.navSrcLine(new_func_info.owner_nav);
         if (new_src_line != old_src_line) {
-            self.dbg_line.appendAssumeCapacity(DW.LNS.advance_line);
-            leb128.writeSignedFixed(5, self.dbg_line.addManyAsArrayAssumeCapacity(5), new_src_line - old_src_line);
+            try dlw.writeByte(DW.LNS.advance_line);
+            try sleb128(dlw, new_src_line - old_src_line);
         }
 
-        self.dbg_line_func = func;
+        wip_nav.func = func;
+    }
+
+    fn infoSectionOffset(wip_nav: *WipNav, sec: Section.Index, unit: Unit.Index, entry: Entry.Index, off: u32) UpdateError!void {
+        const dwarf = wip_nav.dwarf;
+        const gpa = dwarf.gpa;
+        if (sec != .debug_info) {
+            try dwarf.debug_info.section.getUnit(wip_nav.unit).cross_section_relocs.append(gpa, .{
+                .source_entry = wip_nav.entry.toOptional(),
+                .source_off = @intCast(wip_nav.debug_info.items.len),
+                .target_sec = sec,
+                .target_unit = unit,
+                .target_entry = entry.toOptional(),
+                .target_off = off,
+            });
+        } else if (unit != wip_nav.unit) {
+            try dwarf.debug_info.section.getUnit(wip_nav.unit).cross_unit_relocs.append(gpa, .{
+                .source_entry = wip_nav.entry.toOptional(),
+                .source_off = @intCast(wip_nav.debug_info.items.len),
+                .target_unit = unit,
+                .target_entry = entry.toOptional(),
+                .target_off = off,
+            });
+        } else {
+            try dwarf.debug_info.section.getUnit(wip_nav.unit).cross_entry_relocs.append(gpa, .{
+                .source_entry = wip_nav.entry.toOptional(),
+                .source_off = @intCast(wip_nav.debug_info.items.len),
+                .target_entry = entry,
+                .target_off = off,
+            });
+        }
+        try wip_nav.debug_info.appendNTimes(gpa, 0, dwarf.sectionOffsetBytes());
+    }
+
+    fn strp(wip_nav: *WipNav, str: []const u8) UpdateError!void {
+        try wip_nav.infoSectionOffset(.debug_str, StringSection.unit, try wip_nav.dwarf.debug_str.addString(wip_nav.dwarf, str), 0);
+    }
+
+    fn addrSym(wip_nav: *WipNav, sym_index: u32) UpdateError!void {
+        const dwarf = wip_nav.dwarf;
+        try dwarf.debug_info.section.getUnit(wip_nav.unit).external_relocs.append(dwarf.gpa, .{
+            .source_entry = wip_nav.entry,
+            .source_off = @intCast(wip_nav.debug_info.items.len),
+            .target_sym = sym_index,
+        });
+        try wip_nav.debug_info.appendNTimes(dwarf.gpa, 0, @intFromEnum(dwarf.address_size));
+    }
+
+    fn exprloc(wip_nav: *WipNav, loc: Loc) UpdateError!void {
+        if (loc == .empty) return;
+        var wip: struct {
+            const Info = std.io.CountingWriter(std.io.NullWriter);
+            dwarf: *Dwarf,
+            debug_info: Info,
+            fn infoWriter(wip: *@This()) Info.Writer {
+                return wip.debug_info.writer();
+            }
+            fn addrSym(wip: *@This(), _: u32) error{}!void {
+                wip.debug_info.bytes_written += @intFromEnum(wip.dwarf.address_size);
+            }
+        } = .{
+            .dwarf = wip_nav.dwarf,
+            .debug_info = std.io.countingWriter(std.io.null_writer),
+        };
+        try loc.write(&wip);
+        try uleb128(wip_nav.debug_info.writer(wip_nav.dwarf.gpa), wip.debug_info.bytes_written);
+        try loc.write(wip_nav);
+    }
+
+    fn getTypeEntry(wip_nav: *WipNav, ty: Type) UpdateError!struct { Unit.Index, Entry.Index } {
+        const zcu = wip_nav.pt.zcu;
+        const ip = &zcu.intern_pool;
+        const maybe_inst_index = ty.typeDeclInst(zcu);
+        const unit = if (maybe_inst_index) |inst_index|
+            try wip_nav.dwarf.getUnit(zcu.fileByIndex(inst_index.resolveFile(ip)).mod)
+        else
+            .main;
+        const gop = try wip_nav.dwarf.types.getOrPut(wip_nav.dwarf.gpa, ty.toIntern());
+        if (gop.found_existing) return .{ unit, gop.value_ptr.* };
+        const entry = try wip_nav.dwarf.addCommonEntry(unit);
+        gop.value_ptr.* = entry;
+        if (maybe_inst_index == null) try wip_nav.pending_types.append(wip_nav.dwarf.gpa, ty.toIntern());
+        return .{ unit, entry };
+    }
+
+    fn refType(wip_nav: *WipNav, ty: Type) UpdateError!void {
+        const unit, const entry = try wip_nav.getTypeEntry(ty);
+        try wip_nav.infoSectionOffset(.debug_info, unit, entry, 0);
+    }
+
+    fn refForward(wip_nav: *WipNav) std.mem.Allocator.Error!u32 {
+        const dwarf = wip_nav.dwarf;
+        const cross_entry_relocs = &dwarf.debug_info.section.getUnit(wip_nav.unit).cross_entry_relocs;
+        const reloc_index: u32 = @intCast(cross_entry_relocs.items.len);
+        try cross_entry_relocs.append(dwarf.gpa, .{
+            .source_entry = wip_nav.entry.toOptional(),
+            .source_off = @intCast(wip_nav.debug_info.items.len),
+            .target_entry = undefined,
+            .target_off = undefined,
+        });
+        try wip_nav.debug_info.appendNTimes(dwarf.gpa, 0, dwarf.sectionOffsetBytes());
+        return reloc_index;
+    }
+
+    fn finishForward(wip_nav: *WipNav, reloc_index: u32) void {
+        const reloc = &wip_nav.dwarf.debug_info.section.getUnit(wip_nav.unit).cross_entry_relocs.items[reloc_index];
+        reloc.target_entry = wip_nav.entry;
+        reloc.target_off = @intCast(wip_nav.debug_info.items.len);
+    }
+
+    fn enumConstValue(
+        wip_nav: *WipNav,
+        loaded_enum: InternPool.LoadedEnumType,
+        abbrev_code: std.enums.EnumFieldStruct(std.builtin.Signedness, AbbrevCode, null),
+        field_index: usize,
+    ) std.mem.Allocator.Error!void {
+        const zcu = wip_nav.pt.zcu;
+        const ip = &zcu.intern_pool;
+        const diw = wip_nav.debug_info.writer(wip_nav.dwarf.gpa);
+        const signedness = switch (loaded_enum.tag_ty) {
+            .comptime_int_type => .signed,
+            else => Type.fromInterned(loaded_enum.tag_ty).intInfo(zcu).signedness,
+        };
+        try uleb128(diw, @intFromEnum(switch (signedness) {
+            inline .signed, .unsigned => |ct_signedness| @field(abbrev_code, @tagName(ct_signedness)),
+        }));
+        if (loaded_enum.values.len > 0) switch (ip.indexToKey(loaded_enum.values.get(ip)[field_index]).int.storage) {
+            .u64 => |value| switch (signedness) {
+                .signed => try sleb128(diw, value),
+                .unsigned => try uleb128(diw, value),
+            },
+            .i64 => |value| switch (signedness) {
+                .signed => try sleb128(diw, value),
+                .unsigned => unreachable,
+            },
+            .big_int => |big_int| {
+                const bits = big_int.bitCountTwosCompForSignedness(signedness);
+                try wip_nav.debug_info.ensureUnusedCapacity(wip_nav.dwarf.gpa, std.math.divCeil(usize, bits, 7) catch unreachable);
+                var bit: usize = 0;
+                var carry: u1 = 1;
+                while (bit < bits) : (bit += 7) {
+                    const limb_bits = @typeInfo(std.math.big.Limb).Int.bits;
+                    const limb_index = bit / limb_bits;
+                    const limb_shift: std.math.Log2Int(std.math.big.Limb) = @intCast(bit % limb_bits);
+                    const low_abs_part: u7 = @truncate(big_int.limbs[limb_index] >> limb_shift);
+                    const abs_part = if (limb_shift > limb_bits - 7) abs_part: {
+                        const next_limb: std.math.big.Limb = if (limb_index + 1 < big_int.limbs.len)
+                            big_int.limbs[limb_index + 1]
+                        else if (big_int.positive) 0 else std.math.maxInt(std.math.big.Limb);
+                        const high_abs_part: u7 = @truncate(next_limb << -%limb_shift);
+                        break :abs_part high_abs_part | low_abs_part;
+                    } else low_abs_part;
+                    const twos_comp_part = if (big_int.positive) abs_part else twos_comp_part: {
+                        const twos_comp_part, carry = @addWithOverflow(~abs_part, carry);
+                        break :twos_comp_part twos_comp_part;
+                    };
+                    wip_nav.debug_info.appendAssumeCapacity(@as(u8, if (bit + 7 < bits) 0x80 else 0x00) | twos_comp_part);
+                }
+            },
+            .lazy_align, .lazy_size => unreachable,
+        } else switch (signedness) {
+            .signed => try sleb128(diw, field_index),
+            .unsigned => try uleb128(diw, field_index),
+        }
+    }
+
+    fn flush(wip_nav: *WipNav) UpdateError!void {
+        while (wip_nav.pending_types.popOrNull()) |ty| try wip_nav.dwarf.updateType(wip_nav.pt, ty, &wip_nav.pending_types);
     }
 };
-
-pub const AbbrevEntry = struct {
-    atom_index: Atom.Index,
-    type: Type,
-    offset: u32,
-};
-
-pub const AbbrevRelocation = struct {
-    /// If target is null, we deal with a local relocation that is based on simple offset + addend
-    /// only.
-    target: ?u32,
-    atom_index: Atom.Index,
-    offset: u32,
-    addend: u32,
-};
-
-pub const ExprlocRelocation = struct {
-    /// Type of the relocation: direct load ref, or GOT load ref (via GOT table)
-    type: enum {
-        direct_load,
-        got_load,
-    },
-    /// Index of the target in the linker's locals symbol table.
-    target: u32,
-    /// Offset within the debug info buffer where to patch up the address value.
-    offset: u32,
-};
-
-pub const PtrWidth = enum { p32, p64 };
-
-pub const AbbrevCode = enum(u8) {
-    null,
-    padding,
-    compile_unit,
-    subprogram,
-    subprogram_retvoid,
-    base_type,
-    ptr_type,
-    struct_type,
-    struct_member,
-    enum_type,
-    enum_variant,
-    union_type,
-    zero_bit_type,
-    parameter,
-    variable,
-    array_type,
-    array_dim,
-};
-
-/// The reloc offset for the virtual address of a function in its Line Number Program.
-/// Size is a virtual address integer.
-const dbg_line_vaddr_reloc_index = 3;
-/// The reloc offset for the virtual address of a function in its .debug_info TAG.subprogram.
-/// Size is a virtual address integer.
-const dbg_info_low_pc_reloc_index = 1;
-
-const min_nop_size = 2;
 
 /// When allocating, the ideal_capacity is calculated by
 /// actual_capacity + (actual_capacity / ideal_factor)
 const ideal_factor = 3;
 
-pub fn init(lf: *File, format: Format) Dwarf {
-    const comp = lf.comp;
-    const gpa = comp.gpa;
-    const target = comp.root_mod.resolved_target.result;
-    const ptr_width: PtrWidth = switch (target.ptrBitWidth()) {
-        0...32 => .p32,
-        33...64 => .p64,
-        else => unreachable,
-    };
-    return .{
-        .allocator = gpa,
-        .bin_file = lf,
-        .format = format,
-        .ptr_width = ptr_width,
-        .dbg_line_header = switch (target.cpu.arch) {
-            .x86_64, .aarch64 => .{
-                .minimum_instruction_length = 1,
-                .maximum_operations_per_instruction = 1,
-                .default_is_stmt = true,
-                .line_base = -5,
-                .line_range = 14,
-                .opcode_base = DW.LNS.set_isa + 1,
-            },
-            else => .{
-                .minimum_instruction_length = 1,
-                .maximum_operations_per_instruction = 1,
-                .default_is_stmt = true,
-                .line_base = 1,
-                .line_range = 1,
-                .opcode_base = DW.LNS.set_isa + 1,
-            },
-        },
-    };
-}
-
-pub fn deinit(self: *Dwarf) void {
-    const gpa = self.allocator;
-
-    self.src_fn_free_list.deinit(gpa);
-    self.src_fns.deinit(gpa);
-    self.src_fn_navs.deinit(gpa);
-
-    self.di_atom_free_list.deinit(gpa);
-    self.di_atoms.deinit(gpa);
-    self.di_atom_navs.deinit(gpa);
-
-    self.strtab.deinit(gpa);
-    self.di_files.deinit(gpa);
-    self.global_abbrev_relocs.deinit(gpa);
-}
-
-/// Initializes Nav's state and its matching output buffers.
-/// Call this before `commitNavState`.
-pub fn initNavState(self: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !NavState {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const nav = pt.zcu.intern_pool.getNav(nav_index);
-    log.debug("initNavState {}", .{nav.fqn.fmt(&pt.zcu.intern_pool)});
-
-    const gpa = self.allocator;
-    var nav_state: NavState = .{
-        .dwarf = self,
-        .pt = pt,
-        .di_atom_navs = &self.di_atom_navs,
-        .dbg_line_func = undefined,
-        .dbg_line = std.ArrayList(u8).init(gpa),
-        .dbg_info = std.ArrayList(u8).init(gpa),
-        .abbrev_type_arena = std.heap.ArenaAllocator.init(gpa),
-        .abbrev_table = .{},
-        .abbrev_resolver = .{},
-        .abbrev_relocs = .{},
-        .exprloc_relocs = .{},
-    };
-    errdefer nav_state.deinit();
-    const dbg_line_buffer = &nav_state.dbg_line;
-    const dbg_info_buffer = &nav_state.dbg_info;
-
-    const di_atom_index = try self.getOrCreateAtomForNav(.di_atom, nav_index);
-
-    const nav_val = Value.fromInterned(nav.status.resolved.val);
-
-    switch (nav_val.typeOf(pt.zcu).zigTypeTag(pt.zcu)) {
-        .Fn => {
-            _ = try self.getOrCreateAtomForNav(.src_fn, nav_index);
-
-            // For functions we need to add a prologue to the debug line program.
-            const ptr_width_bytes = self.ptrWidthBytes();
-            try dbg_line_buffer.ensureTotalCapacity((3 + ptr_width_bytes) + (1 + 4) + (1 + 4) + (1 + 5) + 1);
-
-            nav_state.dbg_line_func = nav_val.toIntern();
-            const func = nav_val.getFunction(pt.zcu).?;
-            log.debug("src_line={d}, func.lbrace_line={d}, func.rbrace_line={d}", .{
-                pt.zcu.navSrcLine(nav_index),
-                func.lbrace_line,
-                func.rbrace_line,
-            });
-            const line: u28 = @intCast(pt.zcu.navSrcLine(nav_index) + func.lbrace_line);
-
-            dbg_line_buffer.appendSliceAssumeCapacity(&.{
-                DW.LNS.extended_op,
-                ptr_width_bytes + 1,
-                DW.LNE.set_address,
-            });
-            // This is the "relocatable" vaddr, corresponding to `code_buffer` index `0`.
-            assert(dbg_line_vaddr_reloc_index == dbg_line_buffer.items.len);
-            dbg_line_buffer.appendNTimesAssumeCapacity(0, ptr_width_bytes);
-
-            dbg_line_buffer.appendAssumeCapacity(DW.LNS.advance_line);
-            // This is the "relocatable" relative line offset from the previous function's end curly
-            // to this function's begin curly.
-            assert(self.getRelocDbgLineOff() == dbg_line_buffer.items.len);
-            // Here we use a ULEB128-fixed-4 to make sure this field can be overwritten later.
-            leb128.writeUnsignedFixed(4, dbg_line_buffer.addManyAsArrayAssumeCapacity(4), line);
-
-            dbg_line_buffer.appendAssumeCapacity(DW.LNS.set_file);
-            assert(self.getRelocDbgFileIndex() == dbg_line_buffer.items.len);
-            // Once we support more than one source file, this will have the ability to be more
-            // than one possible value.
-            const file_index = try self.addDIFile(pt.zcu, nav_index);
-            leb128.writeUnsignedFixed(4, dbg_line_buffer.addManyAsArrayAssumeCapacity(4), file_index);
-
-            dbg_line_buffer.appendAssumeCapacity(DW.LNS.set_column);
-            leb128.writeUleb128(dbg_line_buffer.writer(), func.lbrace_column + 1) catch unreachable;
-
-            // Emit a line for the begin curly with prologue_end=false. The codegen will
-            // do the work of setting prologue_end=true and epilogue_begin=true.
-            dbg_line_buffer.appendAssumeCapacity(DW.LNS.copy);
-
-            // .debug_info subprogram
-            const nav_name_slice = nav.name.toSlice(&pt.zcu.intern_pool);
-            const nav_linkage_name_slice = nav.fqn.toSlice(&pt.zcu.intern_pool);
-            try dbg_info_buffer.ensureUnusedCapacity(1 + ptr_width_bytes + 4 + 4 +
-                (nav_name_slice.len + 1) + (nav_linkage_name_slice.len + 1));
-
-            const fn_ret_type = nav_val.typeOf(pt.zcu).fnReturnType(pt.zcu);
-            const fn_ret_has_bits = fn_ret_type.hasRuntimeBits(pt);
-            dbg_info_buffer.appendAssumeCapacity(@intFromEnum(
-                @as(AbbrevCode, if (fn_ret_has_bits) .subprogram else .subprogram_retvoid),
-            ));
-            // These get overwritten after generating the machine code. These values are
-            // "relocations" and have to be in this fixed place so that functions can be
-            // moved in virtual address space.
-            assert(dbg_info_low_pc_reloc_index == dbg_info_buffer.items.len);
-            dbg_info_buffer.appendNTimesAssumeCapacity(0, ptr_width_bytes); // DW.AT.low_pc, DW.FORM.addr
-            assert(self.getRelocDbgInfoSubprogramHighPC() == dbg_info_buffer.items.len);
-            dbg_info_buffer.appendNTimesAssumeCapacity(0, 4); // DW.AT.high_pc, DW.FORM.data4
-            if (fn_ret_has_bits) {
-                try nav_state.addTypeRelocGlobal(di_atom_index, fn_ret_type, @intCast(dbg_info_buffer.items.len));
-                dbg_info_buffer.appendNTimesAssumeCapacity(0, 4); // DW.AT.type, DW.FORM.ref4
-            }
-            dbg_info_buffer.appendSliceAssumeCapacity(
-                nav_name_slice[0 .. nav_name_slice.len + 1],
-            ); // DW.AT.name, DW.FORM.string
-            dbg_info_buffer.appendSliceAssumeCapacity(
-                nav_linkage_name_slice[0 .. nav_linkage_name_slice.len + 1],
-            ); // DW.AT.linkage_name, DW.FORM.string
-        },
-        else => {
-            // TODO implement .debug_info for global variables
-        },
-    }
-
-    return nav_state;
-}
-
-pub fn commitNavState(
-    self: *Dwarf,
-    pt: Zcu.PerThread,
-    nav_index: InternPool.Nav.Index,
-    sym_addr: u64,
-    sym_size: u64,
-    nav_state: *NavState,
-) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const gpa = self.allocator;
-    const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
-    const nav = ip.getNav(nav_index);
-    const target = zcu.navFileScope(nav_index).mod.resolved_target.result;
-    const target_endian = target.cpu.arch.endian();
-
-    var dbg_line_buffer = &nav_state.dbg_line;
-    var dbg_info_buffer = &nav_state.dbg_info;
-
-    const nav_val = Value.fromInterned(nav.status.resolved.val);
-    switch (nav_val.typeOf(zcu).zigTypeTag(zcu)) {
-        .Fn => {
-            try nav_state.setInlineFunc(nav_val.toIntern());
-
-            // Since the Nav is a function, we need to update the .debug_line program.
-            // Perform the relocations based on vaddr.
-            switch (self.ptr_width) {
-                .p32 => {
-                    {
-                        const ptr = dbg_line_buffer.items[dbg_line_vaddr_reloc_index..][0..4];
-                        mem.writeInt(u32, ptr, @intCast(sym_addr), target_endian);
-                    }
-                    {
-                        const ptr = dbg_info_buffer.items[dbg_info_low_pc_reloc_index..][0..4];
-                        mem.writeInt(u32, ptr, @intCast(sym_addr), target_endian);
-                    }
-                },
-                .p64 => {
-                    {
-                        const ptr = dbg_line_buffer.items[dbg_line_vaddr_reloc_index..][0..8];
-                        mem.writeInt(u64, ptr, sym_addr, target_endian);
-                    }
-                    {
-                        const ptr = dbg_info_buffer.items[dbg_info_low_pc_reloc_index..][0..8];
-                        mem.writeInt(u64, ptr, sym_addr, target_endian);
-                    }
-                },
-            }
-            {
-                log.debug("relocating subprogram high PC value: {x} => {x}", .{
-                    self.getRelocDbgInfoSubprogramHighPC(),
-                    sym_size,
-                });
-                const ptr = dbg_info_buffer.items[self.getRelocDbgInfoSubprogramHighPC()..][0..4];
-                mem.writeInt(u32, ptr, @intCast(sym_size), target_endian);
-            }
-
-            try dbg_line_buffer.appendSlice(&[_]u8{ DW.LNS.extended_op, 1, DW.LNE.end_sequence });
-
-            // Now we have the full contents and may allocate a region to store it.
-
-            // This logic is nearly identical to the logic below in `updateNavDebugInfo` for
-            // `TextBlock` and the .debug_info. If you are editing this logic, you
-            // probably need to edit that logic too.
-            const src_fn_index = self.src_fn_navs.get(nav_index).?;
-            const src_fn = self.getAtomPtr(.src_fn, src_fn_index);
-            src_fn.len = @intCast(dbg_line_buffer.items.len);
-
-            if (self.src_fn_last_index) |last_index| blk: {
-                if (src_fn_index == last_index) break :blk;
-                if (src_fn.next_index) |next_index| {
-                    const next = self.getAtomPtr(.src_fn, next_index);
-                    // Update existing function - non-last item.
-                    if (src_fn.off + src_fn.len + min_nop_size > next.off) {
-                        // It grew too big, so we move it to a new location.
-                        if (src_fn.prev_index) |prev_index| {
-                            self.src_fn_free_list.put(gpa, prev_index, {}) catch {};
-                            self.getAtomPtr(.src_fn, prev_index).next_index = src_fn.next_index;
-                        }
-                        next.prev_index = src_fn.prev_index;
-                        src_fn.next_index = null;
-                        // Populate where it used to be with NOPs.
-                        if (self.bin_file.cast(.elf)) |elf_file| {
-                            const debug_line_sect = &elf_file.shdrs.items[elf_file.debug_line_section_index.?];
-                            const file_pos = debug_line_sect.sh_offset + src_fn.off;
-                            try pwriteDbgLineNops(elf_file.base.file.?, file_pos, 0, &[0]u8{}, src_fn.len);
-                        } else if (self.bin_file.cast(.macho)) |macho_file| {
-                            if (macho_file.base.isRelocatable()) {
-                                const debug_line_sect = &macho_file.sections.items(.header)[macho_file.debug_line_sect_index.?];
-                                const file_pos = debug_line_sect.offset + src_fn.off;
-                                try pwriteDbgLineNops(macho_file.base.file.?, file_pos, 0, &[0]u8{}, src_fn.len);
-                            } else {
-                                const d_sym = macho_file.getDebugSymbols().?;
-                                const debug_line_sect = d_sym.getSectionPtr(d_sym.debug_line_section_index.?);
-                                const file_pos = debug_line_sect.offset + src_fn.off;
-                                try pwriteDbgLineNops(d_sym.file, file_pos, 0, &[0]u8{}, src_fn.len);
-                            }
-                        } else if (self.bin_file.cast(.wasm)) |wasm_file| {
-                            _ = wasm_file;
-                            // const debug_line = wasm_file.getAtomPtr(wasm_file.debug_line_atom.?).code;
-                            // writeDbgLineNopsBuffered(debug_line.items, src_fn.off, 0, &.{}, src_fn.len);
-                        } else unreachable;
-                        // TODO Look at the free list before appending at the end.
-                        src_fn.prev_index = last_index;
-                        const last = self.getAtomPtr(.src_fn, last_index);
-                        last.next_index = src_fn_index;
-                        self.src_fn_last_index = src_fn_index;
-
-                        src_fn.off = last.off + padToIdeal(last.len);
-                    }
-                } else if (src_fn.prev_index == null) {
-                    // Append new function.
-                    // TODO Look at the free list before appending at the end.
-                    src_fn.prev_index = last_index;
-                    const last = self.getAtomPtr(.src_fn, last_index);
-                    last.next_index = src_fn_index;
-                    self.src_fn_last_index = src_fn_index;
-
-                    src_fn.off = last.off + padToIdeal(last.len);
-                }
-            } else {
-                // This is the first function of the Line Number Program.
-                self.src_fn_first_index = src_fn_index;
-                self.src_fn_last_index = src_fn_index;
-
-                src_fn.off = padToIdeal(self.dbgLineNeededHeaderBytes(&[0][]u8{}, &[0][]u8{}));
-            }
-
-            const last_src_fn_index = self.src_fn_last_index.?;
-            const last_src_fn = self.getAtom(.src_fn, last_src_fn_index);
-            const needed_size = last_src_fn.off + last_src_fn.len;
-            const prev_padding_size: u32 = if (src_fn.prev_index) |prev_index| blk: {
-                const prev = self.getAtom(.src_fn, prev_index);
-                break :blk src_fn.off - (prev.off + prev.len);
-            } else 0;
-            const next_padding_size: u32 = if (src_fn.next_index) |next_index| blk: {
-                const next = self.getAtom(.src_fn, next_index);
-                break :blk next.off - (src_fn.off + src_fn.len);
-            } else 0;
-
-            // We only have support for one compilation unit so far, so the offsets are directly
-            // from the .debug_line section.
-            if (self.bin_file.cast(.elf)) |elf_file| {
-                const shdr_index = elf_file.debug_line_section_index.?;
-                try elf_file.growNonAllocSection(shdr_index, needed_size, 1, true);
-                const debug_line_sect = elf_file.shdrs.items[shdr_index];
-                const file_pos = debug_line_sect.sh_offset + src_fn.off;
-                try pwriteDbgLineNops(
-                    elf_file.base.file.?,
-                    file_pos,
-                    prev_padding_size,
-                    dbg_line_buffer.items,
-                    next_padding_size,
-                );
-            } else if (self.bin_file.cast(.macho)) |macho_file| {
-                if (macho_file.base.isRelocatable()) {
-                    const sect_index = macho_file.debug_line_sect_index.?;
-                    try macho_file.growSection(sect_index, needed_size);
-                    const sect = macho_file.sections.items(.header)[sect_index];
-                    const file_pos = sect.offset + src_fn.off;
-                    try pwriteDbgLineNops(
-                        macho_file.base.file.?,
-                        file_pos,
-                        prev_padding_size,
-                        dbg_line_buffer.items,
-                        next_padding_size,
-                    );
-                } else {
-                    const d_sym = macho_file.getDebugSymbols().?;
-                    const sect_index = d_sym.debug_line_section_index.?;
-                    try d_sym.growSection(sect_index, needed_size, true, macho_file);
-                    const sect = d_sym.getSection(sect_index);
-                    const file_pos = sect.offset + src_fn.off;
-                    try pwriteDbgLineNops(
-                        d_sym.file,
-                        file_pos,
-                        prev_padding_size,
-                        dbg_line_buffer.items,
-                        next_padding_size,
-                    );
-                }
-            } else if (self.bin_file.cast(.wasm)) |wasm_file| {
-                _ = wasm_file;
-                // const atom = wasm_file.getAtomPtr(wasm_file.debug_line_atom.?);
-                // const debug_line = &atom.code;
-                // const segment_size = debug_line.items.len;
-                // if (needed_size != segment_size) {
-                //     log.debug(" needed size does not equal allocated size: {d}", .{needed_size});
-                //     if (needed_size > segment_size) {
-                //         log.debug("  allocating {d} bytes for 'debug line' information", .{needed_size - segment_size});
-                //         try debug_line.resize(self.allocator, needed_size);
-                //         @memset(debug_line.items[segment_size..], 0);
-                //     }
-                //     debug_line.items.len = needed_size;
-                // }
-                // writeDbgLineNopsBuffered(
-                //     debug_line.items,
-                //     src_fn.off,
-                //     prev_padding_size,
-                //     dbg_line_buffer.items,
-                //     next_padding_size,
-                // );
-            } else unreachable;
-
-            // .debug_info - End the TAG.subprogram children.
-            try dbg_info_buffer.append(0);
-        },
-        else => {},
-    }
-
-    if (dbg_info_buffer.items.len == 0)
-        return;
-
-    const di_atom_index = self.di_atom_navs.get(nav_index).?;
-    if (nav_state.abbrev_table.items.len > 0) {
-        // Now we emit the .debug_info types of the Nav. These will count towards the size of
-        // the buffer, so we have to do it before computing the offset, and we can't perform the actual
-        // relocations yet.
-        var sym_index: usize = 0;
-        while (sym_index < nav_state.abbrev_table.items.len) : (sym_index += 1) {
-            const symbol = &nav_state.abbrev_table.items[sym_index];
-            const ty = symbol.type;
-            if (ip.isErrorSetType(ty.toIntern())) continue;
-
-            symbol.offset = @intCast(dbg_info_buffer.items.len);
-            try nav_state.addDbgInfoType(pt, di_atom_index, ty);
-        }
-    }
-
-    try self.updateNavDebugInfoAllocation(di_atom_index, @intCast(dbg_info_buffer.items.len));
-
-    while (nav_state.abbrev_relocs.popOrNull()) |reloc| {
-        if (reloc.target) |reloc_target| {
-            const symbol = nav_state.abbrev_table.items[reloc_target];
-            const ty = symbol.type;
-            if (ip.isErrorSetType(ty.toIntern())) {
-                log.debug("resolving %{d} deferred until flush", .{reloc_target});
-                try self.global_abbrev_relocs.append(gpa, .{
-                    .target = null,
-                    .offset = reloc.offset,
-                    .atom_index = reloc.atom_index,
-                    .addend = reloc.addend,
-                });
-            } else {
-                const atom = self.getAtom(.di_atom, symbol.atom_index);
-                const value = atom.off + symbol.offset + reloc.addend;
-                log.debug("{x}: [() => {x}] (%{d}, '{}')", .{
-                    reloc.offset,
-                    value,
-                    reloc_target,
-                    ty.fmt(pt),
-                });
-                mem.writeInt(
-                    u32,
-                    dbg_info_buffer.items[reloc.offset..][0..@sizeOf(u32)],
-                    value,
-                    target_endian,
-                );
-            }
-        } else {
-            const atom = self.getAtom(.di_atom, reloc.atom_index);
-            mem.writeInt(
-                u32,
-                dbg_info_buffer.items[reloc.offset..][0..@sizeOf(u32)],
-                atom.off + reloc.offset + reloc.addend,
-                target_endian,
-            );
-        }
-    }
-
-    while (nav_state.exprloc_relocs.popOrNull()) |reloc| {
-        if (self.bin_file.cast(.elf)) |elf_file| {
-            _ = elf_file; // TODO
-        } else if (self.bin_file.cast(.macho)) |macho_file| {
-            if (macho_file.base.isRelocatable()) {
-                // TODO
-            } else {
-                const d_sym = macho_file.getDebugSymbols().?;
-                try d_sym.relocs.append(d_sym.allocator, .{
-                    .type = switch (reloc.type) {
-                        .direct_load => .direct_load,
-                        .got_load => .got_load,
-                    },
-                    .target = reloc.target,
-                    .offset = reloc.offset + self.getAtom(.di_atom, di_atom_index).off,
-                    .addend = 0,
-                });
-            }
-        } else unreachable;
-    }
-
-    try self.writeNavDebugInfo(di_atom_index, dbg_info_buffer.items);
-}
-
-fn updateNavDebugInfoAllocation(self: *Dwarf, atom_index: Atom.Index, len: u32) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    // This logic is nearly identical to the logic above in `updateNav` for
-    // `SrcFn` and the line number programs. If you are editing this logic, you
-    // probably need to edit that logic too.
-    const gpa = self.allocator;
-
-    const atom = self.getAtomPtr(.di_atom, atom_index);
-    atom.len = len;
-    if (self.di_atom_last_index) |last_index| blk: {
-        if (atom_index == last_index) break :blk;
-        if (atom.next_index) |next_index| {
-            const next = self.getAtomPtr(.di_atom, next_index);
-            // Update existing Nav - non-last item.
-            if (atom.off + atom.len + min_nop_size > next.off) {
-                // It grew too big, so we move it to a new location.
-                if (atom.prev_index) |prev_index| {
-                    self.di_atom_free_list.put(gpa, prev_index, {}) catch {};
-                    self.getAtomPtr(.di_atom, prev_index).next_index = atom.next_index;
-                }
-                next.prev_index = atom.prev_index;
-                atom.next_index = null;
-                // Populate where it used to be with NOPs.
-                if (self.bin_file.cast(.elf)) |elf_file| {
-                    const debug_info_sect = &elf_file.shdrs.items[elf_file.debug_info_section_index.?];
-                    const file_pos = debug_info_sect.sh_offset + atom.off;
-                    try pwriteDbgInfoNops(elf_file.base.file.?, file_pos, 0, &[0]u8{}, atom.len, false);
-                } else if (self.bin_file.cast(.macho)) |macho_file| {
-                    if (macho_file.base.isRelocatable()) {
-                        const debug_info_sect = macho_file.sections.items(.header)[macho_file.debug_info_sect_index.?];
-                        const file_pos = debug_info_sect.offset + atom.off;
-                        try pwriteDbgInfoNops(macho_file.base.file.?, file_pos, 0, &[0]u8{}, atom.len, false);
-                    } else {
-                        const d_sym = macho_file.getDebugSymbols().?;
-                        const debug_info_sect = d_sym.getSectionPtr(d_sym.debug_info_section_index.?);
-                        const file_pos = debug_info_sect.offset + atom.off;
-                        try pwriteDbgInfoNops(d_sym.file, file_pos, 0, &[0]u8{}, atom.len, false);
-                    }
-                } else if (self.bin_file.cast(.wasm)) |wasm_file| {
-                    _ = wasm_file;
-                    // const debug_info_index = wasm_file.debug_info_atom.?;
-                    // const debug_info = &wasm_file.getAtomPtr(debug_info_index).code;
-                    // try writeDbgInfoNopsToArrayList(gpa, debug_info, atom.off, 0, &.{0}, atom.len, false);
-                } else unreachable;
-                // TODO Look at the free list before appending at the end.
-                atom.prev_index = last_index;
-                const last = self.getAtomPtr(.di_atom, last_index);
-                last.next_index = atom_index;
-                self.di_atom_last_index = atom_index;
-
-                atom.off = last.off + padToIdeal(last.len);
-            }
-        } else if (atom.prev_index == null) {
-            // Append new Nav.
-            // TODO Look at the free list before appending at the end.
-            atom.prev_index = last_index;
-            const last = self.getAtomPtr(.di_atom, last_index);
-            last.next_index = atom_index;
-            self.di_atom_last_index = atom_index;
-
-            atom.off = last.off + padToIdeal(last.len);
-        }
-    } else {
-        // This is the first Nav of the .debug_info
-        self.di_atom_first_index = atom_index;
-        self.di_atom_last_index = atom_index;
-
-        atom.off = @intCast(padToIdeal(self.dbgInfoHeaderBytes()));
-    }
-}
-
-fn writeNavDebugInfo(self: *Dwarf, atom_index: Atom.Index, dbg_info_buf: []const u8) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    // This logic is nearly identical to the logic above in `updateNav` for
-    // `SrcFn` and the line number programs. If you are editing this logic, you
-    // probably need to edit that logic too.
-
-    const atom = self.getAtom(.di_atom, atom_index);
-    const last_nav_index = self.di_atom_last_index.?;
-    const last_nav = self.getAtom(.di_atom, last_nav_index);
-    // +1 for a trailing zero to end the children of the nav tag.
-    const needed_size = last_nav.off + last_nav.len + 1;
-    const prev_padding_size: u32 = if (atom.prev_index) |prev_index| blk: {
-        const prev = self.getAtom(.di_atom, prev_index);
-        break :blk atom.off - (prev.off + prev.len);
-    } else 0;
-    const next_padding_size: u32 = if (atom.next_index) |next_index| blk: {
-        const next = self.getAtom(.di_atom, next_index);
-        break :blk next.off - (atom.off + atom.len);
-    } else 0;
-
-    // To end the children of the nav tag.
-    const trailing_zero = atom.next_index == null;
-
-    // We only have support for one compilation unit so far, so the offsets are directly
-    // from the .debug_info section.
-    if (self.bin_file.cast(.elf)) |elf_file| {
-        const shdr_index = elf_file.debug_info_section_index.?;
-        try elf_file.growNonAllocSection(shdr_index, needed_size, 1, true);
-        const debug_info_sect = &elf_file.shdrs.items[shdr_index];
-        const file_pos = debug_info_sect.sh_offset + atom.off;
-        try pwriteDbgInfoNops(
-            elf_file.base.file.?,
-            file_pos,
-            prev_padding_size,
-            dbg_info_buf,
-            next_padding_size,
-            trailing_zero,
-        );
-    } else if (self.bin_file.cast(.macho)) |macho_file| {
-        if (macho_file.base.isRelocatable()) {
-            const sect_index = macho_file.debug_info_sect_index.?;
-            try macho_file.growSection(sect_index, needed_size);
-            const sect = macho_file.sections.items(.header)[sect_index];
-            const file_pos = sect.offset + atom.off;
-            try pwriteDbgInfoNops(
-                macho_file.base.file.?,
-                file_pos,
-                prev_padding_size,
-                dbg_info_buf,
-                next_padding_size,
-                trailing_zero,
-            );
-        } else {
-            const d_sym = macho_file.getDebugSymbols().?;
-            const sect_index = d_sym.debug_info_section_index.?;
-            try d_sym.growSection(sect_index, needed_size, true, macho_file);
-            const sect = d_sym.getSection(sect_index);
-            const file_pos = sect.offset + atom.off;
-            try pwriteDbgInfoNops(
-                d_sym.file,
-                file_pos,
-                prev_padding_size,
-                dbg_info_buf,
-                next_padding_size,
-                trailing_zero,
-            );
-        }
-    } else if (self.bin_file.cast(.wasm)) |wasm_file| {
-        _ = wasm_file;
-        // const info_atom = wasm_file.debug_info_atom.?;
-        // const debug_info = &wasm_file.getAtomPtr(info_atom).code;
-        // const segment_size = debug_info.items.len;
-        // if (needed_size != segment_size) {
-        //     log.debug(" needed size does not equal allocated size: {d}", .{needed_size});
-        //     if (needed_size > segment_size) {
-        //         log.debug("  allocating {d} bytes for 'debug info' information", .{needed_size - segment_size});
-        //         try debug_info.resize(self.allocator, needed_size);
-        //         @memset(debug_info.items[segment_size..], 0);
-        //     }
-        //     debug_info.items.len = needed_size;
-        // }
-        // log.debug(" writeDbgInfoNopsToArrayList debug_info_len={d} offset={d} content_len={d} next_padding_size={d}", .{
-        //     debug_info.items.len, atom.off, dbg_info_buf.len, next_padding_size,
-        // });
-        // try writeDbgInfoNopsToArrayList(
-        //     gpa,
-        //     debug_info,
-        //     atom.off,
-        //     prev_padding_size,
-        //     dbg_info_buf,
-        //     next_padding_size,
-        //     trailing_zero,
-        // );
-    } else unreachable;
-}
-
-pub fn updateNavLineNumber(self: *Dwarf, zcu: *Zcu, nav_index: InternPool.Nav.Index) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const atom_index = try self.getOrCreateAtomForNav(.src_fn, nav_index);
-    const atom = self.getAtom(.src_fn, atom_index);
-    if (atom.len == 0) return;
-
-    const nav = zcu.intern_pool.getNav(nav_index);
-    const nav_val = Value.fromInterned(nav.status.resolved.val);
-    const func = nav_val.getFunction(zcu).?;
-    log.debug("src_line={d}, func.lbrace_line={d}, func.rbrace_line={d}", .{
-        zcu.navSrcLine(nav_index),
-        func.lbrace_line,
-        func.rbrace_line,
-    });
-    const line: u28 = @intCast(zcu.navSrcLine(nav_index) + func.lbrace_line);
-    var data: [4]u8 = undefined;
-    leb128.writeUnsignedFixed(4, &data, line);
-
-    switch (self.bin_file.tag) {
-        .elf => {
-            const elf_file = self.bin_file.cast(File.Elf).?;
-            const shdr = elf_file.shdrs.items[elf_file.debug_line_section_index.?];
-            const file_pos = shdr.sh_offset + atom.off + self.getRelocDbgLineOff();
-            try elf_file.base.file.?.pwriteAll(&data, file_pos);
-        },
-        .macho => {
-            const macho_file = self.bin_file.cast(File.MachO).?;
-            if (macho_file.base.isRelocatable()) {
-                const sect = macho_file.sections.items(.header)[macho_file.debug_line_sect_index.?];
-                const file_pos = sect.offset + atom.off + self.getRelocDbgLineOff();
-                try macho_file.base.file.?.pwriteAll(&data, file_pos);
-            } else {
-                const d_sym = macho_file.getDebugSymbols().?;
-                const sect = d_sym.getSection(d_sym.debug_line_section_index.?);
-                const file_pos = sect.offset + atom.off + self.getRelocDbgLineOff();
-                try d_sym.file.pwriteAll(&data, file_pos);
-            }
-        },
-        .wasm => {
-            // const wasm_file = self.bin_file.cast(File.Wasm).?;
-            // const offset = atom.off + self.getRelocDbgLineOff();
-            // const line_atom_index = wasm_file.debug_line_atom.?;
-            // wasm_file.getAtomPtr(line_atom_index).code.items[offset..][0..data.len].* = data;
-        },
-        else => unreachable,
-    }
-}
-
-pub fn freeNav(self: *Dwarf, nav_index: InternPool.Nav.Index) void {
-    const gpa = self.allocator;
-
-    // Free SrcFn atom
-    if (self.src_fn_navs.fetchRemove(nav_index)) |kv| {
-        const src_fn_index = kv.value;
-        const src_fn = self.getAtom(.src_fn, src_fn_index);
-        _ = self.src_fn_free_list.remove(src_fn_index);
-
-        if (src_fn.prev_index) |prev_index| {
-            self.src_fn_free_list.put(gpa, prev_index, {}) catch {};
-            const prev = self.getAtomPtr(.src_fn, prev_index);
-            prev.next_index = src_fn.next_index;
-            if (src_fn.next_index) |next_index| {
-                self.getAtomPtr(.src_fn, next_index).prev_index = prev_index;
-            } else {
-                self.src_fn_last_index = prev_index;
-            }
-        } else if (src_fn.next_index) |next_index| {
-            self.src_fn_first_index = next_index;
-            self.getAtomPtr(.src_fn, next_index).prev_index = null;
-        }
-        if (self.src_fn_first_index == src_fn_index) {
-            self.src_fn_first_index = src_fn.next_index;
-        }
-        if (self.src_fn_last_index == src_fn_index) {
-            self.src_fn_last_index = src_fn.prev_index;
-        }
-    }
-
-    // Free DI atom
-    if (self.di_atom_navs.fetchRemove(nav_index)) |kv| {
-        const di_atom_index = kv.value;
-        const di_atom = self.getAtomPtr(.di_atom, di_atom_index);
-
-        if (self.di_atom_first_index == di_atom_index) {
-            self.di_atom_first_index = di_atom.next_index;
-        }
-        if (self.di_atom_last_index == di_atom_index) {
-            // TODO shrink the .debug_info section size here
-            self.di_atom_last_index = di_atom.prev_index;
-        }
-
-        if (di_atom.prev_index) |prev_index| {
-            self.getAtomPtr(.di_atom, prev_index).next_index = di_atom.next_index;
-            // TODO the free list logic like we do for SrcFn above
-        } else {
-            di_atom.prev_index = null;
-        }
-
-        if (di_atom.next_index) |next_index| {
-            self.getAtomPtr(.di_atom, next_index).prev_index = di_atom.prev_index;
-        } else {
-            di_atom.next_index = null;
-        }
-    }
-}
-
-pub fn writeDbgAbbrev(self: *Dwarf) !void {
-    // These are LEB encoded but since the values are all less than 127
-    // we can simply append these bytes.
-    // zig fmt: off
-    const abbrev_buf = [_]u8{
-        @intFromEnum(AbbrevCode.padding),
-        @as(u8, 0x80) | @as(u7, @truncate(DW.TAG.ZIG_padding >> 0)),
-        @as(u8, 0x80) | @as(u7, @truncate(DW.TAG.ZIG_padding >> 7)),
-        @as(u8, 0x00) | @as(u7, @intCast(DW.TAG.ZIG_padding >> 14)),
-        DW.CHILDREN.no,
-        0, 0,
-
-        @intFromEnum(AbbrevCode.compile_unit),
-        DW.TAG.compile_unit,
-        DW.CHILDREN.yes,
-        DW.AT.stmt_list, DW.FORM.sec_offset,
-        DW.AT.low_pc,    DW.FORM.addr,
-        DW.AT.high_pc,   DW.FORM.addr,
-        DW.AT.name,      DW.FORM.strp,
-        DW.AT.comp_dir,  DW.FORM.strp,
-        DW.AT.producer,  DW.FORM.strp,
-        DW.AT.language,  DW.FORM.data2,
-        0,               0,
-
-        @intFromEnum(AbbrevCode.subprogram),
-        DW.TAG.subprogram,
-        DW.CHILDREN.yes,
-        DW.AT.low_pc,       DW.FORM.addr,
-        DW.AT.high_pc,      DW.FORM.data4,
-        DW.AT.type,         DW.FORM.ref4,
-        DW.AT.name,         DW.FORM.string,
-        DW.AT.linkage_name, DW.FORM.string,
-        0,                  0,
-
-        @intFromEnum(AbbrevCode.subprogram_retvoid),
-        DW.TAG.subprogram,
-        DW.CHILDREN.yes,
-        DW.AT.low_pc,       DW.FORM.addr,
-        DW.AT.high_pc,      DW.FORM.data4,
-        DW.AT.name,         DW.FORM.string,
-        DW.AT.linkage_name, DW.FORM.string,
-        0,                  0,
-
-        @intFromEnum(AbbrevCode.base_type),
-        DW.TAG.base_type, DW.CHILDREN.no,
-        DW.AT.encoding,   DW.FORM.data1,
-        DW.AT.byte_size,  DW.FORM.udata,
-        DW.AT.name,       DW.FORM.string,
-        0,                0,
-
-        @intFromEnum(AbbrevCode.ptr_type),
-        DW.TAG.pointer_type, DW.CHILDREN.no,
-        DW.AT.type,          DW.FORM.ref4,
-        0,                   0,
-
-        @intFromEnum(AbbrevCode.struct_type),
-        DW.TAG.structure_type, DW.CHILDREN.yes,
-        DW.AT.byte_size,       DW.FORM.udata,
-        DW.AT.name,            DW.FORM.string,
-        0,                     0,
-
-        @intFromEnum(AbbrevCode.struct_member),
-        DW.TAG.member,
-        DW.CHILDREN.no,
-        DW.AT.name,                 DW.FORM.string,
-        DW.AT.type,                 DW.FORM.ref4,
-        DW.AT.data_member_location, DW.FORM.udata,
-        0,                          0,
-
-        @intFromEnum(AbbrevCode.enum_type),
-        DW.TAG.enumeration_type,
-        DW.CHILDREN.yes,
-        DW.AT.byte_size, DW.FORM.udata,
-        DW.AT.name,      DW.FORM.string,
-        0,               0,
-
-        @intFromEnum(AbbrevCode.enum_variant),
-        DW.TAG.enumerator, DW.CHILDREN.no,
-        DW.AT.name,        DW.FORM.string,
-        DW.AT.const_value, DW.FORM.data8,
-        0,                 0,
-
-        @intFromEnum(AbbrevCode.union_type),
-        DW.TAG.union_type, DW.CHILDREN.yes,
-        DW.AT.byte_size,   DW.FORM.udata,
-        DW.AT.name,        DW.FORM.string,
-        0,                 0,
-
-        @intFromEnum(AbbrevCode.zero_bit_type),
-        DW.TAG.unspecified_type,
-        DW.CHILDREN.no,
-        0, 0,
-
-        @intFromEnum(AbbrevCode.parameter),
-        DW.TAG.formal_parameter,
-        DW.CHILDREN.no,
-        DW.AT.location, DW.FORM.exprloc,
-        DW.AT.type,     DW.FORM.ref4,
-        DW.AT.name,     DW.FORM.string,
-        0,              0,
-
-        @intFromEnum(AbbrevCode.variable),
-        DW.TAG.variable,
-        DW.CHILDREN.no,
-        DW.AT.location, DW.FORM.exprloc,
-        DW.AT.type,     DW.FORM.ref4,
-        DW.AT.name,     DW.FORM.string,
-        0,              0,
-
-        @intFromEnum(AbbrevCode.array_type),
-        DW.TAG.array_type,
-        DW.CHILDREN.yes,
-        DW.AT.name, DW.FORM.string,
-        DW.AT.type, DW.FORM.ref4,
-        0,          0,
-
-        @intFromEnum(AbbrevCode.array_dim),
-        DW.TAG.subrange_type,
-        DW.CHILDREN.no,
-        DW.AT.type,  DW.FORM.ref4,
-        DW.AT.count, DW.FORM.udata,
-        0,           0,
-
-        0,
-    };
-    // zig fmt: on
-    const abbrev_offset = 0;
-    self.abbrev_table_offset = abbrev_offset;
-
-    const needed_size = abbrev_buf.len;
-    if (self.bin_file.cast(.elf)) |elf_file| {
-        const shdr_index = elf_file.debug_abbrev_section_index.?;
-        try elf_file.growNonAllocSection(shdr_index, needed_size, 1, false);
-        const debug_abbrev_sect = &elf_file.shdrs.items[shdr_index];
-        const file_pos = debug_abbrev_sect.sh_offset + abbrev_offset;
-        try elf_file.base.file.?.pwriteAll(&abbrev_buf, file_pos);
-    } else if (self.bin_file.cast(.macho)) |macho_file| {
-        if (macho_file.base.isRelocatable()) {
-            const sect_index = macho_file.debug_abbrev_sect_index.?;
-            try macho_file.growSection(sect_index, needed_size);
-            const sect = macho_file.sections.items(.header)[sect_index];
-            const file_pos = sect.offset + abbrev_offset;
-            try macho_file.base.file.?.pwriteAll(&abbrev_buf, file_pos);
-        } else {
-            const d_sym = macho_file.getDebugSymbols().?;
-            const sect_index = d_sym.debug_abbrev_section_index.?;
-            try d_sym.growSection(sect_index, needed_size, false, macho_file);
-            const sect = d_sym.getSection(sect_index);
-            const file_pos = sect.offset + abbrev_offset;
-            try d_sym.file.pwriteAll(&abbrev_buf, file_pos);
-        }
-    } else if (self.bin_file.cast(.wasm)) |wasm_file| {
-        _ = wasm_file;
-        // const debug_abbrev = &wasm_file.getAtomPtr(wasm_file.debug_abbrev_atom.?).code;
-        // try debug_abbrev.resize(gpa, needed_size);
-        // debug_abbrev.items[0..abbrev_buf.len].* = abbrev_buf;
-    } else unreachable;
-}
-
-fn dbgInfoHeaderBytes(self: *Dwarf) usize {
-    _ = self;
-    return 120;
-}
-
-pub fn writeDbgInfoHeader(self: *Dwarf, zcu: *Zcu, low_pc: u64, high_pc: u64) !void {
-    // If this value is null it means there is an error in the module;
-    // leave debug_info_header_dirty=true.
-    const first_dbg_info_off = self.getDebugInfoOff() orelse return;
-
-    // We have a function to compute the upper bound size, because it's needed
-    // for determining where to put the offset of the first `LinkBlock`.
-    const needed_bytes = self.dbgInfoHeaderBytes();
-    var di_buf = try std.ArrayList(u8).initCapacity(self.allocator, needed_bytes);
-    defer di_buf.deinit();
-
-    const comp = self.bin_file.comp;
-    const target = comp.root_mod.resolved_target.result;
-    const target_endian = target.cpu.arch.endian();
-    const init_len_size: usize = switch (self.format) {
-        .dwarf32 => 4,
-        .dwarf64 => 12,
-    };
-
-    // initial length - length of the .debug_info contribution for this compilation unit,
-    // not including the initial length itself.
-    // We have to come back and write it later after we know the size.
-    const after_init_len = di_buf.items.len + init_len_size;
-    const dbg_info_end = self.getDebugInfoEnd().?;
-    const init_len = dbg_info_end - after_init_len + 1;
-
-    if (self.format == .dwarf64) di_buf.appendNTimesAssumeCapacity(0xff, 4);
-    self.writeOffsetAssumeCapacity(&di_buf, init_len);
-
-    mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), 4, target_endian); // DWARF version
-    const abbrev_offset = self.abbrev_table_offset.?;
-
-    self.writeOffsetAssumeCapacity(&di_buf, abbrev_offset);
-    di_buf.appendAssumeCapacity(self.ptrWidthBytes()); // address size
-
-    // Write the form for the compile unit, which must match the abbrev table above.
-    const name_strp = try self.strtab.insert(self.allocator, zcu.root_mod.root_src_path);
-    var compile_unit_dir_buffer: [std.fs.max_path_bytes]u8 = undefined;
-    const compile_unit_dir = resolveCompilationDir(zcu, &compile_unit_dir_buffer);
-    const comp_dir_strp = try self.strtab.insert(self.allocator, compile_unit_dir);
-    const producer_strp = try self.strtab.insert(self.allocator, link.producer_string);
-
-    di_buf.appendAssumeCapacity(@intFromEnum(AbbrevCode.compile_unit));
-    self.writeOffsetAssumeCapacity(&di_buf, 0); // DW.AT.stmt_list, DW.FORM.sec_offset
-    self.writeAddrAssumeCapacity(&di_buf, low_pc);
-    self.writeAddrAssumeCapacity(&di_buf, high_pc);
-    self.writeOffsetAssumeCapacity(&di_buf, name_strp);
-    self.writeOffsetAssumeCapacity(&di_buf, comp_dir_strp);
-    self.writeOffsetAssumeCapacity(&di_buf, producer_strp);
-
-    // We are still waiting on dwarf-std.org to assign DW_LANG_Zig a number:
-    // http://dwarfstd.org/ShowIssue.php?issue=171115.1
-    // Until then we say it is C99.
-    mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), DW.LANG.C99, target_endian);
-
-    if (di_buf.items.len > first_dbg_info_off) {
-        // Move the first N navs to the end to make more padding for the header.
-        @panic("TODO: handle .debug_info header exceeding its padding");
-    }
-    const jmp_amt = first_dbg_info_off - di_buf.items.len;
-    if (self.bin_file.cast(.elf)) |elf_file| {
-        const debug_info_sect = &elf_file.shdrs.items[elf_file.debug_info_section_index.?];
-        const file_pos = debug_info_sect.sh_offset;
-        try pwriteDbgInfoNops(elf_file.base.file.?, file_pos, 0, di_buf.items, jmp_amt, false);
-    } else if (self.bin_file.cast(.macho)) |macho_file| {
-        if (macho_file.base.isRelocatable()) {
-            const debug_info_sect = macho_file.sections.items(.header)[macho_file.debug_info_sect_index.?];
-            const file_pos = debug_info_sect.offset;
-            try pwriteDbgInfoNops(macho_file.base.file.?, file_pos, 0, di_buf.items, jmp_amt, false);
-        } else {
-            const d_sym = macho_file.getDebugSymbols().?;
-            const debug_info_sect = d_sym.getSection(d_sym.debug_info_section_index.?);
-            const file_pos = debug_info_sect.offset;
-            try pwriteDbgInfoNops(d_sym.file, file_pos, 0, di_buf.items, jmp_amt, false);
-        }
-    } else if (self.bin_file.cast(.wasm)) |wasm_file| {
-        _ = wasm_file;
-        // const debug_info = &wasm_file.getAtomPtr(wasm_file.debug_info_atom.?).code;
-        // try writeDbgInfoNopsToArrayList(self.allocator, debug_info, 0, 0, di_buf.items, jmp_amt, false);
-    } else unreachable;
-}
-
-fn resolveCompilationDir(zcu: *Zcu, buffer: *[std.fs.max_path_bytes]u8) []const u8 {
-    // We fully resolve all paths at this point to avoid lack of source line info in stack
-    // traces or lack of debugging information which, if relative paths were used, would
-    // be very location dependent.
-    // TODO: the only concern I have with this is WASI as either host or target, should
-    // we leave the paths as relative then?
-    const root_dir_path = zcu.root_mod.root.root_dir.path orelse ".";
-    const sub_path = zcu.root_mod.root.sub_path;
-    const realpath = if (std.fs.path.isAbsolute(root_dir_path)) r: {
-        @memcpy(buffer[0..root_dir_path.len], root_dir_path);
-        break :r root_dir_path;
-    } else std.fs.realpath(root_dir_path, buffer) catch return root_dir_path;
-    const len = realpath.len + 1 + sub_path.len;
-    if (buffer.len < len) return root_dir_path;
-    buffer[realpath.len] = '/';
-    @memcpy(buffer[realpath.len + 1 ..][0..sub_path.len], sub_path);
-    return buffer[0..len];
-}
-
-fn writeAddrAssumeCapacity(self: *Dwarf, buf: *std.ArrayList(u8), addr: u64) void {
-    const comp = self.bin_file.comp;
-    const target = comp.root_mod.resolved_target.result;
-    const target_endian = target.cpu.arch.endian();
-    switch (self.ptr_width) {
-        .p32 => mem.writeInt(u32, buf.addManyAsArrayAssumeCapacity(4), @intCast(addr), target_endian),
-        .p64 => mem.writeInt(u64, buf.addManyAsArrayAssumeCapacity(8), addr, target_endian),
-    }
-}
-
-fn writeOffsetAssumeCapacity(self: *Dwarf, buf: *std.ArrayList(u8), off: u64) void {
-    const comp = self.bin_file.comp;
-    const target = comp.root_mod.resolved_target.result;
-    const target_endian = target.cpu.arch.endian();
-    switch (self.format) {
-        .dwarf32 => mem.writeInt(u32, buf.addManyAsArrayAssumeCapacity(4), @intCast(off), target_endian),
-        .dwarf64 => mem.writeInt(u64, buf.addManyAsArrayAssumeCapacity(8), off, target_endian),
-    }
-}
-
-/// Writes to the file a buffer, prefixed and suffixed by the specified number of
-/// bytes of NOPs. Asserts each padding size is at least `min_nop_size` and total padding bytes
-/// are less than 1044480 bytes (if this limit is ever reached, this function can be
-/// improved to make more than one pwritev call, or the limit can be raised by a fixed
-/// amount by increasing the length of `vecs`).
-fn pwriteDbgLineNops(
-    file: fs.File,
-    offset: u64,
-    prev_padding_size: usize,
-    buf: []const u8,
-    next_padding_size: usize,
-) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const page_of_nops = [1]u8{DW.LNS.negate_stmt} ** 4096;
-    const three_byte_nop = [3]u8{ DW.LNS.advance_pc, 0b1000_0000, 0 };
-    var vecs: [512]std.posix.iovec_const = undefined;
-    var vec_index: usize = 0;
-    {
-        var padding_left = prev_padding_size;
-        if (padding_left % 2 != 0) {
-            vecs[vec_index] = .{
-                .base = &three_byte_nop,
-                .len = three_byte_nop.len,
-            };
-            vec_index += 1;
-            padding_left -= three_byte_nop.len;
-        }
-        while (padding_left > page_of_nops.len) {
-            vecs[vec_index] = .{
-                .base = &page_of_nops,
-                .len = page_of_nops.len,
-            };
-            vec_index += 1;
-            padding_left -= page_of_nops.len;
-        }
-        if (padding_left > 0) {
-            vecs[vec_index] = .{
-                .base = &page_of_nops,
-                .len = padding_left,
-            };
-            vec_index += 1;
-        }
-    }
-
-    vecs[vec_index] = .{
-        .base = buf.ptr,
-        .len = buf.len,
-    };
-    if (buf.len > 0) vec_index += 1;
-
-    {
-        var padding_left = next_padding_size;
-        if (padding_left % 2 != 0) {
-            vecs[vec_index] = .{
-                .base = &three_byte_nop,
-                .len = three_byte_nop.len,
-            };
-            vec_index += 1;
-            padding_left -= three_byte_nop.len;
-        }
-        while (padding_left > page_of_nops.len) {
-            vecs[vec_index] = .{
-                .base = &page_of_nops,
-                .len = page_of_nops.len,
-            };
-            vec_index += 1;
-            padding_left -= page_of_nops.len;
-        }
-        if (padding_left > 0) {
-            vecs[vec_index] = .{
-                .base = &page_of_nops,
-                .len = padding_left,
-            };
-            vec_index += 1;
-        }
-    }
-    try file.pwritevAll(vecs[0..vec_index], offset - prev_padding_size);
-}
-
-fn writeDbgLineNopsBuffered(
-    buf: []u8,
-    offset: u32,
-    prev_padding_size: usize,
-    content: []const u8,
-    next_padding_size: usize,
-) void {
-    assert(buf.len >= content.len + prev_padding_size + next_padding_size);
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const three_byte_nop = [3]u8{ DW.LNS.advance_pc, 0b1000_0000, 0 };
-    {
-        var padding_left = prev_padding_size;
-        if (padding_left % 2 != 0) {
-            buf[offset - padding_left ..][0..3].* = three_byte_nop;
-            padding_left -= 3;
-        }
-
-        while (padding_left > 0) : (padding_left -= 1) {
-            buf[offset - padding_left] = DW.LNS.negate_stmt;
-        }
-    }
-
-    @memcpy(buf[offset..][0..content.len], content);
-
-    {
-        var padding_left = next_padding_size;
-        if (padding_left % 2 != 0) {
-            buf[offset + content.len + padding_left ..][0..3].* = three_byte_nop;
-            padding_left -= 3;
-        }
-
-        while (padding_left > 0) : (padding_left -= 1) {
-            buf[offset + content.len + padding_left] = DW.LNS.negate_stmt;
-        }
-    }
-}
-
-/// Writes to the file a buffer, prefixed and suffixed by the specified number of
-/// bytes of padding.
-fn pwriteDbgInfoNops(
-    file: fs.File,
-    offset: u64,
-    prev_padding_size: usize,
-    buf: []const u8,
-    next_padding_size: usize,
-    trailing_zero: bool,
-) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const page_of_nops = [1]u8{@intFromEnum(AbbrevCode.padding)} ** 4096;
-    var vecs: [32]std.posix.iovec_const = undefined;
-    var vec_index: usize = 0;
-    {
-        var padding_left = prev_padding_size;
-        while (padding_left > page_of_nops.len) {
-            vecs[vec_index] = .{
-                .base = &page_of_nops,
-                .len = page_of_nops.len,
-            };
-            vec_index += 1;
-            padding_left -= page_of_nops.len;
-        }
-        if (padding_left > 0) {
-            vecs[vec_index] = .{
-                .base = &page_of_nops,
-                .len = padding_left,
-            };
-            vec_index += 1;
-        }
-    }
-
-    vecs[vec_index] = .{
-        .base = buf.ptr,
-        .len = buf.len,
-    };
-    if (buf.len > 0) vec_index += 1;
-
-    {
-        var padding_left = next_padding_size;
-        while (padding_left > page_of_nops.len) {
-            vecs[vec_index] = .{
-                .base = &page_of_nops,
-                .len = page_of_nops.len,
-            };
-            vec_index += 1;
-            padding_left -= page_of_nops.len;
-        }
-        if (padding_left > 0) {
-            vecs[vec_index] = .{
-                .base = &page_of_nops,
-                .len = padding_left,
-            };
-            vec_index += 1;
-        }
-    }
-
-    if (trailing_zero) {
-        var zbuf = [1]u8{0};
-        vecs[vec_index] = .{
-            .base = &zbuf,
-            .len = zbuf.len,
-        };
-        vec_index += 1;
-    }
-
-    try file.pwritevAll(vecs[0..vec_index], offset - prev_padding_size);
-}
-
-fn writeDbgInfoNopsToArrayList(
-    gpa: Allocator,
-    buffer: *std.ArrayListUnmanaged(u8),
-    offset: u32,
-    prev_padding_size: usize,
-    content: []const u8,
-    next_padding_size: usize,
-    trailing_zero: bool,
-) Allocator.Error!void {
-    try buffer.resize(gpa, @max(
-        buffer.items.len,
-        offset + content.len + next_padding_size + 1,
-    ));
-    @memset(buffer.items[offset - prev_padding_size .. offset], @intFromEnum(AbbrevCode.padding));
-    @memcpy(buffer.items[offset..][0..content.len], content);
-    @memset(buffer.items[offset + content.len ..][0..next_padding_size], @intFromEnum(AbbrevCode.padding));
-
-    if (trailing_zero) {
-        buffer.items[offset + content.len + next_padding_size] = 0;
-    }
-}
-
-pub fn writeDbgAranges(self: *Dwarf, addr: u64, size: u64) !void {
-    const comp = self.bin_file.comp;
-    const target = comp.root_mod.resolved_target.result;
-    const target_endian = target.cpu.arch.endian();
-    const ptr_width_bytes = self.ptrWidthBytes();
-
-    // Enough for all the data without resizing. When support for more compilation units
-    // is added, the size of this section will become more variable.
-    var di_buf = try std.ArrayList(u8).initCapacity(self.allocator, 100);
-    defer di_buf.deinit();
-
-    // initial length - length of the .debug_aranges contribution for this compilation unit,
-    // not including the initial length itself.
-    // We have to come back and write it later after we know the size.
-    if (self.format == .dwarf64) di_buf.appendNTimesAssumeCapacity(0xff, 4);
-    const init_len_index = di_buf.items.len;
-    self.writeOffsetAssumeCapacity(&di_buf, 0);
-    const after_init_len = di_buf.items.len;
-    mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), 2, target_endian); // version
-
-    // When more than one compilation unit is supported, this will be the offset to it.
-    // For now it is always at offset 0 in .debug_info.
-    self.writeOffsetAssumeCapacity(&di_buf, 0); // .debug_info offset
-    di_buf.appendAssumeCapacity(ptr_width_bytes); // address_size
-    di_buf.appendAssumeCapacity(0); // segment_selector_size
-
-    const end_header_offset = di_buf.items.len;
-    const begin_entries_offset = mem.alignForward(usize, end_header_offset, ptr_width_bytes * 2);
-    di_buf.appendNTimesAssumeCapacity(0, begin_entries_offset - end_header_offset);
-
-    // Currently only one compilation unit is supported, so the address range is simply
-    // identical to the main program header virtual address and memory size.
-    self.writeAddrAssumeCapacity(&di_buf, addr);
-    self.writeAddrAssumeCapacity(&di_buf, size);
-
-    // Sentinel.
-    self.writeAddrAssumeCapacity(&di_buf, 0);
-    self.writeAddrAssumeCapacity(&di_buf, 0);
-
-    // Go back and populate the initial length.
-    const init_len = di_buf.items.len - after_init_len;
-    switch (self.format) {
-        .dwarf32 => mem.writeInt(u32, di_buf.items[init_len_index..][0..4], @intCast(init_len), target_endian),
-        .dwarf64 => mem.writeInt(u64, di_buf.items[init_len_index..][0..8], init_len, target_endian),
-    }
-
-    const needed_size: u32 = @intCast(di_buf.items.len);
-    if (self.bin_file.cast(.elf)) |elf_file| {
-        const shdr_index = elf_file.debug_aranges_section_index.?;
-        try elf_file.growNonAllocSection(shdr_index, needed_size, 16, false);
-        const debug_aranges_sect = &elf_file.shdrs.items[shdr_index];
-        const file_pos = debug_aranges_sect.sh_offset;
-        try elf_file.base.file.?.pwriteAll(di_buf.items, file_pos);
-    } else if (self.bin_file.cast(.macho)) |macho_file| {
-        if (macho_file.base.isRelocatable()) {
-            const sect_index = macho_file.debug_aranges_sect_index.?;
-            try macho_file.growSection(sect_index, needed_size);
-            const sect = macho_file.sections.items(.header)[sect_index];
-            const file_pos = sect.offset;
-            try macho_file.base.file.?.pwriteAll(di_buf.items, file_pos);
-        } else {
-            const d_sym = macho_file.getDebugSymbols().?;
-            const sect_index = d_sym.debug_aranges_section_index.?;
-            try d_sym.growSection(sect_index, needed_size, false, macho_file);
-            const sect = d_sym.getSection(sect_index);
-            const file_pos = sect.offset;
-            try d_sym.file.pwriteAll(di_buf.items, file_pos);
-        }
-    } else if (self.bin_file.cast(.wasm)) |wasm_file| {
-        _ = wasm_file;
-        // const debug_ranges = &wasm_file.getAtomPtr(wasm_file.debug_ranges_atom.?).code;
-        // try debug_ranges.resize(gpa, needed_size);
-        // @memcpy(debug_ranges.items[0..di_buf.items.len], di_buf.items);
-    } else unreachable;
-}
-
-pub fn writeDbgLineHeader(self: *Dwarf) !void {
-    const comp = self.bin_file.comp;
-    const gpa = self.allocator;
-    const target = comp.root_mod.resolved_target.result;
-    const target_endian = target.cpu.arch.endian();
-    const init_len_size: usize = switch (self.format) {
-        .dwarf32 => 4,
-        .dwarf64 => 12,
-    };
-
-    const dbg_line_prg_off = self.getDebugLineProgramOff() orelse return;
-    assert(self.getDebugLineProgramEnd().? != 0);
-
-    // Convert all input DI files into a set of include dirs and file names.
-    var arena = std.heap.ArenaAllocator.init(gpa);
-    defer arena.deinit();
-    const paths = try self.genIncludeDirsAndFileNames(arena.allocator());
-
-    // The size of this header is variable, depending on the number of directories,
-    // files, and padding. We have a function to compute the upper bound size, however,
-    // because it's needed for determining where to put the offset of the first `SrcFn`.
-    const needed_bytes = self.dbgLineNeededHeaderBytes(paths.dirs, paths.files);
-    var di_buf = try std.ArrayList(u8).initCapacity(gpa, needed_bytes);
-    defer di_buf.deinit();
-
-    if (self.format == .dwarf64) di_buf.appendNTimesAssumeCapacity(0xff, 4);
-    self.writeOffsetAssumeCapacity(&di_buf, 0);
-
-    mem.writeInt(u16, di_buf.addManyAsArrayAssumeCapacity(2), 4, target_endian); // version
-
-    // Empirically, debug info consumers do not respect this field, or otherwise
-    // consider it to be an error when it does not point exactly to the end of the header.
-    // Therefore we rely on the NOP jump at the beginning of the Line Number Program for
-    // padding rather than this field.
-    const before_header_len = di_buf.items.len;
-    self.writeOffsetAssumeCapacity(&di_buf, 0); // We will come back and write this.
-    const after_header_len = di_buf.items.len;
-
-    assert(self.dbg_line_header.opcode_base == DW.LNS.set_isa + 1);
-    di_buf.appendSliceAssumeCapacity(&[_]u8{
-        self.dbg_line_header.minimum_instruction_length,
-        self.dbg_line_header.maximum_operations_per_instruction,
-        @intFromBool(self.dbg_line_header.default_is_stmt),
-        @bitCast(self.dbg_line_header.line_base),
-        self.dbg_line_header.line_range,
-        self.dbg_line_header.opcode_base,
-
-        // Standard opcode lengths. The number of items here is based on `opcode_base`.
-        // The value is the number of LEB128 operands the instruction takes.
-        0, // `DW.LNS.copy`
-        1, // `DW.LNS.advance_pc`
-        1, // `DW.LNS.advance_line`
-        1, // `DW.LNS.set_file`
-        1, // `DW.LNS.set_column`
-        0, // `DW.LNS.negate_stmt`
-        0, // `DW.LNS.set_basic_block`
-        0, // `DW.LNS.const_add_pc`
-        1, // `DW.LNS.fixed_advance_pc`
-        0, // `DW.LNS.set_prologue_end`
-        0, // `DW.LNS.set_epilogue_begin`
-        1, // `DW.LNS.set_isa`
-    });
-
-    for (paths.dirs, 0..) |dir, i| {
-        log.debug("adding new include dir at {d} of '{s}'", .{ i + 1, dir });
-        di_buf.appendSliceAssumeCapacity(dir);
-        di_buf.appendAssumeCapacity(0);
-    }
-    di_buf.appendAssumeCapacity(0); // include directories sentinel
-
-    for (paths.files, 0..) |file, i| {
-        const dir_index = paths.files_dirs_indexes[i];
-        log.debug("adding new file name at {d} of '{s}' referencing directory {d}", .{
-            i + 1,
-            file,
-            dir_index + 1,
-        });
-        di_buf.appendSliceAssumeCapacity(file);
-        di_buf.appendSliceAssumeCapacity(&[_]u8{
-            0, // null byte for the relative path name
-            @intCast(dir_index), // directory_index
-            0, // mtime (TODO supply this)
-            0, // file size bytes (TODO supply this)
-        });
-    }
-    di_buf.appendAssumeCapacity(0); // file names sentinel
-
-    const header_len = di_buf.items.len - after_header_len;
-    switch (self.format) {
-        .dwarf32 => mem.writeInt(u32, di_buf.items[before_header_len..][0..4], @intCast(header_len), target_endian),
-        .dwarf64 => mem.writeInt(u64, di_buf.items[before_header_len..][0..8], header_len, target_endian),
-    }
-
-    assert(needed_bytes == di_buf.items.len);
-
-    if (di_buf.items.len > dbg_line_prg_off) {
-        const needed_with_padding = padToIdeal(needed_bytes);
-        const delta = needed_with_padding - dbg_line_prg_off;
-
-        const first_fn_index = self.src_fn_first_index.?;
-        const first_fn = self.getAtom(.src_fn, first_fn_index);
-        const last_fn_index = self.src_fn_last_index.?;
-        const last_fn = self.getAtom(.src_fn, last_fn_index);
-
-        var src_fn_index = first_fn_index;
-
-        const buffer = try gpa.alloc(u8, last_fn.off + last_fn.len - first_fn.off);
-        defer gpa.free(buffer);
-
-        if (self.bin_file.cast(.elf)) |elf_file| {
-            const shdr_index = elf_file.debug_line_section_index.?;
-            const needed_size = elf_file.shdrs.items[shdr_index].sh_size + delta;
-            try elf_file.growNonAllocSection(shdr_index, needed_size, 1, true);
-            const file_pos = elf_file.shdrs.items[shdr_index].sh_offset + first_fn.off;
-
-            const amt = try elf_file.base.file.?.preadAll(buffer, file_pos);
-            if (amt != buffer.len) return error.InputOutput;
-
-            try elf_file.base.file.?.pwriteAll(buffer, file_pos + delta);
-        } else if (self.bin_file.cast(.macho)) |macho_file| {
-            if (macho_file.base.isRelocatable()) {
-                const sect_index = macho_file.debug_line_sect_index.?;
-                const needed_size: u32 = @intCast(macho_file.sections.items(.header)[sect_index].size + delta);
-                try macho_file.growSection(sect_index, needed_size);
-                const file_pos = macho_file.sections.items(.header)[sect_index].offset + first_fn.off;
-
-                const amt = try macho_file.base.file.?.preadAll(buffer, file_pos);
-                if (amt != buffer.len) return error.InputOutput;
-
-                try macho_file.base.file.?.pwriteAll(buffer, file_pos + delta);
-            } else {
-                const d_sym = macho_file.getDebugSymbols().?;
-                const sect_index = d_sym.debug_line_section_index.?;
-                const needed_size: u32 = @intCast(d_sym.getSection(sect_index).size + delta);
-                try d_sym.growSection(sect_index, needed_size, true, macho_file);
-                const file_pos = d_sym.getSection(sect_index).offset + first_fn.off;
-
-                const amt = try d_sym.file.preadAll(buffer, file_pos);
-                if (amt != buffer.len) return error.InputOutput;
-
-                try d_sym.file.pwriteAll(buffer, file_pos + delta);
-            }
-        } else if (self.bin_file.cast(.wasm)) |wasm_file| {
-            _ = wasm_file;
-            // const debug_line = &wasm_file.getAtomPtr(wasm_file.debug_line_atom.?).code;
-            // {
-            //     const src = debug_line.items[first_fn.off..];
-            //     @memcpy(buffer[0..src.len], src);
-            // }
-            // try debug_line.resize(self.allocator, debug_line.items.len + delta);
-            // @memcpy(debug_line.items[first_fn.off + delta ..][0..buffer.len], buffer);
-        } else unreachable;
-
-        while (true) {
-            const src_fn = self.getAtomPtr(.src_fn, src_fn_index);
-            src_fn.off += delta;
-
-            if (src_fn.next_index) |next_index| {
-                src_fn_index = next_index;
-            } else break;
-        }
-    }
-
-    // Backpatch actual length of the debug line program
-    const init_len = self.getDebugLineProgramEnd().? - init_len_size;
-    switch (self.format) {
-        .dwarf32 => {
-            mem.writeInt(u32, di_buf.items[0..4], @intCast(init_len), target_endian);
-        },
-        .dwarf64 => {
-            mem.writeInt(u64, di_buf.items[4..][0..8], init_len, target_endian);
-        },
-    }
-
-    // We use NOPs because consumers empirically do not respect the header length field.
-    const jmp_amt = self.getDebugLineProgramOff().? - di_buf.items.len;
-    if (self.bin_file.cast(.elf)) |elf_file| {
-        const debug_line_sect = &elf_file.shdrs.items[elf_file.debug_line_section_index.?];
-        const file_pos = debug_line_sect.sh_offset;
-        try pwriteDbgLineNops(elf_file.base.file.?, file_pos, 0, di_buf.items, jmp_amt);
-    } else if (self.bin_file.cast(.macho)) |macho_file| {
-        if (macho_file.base.isRelocatable()) {
-            const debug_line_sect = macho_file.sections.items(.header)[macho_file.debug_line_sect_index.?];
-            const file_pos = debug_line_sect.offset;
-            try pwriteDbgLineNops(macho_file.base.file.?, file_pos, 0, di_buf.items, jmp_amt);
-        } else {
-            const d_sym = macho_file.getDebugSymbols().?;
-            const debug_line_sect = d_sym.getSection(d_sym.debug_line_section_index.?);
-            const file_pos = debug_line_sect.offset;
-            try pwriteDbgLineNops(d_sym.file, file_pos, 0, di_buf.items, jmp_amt);
-        }
-    } else if (self.bin_file.cast(.wasm)) |wasm_file| {
-        _ = wasm_file;
-        // const debug_line = &wasm_file.getAtomPtr(wasm_file.debug_line_atom.?).code;
-        // writeDbgLineNopsBuffered(debug_line.items, 0, 0, di_buf.items, jmp_amt);
-    } else unreachable;
-}
-
-fn getDebugInfoOff(self: Dwarf) ?u32 {
-    const first_index = self.di_atom_first_index orelse return null;
-    const first = self.getAtom(.di_atom, first_index);
-    return first.off;
-}
-
-fn getDebugInfoEnd(self: Dwarf) ?u32 {
-    const last_index = self.di_atom_last_index orelse return null;
-    const last = self.getAtom(.di_atom, last_index);
-    return last.off + last.len;
-}
-
-fn getDebugLineProgramOff(self: Dwarf) ?u32 {
-    const first_index = self.src_fn_first_index orelse return null;
-    const first = self.getAtom(.src_fn, first_index);
-    return first.off;
-}
-
-fn getDebugLineProgramEnd(self: Dwarf) ?u32 {
-    const last_index = self.src_fn_last_index orelse return null;
-    const last = self.getAtom(.src_fn, last_index);
-    return last.off + last.len;
-}
-
-/// Always 4 or 8 depending on whether this is 32-bit or 64-bit format.
-fn ptrWidthBytes(self: Dwarf) u8 {
-    return switch (self.ptr_width) {
-        .p32 => 4,
-        .p64 => 8,
-    };
-}
-
-fn dbgLineNeededHeaderBytes(self: Dwarf, dirs: []const []const u8, files: []const []const u8) u32 {
-    var size: usize = switch (self.format) { // length field
-        .dwarf32 => 4,
-        .dwarf64 => 12,
-    };
-    size += @sizeOf(u16); // version field
-    size += switch (self.format) { // offset to end-of-header
-        .dwarf32 => 4,
-        .dwarf64 => 8,
-    };
-    size += 18; // opcodes
-
-    for (dirs) |dir| { // include dirs
-        size += dir.len + 1;
-    }
-    size += 1; // include dirs sentinel
-
-    for (files) |file| { // file names
-        size += file.len + 1 + 1 + 1 + 1;
-    }
-    size += 1; // file names sentinel
-
-    return @intCast(size);
-}
-
-/// The reloc offset for the line offset of a function from the previous function's line.
-/// It's a fixed-size 4-byte ULEB128.
-fn getRelocDbgLineOff(self: Dwarf) usize {
-    return dbg_line_vaddr_reloc_index + self.ptrWidthBytes() + 1;
-}
-
-fn getRelocDbgFileIndex(self: Dwarf) usize {
-    return self.getRelocDbgLineOff() + 5;
-}
-
-fn getRelocDbgInfoSubprogramHighPC(self: Dwarf) u32 {
-    return dbg_info_low_pc_reloc_index + self.ptrWidthBytes();
-}
-
 fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
     return actual_size +| (actual_size / ideal_factor);
 }
 
-pub fn flushModule(self: *Dwarf, pt: Zcu.PerThread) !void {
-    const comp = self.bin_file.comp;
+pub fn init(lf: *link.File, format: DW.Format) Dwarf {
+    const comp = lf.comp;
+    const gpa = comp.gpa;
     const target = comp.root_mod.resolved_target.result;
+    return .{
+        .gpa = gpa,
+        .bin_file = lf,
+        .format = format,
+        .address_size = switch (target.ptrBitWidth()) {
+            0...32 => .@"32",
+            33...64 => .@"64",
+            else => unreachable,
+        },
+        .endian = target.cpu.arch.endian(),
 
-    if (self.global_abbrev_relocs.items.len > 0) {
-        const gpa = self.allocator;
-        var arena_alloc = std.heap.ArenaAllocator.init(gpa);
-        defer arena_alloc.deinit();
-        const arena = arena_alloc.allocator();
+        .mods = .{},
+        .types = .{},
+        .navs = .{},
 
-        var dbg_info_buffer = std.ArrayList(u8).init(arena);
-        try addDbgInfoErrorSetNames(
-            pt,
-            Type.anyerror,
-            pt.zcu.intern_pool.global_error_set.getNamesFromMainThread(),
-            target,
-            &dbg_info_buffer,
+        .debug_abbrev = .{ .section = Section.init },
+        .debug_aranges = .{ .section = Section.init },
+        .debug_info = .{ .section = Section.init },
+        .debug_line = .{
+            .header = switch (target.cpu.arch) {
+                .x86_64, .aarch64 => .{
+                    .minimum_instruction_length = 1,
+                    .maximum_operations_per_instruction = 1,
+                    .default_is_stmt = true,
+                    .line_base = -5,
+                    .line_range = 14,
+                    .opcode_base = DW.LNS.set_isa + 1,
+                },
+                else => .{
+                    .minimum_instruction_length = 1,
+                    .maximum_operations_per_instruction = 1,
+                    .default_is_stmt = true,
+                    .line_base = 0,
+                    .line_range = 1,
+                    .opcode_base = DW.LNS.set_isa + 1,
+                },
+            },
+            .section = Section.init,
+        },
+        .debug_line_str = StringSection.init,
+        .debug_loclists = .{ .section = Section.init },
+        .debug_rnglists = .{ .section = Section.init },
+        .debug_str = StringSection.init,
+    };
+}
+
+pub fn reloadSectionMetadata(dwarf: *Dwarf) void {
+    if (dwarf.bin_file.cast(.elf)) |elf_file| {
+        for ([_]*Section{
+            &dwarf.debug_abbrev.section,
+            &dwarf.debug_aranges.section,
+            &dwarf.debug_info.section,
+            &dwarf.debug_line.section,
+            &dwarf.debug_line_str.section,
+            &dwarf.debug_loclists.section,
+            &dwarf.debug_rnglists.section,
+            &dwarf.debug_str.section,
+        }, [_]u32{
+            elf_file.debug_abbrev_section_index.?,
+            elf_file.debug_aranges_section_index.?,
+            elf_file.debug_info_section_index.?,
+            elf_file.debug_line_section_index.?,
+            elf_file.debug_line_str_section_index.?,
+            elf_file.debug_loclists_section_index.?,
+            elf_file.debug_rnglists_section_index.?,
+            elf_file.debug_str_section_index.?,
+        }) |sec, section_index| {
+            const shdr = &elf_file.shdrs.items[section_index];
+            sec.index = section_index;
+            sec.off = shdr.sh_offset;
+            sec.len = shdr.sh_size;
+        }
+    } else if (dwarf.bin_file.cast(.macho)) |macho_file| {
+        if (macho_file.d_sym) |*d_sym| {
+            for ([_]*Section{
+                &dwarf.debug_abbrev.section,
+                &dwarf.debug_aranges.section,
+                &dwarf.debug_info.section,
+                &dwarf.debug_line.section,
+                &dwarf.debug_line_str.section,
+                &dwarf.debug_loclists.section,
+                &dwarf.debug_rnglists.section,
+                &dwarf.debug_str.section,
+            }, [_]u8{
+                d_sym.debug_abbrev_section_index.?,
+                d_sym.debug_aranges_section_index.?,
+                d_sym.debug_info_section_index.?,
+                d_sym.debug_line_section_index.?,
+                d_sym.debug_line_str_section_index.?,
+                d_sym.debug_loclists_section_index.?,
+                d_sym.debug_rnglists_section_index.?,
+                d_sym.debug_str_section_index.?,
+            }) |sec, sect_index| {
+                const header = &d_sym.sections.items[sect_index];
+                sec.index = sect_index;
+                sec.off = header.offset;
+                sec.len = header.size;
+            }
+        } else {
+            for ([_]*Section{
+                &dwarf.debug_abbrev.section,
+                &dwarf.debug_aranges.section,
+                &dwarf.debug_info.section,
+                &dwarf.debug_line.section,
+                &dwarf.debug_line_str.section,
+                &dwarf.debug_loclists.section,
+                &dwarf.debug_rnglists.section,
+                &dwarf.debug_str.section,
+            }, [_]u8{
+                macho_file.debug_abbrev_sect_index.?,
+                macho_file.debug_aranges_sect_index.?,
+                macho_file.debug_info_sect_index.?,
+                macho_file.debug_line_sect_index.?,
+                macho_file.debug_line_str_sect_index.?,
+                macho_file.debug_loclists_sect_index.?,
+                macho_file.debug_rnglists_sect_index.?,
+                macho_file.debug_str_sect_index.?,
+            }) |sec, sect_index| {
+                const header = &macho_file.sections.items(.header)[sect_index];
+                sec.index = sect_index;
+                sec.off = header.offset;
+                sec.len = header.size;
+            }
+        }
+    }
+}
+
+pub fn initMetadata(dwarf: *Dwarf) UpdateError!void {
+    dwarf.reloadSectionMetadata();
+
+    dwarf.debug_abbrev.section.pad_to_ideal = false;
+    assert(try dwarf.debug_abbrev.section.addUnit(0, 0, dwarf) == DebugAbbrev.unit);
+    errdefer dwarf.debug_abbrev.section.popUnit();
+    assert(try dwarf.debug_abbrev.section.addEntry(DebugAbbrev.unit, dwarf) == DebugAbbrev.entry);
+
+    dwarf.debug_aranges.section.pad_to_ideal = false;
+    dwarf.debug_aranges.section.alignment = InternPool.Alignment.fromNonzeroByteUnits(@intFromEnum(dwarf.address_size) * 2);
+
+    dwarf.debug_line_str.section.pad_to_ideal = false;
+    assert(try dwarf.debug_line_str.section.addUnit(0, 0, dwarf) == StringSection.unit);
+    errdefer dwarf.debug_line_str.section.popUnit();
+
+    dwarf.debug_str.section.pad_to_ideal = false;
+    assert(try dwarf.debug_str.section.addUnit(0, 0, dwarf) == StringSection.unit);
+    errdefer dwarf.debug_str.section.popUnit();
+
+    dwarf.debug_loclists.section.pad_to_ideal = false;
+
+    dwarf.debug_rnglists.section.pad_to_ideal = false;
+}
+
+pub fn deinit(dwarf: *Dwarf) void {
+    const gpa = dwarf.gpa;
+    for (dwarf.mods.values()) |*mod_info| mod_info.deinit(gpa);
+    dwarf.mods.deinit(gpa);
+    dwarf.types.deinit(gpa);
+    dwarf.navs.deinit(gpa);
+    dwarf.debug_abbrev.section.deinit(gpa);
+    dwarf.debug_aranges.section.deinit(gpa);
+    dwarf.debug_info.section.deinit(gpa);
+    dwarf.debug_line.section.deinit(gpa);
+    dwarf.debug_line_str.deinit(gpa);
+    dwarf.debug_loclists.section.deinit(gpa);
+    dwarf.debug_rnglists.section.deinit(gpa);
+    dwarf.debug_str.deinit(gpa);
+    dwarf.* = undefined;
+}
+
+fn getUnit(dwarf: *Dwarf, mod: *Module) UpdateError!Unit.Index {
+    const mod_gop = try dwarf.mods.getOrPut(dwarf.gpa, mod);
+    const unit: Unit.Index = @enumFromInt(mod_gop.index);
+    if (!mod_gop.found_existing) {
+        errdefer _ = dwarf.mods.pop();
+        mod_gop.value_ptr.* = .{
+            .root_dir_path = undefined,
+            .dirs = .{},
+            .files = .{},
+        };
+        errdefer mod_gop.value_ptr.dirs.deinit(dwarf.gpa);
+        try mod_gop.value_ptr.dirs.putNoClobber(dwarf.gpa, unit, {});
+        assert(try dwarf.debug_aranges.section.addUnit(
+            DebugAranges.headerBytes(dwarf),
+            DebugAranges.trailerBytes(dwarf),
+            dwarf,
+        ) == unit);
+        errdefer dwarf.debug_aranges.section.popUnit();
+        assert(try dwarf.debug_info.section.addUnit(
+            DebugInfo.headerBytes(dwarf),
+            DebugInfo.trailer_bytes,
+            dwarf,
+        ) == unit);
+        errdefer dwarf.debug_info.section.popUnit();
+        assert(try dwarf.debug_line.section.addUnit(
+            DebugLine.headerBytes(dwarf, 5, 25),
+            DebugLine.trailer_bytes,
+            dwarf,
+        ) == unit);
+        errdefer dwarf.debug_line.section.popUnit();
+        assert(try dwarf.debug_loclists.section.addUnit(
+            DebugLocLists.headerBytes(dwarf),
+            DebugLocLists.trailer_bytes,
+            dwarf,
+        ) == unit);
+        errdefer dwarf.debug_loclists.section.popUnit();
+        assert(try dwarf.debug_rnglists.section.addUnit(
+            DebugRngLists.headerBytes(dwarf),
+            DebugRngLists.trailer_bytes,
+            dwarf,
+        ) == unit);
+        errdefer dwarf.debug_rnglists.section.popUnit();
+    }
+    return unit;
+}
+
+fn getUnitIfExists(dwarf: *const Dwarf, mod: *Module) ?Unit.Index {
+    return @enumFromInt(dwarf.mods.getIndex(mod) orelse return null);
+}
+
+fn getModInfo(dwarf: *Dwarf, unit: Unit.Index) *ModInfo {
+    return &dwarf.mods.values()[@intFromEnum(unit)];
+}
+
+pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index, sym_index: u32) UpdateError!?WipNav {
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+
+    const nav = ip.getNav(nav_index);
+    log.debug("initWipNav({})", .{nav.fqn.fmt(ip)});
+
+    const inst_info = nav.srcInst(ip).resolveFull(ip).?;
+    const file = zcu.fileByIndex(inst_info.file);
+
+    const unit = try dwarf.getUnit(file.mod);
+    const nav_gop = try dwarf.navs.getOrPut(dwarf.gpa, nav_index);
+    errdefer _ = dwarf.navs.pop();
+    if (!nav_gop.found_existing) nav_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
+    const nav_val = zcu.navValue(nav_index);
+    var wip_nav: WipNav = .{
+        .dwarf = dwarf,
+        .pt = pt,
+        .unit = unit,
+        .entry = nav_gop.value_ptr.*,
+        .any_children = false,
+        .func = .none,
+        .func_high_reloc = undefined,
+        .debug_info = .{},
+        .debug_line = .{},
+        .debug_loclists = .{},
+        .pending_types = .{},
+    };
+    errdefer wip_nav.deinit();
+
+    switch (ip.indexToKey(nav_val.toIntern())) {
+        else => {
+            assert(file.zir_loaded);
+            const decl_inst = file.zir.instructions.get(@intFromEnum(inst_info.inst));
+            assert(decl_inst.tag == .declaration);
+            const tree = try file.getTree(dwarf.gpa);
+            const loc = tree.tokenLocation(0, tree.nodes.items(.main_token)[decl_inst.data.declaration.src_node]);
+            assert(loc.line == zcu.navSrcLine(nav_index));
+
+            const parent_type, const accessibility: u8 = if (nav.analysis_owner.unwrap()) |cau| parent: {
+                const decl_extra = file.zir.extraData(Zir.Inst.Declaration, decl_inst.data.declaration.payload_index).data;
+                const parent_namespace_ptr = ip.namespacePtr(ip.getCau(cau).namespace);
+                break :parent .{
+                    parent_namespace_ptr.owner_type,
+                    switch (decl_extra.name) {
+                        .@"comptime",
+                        .@"usingnamespace",
+                        .unnamed_test,
+                        .decltest,
+                        => DW.ACCESS.private,
+                        _ => if (decl_extra.name.isNamedTest(file.zir))
+                            DW.ACCESS.private
+                        else if (parent_namespace_ptr.pub_decls.containsContext(nav_index, .{ .zcu = zcu }))
+                            DW.ACCESS.public
+                        else if (parent_namespace_ptr.priv_decls.containsContext(nav_index, .{ .zcu = zcu }))
+                            DW.ACCESS.private
+                        else
+                            unreachable,
+                    },
+                };
+            } else .{ zcu.fileRootType(inst_info.file), DW.ACCESS.private };
+
+            const diw = wip_nav.debug_info.writer(dwarf.gpa);
+            try uleb128(diw, @intFromEnum(AbbrevCode.decl_var));
+            try wip_nav.refType(Type.fromInterned(parent_type));
+            assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
+            try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
+            try uleb128(diw, loc.column + 1);
+            try diw.writeByte(accessibility);
+            try wip_nav.strp(nav.name.toSlice(ip));
+            try wip_nav.strp(nav.fqn.toSlice(ip));
+            const ty = nav_val.typeOf(zcu);
+            const ty_reloc_index = try wip_nav.refForward();
+            try wip_nav.exprloc(.{ .addr = .{ .sym = sym_index } });
+            try uleb128(diw, nav.status.resolved.alignment.toByteUnits() orelse
+                ty.abiAlignment(pt).toByteUnits().?);
+            const func_unit = InternPool.AnalUnit.wrap(.{ .func = nav_val.toIntern() });
+            try diw.writeByte(@intFromBool(for (if (zcu.single_exports.get(func_unit)) |export_index|
+                zcu.all_exports.items[export_index..][0..1]
+            else if (zcu.multi_exports.get(func_unit)) |export_range|
+                zcu.all_exports.items[export_range.index..][0..export_range.len]
+            else
+                &.{}) |@"export"|
+            {
+                if (@"export".exported == .nav and @"export".exported.nav == nav_index) break true;
+            } else false));
+            wip_nav.finishForward(ty_reloc_index);
+            try uleb128(diw, @intFromEnum(AbbrevCode.is_const));
+            try wip_nav.refType(ty);
+        },
+        .variable => |variable| {
+            assert(file.zir_loaded);
+            const decl_inst = file.zir.instructions.get(@intFromEnum(inst_info.inst));
+            assert(decl_inst.tag == .declaration);
+            const tree = try file.getTree(dwarf.gpa);
+            const loc = tree.tokenLocation(0, tree.nodes.items(.main_token)[decl_inst.data.declaration.src_node]);
+            assert(loc.line == zcu.navSrcLine(nav_index));
+
+            const parent_type, const accessibility: u8 = if (nav.analysis_owner.unwrap()) |cau| parent: {
+                const decl_extra = file.zir.extraData(Zir.Inst.Declaration, decl_inst.data.declaration.payload_index).data;
+                const parent_namespace_ptr = ip.namespacePtr(ip.getCau(cau).namespace);
+                break :parent .{
+                    parent_namespace_ptr.owner_type,
+                    switch (decl_extra.name) {
+                        .@"comptime",
+                        .@"usingnamespace",
+                        .unnamed_test,
+                        .decltest,
+                        => DW.ACCESS.private,
+                        _ => if (decl_extra.name.isNamedTest(file.zir))
+                            DW.ACCESS.private
+                        else if (parent_namespace_ptr.pub_decls.containsContext(nav_index, .{ .zcu = zcu }))
+                            DW.ACCESS.public
+                        else if (parent_namespace_ptr.priv_decls.containsContext(nav_index, .{ .zcu = zcu }))
+                            DW.ACCESS.private
+                        else
+                            unreachable,
+                    },
+                };
+            } else .{ zcu.fileRootType(inst_info.file), DW.ACCESS.private };
+
+            const diw = wip_nav.debug_info.writer(dwarf.gpa);
+            try uleb128(diw, @intFromEnum(AbbrevCode.decl_var));
+            try wip_nav.refType(Type.fromInterned(parent_type));
+            assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
+            try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
+            try uleb128(diw, loc.column + 1);
+            try diw.writeByte(accessibility);
+            try wip_nav.strp(nav.name.toSlice(ip));
+            try wip_nav.strp(nav.fqn.toSlice(ip));
+            const ty = Type.fromInterned(variable.ty);
+            try wip_nav.refType(ty);
+            const addr: Loc = .{ .addr = .{ .sym = sym_index } };
+            try wip_nav.exprloc(if (variable.is_threadlocal) .{ .form_tls_address = &addr } else addr);
+            try uleb128(diw, nav.status.resolved.alignment.toByteUnits() orelse
+                ty.abiAlignment(pt).toByteUnits().?);
+            const func_unit = InternPool.AnalUnit.wrap(.{ .func = nav_val.toIntern() });
+            try diw.writeByte(@intFromBool(for (if (zcu.single_exports.get(func_unit)) |export_index|
+                zcu.all_exports.items[export_index..][0..1]
+            else if (zcu.multi_exports.get(func_unit)) |export_range|
+                zcu.all_exports.items[export_range.index..][0..export_range.len]
+            else
+                &.{}) |@"export"|
+            {
+                if (@"export".exported == .nav and @"export".exported.nav == nav_index) break true;
+            } else false));
+        },
+        .func => |func| {
+            assert(file.zir_loaded);
+            const decl_inst = file.zir.instructions.get(@intFromEnum(inst_info.inst));
+            assert(decl_inst.tag == .declaration);
+            const tree = try file.getTree(dwarf.gpa);
+            const loc = tree.tokenLocation(0, tree.nodes.items(.main_token)[decl_inst.data.declaration.src_node]);
+            assert(loc.line == zcu.navSrcLine(nav_index));
+
+            const parent_type, const accessibility: u8 = if (nav.analysis_owner.unwrap()) |cau| parent: {
+                const decl_extra = file.zir.extraData(Zir.Inst.Declaration, decl_inst.data.declaration.payload_index).data;
+                const parent_namespace_ptr = ip.namespacePtr(ip.getCau(cau).namespace);
+                break :parent .{
+                    parent_namespace_ptr.owner_type,
+                    switch (decl_extra.name) {
+                        .@"comptime",
+                        .@"usingnamespace",
+                        .unnamed_test,
+                        .decltest,
+                        => DW.ACCESS.private,
+                        _ => if (decl_extra.name.isNamedTest(file.zir))
+                            DW.ACCESS.private
+                        else if (parent_namespace_ptr.pub_decls.containsContext(nav_index, .{ .zcu = zcu }))
+                            DW.ACCESS.public
+                        else if (parent_namespace_ptr.priv_decls.containsContext(nav_index, .{ .zcu = zcu }))
+                            DW.ACCESS.private
+                        else
+                            unreachable,
+                    },
+                };
+            } else .{ zcu.fileRootType(inst_info.file), DW.ACCESS.private };
+
+            const func_type = ip.indexToKey(func.ty).func_type;
+            wip_nav.func = nav_val.toIntern();
+
+            const diw = wip_nav.debug_info.writer(dwarf.gpa);
+            try uleb128(diw, @intFromEnum(AbbrevCode.decl_func));
+            try wip_nav.refType(Type.fromInterned(parent_type));
+            assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
+            try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
+            try uleb128(diw, loc.column + 1);
+            try diw.writeByte(accessibility);
+            try wip_nav.strp(nav.name.toSlice(ip));
+            try wip_nav.strp(nav.fqn.toSlice(ip));
+            try wip_nav.refType(Type.fromInterned(func_type.return_type));
+            const external_relocs = &dwarf.debug_info.section.getUnit(unit).external_relocs;
+            try external_relocs.append(dwarf.gpa, .{
+                .source_entry = wip_nav.entry,
+                .source_off = @intCast(wip_nav.debug_info.items.len),
+                .target_sym = sym_index,
+            });
+            try diw.writeByteNTimes(0, @intFromEnum(dwarf.address_size));
+            wip_nav.func_high_reloc = @intCast(external_relocs.items.len);
+            try external_relocs.append(dwarf.gpa, .{
+                .source_entry = wip_nav.entry,
+                .source_off = @intCast(wip_nav.debug_info.items.len),
+                .target_sym = sym_index,
+            });
+            try diw.writeByteNTimes(0, @intFromEnum(dwarf.address_size));
+            try uleb128(diw, nav.status.resolved.alignment.toByteUnits() orelse
+                target_info.defaultFunctionAlignment(file.mod.resolved_target.result).toByteUnits().?);
+            const func_unit = InternPool.AnalUnit.wrap(.{ .func = nav_val.toIntern() });
+            try diw.writeByte(@intFromBool(for (if (zcu.single_exports.get(func_unit)) |export_index|
+                zcu.all_exports.items[export_index..][0..1]
+            else if (zcu.multi_exports.get(func_unit)) |export_range|
+                zcu.all_exports.items[export_range.index..][0..export_range.len]
+            else
+                &.{}) |@"export"|
+            {
+                if (@"export".exported == .nav and @"export".exported.nav == nav_index) break true;
+            } else false));
+            try diw.writeByte(@intFromBool(func_type.return_type == .noreturn_type));
+
+            const dlw = wip_nav.debug_line.writer(dwarf.gpa);
+            try dlw.writeByte(DW.LNS.extended_op);
+            if (dwarf.incremental()) {
+                try uleb128(dlw, 1 + dwarf.sectionOffsetBytes());
+                try dlw.writeByte(DW.LNE.ZIG_set_decl);
+                try dwarf.debug_line.section.getUnit(wip_nav.unit).cross_section_relocs.append(dwarf.gpa, .{
+                    .source_entry = wip_nav.entry.toOptional(),
+                    .source_off = @intCast(wip_nav.debug_line.items.len),
+                    .target_sec = .debug_info,
+                    .target_unit = wip_nav.unit,
+                    .target_entry = wip_nav.entry.toOptional(),
+                });
+                try dlw.writeByteNTimes(0, dwarf.sectionOffsetBytes());
+
+                try dlw.writeByte(DW.LNS.set_column);
+                try uleb128(dlw, func.lbrace_column + 1);
+
+                try wip_nav.advancePCAndLine(func.lbrace_line, 0);
+            } else {
+                try uleb128(dlw, 1 + @intFromEnum(dwarf.address_size));
+                try dlw.writeByte(DW.LNE.set_address);
+                try dwarf.debug_line.section.getUnit(wip_nav.unit).external_relocs.append(dwarf.gpa, .{
+                    .source_entry = wip_nav.entry,
+                    .source_off = @intCast(wip_nav.debug_line.items.len),
+                    .target_sym = sym_index,
+                });
+                try dlw.writeByteNTimes(0, @intFromEnum(dwarf.address_size));
+
+                const file_gop = try dwarf.getModInfo(unit).files.getOrPut(dwarf.gpa, inst_info.file);
+                try dlw.writeByte(DW.LNS.set_file);
+                try uleb128(dlw, file_gop.index);
+
+                try dlw.writeByte(DW.LNS.set_column);
+                try uleb128(dlw, func.lbrace_column + 1);
+
+                try wip_nav.advancePCAndLine(@intCast(loc.line + func.lbrace_line), 0);
+            }
+        },
+    }
+    return wip_nav;
+}
+
+pub fn finishWipNav(
+    dwarf: *Dwarf,
+    pt: Zcu.PerThread,
+    nav_index: InternPool.Nav.Index,
+    sym: struct { index: u32, addr: u64, size: u64 },
+    wip_nav: *WipNav,
+) UpdateError!void {
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+    const nav = ip.getNav(nav_index);
+    log.debug("finishWipNav({})", .{nav.fqn.fmt(ip)});
+
+    if (wip_nav.func != .none) {
+        dwarf.debug_info.section.getUnit(wip_nav.unit).external_relocs.items[wip_nav.func_high_reloc].target_off = sym.size;
+        if (wip_nav.any_children) {
+            const diw = wip_nav.debug_info.writer(dwarf.gpa);
+            try uleb128(diw, @intFromEnum(AbbrevCode.null));
+        } else std.leb.writeUnsignedFixed(
+            AbbrevCode.decl_bytes,
+            wip_nav.debug_info.items[0..AbbrevCode.decl_bytes],
+            @intFromEnum(AbbrevCode.decl_func_empty),
         );
 
-        const di_atom_index = try self.createAtom(.di_atom);
-        log.debug("updateNavDebugInfoAllocation in flushModule", .{});
-        try self.updateNavDebugInfoAllocation(di_atom_index, @intCast(dbg_info_buffer.items.len));
-        log.debug("writeNavDebugInfo in flushModule", .{});
-        try self.writeNavDebugInfo(di_atom_index, dbg_info_buffer.items);
+        var aranges_entry = [1]u8{0} ** (8 + 8);
+        try dwarf.debug_aranges.section.getUnit(wip_nav.unit).external_relocs.append(dwarf.gpa, .{
+            .source_entry = wip_nav.entry,
+            .target_sym = sym.index,
+        });
+        dwarf.writeInt(aranges_entry[0..@intFromEnum(dwarf.address_size)], 0);
+        dwarf.writeInt(aranges_entry[@intFromEnum(dwarf.address_size)..][0..@intFromEnum(dwarf.address_size)], sym.size);
 
-        const file_pos = if (self.bin_file.cast(.elf)) |elf_file| pos: {
-            const debug_info_sect = &elf_file.shdrs.items[elf_file.debug_info_section_index.?];
-            break :pos debug_info_sect.sh_offset;
-        } else if (self.bin_file.cast(.macho)) |macho_file| pos: {
-            if (macho_file.base.isRelocatable()) {
-                const debug_info_sect = &macho_file.sections.items(.header)[macho_file.debug_info_sect_index.?];
-                break :pos debug_info_sect.offset;
-            } else {
-                const d_sym = macho_file.getDebugSymbols().?;
-                const debug_info_sect = d_sym.getSectionPtr(d_sym.debug_info_section_index.?);
-                break :pos debug_info_sect.offset;
-            }
-        } else if (self.bin_file.cast(.wasm)) |_|
-            // for wasm, the offset is always 0 as we write to memory first
-            0
-        else
-            unreachable;
+        @memset(aranges_entry[0..@intFromEnum(dwarf.address_size)], 0);
+        try dwarf.debug_aranges.section.replaceEntry(
+            wip_nav.unit,
+            wip_nav.entry,
+            dwarf,
+            aranges_entry[0 .. @intFromEnum(dwarf.address_size) * 2],
+        );
 
-        var buf: [@sizeOf(u32)]u8 = undefined;
-        mem.writeInt(u32, &buf, self.getAtom(.di_atom, di_atom_index).off, target.cpu.arch.endian());
+        try dwarf.debug_rnglists.section.getUnit(wip_nav.unit).external_relocs.appendSlice(dwarf.gpa, &.{
+            .{
+                .source_entry = wip_nav.entry,
+                .source_off = 1,
+                .target_sym = sym.index,
+            },
+            .{
+                .source_entry = wip_nav.entry,
+                .source_off = 1 + @intFromEnum(dwarf.address_size),
+                .target_sym = sym.index,
+                .target_off = sym.size,
+            },
+        });
+        try dwarf.debug_rnglists.section.replaceEntry(
+            wip_nav.unit,
+            wip_nav.entry,
+            dwarf,
+            ([1]u8{DW.RLE.start_end} ++ [1]u8{0} ** (8 + 8))[0 .. 1 + @intFromEnum(dwarf.address_size) + @intFromEnum(dwarf.address_size)],
+        );
+    }
 
-        while (self.global_abbrev_relocs.popOrNull()) |reloc| {
-            const atom = self.getAtom(.di_atom, reloc.atom_index);
-            if (self.bin_file.cast(.elf)) |elf_file| {
-                try elf_file.base.file.?.pwriteAll(&buf, file_pos + atom.off + reloc.offset);
-            } else if (self.bin_file.cast(.macho)) |macho_file| {
-                if (macho_file.base.isRelocatable()) {
-                    try macho_file.base.file.?.pwriteAll(&buf, file_pos + atom.off + reloc.offset);
-                } else {
-                    const d_sym = macho_file.getDebugSymbols().?;
-                    try d_sym.file.pwriteAll(&buf, file_pos + atom.off + reloc.offset);
+    try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.items);
+    if (wip_nav.debug_line.items.len > 0) {
+        const dlw = wip_nav.debug_line.writer(dwarf.gpa);
+        try dlw.writeByte(DW.LNS.extended_op);
+        try uleb128(dlw, 1);
+        try dlw.writeByte(DW.LNE.end_sequence);
+        try dwarf.debug_line.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_line.items);
+    }
+    try dwarf.debug_loclists.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_loclists.items);
+
+    try wip_nav.flush();
+}
+
+pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) UpdateError!void {
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+    const nav_val = zcu.navValue(nav_index);
+
+    const nav = ip.getNav(nav_index);
+    log.debug("updateComptimeNav({})", .{nav.fqn.fmt(ip)});
+
+    const inst_info = nav.srcInst(ip).resolveFull(ip).?;
+    const file = zcu.fileByIndex(inst_info.file);
+    assert(file.zir_loaded);
+    const decl_inst = file.zir.instructions.get(@intFromEnum(inst_info.inst));
+    assert(decl_inst.tag == .declaration);
+    const tree = try file.getTree(dwarf.gpa);
+    const loc = tree.tokenLocation(0, tree.nodes.items(.main_token)[decl_inst.data.declaration.src_node]);
+    assert(loc.line == zcu.navSrcLine(nav_index));
+
+    const unit = try dwarf.getUnit(file.mod);
+    var wip_nav: WipNav = .{
+        .dwarf = dwarf,
+        .pt = pt,
+        .unit = unit,
+        .entry = undefined,
+        .any_children = false,
+        .func = .none,
+        .func_high_reloc = undefined,
+        .debug_info = .{},
+        .debug_line = .{},
+        .debug_loclists = .{},
+        .pending_types = .{},
+    };
+    defer wip_nav.deinit();
+
+    const nav_gop = try dwarf.navs.getOrPut(dwarf.gpa, nav_index);
+    errdefer _ = dwarf.navs.pop();
+    switch (ip.indexToKey(nav_val.toIntern())) {
+        .struct_type => done: {
+            const loaded_struct = ip.loadStructType(nav_val.toIntern());
+
+            const parent_type, const accessibility: u8 = if (nav.analysis_owner.unwrap()) |cau| parent: {
+                const parent_namespace_ptr = ip.namespacePtr(ip.getCau(cau).namespace);
+                break :parent .{
+                    parent_namespace_ptr.owner_type,
+                    if (parent_namespace_ptr.pub_decls.containsContext(nav_index, .{ .zcu = zcu }))
+                        DW.ACCESS.public
+                    else if (parent_namespace_ptr.priv_decls.containsContext(nav_index, .{ .zcu = zcu }))
+                        DW.ACCESS.private
+                    else
+                        unreachable,
+                };
+            } else .{ zcu.fileRootType(inst_info.file), DW.ACCESS.private };
+
+            decl_struct: {
+                if (loaded_struct.zir_index == .none) break :decl_struct;
+
+                const value_inst = value_inst: {
+                    const decl_extra = file.zir.extraData(Zir.Inst.Declaration, decl_inst.data.declaration.payload_index);
+                    const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
+                    const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
+                    if (break_inst.tag != .break_inline) break :value_inst null;
+                    assert(file.zir.extraData(Zir.Inst.Break, break_inst.data.@"break".payload_index).data.block_inst == inst_info.inst);
+                    var value_inst = break_inst.data.@"break".operand.toIndex();
+                    while (value_inst) |value_inst_index| switch (file.zir.instructions.items(.tag)[@intFromEnum(value_inst_index)]) {
+                        else => break,
+                        .as_node => value_inst = file.zir.extraData(
+                            Zir.Inst.As,
+                            file.zir.instructions.items(.data)[@intFromEnum(value_inst_index)].pl_node.payload_index,
+                        ).data.operand.toIndex(),
+                    };
+                    break :value_inst value_inst;
+                };
+                const type_inst_info = loaded_struct.zir_index.unwrap().?.resolveFull(ip).?;
+                if (type_inst_info.inst != value_inst) break :decl_struct;
+
+                const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
+                if (type_gop.found_existing) nav_gop.value_ptr.* = type_gop.value_ptr.* else {
+                    if (!nav_gop.found_existing) nav_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
+                    type_gop.value_ptr.* = nav_gop.value_ptr.*;
                 }
-            } else if (self.bin_file.cast(.wasm)) |wasm_file| {
-                _ = wasm_file;
-                // const debug_info = wasm_file.getAtomPtr(wasm_file.debug_info_atom.?).code;
-                // debug_info.items[atom.off + reloc.offset ..][0..buf.len].* = buf;
-            } else unreachable;
-        }
+                wip_nav.entry = nav_gop.value_ptr.*;
+                const diw = wip_nav.debug_info.writer(dwarf.gpa);
+
+                switch (loaded_struct.layout) {
+                    .auto, .@"extern" => {
+                        try uleb128(diw, @intFromEnum(@as(AbbrevCode, if (loaded_struct.field_types.len == 0)
+                            .decl_namespace_struct
+                        else
+                            .decl_struct)));
+                        try wip_nav.refType(Type.fromInterned(parent_type));
+                        assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
+                        try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
+                        try uleb128(diw, loc.column + 1);
+                        try diw.writeByte(accessibility);
+                        try wip_nav.strp(nav.name.toSlice(ip));
+                        if (loaded_struct.field_types.len == 0) try diw.writeByte(@intFromBool(false)) else {
+                            try uleb128(diw, nav_val.toType().abiSize(pt));
+                            try uleb128(diw, nav_val.toType().abiAlignment(pt).toByteUnits().?);
+                            for (0..loaded_struct.field_types.len) |field_index| {
+                                const is_comptime = loaded_struct.fieldIsComptime(ip, field_index);
+                                try uleb128(diw, @intFromEnum(@as(AbbrevCode, if (is_comptime) .struct_field_comptime else .struct_field)));
+                                if (loaded_struct.fieldName(ip, field_index).unwrap()) |field_name| try wip_nav.strp(field_name.toSlice(ip)) else {
+                                    const field_name = try std.fmt.allocPrint(dwarf.gpa, "{d}", .{field_index});
+                                    defer dwarf.gpa.free(field_name);
+                                    try wip_nav.strp(field_name);
+                                }
+                                const field_type = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
+                                try wip_nav.refType(field_type);
+                                if (!is_comptime) {
+                                    try uleb128(diw, loaded_struct.offsets.get(ip)[field_index]);
+                                    try uleb128(diw, loaded_struct.fieldAlign(ip, field_index).toByteUnits() orelse
+                                        field_type.abiAlignment(pt).toByteUnits().?);
+                                }
+                            }
+                            try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                        }
+                    },
+                    .@"packed" => {
+                        try uleb128(diw, @intFromEnum(AbbrevCode.decl_packed_struct));
+                        try wip_nav.refType(Type.fromInterned(parent_type));
+                        assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
+                        try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
+                        try uleb128(diw, loc.column + 1);
+                        try diw.writeByte(accessibility);
+                        try wip_nav.strp(nav.name.toSlice(ip));
+                        try wip_nav.refType(Type.fromInterned(loaded_struct.backingIntTypeUnordered(ip)));
+                        var field_bit_offset: u16 = 0;
+                        for (0..loaded_struct.field_types.len) |field_index| {
+                            try uleb128(diw, @intFromEnum(@as(AbbrevCode, .packed_struct_field)));
+                            try wip_nav.strp(loaded_struct.fieldName(ip, field_index).unwrap().?.toSlice(ip));
+                            const field_type = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
+                            try wip_nav.refType(field_type);
+                            try uleb128(diw, field_bit_offset);
+                            field_bit_offset += @intCast(field_type.bitSize(pt));
+                        }
+                        try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                    },
+                }
+                break :done;
+            }
+
+            if (!nav_gop.found_existing) nav_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
+            wip_nav.entry = nav_gop.value_ptr.*;
+            const diw = wip_nav.debug_info.writer(dwarf.gpa);
+            try uleb128(diw, @intFromEnum(AbbrevCode.decl_alias));
+            try wip_nav.refType(Type.fromInterned(parent_type));
+            assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
+            try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
+            try uleb128(diw, loc.column + 1);
+            try diw.writeByte(accessibility);
+            try wip_nav.strp(nav.name.toSlice(ip));
+            try wip_nav.refType(nav_val.toType());
+        },
+        .enum_type => done: {
+            const loaded_enum = ip.loadEnumType(nav_val.toIntern());
+
+            const parent_type, const accessibility: u8 = if (nav.analysis_owner.unwrap()) |cau| parent: {
+                const parent_namespace_ptr = ip.namespacePtr(ip.getCau(cau).namespace);
+                break :parent .{
+                    parent_namespace_ptr.owner_type,
+                    if (parent_namespace_ptr.pub_decls.containsContext(nav_index, .{ .zcu = zcu }))
+                        DW.ACCESS.public
+                    else if (parent_namespace_ptr.priv_decls.containsContext(nav_index, .{ .zcu = zcu }))
+                        DW.ACCESS.private
+                    else
+                        unreachable,
+                };
+            } else .{ zcu.fileRootType(inst_info.file), DW.ACCESS.private };
+
+            decl_enum: {
+                if (loaded_enum.zir_index == .none) break :decl_enum;
+
+                const value_inst = value_inst: {
+                    const decl_extra = file.zir.extraData(Zir.Inst.Declaration, decl_inst.data.declaration.payload_index);
+                    const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
+                    const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
+                    if (break_inst.tag != .break_inline) break :value_inst null;
+                    assert(file.zir.extraData(Zir.Inst.Break, break_inst.data.@"break".payload_index).data.block_inst == inst_info.inst);
+                    var value_inst = break_inst.data.@"break".operand.toIndex();
+                    while (value_inst) |value_inst_index| switch (file.zir.instructions.items(.tag)[@intFromEnum(value_inst_index)]) {
+                        else => break,
+                        .as_node => value_inst = file.zir.extraData(
+                            Zir.Inst.As,
+                            file.zir.instructions.items(.data)[@intFromEnum(value_inst_index)].pl_node.payload_index,
+                        ).data.operand.toIndex(),
+                    };
+                    break :value_inst value_inst;
+                };
+                const type_inst_info = loaded_enum.zir_index.unwrap().?.resolveFull(ip).?;
+                if (type_inst_info.inst != value_inst) break :decl_enum;
+
+                const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
+                if (type_gop.found_existing) nav_gop.value_ptr.* = type_gop.value_ptr.* else {
+                    if (!nav_gop.found_existing) nav_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
+                    type_gop.value_ptr.* = nav_gop.value_ptr.*;
+                }
+                wip_nav.entry = nav_gop.value_ptr.*;
+                const diw = wip_nav.debug_info.writer(dwarf.gpa);
+                try uleb128(diw, @intFromEnum(AbbrevCode.decl_enum));
+                try wip_nav.refType(Type.fromInterned(parent_type));
+                assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
+                try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
+                try uleb128(diw, loc.column + 1);
+                try diw.writeByte(accessibility);
+                try wip_nav.strp(nav.name.toSlice(ip));
+                try wip_nav.refType(Type.fromInterned(loaded_enum.tag_ty));
+                for (0..loaded_enum.names.len) |field_index| {
+                    try wip_nav.enumConstValue(loaded_enum, .{
+                        .signed = .signed_enum_field,
+                        .unsigned = .unsigned_enum_field,
+                    }, field_index);
+                    try wip_nav.strp(loaded_enum.names.get(ip)[field_index].toSlice(ip));
+                }
+                try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                break :done;
+            }
+
+            if (!nav_gop.found_existing) nav_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
+            wip_nav.entry = nav_gop.value_ptr.*;
+            const diw = wip_nav.debug_info.writer(dwarf.gpa);
+            try uleb128(diw, @intFromEnum(AbbrevCode.decl_alias));
+            try wip_nav.refType(Type.fromInterned(parent_type));
+            assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
+            try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
+            try uleb128(diw, loc.column + 1);
+            try diw.writeByte(accessibility);
+            try wip_nav.strp(nav.name.toSlice(ip));
+            try wip_nav.refType(nav_val.toType());
+        },
+        .union_type => done: {
+            const loaded_union = ip.loadUnionType(nav_val.toIntern());
+
+            const parent_type, const accessibility: u8 = if (nav.analysis_owner.unwrap()) |cau| parent: {
+                const parent_namespace_ptr = ip.namespacePtr(ip.getCau(cau).namespace);
+                break :parent .{
+                    parent_namespace_ptr.owner_type,
+                    if (parent_namespace_ptr.pub_decls.containsContext(nav_index, .{ .zcu = zcu }))
+                        DW.ACCESS.public
+                    else if (parent_namespace_ptr.priv_decls.containsContext(nav_index, .{ .zcu = zcu }))
+                        DW.ACCESS.private
+                    else
+                        unreachable,
+                };
+            } else .{ zcu.fileRootType(inst_info.file), DW.ACCESS.private };
+
+            decl_union: {
+                const value_inst = value_inst: {
+                    const decl_extra = file.zir.extraData(Zir.Inst.Declaration, decl_inst.data.declaration.payload_index);
+                    const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
+                    const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
+                    if (break_inst.tag != .break_inline) break :value_inst null;
+                    assert(file.zir.extraData(Zir.Inst.Break, break_inst.data.@"break".payload_index).data.block_inst == inst_info.inst);
+                    var value_inst = break_inst.data.@"break".operand.toIndex();
+                    while (value_inst) |value_inst_index| switch (file.zir.instructions.items(.tag)[@intFromEnum(value_inst_index)]) {
+                        else => break,
+                        .as_node => value_inst = file.zir.extraData(
+                            Zir.Inst.As,
+                            file.zir.instructions.items(.data)[@intFromEnum(value_inst_index)].pl_node.payload_index,
+                        ).data.operand.toIndex(),
+                    };
+                    break :value_inst value_inst;
+                };
+                const type_inst_info = loaded_union.zir_index.resolveFull(ip).?;
+                if (type_inst_info.inst != value_inst) break :decl_union;
+
+                const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
+                if (type_gop.found_existing) nav_gop.value_ptr.* = type_gop.value_ptr.* else {
+                    if (!nav_gop.found_existing) nav_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
+                    type_gop.value_ptr.* = nav_gop.value_ptr.*;
+                }
+                wip_nav.entry = nav_gop.value_ptr.*;
+                const diw = wip_nav.debug_info.writer(dwarf.gpa);
+                try uleb128(diw, @intFromEnum(AbbrevCode.decl_union));
+                try wip_nav.refType(Type.fromInterned(parent_type));
+                assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
+                try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
+                try uleb128(diw, loc.column + 1);
+                try diw.writeByte(accessibility);
+                try wip_nav.strp(nav.name.toSlice(ip));
+                const union_layout = pt.getUnionLayout(loaded_union);
+                try uleb128(diw, union_layout.abi_size);
+                try uleb128(diw, union_layout.abi_align.toByteUnits().?);
+                const loaded_tag = loaded_union.loadTagType(ip);
+                if (loaded_union.hasTag(ip)) {
+                    try uleb128(diw, @intFromEnum(AbbrevCode.tagged_union));
+                    try wip_nav.infoSectionOffset(
+                        .debug_info,
+                        wip_nav.unit,
+                        wip_nav.entry,
+                        @intCast(wip_nav.debug_info.items.len + dwarf.sectionOffsetBytes()),
+                    );
+                    {
+                        try uleb128(diw, @intFromEnum(AbbrevCode.generated_field));
+                        try wip_nav.strp("tag");
+                        try wip_nav.refType(Type.fromInterned(loaded_union.enum_tag_ty));
+                        try uleb128(diw, union_layout.tagOffset());
+
+                        for (0..loaded_union.field_types.len) |field_index| {
+                            try wip_nav.enumConstValue(loaded_tag, .{
+                                .signed = .signed_tagged_union_field,
+                                .unsigned = .unsigned_tagged_union_field,
+                            }, field_index);
+                            {
+                                try uleb128(diw, @intFromEnum(AbbrevCode.struct_field));
+                                try wip_nav.strp(loaded_tag.names.get(ip)[field_index].toSlice(ip));
+                                const field_type = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
+                                try wip_nav.refType(field_type);
+                                try uleb128(diw, union_layout.payloadOffset());
+                                try uleb128(diw, loaded_union.fieldAlign(ip, field_index).toByteUnits() orelse
+                                    if (field_type.isNoReturn(zcu)) 1 else field_type.abiAlignment(pt).toByteUnits().?);
+                            }
+                            try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                        }
+                    }
+                    try uleb128(diw, @intFromEnum(AbbrevCode.null));
+
+                    if (ip.indexToKey(loaded_union.enum_tag_ty).enum_type == .generated_tag)
+                        try wip_nav.pending_types.append(dwarf.gpa, loaded_union.enum_tag_ty);
+                } else for (0..loaded_union.field_types.len) |field_index| {
+                    try uleb128(diw, @intFromEnum(AbbrevCode.untagged_union_field));
+                    try wip_nav.strp(loaded_tag.names.get(ip)[field_index].toSlice(ip));
+                    const field_type = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
+                    try wip_nav.refType(field_type);
+                    try uleb128(diw, loaded_union.fieldAlign(ip, field_index).toByteUnits() orelse
+                        field_type.abiAlignment(pt).toByteUnits().?);
+                }
+                try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                break :done;
+            }
+
+            if (!nav_gop.found_existing) nav_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
+            wip_nav.entry = nav_gop.value_ptr.*;
+            const diw = wip_nav.debug_info.writer(dwarf.gpa);
+            try uleb128(diw, @intFromEnum(AbbrevCode.decl_alias));
+            try wip_nav.refType(Type.fromInterned(parent_type));
+            assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
+            try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
+            try uleb128(diw, loc.column + 1);
+            try diw.writeByte(accessibility);
+            try wip_nav.strp(nav.name.toSlice(ip));
+            try wip_nav.refType(nav_val.toType());
+        },
+        .opaque_type => done: {
+            const loaded_opaque = ip.loadOpaqueType(nav_val.toIntern());
+
+            const parent_type, const accessibility: u8 = if (nav.analysis_owner.unwrap()) |cau| parent: {
+                const parent_namespace_ptr = ip.namespacePtr(ip.getCau(cau).namespace);
+                break :parent .{
+                    parent_namespace_ptr.owner_type,
+                    if (parent_namespace_ptr.pub_decls.containsContext(nav_index, .{ .zcu = zcu }))
+                        DW.ACCESS.public
+                    else if (parent_namespace_ptr.priv_decls.containsContext(nav_index, .{ .zcu = zcu }))
+                        DW.ACCESS.private
+                    else
+                        unreachable,
+                };
+            } else .{ zcu.fileRootType(inst_info.file), DW.ACCESS.private };
+
+            decl_opaque: {
+                const value_inst = value_inst: {
+                    const decl_extra = file.zir.extraData(Zir.Inst.Declaration, decl_inst.data.declaration.payload_index);
+                    const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
+                    const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
+                    if (break_inst.tag != .break_inline) break :value_inst null;
+                    assert(file.zir.extraData(Zir.Inst.Break, break_inst.data.@"break".payload_index).data.block_inst == inst_info.inst);
+                    var value_inst = break_inst.data.@"break".operand.toIndex();
+                    while (value_inst) |value_inst_index| switch (file.zir.instructions.items(.tag)[@intFromEnum(value_inst_index)]) {
+                        else => break,
+                        .as_node => value_inst = file.zir.extraData(
+                            Zir.Inst.As,
+                            file.zir.instructions.items(.data)[@intFromEnum(value_inst_index)].pl_node.payload_index,
+                        ).data.operand.toIndex(),
+                    };
+                    break :value_inst value_inst;
+                };
+                const type_inst_info = loaded_opaque.zir_index.resolveFull(ip).?;
+                if (type_inst_info.inst != value_inst) break :decl_opaque;
+
+                const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
+                if (type_gop.found_existing) nav_gop.value_ptr.* = type_gop.value_ptr.* else {
+                    if (!nav_gop.found_existing) nav_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
+                    type_gop.value_ptr.* = nav_gop.value_ptr.*;
+                }
+                wip_nav.entry = nav_gop.value_ptr.*;
+                const diw = wip_nav.debug_info.writer(dwarf.gpa);
+                try uleb128(diw, @intFromEnum(AbbrevCode.decl_namespace_struct));
+                try wip_nav.refType(Type.fromInterned(parent_type));
+                assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
+                try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
+                try uleb128(diw, loc.column + 1);
+                try diw.writeByte(accessibility);
+                try wip_nav.strp(nav.name.toSlice(ip));
+                try diw.writeByte(@intFromBool(false));
+                break :done;
+            }
+
+            if (!nav_gop.found_existing) nav_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
+            wip_nav.entry = nav_gop.value_ptr.*;
+            const diw = wip_nav.debug_info.writer(dwarf.gpa);
+            try uleb128(diw, @intFromEnum(AbbrevCode.decl_alias));
+            try wip_nav.refType(Type.fromInterned(parent_type));
+            assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
+            try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
+            try uleb128(diw, loc.column + 1);
+            try diw.writeByte(accessibility);
+            try wip_nav.strp(nav.name.toSlice(ip));
+            try wip_nav.refType(nav_val.toType());
+        },
+        else => {
+            _ = dwarf.navs.pop();
+            return;
+        },
     }
+    try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.items);
+    try dwarf.debug_loclists.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_loclists.items);
+    try wip_nav.flush();
 }
 
-fn addDIFile(self: *Dwarf, zcu: *Zcu, nav_index: InternPool.Nav.Index) !u28 {
-    const file_scope = zcu.navFileScope(nav_index);
-    const gop = try self.di_files.getOrPut(self.allocator, file_scope);
-    if (!gop.found_existing) {
-        if (self.bin_file.cast(.elf)) |elf_file| {
-            elf_file.markDirty(elf_file.debug_line_section_index.?);
-        } else if (self.bin_file.cast(.macho)) |macho_file| {
-            if (macho_file.base.isRelocatable()) {
-                macho_file.markDirty(macho_file.debug_line_sect_index.?);
+fn updateType(
+    dwarf: *Dwarf,
+    pt: Zcu.PerThread,
+    type_index: InternPool.Index,
+    pending_types: *std.ArrayListUnmanaged(InternPool.Index),
+) UpdateError!void {
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+    const ty = Type.fromInterned(type_index);
+    switch (type_index) {
+        .generic_poison_type => log.debug("updateType({s})", .{"anytype"}),
+        else => log.debug("updateType({})", .{ty.fmt(pt)}),
+    }
+
+    var wip_nav: WipNav = .{
+        .dwarf = dwarf,
+        .pt = pt,
+        .unit = .main,
+        .entry = dwarf.types.get(type_index).?,
+        .any_children = false,
+        .func = .none,
+        .func_high_reloc = undefined,
+        .debug_info = .{},
+        .debug_line = .{},
+        .debug_loclists = .{},
+        .pending_types = pending_types.*,
+    };
+    defer {
+        pending_types.* = wip_nav.pending_types;
+        wip_nav.pending_types = .{};
+        wip_nav.deinit();
+    }
+    const diw = wip_nav.debug_info.writer(dwarf.gpa);
+    const name = switch (type_index) {
+        .generic_poison_type => "",
+        else => try std.fmt.allocPrint(dwarf.gpa, "{}", .{ty.fmt(pt)}),
+    };
+    defer dwarf.gpa.free(name);
+
+    switch (ip.indexToKey(type_index)) {
+        .int_type => |int_type| {
+            try uleb128(diw, @intFromEnum(AbbrevCode.numeric_type));
+            try wip_nav.strp(name);
+            try diw.writeByte(switch (int_type.signedness) {
+                inline .signed, .unsigned => |signedness| @field(DW.ATE, @tagName(signedness)),
+            });
+            try uleb128(diw, int_type.bits);
+            try uleb128(diw, ty.abiSize(pt));
+            try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+        },
+        .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
+            .One, .Many, .C => {
+                const ptr_child_type = Type.fromInterned(ptr_type.child);
+                try uleb128(diw, @intFromEnum(AbbrevCode.ptr_type));
+                try wip_nav.strp(name);
+                try uleb128(diw, ptr_type.flags.alignment.toByteUnits() orelse
+                    ptr_child_type.abiAlignment(pt).toByteUnits().?);
+                try diw.writeByte(@intFromEnum(ptr_type.flags.address_space));
+                if (ptr_type.flags.is_const or ptr_type.flags.is_volatile) try wip_nav.infoSectionOffset(
+                    .debug_info,
+                    wip_nav.unit,
+                    wip_nav.entry,
+                    @intCast(wip_nav.debug_info.items.len + dwarf.sectionOffsetBytes()),
+                ) else try wip_nav.refType(ptr_child_type);
+                if (ptr_type.flags.is_const) {
+                    try uleb128(diw, @intFromEnum(AbbrevCode.is_const));
+                    if (ptr_type.flags.is_volatile) try wip_nav.infoSectionOffset(
+                        .debug_info,
+                        wip_nav.unit,
+                        wip_nav.entry,
+                        @intCast(wip_nav.debug_info.items.len + dwarf.sectionOffsetBytes()),
+                    ) else try wip_nav.refType(ptr_child_type);
+                }
+                if (ptr_type.flags.is_volatile) {
+                    try uleb128(diw, @intFromEnum(AbbrevCode.is_volatile));
+                    try wip_nav.refType(ptr_child_type);
+                }
+            },
+            .Slice => {
+                try uleb128(diw, @intFromEnum(AbbrevCode.struct_type));
+                try wip_nav.strp(name);
+                try uleb128(diw, ty.abiSize(pt));
+                try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+                try uleb128(diw, @intFromEnum(AbbrevCode.generated_field));
+                try wip_nav.strp("ptr");
+                const ptr_field_type = ty.slicePtrFieldType(zcu);
+                try wip_nav.refType(ptr_field_type);
+                try uleb128(diw, 0);
+                try uleb128(diw, @intFromEnum(AbbrevCode.generated_field));
+                try wip_nav.strp("len");
+                const len_field_type = Type.usize;
+                try wip_nav.refType(len_field_type);
+                try uleb128(diw, len_field_type.abiAlignment(pt).forward(ptr_field_type.abiSize(pt)));
+                try uleb128(diw, @intFromEnum(AbbrevCode.null));
+            },
+        },
+        inline .array_type, .vector_type => |array_type, ty_tag| {
+            try uleb128(diw, @intFromEnum(AbbrevCode.array_type));
+            try wip_nav.strp(name);
+            try wip_nav.refType(Type.fromInterned(array_type.child));
+            try diw.writeByte(@intFromBool(ty_tag == .vector_type));
+            try uleb128(diw, @intFromEnum(AbbrevCode.array_index));
+            try wip_nav.refType(Type.usize);
+            try uleb128(diw, array_type.len);
+            try uleb128(diw, @intFromEnum(AbbrevCode.null));
+        },
+        .opt_type => |opt_child_type_index| {
+            const opt_child_type = Type.fromInterned(opt_child_type_index);
+            try uleb128(diw, @intFromEnum(AbbrevCode.union_type));
+            try wip_nav.strp(name);
+            try uleb128(diw, ty.abiSize(pt));
+            try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+            if (opt_child_type.isNoReturn(zcu)) {
+                try uleb128(diw, @intFromEnum(AbbrevCode.generated_field));
+                try wip_nav.strp("null");
+                try wip_nav.refType(Type.null);
+                try uleb128(diw, 0);
             } else {
-                const d_sym = macho_file.getDebugSymbols().?;
-                d_sym.markDirty(d_sym.debug_line_section_index.?, macho_file);
+                try uleb128(diw, @intFromEnum(AbbrevCode.tagged_union));
+                try wip_nav.infoSectionOffset(
+                    .debug_info,
+                    wip_nav.unit,
+                    wip_nav.entry,
+                    @intCast(wip_nav.debug_info.items.len + dwarf.sectionOffsetBytes()),
+                );
+                {
+                    try uleb128(diw, @intFromEnum(AbbrevCode.generated_field));
+                    try wip_nav.strp("has_value");
+                    const repr: enum { unpacked, error_set, pointer } = switch (opt_child_type_index) {
+                        .anyerror_type => .error_set,
+                        else => switch (ip.indexToKey(opt_child_type_index)) {
+                            else => .unpacked,
+                            .error_set_type, .inferred_error_set_type => .error_set,
+                            .ptr_type => |ptr_type| if (ptr_type.flags.is_allowzero) .unpacked else .pointer,
+                        },
+                    };
+                    switch (repr) {
+                        .unpacked => {
+                            try wip_nav.refType(Type.bool);
+                            try uleb128(diw, if (opt_child_type.hasRuntimeBits(pt))
+                                opt_child_type.abiSize(pt)
+                            else
+                                0);
+                        },
+                        .error_set => {
+                            try wip_nav.refType(Type.fromInterned(try pt.intern(.{ .int_type = .{
+                                .signedness = .unsigned,
+                                .bits = pt.zcu.errorSetBits(),
+                            } })));
+                            try uleb128(diw, 0);
+                        },
+                        .pointer => {
+                            try wip_nav.refType(Type.usize);
+                            try uleb128(diw, 0);
+                        },
+                    }
+
+                    try uleb128(diw, @intFromEnum(AbbrevCode.unsigned_tagged_union_field));
+                    try uleb128(diw, 0);
+                    {
+                        try uleb128(diw, @intFromEnum(AbbrevCode.generated_field));
+                        try wip_nav.strp("null");
+                        try wip_nav.refType(Type.null);
+                        try uleb128(diw, 0);
+                    }
+                    try uleb128(diw, @intFromEnum(AbbrevCode.null));
+
+                    try uleb128(diw, @intFromEnum(AbbrevCode.tagged_union_default_field));
+                    {
+                        try uleb128(diw, @intFromEnum(AbbrevCode.generated_field));
+                        try wip_nav.strp("?");
+                        try wip_nav.refType(opt_child_type);
+                        try uleb128(diw, 0);
+                    }
+                    try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                }
+                try uleb128(diw, @intFromEnum(AbbrevCode.null));
             }
-        } else if (self.bin_file.cast(.wasm)) |_| {} else unreachable;
+            try uleb128(diw, @intFromEnum(AbbrevCode.null));
+        },
+        .anyframe_type => unreachable,
+        .error_union_type => |error_union_type| {
+            const error_union_error_set_type = Type.fromInterned(error_union_type.error_set_type);
+            const error_union_payload_type = Type.fromInterned(error_union_type.payload_type);
+            const error_union_error_set_offset = codegen.errUnionErrorOffset(error_union_payload_type, pt);
+            const error_union_payload_offset = codegen.errUnionPayloadOffset(error_union_payload_type, pt);
+
+            try uleb128(diw, @intFromEnum(AbbrevCode.union_type));
+            try wip_nav.strp(name);
+            try uleb128(diw, ty.abiSize(pt));
+            try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+            {
+                try uleb128(diw, @intFromEnum(AbbrevCode.tagged_union));
+                try wip_nav.infoSectionOffset(
+                    .debug_info,
+                    wip_nav.unit,
+                    wip_nav.entry,
+                    @intCast(wip_nav.debug_info.items.len + dwarf.sectionOffsetBytes()),
+                );
+                {
+                    try uleb128(diw, @intFromEnum(AbbrevCode.generated_field));
+                    try wip_nav.strp("is_error");
+                    try wip_nav.refType(Type.fromInterned(try pt.intern(.{ .int_type = .{
+                        .signedness = .unsigned,
+                        .bits = pt.zcu.errorSetBits(),
+                    } })));
+                    try uleb128(diw, error_union_error_set_offset);
+
+                    try uleb128(diw, @intFromEnum(AbbrevCode.unsigned_tagged_union_field));
+                    try uleb128(diw, 0);
+                    {
+                        try uleb128(diw, @intFromEnum(AbbrevCode.generated_field));
+                        try wip_nav.strp("value");
+                        try wip_nav.refType(error_union_payload_type);
+                        try uleb128(diw, error_union_payload_offset);
+                    }
+                    try uleb128(diw, @intFromEnum(AbbrevCode.null));
+
+                    try uleb128(diw, @intFromEnum(AbbrevCode.tagged_union_default_field));
+                    {
+                        try uleb128(diw, @intFromEnum(AbbrevCode.generated_field));
+                        try wip_nav.strp("error");
+                        try wip_nav.refType(error_union_error_set_type);
+                        try uleb128(diw, error_union_error_set_offset);
+                    }
+                    try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                }
+                try uleb128(diw, @intFromEnum(AbbrevCode.null));
+            }
+            try uleb128(diw, @intFromEnum(AbbrevCode.null));
+        },
+        .simple_type => |simple_type| switch (simple_type) {
+            .f16,
+            .f32,
+            .f64,
+            .f80,
+            .f128,
+            .usize,
+            .isize,
+            .c_char,
+            .c_short,
+            .c_ushort,
+            .c_int,
+            .c_uint,
+            .c_long,
+            .c_ulong,
+            .c_longlong,
+            .c_ulonglong,
+            .c_longdouble,
+            .bool,
+            => {
+                try uleb128(diw, @intFromEnum(AbbrevCode.numeric_type));
+                try wip_nav.strp(name);
+                try diw.writeByte(if (type_index == .bool_type)
+                    DW.ATE.boolean
+                else if (ty.isRuntimeFloat())
+                    DW.ATE.float
+                else if (ty.isSignedInt(zcu))
+                    DW.ATE.signed
+                else if (ty.isUnsignedInt(zcu))
+                    DW.ATE.unsigned
+                else
+                    unreachable);
+                try uleb128(diw, ty.bitSize(pt));
+                try uleb128(diw, ty.abiSize(pt));
+                try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+            },
+            .anyopaque,
+            .void,
+            .type,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .null,
+            .undefined,
+            .enum_literal,
+            .generic_poison,
+            => {
+                try uleb128(diw, @intFromEnum(AbbrevCode.void_type));
+                try wip_nav.strp(if (type_index == .generic_poison_type) "anytype" else name);
+            },
+            .anyerror => return, // delay until flush
+            .adhoc_inferred_error_set => unreachable,
+        },
+        .struct_type,
+        .union_type,
+        .opaque_type,
+        => unreachable,
+        .anon_struct_type => |anon_struct_type| {
+            try uleb128(diw, @intFromEnum(AbbrevCode.struct_type));
+            try wip_nav.strp(name);
+            try uleb128(diw, ty.abiSize(pt));
+            try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+            var field_byte_offset: u64 = 0;
+            for (0..anon_struct_type.types.len) |field_index| {
+                const comptime_value = anon_struct_type.values.get(ip)[field_index];
+                try uleb128(diw, @intFromEnum(@as(AbbrevCode, if (comptime_value != .none) .struct_field_comptime else .struct_field)));
+                if (anon_struct_type.fieldName(ip, field_index).unwrap()) |field_name| try wip_nav.strp(field_name.toSlice(ip)) else {
+                    const field_name = try std.fmt.allocPrint(dwarf.gpa, "{d}", .{field_index});
+                    defer dwarf.gpa.free(field_name);
+                    try wip_nav.strp(field_name);
+                }
+                const field_type = Type.fromInterned(anon_struct_type.types.get(ip)[field_index]);
+                try wip_nav.refType(field_type);
+                if (comptime_value == .none) {
+                    const field_align = field_type.abiAlignment(pt);
+                    field_byte_offset = field_align.forward(field_byte_offset);
+                    try uleb128(diw, field_byte_offset);
+                    try uleb128(diw, field_type.abiAlignment(pt).toByteUnits().?);
+                    field_byte_offset += field_type.abiSize(pt);
+                }
+            }
+            try uleb128(diw, @intFromEnum(AbbrevCode.null));
+        },
+        .enum_type => {
+            const loaded_enum = ip.loadEnumType(type_index);
+            try uleb128(diw, @intFromEnum(AbbrevCode.enum_type));
+            try wip_nav.strp(name);
+            try wip_nav.refType(Type.fromInterned(loaded_enum.tag_ty));
+            for (0..loaded_enum.names.len) |field_index| {
+                try wip_nav.enumConstValue(loaded_enum, .{
+                    .signed = .signed_enum_field,
+                    .unsigned = .unsigned_enum_field,
+                }, field_index);
+                try wip_nav.strp(loaded_enum.names.get(ip)[field_index].toSlice(ip));
+            }
+            try uleb128(diw, @intFromEnum(AbbrevCode.null));
+        },
+        .func_type => |func_type| {
+            const is_nullary = func_type.param_types.len == 0 and !func_type.is_var_args;
+            try uleb128(diw, @intFromEnum(@as(AbbrevCode, if (is_nullary) .nullary_func_type else .func_type)));
+            try wip_nav.strp(name);
+            try diw.writeByte(@intFromEnum(@as(DW.CC, switch (func_type.cc) {
+                .Unspecified, .C => .normal,
+                .Naked, .Async, .Inline => .nocall,
+                .Interrupt, .Signal => .nocall,
+                .Stdcall => .BORLAND_stdcall,
+                .Fastcall => .BORLAND_fastcall,
+                .Vectorcall => .LLVM_vectorcall,
+                .Thiscall => .BORLAND_thiscall,
+                .APCS => .nocall,
+                .AAPCS => .LLVM_AAPCS,
+                .AAPCSVFP => .LLVM_AAPCS_VFP,
+                .SysV => .LLVM_X86_64SysV,
+                .Win64 => .LLVM_Win64,
+                .Kernel, .Fragment, .Vertex => .nocall,
+            })));
+            try wip_nav.refType(Type.fromInterned(func_type.return_type));
+            if (!is_nullary) {
+                for (0..func_type.param_types.len) |param_index| {
+                    try uleb128(diw, @intFromEnum(AbbrevCode.func_type_param));
+                    try wip_nav.refType(Type.fromInterned(func_type.param_types.get(ip)[param_index]));
+                }
+                if (func_type.is_var_args) try uleb128(diw, @intFromEnum(AbbrevCode.is_var_args));
+                try uleb128(diw, @intFromEnum(AbbrevCode.null));
+            }
+        },
+        .error_set_type => |error_set_type| {
+            try uleb128(diw, @intFromEnum(@as(AbbrevCode, if (error_set_type.names.len > 0) .enum_type else .empty_enum_type)));
+            try wip_nav.strp(name);
+            try wip_nav.refType(Type.fromInterned(try pt.intern(.{ .int_type = .{
+                .signedness = .unsigned,
+                .bits = pt.zcu.errorSetBits(),
+            } })));
+            for (0..error_set_type.names.len) |field_index| {
+                const field_name = error_set_type.names.get(ip)[field_index];
+                try uleb128(diw, @intFromEnum(AbbrevCode.unsigned_enum_field));
+                try uleb128(diw, ip.getErrorValueIfExists(field_name).?);
+                try wip_nav.strp(field_name.toSlice(ip));
+            }
+            if (error_set_type.names.len > 0) try uleb128(diw, @intFromEnum(AbbrevCode.null));
+        },
+        .inferred_error_set_type => |func| {
+            try uleb128(diw, @intFromEnum(AbbrevCode.inferred_error_set_type));
+            try wip_nav.strp(name);
+            try wip_nav.refType(Type.fromInterned(ip.funcIesResolvedUnordered(func)));
+        },
+
+        // values, not types
+        .undef,
+        .simple_value,
+        .variable,
+        .@"extern",
+        .func,
+        .int,
+        .err,
+        .error_union,
+        .enum_literal,
+        .enum_tag,
+        .empty_enum_value,
+        .float,
+        .ptr,
+        .slice,
+        .opt,
+        .aggregate,
+        .un,
+        // memoization, not types
+        .memoized_call,
+        => unreachable,
     }
-    return @intCast(gop.index + 1);
+    try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.items);
 }
 
-fn genIncludeDirsAndFileNames(self: *Dwarf, arena: Allocator) !struct {
-    dirs: []const []const u8,
-    files: []const []const u8,
-    files_dirs_indexes: []u28,
-} {
-    var dirs = std.StringArrayHashMap(void).init(arena);
-    try dirs.ensureTotalCapacity(self.di_files.count());
+pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternPool.Index) UpdateError!void {
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+    const ty = Type.fromInterned(type_index);
+    log.debug("updateContainerType({}({d}))", .{ ty.fmt(pt), @intFromEnum(type_index) });
 
-    var files = std.ArrayList([]const u8).init(arena);
-    try files.ensureTotalCapacityPrecise(self.di_files.count());
-
-    var files_dir_indexes = std.ArrayList(u28).init(arena);
-    try files_dir_indexes.ensureTotalCapacity(self.di_files.count());
-
-    for (self.di_files.keys()) |dif| {
-        const full_path = try dif.mod.root.joinString(arena, dif.sub_file_path);
-        const dir_path = std.fs.path.dirname(full_path) orelse ".";
-        const sub_file_path = std.fs.path.basename(full_path);
-        // https://github.com/ziglang/zig/issues/19353
-        var buffer: [std.fs.max_path_bytes]u8 = undefined;
-        const resolved = if (!std.fs.path.isAbsolute(dir_path))
-            std.posix.realpath(dir_path, &buffer) catch dir_path
-        else
-            dir_path;
-
-        const dir_index: u28 = index: {
-            const dirs_gop = dirs.getOrPutAssumeCapacity(try arena.dupe(u8, resolved));
-            break :index @intCast(dirs_gop.index + 1);
+    const inst_info = ty.typeDeclInst(zcu).?.resolveFull(ip).?;
+    const file = zcu.fileByIndex(inst_info.file);
+    if (inst_info.inst == .main_struct_inst) {
+        const unit = try dwarf.getUnit(file.mod);
+        const type_gop = try dwarf.types.getOrPut(dwarf.gpa, type_index);
+        if (!type_gop.found_existing) type_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
+        var wip_nav: WipNav = .{
+            .dwarf = dwarf,
+            .pt = pt,
+            .unit = unit,
+            .entry = type_gop.value_ptr.*,
+            .any_children = false,
+            .func = .none,
+            .func_high_reloc = undefined,
+            .debug_info = .{},
+            .debug_line = .{},
+            .debug_loclists = .{},
+            .pending_types = .{},
         };
+        defer wip_nav.deinit();
 
-        files_dir_indexes.appendAssumeCapacity(dir_index);
-        files.appendAssumeCapacity(sub_file_path);
-    }
+        const loaded_struct = ip.loadStructType(type_index);
 
-    return .{
-        .dirs = dirs.keys(),
-        .files = files.items,
-        .files_dirs_indexes = files_dir_indexes.items,
-    };
-}
-
-fn addDbgInfoErrorSet(
-    pt: Zcu.PerThread,
-    ty: Type,
-    target: std.Target,
-    dbg_info_buffer: *std.ArrayList(u8),
-) !void {
-    return addDbgInfoErrorSetNames(pt, ty, ty.errorSetNames(pt.zcu).get(&pt.zcu.intern_pool), target, dbg_info_buffer);
-}
-
-fn addDbgInfoErrorSetNames(
-    pt: Zcu.PerThread,
-    /// Used for printing the type name only.
-    ty: Type,
-    error_names: []const InternPool.NullTerminatedString,
-    target: std.Target,
-    dbg_info_buffer: *std.ArrayList(u8),
-) !void {
-    const target_endian = target.cpu.arch.endian();
-
-    // DW.AT.enumeration_type
-    try dbg_info_buffer.append(@intFromEnum(AbbrevCode.enum_type));
-    // DW.AT.byte_size, DW.FORM.udata
-    const abi_size = Type.anyerror.abiSize(pt);
-    try leb128.writeUleb128(dbg_info_buffer.writer(), abi_size);
-    // DW.AT.name, DW.FORM.string
-    try ty.print(dbg_info_buffer.writer(), pt);
-    try dbg_info_buffer.append(0);
-
-    // DW.AT.enumerator
-    const no_error = "(no error)";
-    try dbg_info_buffer.ensureUnusedCapacity(no_error.len + 2 + @sizeOf(u64));
-    dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.enum_variant));
-    // DW.AT.name, DW.FORM.string
-    dbg_info_buffer.appendSliceAssumeCapacity(no_error);
-    dbg_info_buffer.appendAssumeCapacity(0);
-    // DW.AT.const_value, DW.FORM.data8
-    mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), 0, target_endian);
-
-    for (error_names) |error_name| {
-        const int = try pt.getErrorValue(error_name);
-        const error_name_slice = error_name.toSlice(&pt.zcu.intern_pool);
-        // DW.AT.enumerator
-        try dbg_info_buffer.ensureUnusedCapacity(error_name_slice.len + 2 + @sizeOf(u64));
-        dbg_info_buffer.appendAssumeCapacity(@intFromEnum(AbbrevCode.enum_variant));
-        // DW.AT.name, DW.FORM.string
-        dbg_info_buffer.appendSliceAssumeCapacity(error_name_slice[0 .. error_name_slice.len + 1]);
-        // DW.AT.const_value, DW.FORM.data8
-        mem.writeInt(u64, dbg_info_buffer.addManyAsArrayAssumeCapacity(8), int, target_endian);
-    }
-
-    // DW.AT.enumeration_type delimit children
-    try dbg_info_buffer.append(0);
-}
-
-const Kind = enum { src_fn, di_atom };
-
-fn createAtom(self: *Dwarf, comptime kind: Kind) !Atom.Index {
-    const index = blk: {
-        switch (kind) {
-            .src_fn => {
-                const index: Atom.Index = @intCast(self.src_fns.items.len);
-                _ = try self.src_fns.addOne(self.allocator);
-                break :blk index;
-            },
-            .di_atom => {
-                const index: Atom.Index = @intCast(self.di_atoms.items.len);
-                _ = try self.di_atoms.addOne(self.allocator);
-                break :blk index;
-            },
+        const diw = wip_nav.debug_info.writer(dwarf.gpa);
+        try uleb128(diw, @intFromEnum(@as(AbbrevCode, if (loaded_struct.field_types.len == 0) .namespace_file else .file)));
+        const file_gop = try dwarf.getModInfo(unit).files.getOrPut(dwarf.gpa, inst_info.file);
+        try uleb128(diw, file_gop.index);
+        try wip_nav.strp(loaded_struct.name.toSlice(ip));
+        if (loaded_struct.field_types.len > 0) {
+            try uleb128(diw, ty.abiSize(pt));
+            try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+            for (0..loaded_struct.field_types.len) |field_index| {
+                const is_comptime = loaded_struct.fieldIsComptime(ip, field_index);
+                try uleb128(diw, @intFromEnum(@as(AbbrevCode, if (is_comptime) .struct_field_comptime else .struct_field)));
+                if (loaded_struct.fieldName(ip, field_index).unwrap()) |field_name| try wip_nav.strp(field_name.toSlice(ip)) else {
+                    const field_name = try std.fmt.allocPrint(dwarf.gpa, "{d}", .{field_index});
+                    defer dwarf.gpa.free(field_name);
+                    try wip_nav.strp(field_name);
+                }
+                const field_type = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
+                try wip_nav.refType(field_type);
+                if (!is_comptime) {
+                    try uleb128(diw, loaded_struct.offsets.get(ip)[field_index]);
+                    try uleb128(diw, loaded_struct.fieldAlign(ip, field_index).toByteUnits() orelse
+                        field_type.abiAlignment(pt).toByteUnits().?);
+                }
+            }
+            try uleb128(diw, @intFromEnum(AbbrevCode.null));
         }
-    };
-    const atom = self.getAtomPtr(kind, index);
-    atom.* = .{
-        .off = 0,
-        .len = 0,
-        .prev_index = null,
-        .next_index = null,
-    };
-    return index;
-}
 
-fn getOrCreateAtomForNav(self: *Dwarf, comptime kind: Kind, nav_index: InternPool.Nav.Index) !Atom.Index {
-    switch (kind) {
-        .src_fn => {
-            const gop = try self.src_fn_navs.getOrPut(self.allocator, nav_index);
-            if (!gop.found_existing) {
-                gop.value_ptr.* = try self.createAtom(kind);
-            }
-            return gop.value_ptr.*;
-        },
-        .di_atom => {
-            const gop = try self.di_atom_navs.getOrPut(self.allocator, nav_index);
-            if (!gop.found_existing) {
-                gop.value_ptr.* = try self.createAtom(kind);
-            }
-            return gop.value_ptr.*;
-        },
+        try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.items);
+        try wip_nav.flush();
+    } else {
+        const decl_inst = file.zir.instructions.get(@intFromEnum(inst_info.inst));
+        assert(decl_inst.tag == .extended);
+        if (switch (decl_inst.data.extended.opcode) {
+            .struct_decl => @as(Zir.Inst.StructDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
+            .enum_decl => @as(Zir.Inst.EnumDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
+            .union_decl => @as(Zir.Inst.UnionDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
+            .opaque_decl => @as(Zir.Inst.OpaqueDecl.Small, @bitCast(decl_inst.data.extended.small)).name_strategy,
+            .reify => @as(Zir.Inst.NameStrategy, @enumFromInt(decl_inst.data.extended.small)),
+            else => unreachable,
+        } == .parent) return;
+
+        const unit = try dwarf.getUnit(file.mod);
+        const type_gop = try dwarf.types.getOrPut(dwarf.gpa, type_index);
+        if (!type_gop.found_existing) type_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
+        var wip_nav: WipNav = .{
+            .dwarf = dwarf,
+            .pt = pt,
+            .unit = unit,
+            .entry = type_gop.value_ptr.*,
+            .any_children = false,
+            .func = .none,
+            .func_high_reloc = undefined,
+            .debug_info = .{},
+            .debug_line = .{},
+            .debug_loclists = .{},
+            .pending_types = .{},
+        };
+        defer wip_nav.deinit();
+        const diw = wip_nav.debug_info.writer(dwarf.gpa);
+        const name = try std.fmt.allocPrint(dwarf.gpa, "{}", .{ty.fmt(pt)});
+        defer dwarf.gpa.free(name);
+
+        switch (ip.indexToKey(type_index)) {
+            .struct_type => {
+                const loaded_struct = ip.loadStructType(type_index);
+                switch (loaded_struct.layout) {
+                    .auto, .@"extern" => {
+                        try uleb128(diw, @intFromEnum(@as(AbbrevCode, if (loaded_struct.field_types.len == 0)
+                            .namespace_struct_type
+                        else
+                            .struct_type)));
+                        try wip_nav.strp(name);
+                        if (loaded_struct.field_types.len == 0) try diw.writeByte(@intFromBool(false)) else {
+                            try uleb128(diw, ty.abiSize(pt));
+                            try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+                            for (0..loaded_struct.field_types.len) |field_index| {
+                                const is_comptime = loaded_struct.fieldIsComptime(ip, field_index);
+                                try uleb128(diw, @intFromEnum(@as(AbbrevCode, if (is_comptime) .struct_field_comptime else .struct_field)));
+                                if (loaded_struct.fieldName(ip, field_index).unwrap()) |field_name| try wip_nav.strp(field_name.toSlice(ip)) else {
+                                    const field_name = try std.fmt.allocPrint(dwarf.gpa, "{d}", .{field_index});
+                                    defer dwarf.gpa.free(field_name);
+                                    try wip_nav.strp(field_name);
+                                }
+                                const field_type = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
+                                try wip_nav.refType(field_type);
+                                if (!is_comptime) {
+                                    try uleb128(diw, loaded_struct.offsets.get(ip)[field_index]);
+                                    try uleb128(diw, loaded_struct.fieldAlign(ip, field_index).toByteUnits() orelse
+                                        field_type.abiAlignment(pt).toByteUnits().?);
+                                }
+                            }
+                            try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                        }
+                    },
+                    .@"packed" => {
+                        try uleb128(diw, @intFromEnum(AbbrevCode.packed_struct_type));
+                        try wip_nav.strp(name);
+                        try wip_nav.refType(Type.fromInterned(loaded_struct.backingIntTypeUnordered(ip)));
+                        var field_bit_offset: u16 = 0;
+                        for (0..loaded_struct.field_types.len) |field_index| {
+                            try uleb128(diw, @intFromEnum(@as(AbbrevCode, .packed_struct_field)));
+                            try wip_nav.strp(loaded_struct.fieldName(ip, field_index).unwrap().?.toSlice(ip));
+                            const field_type = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
+                            try wip_nav.refType(field_type);
+                            try uleb128(diw, field_bit_offset);
+                            field_bit_offset += @intCast(field_type.bitSize(pt));
+                        }
+                        try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                    },
+                }
+            },
+            .enum_type => {
+                const loaded_enum = ip.loadEnumType(type_index);
+                try uleb128(diw, @intFromEnum(AbbrevCode.enum_type));
+                try wip_nav.strp(name);
+                try wip_nav.refType(Type.fromInterned(loaded_enum.tag_ty));
+                for (0..loaded_enum.names.len) |field_index| {
+                    try wip_nav.enumConstValue(loaded_enum, .{
+                        .signed = .signed_enum_field,
+                        .unsigned = .unsigned_enum_field,
+                    }, field_index);
+                    try wip_nav.strp(loaded_enum.names.get(ip)[field_index].toSlice(ip));
+                }
+                try uleb128(diw, @intFromEnum(AbbrevCode.null));
+            },
+            .union_type => {
+                const loaded_union = ip.loadUnionType(type_index);
+                try uleb128(diw, @intFromEnum(AbbrevCode.union_type));
+                try wip_nav.strp(name);
+                const union_layout = pt.getUnionLayout(loaded_union);
+                try uleb128(diw, union_layout.abi_size);
+                try uleb128(diw, union_layout.abi_align.toByteUnits().?);
+                const loaded_tag = loaded_union.loadTagType(ip);
+                if (loaded_union.hasTag(ip)) {
+                    try uleb128(diw, @intFromEnum(AbbrevCode.tagged_union));
+                    try wip_nav.infoSectionOffset(
+                        .debug_info,
+                        wip_nav.unit,
+                        wip_nav.entry,
+                        @intCast(wip_nav.debug_info.items.len + dwarf.sectionOffsetBytes()),
+                    );
+                    {
+                        try uleb128(diw, @intFromEnum(AbbrevCode.generated_field));
+                        try wip_nav.strp("tag");
+                        try wip_nav.refType(Type.fromInterned(loaded_union.enum_tag_ty));
+                        try uleb128(diw, union_layout.tagOffset());
+
+                        for (0..loaded_union.field_types.len) |field_index| {
+                            try wip_nav.enumConstValue(loaded_tag, .{
+                                .signed = .signed_tagged_union_field,
+                                .unsigned = .unsigned_tagged_union_field,
+                            }, field_index);
+                            {
+                                try uleb128(diw, @intFromEnum(AbbrevCode.struct_field));
+                                try wip_nav.strp(loaded_tag.names.get(ip)[field_index].toSlice(ip));
+                                const field_type = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
+                                try wip_nav.refType(field_type);
+                                try uleb128(diw, union_layout.payloadOffset());
+                                try uleb128(diw, loaded_union.fieldAlign(ip, field_index).toByteUnits() orelse
+                                    if (field_type.isNoReturn(zcu)) 1 else field_type.abiAlignment(pt).toByteUnits().?);
+                            }
+                            try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                        }
+                    }
+                    try uleb128(diw, @intFromEnum(AbbrevCode.null));
+
+                    if (ip.indexToKey(loaded_union.enum_tag_ty).enum_type == .generated_tag)
+                        try wip_nav.pending_types.append(dwarf.gpa, loaded_union.enum_tag_ty);
+                } else for (0..loaded_union.field_types.len) |field_index| {
+                    try uleb128(diw, @intFromEnum(AbbrevCode.untagged_union_field));
+                    try wip_nav.strp(loaded_tag.names.get(ip)[field_index].toSlice(ip));
+                    const field_type = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
+                    try wip_nav.refType(field_type);
+                    try uleb128(diw, loaded_union.fieldAlign(ip, field_index).toByteUnits() orelse
+                        field_type.abiAlignment(pt).toByteUnits().?);
+                }
+                try uleb128(diw, @intFromEnum(AbbrevCode.null));
+            },
+            .opaque_type => {
+                try uleb128(diw, @intFromEnum(AbbrevCode.namespace_struct_type));
+                try wip_nav.strp(name);
+                try diw.writeByte(@intFromBool(true));
+            },
+            else => unreachable,
+        }
+        try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.items);
+        try dwarf.debug_loclists.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_loclists.items);
+        try wip_nav.flush();
     }
 }
 
-fn getAtom(self: *const Dwarf, comptime kind: Kind, index: Atom.Index) Atom {
-    return switch (kind) {
-        .src_fn => self.src_fns.items[index],
-        .di_atom => self.di_atoms.items[index],
-    };
+pub fn updateNavLineNumber(dwarf: *Dwarf, zcu: *Zcu, nav_index: InternPool.Nav.Index) UpdateError!void {
+    const ip = &zcu.intern_pool;
+
+    const zir_index = ip.getCau(ip.getNav(nav_index).analysis_owner.unwrap() orelse return).zir_index;
+    const inst_info = zir_index.resolveFull(ip).?;
+    assert(inst_info.inst != .main_struct_inst);
+    const file = zcu.fileByIndex(inst_info.file);
+
+    const inst = file.zir.instructions.get(@intFromEnum(inst_info.inst));
+    assert(inst.tag == .declaration);
+    const line = file.zir.extraData(Zir.Inst.Declaration, inst.data.declaration.payload_index).data.src_line;
+    var line_buf: [4]u8 = undefined;
+    std.mem.writeInt(u32, &line_buf, line, dwarf.endian);
+
+    const unit = dwarf.debug_line.section.getUnit(dwarf.mods.get(file.mod).?);
+    const entry = unit.getEntry(dwarf.navs.get(nav_index).?);
+    try dwarf.getFile().?.pwriteAll(&line, dwarf.debug_line.section.off + unit.off + unit.header_len + entry.off + DebugInfo.declEntryLineOff(dwarf));
 }
 
-fn getAtomPtr(self: *Dwarf, comptime kind: Kind, index: Atom.Index) *Atom {
-    return switch (kind) {
-        .src_fn => &self.src_fns.items[index],
-        .di_atom => &self.di_atoms.items[index],
-    };
+pub fn freeNav(dwarf: *Dwarf, nav_index: InternPool.Nav.Index) void {
+    _ = dwarf;
+    _ = nav_index;
 }
 
-pub const Format = enum {
-    dwarf32,
-    dwarf64,
+pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
+    const ip = &pt.zcu.intern_pool;
+    if (dwarf.types.get(.anyerror_type)) |entry| {
+        var wip_nav: WipNav = .{
+            .dwarf = dwarf,
+            .pt = pt,
+            .unit = .main,
+            .entry = entry,
+            .any_children = false,
+            .func = .none,
+            .func_high_reloc = undefined,
+            .debug_info = .{},
+            .debug_line = .{},
+            .debug_loclists = .{},
+            .pending_types = .{},
+        };
+        defer wip_nav.deinit();
+        const diw = wip_nav.debug_info.writer(dwarf.gpa);
+        const global_error_set_names = ip.global_error_set.getNamesFromMainThread();
+        try uleb128(diw, @intFromEnum(@as(AbbrevCode, if (global_error_set_names.len > 0) .enum_type else .empty_enum_type)));
+        try wip_nav.strp("anyerror");
+        try wip_nav.refType(Type.fromInterned(try pt.intern(.{ .int_type = .{
+            .signedness = .unsigned,
+            .bits = pt.zcu.errorSetBits(),
+        } })));
+        for (global_error_set_names, 1..) |name, value| {
+            try uleb128(diw, @intFromEnum(AbbrevCode.unsigned_enum_field));
+            try uleb128(diw, value);
+            try wip_nav.strp(name.toSlice(ip));
+        }
+        if (global_error_set_names.len > 0) try uleb128(diw, @intFromEnum(AbbrevCode.null));
+        try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.items);
+    }
+
+    {
+        const cwd = try std.process.getCwdAlloc(dwarf.gpa);
+        defer dwarf.gpa.free(cwd);
+        for (dwarf.mods.keys(), dwarf.mods.values()) |mod, *mod_info| {
+            const root_dir_path = try std.fs.path.resolve(dwarf.gpa, &.{
+                cwd,
+                mod.root.root_dir.path orelse "",
+                mod.root.sub_path,
+            });
+            defer dwarf.gpa.free(root_dir_path);
+            mod_info.root_dir_path = try dwarf.debug_line_str.addString(dwarf, root_dir_path);
+        }
+    }
+
+    var header = std.ArrayList(u8).init(dwarf.gpa);
+    defer header.deinit();
+    if (dwarf.debug_abbrev.section.dirty) {
+        for (1.., &AbbrevCode.abbrevs) |code, *abbrev| {
+            try uleb128(header.writer(), code);
+            try uleb128(header.writer(), @intFromEnum(abbrev.tag));
+            try header.append(if (abbrev.children) DW.CHILDREN.yes else DW.CHILDREN.no);
+            for (abbrev.attrs) |*attr| {
+                try uleb128(header.writer(), @intFromEnum(attr[0]));
+                try uleb128(header.writer(), @intFromEnum(attr[1]));
+            }
+            try header.appendSlice(&.{ 0, 0 });
+        }
+        try header.append(@intFromEnum(AbbrevCode.null));
+        try dwarf.debug_abbrev.section.replaceEntry(DebugAbbrev.unit, DebugAbbrev.entry, dwarf, header.items);
+        dwarf.debug_abbrev.section.dirty = false;
+    }
+    if (dwarf.debug_aranges.section.dirty) {
+        for (dwarf.debug_aranges.section.units.items, 0..) |*unit_ptr, unit_index| {
+            const unit: Unit.Index = @enumFromInt(unit_index);
+            try unit_ptr.cross_section_relocs.ensureUnusedCapacity(dwarf.gpa, 1);
+            header.clearRetainingCapacity();
+            try header.ensureTotalCapacity(unit_ptr.header_len);
+            const unit_len = (if (unit_ptr.next.unwrap()) |next_unit|
+                dwarf.debug_aranges.section.getUnit(next_unit).off
+            else
+                dwarf.debug_aranges.section.len) - unit_ptr.off - dwarf.unitLengthBytes();
+            switch (dwarf.format) {
+                .@"32" => std.mem.writeInt(u32, header.addManyAsArrayAssumeCapacity(@sizeOf(u32)), @intCast(unit_len), dwarf.endian),
+                .@"64" => {
+                    std.mem.writeInt(u32, header.addManyAsArrayAssumeCapacity(@sizeOf(u32)), std.math.maxInt(u32), dwarf.endian);
+                    std.mem.writeInt(u64, header.addManyAsArrayAssumeCapacity(@sizeOf(u64)), unit_len, dwarf.endian);
+                },
+            }
+            std.mem.writeInt(u16, header.addManyAsArrayAssumeCapacity(@sizeOf(u16)), 2, dwarf.endian);
+            unit_ptr.cross_section_relocs.appendAssumeCapacity(.{
+                .source_off = @intCast(header.items.len),
+                .target_sec = .debug_info,
+                .target_unit = unit,
+            });
+            header.appendNTimesAssumeCapacity(0, dwarf.sectionOffsetBytes());
+            header.appendSliceAssumeCapacity(&.{ @intFromEnum(dwarf.address_size), 0 });
+            header.appendNTimesAssumeCapacity(0, unit_ptr.header_len - header.items.len);
+            try unit_ptr.replaceHeader(&dwarf.debug_aranges.section, dwarf, header.items);
+            try unit_ptr.writeTrailer(&dwarf.debug_aranges.section, dwarf);
+        }
+        dwarf.debug_aranges.section.dirty = false;
+    }
+    if (dwarf.debug_info.section.dirty) {
+        for (dwarf.mods.keys(), dwarf.mods.values(), dwarf.debug_info.section.units.items, 0..) |mod, mod_info, *unit_ptr, unit_index| {
+            const unit: Unit.Index = @enumFromInt(unit_index);
+            try unit_ptr.cross_unit_relocs.ensureUnusedCapacity(dwarf.gpa, 1);
+            try unit_ptr.cross_section_relocs.ensureUnusedCapacity(dwarf.gpa, 7);
+            header.clearRetainingCapacity();
+            try header.ensureTotalCapacity(unit_ptr.header_len);
+            const unit_len = (if (unit_ptr.next.unwrap()) |next_unit|
+                dwarf.debug_info.section.getUnit(next_unit).off
+            else
+                dwarf.debug_info.section.len) - unit_ptr.off - dwarf.unitLengthBytes();
+            switch (dwarf.format) {
+                .@"32" => std.mem.writeInt(u32, header.addManyAsArrayAssumeCapacity(@sizeOf(u32)), @intCast(unit_len), dwarf.endian),
+                .@"64" => {
+                    std.mem.writeInt(u32, header.addManyAsArrayAssumeCapacity(@sizeOf(u32)), std.math.maxInt(u32), dwarf.endian);
+                    std.mem.writeInt(u64, header.addManyAsArrayAssumeCapacity(@sizeOf(u64)), unit_len, dwarf.endian);
+                },
+            }
+            std.mem.writeInt(u16, header.addManyAsArrayAssumeCapacity(@sizeOf(u16)), 5, dwarf.endian);
+            header.appendSliceAssumeCapacity(&.{ DW.UT.compile, @intFromEnum(dwarf.address_size) });
+            unit_ptr.cross_section_relocs.appendAssumeCapacity(.{
+                .source_off = @intCast(header.items.len),
+                .target_sec = .debug_abbrev,
+                .target_unit = DebugAbbrev.unit,
+                .target_entry = DebugAbbrev.entry.toOptional(),
+            });
+            header.appendNTimesAssumeCapacity(0, dwarf.sectionOffsetBytes());
+            const compile_unit_off: u32 = @intCast(header.items.len);
+            uleb128(header.fixedWriter(), @intFromEnum(AbbrevCode.compile_unit)) catch unreachable;
+            header.appendAssumeCapacity(DW.LANG.Zig);
+            unit_ptr.cross_section_relocs.appendAssumeCapacity(.{
+                .source_off = @intCast(header.items.len),
+                .target_sec = .debug_line_str,
+                .target_unit = StringSection.unit,
+                .target_entry = (try dwarf.debug_line_str.addString(dwarf, "zig " ++ @import("build_options").version)).toOptional(),
+            });
+            header.appendNTimesAssumeCapacity(0, dwarf.sectionOffsetBytes());
+            unit_ptr.cross_section_relocs.appendAssumeCapacity(.{
+                .source_off = @intCast(header.items.len),
+                .target_sec = .debug_line_str,
+                .target_unit = StringSection.unit,
+                .target_entry = mod_info.root_dir_path.toOptional(),
+            });
+            header.appendNTimesAssumeCapacity(0, dwarf.sectionOffsetBytes());
+            unit_ptr.cross_section_relocs.appendAssumeCapacity(.{
+                .source_off = @intCast(header.items.len),
+                .target_sec = .debug_line_str,
+                .target_unit = StringSection.unit,
+                .target_entry = (try dwarf.debug_line_str.addString(dwarf, mod.root_src_path)).toOptional(),
+            });
+            header.appendNTimesAssumeCapacity(0, dwarf.sectionOffsetBytes());
+            unit_ptr.cross_unit_relocs.appendAssumeCapacity(.{
+                .source_off = @intCast(header.items.len),
+                .target_unit = .main,
+                .target_off = compile_unit_off,
+            });
+            header.appendNTimesAssumeCapacity(0, dwarf.sectionOffsetBytes());
+            unit_ptr.cross_section_relocs.appendAssumeCapacity(.{
+                .source_off = @intCast(header.items.len),
+                .target_sec = .debug_line,
+                .target_unit = unit,
+            });
+            header.appendNTimesAssumeCapacity(0, dwarf.sectionOffsetBytes());
+            unit_ptr.cross_section_relocs.appendAssumeCapacity(.{
+                .source_off = @intCast(header.items.len),
+                .target_sec = .debug_rnglists,
+                .target_unit = unit,
+                .target_off = DebugRngLists.baseOffset(dwarf),
+            });
+            header.appendNTimesAssumeCapacity(0, dwarf.sectionOffsetBytes());
+            uleb128(header.fixedWriter(), 0) catch unreachable;
+            uleb128(header.fixedWriter(), @intFromEnum(AbbrevCode.module)) catch unreachable;
+            unit_ptr.cross_section_relocs.appendAssumeCapacity(.{
+                .source_off = @intCast(header.items.len),
+                .target_sec = .debug_str,
+                .target_unit = StringSection.unit,
+                .target_entry = (try dwarf.debug_str.addString(dwarf, mod.fully_qualified_name)).toOptional(),
+            });
+            header.appendNTimesAssumeCapacity(0, dwarf.sectionOffsetBytes());
+            uleb128(header.fixedWriter(), 0) catch unreachable;
+            try unit_ptr.replaceHeader(&dwarf.debug_info.section, dwarf, header.items);
+            try unit_ptr.writeTrailer(&dwarf.debug_info.section, dwarf);
+        }
+        dwarf.debug_info.section.dirty = false;
+    }
+    if (dwarf.debug_str.section.dirty) {
+        const contents = dwarf.debug_str.contents.items;
+        try dwarf.debug_str.section.resize(dwarf, contents.len);
+        try dwarf.getFile().?.pwriteAll(contents, dwarf.debug_str.section.off);
+        dwarf.debug_str.section.dirty = false;
+    }
+    if (dwarf.debug_line.section.dirty) {
+        for (dwarf.mods.values(), dwarf.debug_line.section.units.items) |mod_info, *unit|
+            try unit.resizeHeader(&dwarf.debug_line.section, dwarf, DebugLine.headerBytes(dwarf, @intCast(mod_info.dirs.count()), @intCast(mod_info.files.count())));
+        for (dwarf.mods.values(), dwarf.debug_line.section.units.items) |mod_info, *unit| {
+            try unit.cross_section_relocs.ensureUnusedCapacity(dwarf.gpa, 2 * (1 + mod_info.files.count()));
+            header.clearRetainingCapacity();
+            try header.ensureTotalCapacity(unit.header_len);
+            const unit_len = (if (unit.next.unwrap()) |next_unit|
+                dwarf.debug_line.section.getUnit(next_unit).off
+            else
+                dwarf.debug_line.section.len) - unit.off - dwarf.unitLengthBytes();
+            switch (dwarf.format) {
+                .@"32" => std.mem.writeInt(u32, header.addManyAsArrayAssumeCapacity(@sizeOf(u32)), @intCast(unit_len), dwarf.endian),
+                .@"64" => {
+                    std.mem.writeInt(u32, header.addManyAsArrayAssumeCapacity(@sizeOf(u32)), std.math.maxInt(u32), dwarf.endian);
+                    std.mem.writeInt(u64, header.addManyAsArrayAssumeCapacity(@sizeOf(u64)), unit_len, dwarf.endian);
+                },
+            }
+            std.mem.writeInt(u16, header.addManyAsArrayAssumeCapacity(@sizeOf(u16)), 5, dwarf.endian);
+            header.appendSliceAssumeCapacity(&.{ @intFromEnum(dwarf.address_size), 0 });
+            switch (dwarf.format) {
+                inline .@"32", .@"64" => |format| std.mem.writeInt(
+                    SectionOffset(format),
+                    header.addManyAsArrayAssumeCapacity(@sizeOf(SectionOffset(format))),
+                    @intCast(unit.header_len - header.items.len),
+                    dwarf.endian,
+                ),
+            }
+            const StandardOpcode = DeclValEnum(DW.LNS);
+            header.appendSliceAssumeCapacity(&[_]u8{
+                dwarf.debug_line.header.minimum_instruction_length,
+                dwarf.debug_line.header.maximum_operations_per_instruction,
+                @intFromBool(dwarf.debug_line.header.default_is_stmt),
+                @bitCast(dwarf.debug_line.header.line_base),
+                dwarf.debug_line.header.line_range,
+                dwarf.debug_line.header.opcode_base,
+            });
+            header.appendSliceAssumeCapacity(std.enums.EnumArray(StandardOpcode, u8).init(.{
+                .extended_op = undefined,
+                .copy = 0,
+                .advance_pc = 1,
+                .advance_line = 1,
+                .set_file = 1,
+                .set_column = 1,
+                .negate_stmt = 0,
+                .set_basic_block = 0,
+                .const_add_pc = 0,
+                .fixed_advance_pc = 1,
+                .set_prologue_end = 0,
+                .set_epilogue_begin = 0,
+                .set_isa = 1,
+            }).values[1..dwarf.debug_line.header.opcode_base]);
+            header.appendAssumeCapacity(1);
+            uleb128(header.fixedWriter(), DW.LNCT.path) catch unreachable;
+            uleb128(header.fixedWriter(), DW.FORM.line_strp) catch unreachable;
+            uleb128(header.fixedWriter(), mod_info.dirs.count()) catch unreachable;
+            for (mod_info.dirs.keys()) |dir_unit| {
+                unit.cross_section_relocs.appendAssumeCapacity(.{
+                    .source_off = @intCast(header.items.len),
+                    .target_sec = .debug_line_str,
+                    .target_unit = StringSection.unit,
+                    .target_entry = dwarf.getModInfo(dir_unit).root_dir_path.toOptional(),
+                });
+                header.appendNTimesAssumeCapacity(0, dwarf.sectionOffsetBytes());
+            }
+            const dir_index_info = DebugLine.dirIndexInfo(@intCast(mod_info.dirs.count()));
+            header.appendAssumeCapacity(3);
+            uleb128(header.fixedWriter(), DW.LNCT.path) catch unreachable;
+            uleb128(header.fixedWriter(), DW.FORM.line_strp) catch unreachable;
+            uleb128(header.fixedWriter(), DW.LNCT.directory_index) catch unreachable;
+            uleb128(header.fixedWriter(), @intFromEnum(dir_index_info.form)) catch unreachable;
+            uleb128(header.fixedWriter(), DW.LNCT.LLVM_source) catch unreachable;
+            uleb128(header.fixedWriter(), DW.FORM.line_strp) catch unreachable;
+            uleb128(header.fixedWriter(), mod_info.files.count()) catch unreachable;
+            for (mod_info.files.keys()) |file_index| {
+                const file = pt.zcu.fileByIndex(file_index);
+                unit.cross_section_relocs.appendAssumeCapacity(.{
+                    .source_off = @intCast(header.items.len),
+                    .target_sec = .debug_line_str,
+                    .target_unit = StringSection.unit,
+                    .target_entry = (try dwarf.debug_line_str.addString(dwarf, file.sub_file_path)).toOptional(),
+                });
+                header.appendNTimesAssumeCapacity(0, dwarf.sectionOffsetBytes());
+                dwarf.writeInt(
+                    header.addManyAsSliceAssumeCapacity(dir_index_info.bytes),
+                    mod_info.dirs.getIndex(dwarf.getUnitIfExists(file.mod).?).?,
+                );
+                unit.cross_section_relocs.appendAssumeCapacity(.{
+                    .source_off = @intCast(header.items.len),
+                    .target_sec = .debug_line_str,
+                    .target_unit = StringSection.unit,
+                    .target_entry = (try dwarf.debug_line_str.addString(
+                        dwarf,
+                        if (file.mod.builtin_file == file) file.source else "",
+                    )).toOptional(),
+                });
+                header.appendNTimesAssumeCapacity(0, dwarf.sectionOffsetBytes());
+            }
+            try unit.replaceHeader(&dwarf.debug_line.section, dwarf, header.items);
+            try unit.writeTrailer(&dwarf.debug_line.section, dwarf);
+        }
+        dwarf.debug_line.section.dirty = false;
+    }
+    if (dwarf.debug_line_str.section.dirty) {
+        const contents = dwarf.debug_line_str.contents.items;
+        try dwarf.debug_line_str.section.resize(dwarf, contents.len);
+        try dwarf.getFile().?.pwriteAll(contents, dwarf.debug_line_str.section.off);
+        dwarf.debug_line_str.section.dirty = false;
+    }
+    if (dwarf.debug_rnglists.section.dirty) {
+        for (dwarf.debug_rnglists.section.units.items) |*unit| {
+            header.clearRetainingCapacity();
+            try header.ensureTotalCapacity(unit.header_len);
+            const unit_len = (if (unit.next.unwrap()) |next_unit|
+                dwarf.debug_rnglists.section.getUnit(next_unit).off
+            else
+                dwarf.debug_rnglists.section.len) - unit.off - dwarf.unitLengthBytes();
+            switch (dwarf.format) {
+                .@"32" => std.mem.writeInt(u32, header.addManyAsArrayAssumeCapacity(@sizeOf(u32)), @intCast(unit_len), dwarf.endian),
+                .@"64" => {
+                    std.mem.writeInt(u32, header.addManyAsArrayAssumeCapacity(@sizeOf(u32)), std.math.maxInt(u32), dwarf.endian);
+                    std.mem.writeInt(u64, header.addManyAsArrayAssumeCapacity(@sizeOf(u64)), unit_len, dwarf.endian);
+                },
+            }
+            std.mem.writeInt(u16, header.addManyAsArrayAssumeCapacity(@sizeOf(u16)), 5, dwarf.endian);
+            header.appendSliceAssumeCapacity(&.{ @intFromEnum(dwarf.address_size), 0 });
+            std.mem.writeInt(u32, header.addManyAsArrayAssumeCapacity(@sizeOf(u32)), 1, dwarf.endian);
+            switch (dwarf.format) {
+                inline .@"32", .@"64" => |format| std.mem.writeInt(
+                    SectionOffset(format),
+                    header.addManyAsArrayAssumeCapacity(@sizeOf(SectionOffset(format))),
+                    @sizeOf(SectionOffset(format)),
+                    dwarf.endian,
+                ),
+            }
+            try unit.replaceHeader(&dwarf.debug_rnglists.section, dwarf, header.items);
+            try unit.writeTrailer(&dwarf.debug_rnglists.section, dwarf);
+        }
+        dwarf.debug_rnglists.section.dirty = false;
+    }
+}
+
+pub fn resolveRelocs(dwarf: *Dwarf) RelocError!void {
+    for ([_]*Section{
+        &dwarf.debug_abbrev.section,
+        &dwarf.debug_aranges.section,
+        &dwarf.debug_info.section,
+        &dwarf.debug_line.section,
+        &dwarf.debug_line_str.section,
+        &dwarf.debug_loclists.section,
+        &dwarf.debug_rnglists.section,
+        &dwarf.debug_str.section,
+    }) |sec| try sec.resolveRelocs(dwarf);
+}
+
+fn DeclValEnum(comptime T: type) type {
+    const decls = @typeInfo(T).Struct.decls;
+    @setEvalBranchQuota(7 * decls.len);
+    var fields: [decls.len]std.builtin.Type.EnumField = undefined;
+    var fields_len = 0;
+    var min_value: ?comptime_int = null;
+    var max_value: ?comptime_int = null;
+    for (decls) |decl| {
+        if (std.mem.startsWith(u8, decl.name, "HP_") or std.mem.endsWith(u8, decl.name, "_user")) continue;
+        const value = @field(T, decl.name);
+        fields[fields_len] = .{ .name = decl.name, .value = value };
+        fields_len += 1;
+        if (min_value == null or min_value.? > value) min_value = value;
+        if (max_value == null or max_value.? < value) max_value = value;
+    }
+    return @Type(.{ .Enum = .{
+        .tag_type = std.math.IntFittingRange(min_value orelse 0, max_value orelse 0),
+        .fields = fields[0..fields_len],
+        .decls = &.{},
+        .is_exhaustive = true,
+    } });
+}
+
+const AbbrevCode = enum(u8) {
+    null,
+    // padding codes must be one byte uleb128 values to function
+    pad_1,
+    pad_n,
+    // decl codes are assumed to all have the same uleb128 length
+    decl_alias,
+    decl_enum,
+    decl_namespace_struct,
+    decl_struct,
+    decl_packed_struct,
+    decl_union,
+    decl_var,
+    decl_func,
+    decl_func_empty,
+    // the rest are unrestricted
+    compile_unit,
+    module,
+    namespace_file,
+    file,
+    signed_enum_field,
+    unsigned_enum_field,
+    generated_field,
+    struct_field,
+    struct_field_comptime,
+    packed_struct_field,
+    untagged_union_field,
+    tagged_union,
+    signed_tagged_union_field,
+    unsigned_tagged_union_field,
+    tagged_union_default_field,
+    void_type,
+    numeric_type,
+    inferred_error_set_type,
+    ptr_type,
+    is_const,
+    is_volatile,
+    array_type,
+    array_index,
+    nullary_func_type,
+    func_type,
+    func_type_param,
+    is_var_args,
+    enum_type,
+    empty_enum_type,
+    namespace_struct_type,
+    struct_type,
+    packed_struct_type,
+    union_type,
+    local_arg,
+    local_var,
+
+    const decl_bytes = uleb128Bytes(@intFromEnum(AbbrevCode.decl_func_empty));
+
+    const Attr = struct {
+        DeclValEnum(DW.AT),
+        DeclValEnum(DW.FORM),
+    };
+    const decl_abbrev_common_attrs = &[_]Attr{
+        .{ .ZIG_parent, .ref_addr },
+        .{ .decl_line, .data4 },
+        .{ .decl_column, .udata },
+        .{ .accessibility, .data1 },
+        .{ .name, .strp },
+    };
+    const abbrevs = std.EnumArray(AbbrevCode, struct {
+        tag: DeclValEnum(DW.TAG),
+        children: bool = false,
+        attrs: []const Attr = &.{},
+    }).init(.{
+        .pad_1 = .{
+            .tag = .ZIG_padding,
+        },
+        .pad_n = .{
+            .tag = .ZIG_padding,
+            .attrs = &.{
+                .{ .ZIG_padding, .block },
+            },
+        },
+        .decl_alias = .{
+            .tag = .imported_declaration,
+            .attrs = decl_abbrev_common_attrs ++ .{
+                .{ .import, .ref_addr },
+            },
+        },
+        .decl_enum = .{
+            .tag = .enumeration_type,
+            .children = true,
+            .attrs = decl_abbrev_common_attrs ++ .{
+                .{ .type, .ref_addr },
+            },
+        },
+        .decl_namespace_struct = .{
+            .tag = .structure_type,
+            .attrs = decl_abbrev_common_attrs ++ .{
+                .{ .declaration, .flag },
+            },
+        },
+        .decl_struct = .{
+            .tag = .structure_type,
+            .children = true,
+            .attrs = decl_abbrev_common_attrs ++ .{
+                .{ .byte_size, .udata },
+                .{ .alignment, .udata },
+            },
+        },
+        .decl_packed_struct = .{
+            .tag = .structure_type,
+            .children = true,
+            .attrs = decl_abbrev_common_attrs ++ .{
+                .{ .type, .ref_addr },
+            },
+        },
+        .decl_union = .{
+            .tag = .union_type,
+            .children = true,
+            .attrs = decl_abbrev_common_attrs ++ .{
+                .{ .byte_size, .udata },
+                .{ .alignment, .udata },
+            },
+        },
+        .decl_var = .{
+            .tag = .variable,
+            .attrs = decl_abbrev_common_attrs ++ .{
+                .{ .linkage_name, .strp },
+                .{ .type, .ref_addr },
+                .{ .location, .exprloc },
+                .{ .alignment, .udata },
+                .{ .external, .flag },
+            },
+        },
+        .decl_func = .{
+            .tag = .subprogram,
+            .children = true,
+            .attrs = decl_abbrev_common_attrs ++ .{
+                .{ .linkage_name, .strp },
+                .{ .type, .ref_addr },
+                .{ .low_pc, .addr },
+                .{ .high_pc, .addr },
+                .{ .alignment, .udata },
+                .{ .external, .flag },
+                .{ .noreturn, .flag },
+            },
+        },
+        .decl_func_empty = .{
+            .tag = .subprogram,
+            .attrs = decl_abbrev_common_attrs ++ .{
+                .{ .linkage_name, .strp },
+                .{ .type, .ref_addr },
+                .{ .low_pc, .addr },
+                .{ .high_pc, .addr },
+                .{ .alignment, .udata },
+                .{ .external, .flag },
+                .{ .noreturn, .flag },
+            },
+        },
+        .compile_unit = .{
+            .tag = .compile_unit,
+            .children = true,
+            .attrs = &.{
+                .{ .language, .data1 },
+                .{ .producer, .line_strp },
+                .{ .comp_dir, .line_strp },
+                .{ .name, .line_strp },
+                .{ .base_types, .ref_addr },
+                .{ .stmt_list, .sec_offset },
+                .{ .rnglists_base, .sec_offset },
+                .{ .ranges, .rnglistx },
+            },
+        },
+        .module = .{
+            .tag = .module,
+            .children = true,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .ranges, .rnglistx },
+            },
+        },
+        .namespace_file = .{
+            .tag = .structure_type,
+            .attrs = &.{
+                .{ .decl_file, .udata },
+                .{ .name, .strp },
+            },
+        },
+        .file = .{
+            .tag = .structure_type,
+            .children = true,
+            .attrs = &.{
+                .{ .decl_file, .udata },
+                .{ .name, .strp },
+                .{ .byte_size, .udata },
+                .{ .alignment, .udata },
+            },
+        },
+        .signed_enum_field = .{
+            .tag = .enumerator,
+            .attrs = &.{
+                .{ .const_value, .sdata },
+                .{ .name, .strp },
+            },
+        },
+        .unsigned_enum_field = .{
+            .tag = .enumerator,
+            .attrs = &.{
+                .{ .const_value, .udata },
+                .{ .name, .strp },
+            },
+        },
+        .generated_field = .{
+            .tag = .member,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+                .{ .data_member_location, .udata },
+                .{ .artificial, .flag_present },
+            },
+        },
+        .struct_field = .{
+            .tag = .member,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+                .{ .data_member_location, .udata },
+                .{ .alignment, .udata },
+            },
+        },
+        .struct_field_comptime = .{
+            .tag = .member,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+                .{ .const_expr, .flag_present },
+            },
+        },
+        .packed_struct_field = .{
+            .tag = .member,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+                .{ .data_bit_offset, .udata },
+            },
+        },
+        .untagged_union_field = .{
+            .tag = .member,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+                .{ .alignment, .udata },
+            },
+        },
+        .tagged_union = .{
+            .tag = .variant_part,
+            .children = true,
+            .attrs = &.{
+                .{ .discr, .ref_addr },
+            },
+        },
+        .signed_tagged_union_field = .{
+            .tag = .variant,
+            .children = true,
+            .attrs = &.{
+                .{ .discr_value, .sdata },
+            },
+        },
+        .unsigned_tagged_union_field = .{
+            .tag = .variant,
+            .children = true,
+            .attrs = &.{
+                .{ .discr_value, .udata },
+            },
+        },
+        .tagged_union_default_field = .{
+            .tag = .variant,
+            .children = true,
+            .attrs = &.{},
+        },
+        .void_type = .{
+            .tag = .unspecified_type,
+            .attrs = &.{
+                .{ .name, .strp },
+            },
+        },
+        .numeric_type = .{
+            .tag = .base_type,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .encoding, .data1 },
+                .{ .bit_size, .udata },
+                .{ .byte_size, .udata },
+                .{ .alignment, .udata },
+            },
+        },
+        .inferred_error_set_type = .{
+            .tag = .typedef,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+            },
+        },
+        .ptr_type = .{
+            .tag = .pointer_type,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .alignment, .udata },
+                .{ .address_class, .data1 },
+                .{ .type, .ref_addr },
+            },
+        },
+        .is_const = .{
+            .tag = .const_type,
+            .attrs = &.{
+                .{ .type, .ref_addr },
+            },
+        },
+        .is_volatile = .{
+            .tag = .volatile_type,
+            .attrs = &.{
+                .{ .type, .ref_addr },
+            },
+        },
+        .array_type = .{
+            .tag = .array_type,
+            .children = true,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+                .{ .GNU_vector, .flag },
+            },
+        },
+        .array_index = .{
+            .tag = .subrange_type,
+            .attrs = &.{
+                .{ .type, .ref_addr },
+                .{ .count, .udata },
+            },
+        },
+        .nullary_func_type = .{
+            .tag = .subroutine_type,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .calling_convention, .data1 },
+                .{ .type, .ref_addr },
+            },
+        },
+        .func_type = .{
+            .tag = .subroutine_type,
+            .children = true,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .calling_convention, .data1 },
+                .{ .type, .ref_addr },
+            },
+        },
+        .func_type_param = .{
+            .tag = .formal_parameter,
+            .attrs = &.{
+                .{ .type, .ref_addr },
+            },
+        },
+        .is_var_args = .{
+            .tag = .unspecified_parameters,
+        },
+        .enum_type = .{
+            .tag = .enumeration_type,
+            .children = true,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+            },
+        },
+        .empty_enum_type = .{
+            .tag = .enumeration_type,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+            },
+        },
+        .namespace_struct_type = .{
+            .tag = .structure_type,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .declaration, .flag },
+            },
+        },
+        .struct_type = .{
+            .tag = .structure_type,
+            .children = true,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .byte_size, .udata },
+                .{ .alignment, .udata },
+            },
+        },
+        .packed_struct_type = .{
+            .tag = .structure_type,
+            .children = true,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+            },
+        },
+        .union_type = .{
+            .tag = .union_type,
+            .children = true,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .byte_size, .udata },
+                .{ .alignment, .udata },
+            },
+        },
+        .local_arg = .{
+            .tag = .formal_parameter,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+                .{ .location, .exprloc },
+            },
+        },
+        .local_var = .{
+            .tag = .variable,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+                .{ .location, .exprloc },
+            },
+        },
+        .null = undefined,
+    }).values[1..].*;
 };
 
-const Dwarf = @This();
+fn getFile(dwarf: *Dwarf) ?std.fs.File {
+    if (dwarf.bin_file.cast(.macho)) |macho_file| if (macho_file.d_sym) |*d_sym| return d_sym.file;
+    return dwarf.bin_file.file;
+}
 
-const std = @import("std");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
-const fs = std.fs;
-const leb128 = std.leb;
-const log = std.log.scoped(.dwarf);
-const mem = std.mem;
+fn addCommonEntry(dwarf: *Dwarf, unit: Unit.Index) UpdateError!Entry.Index {
+    const entry = try dwarf.debug_aranges.section.addEntry(unit, dwarf);
+    assert(try dwarf.debug_info.section.addEntry(unit, dwarf) == entry);
+    assert(try dwarf.debug_line.section.addEntry(unit, dwarf) == entry);
+    assert(try dwarf.debug_loclists.section.addEntry(unit, dwarf) == entry);
+    assert(try dwarf.debug_rnglists.section.addEntry(unit, dwarf) == entry);
+    return entry;
+}
 
-const link = @import("../link.zig");
-const trace = @import("../tracy.zig").trace;
+fn writeInt(dwarf: *Dwarf, buf: []u8, int: u64) void {
+    switch (buf.len) {
+        inline 0...8 => |len| std.mem.writeInt(@Type(.{ .Int = .{
+            .signedness = .unsigned,
+            .bits = len * 8,
+        } }), buf[0..len], @intCast(int), dwarf.endian),
+        else => unreachable,
+    }
+}
 
-const Allocator = mem.Allocator;
+fn resolveReloc(dwarf: *Dwarf, source: u64, target: u64, size: u32) RelocError!void {
+    var buf: [8]u8 = undefined;
+    dwarf.writeInt(buf[0..size], target);
+    try dwarf.getFile().?.pwriteAll(buf[0..size], source);
+}
+
+fn unitLengthBytes(dwarf: *Dwarf) u32 {
+    return switch (dwarf.format) {
+        .@"32" => 4,
+        .@"64" => 4 + 8,
+    };
+}
+
+fn sectionOffsetBytes(dwarf: *Dwarf) u32 {
+    return switch (dwarf.format) {
+        .@"32" => 4,
+        .@"64" => 8,
+    };
+}
+
+fn SectionOffset(comptime format: DW.Format) type {
+    return switch (format) {
+        .@"32" => u32,
+        .@"64" => u64,
+    };
+}
+
+fn uleb128Bytes(value: anytype) u32 {
+    var cw = std.io.countingWriter(std.io.null_writer);
+    try uleb128(cw.writer(), value);
+    return @intCast(cw.bytes_written);
+}
+
+/// overrides `-fno-incremental` for testing incremental debug info until `-fincremental` is functional
+const force_incremental = false;
+inline fn incremental(dwarf: Dwarf) bool {
+    return force_incremental or dwarf.bin_file.comp.incremental;
+}
+
 const DW = std.dwarf;
-const File = link.File;
-const LinkBlock = File.LinkBlock;
-const LinkFn = File.LinkFn;
-const LinkerLoad = @import("../codegen.zig").LinkerLoad;
-const Zcu = @import("../Zcu.zig");
+const Dwarf = @This();
 const InternPool = @import("../InternPool.zig");
-const StringTable = @import("StringTable.zig");
+const Module = @import("../Package.zig").Module;
 const Type = @import("../Type.zig");
-const Value = @import("../Value.zig");
+const Zcu = @import("../Zcu.zig");
+const Zir = std.zig.Zir;
+const assert = std.debug.assert;
+const codegen = @import("../codegen.zig");
+const link = @import("../link.zig");
+const log = std.log.scoped(.dwarf);
+const sleb128 = std.leb.writeIleb128;
+const std = @import("std");
+const target_info = @import("../target.zig");
+const uleb128 = std.leb.writeUleb128;

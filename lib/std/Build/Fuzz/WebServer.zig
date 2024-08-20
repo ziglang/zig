@@ -8,6 +8,8 @@ const Coverage = std.debug.Coverage;
 const abi = std.Build.Fuzz.abi;
 const log = std.log;
 const assert = std.debug.assert;
+const Cache = std.Build.Cache;
+const Path = Cache.Path;
 
 const WebServer = @This();
 
@@ -30,6 +32,10 @@ coverage_files: std.AutoArrayHashMapUnmanaged(u64, CoverageMap),
 coverage_mutex: std.Thread.Mutex,
 /// Signaled when `coverage_files` changes.
 coverage_condition: std.Thread.Condition,
+
+const fuzzer_bin_name = "fuzzer";
+const fuzzer_arch_os_abi = "wasm32-freestanding";
+const fuzzer_cpu_features = "baseline+atomics+bulk_memory+multivalue+mutable_globals+nontrapping_fptoint+reference_types+sign_ext";
 
 const CoverageMap = struct {
     mapped_memory: []align(std.mem.page_size) const u8,
@@ -181,9 +187,18 @@ fn serveWasm(
 
     // Do the compilation every request, so that the user can edit the files
     // and see the changes without restarting the server.
-    const wasm_binary_path = try buildWasmBinary(ws, arena, optimize_mode);
+    const wasm_base_path = try buildWasmBinary(ws, arena, optimize_mode);
+    const bin_name = try std.zig.binNameAlloc(arena, .{
+        .root_name = fuzzer_bin_name,
+        .target = std.zig.system.resolveTargetQuery(std.Build.parseTargetQuery(.{
+            .arch_os_abi = fuzzer_arch_os_abi,
+            .cpu_features = fuzzer_cpu_features,
+        }) catch unreachable) catch unreachable,
+        .output_mode = .Exe,
+    });
     // std.http.Server does not have a sendfile API yet.
-    const file_contents = try std.fs.cwd().readFileAlloc(gpa, wasm_binary_path, 10 * 1024 * 1024);
+    const bin_path = try wasm_base_path.join(arena, bin_name);
+    const file_contents = try bin_path.root_dir.handle.readFileAlloc(gpa, bin_path.sub_path, 10 * 1024 * 1024);
     defer gpa.free(file_contents);
     try request.respond(file_contents, .{
         .extra_headers = &.{
@@ -197,7 +212,7 @@ fn buildWasmBinary(
     ws: *WebServer,
     arena: Allocator,
     optimize_mode: std.builtin.OptimizeMode,
-) ![]const u8 {
+) !Path {
     const gpa = ws.gpa;
 
     const main_src_path: Build.Cache.Path = .{
@@ -219,11 +234,11 @@ fn buildWasmBinary(
         ws.zig_exe_path, "build-exe", //
         "-fno-entry", //
         "-O", @tagName(optimize_mode), //
-        "-target", "wasm32-freestanding", //
-        "-mcpu", "baseline+atomics+bulk_memory+multivalue+mutable_globals+nontrapping_fptoint+reference_types+sign_ext", //
+        "-target", fuzzer_arch_os_abi, //
+        "-mcpu", fuzzer_cpu_features, //
         "--cache-dir", ws.global_cache_directory.path orelse ".", //
         "--global-cache-dir", ws.global_cache_directory.path orelse ".", //
-        "--name", "fuzzer", //
+        "--name", fuzzer_bin_name, //
         "-rdynamic", //
         "-fsingle-threaded", //
         "--dep", "Walk", //
@@ -251,7 +266,7 @@ fn buildWasmBinary(
     try sendMessage(child.stdin.?, .exit);
 
     const Header = std.zig.Server.Message.Header;
-    var result: ?[]const u8 = null;
+    var result: ?Path = null;
     var result_error_bundle = std.zig.ErrorBundle.empty;
 
     const stdout = poller.fifo(.stdout);
@@ -288,13 +303,17 @@ fn buildWasmBinary(
                     .extra = extra_array,
                 };
             },
-            .emit_bin_path => {
-                const EbpHdr = std.zig.Server.Message.EmitBinPath;
+            .emit_digest => {
+                const EbpHdr = std.zig.Server.Message.EmitDigest;
                 const ebp_hdr = @as(*align(1) const EbpHdr, @ptrCast(body));
                 if (!ebp_hdr.flags.cache_hit) {
                     log.info("source changes detected; rebuilt wasm component", .{});
                 }
-                result = try arena.dupe(u8, body[@sizeOf(EbpHdr)..]);
+                const digest = body[@sizeOf(EbpHdr)..][0..Cache.bin_digest_len];
+                result = Path{
+                    .root_dir = ws.global_cache_directory,
+                    .sub_path = try arena.dupe(u8, "o" ++ std.fs.path.sep_str ++ Cache.binToHex(digest.*)),
+                };
             },
             else => {}, // ignore other messages
         }
@@ -456,7 +475,6 @@ fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
             },
         },
     });
-    const w = response.writer();
 
     const DedupeTable = std.ArrayHashMapUnmanaged(Build.Cache.Path, void, Build.Cache.Path.TableAdapter, false);
     var dedupe_table: DedupeTable = .{};
@@ -490,6 +508,8 @@ fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
 
     var cwd_cache: ?[]const u8 = null;
 
+    var archiver = std.tar.writer(response.writer());
+
     for (deduped_paths) |joined_path| {
         var file = joined_path.root_dir.handle.openFile(joined_path.sub_path, .{}) catch |err| {
             log.err("failed to open {}: {s}", .{ joined_path, @errorName(err) });
@@ -497,33 +517,12 @@ fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
         };
         defer file.close();
 
-        const stat = file.stat() catch |err| {
-            log.err("failed to stat {}: {s}", .{ joined_path, @errorName(err) });
-            continue;
-        };
-        if (stat.kind != .file)
-            continue;
-
-        const padding = p: {
-            const remainder = stat.size % 512;
-            break :p if (remainder > 0) 512 - remainder else 0;
-        };
-
-        var file_header = std.tar.output.Header.init();
-        file_header.typeflag = .regular;
-        try file_header.setPath(
-            joined_path.root_dir.path orelse try memoizedCwd(arena, &cwd_cache),
-            joined_path.sub_path,
-        );
-        try file_header.setSize(stat.size);
-        try file_header.updateChecksum();
-        try w.writeAll(std.mem.asBytes(&file_header));
-        try w.writeFile(file);
-        try w.writeByteNTimes(0, padding);
+        archiver.prefix = joined_path.root_dir.path orelse try memoizedCwd(arena, &cwd_cache);
+        try archiver.writeFile(joined_path.sub_path, file);
     }
 
     // intentionally omitting the pointless trailer
-    //try w.writeByteNTimes(0, 512 * 2);
+    //try archiver.finish();
     try response.end();
 }
 
@@ -588,10 +587,7 @@ fn prepareTables(
     };
     errdefer gop.value_ptr.coverage.deinit(gpa);
 
-    const rebuilt_exe_path: Build.Cache.Path = .{
-        .root_dir = Build.Cache.Directory.cwd(),
-        .sub_path = run_step.rebuilt_executable.?,
-    };
+    const rebuilt_exe_path = run_step.rebuilt_executable.?;
     var debug_info = std.debug.Info.load(gpa, rebuilt_exe_path, &gop.value_ptr.coverage) catch |err| {
         log.err("step '{s}': failed to load debug information for '{}': {s}", .{
             run_step.step.name, rebuilt_exe_path, @errorName(err),
@@ -634,10 +630,28 @@ fn prepareTables(
     const pcs = header.pcAddrs();
     const source_locations = try gpa.alloc(Coverage.SourceLocation, pcs.len);
     errdefer gpa.free(source_locations);
-    debug_info.resolveAddresses(gpa, pcs, source_locations) catch |err| {
+
+    // Unfortunately the PCs array that LLVM gives us from the 8-bit PC
+    // counters feature is not sorted.
+    var sorted_pcs: std.MultiArrayList(struct { pc: u64, index: u32, sl: Coverage.SourceLocation }) = .{};
+    defer sorted_pcs.deinit(gpa);
+    try sorted_pcs.resize(gpa, pcs.len);
+    @memcpy(sorted_pcs.items(.pc), pcs);
+    for (sorted_pcs.items(.index), 0..) |*v, i| v.* = @intCast(i);
+    sorted_pcs.sortUnstable(struct {
+        addrs: []const u64,
+
+        pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
+            return ctx.addrs[a_index] < ctx.addrs[b_index];
+        }
+    }{ .addrs = sorted_pcs.items(.pc) });
+
+    debug_info.resolveAddresses(gpa, sorted_pcs.items(.pc), sorted_pcs.items(.sl)) catch |err| {
         log.err("failed to resolve addresses to source locations: {s}", .{@errorName(err)});
         return error.AlreadyReported;
     };
+
+    for (sorted_pcs.items(.index), sorted_pcs.items(.sl)) |i, sl| source_locations[i] = sl;
     gop.value_ptr.source_locations = source_locations;
 
     ws.coverage_condition.broadcast();
@@ -664,8 +678,8 @@ fn addEntryPoint(ws: *WebServer, coverage_id: u64, addr: u64) error{ AlreadyRepo
     if (false) {
         const sl = coverage_map.source_locations[index];
         const file_name = coverage_map.coverage.stringAt(coverage_map.coverage.fileAt(sl.file).basename);
-        log.debug("server found entry point {s}:{d}:{d}", .{
-            file_name, sl.line, sl.column,
+        log.debug("server found entry point for 0x{x} at {s}:{d}:{d}", .{
+            addr, file_name, sl.line, sl.column,
         });
     }
     const gpa = ws.gpa;

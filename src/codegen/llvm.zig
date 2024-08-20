@@ -564,9 +564,9 @@ const DataLayoutBuilder = struct {
             .float => &.{ .float, .double, .longdouble },
             .vector, .aggregate => &.{},
         })) |cty| {
-            if (self.target.c_type_bit_size(cty) != size) continue;
-            abi = self.target.c_type_alignment(cty) * 8;
-            pref = self.target.c_type_preferred_alignment(cty) * 8;
+            if (self.target.cTypeBitSize(cty) != size) continue;
+            abi = self.target.cTypeAlignment(cty) * 8;
+            pref = self.target.cTypePreferredAlignment(cty) * 8;
             break;
         }
         switch (kind) {
@@ -1380,7 +1380,8 @@ pub const Object = struct {
         } else {
             _ = try attributes.removeFnAttr(.sanitize_thread);
         }
-        if (owner_mod.fuzz and !func_analysis.disable_instrumentation) {
+        const is_naked = fn_info.cc == .Naked;
+        if (owner_mod.fuzz and !func_analysis.disable_instrumentation and !is_naked) {
             try attributes.addFnAttr(.optforfuzzing, &o.builder);
             _ = try attributes.removeFnAttr(.skipprofile);
             _ = try attributes.removeFnAttr(.nosanitize_coverage);
@@ -1959,7 +1960,7 @@ pub const Object = struct {
                     );
                 }
 
-                const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFull(ip).file);
+                const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFile(ip));
                 const scope = if (ty.getParentNamespace(zcu).unwrap()) |parent_namespace|
                     try o.namespaceToDebugScope(parent_namespace)
                 else
@@ -2137,7 +2138,7 @@ pub const Object = struct {
                 const name = try o.allocTypeName(ty);
                 defer gpa.free(name);
 
-                const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFull(ip).file);
+                const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFile(ip));
                 const scope = if (ty.getParentNamespace(zcu).unwrap()) |parent_namespace|
                     try o.namespaceToDebugScope(parent_namespace)
                 else
@@ -2772,7 +2773,7 @@ pub const Object = struct {
     fn makeEmptyNamespaceDebugType(o: *Object, ty: Type) !Builder.Metadata {
         const zcu = o.pt.zcu;
         const ip = &zcu.intern_pool;
-        const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFull(ip).file);
+        const file = try o.getDebugFile(ty.typeDeclInstAllowGeneratedTag(zcu).?.resolveFile(ip));
         const scope = if (ty.getParentNamespace(zcu).unwrap()) |parent_namespace|
             try o.namespaceToDebugScope(parent_namespace)
         else
@@ -2909,7 +2910,17 @@ pub const Object = struct {
             function_index.setAlignment(resolved.alignment.toLlvm(), &o.builder);
 
         // Function attributes that are independent of analysis results of the function body.
-        try o.addCommonFnAttributes(&attributes, owner_mod);
+        try o.addCommonFnAttributes(
+            &attributes,
+            owner_mod,
+            // Some backends don't respect the `naked` attribute in `TargetFrameLowering::hasFP()`,
+            // so for these backends, LLVM will happily emit code that accesses the stack through
+            // the frame pointer. This is nonsensical since what the `naked` attribute does is
+            // suppress generation of the prologue and epilogue, and the prologue is where the
+            // frame pointer normally gets set up. At time of writing, this is the case for at
+            // least x86 and RISC-V.
+            owner_mod.omit_frame_pointer or fn_info.cc == .Naked,
+        );
 
         if (fn_info.return_type == .noreturn_type) try attributes.addFnAttr(.noreturn, &o.builder);
 
@@ -2956,13 +2967,14 @@ pub const Object = struct {
         o: *Object,
         attributes: *Builder.FunctionAttributes.Wip,
         owner_mod: *Package.Module,
+        omit_frame_pointer: bool,
     ) Allocator.Error!void {
         const comp = o.pt.zcu.comp;
 
         if (!owner_mod.red_zone) {
             try attributes.addFnAttr(.noredzone, &o.builder);
         }
-        if (owner_mod.omit_frame_pointer) {
+        if (omit_frame_pointer) {
             try attributes.addFnAttr(.{ .string = .{
                 .kind = try o.builder.string("frame-pointer"),
                 .value = try o.builder.string("none"),
@@ -3122,7 +3134,7 @@ pub const Object = struct {
             .c_ulong_type,
             .c_longlong_type,
             .c_ulonglong_type,
-            => |tag| try o.builder.intType(target.c_type_bit_size(
+            => |tag| try o.builder.intType(target.cTypeBitSize(
                 @field(std.Target.CType, @tagName(tag)["c_".len .. @tagName(tag).len - "_type".len]),
             )),
             .c_longdouble_type,
@@ -3183,8 +3195,6 @@ pub const Object = struct {
             .one_u8,
             .four_u8,
             .negative_one,
-            .calling_convention_c,
-            .calling_convention_inline,
             .void_value,
             .unreachable_value,
             .null_value,
@@ -4528,7 +4538,7 @@ pub const Object = struct {
 
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
-        try o.addCommonFnAttributes(&attributes, zcu.root_mod);
+        try o.addCommonFnAttributes(&attributes, zcu.root_mod, zcu.root_mod.omit_frame_pointer);
 
         function_index.setLinkage(.internal, &o.builder);
         function_index.setCallConv(.fastcc, &o.builder);
@@ -4557,7 +4567,7 @@ pub const Object = struct {
 
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
-        try o.addCommonFnAttributes(&attributes, zcu.root_mod);
+        try o.addCommonFnAttributes(&attributes, zcu.root_mod, zcu.root_mod.omit_frame_pointer);
 
         function_index.setLinkage(.internal, &o.builder);
         function_index.setCallConv(.fastcc, &o.builder);
@@ -6709,8 +6719,6 @@ pub const FuncGen = struct {
         const operand_ty = self.typeOf(pl_op.operand);
         const name = self.air.nullTerminatedString(pl_op.payload);
 
-        if (needDbgVarWorkaround(o)) return .none;
-
         const debug_local_var = try o.builder.debugLocalVar(
             try o.builder.metadataString(name),
             self.file,
@@ -6734,7 +6742,10 @@ pub const FuncGen = struct {
                 },
                 "",
             );
-        } else if (owner_mod.optimize_mode == .Debug) {
+        } else if (owner_mod.optimize_mode == .Debug and !self.is_naked) {
+            // We avoid taking this path for naked functions because there's no guarantee that such
+            // functions even have a valid stack pointer, making the `alloca` + `store` unsafe.
+
             const alignment = operand_ty.abiAlignment(pt).toLlvm();
             const alloca = try self.buildAlloca(operand.typeOfWip(&self.wip), alignment);
             _ = try self.wip.store(.normal, operand, alloca, alignment);
@@ -8815,7 +8826,6 @@ pub const FuncGen = struct {
         if (self.is_naked) return arg_val;
 
         const inst_ty = self.typeOfIndex(inst);
-        if (needDbgVarWorkaround(o)) return arg_val;
 
         const name = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
         if (name == .none) return arg_val;
@@ -9676,7 +9686,7 @@ pub const FuncGen = struct {
 
         var attributes: Builder.FunctionAttributes.Wip = .{};
         defer attributes.deinit(&o.builder);
-        try o.addCommonFnAttributes(&attributes, zcu.root_mod);
+        try o.addCommonFnAttributes(&attributes, zcu.root_mod, zcu.root_mod.omit_frame_pointer);
 
         function_index.setLinkage(.internal, &o.builder);
         function_index.setCallConv(.fastcc, &o.builder);
@@ -10286,7 +10296,7 @@ pub const FuncGen = struct {
         return self.wip.cast(.addrspacecast, operand, try o.lowerType(inst_ty), "");
     }
 
-    fn amdgcnWorkIntrinsic(
+    fn workIntrinsic(
         self: *FuncGen,
         dimension: u32,
         default: u32,
@@ -10303,44 +10313,60 @@ pub const FuncGen = struct {
     fn airWorkItemId(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.ng.object;
         const target = o.pt.zcu.getTarget();
-        assert(target.cpu.arch == .amdgcn); // TODO is to port this function to other GPU architectures
 
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const dimension = pl_op.payload;
-        return self.amdgcnWorkIntrinsic(dimension, 0, "amdgcn.workitem.id");
+
+        return switch (target.cpu.arch) {
+            .amdgcn => self.workIntrinsic(dimension, 0, "amdgcn.workitem.id"),
+            .nvptx, .nvptx64 => self.workIntrinsic(dimension, 0, "nvvm.read.ptx.sreg.tid"),
+            else => unreachable,
+        };
     }
 
     fn airWorkGroupSize(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.ng.object;
         const target = o.pt.zcu.getTarget();
-        assert(target.cpu.arch == .amdgcn); // TODO is to port this function to other GPU architectures
 
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const dimension = pl_op.payload;
-        if (dimension >= 3) return .@"1";
 
-        // Fetch the dispatch pointer, which points to this structure:
-        // https://github.com/RadeonOpenCompute/ROCR-Runtime/blob/adae6c61e10d371f7cbc3d0e94ae2c070cab18a4/src/inc/hsa.h#L2913
-        const dispatch_ptr =
-            try self.wip.callIntrinsic(.normal, .none, .@"amdgcn.dispatch.ptr", &.{}, &.{}, "");
+        switch (target.cpu.arch) {
+            .amdgcn => {
+                if (dimension >= 3) return .@"1";
 
-        // Load the work_group_* member from the struct as u16.
-        // Just treat the dispatch pointer as an array of u16 to keep things simple.
-        const workgroup_size_ptr = try self.wip.gep(.inbounds, .i16, dispatch_ptr, &.{
-            try o.builder.intValue(try o.lowerType(Type.usize), 2 + dimension),
-        }, "");
-        const workgroup_size_alignment = comptime Builder.Alignment.fromByteUnits(2);
-        return self.wip.load(.normal, .i16, workgroup_size_ptr, workgroup_size_alignment, "");
+                // Fetch the dispatch pointer, which points to this structure:
+                // https://github.com/RadeonOpenCompute/ROCR-Runtime/blob/adae6c61e10d371f7cbc3d0e94ae2c070cab18a4/src/inc/hsa.h#L2913
+                const dispatch_ptr =
+                    try self.wip.callIntrinsic(.normal, .none, .@"amdgcn.dispatch.ptr", &.{}, &.{}, "");
+
+                // Load the work_group_* member from the struct as u16.
+                // Just treat the dispatch pointer as an array of u16 to keep things simple.
+                const workgroup_size_ptr = try self.wip.gep(.inbounds, .i16, dispatch_ptr, &.{
+                    try o.builder.intValue(try o.lowerType(Type.usize), 2 + dimension),
+                }, "");
+                const workgroup_size_alignment = comptime Builder.Alignment.fromByteUnits(2);
+                return self.wip.load(.normal, .i16, workgroup_size_ptr, workgroup_size_alignment, "");
+            },
+            .nvptx, .nvptx64 => {
+                return self.workIntrinsic(dimension, 1, "nvvm.read.ptx.sreg.ntid");
+            },
+            else => unreachable,
+        }
     }
 
     fn airWorkGroupId(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.ng.object;
         const target = o.pt.zcu.getTarget();
-        assert(target.cpu.arch == .amdgcn); // TODO is to port this function to other GPU architectures
 
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const dimension = pl_op.payload;
-        return self.amdgcnWorkIntrinsic(dimension, 0, "amdgcn.workgroup.id");
+
+        return switch (target.cpu.arch) {
+            .amdgcn => self.workIntrinsic(dimension, 0, "amdgcn.workgroup.id"),
+            .nvptx, .nvptx64 => self.workIntrinsic(dimension, 0, "nvvm.read.ptx.sreg.ctaid"),
+            else => unreachable,
+        };
     }
 
     fn getErrorNameTable(self: *FuncGen) Allocator.Error!Builder.Variable.Index {
@@ -11760,7 +11786,9 @@ fn backendSupportsF16(target: std.Target) bool {
         .mips64el,
         .s390x,
         => false,
-        .aarch64 => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
+        .aarch64,
+        .aarch64_be,
+        => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
         else => true,
     };
 }
@@ -11771,9 +11799,18 @@ fn backendSupportsF16(target: std.Target) bool {
 fn backendSupportsF128(target: std.Target) bool {
     return switch (target.cpu.arch) {
         .amdgcn,
+        .mips64,
+        .mips64el,
         .sparc,
         => false,
-        .aarch64 => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        => target.os.tag != .aix,
+        .aarch64,
+        .aarch64_be,
+        => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
         else => true,
     };
 }
@@ -11783,8 +11820,8 @@ fn backendSupportsF128(target: std.Target) bool {
 fn intrinsicsAllowed(scalar_ty: Type, target: std.Target) bool {
     return switch (scalar_ty.toIntern()) {
         .f16_type => backendSupportsF16(target),
-        .f80_type => (target.c_type_bit_size(.longdouble) == 80) and backendSupportsF80(target),
-        .f128_type => (target.c_type_bit_size(.longdouble) == 128) and backendSupportsF128(target),
+        .f80_type => (target.cTypeBitSize(.longdouble) == 80) and backendSupportsF80(target),
+        .f128_type => (target.cTypeBitSize(.longdouble) == 128) and backendSupportsF128(target),
         else => true,
     };
 }
@@ -11803,16 +11840,6 @@ const struct_layout_version = 2;
 const optional_layout_version = 3;
 
 const lt_errors_fn_name = "__zig_lt_errors_len";
-
-/// Without this workaround, LLVM crashes with "unknown codeview register H1"
-/// https://github.com/llvm/llvm-project/issues/56484
-fn needDbgVarWorkaround(o: *Object) bool {
-    const target = o.pt.zcu.getTarget();
-    if (target.os.tag == .windows and target.cpu.arch == .aarch64) {
-        return true;
-    }
-    return false;
-}
 
 fn compilerRtIntBits(bits: u16) u16 {
     inline for (.{ 32, 64, 128 }) |b| {

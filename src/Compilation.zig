@@ -39,6 +39,8 @@ const Air = @import("Air.zig");
 const Builtin = @import("Builtin.zig");
 const LlvmObject = @import("codegen/llvm.zig").Object;
 const dev = @import("dev.zig");
+pub const Directory = Cache.Directory;
+const Path = Cache.Path;
 
 pub const Config = @import("Compilation/Config.zig");
 
@@ -70,9 +72,9 @@ bin_file: ?*link.File,
 /// The root path for the dynamic linker and system libraries (as well as frameworks on Darwin)
 sysroot: ?[]const u8,
 /// This is `null` when not building a Windows DLL, or when `-fno-emit-implib` is used.
-implib_emit: ?Emit,
+implib_emit: ?Path,
 /// This is non-null when `-femit-docs` is provided.
-docs_emit: ?Emit,
+docs_emit: ?Path,
 root_name: [:0]const u8,
 include_compiler_rt: bool,
 objects: []Compilation.LinkObject,
@@ -269,27 +271,9 @@ llvm_opt_bisect_limit: c_int,
 
 file_system_inputs: ?*std.ArrayListUnmanaged(u8),
 
-pub const Emit = struct {
-    /// Where the output will go.
-    directory: Directory,
-    /// Path to the output file, relative to `directory`.
-    sub_path: []const u8,
-
-    /// Returns the full path to `basename` if it were in the same directory as the
-    /// `Emit` sub_path.
-    pub fn basenamePath(emit: Emit, arena: Allocator, basename: []const u8) ![:0]const u8 {
-        const full_path = if (emit.directory.path) |p|
-            try std.fs.path.join(arena, &[_][]const u8{ p, emit.sub_path })
-        else
-            emit.sub_path;
-
-        if (std.fs.path.dirname(full_path)) |dirname| {
-            return try std.fs.path.joinZ(arena, &.{ dirname, basename });
-        } else {
-            return try arena.dupeZ(u8, basename);
-        }
-    }
-};
+/// This is the digest of the cache for the current compilation.
+/// This digest will be known after update() is called.
+digest: ?[Cache.bin_digest_len]u8 = null,
 
 pub const default_stack_protector_buffer_size = target_util.default_stack_protector_buffer_size;
 pub const SemaError = Zcu.SemaError;
@@ -363,6 +347,7 @@ const Job = union(enum) {
         /// It must be deinited when the job is processed.
         air: Air,
     },
+    codegen_type: InternPool.Index,
     /// The `Cau` must be semantically analyzed (and possibly export itself).
     /// This may be its first time being analyzed, or it may be outdated.
     analyze_cau: InternPool.Cau.Index,
@@ -423,6 +408,7 @@ const CodegenJob = union(enum) {
         /// It must be deinited when the job is processed.
         air: Air,
     },
+    type: InternPool.Index,
 };
 
 pub const CObject = struct {
@@ -865,8 +851,6 @@ pub const LldError = struct {
         gpa.free(self.msg);
     }
 };
-
-pub const Directory = Cache.Directory;
 
 pub const EmitLoc = struct {
     /// If this is `null` it means the file will be output to the cache directory.
@@ -1670,7 +1654,9 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 // In the case of incremental cache mode, this `artifact_directory`
                 // is computed based on a hash of non-linker inputs, and it is where all
                 // build artifacts are stored (even while in-progress).
+                comp.digest = hash.peekBin();
                 const digest = hash.final();
+
                 const artifact_sub_dir = "o" ++ std.fs.path.sep_str ++ digest;
                 var artifact_dir = try options.local_cache_directory.handle.makeOpenPath(artifact_sub_dir, .{});
                 errdefer artifact_dir.close();
@@ -1686,8 +1672,8 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 comp.cache_use = .{ .incremental = incremental };
 
                 if (options.emit_bin) |emit_bin| {
-                    const emit: Emit = .{
-                        .directory = emit_bin.directory orelse artifact_directory,
+                    const emit: Path = .{
+                        .root_dir = emit_bin.directory orelse artifact_directory,
                         .sub_path = emit_bin.basename,
                     };
                     comp.bin_file = try link.File.open(arena, comp, emit, lf_open_opts);
@@ -1695,14 +1681,14 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
                 if (options.emit_implib) |emit_implib| {
                     comp.implib_emit = .{
-                        .directory = emit_implib.directory orelse artifact_directory,
+                        .root_dir = emit_implib.directory orelse artifact_directory,
                         .sub_path = emit_implib.basename,
                     };
                 }
 
                 if (options.emit_docs) |emit_docs| {
                     comp.docs_emit = .{
-                        .directory = emit_docs.directory orelse artifact_directory,
+                        .root_dir = emit_docs.directory orelse artifact_directory,
                         .sub_path = emit_docs.basename,
                     };
                 }
@@ -2119,9 +2105,11 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
 
                 comp.last_update_was_cache_hit = true;
                 log.debug("CacheMode.whole cache hit for {s}", .{comp.root_name});
-                const digest = man.final();
+                const bin_digest = man.finalBin();
+                const hex_digest = Cache.binToHex(bin_digest);
 
-                comp.wholeCacheModeSetBinFilePath(whole, &digest);
+                comp.digest = bin_digest;
+                comp.wholeCacheModeSetBinFilePath(whole, &hex_digest);
 
                 assert(whole.lock == null);
                 whole.lock = man.toOwnedLock();
@@ -2153,21 +2141,21 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
 
             if (whole.implib_sub_path) |sub_path| {
                 comp.implib_emit = .{
-                    .directory = tmp_artifact_directory,
+                    .root_dir = tmp_artifact_directory,
                     .sub_path = std.fs.path.basename(sub_path),
                 };
             }
 
             if (whole.docs_sub_path) |sub_path| {
                 comp.docs_emit = .{
-                    .directory = tmp_artifact_directory,
+                    .root_dir = tmp_artifact_directory,
                     .sub_path = std.fs.path.basename(sub_path),
                 };
             }
 
             if (whole.bin_sub_path) |sub_path| {
-                const emit: Emit = .{
-                    .directory = tmp_artifact_directory,
+                const emit: Path = .{
+                    .root_dir = tmp_artifact_directory,
                     .sub_path = std.fs.path.basename(sub_path),
                 };
                 comp.bin_file = try link.File.createEmpty(arena, comp, emit, whole.lf_open_opts);
@@ -2262,13 +2250,19 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             }
         }
 
+        zcu.analysis_roots.clear();
+
         try comp.queueJob(.{ .analyze_mod = std_mod });
-        if (comp.config.is_test) {
+        zcu.analysis_roots.appendAssumeCapacity(std_mod);
+
+        if (comp.config.is_test and zcu.main_mod != std_mod) {
             try comp.queueJob(.{ .analyze_mod = zcu.main_mod });
+            zcu.analysis_roots.appendAssumeCapacity(zcu.main_mod);
         }
 
         if (zcu.root_mod.deps.get("compiler_rt")) |compiler_rt_mod| {
             try comp.queueJob(.{ .analyze_mod = compiler_rt_mod });
+            zcu.analysis_roots.appendAssumeCapacity(compiler_rt_mod);
         }
     }
 
@@ -2292,7 +2286,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             zcu.intern_pool.dumpGenericInstances(gpa);
         }
 
-        if (comp.config.is_test and comp.totalErrorCount() == 0) {
+        if (comp.config.is_test) {
             // The `test_functions` decl has been intentionally postponed until now,
             // at which point we must populate it with the list of test functions that
             // have been discovered and not filtered out.
@@ -2302,7 +2296,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         try pt.processExports();
     }
 
-    if (comp.totalErrorCount() != 0) {
+    if (try comp.totalErrorCount() != 0) {
         // Skip flushing and keep source files loaded for error reporting.
         comp.link_error_flags = .{};
         return;
@@ -2321,7 +2315,8 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                 try man.populateOtherManifest(pwc.manifest, pwc.prefix_map);
             }
 
-            const digest = man.final();
+            const bin_digest = man.finalBin();
+            const hex_digest = Cache.binToHex(bin_digest);
 
             // Rename the temporary directory into place.
             // Close tmp dir and link.File to avoid open handle during rename.
@@ -2333,7 +2328,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
 
             const s = std.fs.path.sep_str;
             const tmp_dir_sub_path = "tmp" ++ s ++ std.fmt.hex(tmp_dir_rand_int);
-            const o_sub_path = "o" ++ s ++ digest;
+            const o_sub_path = "o" ++ s ++ hex_digest;
 
             // Work around windows `AccessDenied` if any files within this
             // directory are open by closing and reopening the file handles.
@@ -2368,14 +2363,15 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                     },
                 );
             };
-            comp.wholeCacheModeSetBinFilePath(whole, &digest);
+            comp.digest = bin_digest;
+            comp.wholeCacheModeSetBinFilePath(whole, &hex_digest);
 
             // The linker flush functions need to know the final output path
             // for debug info purposes because executable debug info contains
             // references object file paths.
             if (comp.bin_file) |lf| {
                 lf.emit = .{
-                    .directory = comp.local_cache_directory,
+                    .root_dir = comp.local_cache_directory,
                     .sub_path = whole.bin_sub_path.?,
                 };
 
@@ -2385,8 +2381,10 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                 }
             }
 
-            try flush(comp, arena, .main, main_progress_node);
-            if (comp.totalErrorCount() != 0) return;
+            try flush(comp, arena, .{
+                .root_dir = comp.local_cache_directory,
+                .sub_path = o_sub_path,
+            }, .main, main_progress_node);
 
             // Failure here only means an unnecessary cache miss.
             man.writeManifest() catch |err| {
@@ -2401,9 +2399,10 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             assert(whole.lock == null);
             whole.lock = man.toOwnedLock();
         },
-        .incremental => {
-            try flush(comp, arena, .main, main_progress_node);
-            if (comp.totalErrorCount() != 0) return;
+        .incremental => |incremental| {
+            try flush(comp, arena, .{
+                .root_dir = incremental.artifact_directory,
+            }, .main, main_progress_node);
         },
     }
 }
@@ -2432,7 +2431,13 @@ pub fn appendFileSystemInput(
     std.debug.panic("missing prefix directory: {}, {s}", .{ root, sub_file_path });
 }
 
-fn flush(comp: *Compilation, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
+fn flush(
+    comp: *Compilation,
+    arena: Allocator,
+    default_artifact_directory: Path,
+    tid: Zcu.PerThread.Id,
+    prog_node: std.Progress.Node,
+) !void {
     if (comp.bin_file) |lf| {
         // This is needed before reading the error flags.
         lf.flush(arena, tid, prog_node) catch |err| switch (err) {
@@ -2446,17 +2451,7 @@ fn flush(comp: *Compilation, arena: Allocator, tid: Zcu.PerThread.Id, prog_node:
         try link.File.C.flushEmitH(zcu);
 
         if (zcu.llvm_object) |llvm_object| {
-            const default_emit = switch (comp.cache_use) {
-                .whole => |whole| .{
-                    .directory = whole.tmp_artifact_directory.?,
-                    .sub_path = "dummy",
-                },
-                .incremental => |incremental| .{
-                    .directory = incremental.artifact_directory,
-                    .sub_path = "dummy",
-                },
-            };
-            try emitLlvmObject(comp, arena, default_emit, null, llvm_object, prog_node);
+            try emitLlvmObject(comp, arena, default_artifact_directory, null, llvm_object, prog_node);
         }
     }
 }
@@ -2525,7 +2520,7 @@ fn wholeCacheModeSetBinFilePath(
         @memcpy(sub_path[digest_start..][0..digest.len], digest);
 
         comp.implib_emit = .{
-            .directory = comp.local_cache_directory,
+            .root_dir = comp.local_cache_directory,
             .sub_path = sub_path,
         };
     }
@@ -2534,7 +2529,7 @@ fn wholeCacheModeSetBinFilePath(
         @memcpy(sub_path[digest_start..][0..digest.len], digest);
 
         comp.docs_emit = .{
-            .directory = comp.local_cache_directory,
+            .root_dir = comp.local_cache_directory,
             .sub_path = sub_path,
         };
     }
@@ -2737,7 +2732,7 @@ fn emitOthers(comp: *Compilation) void {
 pub fn emitLlvmObject(
     comp: *Compilation,
     arena: Allocator,
-    default_emit: Emit,
+    default_artifact_directory: Path,
     bin_emit_loc: ?EmitLoc,
     llvm_object: LlvmObject.Ptr,
     prog_node: std.Progress.Node,
@@ -2748,10 +2743,10 @@ pub fn emitLlvmObject(
     try llvm_object.emit(.{
         .pre_ir_path = comp.verbose_llvm_ir,
         .pre_bc_path = comp.verbose_llvm_bc,
-        .bin_path = try resolveEmitLoc(arena, default_emit, bin_emit_loc),
-        .asm_path = try resolveEmitLoc(arena, default_emit, comp.emit_asm),
-        .post_ir_path = try resolveEmitLoc(arena, default_emit, comp.emit_llvm_ir),
-        .post_bc_path = try resolveEmitLoc(arena, default_emit, comp.emit_llvm_bc),
+        .bin_path = try resolveEmitLoc(arena, default_artifact_directory, bin_emit_loc),
+        .asm_path = try resolveEmitLoc(arena, default_artifact_directory, comp.emit_asm),
+        .post_ir_path = try resolveEmitLoc(arena, default_artifact_directory, comp.emit_llvm_ir),
+        .post_bc_path = try resolveEmitLoc(arena, default_artifact_directory, comp.emit_llvm_bc),
 
         .is_debug = comp.root_mod.optimize_mode == .Debug,
         .is_small = comp.root_mod.optimize_mode == .ReleaseSmall,
@@ -2764,14 +2759,14 @@ pub fn emitLlvmObject(
 
 fn resolveEmitLoc(
     arena: Allocator,
-    default_emit: Emit,
+    default_artifact_directory: Path,
     opt_loc: ?EmitLoc,
 ) Allocator.Error!?[*:0]const u8 {
     const loc = opt_loc orelse return null;
     const slice = if (loc.directory) |directory|
         try directory.joinZ(arena, &.{loc.basename})
     else
-        try default_emit.basenamePath(arena, loc.basename);
+        try default_artifact_directory.joinStringZ(arena, loc.basename);
     return slice.ptr;
 }
 
@@ -3027,7 +3022,7 @@ pub fn saveState(comp: *Compilation) !void {
 
     // Using an atomic file prevents a crash or power failure from corrupting
     // the previous incremental compilation state.
-    var af = try lf.emit.directory.handle.atomicFile(basename, .{});
+    var af = try lf.emit.root_dir.handle.atomicFile(basename, .{});
     defer af.deinit();
     try af.file.pwritevAll(bufs.items, 0);
     try af.finish();
@@ -3037,78 +3032,6 @@ fn addBuf(list: *std.ArrayList(std.posix.iovec_const), buf: []const u8) void {
     // Even when len=0, the undefined pointer might cause EFAULT.
     if (buf.len == 0) return;
     list.appendAssumeCapacity(.{ .base = buf.ptr, .len = buf.len });
-}
-
-/// This function is temporally single-threaded.
-pub fn totalErrorCount(comp: *Compilation) u32 {
-    var total: usize =
-        comp.misc_failures.count() +
-        @intFromBool(comp.alloc_failure_occurred) +
-        comp.lld_errors.items.len;
-
-    for (comp.failed_c_objects.values()) |bundle| {
-        total += bundle.diags.len;
-    }
-
-    for (comp.failed_win32_resources.values()) |errs| {
-        total += errs.errorMessageCount();
-    }
-
-    if (comp.module) |zcu| {
-        const ip = &zcu.intern_pool;
-
-        total += zcu.failed_exports.count();
-        total += zcu.failed_embed_files.count();
-
-        for (zcu.failed_files.keys(), zcu.failed_files.values()) |file, error_msg| {
-            if (error_msg) |_| {
-                total += 1;
-            } else {
-                assert(file.zir_loaded);
-                const payload_index = file.zir.extra[@intFromEnum(Zir.ExtraIndex.compile_errors)];
-                assert(payload_index != 0);
-                const header = file.zir.extraData(Zir.Inst.CompileErrors, payload_index);
-                total += header.data.items_len;
-            }
-        }
-
-        // Skip errors for Decls within files that failed parsing.
-        // When a parse error is introduced, we keep all the semantic analysis for
-        // the previous parse success, including compile errors, but we cannot
-        // emit them until the file succeeds parsing.
-        for (zcu.failed_analysis.keys()) |anal_unit| {
-            const file_index = switch (anal_unit.unwrap()) {
-                .cau => |cau| zcu.namespacePtr(ip.getCau(cau).namespace).file_scope,
-                .func => |ip_index| zcu.funcInfo(ip_index).zir_body_inst.resolveFull(ip).file,
-            };
-            if (zcu.fileByIndex(file_index).okToReportErrors()) {
-                total += 1;
-                if (zcu.cimport_errors.get(anal_unit)) |errors| {
-                    total += errors.errorMessageCount();
-                }
-            }
-        }
-
-        if (zcu.intern_pool.global_error_set.getNamesFromMainThread().len > zcu.error_limit) {
-            total += 1;
-        }
-    }
-
-    // The "no entry point found" error only counts if there are no semantic analysis errors.
-    if (total == 0) {
-        total += @intFromBool(comp.link_error_flags.no_entry_point_found);
-    }
-    total += @intFromBool(comp.link_error_flags.missing_libc);
-    total += comp.link_errors.items.len;
-
-    // Compile log errors only count if there are no other errors.
-    if (total == 0) {
-        if (comp.module) |zcu| {
-            total += @intFromBool(zcu.compile_log_sources.count() != 0);
-        }
-    }
-
-    return @as(u32, @intCast(total));
 }
 
 /// This function is temporally single-threaded.
@@ -3153,11 +3076,12 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             .msg = try bundle.addString("memory allocation failure"),
         });
     }
+
+    var all_references: ?std.AutoHashMapUnmanaged(InternPool.AnalUnit, ?Zcu.ResolvedReference) = null;
+    defer if (all_references) |*a| a.deinit(gpa);
+
     if (comp.module) |zcu| {
         const ip = &zcu.intern_pool;
-
-        var all_references = try zcu.resolveReferences();
-        defer all_references.deinit(gpa);
 
         for (zcu.failed_files.keys(), zcu.failed_files.values()) |file, error_msg| {
             if (error_msg) |msg| {
@@ -3184,8 +3108,14 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 pub fn lessThan(ctx: @This(), lhs_index: usize, rhs_index: usize) bool {
                     if (ctx.err.*) |_| return lhs_index < rhs_index;
                     const errors = ctx.zcu.failed_analysis.values();
-                    const lhs_src_loc = errors[lhs_index].src_loc.upgrade(ctx.zcu);
-                    const rhs_src_loc = errors[rhs_index].src_loc.upgrade(ctx.zcu);
+                    const lhs_src_loc = errors[lhs_index].src_loc.upgradeOrLost(ctx.zcu) orelse {
+                        // LHS source location lost, so should never be referenced. Just sort it to the end.
+                        return false;
+                    };
+                    const rhs_src_loc = errors[rhs_index].src_loc.upgradeOrLost(ctx.zcu) orelse {
+                        // RHS source location lost, so should never be referenced. Just sort it to the end.
+                        return true;
+                    };
                     return if (lhs_src_loc.file_scope != rhs_src_loc.file_scope) std.mem.order(
                         u8,
                         lhs_src_loc.file_scope.sub_file_path,
@@ -3206,9 +3136,16 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             if (err) |e| return e;
         }
         for (zcu.failed_analysis.keys(), zcu.failed_analysis.values()) |anal_unit, error_msg| {
+            if (comp.incremental) {
+                if (all_references == null) {
+                    all_references = try zcu.resolveReferences();
+                }
+                if (!all_references.?.contains(anal_unit)) continue;
+            }
+
             const file_index = switch (anal_unit.unwrap()) {
                 .cau => |cau| zcu.namespacePtr(ip.getCau(cau).namespace).file_scope,
-                .func => |ip_index| zcu.funcInfo(ip_index).zir_body_inst.resolveFull(ip).file,
+                .func => |ip_index| (zcu.funcInfo(ip_index).zir_body_inst.resolveFull(ip) orelse continue).file,
             };
 
             // Skip errors for AnalUnits within files that had a parse failure.
@@ -3236,6 +3173,10 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                     });
                 }
             }
+        }
+        for (zcu.failed_codegen.keys(), zcu.failed_codegen.values()) |nav, error_msg| {
+            if (!zcu.navFileScope(nav).okToReportErrors()) continue;
+            try addModuleErrorMsg(zcu, &bundle, error_msg.*, &all_references);
         }
         for (zcu.failed_exports.values()) |value| {
             try addModuleErrorMsg(zcu, &bundle, value.*, &all_references);
@@ -3295,9 +3236,6 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
 
     if (comp.module) |zcu| {
         if (bundle.root_list.items.len == 0 and zcu.compile_log_sources.count() != 0) {
-            var all_references = try zcu.resolveReferences();
-            defer all_references.deinit(gpa);
-
             const values = zcu.compile_log_sources.values();
             // First one will be the error; subsequent ones will be notes.
             const src_loc = values[0].src();
@@ -3319,10 +3257,28 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         }
     }
 
-    assert(comp.totalErrorCount() == bundle.root_list.items.len);
+    if (comp.module) |zcu| {
+        if (comp.incremental and bundle.root_list.items.len == 0) {
+            const should_have_error = for (zcu.transitive_failed_analysis.keys()) |failed_unit| {
+                if (all_references == null) {
+                    all_references = try zcu.resolveReferences();
+                }
+                if (all_references.?.contains(failed_unit)) break true;
+            } else false;
+            if (should_have_error) {
+                @panic("referenced transitive analysis errors, but none actually emitted");
+            }
+        }
+    }
 
     const compile_log_text = if (comp.module) |m| m.compile_log_text.items else "";
     return bundle.toOwnedBundle(compile_log_text);
+}
+
+fn totalErrorCount(comp: *Compilation) !u32 {
+    var errors = try comp.getAllErrorsAlloc();
+    defer errors.deinit(comp.gpa);
+    return errors.errorMessageCount();
 }
 
 pub const ErrorNoteHashContext = struct {
@@ -3375,7 +3331,7 @@ pub fn addModuleErrorMsg(
     mod: *Zcu,
     eb: *ErrorBundle.Wip,
     module_err_msg: Zcu.ErrorMsg,
-    all_references: *const std.AutoHashMapUnmanaged(InternPool.AnalUnit, Zcu.ResolvedReference),
+    all_references: *?std.AutoHashMapUnmanaged(InternPool.AnalUnit, ?Zcu.ResolvedReference),
 ) !void {
     const gpa = eb.gpa;
     const ip = &mod.intern_pool;
@@ -3399,13 +3355,18 @@ pub fn addModuleErrorMsg(
     defer ref_traces.deinit(gpa);
 
     if (module_err_msg.reference_trace_root.unwrap()) |rt_root| {
+        if (all_references.* == null) {
+            all_references.* = try mod.resolveReferences();
+        }
+
         var seen: std.AutoHashMapUnmanaged(InternPool.AnalUnit, void) = .{};
         defer seen.deinit(gpa);
 
         const max_references = mod.comp.reference_trace orelse Sema.default_reference_trace_len;
 
         var referenced_by = rt_root;
-        while (all_references.get(referenced_by)) |ref| {
+        while (all_references.*.?.get(referenced_by)) |maybe_ref| {
+            const ref = maybe_ref orelse break;
             const gop = try seen.getOrPut(gpa, ref.referencer);
             if (gop.found_existing) break;
             if (ref_traces.items.len < max_references) {
@@ -3414,6 +3375,7 @@ pub fn addModuleErrorMsg(
                 const span = try src.span(gpa);
                 const loc = std.zig.findLineColumn(source.bytes, span.main);
                 const rt_file_path = try src.file_scope.fullPath(gpa);
+                defer gpa.free(rt_file_path);
                 const name = switch (ref.referencer.unwrap()) {
                     .cau => |cau| switch (ip.getCau(cau).owner.unwrap()) {
                         .nav => |nav| ip.getNav(nav).name.toSlice(ip),
@@ -3528,6 +3490,8 @@ pub fn performAllTheWork(
         mod.sema_prog_node = std.Progress.Node.none;
         mod.codegen_prog_node.end();
         mod.codegen_prog_node = std.Progress.Node.none;
+
+        mod.generation += 1;
     };
     try comp.performAllTheWorkInner(main_progress_node);
     if (!InternPool.single_threaded) if (comp.codegen_work.job_error) |job_error| return job_error;
@@ -3599,10 +3563,9 @@ fn performAllTheWorkInner(
                     // Pre-load these things from our single-threaded context since they
                     // will be needed by the worker threads.
                     const path_digest = zcu.filePathDigest(file_index);
-                    const old_root_type = zcu.fileRootType(file_index);
                     const file = zcu.fileByIndex(file_index);
                     comp.thread_pool.spawnWgId(&astgen_wait_group, workerAstGenFile, .{
-                        comp, file, file_index, path_digest, old_root_type, zir_prog_node, &astgen_wait_group, .root,
+                        comp, file, file_index, path_digest, zir_prog_node, &astgen_wait_group, .root,
                     });
                 }
             }
@@ -3640,11 +3603,15 @@ fn performAllTheWorkInner(
         }
         try reportMultiModuleErrors(pt);
         try zcu.flushRetryableFailures();
+
         zcu.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
         zcu.codegen_prog_node = main_progress_node.start("Code Generation", 0);
     }
 
-    if (!InternPool.single_threaded) comp.thread_pool.spawnWgId(&work_queue_wait_group, codegenThread, .{comp});
+    if (!InternPool.single_threaded) {
+        comp.codegen_work.done = false; // may be `true` from a prior update
+        comp.thread_pool.spawnWgId(&work_queue_wait_group, codegenThread, .{comp});
+    }
     defer if (!InternPool.single_threaded) {
         {
             comp.codegen_work.mutex.lock();
@@ -3705,6 +3672,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
                 .air = func.air,
             } });
         },
+        .codegen_type => |ty| try comp.queueCodegenJob(tid, .{ .type = ty }),
         .analyze_func => |func| {
             const named_frame = tracy.namedFrame("analyze_func");
             defer named_frame.end();
@@ -3994,6 +3962,13 @@ fn processOneCodegenJob(tid: usize, comp: *Compilation, codegen_job: CodegenJob)
             // This call takes ownership of `func.air`.
             try pt.linkerUpdateFunc(func.func, func.air);
         },
+        .type => |ty| {
+            const named_frame = tracy.namedFrame("codegen_type");
+            defer named_frame.end();
+
+            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
+            try pt.linkerUpdateContainerType(ty);
+        },
     }
 }
 
@@ -4012,11 +3987,11 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
         return comp.lockAndSetMiscFailure(.docs_copy, "no Zig code to document", .{});
 
     const emit = comp.docs_emit.?;
-    var out_dir = emit.directory.handle.makeOpenPath(emit.sub_path, .{}) catch |err| {
+    var out_dir = emit.root_dir.handle.makeOpenPath(emit.sub_path, .{}) catch |err| {
         return comp.lockAndSetMiscFailure(
             .docs_copy,
             "unable to create output directory '{}{s}': {s}",
-            .{ emit.directory, emit.sub_path, @errorName(err) },
+            .{ emit.root_dir, emit.sub_path, @errorName(err) },
         );
     };
     defer out_dir.close();
@@ -4036,7 +4011,7 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
         return comp.lockAndSetMiscFailure(
             .docs_copy,
             "unable to create '{}{s}/sources.tar': {s}",
-            .{ emit.directory, emit.sub_path, @errorName(err) },
+            .{ emit.root_dir, emit.sub_path, @errorName(err) },
         );
     };
     defer tar_file.close();
@@ -4071,7 +4046,8 @@ fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8,
     var walker = try mod_dir.walk(comp.gpa);
     defer walker.deinit();
 
-    const padding_buffer = [1]u8{0} ** 512;
+    var archiver = std.tar.writer(tar_file.writer().any());
+    archiver.prefix = name;
 
     while (try walker.next()) |entry| {
         switch (entry.kind) {
@@ -4082,43 +4058,17 @@ fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8,
             },
             else => continue,
         }
-
         var file = mod_dir.openFile(entry.path, .{}) catch |err| {
             return comp.lockAndSetMiscFailure(.docs_copy, "unable to open '{}{s}': {s}", .{
                 root, entry.path, @errorName(err),
             });
         };
         defer file.close();
-
-        const stat = file.stat() catch |err| {
-            return comp.lockAndSetMiscFailure(.docs_copy, "unable to stat '{}{s}': {s}", .{
+        archiver.writeFile(entry.path, file) catch |err| {
+            return comp.lockAndSetMiscFailure(.docs_copy, "unable to archive '{}{s}': {s}", .{
                 root, entry.path, @errorName(err),
             });
         };
-
-        var file_header = std.tar.output.Header.init();
-        file_header.typeflag = .regular;
-        try file_header.setPath(name, entry.path);
-        try file_header.setSize(stat.size);
-        try file_header.updateChecksum();
-
-        const header_bytes = std.mem.asBytes(&file_header);
-        const padding = p: {
-            const remainder: u16 = @intCast(stat.size % 512);
-            const n = if (remainder > 0) 512 - remainder else 0;
-            break :p padding_buffer[0..n];
-        };
-
-        var header_and_trailer: [2]std.posix.iovec_const = .{
-            .{ .base = header_bytes.ptr, .len = header_bytes.len },
-            .{ .base = padding.ptr, .len = padding.len },
-        };
-
-        try tar_file.writeFileAll(file, .{
-            .in_len = stat.size,
-            .headers_and_trailers = &header_and_trailer,
-            .header_count = 1,
-        });
     }
 }
 
@@ -4260,11 +4210,11 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
     try comp.updateSubCompilation(sub_compilation, .docs_wasm, prog_node);
 
     const emit = comp.docs_emit.?;
-    var out_dir = emit.directory.handle.makeOpenPath(emit.sub_path, .{}) catch |err| {
+    var out_dir = emit.root_dir.handle.makeOpenPath(emit.sub_path, .{}) catch |err| {
         return comp.lockAndSetMiscFailure(
             .docs_copy,
             "unable to create output directory '{}{s}': {s}",
-            .{ emit.directory, emit.sub_path, @errorName(err) },
+            .{ emit.root_dir, emit.sub_path, @errorName(err) },
         );
     };
     defer out_dir.close();
@@ -4278,7 +4228,7 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
         return comp.lockAndSetMiscFailure(.docs_copy, "unable to copy '{}{s}' to '{}{s}': {s}", .{
             sub_compilation.local_cache_directory,
             sub_compilation.cache_use.whole.bin_sub_path.?,
-            emit.directory,
+            emit.root_dir,
             emit.sub_path,
             @errorName(err),
         });
@@ -4291,7 +4241,6 @@ fn workerAstGenFile(
     file: *Zcu.File,
     file_index: Zcu.File.Index,
     path_digest: Cache.BinDigest,
-    old_root_type: InternPool.Index,
     prog_node: std.Progress.Node,
     wg: *WaitGroup,
     src: Zcu.AstGenSrc,
@@ -4300,7 +4249,7 @@ fn workerAstGenFile(
     defer child_prog_node.end();
 
     const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
-    pt.astGenFile(file, path_digest, old_root_type) catch |err| switch (err) {
+    pt.astGenFile(file, path_digest) catch |err| switch (err) {
         error.AnalysisFail => return,
         else => {
             file.status = .retryable_failure;
@@ -4331,7 +4280,7 @@ fn workerAstGenFile(
             // `@import("builtin")` is handled specially.
             if (mem.eql(u8, import_path, "builtin")) continue;
 
-            const import_result, const imported_path_digest, const imported_root_type = blk: {
+            const import_result, const imported_path_digest = blk: {
                 comp.mutex.lock();
                 defer comp.mutex.unlock();
 
@@ -4346,8 +4295,7 @@ fn workerAstGenFile(
                     comp.appendFileSystemInput(fsi, res.file.mod.root, res.file.sub_file_path) catch continue;
                 };
                 const imported_path_digest = pt.zcu.filePathDigest(res.file_index);
-                const imported_root_type = pt.zcu.fileRootType(res.file_index);
-                break :blk .{ res, imported_path_digest, imported_root_type };
+                break :blk .{ res, imported_path_digest };
             };
             if (import_result.is_new) {
                 log.debug("AstGen of {s} has import '{s}'; queuing AstGen of {s}", .{
@@ -4358,7 +4306,7 @@ fn workerAstGenFile(
                     .import_tok = item.data.token,
                 } };
                 comp.thread_pool.spawnWgId(wg, workerAstGenFile, .{
-                    comp, import_result.file, import_result.file_index, imported_path_digest, imported_root_type, prog_node, wg, sub_src,
+                    comp, import_result.file, import_result.file_index, imported_path_digest, prog_node, wg, sub_src,
                 });
             }
         }
@@ -4442,7 +4390,7 @@ pub fn obtainWin32ResourceCacheManifest(comp: *const Compilation) Cache.Manifest
 }
 
 pub const CImportResult = struct {
-    out_zig_path: []u8,
+    digest: [Cache.bin_digest_len]u8,
     cache_hit: bool,
     errors: std.zig.ErrorBundle,
 
@@ -4452,8 +4400,6 @@ pub const CImportResult = struct {
 };
 
 /// Caller owns returned memory.
-/// This API is currently coupled pretty tightly to stage1's needs; it will need to be reworked
-/// a bit when we want to start using it from self-hosted.
 pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module) !CImportResult {
     dev.check(.translate_c_command);
 
@@ -4542,7 +4488,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
                     error.OutOfMemory => return error.OutOfMemory,
                     error.SemanticAnalyzeFail => {
                         return CImportResult{
-                            .out_zig_path = "",
+                            .digest = undefined,
                             .cache_hit = actual_hit,
                             .errors = errors,
                         };
@@ -4567,8 +4513,9 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
             .incremental => {},
         }
 
-        const digest = man.final();
-        const o_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
+        const bin_digest = man.finalBin();
+        const hex_digest = Cache.binToHex(bin_digest);
+        const o_sub_path = "o" ++ std.fs.path.sep_str ++ hex_digest;
         var o_dir = try comp.local_cache_directory.handle.makeOpenPath(o_sub_path, .{});
         defer o_dir.close();
 
@@ -4580,8 +4527,8 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
 
         try out_zig_file.writeAll(formatted);
 
-        break :digest digest;
-    } else man.final();
+        break :digest bin_digest;
+    } else man.finalBin();
 
     if (man.have_exclusive_lock) {
         // Write the updated manifest. This is a no-op if the manifest is not dirty. Note that it is
@@ -4593,14 +4540,8 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
         };
     }
 
-    const out_zig_path = try comp.local_cache_directory.join(comp.arena, &.{
-        "o", &digest, cimport_zig_basename,
-    });
-    if (comp.verbose_cimport) {
-        log.info("C import output: {s}", .{out_zig_path});
-    }
     return CImportResult{
-        .out_zig_path = out_zig_path,
+        .digest = digest,
         .cache_hit = actual_hit,
         .errors = std.zig.ErrorBundle.empty,
     };
@@ -4839,7 +4780,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
             try argv.appendSlice(c_object.src.cache_exempt_flags);
 
             const out_obj_path = if (comp.bin_file) |lf|
-                try lf.emit.directory.join(arena, &.{lf.emit.sub_path})
+                try lf.emit.root_dir.join(arena, &.{lf.emit.sub_path})
             else
                 "/dev/null";
 
@@ -6451,7 +6392,8 @@ fn buildOutputFromZig(
 
     try comp.updateSubCompilation(sub_compilation, misc_task_tag, prog_node);
 
-    assert(out.* == null);
+    // Under incremental compilation, `out` may already be populated from a prior update.
+    assert(out.* == null or comp.incremental);
     out.* = try sub_compilation.toCrtFile();
 }
 

@@ -55,8 +55,7 @@ pub fn init(self: *ZigObject, macho_file: *MachO) !void {
     switch (comp.config.debug_format) {
         .strip => {},
         .dwarf => |v| {
-            assert(v == .@"32");
-            self.dwarf = Dwarf.init(&macho_file.base, .dwarf32);
+            self.dwarf = Dwarf.init(&macho_file.base, v);
             self.debug_strtab_dirty = true;
             self.debug_abbrev_dirty = true;
             self.debug_aranges_dirty = true;
@@ -101,8 +100,8 @@ pub fn deinit(self: *ZigObject, allocator: Allocator) void {
     }
     self.tlv_initializers.deinit(allocator);
 
-    if (self.dwarf) |*dw| {
-        dw.deinit();
+    if (self.dwarf) |*dwarf| {
+        dwarf.deinit();
     }
 }
 
@@ -595,56 +594,13 @@ pub fn flushModule(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) 
         if (metadata.const_state != .unused) metadata.const_state = .flushed;
     }
 
-    if (self.dwarf) |*dw| {
+    if (self.dwarf) |*dwarf| {
         const pt: Zcu.PerThread = .{ .zcu = macho_file.base.comp.module.?, .tid = tid };
-        try dw.flushModule(pt);
+        try dwarf.flushModule(pt);
 
-        if (self.debug_abbrev_dirty) {
-            try dw.writeDbgAbbrev();
-            self.debug_abbrev_dirty = false;
-        }
-
-        if (self.debug_info_header_dirty) {
-            // Currently only one compilation unit is supported, so the address range is simply
-            // identical to the main program header virtual address and memory size.
-            const text_section = macho_file.sections.items(.header)[macho_file.zig_text_sect_index.?];
-            const low_pc = text_section.addr;
-            const high_pc = text_section.addr + text_section.size;
-            try dw.writeDbgInfoHeader(pt.zcu, low_pc, high_pc);
-            self.debug_info_header_dirty = false;
-        }
-
-        if (self.debug_aranges_dirty) {
-            // Currently only one compilation unit is supported, so the address range is simply
-            // identical to the main program header virtual address and memory size.
-            const text_section = macho_file.sections.items(.header)[macho_file.zig_text_sect_index.?];
-            try dw.writeDbgAranges(text_section.addr, text_section.size);
-            self.debug_aranges_dirty = false;
-        }
-
-        if (self.debug_line_header_dirty) {
-            try dw.writeDbgLineHeader();
-            self.debug_line_header_dirty = false;
-        }
-
-        if (!macho_file.base.isRelocatable()) {
-            const d_sym = macho_file.getDebugSymbols().?;
-            const sect_index = d_sym.debug_str_section_index.?;
-            if (self.debug_strtab_dirty or dw.strtab.buffer.items.len != d_sym.getSection(sect_index).size) {
-                const needed_size = @as(u32, @intCast(dw.strtab.buffer.items.len));
-                try d_sym.growSection(sect_index, needed_size, false, macho_file);
-                try d_sym.file.pwriteAll(dw.strtab.buffer.items, d_sym.getSection(sect_index).offset);
-                self.debug_strtab_dirty = false;
-            }
-        } else {
-            const sect_index = macho_file.debug_str_sect_index.?;
-            if (self.debug_strtab_dirty or dw.strtab.buffer.items.len != macho_file.sections.items(.header)[sect_index].size) {
-                const needed_size = @as(u32, @intCast(dw.strtab.buffer.items.len));
-                try macho_file.growSection(sect_index, needed_size);
-                try macho_file.base.file.?.pwriteAll(dw.strtab.buffer.items, macho_file.sections.items(.header)[sect_index].offset);
-                self.debug_strtab_dirty = false;
-            }
-        }
+        self.debug_abbrev_dirty = false;
+        self.debug_aranges_dirty = false;
+        self.debug_strtab_dirty = false;
     }
 
     // The point of flushModule() is to commit changes, so in theory, nothing should
@@ -816,8 +772,8 @@ pub fn updateFunc(
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
-    var dwarf_state = if (self.dwarf) |*dw| try dw.initNavState(pt, func.owner_nav) else null;
-    defer if (dwarf_state) |*ds| ds.deinit();
+    var dwarf_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(pt, func.owner_nav, sym_index) else null;
+    defer if (dwarf_wip_nav) |*wip_nav| wip_nav.deinit();
 
     const res = try codegen.generateFunction(
         &macho_file.base,
@@ -827,7 +783,7 @@ pub fn updateFunc(
         air,
         liveness,
         &code_buffer,
-        if (dwarf_state) |*ds| .{ .dwarf = ds } else .none,
+        if (dwarf_wip_nav) |*wip_nav| .{ .dwarf = wip_nav } else .none,
     );
 
     const code = switch (res) {
@@ -839,20 +795,67 @@ pub fn updateFunc(
     };
 
     const sect_index = try self.getNavOutputSection(macho_file, zcu, func.owner_nav, code);
+    const old_rva, const old_alignment = blk: {
+        const atom = self.symbols.items[sym_index].getAtom(macho_file).?;
+        break :blk .{ atom.value, atom.alignment };
+    };
     try self.updateNavCode(macho_file, pt, func.owner_nav, sym_index, sect_index, code);
+    const new_rva, const new_alignment = blk: {
+        const atom = self.symbols.items[sym_index].getAtom(macho_file).?;
+        break :blk .{ atom.value, atom.alignment };
+    };
 
-    if (dwarf_state) |*ds| {
+    if (dwarf_wip_nav) |*wip_nav| {
         const sym = self.symbols.items[sym_index];
-        try self.dwarf.?.commitNavState(
+        try self.dwarf.?.finishWipNav(
             pt,
             func.owner_nav,
-            sym.getAddress(.{}, macho_file),
-            sym.getAtom(macho_file).?.size,
-            ds,
+            .{
+                .index = sym_index,
+                .addr = sym.getAddress(.{}, macho_file),
+                .size = sym.getAtom(macho_file).?.size,
+            },
+            wip_nav,
         );
     }
 
     // Exports will be updated by `Zcu.processExports` after the update.
+    if (old_rva != new_rva and old_rva > 0) {
+        // If we had to reallocate the function, we re-use the existing slot for a trampoline.
+        // In the rare case that the function has been further overaligned we skip creating a
+        // trampoline and update all symbols referring this function.
+        if (old_alignment.order(new_alignment) == .lt) {
+            @panic("TODO update all symbols referring this function");
+        }
+
+        // Create a trampoline to the new location at `old_rva`.
+        if (!self.symbols.items[sym_index].flags.trampoline) {
+            const name = try std.fmt.allocPrint(gpa, "{s}$trampoline", .{
+                self.symbols.items[sym_index].getName(macho_file),
+            });
+            defer gpa.free(name);
+            const name_off = try self.addString(gpa, name);
+            const tr_size = trampolineSize(macho_file.getTarget().cpu.arch);
+            const tr_sym_index = try self.newSymbolWithAtom(gpa, name_off, macho_file);
+            const tr_sym = &self.symbols.items[tr_sym_index];
+            tr_sym.out_n_sect = macho_file.zig_text_sect_index.?;
+            const tr_nlist = &self.symtab.items(.nlist)[tr_sym.nlist_idx];
+            tr_nlist.n_sect = macho_file.zig_text_sect_index.? + 1;
+            const tr_atom = tr_sym.getAtom(macho_file).?;
+            tr_atom.value = old_rva;
+            tr_atom.setAlive(true);
+            tr_atom.alignment = old_alignment;
+            tr_atom.out_n_sect = macho_file.zig_text_sect_index.?;
+            tr_atom.size = tr_size;
+            self.symtab.items(.size)[tr_sym.nlist_idx] = tr_size;
+            const target_sym = &self.symbols.items[sym_index];
+            target_sym.addExtra(.{ .trampoline = tr_sym_index }, macho_file);
+            target_sym.flags.trampoline = true;
+        }
+        const target_sym = self.symbols.items[sym_index];
+        const source_sym = self.symbols.items[target_sym.getExtra(macho_file).trampoline];
+        try writeTrampoline(source_sym, target_sym, macho_file);
+    }
 }
 
 pub fn updateNav(
@@ -866,6 +869,7 @@ pub fn updateNav(
 
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
+
     const nav_val = zcu.navValue(nav_index);
     const nav_init = switch (ip.indexToKey(nav_val.toIntern())) {
         .variable => |variable| Value.fromInterned(variable.init),
@@ -876,54 +880,59 @@ pub fn updateNav(
             const lib_name = @"extern".lib_name.toSlice(ip);
             const index = try self.getGlobalSymbol(macho_file, name, lib_name);
             const sym = &self.symbols.items[index];
-            sym.setSectionFlags(.{ .needs_got = true });
+            sym.flags.is_extern_ptr = true;
             return;
         },
         else => nav_val,
     };
 
-    const sym_index = try self.getOrCreateMetadataForNav(macho_file, nav_index);
-    self.symbols.items[sym_index].getAtom(macho_file).?.freeRelocs(macho_file);
+    if (nav_init.typeOf(zcu).isFnOrHasRuntimeBits(pt)) {
+        const sym_index = try self.getOrCreateMetadataForNav(macho_file, nav_index);
+        self.symbols.items[sym_index].getAtom(macho_file).?.freeRelocs(macho_file);
 
-    var code_buffer = std.ArrayList(u8).init(zcu.gpa);
-    defer code_buffer.deinit();
+        var code_buffer = std.ArrayList(u8).init(zcu.gpa);
+        defer code_buffer.deinit();
 
-    var nav_state: ?Dwarf.NavState = if (self.dwarf) |*dw| try dw.initNavState(pt, nav_index) else null;
-    defer if (nav_state) |*ns| ns.deinit();
+        var debug_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(pt, nav_index, sym_index) else null;
+        defer if (debug_wip_nav) |*wip_nav| wip_nav.deinit();
 
-    const res = try codegen.generateSymbol(
-        &macho_file.base,
-        pt,
-        zcu.navSrcLoc(nav_index),
-        nav_init,
-        &code_buffer,
-        if (nav_state) |*ns| .{ .dwarf = ns } else .none,
-        .{ .parent_atom_index = sym_index },
-    );
-
-    const code = switch (res) {
-        .ok => code_buffer.items,
-        .fail => |em| {
-            try zcu.failed_codegen.put(zcu.gpa, nav_index, em);
-            return;
-        },
-    };
-    const sect_index = try self.getNavOutputSection(macho_file, zcu, nav_index, code);
-    if (isThreadlocal(macho_file, nav_index))
-        try self.updateTlv(macho_file, pt, nav_index, sym_index, sect_index, code)
-    else
-        try self.updateNavCode(macho_file, pt, nav_index, sym_index, sect_index, code);
-
-    if (nav_state) |*ns| {
-        const sym = self.symbols.items[sym_index];
-        try self.dwarf.?.commitNavState(
+        const res = try codegen.generateSymbol(
+            &macho_file.base,
             pt,
-            nav_index,
-            sym.getAddress(.{}, macho_file),
-            sym.getAtom(macho_file).?.size,
-            ns,
+            zcu.navSrcLoc(nav_index),
+            nav_init,
+            &code_buffer,
+            if (debug_wip_nav) |*wip_nav| .{ .dwarf = wip_nav } else .none,
+            .{ .parent_atom_index = sym_index },
         );
-    }
+
+        const code = switch (res) {
+            .ok => code_buffer.items,
+            .fail => |em| {
+                try zcu.failed_codegen.put(zcu.gpa, nav_index, em);
+                return;
+            },
+        };
+        const sect_index = try self.getNavOutputSection(macho_file, zcu, nav_index, code);
+        if (isThreadlocal(macho_file, nav_index))
+            try self.updateTlv(macho_file, pt, nav_index, sym_index, sect_index, code)
+        else
+            try self.updateNavCode(macho_file, pt, nav_index, sym_index, sect_index, code);
+
+        if (debug_wip_nav) |*wip_nav| {
+            const sym = self.symbols.items[sym_index];
+            try self.dwarf.?.finishWipNav(
+                pt,
+                nav_index,
+                .{
+                    .index = sym_index,
+                    .addr = sym.getAddress(.{}, macho_file),
+                    .size = sym.getAtom(macho_file).?.size,
+                },
+                wip_nav,
+            );
+        }
+    } else if (self.dwarf) |*dwarf| try dwarf.updateComptimeNav(pt, nav_index);
 
     // Exports will be updated by `Zcu.processExports` after the update.
 }
@@ -981,13 +990,6 @@ fn updateNavCode(
             if (old_vaddr != atom.value) {
                 sym.value = 0;
                 nlist.n_value = 0;
-
-                if (!macho_file.base.isRelocatable()) {
-                    log.debug("  (updating offset table entry)", .{});
-                    assert(sym.getSectionFlags().has_zig_got);
-                    const extra = sym.getExtra(macho_file);
-                    try macho_file.zig_got.writeOne(macho_file, extra.zig_got);
-                }
             }
         } else if (code.len < old_size) {
             atom.shrink(macho_file);
@@ -1000,13 +1002,7 @@ fn updateNavCode(
         errdefer self.freeNavMetadata(macho_file, sym_index);
 
         sym.value = 0;
-        sym.setSectionFlags(.{ .needs_zig_got = true });
         nlist.n_value = 0;
-
-        if (!macho_file.base.isRelocatable()) {
-            const gop = try sym.getOrCreateZigGotEntry(sym_index, macho_file);
-            try macho_file.zig_got.writeOne(macho_file, gop.index);
-        }
     }
 
     if (!sect.isZerofill()) {
@@ -1416,13 +1412,7 @@ fn updateLazySymbol(
     errdefer self.freeNavMetadata(macho_file, symbol_index);
 
     sym.value = 0;
-    sym.setSectionFlags(.{ .needs_zig_got = true });
     nlist.n_value = 0;
-
-    if (!macho_file.base.isRelocatable()) {
-        const gop = try sym.getOrCreateZigGotEntry(symbol_index, macho_file);
-        try macho_file.zig_got.writeOne(macho_file, gop.index);
-    }
 
     const sect = macho_file.sections.items(.header)[output_section_index];
     const file_offset = sect.offset + atom.value;
@@ -1435,8 +1425,8 @@ pub fn updateNavLineNumber(
     pt: Zcu.PerThread,
     nav_index: InternPool.Nav.Index,
 ) !void {
-    if (self.dwarf) |*dw| {
-        try dw.updateNavLineNumber(pt.zcu, nav_index);
+    if (self.dwarf) |*dwarf| {
+        try dwarf.updateNavLineNumber(pt.zcu, nav_index);
     }
 }
 
@@ -1483,6 +1473,31 @@ pub fn getGlobalSymbol(self: *ZigObject, macho_file: *MachO, name: []const u8, l
     return lookup_gop.value_ptr.*;
 }
 
+const max_trampoline_len = 12;
+
+fn trampolineSize(cpu_arch: std.Target.Cpu.Arch) u64 {
+    const len = switch (cpu_arch) {
+        .x86_64 => 5, // jmp rel32
+        else => @panic("TODO implement trampoline size for this CPU arch"),
+    };
+    comptime assert(len <= max_trampoline_len);
+    return len;
+}
+
+fn writeTrampoline(tr_sym: Symbol, target: Symbol, macho_file: *MachO) !void {
+    const atom = tr_sym.getAtom(macho_file).?;
+    const header = macho_file.sections.items(.header)[atom.out_n_sect];
+    const fileoff = header.offset + atom.value;
+    const source_addr = tr_sym.getAddress(.{}, macho_file);
+    const target_addr = target.getAddress(.{ .trampoline = false }, macho_file);
+    var buf: [max_trampoline_len]u8 = undefined;
+    const out = switch (macho_file.getTarget().cpu.arch) {
+        .x86_64 => try x86_64.writeTrampolineCode(source_addr, target_addr, &buf),
+        else => @panic("TODO implement write trampoline for this CPU arch"),
+    };
+    try macho_file.base.file.?.pwriteAll(out, fileoff);
+}
+
 pub fn getOrCreateMetadataForNav(
     self: *ZigObject,
     macho_file: *MachO,
@@ -1495,8 +1510,6 @@ pub fn getOrCreateMetadataForNav(
         const sym = &self.symbols.items[sym_index];
         if (isThreadlocal(macho_file, nav_index)) {
             sym.flags.tlv = true;
-        } else {
-            sym.setSectionFlags(.{ .needs_zig_got = true });
         }
         gop.value_ptr.* = .{ .symbol_index = sym_index };
     }
@@ -1517,12 +1530,7 @@ pub fn getOrCreateMetadataForLazySymbol(
         .const_data => .{ &gop.value_ptr.const_symbol_index, &gop.value_ptr.const_state },
     };
     switch (state_ptr.*) {
-        .unused => {
-            const symbol_index = try self.newSymbolWithAtom(pt.zcu.gpa, .{}, macho_file);
-            const sym = &self.symbols.items[symbol_index];
-            sym.setSectionFlags(.{ .needs_zig_got = true });
-            symbol_index_ptr.* = symbol_index;
-        },
+        .unused => symbol_index_ptr.* = try self.newSymbolWithAtom(pt.zcu.gpa, .{}, macho_file),
         .pending_flush => return symbol_index_ptr.*,
         .flushed => {},
     }
@@ -1783,6 +1791,19 @@ const UavTable = std.AutoArrayHashMapUnmanaged(InternPool.Index, AvMetadata);
 const LazySymbolTable = std.AutoArrayHashMapUnmanaged(InternPool.Index, LazySymbolMetadata);
 const RelocationTable = std.ArrayListUnmanaged(std.ArrayListUnmanaged(Relocation));
 const TlvInitializerTable = std.AutoArrayHashMapUnmanaged(Atom.Index, TlvInitializer);
+
+const x86_64 = struct {
+    fn writeTrampolineCode(source_addr: u64, target_addr: u64, buf: *[max_trampoline_len]u8) ![]u8 {
+        const disp = @as(i64, @intCast(target_addr)) - @as(i64, @intCast(source_addr)) - 5;
+        var bytes = [_]u8{
+            0xe9, 0x00, 0x00, 0x00, 0x00, // jmp rel32
+        };
+        assert(bytes.len == trampolineSize(.x86_64));
+        mem.writeInt(i32, bytes[1..][0..4], @intCast(disp), .little);
+        @memcpy(buf[0..bytes.len], &bytes);
+        return buf[0..bytes.len];
+    }
+};
 
 const assert = std.debug.assert;
 const builtin = @import("builtin");

@@ -359,6 +359,24 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             return m.len;
         }
 
+        pub const FixedWriter = std.io.Writer(*Self, Allocator.Error, appendWriteFixed);
+
+        /// Initializes a Writer which will append to the list but will return
+        /// `error.OutOfMemory` rather than increasing capacity.
+        pub fn fixedWriter(self: *Self) FixedWriter {
+            return .{ .context = self };
+        }
+
+        /// The purpose of this function existing is to match `std.io.Writer` API.
+        fn appendWriteFixed(self: *Self, m: []const u8) error{OutOfMemory}!usize {
+            const available_capacity = self.capacity - self.items.len;
+            if (m.len > available_capacity)
+                return error.OutOfMemory;
+
+            self.appendSliceAssumeCapacity(m);
+            return m.len;
+        }
+
         /// Append a value to the list `n` times.
         /// Allocates more memory as necessary.
         /// Invalidates element pointers if additional memory is needed.

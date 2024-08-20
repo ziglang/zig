@@ -14,7 +14,7 @@ relocs: std.ArrayListUnmanaged(Reloc) = .{},
 
 pub const Error = Lower.Error || error{
     EmitFail,
-};
+} || link.File.UpdateDebugInfoError;
 
 pub fn emitMir(emit: *Emit) Error!void {
     for (0..emit.lower.mir.instructions.len) |mir_i| {
@@ -110,21 +110,11 @@ pub fn emitMir(emit: *Emit) Error!void {
                     });
                 },
                 .linker_reloc => |data| if (emit.lower.bin_file.cast(.elf)) |elf_file| {
-                    const is_obj_or_static_lib = switch (emit.lower.output_mode) {
-                        .Exe => false,
-                        .Obj => true,
-                        .Lib => emit.lower.link_mode == .static,
-                    };
                     const zo = elf_file.zigObjectPtr().?;
                     const atom = zo.symbol(data.atom_index).atom(elf_file).?;
                     const sym = zo.symbol(data.sym_index);
-                    if (sym.flags.needs_zig_got and !is_obj_or_static_lib) {
-                        _ = try sym.getOrCreateZigGotEntry(data.sym_index, elf_file);
-                    }
                     if (emit.lower.pic) {
-                        const r_type: u32 = if (sym.flags.needs_zig_got and !is_obj_or_static_lib)
-                            link.File.Elf.R_ZIG_GOTPCREL
-                        else if (sym.flags.needs_got)
+                        const r_type: u32 = if (sym.flags.is_extern_ptr)
                             @intFromEnum(std.elf.R_X86_64.GOTPCREL)
                         else
                             @intFromEnum(std.elf.R_X86_64.PC32);
@@ -134,47 +124,22 @@ pub fn emitMir(emit: *Emit) Error!void {
                             .r_addend = -4,
                         });
                     } else {
-                        if (lowered_inst.encoding.mnemonic == .call and sym.flags.needs_zig_got and is_obj_or_static_lib) {
-                            const r_type = @intFromEnum(std.elf.R_X86_64.PC32);
-                            try atom.addReloc(elf_file, .{
-                                .r_offset = end_offset - 4,
-                                .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | r_type,
-                                .r_addend = -4,
-                            });
-                        } else {
-                            const r_type: u32 = if (sym.flags.needs_zig_got and !is_obj_or_static_lib)
-                                link.File.Elf.R_ZIG_GOT32
-                            else if (sym.flags.needs_got)
-                                @intFromEnum(std.elf.R_X86_64.GOT32)
-                            else if (sym.flags.is_tls)
-                                @intFromEnum(std.elf.R_X86_64.TPOFF32)
-                            else
-                                @intFromEnum(std.elf.R_X86_64.@"32");
-                            try atom.addReloc(elf_file, .{
-                                .r_offset = end_offset - 4,
-                                .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | r_type,
-                                .r_addend = 0,
-                            });
-                        }
+                        const r_type: u32 = if (sym.flags.is_tls)
+                            @intFromEnum(std.elf.R_X86_64.TPOFF32)
+                        else
+                            @intFromEnum(std.elf.R_X86_64.@"32");
+                        try atom.addReloc(elf_file, .{
+                            .r_offset = end_offset - 4,
+                            .r_info = (@as(u64, @intCast(data.sym_index)) << 32) | r_type,
+                            .r_addend = 0,
+                        });
                     }
                 } else if (emit.lower.bin_file.cast(.macho)) |macho_file| {
-                    const is_obj_or_static_lib = switch (emit.lower.output_mode) {
-                        .Exe => false,
-                        .Obj => true,
-                        .Lib => emit.lower.link_mode == .static,
-                    };
                     const zo = macho_file.getZigObject().?;
                     const atom = zo.symbols.items[data.atom_index].getAtom(macho_file).?;
                     const sym = &zo.symbols.items[data.sym_index];
-                    if (sym.getSectionFlags().needs_zig_got and !is_obj_or_static_lib) {
-                        _ = try sym.getOrCreateZigGotEntry(data.sym_index, macho_file);
-                    }
-                    const @"type": link.File.MachO.Relocation.Type = if (sym.getSectionFlags().needs_zig_got and !is_obj_or_static_lib)
-                        .zig_got_load
-                    else if (sym.getSectionFlags().needs_got)
-                        // TODO: it is possible to emit .got_load here that can potentially be relaxed
-                        // however this requires always to use a MOVQ mnemonic
-                        .got
+                    const @"type": link.File.MachO.Relocation.Type = if (sym.flags.is_extern_ptr)
+                        .got_load
                     else if (sym.flags.tlv)
                         .tlv
                     else
@@ -245,13 +210,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                     else => unreachable,
                     .pseudo_dbg_prologue_end_none => {
                         switch (emit.debug_output) {
-                            .dwarf => |dw| {
-                                try dw.setPrologueEnd();
-                                log.debug("mirDbgPrologueEnd (line={d}, col={d})", .{
-                                    emit.prev_di_line, emit.prev_di_column,
-                                });
-                                try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
-                            },
+                            .dwarf => |dw| try dw.setPrologueEnd(),
                             .plan9 => {},
                             .none => {},
                         }

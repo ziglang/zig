@@ -2729,6 +2729,17 @@ pub const Intrinsic = enum {
     @"amdgcn.workgroup.id.z",
     @"amdgcn.dispatch.ptr",
 
+    // NVPTX
+    @"nvvm.read.ptx.sreg.tid.x",
+    @"nvvm.read.ptx.sreg.tid.y",
+    @"nvvm.read.ptx.sreg.tid.z",
+    @"nvvm.read.ptx.sreg.ntid.x",
+    @"nvvm.read.ptx.sreg.ntid.y",
+    @"nvvm.read.ptx.sreg.ntid.z",
+    @"nvvm.read.ptx.sreg.ctaid.x",
+    @"nvvm.read.ptx.sreg.ctaid.y",
+    @"nvvm.read.ptx.sreg.ctaid.z",
+
     // WebAssembly
     @"wasm.memory.size",
     @"wasm.memory.grow",
@@ -3884,6 +3895,72 @@ pub const Intrinsic = enum {
                 },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .@"nvvm.read.ptx.sreg.tid.x" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nounwind, .readnone },
+        },
+        .@"nvvm.read.ptx.sreg.tid.y" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nounwind, .readnone },
+        },
+        .@"nvvm.read.ptx.sreg.tid.z" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nounwind, .readnone },
+        },
+
+        .@"nvvm.read.ptx.sreg.ntid.x" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nounwind, .readnone },
+        },
+        .@"nvvm.read.ptx.sreg.ntid.y" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nounwind, .readnone },
+        },
+        .@"nvvm.read.ptx.sreg.ntid.z" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nounwind, .readnone },
+        },
+
+        .@"nvvm.read.ptx.sreg.ctaid.x" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nounwind, .readnone },
+        },
+        .@"nvvm.read.ptx.sreg.ctaid.y" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nounwind, .readnone },
+        },
+        .@"nvvm.read.ptx.sreg.ctaid.z" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nounwind, .readnone },
         },
 
         .@"wasm.memory.size" = .{

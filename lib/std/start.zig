@@ -232,6 +232,16 @@ fn _start() callconv(.Naked) noreturn {
         );
     }
 
+    // Move this to the riscv prong below when this is resolved: https://github.com/ziglang/zig/issues/20918
+    if (builtin.cpu.arch.isRISCV() and builtin.zig_backend != .stage2_riscv64) asm volatile (
+        \\ .weak __global_pointer$
+        \\ .hidden __global_pointer$
+        \\ .option push
+        \\ .option norelax
+        \\ lla gp, __global_pointer$
+        \\ .option pop
+    );
+
     // Note that we maintain a very low level of trust with regards to ABI guarantees at this point.
     // We will redundantly align the stack, clear the link register, etc. While e.g. the Linux
     // kernel is usually good about upholding the ABI guarantees, the same cannot be said of dynamic
@@ -275,24 +285,19 @@ fn _start() callconv(.Naked) noreturn {
             \\ and sp, #-16
             \\ b %[posixCallMainAndExit]
             ,
-            // zig fmt: off
             .csky =>
-            if (builtin.position_independent_code)
-                // The CSKY ABI assumes that `gb` is set to the address of the GOT in order for
-                // position-independent code to work. We depend on this in `std.os.linux.start_pie`
-                // to locate `_DYNAMIC` as well.
-                \\ grs t0, 1f
-                \\ 1:
-                \\ lrw gb, 1b@GOTPC
-                \\ addu gb, t0
-            else ""
-            ++
+            // The CSKY ABI assumes that `gb` is set to the address of the GOT in order for
+            // position-independent code to work. We depend on this in `std.os.linux.start_pie`
+            // to locate `_DYNAMIC` as well.
+            \\ grs t0, 1f
+            \\ 1:
+            \\ lrw gb, 1b@GOTPC
+            \\ addu gb, t0
             \\ movi lr, 0
             \\ mov a0, sp
             \\ andi sp, sp, -8
             \\ jmpi %[posixCallMainAndExit]
             ,
-            // zig fmt: on
             .hexagon =>
             // r29 = SP, r30 = FP
             \\ r30 = #0
@@ -308,27 +313,13 @@ fn _start() callconv(.Naked) noreturn {
             \\ bstrins.d $sp, $zero, 3, 0
             \\ b %[posixCallMainAndExit]
             ,
-            // zig fmt: off
             .riscv32, .riscv64 =>
-            // The self-hosted riscv64 backend is not able to assemble this yet.
-            if (builtin.zig_backend != .stage2_riscv64)
-                // The RISC-V ELF ABI assumes that `gp` is set to the value of `__global_pointer$` at
-                // startup in order for GP relaxation to work, even in static builds.
-                \\ .weak __global_pointer$
-                \\ .hidden __global_pointer$
-                \\ .option push
-                \\ .option norelax
-                \\ lla gp, __global_pointer$
-                \\ .option pop
-            else ""
-            ++
             \\ li s0, 0
             \\ li ra, 0
             \\ mv a0, sp
             \\ andi sp, sp, -16
             \\ tail %[posixCallMainAndExit]@plt
             ,
-            // zig fmt: off
             .m68k =>
             // Note that the - 8 is needed because pc in the jsr instruction points into the middle
             // of the jsr instruction. (The lea is 6 bytes, the jsr is 4 bytes.)
@@ -426,7 +417,7 @@ fn _start() callconv(.Naked) noreturn {
             else => @compileError("unsupported arch"),
         }
         :
-        : [_start] "X" (_start),
+        : [_start] "X" (&_start),
           [posixCallMainAndExit] "X" (&posixCallMainAndExit),
     );
 }

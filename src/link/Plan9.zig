@@ -23,6 +23,7 @@ const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.link);
 const assert = std.debug.assert;
+const Path = std.Build.Cache.Path;
 
 base: link.File,
 sixtyfour_bit: bool,
@@ -275,7 +276,7 @@ pub fn defaultBaseAddrs(arch: std.Target.Cpu.Arch) Bases {
 pub fn createEmpty(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*Plan9 {
     const target = comp.root_mod.resolved_target.result;
@@ -454,28 +455,31 @@ pub fn updateNav(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
         },
         else => nav_val,
     };
-    const atom_idx = try self.seeNav(pt, nav_index);
 
-    var code_buffer = std.ArrayList(u8).init(gpa);
-    defer code_buffer.deinit();
-    // TODO we need the symbol index for symbol in the table of locals for the containing atom
-    const res = try codegen.generateSymbol(&self.base, pt, zcu.navSrcLoc(nav_index), nav_init, &code_buffer, .none, .{
-        .parent_atom_index = @intCast(atom_idx),
-    });
-    const code = switch (res) {
-        .ok => code_buffer.items,
-        .fail => |em| {
-            try zcu.failed_codegen.put(gpa, nav_index, em);
-            return;
-        },
-    };
-    try self.data_nav_table.ensureUnusedCapacity(gpa, 1);
-    const duped_code = try gpa.dupe(u8, code);
-    self.getAtomPtr(self.navs.get(nav_index).?.index).code = .{ .code_ptr = null, .other = .{ .nav_index = nav_index } };
-    if (self.data_nav_table.fetchPutAssumeCapacity(nav_index, duped_code)) |old_entry| {
-        gpa.free(old_entry.value);
+    if (nav_init.typeOf(zcu).isFnOrHasRuntimeBits(pt)) {
+        const atom_idx = try self.seeNav(pt, nav_index);
+
+        var code_buffer = std.ArrayList(u8).init(gpa);
+        defer code_buffer.deinit();
+        // TODO we need the symbol index for symbol in the table of locals for the containing atom
+        const res = try codegen.generateSymbol(&self.base, pt, zcu.navSrcLoc(nav_index), nav_init, &code_buffer, .none, .{
+            .parent_atom_index = @intCast(atom_idx),
+        });
+        const code = switch (res) {
+            .ok => code_buffer.items,
+            .fail => |em| {
+                try zcu.failed_codegen.put(gpa, nav_index, em);
+                return;
+            },
+        };
+        try self.data_nav_table.ensureUnusedCapacity(gpa, 1);
+        const duped_code = try gpa.dupe(u8, code);
+        self.getAtomPtr(self.navs.get(nav_index).?.index).code = .{ .code_ptr = null, .other = .{ .nav_index = nav_index } };
+        if (self.data_nav_table.fetchPutAssumeCapacity(nav_index, duped_code)) |old_entry| {
+            gpa.free(old_entry.value);
+        }
+        try self.updateFinish(pt, nav_index);
     }
-    return self.updateFinish(pt, nav_index);
 }
 
 /// called at the end of update{Decl,Func}
@@ -1196,7 +1200,7 @@ pub fn deinit(self: *Plan9) void {
 pub fn open(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*Plan9 {
     const target = comp.root_mod.resolved_target.result;
@@ -1210,7 +1214,7 @@ pub fn open(
     const self = try createEmpty(arena, comp, emit, options);
     errdefer self.base.destroy();
 
-    const file = try emit.directory.handle.createFile(emit.sub_path, .{
+    const file = try emit.root_dir.handle.createFile(emit.sub_path, .{
         .read = true,
         .mode = link.File.determineMode(
             use_lld,
