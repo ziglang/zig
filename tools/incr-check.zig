@@ -68,7 +68,9 @@ pub fn main() !void {
     const debug_log_verbose = debug_zcu or debug_link;
 
     for (case.targets) |target| {
-        std.log.scoped(.status).info("target: '{s}-{s}'", .{ target.query, @tagName(target.backend) });
+        if (debug_log_verbose) {
+            std.log.scoped(.status).info("target: '{s}-{s}'", .{ target.query, @tagName(target.backend) });
+        }
 
         var child_args: std.ArrayListUnmanaged([]const u8) = .empty;
         try child_args.appendSlice(arena, &.{
