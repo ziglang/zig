@@ -2041,6 +2041,9 @@ pub fn dependencyFromBuildZig(
     const build_runner = @import("root");
     const deps = build_runner.dependencies;
 
+    if (build_zig == build_runner.root) {
+        return dependencyInner(b, "root", b.build_root.path.?, build_zig, "", b.available_deps, args);
+    }
     find_dep: {
         const pkg, const pkg_hash = inline for (@typeInfo(deps.packages).Struct.decls) |decl| {
             const pkg_hash = decl.name;
@@ -2130,17 +2133,31 @@ fn dependencyInner(
         },
     };
 
-    const sub_builder = b.createChild(name, build_root, pkg_hash, pkg_deps, user_input_options) catch @panic("unhandled error");
-    if (build_zig) |bz| {
-        sub_builder.runBuild(bz) catch @panic("unhandled error");
-
-        if (sub_builder.validateUserInputDidItFail()) {
-            std.debug.dumpCurrentStackTrace(@returnAddress());
-        }
-    }
-
+    const build_runner = @import("root");
     const dep = b.allocator.create(Dependency) catch @panic("OOM");
-    dep.* = .{ .builder = sub_builder };
+    dep.* = dep: {
+        if (build_zig) |bz| {
+            if (bz == build_runner.root and user_input_options.count() == b.user_input_options.count()) {
+                var options_it = b.user_input_options.iterator();
+                while (options_it.next()) |user_input_option| {
+                    if (user_input_options.get(user_input_option.key_ptr.*)) |other_option| {
+                        if (!std.mem.eql(u8, std.mem.asBytes(&other_option.value), std.mem.asBytes(&user_input_option.value_ptr.*.value))) {
+                            break;
+                        }
+                    } else break;
+                } else break :dep .{ .builder = b };
+            }
+        }
+        const sub_builder = b.createChild(name, build_root, pkg_hash, pkg_deps, user_input_options) catch @panic("unhandled error");
+        if (build_zig) |bz| {
+            sub_builder.runBuild(bz) catch @panic("unhandled error");
+
+            if (sub_builder.validateUserInputDidItFail()) {
+                std.debug.dumpCurrentStackTrace(@returnAddress());
+            }
+        }
+        break :dep .{ .builder = sub_builder };
+    };
 
     b.initialized_deps.put(.{
         .build_root_string = build_root_string,
