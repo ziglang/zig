@@ -7,6 +7,7 @@ const mem = std.mem;
 const process = std.process;
 const EnvMap = process.EnvMap;
 const assert = std.debug.assert;
+const Path = Build.Cache.Path;
 
 const Run = @This();
 
@@ -93,7 +94,7 @@ cached_test_metadata: ?CachedTestMetadata = null,
 
 /// Populated during the fuzz phase if this run step corresponds to a unit test
 /// executable that contains fuzz tests.
-rebuilt_executable: ?[]const u8,
+rebuilt_executable: ?Path,
 
 /// If this Run step was produced by a Compile step, it is tracked here.
 producer: ?*Step.Compile,
@@ -872,7 +873,7 @@ pub fn rerunInFuzzMode(
             .artifact => |pa| {
                 const artifact = pa.artifact;
                 const file_path = if (artifact == run.producer.?)
-                    run.rebuilt_executable.?
+                    b.fmt("{}", .{run.rebuilt_executable.?})
                 else
                     (artifact.installed_path orelse artifact.generated_bin.?.path.?);
                 try argv_list.append(arena, b.fmt("{s}{s}", .{ pa.prefix, file_path }));

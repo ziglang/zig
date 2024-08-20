@@ -201,9 +201,10 @@ fn cmdObjCopy(
                     if (seen_update) fatal("zig objcopy only supports 1 update for now", .{});
                     seen_update = true;
 
-                    try server.serveEmitBinPath(output, .{
-                        .flags = .{ .cache_hit = false },
-                    });
+                    // The build system already knows what the output is at this point, we
+                    // only need to communicate that the process has finished.
+                    // Use the empty error bundle to indicate that the update is done.
+                    try server.serveErrorBundle(std.zig.ErrorBundle.empty);
                 },
                 else => fatal("unsupported message: {s}", .{@tagName(hdr.tag)}),
             }

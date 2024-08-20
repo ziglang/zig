@@ -11,6 +11,7 @@ const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const log = std.log.scoped(.link);
+const Path = std.Build.Cache.Path;
 
 const Zcu = @import("../Zcu.zig");
 const InternPool = @import("../InternPool.zig");
@@ -28,7 +29,7 @@ llvm_object: LlvmObject.Ptr,
 pub fn createEmpty(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*NvPtx {
     const target = comp.root_mod.resolved_target.result;
@@ -70,7 +71,7 @@ pub fn createEmpty(
 pub fn open(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*NvPtx {
     const target = comp.root_mod.resolved_target.result;
