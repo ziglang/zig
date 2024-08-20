@@ -869,10 +869,11 @@ pub fn updateNav(
 
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
+    const nav = ip.getNav(nav_index);
 
-    const nav_val = zcu.navValue(nav_index);
-    const nav_init = switch (ip.indexToKey(nav_val.toIntern())) {
-        .variable => |variable| Value.fromInterned(variable.init),
+    const nav_init = switch (ip.indexToKey(nav.status.resolved.val)) {
+        .func => .none,
+        .variable => |variable| variable.init,
         .@"extern" => |@"extern"| {
             if (ip.isFunctionType(@"extern".ty)) return;
             // Extern variable gets a __got entry only
@@ -883,10 +884,10 @@ pub fn updateNav(
             sym.flags.is_extern_ptr = true;
             return;
         },
-        else => nav_val,
+        else => nav.status.resolved.val,
     };
 
-    if (nav_init.typeOf(zcu).isFnOrHasRuntimeBits(pt)) {
+    if (nav_init != .none and Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(pt)) {
         const sym_index = try self.getOrCreateMetadataForNav(macho_file, nav_index);
         self.symbols.items[sym_index].getAtom(macho_file).?.freeRelocs(macho_file);
 
@@ -900,7 +901,7 @@ pub fn updateNav(
             &macho_file.base,
             pt,
             zcu.navSrcLoc(nav_index),
-            nav_init,
+            Value.fromInterned(nav_init),
             &code_buffer,
             if (debug_wip_nav) |*wip_nav| .{ .dwarf = wip_nav } else .none,
             .{ .parent_atom_index = sym_index },

@@ -128,8 +128,8 @@ pub const Instruction = struct {
             } };
         }
 
-        pub fn rip(ptr_size: PtrSize, disp: i32) Memory {
-            return .{ .rip = .{ .ptr_size = ptr_size, .disp = disp } };
+        pub fn rip(ptr_size: PtrSize, displacement: i32) Memory {
+            return .{ .rip = .{ .ptr_size = ptr_size, .disp = displacement } };
         }
 
         pub fn isSegmentRegister(mem: Memory) bool {
@@ -155,6 +155,14 @@ pub const Instruction = struct {
             return switch (mem) {
                 .moffs, .rip => null,
                 .sib => |s| if (s.scale_index.scale > 0) s.scale_index else null,
+            };
+        }
+
+        pub fn disp(mem: Memory) Immediate {
+            return switch (mem) {
+                .sib => |s| Immediate.s(s.disp),
+                .rip => |r| Immediate.s(r.disp),
+                .moffs => |m| Immediate.u(m.offset),
             };
         }
 
@@ -258,17 +266,12 @@ pub const Instruction = struct {
 
                         try writer.writeByte('[');
 
-                        var any = false;
+                        var any = true;
                         switch (sib.base) {
-                            .none => {},
-                            .reg => |reg| {
-                                try writer.print("{s}", .{@tagName(reg)});
-                                any = true;
-                            },
-                            inline .frame, .reloc => |payload| {
-                                try writer.print("{}", .{payload});
-                                any = true;
-                            },
+                            .none => any = false,
+                            .reg => |reg| try writer.print("{s}", .{@tagName(reg)}),
+                            .frame => |frame_index| try writer.print("{}", .{frame_index}),
+                            .reloc => |sym_index| try writer.print("Symbol({d})", .{sym_index}),
                         }
                         if (mem.scaleIndex()) |si| {
                             if (any) try writer.writeAll(" + ");

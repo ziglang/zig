@@ -339,6 +339,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
 
             .dbg_var_ptr,
             .dbg_var_val,
+            .dbg_arg_inline,
             => {
                 if (!checkRef(data.pl_op.operand, zcu)) return false;
             },

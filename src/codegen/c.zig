@@ -3293,7 +3293,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
 
             .dbg_stmt => try airDbgStmt(f, inst),
             .dbg_inline_block => try airDbgInlineBlock(f, inst),
-            .dbg_var_ptr, .dbg_var_val => try airDbgVar(f, inst),
+            .dbg_var_ptr, .dbg_var_val, .dbg_arg_inline => try airDbgVar(f, inst),
 
             .call              => try airCall(f, inst, .auto),
             .call_always_tail  => .none,
@@ -4590,14 +4590,15 @@ fn airDbgInlineBlock(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airDbgVar(f: *Function, inst: Air.Inst.Index) !CValue {
     const pt = f.object.dg.pt;
     const zcu = pt.zcu;
+    const tag = f.air.instructions.items(.tag)[@intFromEnum(inst)];
     const pl_op = f.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const name = f.air.nullTerminatedString(pl_op.payload);
+    const name: Air.NullTerminatedString = @enumFromInt(pl_op.payload);
     const operand_is_undef = if (try f.air.value(pl_op.operand, pt)) |v| v.isUndefDeep(zcu) else false;
     if (!operand_is_undef) _ = try f.resolveInst(pl_op.operand);
 
     try reap(f, inst, &.{pl_op.operand});
     const writer = f.object.writer();
-    try writer.print("/* var:{s} */\n", .{name});
+    try writer.print("/* {s}:{s} */\n", .{ @tagName(tag), name.toSlice(f.air) });
     return .none;
 }
 

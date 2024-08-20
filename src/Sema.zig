@@ -376,7 +376,7 @@ pub const Block = struct {
 
     c_import_buf: ?*std.ArrayList(u8) = null,
 
-    /// If not `null`, this boolean is set when a `dbg_var_ptr` or `dbg_var_val`
+    /// If not `null`, this boolean is set when a `dbg_var_ptr`, `dbg_var_val`, or `dbg_arg_inline`.
     /// instruction is emitted. It signals that the innermost lexically
     /// enclosing `block`/`block_inline` should be translated into a real AIR
     /// `block` in order for codegen to match lexical scoping for debug vars.
@@ -6567,7 +6567,7 @@ fn addDbgVar(
     const operand_ty = sema.typeOf(operand);
     const val_ty = switch (air_tag) {
         .dbg_var_ptr => operand_ty.childType(mod),
-        .dbg_var_val => operand_ty,
+        .dbg_var_val, .dbg_arg_inline => operand_ty,
         else => unreachable,
     };
     if (try sema.typeRequiresComptime(val_ty)) return;
@@ -6586,25 +6586,26 @@ fn addDbgVar(
     if (block.need_debug_scope) |ptr| ptr.* = true;
 
     // Add the name to the AIR.
-    const name_extra_index = try sema.appendAirString(name);
+    const name_nts = try sema.appendAirString(name);
 
     _ = try block.addInst(.{
         .tag = air_tag,
         .data = .{ .pl_op = .{
-            .payload = name_extra_index,
+            .payload = @intFromEnum(name_nts),
             .operand = operand,
         } },
     });
 }
 
-pub fn appendAirString(sema: *Sema, str: []const u8) Allocator.Error!u32 {
-    const str_extra_index: u32 = @intCast(sema.air_extra.items.len);
+pub fn appendAirString(sema: *Sema, str: []const u8) Allocator.Error!Air.NullTerminatedString {
+    if (str.len == 0) return .none;
+    const nts: Air.NullTerminatedString = @enumFromInt(sema.air_extra.items.len);
     const elements_used = str.len / 4 + 1;
     const elements = try sema.air_extra.addManyAsSlice(sema.gpa, elements_used);
     const buffer = mem.sliceAsBytes(elements);
     @memcpy(buffer[0..str.len], str);
     buffer[str.len] = 0;
-    return str_extra_index;
+    return nts;
 }
 
 fn zirDeclRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -7748,14 +7749,14 @@ fn analyzeCall(
                         const param_name = sema.code.nullTerminatedString(extra.data.name);
                         const inst = sema.inst_map.get(param).?;
 
-                        try sema.addDbgVar(&child_block, inst, .dbg_var_val, param_name);
+                        try sema.addDbgVar(&child_block, inst, .dbg_arg_inline, param_name);
                     },
                     .param_anytype, .param_anytype_comptime => {
                         const inst_data = sema.code.instructions.items(.data)[@intFromEnum(param)].str_tok;
                         const param_name = inst_data.get(sema.code);
                         const inst = sema.inst_map.get(param).?;
 
-                        try sema.addDbgVar(&child_block, inst, .dbg_var_val, param_name);
+                        try sema.addDbgVar(&child_block, inst, .dbg_arg_inline, param_name);
                     },
                     else => continue,
                 };
@@ -8266,7 +8267,7 @@ fn instantiateGenericCall(
                     .name = if (child_block.ownerModule().strip)
                         .none
                     else
-                        @enumFromInt(try sema.appendAirString(fn_zir.nullTerminatedString(param_name))),
+                        try sema.appendAirString(fn_zir.nullTerminatedString(param_name)),
                 } },
             }));
             try child_block.params.append(sema.arena, .{
