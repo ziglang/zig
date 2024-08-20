@@ -2042,7 +2042,15 @@ pub fn dependencyFromBuildZig(
     const deps = build_runner.dependencies;
 
     if (build_zig == build_runner.root) {
-        return dependencyInner(b, "root", b.build_root.path.?, build_zig, "", b.available_deps, args);
+        return dependencyInner(
+            b,
+            "root",
+            b.build_root.path orelse b.pathFromCwd(""),
+            build_zig,
+            "",
+            b.available_deps,
+            args,
+        );
     }
     find_dep: {
         const pkg, const pkg_hash = inline for (@typeInfo(deps.packages).Struct.decls) |decl| {
