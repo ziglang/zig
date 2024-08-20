@@ -183,6 +183,7 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
         try dwarf.resolveRelocs();
 
         const gpa = elf_file.base.comp.gpa;
+        const cpu_arch = elf_file.getTarget().cpu.arch;
 
         // TODO invert this logic so that we manage the output section with the atom, not the
         // other way around
@@ -242,20 +243,17 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
                         target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(unit, sect, dwarf).off
                     else
                         0));
-                    const r_type: elf.R_X86_64 = switch (dwarf.format) {
-                        .@"32" => .@"32",
-                        .@"64" => .@"64",
-                    };
+                    const r_type = relocation.dwarf.crossSectionRelocType(dwarf.format, cpu_arch);
                     log.debug("  {s} <- r_off={x}, r_add={x}, r_type={}", .{
                         self.symbol(target_sym_index).name(elf_file),
                         r_offset,
                         r_addend,
-                        relocation.fmtRelocType(@intFromEnum(r_type), elf_file.getTarget().cpu.arch),
+                        relocation.fmtRelocType(r_type, cpu_arch),
                     });
                     atom_ptr.addRelocAssumeCapacity(.{
                         .r_offset = r_offset,
                         .r_addend = r_addend,
-                        .r_info = (@as(u64, @intCast(target_sym_index)) << 32) | @intFromEnum(r_type),
+                        .r_info = (@as(u64, @intCast(target_sym_index)) << 32) | r_type,
                     }, self);
                 }
 
@@ -264,21 +262,17 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
                     const target_sym = self.symbol(reloc.target_sym);
                     const r_offset = unit.off + unit.header_len + unit.getEntry(reloc.source_entry).off + reloc.source_off;
                     const r_addend: i64 = @intCast(reloc.target_off);
-                    const r_type: elf.R_X86_64 = switch (dwarf.address_size) {
-                        .@"32" => if (target_sym.flags.is_tls) .DTPOFF32 else .@"32",
-                        .@"64" => if (target_sym.flags.is_tls) .DTPOFF64 else .@"64",
-                        else => unreachable,
-                    };
+                    const r_type = relocation.dwarf.externalRelocType(target_sym.*, dwarf.address_size, cpu_arch);
                     log.debug("  {s} <- r_off={x}, r_add={x}, r_type={}", .{
                         target_sym.name(elf_file),
                         r_offset,
                         r_addend,
-                        relocation.fmtRelocType(@intFromEnum(r_type), elf_file.getTarget().cpu.arch),
+                        relocation.fmtRelocType(r_type, cpu_arch),
                     });
                     atom_ptr.addRelocAssumeCapacity(.{
                         .r_offset = r_offset,
                         .r_addend = r_addend,
-                        .r_info = (@as(u64, @intCast(reloc.target_sym)) << 32) | @intFromEnum(r_type),
+                        .r_info = (@as(u64, @intCast(reloc.target_sym)) << 32) | r_type,
                     }, self);
                 }
             }

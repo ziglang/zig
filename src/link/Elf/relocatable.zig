@@ -42,7 +42,11 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]co
         try elf_file.finalizeMergeSections();
         zig_object.claimUnresolvedObject(elf_file);
 
-        try elf_file.initMergeSections();
+        for (elf_file.merge_sections.items) |*msec| {
+            if (msec.finalized_subsections.items.len == 0) continue;
+            try msec.initOutputSection(elf_file);
+        }
+
         try elf_file.initSymtab();
         try elf_file.initShStrtab();
         try elf_file.sortShdrs();
@@ -198,7 +202,6 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
     claimUnresolved(elf_file);
 
     try initSections(elf_file);
-    try elf_file.initMergeSections();
     try elf_file.sortShdrs();
     if (elf_file.zigObjectPtr()) |zig_object| {
         try zig_object.addAtomsToRelaSections(elf_file);
@@ -292,6 +295,11 @@ fn initSections(elf_file: *Elf) !void {
         const object = elf_file.file(index).?.object;
         try object.initOutputSections(elf_file);
         try object.initRelaSections(elf_file);
+    }
+
+    for (elf_file.merge_sections.items) |*msec| {
+        if (msec.finalized_subsections.items.len == 0) continue;
+        try msec.initOutputSection(elf_file);
     }
 
     const needs_eh_frame = for (elf_file.objects.items) |index| {
