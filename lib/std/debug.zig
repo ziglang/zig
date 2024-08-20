@@ -663,7 +663,7 @@ pub const StackIterator = struct {
 
         return address;
     }
-    
+
     fn next_unwind(it: *StackIterator) !usize {
         const unwind_state = &it.unwind_state.?;
         const module = try unwind_state.debug_info.getModuleForAddress(unwind_state.dwarf_context.pc);
