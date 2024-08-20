@@ -2275,9 +2275,11 @@ pub const ElfModule = struct {
                             break :dir std.fs.openDirAbsolute(path, .{}) catch break :blk;
                         }
                         if (std.posix.getenv("XDG_CACHE_HOME")) |cache_path| {
-                            const path = std.fs.path.join(gpa, &[_][]const u8{ cache_path, "debuginfod_client" }) catch break :blk;
-                            defer gpa.free(path);
-                            break :dir std.fs.openDirAbsolute(path, .{}) catch break :blk;
+                            if (cache_path.len > 0) {
+                                const path = std.fs.path.join(gpa, &[_][]const u8{ cache_path, "debuginfod_client" }) catch break :blk;
+                                defer gpa.free(path);
+                                break :dir std.fs.openDirAbsolute(path, .{}) catch break :blk;
+                            }
                         }
                         if (std.posix.getenv("HOME")) |home_path| {
                             const path = std.fs.path.join(gpa, &[_][]const u8{ home_path, ".cache", "debuginfod_client" }) catch break :blk;
