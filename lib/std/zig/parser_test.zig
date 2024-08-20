@@ -4540,7 +4540,7 @@ test "zig fmt: decimal float literals with underscore separators" {
     );
 }
 
-test "zig fmt: hexadeciaml float literals with underscore separators" {
+test "zig fmt: hexadecimal float literals with underscore separators" {
     try testTransform(
         \\pub fn main() void {
         \\    const a: f64 = (0x10.0p-0+(0x10.0p+0))+0x10_00.00_00p-8+0x00_00.00_10p+16;
@@ -5915,6 +5915,15 @@ test "zig fmt: error for ptr mod on array child type" {
     });
 }
 
+test "zig fmt: pointer type syntax to index" {
+    try testCanonical(
+        \\test {
+        \\    _ = .{}[*0];
+        \\}
+        \\
+    );
+}
+
 test "recovery: top level" {
     try testError(
         \\test "" {inline}
@@ -6052,7 +6061,6 @@ test "recovery: invalid container members" {
     , &[_]Error{
         .expected_expr,
         .expected_comma_after_field,
-        .expected_type_expr,
         .expected_semi_after_stmt,
     });
 }

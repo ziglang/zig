@@ -2729,6 +2729,17 @@ pub const Intrinsic = enum {
     @"amdgcn.workgroup.id.z",
     @"amdgcn.dispatch.ptr",
 
+    // NVPTX
+    @"nvvm.read.ptx.sreg.tid.x",
+    @"nvvm.read.ptx.sreg.tid.y",
+    @"nvvm.read.ptx.sreg.tid.z",
+    @"nvvm.read.ptx.sreg.ntid.x",
+    @"nvvm.read.ptx.sreg.ntid.y",
+    @"nvvm.read.ptx.sreg.ntid.z",
+    @"nvvm.read.ptx.sreg.ctaid.x",
+    @"nvvm.read.ptx.sreg.ctaid.y",
+    @"nvvm.read.ptx.sreg.ctaid.z",
+
     // WebAssembly
     @"wasm.memory.size",
     @"wasm.memory.grow",
@@ -3884,6 +3895,72 @@ pub const Intrinsic = enum {
                 },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        .@"nvvm.read.ptx.sreg.tid.x" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nounwind, .readnone },
+        },
+        .@"nvvm.read.ptx.sreg.tid.y" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nounwind, .readnone },
+        },
+        .@"nvvm.read.ptx.sreg.tid.z" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nounwind, .readnone },
+        },
+
+        .@"nvvm.read.ptx.sreg.ntid.x" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nounwind, .readnone },
+        },
+        .@"nvvm.read.ptx.sreg.ntid.y" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nounwind, .readnone },
+        },
+        .@"nvvm.read.ptx.sreg.ntid.z" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nounwind, .readnone },
+        },
+
+        .@"nvvm.read.ptx.sreg.ctaid.x" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nounwind, .readnone },
+        },
+        .@"nvvm.read.ptx.sreg.ctaid.y" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nounwind, .readnone },
+        },
+        .@"nvvm.read.ptx.sreg.ctaid.z" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nounwind, .readnone },
         },
 
         .@"wasm.memory.size" = .{
@@ -9380,7 +9457,7 @@ pub fn printUnbuffered(
             \\
         , .{function_attributes.fmt(self)});
         try writer.print(
-            \\{s}{}{}{}{}{}{"} {} {}(
+            \\{s}{}{}{}{}{}{"} {%} {}(
         , .{
             if (function.instructions.len > 0) "define" else "declare",
             global.linkage,
@@ -12007,7 +12084,7 @@ pub fn debugExpression(
     self: *Builder,
     elements: []const u32,
 ) Allocator.Error!Metadata {
-    try self.ensureUnusedMetadataCapacity(1, Metadata.Expression, elements.len * @sizeOf(u32));
+    try self.ensureUnusedMetadataCapacity(1, Metadata.Expression, elements.len);
     return self.debugExpressionAssumeCapacity(elements);
 }
 
@@ -12015,7 +12092,7 @@ pub fn debugTuple(
     self: *Builder,
     elements: []const Metadata,
 ) Allocator.Error!Metadata {
-    try self.ensureUnusedMetadataCapacity(1, Metadata.Tuple, elements.len * @sizeOf(Metadata));
+    try self.ensureUnusedMetadataCapacity(1, Metadata.Tuple, elements.len);
     return self.debugTupleAssumeCapacity(elements);
 }
 

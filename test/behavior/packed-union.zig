@@ -98,6 +98,8 @@ fn testFlagsInPackedUnionAtOffset() !void {
 }
 
 test "packed union in packed struct" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     // Originally reported at https://github.com/ziglang/zig/issues/16581
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
@@ -137,6 +139,7 @@ test "packed union initialized with a runtime value" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const Fields = packed struct {
         timestamp: u50,
@@ -172,6 +175,8 @@ test "assigning to non-active field at comptime" {
 }
 
 test "comptime packed union of pointers" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const U = packed union {
         a: *const u32,
         b: *const [1]u32,

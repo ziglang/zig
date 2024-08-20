@@ -2,13 +2,14 @@
 //! ./gen_stubs /path/to/musl/build-all >libc.S
 //!
 //! The directory 'build-all' is expected to contain these subdirectories:
-//! arm  x86  mips  mips64  powerpc  powerpc64  riscv64  x86_64
+//! arm  x86  mips  mips64  powerpc  powerpc64  riscv32  riscv64  x86_64  loongarch64
 //!
 //! ...each with 'lib/libc.so' inside of them.
 //!
 //! When building the resulting libc.S file, these defines are required:
 //! * `-DPTR64`: when the architecture is 64-bit
 //! * One of the following, corresponding to the CPU architecture:
+//!   - `-DARCH_riscv32`
 //!   - `-DARCH_riscv64`
 //!   - `-DARCH_mips`
 //!   - `-DARCH_mips64`
@@ -17,6 +18,7 @@
 //!   - `-DARCH_powerpc`
 //!   - `-DARCH_powerpc64`
 //!   - `-DARCH_aarch64`
+//!   - `-DARCH_loongarch64`
 
 // TODO: pick the best index to put them into instead of at the end
 //       - e.g. find a common previous symbol and put it after that one
@@ -30,7 +32,9 @@ const elf = std.elf;
 const native_endian = @import("builtin").target.cpu.arch.endian();
 
 const inputs = .{
+    .riscv32,
     .riscv64,
+    .loongarch64,
     .mips,
     .mips64,
     .x86,
@@ -66,14 +70,16 @@ const MultiSym = struct {
     }
 
     fn is32Only(ms: MultiSym) bool {
-        return ms.present[archIndex(.riscv64)] == false and
+        return ms.present[archIndex(.riscv32)] == true and
+            ms.present[archIndex(.riscv64)] == false and
             ms.present[archIndex(.mips)] == true and
             ms.present[archIndex(.mips64)] == false and
             ms.present[archIndex(.x86)] == true and
             ms.present[archIndex(.x86_64)] == false and
             ms.present[archIndex(.powerpc)] == true and
             ms.present[archIndex(.powerpc64)] == false and
-            ms.present[archIndex(.aarch64)] == false;
+            ms.present[archIndex(.aarch64)] == false and
+            ms.present[archIndex(.loongarch64)] == false;
     }
 
     fn commonSize(ms: MultiSym) ?u64 {
@@ -108,6 +114,7 @@ const MultiSym = struct {
 
     fn isPtrSize(ms: MultiSym) bool {
         const map = .{
+            .{ .riscv32, 4 },
             .{ .riscv64, 8 },
             .{ .mips, 4 },
             .{ .mips64, 8 },
@@ -116,6 +123,7 @@ const MultiSym = struct {
             .{ .powerpc, 4 },
             .{ .powerpc64, 8 },
             .{ .aarch64, 8 },
+            .{ .loongarch64, 8 },
         };
         inline for (map) |item| {
             const arch = item[0];
@@ -130,6 +138,7 @@ const MultiSym = struct {
 
     fn isPtr2Size(ms: MultiSym) bool {
         const map = .{
+            .{ .riscv32, 8 },
             .{ .riscv64, 16 },
             .{ .mips, 8 },
             .{ .mips64, 16 },
@@ -138,6 +147,7 @@ const MultiSym = struct {
             .{ .powerpc, 8 },
             .{ .powerpc64, 16 },
             .{ .aarch64, 16 },
+            .{ .loongarch64, 16 },
         };
         inline for (map) |item| {
             const arch = item[0];
@@ -152,6 +162,7 @@ const MultiSym = struct {
 
     fn isWeak64(ms: MultiSym) bool {
         const map = .{
+            .{ .riscv32, 1 },
             .{ .riscv64, 2 },
             .{ .mips, 1 },
             .{ .mips64, 2 },
@@ -160,6 +171,7 @@ const MultiSym = struct {
             .{ .powerpc, 1 },
             .{ .powerpc64, 2 },
             .{ .aarch64, 2 },
+            .{ .loongarch64, 2 },
         };
         inline for (map) |item| {
             const arch = item[0];
@@ -581,15 +593,17 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
 fn archIndex(arch: std.Target.Cpu.Arch) u8 {
     return switch (arch) {
         // zig fmt: off
-        .riscv64   => 0,
-        .mips      => 1,
-        .mips64    => 2,
-        .x86       => 3,
-        .x86_64    => 4,
-        .powerpc   => 5,
-        .powerpc64 => 6,
-        .aarch64   => 7,
-        else       => unreachable,
+        .riscv64     => 0,
+        .mips        => 1,
+        .mips64      => 2,
+        .x86         => 3,
+        .x86_64      => 4,
+        .powerpc     => 5,
+        .powerpc64   => 6,
+        .aarch64     => 7,
+        .riscv32     => 8,
+        .loongarch64 => 9,
+        else         => unreachable,
         // zig fmt: on
     };
 }
@@ -597,15 +611,17 @@ fn archIndex(arch: std.Target.Cpu.Arch) u8 {
 fn archMuslName(arch: std.Target.Cpu.Arch) []const u8 {
     return switch (arch) {
         // zig fmt: off
-        .riscv64   => "riscv64",
-        .mips      => "mips",
-        .mips64    => "mips64",
-        .x86       => "i386",
-        .x86_64    => "x86_64",
-        .powerpc   => "powerpc",
-        .powerpc64 => "powerpc64",
-        .aarch64   => "aarch64",
-        else       => unreachable,
+        .riscv64     => "riscv64",
+        .mips        => "mips",
+        .mips64      => "mips64",
+        .x86         => "i386",
+        .x86_64      => "x86_64",
+        .powerpc     => "powerpc",
+        .powerpc64   => "powerpc64",
+        .aarch64     => "aarch64",
+        .riscv32     => "riscv32",
+        .loongarch64 => "loongarch64",
+        else         => unreachable,
         // zig fmt: on
     };
 }
@@ -693,6 +709,7 @@ const blacklisted_symbols = [_][]const u8{
     "__ceilx",
     "__clear_cache",
     "__clzdi2",
+    "__chk_fail",
     "__clzsi2",
     "__clzti2",
     "__cmpdf2",
@@ -844,6 +861,10 @@ const blacklisted_symbols = [_][]const u8{
     "__ltsf2",
     "__lttf2",
     "__ltxf2",
+    "__memcpy_chk",
+    "__memmove_chk",
+    "__memset",
+    "__memset_chk",
     "__moddi3",
     "__modsi3",
     "__modti3",
@@ -896,6 +917,10 @@ const blacklisted_symbols = [_][]const u8{
     "__sinx",
     "__sqrth",
     "__sqrtx",
+    "__strcat_chk",
+    "__strcpy_chk",
+    "__strncat_chk",
+    "__strncpy_chk",
     "__subdf3",
     "__subkf3",
     "__subodi4",
@@ -940,24 +965,47 @@ const blacklisted_symbols = [_][]const u8{
     "__unordtf2",
     "__zig_probe_stack",
     "ceilf128",
+    "ceilq",
     "cosf128",
+    "cosq",
     "exp2f128",
+    "exp2q",
     "expf128",
+    "expq",
     "fabsf128",
+    "fabsq",
+    "fabsq.2",
+    "fabsq.3",
     "floorf128",
+    "floorq",
     "fmaf128",
     "fmaq",
     "fmaxf128",
+    "fmaxq",
+    "fmaxq.2",
+    "fmaxq.3",
     "fminf128",
+    "fminq",
     "fmodf128",
+    "fmodq",
     "log10f128",
+    "log10q",
     "log2f128",
+    "log2q",
     "logf128",
+    "logq",
     "roundf128",
+    "roundq",
     "sincosf128",
+    "sincosq",
     "sinf128",
+    "sinq",
     "sqrtf128",
+    "sqrtq",
+    "tanf128",
+    "tanq",
     "truncf128",
+    "truncq",
     "__aarch64_cas16_acq",
     "__aarch64_cas16_acq_rel",
     "__aarch64_cas16_rel",

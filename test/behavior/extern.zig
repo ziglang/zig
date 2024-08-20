@@ -44,3 +44,16 @@ test "function extern symbol matches extern decl" {
 export fn another_mystery_function() u32 {
     return 12345;
 }
+
+extern fn c_extern_function() [*c]u32;
+
+test "coerce extern function types" {
+    const S = struct {
+        export fn c_extern_function() [*c]u32 {
+            return null;
+        }
+    };
+    _ = S;
+
+    _ = @as(fn () callconv(.C) ?*u32, c_extern_function);
+}

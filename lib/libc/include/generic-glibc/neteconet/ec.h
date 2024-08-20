@@ -1,5 +1,5 @@
 /* Definitions for use with Linux AF_ECONET sockets.
-   Copyright (C) 1998-2023 Free Software Foundation, Inc.
+   Copyright (C) 1998-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -28,7 +28,7 @@ struct ec_addr
     unsigned char net;			/* Network number.  */
   };
 
-struct sockaddr_ec
+struct __attribute_struct_may_alias__ sockaddr_ec
   {
     __SOCKADDR_COMMON (sec_);
     unsigned char port;			/* Port number.  */

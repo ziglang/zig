@@ -98,10 +98,36 @@ pub fn syscall6(
     );
 }
 
-const CloneFn = *const fn (arg: usize) callconv(.C) u8;
-
-/// This matches the libc clone function.
-pub extern fn clone(func: CloneFn, stack: usize, flags: u32, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
+pub fn clone() callconv(.Naked) usize {
+    // __clone(func, stack, flags, arg, ptid, tls, ctid)
+    //         r0,   r1,    r2,    r3,  +0,   +4,  +8
+    //
+    // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
+    //         r7         r0,    r1,    r2,   r3,  r4
+    asm volatile (
+        \\    stmfd sp!,{r4,r5,r6,r7}
+        \\    mov r7,#120 // SYS_clone
+        \\    mov r6,r3
+        \\    mov r5,r0
+        \\    mov r0,r2
+        \\    and r1,r1,#-16
+        \\    ldr r2,[sp,#16]
+        \\    ldr r3,[sp,#20]
+        \\    ldr r4,[sp,#24]
+        \\    svc 0
+        \\    tst r0,r0
+        \\    beq 1f
+        \\    ldmfd sp!,{r4,r5,r6,r7}
+        \\    bx lr
+        \\
+        \\1:  mov r0,r6
+        \\    bl 3f
+        \\2:  mov r7,#1 // SYS_exit
+        \\    svc 0
+        \\    b 2b
+        \\3:  bx r5
+    );
+}
 
 pub fn restore() callconv(.Naked) noreturn {
     switch (@import("builtin").zig_backend) {
@@ -165,13 +191,6 @@ pub const F = struct {
     pub const GETOWN_EX = 16;
 
     pub const GETOWNER_UIDS = 17;
-};
-
-pub const LOCK = struct {
-    pub const SH = 1;
-    pub const EX = 2;
-    pub const UN = 8;
-    pub const NB = 4;
 };
 
 pub const VDSO = struct {
@@ -277,13 +296,13 @@ pub const Stat = extern struct {
 };
 
 pub const timeval = extern struct {
-    tv_sec: i32,
-    tv_usec: i32,
+    sec: i32,
+    usec: i32,
 };
 
 pub const timezone = extern struct {
-    tz_minuteswest: i32,
-    tz_dsttime: i32,
+    minuteswest: i32,
+    dsttime: i32,
 };
 
 pub const mcontext_t = extern struct {
@@ -318,5 +337,8 @@ pub const ucontext_t = extern struct {
     sigmask: sigset_t,
     regspace: [64]u64,
 };
+
+/// TODO
+pub const getcontext = {};
 
 pub const Elf_Symndx = u32;

@@ -59,6 +59,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         // Exercise linker with LLVM backend
         // musl tests
         elf_step.dependOn(testAbsSymbols(b, .{ .target = musl_target }));
+        elf_step.dependOn(testComdatElimination(b, .{ .target = musl_target }));
         elf_step.dependOn(testCommonSymbols(b, .{ .target = musl_target }));
         elf_step.dependOn(testCommonSymbolsInArchive(b, .{ .target = musl_target }));
         elf_step.dependOn(testCommentString(b, .{ .target = musl_target }));
@@ -364,6 +365,109 @@ fn testCanonicalPlt(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testComdatElimination(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "comdat-elimination", opts);
+
+    const a_o = addObject(b, opts, .{
+        .name = "a",
+        .cpp_source_bytes =
+        \\#include <stdio.h>
+        \\inline void foo() {
+        \\  printf("calling foo in a\n");
+        \\}
+        \\void hello() {
+        \\  foo();
+        \\}
+        ,
+    });
+    a_o.linkLibCpp();
+
+    const main_o = addObject(b, opts, .{
+        .name = "main",
+        .cpp_source_bytes =
+        \\#include <stdio.h>
+        \\inline void foo() {
+        \\  printf("calling foo in main\n");
+        \\}
+        \\void hello();
+        \\int main() {
+        \\  foo();
+        \\  hello();
+        \\  return 0;
+        \\}
+        ,
+    });
+    main_o.linkLibCpp();
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main1" });
+        exe.addObject(a_o);
+        exe.addObject(main_o);
+        exe.linkLibCpp();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(
+            \\calling foo in a
+            \\calling foo in a
+            \\
+        );
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main2" });
+        exe.addObject(main_o);
+        exe.addObject(a_o);
+        exe.linkLibCpp();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(
+            \\calling foo in main
+            \\calling foo in main
+            \\
+        );
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const c_o = addObject(b, opts, .{ .name = "c" });
+        c_o.addObject(main_o);
+        c_o.addObject(a_o);
+
+        const exe = addExecutable(b, opts, .{ .name = "main3" });
+        exe.addObject(c_o);
+        exe.linkLibCpp();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(
+            \\calling foo in main
+            \\calling foo in main
+            \\
+        );
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const d_o = addObject(b, opts, .{ .name = "d" });
+        d_o.addObject(a_o);
+        d_o.addObject(main_o);
+
+        const exe = addExecutable(b, opts, .{ .name = "main4" });
+        exe.addObject(d_o);
+        exe.linkLibCpp();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(
+            \\calling foo in a
+            \\calling foo in a
+            \\
+        );
+        test_step.dependOn(&run.step);
+    }
 
     return test_step;
 }
@@ -1669,25 +1773,41 @@ fn testImportingDataDynamic(b: *Build, opts: Options) *Step {
         .use_llvm = true,
     }, .{
         .name = "a",
-        .c_source_bytes = "int foo = 42;",
+        .c_source_bytes =
+        \\#include <stdio.h>
+        \\int foo = 42;
+        \\void printFoo() { fprintf(stderr, "lib foo=%d\n", foo); }
+        ,
     });
+    dso.linkLibC();
 
     const main = addExecutable(b, opts, .{
         .name = "main",
         .zig_source_bytes =
+        \\const std = @import("std");
         \\extern var foo: i32;
+        \\extern fn printFoo() void;
         \\pub fn main() void {
-        \\    @import("std").debug.print("{d}\n", .{foo});
+        \\    std.debug.print("exe foo={d}\n", .{foo});
+        \\    printFoo();
+        \\    foo += 1;
+        \\    std.debug.print("exe foo={d}\n", .{foo});
+        \\    printFoo();
         \\}
         ,
         .strip = true, // TODO temp hack
     });
     main.pie = true;
     main.linkLibrary(dso);
-    main.linkLibC();
 
     const run = addRunArtifact(main);
-    run.expectStdErrEqual("42\n");
+    run.expectStdErrEqual(
+        \\exe foo=42
+        \\lib foo=42
+        \\exe foo=43
+        \\lib foo=43
+        \\
+    );
     test_step.dependOn(&run.step);
 
     return test_step;

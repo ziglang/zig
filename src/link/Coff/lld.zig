@@ -2,6 +2,7 @@ const std = @import("std");
 const build_options = @import("build_options");
 const allocPrint = std.fmt.allocPrint;
 const assert = std.debug.assert;
+const dev = @import("../../dev.zig");
 const fs = std.fs;
 const log = std.log.scoped(.link);
 const mem = std.mem;
@@ -15,21 +16,24 @@ const Allocator = mem.Allocator;
 
 const Coff = @import("../Coff.zig");
 const Compilation = @import("../../Compilation.zig");
+const Zcu = @import("../../Zcu.zig");
 
-pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node) !void {
+pub fn linkWithLLD(self: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
+    dev.check(.lld_linker);
+
     const tracy = trace(@src());
     defer tracy.end();
 
     const comp = self.base.comp;
     const gpa = comp.gpa;
 
-    const directory = self.base.emit.directory; // Just an alias to make it shorter to type.
+    const directory = self.base.emit.root_dir; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
     const module_obj_path: ?[]const u8 = if (comp.module != null) blk: {
-        try self.flushModule(arena, prog_node);
+        try self.flushModule(arena, tid, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
             break :blk try fs.path.join(arena, &.{ dirname, self.base.zcu_object_sub_path.? });
@@ -38,9 +42,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
         }
     } else null;
 
-    var sub_prog_node = prog_node.start("LLD Link", 0);
-    sub_prog_node.activate();
-    sub_prog_node.context.refresh();
+    const sub_prog_node = prog_node.start("LLD Link", 0);
     defer sub_prog_node.end();
 
     const is_lib = comp.config.output_mode == .Lib;
@@ -69,7 +71,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
         man = comp.cache_parent.obtain();
         self.base.releaseLock();
 
-        comptime assert(Compilation.link_hash_implementation_version == 13);
+        comptime assert(Compilation.link_hash_implementation_version == 14);
 
         for (comp.objects) |obj| {
             _ = try man.addFile(obj.path, null);
@@ -78,10 +80,8 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
         for (comp.c_object_table.keys()) |key| {
             _ = try man.addFile(key.status.success.object_path, null);
         }
-        if (!build_options.only_core_functionality) {
-            for (comp.win32_resource_table.keys()) |key| {
-                _ = try man.addFile(key.status.success.res_path, null);
-            }
+        for (comp.win32_resource_table.keys()) |key| {
+            _ = try man.addFile(key.status.success.res_path, null);
         }
         try man.addOptionalFile(module_obj_path);
         man.hash.addOptionalBytes(entry_name);
@@ -110,6 +110,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
         // strip does not need to go into the linker hash because it is part of the hash namespace
         man.hash.add(self.major_subsystem_version);
         man.hash.add(self.minor_subsystem_version);
+        man.hash.add(self.repro);
         man.hash.addOptional(comp.version);
         try man.addOptionalFile(self.module_definition_file);
 
@@ -227,6 +228,10 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
             try argv.append(try allocPrint(arena, "-ENTRY:{s}", .{name}));
         }
 
+        if (self.repro) {
+            try argv.append("-BREPRO");
+        }
+
         if (self.tsaware) {
             try argv.append("-tsaware");
         }
@@ -243,7 +248,7 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
         try argv.append(try allocPrint(arena, "-OUT:{s}", .{full_out_path}));
 
         if (comp.implib_emit) |emit| {
-            const implib_out_path = try emit.directory.join(arena, &[_][]const u8{emit.sub_path});
+            const implib_out_path = try emit.root_dir.join(arena, &[_][]const u8{emit.sub_path});
             try argv.append(try allocPrint(arena, "-IMPLIB:{s}", .{implib_out_path}));
         }
 
@@ -275,10 +280,8 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
             try argv.append(key.status.success.object_path);
         }
 
-        if (!build_options.only_core_functionality) {
-            for (comp.win32_resource_table.keys()) |key| {
-                try argv.append(key.status.success.res_path);
-            }
+        for (comp.win32_resource_table.keys()) |key| {
+            try argv.append(key.status.success.res_path);
         }
 
         if (module_obj_path) |p| {
@@ -460,6 +463,10 @@ pub fn linkWithLLD(self: *Coff, arena: Allocator, prog_node: *std.Progress.Node)
         // libunwind dep
         if (comp.config.link_libunwind) {
             try argv.append(comp.libunwind_static_lib.?.full_object_path);
+        }
+
+        if (comp.config.any_fuzz) {
+            try argv.append(comp.fuzzer_lib.?.full_object_path);
         }
 
         if (is_exe_or_dyn_lib and !comp.skip_linker_dependencies) {

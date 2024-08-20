@@ -22,6 +22,15 @@ const tmpDir = std.testing.tmpDir;
 const Dir = std.fs.Dir;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
+// https://github.com/ziglang/zig/issues/20288
+test "WTF-8 to WTF-16 conversion buffer overflows" {
+    if (native_os != .windows) return error.SkipZigTest;
+
+    const input_wtf8 = "\u{10FFFF}" ** 16385;
+    try expectError(error.NameTooLong, posix.chdir(input_wtf8));
+    try expectError(error.NameTooLong, posix.chdirZ(input_wtf8));
+}
+
 test "chdir smoke test" {
     if (native_os == .wasi) return error.SkipZigTest;
 
@@ -31,13 +40,13 @@ test "chdir smoke test" {
     }
 
     // Get current working directory path
-    var old_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+    var old_cwd_buf: [fs.max_path_bytes]u8 = undefined;
     const old_cwd = try posix.getcwd(old_cwd_buf[0..]);
 
     {
         // Firstly, changing to itself should have no effect
         try posix.chdir(old_cwd);
-        var new_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+        var new_cwd_buf: [fs.max_path_bytes]u8 = undefined;
         const new_cwd = try posix.getcwd(new_cwd_buf[0..]);
         try expect(mem.eql(u8, old_cwd, new_cwd));
     }
@@ -50,7 +59,7 @@ test "chdir smoke test" {
         // Restore cwd because process may have other tests that do not tolerate chdir.
         defer posix.chdir(old_cwd) catch unreachable;
 
-        var new_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+        var new_cwd_buf: [fs.max_path_bytes]u8 = undefined;
         const new_cwd = try posix.getcwd(new_cwd_buf[0..]);
         try expect(mem.eql(u8, parent, new_cwd));
     }
@@ -58,7 +67,7 @@ test "chdir smoke test" {
     // Next, change current working directory to a temp directory one level below
     {
         // Create a tmp directory
-        var tmp_dir_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+        var tmp_dir_buf: [fs.max_path_bytes]u8 = undefined;
         const tmp_dir_path = path: {
             var allocator = std.heap.FixedBufferAllocator.init(&tmp_dir_buf);
             break :path try fs.path.resolve(allocator.allocator(), &[_][]const u8{ old_cwd, "zig-test-tmp" });
@@ -68,11 +77,11 @@ test "chdir smoke test" {
         // Change current working directory to tmp directory
         try posix.chdir("zig-test-tmp");
 
-        var new_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+        var new_cwd_buf: [fs.max_path_bytes]u8 = undefined;
         const new_cwd = try posix.getcwd(new_cwd_buf[0..]);
 
         // On Windows, fs.path.resolve returns an uppercase drive letter, but the drive letter returned by getcwd may be lowercase
-        var resolved_cwd_buf: [fs.MAX_PATH_BYTES]u8 = undefined;
+        var resolved_cwd_buf: [fs.max_path_bytes]u8 = undefined;
         const resolved_cwd = path: {
             var allocator = std.heap.FixedBufferAllocator.init(&resolved_cwd_buf);
             break :path try fs.path.resolve(allocator.allocator(), &[_][]const u8{new_cwd});
@@ -101,7 +110,7 @@ test "open smoke test" {
     const allocator = arena.allocator();
 
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        const relative_path = try fs.path.join(allocator, &[_][]const u8{ ".zig-cache", "tmp", tmp.sub_path[0..] });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
@@ -230,7 +239,7 @@ test "symlink with relative paths" {
         try posix.symlink("file.txt", "symlinked");
     }
 
-    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    var buffer: [fs.max_path_bytes]u8 = undefined;
     const given = try posix.readlink("symlinked", buffer[0..]);
     try expect(mem.eql(u8, "file.txt", given));
 
@@ -247,7 +256,7 @@ test "readlink on Windows" {
 }
 
 fn testReadlink(target_path: []const u8, symlink_path: []const u8) !void {
-    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    var buffer: [fs.max_path_bytes]u8 = undefined;
     const given = try posix.readlink(symlink_path, buffer[0..]);
     try expect(mem.eql(u8, target_path, given));
 }
@@ -269,7 +278,7 @@ test "link with relative paths" {
     cwd.deleteFile("new.txt") catch {};
 
     try cwd.writeFile(.{ .sub_path = "example.txt", .data = "example" });
-    try posix.link("example.txt", "new.txt", 0);
+    try posix.link("example.txt", "new.txt");
 
     const efd = try cwd.openFile("example.txt", .{});
     defer efd.close();
@@ -385,7 +394,7 @@ test "readlinkat" {
     }
 
     // read the link
-    var buffer: [fs.MAX_PATH_BYTES]u8 = undefined;
+    var buffer: [fs.max_path_bytes]u8 = undefined;
     const read_link = try posix.readlinkat(tmp.dir.fd, "link", buffer[0..]);
     try expect(mem.eql(u8, "file.txt", read_link));
 }
@@ -466,7 +475,7 @@ test "getrandom" {
 
 test "getcwd" {
     // at least call it so it gets compiled
-    var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
     _ = posix.getcwd(&buf) catch undefined;
 }
 
@@ -483,7 +492,8 @@ test "sigaltstack" {
 
 // If the type is not available use void to avoid erroring out when `iter_fn` is
 // analyzed
-const dl_phdr_info = if (@hasDecl(posix.system, "dl_phdr_info")) posix.dl_phdr_info else anyopaque;
+const have_dl_phdr_info = posix.system.dl_phdr_info != void;
+const dl_phdr_info = if (have_dl_phdr_info) posix.dl_phdr_info else anyopaque;
 
 const IterFnError = error{
     MissingPtLoadSegment,
@@ -498,24 +508,24 @@ fn iter_fn(info: *dl_phdr_info, size: usize, counter: *usize) IterFnError!void {
     counter.* += @as(usize, 1);
 
     // The image should contain at least a PT_LOAD segment
-    if (info.dlpi_phnum < 1) return error.MissingPtLoadSegment;
+    if (info.phnum < 1) return error.MissingPtLoadSegment;
 
     // Quick & dirty validation of the phdr pointers, make sure we're not
     // pointing to some random gibberish
     var i: usize = 0;
     var found_load = false;
-    while (i < info.dlpi_phnum) : (i += 1) {
-        const phdr = info.dlpi_phdr[i];
+    while (i < info.phnum) : (i += 1) {
+        const phdr = info.phdr[i];
 
         if (phdr.p_type != elf.PT_LOAD) continue;
 
-        const reloc_addr = info.dlpi_addr + phdr.p_vaddr;
+        const reloc_addr = info.addr + phdr.p_vaddr;
         // Find the ELF header
         const elf_header = @as(*elf.Ehdr, @ptrFromInt(reloc_addr - phdr.p_offset));
         // Validate the magic
         if (!mem.eql(u8, elf_header.e_ident[0..4], elf.MAGIC)) return error.BadElfMagic;
         // Consistency check
-        if (elf_header.e_phnum != info.dlpi_phnum) return error.FailedConsistencyCheck;
+        if (elf_header.e_phnum != info.phnum) return error.FailedConsistencyCheck;
 
         found_load = true;
         break;
@@ -570,11 +580,7 @@ test "memfd_create" {
         else => return error.SkipZigTest,
     }
 
-    const fd = posix.memfd_create("test", 0) catch |err| switch (err) {
-        // Related: https://github.com/ziglang/zig/issues/4019
-        error.SystemOutdated => return error.SkipZigTest,
-        else => |e| return e,
-    };
+    const fd = try posix.memfd_create("test", 0);
     defer posix.close(fd);
     try expect((try posix.write(fd, "test")) == 4);
     try posix.lseek_SET(fd, 0);
@@ -774,12 +780,10 @@ test "fsync" {
 }
 
 test "getrlimit and setrlimit" {
-    if (!@hasDecl(posix.system, "rlimit")) {
-        return error.SkipZigTest;
-    }
+    if (posix.system.rlimit_resource == void) return error.SkipZigTest;
 
-    inline for (std.meta.fields(posix.rlimit_resource)) |field| {
-        const resource = @as(posix.rlimit_resource, @enumFromInt(field.value));
+    inline for (@typeInfo(posix.rlimit_resource).Enum.fields) |field| {
+        const resource: posix.rlimit_resource = @enumFromInt(field.value);
         const limit = try posix.getrlimit(resource);
 
         // XNU kernel does not support RLIMIT_STACK if a custom stack is active,
@@ -863,10 +867,10 @@ test "sigaction" {
     var old_sa: posix.Sigaction = undefined;
 
     // Install the new signal handler.
-    try posix.sigaction(posix.SIG.USR1, &sa, null);
+    posix.sigaction(posix.SIG.USR1, &sa, null);
 
     // Check that we can read it back correctly.
-    try posix.sigaction(posix.SIG.USR1, null, &old_sa);
+    posix.sigaction(posix.SIG.USR1, null, &old_sa);
     try testing.expectEqual(&S.handler, old_sa.handler.sigaction.?);
     try testing.expect((old_sa.flags & posix.SA.SIGINFO) != 0);
 
@@ -875,26 +879,26 @@ test "sigaction" {
     try testing.expect(S.handler_called_count == 1);
 
     // Check if passing RESETHAND correctly reset the handler to SIG_DFL
-    try posix.sigaction(posix.SIG.USR1, null, &old_sa);
+    posix.sigaction(posix.SIG.USR1, null, &old_sa);
     try testing.expectEqual(posix.SIG.DFL, old_sa.handler.handler);
 
     // Reinstall the signal w/o RESETHAND and re-raise
     sa.flags = posix.SA.SIGINFO;
-    try posix.sigaction(posix.SIG.USR1, &sa, null);
+    posix.sigaction(posix.SIG.USR1, &sa, null);
     try posix.raise(posix.SIG.USR1);
     try testing.expect(S.handler_called_count == 2);
 
     // Now set the signal to ignored
     sa.handler = .{ .handler = posix.SIG.IGN };
     sa.flags = 0;
-    try posix.sigaction(posix.SIG.USR1, &sa, null);
+    posix.sigaction(posix.SIG.USR1, &sa, null);
 
     // Re-raise to ensure handler is actually ignored
     try posix.raise(posix.SIG.USR1);
     try testing.expect(S.handler_called_count == 2);
 
     // Ensure that ignored state is returned when querying
-    try posix.sigaction(posix.SIG.USR1, null, &old_sa);
+    posix.sigaction(posix.SIG.USR1, null, &old_sa);
     try testing.expectEqual(posix.SIG.IGN, old_sa.handler.handler.?);
 }
 
@@ -1022,7 +1026,7 @@ test "rename smoke test" {
     const allocator = arena.allocator();
 
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        const relative_path = try fs.path.join(allocator, &[_][]const u8{ ".zig-cache", "tmp", tmp.sub_path[0..] });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
@@ -1079,7 +1083,7 @@ test "access smoke test" {
     const allocator = arena.allocator();
 
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        const relative_path = try fs.path.join(allocator, &[_][]const u8{ ".zig-cache", "tmp", tmp.sub_path[0..] });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
@@ -1116,18 +1120,18 @@ test "access smoke test" {
 test "timerfd" {
     if (native_os != .linux) return error.SkipZigTest;
 
-    const tfd = try posix.timerfd_create(linux.CLOCK.MONOTONIC, .{ .CLOEXEC = true });
+    const tfd = try posix.timerfd_create(.MONOTONIC, .{ .CLOEXEC = true });
     defer posix.close(tfd);
 
     // Fire event 10_000_000ns = 10ms after the posix.timerfd_settime call.
-    var sit: linux.itimerspec = .{ .it_interval = .{ .tv_sec = 0, .tv_nsec = 0 }, .it_value = .{ .tv_sec = 0, .tv_nsec = 10 * (1000 * 1000) } };
+    var sit: linux.itimerspec = .{ .it_interval = .{ .sec = 0, .nsec = 0 }, .it_value = .{ .sec = 0, .nsec = 10 * (1000 * 1000) } };
     try posix.timerfd_settime(tfd, .{}, &sit, null);
 
     var fds: [1]posix.pollfd = .{.{ .fd = tfd, .events = linux.POLL.IN, .revents = 0 }};
     try expectEqual(@as(usize, 1), try posix.poll(&fds, -1)); // -1 => infinite waiting
 
     const git = try posix.timerfd_gettime(tfd);
-    const expect_disarmed_timer: linux.itimerspec = .{ .it_interval = .{ .tv_sec = 0, .tv_nsec = 0 }, .it_value = .{ .tv_sec = 0, .tv_nsec = 0 } };
+    const expect_disarmed_timer: linux.itimerspec = .{ .it_interval = .{ .sec = 0, .nsec = 0 }, .it_value = .{ .sec = 0, .nsec = 0 } };
     try expectEqual(expect_disarmed_timer, git);
 }
 
@@ -1153,7 +1157,7 @@ test "read with empty buffer" {
 
     // Get base abs path
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        const relative_path = try fs.path.join(allocator, &[_][]const u8{ ".zig-cache", "tmp", tmp.sub_path[0..] });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
@@ -1178,7 +1182,7 @@ test "pread with empty buffer" {
 
     // Get base abs path
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        const relative_path = try fs.path.join(allocator, &[_][]const u8{ ".zig-cache", "tmp", tmp.sub_path[0..] });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
@@ -1203,7 +1207,7 @@ test "write with empty buffer" {
 
     // Get base abs path
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        const relative_path = try fs.path.join(allocator, &[_][]const u8{ ".zig-cache", "tmp", tmp.sub_path[0..] });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 
@@ -1228,7 +1232,7 @@ test "pwrite with empty buffer" {
 
     // Get base abs path
     const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &[_][]const u8{ "zig-cache", "tmp", tmp.sub_path[0..] });
+        const relative_path = try fs.path.join(allocator, &[_][]const u8{ ".zig-cache", "tmp", tmp.sub_path[0..] });
         break :blk try fs.realpathAlloc(allocator, relative_path);
     };
 

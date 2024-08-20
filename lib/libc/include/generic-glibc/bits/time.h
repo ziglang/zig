@@ -1,5 +1,5 @@
 /* System-dependent timing definitions.  Linux version.
-   Copyright (C) 1996-2023 Free Software Foundation, Inc.
+   Copyright (C) 1996-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -77,7 +77,7 @@ __BEGIN_DECLS
 /* Tune a POSIX clock.  */
 extern int clock_adjtime (__clockid_t __clock_id, struct timex *__utx) __THROW __nonnull((2));
 
-#ifdef __USE_TIME_BITS64
+#ifdef __USE_TIME64_REDIRECTS
 # if defined(__REDIRECT_NTH)
 extern int __REDIRECT_NTH (clock_adjtime, (__clockid_t __clock_id,
                                            struct timex *__utx),

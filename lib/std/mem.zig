@@ -17,6 +17,14 @@ pub const page_size = switch (builtin.cpu.arch) {
         else => 4 * 1024,
     },
     .sparc64 => 8 * 1024,
+    .loongarch32, .loongarch64 => switch (builtin.os.tag) {
+        // Linux default KConfig value is 16KiB
+        .linux => 16 * 1024,
+        // FIXME:
+        // There is no other OS supported yet. Use the same value
+        // as Linux for now.
+        else => 16 * 1024,
+    },
     else => 4 * 1024,
 };
 
@@ -120,7 +128,7 @@ pub fn alignAllocLen(full_len: usize, alloc_len: usize, len_align: u29) usize {
     assert(full_len >= alloc_len);
     if (len_align == 0)
         return alloc_len;
-    const adjusted = alignBackwardAnyAlign(full_len, len_align);
+    const adjusted = alignBackwardAnyAlign(usize, full_len, len_align);
     assert(adjusted >= alloc_len);
     return adjusted;
 }
@@ -224,7 +232,7 @@ pub fn zeroes(comptime T: type) T {
         .ComptimeInt, .Int, .ComptimeFloat, .Float => {
             return @as(T, 0);
         },
-        .Enum, .EnumLiteral => {
+        .Enum => {
             return @as(T, @enumFromInt(0));
         },
         .Void => {
@@ -291,6 +299,7 @@ pub fn zeroes(comptime T: type) T {
             }
             @compileError("Can't set a " ++ @typeName(T) ++ " to zero.");
         },
+        .EnumLiteral,
         .ErrorUnion,
         .ErrorSet,
         .Fn,
@@ -635,16 +644,20 @@ test lessThan {
     try testing.expect(lessThan(u8, "", "a"));
 }
 
-const backend_can_use_eql_bytes = switch (builtin.zig_backend) {
+const eqlBytes_allowed = switch (builtin.zig_backend) {
     // The SPIR-V backend does not support the optimized path yet.
     .stage2_spirv64 => false,
-    else => true,
+    // The RISC-V does not support vectors.
+    .stage2_riscv64 => false,
+    // The naive memory comparison implementation is more useful for fuzzers to
+    // find interesting inputs.
+    else => !builtin.fuzz,
 };
 
 /// Compares two slices and returns whether they are equal.
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     if (@sizeOf(T) == 0) return true;
-    if (!@inComptime() and std.meta.hasUniqueRepresentation(T) and backend_can_use_eql_bytes) return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
+    if (!@inComptime() and std.meta.hasUniqueRepresentation(T) and eqlBytes_allowed) return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
 
     if (a.len != b.len) return false;
     if (a.len == 0 or a.ptr == b.ptr) return true;
@@ -657,9 +670,7 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
 
 /// std.mem.eql heavily optimized for slices of bytes.
 fn eqlBytes(a: []const u8, b: []const u8) bool {
-    if (!backend_can_use_eql_bytes) {
-        return eql(u8, a, b);
-    }
+    comptime assert(eqlBytes_allowed);
 
     if (a.len != b.len) return false;
     if (a.len == 0 or a.ptr == b.ptr) return true;
@@ -1047,15 +1058,16 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
             // as we don't read into a new page. This should be the case for most architectures
             // which use paged memory, however should be confirmed before adding a new arch below.
             .aarch64, .x86, .x86_64 => if (std.simd.suggestVectorLength(T)) |block_len| {
+                const block_size = @sizeOf(T) * block_len;
                 const Block = @Vector(block_len, T);
                 const mask: Block = @splat(sentinel);
 
-                comptime std.debug.assert(std.mem.page_size % @sizeOf(Block) == 0);
+                comptime std.debug.assert(std.mem.page_size % block_size == 0);
 
                 // First block may be unaligned
                 const start_addr = @intFromPtr(&p[i]);
                 const offset_in_page = start_addr & (std.mem.page_size - 1);
-                if (offset_in_page <= std.mem.page_size - @sizeOf(Block)) {
+                if (offset_in_page <= std.mem.page_size - block_size) {
                     // Will not read past the end of a page, full block.
                     const block: Block = p[i..][0..block_len].*;
                     const matches = block == mask;
@@ -1063,19 +1075,19 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
                         return i + std.simd.firstTrue(matches).?;
                     }
 
-                    i += (std.mem.alignForward(usize, start_addr, @alignOf(Block)) - start_addr) / @sizeOf(T);
+                    i += @divExact(std.mem.alignForward(usize, start_addr, block_size) - start_addr, @sizeOf(T));
                 } else {
                     // Would read over a page boundary. Per-byte at a time until aligned or found.
                     // 0.39% chance this branch is taken for 4K pages at 16b block length.
                     //
                     // An alternate strategy is to do read a full block (the last in the page) and
                     // mask the entries before the pointer.
-                    while ((@intFromPtr(&p[i]) & (@alignOf(Block) - 1)) != 0) : (i += 1) {
+                    while ((@intFromPtr(&p[i]) & (block_size - 1)) != 0) : (i += 1) {
                         if (p[i] == sentinel) return i;
                     }
                 }
 
-                std.debug.assert(std.mem.isAligned(@intFromPtr(&p[i]), @alignOf(Block)));
+                std.debug.assert(std.mem.isAligned(@intFromPtr(&p[i]), block_size));
                 while (true) {
                     const block: *const Block = @ptrCast(@alignCast(p[i..][0..block_len]));
                     const matches = block.* == mask;
@@ -1590,7 +1602,10 @@ test containsAtLeast {
 /// T specifies the return type, which must be large enough to store
 /// the result.
 pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: Endian) ReturnType {
-    var result: ReturnType = 0;
+    const bits = @typeInfo(ReturnType).Int.bits;
+    const signedness = @typeInfo(ReturnType).Int.signedness;
+    const WorkType = std.meta.Int(signedness, @max(16, bits));
+    var result: WorkType = 0;
     switch (endian) {
         .big => {
             for (bytes) |b| {
@@ -1598,23 +1613,40 @@ pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: Endian) 
             }
         },
         .little => {
-            const ShiftType = math.Log2Int(ReturnType);
+            const ShiftType = math.Log2Int(WorkType);
             for (bytes, 0..) |b, index| {
-                result = result | (@as(ReturnType, b) << @as(ShiftType, @intCast(index * 8)));
+                result = result | (@as(WorkType, b) << @as(ShiftType, @intCast(index * 8)));
             }
         },
     }
-    return result;
+    return @as(ReturnType, @truncate(result));
+}
+
+test readVarInt {
+    try testing.expect(readVarInt(u0, &[_]u8{}, .big) == 0x0);
+    try testing.expect(readVarInt(u0, &[_]u8{}, .little) == 0x0);
+    try testing.expect(readVarInt(u8, &[_]u8{0x12}, .big) == 0x12);
+    try testing.expect(readVarInt(u8, &[_]u8{0xde}, .little) == 0xde);
+    try testing.expect(readVarInt(u16, &[_]u8{ 0x12, 0x34 }, .big) == 0x1234);
+    try testing.expect(readVarInt(u16, &[_]u8{ 0x12, 0x34 }, .little) == 0x3412);
+
+    try testing.expect(readVarInt(i8, &[_]u8{0xff}, .big) == -1);
+    try testing.expect(readVarInt(i8, &[_]u8{0xfe}, .little) == -2);
+    try testing.expect(readVarInt(i16, &[_]u8{ 0xff, 0xfd }, .big) == -3);
+    try testing.expect(readVarInt(i16, &[_]u8{ 0xfc, 0xff }, .little) == -4);
+
+    // Return type can be oversized (bytes.len * 8 < @typeInfo(ReturnType).Int.bits)
+    try testing.expect(readVarInt(u9, &[_]u8{0x12}, .little) == 0x12);
+    try testing.expect(readVarInt(u9, &[_]u8{0xde}, .big) == 0xde);
+    try testing.expect(readVarInt(u80, &[_]u8{ 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x24 }, .big) == 0x123456789abcdef024);
+    try testing.expect(readVarInt(u80, &[_]u8{ 0xec, 0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe }, .little) == 0xfedcba9876543210ec);
+
+    try testing.expect(readVarInt(i9, &[_]u8{0xff}, .big) == 0xff);
+    try testing.expect(readVarInt(i9, &[_]u8{0xfe}, .little) == 0xfe);
 }
 
 /// Loads an integer from packed memory with provided bit_count, bit_offset, and signedness.
 /// Asserts that T is large enough to store the read value.
-///
-/// Example:
-///     const T = packed struct(u16){ a: u3, b: u7, c: u6 };
-///     var st = T{ .a = 1, .b = 2, .c = 4 };
-///     const b_field = readVarPackedInt(u64, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 7, builtin.cpu.arch.endian(), .unsigned);
-///
 pub fn readVarPackedInt(
     comptime T: type,
     bytes: []const u8,
@@ -1675,6 +1707,13 @@ pub fn readVarPackedInt(
         .signed => return @as(T, @intCast((@as(iN, @bitCast(int)) << pad) >> pad)),
         .unsigned => return @as(T, @intCast((@as(uN, @bitCast(int)) << pad) >> pad)),
     }
+}
+
+test readVarPackedInt {
+    const T = packed struct(u16) { a: u3, b: u7, c: u6 };
+    var st = T{ .a = 1, .b = 2, .c = 4 };
+    const b_field = readVarPackedInt(u64, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 7, builtin.cpu.arch.endian(), .unsigned);
+    try std.testing.expectEqual(st.b, b_field);
 }
 
 /// Reads an integer from memory with bit count specified by T.
@@ -1773,17 +1812,18 @@ pub const readPackedIntForeign = switch (native_endian) {
 
 /// Loads an integer from packed memory.
 /// Asserts that buffer contains at least bit_offset + @bitSizeOf(T) bits.
-///
-/// Example:
-///     const T = packed struct(u16){ a: u3, b: u7, c: u6 };
-///     var st = T{ .a = 1, .b = 2, .c = 4 };
-///     const b_field = readPackedInt(u7, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), builtin.cpu.arch.endian());
-///
 pub fn readPackedInt(comptime T: type, bytes: []const u8, bit_offset: usize, endian: Endian) T {
     switch (endian) {
         .little => return readPackedIntLittle(T, bytes, bit_offset),
         .big => return readPackedIntBig(T, bytes, bit_offset),
     }
+}
+
+test readPackedInt {
+    const T = packed struct(u16) { a: u3, b: u7, c: u6 };
+    var st = T{ .a = 1, .b = 2, .c = 4 };
+    const b_field = readPackedInt(u7, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), builtin.cpu.arch.endian());
+    try std.testing.expectEqual(st.b, b_field);
 }
 
 test "comptime read/write int" {
@@ -1925,13 +1965,6 @@ pub const writePackedIntForeign = switch (native_endian) {
 
 /// Stores an integer to packed memory.
 /// Asserts that buffer contains at least bit_offset + @bitSizeOf(T) bits.
-///
-/// Example:
-///     const T = packed struct(u16){ a: u3, b: u7, c: u6 };
-///     var st = T{ .a = 1, .b = 2, .c = 4 };
-///     // st.b = 0x7f;
-///     writePackedInt(u7, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 0x7f, builtin.cpu.arch.endian());
-///
 pub fn writePackedInt(comptime T: type, bytes: []u8, bit_offset: usize, value: T, endian: Endian) void {
     switch (endian) {
         .little => writePackedIntLittle(T, bytes, bit_offset, value),
@@ -1939,16 +1972,15 @@ pub fn writePackedInt(comptime T: type, bytes: []u8, bit_offset: usize, value: T
     }
 }
 
-/// Stores an integer to packed memory with provided bit_count, bit_offset, and signedness.
+test writePackedInt {
+    const T = packed struct(u16) { a: u3, b: u7, c: u6 };
+    var st = T{ .a = 1, .b = 2, .c = 4 };
+    writePackedInt(u7, std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 0x7f, builtin.cpu.arch.endian());
+    try std.testing.expectEqual(T{ .a = 1, .b = 0x7f, .c = 4 }, st);
+}
+
+/// Stores an integer to packed memory with provided bit_offset, bit_count, and signedness.
 /// If negative, the written value is sign-extended.
-///
-/// Example:
-///     const T = packed struct(u16){ a: u3, b: u7, c: u6 };
-///     var st = T{ .a = 1, .b = 2, .c = 4 };
-///     // st.b = 0x7f;
-///     var value: u64 = 0x7f;
-///     writeVarPackedInt(std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 7, value, builtin.cpu.arch.endian());
-///
 pub fn writeVarPackedInt(bytes: []u8, bit_offset: usize, bit_count: usize, value: anytype, endian: std.builtin.Endian) void {
     const T = @TypeOf(value);
     const uN = std.meta.Int(.unsigned, @bitSizeOf(T));
@@ -1961,7 +1993,9 @@ pub fn writeVarPackedInt(bytes: []u8, bit_offset: usize, bit_count: usize, value
     };
     const write_bytes = bytes[lowest_byte..][0..write_size];
 
-    if (write_size == 1) {
+    if (write_size == 0) {
+        return;
+    } else if (write_size == 1) {
         // Single byte writes are handled specially, since we need to mask bits
         // on both ends of the byte.
         const mask = (@as(u8, 0xff) >> @as(u3, @intCast(8 - bit_count)));
@@ -2001,6 +2035,14 @@ pub fn writeVarPackedInt(bytes: []u8, bit_offset: usize, bit_count: usize, value
     write_bytes[@as(usize, @intCast(i))] |= @as(u8, @intCast(@as(uN, @bitCast(remaining)) & tail_mask));
 }
 
+test writeVarPackedInt {
+    const T = packed struct(u16) { a: u3, b: u7, c: u6 };
+    var st = T{ .a = 1, .b = 2, .c = 4 };
+    const value: u64 = 0x7f;
+    writeVarPackedInt(std.mem.asBytes(&st), @bitOffsetOf(T, "b"), 7, value, builtin.cpu.arch.endian());
+    try testing.expectEqual(T{ .a = 1, .b = value, .c = 4 }, st);
+}
+
 /// Swap the byte order of all the members of the fields of a struct
 /// (Changing their endianness)
 pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
@@ -2017,6 +2059,10 @@ pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
                     .Enum => {
                         @field(ptr, f.name) = @enumFromInt(@byteSwap(@intFromEnum(@field(ptr, f.name))));
                     },
+                    .Bool => {},
+                    .Float => |float_info| {
+                        @field(ptr, f.name) = @bitCast(@byteSwap(@as(std.meta.Int(.unsigned, float_info.bits), @bitCast(@field(ptr, f.name)))));
+                    },
                     else => {
                         @field(ptr, f.name) = @byteSwap(@field(ptr, f.name));
                     },
@@ -2029,6 +2075,10 @@ pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
                     .Struct, .Array => byteSwapAllFields(@TypeOf(item.*), item),
                     .Enum => {
                         item.* = @enumFromInt(@byteSwap(@intFromEnum(item.*)));
+                    },
+                    .Bool => {},
+                    .Float => |float_info| {
+                        item.* = @bitCast(@byteSwap(@as(std.meta.Int(.unsigned, float_info.bits), @bitCast(item.*))));
                     },
                     else => {
                         item.* = @byteSwap(item.*);
@@ -2046,24 +2096,32 @@ test byteSwapAllFields {
         f1: u16,
         f2: u32,
         f3: [1]u8,
+        f4: bool,
+        f5: f32,
     };
     const K = extern struct {
         f0: u8,
         f1: T,
         f2: u16,
         f3: [1]u8,
+        f4: bool,
+        f5: f32,
     };
     var s = T{
         .f0 = 0x12,
         .f1 = 0x1234,
         .f2 = 0x12345678,
         .f3 = .{0x12},
+        .f4 = true,
+        .f5 = @as(f32, @bitCast(@as(u32, 0x4640e400))),
     };
     var k = K{
         .f0 = 0x12,
         .f1 = s,
         .f2 = 0x1234,
         .f3 = .{0x12},
+        .f4 = false,
+        .f5 = @as(f32, @bitCast(@as(u32, 0x45d42800))),
     };
     byteSwapAllFields(T, &s);
     byteSwapAllFields(K, &k);
@@ -2072,17 +2130,20 @@ test byteSwapAllFields {
         .f1 = 0x3412,
         .f2 = 0x78563412,
         .f3 = .{0x12},
+        .f4 = true,
+        .f5 = @as(f32, @bitCast(@as(u32, 0x00e44046))),
     }, s);
     try std.testing.expectEqual(K{
         .f0 = 0x12,
         .f1 = s,
         .f2 = 0x3412,
         .f3 = .{0x12},
+        .f4 = false,
+        .f5 = @as(f32, @bitCast(@as(u32, 0x0028d445))),
     }, k);
 }
 
-/// Deprecated: use `tokenizeAny`, `tokenizeSequence`, or `tokenizeScalar`
-pub const tokenize = tokenizeAny;
+pub const tokenize = @compileError("deprecated; use tokenizeAny, tokenizeSequence, or tokenizeScalar");
 
 /// Returns an iterator that iterates over the slices of `buffer` that are not
 /// any of the items in `delimiters`.
@@ -2282,8 +2343,7 @@ test "tokenize (reset)" {
     }
 }
 
-/// Deprecated: use `splitSequence`, `splitAny`, or `splitScalar`
-pub const split = splitSequence;
+pub const split = @compileError("deprecated; use splitSequence, splitAny, or splitScalar");
 
 /// Returns an iterator that iterates over the slices of `buffer` that
 /// are separated by the byte sequence in `delimiter`.
@@ -2484,8 +2544,7 @@ test "split (reset)" {
     }
 }
 
-/// Deprecated: use `splitBackwardsSequence`, `splitBackwardsAny`, or `splitBackwardsScalar`
-pub const splitBackwards = splitBackwardsSequence;
+pub const splitBackwards = @compileError("deprecated; use splitBackwardsSequence, splitBackwardsAny, or splitBackwardsScalar");
 
 /// Returns an iterator that iterates backwards over the slices of `buffer` that
 /// are separated by the sequence in `delimiter`.
@@ -3427,22 +3486,77 @@ pub fn swap(comptime T: type, a: *T, b: *T) void {
     b.* = tmp;
 }
 
+inline fn reverseVector(comptime N: usize, comptime T: type, a: []T) [N]T {
+    var res: [N]T = undefined;
+    inline for (0..N) |i| {
+        res[i] = a[N - i - 1];
+    }
+    return res;
+}
+
 /// In-place order reversal of a slice
 pub fn reverse(comptime T: type, items: []T) void {
     var i: usize = 0;
     const end = items.len / 2;
+    if (backend_supports_vectors and
+        !@inComptime() and
+        @bitSizeOf(T) > 0 and
+        std.math.isPowerOfTwo(@bitSizeOf(T)))
+    {
+        if (std.simd.suggestVectorLength(T)) |simd_size| {
+            if (simd_size <= end) {
+                const simd_end = end - (simd_size - 1);
+                while (i < simd_end) : (i += simd_size) {
+                    const left_slice = items[i .. i + simd_size];
+                    const right_slice = items[items.len - i - simd_size .. items.len - i];
+
+                    const left_shuffled: [simd_size]T = reverseVector(simd_size, T, left_slice);
+                    const right_shuffled: [simd_size]T = reverseVector(simd_size, T, right_slice);
+
+                    @memcpy(right_slice, &left_shuffled);
+                    @memcpy(left_slice, &right_shuffled);
+                }
+            }
+        }
+    }
+
     while (i < end) : (i += 1) {
         swap(T, &items[i], &items[items.len - i - 1]);
     }
 }
 
 test reverse {
-    var arr = [_]i32{ 5, 3, 1, 2, 4 };
-    reverse(i32, arr[0..]);
-
-    try testing.expect(eql(i32, &arr, &[_]i32{ 4, 2, 1, 3, 5 }));
+    {
+        var arr = [_]i32{ 5, 3, 1, 2, 4 };
+        reverse(i32, arr[0..]);
+        try testing.expectEqualSlices(i32, &arr, &.{ 4, 2, 1, 3, 5 });
+    }
+    {
+        var arr = [_]u0{};
+        reverse(u0, arr[0..]);
+        try testing.expectEqualSlices(u0, &arr, &.{});
+    }
+    {
+        var arr = [_]i64{ 19, 17, 15, 13, 11, 9, 7, 5, 3, 1, 2, 4, 6, 8, 10, 12, 14, 16, 18 };
+        reverse(i64, arr[0..]);
+        try testing.expectEqualSlices(i64, &arr, &.{ 18, 16, 14, 12, 10, 8, 6, 4, 2, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19 });
+    }
+    {
+        var arr = [_][]const u8{ "a", "b", "c", "d" };
+        reverse([]const u8, arr[0..]);
+        try testing.expectEqualSlices([]const u8, &arr, &.{ "d", "c", "b", "a" });
+    }
+    {
+        const MyType = union(enum) {
+            a: [3]u8,
+            b: u24,
+            c,
+        };
+        var arr = [_]MyType{ .{ .a = .{ 0, 0, 0 } }, .{ .b = 0 }, .c };
+        reverse(MyType, arr[0..]);
+        try testing.expectEqualSlices(MyType, &arr, &([_]MyType{ .c, .{ .b = 0 }, .{ .a = .{ 0, 0, 0 } } }));
+    }
 }
-
 fn ReverseIterator(comptime T: type) type {
     const Pointer = blk: {
         switch (@typeInfo(T)) {
@@ -4198,6 +4312,15 @@ test "sliceAsBytes preserves pointer attributes" {
     try testing.expectEqual(in.alignment, out.alignment);
 }
 
+/// Round an address down to the next (or current) aligned address.
+/// Unlike `alignForward`, `alignment` can be any positive number, not just a power of 2.
+pub fn alignForwardAnyAlign(comptime T: type, addr: T, alignment: T) T {
+    if (isValidAlignGeneric(T, alignment))
+        return alignForward(T, addr, alignment);
+    assert(alignment != 0);
+    return alignBackwardAnyAlign(T, addr + (alignment - 1), alignment);
+}
+
 /// Round an address up to the next (or current) aligned address.
 /// The alignment must be a power of 2 and greater than 0.
 /// Asserts that rounding up the address does not cause integer overflow.
@@ -4319,11 +4442,11 @@ test alignForward {
 
 /// Round an address down to the previous (or current) aligned address.
 /// Unlike `alignBackward`, `alignment` can be any positive number, not just a power of 2.
-pub fn alignBackwardAnyAlign(i: usize, alignment: usize) usize {
-    if (isValidAlign(alignment))
-        return alignBackward(usize, i, alignment);
+pub fn alignBackwardAnyAlign(comptime T: type, addr: T, alignment: T) T {
+    if (isValidAlignGeneric(T, alignment))
+        return alignBackward(T, addr, alignment);
     assert(alignment != 0);
-    return i - @mod(i, alignment);
+    return addr - @mod(addr, alignment);
 }
 
 /// Round an address down to the previous (or current) aligned address.

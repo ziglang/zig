@@ -1,7 +1,11 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
-
+const assert = std.debug.assert;
 const math = std.math;
+
+/// Provides deterministic randomness in unit tests.
+/// Initialized on startup. Read-only after that.
+pub var random_seed: u32 = 0;
 
 pub const FailingAllocator = @import("testing/failing_allocator.zig").FailingAllocator;
 
@@ -22,7 +26,7 @@ pub var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 pub var log_level = std.log.Level.warn;
 
 // Disable printing in tests for simple backends.
-pub const backend_can_print = builtin.zig_backend != .stage2_spirv64;
+pub const backend_can_print = !(builtin.zig_backend == .stage2_spirv64 or builtin.zig_backend == .stage2_riscv64);
 
 fn print(comptime fmt: []const u8, args: anytype) void {
     if (@inComptime()) {
@@ -147,18 +151,10 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
 
             try expectEqual(expectedTag, actualTag);
 
-            // we only reach this loop if the tags are equal
-            inline for (std.meta.fields(@TypeOf(actual))) |fld| {
-                if (std.mem.eql(u8, fld.name, @tagName(actualTag))) {
-                    try expectEqual(@field(expected, fld.name), @field(actual, fld.name));
-                    return;
-                }
+            // we only reach this switch if the tags are equal
+            switch (expected) {
+                inline else => |val, tag| try expectEqual(val, @field(actual, @tagName(tag))),
             }
-
-            // we iterate over *all* union fields
-            // => we should never get here as the loop above is
-            //    including all possible values.
-            unreachable;
         },
 
         .Optional => {
@@ -206,6 +202,16 @@ test "expectEqual.union(enum)" {
     const a10 = T{ .a = 10 };
 
     try expectEqual(a10, a10);
+}
+
+test "expectEqual union with comptime-only field" {
+    const U = union(enum) {
+        a: void,
+        b: void,
+        c: comptime_int,
+    };
+
+    try expectEqual(U{ .a = {} }, .a);
 }
 
 /// This function is intended to be used only in tests. When the formatted result of the template
@@ -556,18 +562,18 @@ pub const TmpDir = struct {
     }
 };
 
-pub fn tmpDir(opts: std.fs.Dir.OpenDirOptions) TmpDir {
+pub fn tmpDir(opts: std.fs.Dir.OpenOptions) TmpDir {
     var random_bytes: [TmpDir.random_bytes_count]u8 = undefined;
     std.crypto.random.bytes(&random_bytes);
     var sub_path: [TmpDir.sub_path_len]u8 = undefined;
     _ = std.fs.base64_encoder.encode(&sub_path, &random_bytes);
 
     const cwd = std.fs.cwd();
-    var cache_dir = cwd.makeOpenPath("zig-cache", .{}) catch
-        @panic("unable to make tmp dir for testing: unable to make and open zig-cache dir");
+    var cache_dir = cwd.makeOpenPath(".zig-cache", .{}) catch
+        @panic("unable to make tmp dir for testing: unable to make and open .zig-cache dir");
     defer cache_dir.close();
     const parent_dir = cache_dir.makeOpenPath("tmp", .{}) catch
-        @panic("unable to make tmp dir for testing: unable to make and open zig-cache/tmp dir");
+        @panic("unable to make tmp dir for testing: unable to make and open .zig-cache/tmp dir");
     const dir = parent_dir.makeOpenPath(&sub_path, opts) catch
         @panic("unable to make tmp dir for testing: unable to make and open the tmp dir");
 
@@ -809,7 +815,7 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
 
             try expectEqual(expectedTag, actualTag);
 
-            // we only reach this loop if the tags are equal
+            // we only reach this switch if the tags are equal
             switch (expected) {
                 inline else => |val, tag| {
                     try expectEqualDeep(val, @field(actual, @tagName(tag)));
@@ -1129,4 +1135,12 @@ pub fn refAllDeclsRecursive(comptime T: type) void {
         }
         _ = &@field(T, decl.name);
     }
+}
+
+pub const FuzzInputOptions = struct {
+    corpus: []const []const u8 = &.{},
+};
+
+pub inline fn fuzzInput(options: FuzzInputOptions) []const u8 {
+    return @import("root").fuzzInput(options);
 }

@@ -5,7 +5,7 @@ const expectEqual = std.testing.expectEqual;
 
 const supports_128_bit_atomics = switch (builtin.cpu.arch) {
     // TODO: Ideally this could be sync'd with the logic in Sema.
-    .aarch64, .aarch64_be, .aarch64_32 => true,
+    .aarch64, .aarch64_be => true,
     .x86_64 => std.Target.x86.featureSetHas(builtin.cpu.features, .cx16),
     else => false,
 };
@@ -52,6 +52,7 @@ test "atomicrmw and atomicload" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var data: u8 = 200;
     try testAtomicRmw(&data);
@@ -80,6 +81,7 @@ test "cmpxchg with ptr" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var data1: i32 = 1234;
     var data2: i32 = 5678;
@@ -182,19 +184,6 @@ test "atomic store" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    var x: u32 = 0;
-    @atomicStore(u32, &x, 1, .seq_cst);
-    try expect(@atomicLoad(u32, &x, .seq_cst) == 1);
-    @atomicStore(u32, &x, 12345678, .seq_cst);
-    try expect(@atomicLoad(u32, &x, .seq_cst) == 12345678);
-}
-
-test "atomic store comptime" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     try comptime testAtomicStore();
     try testAtomicStore();
 }
@@ -241,6 +230,7 @@ test "atomicrmw with ints" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isMIPS()) {
         // https://github.com/ziglang/zig/issues/16846
@@ -390,6 +380,7 @@ test "atomics with different types" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try testAtomicsWithType(bool, true, false);
 
@@ -401,6 +392,14 @@ test "atomics with different types" {
 
     try testAtomicsWithType(u0, 0, 0);
     try testAtomicsWithType(i0, 0, 0);
+
+    try testAtomicsWithType(enum(u32) { x = 1234, y = 5678 }, .x, .y);
+
+    try testAtomicsWithPackedStruct(
+        packed struct { x: u7, y: u24, z: bool },
+        .{ .x = 1, .y = 2, .z = true },
+        .{ .x = 3, .y = 4, .z = false },
+    );
 }
 
 fn testAtomicsWithType(comptime T: type, a: T, b: T) !void {
@@ -412,6 +411,18 @@ fn testAtomicsWithType(comptime T: type, a: T, b: T) !void {
     try expect(@cmpxchgStrong(T, &x, b, a, .seq_cst, .seq_cst) == null);
     if (@sizeOf(T) != 0)
         try expect(@cmpxchgStrong(T, &x, b, a, .seq_cst, .seq_cst).? == a);
+}
+
+fn testAtomicsWithPackedStruct(comptime T: type, a: T, b: T) !void {
+    const BackingInt = @typeInfo(T).Struct.backing_integer.?;
+    var x: T = b;
+    @atomicStore(T, &x, a, .seq_cst);
+    try expect(@as(BackingInt, @bitCast(x)) == @as(BackingInt, @bitCast(a)));
+    try expect(@as(BackingInt, @bitCast(@atomicLoad(T, &x, .seq_cst))) == @as(BackingInt, @bitCast(a)));
+    try expect(@as(BackingInt, @bitCast(@atomicRmw(T, &x, .Xchg, b, .seq_cst))) == @as(BackingInt, @bitCast(a)));
+    try expect(@cmpxchgStrong(T, &x, b, a, .seq_cst, .seq_cst) == null);
+    if (@sizeOf(T) != 0)
+        try expect(@as(BackingInt, @bitCast(@cmpxchgStrong(T, &x, b, a, .seq_cst, .seq_cst).?)) == @as(BackingInt, @bitCast(a)));
 }
 
 test "return @atomicStore, using it as a void value" {

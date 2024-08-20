@@ -471,13 +471,13 @@ pub fn HashMap(
 
         /// Create an iterator over the keys in the map.
         /// The iterator is invalidated if the map is modified.
-        pub fn keyIterator(self: *const Self) KeyIterator {
+        pub fn keyIterator(self: Self) KeyIterator {
             return self.unmanaged.keyIterator();
         }
 
         /// Create an iterator over the values in the map.
         /// The iterator is invalidated if the map is modified.
-        pub fn valueIterator(self: *const Self) ValueIterator {
+        pub fn valueIterator(self: Self) ValueIterator {
             return self.unmanaged.valueIterator();
         }
 
@@ -542,7 +542,7 @@ pub fn HashMap(
 
         /// Returns the number of total elements which may be present before it is
         /// no longer guaranteed that no allocations will be performed.
-        pub fn capacity(self: *Self) Size {
+        pub fn capacity(self: Self) Size {
             return self.unmanaged.capacity();
         }
 
@@ -693,6 +693,21 @@ pub fn HashMap(
             const result = self.*;
             self.unmanaged = .{};
             return result;
+        }
+
+        /// Rehash the map, in-place.
+        ///
+        /// Over time, due to the current tombstone-based implementation, a
+        /// HashMap could become fragmented due to the buildup of tombstone
+        /// entries that causes a performance degradation due to excessive
+        /// probing. The kind of pattern that might cause this is a long-lived
+        /// HashMap with repeated inserts and deletes.
+        ///
+        /// After this function is called, there will be no tombstones in
+        /// the HashMap, each of the entries is rehashed and any existing
+        /// key/value pointers into the HashMap are invalidated.
+        pub fn rehash(self: *Self) void {
+            self.unmanaged.rehash(self.ctx);
         }
     };
 }
@@ -977,23 +992,23 @@ pub fn HashMapUnmanaged(
             self.available = 0;
         }
 
-        pub fn count(self: *const Self) Size {
+        pub fn count(self: Self) Size {
             return self.size;
         }
 
-        fn header(self: *const Self) *Header {
+        fn header(self: Self) *Header {
             return @ptrCast(@as([*]Header, @ptrCast(@alignCast(self.metadata.?))) - 1);
         }
 
-        fn keys(self: *const Self) [*]K {
+        fn keys(self: Self) [*]K {
             return self.header().keys;
         }
 
-        fn values(self: *const Self) [*]V {
+        fn values(self: Self) [*]V {
             return self.header().values;
         }
 
-        pub fn capacity(self: *const Self) Size {
+        pub fn capacity(self: Self) Size {
             if (self.metadata == null) return 0;
 
             return self.header().capacity;
@@ -1003,7 +1018,7 @@ pub fn HashMapUnmanaged(
             return .{ .hm = self };
         }
 
-        pub fn keyIterator(self: *const Self) KeyIterator {
+        pub fn keyIterator(self: Self) KeyIterator {
             if (self.metadata) |metadata| {
                 return .{
                     .len = self.capacity(),
@@ -1019,7 +1034,7 @@ pub fn HashMapUnmanaged(
             }
         }
 
-        pub fn valueIterator(self: *const Self) ValueIterator {
+        pub fn valueIterator(self: Self) ValueIterator {
             if (self.metadata) |metadata| {
                 return .{
                     .len = self.capacity(),
@@ -1439,15 +1454,15 @@ pub fn HashMapUnmanaged(
         }
 
         /// Return true if there is a value associated with key in the map.
-        pub fn contains(self: *const Self, key: K) bool {
+        pub fn contains(self: Self, key: K) bool {
             if (@sizeOf(Context) != 0)
                 @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call containsContext instead.");
             return self.containsContext(key, undefined);
         }
-        pub fn containsContext(self: *const Self, key: K, ctx: Context) bool {
+        pub fn containsContext(self: Self, key: K, ctx: Context) bool {
             return self.containsAdapted(key, ctx);
         }
-        pub fn containsAdapted(self: *const Self, key: anytype, ctx: anytype) bool {
+        pub fn containsAdapted(self: Self, key: anytype, ctx: anytype) bool {
             return self.getIndex(key, ctx) != null;
         }
 
@@ -1501,7 +1516,7 @@ pub fn HashMapUnmanaged(
 
         // This counts the number of occupied slots (not counting tombstones), which is
         // what has to stay under the max_load_percentage of capacity.
-        fn load(self: *const Self) Size {
+        fn load(self: Self) Size {
             const max_load = (self.capacity() * max_load_percentage) / 100;
             assert(max_load >= self.available);
             return @as(Size, @truncate(max_load - self.available));
@@ -1550,6 +1565,95 @@ pub fn HashMapUnmanaged(
             const result = self.*;
             self.* = .{};
             return result;
+        }
+
+        /// Rehash the map, in-place.
+        ///
+        /// Over time, due to the current tombstone-based implementation, a
+        /// HashMap could become fragmented due to the buildup of tombstone
+        /// entries that causes a performance degradation due to excessive
+        /// probing. The kind of pattern that might cause this is a long-lived
+        /// HashMap with repeated inserts and deletes.
+        ///
+        /// After this function is called, there will be no tombstones in
+        /// the HashMap, each of the entries is rehashed and any existing
+        /// key/value pointers into the HashMap are invalidated.
+        pub fn rehash(self: *Self, ctx: anytype) void {
+            const mask = self.capacity() - 1;
+
+            var metadata = self.metadata.?;
+            var keys_ptr = self.keys();
+            var values_ptr = self.values();
+            var curr: Size = 0;
+
+            // While we are re-hashing every slot, we will use the
+            // fingerprint to mark used buckets as being used and either free
+            // (needing to be rehashed) or tombstone (already rehashed).
+
+            while (curr < self.capacity()) : (curr += 1) {
+                metadata[curr].fingerprint = Metadata.free;
+            }
+
+            // Now iterate over all the buckets, rehashing them
+
+            curr = 0;
+            while (curr < self.capacity()) {
+                if (!metadata[curr].isUsed()) {
+                    assert(metadata[curr].isFree());
+                    curr += 1;
+                    continue;
+                }
+
+                const hash = ctx.hash(keys_ptr[curr]);
+                const fingerprint = Metadata.takeFingerprint(hash);
+                var idx = @as(usize, @truncate(hash & mask));
+
+                // For each bucket, rehash to an index:
+                // 1) before the cursor, probed into a free slot, or
+                // 2) equal to the cursor, no need to move, or
+                // 3) ahead of the cursor, probing over already rehashed
+
+                while ((idx < curr and metadata[idx].isUsed()) or
+                    (idx > curr and metadata[idx].fingerprint == Metadata.tombstone))
+                {
+                    idx = (idx + 1) & mask;
+                }
+
+                if (idx < curr) {
+                    assert(metadata[idx].isFree());
+                    metadata[idx].fill(fingerprint);
+                    keys_ptr[idx] = keys_ptr[curr];
+                    values_ptr[idx] = values_ptr[curr];
+
+                    metadata[curr].used = 0;
+                    assert(metadata[curr].isFree());
+                    keys_ptr[curr] = undefined;
+                    values_ptr[curr] = undefined;
+
+                    curr += 1;
+                } else if (idx == curr) {
+                    metadata[idx].fingerprint = fingerprint;
+                    curr += 1;
+                } else {
+                    assert(metadata[idx].fingerprint != Metadata.tombstone);
+                    metadata[idx].fingerprint = Metadata.tombstone;
+                    if (metadata[idx].isUsed()) {
+                        std.mem.swap(K, &keys_ptr[curr], &keys_ptr[idx]);
+                        std.mem.swap(V, &values_ptr[curr], &values_ptr[idx]);
+                    } else {
+                        metadata[idx].used = 1;
+                        keys_ptr[idx] = keys_ptr[curr];
+                        values_ptr[idx] = values_ptr[curr];
+
+                        metadata[curr].fingerprint = Metadata.free;
+                        metadata[curr].used = 0;
+                        keys_ptr[curr] = undefined;
+                        values_ptr[curr] = undefined;
+
+                        curr += 1;
+                    }
+                }
+            }
         }
 
         fn grow(self: *Self, allocator: Allocator, new_capacity: Size, ctx: Context) Allocator.Error!void {
@@ -1603,19 +1707,19 @@ pub fn HashMapUnmanaged(
             const total_size = std.mem.alignForward(usize, vals_end, max_align);
 
             const slice = try allocator.alignedAlloc(u8, max_align, total_size);
-            const ptr = @intFromPtr(slice.ptr);
+            const ptr: [*]u8 = @ptrCast(slice.ptr);
 
             const metadata = ptr + @sizeOf(Header);
 
-            const hdr = @as(*Header, @ptrFromInt(ptr));
+            const hdr = @as(*Header, @ptrCast(@alignCast(ptr)));
             if (@sizeOf([*]V) != 0) {
-                hdr.values = @as([*]V, @ptrFromInt(ptr + vals_start));
+                hdr.values = @ptrCast(@alignCast((ptr + vals_start)));
             }
             if (@sizeOf([*]K) != 0) {
-                hdr.keys = @as([*]K, @ptrFromInt(ptr + keys_start));
+                hdr.keys = @ptrCast(@alignCast((ptr + keys_start)));
             }
             hdr.capacity = new_capacity;
-            self.metadata = @as([*]Metadata, @ptrFromInt(metadata));
+            self.metadata = @ptrCast(@alignCast(metadata));
         }
 
         fn deallocate(self: *Self, allocator: Allocator) void {
@@ -1638,7 +1742,7 @@ pub fn HashMapUnmanaged(
 
             const total_size = std.mem.alignForward(usize, vals_end, max_align);
 
-            const slice = @as([*]align(max_align) u8, @ptrFromInt(@intFromPtr(self.header())))[0..total_size];
+            const slice = @as([*]align(max_align) u8, @alignCast(@ptrCast(self.header())))[0..total_size];
             allocator.free(slice);
 
             self.metadata = null;
@@ -1935,7 +2039,7 @@ test "put and remove loop in random order" {
     while (i < size) : (i += 1) {
         try keys.append(i);
     }
-    var prng = std.Random.DefaultPrng.init(0);
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     const random = prng.random();
 
     while (i < iterations) : (i += 1) {
@@ -1967,7 +2071,7 @@ test "remove one million elements in random order" {
         keys.append(i) catch unreachable;
     }
 
-    var prng = std.Random.DefaultPrng.init(0);
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     const random = prng.random();
     random.shuffle(u32, keys.items);
 
@@ -2271,4 +2375,33 @@ test "repeat fetchRemove" {
 test "getOrPut allocation failure" {
     var map: std.StringHashMapUnmanaged(void) = .{};
     try testing.expectError(error.OutOfMemory, map.getOrPut(std.testing.failing_allocator, "hello"));
+}
+
+test "std.hash_map rehash" {
+    var map = AutoHashMap(usize, usize).init(std.testing.allocator);
+    defer map.deinit();
+
+    var prng = std.Random.DefaultPrng.init(0);
+    const random = prng.random();
+
+    const count = 6 * random.intRangeLessThan(u32, 100_000, 500_000);
+
+    for (0..count) |i| {
+        try map.put(i, i);
+        if (i % 3 == 0) {
+            try expectEqual(map.remove(i), true);
+        }
+    }
+
+    map.rehash();
+
+    try expectEqual(map.count(), count * 2 / 3);
+
+    for (0..count) |i| {
+        if (i % 3 == 0) {
+            try expectEqual(map.get(i), null);
+        } else {
+            try expectEqual(map.get(i).?, i);
+        }
+    }
 }

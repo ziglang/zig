@@ -14,7 +14,7 @@ pub const BuildError = error{
     ZigCompilerNotBuiltWithLLVMExtensions,
 };
 
-pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!void {
+pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildError!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -131,7 +131,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) BuildEr
         if (!comp.config.any_non_single_threaded) {
             try cflags.append("-D_LIBUNWIND_HAS_NO_THREADS");
         }
-        if (target.cpu.arch.isARM() and target.abi.floatAbi() == .hard) {
+        if (target.cpu.arch.isArmOrThumb() and target.abi.floatAbi() == .hard) {
             try cflags.append("-DCOMPILER_RT_ARMHF_TARGET");
         }
         try cflags.append("-Wno-bitwise-conditional-parentheses");

@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2023 Free Software Foundation, Inc.
+/* Copyright (C) 2007-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -23,7 +23,7 @@
 
 __BEGIN_DECLS
 
-struct sockaddr_iucv
+struct __attribute_struct_may_alias__ sockaddr_iucv
   {
     __SOCKADDR_COMMON (siucv_);
     unsigned short	siucv_port;		/* Reserved */

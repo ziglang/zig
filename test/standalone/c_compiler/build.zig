@@ -23,7 +23,7 @@ fn add(
     cpp_name: []const u8,
     optimize: std.builtin.OptimizeMode,
 ) void {
-    const target = b.host;
+    const target = b.graph.host;
 
     const exe_c = b.addExecutable(.{
         .name = c_name,

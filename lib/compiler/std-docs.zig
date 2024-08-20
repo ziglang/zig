@@ -117,6 +117,7 @@ const Context = struct {
 
 fn serveRequest(request: *std.http.Server.Request, context: *Context) !void {
     if (std.mem.eql(u8, request.head.target, "/") or
+        std.mem.eql(u8, request.head.target, "/debug") or
         std.mem.eql(u8, request.head.target, "/debug/"))
     {
         try serveDocsFile(request, context, "docs/index.html", "text/html");
@@ -180,13 +181,15 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
             },
         },
     });
-    const w = response.writer();
 
     var std_dir = try context.lib_dir.openDir("std", .{ .iterate = true });
     defer std_dir.close();
 
     var walker = try std_dir.walk(gpa);
     defer walker.deinit();
+
+    var archiver = std.tar.writer(response.writer());
+    archiver.prefix = "std";
 
     while (try walker.next()) |entry| {
         switch (entry.kind) {
@@ -198,47 +201,21 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
             },
             else => continue,
         }
-
-        var file = try std_dir.openFile(entry.path, .{});
+        var file = try entry.dir.openFile(entry.basename, .{});
         defer file.close();
-
-        const stat = try file.stat();
-        const padding = p: {
-            const remainder = stat.size % 512;
-            break :p if (remainder > 0) 512 - remainder else 0;
-        };
-
-        var file_header = std.tar.output.Header.init();
-        file_header.typeflag = .regular;
-        try file_header.setPath("std", entry.path);
-        try file_header.setSize(stat.size);
-        try file_header.updateChecksum();
-        try w.writeAll(std.mem.asBytes(&file_header));
-        try w.writeFile(file);
-        try w.writeByteNTimes(0, padding);
+        try archiver.writeFile(entry.path, file);
     }
 
     {
         // Since this command is JIT compiled, the builtin module available in
         // this source file corresponds to the user's host system.
         const builtin_zig = @embedFile("builtin");
-
-        var file_header = std.tar.output.Header.init();
-        file_header.typeflag = .regular;
-        try file_header.setPath("builtin", "builtin.zig");
-        try file_header.setSize(builtin_zig.len);
-        try file_header.updateChecksum();
-        try w.writeAll(std.mem.asBytes(&file_header));
-        try w.writeAll(builtin_zig);
-        const padding = p: {
-            const remainder = builtin_zig.len % 512;
-            break :p if (remainder > 0) 512 - remainder else 0;
-        };
-        try w.writeByteNTimes(0, padding);
+        archiver.prefix = "builtin";
+        try archiver.writeFileBytes("builtin.zig", builtin_zig, .{});
     }
 
     // intentionally omitting the pointless trailer
-    //try w.writeByteNTimes(0, 512 * 2);
+    //try archiver.finish();
     try response.end();
 }
 
@@ -274,10 +251,6 @@ fn buildWasmBinary(
 ) ![]const u8 {
     const gpa = context.gpa;
 
-    const main_src_path = try std.fs.path.join(arena, &.{
-        context.zig_lib_directory, "docs", "wasm", "main.zig",
-    });
-
     var argv: std.ArrayListUnmanaged([]const u8) = .{};
 
     try argv.appendSlice(arena, &.{
@@ -297,11 +270,14 @@ fn buildWasmBinary(
         "--name",
         "autodoc",
         "-rdynamic",
-        main_src_path,
+        "--dep",
+        "Walk",
+        try std.fmt.allocPrint(arena, "-Mroot={s}/docs/wasm/main.zig", .{context.zig_lib_directory}),
+        try std.fmt.allocPrint(arena, "-MWalk={s}/docs/wasm/Walk.zig", .{context.zig_lib_directory}),
         "--listen=-",
     });
 
-    var child = std.ChildProcess.init(argv.items, gpa);
+    var child = std.process.Child.init(argv.items, gpa);
     child.stdin_behavior = .Pipe;
     child.stdout_behavior = .Pipe;
     child.stderr_behavior = .Pipe;
@@ -433,9 +409,10 @@ fn openBrowserTab(gpa: Allocator, url: []const u8) !void {
 fn openBrowserTabThread(gpa: Allocator, url: []const u8) !void {
     const main_exe = switch (builtin.os.tag) {
         .windows => "explorer",
+        .macos => "open",
         else => "xdg-open",
     };
-    var child = std.ChildProcess.init(&.{ main_exe, url }, gpa);
+    var child = std.process.Child.init(&.{ main_exe, url }, gpa);
     child.stdin_behavior = .Ignore;
     child.stdout_behavior = .Ignore;
     child.stderr_behavior = .Ignore;

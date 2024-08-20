@@ -2261,7 +2261,7 @@ test "timeout (after a relative time)" {
 
     const ms = 10;
     const margin = 5;
-    const ts: linux.kernel_timespec = .{ .tv_sec = 0, .tv_nsec = ms * 1000000 };
+    const ts: linux.kernel_timespec = .{ .sec = 0, .nsec = ms * 1000000 };
 
     const started = std.time.milliTimestamp();
     const sqe = try ring.timeout(0x55555555, &ts, 0, 0);
@@ -2290,7 +2290,7 @@ test "timeout (after a number of completions)" {
     };
     defer ring.deinit();
 
-    const ts: linux.kernel_timespec = .{ .tv_sec = 3, .tv_nsec = 0 };
+    const ts: linux.kernel_timespec = .{ .sec = 3, .nsec = 0 };
     const count_completions: u64 = 1;
     const sqe_timeout = try ring.timeout(0x66666666, &ts, count_completions, 0);
     try testing.expectEqual(linux.IORING_OP.TIMEOUT, sqe_timeout.opcode);
@@ -2323,7 +2323,7 @@ test "timeout_remove" {
     };
     defer ring.deinit();
 
-    const ts: linux.kernel_timespec = .{ .tv_sec = 3, .tv_nsec = 0 };
+    const ts: linux.kernel_timespec = .{ .sec = 3, .nsec = 0 };
     const sqe_timeout = try ring.timeout(0x88888888, &ts, 0, 0);
     try testing.expectEqual(linux.IORING_OP.TIMEOUT, sqe_timeout.opcode);
     try testing.expectEqual(@as(u64, 0x88888888), sqe_timeout.user_data);
@@ -2391,7 +2391,7 @@ test "accept/connect/recv/link_timeout" {
     const sqe_recv = try ring.recv(0xffffffff, socket_test_harness.server, .{ .buffer = buffer_recv[0..] }, 0);
     sqe_recv.flags |= linux.IOSQE_IO_LINK;
 
-    const ts = linux.kernel_timespec{ .tv_sec = 0, .tv_nsec = 1000000 };
+    const ts = linux.kernel_timespec{ .sec = 0, .nsec = 1000000 };
     _ = try ring.link_timeout(0x22222222, &ts, 0);
 
     const nr_wait = try ring.submit();
@@ -3524,30 +3524,33 @@ test "accept/connect/send_zc/recv" {
     _ = try ring.recv(0xffffffff, socket_test_harness.server, .{ .buffer = buffer_recv[0..] }, 0);
     try testing.expectEqual(@as(u32, 2), try ring.submit());
 
+    var cqe_send = try ring.copy_cqe();
     // First completion of zero-copy send.
     // IORING_CQE_F_MORE, means that there
     // will be a second completion event / notification for the
     // request, with the user_data field set to the same value.
     // buffer_send must be keep alive until second cqe.
-    var cqe_send = try ring.copy_cqe();
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xeeeeeeee,
         .res = buffer_send.len,
         .flags = linux.IORING_CQE_F_MORE,
     }, cqe_send);
 
-    const cqe_recv = try ring.copy_cqe();
+    cqe_send, const cqe_recv = brk: {
+        const cqe1 = try ring.copy_cqe();
+        const cqe2 = try ring.copy_cqe();
+        break :brk if (cqe1.user_data == 0xeeeeeeee) .{ cqe1, cqe2 } else .{ cqe2, cqe1 };
+    };
+
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xffffffff,
         .res = buffer_recv.len,
         .flags = cqe_recv.flags & linux.IORING_CQE_F_SOCK_NONEMPTY,
     }, cqe_recv);
-
     try testing.expectEqualSlices(u8, buffer_send[0..buffer_recv.len], buffer_recv[0..]);
 
     // Second completion of zero-copy send.
     // IORING_CQE_F_NOTIF in flags signals that kernel is done with send_buffer
-    cqe_send = try ring.copy_cqe();
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xeeeeeeee,
         .res = 0,
@@ -3935,7 +3938,7 @@ test BufferGroup {
 
     // Server uses buffer group receive
     {
-        // Submit recv operation, buffer will be choosen from buffer group
+        // Submit recv operation, buffer will be chosen from buffer group
         _ = try buf_grp.recv(2, fds.server, 0);
         const submitted = try ring.submit();
         try testing.expectEqual(1, submitted);
@@ -3953,7 +3956,7 @@ test BufferGroup {
         // Get buffer from pool
         const buf = buf_grp.get(buffer_id)[0..len];
         try testing.expectEqualSlices(u8, &data, buf);
-        // Releaase buffer to the kernel when application is done with it
+        // Release buffer to the kernel when application is done with it
         buf_grp.put(buffer_id);
     }
 }
@@ -3992,7 +3995,7 @@ test "ring mapped buffers recv" {
     defer fds.close();
 
     // for random user_data in sqe/cqe
-    var Rnd = std.rand.DefaultPrng.init(0);
+    var Rnd = std.Random.DefaultPrng.init(std.testing.random_seed);
     var rnd = Rnd.random();
 
     var round: usize = 4; // repeat send/recv cycle round times
@@ -4078,7 +4081,7 @@ test "ring mapped buffers multishot recv" {
     defer fds.close();
 
     // for random user_data in sqe/cqe
-    var Rnd = std.rand.DefaultPrng.init(0);
+    var Rnd = std.Random.DefaultPrng.init(std.testing.random_seed);
     var rnd = Rnd.random();
 
     var round: usize = 4; // repeat send/recv cycle round times
@@ -4245,7 +4248,7 @@ test "copy_cqes with wrapping sq.cqes buffer" {
     {
         for (0..2) |_| {
             const sqe = try ring.get_sqe();
-            sqe.prep_timeout(&.{ .tv_sec = 0, .tv_nsec = 10000 }, 0, 0);
+            sqe.prep_timeout(&.{ .sec = 0, .nsec = 10000 }, 0, 0);
             try testing.expect(try ring.submit() == 1);
         }
         var cqe_count: u32 = 0;
@@ -4262,7 +4265,7 @@ test "copy_cqes with wrapping sq.cqes buffer" {
     for (1..1024) |i| {
         for (0..4) |_| {
             const sqe = try ring.get_sqe();
-            sqe.prep_timeout(&.{ .tv_sec = 0, .tv_nsec = 10000 }, 0, 0);
+            sqe.prep_timeout(&.{ .sec = 0, .nsec = 10000 }, 0, 0);
             try testing.expect(try ring.submit() == 1);
         }
         var cqe_count: u32 = 0;

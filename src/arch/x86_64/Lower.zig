@@ -4,11 +4,11 @@ bin_file: *link.File,
 output_mode: std.builtin.OutputMode,
 link_mode: std.builtin.LinkMode,
 pic: bool,
-allocator: Allocator,
+allocator: std.mem.Allocator,
 mir: Mir,
 cc: std.builtin.CallingConvention,
-err_msg: ?*ErrorMsg = null,
-src_loc: Module.SrcLoc,
+err_msg: ?*Zcu.ErrorMsg = null,
+src_loc: Zcu.LazySrcLoc,
 result_insts_len: u8 = undefined,
 result_relocs_len: u8 = undefined,
 result_insts: [
@@ -52,18 +52,21 @@ pub const Error = error{
 pub const Reloc = struct {
     lowered_inst_index: u8,
     target: Target,
+    off: i32,
 
     const Target = union(enum) {
         inst: Mir.Inst.Index,
-        linker_reloc: bits.Symbol,
-        linker_tlsld: bits.Symbol,
-        linker_dtpoff: bits.Symbol,
-        linker_extern_fn: bits.Symbol,
-        linker_got: bits.Symbol,
-        linker_direct: bits.Symbol,
-        linker_import: bits.Symbol,
+        linker_reloc: u32,
+        linker_tlsld: u32,
+        linker_dtpoff: u32,
+        linker_extern_fn: u32,
+        linker_got: u32,
+        linker_direct: u32,
+        linker_import: u32,
     };
 };
+
+const Options = struct { allow_frame_locs: bool };
 
 /// The returned slice is overwritten by the next call to lowerMir.
 pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
@@ -171,19 +174,19 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             .pseudo_j_z_and_np_inst => {
                 assert(inst.data.inst.fixes == ._);
                 try lower.emit(.none, .jnz, &.{
-                    .{ .imm = lower.reloc(.{ .inst = index + 1 }) },
+                    .{ .imm = lower.reloc(.{ .inst = index + 1 }, 0) },
                 });
                 try lower.emit(.none, .jnp, &.{
-                    .{ .imm = lower.reloc(.{ .inst = inst.data.inst.inst }) },
+                    .{ .imm = lower.reloc(.{ .inst = inst.data.inst.inst }, 0) },
                 });
             },
             .pseudo_j_nz_or_p_inst => {
                 assert(inst.data.inst.fixes == ._);
                 try lower.emit(.none, .jnz, &.{
-                    .{ .imm = lower.reloc(.{ .inst = inst.data.inst.inst }) },
+                    .{ .imm = lower.reloc(.{ .inst = inst.data.inst.inst }, 0) },
                 });
                 try lower.emit(.none, .jp, &.{
-                    .{ .imm = lower.reloc(.{ .inst = inst.data.inst.inst }) },
+                    .{ .imm = lower.reloc(.{ .inst = inst.data.inst.inst }, 0) },
                 });
             },
 
@@ -193,7 +196,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     .{ .imm = Immediate.s(@bitCast(inst.data.ri.i)) },
                 });
                 try lower.emit(.none, .jz, &.{
-                    .{ .imm = lower.reloc(.{ .inst = index + 1 }) },
+                    .{ .imm = lower.reloc(.{ .inst = index + 1 }, 0) },
                 });
                 try lower.emit(.none, .lea, &.{
                     .{ .reg = inst.data.ri.r1 },
@@ -209,7 +212,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     .{ .reg = inst.data.ri.r1.to32() },
                 });
                 try lower.emit(.none, .jmp, &.{
-                    .{ .imm = lower.reloc(.{ .inst = index }) },
+                    .{ .imm = lower.reloc(.{ .inst = index }, 0) },
                 });
                 assert(lower.result_insts_len == pseudo_probe_align_insts);
             },
@@ -255,7 +258,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                     .{ .imm = Immediate.s(page_size) },
                 });
                 try lower.emit(.none, .jae, &.{
-                    .{ .imm = lower.reloc(.{ .inst = index }) },
+                    .{ .imm = lower.reloc(.{ .inst = index }, 0) },
                 });
                 assert(lower.result_insts_len == pseudo_probe_adjust_loop_insts);
             },
@@ -265,7 +268,17 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             .pseudo_dbg_prologue_end_none,
             .pseudo_dbg_line_line_column,
             .pseudo_dbg_epilogue_begin_none,
-            .pseudo_dbg_inline_func,
+            .pseudo_dbg_enter_inline_func,
+            .pseudo_dbg_leave_inline_func,
+            .pseudo_dbg_local_a,
+            .pseudo_dbg_local_ai_s,
+            .pseudo_dbg_local_ai_u,
+            .pseudo_dbg_local_ai_64,
+            .pseudo_dbg_local_as,
+            .pseudo_dbg_local_aso,
+            .pseudo_dbg_local_aro,
+            .pseudo_dbg_local_af,
+            .pseudo_dbg_local_am,
             .pseudo_dead_none,
             => {},
             else => unreachable,
@@ -281,17 +294,18 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
 pub fn fail(lower: *Lower, comptime format: []const u8, args: anytype) Error {
     @setCold(true);
     assert(lower.err_msg == null);
-    lower.err_msg = try ErrorMsg.create(lower.allocator, lower.src_loc, format, args);
+    lower.err_msg = try Zcu.ErrorMsg.create(lower.allocator, lower.src_loc, format, args);
     return error.LowerFail;
 }
 
-fn imm(lower: Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
+pub fn imm(lower: Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
     return switch (ops) {
         .rri_s,
         .ri_s,
         .i_s,
         .mi_s,
         .rmi_s,
+        .pseudo_dbg_local_ai_s,
         => Immediate.s(@bitCast(i)),
 
         .rrri,
@@ -304,34 +318,32 @@ fn imm(lower: Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
         .mri,
         .rrm,
         .rrmi,
+        .pseudo_dbg_local_ai_u,
         => Immediate.u(i),
 
-        .ri64 => Immediate.u(lower.mir.extraData(Mir.Imm64, i).data.decode()),
+        .ri_64,
+        .pseudo_dbg_local_ai_64,
+        => Immediate.u(lower.mir.extraData(Mir.Imm64, i).data.decode()),
 
         else => unreachable,
     };
 }
 
-fn mem(lower: Lower, payload: u32) Memory {
+pub fn mem(lower: Lower, payload: u32) Memory {
     return lower.mir.resolveFrameLoc(lower.mir.extraData(Mir.Memory, payload).data).decode();
 }
 
-fn reloc(lower: *Lower, target: Reloc.Target) Immediate {
+fn reloc(lower: *Lower, target: Reloc.Target, off: i32) Immediate {
     lower.result_relocs[lower.result_relocs_len] = .{
         .lowered_inst_index = lower.result_insts_len,
         .target = target,
+        .off = off,
     };
     lower.result_relocs_len += 1;
     return Immediate.s(0);
 }
 
 fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand) Error!void {
-    const is_obj_or_static_lib = switch (lower.output_mode) {
-        .Exe => false,
-        .Obj => true,
-        .Lib => lower.link_mode == .static,
-    };
-
     const emit_prefix = prefix;
     var emit_mnemonic = mnemonic;
     var emit_ops_storage: [4]Operand = undefined;
@@ -341,37 +353,36 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
             else => op,
             .mem => |mem_op| switch (mem_op.base()) {
                 else => op,
-                .reloc => |sym| op: {
+                .reloc => |sym_index| op: {
                     assert(prefix == .none);
                     assert(mem_op.sib.disp == 0);
                     assert(mem_op.sib.scale_index.scale == 0);
 
-                    if (lower.bin_file.cast(link.File.Elf)) |elf_file| {
-                        const sym_index = elf_file.zigObjectPtr().?.symbol(sym.sym_index);
-                        const elf_sym = elf_file.symbol(sym_index);
+                    if (lower.bin_file.cast(.elf)) |elf_file| {
+                        const zo = elf_file.zigObjectPtr().?;
+                        const elf_sym = zo.symbol(sym_index);
 
                         if (elf_sym.flags.is_tls) {
                             // TODO handle extern TLS vars, i.e., emit GD model
                             if (lower.pic) {
                                 // Here, we currently assume local dynamic TLS vars, and so
                                 // we emit LD model.
-                                _ = lower.reloc(.{ .linker_tlsld = sym });
+                                _ = lower.reloc(.{ .linker_tlsld = sym_index }, 0);
                                 lower.result_insts[lower.result_insts_len] =
                                     try Instruction.new(.none, .lea, &[_]Operand{
                                     .{ .reg = .rdi },
                                     .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) },
                                 });
                                 lower.result_insts_len += 1;
-                                _ = lower.reloc(.{ .linker_extern_fn = .{
-                                    .atom_index = sym.atom_index,
-                                    .sym_index = try elf_file.getGlobalSymbol("__tls_get_addr", null),
-                                } });
+                                _ = lower.reloc(.{
+                                    .linker_extern_fn = try elf_file.getGlobalSymbol("__tls_get_addr", null),
+                                }, 0);
                                 lower.result_insts[lower.result_insts_len] =
                                     try Instruction.new(.none, .call, &[_]Operand{
                                     .{ .imm = Immediate.s(0) },
                                 });
                                 lower.result_insts_len += 1;
-                                _ = lower.reloc(.{ .linker_dtpoff = sym });
+                                _ = lower.reloc(.{ .linker_dtpoff = sym_index }, 0);
                                 emit_mnemonic = .lea;
                                 break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
                                     .base = .{ .reg = .rax },
@@ -385,7 +396,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                     .{ .mem = Memory.sib(.qword, .{ .base = .{ .reg = .fs } }) },
                                 });
                                 lower.result_insts_len += 1;
-                                _ = lower.reloc(.{ .linker_reloc = sym });
+                                _ = lower.reloc(.{ .linker_reloc = sym_index }, 0);
                                 emit_mnemonic = .lea;
                                 break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
                                     .base = .{ .reg = .rax },
@@ -394,40 +405,47 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             }
                         }
 
-                        _ = lower.reloc(.{ .linker_reloc = sym });
-                        break :op if (lower.pic) switch (mnemonic) {
+                        _ = lower.reloc(.{ .linker_reloc = sym_index }, 0);
+                        if (lower.pic) switch (mnemonic) {
                             .lea => {
+                                if (elf_sym.flags.is_extern_ptr) emit_mnemonic = .mov;
                                 break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
                             },
                             .mov => {
-                                if (is_obj_or_static_lib and elf_sym.flags.needs_zig_got) emit_mnemonic = .lea;
+                                if (elf_sym.flags.is_extern_ptr) {
+                                    const reg = ops[0].reg;
+                                    lower.result_insts[lower.result_insts_len] =
+                                        try Instruction.new(.none, .mov, &[_]Operand{
+                                        .{ .reg = reg.to64() },
+                                        .{ .mem = Memory.rip(.qword, 0) },
+                                    });
+                                    lower.result_insts_len += 1;
+                                    break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{ .base = .{
+                                        .reg = reg.to64(),
+                                    } }) };
+                                }
                                 break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
                             },
                             else => unreachable,
                         } else switch (mnemonic) {
-                            .call => break :op if (is_obj_or_static_lib and elf_sym.flags.needs_zig_got) .{
-                                .imm = Immediate.s(0),
-                            } else .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                            .call => break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
                                 .base = .{ .reg = .ds },
                             }) },
                             .lea => {
                                 emit_mnemonic = .mov;
                                 break :op .{ .imm = Immediate.s(0) };
                             },
-                            .mov => {
-                                if (is_obj_or_static_lib and elf_sym.flags.needs_zig_got) emit_mnemonic = .lea;
-                                break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
-                                    .base = .{ .reg = .ds },
-                                }) };
-                            },
+                            .mov => break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{
+                                .base = .{ .reg = .ds },
+                            }) },
                             else => unreachable,
-                        };
-                    } else if (lower.bin_file.cast(link.File.MachO)) |macho_file| {
-                        const sym_index = macho_file.getZigObject().?.symbols.items[sym.sym_index];
-                        const macho_sym = macho_file.getSymbol(sym_index);
+                        }
+                    } else if (lower.bin_file.cast(.macho)) |macho_file| {
+                        const zo = macho_file.getZigObject().?;
+                        const macho_sym = zo.symbols.items[sym_index];
 
                         if (macho_sym.flags.tlv) {
-                            _ = lower.reloc(.{ .linker_reloc = sym });
+                            _ = lower.reloc(.{ .linker_reloc = sym_index }, 0);
                             lower.result_insts[lower.result_insts_len] =
                                 try Instruction.new(.none, .mov, &[_]Operand{
                                 .{ .reg = .rdi },
@@ -443,13 +461,25 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             break :op .{ .reg = .rax };
                         }
 
-                        _ = lower.reloc(.{ .linker_reloc = sym });
+                        _ = lower.reloc(.{ .linker_reloc = sym_index }, 0);
                         break :op switch (mnemonic) {
                             .lea => {
+                                if (macho_sym.flags.is_extern_ptr) emit_mnemonic = .mov;
                                 break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
                             },
                             .mov => {
-                                if (is_obj_or_static_lib and macho_sym.flags.needs_zig_got) emit_mnemonic = .lea;
+                                if (macho_sym.flags.is_extern_ptr) {
+                                    const reg = ops[0].reg;
+                                    lower.result_insts[lower.result_insts_len] =
+                                        try Instruction.new(.none, .mov, &[_]Operand{
+                                        .{ .reg = reg.to64() },
+                                        .{ .mem = Memory.rip(.qword, 0) },
+                                    });
+                                    lower.result_insts_len += 1;
+                                    break :op .{ .mem = Memory.sib(mem_op.sib.ptr_size, .{ .base = .{
+                                        .reg = reg.to64(),
+                                    } }) };
+                                }
                                 break :op .{ .mem = Memory.rip(mem_op.sib.ptr_size, 0) };
                             },
                             else => unreachable,
@@ -475,15 +505,15 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         .rrrr => inst.data.rrrr.fixes,
         .rrri => inst.data.rrri.fixes,
         .rri_s, .rri_u => inst.data.rri.fixes,
-        .ri_s, .ri_u => inst.data.ri.fixes,
-        .ri64, .rm, .rmi_s, .mr => inst.data.rx.fixes,
+        .ri_s, .ri_u, .ri_64 => inst.data.ri.fixes,
+        .rm, .rmi_s, .mr => inst.data.rx.fixes,
         .mrr, .rrm, .rmr => inst.data.rrx.fixes,
         .rmi, .mri => inst.data.rix.fixes,
         .rrmr => inst.data.rrrx.fixes,
         .rrmi => inst.data.rrix.fixes,
         .mi_u, .mi_s => inst.data.x.fixes,
         .m => inst.data.x.fixes,
-        .extern_fn_reloc, .got_reloc, .direct_reloc, .import_reloc, .tlv_reloc => ._,
+        .extern_fn_reloc, .got_reloc, .direct_reloc, .import_reloc, .tlv_reloc, .rel => ._,
         else => return lower.fail("TODO lower .{s}", .{@tagName(inst.ops)}),
     };
     try lower.emit(switch (fixes) {
@@ -510,7 +540,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
     }, switch (inst.ops) {
         .none => &.{},
         .inst => &.{
-            .{ .imm = lower.reloc(.{ .inst = inst.data.inst.inst }) },
+            .{ .imm = lower.reloc(.{ .inst = inst.data.inst.inst }, 0) },
         },
         .i_s, .i_u => &.{
             .{ .imm = lower.imm(inst.ops, inst.data.i.i) },
@@ -539,13 +569,9 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .reg = inst.data.rrri.r3 },
             .{ .imm = lower.imm(inst.ops, inst.data.rrri.i) },
         },
-        .ri_s, .ri_u => &.{
+        .ri_s, .ri_u, .ri_64 => &.{
             .{ .reg = inst.data.ri.r1 },
             .{ .imm = lower.imm(inst.ops, inst.data.ri.i) },
-        },
-        .ri64 => &.{
-            .{ .reg = inst.data.rx.r1 },
-            .{ .imm = lower.imm(inst.ops, inst.data.rx.payload) },
         },
         .rri_s, .rri_u => &.{
             .{ .reg = inst.data.rri.r1 },
@@ -615,18 +641,18 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
             .{ .mem = lower.mem(inst.data.rrix.payload) },
             .{ .imm = lower.imm(inst.ops, inst.data.rrix.i) },
         },
-        .extern_fn_reloc => &.{
-            .{ .imm = lower.reloc(.{ .linker_extern_fn = inst.data.reloc }) },
+        .extern_fn_reloc, .rel => &.{
+            .{ .imm = lower.reloc(.{ .linker_extern_fn = inst.data.reloc.sym_index }, inst.data.reloc.off) },
         },
         .got_reloc, .direct_reloc, .import_reloc => ops: {
             const reg = inst.data.rx.r1;
-            const extra = lower.mir.extraData(bits.Symbol, inst.data.rx.payload).data;
+            const extra = lower.mir.extraData(bits.SymbolOffset, inst.data.rx.payload).data;
             _ = lower.reloc(switch (inst.ops) {
-                .got_reloc => .{ .linker_got = extra },
-                .direct_reloc => .{ .linker_direct = extra },
-                .import_reloc => .{ .linker_import = extra },
+                .got_reloc => .{ .linker_got = extra.sym_index },
+                .direct_reloc => .{ .linker_direct = extra.sym_index },
+                .import_reloc => .{ .linker_import = extra.sym_index },
                 else => unreachable,
-            });
+            }, extra.off);
             break :ops &.{
                 .{ .reg = reg },
                 .{ .mem = Memory.rip(Memory.PtrSize.fromBitSize(reg.bitSize()), 0) },
@@ -655,16 +681,13 @@ const encoder = @import("encoder.zig");
 const link = @import("../../link.zig");
 const std = @import("std");
 
-const Air = @import("../../Air.zig");
-const Allocator = std.mem.Allocator;
-const ErrorMsg = Module.ErrorMsg;
-const Immediate = bits.Immediate;
+const Immediate = Instruction.Immediate;
 const Instruction = encoder.Instruction;
 const Lower = @This();
 const Memory = Instruction.Memory;
 const Mir = @import("Mir.zig");
 const Mnemonic = Instruction.Mnemonic;
-const Module = @import("../../Module.zig");
+const Zcu = @import("../../Zcu.zig");
 const Operand = Instruction.Operand;
 const Prefix = Instruction.Prefix;
 const Register = bits.Register;

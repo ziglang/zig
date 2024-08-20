@@ -28,6 +28,7 @@ stack_protector: ?bool,
 stack_check: ?bool,
 sanitize_c: ?bool,
 sanitize_thread: ?bool,
+fuzz: ?bool,
 code_model: std.builtin.CodeModel,
 valgrind: ?bool,
 pic: ?bool,
@@ -137,7 +138,18 @@ pub const IncludeDir = union(enum) {
 };
 
 pub const LinkFrameworkOptions = struct {
+    /// Causes dynamic libraries to be linked regardless of whether they are
+    /// actually depended on. When false, dynamic libraries with no referenced
+    /// symbols will be omitted by the linker.
     needed: bool = false,
+    /// Marks all referenced symbols from this library as weak, meaning that if
+    /// a same-named symbol is provided by another compilation unit, instead of
+    /// emitting a "duplicate symbol" error, the linker will resolve all
+    /// references to the symbol with the strong version.
+    ///
+    /// When the linker encounters two weak symbols, the chosen one is
+    /// determined by the order compilation units are provided to the linker,
+    /// priority given to later ones.
     weak: bool = false,
 };
 
@@ -175,6 +187,7 @@ pub const CreateOptions = struct {
     stack_check: ?bool = null,
     sanitize_c: ?bool = null,
     sanitize_thread: ?bool = null,
+    fuzz: ?bool = null,
     /// Whether to emit machine code that integrates with Valgrind.
     valgrind: ?bool = null,
     /// Position Independent Code
@@ -217,6 +230,7 @@ pub fn init(m: *Module, owner: *std.Build, options: CreateOptions, compile: ?*St
         .stack_check = options.stack_check,
         .sanitize_c = options.sanitize_c,
         .sanitize_thread = options.sanitize_thread,
+        .fuzz = options.fuzz,
         .code_model = options.code_model,
         .valgrind = options.valgrind,
         .pic = options.pic,
@@ -414,7 +428,18 @@ pub fn iterateDependencies(
 }
 
 pub const LinkSystemLibraryOptions = struct {
+    /// Causes dynamic libraries to be linked regardless of whether they are
+    /// actually depended on. When false, dynamic libraries with no referenced
+    /// symbols will be omitted by the linker.
     needed: bool = false,
+    /// Marks all referenced symbols from this library as weak, meaning that if
+    /// a same-named symbol is provided by another compilation unit, instead of
+    /// emitting a "duplicate symbol" error, the linker will resolve all
+    /// references to the symbol with the strong version.
+    ///
+    /// When the linker encounters two weak symbols, the chosen one is
+    /// determined by the order compilation units are provided to the linker,
+    /// priority given to later ones.
     weak: bool = false,
     use_pkg_config: SystemLib.UsePkgConfig = .yes,
     preferred_link_mode: std.builtin.LinkMode = .dynamic,
@@ -484,6 +509,7 @@ pub fn addCSourceFiles(m: *Module, options: AddCSourceFilesOptions) void {
         .flags = b.dupeStrings(options.flags),
     };
     m.link_objects.append(allocator, .{ .c_source_files = c_source_files }) catch @panic("OOM");
+    addLazyPathDependenciesOnly(m, c_source_files.root);
 }
 
 pub fn addCSourceFile(m: *Module, source: CSourceFile) void {
@@ -619,6 +645,7 @@ pub fn appendZigProcessFlags(
     try addFlag(zig_args, m.error_tracing, "-ferror-tracing", "-fno-error-tracing");
     try addFlag(zig_args, m.sanitize_c, "-fsanitize-c", "-fno-sanitize-c");
     try addFlag(zig_args, m.sanitize_thread, "-fsanitize-thread", "-fno-sanitize-thread");
+    try addFlag(zig_args, m.fuzz, "-ffuzz", "-fno-fuzz");
     try addFlag(zig_args, m.valgrind, "-fvalgrind", "-fno-valgrind");
     try addFlag(zig_args, m.pic, "-fPIC", "-fno-PIC");
     try addFlag(zig_args, m.red_zone, "-mred-zone", "-mno-red-zone");

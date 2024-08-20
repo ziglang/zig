@@ -15,6 +15,7 @@ pub const Tag = enum {
     int_from_bool,
     bit_size_of,
     breakpoint,
+    disable_instrumentation,
     mul_add,
     byte_swap,
     bit_reverse,
@@ -259,6 +260,14 @@ pub const list = list: {
             "@breakpoint",
             .{
                 .tag = .breakpoint,
+                .param_count = 0,
+                .illegal_outside_function = true,
+            },
+        },
+        .{
+            "@disableInstrumentation",
+            .{
+                .tag = .disable_instrumentation,
                 .param_count = 0,
                 .illegal_outside_function = true,
             },

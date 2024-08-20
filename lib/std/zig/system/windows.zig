@@ -209,7 +209,7 @@ fn genericCpuAndNativeFeatures(arch: Target.Cpu.Arch) Target.Cpu {
     };
 
     switch (arch) {
-        .aarch64, .aarch64_be, .aarch64_32 => {
+        .aarch64, .aarch64_be => {
             const Feature = Target.aarch64.Feature;
 
             // Override any features that are either present or absent
@@ -229,7 +229,7 @@ fn genericCpuAndNativeFeatures(arch: Target.Cpu.Arch) Target.Cpu {
 pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
     const current_arch = builtin.cpu.arch;
     const cpu: ?Target.Cpu = switch (current_arch) {
-        .aarch64, .aarch64_be, .aarch64_32 => blk: {
+        .aarch64, .aarch64_be => blk: {
             var cores: [128]Target.Cpu = undefined;
             const core_count = getCpuCount();
 

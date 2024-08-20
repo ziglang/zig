@@ -1,4 +1,4 @@
-/* Copyright (C) 1995-2023 Free Software Foundation, Inc.
+/* Copyright (C) 1995-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -58,7 +58,7 @@ struct msgbuf
 __BEGIN_DECLS
 
 /* Message queue control operation.  */
-#ifndef __USE_TIME_BITS64
+#ifndef __USE_TIME64_REDIRECTS
 extern int msgctl (int __msqid, int __cmd, struct msqid_ds *__buf) __THROW;
 #else
 # ifdef __REDIRECT_NTH

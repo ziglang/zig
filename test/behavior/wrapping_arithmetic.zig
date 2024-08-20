@@ -6,6 +6,7 @@ const expect = std.testing.expect;
 
 test "wrapping add" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -43,6 +44,7 @@ test "wrapping add" {
 
 test "wrapping subtraction" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -78,6 +80,7 @@ test "wrapping subtraction" {
 
 test "wrapping multiplication" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     // TODO: once #9660 has been solved, remove this line
     if (builtin.cpu.arch == .wasm32) return error.SkipZigTest;

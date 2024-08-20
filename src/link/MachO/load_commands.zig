@@ -18,6 +18,9 @@ fn calcInstallNameLen(cmd_size: u64, name: []const u8, assume_max_path_len: bool
 }
 
 pub fn calcLoadCommandsSize(macho_file: *MachO, assume_max_path_len: bool) !u32 {
+    const comp = macho_file.base.comp;
+    const gpa = comp.gpa;
+
     var sizeofcmds: u64 = 0;
 
     // LC_SEGMENT_64
@@ -48,10 +51,9 @@ pub fn calcLoadCommandsSize(macho_file: *MachO, assume_max_path_len: bool) !u32 
     }
     // LC_ID_DYLIB
     if (macho_file.base.isDynLib()) {
-        const gpa = macho_file.base.comp.gpa;
         const emit = macho_file.base.emit;
         const install_name = macho_file.install_name orelse
-            try emit.directory.join(gpa, &.{emit.sub_path});
+            try emit.root_dir.join(gpa, &.{emit.sub_path});
         defer if (macho_file.install_name == null) gpa.free(install_name);
         sizeofcmds += calcInstallNameLen(
             @sizeOf(macho.dylib_command),
@@ -62,6 +64,16 @@ pub fn calcLoadCommandsSize(macho_file: *MachO, assume_max_path_len: bool) !u32 
     // LC_RPATH
     {
         for (macho_file.base.rpath_list) |rpath| {
+            sizeofcmds += calcInstallNameLen(
+                @sizeOf(macho.rpath_command),
+                rpath,
+                assume_max_path_len,
+            );
+        }
+
+        if (comp.config.any_sanitize_thread) {
+            const path = comp.tsan_lib.?.full_object_path;
+            const rpath = std.fs.path.dirname(path) orelse ".";
             sizeofcmds += calcInstallNameLen(
                 @sizeOf(macho.rpath_command),
                 rpath,
@@ -225,7 +237,7 @@ pub fn writeDylibIdLC(macho_file: *MachO, writer: anytype) !void {
     assert(comp.config.output_mode == .Lib and comp.config.link_mode == .dynamic);
     const emit = macho_file.base.emit;
     const install_name = macho_file.install_name orelse
-        try emit.directory.join(gpa, &.{emit.sub_path});
+        try emit.root_dir.join(gpa, &.{emit.sub_path});
     defer if (macho_file.install_name == null) gpa.free(install_name);
     const curr = comp.version orelse std.SemanticVersion{
         .major = 1,
@@ -245,24 +257,22 @@ pub fn writeDylibIdLC(macho_file: *MachO, writer: anytype) !void {
     }, writer);
 }
 
-pub fn writeRpathLCs(rpaths: []const []const u8, writer: anytype) !void {
-    for (rpaths) |rpath| {
-        const rpath_len = rpath.len + 1;
-        const cmdsize = @as(u32, @intCast(mem.alignForward(
-            u64,
-            @sizeOf(macho.rpath_command) + rpath_len,
-            @sizeOf(u64),
-        )));
-        try writer.writeStruct(macho.rpath_command{
-            .cmdsize = cmdsize,
-            .path = @sizeOf(macho.rpath_command),
-        });
-        try writer.writeAll(rpath);
-        try writer.writeByte(0);
-        const padding = cmdsize - @sizeOf(macho.rpath_command) - rpath_len;
-        if (padding > 0) {
-            try writer.writeByteNTimes(0, padding);
-        }
+pub fn writeRpathLC(rpath: []const u8, writer: anytype) !void {
+    const rpath_len = rpath.len + 1;
+    const cmdsize = @as(u32, @intCast(mem.alignForward(
+        u64,
+        @sizeOf(macho.rpath_command) + rpath_len,
+        @sizeOf(u64),
+    )));
+    try writer.writeStruct(macho.rpath_command{
+        .cmdsize = cmdsize,
+        .path = @sizeOf(macho.rpath_command),
+    });
+    try writer.writeAll(rpath);
+    try writer.writeByte(0);
+    const padding = cmdsize - @sizeOf(macho.rpath_command) - rpath_len;
+    if (padding > 0) {
+        try writer.writeByteNTimes(0, padding);
     }
 }
 

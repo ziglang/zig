@@ -11,12 +11,11 @@ pub fn acos(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     return Complex(T).init(@as(T, math.pi) / 2 - q.re, -q.im);
 }
 
-const epsilon = 0.0001;
-
 test acos {
+    const epsilon = math.floatEps(f32);
     const a = Complex(f32).init(5, 3);
     const c = acos(a);
 
-    try testing.expect(math.approxEqAbs(f32, c.re, 0.546975, epsilon));
-    try testing.expect(math.approxEqAbs(f32, c.im, -2.452914, epsilon));
+    try testing.expectApproxEqAbs(0.5469737, c.re, epsilon);
+    try testing.expectApproxEqAbs(-2.4529128, c.im, epsilon);
 }

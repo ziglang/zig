@@ -1,5 +1,5 @@
 /* -mlong-double-64 compatibility mode for <stdlib.h> functions.
-   Copyright (C) 2006-2023 Free Software Foundation, Inc.
+   Copyright (C) 2006-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -36,7 +36,7 @@ __LDBL_REDIR1_DECL (strtold_l, __strtoieee128_l)
 # endif
 #endif
 
-#if __GLIBC_USE (IEC_60559_BFP_EXT_C2X)
+#if __GLIBC_USE (IEC_60559_BFP_EXT_C23)
 # ifdef __LDBL_COMPAT
 __LDBL_REDIR1_DECL (strfroml, strfromd)
 # else

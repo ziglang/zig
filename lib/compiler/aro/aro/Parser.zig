@@ -5631,15 +5631,15 @@ pub const Result = struct {
             };
             const a_spec = a.ty.canonicalize(.standard).specifier;
             const b_spec = b.ty.canonicalize(.standard).specifier;
-            if (p.comp.target.c_type_bit_size(.longdouble) == 128) {
+            if (p.comp.target.cTypeBitSize(.longdouble) == 128) {
                 if (try a.floatConversion(b, a_spec, b_spec, p, float_types[0])) return;
             }
             if (try a.floatConversion(b, a_spec, b_spec, p, float_types[1])) return;
-            if (p.comp.target.c_type_bit_size(.longdouble) == 80) {
+            if (p.comp.target.cTypeBitSize(.longdouble) == 80) {
                 if (try a.floatConversion(b, a_spec, b_spec, p, float_types[0])) return;
             }
             if (try a.floatConversion(b, a_spec, b_spec, p, float_types[2])) return;
-            if (p.comp.target.c_type_bit_size(.longdouble) == 64) {
+            if (p.comp.target.cTypeBitSize(.longdouble) == 64) {
                 if (try a.floatConversion(b, a_spec, b_spec, p, float_types[0])) return;
             }
             if (try a.floatConversion(b, a_spec, b_spec, p, float_types[3])) return;
@@ -8011,7 +8011,7 @@ fn charLiteral(p: *Parser) Error!Result {
     const slice = char_kind.contentSlice(p.tokSlice(p.tok_i));
 
     var is_multichar = false;
-    if (slice.len == 1 and std.ascii.isASCII(slice[0])) {
+    if (slice.len == 1 and std.ascii.isAscii(slice[0])) {
         // fast path: single unescaped ASCII char
         val = slice[0];
     } else {

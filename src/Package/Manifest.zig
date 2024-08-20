@@ -1,3 +1,12 @@
+const Manifest = @This();
+const std = @import("std");
+const mem = std.mem;
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+const Ast = std.zig.Ast;
+const testing = std.testing;
+const hex_charset = std.fmt.hex_charset;
+
 pub const max_bytes = 10 * 1024 * 1024;
 pub const basename = "build.zig.zon";
 pub const Hash = std.crypto.hash.sha2.Sha256;
@@ -151,24 +160,6 @@ pub fn copyErrorsIntoBundle(
             }),
         });
     }
-}
-
-const hex_charset = "0123456789abcdef";
-
-pub fn hex64(x: u64) [16]u8 {
-    var result: [16]u8 = undefined;
-    var i: usize = 0;
-    while (i < 8) : (i += 1) {
-        const byte = @as(u8, @truncate(x >> @as(u6, @intCast(8 * i))));
-        result[i * 2 + 0] = hex_charset[byte >> 4];
-        result[i * 2 + 1] = hex_charset[byte & 15];
-    }
-    return result;
-}
-
-test hex64 {
-    const s = "[" ++ hex64(0x12345678_abcdef00) ++ "]";
-    try std.testing.expectEqualStrings("[00efcdab78563412]", s);
 }
 
 pub fn hexDigest(digest: Digest) MultiHashHexDigest {
@@ -522,7 +513,7 @@ const Parse = struct {
                 try p.appendErrorOff(
                     token,
                     offset + @as(u32, @intCast(bad_index)),
-                    "unicode escape does not correspond to a valid codepoint",
+                    "unicode escape does not correspond to a valid unicode scalar value",
                     .{},
                 );
             },
@@ -558,6 +549,9 @@ const Parse = struct {
                     .{raw_string[bad_index]},
                 );
             },
+            .empty_char_literal => {
+                try p.appendErrorOff(token, offset, "empty character literal", .{});
+            },
         }
     }
 
@@ -589,14 +583,6 @@ const Parse = struct {
         });
     }
 };
-
-const Manifest = @This();
-const std = @import("std");
-const mem = std.mem;
-const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
-const Ast = std.zig.Ast;
-const testing = std.testing;
 
 test "basic" {
     const gpa = testing.allocator;

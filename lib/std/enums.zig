@@ -452,7 +452,7 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
         values: [Indexer.count]Value = undefined,
 
         /// Initializes the map using a sparse struct of optionals
-        pub fn init(init_values: EnumFieldStruct(E, ?Value, null)) Self {
+        pub fn init(init_values: EnumFieldStruct(E, ?Value, @as(?Value, null))) Self {
             @setEvalBranchQuota(2 * @typeInfo(E).Enum.fields.len);
             var result: Self = .{};
             if (@typeInfo(E).Enum.is_exhaustive) {
@@ -650,6 +650,19 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
             }
         };
     };
+}
+
+test EnumMap {
+    const Ball = enum { red, green, blue };
+
+    const some = EnumMap(Ball, u8).init(.{
+        .green = 0xff,
+        .blue = 0x80,
+    });
+    try testing.expectEqual(2, some.count());
+    try testing.expectEqual(null, some.get(.red));
+    try testing.expectEqual(0xff, some.get(.green));
+    try testing.expectEqual(0x80, some.get(.blue));
 }
 
 /// A multiset of enum elements up to a count of usize. Backed

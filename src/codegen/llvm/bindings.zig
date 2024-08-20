@@ -84,20 +84,53 @@ pub const TargetMachine = opaque {
     pub const dispose = LLVMDisposeTargetMachine;
     extern fn LLVMDisposeTargetMachine(T: *TargetMachine) void;
 
-    pub const emitToFile = ZigLLVMTargetMachineEmitToFile;
-    extern fn ZigLLVMTargetMachineEmitToFile(
-        T: *TargetMachine,
-        M: *Module,
-        ErrorMessage: *[*:0]const u8,
+    pub const EmitOptions = extern struct {
         is_debug: bool,
         is_small: bool,
         time_report: bool,
         tsan: bool,
+        sancov: bool,
         lto: bool,
         asm_filename: ?[*:0]const u8,
         bin_filename: ?[*:0]const u8,
         llvm_ir_filename: ?[*:0]const u8,
         bitcode_filename: ?[*:0]const u8,
+        coverage: Coverage,
+
+        pub const Coverage = extern struct {
+            CoverageType: Coverage.Type,
+            IndirectCalls: bool,
+            TraceBB: bool,
+            TraceCmp: bool,
+            TraceDiv: bool,
+            TraceGep: bool,
+            Use8bitCounters: bool,
+            TracePC: bool,
+            TracePCGuard: bool,
+            Inline8bitCounters: bool,
+            InlineBoolFlag: bool,
+            PCTable: bool,
+            NoPrune: bool,
+            StackDepth: bool,
+            TraceLoads: bool,
+            TraceStores: bool,
+            CollectControlFlow: bool,
+
+            pub const Type = enum(c_uint) {
+                None = 0,
+                Function,
+                BB,
+                Edge,
+            };
+        };
+    };
+
+    pub const emitToFile = ZigLLVMTargetMachineEmitToFile;
+    extern fn ZigLLVMTargetMachineEmitToFile(
+        T: *TargetMachine,
+        M: *Module,
+        ErrorMessage: *[*:0]const u8,
+        options: EmitOptions,
     ) bool;
 
     pub const createTargetDataLayout = LLVMCreateTargetDataLayout;
@@ -177,6 +210,7 @@ pub extern fn LLVMInitializeM68kTargetInfo() void;
 pub extern fn LLVMInitializeCSKYTargetInfo() void;
 pub extern fn LLVMInitializeVETargetInfo() void;
 pub extern fn LLVMInitializeARCTargetInfo() void;
+pub extern fn LLVMInitializeLoongArchTargetInfo() void;
 
 pub extern fn LLVMInitializeAArch64Target() void;
 pub extern fn LLVMInitializeAMDGPUTarget() void;
@@ -200,6 +234,7 @@ pub extern fn LLVMInitializeM68kTarget() void;
 pub extern fn LLVMInitializeVETarget() void;
 pub extern fn LLVMInitializeCSKYTarget() void;
 pub extern fn LLVMInitializeARCTarget() void;
+pub extern fn LLVMInitializeLoongArchTarget() void;
 
 pub extern fn LLVMInitializeAArch64TargetMC() void;
 pub extern fn LLVMInitializeAMDGPUTargetMC() void;
@@ -223,6 +258,7 @@ pub extern fn LLVMInitializeM68kTargetMC() void;
 pub extern fn LLVMInitializeCSKYTargetMC() void;
 pub extern fn LLVMInitializeVETargetMC() void;
 pub extern fn LLVMInitializeARCTargetMC() void;
+pub extern fn LLVMInitializeLoongArchTargetMC() void;
 
 pub extern fn LLVMInitializeAArch64AsmPrinter() void;
 pub extern fn LLVMInitializeAMDGPUAsmPrinter() void;
@@ -244,6 +280,7 @@ pub extern fn LLVMInitializeXCoreAsmPrinter() void;
 pub extern fn LLVMInitializeM68kAsmPrinter() void;
 pub extern fn LLVMInitializeVEAsmPrinter() void;
 pub extern fn LLVMInitializeARCAsmPrinter() void;
+pub extern fn LLVMInitializeLoongArchAsmPrinter() void;
 
 pub extern fn LLVMInitializeAArch64AsmParser() void;
 pub extern fn LLVMInitializeAMDGPUAsmParser() void;
@@ -264,6 +301,7 @@ pub extern fn LLVMInitializeXtensaAsmParser() void;
 pub extern fn LLVMInitializeM68kAsmParser() void;
 pub extern fn LLVMInitializeCSKYAsmParser() void;
 pub extern fn LLVMInitializeVEAsmParser() void;
+pub extern fn LLVMInitializeLoongArchAsmParser() void;
 
 extern fn ZigLLDLinkCOFF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool, disable_output: bool) bool;
 extern fn ZigLLDLinkELF(argc: c_int, argv: [*:null]const ?[*:0]const u8, can_exit_early: bool, disable_output: bool) bool;

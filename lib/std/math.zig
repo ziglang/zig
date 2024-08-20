@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std.zig");
+const float = @import("math/float.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
 const testing = std.testing;
@@ -43,18 +44,19 @@ pub const rad_per_deg = 0.017453292519943295769236907684886127134428718885417254
 /// 180.0/pi
 pub const deg_per_rad = 57.295779513082320876798154814105170332405472466564321549160243861;
 
-pub const floatExponentBits = @import("math/float.zig").floatExponentBits;
-pub const floatMantissaBits = @import("math/float.zig").floatMantissaBits;
-pub const floatFractionalBits = @import("math/float.zig").floatFractionalBits;
-pub const floatExponentMin = @import("math/float.zig").floatExponentMin;
-pub const floatExponentMax = @import("math/float.zig").floatExponentMax;
-pub const floatTrueMin = @import("math/float.zig").floatTrueMin;
-pub const floatMin = @import("math/float.zig").floatMin;
-pub const floatMax = @import("math/float.zig").floatMax;
-pub const floatEps = @import("math/float.zig").floatEps;
-pub const inf = @import("math/float.zig").inf;
-pub const nan = @import("math/float.zig").nan;
-pub const snan = @import("math/float.zig").snan;
+pub const floatExponentBits = float.floatExponentBits;
+pub const floatMantissaBits = float.floatMantissaBits;
+pub const floatFractionalBits = float.floatFractionalBits;
+pub const floatExponentMin = float.floatExponentMin;
+pub const floatExponentMax = float.floatExponentMax;
+pub const floatTrueMin = float.floatTrueMin;
+pub const floatMin = float.floatMin;
+pub const floatMax = float.floatMax;
+pub const floatEps = float.floatEps;
+pub const floatEpsAt = float.floatEpsAt;
+pub const inf = float.inf;
+pub const nan = float.nan;
+pub const snan = float.snan;
 
 /// Performs an approximate comparison of two floating point values `x` and `y`.
 /// Returns true if the absolute difference between them is less or equal than
@@ -516,7 +518,15 @@ test wrap {
 /// ```
 /// Limit val to the inclusive range [lower, upper].
 pub fn clamp(val: anytype, lower: anytype, upper: anytype) @TypeOf(val, lower, upper) {
-    assert(lower <= upper);
+    const T = @TypeOf(val, lower, upper);
+    switch (@typeInfo(T)) {
+        .Int, .Float, .ComptimeInt, .ComptimeFloat => assert(lower <= upper),
+        .Vector => |vinfo| switch (@typeInfo(vinfo.child)) {
+            .Int, .Float => assert(@reduce(.And, lower <= upper)),
+            else => @compileError("Expected vector of ints or floats, found " ++ @typeName(T)),
+        },
+        else => @compileError("Expected an int, float or vector of one, found " ++ @typeName(T)),
+    }
     return @max(lower, @min(val, upper));
 }
 test clamp {
@@ -530,6 +540,9 @@ test clamp {
     // Floating point
     try testing.expect(std.math.clamp(@as(f32, 1.1), @as(f32, 0.0), @as(f32, 1.0)) == 1.0);
     try testing.expect(std.math.clamp(@as(f32, -127.5), @as(f32, -200), @as(f32, -100)) == -127.5);
+
+    // Vector
+    try testing.expect(@reduce(.And, std.math.clamp(@as(@Vector(3, f32), .{ 1.4, 15.23, 28.3 }), @as(@Vector(3, f32), .{ 9.8, 13.2, 15.6 }), @as(@Vector(3, f32), .{ 15.2, 22.8, 26.3 })) == @as(@Vector(3, f32), .{ 9.8, 15.23, 26.3 })));
 
     // Mix of comptime and non-comptime
     var i: i32 = 1;
@@ -601,11 +614,6 @@ pub fn shl(comptime T: type, a: T, shift_amt: anytype) T {
 }
 
 test shl {
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
-        // https://github.com/ziglang/zig/issues/12012
-        return error.SkipZigTest;
-    }
-
     try testing.expect(shl(u8, 0b11111111, @as(usize, 3)) == 0b11111000);
     try testing.expect(shl(u8, 0b11111111, @as(usize, 8)) == 0);
     try testing.expect(shl(u8, 0b11111111, @as(usize, 9)) == 0);
@@ -646,11 +654,6 @@ pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
 }
 
 test shr {
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
-        // https://github.com/ziglang/zig/issues/12012
-        return error.SkipZigTest;
-    }
-
     try testing.expect(shr(u8, 0b11111111, @as(usize, 3)) == 0b00011111);
     try testing.expect(shr(u8, 0b11111111, @as(usize, 8)) == 0);
     try testing.expect(shr(u8, 0b11111111, @as(usize, 9)) == 0);
@@ -692,11 +695,6 @@ pub fn rotr(comptime T: type, x: T, r: anytype) T {
 }
 
 test rotr {
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
-        // https://github.com/ziglang/zig/issues/12012
-        return error.SkipZigTest;
-    }
-
     try testing.expect(rotr(u0, 0b0, @as(usize, 3)) == 0b0);
     try testing.expect(rotr(u5, 0b00001, @as(usize, 0)) == 0b00001);
     try testing.expect(rotr(u6, 0b000001, @as(usize, 7)) == 0b100000);
@@ -738,11 +736,6 @@ pub fn rotl(comptime T: type, x: T, r: anytype) T {
 }
 
 test rotl {
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .aarch64) {
-        // https://github.com/ziglang/zig/issues/12012
-        return error.SkipZigTest;
-    }
-
     try testing.expect(rotl(u0, 0b0, @as(usize, 3)) == 0b0);
     try testing.expect(rotl(u5, 0b00001, @as(usize, 0)) == 0b00001);
     try testing.expect(rotl(u6, 0b000001, @as(usize, 7)) == 0b000010);
@@ -1147,7 +1140,8 @@ test ByteAlignedInt {
     try testing.expect(ByteAlignedInt(u129) == u136);
 }
 
-/// Rounds the given floating point number to an integer, away from zero.
+/// Rounds the given floating point number to the nearest integer.
+/// If two integers are equally close, rounds away from zero.
 /// Uses a dedicated hardware instruction when available.
 /// This is the same as calling the builtin @round
 pub inline fn round(value: anytype) @TypeOf(value) {
@@ -1849,10 +1843,6 @@ fn testSign() !void {
 }
 
 test sign {
-    if (builtin.zig_backend == .stage2_llvm) {
-        // https://github.com/ziglang/zig/issues/12012
-        return error.SkipZigTest;
-    }
     try testSign();
     try comptime testSign();
 }

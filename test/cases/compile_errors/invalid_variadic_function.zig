@@ -18,6 +18,6 @@ comptime {
 //
 // :1:1: error: variadic function does not support '.Unspecified' calling convention
 // :1:1: note: supported calling conventions: '.C'
-// :2:1: error: generic function cannot be variadic
 // :1:1: error: variadic function does not support '.Inline' calling convention
 // :1:1: note: supported calling conventions: '.C'
+// :2:1: error: generic function cannot be variadic

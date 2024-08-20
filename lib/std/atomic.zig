@@ -378,33 +378,53 @@ pub inline fn spinLoopHint() void {
         // No-op instruction that can hint to save (or share with a hardware-thread)
         // pipelining/power resources
         // https://software.intel.com/content/www/us/en/develop/articles/benefitting-power-and-performance-sleep-loops.html
-        .x86, .x86_64 => asm volatile ("pause" ::: "memory"),
+        .x86,
+        .x86_64,
+        => asm volatile ("pause"),
 
         // No-op instruction that serves as a hardware-thread resource yield hint.
         // https://stackoverflow.com/a/7588941
-        .powerpc64, .powerpc64le => asm volatile ("or 27, 27, 27" ::: "memory"),
+        .powerpc,
+        .powerpcle,
+        .powerpc64,
+        .powerpc64le,
+        => asm volatile ("or 27, 27, 27"),
 
         // `isb` appears more reliable for releasing execution resources than `yield`
         // on common aarch64 CPUs.
         // https://bugs.java.com/bugdatabase/view_bug.do?bug_id=8258604
         // https://bugs.mysql.com/bug.php?id=100664
-        .aarch64, .aarch64_be, .aarch64_32 => asm volatile ("isb" ::: "memory"),
+        .aarch64,
+        .aarch64_be,
+        => asm volatile ("isb"),
 
         // `yield` was introduced in v6k but is also available on v6m.
         // https://www.keil.com/support/man/docs/armasm/armasm_dom1361289926796.htm
-        .arm, .armeb, .thumb, .thumbeb => {
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        => {
             const can_yield = comptime std.Target.arm.featureSetHasAny(builtin.target.cpu.features, .{
                 .has_v6k, .has_v6m,
             });
             if (can_yield) {
-                asm volatile ("yield" ::: "memory");
-            } else {
-                asm volatile ("" ::: "memory");
+                asm volatile ("yield");
             }
         },
-        // Memory barrier to prevent the compiler from optimizing away the spin-loop
-        // even if no hint_instruction was provided.
-        else => asm volatile ("" ::: "memory"),
+
+        // The 8-bit immediate specifies the amount of cycles to pause for. We can't really be too
+        // opinionated here.
+        .hexagon,
+        => asm volatile ("pause(#1)"),
+
+        .riscv32,
+        .riscv64,
+        => if (comptime std.Target.riscv.featureSetHas(builtin.target.cpu.features, .zihintpause)) {
+            asm volatile ("pause");
+        },
+
+        else => {},
     }
 }
 
@@ -429,26 +449,60 @@ pub const cache_line = switch (builtin.cpu.arch) {
     // - https://www.mono-project.com/news/2016/09/12/arm64-icache/
     // - https://cpufun.substack.com/p/more-m1-fun-hardware-information
     //
-    // powerpc64: PPC has 128-byte cache lines
+    // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/arc/Kconfig#L212
     // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_ppc64x.go#L9
-    .x86_64, .aarch64, .powerpc64 => 128,
+    .x86_64,
+    .aarch64,
+    .aarch64_be,
+    .arc,
+    .powerpc64,
+    .powerpc64le,
+    => 128,
 
-    // These platforms reportedly have 32-byte cache lines
     // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_arm.go#L7
     // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_mips.go#L7
     // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_mipsle.go#L7
     // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_mips64x.go#L9
     // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_riscv64.go#L7
-    .arm, .mips, .mips64, .riscv64 => 32,
+    // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/hexagon/include/asm/cache.h#L13
+    // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/sparc/include/asm/cache.h#L14
+    .arm,
+    .armeb,
+    .thumb,
+    .thumbeb,
+    .hexagon,
+    .mips,
+    .mipsel,
+    .mips64,
+    .mips64el,
+    .riscv32,
+    .riscv64,
+    .sparc,
+    .sparc64,
+    => 32,
 
-    // This platform reportedly has 256-byte cache lines
+    // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/m68k/include/asm/cache.h#L10
+    .m68k,
+    => 16,
+
+    // - https://www.ti.com/lit/pdf/slaa498
+    .msp430,
+    => 8,
+
     // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_s390x.go#L7
-    .s390x => 256,
+    // - https://sxauroratsubasa.sakura.ne.jp/documents/guide/pdfs/Aurora_ISA_guide.pdf
+    .s390x,
+    .ve,
+    => 256,
 
     // Other x86 and WASM platforms have 64-byte cache lines.
     // The rest of the architectures are assumed to be similar.
     // - https://github.com/golang/go/blob/dda2991c2ea0c5914714469c4defc2562a907230/src/internal/cpu/cpu_x86.go#L9
+    // - https://github.com/golang/go/blob/0a9321ad7f8c91e1b0c7184731257df923977eb9/src/internal/cpu/cpu_loong64.go#L11
     // - https://github.com/golang/go/blob/3dd58676054223962cd915bb0934d1f9f489d4d2/src/internal/cpu/cpu_wasm.go#L7
+    // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/xtensa/variants/csp/include/variant/core.h#L209
+    // - https://github.com/torvalds/linux/blob/3a7e02c040b130b5545e4b115aada7bacd80a2b6/arch/csky/Kconfig#L183
+    // - https://www.xmos.com/download/The-XMOS-XS3-Architecture.pdf
     else => 64,
 };
 

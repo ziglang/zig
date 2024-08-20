@@ -144,6 +144,7 @@ fn runContinueAndBreakTest() !void {
 test "while with optional as condition" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     numbers_left = 10;
     var sum: i32 = 0;
@@ -156,6 +157,7 @@ test "while with optional as condition" {
 test "while with optional as condition with else" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     numbers_left = 10;
     var sum: i32 = 0;
@@ -172,6 +174,7 @@ test "while with optional as condition with else" {
 
 test "while with error union condition" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     numbers_left = 10;
     var sum: i32 = 0;
@@ -344,6 +347,7 @@ test "try terminating an infinite loop" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     // Test coverage for https://github.com/ziglang/zig/issues/13546
     const Foo = struct {

@@ -5,11 +5,12 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Air = @import("Air.zig");
 const StaticBitSet = std.bit_set.StaticBitSet;
-const Type = @import("type.zig").Type;
-const Module = @import("Module.zig");
+const Type = @import("Type.zig");
+const Zcu = @import("Zcu.zig");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
+const link = @import("link.zig");
 
 const log = std.log.scoped(.register_manager);
 
@@ -25,7 +26,7 @@ pub const AllocateRegistersError = error{
     /// Can happen when spilling an instruction triggers a codegen
     /// error, so we propagate that error
     CodegenFail,
-};
+} || link.File.UpdateDebugInfoError;
 
 pub fn RegisterManager(
     comptime Function: type,
@@ -102,7 +103,7 @@ pub fn RegisterManager(
             }
 
             const OptionalIndex = std.math.IntFittingRange(0, set.len);
-            comptime var map = [1]OptionalIndex{set.len} ** (max_id + 1 - min_id);
+            comptime var map = [1]OptionalIndex{set.len} ** (max_id - min_id + 1);
             inline for (set, 0..) |elem, elem_index| map[comptime elem.id() - min_id] = elem_index;
 
             const id_index = reg.id() -% min_id;
@@ -360,6 +361,7 @@ pub fn RegisterManager(
             } else self.getRegIndexAssumeFree(tracked_index, inst);
         }
         pub fn getReg(self: *Self, reg: Register, inst: ?Air.Inst.Index) AllocateRegistersError!void {
+            log.debug("getting reg: {}", .{reg});
             return self.getRegIndex(indexOfRegIntoTracked(reg) orelse return, inst);
         }
         pub fn getKnownReg(

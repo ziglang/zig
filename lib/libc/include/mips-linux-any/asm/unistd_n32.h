@@ -379,5 +379,17 @@
 #define __NR_process_mrelease (__NR_Linux + 448)
 #define __NR_futex_waitv (__NR_Linux + 449)
 #define __NR_set_mempolicy_home_node (__NR_Linux + 450)
+#define __NR_cachestat (__NR_Linux + 451)
+#define __NR_fchmodat2 (__NR_Linux + 452)
+#define __NR_map_shadow_stack (__NR_Linux + 453)
+#define __NR_futex_wake (__NR_Linux + 454)
+#define __NR_futex_wait (__NR_Linux + 455)
+#define __NR_futex_requeue (__NR_Linux + 456)
+#define __NR_statmount (__NR_Linux + 457)
+#define __NR_listmount (__NR_Linux + 458)
+#define __NR_lsm_get_self_attr (__NR_Linux + 459)
+#define __NR_lsm_set_self_attr (__NR_Linux + 460)
+#define __NR_lsm_list_modules (__NR_Linux + 461)
+#define __NR_mseal (__NR_Linux + 462)
 
 #endif /* _ASM_UNISTD_N32_H */

@@ -536,6 +536,18 @@ const known_options = [_]KnownOpt{
         .name = "municode",
         .ident = "mingw_unicode_entry_point",
     },
+    .{
+        .name = "fsanitize-coverage-trace-pc-guard",
+        .ident = "san_cov_trace_pc_guard",
+    },
+    .{
+        .name = "fsanitize-coverage",
+        .ident = "san_cov",
+    },
+    .{
+        .name = "fno-sanitize-coverage",
+        .ident = "no_san_cov",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};
@@ -624,7 +636,7 @@ pub fn main() anyerror!void {
         try std.fmt.allocPrint(allocator, "-I={s}/clang/include/clang/Driver", .{llvm_src_root}),
     };
 
-    const child_result = try std.ChildProcess.run(.{
+    const child_result = try std.process.Child.run(.{
         .allocator = allocator,
         .argv = &child_args,
         .max_output_bytes = 100 * 1024 * 1024,

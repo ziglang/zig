@@ -357,6 +357,8 @@ test "@ptrCast slice to pointer" {
 }
 
 test "slice multi-pointer without end" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             try testPointer();
@@ -394,6 +396,7 @@ test "slice syntax resulting in pointer-to-array" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -842,6 +845,8 @@ test "global slice field access" {
 }
 
 test "slice of void" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     var n: usize = 10;
     _ = &n;
     var arr: [12]void = undefined;
@@ -930,6 +935,7 @@ test "slicing zero length array field of struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         a: [0]usize,
@@ -959,6 +965,7 @@ test "get address of element of zero-sized slice" {
     if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn destroy(_: *void) void {}

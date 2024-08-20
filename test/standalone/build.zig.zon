@@ -51,14 +51,15 @@
         .install_raw_hex = .{
             .path = "install_raw_hex",
         },
-        // https://github.com/ziglang/zig/issues/17484
-        //.emit_asm_and_bin = .{
-        //    .path = "emit_asm_and_bin",
-        //},
-        // https://github.com/ziglang/zig/issues/17484
-        //.issue_12588 = .{
-        //    .path = "issue_12588",
-        //},
+        .emit_asm_and_bin = .{
+            .path = "emit_asm_and_bin",
+        },
+        .emit_llvm_no_bin = .{
+            .path = "emit_llvm_no_bin",
+        },
+        .emit_asm_no_bin = .{
+            .path = "emit_asm_no_bin",
+        },
         .child_process = .{
             .path = "child_process",
         },
@@ -83,14 +84,23 @@
         .dep_shared_builtin = .{
             .path = "dep_shared_builtin",
         },
+        .dep_lazypath = .{
+            .path = "dep_lazypath",
+        },
         .dirname = .{
             .path = "dirname",
+        },
+        .dep_duplicate_module = .{
+            .path = "dep_duplicate_module",
         },
         .empty_env = .{
             .path = "empty_env",
         },
         .issue_11595 = .{
             .path = "issue_11595",
+        },
+        .libcxx = .{
+            .path = "libcxx",
         },
         .load_dynamic_library = .{
             .path = "load_dynamic_library",
@@ -166,6 +176,9 @@
         },
         .run_output_paths = .{
             .path = "run_output_paths",
+        },
+        .run_output_caching = .{
+            .path = "run_output_caching",
         },
     },
     .paths = .{

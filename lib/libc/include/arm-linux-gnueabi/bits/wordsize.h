@@ -1,4 +1,4 @@
-/* Copyright (C) 1999-2023 Free Software Foundation, Inc.
+/* Copyright (C) 1999-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -16,6 +16,6 @@
    <https://www.gnu.org/licenses/>.  */
 
 #define __WORDSIZE			32
-#define __WORDSIZE_TIME64_COMPAT32	0
+#define __WORDSIZE_TIME64_COMPAT32	1
 #define __WORDSIZE32_SIZE_ULONG		0
 #define __WORDSIZE32_PTRDIFF_LONG	0

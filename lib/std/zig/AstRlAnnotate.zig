@@ -7,8 +7,8 @@
 //! occur. Thus, we want to provide a real result pointer (from an alloc) only
 //! when necessary.
 //!
-//! To achive this, we need to determine which expressions require a result
-//! pointer. This pass is reponsible for analyzing all syntax forms which may
+//! To achieve this, we need to determine which expressions require a result
+//! pointer. This pass is responsible for analyzing all syntax forms which may
 //! provide a result location and, if sub-expressions consume this result
 //! pointer non-trivially (e.g. writing through field pointers), marking the
 //! node as requiring a result location.
@@ -877,6 +877,7 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         .error_return_trace,
         .frame,
         .breakpoint,
+        .disable_instrumentation,
         .in_comptime,
         .panic,
         .trap,

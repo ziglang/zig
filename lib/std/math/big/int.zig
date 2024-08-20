@@ -1173,7 +1173,9 @@ pub const Mutable = struct {
     /// Asserts there is enough memory to fit the result. The upper bound Limb count is
     /// `a.limbs.len - (shift / (@sizeOf(Limb) * 8))`.
     pub fn shiftRight(r: *Mutable, a: Const, shift: usize) void {
-        if (a.limbs.len <= shift / limb_bits) {
+        const full_limbs_shifted_out = shift / limb_bits;
+        const remaining_bits_shifted_out = shift % limb_bits;
+        if (a.limbs.len <= full_limbs_shifted_out) {
             // Shifting negative numbers converges to -1 instead of 0
             if (a.positive) {
                 r.len = 1;
@@ -1186,14 +1188,29 @@ pub const Mutable = struct {
             }
             return;
         }
+        const nonzero_negative_shiftout = if (a.positive) false else nonzero: {
+            for (a.limbs[0..full_limbs_shifted_out]) |x| {
+                if (x != 0)
+                    break :nonzero true;
+            }
+            if (remaining_bits_shifted_out == 0)
+                break :nonzero false;
+            const not_covered: Log2Limb = @intCast(limb_bits - remaining_bits_shifted_out);
+            break :nonzero a.limbs[full_limbs_shifted_out] << not_covered != 0;
+        };
 
         llshr(r.limbs[0..], a.limbs[0..a.limbs.len], shift);
-        r.normalize(a.limbs.len - (shift / limb_bits));
-        r.positive = a.positive;
-        // Shifting negative numbers converges to -1 instead of 0
-        if (!r.positive and r.len == 1 and r.limbs[0] == 0) {
-            r.limbs[0] = 1;
+
+        r.len = a.limbs.len - full_limbs_shifted_out;
+        if (nonzero_negative_shiftout) {
+            if (full_limbs_shifted_out > 0) {
+                r.limbs[a.limbs.len - full_limbs_shifted_out] = 0;
+                r.len += 1;
+            }
+            r.addScalar(r.toConst(), -1);
         }
+        r.normalize(r.len);
+        r.positive = a.positive;
     }
 
     /// r = ~a under 2s complement wrapping semantics.
@@ -2075,6 +2092,12 @@ pub const Const = struct {
         return bits;
     }
 
+    /// Returns the number of bits required to represent the integer in twos-complement form
+    /// with the given signedness.
+    pub fn bitCountTwosCompForSignedness(self: Const, signedness: std.builtin.Signedness) usize {
+        return self.bitCountTwosComp() + @intFromBool(self.positive and signedness == .signed);
+    }
+
     /// @popCount with two's complement semantics.
     ///
     /// This returns the number of 1 bits set when the value would be represented in
@@ -2130,9 +2153,7 @@ pub const Const = struct {
         if (signedness == .unsigned and !self.positive) {
             return false;
         }
-
-        const req_bits = self.bitCountTwosComp() + @intFromBool(self.positive and signedness == .signed);
-        return bit_count >= req_bits;
+        return bit_count >= self.bitCountTwosCompForSignedness(signedness);
     }
 
     /// Returns whether self can fit into an integer of the requested type.
@@ -2201,8 +2222,8 @@ pub const Const = struct {
     }
 
     /// To allow `std.fmt.format` to work with this type.
-    /// If the integer is larger than `pow(2, 64 * @sizeOf(usize) * 8), this function will fail
-    /// to print the string, printing "(BigInt)" instead of a number.
+    /// If the absolute value of integer is greater than or equal to `pow(2, 64 * @sizeOf(usize) * 8)`,
+    /// this function will fail to print the string, printing "(BigInt)" instead of a number.
     /// This is because the rendering algorithm requires reversing a string, which requires O(N) memory.
     /// See `toString` and `toStringAlloc` for a way to print big integers without failure.
     pub fn format(
@@ -2231,13 +2252,11 @@ pub const Const = struct {
             std.fmt.invalidFmtError(fmt, self);
         }
 
-        var limbs: [128]Limb = undefined;
-        const needed_limbs = calcDivLimbsBufferLen(self.limbs.len, 1);
-        if (needed_limbs > limbs.len)
+        const available_len = 64;
+        if (self.limbs.len > available_len)
             return out_stream.writeAll("(BigInt)");
 
-        // This is the inverse of calcDivLimbsBufferLen
-        const available_len = (limbs.len / 3) - 2;
+        var limbs: [calcToStringLimbsBufferLen(available_len, base)]Limb = undefined;
 
         const biggest: Const = .{
             .limbs = &([1]Limb{comptime math.maxInt(Limb)} ** available_len),
@@ -2804,8 +2823,8 @@ pub const Managed = struct {
     }
 
     /// To allow `std.fmt.format` to work with `Managed`.
-    /// If the integer is larger than `pow(2, 64 * @sizeOf(usize) * 8), this function will fail
-    /// to print the string, printing "(BigInt)" instead of a number.
+    /// If the absolute value of integer is greater than or equal to `pow(2, 64 * @sizeOf(usize) * 8)`,
+    /// this function will fail to print the string, printing "(BigInt)" instead of a number.
     /// This is because the rendering algorithm requires reversing a string, which requires O(N) memory.
     /// See `toString` and `toStringAlloc` for a way to print big integers without failure.
     pub fn format(

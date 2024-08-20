@@ -19,7 +19,7 @@ pub const CRTFile = enum {
     libc_so,
 };
 
-pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progress.Node) !void {
+pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progress.Node) !void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -32,9 +32,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
         .crti_o => {
             var args = std.ArrayList([]const u8).init(arena);
             try addCcArgs(comp, arena, &args, false);
-            try args.appendSlice(&[_][]const u8{
-                "-Qunused-arguments",
-            });
             var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crti.s"),
@@ -47,9 +44,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
         .crtn_o => {
             var args = std.ArrayList([]const u8).init(arena);
             try addCcArgs(comp, arena, &args, false);
-            try args.appendSlice(&[_][]const u8{
-                "-Qunused-arguments",
-            });
             var files = [_]Compilation.CSourceFile{
                 .{
                     .src_path = try start_asm_path(comp, arena, "crtn.s"),
@@ -189,10 +183,6 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
 
                 var args = std.ArrayList([]const u8).init(arena);
                 try addCcArgs(comp, arena, &args, ext == .o3);
-                try args.appendSlice(&[_][]const u8{
-                    "-Qunused-arguments",
-                    "-w", // disable all warnings
-                });
                 const c_source_file = try c_source_files.addOne();
                 c_source_file.* = .{
                     .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", src_file }),
@@ -301,8 +291,10 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: *std.Progr
 pub fn needsCrtiCrtn(target: std.Target) bool {
     // zig fmt: off
     return switch (target.cpu.arch) {
+        .riscv32,
         .riscv64,
-        .wasm32, .wasm64 => return false,
+        .wasm32, .wasm64 => false,
+        .loongarch64 => false,
         else => true,
     };
     // zig fmt: on
@@ -314,6 +306,7 @@ fn isMuslArchName(name: []const u8) bool {
         "arm",
         "generic",
         "i386",
+        "loongarch64",
         "m68k",
         "microblaze",
         "mips",
@@ -322,6 +315,7 @@ fn isMuslArchName(name: []const u8) bool {
         "or1k",
         "powerpc",
         "powerpc64",
+        "riscv32",
         "riscv64",
         "s390x",
         "sh",
@@ -390,9 +384,9 @@ fn addCcArgs(
     try args.appendSlice(&[_][]const u8{
         "-std=c99",
         "-ffreestanding",
-        // Musl adds these args to builds with gcc but clang does not support them.
-        //"-fexcess-precision=standard",
-        //"-frounding-math",
+        "-fexcess-precision=standard",
+        "-frounding-math",
+        "-fno-strict-aliasing",
         "-Wa,--noexecstack",
         "-D_XOPEN_SOURCE=700",
 
@@ -424,6 +418,9 @@ fn addCcArgs(
         "-fno-asynchronous-unwind-tables",
         "-ffunction-sections",
         "-fdata-sections",
+
+        "-Qunused-arguments",
+        "-w", // disable all warnings
     });
 }
 
@@ -607,6 +604,7 @@ const src_files = [_][]const u8{
     "musl/src/fenv/fesetround.c",
     "musl/src/fenv/feupdateenv.c",
     "musl/src/fenv/i386/fenv.s",
+    "musl/src/fenv/loongarch64/fenv.S",
     "musl/src/fenv/m68k/fenv.c",
     "musl/src/fenv/mips/fenv-sf.c",
     "musl/src/fenv/mips/fenv.S",
@@ -617,6 +615,8 @@ const src_files = [_][]const u8{
     "musl/src/fenv/powerpc/fenv-sf.c",
     "musl/src/fenv/powerpc/fenv.S",
     "musl/src/fenv/powerpc64/fenv.c",
+    "musl/src/fenv/riscv32/fenv-sf.c",
+    "musl/src/fenv/riscv32/fenv.S",
     "musl/src/fenv/riscv64/fenv-sf.c",
     "musl/src/fenv/riscv64/fenv.S",
     "musl/src/fenv/s390x/fenv.c",
@@ -625,6 +625,7 @@ const src_files = [_][]const u8{
     "musl/src/fenv/x32/fenv.s",
     "musl/src/fenv/x86_64/fenv.s",
     "musl/src/internal/defsysinfo.c",
+    "musl/src/internal/emulate_wait4.c",
     "musl/src/internal/floatscan.c",
     "musl/src/internal/i386/defsysinfo.s",
     "musl/src/internal/intscan.c",
@@ -665,6 +666,7 @@ const src_files = [_][]const u8{
     "musl/src/ldso/i386/dlsym.s",
     "musl/src/ldso/i386/dlsym_time64.S",
     "musl/src/ldso/i386/tlsdesc.s",
+    "musl/src/ldso/loongarch64/dlsym.s",
     "musl/src/ldso/m68k/dlsym.s",
     "musl/src/ldso/m68k/dlsym_time64.S",
     "musl/src/ldso/microblaze/dlsym.s",
@@ -679,7 +681,9 @@ const src_files = [_][]const u8{
     "musl/src/ldso/powerpc/dlsym.s",
     "musl/src/ldso/powerpc/dlsym_time64.S",
     "musl/src/ldso/powerpc64/dlsym.s",
+    "musl/src/ldso/riscv32/dlsym.s",
     "musl/src/ldso/riscv64/dlsym.s",
+    "musl/src/ldso/riscv64/tlsdesc.s",
     "musl/src/ldso/s390x/dlsym.s",
     "musl/src/ldso/sh/dlsym.s",
     "musl/src/ldso/sh/dlsym_time64.S",
@@ -734,11 +738,12 @@ const src_files = [_][]const u8{
     "musl/src/linux/open_by_handle_at.c",
     "musl/src/linux/personality.c",
     "musl/src/linux/pivot_root.c",
-    "musl/src/linux/ppoll.c",
     "musl/src/linux/prctl.c",
+    "musl/src/linux/preadv2.c",
     "musl/src/linux/prlimit.c",
     "musl/src/linux/process_vm.c",
     "musl/src/linux/ptrace.c",
+    "musl/src/linux/pwritev2.c",
     "musl/src/linux/quotactl.c",
     "musl/src/linux/readahead.c",
     "musl/src/linux/reboot.c",
@@ -753,6 +758,7 @@ const src_files = [_][]const u8{
     "musl/src/linux/settimeofday.c",
     "musl/src/linux/signalfd.c",
     "musl/src/linux/splice.c",
+    "musl/src/linux/statx.c",
     "musl/src/linux/stime.c",
     "musl/src/linux/swap.c",
     "musl/src/linux/sync_file_range.c",
@@ -1147,6 +1153,18 @@ const src_files = [_][]const u8{
     "musl/src/math/rint.c",
     "musl/src/math/rintf.c",
     "musl/src/math/rintl.c",
+    "musl/src/math/riscv32/copysign.c",
+    "musl/src/math/riscv32/copysignf.c",
+    "musl/src/math/riscv32/fabs.c",
+    "musl/src/math/riscv32/fabsf.c",
+    "musl/src/math/riscv32/fma.c",
+    "musl/src/math/riscv32/fmaf.c",
+    "musl/src/math/riscv32/fmax.c",
+    "musl/src/math/riscv32/fmaxf.c",
+    "musl/src/math/riscv32/fmin.c",
+    "musl/src/math/riscv32/fminf.c",
+    "musl/src/math/riscv32/sqrt.c",
+    "musl/src/math/riscv32/sqrtf.c",
     "musl/src/math/riscv64/copysign.c",
     "musl/src/math/riscv64/copysignf.c",
     "musl/src/math/riscv64/fabs.c",
@@ -1546,6 +1564,7 @@ const src_files = [_][]const u8{
     "musl/src/search/tsearch.c",
     "musl/src/search/twalk.c",
     "musl/src/select/poll.c",
+    "musl/src/select/ppoll.c",
     "musl/src/select/pselect.c",
     "musl/src/select/select.c",
     "musl/src/setjmp/aarch64/longjmp.s",
@@ -1555,6 +1574,8 @@ const src_files = [_][]const u8{
     "musl/src/setjmp/i386/longjmp.s",
     "musl/src/setjmp/i386/setjmp.s",
     "musl/src/setjmp/longjmp.c",
+    "musl/src/setjmp/loongarch64/longjmp.S",
+    "musl/src/setjmp/loongarch64/setjmp.S",
     "musl/src/setjmp/m68k/longjmp.s",
     "musl/src/setjmp/m68k/setjmp.s",
     "musl/src/setjmp/microblaze/longjmp.s",
@@ -1571,6 +1592,8 @@ const src_files = [_][]const u8{
     "musl/src/setjmp/powerpc/setjmp.S",
     "musl/src/setjmp/powerpc64/longjmp.s",
     "musl/src/setjmp/powerpc64/setjmp.s",
+    "musl/src/setjmp/riscv32/longjmp.S",
+    "musl/src/setjmp/riscv32/setjmp.S",
     "musl/src/setjmp/riscv64/longjmp.S",
     "musl/src/setjmp/riscv64/setjmp.S",
     "musl/src/setjmp/s390x/longjmp.s",
@@ -1592,6 +1615,8 @@ const src_files = [_][]const u8{
     "musl/src/signal/i386/sigsetjmp.s",
     "musl/src/signal/kill.c",
     "musl/src/signal/killpg.c",
+    "musl/src/signal/loongarch64/restore.s",
+    "musl/src/signal/loongarch64/sigsetjmp.s",
     "musl/src/signal/m68k/sigsetjmp.s",
     "musl/src/signal/microblaze/restore.s",
     "musl/src/signal/microblaze/sigsetjmp.s",
@@ -1607,6 +1632,8 @@ const src_files = [_][]const u8{
     "musl/src/signal/psignal.c",
     "musl/src/signal/raise.c",
     "musl/src/signal/restore.c",
+    "musl/src/signal/riscv32/restore.s",
+    "musl/src/signal/riscv32/sigsetjmp.s",
     "musl/src/signal/riscv64/restore.s",
     "musl/src/signal/riscv64/sigsetjmp.s",
     "musl/src/signal/s390x/restore.s",
@@ -1943,6 +1970,10 @@ const src_files = [_][]const u8{
     "musl/src/thread/i386/syscall_cp.s",
     "musl/src/thread/i386/tls.s",
     "musl/src/thread/lock_ptc.c",
+    "musl/src/thread/loongarch64/__set_thread_area.s",
+    "musl/src/thread/loongarch64/__unmapself.s",
+    "musl/src/thread/loongarch64/clone.s",
+    "musl/src/thread/loongarch64/syscall_cp.s",
     "musl/src/thread/m68k/__m68k_read_tp.s",
     "musl/src/thread/m68k/clone.s",
     "musl/src/thread/m68k/syscall_cp.s",
@@ -2063,6 +2094,10 @@ const src_files = [_][]const u8{
     "musl/src/thread/pthread_spin_trylock.c",
     "musl/src/thread/pthread_spin_unlock.c",
     "musl/src/thread/pthread_testcancel.c",
+    "musl/src/thread/riscv32/__set_thread_area.s",
+    "musl/src/thread/riscv32/__unmapself.s",
+    "musl/src/thread/riscv32/clone.s",
+    "musl/src/thread/riscv32/syscall_cp.s",
     "musl/src/thread/riscv64/__set_thread_area.s",
     "musl/src/thread/riscv64/__unmapself.s",
     "musl/src/thread/riscv64/clone.s",

@@ -745,6 +745,7 @@ test "slicing array of zero-sized values" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var arr: [32]u0 = undefined;
     for (arr[0..]) |*zero|
@@ -818,6 +819,8 @@ test "sentinel-terminated slice initialized through reference to anonymous array
 }
 
 test "many-item pointer initialized through reference to anonymous array init provides result types" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     var my_u32: u32 = 123;
     var my_u64: u64 = 456;
     _ = .{ &my_u32, &my_u64 };
@@ -834,6 +837,8 @@ test "many-item pointer initialized through reference to anonymous array init pr
 }
 
 test "many-item sentinel-terminated pointer initialized through reference to anonymous array init provides result types" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     var my_u32: u32 = 123;
     var my_u64: u64 = 456;
     _ = .{ &my_u32, &my_u64 };

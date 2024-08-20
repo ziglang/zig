@@ -126,10 +126,51 @@ pub fn syscall6(
     );
 }
 
-const CloneFn = *const fn (arg: usize) callconv(.C) u8;
-
-/// This matches the libc clone function.
-pub extern fn clone(func: CloneFn, stack: usize, flags: usize, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
+pub fn clone() callconv(.Naked) usize {
+    // __clone(func, stack, flags, arg, ptid, tls, ctid)
+    //         3,    4,     5,     6,   7,    8,   9
+    //
+    // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
+    //         0          3,     4,     5,    6,   7
+    asm volatile (
+        \\  # create initial stack frame for new thread
+        \\  clrrdi 4, 4, 4
+        \\  li     0, 0
+        \\  stdu   0,-32(4)
+        \\
+        \\  # save fn and arg to child stack
+        \\  std    3,  8(4)
+        \\  std    6, 16(4)
+        \\
+        \\  # shuffle args into correct registers and call SYS_clone
+        \\  mr    3, 5
+        \\  #mr   4, 4
+        \\  mr    5, 7
+        \\  mr    6, 8
+        \\  mr    7, 9
+        \\  li    0, 120  # SYS_clone = 120
+        \\  sc
+        \\
+        \\  # if error, negate return (errno)
+        \\  bns+  1f
+        \\  neg   3, 3
+        \\
+        \\1:
+        \\  # if we're the parent, return
+        \\  cmpwi cr7, 3, 0
+        \\  bnelr cr7
+        \\
+        \\  # we're the child. call fn(arg)
+        \\  ld     3, 16(1)
+        \\  ld    12,  8(1)
+        \\  mtctr 12
+        \\  bctrl
+        \\
+        \\  # call SYS_exit. exit code is already in r3 from fn return value
+        \\  li    0, 1    # SYS_exit = 1
+        \\  sc
+    );
+}
 
 pub const restore = restore_rt;
 
@@ -166,13 +207,6 @@ pub const F = struct {
     pub const GETOWN_EX = 16;
 
     pub const GETOWNER_UIDS = 17;
-};
-
-pub const LOCK = struct {
-    pub const SH = 1;
-    pub const EX = 2;
-    pub const UN = 8;
-    pub const NB = 4;
 };
 
 pub const VDSO = struct {
@@ -249,13 +283,13 @@ pub const Stat = extern struct {
 };
 
 pub const timeval = extern struct {
-    tv_sec: isize,
-    tv_usec: isize,
+    sec: isize,
+    usec: isize,
 };
 
 pub const timezone = extern struct {
-    tz_minuteswest: i32,
-    tz_dsttime: i32,
+    minuteswest: i32,
+    dsttime: i32,
 };
 
 pub const greg_t = u64;
@@ -298,3 +332,6 @@ pub const ucontext_t = extern struct {
 };
 
 pub const Elf_Symndx = u32;
+
+/// TODO
+pub const getcontext = {};

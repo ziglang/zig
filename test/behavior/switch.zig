@@ -57,19 +57,19 @@ test "switch on enum" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const fruit = Fruit.Orange;
-    nonConstSwitchOnEnum(fruit);
+    try expect(nonConstSwitchOnEnum(fruit));
 }
 const Fruit = enum {
     Apple,
     Orange,
     Banana,
 };
-fn nonConstSwitchOnEnum(fruit: Fruit) void {
-    switch (fruit) {
-        Fruit.Apple => unreachable,
-        Fruit.Orange => {},
-        Fruit.Banana => unreachable,
-    }
+fn nonConstSwitchOnEnum(fruit: Fruit) bool {
+    return switch (fruit) {
+        Fruit.Apple => false,
+        Fruit.Orange => true,
+        Fruit.Banana => false,
+    };
 }
 
 test "switch statement" {
@@ -231,6 +231,7 @@ test "switch prong with variable" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try switchProngWithVarFn(SwitchProngWithVarEnum{ .One = 13 });
     try switchProngWithVarFn(SwitchProngWithVarEnum{ .Two = 13.0 });
@@ -425,6 +426,7 @@ test "else prong of switch on error set excludes other cases" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -460,6 +462,7 @@ test "switch prongs with error set cases make a new error set type for capture v
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -850,6 +853,8 @@ test "inline switch range that includes the maximum value of the switched type" 
 }
 
 test "nested break ignores switch conditions and breaks instead" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     const S = struct {
         fn register_to_address(ident: []const u8) !u8 {
             const reg: u8 = if (std.mem.eql(u8, ident, "zero")) 0x00 else blk: {
@@ -870,6 +875,7 @@ test "nested break ignores switch conditions and breaks instead" {
 
 test "peer type resolution on switch captures ignores unused payload bits" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const Foo = union(enum) {
         a: u32,

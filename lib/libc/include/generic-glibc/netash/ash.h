@@ -1,5 +1,5 @@
 /* Definitions for use with Linux AF_ASH sockets.
-   Copyright (C) 1998-2023 Free Software Foundation, Inc.
+   Copyright (C) 1998-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -22,7 +22,7 @@
 #include <features.h>
 #include <bits/sockaddr.h>
 
-struct sockaddr_ash
+struct __attribute_struct_may_alias__ sockaddr_ash
   {
     __SOCKADDR_COMMON (sash_);		/* Common data: address family etc.  */
     int sash_ifindex;			/* Interface to use.  */

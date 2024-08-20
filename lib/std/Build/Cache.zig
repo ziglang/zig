@@ -250,14 +250,7 @@ pub const HashHelper = struct {
     pub fn final(hh: *HashHelper) HexDigest {
         var bin_digest: BinDigest = undefined;
         hh.hasher.final(&bin_digest);
-
-        var out_digest: HexDigest = undefined;
-        _ = fmt.bufPrint(
-            &out_digest,
-            "{s}",
-            .{fmt.fmtSliceHexLower(&bin_digest)},
-        ) catch unreachable;
-        return out_digest;
+        return binToHex(bin_digest);
     }
 
     pub fn oneShot(bytes: []const u8) [hex_digest_len]u8 {
@@ -265,15 +258,19 @@ pub const HashHelper = struct {
         hasher.update(bytes);
         var bin_digest: BinDigest = undefined;
         hasher.final(&bin_digest);
-        var out_digest: [hex_digest_len]u8 = undefined;
-        _ = fmt.bufPrint(
-            &out_digest,
-            "{s}",
-            .{fmt.fmtSliceHexLower(&bin_digest)},
-        ) catch unreachable;
-        return out_digest;
+        return binToHex(bin_digest);
     }
 };
+
+pub fn binToHex(bin_digest: BinDigest) HexDigest {
+    var out_digest: HexDigest = undefined;
+    _ = fmt.bufPrint(
+        &out_digest,
+        "{s}",
+        .{fmt.fmtSliceHexLower(&bin_digest)},
+    ) catch unreachable;
+    return out_digest;
+}
 
 pub const Lock = struct {
     manifest_file: fs.File,
@@ -357,6 +354,19 @@ pub const Manifest = struct {
     /// ```
     /// var file_contents = cache_hash.files.keys()[file_index].contents.?;
     /// ```
+    pub fn addFilePath(m: *Manifest, file_path: Path, max_file_size: ?usize) !usize {
+        const gpa = m.cache.gpa;
+        try m.files.ensureUnusedCapacity(gpa, 1);
+        const resolved_path = try fs.path.resolve(gpa, &.{
+            file_path.root_dir.path orelse ".",
+            file_path.subPathOrDot(),
+        });
+        errdefer gpa.free(resolved_path);
+        const prefixed_path = try m.cache.findPrefixResolved(resolved_path);
+        return addFileInner(m, prefixed_path, max_file_size);
+    }
+
+    /// Deprecated; use `addFilePath`.
     pub fn addFile(self: *Manifest, file_path: []const u8, max_file_size: ?usize) !usize {
         assert(self.manifest_file == null);
 
@@ -365,6 +375,10 @@ pub const Manifest = struct {
         const prefixed_path = try self.cache.findPrefix(file_path);
         errdefer gpa.free(prefixed_path.sub_path);
 
+        return addFileInner(self, prefixed_path, max_file_size);
+    }
+
+    fn addFileInner(self: *Manifest, prefixed_path: PrefixedPath, max_file_size: ?usize) !usize {
         const gop = self.files.getOrPutAssumeCapacityAdapted(prefixed_path, FilesAdapter{});
         if (gop.found_existing) {
             gop.key_ptr.updateMaxSize(max_file_size);
@@ -397,6 +411,11 @@ pub const Manifest = struct {
         }
     }
 
+    pub fn addDepFile(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
+        assert(self.manifest_file == null);
+        return self.addDepFileMaybePost(dir, dep_file_basename);
+    }
+
     /// Check the cache to see if the input exists in it. If it exists, returns `true`.
     /// A hex encoding of its hash is available by calling `final`.
     ///
@@ -421,11 +440,7 @@ pub const Manifest = struct {
         var bin_digest: BinDigest = undefined;
         self.hash.hasher.final(&bin_digest);
 
-        _ = fmt.bufPrint(
-            &self.hex_digest,
-            "{s}",
-            .{fmt.fmtSliceHexLower(&bin_digest)},
-        ) catch unreachable;
+        self.hex_digest = binToHex(bin_digest);
 
         self.hash.hasher = hasher_init;
         self.hash.hasher.update(&bin_digest);
@@ -843,7 +858,10 @@ pub const Manifest = struct {
 
     pub fn addDepFilePost(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
         assert(self.manifest_file != null);
+        return self.addDepFileMaybePost(dir, dep_file_basename);
+    }
 
+    fn addDepFileMaybePost(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
         const dep_file_contents = try dir.readFileAlloc(self.cache.gpa, dep_file_basename, manifest_file_size_max);
         defer self.cache.gpa.free(dep_file_contents);
 
@@ -852,12 +870,23 @@ pub const Manifest = struct {
 
         var it: DepTokenizer = .{ .bytes = dep_file_contents };
 
-        while (true) {
-            switch (it.next() orelse return) {
+        while (it.next()) |token| {
+            switch (token) {
                 // We don't care about targets, we only want the prereqs
                 // Clang is invoked in single-source mode but other programs may not
                 .target, .target_must_resolve => {},
-                .prereq => |file_path| try self.addFilePost(file_path),
+                .prereq => |file_path| if (self.manifest_file == null) {
+                    _ = try self.addFile(file_path, null);
+                } else try self.addFilePost(file_path),
+                .prereq_must_resolve => {
+                    var resolve_buf = std.ArrayList(u8).init(self.cache.gpa);
+                    defer resolve_buf.deinit();
+
+                    try token.resolve(resolve_buf.writer());
+                    if (self.manifest_file == null) {
+                        _ = try self.addFile(resolve_buf.items, null);
+                    } else try self.addFilePost(resolve_buf.items);
+                },
                 else => |err| {
                     try err.printError(error_buf.writer());
                     log.err("failed parsing {s}: {s}", .{ dep_file_basename, error_buf.items });
@@ -867,8 +896,8 @@ pub const Manifest = struct {
         }
     }
 
-    /// Returns a hex encoded hash of the inputs.
-    pub fn final(self: *Manifest) HexDigest {
+    /// Returns a binary hash of the inputs.
+    pub fn finalBin(self: *Manifest) BinDigest {
         assert(self.manifest_file != null);
 
         // We don't close the manifest file yet, because we want to
@@ -879,15 +908,13 @@ pub const Manifest = struct {
 
         var bin_digest: BinDigest = undefined;
         self.hash.hasher.final(&bin_digest);
+        return bin_digest;
+    }
 
-        var out_digest: HexDigest = undefined;
-        _ = fmt.bufPrint(
-            &out_digest,
-            "{s}",
-            .{fmt.fmtSliceHexLower(&bin_digest)},
-        ) catch unreachable;
-
-        return out_digest;
+    /// Returns a hex encoded hash of the inputs.
+    pub fn final(self: *Manifest) HexDigest {
+        const bin_digest = self.finalBin();
+        return binToHex(bin_digest);
     }
 
     /// If `want_shared_lock` is true, this function automatically downgrades the
@@ -984,6 +1011,54 @@ pub const Manifest = struct {
             file.deinit(self.cache.gpa);
         }
         self.files.deinit(self.cache.gpa);
+    }
+
+    pub fn populateFileSystemInputs(man: *Manifest, buf: *std.ArrayListUnmanaged(u8)) Allocator.Error!void {
+        assert(@typeInfo(std.zig.Server.Message.PathPrefix).Enum.fields.len == man.cache.prefixes_len);
+        buf.clearRetainingCapacity();
+        const gpa = man.cache.gpa;
+        const files = man.files.keys();
+        if (files.len > 0) {
+            for (files) |file| {
+                try buf.ensureUnusedCapacity(gpa, file.prefixed_path.sub_path.len + 2);
+                buf.appendAssumeCapacity(file.prefixed_path.prefix + 1);
+                buf.appendSliceAssumeCapacity(file.prefixed_path.sub_path);
+                buf.appendAssumeCapacity(0);
+            }
+            // The null byte is a separator, not a terminator.
+            buf.items.len -= 1;
+        }
+    }
+
+    pub fn populateOtherManifest(man: *Manifest, other: *Manifest, prefix_map: [4]u8) Allocator.Error!void {
+        const gpa = other.cache.gpa;
+        assert(@typeInfo(std.zig.Server.Message.PathPrefix).Enum.fields.len == man.cache.prefixes_len);
+        assert(man.cache.prefixes_len == 4);
+        for (man.files.keys()) |file| {
+            const prefixed_path: PrefixedPath = .{
+                .prefix = prefix_map[file.prefixed_path.prefix],
+                .sub_path = try gpa.dupe(u8, file.prefixed_path.sub_path),
+            };
+            errdefer gpa.free(prefixed_path.sub_path);
+
+            const gop = try other.files.getOrPutAdapted(gpa, prefixed_path, FilesAdapter{});
+            errdefer _ = other.files.pop();
+
+            if (gop.found_existing) {
+                gpa.free(prefixed_path.sub_path);
+                continue;
+            }
+
+            gop.key_ptr.* = .{
+                .prefixed_path = prefixed_path,
+                .max_file_size = file.max_file_size,
+                .stat = file.stat,
+                .bin_digest = file.bin_digest,
+                .contents = null,
+            };
+
+            other.hash.hasher.update(&gop.key_ptr.bin_digest);
+        }
     }
 };
 

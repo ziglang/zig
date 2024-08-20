@@ -26,6 +26,9 @@
         margin: 0;
         overflow-x: auto;
       }
+      :not(pre) > code {
+        white-space: break-spaces;
+      }
       code {
         font-family:"Source Code Pro",monospace;
         font-size: 0.9em;
@@ -167,7 +170,8 @@
           margin-top: 0.5em;
       }
 
-      td {
+      td, th {
+        text-align: unset;
         vertical-align: top;
         margin: 0;
         padding: 0.5em;

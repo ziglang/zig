@@ -1,0 +1,39 @@
+#target=x86_64-linux
+#update=initial version
+#file=main.zig
+const SomeType = u32;
+const S = struct {
+    x: SomeType,
+    fn foo(_: S) void {}
+};
+pub fn main() void {
+    const s: S = .{ .x = 456 };
+    s.foo();
+}
+#expect_stdout=""
+
+#update=make S comptime-only
+#file=main.zig
+const SomeType = comptime_int;
+const S = struct {
+    x: SomeType,
+    fn foo(_: S) void {}
+};
+pub fn main() void {
+    const s: S = .{ .x = 456 };
+    s.foo();
+}
+#expect_stdout=""
+
+#update=make S runtime again
+#file=main.zig
+const SomeType = u16;
+const S = struct {
+    x: SomeType,
+    fn foo(_: S) void {}
+};
+pub fn main() void {
+    const s: S = .{ .x = 456 };
+    s.foo();
+}
+#expect_stdout=""

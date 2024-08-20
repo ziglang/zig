@@ -1,5 +1,5 @@
 /* Socket constants which vary among Linux architectures.  Version for POWER.
-   Copyright (C) 2019-2023 Free Software Foundation, Inc.
+   Copyright (C) 2019-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -54,7 +54,7 @@
 # define SO_TIMESTAMPNS_NEW 64
 # define SO_TIMESTAMPING_NEW 65
 
-# ifdef __USE_TIME_BITS64
+# ifdef __USE_TIME64_REDIRECTS
 #  define SO_RCVTIMEO SO_RCVTIMEO_NEW
 #  define SO_SNDTIMEO SO_SNDTIMEO_NEW
 #  define SO_TIMESTAMP SO_TIMESTAMP_NEW

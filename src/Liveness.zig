@@ -464,6 +464,7 @@ pub fn categorizeOperand(
 
         .dbg_var_ptr,
         .dbg_var_val,
+        .dbg_arg_inline,
         => {
             const o = air_datas[@intFromEnum(inst)].pl_op.operand;
             if (o == operand_ref) return matchOperandSmallIndex(l, inst, 0, .none);
@@ -1097,6 +1098,7 @@ fn analyzeInst(
 
         .dbg_var_ptr,
         .dbg_var_val,
+        .dbg_arg_inline,
         => {
             const operand = inst_datas[@intFromEnum(inst)].pl_op.operand;
             return analyzeOperands(a, pass, data, inst, .{ operand, .none, .none });

@@ -1095,6 +1095,7 @@ test "arrays and vectors with big integers" {
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     // TODO: only aarch64-windows didn't pass in the PR that added this code.
     //       figure out why if you can run this target.
@@ -1118,53 +1119,78 @@ test "pointer to struct literal with runtime field is constant" {
     try expect(@typeInfo(@TypeOf(ptr)).Pointer.is_const);
 }
 
-test "integer compare" {
-    const S = struct {
-        fn doTheTestSigned(comptime T: type) !void {
-            var z: T = 0;
-            var p: T = 123;
-            var n: T = -123;
-            _ = .{ &z, &p, &n };
-            try expect(z == z and z != p and z != n);
-            try expect(p == p and p != n and n == n);
-            try expect(z > n and z < p and z >= n and z <= p);
-            try expect(!(z < n or z > p or z <= n or z >= p or z > z or z < z));
-            try expect(p > n and n < p and p >= n and n <= p and p >= p and p <= p and n >= n and n <= n);
-            try expect(!(p < n or n > p or p <= n or n >= p or p > p or p < p or n > n or n < n));
-            try expect(z == 0 and z != 123 and z != -123 and 0 == z and 0 != p and 0 != n);
-            try expect(z > -123 and p > -123 and !(n > 123));
-            try expect(z < 123 and !(p < 123) and n < 123);
-            try expect(-123 <= z and -123 <= p and -123 <= n);
-            try expect(123 >= z and 123 >= p and 123 >= n);
-            try expect(!(0 != z or 123 != p or -123 != n));
-            try expect(!(z > 0 or -123 > p or 123 < n));
-        }
-        fn doTheTestUnsigned(comptime T: type) !void {
-            var z: T = 0;
-            var p: T = 123;
-            _ = .{ &z, &p };
-            try expect(z == z and z != p);
-            try expect(p == p);
-            try expect(z < p and z <= p);
-            try expect(!(z > p or z >= p or z > z or z < z));
-            try expect(p >= p and p <= p);
-            try expect(!(p > p or p < p));
-            try expect(z == 0 and z != 123 and z != -123 and 0 == z and 0 != p);
-            try expect(z > -123 and p > -123);
-            try expect(z < 123 and !(p < 123));
-            try expect(-123 <= z and -123 <= p);
-            try expect(123 >= z and 123 >= p);
-            try expect(!(0 != z or 123 != p));
-            try expect(!(z > 0 or -123 > p));
-        }
-    };
+fn testSignedCmp(comptime T: type) !void {
+    var z: T = 0;
+    var p: T = 123;
+    var n: T = -123;
+    var min: T = std.math.minInt(T);
+    var max: T = std.math.maxInt(T);
+    var half_min: T = std.math.minInt(T) / 2;
+    var half_max: T = std.math.minInt(T) / 2;
+    _ = .{ &z, &p, &n, &min, &max, &half_min, &half_max };
+    try expect(z == z and z != p and z != n);
+    try expect(p == p and p != n and n == n);
+    try expect(z > n and z < p and z >= n and z <= p);
+    try expect(!(z < n or z > p or z <= n or z >= p or z > z or z < z));
+    try expect(p > n and n < p and p >= n and n <= p and p >= p and p <= p and n >= n and n <= n);
+    try expect(!(p < n or n > p or p <= n or n >= p or p > p or p < p or n > n or n < n));
+    try expect(z == 0 and z != 123 and z != -123 and 0 == z and 0 != p and 0 != n);
+    try expect(z > -123 and p > -123 and !(n > 123));
+    try expect(z < 123 and !(p < 123) and n < 123);
+    try expect(-123 <= z and -123 <= p and -123 <= n);
+    try expect(123 >= z and 123 >= p and 123 >= n);
+    try expect(!(0 != z or 123 != p or -123 != n));
+    try expect(!(z > 0 or -123 > p or 123 < n));
+
+    try expect(min <= max and z <= max and p <= max and n <= max and half_max <= max and half_min <= max);
+    try expect(min <= max and min <= z and min <= p and min <= n and min <= half_min and min <= half_max);
+}
+
+fn testUnsignedCmp(comptime T: type) !void {
+    var z: T = 0;
+    var p: T = 123;
+    var max: T = std.math.maxInt(T);
+    var half_max: T = std.math.minInt(T) / 2;
+    _ = .{ &z, &p, &max, &half_max };
+    try expect(z == z and z != p);
+    try expect(p == p);
+    try expect(z < p and z <= p);
+    try expect(!(z > p or z >= p or z > z or z < z));
+    try expect(p >= p and p <= p);
+    try expect(!(p > p or p < p));
+    try expect(z == 0 and z != 123 and z != -123 and 0 == z and 0 != p);
+    try expect(z > -123 and p > -123);
+    try expect(z < 123 and !(p < 123));
+    try expect(-123 <= z and -123 <= p);
+    try expect(123 >= z and 123 >= p);
+    try expect(!(0 != z or 123 != p));
+    try expect(!(z > 0 or -123 > p));
+
+    try expect(z <= max and p <= max and half_max <= max);
+    try expect(half_max != max);
+}
+
+test "integer compare <= 64 bits" {
     inline for (.{ u8, u16, u32, u64, usize, u10, u20, u30, u60 }) |T| {
-        try S.doTheTestUnsigned(T);
-        try comptime S.doTheTestUnsigned(T);
+        try testUnsignedCmp(T);
+        try comptime testUnsignedCmp(T);
     }
     inline for (.{ i8, i16, i32, i64, isize, i10, i20, i30, i60 }) |T| {
-        try S.doTheTestSigned(T);
-        try comptime S.doTheTestSigned(T);
+        try testSignedCmp(T);
+        try comptime testSignedCmp(T);
+    }
+}
+
+test "integer compare <= 128 bits" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    inline for (.{ u65, u96, u127, u128 }) |T| {
+        try testUnsignedCmp(T);
+        try comptime testUnsignedCmp(T);
+    }
+    inline for (.{ i65, i96, i127, i128 }) |T| {
+        try testSignedCmp(T);
+        try comptime testSignedCmp(T);
     }
 }
 
@@ -1317,6 +1343,7 @@ test "allocation and looping over 3-byte integer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_llvm and builtin.os.tag == .macos) {
         return error.SkipZigTest; // TODO
