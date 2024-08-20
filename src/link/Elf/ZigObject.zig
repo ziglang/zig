@@ -1122,9 +1122,9 @@ pub fn updateNav(
 
     log.debug("updateNav {}({d})", .{ nav.fqn.fmt(ip), nav_index });
 
-    const nav_val = zcu.navValue(nav_index);
-    const nav_init = switch (ip.indexToKey(nav_val.toIntern())) {
-        .variable => |variable| Value.fromInterned(variable.init),
+    const nav_init = switch (ip.indexToKey(nav.status.resolved.val)) {
+        .func => .none,
+        .variable => |variable| variable.init,
         .@"extern" => |@"extern"| {
             if (ip.isFunctionType(@"extern".ty)) return;
             const sym_index = try self.getGlobalSymbol(
@@ -1135,10 +1135,10 @@ pub fn updateNav(
             self.symbol(sym_index).flags.is_extern_ptr = true;
             return;
         },
-        else => nav_val,
+        else => nav.status.resolved.val,
     };
 
-    if (nav_init.typeOf(zcu).isFnOrHasRuntimeBits(pt)) {
+    if (nav_init != .none and Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(pt)) {
         const sym_index = try self.getOrCreateMetadataForNav(elf_file, nav_index);
         self.symbol(sym_index).atom(elf_file).?.freeRelocs(elf_file);
 
@@ -1153,7 +1153,7 @@ pub fn updateNav(
             &elf_file.base,
             pt,
             zcu.navSrcLoc(nav_index),
-            nav_init,
+            Value.fromInterned(nav_init),
             &code_buffer,
             if (debug_wip_nav) |*wip_nav| .{ .dwarf = wip_nav } else .none,
             .{ .parent_atom_index = sym_index },

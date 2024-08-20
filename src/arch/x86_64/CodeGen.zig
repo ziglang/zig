@@ -12033,6 +12033,10 @@ fn genLocalDebugInfo(
                     .disp = sym_off.off,
                 } },
             }),
+            .lea_direct, .lea_got, .lea_tlv => |sym| try self.asmAirMemory(.dbg_local, inst, .{
+                .base = .{ .reloc = .{ .atom_index = undefined, .sym_index = sym } },
+                .mod = .{ .rm = .{ .size = .qword } },
+            }),
         },
     }
 }

@@ -21,8 +21,9 @@ pub const UpdateError =
     std.fs.File.OpenError ||
     std.fs.File.SetEndPosError ||
     std.fs.File.CopyRangeError ||
+    std.fs.File.PReadError ||
     std.fs.File.PWriteError ||
-    error{ Overflow, Underflow, UnexpectedEndOfFile };
+    error{ EndOfStream, Overflow, Underflow, UnexpectedEndOfFile };
 
 pub const FlushError =
     UpdateError ||
@@ -253,10 +254,8 @@ const Section = struct {
             .trailer_len = trailer_len,
             .len = header_len + trailer_len,
             .entries = .{},
-            .cross_entry_relocs = .{},
             .cross_unit_relocs = .{},
             .cross_section_relocs = .{},
-            .external_relocs = .{},
         };
         if (sec.last.unwrap()) |last_unit| {
             const last_unit_ptr = sec.getUnit(last_unit);
@@ -358,10 +357,8 @@ const Unit = struct {
     /// data length in bytes
     len: u32,
     entries: std.ArrayListUnmanaged(Entry),
-    cross_entry_relocs: std.ArrayListUnmanaged(CrossEntryReloc),
     cross_unit_relocs: std.ArrayListUnmanaged(CrossUnitReloc),
     cross_section_relocs: std.ArrayListUnmanaged(CrossSectionReloc),
-    external_relocs: std.ArrayListUnmanaged(ExternalReloc),
 
     const Index = enum(u32) {
         main,
@@ -381,12 +378,16 @@ const Unit = struct {
         }
     };
 
+    fn clear(unit: *Unit) void {
+        unit.cross_unit_relocs.clearRetainingCapacity();
+        unit.cross_section_relocs.clearRetainingCapacity();
+    }
+
     fn deinit(unit: *Unit, gpa: std.mem.Allocator) void {
+        for (unit.entries.items) |*entry| entry.deinit(gpa);
         unit.entries.deinit(gpa);
-        unit.cross_entry_relocs.deinit(gpa);
         unit.cross_unit_relocs.deinit(gpa);
         unit.cross_section_relocs.deinit(gpa);
-        unit.external_relocs.deinit(gpa);
         unit.* = undefined;
     }
 
@@ -398,6 +399,10 @@ const Unit = struct {
             .next = .none,
             .off = 0,
             .len = 0,
+            .cross_entry_relocs = .{},
+            .cross_unit_relocs = .{},
+            .cross_section_relocs = .{},
+            .external_relocs = .{},
         };
         if (unit.last.unwrap()) |last_entry| {
             const last_entry_ptr = unit.getEntry(last_entry);
@@ -451,6 +456,14 @@ const Unit = struct {
         unit_ptr.len = len;
     }
 
+    fn trim(unit: *Unit) void {
+        const len = unit.getEntry(unit.first.unwrap() orelse return).off;
+        if (len == 0) return;
+        for (unit.entries.items) |*entry| entry.off -= len;
+        unit.off += len;
+        unit.len -= len;
+    }
+
     fn move(unit: *Unit, sec: *Section, dwarf: *Dwarf, new_off: u32) UpdateError!void {
         if (unit.off == new_off) return;
         if (try dwarf.getFile().?.copyRangeAll(
@@ -463,6 +476,7 @@ const Unit = struct {
     }
 
     fn resizeHeader(unit: *Unit, sec: *Section, dwarf: *Dwarf, len: u32) UpdateError!void {
+        unit.trim();
         if (unit.header_len == len) return;
         const available_len = if (unit.prev.unwrap()) |prev_unit| prev_excess: {
             const prev_unit_ptr = sec.getUnit(prev_unit);
@@ -535,23 +549,11 @@ const Unit = struct {
     }
 
     fn resolveRelocs(unit: *Unit, sec: *Section, dwarf: *Dwarf) RelocError!void {
-        for (unit.cross_entry_relocs.items) |reloc| {
-            try dwarf.resolveReloc(
-                sec.off + unit.off + (if (reloc.source_entry.unwrap()) |source_entry|
-                    unit.header_len + unit.getEntry(source_entry).off
-                else
-                    0) + reloc.source_off,
-                unit.off + unit.header_len + unit.getEntry(reloc.target_entry).assertNonEmpty(unit, sec, dwarf).off + reloc.target_off,
-                dwarf.sectionOffsetBytes(),
-            );
-        }
+        const unit_off = sec.off + unit.off;
         for (unit.cross_unit_relocs.items) |reloc| {
             const target_unit = sec.getUnit(reloc.target_unit);
             try dwarf.resolveReloc(
-                sec.off + unit.off + (if (reloc.source_entry.unwrap()) |source_entry|
-                    unit.header_len + unit.getEntry(source_entry).off
-                else
-                    0) + reloc.source_off,
+                unit_off + reloc.source_off,
                 target_unit.off + (if (reloc.target_entry.unwrap()) |target_entry|
                     target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(unit, sec, dwarf).off
                 else
@@ -565,10 +567,7 @@ const Unit = struct {
             };
             const target_unit = target_sec.getUnit(reloc.target_unit);
             try dwarf.resolveReloc(
-                sec.off + unit.off + (if (reloc.source_entry.unwrap()) |source_entry|
-                    unit.header_len + unit.getEntry(source_entry).off
-                else
-                    0) + reloc.source_off,
+                unit_off + reloc.source_off,
                 target_unit.off + (if (reloc.target_entry.unwrap()) |target_entry|
                     target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(unit, sec, dwarf).off
                 else
@@ -576,57 +575,8 @@ const Unit = struct {
                 dwarf.sectionOffsetBytes(),
             );
         }
-        if (dwarf.bin_file.cast(.elf)) |elf_file| {
-            const zo = elf_file.zigObjectPtr().?;
-            for (unit.external_relocs.items) |reloc| {
-                const symbol = zo.symbol(reloc.target_sym);
-                try dwarf.resolveReloc(
-                    sec.off + unit.off + unit.header_len + unit.getEntry(reloc.source_entry).off + reloc.source_off,
-                    @bitCast(symbol.address(.{}, elf_file) + @as(i64, @intCast(reloc.target_off)) -
-                        if (symbol.flags.is_tls) elf_file.dtpAddress() else 0),
-                    @intFromEnum(dwarf.address_size),
-                );
-            }
-        } else if (dwarf.bin_file.cast(.macho)) |macho_file| {
-            const zo = macho_file.getZigObject().?;
-            for (unit.external_relocs.items) |reloc| {
-                const ref = zo.getSymbolRef(reloc.target_sym, macho_file);
-                try dwarf.resolveReloc(
-                    sec.off + unit.off + unit.header_len + unit.getEntry(reloc.source_entry).off + reloc.source_off,
-                    ref.getSymbol(macho_file).?.getAddress(.{}, macho_file),
-                    @intFromEnum(dwarf.address_size),
-                );
-            }
-        }
+        for (unit.entries.items) |*entry| try entry.resolveRelocs(unit, sec, dwarf);
     }
-
-    const CrossEntryReloc = struct {
-        source_entry: Entry.Index.Optional = .none,
-        source_off: u32 = 0,
-        target_entry: Entry.Index,
-        target_off: u32 = 0,
-    };
-    const CrossUnitReloc = struct {
-        source_entry: Entry.Index.Optional = .none,
-        source_off: u32 = 0,
-        target_unit: Unit.Index,
-        target_entry: Entry.Index.Optional = .none,
-        target_off: u32 = 0,
-    };
-    const CrossSectionReloc = struct {
-        source_entry: Entry.Index.Optional = .none,
-        source_off: u32 = 0,
-        target_sec: Section.Index,
-        target_unit: Unit.Index,
-        target_entry: Entry.Index.Optional = .none,
-        target_off: u32 = 0,
-    };
-    const ExternalReloc = struct {
-        source_entry: Entry.Index,
-        source_off: u32 = 0,
-        target_sym: u32,
-        target_off: u64 = 0,
-    };
 };
 
 /// An indivisible entry within a `Unit` containing section-specific data.
@@ -637,6 +587,25 @@ const Entry = struct {
     off: u32,
     /// data length in bytes
     len: u32,
+    cross_entry_relocs: std.ArrayListUnmanaged(CrossEntryReloc),
+    cross_unit_relocs: std.ArrayListUnmanaged(CrossUnitReloc),
+    cross_section_relocs: std.ArrayListUnmanaged(CrossSectionReloc),
+    external_relocs: std.ArrayListUnmanaged(ExternalReloc),
+
+    fn clear(entry: *Entry) void {
+        entry.cross_entry_relocs.clearRetainingCapacity();
+        entry.cross_unit_relocs.clearRetainingCapacity();
+        entry.cross_section_relocs.clearRetainingCapacity();
+        entry.external_relocs.clearRetainingCapacity();
+    }
+
+    fn deinit(entry: *Entry, gpa: std.mem.Allocator) void {
+        entry.cross_entry_relocs.deinit(gpa);
+        entry.cross_unit_relocs.deinit(gpa);
+        entry.cross_section_relocs.deinit(gpa);
+        entry.external_relocs.deinit(gpa);
+        entry.* = undefined;
+    }
 
     const Index = enum(u32) {
         _,
@@ -803,6 +772,88 @@ const Entry = struct {
         }
         @panic("missing dwarf relocation target");
     }
+
+    fn resolveRelocs(entry: *Entry, unit: *Unit, sec: *Section, dwarf: *Dwarf) RelocError!void {
+        const entry_off = sec.off + unit.off + unit.header_len + entry.off;
+        for (entry.cross_entry_relocs.items) |reloc| {
+            try dwarf.resolveReloc(
+                entry_off + reloc.source_off,
+                unit.off + unit.header_len + unit.getEntry(reloc.target_entry).assertNonEmpty(unit, sec, dwarf).off + reloc.target_off,
+                dwarf.sectionOffsetBytes(),
+            );
+        }
+        for (entry.cross_unit_relocs.items) |reloc| {
+            const target_unit = sec.getUnit(reloc.target_unit);
+            try dwarf.resolveReloc(
+                entry_off + reloc.source_off,
+                target_unit.off + (if (reloc.target_entry.unwrap()) |target_entry|
+                    target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(unit, sec, dwarf).off
+                else
+                    0) + reloc.target_off,
+                dwarf.sectionOffsetBytes(),
+            );
+        }
+        for (entry.cross_section_relocs.items) |reloc| {
+            const target_sec = switch (reloc.target_sec) {
+                inline else => |target_sec| &@field(dwarf, @tagName(target_sec)).section,
+            };
+            const target_unit = target_sec.getUnit(reloc.target_unit);
+            try dwarf.resolveReloc(
+                entry_off + reloc.source_off,
+                target_unit.off + (if (reloc.target_entry.unwrap()) |target_entry|
+                    target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(unit, sec, dwarf).off
+                else
+                    0) + reloc.target_off,
+                dwarf.sectionOffsetBytes(),
+            );
+        }
+        if (dwarf.bin_file.cast(.elf)) |elf_file| {
+            const zo = elf_file.zigObjectPtr().?;
+            for (entry.external_relocs.items) |reloc| {
+                const symbol = zo.symbol(reloc.target_sym);
+                try dwarf.resolveReloc(
+                    entry_off + reloc.source_off,
+                    @bitCast(symbol.address(.{}, elf_file) + @as(i64, @intCast(reloc.target_off)) -
+                        if (symbol.flags.is_tls) elf_file.dtpAddress() else 0),
+                    @intFromEnum(dwarf.address_size),
+                );
+            }
+        } else if (dwarf.bin_file.cast(.macho)) |macho_file| {
+            const zo = macho_file.getZigObject().?;
+            for (entry.external_relocs.items) |reloc| {
+                const ref = zo.getSymbolRef(reloc.target_sym, macho_file);
+                try dwarf.resolveReloc(
+                    entry_off + reloc.source_off,
+                    ref.getSymbol(macho_file).?.getAddress(.{}, macho_file),
+                    @intFromEnum(dwarf.address_size),
+                );
+            }
+        }
+    }
+};
+
+const CrossEntryReloc = struct {
+    source_off: u32 = 0,
+    target_entry: Entry.Index,
+    target_off: u32 = 0,
+};
+const CrossUnitReloc = struct {
+    source_off: u32 = 0,
+    target_unit: Unit.Index,
+    target_entry: Entry.Index.Optional = .none,
+    target_off: u32 = 0,
+};
+const CrossSectionReloc = struct {
+    source_off: u32 = 0,
+    target_sec: Section.Index,
+    target_unit: Unit.Index,
+    target_entry: Entry.Index.Optional = .none,
+    target_off: u32 = 0,
+};
+const ExternalReloc = struct {
+    source_off: u32 = 0,
+    target_sym: u32,
+    target_off: u64 = 0,
 };
 
 pub const Loc = union(enum) {
@@ -1087,14 +1138,13 @@ pub const WipNav = struct {
         const diw = wip_nav.debug_info.writer(dwarf.gpa);
         try wip_nav.inlined_funcs_high_reloc.ensureUnusedCapacity(dwarf.gpa, 1);
 
-        const external_relocs = &dwarf.debug_info.section.getUnit(wip_nav.unit).external_relocs;
-        try external_relocs.ensureUnusedCapacity(dwarf.gpa, 2);
         try uleb128(diw, @intFromEnum(AbbrevCode.inlined_func));
         try wip_nav.refNav(zcu.funcInfo(func).owner_nav);
         try uleb128(diw, zcu.navSrcLine(zcu.funcInfo(wip_nav.func).owner_nav) + line + 1);
-        try uleb128(diw, column);
+        try uleb128(diw, column + 1);
+        const external_relocs = &dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry).external_relocs;
+        try external_relocs.ensureUnusedCapacity(dwarf.gpa, 2);
         external_relocs.appendAssumeCapacity(.{
-            .source_entry = wip_nav.entry,
             .source_off = @intCast(wip_nav.debug_info.items.len),
             .target_sym = wip_nav.func_sym_index,
             .target_off = code_off,
@@ -1102,7 +1152,6 @@ pub const WipNav = struct {
         try diw.writeByteNTimes(0, @intFromEnum(dwarf.address_size));
         wip_nav.inlined_funcs_high_reloc.appendAssumeCapacity(@intCast(external_relocs.items.len));
         external_relocs.appendAssumeCapacity(.{
-            .source_entry = wip_nav.entry,
             .source_off = @intCast(wip_nav.debug_info.items.len),
             .target_sym = wip_nav.func_sym_index,
             .target_off = undefined,
@@ -1112,7 +1161,7 @@ pub const WipNav = struct {
     }
 
     pub fn leaveInlineFunc(wip_nav: *WipNav, func: InternPool.Index, code_off: u64) UpdateError!void {
-        const external_relocs = &wip_nav.dwarf.debug_info.section.getUnit(wip_nav.unit).external_relocs;
+        const external_relocs = &wip_nav.dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry).external_relocs;
         external_relocs.items[wip_nav.inlined_funcs_high_reloc.pop()].target_off = code_off;
         try uleb128(wip_nav.debug_info.writer(wip_nav.dwarf.gpa), @intFromEnum(AbbrevCode.null));
         try wip_nav.setInlineFunc(func);
@@ -1137,8 +1186,7 @@ pub const WipNav = struct {
             try dlw.writeByte(DW.LNS.extended_op);
             try uleb128(dlw, 1 + dwarf.sectionOffsetBytes());
             try dlw.writeByte(DW.LNE.ZIG_set_decl);
-            try dwarf.debug_line.section.getUnit(wip_nav.unit).cross_section_relocs.append(dwarf.gpa, .{
-                .source_entry = wip_nav.entry.toOptional(),
+            try dwarf.debug_line.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry).cross_section_relocs.append(dwarf.gpa, .{
                 .source_off = @intCast(wip_nav.debug_line.items.len),
                 .target_sec = .debug_info,
                 .target_unit = new_unit,
@@ -1174,9 +1222,9 @@ pub const WipNav = struct {
     fn infoSectionOffset(wip_nav: *WipNav, sec: Section.Index, unit: Unit.Index, entry: Entry.Index, off: u32) UpdateError!void {
         const dwarf = wip_nav.dwarf;
         const gpa = dwarf.gpa;
+        const entry_ptr = dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry);
         if (sec != .debug_info) {
-            try dwarf.debug_info.section.getUnit(wip_nav.unit).cross_section_relocs.append(gpa, .{
-                .source_entry = wip_nav.entry.toOptional(),
+            try entry_ptr.cross_section_relocs.append(gpa, .{
                 .source_off = @intCast(wip_nav.debug_info.items.len),
                 .target_sec = sec,
                 .target_unit = unit,
@@ -1184,16 +1232,14 @@ pub const WipNav = struct {
                 .target_off = off,
             });
         } else if (unit != wip_nav.unit) {
-            try dwarf.debug_info.section.getUnit(wip_nav.unit).cross_unit_relocs.append(gpa, .{
-                .source_entry = wip_nav.entry.toOptional(),
+            try entry_ptr.cross_unit_relocs.append(gpa, .{
                 .source_off = @intCast(wip_nav.debug_info.items.len),
                 .target_unit = unit,
                 .target_entry = entry.toOptional(),
                 .target_off = off,
             });
         } else {
-            try dwarf.debug_info.section.getUnit(wip_nav.unit).cross_entry_relocs.append(gpa, .{
-                .source_entry = wip_nav.entry.toOptional(),
+            try entry_ptr.cross_entry_relocs.append(gpa, .{
                 .source_off = @intCast(wip_nav.debug_info.items.len),
                 .target_entry = entry,
                 .target_off = off,
@@ -1208,8 +1254,7 @@ pub const WipNav = struct {
 
     fn addrSym(wip_nav: *WipNav, sym_index: u32) UpdateError!void {
         const dwarf = wip_nav.dwarf;
-        try dwarf.debug_info.section.getUnit(wip_nav.unit).external_relocs.append(dwarf.gpa, .{
-            .source_entry = wip_nav.entry,
+        try dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry).external_relocs.append(dwarf.gpa, .{
             .source_off = @intCast(wip_nav.debug_info.items.len),
             .target_sym = sym_index,
         });
@@ -1269,10 +1314,9 @@ pub const WipNav = struct {
 
     fn refForward(wip_nav: *WipNav) std.mem.Allocator.Error!u32 {
         const dwarf = wip_nav.dwarf;
-        const cross_entry_relocs = &dwarf.debug_info.section.getUnit(wip_nav.unit).cross_entry_relocs;
+        const cross_entry_relocs = &dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry).cross_entry_relocs;
         const reloc_index: u32 = @intCast(cross_entry_relocs.items.len);
         try cross_entry_relocs.append(dwarf.gpa, .{
-            .source_entry = wip_nav.entry.toOptional(),
             .source_off = @intCast(wip_nav.debug_info.items.len),
             .target_entry = undefined,
             .target_off = undefined,
@@ -1282,7 +1326,7 @@ pub const WipNav = struct {
     }
 
     fn finishForward(wip_nav: *WipNav, reloc_index: u32) void {
-        const reloc = &wip_nav.dwarf.debug_info.section.getUnit(wip_nav.unit).cross_entry_relocs.items[reloc_index];
+        const reloc = &wip_nav.dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry).cross_entry_relocs.items[reloc_index];
         reloc.target_entry = wip_nav.entry;
         reloc.target_off = @intCast(wip_nav.debug_info.items.len);
     }
@@ -1595,7 +1639,15 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
     const unit = try dwarf.getUnit(file.mod);
     const nav_gop = try dwarf.navs.getOrPut(dwarf.gpa, nav_index);
     errdefer _ = dwarf.navs.pop();
-    if (!nav_gop.found_existing) nav_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
+    if (nav_gop.found_existing) {
+        for ([_]*Section{
+            &dwarf.debug_aranges.section,
+            &dwarf.debug_info.section,
+            &dwarf.debug_line.section,
+            &dwarf.debug_loclists.section,
+            &dwarf.debug_rnglists.section,
+        }) |sec| sec.getUnit(unit).getEntry(nav_gop.value_ptr.*).clear();
+    } else nav_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
     const nav_val = zcu.navValue(nav_index);
     var wip_nav: WipNav = .{
         .dwarf = dwarf,
@@ -1759,17 +1811,15 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
             try wip_nav.strp(nav.name.toSlice(ip));
             try wip_nav.strp(nav.fqn.toSlice(ip));
             try wip_nav.refType(Type.fromInterned(func_type.return_type));
-            const external_relocs = &dwarf.debug_info.section.getUnit(unit).external_relocs;
+            const external_relocs = &dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry).external_relocs;
             try external_relocs.ensureUnusedCapacity(dwarf.gpa, 2);
             external_relocs.appendAssumeCapacity(.{
-                .source_entry = wip_nav.entry,
                 .source_off = @intCast(wip_nav.debug_info.items.len),
                 .target_sym = sym_index,
             });
             try diw.writeByteNTimes(0, @intFromEnum(dwarf.address_size));
             wip_nav.func_high_reloc = @intCast(external_relocs.items.len);
             external_relocs.appendAssumeCapacity(.{
-                .source_entry = wip_nav.entry,
                 .source_off = @intCast(wip_nav.debug_info.items.len),
                 .target_sym = sym_index,
                 .target_off = undefined,
@@ -1785,8 +1835,7 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
             if (dwarf.incremental()) {
                 try uleb128(dlw, 1 + dwarf.sectionOffsetBytes());
                 try dlw.writeByte(DW.LNE.ZIG_set_decl);
-                try dwarf.debug_line.section.getUnit(wip_nav.unit).cross_section_relocs.append(dwarf.gpa, .{
-                    .source_entry = wip_nav.entry.toOptional(),
+                try dwarf.debug_line.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry).cross_section_relocs.append(dwarf.gpa, .{
                     .source_off = @intCast(wip_nav.debug_line.items.len),
                     .target_sec = .debug_info,
                     .target_unit = wip_nav.unit,
@@ -1801,8 +1850,7 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
             } else {
                 try uleb128(dlw, 1 + @intFromEnum(dwarf.address_size));
                 try dlw.writeByte(DW.LNE.set_address);
-                try dwarf.debug_line.section.getUnit(wip_nav.unit).external_relocs.append(dwarf.gpa, .{
-                    .source_entry = wip_nav.entry,
+                try dwarf.debug_line.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry).external_relocs.append(dwarf.gpa, .{
                     .source_off = @intCast(wip_nav.debug_line.items.len),
                     .target_sym = sym_index,
                 });
@@ -1835,7 +1883,7 @@ pub fn finishWipNav(
     log.debug("finishWipNav({})", .{nav.fqn.fmt(ip)});
 
     if (wip_nav.func != .none) {
-        const external_relocs = &dwarf.debug_info.section.getUnit(wip_nav.unit).external_relocs;
+        const external_relocs = &dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry).external_relocs;
         external_relocs.items[wip_nav.func_high_reloc].target_off = sym.size;
         if (wip_nav.any_children) {
             const diw = wip_nav.debug_info.writer(dwarf.gpa);
@@ -1847,8 +1895,7 @@ pub fn finishWipNav(
         );
 
         var aranges_entry = [1]u8{0} ** (8 + 8);
-        try dwarf.debug_aranges.section.getUnit(wip_nav.unit).external_relocs.append(dwarf.gpa, .{
-            .source_entry = wip_nav.entry,
+        try dwarf.debug_aranges.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry).external_relocs.append(dwarf.gpa, .{
             .target_sym = sym.index,
         });
         dwarf.writeInt(aranges_entry[0..@intFromEnum(dwarf.address_size)], 0);
@@ -1862,14 +1909,12 @@ pub fn finishWipNav(
             aranges_entry[0 .. @intFromEnum(dwarf.address_size) * 2],
         );
 
-        try dwarf.debug_rnglists.section.getUnit(wip_nav.unit).external_relocs.appendSlice(dwarf.gpa, &.{
+        try dwarf.debug_rnglists.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry).external_relocs.appendSlice(dwarf.gpa, &.{
             .{
-                .source_entry = wip_nav.entry,
                 .source_off = 1,
                 .target_sym = sym.index,
             },
             .{
-                .source_entry = wip_nav.entry,
                 .source_off = 1 + @intFromEnum(dwarf.address_size),
                 .target_sym = sym.index,
                 .target_off = sym.size,
@@ -1935,6 +1980,29 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
     errdefer _ = dwarf.navs.pop();
     switch (ip.indexToKey(nav_val.toIntern())) {
         .func => |func| {
+            if (nav_gop.found_existing) {
+                const unit_ptr = dwarf.debug_info.section.getUnit(unit);
+                const entry_ptr = unit_ptr.getEntry(nav_gop.value_ptr.*);
+                if (entry_ptr.len >= AbbrevCode.decl_bytes) {
+                    var abbrev_code_buf: [AbbrevCode.decl_bytes]u8 = undefined;
+                    if (try dwarf.getFile().?.preadAll(
+                        &abbrev_code_buf,
+                        dwarf.debug_info.section.off + unit_ptr.off + unit_ptr.header_len + entry_ptr.off,
+                    ) != abbrev_code_buf.len) return error.InputOutput;
+                    var abbrev_code_fbs = std.io.fixedBufferStream(&abbrev_code_buf);
+                    const abbrev_code: AbbrevCode = @enumFromInt(
+                        try std.leb.readUleb128(@typeInfo(AbbrevCode).Enum.tag_type, abbrev_code_fbs.reader()),
+                    );
+                    switch (abbrev_code) {
+                        else => unreachable,
+                        .decl_func, .decl_func_empty => return,
+                        .decl_func_generic, .decl_func_generic_empty => {},
+                    }
+                }
+                entry_ptr.clear();
+            } else nav_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
+            wip_nav.entry = nav_gop.value_ptr.*;
+
             const parent_type, const accessibility: u8 = if (nav.analysis_owner.unwrap()) |cau| parent: {
                 const parent_namespace_ptr = ip.namespacePtr(ip.getCau(cau).namespace);
                 break :parent .{
@@ -1948,12 +2016,9 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                 };
             } else .{ zcu.fileRootType(inst_info.file), DW.ACCESS.private };
 
-            if (!nav_gop.found_existing) nav_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
-            wip_nav.entry = nav_gop.value_ptr.*;
-
             const func_type = ip.indexToKey(func.ty).func_type;
             const diw = wip_nav.debug_info.writer(dwarf.gpa);
-            try uleb128(diw, @intFromEnum(@as(AbbrevCode, if (func_type.param_types.len > 0 and func_type.is_var_args) .decl_func_generic else .decl_func_generic_empty)));
+            try uleb128(diw, @intFromEnum(@as(AbbrevCode, if (func_type.param_types.len > 0 or func_type.is_var_args) .decl_func_generic else .decl_func_generic_empty)));
             try wip_nav.refType(Type.fromInterned(parent_type));
             assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
             try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
@@ -1961,12 +2026,14 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
             try diw.writeByte(accessibility);
             try wip_nav.strp(nav.name.toSlice(ip));
             try wip_nav.refType(Type.fromInterned(func_type.return_type));
-            for (0..func_type.param_types.len) |param_index| {
-                try uleb128(diw, @intFromEnum(AbbrevCode.func_type_param));
-                try wip_nav.refType(Type.fromInterned(func_type.param_types.get(ip)[param_index]));
+            if (func_type.param_types.len > 0 or func_type.is_var_args) {
+                for (0..func_type.param_types.len) |param_index| {
+                    try uleb128(diw, @intFromEnum(AbbrevCode.func_type_param));
+                    try wip_nav.refType(Type.fromInterned(func_type.param_types.get(ip)[param_index]));
+                }
+                if (func_type.is_var_args) try uleb128(diw, @intFromEnum(AbbrevCode.is_var_args));
+                try uleb128(diw, @intFromEnum(AbbrevCode.null));
             }
-            if (func_type.is_var_args) try uleb128(diw, @intFromEnum(AbbrevCode.is_var_args));
-            try uleb128(diw, @intFromEnum(AbbrevCode.null));
         },
         .struct_type => done: {
             const loaded_struct = ip.loadStructType(nav_val.toIntern());
@@ -2535,13 +2602,25 @@ fn updateType(
         .error_union_type => |error_union_type| {
             const error_union_error_set_type = Type.fromInterned(error_union_type.error_set_type);
             const error_union_payload_type = Type.fromInterned(error_union_type.payload_type);
-            const error_union_error_set_offset = codegen.errUnionErrorOffset(error_union_payload_type, pt);
-            const error_union_payload_offset = codegen.errUnionPayloadOffset(error_union_payload_type, pt);
+            const error_union_error_set_offset, const error_union_payload_offset = switch (error_union_type.payload_type) {
+                .generic_poison_type => .{ 0, 0 },
+                else => .{
+                    codegen.errUnionErrorOffset(error_union_payload_type, pt),
+                    codegen.errUnionPayloadOffset(error_union_payload_type, pt),
+                },
+            };
 
             try uleb128(diw, @intFromEnum(AbbrevCode.union_type));
             try wip_nav.strp(name);
-            try uleb128(diw, ty.abiSize(pt));
-            try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+            if (error_union_type.error_set_type != .generic_poison_type and
+                error_union_type.payload_type != .generic_poison_type)
+            {
+                try uleb128(diw, ty.abiSize(pt));
+                try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+            } else {
+                try uleb128(diw, 0);
+                try uleb128(diw, 1);
+            }
             {
                 try uleb128(diw, @intFromEnum(AbbrevCode.tagged_union));
                 try wip_nav.infoSectionOffset(
@@ -2723,10 +2802,16 @@ fn updateType(
             }
             if (error_set_type.names.len > 0) try uleb128(diw, @intFromEnum(AbbrevCode.null));
         },
-        .inferred_error_set_type => |func| {
-            try uleb128(diw, @intFromEnum(AbbrevCode.inferred_error_set_type));
-            try wip_nav.strp(name);
-            try wip_nav.refType(Type.fromInterned(ip.funcIesResolvedUnordered(func)));
+        .inferred_error_set_type => |func| switch (ip.funcIesResolvedUnordered(func)) {
+            .none => {
+                try uleb128(diw, @intFromEnum(AbbrevCode.void_type));
+                try wip_nav.strp(name);
+            },
+            else => |ies| {
+                try uleb128(diw, @intFromEnum(AbbrevCode.inferred_error_set_type));
+                try wip_nav.strp(name);
+                try wip_nav.refType(Type.fromInterned(ies));
+            },
         },
 
         // values, not types
@@ -3072,7 +3157,8 @@ pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
     if (dwarf.debug_aranges.section.dirty) {
         for (dwarf.debug_aranges.section.units.items, 0..) |*unit_ptr, unit_index| {
             const unit: Unit.Index = @enumFromInt(unit_index);
-            try unit_ptr.cross_section_relocs.ensureUnusedCapacity(dwarf.gpa, 1);
+            unit_ptr.clear();
+            try unit_ptr.cross_section_relocs.ensureTotalCapacity(dwarf.gpa, 1);
             header.clearRetainingCapacity();
             try header.ensureTotalCapacity(unit_ptr.header_len);
             const unit_len = (if (unit_ptr.next.unwrap()) |next_unit|
@@ -3103,8 +3189,9 @@ pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
     if (dwarf.debug_info.section.dirty) {
         for (dwarf.mods.keys(), dwarf.mods.values(), dwarf.debug_info.section.units.items, 0..) |mod, mod_info, *unit_ptr, unit_index| {
             const unit: Unit.Index = @enumFromInt(unit_index);
-            try unit_ptr.cross_unit_relocs.ensureUnusedCapacity(dwarf.gpa, 1);
-            try unit_ptr.cross_section_relocs.ensureUnusedCapacity(dwarf.gpa, 7);
+            unit_ptr.clear();
+            try unit_ptr.cross_unit_relocs.ensureTotalCapacity(dwarf.gpa, 1);
+            try unit_ptr.cross_section_relocs.ensureTotalCapacity(dwarf.gpa, 7);
             header.clearRetainingCapacity();
             try header.ensureTotalCapacity(unit_ptr.header_len);
             const unit_len = (if (unit_ptr.next.unwrap()) |next_unit|
@@ -3195,7 +3282,8 @@ pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
         for (dwarf.mods.values(), dwarf.debug_line.section.units.items) |mod_info, *unit|
             try unit.resizeHeader(&dwarf.debug_line.section, dwarf, DebugLine.headerBytes(dwarf, @intCast(mod_info.dirs.count()), @intCast(mod_info.files.count())));
         for (dwarf.mods.values(), dwarf.debug_line.section.units.items) |mod_info, *unit| {
-            try unit.cross_section_relocs.ensureUnusedCapacity(dwarf.gpa, 2 * (1 + mod_info.files.count()));
+            unit.clear();
+            try unit.cross_section_relocs.ensureTotalCapacity(dwarf.gpa, 2 * (1 + mod_info.files.count()));
             header.clearRetainingCapacity();
             try header.ensureTotalCapacity(unit.header_len);
             const unit_len = (if (unit.next.unwrap()) |next_unit|

@@ -1207,6 +1207,7 @@ pub fn updateNav(
 
     const nav_val = zcu.navValue(nav_index);
     const nav_init = switch (ip.indexToKey(nav_val.toIntern())) {
+        .func => return,
         .variable => |variable| Value.fromInterned(variable.init),
         .@"extern" => |@"extern"| {
             if (ip.isFunctionType(@"extern".ty)) return;
@@ -1220,7 +1221,7 @@ pub fn updateNav(
         else => nav_val,
     };
 
-    if (nav_init.typeOf(zcu).isFnOrHasRuntimeBits(pt)) {
+    if (nav_init.typeOf(zcu).hasRuntimeBits(pt)) {
         const atom_index = try self.getOrCreateAtomForNav(nav_index);
         Atom.freeRelocations(self, atom_index);
         const atom = self.getAtom(atom_index);
