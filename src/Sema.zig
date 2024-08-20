@@ -7598,6 +7598,9 @@ fn analyzeCall(
 
         const module_fn = zcu.funcInfo(module_fn_index);
 
+        // The call site definitely depends on the function's signature.
+        try sema.declareDependency(.{ .src_hash = module_fn.zir_body_inst });
+
         // This is not a function instance, so the function's `Nav` has a
         // `Cau` -- we don't need to check `generic_owner`.
         const fn_nav = ip.getNav(module_fn.owner_nav);
@@ -7754,6 +7757,10 @@ fn analyzeCall(
             sema.branch_count += memoized_call.branch_count;
             break :res Air.internedToRef(memoized_call.result);
         }
+
+        // Since we're doing an inline call, we depend on the source code of the whole
+        // function declaration.
+        try sema.declareDependency(.{ .src_hash = fn_cau.zir_index });
 
         new_fn_info.return_type = sema.fn_ret_ty.toIntern();
         if (!is_comptime_call and !block.is_typeof) {
