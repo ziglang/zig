@@ -266,17 +266,12 @@ pub const Instruction = struct {
 
                         try writer.writeByte('[');
 
-                        var any = false;
+                        var any = true;
                         switch (sib.base) {
-                            .none => {},
-                            .reg => |reg| {
-                                try writer.print("{s}", .{@tagName(reg)});
-                                any = true;
-                            },
-                            inline .frame, .reloc => |payload| {
-                                try writer.print("{}", .{payload});
-                                any = true;
-                            },
+                            .none => any = false,
+                            .reg => |reg| try writer.print("{s}", .{@tagName(reg)}),
+                            .frame => |frame_index| try writer.print("{}", .{frame_index}),
+                            .reloc => |sym_index| try writer.print("Symbol({d})", .{sym_index}),
                         }
                         if (mem.scaleIndex()) |si| {
                             if (any) try writer.writeAll(" + ");
