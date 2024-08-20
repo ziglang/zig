@@ -6915,9 +6915,7 @@ pub const TP_STATUS = extern union {
     },
 };
 
-pub const tpacket_block_desc = extern struct {
-    version: u32,
-    offset_to_priv: u32,
+pub const tpacket_hdr_v1 = extern struct {
     block_status: TP_STATUS,
     num_pkts: u32,
     offset_to_first_pkt: u32,
@@ -6925,6 +6923,27 @@ pub const tpacket_block_desc = extern struct {
     seq_num: u64 align(8),
     ts_first_pkt: tpacket_bd_ts,
     ts_last_pkt: tpacket_bd_ts,
+};
+
+pub const tpacket_bd_header_u = extern union {
+    bh1: tpacket_hdr_v1,
+};
+
+pub const tpacket_block_desc = extern struct {
+    version: u32,
+    offset_to_priv: u32,
+    hdr: tpacket_bd_header_u,
+};
+
+pub const tpacket_hdr_variant1 = extern struct {
+    rxhash: u32,
+    vlan_tci: u32,
+    vlan_tpid: u16,
+    padding: u16,
+};
+
+pub const tpacket3_hdr_variants = extern union {
+    hv1: tpacket_hdr_variant1,
 };
 
 pub const tpacket3_hdr = extern struct {
@@ -6936,10 +6955,8 @@ pub const tpacket3_hdr = extern struct {
     status: u32,
     mac: u16,
     net: u16,
-    rxhash: u32,
-    vlan_tci: u32,
-    vlan_tpid: u16,
-    padding: [10]u8,
+    variant: tpacket3_hdr_variants,
+    padding: [8]u8,
 };
 
 pub const tpacket_stats_v3 = extern struct {
