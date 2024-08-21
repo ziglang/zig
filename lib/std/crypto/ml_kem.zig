@@ -1,12 +1,10 @@
 //! Implementation of the IND-CCA2 post-quantum secure key encapsulation mechanism (KEM)
 //! ML-KEM (NIST FIPS-203 publication) and CRYSTALS-Kyber (v3.02/"draft00" CFRG draft).
 //!
-//! The schemes are not finalized yet, and are still subject to breaking changes.
-//!
 //! The Kyber namespace suffix (currently `_d00`) refers to the version currently
-//! implemented, in accordance with the draft.
-//! The ML-KEM namespace suffix (currently `_01`) refers to the NIST FIPS-203 draft
-//! published on August 24, 2023, with the unintentional transposition of Â having been reverted.
+//! implemented, in accordance with the CFRG draft.
+//!
+//! The ML-KEM namespace refers to the FIPS-203 publication.
 //!
 //! Suffixes may not be updated if new versions of the documents only include editorial changes.
 //! The suffixes will be removed once the schemes are finalized.
@@ -174,7 +172,9 @@ pub const kyber_d00 = struct {
     });
 };
 
-pub const ml_kem_01 = struct {
+pub const ml_kem_01 = @compileError("deprecated: final version of the specification has been published, use ml_kem instead");
+
+pub const ml_kem = struct {
     pub const MLKem512 = Kyber(.{
         .name = "ML-KEM-512",
         .ml_kem = true,
@@ -207,9 +207,9 @@ const modes = [_]type{
     kyber_d00.Kyber512,
     kyber_d00.Kyber768,
     kyber_d00.Kyber1024,
-    ml_kem_01.MLKem512,
-    ml_kem_01.MLKem768,
-    ml_kem_01.MLKem1024,
+    ml_kem.MLKem512,
+    ml_kem.MLKem768,
+    ml_kem.MLKem1024,
 };
 const h_length: usize = 32;
 const inner_seed_length: usize = 32;
@@ -505,7 +505,10 @@ fn Kyber(comptime p: Params) type {
         // Derives inner PKE keypair from given seed.
         fn innerKeyFromSeed(seed: [inner_seed_length]u8, pk: *InnerPk, sk: *InnerSk) void {
             var expanded_seed: [64]u8 = undefined;
-            sha3.Sha3_512.hash(&seed, &expanded_seed, .{});
+            var h = sha3.Sha3_512.init(.{});
+            if (p.ml_kem) h.update(&[1]u8{p.k});
+            h.update(&seed);
+            h.final(&expanded_seed);
             pk.rho = expanded_seed[0..32].*;
             const sigma = expanded_seed[32..64];
             pk.aT = M.uniform(pk.rho, false); // Expand ρ to A; we'll transpose later on
