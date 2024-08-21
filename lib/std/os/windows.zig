@@ -2123,6 +2123,10 @@ pub fn teb() *TEB {
                 );
             }
         },
+        .thumb => asm (
+            \\ mrc p15, 0, %[ptr], c13, c0, 2
+            : [ptr] "=r" (-> *TEB),
+        ),
         .aarch64 => asm (
             \\ mov %[ptr], x18
             : [ptr] "=r" (-> *TEB),
