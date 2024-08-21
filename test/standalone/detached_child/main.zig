@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const windows = std.os.windows;
 
-extern "kernel32" fn GetProcessId(Process: windows.HANDLE) callconv(windows.WINAPI) windows.HANDLE;
+extern "kernel32" fn GetProcessId(Process: windows.HANDLE) callconv(windows.WINAPI) windows.DWORD;
 extern "kernel32" fn GetConsoleProcessList(
     lpdwProcessList: [*]windows.DWORD,
     dwProcessCount: windows.DWORD,
