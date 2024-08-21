@@ -63,24 +63,333 @@ pub const global_symbol_bit: u32 = 0x80000000;
 pub const symbol_mask: u32 = 0x7fffffff;
 pub const SHN_ATOM: u16 = 0x100;
 
-pub fn init(self: *ZigObject, elf_file: *Elf) !void {
+const InitOptions = struct {
+    symbol_count_hint: u64,
+    program_code_size_hint: u64,
+};
+
+pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
+    const ptr_size = elf_file.ptrWidthBytes();
+    const target = elf_file.getTarget();
+    const ptr_bit_width = target.ptrBitWidth();
 
     try self.atoms.append(gpa, .{ .extra_index = try self.addAtomExtra(gpa, .{}) }); // null input section
     try self.relocs.append(gpa, .{}); // null relocs section
     try self.strtab.buffer.append(gpa, 0);
 
-    const name_off = try self.strtab.insert(gpa, self.path);
-    const symbol_index = try self.newLocalSymbol(gpa, name_off);
-    const sym = self.symbol(symbol_index);
-    const esym = &self.symtab.items(.elf_sym)[sym.esym_index];
-    esym.st_info = elf.STT_FILE;
-    esym.st_shndx = elf.SHN_ABS;
+    {
+        const name_off = try self.strtab.insert(gpa, self.path);
+        const symbol_index = try self.newLocalSymbol(gpa, name_off);
+        const sym = self.symbol(symbol_index);
+        const esym = &self.symtab.items(.elf_sym)[sym.esym_index];
+        esym.st_info = elf.STT_FILE;
+        esym.st_shndx = elf.SHN_ABS;
+    }
+
+    const fillSection = struct {
+        fn fillSection(ef: *Elf, shdr: *elf.Elf64_Shdr, size: u64, phndx: ?u16) !void {
+            if (ef.base.isRelocatable()) {
+                const off = try ef.findFreeSpace(size, shdr.sh_addralign);
+                shdr.sh_offset = off;
+                shdr.sh_size = size;
+            } else {
+                const phdr = ef.phdrs.items[phndx.?];
+                shdr.sh_addr = phdr.p_vaddr;
+                shdr.sh_offset = phdr.p_offset;
+                shdr.sh_size = phdr.p_memsz;
+            }
+        }
+    }.fillSection;
+
+    comptime assert(Elf.number_of_zig_segments == 4);
+
+    if (!elf_file.base.isRelocatable()) {
+        if (elf_file.phdr_zig_load_re_index == null) {
+            const filesz = options.program_code_size_hint;
+            const off = try elf_file.findFreeSpace(filesz, elf_file.page_size);
+            elf_file.phdr_zig_load_re_index = try elf_file.addPhdr(.{
+                .type = elf.PT_LOAD,
+                .offset = off,
+                .filesz = filesz,
+                .addr = if (ptr_bit_width >= 32) 0x4000000 else 0x4000,
+                .memsz = filesz,
+                .@"align" = elf_file.page_size,
+                .flags = elf.PF_X | elf.PF_R | elf.PF_W,
+            });
+        }
+
+        if (elf_file.phdr_zig_load_ro_index == null) {
+            const alignment = elf_file.page_size;
+            const filesz: u64 = 1024;
+            const off = try elf_file.findFreeSpace(filesz, alignment);
+            elf_file.phdr_zig_load_ro_index = try elf_file.addPhdr(.{
+                .type = elf.PT_LOAD,
+                .offset = off,
+                .filesz = filesz,
+                .addr = if (ptr_bit_width >= 32) 0xc000000 else 0xa000,
+                .memsz = filesz,
+                .@"align" = alignment,
+                .flags = elf.PF_R | elf.PF_W,
+            });
+        }
+
+        if (elf_file.phdr_zig_load_rw_index == null) {
+            const alignment = elf_file.page_size;
+            const filesz: u64 = 1024;
+            const off = try elf_file.findFreeSpace(filesz, alignment);
+            elf_file.phdr_zig_load_rw_index = try elf_file.addPhdr(.{
+                .type = elf.PT_LOAD,
+                .offset = off,
+                .filesz = filesz,
+                .addr = if (ptr_bit_width >= 32) 0x10000000 else 0xc000,
+                .memsz = filesz,
+                .@"align" = alignment,
+                .flags = elf.PF_R | elf.PF_W,
+            });
+        }
+
+        if (elf_file.phdr_zig_load_zerofill_index == null) {
+            const alignment = elf_file.page_size;
+            elf_file.phdr_zig_load_zerofill_index = try elf_file.addPhdr(.{
+                .type = elf.PT_LOAD,
+                .addr = if (ptr_bit_width >= 32) 0x14000000 else 0xf000,
+                .memsz = 1024,
+                .@"align" = alignment,
+                .flags = elf.PF_R | elf.PF_W,
+            });
+        }
+    }
+
+    if (elf_file.zig_text_section_index == null) {
+        elf_file.zig_text_section_index = try elf_file.addSection(.{
+            .name = try elf_file.insertShString(".text.zig"),
+            .type = elf.SHT_PROGBITS,
+            .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
+            .addralign = 1,
+            .offset = std.math.maxInt(u64),
+        });
+        const shdr = &elf_file.shdrs.items[elf_file.zig_text_section_index.?];
+        try fillSection(elf_file, shdr, options.program_code_size_hint, elf_file.phdr_zig_load_re_index);
+        if (elf_file.base.isRelocatable()) {
+            const rela_shndx = try elf_file.addRelaShdr(
+                try elf_file.insertShString(".rela.text.zig"),
+                elf_file.zig_text_section_index.?,
+            );
+            try elf_file.output_rela_sections.putNoClobber(gpa, elf_file.zig_text_section_index.?, .{
+                .shndx = rela_shndx,
+            });
+        } else {
+            try elf_file.phdr_to_shdr_table.putNoClobber(
+                gpa,
+                elf_file.zig_text_section_index.?,
+                elf_file.phdr_zig_load_re_index.?,
+            );
+        }
+        try elf_file.output_sections.putNoClobber(gpa, elf_file.zig_text_section_index.?, .{});
+        try elf_file.last_atom_and_free_list_table.putNoClobber(gpa, elf_file.zig_text_section_index.?, .{});
+    }
+
+    if (elf_file.zig_data_rel_ro_section_index == null) {
+        elf_file.zig_data_rel_ro_section_index = try elf_file.addSection(.{
+            .name = try elf_file.insertShString(".data.rel.ro.zig"),
+            .type = elf.SHT_PROGBITS,
+            .addralign = 1,
+            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+            .offset = std.math.maxInt(u64),
+        });
+        const shdr = &elf_file.shdrs.items[elf_file.zig_data_rel_ro_section_index.?];
+        try fillSection(elf_file, shdr, 1024, elf_file.phdr_zig_load_ro_index);
+        if (elf_file.base.isRelocatable()) {
+            const rela_shndx = try elf_file.addRelaShdr(
+                try elf_file.insertShString(".rela.data.rel.ro.zig"),
+                elf_file.zig_data_rel_ro_section_index.?,
+            );
+            try elf_file.output_rela_sections.putNoClobber(gpa, elf_file.zig_data_rel_ro_section_index.?, .{
+                .shndx = rela_shndx,
+            });
+        } else {
+            try elf_file.phdr_to_shdr_table.putNoClobber(
+                gpa,
+                elf_file.zig_data_rel_ro_section_index.?,
+                elf_file.phdr_zig_load_ro_index.?,
+            );
+        }
+        try elf_file.output_sections.putNoClobber(gpa, elf_file.zig_data_rel_ro_section_index.?, .{});
+        try elf_file.last_atom_and_free_list_table.putNoClobber(gpa, elf_file.zig_data_rel_ro_section_index.?, .{});
+    }
+
+    if (elf_file.zig_data_section_index == null) {
+        elf_file.zig_data_section_index = try elf_file.addSection(.{
+            .name = try elf_file.insertShString(".data.zig"),
+            .type = elf.SHT_PROGBITS,
+            .addralign = ptr_size,
+            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+            .offset = std.math.maxInt(u64),
+        });
+        const shdr = &elf_file.shdrs.items[elf_file.zig_data_section_index.?];
+        try fillSection(elf_file, shdr, 1024, elf_file.phdr_zig_load_rw_index);
+        if (elf_file.base.isRelocatable()) {
+            const rela_shndx = try elf_file.addRelaShdr(
+                try elf_file.insertShString(".rela.data.zig"),
+                elf_file.zig_data_section_index.?,
+            );
+            try elf_file.output_rela_sections.putNoClobber(gpa, elf_file.zig_data_section_index.?, .{
+                .shndx = rela_shndx,
+            });
+        } else {
+            try elf_file.phdr_to_shdr_table.putNoClobber(
+                gpa,
+                elf_file.zig_data_section_index.?,
+                elf_file.phdr_zig_load_rw_index.?,
+            );
+        }
+        try elf_file.output_sections.putNoClobber(gpa, elf_file.zig_data_section_index.?, .{});
+        try elf_file.last_atom_and_free_list_table.putNoClobber(gpa, elf_file.zig_data_section_index.?, .{});
+    }
+
+    if (elf_file.zig_bss_section_index == null) {
+        elf_file.zig_bss_section_index = try elf_file.addSection(.{
+            .name = try elf_file.insertShString(".bss.zig"),
+            .type = elf.SHT_NOBITS,
+            .addralign = ptr_size,
+            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+            .offset = 0,
+        });
+        const shdr = &elf_file.shdrs.items[elf_file.zig_bss_section_index.?];
+        if (elf_file.phdr_zig_load_zerofill_index) |phndx| {
+            const phdr = elf_file.phdrs.items[phndx];
+            shdr.sh_addr = phdr.p_vaddr;
+            shdr.sh_size = phdr.p_memsz;
+            try elf_file.phdr_to_shdr_table.putNoClobber(gpa, elf_file.zig_bss_section_index.?, phndx);
+        } else {
+            shdr.sh_size = 1024;
+        }
+        try elf_file.output_sections.putNoClobber(gpa, elf_file.zig_bss_section_index.?, .{});
+        try elf_file.last_atom_and_free_list_table.putNoClobber(gpa, elf_file.zig_bss_section_index.?, .{});
+    }
 
     switch (comp.config.debug_format) {
         .strip => {},
-        .dwarf => |v| self.dwarf = Dwarf.init(&elf_file.base, v),
+        .dwarf => |v| {
+            var dwarf = Dwarf.init(&elf_file.base, v);
+
+            const addSectionSymbol = struct {
+                fn addSectionSymbol(
+                    zig_object: *ZigObject,
+                    alloc: Allocator,
+                    name: [:0]const u8,
+                    alignment: Atom.Alignment,
+                    shndx: u32,
+                ) !Symbol.Index {
+                    const name_off = try zig_object.addString(alloc, name);
+                    const index = try zig_object.newSymbolWithAtom(alloc, name_off);
+                    const sym = zig_object.symbol(index);
+                    const esym = &zig_object.symtab.items(.elf_sym)[sym.esym_index];
+                    esym.st_info |= elf.STT_SECTION;
+                    const atom_ptr = zig_object.atom(sym.ref.index).?;
+                    atom_ptr.alignment = alignment;
+                    atom_ptr.output_section_index = shndx;
+                    return index;
+                }
+            }.addSectionSymbol;
+
+            if (elf_file.debug_str_section_index == null) {
+                elf_file.debug_str_section_index = try elf_file.addSection(.{
+                    .name = try elf_file.insertShString(".debug_str"),
+                    .flags = elf.SHF_MERGE | elf.SHF_STRINGS,
+                    .entsize = 1,
+                    .type = elf.SHT_PROGBITS,
+                    .addralign = 1,
+                });
+                self.debug_str_section_dirty = true;
+                self.debug_str_index = try addSectionSymbol(self, gpa, ".debug_str", .@"1", elf_file.debug_str_section_index.?);
+                try elf_file.output_sections.putNoClobber(gpa, elf_file.debug_str_section_index.?, .{});
+            }
+
+            if (elf_file.debug_info_section_index == null) {
+                elf_file.debug_info_section_index = try elf_file.addSection(.{
+                    .name = try elf_file.insertShString(".debug_info"),
+                    .type = elf.SHT_PROGBITS,
+                    .addralign = 1,
+                });
+                self.debug_info_section_dirty = true;
+                self.debug_info_index = try addSectionSymbol(self, gpa, ".debug_info", .@"1", elf_file.debug_info_section_index.?);
+                try elf_file.output_sections.putNoClobber(gpa, elf_file.debug_info_section_index.?, .{});
+            }
+
+            if (elf_file.debug_abbrev_section_index == null) {
+                elf_file.debug_abbrev_section_index = try elf_file.addSection(.{
+                    .name = try elf_file.insertShString(".debug_abbrev"),
+                    .type = elf.SHT_PROGBITS,
+                    .addralign = 1,
+                });
+                self.debug_abbrev_section_dirty = true;
+                self.debug_abbrev_index = try addSectionSymbol(self, gpa, ".debug_abbrev", .@"1", elf_file.debug_abbrev_section_index.?);
+                try elf_file.output_sections.putNoClobber(gpa, elf_file.debug_abbrev_section_index.?, .{});
+            }
+
+            if (elf_file.debug_aranges_section_index == null) {
+                elf_file.debug_aranges_section_index = try elf_file.addSection(.{
+                    .name = try elf_file.insertShString(".debug_aranges"),
+                    .type = elf.SHT_PROGBITS,
+                    .addralign = 16,
+                });
+                self.debug_aranges_section_dirty = true;
+                self.debug_aranges_index = try addSectionSymbol(self, gpa, ".debug_aranges", .@"16", elf_file.debug_aranges_section_index.?);
+                try elf_file.output_sections.putNoClobber(gpa, elf_file.debug_aranges_section_index.?, .{});
+            }
+
+            if (elf_file.debug_line_section_index == null) {
+                elf_file.debug_line_section_index = try elf_file.addSection(.{
+                    .name = try elf_file.insertShString(".debug_line"),
+                    .type = elf.SHT_PROGBITS,
+                    .addralign = 1,
+                });
+                self.debug_line_section_dirty = true;
+                self.debug_line_index = try addSectionSymbol(self, gpa, ".debug_line", .@"1", elf_file.debug_line_section_index.?);
+                try elf_file.output_sections.putNoClobber(gpa, elf_file.debug_line_section_index.?, .{});
+            }
+
+            if (elf_file.debug_line_str_section_index == null) {
+                elf_file.debug_line_str_section_index = try elf_file.addSection(.{
+                    .name = try elf_file.insertShString(".debug_line_str"),
+                    .flags = elf.SHF_MERGE | elf.SHF_STRINGS,
+                    .entsize = 1,
+                    .type = elf.SHT_PROGBITS,
+                    .addralign = 1,
+                });
+                self.debug_line_str_section_dirty = true;
+                self.debug_line_str_index = try addSectionSymbol(self, gpa, ".debug_line_str", .@"1", elf_file.debug_line_str_section_index.?);
+                try elf_file.output_sections.putNoClobber(gpa, elf_file.debug_line_str_section_index.?, .{});
+            }
+
+            if (elf_file.debug_loclists_section_index == null) {
+                elf_file.debug_loclists_section_index = try elf_file.addSection(.{
+                    .name = try elf_file.insertShString(".debug_loclists"),
+                    .type = elf.SHT_PROGBITS,
+                    .addralign = 1,
+                });
+                self.debug_loclists_section_dirty = true;
+                self.debug_loclists_index = try addSectionSymbol(self, gpa, ".debug_loclists", .@"1", elf_file.debug_loclists_section_index.?);
+                try elf_file.output_sections.putNoClobber(gpa, elf_file.debug_loclists_section_index.?, .{});
+            }
+
+            if (elf_file.debug_rnglists_section_index == null) {
+                elf_file.debug_rnglists_section_index = try elf_file.addSection(.{
+                    .name = try elf_file.insertShString(".debug_rnglists"),
+                    .type = elf.SHT_PROGBITS,
+                    .addralign = 1,
+                });
+                self.debug_rnglists_section_dirty = true;
+                self.debug_rnglists_index = try addSectionSymbol(self, gpa, ".debug_rnglists", .@"1", elf_file.debug_rnglists_section_index.?);
+                try elf_file.output_sections.putNoClobber(gpa, elf_file.debug_rnglists_section_index.?, .{});
+            }
+
+            try dwarf.initMetadata();
+            self.dwarf = dwarf;
+        },
         .code_view => unreachable,
     }
 }
@@ -446,7 +755,7 @@ fn newAtom(self: *ZigObject, allocator: Allocator, name_off: u32) !Atom.Index {
     return index;
 }
 
-pub fn newSymbolWithAtom(self: *ZigObject, allocator: Allocator, name_off: u32) !Symbol.Index {
+fn newSymbolWithAtom(self: *ZigObject, allocator: Allocator, name_off: u32) !Symbol.Index {
     const atom_index = try self.newAtom(allocator, name_off);
     const sym_index = try self.newLocalSymbol(allocator, name_off);
     const sym = self.symbol(sym_index);
