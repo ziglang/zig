@@ -32,7 +32,7 @@ pub const available_libcs = [_]ArchOsAbi{
     .{ .arch = .thumbeb, .os = .linux, .abi = .gnueabihf },
     .{ .arch = .thumbeb, .os = .linux, .abi = .musleabi },
     .{ .arch = .thumbeb, .os = .linux, .abi = .musleabihf },
-    .{ .arch = .arm, .os = .windows, .abi = .gnu },
+    .{ .arch = .thumb, .os = .windows, .abi = .gnu },
     .{ .arch = .csky, .os = .linux, .abi = .gnueabi, .glibc_min = .{ .major = 2, .minor = 29, .patch = 0 } },
     .{ .arch = .csky, .os = .linux, .abi = .gnueabihf, .glibc_min = .{ .major = 2, .minor = 29, .patch = 0 } },
     .{ .arch = .x86, .os = .linux, .abi = .gnu },
