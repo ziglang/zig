@@ -648,6 +648,9 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.St
         .sanitize_thread = options.sanitize_thread,
         .single_threaded = options.single_threaded,
         .code_model = switch (options.target.result.cpu.arch) {
+            // FIXME:
+            // now it is only possible to set code model to medium
+            // to build zig on loongarch64 that is debuggable.
             .loongarch64 => .medium,
             else => .default,
         }
