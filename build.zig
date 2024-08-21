@@ -653,7 +653,7 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.St
             // to build zig on loongarch64 that is debuggable.
             .loongarch64 => .medium,
             else => .default,
-        }
+        },
     });
     exe.root_module.valgrind = options.valgrind;
     exe.stack_size = stack_size;
