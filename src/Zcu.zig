@@ -2554,17 +2554,28 @@ pub fn mapOldZirToNew(
     var match_stack: std.ArrayListUnmanaged(MatchedZirDecl) = .{};
     defer match_stack.deinit(gpa);
 
-    // Main struct inst is always matched
-    try match_stack.append(gpa, .{
-        .old_inst = .main_struct_inst,
-        .new_inst = .main_struct_inst,
-    });
-
     // Used as temporary buffers for namespace declaration instructions
     var old_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .{};
     defer old_decls.deinit(gpa);
     var new_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .{};
     defer new_decls.deinit(gpa);
+
+    // Map the main struct inst (and anything in its fields)
+    {
+        try old_zir.findDeclsRoot(gpa, &old_decls);
+        try new_zir.findDeclsRoot(gpa, &new_decls);
+
+        assert(old_decls.items[0] == .main_struct_inst);
+        assert(new_decls.items[0] == .main_struct_inst);
+
+        // We don't have any smart way of matching up these type declarations, so we always
+        // correlate them based on source order.
+        const n = @min(old_decls.items.len, new_decls.items.len);
+        try match_stack.ensureUnusedCapacity(gpa, n);
+        for (old_decls.items[0..n], new_decls.items[0..n]) |old_inst, new_inst| {
+            match_stack.appendAssumeCapacity(.{ .old_inst = old_inst, .new_inst = new_inst });
+        }
+    }
 
     while (match_stack.popOrNull()) |match_item| {
         // Match the namespace declaration itself
