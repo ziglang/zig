@@ -635,7 +635,7 @@ pub fn futex2_waitv(
 }
 
 /// Wait on a futex.
-/// Identical to the traditional FUTEX_WAIT_BITSET op, except it is part of the
+/// Identical to the traditional `FUTEX.FUTEX_WAIT_BITSET` op, except it is part of the
 /// futex2 familiy of calls.
 pub fn futex2_wait(
     /// Address of the futex to wait on.
@@ -663,7 +663,7 @@ pub fn futex2_wait(
 }
 
 /// Wake a number of futexes.
-/// Identical to the traditional FUTEX_WAKE_BITSET op, except it is part of the
+/// Identical to the traditional `FUTEX.FUTEX_WAIT_BITSET` op, except it is part of the
 /// futex2 family of calls.
 pub fn futex2_wake(
     /// Address of the futex(es) to wake.
