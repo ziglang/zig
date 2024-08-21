@@ -1909,7 +1909,7 @@ fn calcSectionSizes(self: *MachO) !void {
             }
         }
 
-        // At this point, we can also calculate symtab and data-in-code linkedit section sizes
+        // At this point, we can also calculate most of the symtab and data-in-code linkedit section sizes
         if (self.getZigObject()) |zo| {
             tp.spawnWg(&wg, File.calcSymtabSize, .{ zo.asFile(), self });
         }
@@ -2463,6 +2463,9 @@ fn writeSectionsAndUpdateLinkeditSizes(self: *MachO) !void {
         if (self.getInternalObject()) |obj| {
             tp.spawnWg(&wg, File.writeSymtab, .{ obj.asFile(), self, self });
         }
+        if (self.requiresThunks()) for (self.thunks.items) |th| {
+            tp.spawnWg(&wg, Thunk.writeSymtab, .{ th, self, self });
+        };
     }
 
     if (self.has_errors.swap(false, .seq_cst)) return error.FlushFailure;
@@ -2724,6 +2727,14 @@ fn calcSymtabSize(self: *MachO) !void {
     var nexports: u32 = 0;
     var nimports: u32 = 0;
     var strsize: u32 = 1;
+
+    if (self.requiresThunks()) for (self.thunks.items) |*th| {
+        th.output_symtab_ctx.ilocal = nlocals;
+        th.output_symtab_ctx.stroff = strsize;
+        th.calcSymtabSize(self);
+        nlocals += th.output_symtab_ctx.nlocals;
+        strsize += th.output_symtab_ctx.strsize;
+    };
 
     for (files.items) |index| {
         const file = self.getFile(index).?;

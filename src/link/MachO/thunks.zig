@@ -85,6 +85,7 @@ pub const Thunk = struct {
     value: u64 = 0,
     out_n_sect: u8 = 0,
     symbols: std.AutoArrayHashMapUnmanaged(MachO.Ref, void) = .{},
+    output_symtab_ctx: MachO.SymtabCtx = .{},
 
     pub fn deinit(thunk: *Thunk, allocator: Allocator) void {
         thunk.symbols.deinit(allocator);
@@ -113,6 +114,34 @@ pub const Thunk = struct {
             const off: u12 = @truncate(taddr);
             try writer.writeInt(u32, aarch64.Instruction.add(.x16, .x16, off, false).toU32(), .little);
             try writer.writeInt(u32, aarch64.Instruction.br(.x16).toU32(), .little);
+        }
+    }
+
+    pub fn calcSymtabSize(thunk: *Thunk, macho_file: *MachO) void {
+        thunk.output_symtab_ctx.nlocals = @as(u32, @intCast(thunk.symbols.keys().len));
+        for (thunk.symbols.keys()) |ref| {
+            const sym = ref.getSymbol(macho_file).?;
+            thunk.output_symtab_ctx.strsize += @as(u32, @intCast(sym.getName(macho_file).len + "__thunk".len + 1));
+        }
+    }
+
+    pub fn writeSymtab(thunk: Thunk, macho_file: *MachO, ctx: anytype) void {
+        var n_strx = thunk.output_symtab_ctx.stroff;
+        for (thunk.symbols.keys(), thunk.output_symtab_ctx.ilocal..) |ref, ilocal| {
+            const sym = ref.getSymbol(macho_file).?;
+            const name = sym.getName(macho_file);
+            const out_sym = &ctx.symtab.items[ilocal];
+            out_sym.n_strx = n_strx;
+            @memcpy(ctx.strtab.items[n_strx..][0..name.len], name);
+            n_strx += @intCast(name.len);
+            @memcpy(ctx.strtab.items[n_strx..][0.."__thunk".len], "__thunk");
+            n_strx += @intCast("__thunk".len);
+            ctx.strtab.items[n_strx] = 0;
+            n_strx += 1;
+            out_sym.n_type = macho.N_SECT;
+            out_sym.n_sect = @intCast(thunk.out_n_sect + 1);
+            out_sym.n_value = @intCast(thunk.getTargetAddress(ref, macho_file));
+            out_sym.n_desc = 0;
         }
     }
 
