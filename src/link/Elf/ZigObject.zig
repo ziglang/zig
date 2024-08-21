@@ -50,16 +50,14 @@ debug_line_str_section_dirty: bool = false,
 debug_loclists_section_dirty: bool = false,
 debug_rnglists_section_dirty: bool = false,
 
-/// Size contribution of Zig's metadata to each debug section.
-/// Used to track start of metadata from input object files.
-debug_info_section_zig_size: u64 = 0,
-debug_abbrev_section_zig_size: u64 = 0,
-debug_str_section_zig_size: u64 = 0,
-debug_aranges_section_zig_size: u64 = 0,
-debug_line_section_zig_size: u64 = 0,
-debug_line_str_section_zig_size: u64 = 0,
-debug_loclists_section_zig_size: u64 = 0,
-debug_rnglists_section_zig_size: u64 = 0,
+debug_info_index: ?Symbol.Index = null,
+debug_abbrev_index: ?Symbol.Index = null,
+debug_aranges_index: ?Symbol.Index = null,
+debug_str_index: ?Symbol.Index = null,
+debug_line_index: ?Symbol.Index = null,
+debug_line_str_index: ?Symbol.Index = null,
+debug_loclists_index: ?Symbol.Index = null,
+debug_rnglists_index: ?Symbol.Index = null,
 
 pub const global_symbol_bit: u32 = 0x80000000;
 pub const symbol_mask: u32 = 0x7fffffff;
@@ -171,13 +169,154 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
     if (self.dwarf) |*dwarf| {
         const pt: Zcu.PerThread = .{ .zcu = elf_file.base.comp.module.?, .tid = tid };
         try dwarf.flushModule(pt);
+        try dwarf.resolveRelocs();
+
+        const gpa = elf_file.base.comp.gpa;
+        const cpu_arch = elf_file.getTarget().cpu.arch;
+
+        // TODO invert this logic so that we manage the output section with the atom, not the
+        // other way around
+        for ([_]u32{
+            self.debug_info_index.?,
+            self.debug_abbrev_index.?,
+            self.debug_str_index.?,
+            self.debug_aranges_index.?,
+            self.debug_line_index.?,
+            self.debug_line_str_index.?,
+            self.debug_loclists_index.?,
+            self.debug_rnglists_index.?,
+        }, [_]*Dwarf.Section{
+            &dwarf.debug_info.section,
+            &dwarf.debug_abbrev.section,
+            &dwarf.debug_str.section,
+            &dwarf.debug_aranges.section,
+            &dwarf.debug_line.section,
+            &dwarf.debug_line_str.section,
+            &dwarf.debug_loclists.section,
+            &dwarf.debug_rnglists.section,
+        }) |sym_index, sect| {
+            const sym = self.symbol(sym_index);
+            const atom_ptr = self.atom(sym.ref.index).?;
+            if (!atom_ptr.alive) continue;
+            const shndx = sym.outputShndx(elf_file).?;
+            const shdr = elf_file.shdrs.items[shndx];
+            const esym = &self.symtab.items(.elf_sym)[sym.esym_index];
+            esym.st_size = shdr.sh_size;
+            atom_ptr.size = shdr.sh_size;
+            atom_ptr.alignment = Atom.Alignment.fromNonzeroByteUnits(shdr.sh_addralign);
+
+            log.debug("parsing relocs in {s}", .{sym.name(elf_file)});
+
+            const relocs = &self.relocs.items[atom_ptr.relocsShndx().?];
+            for (sect.units.items) |*unit| {
+                try relocs.ensureUnusedCapacity(gpa, unit.cross_section_relocs.items.len);
+                for (unit.cross_section_relocs.items) |reloc| {
+                    const target_sym_index = switch (reloc.target_sec) {
+                        .debug_abbrev => self.debug_abbrev_index.?,
+                        .debug_info => self.debug_info_index.?,
+                        .debug_line => self.debug_line_index.?,
+                        .debug_line_str => self.debug_line_str_index.?,
+                        .debug_loclists => self.debug_loclists_index.?,
+                        .debug_rnglists => self.debug_rnglists_index.?,
+                        .debug_str => self.debug_str_index.?,
+                    };
+                    const target_sec = switch (reloc.target_sec) {
+                        inline else => |target_sec| &@field(dwarf, @tagName(target_sec)).section,
+                    };
+                    const target_unit = target_sec.getUnit(reloc.target_unit);
+                    const r_offset = unit.off + reloc.source_off;
+                    const r_addend: i64 = @intCast(target_unit.off + reloc.target_off + (if (reloc.target_entry.unwrap()) |target_entry|
+                        target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(unit, sect, dwarf).off
+                    else
+                        0));
+                    const r_type = relocation.dwarf.crossSectionRelocType(dwarf.format, cpu_arch);
+                    log.debug("  {s} <- r_off={x}, r_add={x}, r_type={}", .{
+                        self.symbol(target_sym_index).name(elf_file),
+                        r_offset,
+                        r_addend,
+                        relocation.fmtRelocType(r_type, cpu_arch),
+                    });
+                    atom_ptr.addRelocAssumeCapacity(.{
+                        .r_offset = r_offset,
+                        .r_addend = r_addend,
+                        .r_info = (@as(u64, @intCast(target_sym_index)) << 32) | r_type,
+                    }, self);
+                }
+
+                for (unit.entries.items) |*entry| {
+                    const entry_off = unit.off + unit.header_len + entry.off;
+
+                    try relocs.ensureUnusedCapacity(gpa, entry.cross_section_relocs.items.len);
+                    for (entry.cross_section_relocs.items) |reloc| {
+                        const target_sym_index = switch (reloc.target_sec) {
+                            .debug_abbrev => self.debug_abbrev_index.?,
+                            .debug_info => self.debug_info_index.?,
+                            .debug_line => self.debug_line_index.?,
+                            .debug_line_str => self.debug_line_str_index.?,
+                            .debug_loclists => self.debug_loclists_index.?,
+                            .debug_rnglists => self.debug_rnglists_index.?,
+                            .debug_str => self.debug_str_index.?,
+                        };
+                        const target_sec = switch (reloc.target_sec) {
+                            inline else => |target_sec| &@field(dwarf, @tagName(target_sec)).section,
+                        };
+                        const target_unit = target_sec.getUnit(reloc.target_unit);
+                        const r_offset = entry_off + reloc.source_off;
+                        const r_addend: i64 = @intCast(target_unit.off + reloc.target_off + (if (reloc.target_entry.unwrap()) |target_entry|
+                            target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(unit, sect, dwarf).off
+                        else
+                            0));
+                        const r_type = relocation.dwarf.crossSectionRelocType(dwarf.format, cpu_arch);
+                        log.debug("  {s} <- r_off={x}, r_add={x}, r_type={}", .{
+                            self.symbol(target_sym_index).name(elf_file),
+                            r_offset,
+                            r_addend,
+                            relocation.fmtRelocType(r_type, cpu_arch),
+                        });
+                        atom_ptr.addRelocAssumeCapacity(.{
+                            .r_offset = r_offset,
+                            .r_addend = r_addend,
+                            .r_info = (@as(u64, @intCast(target_sym_index)) << 32) | r_type,
+                        }, self);
+                    }
+
+                    try relocs.ensureUnusedCapacity(gpa, entry.external_relocs.items.len);
+                    for (entry.external_relocs.items) |reloc| {
+                        const target_sym = self.symbol(reloc.target_sym);
+                        const r_offset = entry_off + reloc.source_off;
+                        const r_addend: i64 = @intCast(reloc.target_off);
+                        const r_type = relocation.dwarf.externalRelocType(target_sym.*, dwarf.address_size, cpu_arch);
+                        log.debug("  {s} <- r_off={x}, r_add={x}, r_type={}", .{
+                            target_sym.name(elf_file),
+                            r_offset,
+                            r_addend,
+                            relocation.fmtRelocType(r_type, cpu_arch),
+                        });
+                        atom_ptr.addRelocAssumeCapacity(.{
+                            .r_offset = r_offset,
+                            .r_addend = r_addend,
+                            .r_info = (@as(u64, @intCast(reloc.target_sym)) << 32) | r_type,
+                        }, self);
+                    }
+                }
+            }
+
+            if (elf_file.base.isRelocatable() and relocs.items.len > 0) {
+                const gop = try elf_file.output_rela_sections.getOrPut(gpa, shndx);
+                if (!gop.found_existing) {
+                    const rela_sect_name = try std.fmt.allocPrintZ(gpa, ".rela{s}", .{elf_file.getShString(shdr.sh_name)});
+                    defer gpa.free(rela_sect_name);
+                    const rela_sh_name = try elf_file.insertShString(rela_sect_name);
+                    const rela_shndx = try elf_file.addRelaShdr(rela_sh_name, shndx);
+                    gop.value_ptr.* = .{ .shndx = rela_shndx };
+                }
+            }
+        }
 
         self.debug_abbrev_section_dirty = false;
         self.debug_aranges_section_dirty = false;
         self.debug_rnglists_section_dirty = false;
         self.debug_str_section_dirty = false;
-
-        self.saveDebugSectionsSizes(elf_file);
     }
 
     // The point of flushModule() is to commit changes, so in theory, nothing should
@@ -188,33 +327,6 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
     assert(!self.debug_aranges_section_dirty);
     assert(!self.debug_rnglists_section_dirty);
     assert(!self.debug_str_section_dirty);
-}
-
-fn saveDebugSectionsSizes(self: *ZigObject, elf_file: *Elf) void {
-    if (elf_file.debug_info_section_index) |shndx| {
-        self.debug_info_section_zig_size = elf_file.shdrs.items[shndx].sh_size;
-    }
-    if (elf_file.debug_abbrev_section_index) |shndx| {
-        self.debug_abbrev_section_zig_size = elf_file.shdrs.items[shndx].sh_size;
-    }
-    if (elf_file.debug_str_section_index) |shndx| {
-        self.debug_str_section_zig_size = elf_file.shdrs.items[shndx].sh_size;
-    }
-    if (elf_file.debug_aranges_section_index) |shndx| {
-        self.debug_aranges_section_zig_size = elf_file.shdrs.items[shndx].sh_size;
-    }
-    if (elf_file.debug_line_section_index) |shndx| {
-        self.debug_line_section_zig_size = elf_file.shdrs.items[shndx].sh_size;
-    }
-    if (elf_file.debug_line_str_section_index) |shndx| {
-        self.debug_line_str_section_zig_size = elf_file.shdrs.items[shndx].sh_size;
-    }
-    if (elf_file.debug_loclists_section_index) |shndx| {
-        self.debug_loclists_section_zig_size = elf_file.shdrs.items[shndx].sh_size;
-    }
-    if (elf_file.debug_rnglists_section_index) |shndx| {
-        self.debug_rnglists_section_zig_size = elf_file.shdrs.items[shndx].sh_size;
-    }
 }
 
 fn newSymbol(self: *ZigObject, allocator: Allocator, name_off: u32, st_bind: u4) !Symbol.Index {
@@ -278,7 +390,7 @@ fn newAtom(self: *ZigObject, allocator: Allocator, name_off: u32) !Atom.Index {
     return index;
 }
 
-fn newSymbolWithAtom(self: *ZigObject, allocator: Allocator, name_off: u32) !Symbol.Index {
+pub fn newSymbolWithAtom(self: *ZigObject, allocator: Allocator, name_off: u32) !Symbol.Index {
     const atom_index = try self.newAtom(allocator, name_off);
     const sym_index = try self.newLocalSymbol(allocator, name_off);
     const sym = self.symbol(sym_index);
@@ -642,11 +754,11 @@ pub fn getNavVAddr(
     const vaddr = this_sym.address(.{}, elf_file);
     const parent_atom = self.symbol(reloc_info.parent_atom_index).atom(elf_file).?;
     const r_type = relocation.encode(.abs, elf_file.getTarget().cpu.arch);
-    try parent_atom.addReloc(elf_file, .{
+    try parent_atom.addReloc(elf_file.base.comp.gpa, .{
         .r_offset = reloc_info.offset,
         .r_info = (@as(u64, @intCast(this_sym_index)) << 32) | r_type,
         .r_addend = reloc_info.addend,
-    });
+    }, self);
     return @intCast(vaddr);
 }
 
@@ -661,11 +773,11 @@ pub fn getUavVAddr(
     const vaddr = sym.address(.{}, elf_file);
     const parent_atom = self.symbol(reloc_info.parent_atom_index).atom(elf_file).?;
     const r_type = relocation.encode(.abs, elf_file.getTarget().cpu.arch);
-    try parent_atom.addReloc(elf_file, .{
+    try parent_atom.addReloc(elf_file.base.comp.gpa, .{
         .r_offset = reloc_info.offset,
         .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
         .r_addend = reloc_info.addend,
-    });
+    }, self);
     return @intCast(vaddr);
 }
 
@@ -1012,7 +1124,7 @@ pub fn updateFunc(
     log.debug("updateFunc {}({d})", .{ ip.getNav(func.owner_nav).fqn.fmt(ip), func.owner_nav });
 
     const sym_index = try self.getOrCreateMetadataForNav(elf_file, func.owner_nav);
-    self.symbol(sym_index).atom(elf_file).?.freeRelocs(elf_file);
+    self.symbol(sym_index).atom(elf_file).?.freeRelocs(self);
 
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
@@ -1140,7 +1252,7 @@ pub fn updateNav(
 
     if (nav_init != .none and Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(pt)) {
         const sym_index = try self.getOrCreateMetadataForNav(elf_file, nav_index);
-        self.symbol(sym_index).atom(elf_file).?.freeRelocs(elf_file);
+        self.symbol(sym_index).atom(elf_file).?.freeRelocs(self);
 
         var code_buffer = std.ArrayList(u8).init(zcu.gpa);
         defer code_buffer.deinit();
@@ -1529,7 +1641,7 @@ pub fn asFile(self: *ZigObject) File {
     return .{ .zig_object = self };
 }
 
-fn addString(self: *ZigObject, allocator: Allocator, string: []const u8) !u32 {
+pub fn addString(self: *ZigObject, allocator: Allocator, string: []const u8) !u32 {
     return self.strtab.insert(allocator, string);
 }
 

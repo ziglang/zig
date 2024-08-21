@@ -201,7 +201,7 @@ const StringSection = struct {
 };
 
 /// A linker section containing a sequence of `Unit`s.
-const Section = struct {
+pub const Section = struct {
     dirty: bool,
     pad_to_ideal: bool,
     alignment: InternPool.Alignment,
@@ -287,7 +287,7 @@ const Section = struct {
         return sec.getUnit(unit).addEntry(sec, dwarf);
     }
 
-    fn getUnit(sec: *Section, unit: Unit.Index) *Unit {
+    pub fn getUnit(sec: *Section, unit: Unit.Index) *Unit {
         return &sec.units.items[@intFromEnum(unit)];
     }
 
@@ -368,7 +368,7 @@ const Unit = struct {
             none = std.math.maxInt(u32),
             _,
 
-            fn unwrap(uio: Optional) ?Index {
+            pub fn unwrap(uio: Optional) ?Index {
                 return if (uio != .none) @enumFromInt(@intFromEnum(uio)) else null;
             }
         };
@@ -415,7 +415,7 @@ const Unit = struct {
         return entry;
     }
 
-    fn getEntry(unit: *Unit, entry: Entry.Index) *Entry {
+    pub fn getEntry(unit: *Unit, entry: Entry.Index) *Entry {
         return &unit.entries.items[@intFromEnum(entry)];
     }
 
@@ -614,7 +614,7 @@ const Entry = struct {
             none = std.math.maxInt(u32),
             _,
 
-            fn unwrap(eio: Optional) ?Index {
+            pub fn unwrap(eio: Optional) ?Index {
                 return if (eio != .none) @enumFromInt(@intFromEnum(eio)) else null;
             }
         };
@@ -736,7 +736,7 @@ const Entry = struct {
         }
     }
 
-    fn assertNonEmpty(entry: *Entry, unit: *Unit, sec: *Section, dwarf: *Dwarf) *Entry {
+    pub fn assertNonEmpty(entry: *Entry, unit: *Unit, sec: *Section, dwarf: *Dwarf) *Entry {
         if (entry.len > 0) return entry;
         if (std.debug.runtime_safety) {
             log.err("missing {} from {s}", .{
@@ -1958,11 +1958,10 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
     const loc = tree.tokenLocation(0, tree.nodes.items(.main_token)[decl_inst.data.declaration.src_node]);
     assert(loc.line == zcu.navSrcLine(nav_index));
 
-    const unit = try dwarf.getUnit(file.mod);
     var wip_nav: WipNav = .{
         .dwarf = dwarf,
         .pt = pt,
-        .unit = unit,
+        .unit = try dwarf.getUnit(file.mod),
         .entry = undefined,
         .any_children = false,
         .func = .none,
@@ -1981,7 +1980,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
     switch (ip.indexToKey(nav_val.toIntern())) {
         .func => |func| {
             if (nav_gop.found_existing) {
-                const unit_ptr = dwarf.debug_info.section.getUnit(unit);
+                const unit_ptr = dwarf.debug_info.section.getUnit(wip_nav.unit);
                 const entry_ptr = unit_ptr.getEntry(nav_gop.value_ptr.*);
                 if (entry_ptr.len >= AbbrevCode.decl_bytes) {
                     var abbrev_code_buf: [AbbrevCode.decl_bytes]u8 = undefined;
@@ -2000,7 +1999,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                     }
                 }
                 entry_ptr.clear();
-            } else nav_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
+            } else nav_gop.value_ptr.* = try dwarf.addCommonEntry(wip_nav.unit);
             wip_nav.entry = nav_gop.value_ptr.*;
 
             const parent_type, const accessibility: u8 = if (nav.analysis_owner.unwrap()) |cau| parent: {
@@ -2074,8 +2073,14 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                 if (type_inst_info.inst != value_inst) break :decl_struct;
 
                 const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
-                if (type_gop.found_existing) nav_gop.value_ptr.* = type_gop.value_ptr.* else {
-                    if (!nav_gop.found_existing) nav_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
+                if (type_gop.found_existing) {
+                    dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).clear();
+                    nav_gop.value_ptr.* = type_gop.value_ptr.*;
+                } else {
+                    if (nav_gop.found_existing)
+                        dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(nav_gop.value_ptr.*).clear()
+                    else
+                        nav_gop.value_ptr.* = try dwarf.addCommonEntry(wip_nav.unit);
                     type_gop.value_ptr.* = nav_gop.value_ptr.*;
                 }
                 wip_nav.entry = nav_gop.value_ptr.*;
@@ -2139,7 +2144,10 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                 break :done;
             }
 
-            if (!nav_gop.found_existing) nav_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
+            if (nav_gop.found_existing)
+                dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(nav_gop.value_ptr.*).clear()
+            else
+                nav_gop.value_ptr.* = try dwarf.addCommonEntry(wip_nav.unit);
             wip_nav.entry = nav_gop.value_ptr.*;
             const diw = wip_nav.debug_info.writer(dwarf.gpa);
             try uleb128(diw, @intFromEnum(AbbrevCode.decl_alias));
@@ -2190,8 +2198,14 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                 if (type_inst_info.inst != value_inst) break :decl_enum;
 
                 const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
-                if (type_gop.found_existing) nav_gop.value_ptr.* = type_gop.value_ptr.* else {
-                    if (!nav_gop.found_existing) nav_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
+                if (type_gop.found_existing) {
+                    dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).clear();
+                    nav_gop.value_ptr.* = type_gop.value_ptr.*;
+                } else {
+                    if (nav_gop.found_existing)
+                        dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(nav_gop.value_ptr.*).clear()
+                    else
+                        nav_gop.value_ptr.* = try dwarf.addCommonEntry(wip_nav.unit);
                     type_gop.value_ptr.* = nav_gop.value_ptr.*;
                 }
                 wip_nav.entry = nav_gop.value_ptr.*;
@@ -2215,7 +2229,10 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                 break :done;
             }
 
-            if (!nav_gop.found_existing) nav_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
+            if (nav_gop.found_existing)
+                dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(nav_gop.value_ptr.*).clear()
+            else
+                nav_gop.value_ptr.* = try dwarf.addCommonEntry(wip_nav.unit);
             wip_nav.entry = nav_gop.value_ptr.*;
             const diw = wip_nav.debug_info.writer(dwarf.gpa);
             try uleb128(diw, @intFromEnum(AbbrevCode.decl_alias));
@@ -2264,8 +2281,14 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                 if (type_inst_info.inst != value_inst) break :decl_union;
 
                 const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
-                if (type_gop.found_existing) nav_gop.value_ptr.* = type_gop.value_ptr.* else {
-                    if (!nav_gop.found_existing) nav_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
+                if (type_gop.found_existing) {
+                    dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).clear();
+                    nav_gop.value_ptr.* = type_gop.value_ptr.*;
+                } else {
+                    if (nav_gop.found_existing)
+                        dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(nav_gop.value_ptr.*).clear()
+                    else
+                        nav_gop.value_ptr.* = try dwarf.addCommonEntry(wip_nav.unit);
                     type_gop.value_ptr.* = nav_gop.value_ptr.*;
                 }
                 wip_nav.entry = nav_gop.value_ptr.*;
@@ -2328,7 +2351,10 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                 break :done;
             }
 
-            if (!nav_gop.found_existing) nav_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
+            if (nav_gop.found_existing)
+                dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(nav_gop.value_ptr.*).clear()
+            else
+                nav_gop.value_ptr.* = try dwarf.addCommonEntry(wip_nav.unit);
             wip_nav.entry = nav_gop.value_ptr.*;
             const diw = wip_nav.debug_info.writer(dwarf.gpa);
             try uleb128(diw, @intFromEnum(AbbrevCode.decl_alias));
@@ -2377,8 +2403,14 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                 if (type_inst_info.inst != value_inst) break :decl_opaque;
 
                 const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
-                if (type_gop.found_existing) nav_gop.value_ptr.* = type_gop.value_ptr.* else {
-                    if (!nav_gop.found_existing) nav_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
+                if (type_gop.found_existing) {
+                    dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).clear();
+                    nav_gop.value_ptr.* = type_gop.value_ptr.*;
+                } else {
+                    if (nav_gop.found_existing)
+                        dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(nav_gop.value_ptr.*).clear()
+                    else
+                        nav_gop.value_ptr.* = try dwarf.addCommonEntry(wip_nav.unit);
                     type_gop.value_ptr.* = nav_gop.value_ptr.*;
                 }
                 wip_nav.entry = nav_gop.value_ptr.*;
@@ -2394,7 +2426,10 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                 break :done;
             }
 
-            if (!nav_gop.found_existing) nav_gop.value_ptr.* = try dwarf.addCommonEntry(unit);
+            if (nav_gop.found_existing)
+                dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(nav_gop.value_ptr.*).clear()
+            else
+                nav_gop.value_ptr.* = try dwarf.addCommonEntry(wip_nav.unit);
             wip_nav.entry = nav_gop.value_ptr.*;
             const diw = wip_nav.debug_info.writer(dwarf.gpa);
             try uleb128(diw, @intFromEnum(AbbrevCode.decl_alias));
@@ -2412,7 +2447,6 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
         },
     }
     try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.items);
-    try dwarf.debug_loclists.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_loclists.items);
     try wip_nav.flush();
 }
 

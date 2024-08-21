@@ -695,6 +695,44 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
     );
+    db.addLldbTest(
+        "link_object",
+        target,
+        &.{
+            .{
+                .path = "main.zig",
+                .source =
+                \\extern fn fabsf(f32) f32;
+                \\pub fn main() void {
+                \\    var x: f32 = -1234.5;
+                \\    x = fabsf(x);
+                \\    _ = &x;
+                \\}
+                ,
+            },
+        },
+        \\breakpoint set --file main.zig --source-pattern-regexp 'x = fabsf\(x\);'
+        \\process launch
+        \\frame variable x
+        \\breakpoint delete --force 1
+        \\
+        \\breakpoint set --file main.zig --source-pattern-regexp '_ = &x;'
+        \\process continue
+        \\frame variable x
+        \\breakpoint delete --force 2
+    ,
+        &.{
+            \\(lldb) frame variable x
+            \\(f32) x = -1234.5
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+            ,
+            \\(lldb) frame variable x
+            \\(f32) x = 1234.5
+            \\(lldb) breakpoint delete --force 2
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
 }
 
 const File = struct { import: ?[]const u8 = null, path: []const u8, source: []const u8 };
