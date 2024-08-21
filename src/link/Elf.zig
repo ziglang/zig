@@ -4184,26 +4184,21 @@ pub fn allocateNonAllocSections(self: *Elf) !void {
                     shdr.sh_offset,
                     new_offset,
                 });
-                const zig_object = self.zigObjectPtr().?;
-                const existing_size = blk: {
-                    if (shndx == self.debug_info_section_index.?)
-                        break :blk zig_object.debug_info_section_zig_size;
-                    if (shndx == self.debug_abbrev_section_index.?)
-                        break :blk zig_object.debug_abbrev_section_zig_size;
-                    if (shndx == self.debug_str_section_index.?)
-                        break :blk zig_object.debug_str_section_zig_size;
-                    if (shndx == self.debug_aranges_section_index.?)
-                        break :blk zig_object.debug_aranges_section_zig_size;
-                    if (shndx == self.debug_line_section_index.?)
-                        break :blk zig_object.debug_line_section_zig_size;
-                    if (shndx == self.debug_line_str_section_index.?)
-                        break :blk zig_object.debug_line_str_section_zig_size;
-                    if (shndx == self.debug_loclists_section_index.?)
-                        break :blk zig_object.debug_loclists_section_zig_size;
-                    if (shndx == self.debug_rnglists_section_index.?)
-                        break :blk zig_object.debug_rnglists_section_zig_size;
-                    unreachable;
-                };
+                const zo = self.zigObjectPtr().?;
+                const existing_size = for ([_]Symbol.Index{
+                    zo.debug_info_index.?,
+                    zo.debug_abbrev_index.?,
+                    zo.debug_aranges_index.?,
+                    zo.debug_str_index.?,
+                    zo.debug_line_index.?,
+                    zo.debug_line_str_index.?,
+                    zo.debug_loclists_index.?,
+                    zo.debug_rnglists_index.?,
+                }) |sym_index| {
+                    const sym = zo.symbol(sym_index);
+                    const atom_ptr = sym.atom(self).?;
+                    if (atom_ptr.output_section_index == shndx) break atom_ptr.size;
+                } else 0;
                 const amt = try self.base.file.?.copyRangeAll(
                     shdr.sh_offset,
                     self.base.file.?,
@@ -4299,24 +4294,21 @@ fn writeAtoms(self: *Elf) !void {
 
         // TODO really, really handle debug section separately
         const base_offset = if (self.isDebugSection(@intCast(shndx))) blk: {
-            const zig_object = self.zigObjectPtr().?;
-            if (shndx == self.debug_info_section_index.?)
-                break :blk zig_object.debug_info_section_zig_size;
-            if (shndx == self.debug_abbrev_section_index.?)
-                break :blk zig_object.debug_abbrev_section_zig_size;
-            if (shndx == self.debug_str_section_index.?)
-                break :blk zig_object.debug_str_section_zig_size;
-            if (shndx == self.debug_aranges_section_index.?)
-                break :blk zig_object.debug_aranges_section_zig_size;
-            if (shndx == self.debug_line_section_index.?)
-                break :blk zig_object.debug_line_section_zig_size;
-            if (shndx == self.debug_line_str_section_index.?)
-                break :blk zig_object.debug_line_str_section_zig_size;
-            if (shndx == self.debug_loclists_section_index.?)
-                break :blk zig_object.debug_loclists_section_zig_size;
-            if (shndx == self.debug_rnglists_section_index.?)
-                break :blk zig_object.debug_rnglists_section_zig_size;
-            unreachable;
+            const zo = self.zigObjectPtr().?;
+            break :blk for ([_]Symbol.Index{
+                zo.debug_info_index.?,
+                zo.debug_abbrev_index.?,
+                zo.debug_aranges_index.?,
+                zo.debug_str_index.?,
+                zo.debug_line_index.?,
+                zo.debug_line_str_index.?,
+                zo.debug_loclists_index.?,
+                zo.debug_rnglists_index.?,
+            }) |sym_index| {
+                const sym = zo.symbol(sym_index);
+                const atom_ptr = sym.atom(self).?;
+                if (atom_ptr.output_section_index == shndx) break atom_ptr.size;
+            } else 0;
         } else 0;
         const sh_offset = shdr.sh_offset + base_offset;
         const sh_size = math.cast(usize, shdr.sh_size - base_offset) orelse return error.Overflow;

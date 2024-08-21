@@ -59,17 +59,6 @@ debug_line_str_index: ?Symbol.Index = null,
 debug_loclists_index: ?Symbol.Index = null,
 debug_rnglists_index: ?Symbol.Index = null,
 
-/// Size contribution of Zig's metadata to each debug section.
-/// Used to track start of metadata from input object files.
-debug_info_section_zig_size: u64 = 0,
-debug_abbrev_section_zig_size: u64 = 0,
-debug_str_section_zig_size: u64 = 0,
-debug_aranges_section_zig_size: u64 = 0,
-debug_line_section_zig_size: u64 = 0,
-debug_line_str_section_zig_size: u64 = 0,
-debug_loclists_section_zig_size: u64 = 0,
-debug_rnglists_section_zig_size: u64 = 0,
-
 pub const global_symbol_bit: u32 = 0x80000000;
 pub const symbol_mask: u32 = 0x7fffffff;
 pub const SHN_ATOM: u16 = 0x100;
@@ -328,8 +317,6 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
         self.debug_aranges_section_dirty = false;
         self.debug_rnglists_section_dirty = false;
         self.debug_str_section_dirty = false;
-
-        self.saveDebugSectionsSizes(elf_file);
     }
 
     // The point of flushModule() is to commit changes, so in theory, nothing should
@@ -340,33 +327,6 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
     assert(!self.debug_aranges_section_dirty);
     assert(!self.debug_rnglists_section_dirty);
     assert(!self.debug_str_section_dirty);
-}
-
-fn saveDebugSectionsSizes(self: *ZigObject, elf_file: *Elf) void {
-    if (elf_file.debug_info_section_index) |shndx| {
-        self.debug_info_section_zig_size = elf_file.shdrs.items[shndx].sh_size;
-    }
-    if (elf_file.debug_abbrev_section_index) |shndx| {
-        self.debug_abbrev_section_zig_size = elf_file.shdrs.items[shndx].sh_size;
-    }
-    if (elf_file.debug_str_section_index) |shndx| {
-        self.debug_str_section_zig_size = elf_file.shdrs.items[shndx].sh_size;
-    }
-    if (elf_file.debug_aranges_section_index) |shndx| {
-        self.debug_aranges_section_zig_size = elf_file.shdrs.items[shndx].sh_size;
-    }
-    if (elf_file.debug_line_section_index) |shndx| {
-        self.debug_line_section_zig_size = elf_file.shdrs.items[shndx].sh_size;
-    }
-    if (elf_file.debug_line_str_section_index) |shndx| {
-        self.debug_line_str_section_zig_size = elf_file.shdrs.items[shndx].sh_size;
-    }
-    if (elf_file.debug_loclists_section_index) |shndx| {
-        self.debug_loclists_section_zig_size = elf_file.shdrs.items[shndx].sh_size;
-    }
-    if (elf_file.debug_rnglists_section_index) |shndx| {
-        self.debug_rnglists_section_zig_size = elf_file.shdrs.items[shndx].sh_size;
-    }
 }
 
 fn newSymbol(self: *ZigObject, allocator: Allocator, name_off: u32, st_bind: u4) !Symbol.Index {
