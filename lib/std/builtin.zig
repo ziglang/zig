@@ -603,7 +603,7 @@ pub const VaList = switch (builtin.cpu.arch) {
         .ios, .macos, .tvos, .watchos, .visionos => *u8,
         else => @compileError("disabled due to miscompilations"), // VaListAarch64,
     },
-    .arm => switch (builtin.os.tag) {
+    .arm, .armeb, .thumb, .thumbeb => switch (builtin.os.tag) {
         .ios, .macos, .tvos, .watchos, .visionos => *u8,
         else => *anyopaque,
     },
