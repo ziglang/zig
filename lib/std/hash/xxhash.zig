@@ -890,7 +890,7 @@ test "xxhash32 smhasher" {
         }
     };
     try Test.do();
-    @setEvalBranchQuota(75000);
+    @setEvalBranchQuota(85000);
     comptime try Test.do();
 }
 

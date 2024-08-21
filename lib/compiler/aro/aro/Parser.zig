@@ -4802,6 +4802,7 @@ const CallExpr = union(enum) {
     }
 
     fn shouldPromoteVarArg(self: CallExpr, arg_idx: u32) bool {
+        @setEvalBranchQuota(2000);
         return switch (self) {
             .standard => true,
             .builtin => |builtin| switch (builtin.tag) {
@@ -4902,6 +4903,7 @@ const CallExpr = union(enum) {
     }
 
     fn returnType(self: CallExpr, p: *Parser, callable_ty: Type) Type {
+        @setEvalBranchQuota(6000);
         return switch (self) {
             .standard => callable_ty.returnType(),
             .builtin => |builtin| switch (builtin.tag) {
