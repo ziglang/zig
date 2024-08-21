@@ -95,7 +95,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
                         });
                     }
                 }
-            } else if (target.cpu.arch.isARM()) {
+            } else if (target.cpu.arch.isThumb()) {
                 for (mingw32_arm32_src) |dep| {
                     try c_source_files.append(.{
                         .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -139,7 +139,7 @@ fn add_cc_args(
     });
 
     const target = comp.getTarget();
-    if (target.cpu.arch.isARM() and target.ptrBitWidth() == 32) {
+    if (target.cpu.arch.isThumb()) {
         try args.append("-mfpu=vfp");
     }
 
@@ -222,10 +222,10 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     });
 
     const target_defines = switch (target.cpu.arch) {
+        .thumb => "#define DEF_ARM32\n",
+        .aarch64 => "#define DEF_ARM64\n",
         .x86 => "#define DEF_I386\n",
         .x86_64 => "#define DEF_X64\n",
-        .arm, .armeb, .thumb, .thumbeb => "#define DEF_ARM32\n",
-        .aarch64, .aarch64_be => "#define DEF_ARM64\n",
         else => unreachable,
     };
 
@@ -321,10 +321,10 @@ fn findDef(
     lib_name: []const u8,
 ) ![]u8 {
     const lib_path = switch (target.cpu.arch) {
+        .thumb => "libarm32",
+        .aarch64 => "libarm64",
         .x86 => "lib32",
         .x86_64 => "lib64",
-        .arm, .armeb, .thumb, .thumbeb => "libarm32",
-        .aarch64, .aarch64_be => "libarm64",
         else => unreachable,
     };
 
