@@ -126,7 +126,7 @@ pub fn address(symbol: Symbol, opts: struct { plt: bool = true, trampoline: bool
                 const sym_name = symbol.name(elf_file);
                 const sh_addr, const sh_size = blk: {
                     const shndx = elf_file.eh_frame_section_index orelse break :blk .{ 0, 0 };
-                    const shdr = elf_file.shdrs.items[shndx];
+                    const shdr = elf_file.sections.items(.shdr)[shndx];
                     break :blk .{ shdr.sh_addr, shdr.sh_size };
                 };
                 if (mem.startsWith(u8, sym_name, "__EH_FRAME_BEGIN__") or
@@ -173,7 +173,7 @@ pub fn gotAddress(symbol: Symbol, elf_file: *Elf) i64 {
 pub fn pltGotAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!(symbol.flags.has_plt and symbol.flags.has_got)) return 0;
     const extras = symbol.extra(elf_file);
-    const shdr = elf_file.shdrs.items[elf_file.plt_got_section_index.?];
+    const shdr = elf_file.sections.items(.shdr)[elf_file.plt_got_section_index.?];
     const cpu_arch = elf_file.getTarget().cpu.arch;
     return @intCast(shdr.sh_addr + extras.plt_got * PltGotSection.entrySize(cpu_arch));
 }
@@ -181,7 +181,7 @@ pub fn pltGotAddress(symbol: Symbol, elf_file: *Elf) i64 {
 pub fn pltAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.has_plt) return 0;
     const extras = symbol.extra(elf_file);
-    const shdr = elf_file.shdrs.items[elf_file.plt_section_index.?];
+    const shdr = elf_file.sections.items(.shdr)[elf_file.plt_section_index.?];
     const cpu_arch = elf_file.getTarget().cpu.arch;
     return @intCast(shdr.sh_addr + extras.plt * PltSection.entrySize(cpu_arch) + PltSection.preambleSize(cpu_arch));
 }
@@ -189,13 +189,13 @@ pub fn pltAddress(symbol: Symbol, elf_file: *Elf) i64 {
 pub fn gotPltAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.has_plt) return 0;
     const extras = symbol.extra(elf_file);
-    const shdr = elf_file.shdrs.items[elf_file.got_plt_section_index.?];
+    const shdr = elf_file.sections.items(.shdr)[elf_file.got_plt_section_index.?];
     return @intCast(shdr.sh_addr + extras.plt * 8 + GotPltSection.preamble_size);
 }
 
 pub fn copyRelAddress(symbol: Symbol, elf_file: *Elf) i64 {
     if (!symbol.flags.has_copy_rel) return 0;
-    const shdr = elf_file.shdrs.items[elf_file.copy_rel_section_index.?];
+    const shdr = elf_file.sections.items(.shdr)[elf_file.copy_rel_section_index.?];
     return @as(i64, @intCast(shdr.sh_addr)) + symbol.value;
 }
 
@@ -300,7 +300,7 @@ pub fn setOutputSym(symbol: Symbol, elf_file: *Elf, out: *elf.Elf64_Sym) void {
             break :blk 0;
         }
         if (st_shndx == elf.SHN_ABS or st_shndx == elf.SHN_COMMON) break :blk symbol.address(.{ .plt = false }, elf_file);
-        const shdr = elf_file.shdrs.items[st_shndx];
+        const shdr = elf_file.sections.items(.shdr)[st_shndx];
         if (shdr.sh_flags & elf.SHF_TLS != 0 and file_ptr != .linker_defined)
             break :blk symbol.address(.{ .plt = false }, elf_file) - elf_file.tlsAddress();
         break :blk symbol.address(.{ .plt = false, .trampoline = false }, elf_file);

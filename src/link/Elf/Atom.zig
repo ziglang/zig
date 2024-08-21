@@ -48,7 +48,7 @@ pub fn name(self: Atom, elf_file: *Elf) [:0]const u8 {
 }
 
 pub fn address(self: Atom, elf_file: *Elf) i64 {
-    const shdr = elf_file.shdrs.items[self.output_section_index];
+    const shdr = elf_file.sections.items(.shdr)[self.output_section_index];
     return @as(i64, @intCast(shdr.sh_addr)) + self.value;
 }
 
@@ -116,10 +116,10 @@ pub fn freeListEligible(self: Atom, elf_file: *Elf) bool {
 
 pub fn allocate(self: *Atom, elf_file: *Elf) !void {
     const zo = elf_file.zigObjectPtr().?;
-    const shdr = &elf_file.shdrs.items[self.output_section_index];
-    const meta = elf_file.last_atom_and_free_list_table.getPtr(self.output_section_index).?;
-    const free_list = &meta.free_list;
-    const last_atom_index = &meta.last_atom_index;
+    const slice = elf_file.sections.slice();
+    const shdr = &slice.items(.shdr)[self.output_section_index];
+    const free_list = &slice.items(.free_list)[self.output_section_index];
+    const last_atom_index = &slice.items(.last_atom_index)[self.output_section_index];
     const new_atom_ideal_capacity = Elf.padToIdeal(self.size);
 
     // We use these to indicate our intention to update metadata, placing the new atom,
@@ -254,9 +254,9 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
     const shndx = self.output_section_index;
-    const meta = elf_file.last_atom_and_free_list_table.getPtr(shndx).?;
-    const free_list = &meta.free_list;
-    const last_atom_index = &meta.last_atom_index;
+    const slice = elf_file.sections.slice();
+    const free_list = &slice.items(.free_list)[shndx];
+    const last_atom_index = &slice.items(.last_atom_index)[shndx];
     var already_have_free_list_node = false;
     {
         var i: usize = 0;

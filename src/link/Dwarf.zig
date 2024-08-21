@@ -317,7 +317,7 @@ pub const Section = struct {
     fn resize(sec: *Section, dwarf: *Dwarf, len: u64) UpdateError!void {
         if (dwarf.bin_file.cast(.elf)) |elf_file| {
             try elf_file.growNonAllocSection(sec.index, len, @intCast(sec.alignment.toByteUnits().?), true);
-            const shdr = &elf_file.shdrs.items[sec.index];
+            const shdr = &elf_file.sections.items(.shdr)[sec.index];
             sec.off = shdr.sh_offset;
             sec.len = shdr.sh_size;
         } else if (dwarf.bin_file.cast(.macho)) |macho_file| {
@@ -340,7 +340,7 @@ pub const Section = struct {
         sec.off += len;
         sec.len -= len;
         if (dwarf.bin_file.cast(.elf)) |elf_file| {
-            const shdr = &elf_file.shdrs.items[sec.index];
+            const shdr = &elf_file.sections.items(.shdr)[sec.index];
             shdr.sh_offset = sec.off;
             shdr.sh_size = sec.len;
         } else if (dwarf.bin_file.cast(.macho)) |macho_file| {
@@ -771,7 +771,7 @@ const Entry = struct {
             log.err("missing {} from {s}", .{
                 @as(Entry.Index, @enumFromInt(entry - unit.entries.items.ptr)),
                 std.mem.sliceTo(if (dwarf.bin_file.cast(.elf)) |elf_file|
-                    elf_file.shstrtab.items[elf_file.shdrs.items[sec.index].sh_name..]
+                    elf_file.shstrtab.items[elf_file.sections.items(.shdr)[sec.index].sh_name..]
                 else if (dwarf.bin_file.cast(.macho)) |macho_file|
                     if (macho_file.d_sym) |*d_sym|
                         &d_sym.sections.items[sec.index].segname
@@ -1529,7 +1529,7 @@ pub fn reloadSectionMetadata(dwarf: *Dwarf) void {
             elf_file.debug_rnglists_section_index.?,
             elf_file.debug_str_section_index.?,
         }) |sec, section_index| {
-            const shdr = &elf_file.shdrs.items[section_index];
+            const shdr = &elf_file.sections.items(.shdr)[section_index];
             sec.index = section_index;
             sec.off = shdr.sh_offset;
             sec.len = shdr.sh_size;
