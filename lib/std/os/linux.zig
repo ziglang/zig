@@ -6942,10 +6942,6 @@ pub const tpacket_hdr_variant1 = extern struct {
     padding: u16,
 };
 
-pub const tpacket3_hdr_variants = extern union {
-    hv1: tpacket_hdr_variant1,
-};
-
 pub const tpacket3_hdr = extern struct {
     next_offset: u32,
     sec: u32,
@@ -6955,7 +6951,9 @@ pub const tpacket3_hdr = extern struct {
     status: u32,
     mac: u16,
     net: u16,
-    variant: tpacket3_hdr_variants,
+    variant: extern union {
+        hv1: tpacket_hdr_variant1,
+    },
     padding: [8]u8,
 };
 
