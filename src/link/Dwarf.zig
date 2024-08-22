@@ -2834,7 +2834,7 @@ fn updateType(
         },
         .enum_type => {
             const loaded_enum = ip.loadEnumType(type_index);
-            try wip_nav.abbrevCode(.enum_type);
+            try wip_nav.abbrevCode(if (loaded_enum.names.len > 0) .enum_type else .empty_enum_type);
             try wip_nav.strp(name);
             try wip_nav.refType(Type.fromInterned(loaded_enum.tag_ty));
             for (0..loaded_enum.names.len) |field_index| {
@@ -2844,7 +2844,7 @@ fn updateType(
                 }, field_index);
                 try wip_nav.strp(loaded_enum.names.get(ip)[field_index].toSlice(ip));
             }
-            try uleb128(diw, @intFromEnum(AbbrevCode.null));
+            if (loaded_enum.names.len > 0) try uleb128(diw, @intFromEnum(AbbrevCode.null));
         },
         .func_type => |func_type| {
             const is_nullary = func_type.param_types.len == 0 and !func_type.is_var_args;
@@ -3052,7 +3052,7 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                         }
                     },
                     .@"packed" => {
-                        try wip_nav.abbrevCode(.packed_struct_type);
+                        try wip_nav.abbrevCode(if (loaded_struct.field_types.len > 0) .packed_struct_type else .empty_packed_struct_type);
                         try wip_nav.strp(name);
                         try wip_nav.refType(Type.fromInterned(loaded_struct.backingIntTypeUnordered(ip)));
                         var field_bit_offset: u16 = 0;
@@ -3064,13 +3064,13 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                             try uleb128(diw, field_bit_offset);
                             field_bit_offset += @intCast(field_type.bitSize(pt));
                         }
-                        try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                        if (loaded_struct.field_types.len > 0) try uleb128(diw, @intFromEnum(AbbrevCode.null));
                     },
                 }
             },
             .enum_type => {
                 const loaded_enum = ip.loadEnumType(type_index);
-                try wip_nav.abbrevCode(.enum_type);
+                try wip_nav.abbrevCode(if (loaded_enum.names.len > 0) .enum_type else .empty_enum_type);
                 try wip_nav.strp(name);
                 try wip_nav.refType(Type.fromInterned(loaded_enum.tag_ty));
                 for (0..loaded_enum.names.len) |field_index| {
@@ -3080,11 +3080,11 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                     }, field_index);
                     try wip_nav.strp(loaded_enum.names.get(ip)[field_index].toSlice(ip));
                 }
-                try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                if (loaded_enum.names.len > 0) try uleb128(diw, @intFromEnum(AbbrevCode.null));
             },
             .union_type => {
                 const loaded_union = ip.loadUnionType(type_index);
-                try wip_nav.abbrevCode(.union_type);
+                try wip_nav.abbrevCode(if (loaded_union.field_types.len > 0) .union_type else .empty_union_type);
                 try wip_nav.strp(name);
                 const union_layout = pt.getUnionLayout(loaded_union);
                 try uleb128(diw, union_layout.abi_size);
@@ -3133,7 +3133,7 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                     try uleb128(diw, loaded_union.fieldAlign(ip, field_index).toByteUnits() orelse
                         field_type.abiAlignment(pt).toByteUnits().?);
                 }
-                try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                if (loaded_union.field_types.len > 0) try uleb128(diw, @intFromEnum(AbbrevCode.null));
             },
             .opaque_type => {
                 try wip_nav.abbrevCode(.namespace_struct_type);
@@ -3599,7 +3599,9 @@ const AbbrevCode = enum {
     namespace_struct_type,
     struct_type,
     packed_struct_type,
+    empty_packed_struct_type,
     union_type,
+    empty_union_type,
     empty_inlined_func,
     inlined_func,
     local_arg,
@@ -3974,9 +3976,24 @@ const AbbrevCode = enum {
                 .{ .type, .ref_addr },
             },
         },
+        .empty_packed_struct_type = .{
+            .tag = .structure_type,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+            },
+        },
         .union_type = .{
             .tag = .union_type,
             .children = true,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .byte_size, .udata },
+                .{ .alignment, .udata },
+            },
+        },
+        .empty_union_type = .{
+            .tag = .union_type,
             .attrs = &.{
                 .{ .name, .strp },
                 .{ .byte_size, .udata },
