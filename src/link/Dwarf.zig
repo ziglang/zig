@@ -1418,11 +1418,8 @@ pub const WipNav = struct {
                     const limb_index = bit / limb_bits;
                     const limb_shift: std.math.Log2Int(std.math.big.Limb) = @intCast(bit % limb_bits);
                     const low_abs_part: u7 = @truncate(big_int.limbs[limb_index] >> limb_shift);
-                    const abs_part = if (limb_shift > limb_bits - 7) abs_part: {
-                        const next_limb: std.math.big.Limb = if (limb_index + 1 < big_int.limbs.len)
-                            big_int.limbs[limb_index + 1]
-                        else if (big_int.positive) 0 else std.math.maxInt(std.math.big.Limb);
-                        const high_abs_part: u7 = @truncate(next_limb << -%limb_shift);
+                    const abs_part = if (limb_shift > limb_bits - 7 and limb_index + 1 < big_int.limbs.len) abs_part: {
+                        const high_abs_part: u7 = @truncate(big_int.limbs[limb_index + 1] << -%limb_shift);
                         break :abs_part high_abs_part | low_abs_part;
                     } else low_abs_part;
                     const twos_comp_part = if (big_int.positive) abs_part else twos_comp_part: {
