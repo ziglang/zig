@@ -156,7 +156,7 @@ pub fn hashAddFrameworks(man: *Cache.Manifest, hm: []const Framework) !void {
 pub fn createEmpty(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*MachO {
     const target = comp.root_mod.resolved_target.result;
@@ -221,7 +221,7 @@ pub fn createEmpty(
     }
     errdefer self.base.destroy();
 
-    self.base.file = try emit.directory.handle.createFile(emit.sub_path, .{
+    self.base.file = try emit.root_dir.handle.createFile(emit.sub_path, .{
         .truncate = true,
         .read = true,
         .mode = link.File.determineMode(false, output_mode, link_mode),
@@ -260,7 +260,7 @@ pub fn createEmpty(
 pub fn open(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*MachO {
     // TODO: restore saved linker state, don't truncate the file, and
@@ -353,7 +353,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     const sub_prog_node = prog_node.start("MachO Flush", 0);
     defer sub_prog_node.end();
 
-    const directory = self.base.emit.directory;
+    const directory = self.base.emit.root_dir;
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
     const module_obj_path: ?[]const u8 = if (self.base.zcu_object_sub_path) |path| blk: {
         if (fs.path.dirname(full_out_path)) |dirname| {
@@ -586,7 +586,7 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     if (codesig) |*csig| {
         try self.writeCodeSignature(csig); // code signing always comes last
         const emit = self.base.emit;
-        try invalidateKernelCache(emit.directory.handle, emit.sub_path);
+        try invalidateKernelCache(emit.root_dir.handle, emit.sub_path);
     }
 }
 
@@ -597,7 +597,7 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const directory = self.base.emit.directory;
+    const directory = self.base.emit.root_dir;
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
     const module_obj_path: ?[]const u8 = if (self.base.zcu_object_sub_path) |path| blk: {
         if (fs.path.dirname(full_out_path)) |dirname| {
@@ -3199,7 +3199,7 @@ fn copyRangeAllZeroOut(self: *MachO, old_offset: u64, new_offset: u64, size: u64
 }
 
 const InitMetadataOptions = struct {
-    emit: Compilation.Emit,
+    emit: Path,
     zo: *ZigObject,
     symbol_count_hint: u64,
     program_code_size_hint: u64,
@@ -3271,7 +3271,7 @@ fn initMetadata(self: *MachO, options: InitMetadataOptions) !void {
             );
             defer gpa.free(d_sym_path);
 
-            var d_sym_bundle = try options.emit.directory.handle.makeOpenPath(d_sym_path, .{});
+            var d_sym_bundle = try options.emit.root_dir.handle.makeOpenPath(d_sym_path, .{});
             defer d_sym_bundle.close();
 
             const d_sym_file = try d_sym_bundle.createFile(options.emit.sub_path, .{
@@ -4603,6 +4603,7 @@ pub const Atom = @import("MachO/Atom.zig");
 const AtomicBool = std.atomic.Value(bool);
 const Bind = bind.Bind;
 const Cache = std.Build.Cache;
+const Path = Cache.Path;
 const CodeSignature = @import("MachO/CodeSignature.zig");
 const Compilation = @import("../Compilation.zig");
 const DataInCode = synthetic.DataInCode;

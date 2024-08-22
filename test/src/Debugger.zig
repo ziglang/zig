@@ -306,6 +306,51 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
     );
     db.addLldbTest(
+        "enums",
+        target,
+        &.{
+            .{
+                .path = "enums.zig",
+                .source =
+                \\const Enums = struct {
+                \\    const Zero = enum(u4) { _ };
+                \\    const One = enum { first };
+                \\    const Two = enum(i32) { first, second, _ };
+                \\    const Three = enum { first, second, third };
+                \\
+                \\    zero: Zero = @enumFromInt(13),
+                \\    one: One = .first,
+                \\    two: Two = @enumFromInt(-1234),
+                \\    three: Three = .second,
+                \\};
+                \\fn testEnums(enums: Enums) void {
+                \\    _ = enums;
+                \\}
+                \\pub fn main() void {
+                \\    testEnums(.{});
+                \\}
+                \\
+                ,
+            },
+        },
+        \\breakpoint set --file enums.zig --source-pattern-regexp '_ = enums;'
+        \\process launch
+        \\frame variable --show-types enums
+        \\breakpoint delete --force 1
+    ,
+        &.{
+            \\(lldb) frame variable --show-types enums
+            \\(root.enums.Enums) enums = {
+            \\  (root.enums.Enums.Zero) zero = @enumFromInt(13)
+            \\  (root.enums.Enums.One) one = .first
+            \\  (root.enums.Enums.Two) two = @enumFromInt(-1234)
+            \\  (root.enums.Enums.Three) three = .second
+            \\}
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
         "errors",
         target,
         &.{
@@ -404,6 +449,71 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
     );
     db.addLldbTest(
+        "unions",
+        target,
+        &.{
+            .{
+                .path = "unions.zig",
+                .source =
+                \\const Unions = struct {
+                \\    const Enum = enum { first, second, third };
+                \\    const Untagged = extern union {
+                \\        u32: u32,
+                \\        i32: i32,
+                \\        f32: f32,
+                \\    };
+                \\    const SafetyTagged = union {
+                \\        void: void,
+                \\        en: Enum,
+                \\        eu: error{Error}!Enum,
+                \\    };
+                \\    const Tagged = union(enum) {
+                \\        void: void,
+                \\        en: Enum,
+                \\        eu: error{Error}!Enum,
+                \\    };
+                \\
+                \\    untagged: Untagged = .{ .f32 = -1.5 },
+                \\    safety_tagged: SafetyTagged = .{ .en = .second },
+                \\    tagged: Tagged = .{ .eu = error.Error },
+                \\};
+                \\fn testUnions(unions: Unions) void {
+                \\    _ = unions;
+                \\}
+                \\pub fn main() void {
+                \\    testUnions(.{});
+                \\}
+                \\
+                ,
+            },
+        },
+        \\breakpoint set --file unions.zig --source-pattern-regexp '_ = unions;'
+        \\process launch
+        \\frame variable --show-types unions
+        \\breakpoint delete --force 1
+    ,
+        &.{
+            \\(lldb) frame variable --show-types unions
+            \\(root.unions.Unions) unions = {
+            \\  (root.unions.Unions.Untagged) untagged = {
+            \\    (u32) u32 = 3217031168
+            \\    (i32) i32 = -1077936128
+            \\    (f32) f32 = -1.5
+            \\  }
+            \\  (root.unions.Unions.SafetyTagged) safety_tagged = {
+            \\    (root.unions.Unions.Enum) en = .second
+            \\  }
+            \\  (root.unions.Unions.Tagged) tagged = {
+            \\    (error{Error}!root.unions.Unions.Enum) eu = {
+            \\      (error{Error}) error = error.Error
+            \\    }
+            \\  }
+            \\}
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
         "storage",
         target,
         &.{
@@ -477,7 +587,7 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
     );
     db.addLldbTest(
-        "cross_module_call",
+        "inline_call",
         target,
         &.{
             .{
@@ -485,8 +595,18 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
                 .source =
                 \\const module = @import("module");
                 \\pub fn main() void {
-                \\    module.foo(123);
-                \\    module.bar(456);
+                \\    fa(12);
+                \\    fb(34);
+                \\    module.fc(56);
+                \\    module.fd(78);
+                \\}
+                \\fn fa(pa: u32) void {
+                \\    const la = ~pa;
+                \\    _ = la;
+                \\}
+                \\inline fn fb(pb: u32) void {
+                \\    const lb = ~pb;
+                \\    _ = lb;
                 \\}
                 \\
                 ,
@@ -495,32 +615,120 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
                 .import = "module",
                 .path = "module.zig",
                 .source =
-                \\pub fn foo(x: u32) void {
-                \\    _ = x;
+                \\pub fn fc(pc: u32) void {
+                \\    const lc = ~pc;
+                \\    _ = lc;
                 \\}
-                \\pub inline fn bar(y: u32) void {
-                \\    _ = y;
+                \\pub inline fn fd(pd: u32) void {
+                \\    const ld = ~pd;
+                \\    _ = ld;
                 \\}
                 \\
                 ,
             },
         },
-        \\breakpoint set --file module.zig --source-pattern-regexp '_ = x;'
+        \\settings set frame-format 'frame #${frame.index}:{ ${module.file.basename}{\`${function.name-with-args}{${frame.no-debug}${function.pc-offset}}}}{ at ${line.file.basename}:${line.number}{:${line.column}}}{${function.is-optimized} [opt]}{${frame.is-artificial} [artificial]}\n'
+        \\
+        \\breakpoint set --file main.zig --source-pattern-regexp '_ = la;'
         \\process launch
-        \\source info
+        \\frame variable pa la
+        \\thread backtrace --count 2
         \\breakpoint delete --force 1
         \\
-        \\breakpoint set --file module.zig --line 5
+        \\breakpoint set --file main.zig --source-pattern-regexp '_ = lb;'
         \\process continue
-        \\source info
+        \\frame variable pb lb
+        \\thread backtrace --count 2
         \\breakpoint delete --force 2
+        \\
+        \\breakpoint set --file module.zig --source-pattern-regexp '_ = lc;'
+        \\process continue
+        \\frame variable pc lc
+        \\thread backtrace --count 2
+        \\breakpoint delete --force 3
+        \\
+        \\breakpoint set --file module.zig --line 7
+        \\process continue
+        \\frame variable pd ld
+        \\thread backtrace --count 2
+        \\breakpoint delete --force 4
     ,
         &.{
-            \\/module.zig:2:5
+            \\(lldb) frame variable pa la
+            \\(u32) pa = 12
+            \\(u32) la = 4294967283
+            \\(lldb) thread backtrace --count 2
+            \\* thread #1, name = 'inline_call', stop reason = breakpoint 1.1
+            \\  * frame #0: inline_call`main.fa(pa=12) at main.zig:10:5
+            \\    frame #1: inline_call`main.main at main.zig:3:7
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
             ,
-            \\/module.zig:5:5
+            \\(lldb) frame variable pb lb
+            \\(u32) pb = 34
+            \\(u32) lb = 4294967261
+            \\(lldb) thread backtrace --count 2
+            \\* thread #1, name = 'inline_call', stop reason = breakpoint 2.1
+            \\  * frame #0: inline_call`main.main [inlined] fb(pb=34) at main.zig:14:5
+            \\    frame #1: inline_call`main.main at main.zig:4:7
+            \\(lldb) breakpoint delete --force 2
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+            ,
+            \\(lldb) frame variable pc lc
+            \\(u32) pc = 56
+            \\(u32) lc = 4294967239
+            \\(lldb) thread backtrace --count 2
+            \\* thread #1, name = 'inline_call', stop reason = breakpoint 3.1
+            \\  * frame #0: inline_call`module.fc(pc=56) at module.zig:3:5
+            \\    frame #1: inline_call`main.main at main.zig:5:14
+            \\(lldb) breakpoint delete --force 3
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+            ,
+            \\(lldb) frame variable pd ld
+            \\(u32) pd = 78
+            \\(u32) ld = 4294967217
+            \\(lldb) thread backtrace --count 2
+            \\* thread #1, name = 'inline_call', stop reason = breakpoint 4.1
+            \\  * frame #0: inline_call`main.main [inlined] fd(pd=78) at module.zig:7:5
+            \\    frame #1: inline_call`main.main at main.zig:6:14
+            \\(lldb) breakpoint delete --force 4
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
+        "link_object",
+        target,
+        &.{
+            .{
+                .path = "main.zig",
+                .source =
+                \\extern fn fabsf(f32) f32;
+                \\pub fn main() void {
+                \\    var x: f32 = -1234.5;
+                \\    x = fabsf(x);
+                \\    _ = &x;
+                \\}
+                ,
+            },
+        },
+        \\breakpoint set --file main.zig --source-pattern-regexp 'x = fabsf\(x\);'
+        \\process launch
+        \\frame variable x
+        \\breakpoint delete --force 1
+        \\
+        \\breakpoint set --file main.zig --source-pattern-regexp '_ = &x;'
+        \\process continue
+        \\frame variable x
+        \\breakpoint delete --force 2
+    ,
+        &.{
+            \\(lldb) frame variable x
+            \\(f32) x = -1234.5
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+            ,
+            \\(lldb) frame variable x
+            \\(f32) x = 1234.5
             \\(lldb) breakpoint delete --force 2
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },

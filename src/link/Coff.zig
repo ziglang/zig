@@ -219,7 +219,7 @@ pub const min_text_capacity = padToIdeal(minimum_text_block_size);
 pub fn createEmpty(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*Coff {
     const target = comp.root_mod.resolved_target.result;
@@ -315,7 +315,7 @@ pub fn createEmpty(
     // If using LLD to link, this code should produce an object file so that it
     // can be passed to LLD.
     const sub_path = if (use_lld) zcu_object_sub_path.? else emit.sub_path;
-    self.base.file = try emit.directory.handle.createFile(sub_path, .{
+    self.base.file = try emit.root_dir.handle.createFile(sub_path, .{
         .truncate = true,
         .read = true,
         .mode = link.File.determineMode(use_lld, output_mode, link_mode),
@@ -416,7 +416,7 @@ pub fn createEmpty(
 pub fn open(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*Coff {
     // TODO: restore saved linker state, don't truncate the file, and
@@ -1207,6 +1207,7 @@ pub fn updateNav(
 
     const nav_val = zcu.navValue(nav_index);
     const nav_init = switch (ip.indexToKey(nav_val.toIntern())) {
+        .func => return,
         .variable => |variable| Value.fromInterned(variable.init),
         .@"extern" => |@"extern"| {
             if (ip.isFunctionType(@"extern".ty)) return;
@@ -1220,7 +1221,7 @@ pub fn updateNav(
         else => nav_val,
     };
 
-    if (nav_init.typeOf(zcu).isFnOrHasRuntimeBits(pt)) {
+    if (nav_init.typeOf(zcu).hasRuntimeBits(pt)) {
         const atom_index = try self.getOrCreateAtomForNav(nav_index);
         Atom.freeRelocations(self, atom_index);
         const atom = self.getAtom(atom_index);
@@ -2714,6 +2715,7 @@ const math = std.math;
 const mem = std.mem;
 
 const Allocator = std.mem.Allocator;
+const Path = std.Build.Cache.Path;
 
 const codegen = @import("../codegen.zig");
 const link = @import("../link.zig");

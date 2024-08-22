@@ -23,6 +23,7 @@ const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.link);
 const assert = std.debug.assert;
+const Path = std.Build.Cache.Path;
 
 base: link.File,
 sixtyfour_bit: bool,
@@ -275,7 +276,7 @@ pub fn defaultBaseAddrs(arch: std.Target.Cpu.Arch) Bases {
 pub fn createEmpty(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*Plan9 {
     const target = comp.root_mod.resolved_target.result;
@@ -447,6 +448,7 @@ pub fn updateNav(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
     const nav = ip.getNav(nav_index);
     const nav_val = zcu.navValue(nav_index);
     const nav_init = switch (ip.indexToKey(nav_val.toIntern())) {
+        .func => return,
         .variable => |variable| Value.fromInterned(variable.init),
         .@"extern" => {
             log.debug("found extern decl: {}", .{nav.name.fmt(ip)});
@@ -455,7 +457,7 @@ pub fn updateNav(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
         else => nav_val,
     };
 
-    if (nav_init.typeOf(zcu).isFnOrHasRuntimeBits(pt)) {
+    if (nav_init.typeOf(zcu).hasRuntimeBits(pt)) {
         const atom_idx = try self.seeNav(pt, nav_index);
 
         var code_buffer = std.ArrayList(u8).init(gpa);
@@ -1199,7 +1201,7 @@ pub fn deinit(self: *Plan9) void {
 pub fn open(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*Plan9 {
     const target = comp.root_mod.resolved_target.result;
@@ -1213,7 +1215,7 @@ pub fn open(
     const self = try createEmpty(arena, comp, emit, options);
     errdefer self.base.destroy();
 
-    const file = try emit.directory.handle.createFile(emit.sub_path, .{
+    const file = try emit.root_dir.handle.createFile(emit.sub_path, .{
         .read = true,
         .mode = link.File.determineMode(
             use_lld,

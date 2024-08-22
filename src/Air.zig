@@ -456,6 +456,8 @@ pub const Inst = struct {
         /// Same as `dbg_var_ptr` except the local is a const, not a var, and the
         /// operand is the local's value.
         dbg_var_val,
+        /// Same as `dbg_var_val` except the local is an inline function argument.
+        dbg_arg_inline,
         /// ?T => bool
         /// Result type is always bool.
         /// Uses the `un_op` field.
@@ -938,17 +940,6 @@ pub const Inst = struct {
         null_type = @intFromEnum(InternPool.Index.null_type),
         undefined_type = @intFromEnum(InternPool.Index.undefined_type),
         enum_literal_type = @intFromEnum(InternPool.Index.enum_literal_type),
-        atomic_order_type = @intFromEnum(InternPool.Index.atomic_order_type),
-        atomic_rmw_op_type = @intFromEnum(InternPool.Index.atomic_rmw_op_type),
-        calling_convention_type = @intFromEnum(InternPool.Index.calling_convention_type),
-        address_space_type = @intFromEnum(InternPool.Index.address_space_type),
-        float_mode_type = @intFromEnum(InternPool.Index.float_mode_type),
-        reduce_op_type = @intFromEnum(InternPool.Index.reduce_op_type),
-        call_modifier_type = @intFromEnum(InternPool.Index.call_modifier_type),
-        prefetch_options_type = @intFromEnum(InternPool.Index.prefetch_options_type),
-        export_options_type = @intFromEnum(InternPool.Index.export_options_type),
-        extern_options_type = @intFromEnum(InternPool.Index.extern_options_type),
-        type_info_type = @intFromEnum(InternPool.Index.type_info_type),
         manyptr_u8_type = @intFromEnum(InternPool.Index.manyptr_u8_type),
         manyptr_const_u8_type = @intFromEnum(InternPool.Index.manyptr_const_u8_type),
         manyptr_const_u8_sentinel_0_type = @intFromEnum(InternPool.Index.manyptr_const_u8_sentinel_0_type),
@@ -969,8 +960,6 @@ pub const Inst = struct {
         one_u8 = @intFromEnum(InternPool.Index.one_u8),
         four_u8 = @intFromEnum(InternPool.Index.four_u8),
         negative_one = @intFromEnum(InternPool.Index.negative_one),
-        calling_convention_c = @intFromEnum(InternPool.Index.calling_convention_c),
-        calling_convention_inline = @intFromEnum(InternPool.Index.calling_convention_inline),
         void_value = @intFromEnum(InternPool.Index.void_value),
         unreachable_value = @intFromEnum(InternPool.Index.unreachable_value),
         null_value = @intFromEnum(InternPool.Index.null_value),
@@ -1035,10 +1024,7 @@ pub const Inst = struct {
             ty: Ref,
             /// Index into `extra` of a null-terminated string representing the parameter name.
             /// This is `.none` if debug info is stripped.
-            name: enum(u32) {
-                none = std.math.maxInt(u32),
-                _,
-            },
+            name: NullTerminatedString,
         },
         ty_op: struct {
             ty: Ref,
@@ -1453,6 +1439,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .dbg_stmt,
         .dbg_var_ptr,
         .dbg_var_val,
+        .dbg_arg_inline,
         .store,
         .store_safe,
         .fence,
@@ -1575,14 +1562,16 @@ pub fn value(air: Air, inst: Inst.Ref, pt: Zcu.PerThread) !?Value {
     return air.typeOfIndex(index, &pt.zcu.intern_pool).onePossibleValue(pt);
 }
 
-pub fn nullTerminatedString(air: Air, index: usize) [:0]const u8 {
-    const bytes = std.mem.sliceAsBytes(air.extra[index..]);
-    var end: usize = 0;
-    while (bytes[end] != 0) {
-        end += 1;
+pub const NullTerminatedString = enum(u32) {
+    none = std.math.maxInt(u32),
+    _,
+
+    pub fn toSlice(nts: NullTerminatedString, air: Air) [:0]const u8 {
+        if (nts == .none) return "";
+        const bytes = std.mem.sliceAsBytes(air.extra[@intFromEnum(nts)..]);
+        return bytes[0..std.mem.indexOfScalar(u8, bytes, 0).? :0];
     }
-    return bytes[0..end :0];
-}
+};
 
 /// Returns whether the given instruction must always be lowered, for instance
 /// because it can cause side effects. If an instruction does not need to be
@@ -1609,6 +1598,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .dbg_inline_block,
         .dbg_var_ptr,
         .dbg_var_val,
+        .dbg_arg_inline,
         .ret,
         .ret_safe,
         .ret_load,

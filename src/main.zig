@@ -3519,7 +3519,7 @@ fn buildOutputType(
         if (test_exec_args.items.len == 0 and target.ofmt == .c) default_exec_args: {
             // Default to using `zig run` to execute the produced .c code from `zig test`.
             const c_code_loc = emit_bin_loc orelse break :default_exec_args;
-            const c_code_directory = c_code_loc.directory orelse comp.bin_file.?.emit.directory;
+            const c_code_directory = c_code_loc.directory orelse comp.bin_file.?.emit.root_dir;
             const c_code_path = try fs.path.join(arena, &[_][]const u8{
                 c_code_directory.path orelse ".", c_code_loc.basename,
             });
@@ -4142,7 +4142,7 @@ fn serve(
                     if (output.errors.errorMessageCount() != 0) {
                         try server.serveErrorBundle(output.errors);
                     } else {
-                        try server.serveEmitBinPath(output.out_zig_path, .{
+                        try server.serveEmitDigest(&output.digest, .{
                             .flags = .{ .cache_hit = output.cache_hit },
                         });
                     }
@@ -4229,62 +4229,10 @@ fn serveUpdateResults(s: *Server, comp: *Compilation) !void {
         return;
     }
 
-    // This logic is counter-intuitive because the protocol accounts for each
-    // emitted artifact possibly being in a different location, which correctly
-    // matches the behavior of the compiler, however, the build system
-    // currently always passes flags that makes all build artifacts output to
-    // the same local cache directory, and relies on them all being in the same
-    // directory.
-    //
-    // So, until the build system and protocol are changed to reflect this,
-    // this logic must ensure that emit_bin_path is emitted for at least one
-    // thing, if there are any artifacts.
-
-    switch (comp.cache_use) {
-        .incremental => if (comp.bin_file) |lf| {
-            const full_path = try lf.emit.directory.join(gpa, &.{lf.emit.sub_path});
-            defer gpa.free(full_path);
-            try s.serveEmitBinPath(full_path, .{
-                .flags = .{ .cache_hit = comp.last_update_was_cache_hit },
-            });
-            return;
-        },
-        .whole => |whole| if (whole.bin_sub_path) |sub_path| {
-            const full_path = try comp.local_cache_directory.join(gpa, &.{sub_path});
-            defer gpa.free(full_path);
-            try s.serveEmitBinPath(full_path, .{
-                .flags = .{ .cache_hit = comp.last_update_was_cache_hit },
-            });
-            return;
-        },
-    }
-
-    for ([_]?Compilation.Emit{
-        comp.docs_emit,
-        comp.implib_emit,
-    }) |opt_emit| {
-        const emit = opt_emit orelse continue;
-        const full_path = try emit.directory.join(gpa, &.{emit.sub_path});
-        defer gpa.free(full_path);
-        try s.serveEmitBinPath(full_path, .{
+    if (comp.digest) |digest| {
+        try s.serveEmitDigest(&digest, .{
             .flags = .{ .cache_hit = comp.last_update_was_cache_hit },
         });
-        return;
-    }
-
-    for ([_]?Compilation.EmitLoc{
-        comp.emit_asm,
-        comp.emit_llvm_ir,
-        comp.emit_llvm_bc,
-    }) |opt_emit_loc| {
-        const emit_loc = opt_emit_loc orelse continue;
-        const directory = emit_loc.directory orelse continue;
-        const full_path = try directory.join(gpa, &.{emit_loc.basename});
-        defer gpa.free(full_path);
-        try s.serveEmitBinPath(full_path, .{
-            .flags = .{ .cache_hit = comp.last_update_was_cache_hit },
-        });
-        return;
     }
 
     // Serve empty error bundle to indicate the update is done.
@@ -4308,7 +4256,7 @@ fn runOrTest(
     // A naive `directory.join` here will indeed get the correct path to the binary,
     // however, in the case of cwd, we actually want `./foo` so that the path can be executed.
     const exe_path = try fs.path.join(arena, &[_][]const u8{
-        lf.emit.directory.path orelse ".", lf.emit.sub_path,
+        lf.emit.root_dir.path orelse ".", lf.emit.sub_path,
     });
 
     var argv = std.ArrayList([]const u8).init(gpa);
@@ -4420,7 +4368,7 @@ fn runOrTestHotSwap(
         // tmp zig-cache and use it to spawn the child process. This way we are free to update
         // the binary with each requested hot update.
         .windows => blk: {
-            try lf.emit.directory.handle.copyFile(lf.emit.sub_path, comp.local_cache_directory.handle, lf.emit.sub_path, .{});
+            try lf.emit.root_dir.handle.copyFile(lf.emit.sub_path, comp.local_cache_directory.handle, lf.emit.sub_path, .{});
             break :blk try fs.path.join(gpa, &[_][]const u8{
                 comp.local_cache_directory.path orelse ".", lf.emit.sub_path,
             });
@@ -4429,7 +4377,7 @@ fn runOrTestHotSwap(
         // A naive `directory.join` here will indeed get the correct path to the binary,
         // however, in the case of cwd, we actually want `./foo` so that the path can be executed.
         else => try fs.path.join(gpa, &[_][]const u8{
-            lf.emit.directory.path orelse ".", lf.emit.sub_path,
+            lf.emit.root_dir.path orelse ".", lf.emit.sub_path,
         }),
     };
     defer gpa.free(exe_path);
@@ -4539,9 +4487,11 @@ fn cmdTranslateC(
     };
 
     if (fancy_output) |p| p.cache_hit = true;
-    const digest = if (try man.hit()) digest: {
+    const bin_digest, const hex_digest = if (try man.hit()) digest: {
         if (file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
-        break :digest man.final();
+        const bin_digest = man.finalBin();
+        const hex_digest = Cache.binToHex(bin_digest);
+        break :digest .{ bin_digest, hex_digest };
     } else digest: {
         if (fancy_output) |p| p.cache_hit = false;
         var argv = std.ArrayList([]const u8).init(arena);
@@ -4576,7 +4526,12 @@ fn cmdTranslateC(
             Compilation.dump_argv(argv.items);
         }
 
-        const formatted = switch (comp.config.c_frontend) {
+        const Result = union(enum) {
+            success: []const u8,
+            error_bundle: std.zig.ErrorBundle,
+        };
+
+        const result: Result = switch (comp.config.c_frontend) {
             .aro => f: {
                 var stdout: []u8 = undefined;
                 try jitCmd(comp.gpa, arena, argv.items, .{
@@ -4586,7 +4541,7 @@ fn cmdTranslateC(
                     .capture = &stdout,
                     .progress_node = prog_node,
                 });
-                break :f stdout;
+                break :f .{ .success = stdout };
             },
             .clang => f: {
                 if (!build_options.have_llvm) unreachable;
@@ -4614,33 +4569,47 @@ fn cmdTranslateC(
                     c_headers_dir_path_z,
                 ) catch |err| switch (err) {
                     error.OutOfMemory => return error.OutOfMemory,
-                    error.SemanticAnalyzeFail => {
-                        if (fancy_output) |p| {
-                            p.errors = errors;
-                            return;
-                        } else {
-                            errors.renderToStdErr(color.renderOptions());
-                            process.exit(1);
-                        }
-                    },
+                    error.SemanticAnalyzeFail => break :f .{ .error_bundle = errors },
                 };
                 defer tree.deinit(comp.gpa);
-                break :f try tree.render(arena);
+                break :f .{ .success = try tree.render(arena) };
             },
         };
 
-        if (out_dep_path) |dep_file_path| {
+        if (out_dep_path) |dep_file_path| add_deps: {
             const dep_basename = fs.path.basename(dep_file_path);
             // Add the files depended on to the cache system.
-            try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+            man.addDepFilePost(zig_cache_tmp_dir, dep_basename) catch |err| switch (err) {
+                error.FileNotFound => {
+                    // Clang didn't emit the dep file; nothing to add to the manifest.
+                    break :add_deps;
+                },
+                else => |e| return e,
+            };
             // Just to save disk space, we delete the file because it is never needed again.
             zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
                 warn("failed to delete '{s}': {s}", .{ dep_file_path, @errorName(err) });
             };
         }
 
-        const digest = man.final();
-        const o_sub_path = try fs.path.join(arena, &[_][]const u8{ "o", &digest });
+        const formatted = switch (result) {
+            .success => |formatted| formatted,
+            .error_bundle => |eb| {
+                if (file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
+                if (fancy_output) |p| {
+                    p.errors = eb;
+                    return;
+                } else {
+                    eb.renderToStdErr(color.renderOptions());
+                    process.exit(1);
+                }
+            },
+        };
+
+        const bin_digest = man.finalBin();
+        const hex_digest = Cache.binToHex(bin_digest);
+
+        const o_sub_path = try fs.path.join(arena, &[_][]const u8{ "o", &hex_digest });
 
         var o_dir = try comp.local_cache_directory.handle.makeOpenPath(o_sub_path, .{});
         defer o_dir.close();
@@ -4656,16 +4625,14 @@ fn cmdTranslateC(
 
         if (file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
 
-        break :digest digest;
+        break :digest .{ bin_digest, hex_digest };
     };
 
     if (fancy_output) |p| {
-        p.out_zig_path = try comp.local_cache_directory.join(comp.gpa, &[_][]const u8{
-            "o", &digest, translated_zig_basename,
-        });
+        p.digest = bin_digest;
         p.errors = std.zig.ErrorBundle.empty;
     } else {
-        const out_zig_path = try fs.path.join(arena, &[_][]const u8{ "o", &digest, translated_zig_basename });
+        const out_zig_path = try fs.path.join(arena, &[_][]const u8{ "o", &hex_digest, translated_zig_basename });
         const zig_file = comp.local_cache_directory.handle.openFile(out_zig_path, .{}) catch |err| {
             const path = comp.local_cache_directory.path orelse ".";
             fatal("unable to open cached translated zig file '{s}{s}{s}': {s}", .{ path, fs.path.sep_str, out_zig_path, @errorName(err) });

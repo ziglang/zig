@@ -22,6 +22,7 @@ const Air = @import("../Air.zig");
 const Allocator = std.mem.Allocator;
 const Archive = @import("Wasm/Archive.zig");
 const Cache = std.Build.Cache;
+const Path = Cache.Path;
 const CodeGen = @import("../arch/wasm/CodeGen.zig");
 const Compilation = @import("../Compilation.zig");
 const Dwarf = @import("Dwarf.zig");
@@ -346,7 +347,7 @@ pub const StringTable = struct {
 pub fn open(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*Wasm {
     // TODO: restore saved linker state, don't truncate the file, and
@@ -357,7 +358,7 @@ pub fn open(
 pub fn createEmpty(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*Wasm {
     const gpa = comp.gpa;
@@ -430,7 +431,7 @@ pub fn createEmpty(
     // can be passed to LLD.
     const sub_path = if (use_lld) zcu_object_sub_path.? else emit.sub_path;
 
-    wasm.base.file = try emit.directory.handle.createFile(sub_path, .{
+    wasm.base.file = try emit.root_dir.handle.createFile(sub_path, .{
         .truncate = true,
         .read = true,
         .mode = if (fs.has_executable_bit)
@@ -2496,7 +2497,7 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
     const sub_prog_node = prog_node.start("Wasm Flush", 0);
     defer sub_prog_node.end();
 
-    const directory = wasm.base.emit.directory; // Just an alias to make it shorter to type.
+    const directory = wasm.base.emit.root_dir; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{wasm.base.emit.sub_path});
     const module_obj_path: ?[]const u8 = if (wasm.base.zcu_object_sub_path) |path| blk: {
         if (fs.path.dirname(full_out_path)) |dirname| {
@@ -3346,7 +3347,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
 
     const gpa = comp.gpa;
 
-    const directory = wasm.base.emit.directory; // Just an alias to make it shorter to type.
+    const directory = wasm.base.emit.root_dir; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{wasm.base.emit.sub_path});
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it

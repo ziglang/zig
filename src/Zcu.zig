@@ -2554,17 +2554,28 @@ pub fn mapOldZirToNew(
     var match_stack: std.ArrayListUnmanaged(MatchedZirDecl) = .{};
     defer match_stack.deinit(gpa);
 
-    // Main struct inst is always matched
-    try match_stack.append(gpa, .{
-        .old_inst = .main_struct_inst,
-        .new_inst = .main_struct_inst,
-    });
-
     // Used as temporary buffers for namespace declaration instructions
     var old_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .{};
     defer old_decls.deinit(gpa);
     var new_decls: std.ArrayListUnmanaged(Zir.Inst.Index) = .{};
     defer new_decls.deinit(gpa);
+
+    // Map the main struct inst (and anything in its fields)
+    {
+        try old_zir.findDeclsRoot(gpa, &old_decls);
+        try new_zir.findDeclsRoot(gpa, &new_decls);
+
+        assert(old_decls.items[0] == .main_struct_inst);
+        assert(new_decls.items[0] == .main_struct_inst);
+
+        // We don't have any smart way of matching up these type declarations, so we always
+        // correlate them based on source order.
+        const n = @min(old_decls.items.len, new_decls.items.len);
+        try match_stack.ensureUnusedCapacity(gpa, n);
+        for (old_decls.items[0..n], new_decls.items[0..n]) |old_inst, new_inst| {
+            match_stack.appendAssumeCapacity(.{ .old_inst = old_inst, .new_inst = new_inst });
+        }
+    }
 
     while (match_stack.popOrNull()) |match_item| {
         // Match the namespace declaration itself
@@ -3466,5 +3477,31 @@ fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, com
             const file_path = zcu.fileByIndex(info.file).sub_file_path;
             return writer.print("namespace('{s}', %{d}, '{}')", .{ file_path, @intFromEnum(info.inst), k.name.fmt(ip) });
         },
+    }
+}
+
+/// Given the `InternPool.Index` of a function, set its resolved IES to `.none` if it
+/// may be outdated. `Sema` should do this before ever loading a resolved IES.
+pub fn maybeUnresolveIes(zcu: *Zcu, func_index: InternPool.Index) !void {
+    const unit = AnalUnit.wrap(.{ .func = func_index });
+    if (zcu.outdated.contains(unit) or zcu.potentially_outdated.contains(unit)) {
+        // We're consulting the resolved IES now, but the function is outdated, so its
+        // IES may have changed. We have to assume the IES is outdated and set the resolved
+        // set back to `.none`.
+        //
+        // This will cause `PerThread.analyzeFnBody` to mark the IES as outdated when it's
+        // eventually hit.
+        //
+        // Since the IES needs to be resolved, the function body will now definitely need
+        // re-analysis (even if the IES turns out to be the same!), so mark it as
+        // definitely-outdated if it's only PO.
+        if (zcu.potentially_outdated.fetchSwapRemove(unit)) |kv| {
+            const gpa = zcu.gpa;
+            try zcu.outdated.putNoClobber(gpa, unit, kv.value);
+            if (kv.value == 0) {
+                try zcu.outdated_ready.put(gpa, unit, {});
+            }
+        }
+        zcu.intern_pool.funcSetIesResolved(func_index, .none);
     }
 }

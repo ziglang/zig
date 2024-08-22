@@ -3,6 +3,7 @@ const mem = std.mem;
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const fs = std.fs;
+const Path = std.Build.Cache.Path;
 
 const C = @This();
 const build_options = @import("build_options");
@@ -104,7 +105,7 @@ pub fn addString(this: *C, s: []const u8) Allocator.Error!String {
 pub fn open(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*C {
     return createEmpty(arena, comp, emit, options);
@@ -113,7 +114,7 @@ pub fn open(
 pub fn createEmpty(
     arena: Allocator,
     comp: *Compilation,
-    emit: Compilation.Emit,
+    emit: Path,
     options: link.File.OpenOptions,
 ) !*C {
     const target = comp.root_mod.resolved_target.result;
@@ -127,7 +128,7 @@ pub fn createEmpty(
     assert(!use_lld);
     assert(!use_llvm);
 
-    const file = try emit.directory.handle.createFile(emit.sub_path, .{
+    const file = try emit.root_dir.handle.createFile(emit.sub_path, .{
         // Truncation is done on `flush`.
         .truncate = false,
     });
@@ -316,8 +317,18 @@ pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
-
     const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+
+    const nav = ip.getNav(nav_index);
+    const nav_init = switch (ip.indexToKey(nav.status.resolved.val)) {
+        .func => return,
+        .@"extern" => .none,
+        .variable => |variable| variable.init,
+        else => nav.status.resolved.val,
+    };
+    if (nav_init != .none and !Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(pt)) return;
+
     const gop = try self.navs.getOrPut(gpa, nav_index);
     errdefer _ = self.navs.pop();
     if (!gop.found_existing) gop.value_ptr.* = .{};

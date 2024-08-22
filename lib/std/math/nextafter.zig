@@ -144,7 +144,7 @@ test "int" {
 }
 
 test "float" {
-    @setEvalBranchQuota(3000);
+    @setEvalBranchQuota(4000);
 
     // normal -> normal
     try expect(nextAfter(f16, 0x1.234p0, 2.0) == 0x1.238p0);

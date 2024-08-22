@@ -1917,8 +1917,9 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
         .dbg_stmt => func.airDbgStmt(inst),
         .dbg_inline_block => func.airDbgInlineBlock(inst),
-        .dbg_var_ptr => func.airDbgVar(inst, true),
-        .dbg_var_val => func.airDbgVar(inst, false),
+        .dbg_var_ptr => func.airDbgVar(inst, .local_var, true),
+        .dbg_var_val => func.airDbgVar(inst, .local_var, false),
+        .dbg_arg_inline => func.airDbgVar(inst, .local_arg, false),
 
         .call => func.airCall(inst, .auto),
         .call_always_tail => func.airCall(inst, .always_tail),
@@ -2585,13 +2586,13 @@ fn airArg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     switch (func.debug_output) {
         .dwarf => |dwarf| {
-            const name_nts = func.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
-            if (name_nts != .none) {
-                const name = func.air.nullTerminatedString(@intFromEnum(name_nts));
-                try dwarf.genVarDebugInfo(.local_arg, name, arg_ty, .{
-                    .wasm_ext = .{ .local = arg.local.value },
-                });
-            }
+            const name = func.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
+            if (name != .none) try dwarf.genLocalDebugInfo(
+                .local_arg,
+                name.toSlice(func.air),
+                arg_ty,
+                .{ .wasm_ext = .{ .local = arg.local.value } },
+            );
         },
         else => {},
     }
@@ -6454,7 +6455,12 @@ fn airDbgInlineBlock(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     try func.lowerBlock(inst, ty_pl.ty.toType(), @ptrCast(func.air.extra[extra.end..][0..extra.data.body_len]));
 }
 
-fn airDbgVar(func: *CodeGen, inst: Air.Inst.Index, is_ptr: bool) InnerError!void {
+fn airDbgVar(
+    func: *CodeGen,
+    inst: Air.Inst.Index,
+    local_tag: link.File.Dwarf.WipNav.LocalTag,
+    is_ptr: bool,
+) InnerError!void {
     _ = is_ptr;
     if (func.debug_output != .dwarf) return func.finishAir(inst, .none, &.{});
 
@@ -6464,8 +6470,8 @@ fn airDbgVar(func: *CodeGen, inst: Air.Inst.Index, is_ptr: bool) InnerError!void
 
     log.debug("airDbgVar: %{d}: {}, {}", .{ inst, ty.fmtDebug(), operand });
 
-    const name = func.air.nullTerminatedString(pl_op.payload);
-    log.debug(" var name = ({s})", .{name});
+    const name: Air.NullTerminatedString = @enumFromInt(pl_op.payload);
+    log.debug(" var name = ({s})", .{name.toSlice(func.air)});
 
     const loc: link.File.Dwarf.Loc = switch (operand) {
         .local => |local| .{ .wasm_ext = .{ .local = local.value } },
@@ -6474,7 +6480,7 @@ fn airDbgVar(func: *CodeGen, inst: Air.Inst.Index, is_ptr: bool) InnerError!void
             break :blk .empty;
         },
     };
-    try func.debug_output.dwarf.genVarDebugInfo(.local_var, name, ty, loc);
+    try func.debug_output.dwarf.genLocalDebugInfo(local_tag, name.toSlice(func.air), ty, loc);
 
     return func.finishAir(inst, .none, &.{});
 }

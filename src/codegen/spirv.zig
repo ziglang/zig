@@ -6366,8 +6366,8 @@ const NavGen = struct {
     fn airDbgVar(self: *NavGen, inst: Air.Inst.Index) !void {
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const target_id = try self.resolve(pl_op.operand);
-        const name = self.air.nullTerminatedString(pl_op.payload);
-        try self.spv.debugName(target_id, name);
+        const name: Air.NullTerminatedString = @enumFromInt(pl_op.payload);
+        try self.spv.debugName(target_id, name.toSlice(self.air));
     }
 
     fn airAssembly(self: *NavGen, inst: Air.Inst.Index) !?IdRef {

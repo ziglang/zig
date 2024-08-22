@@ -157,6 +157,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             },
             .dbg_var_ptr,
             .dbg_var_val,
+            .dbg_arg_inline,
             .wasm_memory_grow,
             => {
                 const pl_op = data[@intFromEnum(inst)].pl_op;

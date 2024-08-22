@@ -317,6 +317,8 @@ const Build = std.Build;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const builtin = @import("builtin");
+const Cache = Build.Cache;
+const Path = Cache.Path;
 
 pub fn evalChildProcess(s: *Step, argv: []const []const u8) ![]u8 {
     const run_result = try captureChildProcess(s, std.Progress.Node.none, argv);
@@ -373,7 +375,7 @@ pub fn evalZigProcess(
     argv: []const []const u8,
     prog_node: std.Progress.Node,
     watch: bool,
-) !?[]const u8 {
+) !?Path {
     if (s.getZigProcess()) |zp| update: {
         assert(watch);
         if (std.Progress.have_ipc) if (zp.progress_ipc_fd) |fd| prog_node.setIpcFd(fd);
@@ -477,7 +479,7 @@ pub fn evalZigProcess(
     return result;
 }
 
-fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?[]const u8 {
+fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
     const b = s.owner;
     const arena = b.allocator;
 
@@ -487,7 +489,7 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?[]const u8 {
     if (!watch) try sendMessage(zp.child.stdin.?, .exit);
 
     const Header = std.zig.Server.Message.Header;
-    var result: ?[]const u8 = null;
+    var result: ?Path = null;
 
     const stdout = zp.poller.fifo(.stdout);
 
@@ -531,16 +533,15 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?[]const u8 {
                     break;
                 }
             },
-            .emit_bin_path => {
-                const EbpHdr = std.zig.Server.Message.EmitBinPath;
+            .emit_digest => {
+                const EbpHdr = std.zig.Server.Message.EmitDigest;
                 const ebp_hdr = @as(*align(1) const EbpHdr, @ptrCast(body));
                 s.result_cached = ebp_hdr.flags.cache_hit;
-                result = try arena.dupe(u8, body[@sizeOf(EbpHdr)..]);
-                if (watch) {
-                    // This message indicates the end of the update.
-                    stdout.discard(body.len);
-                    break;
-                }
+                const digest = body[@sizeOf(EbpHdr)..][0..Cache.bin_digest_len];
+                result = Path{
+                    .root_dir = b.cache_root,
+                    .sub_path = try arena.dupe(u8, "o" ++ std.fs.path.sep_str ++ Cache.binToHex(digest.*)),
+                };
             },
             .file_system_inputs => {
                 s.clearWatchInputs();

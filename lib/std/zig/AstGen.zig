@@ -66,6 +66,10 @@ scratch: std.ArrayListUnmanaged(u32) = .{},
 ///    of ZIR.
 /// The key is the ref operand; the value is the ref instruction.
 ref_table: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .{},
+/// Any information which should trigger invalidation of incremental compilation
+/// data should be used to update this hasher. The result is the final source
+/// hash of the enclosing declaration/etc.
+src_hasher: std.zig.SrcHasher,
 
 const InnerError = error{ OutOfMemory, AnalysisFail };
 
@@ -137,6 +141,7 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
         .arena = arena.allocator(),
         .tree = &tree,
         .nodes_need_rl = &nodes_need_rl,
+        .src_hasher = undefined, // `structDeclInner` for the root struct will set this
     };
     defer astgen.deinit(gpa);
 
@@ -366,7 +371,6 @@ const ResultInfo = struct {
 };
 
 const coerced_align_ri: ResultInfo = .{ .rl = .{ .coerced_ty = .u29_type } };
-const coerced_addrspace_ri: ResultInfo = .{ .rl = .{ .coerced_ty = .address_space_type } };
 const coerced_linksection_ri: ResultInfo = .{ .rl = .{ .coerced_ty = .slice_const_u8_type } };
 const coerced_type_ri: ResultInfo = .{ .rl = .{ .coerced_ty = .type_type } };
 const coerced_bool_ri: ResultInfo = .{ .rl = .{ .coerced_ty = .bool_type } };
@@ -1387,7 +1391,7 @@ fn fnProtoExpr(
         try expr(
             &block_scope,
             scope,
-            .{ .rl = .{ .coerced_ty = .calling_convention_type } },
+            .{ .rl = .{ .coerced_ty = try block_scope.addBuiltinValue(fn_proto.ast.callconv_expr, .calling_convention) } },
             fn_proto.ast.callconv_expr,
         )
     else
@@ -1423,6 +1427,8 @@ fn fnProtoExpr(
         .is_extern = false,
         .is_noinline = false,
         .noalias_bits = noalias_bits,
+
+        .proto_hash = undefined, // ignored for `body_gz == null`
     });
 
     _ = try block_scope.addBreak(.break_inline, block_inst, result);
@@ -3804,7 +3810,8 @@ fn ptrType(
         gz.astgen.source_line = source_line;
         gz.astgen.source_column = source_column;
 
-        addrspace_ref = try expr(gz, scope, coerced_addrspace_ri, ptr_info.ast.addrspace_node);
+        const addrspace_ty = try gz.addBuiltinValue(ptr_info.ast.addrspace_node, .address_space);
+        addrspace_ref = try expr(gz, scope, .{ .rl = .{ .coerced_ty = addrspace_ty } }, ptr_info.ast.addrspace_node);
         trailing_count += 1;
     }
     if (ptr_info.ast.align_node != 0) {
@@ -4007,6 +4014,13 @@ fn fnDecl(
     const tree = astgen.tree;
     const token_tags = tree.tokens.items(.tag);
 
+    const old_hasher = astgen.src_hasher;
+    defer astgen.src_hasher = old_hasher;
+    astgen.src_hasher = std.zig.SrcHasher.init(.{});
+    // We don't add the full source yet, because we also need the prototype hash!
+    // The source slice is added towards the *end* of this function.
+    astgen.src_hasher.update(std.mem.asBytes(&astgen.source_column));
+
     // missing function name already happened in scanDecls()
     const fn_name_token = fn_proto.name_token orelse return error.AnalysisFail;
 
@@ -4202,7 +4216,8 @@ fn fnDecl(
     var addrspace_gz = decl_gz.makeSubBlock(params_scope);
     defer addrspace_gz.unstack();
     const addrspace_ref: Zir.Inst.Ref = if (fn_proto.ast.addrspace_expr == 0) .none else inst: {
-        const inst = try expr(&decl_gz, params_scope, coerced_addrspace_ri, fn_proto.ast.addrspace_expr);
+        const addrspace_ty = try decl_gz.addBuiltinValue(fn_proto.ast.addrspace_expr, .address_space);
+        const inst = try expr(&decl_gz, params_scope, .{ .rl = .{ .coerced_ty = addrspace_ty } }, fn_proto.ast.addrspace_expr);
         if (addrspace_gz.instructionsSlice().len == 0) {
             // In this case we will send a len=0 body which can be encoded more efficiently.
             break :inst inst;
@@ -4235,9 +4250,9 @@ fn fnDecl(
                 );
             }
             const inst = try expr(
-                &decl_gz,
+                &cc_gz,
                 params_scope,
-                .{ .rl = .{ .coerced_ty = .calling_convention_type } },
+                .{ .rl = .{ .coerced_ty = try cc_gz.addBuiltinValue(fn_proto.ast.callconv_expr, .calling_convention) } },
                 fn_proto.ast.callconv_expr,
             );
             if (cc_gz.instructionsSlice().len == 0) {
@@ -4247,10 +4262,13 @@ fn fnDecl(
             _ = try cc_gz.addBreak(.break_inline, @enumFromInt(0), inst);
             break :blk inst;
         } else if (is_extern) {
-            // note: https://github.com/ziglang/zig/issues/5269
-            break :blk .calling_convention_c;
+            const inst = try cc_gz.addBuiltinValue(decl_node, .calling_convention_c);
+            _ = try cc_gz.addBreak(.break_inline, @enumFromInt(0), inst);
+            break :blk inst;
         } else if (has_inline_keyword) {
-            break :blk .calling_convention_inline;
+            const inst = try cc_gz.addBuiltinValue(decl_node, .calling_convention_inline);
+            _ = try cc_gz.addBreak(.break_inline, @enumFromInt(0), inst);
+            break :blk inst;
         } else {
             break :blk .none;
         }
@@ -4296,10 +4314,20 @@ fn fnDecl(
             .is_extern = true,
             .is_noinline = is_noinline,
             .noalias_bits = noalias_bits,
+            .proto_hash = undefined, // ignored for `body_gz == null`
         });
     } else func: {
         // as a scope, fn_gz encloses ret_gz, but for instruction list, fn_gz stacks on ret_gz
         fn_gz.instructions_top = ret_gz.instructions.items.len;
+
+        // Construct the prototype hash.
+        // Leave `astgen.src_hasher` unmodified; this will be used for hashing
+        // the *whole* function declaration, including its body.
+        var proto_hasher = astgen.src_hasher;
+        const proto_node = tree.nodes.items(.data)[decl_node].lhs;
+        proto_hasher.update(tree.getNodeSource(proto_node));
+        var proto_hash: std.zig.SrcHash = undefined;
+        proto_hasher.final(&proto_hash);
 
         const prev_fn_block = astgen.fn_block;
         const prev_fn_ret_ty = astgen.fn_ret_ty;
@@ -4358,16 +4386,22 @@ fn fnDecl(
             .is_extern = false,
             .is_noinline = is_noinline,
             .noalias_bits = noalias_bits,
+            .proto_hash = proto_hash,
         });
     };
+
+    // *Now* we can incorporate the full source code into the hasher.
+    astgen.src_hasher.update(tree.getNodeSource(decl_node));
 
     // We add this at the end so that its instruction index marks the end range
     // of the top level declaration. addFunc already unstacked fn_gz and ret_gz.
     _ = try decl_gz.addBreak(.break_inline, decl_inst, func_inst);
 
+    var hash: std.zig.SrcHash = undefined;
+    astgen.src_hasher.final(&hash);
     try setDeclaration(
         decl_inst,
-        std.zig.hashSrc(tree.getNodeSource(decl_node)),
+        hash,
         .{ .named = fn_name_token },
         decl_gz.decl_line,
         is_pub,
@@ -4390,6 +4424,12 @@ fn globalVarDecl(
 ) InnerError!void {
     const tree = astgen.tree;
     const token_tags = tree.tokens.items(.tag);
+
+    const old_hasher = astgen.src_hasher;
+    defer astgen.src_hasher = old_hasher;
+    astgen.src_hasher = std.zig.SrcHasher.init(.{});
+    astgen.src_hasher.update(tree.getNodeSource(node));
+    astgen.src_hasher.update(std.mem.asBytes(&astgen.source_column));
 
     const is_mutable = token_tags[var_decl.ast.mut_token] == .keyword_var;
     // We do this at the beginning so that the instruction index marks the range start
@@ -4525,13 +4565,16 @@ fn globalVarDecl(
 
     var addrspace_gz = linksection_gz.makeSubBlock(scope);
     if (var_decl.ast.addrspace_node != 0) {
-        const addrspace_inst = try fullBodyExpr(&addrspace_gz, &addrspace_gz.base, coerced_addrspace_ri, var_decl.ast.addrspace_node);
+        const addrspace_ty = try addrspace_gz.addBuiltinValue(var_decl.ast.addrspace_node, .address_space);
+        const addrspace_inst = try fullBodyExpr(&addrspace_gz, &addrspace_gz.base, .{ .rl = .{ .coerced_ty = addrspace_ty } }, var_decl.ast.addrspace_node);
         _ = try addrspace_gz.addBreakWithSrcNode(.break_inline, decl_inst, addrspace_inst, node);
     }
 
+    var hash: std.zig.SrcHash = undefined;
+    astgen.src_hasher.final(&hash);
     try setDeclaration(
         decl_inst,
-        std.zig.hashSrc(tree.getNodeSource(node)),
+        hash,
         .{ .named = name_token },
         block_scope.decl_line,
         is_pub,
@@ -4557,6 +4600,12 @@ fn comptimeDecl(
     const node_datas = tree.nodes.items(.data);
     const body_node = node_datas[node].lhs;
 
+    const old_hasher = astgen.src_hasher;
+    defer astgen.src_hasher = old_hasher;
+    astgen.src_hasher = std.zig.SrcHasher.init(.{});
+    astgen.src_hasher.update(tree.getNodeSource(node));
+    astgen.src_hasher.update(std.mem.asBytes(&astgen.source_column));
+
     // Up top so the ZIR instruction index marks the start range of this
     // top-level declaration.
     const decl_inst = try gz.makeDeclaration(node);
@@ -4579,9 +4628,11 @@ fn comptimeDecl(
         _ = try decl_block.addBreak(.break_inline, decl_inst, .void_value);
     }
 
+    var hash: std.zig.SrcHash = undefined;
+    astgen.src_hasher.final(&hash);
     try setDeclaration(
         decl_inst,
-        std.zig.hashSrc(tree.getNodeSource(node)),
+        hash,
         .@"comptime",
         decl_block.decl_line,
         false,
@@ -4601,6 +4652,12 @@ fn usingnamespaceDecl(
 ) InnerError!void {
     const tree = astgen.tree;
     const node_datas = tree.nodes.items(.data);
+
+    const old_hasher = astgen.src_hasher;
+    defer astgen.src_hasher = old_hasher;
+    astgen.src_hasher = std.zig.SrcHasher.init(.{});
+    astgen.src_hasher.update(tree.getNodeSource(node));
+    astgen.src_hasher.update(std.mem.asBytes(&astgen.source_column));
 
     const type_expr = node_datas[node].lhs;
     const is_pub = blk: {
@@ -4629,9 +4686,11 @@ fn usingnamespaceDecl(
     const namespace_inst = try typeExpr(&decl_block, &decl_block.base, type_expr);
     _ = try decl_block.addBreak(.break_inline, decl_inst, namespace_inst);
 
+    var hash: std.zig.SrcHash = undefined;
+    astgen.src_hasher.final(&hash);
     try setDeclaration(
         decl_inst,
-        std.zig.hashSrc(tree.getNodeSource(node)),
+        hash,
         .@"usingnamespace",
         decl_block.decl_line,
         is_pub,
@@ -4652,6 +4711,12 @@ fn testDecl(
     const tree = astgen.tree;
     const node_datas = tree.nodes.items(.data);
     const body_node = node_datas[node].rhs;
+
+    const old_hasher = astgen.src_hasher;
+    defer astgen.src_hasher = old_hasher;
+    astgen.src_hasher = std.zig.SrcHasher.init(.{});
+    astgen.src_hasher.update(tree.getNodeSource(node));
+    astgen.src_hasher.update(std.mem.asBytes(&astgen.source_column));
 
     // Up top so the ZIR instruction index marks the start range of this
     // top-level declaration.
@@ -4814,13 +4879,18 @@ fn testDecl(
         .is_extern = false,
         .is_noinline = false,
         .noalias_bits = 0,
+
+        // Tests don't have a prototype that needs hashing
+        .proto_hash = .{0} ** 16,
     });
 
     _ = try decl_block.addBreak(.break_inline, decl_inst, func_inst);
 
+    var hash: std.zig.SrcHash = undefined;
+    astgen.src_hasher.final(&hash);
     try setDeclaration(
         decl_inst,
-        std.zig.hashSrc(tree.getNodeSource(node)),
+        hash,
         test_name,
         decl_block.decl_line,
         false,
@@ -4978,10 +5048,12 @@ fn structDeclInner(
         }
     };
 
-    var fields_hasher = std.zig.SrcHasher.init(.{});
-    fields_hasher.update(@tagName(layout));
+    const old_hasher = astgen.src_hasher;
+    defer astgen.src_hasher = old_hasher;
+    astgen.src_hasher = std.zig.SrcHasher.init(.{});
+    astgen.src_hasher.update(@tagName(layout));
     if (backing_int_node != 0) {
-        fields_hasher.update(tree.getNodeSource(backing_int_node));
+        astgen.src_hasher.update(tree.getNodeSource(backing_int_node));
     }
 
     var sfba = std.heap.stackFallback(256, astgen.arena);
@@ -5004,7 +5076,7 @@ fn structDeclInner(
             .field => |field| field,
         };
 
-        fields_hasher.update(tree.getNodeSource(member_node));
+        astgen.src_hasher.update(tree.getNodeSource(member_node));
 
         if (!is_tuple) {
             const field_name = try astgen.identAsString(member.ast.main_token);
@@ -5134,7 +5206,7 @@ fn structDeclInner(
     }
 
     var fields_hash: std.zig.SrcHash = undefined;
-    fields_hasher.final(&fields_hash);
+    astgen.src_hasher.final(&fields_hash);
 
     try gz.setStruct(decl_inst, .{
         .src_node = node,
@@ -5235,11 +5307,13 @@ fn unionDeclInner(
     var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, field_count, bits_per_field, max_field_size);
     defer wip_members.deinit();
 
-    var fields_hasher = std.zig.SrcHasher.init(.{});
-    fields_hasher.update(@tagName(layout));
-    fields_hasher.update(&.{@intFromBool(auto_enum_tok != null)});
+    const old_hasher = astgen.src_hasher;
+    defer astgen.src_hasher = old_hasher;
+    astgen.src_hasher = std.zig.SrcHasher.init(.{});
+    astgen.src_hasher.update(@tagName(layout));
+    astgen.src_hasher.update(&.{@intFromBool(auto_enum_tok != null)});
     if (arg_node != 0) {
-        fields_hasher.update(astgen.tree.getNodeSource(arg_node));
+        astgen.src_hasher.update(astgen.tree.getNodeSource(arg_node));
     }
 
     var sfba = std.heap.stackFallback(256, astgen.arena);
@@ -5256,7 +5330,7 @@ fn unionDeclInner(
             .decl => continue,
             .field => |field| field,
         };
-        fields_hasher.update(astgen.tree.getNodeSource(member_node));
+        astgen.src_hasher.update(astgen.tree.getNodeSource(member_node));
         member.convertToNonTupleLike(astgen.tree.nodes);
         if (member.ast.tuple_like) {
             return astgen.failTok(member.ast.main_token, "union field missing name", .{});
@@ -5359,7 +5433,7 @@ fn unionDeclInner(
     }
 
     var fields_hash: std.zig.SrcHash = undefined;
-    fields_hasher.final(&fields_hash);
+    astgen.src_hasher.final(&fields_hash);
 
     if (!block_scope.isEmpty()) {
         _ = try block_scope.addBreak(.break_inline, decl_inst, .void_value);
@@ -5573,11 +5647,13 @@ fn containerDecl(
             var wip_members = try WipMembers.init(gpa, &astgen.scratch, @intCast(counts.decls), @intCast(counts.total_fields), bits_per_field, max_field_size);
             defer wip_members.deinit();
 
-            var fields_hasher = std.zig.SrcHasher.init(.{});
+            const old_hasher = astgen.src_hasher;
+            defer astgen.src_hasher = old_hasher;
+            astgen.src_hasher = std.zig.SrcHasher.init(.{});
             if (container_decl.ast.arg != 0) {
-                fields_hasher.update(tree.getNodeSource(container_decl.ast.arg));
+                astgen.src_hasher.update(tree.getNodeSource(container_decl.ast.arg));
             }
-            fields_hasher.update(&.{@intFromBool(nonexhaustive)});
+            astgen.src_hasher.update(&.{@intFromBool(nonexhaustive)});
 
             var sfba = std.heap.stackFallback(256, astgen.arena);
             const sfba_allocator = sfba.get();
@@ -5591,7 +5667,7 @@ fn containerDecl(
             for (container_decl.ast.members) |member_node| {
                 if (member_node == counts.nonexhaustive_node)
                     continue;
-                fields_hasher.update(tree.getNodeSource(member_node));
+                astgen.src_hasher.update(tree.getNodeSource(member_node));
                 var member = switch (try containerMember(&block_scope, &namespace.base, &wip_members, member_node)) {
                     .decl => continue,
                     .field => |field| field,
@@ -5671,7 +5747,7 @@ fn containerDecl(
             }
 
             var fields_hash: std.zig.SrcHash = undefined;
-            fields_hasher.final(&fields_hash);
+            astgen.src_hasher.final(&fields_hash);
 
             const body = block_scope.instructionsSlice();
             const body_len = astgen.countBodyLenAfterFixups(body);
@@ -8473,6 +8549,10 @@ fn tunnelThroughClosure(
         });
     }
 
+    // Incorporate the capture index into the source hash, so that changes in
+    // the order of captures cause suitable re-analysis.
+    astgen.src_hasher.update(std.mem.asBytes(&cur_capture_index));
+
     // Add an instruction to get the value from the closure.
     return gz.addExtendedNodeSmall(.closure_get, inner_ref_node, cur_capture_index);
 }
@@ -9169,6 +9249,7 @@ fn builtinCall(
         // zig fmt: on
 
         .@"export" => {
+            const export_options_ty = try gz.addBuiltinValue(node, .export_options);
             const node_tags = tree.nodes.items(.tag);
             const node_datas = tree.nodes.items(.data);
             // This function causes a Decl to be exported. The first parameter is not an expression,
@@ -9192,7 +9273,7 @@ fn builtinCall(
                                 local_val.used = ident_token;
                                 _ = try gz.addPlNode(.export_value, node, Zir.Inst.ExportValue{
                                     .operand = local_val.inst,
-                                    .options = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .export_options_type } }, params[1]),
+                                    .options = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = export_options_ty } }, params[1]),
                                 });
                                 return rvalue(gz, ri, .void_value, node);
                             }
@@ -9207,7 +9288,7 @@ fn builtinCall(
                                 const loaded = try gz.addUnNode(.load, local_ptr.ptr, node);
                                 _ = try gz.addPlNode(.export_value, node, Zir.Inst.ExportValue{
                                     .operand = loaded,
-                                    .options = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .export_options_type } }, params[1]),
+                                    .options = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = export_options_ty } }, params[1]),
                                 });
                                 return rvalue(gz, ri, .void_value, node);
                             }
@@ -9245,7 +9326,7 @@ fn builtinCall(
                 },
                 else => return astgen.failNode(params[0], "symbol to export must identify a declaration", .{}),
             }
-            const options = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .export_options_type } }, params[1]);
+            const options = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = export_options_ty } }, params[1]);
             _ = try gz.addPlNode(.@"export", node, Zir.Inst.Export{
                 .namespace = namespace,
                 .decl_name = decl_name,
@@ -9255,7 +9336,8 @@ fn builtinCall(
         },
         .@"extern" => {
             const type_inst = try typeExpr(gz, scope, params[0]);
-            const options = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .extern_options_type } }, params[1]);
+            const extern_options_ty = try gz.addBuiltinValue(node, .extern_options);
+            const options = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = extern_options_ty } }, params[1]);
             const result = try gz.addExtendedPayload(.builtin_extern, Zir.Inst.BinNode{
                 .node = gz.nodeIndexToRelative(node),
                 .lhs = type_inst,
@@ -9264,7 +9346,8 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .fence => {
-            const order = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .atomic_order_type } }, params[0]);
+            const atomic_order_ty = try gz.addBuiltinValue(node, .atomic_order);
+            const order = try expr(gz, scope, .{ .rl = .{ .coerced_ty = atomic_order_ty } }, params[0]);
             _ = try gz.addExtendedPayload(.fence, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
                 .operand = order,
@@ -9272,7 +9355,8 @@ fn builtinCall(
             return rvalue(gz, ri, .void_value, node);
         },
         .set_float_mode => {
-            const order = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .float_mode_type } }, params[0]);
+            const float_mode_ty = try gz.addBuiltinValue(node, .float_mode);
+            const order = try expr(gz, scope, .{ .rl = .{ .coerced_ty = float_mode_ty } }, params[0]);
             _ = try gz.addExtendedPayload(.set_float_mode, Zir.Inst.UnNode{
                 .node = gz.nodeIndexToRelative(node),
                 .operand = order,
@@ -9297,6 +9381,13 @@ fn builtinCall(
         },
 
         .src => {
+            // Incorporate the source location into the source hash, so that
+            // changes in the source location of `@src()` result in re-analysis.
+            astgen.src_hasher.update(
+                std.mem.asBytes(&astgen.source_line) ++
+                    std.mem.asBytes(&astgen.source_column),
+            );
+
             const token_starts = tree.tokens.items(.start);
             const node_start = token_starts[tree.firstToken(node)];
             astgen.advanceSourceCursor(node_start);
@@ -9365,7 +9456,8 @@ fn builtinCall(
         },
 
         .Type => {
-            const operand = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .type_info_type } }, params[0]);
+            const type_info_ty = try gz.addBuiltinValue(node, .type_info);
+            const operand = try expr(gz, scope, .{ .rl = .{ .coerced_ty = type_info_ty } }, params[0]);
 
             const gpa = gz.astgen.gpa;
 
@@ -9502,7 +9594,8 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .reduce => {
-            const op = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .reduce_op_type } }, params[0]);
+            const reduce_op_ty = try gz.addBuiltinValue(node, .reduce_op);
+            const op = try expr(gz, scope, .{ .rl = .{ .coerced_ty = reduce_op_ty } }, params[0]);
             const scalar = try expr(gz, scope, .{ .rl = .none }, params[1]);
             const result = try gz.addPlNode(.reduce, node, Zir.Inst.Bin{
                 .lhs = op,
@@ -9517,34 +9610,38 @@ fn builtinCall(
         .shl_with_overflow => return overflowArithmetic(gz, scope, ri, node, params, .shl_with_overflow),
 
         .atomic_load => {
+            const atomic_order_type = try gz.addBuiltinValue(node, .atomic_order);
             const result = try gz.addPlNode(.atomic_load, node, Zir.Inst.AtomicLoad{
                 // zig fmt: off
-                .elem_type = try typeExpr(gz, scope,                                                   params[0]),
-                .ptr       = try expr    (gz, scope, .{ .rl = .none },                                 params[1]),
-                .ordering  = try expr    (gz, scope, .{ .rl = .{ .coerced_ty = .atomic_order_type } }, params[2]),
+                .elem_type = try typeExpr(gz, scope,                                                  params[0]),
+                .ptr       = try expr    (gz, scope, .{ .rl = .none },                                params[1]),
+                .ordering  = try expr    (gz, scope, .{ .rl = .{ .coerced_ty = atomic_order_type } }, params[2]),
                 // zig fmt: on
             });
             return rvalue(gz, ri, result, node);
         },
         .atomic_rmw => {
+            const atomic_order_type = try gz.addBuiltinValue(node, .atomic_order);
+            const atomic_rmw_op_type = try gz.addBuiltinValue(node, .atomic_rmw_op);
             const int_type = try typeExpr(gz, scope, params[0]);
             const result = try gz.addPlNode(.atomic_rmw, node, Zir.Inst.AtomicRmw{
                 // zig fmt: off
-                .ptr       = try expr(gz, scope, .{ .rl = .none },                                  params[1]),
-                .operation = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .atomic_rmw_op_type } }, params[2]),
-                .operand   = try expr(gz, scope, .{ .rl = .{ .ty = int_type } },                    params[3]),
-                .ordering  = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .atomic_order_type } },  params[4]),
+                .ptr       = try expr(gz, scope, .{ .rl = .none },                                 params[1]),
+                .operation = try expr(gz, scope, .{ .rl = .{ .coerced_ty = atomic_rmw_op_type } }, params[2]),
+                .operand   = try expr(gz, scope, .{ .rl = .{ .ty = int_type } },                   params[3]),
+                .ordering  = try expr(gz, scope, .{ .rl = .{ .coerced_ty = atomic_order_type } },  params[4]),
                 // zig fmt: on
             });
             return rvalue(gz, ri, result, node);
         },
         .atomic_store => {
+            const atomic_order_type = try gz.addBuiltinValue(node, .atomic_order);
             const int_type = try typeExpr(gz, scope, params[0]);
             _ = try gz.addPlNode(.atomic_store, node, Zir.Inst.AtomicStore{
                 // zig fmt: off
-                .ptr      = try expr(gz, scope, .{ .rl = .none },                                 params[1]),
-                .operand  = try expr(gz, scope, .{ .rl = .{ .ty = int_type } },                   params[2]),
-                .ordering = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .atomic_order_type } }, params[3]),
+                .ptr      = try expr(gz, scope, .{ .rl = .none },                                params[1]),
+                .operand  = try expr(gz, scope, .{ .rl = .{ .ty = int_type } },                  params[2]),
+                .ordering = try expr(gz, scope, .{ .rl = .{ .coerced_ty = atomic_order_type } }, params[3]),
                 // zig fmt: on
             });
             return rvalue(gz, ri, .void_value, node);
@@ -9562,7 +9659,8 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .call => {
-            const modifier = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .call_modifier_type } }, params[0]);
+            const call_modifier_ty = try gz.addBuiltinValue(node, .call_modifier);
+            const modifier = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = call_modifier_ty } }, params[0]);
             const callee = try expr(gz, scope, .{ .rl = .none }, params[1]);
             const args = try expr(gz, scope, .{ .rl = .none }, params[2]);
             const result = try gz.addPlNode(.builtin_call, node, Zir.Inst.BuiltinCall{
@@ -9641,8 +9739,9 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .prefetch => {
+            const prefetch_options_ty = try gz.addBuiltinValue(node, .prefetch_options);
             const ptr = try expr(gz, scope, .{ .rl = .none }, params[0]);
-            const options = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .prefetch_options_type } }, params[1]);
+            const options = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = prefetch_options_ty } }, params[1]);
             _ = try gz.addExtendedPayload(.prefetch, Zir.Inst.BinNode{
                 .node = gz.nodeIndexToRelative(node),
                 .lhs = ptr,
@@ -9812,14 +9911,15 @@ fn cmpxchg(
     small: u16,
 ) InnerError!Zir.Inst.Ref {
     const int_type = try typeExpr(gz, scope, params[0]);
+    const atomic_order_type = try gz.addBuiltinValue(node, .atomic_order);
     const result = try gz.addExtendedPayloadSmall(.cmpxchg, small, Zir.Inst.Cmpxchg{
         // zig fmt: off
         .node           = gz.nodeIndexToRelative(node),
-        .ptr            = try expr(gz, scope, .{ .rl = .none },                                 params[1]),
-        .expected_value = try expr(gz, scope, .{ .rl = .{ .ty = int_type } },                   params[2]),
-        .new_value      = try expr(gz, scope, .{ .rl = .{ .coerced_ty = int_type } },           params[3]),
-        .success_order  = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .atomic_order_type } }, params[4]),
-        .failure_order  = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .atomic_order_type } }, params[5]),
+        .ptr            = try expr(gz, scope, .{ .rl = .none },                                params[1]),
+        .expected_value = try expr(gz, scope, .{ .rl = .{ .ty = int_type } },                  params[2]),
+        .new_value      = try expr(gz, scope, .{ .rl = .{ .coerced_ty = int_type } },          params[3]),
+        .success_order  = try expr(gz, scope, .{ .rl = .{ .coerced_ty = atomic_order_type } }, params[4]),
+        .failure_order  = try expr(gz, scope, .{ .rl = .{ .coerced_ty = atomic_order_type } }, params[5]),
         // zig fmt: on
     });
     return rvalue(gz, ri, result, node);
@@ -11106,17 +11206,6 @@ fn rvalueInner(
                 as_ty | @intFromEnum(Zir.Inst.Ref.null_type),
                 as_ty | @intFromEnum(Zir.Inst.Ref.undefined_type),
                 as_ty | @intFromEnum(Zir.Inst.Ref.enum_literal_type),
-                as_ty | @intFromEnum(Zir.Inst.Ref.atomic_order_type),
-                as_ty | @intFromEnum(Zir.Inst.Ref.atomic_rmw_op_type),
-                as_ty | @intFromEnum(Zir.Inst.Ref.calling_convention_type),
-                as_ty | @intFromEnum(Zir.Inst.Ref.address_space_type),
-                as_ty | @intFromEnum(Zir.Inst.Ref.float_mode_type),
-                as_ty | @intFromEnum(Zir.Inst.Ref.reduce_op_type),
-                as_ty | @intFromEnum(Zir.Inst.Ref.call_modifier_type),
-                as_ty | @intFromEnum(Zir.Inst.Ref.prefetch_options_type),
-                as_ty | @intFromEnum(Zir.Inst.Ref.export_options_type),
-                as_ty | @intFromEnum(Zir.Inst.Ref.extern_options_type),
-                as_ty | @intFromEnum(Zir.Inst.Ref.type_info_type),
                 as_ty | @intFromEnum(Zir.Inst.Ref.manyptr_u8_type),
                 as_ty | @intFromEnum(Zir.Inst.Ref.manyptr_const_u8_type),
                 as_ty | @intFromEnum(Zir.Inst.Ref.manyptr_const_u8_sentinel_0_type),
@@ -12115,6 +12204,9 @@ const GenZir = struct {
         is_test: bool,
         is_extern: bool,
         is_noinline: bool,
+
+        /// Ignored if `body_gz == null`.
+        proto_hash: std.zig.SrcHash,
     }) !Zir.Inst.Ref {
         assert(args.src_node != 0);
         const astgen = gz.astgen;
@@ -12143,15 +12235,7 @@ const GenZir = struct {
 
             const columns = args.lbrace_column | (rbrace_column << 16);
 
-            const proto_hash: std.zig.SrcHash = switch (node_tags[fn_decl]) {
-                .fn_decl => sig_hash: {
-                    const proto_node = node_datas[fn_decl].lhs;
-                    break :sig_hash std.zig.hashSrc(tree.getNodeSource(proto_node));
-                },
-                .test_decl => std.zig.hashSrc(""), // tests don't have a prototype
-                else => unreachable,
-            };
-            const proto_hash_arr: [4]u32 = @bitCast(proto_hash);
+            const proto_hash_arr: [4]u32 = @bitCast(args.proto_hash);
 
             src_locs_and_hash_buffer = .{
                 args.lbrace_line,
@@ -12570,6 +12654,10 @@ const GenZir = struct {
         });
         gz.instructions.appendAssumeCapacity(new_index);
         return new_index;
+    }
+
+    fn addBuiltinValue(gz: *GenZir, src_node: Ast.Node.Index, val: Zir.Inst.BuiltinValue) !Zir.Inst.Ref {
+        return addExtendedNodeSmall(gz, .builtin_value, src_node, @intFromEnum(val));
     }
 
     fn addExtendedPayload(gz: *GenZir, opcode: Zir.Inst.Extended, extra: anytype) !Zir.Inst.Ref {

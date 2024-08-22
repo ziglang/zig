@@ -259,7 +259,7 @@ pub fn updateNav(
         else => .{ false, .none, nav_val },
     };
 
-    if (nav_init.typeOf(zcu).isFnOrHasRuntimeBits(pt)) {
+    if (nav_init.typeOf(zcu).hasRuntimeBits(pt)) {
         const gpa = wasm_file.base.comp.gpa;
         const atom_index = try zig_object.getOrCreateAtomForNav(wasm_file, pt, nav_index);
         const atom = wasm_file.getAtomPtr(atom_index);

@@ -76,10 +76,6 @@ no_partial_func_ty: bool = false,
 /// here so the values can be dropped without any cleanup.
 unresolved_inferred_allocs: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, InferredAlloc) = .{},
 
-/// While analyzing a type which has a special InternPool index, this is set to the index at which
-/// the struct/enum/union type created should be placed. Otherwise, it is `.none`.
-builtin_type_target_index: InternPool.Index = .none,
-
 /// Links every pointer derived from a base `alloc` back to that `alloc`. Used
 /// to detect comptime-known `const`s.
 /// TODO: ZIR liveness analysis would allow us to remove elements from this map.
@@ -116,6 +112,11 @@ type_references: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .{},
 /// of the main dependency data. It exists to avoid adding dependencies to a given
 /// `AnalUnit` multiple times.
 dependencies: std.AutoArrayHashMapUnmanaged(InternPool.Dependee, void) = .{},
+
+/// Whether memoization of this call is permitted. Operations with side effects global
+/// to the `Sema`, such as `@setEvalBranchQuota`, set this to `false`. It is observed
+/// by `analyzeCall`.
+allow_memoize: bool = true,
 
 const MaybeComptimeAlloc = struct {
     /// The runtime index of the `alloc` instruction.
@@ -187,6 +188,7 @@ const InternPool = @import("InternPool.zig");
 const Alignment = InternPool.Alignment;
 const AnalUnit = InternPool.AnalUnit;
 const ComptimeAllocIndex = InternPool.ComptimeAllocIndex;
+const Cache = std.Build.Cache;
 
 pub const default_branch_quota = 1000;
 pub const default_reference_trace_len = 2;
@@ -379,7 +381,7 @@ pub const Block = struct {
 
     c_import_buf: ?*std.ArrayList(u8) = null,
 
-    /// If not `null`, this boolean is set when a `dbg_var_ptr` or `dbg_var_val`
+    /// If not `null`, this boolean is set when a `dbg_var_ptr`, `dbg_var_val`, or `dbg_arg_inline`.
     /// instruction is emitted. It signals that the innermost lexically
     /// enclosing `block`/`block_inline` should be translated into a real AIR
     /// `block` in order for codegen to match lexical scoping for debug vars.
@@ -1327,6 +1329,7 @@ fn analyzeBodyInner(
                     },
                     .value_placeholder => unreachable, // never appears in a body
                     .field_parent_ptr => try sema.zirFieldParentPtr(block, extended),
+                    .builtin_value => try sema.zirBuiltinValue(extended),
                 };
             },
 
@@ -2712,17 +2715,6 @@ fn getCaptures(sema: *Sema, block: *Block, type_src: LazySrcLoc, extra_index: us
     return captures;
 }
 
-/// Given an `InternPool.WipNamespaceType` or `InternPool.WipEnumType`, apply
-/// `sema.builtin_type_target_index` to it if necessary.
-fn wrapWipTy(sema: *Sema, wip_ty: anytype) @TypeOf(wip_ty) {
-    const pt = sema.pt;
-    if (sema.builtin_type_target_index == .none) return wip_ty;
-    var new = wip_ty;
-    new.index = sema.builtin_type_target_index;
-    pt.zcu.intern_pool.resolveBuiltinType(pt.tid, new.index, wip_ty.index);
-    return new;
-}
-
 fn zirStructDecl(
     sema: *Sema,
     block: *Block,
@@ -2788,7 +2780,7 @@ fn zirStructDecl(
             .captures = captures,
         } },
     };
-    const wip_ty = sema.wrapWipTy(switch (try ip.getStructType(gpa, pt.tid, struct_init, false)) {
+    const wip_ty = switch (try ip.getStructType(gpa, pt.tid, struct_init, false)) {
         .existing => |ty| {
             const new_ty = try pt.ensureTypeUpToDate(ty, false);
 
@@ -2801,7 +2793,7 @@ fn zirStructDecl(
             return Air.internedToRef(new_ty);
         },
         .wip => |wip| wip,
-    });
+    };
     errdefer wip_ty.cancel(ip, pt.tid);
 
     wip_ty.setName(ip, try sema.createTypeName(
@@ -3017,7 +3009,7 @@ fn zirEnumDecl(
             .captures = captures,
         } },
     };
-    const wip_ty = sema.wrapWipTy(switch (try ip.getEnumType(gpa, pt.tid, enum_init, false)) {
+    const wip_ty = switch (try ip.getEnumType(gpa, pt.tid, enum_init, false)) {
         .existing => |ty| {
             const new_ty = try pt.ensureTypeUpToDate(ty, false);
 
@@ -3030,7 +3022,7 @@ fn zirEnumDecl(
             return Air.internedToRef(new_ty);
         },
         .wip => |wip| wip,
-    });
+    };
 
     // Once this is `true`, we will not delete the decl or type even upon failure, since we
     // have finished constructing the type and are in the process of analyzing it.
@@ -3161,7 +3153,7 @@ fn zirUnionDecl(
             .captures = captures,
         } },
     };
-    const wip_ty = sema.wrapWipTy(switch (try ip.getUnionType(gpa, pt.tid, union_init, false)) {
+    const wip_ty = switch (try ip.getUnionType(gpa, pt.tid, union_init, false)) {
         .existing => |ty| {
             const new_ty = try pt.ensureTypeUpToDate(ty, false);
 
@@ -3174,7 +3166,7 @@ fn zirUnionDecl(
             return Air.internedToRef(new_ty);
         },
         .wip => |wip| wip,
-    });
+    };
     errdefer wip_ty.cancel(ip, pt.tid);
 
     wip_ty.setName(ip, try sema.createTypeName(
@@ -3259,7 +3251,6 @@ fn zirOpaqueDecl(
             .captures = captures,
         } },
     };
-    // No `wrapWipTy` needed as no std.builtin types are opaque.
     const wip_ty = switch (try ip.getOpaqueType(gpa, pt.tid, opaque_init)) {
         .existing => |ty| {
             // Make sure we update the namespace if the declaration is re-analyzed, to pick
@@ -5538,6 +5529,7 @@ fn zirSetEvalBranchQuota(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compi
         .needed_comptime_reason = "eval branch quota must be comptime-known",
     }));
     sema.branch_quota = @max(sema.branch_quota, quota);
+    sema.allow_memoize = false;
 }
 
 fn zirStoreNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
@@ -5886,16 +5878,18 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
         return sema.failWithOwnedErrorMsg(&child_block, msg);
     }
     const parent_mod = parent_block.ownerModule();
+    const digest = Cache.binToHex(c_import_res.digest);
+    const c_import_zig_path = try comp.arena.dupe(u8, "o" ++ std.fs.path.sep_str ++ digest);
     const c_import_mod = Package.Module.create(comp.arena, .{
         .global_cache_directory = comp.global_cache_directory,
         .paths = .{
             .root = .{
-                .root_dir = Compilation.Directory.cwd(),
-                .sub_path = std.fs.path.dirname(c_import_res.out_zig_path) orelse "",
+                .root_dir = comp.local_cache_directory,
+                .sub_path = c_import_zig_path,
             },
-            .root_src_path = std.fs.path.basename(c_import_res.out_zig_path),
+            .root_src_path = "cimport.zig",
         },
-        .fully_qualified_name = c_import_res.out_zig_path,
+        .fully_qualified_name = c_import_zig_path,
         .cc_argv = parent_mod.cc_argv,
         .inherited = .{},
         .global = comp.config,
@@ -6428,6 +6422,7 @@ fn zirSetAlignStack(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
     }
 
     zcu.intern_pool.funcMaxStackAlignment(sema.func_index, alignment);
+    sema.allow_memoize = false;
 }
 
 fn zirSetCold(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {
@@ -6446,6 +6441,7 @@ fn zirSetCold(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) 
         .cau => return, // does nothing outside a function
     };
     ip.funcSetCold(func, is_cold);
+    sema.allow_memoize = false;
 }
 
 fn zirDisableInstrumentation(sema: *Sema) CompileError!void {
@@ -6457,6 +6453,7 @@ fn zirDisableInstrumentation(sema: *Sema) CompileError!void {
         .cau => return, // does nothing outside a function
     };
     ip.funcSetDisableInstrumentation(func);
+    sema.allow_memoize = false;
 }
 
 fn zirSetFloatMode(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {
@@ -6579,7 +6576,7 @@ fn addDbgVar(
     const operand_ty = sema.typeOf(operand);
     const val_ty = switch (air_tag) {
         .dbg_var_ptr => operand_ty.childType(mod),
-        .dbg_var_val => operand_ty,
+        .dbg_var_val, .dbg_arg_inline => operand_ty,
         else => unreachable,
     };
     if (try sema.typeRequiresComptime(val_ty)) return;
@@ -6598,25 +6595,26 @@ fn addDbgVar(
     if (block.need_debug_scope) |ptr| ptr.* = true;
 
     // Add the name to the AIR.
-    const name_extra_index = try sema.appendAirString(name);
+    const name_nts = try sema.appendAirString(name);
 
     _ = try block.addInst(.{
         .tag = air_tag,
         .data = .{ .pl_op = .{
-            .payload = name_extra_index,
+            .payload = @intFromEnum(name_nts),
             .operand = operand,
         } },
     });
 }
 
-pub fn appendAirString(sema: *Sema, str: []const u8) Allocator.Error!u32 {
-    const str_extra_index: u32 = @intCast(sema.air_extra.items.len);
+pub fn appendAirString(sema: *Sema, str: []const u8) Allocator.Error!Air.NullTerminatedString {
+    if (str.len == 0) return .none;
+    const nts: Air.NullTerminatedString = @enumFromInt(sema.air_extra.items.len);
     const elements_used = str.len / 4 + 1;
     const elements = try sema.air_extra.addManyAsSlice(sema.gpa, elements_used);
     const buffer = mem.sliceAsBytes(elements);
     @memcpy(buffer[0..str.len], str);
     buffer[str.len] = 0;
-    return str_extra_index;
+    return nts;
 }
 
 fn zirDeclRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -7600,6 +7598,9 @@ fn analyzeCall(
 
         const module_fn = zcu.funcInfo(module_fn_index);
 
+        // The call site definitely depends on the function's signature.
+        try sema.declareDependency(.{ .src_hash = module_fn.zir_body_inst });
+
         // This is not a function instance, so the function's `Nav` has a
         // `Cau` -- we don't need to check `generic_owner`.
         const fn_nav = ip.getNav(module_fn.owner_nav);
@@ -7736,101 +7737,121 @@ fn analyzeCall(
             } }));
         }
 
-        // This `res2` is here instead of directly breaking from `res` due to a stage1
-        // bug generating invalid LLVM IR.
-        const res2: Air.Inst.Ref = res2: {
-            if (should_memoize and is_comptime_call) {
-                if (zcu.intern_pool.getIfExists(.{ .memoized_call = .{
+        memoize: {
+            if (!should_memoize) break :memoize;
+            if (!is_comptime_call) break :memoize;
+            const memoized_call_index = ip.getIfExists(.{
+                .memoized_call = .{
                     .func = module_fn_index,
                     .arg_values = memoized_arg_values,
-                    .result = .none,
-                } })) |memoized_call_index| {
-                    const memoized_call = zcu.intern_pool.indexToKey(memoized_call_index).memoized_call;
-                    break :res2 Air.internedToRef(memoized_call.result);
-                }
+                    .result = undefined, // ignored by hash+eql
+                    .branch_count = undefined, // ignored by hash+eql
+                },
+            }) orelse break :memoize;
+            const memoized_call = ip.indexToKey(memoized_call_index).memoized_call;
+            if (sema.branch_count + memoized_call.branch_count > sema.branch_quota) {
+                // Let the call play out se we get the correct source location for the
+                // "evaluation exceeded X backwards branches" error.
+                break :memoize;
             }
+            sema.branch_count += memoized_call.branch_count;
+            break :res Air.internedToRef(memoized_call.result);
+        }
 
-            new_fn_info.return_type = sema.fn_ret_ty.toIntern();
-            if (!is_comptime_call and !block.is_typeof) {
-                const zir_tags = sema.code.instructions.items(.tag);
-                for (fn_info.param_body) |param| switch (zir_tags[@intFromEnum(param)]) {
-                    .param, .param_comptime => {
-                        const inst_data = sema.code.instructions.items(.data)[@intFromEnum(param)].pl_tok;
-                        const extra = sema.code.extraData(Zir.Inst.Param, inst_data.payload_index);
-                        const param_name = sema.code.nullTerminatedString(extra.data.name);
-                        const inst = sema.inst_map.get(param).?;
+        // Since we're doing an inline call, we depend on the source code of the whole
+        // function declaration.
+        try sema.declareDependency(.{ .src_hash = fn_cau.zir_index });
 
-                        try sema.addDbgVar(&child_block, inst, .dbg_var_val, param_name);
-                    },
-                    .param_anytype, .param_anytype_comptime => {
-                        const inst_data = sema.code.instructions.items(.data)[@intFromEnum(param)].str_tok;
-                        const param_name = inst_data.get(sema.code);
-                        const inst = sema.inst_map.get(param).?;
+        new_fn_info.return_type = sema.fn_ret_ty.toIntern();
+        if (!is_comptime_call and !block.is_typeof) {
+            const zir_tags = sema.code.instructions.items(.tag);
+            for (fn_info.param_body) |param| switch (zir_tags[@intFromEnum(param)]) {
+                .param, .param_comptime => {
+                    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(param)].pl_tok;
+                    const extra = sema.code.extraData(Zir.Inst.Param, inst_data.payload_index);
+                    const param_name = sema.code.nullTerminatedString(extra.data.name);
+                    const inst = sema.inst_map.get(param).?;
 
-                        try sema.addDbgVar(&child_block, inst, .dbg_var_val, param_name);
-                    },
-                    else => continue,
-                };
-            }
+                    try sema.addDbgVar(&child_block, inst, .dbg_arg_inline, param_name);
+                },
+                .param_anytype, .param_anytype_comptime => {
+                    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(param)].str_tok;
+                    const param_name = inst_data.get(sema.code);
+                    const inst = sema.inst_map.get(param).?;
 
-            if (is_comptime_call and ensure_result_used) {
-                try sema.ensureResultUsed(block, sema.fn_ret_ty, call_src);
-            }
-
-            if (is_comptime_call or block.is_typeof) {
-                // Save the error trace as our first action in the function
-                // to match the behavior of runtime function calls.
-                const error_return_trace_index = try sema.analyzeSaveErrRetIndex(&child_block);
-                sema.error_return_trace_index_on_fn_entry = error_return_trace_index;
-                child_block.error_return_trace_index = error_return_trace_index;
-            }
-
-            const result = result: {
-                sema.analyzeFnBody(&child_block, fn_info.body) catch |err| switch (err) {
-                    error.ComptimeReturn => break :result inlining.comptime_result,
-                    else => |e| return e,
-                };
-                break :result try sema.resolveAnalyzedBlock(block, call_src, &child_block, merges, need_debug_scope);
+                    try sema.addDbgVar(&child_block, inst, .dbg_arg_inline, param_name);
+                },
+                else => continue,
             };
+        }
 
-            if (is_comptime_call) {
-                const result_val = try sema.resolveConstValue(block, LazySrcLoc.unneeded, result, undefined);
-                const result_interned = result_val.toIntern();
+        if (is_comptime_call and ensure_result_used) {
+            try sema.ensureResultUsed(block, sema.fn_ret_ty, call_src);
+        }
 
-                // Transform ad-hoc inferred error set types into concrete error sets.
-                const result_transformed = try sema.resolveAdHocInferredErrorSet(block, call_src, result_interned);
+        if (is_comptime_call or block.is_typeof) {
+            // Save the error trace as our first action in the function
+            // to match the behavior of runtime function calls.
+            const error_return_trace_index = try sema.analyzeSaveErrRetIndex(&child_block);
+            sema.error_return_trace_index_on_fn_entry = error_return_trace_index;
+            child_block.error_return_trace_index = error_return_trace_index;
+        }
 
-                // If the result can mutate comptime vars, we must not memoize it, as it contains
-                // a reference to `comptime_allocs` so is not stable across instances of `Sema`.
-                // TODO: check whether any external comptime memory was mutated by the
-                // comptime function call. If so, then do not memoize the call here.
-                if (should_memoize and !Value.fromInterned(result_interned).canMutateComptimeVarState(zcu)) {
-                    _ = try pt.intern(.{ .memoized_call = .{
-                        .func = module_fn_index,
-                        .arg_values = memoized_arg_values,
-                        .result = result_transformed,
-                    } });
-                }
+        // We temporarily set `allow_memoize` to `true` to track this comptime call.
+        // It is restored after this call finishes analysis, so that a caller may
+        // know whether an in-progress call (containing this call) may be memoized.
+        const old_allow_memoize = sema.allow_memoize;
+        defer sema.allow_memoize = old_allow_memoize and sema.allow_memoize;
+        sema.allow_memoize = true;
 
-                break :res2 Air.internedToRef(result_transformed);
-            }
+        // Store the current eval branch count so we can find out how many eval branches
+        // the comptime call caused.
+        const old_branch_count = sema.branch_count;
 
-            if (try sema.resolveValue(result)) |result_val| {
-                const result_transformed = try sema.resolveAdHocInferredErrorSet(block, call_src, result_val.toIntern());
-                break :res2 Air.internedToRef(result_transformed);
-            }
-
-            const new_ty = try sema.resolveAdHocInferredErrorSetTy(block, call_src, sema.typeOf(result).toIntern());
-            if (new_ty != .none) {
-                // TODO: mutate in place the previous instruction if possible
-                // rather than adding a bitcast instruction.
-                break :res2 try block.addBitCast(Type.fromInterned(new_ty), result);
-            }
-
-            break :res2 result;
+        const result = result: {
+            sema.analyzeFnBody(&child_block, fn_info.body) catch |err| switch (err) {
+                error.ComptimeReturn => break :result inlining.comptime_result,
+                else => |e| return e,
+            };
+            break :result try sema.resolveAnalyzedBlock(block, call_src, &child_block, merges, need_debug_scope);
         };
 
-        break :res res2;
+        if (is_comptime_call) {
+            const result_val = try sema.resolveConstValue(block, LazySrcLoc.unneeded, result, undefined);
+            const result_interned = result_val.toIntern();
+
+            // Transform ad-hoc inferred error set types into concrete error sets.
+            const result_transformed = try sema.resolveAdHocInferredErrorSet(block, call_src, result_interned);
+
+            // If the result can mutate comptime vars, we must not memoize it, as it contains
+            // a reference to `comptime_allocs` so is not stable across instances of `Sema`.
+            // TODO: check whether any external comptime memory was mutated by the
+            // comptime function call. If so, then do not memoize the call here.
+            if (should_memoize and sema.allow_memoize and !Value.fromInterned(result_interned).canMutateComptimeVarState(zcu)) {
+                _ = try pt.intern(.{ .memoized_call = .{
+                    .func = module_fn_index,
+                    .arg_values = memoized_arg_values,
+                    .result = result_transformed,
+                    .branch_count = sema.branch_count - old_branch_count,
+                } });
+            }
+
+            break :res Air.internedToRef(result_transformed);
+        }
+
+        if (try sema.resolveValue(result)) |result_val| {
+            const result_transformed = try sema.resolveAdHocInferredErrorSet(block, call_src, result_val.toIntern());
+            break :res Air.internedToRef(result_transformed);
+        }
+
+        const new_ty = try sema.resolveAdHocInferredErrorSetTy(block, call_src, sema.typeOf(result).toIntern());
+        if (new_ty != .none) {
+            // TODO: mutate in place the previous instruction if possible
+            // rather than adding a bitcast instruction.
+            break :res try block.addBitCast(Type.fromInterned(new_ty), result);
+        }
+
+        break :res result;
     } else res: {
         assert(!func_ty_info.is_generic);
 
@@ -8278,7 +8299,7 @@ fn instantiateGenericCall(
                     .name = if (child_block.ownerModule().strip)
                         .none
                     else
-                        @enumFromInt(try sema.appendAirString(fn_zir.nullTerminatedString(param_name))),
+                        try sema.appendAirString(fn_zir.nullTerminatedString(param_name)),
                 } },
             }));
             try child_block.params.append(sema.arena, .{
@@ -26179,7 +26200,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         const body = sema.code.bodySlice(extra_index, body_len);
         extra_index += body.len;
 
-        const addrspace_ty = Type.fromInterned(.address_space_type);
+        const addrspace_ty = try pt.getBuiltinType("AddressSpace");
         const val = try sema.resolveGenericBody(block, addrspace_src, body, inst, addrspace_ty, .{
             .needed_comptime_reason = "addrspace must be comptime-known",
         });
@@ -26190,7 +26211,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     } else if (extra.data.bits.has_addrspace_ref) blk: {
         const addrspace_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
         extra_index += 1;
-        const addrspace_ty = Type.fromInterned(.address_space_type);
+        const addrspace_ty = try pt.getBuiltinType("AddressSpace");
         const uncoerced_addrspace = sema.resolveInst(addrspace_ref) catch |err| switch (err) {
             error.GenericPoison => break :blk null,
             else => |e| return e,
@@ -26255,7 +26276,7 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     } else if (extra.data.bits.has_cc_ref) blk: {
         const cc_ref: Zir.Inst.Ref = @enumFromInt(sema.code.extra[extra_index]);
         extra_index += 1;
-        const cc_ty = Type.fromInterned(.calling_convention_type);
+        const cc_ty = try pt.getBuiltinType("CallingConvention");
         const uncoerced_cc = sema.resolveInst(cc_ref) catch |err| switch (err) {
             error.GenericPoison => break :blk null,
             else => |e| return e,
@@ -26711,6 +26732,46 @@ fn zirInComptime(
 ) CompileError!Air.Inst.Ref {
     _ = sema;
     return if (block.is_comptime) .bool_true else .bool_false;
+}
+
+fn zirBuiltinValue(sema: *Sema, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+    const pt = sema.pt;
+    const value: Zir.Inst.BuiltinValue = @enumFromInt(extended.small);
+    const type_name = switch (value) {
+        .atomic_order => "AtomicOrder",
+        .atomic_rmw_op => "AtomicRmwOp",
+        .calling_convention => "CallingConvention",
+        .address_space => "AddressSpace",
+        .float_mode => "FloatMode",
+        .reduce_op => "ReduceOp",
+        .call_modifier => "CallModifier",
+        .prefetch_options => "PrefetchOptions",
+        .export_options => "ExportOptions",
+        .extern_options => "ExternOptions",
+        .type_info => "Type",
+
+        // Values are handled here.
+        .calling_convention_c => {
+            const callconv_ty = try pt.getBuiltinType("CallingConvention");
+            comptime assert(@intFromEnum(std.builtin.CallingConvention.C) == 1);
+            const val = try pt.intern(.{ .enum_tag = .{
+                .ty = callconv_ty.toIntern(),
+                .int = .one_u8,
+            } });
+            return Air.internedToRef(val);
+        },
+        .calling_convention_inline => {
+            const callconv_ty = try pt.getBuiltinType("CallingConvention");
+            comptime assert(@intFromEnum(std.builtin.CallingConvention.Inline) == 4);
+            const val = try pt.intern(.{ .enum_tag = .{
+                .ty = callconv_ty.toIntern(),
+                .int = .four_u8,
+            } });
+            return Air.internedToRef(val);
+        },
+    };
+    const ty = try pt.getBuiltinType(type_name);
+    return Air.internedToRef(ty.toIntern());
 }
 
 fn requireRuntimeBlock(sema: *Sema, block: *Block, src: LazySrcLoc, runtime_src: ?LazySrcLoc) !void {
@@ -32527,6 +32588,7 @@ fn analyzeIsNonErrComptimeOnly(
                 // If the error set is empty, we must return a comptime true or false.
                 // However we want to avoid unnecessarily resolving an inferred error set
                 // in case it is already non-empty.
+                try mod.maybeUnresolveIes(func_index);
                 switch (ip.funcIesResolvedUnordered(func_index)) {
                     .anyerror_type => break :blk,
                     .none => {},
@@ -33596,6 +33658,7 @@ fn wrapErrorUnionSet(
                 .inferred_error_set_type => |func_index| ok: {
                     // We carefully do this in an order that avoids unnecessarily
                     // resolving the destination error set type.
+                    try mod.maybeUnresolveIes(func_index);
                     switch (ip.funcIesResolvedUnordered(func_index)) {
                         .anyerror_type => break :ok,
                         .none => if (.ok == try sema.coerceInMemoryAllowedErrorSets(block, dest_err_set_ty, inst_ty, inst_src, inst_src)) {
@@ -35853,8 +35916,7 @@ fn resolveInferredErrorSet(
 
     try sema.declareDependency(.{ .interned = func_index }); // resolved IES
 
-    // TODO: during an incremental update this might not be `.none`, but the
-    // function might be out-of-date!
+    try zcu.maybeUnresolveIes(func_index);
     const resolved_ty = func.resolvedErrorSetUnordered(ip);
     if (resolved_ty != .none) return resolved_ty;
 
@@ -36898,17 +36960,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .comptime_int_type,
         .comptime_float_type,
         .enum_literal_type,
-        .atomic_order_type,
-        .atomic_rmw_op_type,
-        .calling_convention_type,
-        .address_space_type,
-        .float_mode_type,
-        .reduce_op_type,
-        .call_modifier_type,
-        .prefetch_options_type,
-        .export_options_type,
-        .extern_options_type,
-        .type_info_type,
         .manyptr_u8_type,
         .manyptr_const_u8_type,
         .manyptr_const_u8_sentinel_0_type,
@@ -36935,8 +36986,6 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
         .one_u8,
         .four_u8,
         .negative_one,
-        .calling_convention_c,
-        .calling_convention_inline,
         .void_value,
         .unreachable_value,
         .null_value,
@@ -37290,7 +37339,8 @@ pub fn analyzeAsAddressSpace(
 ) !std.builtin.AddressSpace {
     const pt = sema.pt;
     const mod = pt.zcu;
-    const coerced = try sema.coerce(block, Type.fromInterned(.address_space_type), air_ref, src);
+    const addrspace_ty = try pt.getBuiltinType("AddressSpace");
+    const coerced = try sema.coerce(block, addrspace_ty, air_ref, src);
     const addrspace_val = try sema.resolveConstDefinedValue(block, src, coerced, .{
         .needed_comptime_reason = "address space must be comptime-known",
     });
