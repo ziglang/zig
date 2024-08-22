@@ -1108,6 +1108,12 @@ pub const WipNav = struct {
         wip_nav.any_children = true;
     }
 
+    pub fn genVarArgsDebugInfo(wip_nav: *WipNav) UpdateError!void {
+        assert(wip_nav.func != .none);
+        try wip_nav.abbrevCode(.is_var_args);
+        wip_nav.any_children = true;
+    }
+
     pub fn advancePCAndLine(
         wip_nav: *WipNav,
         delta_line: i33,
