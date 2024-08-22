@@ -10,6 +10,10 @@
 #ifndef __STDALIGN_H
 #define __STDALIGN_H
 
+#if defined(__MVS__) && __has_include_next(<stdalign.h>)
+#include_next <stdalign.h>
+#else
+
 #if defined(__cplusplus) ||                                                    \
     (defined(__STDC_VERSION__) && __STDC_VERSION__ < 202311L)
 #ifndef __cplusplus
@@ -21,4 +25,5 @@
 #define __alignof_is_defined 1
 #endif /* __STDC_VERSION__ */
 
+#endif /* __MVS__ */
 #endif /* __STDALIGN_H */

@@ -14,6 +14,10 @@
 #define __CLANG_STDINT_H
 #endif
 
+#if defined(__MVS__) && __has_include_next(<stdint.h>)
+#include_next <stdint.h>
+#else
+
 /* If we're hosted, fall back to the system's stdint.h, which might have
  * additional definitions.
  */
@@ -947,4 +951,5 @@ typedef __UINTMAX_TYPE__ uintmax_t;
 #endif
 
 #endif /* __STDC_HOSTED__ */
+#endif /* __MVS__ */
 #endif /* __CLANG_STDINT_H */
