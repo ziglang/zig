@@ -169,7 +169,6 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
     if (self.dwarf) |*dwarf| {
         const pt: Zcu.PerThread = .{ .zcu = elf_file.base.comp.module.?, .tid = tid };
         try dwarf.flushModule(pt);
-        try dwarf.resolveRelocs();
 
         const gpa = elf_file.base.comp.gpa;
         const cpu_arch = elf_file.getTarget().cpu.arch;
@@ -209,7 +208,28 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
 
             const relocs = &self.relocs.items[atom_ptr.relocsShndx().?];
             for (sect.units.items) |*unit| {
-                try relocs.ensureUnusedCapacity(gpa, unit.cross_section_relocs.items.len);
+                try relocs.ensureUnusedCapacity(gpa, unit.cross_unit_relocs.items.len +
+                    unit.cross_section_relocs.items.len);
+                for (unit.cross_unit_relocs.items) |reloc| {
+                    const target_unit = sect.getUnit(reloc.target_unit);
+                    const r_offset = unit.off + reloc.source_off;
+                    const r_addend: i64 = @intCast(target_unit.off + reloc.target_off + (if (reloc.target_entry.unwrap()) |target_entry|
+                        target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(unit, sect, dwarf).off
+                    else
+                        0));
+                    const r_type = relocation.dwarf.crossSectionRelocType(dwarf.format, cpu_arch);
+                    log.debug("  {s} <- r_off={x}, r_add={x}, r_type={}", .{
+                        self.symbol(sym_index).name(elf_file),
+                        r_offset,
+                        r_addend,
+                        relocation.fmtRelocType(r_type, cpu_arch),
+                    });
+                    atom_ptr.addRelocAssumeCapacity(.{
+                        .r_offset = r_offset,
+                        .r_addend = r_addend,
+                        .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
+                    }, self);
+                }
                 for (unit.cross_section_relocs.items) |reloc| {
                     const target_sym_index = switch (reloc.target_sec) {
                         .debug_abbrev => self.debug_abbrev_index.?,
@@ -246,7 +266,45 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
                 for (unit.entries.items) |*entry| {
                     const entry_off = unit.off + unit.header_len + entry.off;
 
-                    try relocs.ensureUnusedCapacity(gpa, entry.cross_section_relocs.items.len);
+                    try relocs.ensureUnusedCapacity(gpa, entry.cross_entry_relocs.items.len +
+                        entry.cross_unit_relocs.items.len + entry.cross_section_relocs.items.len +
+                        entry.external_relocs.items.len);
+                    for (entry.cross_entry_relocs.items) |reloc| {
+                        const r_offset = entry_off + reloc.source_off;
+                        const r_addend: i64 = @intCast(unit.off + reloc.target_off + unit.header_len + unit.getEntry(reloc.target_entry).assertNonEmpty(unit, sect, dwarf).off);
+                        const r_type = relocation.dwarf.crossSectionRelocType(dwarf.format, cpu_arch);
+                        log.debug("  {s} <- r_off={x}, r_add={x}, r_type={}", .{
+                            self.symbol(sym_index).name(elf_file),
+                            r_offset,
+                            r_addend,
+                            relocation.fmtRelocType(r_type, cpu_arch),
+                        });
+                        atom_ptr.addRelocAssumeCapacity(.{
+                            .r_offset = r_offset,
+                            .r_addend = r_addend,
+                            .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
+                        }, self);
+                    }
+                    for (entry.cross_unit_relocs.items) |reloc| {
+                        const target_unit = sect.getUnit(reloc.target_unit);
+                        const r_offset = entry_off + reloc.source_off;
+                        const r_addend: i64 = @intCast(target_unit.off + reloc.target_off + (if (reloc.target_entry.unwrap()) |target_entry|
+                            target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(unit, sect, dwarf).off
+                        else
+                            0));
+                        const r_type = relocation.dwarf.crossSectionRelocType(dwarf.format, cpu_arch);
+                        log.debug("  {s} <- r_off={x}, r_add={x}, r_type={}", .{
+                            self.symbol(sym_index).name(elf_file),
+                            r_offset,
+                            r_addend,
+                            relocation.fmtRelocType(r_type, cpu_arch),
+                        });
+                        atom_ptr.addRelocAssumeCapacity(.{
+                            .r_offset = r_offset,
+                            .r_addend = r_addend,
+                            .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
+                        }, self);
+                    }
                     for (entry.cross_section_relocs.items) |reloc| {
                         const target_sym_index = switch (reloc.target_sec) {
                             .debug_abbrev => self.debug_abbrev_index.?,
@@ -279,8 +337,6 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
                             .r_info = (@as(u64, @intCast(target_sym_index)) << 32) | r_type,
                         }, self);
                     }
-
-                    try relocs.ensureUnusedCapacity(gpa, entry.external_relocs.items.len);
                     for (entry.external_relocs.items) |reloc| {
                         const target_sym = self.symbol(reloc.target_sym);
                         const r_offset = entry_off + reloc.source_off;
