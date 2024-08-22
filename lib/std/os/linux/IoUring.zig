@@ -3885,7 +3885,8 @@ inline fn skipKernelLessThan(required: std.SemanticVersion) !void {
         else => |errno| return posix.unexpectedErrno(errno),
     }
 
-    const release = mem.sliceTo(&uts.release, 0);
+    var it = mem.splitScalar(u8, mem.sliceTo(&uts.release, 0), '-');
+    const release = it.first();
     var current = try std.SemanticVersion.parse(release);
     current.pre = null; // don't check pre field
     if (required.order(current) == .gt) return error.SkipZigTest;
