@@ -1786,7 +1786,7 @@ pub const DeclGen = struct {
                 else => unreachable,
             }
         }
-        if (fn_val.getFunction(zcu)) |func| if (func.analysisUnordered(ip).is_cold)
+        if (fn_val.getFunction(zcu)) |func| if (func.analysisUnordered(ip).branch_hint == .cold)
             try w.writeAll("zig_cold ");
         if (fn_info.return_type == .noreturn_type) try w.writeAll("zig_noreturn ");
 
@@ -3288,8 +3288,10 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .prefetch         => try airPrefetch(f, inst),
             .addrspace_cast   => return f.fail("TODO: C backend: implement addrspace_cast", .{}),
 
-            .@"try"  => try airTry(f, inst),
-            .try_ptr => try airTryPtr(f, inst),
+            .@"try"       => try airTry(f, inst),
+            .try_cold     => try airTry(f, inst),
+            .try_ptr      => try airTryPtr(f, inst),
+            .try_ptr_cold => try airTryPtr(f, inst),
 
             .dbg_stmt => try airDbgStmt(f, inst),
             .dbg_inline_block => try airDbgInlineBlock(f, inst),
@@ -4986,11 +4988,10 @@ fn airCondBr(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
     const pt = f.object.dg.pt;
     const zcu = pt.zcu;
-    const pl_op = f.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const condition = try f.resolveInst(pl_op.operand);
-    try reap(f, inst, &.{pl_op.operand});
-    const condition_ty = f.typeOf(pl_op.operand);
-    const switch_br = f.air.extraData(Air.SwitchBr, pl_op.payload);
+    const switch_br = f.air.unwrapSwitch(inst);
+    const condition = try f.resolveInst(switch_br.operand);
+    try reap(f, inst, &.{switch_br.operand});
+    const condition_ty = f.typeOf(switch_br.operand);
     const writer = f.object.writer();
 
     try writer.writeAll("switch (");
@@ -5011,22 +5012,16 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
     f.object.indent_writer.pushIndent();
 
     const gpa = f.object.dg.gpa;
-    const liveness = try f.liveness.getSwitchBr(gpa, inst, switch_br.data.cases_len + 1);
+    const liveness = try f.liveness.getSwitchBr(gpa, inst, switch_br.cases_len + 1);
     defer gpa.free(liveness.deaths);
 
     // On the final iteration we do not need to fix any state. This is because, like in the `else`
     // branch of a `cond_br`, our parent has to do it for this entire body anyway.
-    const last_case_i = switch_br.data.cases_len - @intFromBool(switch_br.data.else_body_len == 0);
+    const last_case_i = switch_br.cases_len - @intFromBool(switch_br.else_body_len == 0);
 
-    var extra_index: usize = switch_br.end;
-    for (0..switch_br.data.cases_len) |case_i| {
-        const case = f.air.extraData(Air.SwitchBr.Case, extra_index);
-        const items = @as([]const Air.Inst.Ref, @ptrCast(f.air.extra[case.end..][0..case.data.items_len]));
-        const case_body: []const Air.Inst.Index =
-            @ptrCast(f.air.extra[case.end + items.len ..][0..case.data.body_len]);
-        extra_index = case.end + case.data.items_len + case_body.len;
-
-        for (items) |item| {
+    var it = switch_br.iterateCases();
+    while (it.next()) |case| {
+        for (case.items) |item| {
             try f.object.indent_writer.insertNewline();
             try writer.writeAll("case ");
             const item_value = try f.air.value(item, pt);
@@ -5044,19 +5039,19 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
         }
         try writer.writeByte(' ');
 
-        if (case_i != last_case_i) {
-            try genBodyResolveState(f, inst, liveness.deaths[case_i], case_body, false);
+        if (case.idx != last_case_i) {
+            try genBodyResolveState(f, inst, liveness.deaths[case.idx], case.body, false);
         } else {
-            for (liveness.deaths[case_i]) |death| {
+            for (liveness.deaths[case.idx]) |death| {
                 try die(f, inst, death.toRef());
             }
-            try genBody(f, case_body);
+            try genBody(f, case.body);
         }
 
         // The case body must be noreturn so we don't need to insert a break.
     }
 
-    const else_body: []const Air.Inst.Index = @ptrCast(f.air.extra[extra_index..][0..switch_br.data.else_body_len]);
+    const else_body = it.elseBody();
     try f.object.indent_writer.insertNewline();
     if (else_body.len > 0) {
         // Note that this must be the last case (i.e. the `last_case_i` case was not hit above)

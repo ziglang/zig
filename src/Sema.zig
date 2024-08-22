@@ -118,6 +118,10 @@ dependencies: std.AutoArrayHashMapUnmanaged(InternPool.Dependee, void) = .{},
 /// by `analyzeCall`.
 allow_memoize: bool = true,
 
+/// The `BranchHint` for the current branch of runtime control flow.
+/// This state is on `Sema` so that `cold` hints can be propagated up through blocks with less special handling.
+branch_hint: ?std.builtin.BranchHint = null,
+
 const MaybeComptimeAlloc = struct {
     /// The runtime index of the `alloc` instruction.
     runtime_index: Value.RuntimeIndex,
@@ -893,7 +897,12 @@ pub fn deinit(sema: *Sema) void {
 /// Performs semantic analysis of a ZIR body which is behind a runtime condition. If comptime
 /// control flow happens here, Sema will convert it to runtime control flow by introducing post-hoc
 /// blocks where necessary.
-fn analyzeBodyRuntimeBreak(sema: *Sema, block: *Block, body: []const Zir.Inst.Index) !void {
+/// Returns the branch hint for this branch.
+fn analyzeBodyRuntimeBreak(sema: *Sema, block: *Block, body: []const Zir.Inst.Index) !std.builtin.BranchHint {
+    const parent_hint = sema.branch_hint;
+    defer sema.branch_hint = parent_hint;
+    sema.branch_hint = null;
+
     sema.analyzeBodyInner(block, body) catch |err| switch (err) {
         error.ComptimeBreak => {
             const zir_datas = sema.code.instructions.items(.data);
@@ -903,6 +912,8 @@ fn analyzeBodyRuntimeBreak(sema: *Sema, block: *Block, body: []const Zir.Inst.In
         },
         else => |e| return e,
     };
+
+    return sema.branch_hint orelse .none;
 }
 
 /// Semantically analyze a ZIR function body. It is guranteed by AstGen that such a body cannot
@@ -1305,11 +1316,6 @@ fn analyzeBodyInner(
                         i += 1;
                         continue;
                     },
-                    .set_cold => {
-                        try sema.zirSetCold(block, extended);
-                        i += 1;
-                        continue;
-                    },
                     .breakpoint => {
                         if (!block.is_comptime) {
                             _ = try block.addNoOp(.breakpoint);
@@ -1324,6 +1330,11 @@ fn analyzeBodyInner(
                     },
                     .restore_err_ret_index => {
                         try sema.zirRestoreErrRetIndex(block, extended);
+                        i += 1;
+                        continue;
+                    },
+                    .branch_hint => {
+                        try sema.zirBranchHint(block, extended);
                         i += 1;
                         continue;
                     },
@@ -5733,6 +5744,13 @@ fn zirPanic(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void 
     if (block.is_comptime) {
         return sema.fail(block, src, "encountered @panic at comptime", .{});
     }
+
+    // We only apply the first hint in a branch.
+    // This allows user-provided hints to override implicit cold hints.
+    if (sema.branch_hint == null) {
+        sema.branch_hint = .cold;
+    }
+
     try sema.panicWithMsg(block, src, coerced_msg, .@"@panic");
 }
 
@@ -6425,25 +6443,6 @@ fn zirSetAlignStack(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
     sema.allow_memoize = false;
 }
 
-fn zirSetCold(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {
-    const pt = sema.pt;
-    const mod = pt.zcu;
-    const ip = &mod.intern_pool;
-    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
-    const operand_src = block.builtinCallArgSrc(extra.node, 0);
-    const is_cold = try sema.resolveConstBool(block, operand_src, extra.operand, .{
-        .needed_comptime_reason = "operand to @setCold must be comptime-known",
-    });
-    // TODO: should `@setCold` apply to the parent in an inline call?
-    // See also #20642 and friends.
-    const func = switch (sema.owner.unwrap()) {
-        .func => |func| func,
-        .cau => return, // does nothing outside a function
-    };
-    ip.funcSetCold(func, is_cold);
-    sema.allow_memoize = false;
-}
-
 fn zirDisableInstrumentation(sema: *Sema) CompileError!void {
     const pt = sema.pt;
     const mod = pt.zcu;
@@ -6898,13 +6897,20 @@ fn popErrorReturnTrace(
             @typeInfo(Air.Block).Struct.fields.len + 1); // +1 for the sole .cond_br instruction in the .block
 
         const cond_br_inst: Air.Inst.Index = @enumFromInt(sema.air_instructions.len);
-        try sema.air_instructions.append(gpa, .{ .tag = .cond_br, .data = .{ .pl_op = .{
-            .operand = is_non_error_inst,
-            .payload = sema.addExtraAssumeCapacity(Air.CondBr{
-                .then_body_len = @intCast(then_block.instructions.items.len),
-                .else_body_len = @intCast(else_block.instructions.items.len),
-            }),
-        } } });
+        try sema.air_instructions.append(gpa, .{
+            .tag = .cond_br,
+            .data = .{
+                .pl_op = .{
+                    .operand = is_non_error_inst,
+                    .payload = sema.addExtraAssumeCapacity(Air.CondBr{
+                        .then_body_len = @intCast(then_block.instructions.items.len),
+                        .else_body_len = @intCast(else_block.instructions.items.len),
+                        // weight against error branch
+                        .branch_hints = .{ .true = .likely, .false = .unlikely },
+                    }),
+                },
+            },
+        });
         sema.air_extra.appendSliceAssumeCapacity(@ptrCast(then_block.instructions.items));
         sema.air_extra.appendSliceAssumeCapacity(@ptrCast(else_block.instructions.items));
 
@@ -10961,6 +10967,11 @@ const SwitchProngAnalysis = struct {
             sema.code.instructions.items(.data)[@intFromEnum(spa.switch_block_inst)].pl_node.src_node,
         );
 
+        // We can propagate `.cold` hints from this branch since it's comptime-known
+        // to be taken from the parent branch.
+        const parent_hint = sema.branch_hint;
+        defer sema.branch_hint = parent_hint orelse if (sema.branch_hint == .cold) .cold else null;
+
         if (has_tag_capture) {
             const tag_ref = try spa.analyzeTagCapture(child_block, capture_src, inline_case_capture);
             sema.inst_map.putAssumeCapacity(spa.tag_capture_inst, tag_ref);
@@ -10997,6 +11008,7 @@ const SwitchProngAnalysis = struct {
 
     /// Analyze a switch prong which may have peers at runtime.
     /// Uses `analyzeBodyRuntimeBreak`. Sets up captures as needed.
+    /// Returns the `BranchHint` for the prong.
     fn analyzeProngRuntime(
         spa: SwitchProngAnalysis,
         case_block: *Block,
@@ -11014,7 +11026,7 @@ const SwitchProngAnalysis = struct {
         /// Whether this prong has an inline tag capture. If `true`, then
         /// `inline_case_capture` cannot be `.none`.
         has_tag_capture: bool,
-    ) CompileError!void {
+    ) CompileError!std.builtin.BranchHint {
         const sema = spa.sema;
 
         if (has_tag_capture) {
@@ -11040,7 +11052,7 @@ const SwitchProngAnalysis = struct {
 
                 if (sema.typeOf(capture_ref).isNoReturn(sema.pt.zcu)) {
                     // No need to analyze any further, the prong is unreachable
-                    return;
+                    return .none;
                 }
 
                 sema.inst_map.putAssumeCapacity(spa.switch_block_inst, capture_ref);
@@ -11309,9 +11321,16 @@ const SwitchProngAnalysis = struct {
 
                 const prong_count = field_indices.len - in_mem_coercible.count();
 
-                const estimated_extra = prong_count * 6; // 2 for Case, 1 item, probably 3 insts
+                const estimated_extra = prong_count * 6 + (prong_count / 10); // 2 for Case, 1 item, probably 3 insts; plus hints
                 var cases_extra = try std.ArrayList(u32).initCapacity(sema.gpa, estimated_extra);
                 defer cases_extra.deinit();
+
+                {
+                    // All branch hints are `.none`, so just add zero elems.
+                    comptime assert(@intFromEnum(std.builtin.BranchHint.none) == 0);
+                    const need_elems = std.math.divCeil(usize, prong_count + 1, 10) catch unreachable;
+                    try cases_extra.appendNTimes(0, need_elems);
+                }
 
                 {
                     // Non-bitcast cases
@@ -11735,7 +11754,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     sub_block.need_debug_scope = null; // this body is emitted regardless
     defer sub_block.instructions.deinit(gpa);
 
-    try sema.analyzeBodyRuntimeBreak(&sub_block, non_error_case.body);
+    const non_error_hint = try sema.analyzeBodyRuntimeBreak(&sub_block, non_error_case.body);
     const true_instructions = try sub_block.instructions.toOwnedSlice(gpa);
     defer gpa.free(true_instructions);
 
@@ -11789,6 +11808,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
             .payload = sema.addExtraAssumeCapacity(Air.CondBr{
                 .then_body_len = @intCast(true_instructions.len),
                 .else_body_len = @intCast(sub_block.instructions.items.len),
+                .branch_hints = .{ .true = non_error_hint, .false = .none },
             }),
         } },
     });
@@ -12493,6 +12513,9 @@ fn analyzeSwitchRuntimeBlock(
     var cases_extra = try std.ArrayListUnmanaged(u32).initCapacity(gpa, estimated_cases_extra);
     defer cases_extra.deinit(gpa);
 
+    var branch_hints = try std.ArrayListUnmanaged(std.builtin.BranchHint).initCapacity(gpa, scalar_cases_len);
+    defer branch_hints.deinit(gpa);
+
     var case_block = child_block.makeSubBlock();
     case_block.runtime_loop = null;
     case_block.runtime_cond = operand_src;
@@ -12523,10 +12546,13 @@ fn analyzeSwitchRuntimeBlock(
             break :blk field_ty.zigTypeTag(mod) != .NoReturn;
         } else true;
 
-        if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand, operand_src, allow_err_code_unwrap)) {
-            // nothing to do here
-        } else if (analyze_body) {
-            try spa.analyzeProngRuntime(
+        const prong_hint: std.builtin.BranchHint = if (err_set and
+            try sema.maybeErrorUnwrap(&case_block, body, operand, operand_src, allow_err_code_unwrap))
+        h: {
+            // nothing to do here. weight against error branch
+            break :h .unlikely;
+        } else if (analyze_body) h: {
+            break :h try spa.analyzeProngRuntime(
                 &case_block,
                 .normal,
                 body,
@@ -12539,10 +12565,12 @@ fn analyzeSwitchRuntimeBlock(
                 if (info.is_inline) item else .none,
                 info.has_tag_capture,
             );
-        } else {
+        } else h: {
             _ = try case_block.addNoOp(.unreach);
-        }
+            break :h .none;
+        };
 
+        try branch_hints.append(gpa, prong_hint);
         try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
         cases_extra.appendAssumeCapacity(1); // items_len
         cases_extra.appendAssumeCapacity(@intCast(case_block.instructions.items.len));
@@ -12552,6 +12580,7 @@ fn analyzeSwitchRuntimeBlock(
 
     var is_first = true;
     var prev_cond_br: Air.Inst.Index = undefined;
+    var prev_hint: std.builtin.BranchHint = undefined;
     var first_else_body: []const Air.Inst.Index = &.{};
     defer gpa.free(first_else_body);
     var prev_then_body: []const Air.Inst.Index = &.{};
@@ -12613,7 +12642,7 @@ fn analyzeSwitchRuntimeBlock(
                     } }));
                     emit_bb = true;
 
-                    try spa.analyzeProngRuntime(
+                    const prong_hint = try spa.analyzeProngRuntime(
                         &case_block,
                         .normal,
                         body,
@@ -12626,6 +12655,7 @@ fn analyzeSwitchRuntimeBlock(
                         item_ref,
                         info.has_tag_capture,
                     );
+                    try branch_hints.append(gpa, prong_hint);
 
                     try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                     cases_extra.appendAssumeCapacity(1); // items_len
@@ -12656,8 +12686,8 @@ fn analyzeSwitchRuntimeBlock(
                 } }));
                 emit_bb = true;
 
-                if (analyze_body) {
-                    try spa.analyzeProngRuntime(
+                const prong_hint: std.builtin.BranchHint = if (analyze_body) h: {
+                    break :h try spa.analyzeProngRuntime(
                         &case_block,
                         .normal,
                         body,
@@ -12670,9 +12700,11 @@ fn analyzeSwitchRuntimeBlock(
                         item,
                         info.has_tag_capture,
                     );
-                } else {
+                } else h: {
                     _ = try case_block.addNoOp(.unreach);
-                }
+                    break :h .none;
+                };
+                try branch_hints.append(gpa, prong_hint);
 
                 try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                 cases_extra.appendAssumeCapacity(1); // items_len
@@ -12704,10 +12736,13 @@ fn analyzeSwitchRuntimeBlock(
 
             const body = sema.code.bodySlice(extra_index, info.body_len);
             extra_index += info.body_len;
-            if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand, operand_src, allow_err_code_unwrap)) {
-                // nothing to do here
-            } else if (analyze_body) {
-                try spa.analyzeProngRuntime(
+            const prong_hint: std.builtin.BranchHint = if (err_set and
+                try sema.maybeErrorUnwrap(&case_block, body, operand, operand_src, allow_err_code_unwrap))
+            h: {
+                // nothing to do here. weight against error branch
+                break :h .unlikely;
+            } else if (analyze_body) h: {
+                break :h try spa.analyzeProngRuntime(
                     &case_block,
                     .normal,
                     body,
@@ -12720,10 +12755,12 @@ fn analyzeSwitchRuntimeBlock(
                     .none,
                     false,
                 );
-            } else {
+            } else h: {
                 _ = try case_block.addNoOp(.unreach);
-            }
+                break :h .none;
+            };
 
+            try branch_hints.append(gpa, prong_hint);
             try cases_extra.ensureUnusedCapacity(gpa, 2 + items.len +
                 case_block.instructions.items.len);
 
@@ -12791,23 +12828,24 @@ fn analyzeSwitchRuntimeBlock(
 
             const body = sema.code.bodySlice(extra_index, info.body_len);
             extra_index += info.body_len;
-            if (err_set and try sema.maybeErrorUnwrap(&case_block, body, operand, operand_src, allow_err_code_unwrap)) {
-                // nothing to do here
-            } else {
-                try spa.analyzeProngRuntime(
-                    &case_block,
-                    .normal,
-                    body,
-                    info.capture,
-                    child_block.src(.{ .switch_capture = .{
-                        .switch_node_offset = switch_node_offset,
-                        .case_idx = .{ .kind = .multi, .index = @intCast(multi_i) },
-                    } }),
-                    items,
-                    .none,
-                    false,
-                );
-            }
+            const prong_hint: std.builtin.BranchHint = if (err_set and
+                try sema.maybeErrorUnwrap(&case_block, body, operand, operand_src, allow_err_code_unwrap))
+            h: {
+                // nothing to do here. weight against error branch
+                break :h .unlikely;
+            } else try spa.analyzeProngRuntime(
+                &case_block,
+                .normal,
+                body,
+                info.capture,
+                child_block.src(.{ .switch_capture = .{
+                    .switch_node_offset = switch_node_offset,
+                    .case_idx = .{ .kind = .multi, .index = @intCast(multi_i) },
+                } }),
+                items,
+                .none,
+                false,
+            );
 
             if (is_first) {
                 is_first = false;
@@ -12819,10 +12857,10 @@ fn analyzeSwitchRuntimeBlock(
                     @typeInfo(Air.CondBr).Struct.fields.len + prev_then_body.len + cond_body.len,
                 );
 
-                sema.air_instructions.items(.data)[@intFromEnum(prev_cond_br)].pl_op.payload =
-                    sema.addExtraAssumeCapacity(Air.CondBr{
+                sema.air_instructions.items(.data)[@intFromEnum(prev_cond_br)].pl_op.payload = sema.addExtraAssumeCapacity(Air.CondBr{
                     .then_body_len = @intCast(prev_then_body.len),
                     .else_body_len = @intCast(cond_body.len),
+                    .branch_hints = .{ .true = prev_hint, .false = .none },
                 });
                 sema.air_extra.appendSliceAssumeCapacity(@ptrCast(prev_then_body));
                 sema.air_extra.appendSliceAssumeCapacity(@ptrCast(cond_body));
@@ -12830,6 +12868,7 @@ fn analyzeSwitchRuntimeBlock(
             gpa.free(prev_then_body);
             prev_then_body = try case_block.instructions.toOwnedSlice(gpa);
             prev_cond_br = new_cond_br;
+            prev_hint = prong_hint;
         }
     }
 
@@ -12861,8 +12900,8 @@ fn analyzeSwitchRuntimeBlock(
                     if (emit_bb) try sema.emitBackwardBranch(block, special_prong_src);
                     emit_bb = true;
 
-                    if (analyze_body) {
-                        try spa.analyzeProngRuntime(
+                    const prong_hint: std.builtin.BranchHint = if (analyze_body) h: {
+                        break :h try spa.analyzeProngRuntime(
                             &case_block,
                             .special,
                             special.body,
@@ -12875,9 +12914,11 @@ fn analyzeSwitchRuntimeBlock(
                             item_ref,
                             special.has_tag_capture,
                         );
-                    } else {
+                    } else h: {
                         _ = try case_block.addNoOp(.unreach);
-                    }
+                        break :h .none;
+                    };
+                    try branch_hints.append(gpa, prong_hint);
 
                     try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                     cases_extra.appendAssumeCapacity(1); // items_len
@@ -12910,7 +12951,7 @@ fn analyzeSwitchRuntimeBlock(
                     if (emit_bb) try sema.emitBackwardBranch(block, special_prong_src);
                     emit_bb = true;
 
-                    try spa.analyzeProngRuntime(
+                    const prong_hint = try spa.analyzeProngRuntime(
                         &case_block,
                         .special,
                         special.body,
@@ -12923,6 +12964,7 @@ fn analyzeSwitchRuntimeBlock(
                         item_ref,
                         special.has_tag_capture,
                     );
+                    try branch_hints.append(gpa, prong_hint);
 
                     try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                     cases_extra.appendAssumeCapacity(1); // items_len
@@ -12944,7 +12986,7 @@ fn analyzeSwitchRuntimeBlock(
                     if (emit_bb) try sema.emitBackwardBranch(block, special_prong_src);
                     emit_bb = true;
 
-                    try spa.analyzeProngRuntime(
+                    const prong_hint = try spa.analyzeProngRuntime(
                         &case_block,
                         .special,
                         special.body,
@@ -12957,6 +12999,7 @@ fn analyzeSwitchRuntimeBlock(
                         item_ref,
                         special.has_tag_capture,
                     );
+                    try branch_hints.append(gpa, prong_hint);
 
                     try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                     cases_extra.appendAssumeCapacity(1); // items_len
@@ -12975,7 +13018,7 @@ fn analyzeSwitchRuntimeBlock(
                     if (emit_bb) try sema.emitBackwardBranch(block, special_prong_src);
                     emit_bb = true;
 
-                    try spa.analyzeProngRuntime(
+                    const prong_hint = try spa.analyzeProngRuntime(
                         &case_block,
                         .special,
                         special.body,
@@ -12988,6 +13031,7 @@ fn analyzeSwitchRuntimeBlock(
                         .bool_true,
                         special.has_tag_capture,
                     );
+                    try branch_hints.append(gpa, prong_hint);
 
                     try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                     cases_extra.appendAssumeCapacity(1); // items_len
@@ -13004,7 +13048,7 @@ fn analyzeSwitchRuntimeBlock(
                     if (emit_bb) try sema.emitBackwardBranch(block, special_prong_src);
                     emit_bb = true;
 
-                    try spa.analyzeProngRuntime(
+                    const prong_hint = try spa.analyzeProngRuntime(
                         &case_block,
                         .special,
                         special.body,
@@ -13017,6 +13061,7 @@ fn analyzeSwitchRuntimeBlock(
                         .bool_false,
                         special.has_tag_capture,
                     );
+                    try branch_hints.append(gpa, prong_hint);
 
                     try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
                     cases_extra.appendAssumeCapacity(1); // items_len
@@ -13052,12 +13097,13 @@ fn analyzeSwitchRuntimeBlock(
             } else false
         else
             true;
-        if (special.body.len != 0 and err_set and
+        const else_hint: std.builtin.BranchHint = if (special.body.len != 0 and err_set and
             try sema.maybeErrorUnwrap(&case_block, special.body, operand, operand_src, allow_err_code_unwrap))
-        {
-            // nothing to do here
-        } else if (special.body.len != 0 and analyze_body and !special.is_inline) {
-            try spa.analyzeProngRuntime(
+        h: {
+            // nothing to do here. weight against error branch
+            break :h .unlikely;
+        } else if (special.body.len != 0 and analyze_body and !special.is_inline) h: {
+            break :h try spa.analyzeProngRuntime(
                 &case_block,
                 .special,
                 special.body,
@@ -13070,7 +13116,7 @@ fn analyzeSwitchRuntimeBlock(
                 .none,
                 false,
             );
-        } else {
+        } else h: {
             // We still need a terminator in this block, but we have proven
             // that it is unreachable.
             if (case_block.wantSafety()) {
@@ -13079,33 +13125,57 @@ fn analyzeSwitchRuntimeBlock(
             } else {
                 _ = try case_block.addNoOp(.unreach);
             }
-        }
+            // Safety check / unreachable branches are cold.
+            break :h .cold;
+        };
 
         if (is_first) {
+            try branch_hints.append(gpa, else_hint);
             final_else_body = case_block.instructions.items;
         } else {
+            try branch_hints.append(gpa, .none); // we have the range conditionals first
             try sema.air_extra.ensureUnusedCapacity(gpa, prev_then_body.len +
                 @typeInfo(Air.CondBr).Struct.fields.len + case_block.instructions.items.len);
 
-            sema.air_instructions.items(.data)[@intFromEnum(prev_cond_br)].pl_op.payload =
-                sema.addExtraAssumeCapacity(Air.CondBr{
+            sema.air_instructions.items(.data)[@intFromEnum(prev_cond_br)].pl_op.payload = sema.addExtraAssumeCapacity(Air.CondBr{
                 .then_body_len = @intCast(prev_then_body.len),
                 .else_body_len = @intCast(case_block.instructions.items.len),
+                .branch_hints = .{ .true = prev_hint, .false = else_hint },
             });
             sema.air_extra.appendSliceAssumeCapacity(@ptrCast(prev_then_body));
             sema.air_extra.appendSliceAssumeCapacity(@ptrCast(case_block.instructions.items));
             final_else_body = first_else_body;
         }
+    } else {
+        try branch_hints.append(gpa, .none);
     }
 
+    assert(branch_hints.items.len == cases_len + 1);
+
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr).Struct.fields.len +
-        cases_extra.items.len + final_else_body.len);
+        cases_extra.items.len + final_else_body.len +
+        (std.math.divCeil(usize, branch_hints.items.len, 10) catch unreachable)); // branch hints
 
     const payload_index = sema.addExtraAssumeCapacity(Air.SwitchBr{
         .cases_len = @intCast(cases_len),
         .else_body_len = @intCast(final_else_body.len),
     });
 
+    {
+        // Add branch hints.
+        var cur_bag: u32 = 0;
+        for (branch_hints.items, 0..) |hint, idx| {
+            const idx_in_bag = idx % 10;
+            cur_bag |= @as(u32, @intFromEnum(hint)) << @intCast(idx_in_bag * 3);
+            if (idx_in_bag == 9) {
+                sema.air_extra.appendAssumeCapacity(cur_bag);
+                cur_bag = 0;
+            }
+        }
+        if (branch_hints.items.len % 10 != 0) {
+            sema.air_extra.appendAssumeCapacity(cur_bag);
+        }
+    }
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(cases_extra.items));
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(final_else_body));
 
@@ -19167,6 +19237,10 @@ fn zirBoolBr(
     const lhs_result: Air.Inst.Ref = if (is_bool_or) .bool_true else .bool_false;
     _ = try lhs_block.addBr(block_inst, lhs_result);
 
+    const parent_hint = sema.branch_hint;
+    defer sema.branch_hint = parent_hint;
+    sema.branch_hint = null;
+
     const rhs_result = try sema.resolveInlineBody(rhs_block, body, inst);
     const rhs_noret = sema.typeOf(rhs_result).isNoReturn(mod);
     const coerced_rhs_result = if (!rhs_noret) rhs: {
@@ -19175,7 +19249,17 @@ fn zirBoolBr(
         break :rhs coerced_result;
     } else rhs_result;
 
-    const result = sema.finishCondBr(parent_block, &child_block, &then_block, &else_block, lhs, block_inst);
+    const rhs_hint = sema.branch_hint orelse .none;
+
+    const result = try sema.finishCondBr(
+        parent_block,
+        &child_block,
+        &then_block,
+        &else_block,
+        lhs,
+        block_inst,
+        if (is_bool_or) .{ .true = .none, .false = rhs_hint } else .{ .true = rhs_hint, .false = .none },
+    );
     if (!rhs_noret) {
         if (try sema.resolveDefinedValue(rhs_block, rhs_src, coerced_rhs_result)) |rhs_val| {
             if (is_bool_or and rhs_val.toBool()) {
@@ -19197,6 +19281,7 @@ fn finishCondBr(
     else_block: *Block,
     cond: Air.Inst.Ref,
     block_inst: Air.Inst.Index,
+    branch_hints: Air.CondBr.BranchHints,
 ) !Air.Inst.Ref {
     const gpa = sema.gpa;
 
@@ -19207,6 +19292,7 @@ fn finishCondBr(
     const cond_br_payload = sema.addExtraAssumeCapacity(Air.CondBr{
         .then_body_len = @intCast(then_block.instructions.items.len),
         .else_body_len = @intCast(else_block.instructions.items.len),
+        .branch_hints = branch_hints,
     });
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(then_block.instructions.items));
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(else_block.instructions.items));
@@ -19341,6 +19427,11 @@ fn zirCondbr(
     if (try sema.resolveDefinedValue(parent_block, cond_src, cond)) |cond_val| {
         const body = if (cond_val.toBool()) then_body else else_body;
 
+        // We can propagate `.cold` hints from this branch since it's comptime-known
+        // to be taken from the parent branch.
+        const parent_hint = sema.branch_hint;
+        defer sema.branch_hint = parent_hint orelse if (sema.branch_hint == .cold) .cold else null;
+
         try sema.maybeErrorUnwrapCondbr(parent_block, body, extra.data.condition, cond_src);
         // We use `analyzeBodyInner` since we want to propagate any comptime control flow to the caller.
         return sema.analyzeBodyInner(parent_block, body);
@@ -19357,7 +19448,7 @@ fn zirCondbr(
     sub_block.need_debug_scope = null; // this body is emitted regardless
     defer sub_block.instructions.deinit(gpa);
 
-    try sema.analyzeBodyRuntimeBreak(&sub_block, then_body);
+    const true_hint = try sema.analyzeBodyRuntimeBreak(&sub_block, then_body);
     const true_instructions = try sub_block.instructions.toOwnedSlice(gpa);
     defer gpa.free(true_instructions);
 
@@ -19373,11 +19464,13 @@ fn zirCondbr(
         break :blk try sub_block.addTyOp(.unwrap_errunion_err, result_ty, err_operand);
     };
 
-    if (err_cond != null and try sema.maybeErrorUnwrap(&sub_block, else_body, err_cond.?, cond_src, false)) {
-        // nothing to do
-    } else {
-        try sema.analyzeBodyRuntimeBreak(&sub_block, else_body);
-    }
+    const false_hint: std.builtin.BranchHint = if (err_cond != null and
+        try sema.maybeErrorUnwrap(&sub_block, else_body, err_cond.?, cond_src, false))
+    h: {
+        // nothing to do here. weight against error branch
+        break :h .unlikely;
+    } else try sema.analyzeBodyRuntimeBreak(&sub_block, else_body);
+
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).Struct.fields.len +
         true_instructions.len + sub_block.instructions.items.len);
     _ = try parent_block.addInst(.{
@@ -19387,6 +19480,7 @@ fn zirCondbr(
             .payload = sema.addExtraAssumeCapacity(Air.CondBr{
                 .then_body_len = @intCast(true_instructions.len),
                 .else_body_len = @intCast(sub_block.instructions.items.len),
+                .branch_hints = .{ .true = true_hint, .false = false_hint },
             }),
         } },
     });
@@ -19411,6 +19505,11 @@ fn zirTry(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!
     }
     const is_non_err = try sema.analyzeIsNonErrComptimeOnly(parent_block, operand_src, err_union);
     if (is_non_err != .none) {
+        // We can propagate `.cold` hints from this branch since it's comptime-known
+        // to be taken from the parent branch.
+        const parent_hint = sema.branch_hint;
+        defer sema.branch_hint = parent_hint orelse if (sema.branch_hint == .cold) .cold else null;
+
         const is_non_err_val = (try sema.resolveDefinedValue(parent_block, operand_src, is_non_err)).?;
         if (is_non_err_val.toBool()) {
             return sema.analyzeErrUnionPayload(parent_block, src, err_union_ty, err_union, operand_src, false);
@@ -19424,13 +19523,19 @@ fn zirTry(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!
     var sub_block = parent_block.makeSubBlock();
     defer sub_block.instructions.deinit(sema.gpa);
 
+    const parent_hint = sema.branch_hint;
+    defer sema.branch_hint = parent_hint;
+
     // This body is guaranteed to end with noreturn and has no breaks.
     try sema.analyzeBodyInner(&sub_block, body);
+
+    // The only interesting hint here is `.cold`, which can come from e.g. `errdefer @panic`.
+    const is_cold = sema.branch_hint == .cold;
 
     try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.Try).Struct.fields.len +
         sub_block.instructions.items.len);
     const try_inst = try parent_block.addInst(.{
-        .tag = .@"try",
+        .tag = if (is_cold) .try_cold else .@"try",
         .data = .{ .pl_op = .{
             .operand = err_union,
             .payload = sema.addExtraAssumeCapacity(Air.Try{
@@ -19460,6 +19565,11 @@ fn zirTryPtr(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErr
     }
     const is_non_err = try sema.analyzeIsNonErrComptimeOnly(parent_block, operand_src, err_union);
     if (is_non_err != .none) {
+        // We can propagate `.cold` hints from this branch since it's comptime-known
+        // to be taken from the parent branch.
+        const parent_hint = sema.branch_hint;
+        defer sema.branch_hint = parent_hint orelse if (sema.branch_hint == .cold) .cold else null;
+
         const is_non_err_val = (try sema.resolveDefinedValue(parent_block, operand_src, is_non_err)).?;
         if (is_non_err_val.toBool()) {
             return sema.analyzeErrUnionPayloadPtr(parent_block, src, operand, false, false);
@@ -19473,8 +19583,14 @@ fn zirTryPtr(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErr
     var sub_block = parent_block.makeSubBlock();
     defer sub_block.instructions.deinit(sema.gpa);
 
+    const parent_hint = sema.branch_hint;
+    defer sema.branch_hint = parent_hint;
+
     // This body is guaranteed to end with noreturn and has no breaks.
     try sema.analyzeBodyInner(&sub_block, body);
+
+    // The only interesting hint here is `.cold`, which can come from e.g. `errdefer @panic`.
+    const is_cold = sema.branch_hint == .cold;
 
     const operand_ty = sema.typeOf(operand);
     const ptr_info = operand_ty.ptrInfo(mod);
@@ -19491,7 +19607,7 @@ fn zirTryPtr(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErr
     try sema.air_extra.ensureUnusedCapacity(sema.gpa, @typeInfo(Air.TryPtr).Struct.fields.len +
         sub_block.instructions.items.len);
     const try_inst = try parent_block.addInst(.{
-        .tag = .try_ptr,
+        .tag = if (is_cold) .try_ptr_cold else .try_ptr,
         .data = .{ .ty_pl = .{
             .ty = res_ty_ref,
             .payload = sema.addExtraAssumeCapacity(Air.TryPtr{
@@ -19743,6 +19859,8 @@ fn retWithErrTracing(
     const cond_br_payload = sema.addExtraAssumeCapacity(Air.CondBr{
         .then_body_len = @intCast(then_block.instructions.items.len),
         .else_body_len = @intCast(else_block.instructions.items.len),
+        // weight against error branch
+        .branch_hints = .{ .true = .likely, .false = .unlikely },
     });
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(then_block.instructions.items));
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(else_block.instructions.items));
@@ -26749,6 +26867,7 @@ fn zirBuiltinValue(sema: *Sema, extended: Zir.Inst.Extended.InstData) CompileErr
         .export_options => "ExportOptions",
         .extern_options => "ExternOptions",
         .type_info => "Type",
+        .branch_hint => "BranchHint",
 
         // Values are handled here.
         .calling_convention_c => {
@@ -26772,6 +26891,27 @@ fn zirBuiltinValue(sema: *Sema, extended: Zir.Inst.Extended.InstData) CompileErr
     };
     const ty = try pt.getBuiltinType(type_name);
     return Air.internedToRef(ty.toIntern());
+}
+
+fn zirBranchHint(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+
+    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
+    const uncoerced_hint = try sema.resolveInst(extra.operand);
+    const operand_src = block.builtinCallArgSrc(extra.node, 0);
+
+    const hint_ty = try pt.getBuiltinType("BranchHint");
+    const coerced_hint = try sema.coerce(block, hint_ty, uncoerced_hint, operand_src);
+    const hint_val = try sema.resolveConstDefinedValue(block, operand_src, coerced_hint, .{
+        .needed_comptime_reason = "operand to '@branchHint' must be comptime-known",
+    });
+
+    // We only apply the first hint in a branch.
+    // This allows user-provided hints to override implicit cold hints.
+    if (sema.branch_hint == null) {
+        sema.branch_hint = zcu.toEnum(std.builtin.BranchHint, hint_val);
+    }
 }
 
 fn requireRuntimeBlock(sema: *Sema, block: *Block, src: LazySrcLoc, runtime_src: ?LazySrcLoc) !void {
@@ -27329,13 +27469,17 @@ fn addSafetyCheckExtra(
 
     sema.air_instructions.appendAssumeCapacity(.{
         .tag = .cond_br,
-        .data = .{ .pl_op = .{
-            .operand = ok,
-            .payload = sema.addExtraAssumeCapacity(Air.CondBr{
-                .then_body_len = 1,
-                .else_body_len = @intCast(fail_block.instructions.items.len),
-            }),
-        } },
+        .data = .{
+            .pl_op = .{
+                .operand = ok,
+                .payload = sema.addExtraAssumeCapacity(Air.CondBr{
+                    .then_body_len = 1,
+                    .else_body_len = @intCast(fail_block.instructions.items.len),
+                    // safety check failure branch is cold
+                    .branch_hints = .{ .true = .likely, .false = .cold },
+                }),
+            },
+        },
     });
     sema.air_extra.appendAssumeCapacity(@intFromEnum(br_inst));
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(fail_block.instructions.items));
@@ -27532,6 +27676,7 @@ fn safetyCheckFormatted(
     try sema.addSafetyCheckExtra(parent_block, ok, &fail_block);
 }
 
+/// This does not set `sema.branch_hint`.
 fn safetyPanic(sema: *Sema, block: *Block, src: LazySrcLoc, panic_id: Module.PanicId) CompileError!void {
     const msg_nav_index = try sema.preparePanicId(block, src, panic_id);
     const msg_inst = try sema.analyzeNavVal(block, src, msg_nav_index);
@@ -37244,7 +37389,7 @@ pub fn addExtraAssumeCapacity(sema: *Sema, extra: anytype) u32 {
     inline for (fields) |field| {
         sema.air_extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
-            i32 => @bitCast(@field(extra, field.name)),
+            i32, Air.CondBr.BranchHints => @bitCast(@field(extra, field.name)),
             Air.Inst.Ref, InternPool.Index => @intFromEnum(@field(extra, field.name)),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         });
@@ -38338,6 +38483,12 @@ fn maybeDerefSliceAsArray(
 
 fn analyzeUnreachable(sema: *Sema, block: *Block, src: LazySrcLoc, safety_check: bool) !void {
     if (safety_check and block.wantSafety()) {
+        // We only apply the first hint in a branch.
+        // This allows user-provided hints to override implicit cold hints.
+        if (sema.branch_hint == null) {
+            sema.branch_hint = .cold;
+        }
+
         try sema.safetyPanic(block, src, .unreach);
     } else {
         _ = try block.addNoOp(.unreach);

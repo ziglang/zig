@@ -1640,7 +1640,9 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .addrspace_cast  => return func.fail("TODO: addrspace_cast", .{}),
 
             .@"try"          =>  try func.airTry(inst),
+            .try_cold        =>  try func.airTry(inst),
             .try_ptr         =>  return func.fail("TODO: try_ptr", .{}),
+            .try_ptr_cold    =>  return func.fail("TODO: try_ptr_cold", .{}),
 
             .dbg_var_ptr,
             .dbg_var_val,
@@ -5655,38 +5657,30 @@ fn lowerBlock(func: *Func, inst: Air.Inst.Index, body: []const Air.Inst.Index) !
 }
 
 fn airSwitchBr(func: *Func, inst: Air.Inst.Index) !void {
-    const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const condition_ty = func.typeOf(pl_op.operand);
-    const switch_br = func.air.extraData(Air.SwitchBr, pl_op.payload);
-    var extra_index: usize = switch_br.end;
-    var case_i: u32 = 0;
-    const liveness = try func.liveness.getSwitchBr(func.gpa, inst, switch_br.data.cases_len + 1);
+    const switch_br = func.air.unwrapSwitch(inst);
+
+    const liveness = try func.liveness.getSwitchBr(func.gpa, inst, switch_br.cases_len + 1);
     defer func.gpa.free(liveness.deaths);
 
-    const condition = try func.resolveInst(pl_op.operand);
+    const condition = try func.resolveInst(switch_br.operand);
+    const condition_ty = func.typeOf(switch_br.operand);
 
     // If the condition dies here in this switch instruction, process
     // that death now instead of later as this has an effect on
     // whether it needs to be spilled in the branches
     if (func.liveness.operandDies(inst, 0)) {
-        if (pl_op.operand.toIndex()) |op_inst| try func.processDeath(op_inst);
+        if (switch_br.operand.toIndex()) |op_inst| try func.processDeath(op_inst);
     }
 
     func.scope_generation += 1;
     const state = try func.saveState();
 
-    while (case_i < switch_br.data.cases_len) : (case_i += 1) {
-        const case = func.air.extraData(Air.SwitchBr.Case, extra_index);
-        const items: []const Air.Inst.Ref =
-            @ptrCast(func.air.extra[case.end..][0..case.data.items_len]);
-        const case_body: []const Air.Inst.Index =
-            @ptrCast(func.air.extra[case.end + items.len ..][0..case.data.body_len]);
-        extra_index = case.end + items.len + case_body.len;
-
-        var relocs = try func.gpa.alloc(Mir.Inst.Index, items.len);
+    var it = switch_br.iterateCases();
+    while (it.next()) |case| {
+        var relocs = try func.gpa.alloc(Mir.Inst.Index, case.items.len);
         defer func.gpa.free(relocs);
 
-        for (items, relocs, 0..) |item, *reloc, i| {
+        for (case.items, relocs, 0..) |item, *reloc, i| {
             const item_mcv = try func.resolveInst(item);
 
             const cond_lock = switch (condition) {
@@ -5720,10 +5714,10 @@ fn airSwitchBr(func: *Func, inst: Air.Inst.Index) !void {
             reloc.* = try func.condBr(condition_ty, .{ .register = cmp_reg });
         }
 
-        for (liveness.deaths[case_i]) |operand| try func.processDeath(operand);
+        for (liveness.deaths[case.idx]) |operand| try func.processDeath(operand);
 
         for (relocs[0 .. relocs.len - 1]) |reloc| func.performReloc(reloc);
-        try func.genBody(case_body);
+        try func.genBody(case.body);
         try func.restoreState(state, &.{}, .{
             .emit_instructions = false,
             .update_tracking = true,
@@ -5734,9 +5728,8 @@ fn airSwitchBr(func: *Func, inst: Air.Inst.Index) !void {
         func.performReloc(relocs[relocs.len - 1]);
     }
 
-    if (switch_br.data.else_body_len > 0) {
-        const else_body: []const Air.Inst.Index =
-            @ptrCast(func.air.extra[extra_index..][0..switch_br.data.else_body_len]);
+    if (switch_br.else_body_len > 0) {
+        const else_body = it.elseBody();
 
         const else_deaths = liveness.deaths.len - 1;
         for (liveness.deaths[else_deaths]) |operand| try func.processDeath(operand);

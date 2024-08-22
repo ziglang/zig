@@ -2188,6 +2188,8 @@ fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaError!
         });
     }
 
+    func.setBranchHint(ip, sema.branch_hint orelse .none);
+
     // If we don't get an error return trace from a caller, create our own.
     if (func.analysisUnordered(ip).calls_or_awaits_errorable_fn and
         zcu.comp.config.any_error_tracing and

@@ -1913,7 +1913,9 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .get_union_tag => func.airGetUnionTag(inst),
 
         .@"try" => func.airTry(inst),
+        .try_cold => func.airTry(inst),
         .try_ptr => func.airTryPtr(inst),
+        .try_ptr_cold => func.airTryPtr(inst),
 
         .dbg_stmt => func.airDbgStmt(inst),
         .dbg_inline_block => func.airDbgInlineBlock(inst),
@@ -4039,37 +4041,31 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const mod = pt.zcu;
     // result type is always 'noreturn'
     const blocktype = wasm.block_empty;
-    const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const target = try func.resolveInst(pl_op.operand);
-    const target_ty = func.typeOf(pl_op.operand);
-    const switch_br = func.air.extraData(Air.SwitchBr, pl_op.payload);
-    const liveness = try func.liveness.getSwitchBr(func.gpa, inst, switch_br.data.cases_len + 1);
+    const switch_br = func.air.unwrapSwitch(inst);
+    const target = try func.resolveInst(switch_br.operand);
+    const target_ty = func.typeOf(switch_br.operand);
+    const liveness = try func.liveness.getSwitchBr(func.gpa, inst, switch_br.cases_len + 1);
     defer func.gpa.free(liveness.deaths);
-
-    var extra_index: usize = switch_br.end;
-    var case_i: u32 = 0;
 
     // a list that maps each value with its value and body based on the order inside the list.
     const CaseValue = struct { integer: i32, value: Value };
     var case_list = try std.ArrayList(struct {
         values: []const CaseValue,
         body: []const Air.Inst.Index,
-    }).initCapacity(func.gpa, switch_br.data.cases_len);
+    }).initCapacity(func.gpa, switch_br.cases_len);
     defer for (case_list.items) |case| {
         func.gpa.free(case.values);
     } else case_list.deinit();
 
     var lowest_maybe: ?i32 = null;
     var highest_maybe: ?i32 = null;
-    while (case_i < switch_br.data.cases_len) : (case_i += 1) {
-        const case = func.air.extraData(Air.SwitchBr.Case, extra_index);
-        const items: []const Air.Inst.Ref = @ptrCast(func.air.extra[case.end..][0..case.data.items_len]);
-        const case_body: []const Air.Inst.Index = @ptrCast(func.air.extra[case.end + items.len ..][0..case.data.body_len]);
-        extra_index = case.end + items.len + case_body.len;
-        const values = try func.gpa.alloc(CaseValue, items.len);
+
+    var it = switch_br.iterateCases();
+    while (it.next()) |case| {
+        const values = try func.gpa.alloc(CaseValue, case.items.len);
         errdefer func.gpa.free(values);
 
-        for (items, 0..) |ref, i| {
+        for (case.items, 0..) |ref, i| {
             const item_val = (try func.air.value(ref, pt)).?;
             const int_val = func.valueAsI32(item_val);
             if (lowest_maybe == null or int_val < lowest_maybe.?) {
@@ -4081,7 +4077,7 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             values[i] = .{ .integer = int_val, .value = item_val };
         }
 
-        case_list.appendAssumeCapacity(.{ .values = values, .body = case_body });
+        case_list.appendAssumeCapacity(.{ .values = values, .body = case.body });
         try func.startBlock(.block, blocktype);
     }
 
@@ -4095,7 +4091,7 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     // TODO: Benchmark this to find a proper value, LLVM seems to draw the line at '40~45'.
     const is_sparse = highest - lowest > 50 or target_ty.bitSize(pt) > 32;
 
-    const else_body: []const Air.Inst.Index = @ptrCast(func.air.extra[extra_index..][0..switch_br.data.else_body_len]);
+    const else_body = it.elseBody();
     const has_else_body = else_body.len != 0;
     if (has_else_body) {
         try func.startBlock(.block, blocktype);
@@ -4138,11 +4134,11 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 // for errors that are not present in any branch. This is fine as this default
                 // case will never be hit for those cases but we do save runtime cost and size
                 // by using a jump table for this instead of if-else chains.
-                break :blk if (has_else_body or target_ty.zigTypeTag(mod) == .ErrorSet) case_i else unreachable;
+                break :blk if (has_else_body or target_ty.zigTypeTag(mod) == .ErrorSet) switch_br.cases_len else unreachable;
             };
             func.mir_extra.appendAssumeCapacity(idx);
         } else if (has_else_body) {
-            func.mir_extra.appendAssumeCapacity(case_i); // default branch
+            func.mir_extra.appendAssumeCapacity(switch_br.cases_len); // default branch
         }
         try func.endBlock();
     }

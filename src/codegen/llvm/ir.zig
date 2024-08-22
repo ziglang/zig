@@ -25,7 +25,7 @@ const BlockAbbrev = AbbrevOp{ .vbr = 6 };
 pub const FixedMetadataKind = enum(u8) {
     dbg = 0,
     //tbaa = 1,
-    //prof = 2,
+    prof = 2,
     //fpmath = 3,
     //range = 4,
     //@"tbaa.struct" = 5,
@@ -38,7 +38,7 @@ pub const FixedMetadataKind = enum(u8) {
     //dereferenceable = 12,
     //dereferenceable_or_null = 13,
     //@"make.implicit" = 14,
-    //unpredictable = 15,
+    unpredictable = 15,
     //@"invariant.group" = 16,
     //@"align" = 17,
     //@"llvm.loop" = 18,
@@ -54,7 +54,7 @@ pub const FixedMetadataKind = enum(u8) {
     //vcall_visibility = 28,
     //noundef = 29,
     //annotation = 30,
-    nosanitize = 31,
+    //nosanitize = 31,
     //func_sanitize = 32,
     //exclude = 33,
     //memprof = 34,
@@ -1220,6 +1220,20 @@ pub const MetadataBlock = struct {
     };
 };
 
+pub const OperandBundleTags = struct {
+    pub const id = 21;
+
+    pub const abbrevs = [_]type{OperandBundleTag};
+
+    pub const OperandBundleTag = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 1 },
+            .array_char6,
+        };
+        tag: []const u8,
+    };
+};
+
 pub const FunctionMetadataBlock = struct {
     pub const id = 15;
 
@@ -1279,6 +1293,7 @@ pub const FunctionBlock = struct {
         Fence,
         DebugLoc,
         DebugLocAgain,
+        ColdOperandBundle,
     };
 
     pub const DeclareBlocks = struct {
@@ -1789,6 +1804,13 @@ pub const FunctionBlock = struct {
     pub const DebugLocAgain = struct {
         pub const ops = [_]AbbrevOp{
             .{ .literal = 33 },
+        };
+    };
+
+    pub const ColdOperandBundle = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 55 },
+            .{ .literal = 0 },
         };
     };
 };
