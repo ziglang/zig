@@ -344,7 +344,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 if (!checkRef(data.pl_op.operand, zcu)) return false;
             },
 
-            .@"try" => {
+            .@"try", .try_cold => {
                 const extra = air.extraData(Air.Try, data.pl_op.payload);
                 if (!checkRef(data.pl_op.operand, zcu)) return false;
                 if (!checkBody(
@@ -354,7 +354,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 )) return false;
             },
 
-            .try_ptr => {
+            .try_ptr, .try_ptr_cold => {
                 const extra = air.extraData(Air.TryPtr, data.ty_pl.payload);
                 if (!checkType(data.ty_pl.ty.toType(), zcu)) return false;
                 if (!checkRef(extra.data.ptr, zcu)) return false;
@@ -381,27 +381,14 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             },
 
             .switch_br => {
-                const extra = air.extraData(Air.SwitchBr, data.pl_op.payload);
-                if (!checkRef(data.pl_op.operand, zcu)) return false;
-                var extra_index = extra.end;
-                for (0..extra.data.cases_len) |_| {
-                    const case = air.extraData(Air.SwitchBr.Case, extra_index);
-                    extra_index = case.end;
-                    const items: []const Air.Inst.Ref = @ptrCast(air.extra[extra_index..][0..case.data.items_len]);
-                    extra_index += case.data.items_len;
-                    for (items) |item| if (!checkRef(item, zcu)) return false;
-                    if (!checkBody(
-                        air,
-                        @ptrCast(air.extra[extra_index..][0..case.data.body_len]),
-                        zcu,
-                    )) return false;
-                    extra_index += case.data.body_len;
+                const switch_br = air.unwrapSwitch(inst);
+                if (!checkRef(switch_br.operand, zcu)) return false;
+                var it = switch_br.iterateCases();
+                while (it.next()) |case| {
+                    for (case.items) |item| if (!checkRef(item, zcu)) return false;
+                    if (!checkBody(air, case.body, zcu)) return false;
                 }
-                if (!checkBody(
-                    air,
-                    @ptrCast(air.extra[extra_index..][0..extra.data.else_body_len]),
-                    zcu,
-                )) return false;
+                if (!checkBody(air, it.elseBody(), zcu)) return false;
             },
 
             .assembly => {

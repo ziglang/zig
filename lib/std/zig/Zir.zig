@@ -1546,7 +1546,7 @@ pub const Inst = struct {
                 => false,
 
                 .extended => switch (data.extended.opcode) {
-                    .fence, .set_cold, .breakpoint, .disable_instrumentation => true,
+                    .fence, .branch_hint, .breakpoint, .disable_instrumentation => true,
                     else => false,
                 },
             };
@@ -1954,9 +1954,6 @@ pub const Inst = struct {
         /// Implement builtin `@setAlignStack`.
         /// `operand` is payload index to `UnNode`.
         set_align_stack,
-        /// Implements `@setCold`.
-        /// `operand` is payload index to `UnNode`.
-        set_cold,
         /// Implements the `@errorCast` builtin.
         /// `operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
         error_cast,
@@ -2051,6 +2048,10 @@ pub const Inst = struct {
         /// `operand` is `src_node: i32`.
         /// `small` is an `Inst.BuiltinValue`.
         builtin_value,
+        /// Provide a `@branchHint` for the current block.
+        /// `operand` is payload index to `UnNode`.
+        /// `small` is unused.
+        branch_hint,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -3142,6 +3143,7 @@ pub const Inst = struct {
         export_options,
         extern_options,
         type_info,
+        branch_hint,
         // Values
         calling_convention_c,
         calling_convention_inline,
@@ -3962,7 +3964,6 @@ fn findDeclsInner(
                 .fence,
                 .set_float_mode,
                 .set_align_stack,
-                .set_cold,
                 .error_cast,
                 .await_nosuspend,
                 .breakpoint,
@@ -3986,6 +3987,7 @@ fn findDeclsInner(
                 .closure_get,
                 .field_parent_ptr,
                 .builtin_value,
+                .branch_hint,
                 => return,
 
                 // `@TypeOf` has a body.

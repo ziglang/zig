@@ -898,9 +898,9 @@ pub const Object = struct {
             const i32_2 = try builder.intConst(.i32, 2);
             const i32_3 = try builder.intConst(.i32, 3);
             const debug_info_version = try builder.debugModuleFlag(
-                try builder.debugConstant(i32_2),
+                try builder.metadataConstant(i32_2),
                 try builder.metadataString("Debug Info Version"),
-                try builder.debugConstant(i32_3),
+                try builder.metadataConstant(i32_3),
             );
 
             switch (comp.config.debug_format) {
@@ -908,9 +908,9 @@ pub const Object = struct {
                 .dwarf => |f| {
                     const i32_4 = try builder.intConst(.i32, 4);
                     const dwarf_version = try builder.debugModuleFlag(
-                        try builder.debugConstant(i32_2),
+                        try builder.metadataConstant(i32_2),
                         try builder.metadataString("Dwarf Version"),
-                        try builder.debugConstant(i32_4),
+                        try builder.metadataConstant(i32_4),
                     );
                     switch (f) {
                         .@"32" => {
@@ -921,9 +921,9 @@ pub const Object = struct {
                         },
                         .@"64" => {
                             const dwarf64 = try builder.debugModuleFlag(
-                                try builder.debugConstant(i32_2),
+                                try builder.metadataConstant(i32_2),
                                 try builder.metadataString("DWARF64"),
-                                try builder.debugConstant(.@"1"),
+                                try builder.metadataConstant(.@"1"),
                             );
                             try builder.debugNamed(try builder.metadataString("llvm.module.flags"), &.{
                                 debug_info_version,
@@ -935,9 +935,9 @@ pub const Object = struct {
                 },
                 .code_view => {
                     const code_view = try builder.debugModuleFlag(
-                        try builder.debugConstant(i32_2),
+                        try builder.metadataConstant(i32_2),
                         try builder.metadataString("CodeView"),
-                        try builder.debugConstant(.@"1"),
+                        try builder.metadataConstant(.@"1"),
                     );
                     try builder.debugNamed(try builder.metadataString("llvm.module.flags"), &.{
                         debug_info_version,
@@ -1122,12 +1122,12 @@ pub const Object = struct {
 
                 self.builder.debugForwardReferenceSetType(
                     self.debug_enums_fwd_ref,
-                    try self.builder.debugTuple(self.debug_enums.items),
+                    try self.builder.metadataTuple(self.debug_enums.items),
                 );
 
                 self.builder.debugForwardReferenceSetType(
                     self.debug_globals_fwd_ref,
-                    try self.builder.debugTuple(self.debug_globals.items),
+                    try self.builder.metadataTuple(self.debug_globals.items),
                 );
             }
         }
@@ -1369,7 +1369,7 @@ pub const Object = struct {
             _ = try attributes.removeFnAttr(.alignstack);
         }
 
-        if (func_analysis.is_cold) {
+        if (func_analysis.branch_hint == .cold) {
             try attributes.addFnAttr(.cold, &o.builder);
         } else {
             _ = try attributes.removeFnAttr(.cold);
@@ -1978,7 +1978,7 @@ pub const Object = struct {
                     try o.lowerDebugType(int_ty),
                     ty.abiSize(zcu) * 8,
                     (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
-                    try o.builder.debugTuple(enumerators),
+                    try o.builder.metadataTuple(enumerators),
                 );
 
                 try o.debug_type_map.put(gpa, ty, debug_enum_type);
@@ -2087,7 +2087,7 @@ pub const Object = struct {
                         .none, // Underlying type
                         ty.abiSize(zcu) * 8,
                         (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
-                        try o.builder.debugTuple(&.{
+                        try o.builder.metadataTuple(&.{
                             debug_ptr_type,
                             debug_len_type,
                         }),
@@ -2167,10 +2167,10 @@ pub const Object = struct {
                     try o.lowerDebugType(ty.childType(zcu)),
                     ty.abiSize(zcu) * 8,
                     (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
-                    try o.builder.debugTuple(&.{
+                    try o.builder.metadataTuple(&.{
                         try o.builder.debugSubrange(
-                            try o.builder.debugConstant(try o.builder.intConst(.i64, 0)),
-                            try o.builder.debugConstant(try o.builder.intConst(.i64, ty.arrayLen(zcu))),
+                            try o.builder.metadataConstant(try o.builder.intConst(.i64, 0)),
+                            try o.builder.metadataConstant(try o.builder.intConst(.i64, ty.arrayLen(zcu))),
                         ),
                     }),
                 );
@@ -2210,10 +2210,10 @@ pub const Object = struct {
                     debug_elem_type,
                     ty.abiSize(zcu) * 8,
                     (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
-                    try o.builder.debugTuple(&.{
+                    try o.builder.metadataTuple(&.{
                         try o.builder.debugSubrange(
-                            try o.builder.debugConstant(try o.builder.intConst(.i64, 0)),
-                            try o.builder.debugConstant(try o.builder.intConst(.i64, ty.vectorLen(zcu))),
+                            try o.builder.metadataConstant(try o.builder.intConst(.i64, 0)),
+                            try o.builder.metadataConstant(try o.builder.intConst(.i64, ty.vectorLen(zcu))),
                         ),
                     }),
                 );
@@ -2288,7 +2288,7 @@ pub const Object = struct {
                     .none, // Underlying type
                     ty.abiSize(zcu) * 8,
                     (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
-                    try o.builder.debugTuple(&.{
+                    try o.builder.metadataTuple(&.{
                         debug_data_type,
                         debug_some_type,
                     }),
@@ -2367,7 +2367,7 @@ pub const Object = struct {
                     .none, // Underlying type
                     ty.abiSize(zcu) * 8,
                     (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
-                    try o.builder.debugTuple(&fields),
+                    try o.builder.metadataTuple(&fields),
                 );
 
                 o.builder.debugForwardReferenceSetType(debug_fwd_ref, debug_error_union_type);
@@ -2447,7 +2447,7 @@ pub const Object = struct {
                             .none, // Underlying type
                             ty.abiSize(zcu) * 8,
                             (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
-                            try o.builder.debugTuple(fields.items),
+                            try o.builder.metadataTuple(fields.items),
                         );
 
                         o.builder.debugForwardReferenceSetType(debug_fwd_ref, debug_struct_type);
@@ -2520,7 +2520,7 @@ pub const Object = struct {
                     .none, // Underlying type
                     ty.abiSize(zcu) * 8,
                     (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
-                    try o.builder.debugTuple(fields.items),
+                    try o.builder.metadataTuple(fields.items),
                 );
 
                 o.builder.debugForwardReferenceSetType(debug_fwd_ref, debug_struct_type);
@@ -2561,7 +2561,7 @@ pub const Object = struct {
                         .none, // Underlying type
                         ty.abiSize(zcu) * 8,
                         (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
-                        try o.builder.debugTuple(
+                        try o.builder.metadataTuple(
                             &.{try o.lowerDebugType(Type.fromInterned(union_type.enum_tag_ty))},
                         ),
                     );
@@ -2623,7 +2623,7 @@ pub const Object = struct {
                     .none, // Underlying type
                     ty.abiSize(zcu) * 8,
                     (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
-                    try o.builder.debugTuple(fields.items),
+                    try o.builder.metadataTuple(fields.items),
                 );
 
                 o.builder.debugForwardReferenceSetType(debug_union_fwd_ref, debug_union_type);
@@ -2682,7 +2682,7 @@ pub const Object = struct {
                     .none, // Underlying type
                     ty.abiSize(zcu) * 8,
                     (ty.abiAlignment(zcu).toByteUnits() orelse 0) * 8,
-                    try o.builder.debugTuple(&full_fields),
+                    try o.builder.metadataTuple(&full_fields),
                 );
 
                 o.builder.debugForwardReferenceSetType(debug_fwd_ref, debug_tagged_union_type);
@@ -2735,7 +2735,7 @@ pub const Object = struct {
                 }
 
                 const debug_function_type = try o.builder.debugSubroutineType(
-                    try o.builder.debugTuple(debug_param_types.items),
+                    try o.builder.metadataTuple(debug_param_types.items),
                 );
 
                 try o.debug_type_map.put(gpa, ty, debug_function_type);
@@ -4571,7 +4571,7 @@ pub const Object = struct {
         const bad_value_block = try wip.block(1, "BadValue");
         const tag_int_value = wip.arg(0);
         var wip_switch =
-            try wip.@"switch"(tag_int_value, bad_value_block, @intCast(enum_type.names.len));
+            try wip.@"switch"(tag_int_value, bad_value_block, @intCast(enum_type.names.len), .none);
         defer wip_switch.finish(&wip);
 
         for (0..enum_type.names.len) |field_index| {
@@ -4958,8 +4958,10 @@ pub const FuncGen = struct {
                 .ret_addr       => try self.airRetAddr(inst),
                 .frame_addr     => try self.airFrameAddress(inst),
                 .cond_br        => try self.airCondBr(inst),
-                .@"try"         => try self.airTry(body[i..]),
-                .try_ptr        => try self.airTryPtr(inst),
+                .@"try"         => try self.airTry(body[i..], false),
+                .try_cold       => try self.airTry(body[i..], true),
+                .try_ptr        => try self.airTryPtr(inst, false),
+                .try_ptr_cold   => try self.airTryPtr(inst, true),
                 .intcast        => try self.airIntCast(inst),
                 .trunc          => try self.airTrunc(inst),
                 .fptrunc        => try self.airFptrunc(inst),
@@ -5506,6 +5508,7 @@ pub const FuncGen = struct {
         const panic_nav = ip.getNav(panic_func.owner_nav);
         const fn_info = zcu.typeToFunc(Type.fromInterned(panic_nav.typeOf(ip))).?;
         const panic_global = try o.resolveLlvmFunction(panic_func.owner_nav);
+        _ = try fg.wip.callIntrinsicAssumeCold();
         _ = try fg.wip.call(
             .normal,
             toLlvmCallConv(fn_info.cc, target),
@@ -5794,7 +5797,7 @@ pub const FuncGen = struct {
                 const mixed_block = try self.wip.block(1, "Mixed");
                 const both_pl_block = try self.wip.block(1, "BothNonNull");
                 const end_block = try self.wip.block(3, "End");
-                var wip_switch = try self.wip.@"switch"(lhs_rhs_ored, mixed_block, 2);
+                var wip_switch = try self.wip.@"switch"(lhs_rhs_ored, mixed_block, 2, .none);
                 defer wip_switch.finish(&self.wip);
                 try wip_switch.addCase(
                     try o.builder.intConst(llvm_i2, 0b00),
@@ -5948,21 +5951,62 @@ pub const FuncGen = struct {
         const then_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.then_body_len]);
         const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len]);
 
+        const Hint = enum {
+            none,
+            unpredictable,
+            then_likely,
+            else_likely,
+            then_cold,
+            else_cold,
+        };
+        const hint: Hint = switch (extra.data.branch_hints.true) {
+            .none => switch (extra.data.branch_hints.false) {
+                .none => .none,
+                .likely => .else_likely,
+                .unlikely => .then_likely,
+                .cold => .else_cold,
+                .unpredictable => .unpredictable,
+            },
+            .likely => switch (extra.data.branch_hints.false) {
+                .none => .then_likely,
+                .likely => .unpredictable,
+                .unlikely => .then_likely,
+                .cold => .else_cold,
+                .unpredictable => .unpredictable,
+            },
+            .unlikely => switch (extra.data.branch_hints.false) {
+                .none => .else_likely,
+                .likely => .else_likely,
+                .unlikely => .unpredictable,
+                .cold => .else_cold,
+                .unpredictable => .unpredictable,
+            },
+            .cold => .then_cold,
+            .unpredictable => .unpredictable,
+        };
+
         const then_block = try self.wip.block(1, "Then");
         const else_block = try self.wip.block(1, "Else");
-        _ = try self.wip.brCond(cond, then_block, else_block);
+        _ = try self.wip.brCond(cond, then_block, else_block, switch (hint) {
+            .none, .then_cold, .else_cold => .none,
+            .unpredictable => .unpredictable,
+            .then_likely => .then_likely,
+            .else_likely => .else_likely,
+        });
 
         self.wip.cursor = .{ .block = then_block };
+        if (hint == .then_cold) _ = try self.wip.callIntrinsicAssumeCold();
         try self.genBodyDebugScope(null, then_body);
 
         self.wip.cursor = .{ .block = else_block };
+        if (hint == .else_cold) _ = try self.wip.callIntrinsicAssumeCold();
         try self.genBodyDebugScope(null, else_body);
 
         // No need to reset the insert cursor since this instruction is noreturn.
         return .none;
     }
 
-    fn airTry(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
+    fn airTry(self: *FuncGen, body_tail: []const Air.Inst.Index, err_cold: bool) !Builder.Value {
         const o = self.ng.object;
         const pt = o.pt;
         const zcu = pt.zcu;
@@ -5975,10 +6019,10 @@ pub const FuncGen = struct {
         const payload_ty = self.typeOfIndex(inst);
         const can_elide_load = if (isByRef(payload_ty, zcu)) self.canElideLoad(body_tail) else false;
         const is_unused = self.liveness.isUnused(inst);
-        return lowerTry(self, err_union, body, err_union_ty, false, can_elide_load, is_unused);
+        return lowerTry(self, err_union, body, err_union_ty, false, can_elide_load, is_unused, err_cold);
     }
 
-    fn airTryPtr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+    fn airTryPtr(self: *FuncGen, inst: Air.Inst.Index, err_cold: bool) !Builder.Value {
         const o = self.ng.object;
         const zcu = o.pt.zcu;
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
@@ -5987,7 +6031,7 @@ pub const FuncGen = struct {
         const body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
         const err_union_ty = self.typeOf(extra.data.ptr).childType(zcu);
         const is_unused = self.liveness.isUnused(inst);
-        return lowerTry(self, err_union_ptr, body, err_union_ty, true, true, is_unused);
+        return lowerTry(self, err_union_ptr, body, err_union_ty, true, true, is_unused, err_cold);
     }
 
     fn lowerTry(
@@ -5998,6 +6042,7 @@ pub const FuncGen = struct {
         operand_is_ptr: bool,
         can_elide_load: bool,
         is_unused: bool,
+        err_cold: bool,
     ) !Builder.Value {
         const o = fg.ng.object;
         const pt = o.pt;
@@ -6036,9 +6081,10 @@ pub const FuncGen = struct {
 
             const return_block = try fg.wip.block(1, "TryRet");
             const continue_block = try fg.wip.block(1, "TryCont");
-            _ = try fg.wip.brCond(is_err, return_block, continue_block);
+            _ = try fg.wip.brCond(is_err, return_block, continue_block, if (err_cold) .none else .else_likely);
 
             fg.wip.cursor = .{ .block = return_block };
+            if (err_cold) _ = try fg.wip.callIntrinsicAssumeCold();
             try fg.genBodyDebugScope(null, body);
 
             fg.wip.cursor = .{ .block = continue_block };
@@ -6065,9 +6111,11 @@ pub const FuncGen = struct {
 
     fn airSwitchBr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.ng.object;
-        const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-        const cond = try self.resolveInst(pl_op.operand);
-        const switch_br = self.air.extraData(Air.SwitchBr, pl_op.payload);
+
+        const switch_br = self.air.unwrapSwitch(inst);
+
+        const cond = try self.resolveInst(switch_br.operand);
+
         const else_block = try self.wip.block(1, "Default");
         const llvm_usize = try o.lowerType(Type.usize);
         const cond_int = if (cond.typeOfWip(&self.wip).isPointer(&o.builder))
@@ -6075,34 +6123,70 @@ pub const FuncGen = struct {
         else
             cond;
 
-        var extra_index: usize = switch_br.end;
-        var case_i: u32 = 0;
-        var llvm_cases_len: u32 = 0;
-        while (case_i < switch_br.data.cases_len) : (case_i += 1) {
-            const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-            const items: []const Air.Inst.Ref =
-                @ptrCast(self.air.extra[case.end..][0..case.data.items_len]);
-            const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
-            extra_index = case.end + case.data.items_len + case_body.len;
+        const llvm_cases_len = llvm_cases_len: {
+            var len: u32 = 0;
+            var it = switch_br.iterateCases();
+            while (it.next()) |case| len += @intCast(case.items.len);
+            break :llvm_cases_len len;
+        };
 
-            llvm_cases_len += @intCast(items.len);
-        }
+        const weights: Builder.Function.Instruction.BrCond.Weights = weights: {
+            // First pass. If any weights are `.unpredictable`, unpredictable.
+            // If all are `.none` or `.cold`, none.
+            var any_likely = false;
+            for (0..switch_br.cases_len) |case_idx| {
+                switch (switch_br.getHint(@intCast(case_idx))) {
+                    .none, .cold => {},
+                    .likely, .unlikely => any_likely = true,
+                    .unpredictable => break :weights .unpredictable,
+                }
+            }
+            switch (switch_br.getElseHint()) {
+                .none, .cold => {},
+                .likely, .unlikely => any_likely = true,
+                .unpredictable => break :weights .unpredictable,
+            }
+            if (!any_likely) break :weights .none;
 
-        var wip_switch = try self.wip.@"switch"(cond_int, else_block, llvm_cases_len);
+            var weights = try self.gpa.alloc(Builder.Metadata, llvm_cases_len + 1);
+            defer self.gpa.free(weights);
+
+            const else_weight: u32 = switch (switch_br.getElseHint()) {
+                .unpredictable => unreachable,
+                .none, .cold => 1000,
+                .likely => 2000,
+                .unlikely => 1,
+            };
+            weights[0] = try o.builder.metadataConstant(try o.builder.intConst(.i32, else_weight));
+
+            var weight_idx: usize = 1;
+            var it = switch_br.iterateCases();
+            while (it.next()) |case| {
+                const weight_val: u32 = switch (switch_br.getHint(case.idx)) {
+                    .unpredictable => unreachable,
+                    .none, .cold => 1000,
+                    .likely => 2000,
+                    .unlikely => 1,
+                };
+                const weight_meta = try o.builder.metadataConstant(try o.builder.intConst(.i32, weight_val));
+                @memset(weights[weight_idx..][0..case.items.len], weight_meta);
+                weight_idx += case.items.len;
+            }
+
+            assert(weight_idx == weights.len);
+
+            const branch_weights_str = try o.builder.metadataString("branch_weights");
+            const tuple = try o.builder.strTuple(branch_weights_str, weights);
+            break :weights @enumFromInt(@intFromEnum(tuple));
+        };
+
+        var wip_switch = try self.wip.@"switch"(cond_int, else_block, llvm_cases_len, weights);
         defer wip_switch.finish(&self.wip);
 
-        extra_index = switch_br.end;
-        case_i = 0;
-        while (case_i < switch_br.data.cases_len) : (case_i += 1) {
-            const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-            const items: []const Air.Inst.Ref =
-                @ptrCast(self.air.extra[case.end..][0..case.data.items_len]);
-            const case_body: []const Air.Inst.Index = @ptrCast(self.air.extra[case.end + items.len ..][0..case.data.body_len]);
-            extra_index = case.end + case.data.items_len + case_body.len;
-
-            const case_block = try self.wip.block(@intCast(items.len), "Case");
-
-            for (items) |item| {
+        var it = switch_br.iterateCases();
+        while (it.next()) |case| {
+            const case_block = try self.wip.block(@intCast(case.items.len), "Case");
+            for (case.items) |item| {
                 const llvm_item = (try self.resolveInst(item)).toConst().?;
                 const llvm_int_item = if (llvm_item.typeOf(&o.builder).isPointer(&o.builder))
                     try o.builder.castConst(.ptrtoint, llvm_item, llvm_usize)
@@ -6110,13 +6194,14 @@ pub const FuncGen = struct {
                     llvm_item;
                 try wip_switch.addCase(llvm_int_item, case_block, &self.wip);
             }
-
             self.wip.cursor = .{ .block = case_block };
-            try self.genBodyDebugScope(null, case_body);
+            if (switch_br.getHint(case.idx) == .cold) _ = try self.wip.callIntrinsicAssumeCold();
+            try self.genBodyDebugScope(null, case.body);
         }
 
+        const else_body = it.elseBody();
         self.wip.cursor = .{ .block = else_block };
-        const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra_index..][0..switch_br.data.else_body_len]);
+        if (switch_br.getElseHint() == .cold) _ = try self.wip.callIntrinsicAssumeCold();
         if (else_body.len != 0) {
             try self.genBodyDebugScope(null, else_body);
         } else {
@@ -7748,7 +7833,7 @@ pub const FuncGen = struct {
 
         const fail_block = try fg.wip.block(1, "OverflowFail");
         const ok_block = try fg.wip.block(1, "OverflowOk");
-        _ = try fg.wip.brCond(overflow_bit, fail_block, ok_block);
+        _ = try fg.wip.brCond(overflow_bit, fail_block, ok_block, .none);
 
         fg.wip.cursor = .{ .block = fail_block };
         try fg.buildSimplePanic(.integer_overflow);
@@ -9389,7 +9474,7 @@ pub const FuncGen = struct {
         self.wip.cursor = .{ .block = loop_block };
         const it_ptr = try self.wip.phi(.ptr, "");
         const end = try self.wip.icmp(.ne, it_ptr.toValue(), end_ptr, "");
-        _ = try self.wip.brCond(end, body_block, end_block);
+        _ = try self.wip.brCond(end, body_block, end_block, .none);
 
         self.wip.cursor = .{ .block = body_block };
         const elem_abi_align = elem_ty.abiAlignment(zcu);
@@ -9427,7 +9512,7 @@ pub const FuncGen = struct {
         const cond = try self.cmp(.normal, .neq, Type.usize, len, usize_zero);
         const memset_block = try self.wip.block(1, "MemsetTrapSkip");
         const end_block = try self.wip.block(2, "MemsetTrapEnd");
-        _ = try self.wip.brCond(cond, memset_block, end_block);
+        _ = try self.wip.brCond(cond, memset_block, end_block, .none);
         self.wip.cursor = .{ .block = memset_block };
         _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
         _ = try self.wip.br(end_block);
@@ -9462,7 +9547,7 @@ pub const FuncGen = struct {
             const cond = try self.cmp(.normal, .neq, Type.usize, len, usize_zero);
             const memcpy_block = try self.wip.block(1, "MemcpyTrapSkip");
             const end_block = try self.wip.block(2, "MemcpyTrapEnd");
-            _ = try self.wip.brCond(cond, memcpy_block, end_block);
+            _ = try self.wip.brCond(cond, memcpy_block, end_block, .none);
             self.wip.cursor = .{ .block = memcpy_block };
             _ = try self.wip.callMemCpy(
                 dest_ptr,
@@ -9632,7 +9717,7 @@ pub const FuncGen = struct {
         const valid_block = try self.wip.block(@intCast(names.len), "Valid");
         const invalid_block = try self.wip.block(1, "Invalid");
         const end_block = try self.wip.block(2, "End");
-        var wip_switch = try self.wip.@"switch"(operand, invalid_block, @intCast(names.len));
+        var wip_switch = try self.wip.@"switch"(operand, invalid_block, @intCast(names.len), .none);
         defer wip_switch.finish(&self.wip);
 
         for (0..names.len) |name_index| {
@@ -9708,7 +9793,7 @@ pub const FuncGen = struct {
         const named_block = try wip.block(@intCast(enum_type.names.len), "Named");
         const unnamed_block = try wip.block(1, "Unnamed");
         const tag_int_value = wip.arg(0);
-        var wip_switch = try wip.@"switch"(tag_int_value, unnamed_block, @intCast(enum_type.names.len));
+        var wip_switch = try wip.@"switch"(tag_int_value, unnamed_block, @intCast(enum_type.names.len), .none);
         defer wip_switch.finish(&wip);
 
         for (0..enum_type.names.len) |field_index| {
@@ -9858,7 +9943,7 @@ pub const FuncGen = struct {
             const cond = try self.wip.icmp(.ult, i, llvm_vector_len, "");
             const loop_then = try self.wip.block(1, "ReduceLoopThen");
 
-            _ = try self.wip.brCond(cond, loop_then, loop_exit);
+            _ = try self.wip.brCond(cond, loop_then, loop_exit, .none);
 
             {
                 self.wip.cursor = .{ .block = loop_then };

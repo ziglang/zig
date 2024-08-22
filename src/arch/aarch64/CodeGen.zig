@@ -795,7 +795,9 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .addrspace_cast  => return self.fail("TODO implement addrspace_cast", .{}),
 
             .@"try"          => try self.airTry(inst),
+            .try_cold        => try self.airTry(inst),
             .try_ptr         => try self.airTryPtr(inst),
+            .try_ptr_cold    => try self.airTryPtr(inst),
 
             .dbg_stmt         => try self.airDbgStmt(inst),
             .dbg_inline_block => try self.airDbgInlineBlock(inst),
@@ -5092,25 +5094,17 @@ fn lowerBlock(self: *Self, inst: Air.Inst.Index, body: []const Air.Inst.Index) !
 }
 
 fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
-    const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const condition_ty = self.typeOf(pl_op.operand);
-    const switch_br = self.air.extraData(Air.SwitchBr, pl_op.payload);
+    const switch_br = self.air.unwrapSwitch(inst);
+    const condition_ty = self.typeOf(switch_br.operand);
     const liveness = try self.liveness.getSwitchBr(
         self.gpa,
         inst,
-        switch_br.data.cases_len + 1,
+        switch_br.cases_len + 1,
     );
     defer self.gpa.free(liveness.deaths);
 
-    var extra_index: usize = switch_br.end;
-    var case_i: u32 = 0;
-    while (case_i < switch_br.data.cases_len) : (case_i += 1) {
-        const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-        const items = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[case.end..][0..case.data.items_len]));
-        assert(items.len > 0);
-        const case_body: []const Air.Inst.Index = @ptrCast(self.air.extra[case.end + items.len ..][0..case.data.body_len]);
-        extra_index = case.end + items.len + case_body.len;
-
+    var it = switch_br.iterateCases();
+    while (it.next()) |case| {
         // For every item, we compare it to condition and branch into
         // the prong if they are equal. After we compared to all
         // items, we branch into the next prong (or if no other prongs
@@ -5126,11 +5120,11 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
         // prong:      ...
         //             ...
         // out:        ...
-        const branch_into_prong_relocs = try self.gpa.alloc(u32, items.len);
+        const branch_into_prong_relocs = try self.gpa.alloc(u32, case.items.len);
         defer self.gpa.free(branch_into_prong_relocs);
 
-        for (items, 0..) |item, idx| {
-            const cmp_result = try self.cmp(.{ .inst = pl_op.operand }, .{ .inst = item }, condition_ty, .neq);
+        for (case.items, 0..) |item, idx| {
+            const cmp_result = try self.cmp(.{ .inst = switch_br.operand }, .{ .inst = item }, condition_ty, .neq);
             branch_into_prong_relocs[idx] = try self.condBr(cmp_result);
         }
 
@@ -5156,11 +5150,11 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
             _ = self.branch_stack.pop();
         }
 
-        try self.ensureProcessDeathCapacity(liveness.deaths[case_i].len);
-        for (liveness.deaths[case_i]) |operand| {
+        try self.ensureProcessDeathCapacity(liveness.deaths[case.idx].len);
+        for (liveness.deaths[case.idx]) |operand| {
             self.processDeath(operand);
         }
-        try self.genBody(case_body);
+        try self.genBody(case.body);
 
         // Revert to the previous register and stack allocation state.
         var saved_case_branch = self.branch_stack.pop();
@@ -5178,8 +5172,8 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
         try self.performReloc(branch_away_from_prong_reloc);
     }
 
-    if (switch_br.data.else_body_len > 0) {
-        const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra_index..][0..switch_br.data.else_body_len]);
+    if (switch_br.else_body_len > 0) {
+        const else_body = it.elseBody();
 
         // Capture the state of register and stack allocation state so that we can revert to it.
         const parent_next_stack_offset = self.next_stack_offset;
@@ -5218,7 +5212,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
         // in airCondBr.
     }
 
-    return self.finishAir(inst, .unreach, .{ pl_op.operand, .none, .none });
+    return self.finishAir(inst, .unreach, .{ switch_br.operand, .none, .none });
 }
 
 fn performReloc(self: *Self, inst: Mir.Inst.Index) !void {

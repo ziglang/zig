@@ -6173,11 +6173,10 @@ const NavGen = struct {
         const pt = self.pt;
         const zcu = pt.zcu;
         const target = self.getTarget();
-        const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-        const cond_ty = self.typeOf(pl_op.operand);
-        const cond = try self.resolve(pl_op.operand);
+        const switch_br = self.air.unwrapSwitch(inst);
+        const cond_ty = self.typeOf(switch_br.operand);
+        const cond = try self.resolve(switch_br.operand);
         var cond_indirect = try self.convertToIndirect(cond_ty, cond);
-        const switch_br = self.air.extraData(Air.SwitchBr, pl_op.payload);
 
         const cond_words: u32 = switch (cond_ty.zigTypeTag(zcu)) {
             .Bool, .ErrorSet => 1,
@@ -6204,18 +6203,15 @@ const NavGen = struct {
             else => return self.todo("implement switch for type {s}", .{@tagName(cond_ty.zigTypeTag(zcu))}),
         };
 
-        const num_cases = switch_br.data.cases_len;
+        const num_cases = switch_br.cases_len;
 
         // Compute the total number of arms that we need.
         // Zig switches are grouped by condition, so we need to loop through all of them
         const num_conditions = blk: {
-            var extra_index: usize = switch_br.end;
             var num_conditions: u32 = 0;
-            for (0..num_cases) |_| {
-                const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-                const case_body = self.air.extra[case.end + case.data.items_len ..][0..case.data.body_len];
-                extra_index = case.end + case.data.items_len + case_body.len;
-                num_conditions += case.data.items_len;
+            var it = switch_br.iterateCases();
+            while (it.next()) |case| {
+                num_conditions += @intCast(case.items.len);
             }
             break :blk num_conditions;
         };
@@ -6244,17 +6240,12 @@ const NavGen = struct {
 
         // Emit each of the cases
         {
-            var extra_index: usize = switch_br.end;
-            for (0..num_cases) |case_i| {
+            var it = switch_br.iterateCases();
+            while (it.next()) |case| {
                 // SPIR-V needs a literal here, which' width depends on the case condition.
-                const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-                const items: []const Air.Inst.Ref = @ptrCast(self.air.extra[case.end..][0..case.data.items_len]);
-                const case_body = self.air.extra[case.end + items.len ..][0..case.data.body_len];
-                extra_index = case.end + case.data.items_len + case_body.len;
+                const label = case_labels.at(case.idx);
 
-                const label = case_labels.at(case_i);
-
-                for (items) |item| {
+                for (case.items) |item| {
                     const value = (try self.air.value(item, pt)) orelse unreachable;
                     const int_val: u64 = switch (cond_ty.zigTypeTag(zcu)) {
                         .Bool, .Int => if (cond_ty.isSignedInt(zcu)) @bitCast(value.toSignedInt(zcu)) else value.toUnsignedInt(zcu),
@@ -6285,20 +6276,15 @@ const NavGen = struct {
         }
 
         // Now, finally, we can start emitting each of the cases.
-        var extra_index: usize = switch_br.end;
-        for (0..num_cases) |case_i| {
-            const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-            const items: []const Air.Inst.Ref = @ptrCast(self.air.extra[case.end..][0..case.data.items_len]);
-            const case_body: []const Air.Inst.Index = @ptrCast(self.air.extra[case.end + items.len ..][0..case.data.body_len]);
-            extra_index = case.end + case.data.items_len + case_body.len;
-
-            const label = case_labels.at(case_i);
+        var it = switch_br.iterateCases();
+        while (it.next()) |case| {
+            const label = case_labels.at(case.idx);
 
             try self.beginSpvBlock(label);
 
             switch (self.control_flow) {
                 .structured => {
-                    const next_block = try self.genStructuredBody(.selection, case_body);
+                    const next_block = try self.genStructuredBody(.selection, case.body);
                     incoming_structured_blocks.appendAssumeCapacity(.{
                         .src_label = self.current_block_label,
                         .next_block = next_block,
@@ -6306,12 +6292,12 @@ const NavGen = struct {
                     try self.func.body.emitBranch(self.spv.gpa, merge_label.?);
                 },
                 .unstructured => {
-                    try self.genBody(case_body);
+                    try self.genBody(case.body);
                 },
             }
         }
 
-        const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra_index..][0..switch_br.data.else_body_len]);
+        const else_body = it.elseBody();
         try self.beginSpvBlock(default);
         if (else_body.len != 0) {
             switch (self.control_flow) {
