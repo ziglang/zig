@@ -295,10 +295,9 @@ pub fn dump(step: *Step, file: std.fs.File) void {
         }) catch {};
         return;
     };
-    const ally = debug_info.allocator;
     if (step.getStackTrace()) |stack_trace| {
         w.print("name: '{s}'. creation stack trace:\n", .{step.name}) catch {};
-        std.debug.writeStackTrace(stack_trace, w, ally, debug_info, tty_config) catch |err| {
+        std.debug.writeStackTrace(stack_trace, w, debug_info, tty_config) catch |err| {
             w.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch {};
             return;
         };

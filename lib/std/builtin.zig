@@ -55,7 +55,7 @@ pub const StackTrace = struct {
         };
         const tty_config = std.io.tty.detectConfig(std.io.getStdErr());
         try writer.writeAll("\n");
-        std.debug.writeStackTrace(self, writer, arena.allocator(), debug_info, tty_config) catch |err| {
+        std.debug.writeStackTrace(self, writer, debug_info, tty_config) catch |err| {
             try writer.print("Unable to print stack trace: {s}\n", .{@errorName(err)});
         };
     }
