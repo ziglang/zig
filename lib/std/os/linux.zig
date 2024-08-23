@@ -630,12 +630,13 @@ pub fn futex2_waitv(
         nr_futexes,
         flags,
         @intFromPtr(timeout),
-        @bitCast(@as(isize, clockid)),
+        @bitCast(@as(isize, @intFromEnum(clockid))),
     );
 }
 
 /// Wait on a futex.
-/// Identical to `FUTEX.WAIT`, except it is part of the futex2 family of calls.
+/// Identical to the traditional `FUTEX.FUTEX_WAIT_BITSET` op, except it is part of the
+/// futex2 familiy of calls.
 pub fn futex2_wait(
     /// Address of the futex to wait on.
     uaddr: *const anyopaque,
@@ -646,7 +647,7 @@ pub fn futex2_wait(
     /// `FUTEX2` flags.
     flags: u32,
     /// Optional absolute timeout.
-    timeout: *const timespec,
+    timeout: ?*const timespec,
     /// Clock to be used for the timeout, realtime or monotonic.
     clockid: clockid_t,
 ) usize {
@@ -657,15 +658,16 @@ pub fn futex2_wait(
         mask,
         flags,
         @intFromPtr(timeout),
-        @bitCast(@as(isize, clockid)),
+        @bitCast(@as(isize, @intFromEnum(clockid))),
     );
 }
 
 /// Wake a number of futexes.
-/// Identical to `FUTEX.WAKE`, except it is part of the futex2 family of calls.
+/// Identical to the traditional `FUTEX.FUTEX_WAIT_BITSET` op, except it is part of the
+/// futex2 family of calls.
 pub fn futex2_wake(
     /// Address of the futex(es) to wake.
-    uaddr: [*]const anyopaque,
+    uaddr: *const anyopaque,
     /// Bitmask
     mask: usize,
     /// Number of the futexes to wake.
@@ -1683,7 +1685,7 @@ pub fn sigaddset(set: *sigset_t, sig: u6) void {
 
 pub fn sigismember(set: *const sigset_t, sig: u6) bool {
     const s = sig - 1;
-    return ((set.*)[@as(usize, @intCast(s)) / usize_bits] & (@as(usize, @intCast(1)) << (s & (usize_bits - 1)))) != 0;
+    return ((set.*)[@as(usize, @intCast(s)) / usize_bits] & (@as(usize, @intCast(1)) << @intCast(s & (usize_bits - 1)))) != 0;
 }
 
 pub fn getsockname(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
@@ -1740,31 +1742,31 @@ pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize 
         var next_unsent: usize = 0;
         for (msgvec[0..kvlen], 0..) |*msg, i| {
             var size: i32 = 0;
-            const msg_iovlen = @as(usize, @intCast(msg.msg_hdr.msg_iovlen)); // kernel side this is treated as unsigned
-            for (msg.msg_hdr.msg_iov[0..msg_iovlen]) |iov| {
+            const msg_iovlen = @as(usize, @intCast(msg.hdr.iovlen)); // kernel side this is treated as unsigned
+            for (msg.hdr.iov[0..msg_iovlen]) |iov| {
                 if (iov.len > std.math.maxInt(i32) or @addWithOverflow(size, @as(i32, @intCast(iov.len)))[1] != 0) {
                     // batch-send all messages up to the current message
                     if (next_unsent < i) {
                         const batch_size = i - next_unsent;
                         const r = syscall4(.sendmmsg, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(&msgvec[next_unsent]), batch_size, flags);
-                        if (E.init(r) != 0) return next_unsent;
+                        if (E.init(r) != .SUCCESS) return next_unsent;
                         if (r < batch_size) return next_unsent + r;
                     }
                     // send current message as own packet
-                    const r = sendmsg(fd, &msg.msg_hdr, flags);
-                    if (E.init(r) != 0) return r;
+                    const r = sendmsg(fd, &msg.hdr, flags);
+                    if (E.init(r) != .SUCCESS) return r;
                     // Linux limits the total bytes sent by sendmsg to INT_MAX, so this cast is safe.
-                    msg.msg_len = @as(u32, @intCast(r));
+                    msg.len = @as(u32, @intCast(r));
                     next_unsent = i + 1;
                     break;
                 }
-                size += iov.len;
+                size += @intCast(iov.len);
             }
         }
         if (next_unsent < kvlen or next_unsent == 0) { // want to make sure at least one syscall occurs (e.g. to trigger MSG.EOR)
             const batch_size = kvlen - next_unsent;
             const r = syscall4(.sendmmsg, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(&msgvec[next_unsent]), batch_size, flags);
-            if (E.init(r) != 0) return r;
+            if (E.init(r) != .SUCCESS) return r;
             return next_unsent + r;
         }
         return kvlen;
@@ -5095,7 +5097,7 @@ pub const epoll_event = extern struct {
 
 pub const VFS_CAP_REVISION_MASK = 0xFF000000;
 pub const VFS_CAP_REVISION_SHIFT = 24;
-pub const VFS_CAP_FLAGS_MASK = ~VFS_CAP_REVISION_MASK;
+pub const VFS_CAP_FLAGS_MASK = ~@as(u32, VFS_CAP_REVISION_MASK);
 pub const VFS_CAP_FLAGS_EFFECTIVE = 0x000001;
 
 pub const VFS_CAP_REVISION_1 = 0x01000000;
@@ -5113,7 +5115,7 @@ pub const VFS_CAP_REVISION = VFS_CAP_REVISION_2;
 pub const vfs_cap_data = extern struct {
     //all of these are mandated as little endian
     //when on disk.
-    const Data = struct {
+    const Data = extern struct {
         permitted: u32,
         inheritable: u32,
     };
