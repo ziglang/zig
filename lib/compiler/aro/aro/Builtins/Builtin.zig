@@ -5165,7 +5165,7 @@ const dafsa = [_]Node{
     .{ .char = 'e', .end_of_word = false, .end_of_list = true, .number = 1, .child_index = 4913 },
 };
 pub const data = blk: {
-    @setEvalBranchQuota(3986);
+    @setEvalBranchQuota(30_000);
     break :blk [_]@This(){
         // _Block_object_assign
         .{ .tag = @enumFromInt(0), .properties = .{ .param_str = "vv*vC*iC", .header = .blocks, .attributes = .{ .lib_function_without_prefix = true } } },

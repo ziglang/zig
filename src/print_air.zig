@@ -283,6 +283,7 @@ const Writer = struct {
 
             .dbg_var_ptr,
             .dbg_var_val,
+            .dbg_arg_inline,
             => try w.writeDbgVar(s, inst),
 
             .struct_field_ptr => try w.writeStructField(s, inst),
@@ -358,10 +359,7 @@ const Writer = struct {
         try w.writeType(s, arg.ty.toType());
         switch (arg.name) {
             .none => {},
-            _ => {
-                const name = w.air.nullTerminatedString(@intFromEnum(arg.name));
-                try s.print(", \"{}\"", .{std.zig.fmtEscapes(name)});
-            },
+            _ => try s.print(", \"{}\"", .{std.zig.fmtEscapes(arg.name.toSlice(w.air))}),
         }
     }
 
@@ -686,8 +684,8 @@ const Writer = struct {
     fn writeDbgVar(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const pl_op = w.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         try w.writeOperand(s, inst, 0, pl_op.operand);
-        const name = w.air.nullTerminatedString(pl_op.payload);
-        try s.print(", \"{}\"", .{std.zig.fmtEscapes(name)});
+        const name: Air.NullTerminatedString = @enumFromInt(pl_op.payload);
+        try s.print(", \"{}\"", .{std.zig.fmtEscapes(name.toSlice(w.air))});
     }
 
     fn writeCall(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {

@@ -317,8 +317,18 @@ pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !
     defer tracy.end();
 
     const gpa = self.base.comp.gpa;
-
     const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+
+    const nav = ip.getNav(nav_index);
+    const nav_init = switch (ip.indexToKey(nav.status.resolved.val)) {
+        .func => return,
+        .@"extern" => .none,
+        .variable => |variable| variable.init,
+        else => nav.status.resolved.val,
+    };
+    if (nav_init != .none and !Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(pt)) return;
+
     const gop = try self.navs.getOrPut(gpa, nav_index);
     errdefer _ = self.navs.pop();
     if (!gop.found_existing) gop.value_ptr.* = .{};

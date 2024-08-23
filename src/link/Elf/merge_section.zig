@@ -1,4 +1,8 @@
 pub const MergeSection = struct {
+    value: u64 = 0,
+    size: u64 = 0,
+    alignment: Atom.Alignment = .@"1",
+    entsize: u32 = 0,
     name_offset: u32 = 0,
     type: u32 = 0,
     flags: u64 = 0,
@@ -26,7 +30,7 @@ pub const MergeSection = struct {
 
     pub fn address(msec: MergeSection, elf_file: *Elf) i64 {
         const shdr = elf_file.shdrs.items[msec.output_section_index];
-        return @intCast(shdr.sh_addr);
+        return @intCast(shdr.sh_addr + msec.value);
     }
 
     const InsertResult = struct {
@@ -88,6 +92,29 @@ pub const MergeSection = struct {
         }.sortFn;
 
         std.mem.sort(MergeSubsection.Index, msec.finalized_subsections.items, msec, sortFn);
+    }
+
+    pub fn updateSize(msec: *MergeSection) void {
+        for (msec.finalized_subsections.items) |msub_index| {
+            const msub = msec.mergeSubsection(msub_index);
+            assert(msub.alive);
+            const offset = msub.alignment.forward(msec.size);
+            const padding = offset - msec.size;
+            msub.value = @intCast(offset);
+            msec.size += padding + msub.size;
+            msec.alignment = msec.alignment.max(msub.alignment);
+            msec.entsize = if (msec.entsize == 0) msub.entsize else @min(msec.entsize, msub.entsize);
+        }
+    }
+
+    pub fn initOutputSection(msec: *MergeSection, elf_file: *Elf) !void {
+        const shndx = elf_file.sectionByName(msec.name(elf_file)) orelse try elf_file.addSection(.{
+            .name = msec.name_offset,
+            .type = msec.type,
+            .flags = msec.flags,
+        });
+        try elf_file.output_sections.put(elf_file.base.comp.gpa, shndx, .{});
+        msec.output_section_index = shndx;
     }
 
     pub fn addMergeSubsection(msec: *MergeSection, allocator: Allocator) !MergeSubsection.Index {
@@ -163,9 +190,12 @@ pub const MergeSection = struct {
         _ = unused_fmt_string;
         const msec = ctx.msec;
         const elf_file = ctx.elf_file;
-        try writer.print("{s} : @{x} : type({x}) : flags({x})\n", .{
+        try writer.print("{s} : @{x} : size({x}) : align({x}) : entsize({x}) : type({x}) : flags({x})\n", .{
             msec.name(elf_file),
             msec.address(elf_file),
+            msec.size,
+            msec.alignment.toByteUnits() orelse 0,
+            msec.entsize,
             msec.type,
             msec.flags,
         });

@@ -535,6 +535,7 @@ fn testUtf16CountCodepoints() !void {
 }
 
 test "utf16 count codepoints" {
+    @setEvalBranchQuota(2000);
     try testUtf16CountCodepoints();
     try comptime testUtf16CountCodepoints();
 }

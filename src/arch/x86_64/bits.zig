@@ -447,26 +447,11 @@ pub const FrameIndex = enum(u32) {
     }
 };
 
-/// A linker symbol not yet allocated in VM.
-pub const Symbol = struct {
-    /// Index of the containing atom.
-    atom_index: u32,
-    /// Index into the linker's symbol table.
-    sym_index: u32,
+pub const FrameAddr = struct { index: FrameIndex, off: i32 = 0 };
 
-    pub fn format(
-        sym: Symbol,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
-        try writer.writeAll("Symbol(");
-        try std.fmt.formatType(sym.atom_index, fmt, options, writer, 0);
-        try writer.writeAll(", ");
-        try std.fmt.formatType(sym.sym_index, fmt, options, writer, 0);
-        try writer.writeByte(')');
-    }
-};
+pub const RegisterOffset = struct { reg: Register, off: i32 = 0 };
+
+pub const SymbolOffset = struct { sym_index: u32, off: i32 = 0 };
 
 pub const Memory = struct {
     base: Base,
@@ -476,7 +461,7 @@ pub const Memory = struct {
         none,
         reg: Register,
         frame: FrameIndex,
-        reloc: Symbol,
+        reloc: u32,
 
         pub const Tag = @typeInfo(Base).Union.tag_type.?;
 
@@ -568,7 +553,7 @@ pub const Memory = struct {
 pub const Immediate = union(enum) {
     signed: i32,
     unsigned: u64,
-    reloc: Symbol,
+    reloc: SymbolOffset,
 
     pub fn u(x: u64) Immediate {
         return .{ .unsigned = x };
@@ -578,19 +563,19 @@ pub const Immediate = union(enum) {
         return .{ .signed = x };
     }
 
-    pub fn rel(symbol: Symbol) Immediate {
-        return .{ .reloc = symbol };
+    pub fn rel(sym_off: SymbolOffset) Immediate {
+        return .{ .reloc = sym_off };
     }
 
     pub fn format(
         imm: Immediate,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
         writer: anytype,
     ) @TypeOf(writer).Error!void {
         switch (imm) {
-            .reloc => |x| try std.fmt.formatType(x, fmt, options, writer, 0),
-            inline else => |x| try writer.print("{d}", .{x}),
+            inline else => |int| try writer.print("{d}", .{int}),
+            .reloc => |sym_off| try writer.print("Symbol({[sym_index]d}) + {[off]d}", sym_off),
         }
     }
 };

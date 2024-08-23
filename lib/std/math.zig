@@ -749,31 +749,23 @@ test rotl {
     try testing.expect(rotl(@Vector(1, u32), @Vector(1, u32){1 << 31}, @as(isize, -1))[0] == @as(u32, 1) << 30);
 }
 
-/// Returns an unsigned int type that can hold the number of bits in T
-/// - 1. Suitable for 0-based bit indices of T.
+/// Returns an unsigned int type that can hold the number of bits in T - 1.
+/// Suitable for 0-based bit indices of T.
 pub fn Log2Int(comptime T: type) type {
     // comptime ceil log2
     if (T == comptime_int) return comptime_int;
-    comptime var count = 0;
-    comptime var s = @typeInfo(T).Int.bits - 1;
-    inline while (s != 0) : (s >>= 1) {
-        count += 1;
-    }
-
-    return std.meta.Int(.unsigned, count);
+    const bits: u16 = @typeInfo(T).Int.bits;
+    const log2_bits = 16 - @clz(bits - 1);
+    return std.meta.Int(.unsigned, log2_bits);
 }
 
 /// Returns an unsigned int type that can hold the number of bits in T.
 pub fn Log2IntCeil(comptime T: type) type {
     // comptime ceil log2
     if (T == comptime_int) return comptime_int;
-    comptime var count = 0;
-    comptime var s = @typeInfo(T).Int.bits;
-    inline while (s != 0) : (s >>= 1) {
-        count += 1;
-    }
-
-    return std.meta.Int(.unsigned, count);
+    const bits: u16 = @typeInfo(T).Int.bits;
+    const log2_bits = 16 - @clz(bits);
+    return std.meta.Int(.unsigned, log2_bits);
 }
 
 /// Returns the smallest integer type that can hold both from and to.

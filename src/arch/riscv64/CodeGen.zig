@@ -1644,6 +1644,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
 
             .dbg_var_ptr,
             .dbg_var_val,
+            .dbg_arg_inline,
             => try func.airDbgVar(inst),
 
             .dbg_inline_block => try func.airDbgInlineBlock(inst),
@@ -4673,11 +4674,15 @@ fn genArgDbgInfo(func: Func, inst: Air.Inst.Index, mcv: MCValue) !void {
     const arg = func.air.instructions.items(.data)[@intFromEnum(inst)].arg;
     const ty = arg.ty.toType();
     if (arg.name == .none) return;
-    const name = func.air.nullTerminatedString(@intFromEnum(arg.name));
 
     switch (func.debug_output) {
         .dwarf => |dw| switch (mcv) {
-            .register => |reg| try dw.genVarDebugInfo(.local_arg, name, ty, .{ .reg = reg.dwarfNum() }),
+            .register => |reg| try dw.genLocalDebugInfo(
+                .local_arg,
+                arg.name.toSlice(func.air),
+                ty,
+                .{ .reg = reg.dwarfNum() },
+            ),
             .load_frame => {},
             else => {},
         },
@@ -5179,16 +5184,17 @@ fn airDbgVar(func: *Func, inst: Air.Inst.Index) !void {
     const operand = pl_op.operand;
     const ty = func.typeOf(operand);
     const mcv = try func.resolveInst(operand);
+    const name: Air.NullTerminatedString = @enumFromInt(pl_op.payload);
 
-    const name = func.air.nullTerminatedString(pl_op.payload);
-
-    try func.genVarDbgInfo(ty, mcv, name);
+    const tag = func.air.instructions.items(.tag)[@intFromEnum(inst)];
+    try func.genVarDbgInfo(tag, ty, mcv, name.toSlice(func.air));
 
     return func.finishAir(inst, .unreach, .{ operand, .none, .none });
 }
 
 fn genVarDbgInfo(
     func: Func,
+    tag: Air.Inst.Tag,
     ty: Type,
     mcv: MCValue,
     name: []const u8,
@@ -5205,7 +5211,11 @@ fn genVarDbgInfo(
                     break :blk .empty;
                 },
             };
-            try dwarf.genVarDebugInfo(.local_var, name, ty, loc);
+            try dwarf.genLocalDebugInfo(switch (tag) {
+                else => unreachable,
+                .dbg_var_ptr, .dbg_var_val => .local_var,
+                .dbg_arg_inline => .local_arg,
+            }, name, ty, loc);
         },
         .plan9 => {},
         .none => {},

@@ -302,7 +302,7 @@ pub fn free(self: *Atom, elf_file: *Elf) void {
     }
 
     // TODO create relocs free list
-    self.freeRelocs(elf_file);
+    self.freeRelocs(zo);
     // TODO figure out how to free input section mappind in ZigModule
     // const zig_object = elf_file.zigObjectPtr().?
     // assert(zig_object.atoms.swapRemove(self.atom_index));
@@ -377,21 +377,19 @@ pub fn markFdesDead(self: Atom, elf_file: *Elf) void {
     }
 }
 
-pub fn addReloc(self: Atom, elf_file: *Elf, reloc: elf.Elf64_Rela) !void {
-    const comp = elf_file.base.comp;
-    const gpa = comp.gpa;
-    const file_ptr = self.file(elf_file).?;
-    assert(file_ptr == .zig_object);
-    const zig_object = file_ptr.zig_object;
-    const rels = &zig_object.relocs.items[self.relocs_section_index];
-    try rels.append(gpa, reloc);
+pub fn addReloc(self: Atom, alloc: Allocator, reloc: elf.Elf64_Rela, zo: *ZigObject) !void {
+    const rels = &zo.relocs.items[self.relocs_section_index];
+    try rels.ensureUnusedCapacity(alloc, 1);
+    self.addRelocAssumeCapacity(reloc, zo);
 }
 
-pub fn freeRelocs(self: Atom, elf_file: *Elf) void {
-    const file_ptr = self.file(elf_file).?;
-    assert(file_ptr == .zig_object);
-    const zig_object = file_ptr.zig_object;
-    zig_object.relocs.items[self.relocs_section_index].clearRetainingCapacity();
+pub fn addRelocAssumeCapacity(self: Atom, reloc: elf.Elf64_Rela, zo: *ZigObject) void {
+    const rels = &zo.relocs.items[self.relocs_section_index];
+    rels.appendAssumeCapacity(reloc);
+}
+
+pub fn freeRelocs(self: Atom, zo: *ZigObject) void {
+    zo.relocs.items[self.relocs_section_index].clearRetainingCapacity();
 }
 
 pub fn scanRelocsRequiresCode(self: Atom, elf_file: *Elf) bool {

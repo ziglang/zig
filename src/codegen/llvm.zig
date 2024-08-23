@@ -1665,6 +1665,7 @@ pub const Object = struct {
             .ret_ptr = ret_ptr,
             .args = args.items,
             .arg_index = 0,
+            .arg_inline_index = 0,
             .func_inst_table = .{},
             .blocks = .{},
             .sync_scope = if (owner_mod.single_threaded) .singlethread else .system,
@@ -4769,7 +4770,8 @@ pub const FuncGen = struct {
     /// it omits 0-bit types. If the function uses sret as the first parameter,
     /// this slice does not include it.
     args: []const Builder.Value,
-    arg_index: usize,
+    arg_index: u32,
+    arg_inline_index: u32,
 
     err_ret_trace: Builder.Value = .none,
 
@@ -5082,7 +5084,8 @@ pub const FuncGen = struct {
                 .dbg_stmt => try self.airDbgStmt(inst),
                 .dbg_inline_block => try self.airDbgInlineBlock(inst),
                 .dbg_var_ptr => try self.airDbgVarPtr(inst),
-                .dbg_var_val => try self.airDbgVarVal(inst),
+                .dbg_var_val => try self.airDbgVarVal(inst, false),
+                .dbg_arg_inline => try self.airDbgVarVal(inst, true),
 
                 .c_va_arg => try self.airCVaArg(inst),
                 .c_va_copy => try self.airCVaCopy(inst),
@@ -6677,6 +6680,7 @@ pub const FuncGen = struct {
     fn airDbgInlineBlock(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const extra = self.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
+        self.arg_inline_index = 0;
         return self.lowerBlock(inst, extra.data.func, @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]));
     }
 
@@ -6685,11 +6689,11 @@ pub const FuncGen = struct {
         const mod = o.pt.zcu;
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const operand = try self.resolveInst(pl_op.operand);
-        const name = self.air.nullTerminatedString(pl_op.payload);
+        const name: Air.NullTerminatedString = @enumFromInt(pl_op.payload);
         const ptr_ty = self.typeOf(pl_op.operand);
 
         const debug_local_var = try o.builder.debugLocalVar(
-            try o.builder.metadataString(name),
+            try o.builder.metadataString(name.toSlice(self.air)),
             self.file,
             self.scope,
             self.prev_dbg_line,
@@ -6712,15 +6716,25 @@ pub const FuncGen = struct {
         return .none;
     }
 
-    fn airDbgVarVal(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
+    fn airDbgVarVal(self: *FuncGen, inst: Air.Inst.Index, is_arg: bool) !Builder.Value {
         const o = self.ng.object;
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const operand = try self.resolveInst(pl_op.operand);
         const operand_ty = self.typeOf(pl_op.operand);
-        const name = self.air.nullTerminatedString(pl_op.payload);
+        const name: Air.NullTerminatedString = @enumFromInt(pl_op.payload);
 
-        const debug_local_var = try o.builder.debugLocalVar(
-            try o.builder.metadataString(name),
+        const debug_local_var = if (is_arg) try o.builder.debugParameter(
+            try o.builder.metadataString(name.toSlice(self.air)),
+            self.file,
+            self.scope,
+            self.prev_dbg_line,
+            try o.lowerDebugType(operand_ty),
+            arg_no: {
+                self.arg_inline_index += 1;
+                break :arg_no self.arg_inline_index;
+            },
+        ) else try o.builder.debugLocalVar(
+            try o.builder.metadataString(name.toSlice(self.air)),
             self.file,
             self.scope,
             self.prev_dbg_line,
@@ -8835,12 +8849,12 @@ pub const FuncGen = struct {
         const lbrace_col = func.lbrace_column + 1;
 
         const debug_parameter = try o.builder.debugParameter(
-            try o.builder.metadataString(self.air.nullTerminatedString(@intFromEnum(name))),
+            try o.builder.metadataString(name.toSlice(self.air)),
             self.file,
             self.scope,
             lbrace_line,
             try o.lowerDebugType(inst_ty),
-            @intCast(self.arg_index),
+            self.arg_index,
         );
 
         const old_location = self.wip.debug_location;

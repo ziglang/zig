@@ -456,6 +456,8 @@ pub const Inst = struct {
         /// Same as `dbg_var_ptr` except the local is a const, not a var, and the
         /// operand is the local's value.
         dbg_var_val,
+        /// Same as `dbg_var_val` except the local is an inline function argument.
+        dbg_arg_inline,
         /// ?T => bool
         /// Result type is always bool.
         /// Uses the `un_op` field.
@@ -1022,10 +1024,7 @@ pub const Inst = struct {
             ty: Ref,
             /// Index into `extra` of a null-terminated string representing the parameter name.
             /// This is `.none` if debug info is stripped.
-            name: enum(u32) {
-                none = std.math.maxInt(u32),
-                _,
-            },
+            name: NullTerminatedString,
         },
         ty_op: struct {
             ty: Ref,
@@ -1440,6 +1439,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .dbg_stmt,
         .dbg_var_ptr,
         .dbg_var_val,
+        .dbg_arg_inline,
         .store,
         .store_safe,
         .fence,
@@ -1562,14 +1562,16 @@ pub fn value(air: Air, inst: Inst.Ref, pt: Zcu.PerThread) !?Value {
     return air.typeOfIndex(index, &pt.zcu.intern_pool).onePossibleValue(pt);
 }
 
-pub fn nullTerminatedString(air: Air, index: usize) [:0]const u8 {
-    const bytes = std.mem.sliceAsBytes(air.extra[index..]);
-    var end: usize = 0;
-    while (bytes[end] != 0) {
-        end += 1;
+pub const NullTerminatedString = enum(u32) {
+    none = std.math.maxInt(u32),
+    _,
+
+    pub fn toSlice(nts: NullTerminatedString, air: Air) [:0]const u8 {
+        if (nts == .none) return "";
+        const bytes = std.mem.sliceAsBytes(air.extra[@intFromEnum(nts)..]);
+        return bytes[0..std.mem.indexOfScalar(u8, bytes, 0).? :0];
     }
-    return bytes[0..end :0];
-}
+};
 
 /// Returns whether the given instruction must always be lowered, for instance
 /// because it can cause side effects. If an instruction does not need to be
@@ -1596,6 +1598,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .dbg_inline_block,
         .dbg_var_ptr,
         .dbg_var_val,
+        .dbg_arg_inline,
         .ret,
         .ret_safe,
         .ret_load,

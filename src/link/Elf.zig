@@ -585,7 +585,7 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
     const ptr_size = self.ptrWidthBytes();
     const target = self.base.comp.root_mod.resolved_target.result;
     const ptr_bit_width = target.ptrBitWidth();
-    const zig_object = self.zigObjectPtr().?;
+    const zo = self.zigObjectPtr().?;
 
     const fillSection = struct {
         fn fillSection(elf_file: *Elf, shdr: *elf.Elf64_Shdr, size: u64, phndx: ?u16) !void {
@@ -766,7 +766,27 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
         try self.last_atom_and_free_list_table.putNoClobber(gpa, self.zig_bss_section_index.?, .{});
     }
 
-    if (zig_object.dwarf) |*dwarf| {
+    if (zo.dwarf) |*dwarf| {
+        const addSectionSymbol = struct {
+            fn addSectionSymbol(
+                zig_object: *ZigObject,
+                alloc: Allocator,
+                name: [:0]const u8,
+                alignment: Atom.Alignment,
+                shndx: u32,
+            ) !Symbol.Index {
+                const name_off = try zig_object.addString(alloc, name);
+                const index = try zig_object.newSymbolWithAtom(alloc, name_off);
+                const sym = zig_object.symbol(index);
+                const esym = &zig_object.symtab.items(.elf_sym)[sym.esym_index];
+                esym.st_info |= elf.STT_SECTION;
+                const atom_ptr = zig_object.atom(sym.ref.index).?;
+                atom_ptr.alignment = alignment;
+                atom_ptr.output_section_index = shndx;
+                return index;
+            }
+        }.addSectionSymbol;
+
         if (self.debug_str_section_index == null) {
             self.debug_str_section_index = try self.addSection(.{
                 .name = try self.insertShString(".debug_str"),
@@ -775,7 +795,8 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .type = elf.SHT_PROGBITS,
                 .addralign = 1,
             });
-            zig_object.debug_str_section_dirty = true;
+            zo.debug_str_section_dirty = true;
+            zo.debug_str_index = try addSectionSymbol(zo, gpa, ".debug_str", .@"1", self.debug_str_section_index.?);
             try self.output_sections.putNoClobber(gpa, self.debug_str_section_index.?, .{});
         }
 
@@ -785,7 +806,8 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .type = elf.SHT_PROGBITS,
                 .addralign = 1,
             });
-            zig_object.debug_info_section_dirty = true;
+            zo.debug_info_section_dirty = true;
+            zo.debug_info_index = try addSectionSymbol(zo, gpa, ".debug_info", .@"1", self.debug_info_section_index.?);
             try self.output_sections.putNoClobber(gpa, self.debug_info_section_index.?, .{});
         }
 
@@ -795,7 +817,8 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .type = elf.SHT_PROGBITS,
                 .addralign = 1,
             });
-            zig_object.debug_abbrev_section_dirty = true;
+            zo.debug_abbrev_section_dirty = true;
+            zo.debug_abbrev_index = try addSectionSymbol(zo, gpa, ".debug_abbrev", .@"1", self.debug_abbrev_section_index.?);
             try self.output_sections.putNoClobber(gpa, self.debug_abbrev_section_index.?, .{});
         }
 
@@ -805,7 +828,8 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .type = elf.SHT_PROGBITS,
                 .addralign = 16,
             });
-            zig_object.debug_aranges_section_dirty = true;
+            zo.debug_aranges_section_dirty = true;
+            zo.debug_aranges_index = try addSectionSymbol(zo, gpa, ".debug_aranges", .@"16", self.debug_aranges_section_index.?);
             try self.output_sections.putNoClobber(gpa, self.debug_aranges_section_index.?, .{});
         }
 
@@ -815,7 +839,8 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .type = elf.SHT_PROGBITS,
                 .addralign = 1,
             });
-            zig_object.debug_line_section_dirty = true;
+            zo.debug_line_section_dirty = true;
+            zo.debug_line_index = try addSectionSymbol(zo, gpa, ".debug_line", .@"1", self.debug_line_section_index.?);
             try self.output_sections.putNoClobber(gpa, self.debug_line_section_index.?, .{});
         }
 
@@ -827,7 +852,8 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .type = elf.SHT_PROGBITS,
                 .addralign = 1,
             });
-            zig_object.debug_line_str_section_dirty = true;
+            zo.debug_line_str_section_dirty = true;
+            zo.debug_line_str_index = try addSectionSymbol(zo, gpa, ".debug_line_str", .@"1", self.debug_line_str_section_index.?);
             try self.output_sections.putNoClobber(gpa, self.debug_line_str_section_index.?, .{});
         }
 
@@ -837,7 +863,8 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .type = elf.SHT_PROGBITS,
                 .addralign = 1,
             });
-            zig_object.debug_loclists_section_dirty = true;
+            zo.debug_loclists_section_dirty = true;
+            zo.debug_loclists_index = try addSectionSymbol(zo, gpa, ".debug_loclists", .@"1", self.debug_loclists_section_index.?);
             try self.output_sections.putNoClobber(gpa, self.debug_loclists_section_index.?, .{});
         }
 
@@ -847,7 +874,8 @@ pub fn initMetadata(self: *Elf, options: InitMetadataOptions) !void {
                 .type = elf.SHT_PROGBITS,
                 .addralign = 1,
             });
-            zig_object.debug_rnglists_section_dirty = true;
+            zo.debug_rnglists_section_dirty = true;
+            zo.debug_rnglists_index = try addSectionSymbol(zo, gpa, ".debug_rnglists", .@"1", self.debug_rnglists_section_index.?);
             try self.output_sections.putNoClobber(gpa, self.debug_rnglists_section_index.?, .{});
         }
 
@@ -1254,7 +1282,6 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     try self.addCommentString();
     try self.finalizeMergeSections();
     try self.initOutputSections();
-    try self.initMergeSections();
     if (self.linkerDefinedPtr()) |obj| {
         try obj.initStartStopSymbols(self);
     }
@@ -1316,8 +1343,6 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
             };
             try self.base.file.?.pwriteAll(code, file_offset);
         }
-
-        if (zo.dwarf) |*dwarf| try dwarf.resolveRelocs();
 
         if (has_reloc_errors) return error.FlushFailure;
     }
@@ -2652,15 +2677,6 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
     }
 }
 
-fn writeDwarfAddrAssumeCapacity(self: *Elf, buf: *std.ArrayList(u8), addr: u64) void {
-    const target = self.base.comp.root_mod.resolved_target.result;
-    const target_endian = target.cpu.arch.endian();
-    switch (self.ptr_width) {
-        .p32 => mem.writeInt(u32, buf.addManyAsArrayAssumeCapacity(4), @as(u32, @intCast(addr)), target_endian),
-        .p64 => mem.writeInt(u64, buf.addManyAsArrayAssumeCapacity(8), addr, target_endian),
-    }
-}
-
 pub fn writeShdrTable(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
     const target = self.base.comp.root_mod.resolved_target.result;
@@ -3032,16 +3048,16 @@ pub fn finalizeMergeSections(self: *Elf) !void {
 
 pub fn updateMergeSectionSizes(self: *Elf) !void {
     for (self.merge_sections.items) |*msec| {
+        msec.updateSize();
+    }
+    for (self.merge_sections.items) |*msec| {
         const shdr = &self.shdrs.items[msec.output_section_index];
-        for (msec.finalized_subsections.items) |msub_index| {
-            const msub = msec.mergeSubsection(msub_index);
-            assert(msub.alive);
-            const offset = msub.alignment.forward(shdr.sh_size);
-            const padding = offset - shdr.sh_size;
-            msub.value = @intCast(offset);
-            shdr.sh_size += padding + msub.size;
-            shdr.sh_addralign = @max(shdr.sh_addralign, msub.alignment.toByteUnits() orelse 1);
-        }
+        const offset = msec.alignment.forward(shdr.sh_size);
+        const padding = offset - shdr.sh_size;
+        msec.value = @intCast(offset);
+        shdr.sh_size += padding + msec.size;
+        shdr.sh_addralign = @max(shdr.sh_addralign, msec.alignment.toByteUnits() orelse 1);
+        shdr.sh_entsize = if (shdr.sh_entsize == 0) msec.entsize else @min(shdr.sh_entsize, msec.entsize);
     }
 }
 
@@ -3052,7 +3068,8 @@ pub fn writeMergeSections(self: *Elf) !void {
 
     for (self.merge_sections.items) |*msec| {
         const shdr = self.shdrs.items[msec.output_section_index];
-        const size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
+        const fileoff = math.cast(usize, msec.value + shdr.sh_offset) orelse return error.Overflow;
+        const size = math.cast(usize, msec.size) orelse return error.Overflow;
         try buffer.ensureTotalCapacity(size);
         buffer.appendNTimesAssumeCapacity(0, size);
 
@@ -3064,7 +3081,7 @@ pub fn writeMergeSections(self: *Elf) !void {
             @memcpy(buffer.items[off..][0..string.len], string);
         }
 
-        try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
+        try self.base.file.?.pwriteAll(buffer.items, fileoff);
         buffer.clearRetainingCapacity();
     }
 }
@@ -3073,26 +3090,9 @@ fn initOutputSections(self: *Elf) !void {
     for (self.objects.items) |index| {
         try self.file(index).?.object.initOutputSections(self);
     }
-}
-
-pub fn initMergeSections(self: *Elf) !void {
     for (self.merge_sections.items) |*msec| {
         if (msec.finalized_subsections.items.len == 0) continue;
-        const name = msec.name(self);
-        const shndx = self.sectionByName(name) orelse try self.addSection(.{
-            .name = msec.name_offset,
-            .type = msec.type,
-            .flags = msec.flags,
-        });
-        msec.output_section_index = shndx;
-
-        var entsize = msec.mergeSubsection(msec.finalized_subsections.items[0]).entsize;
-        for (msec.finalized_subsections.items) |msub_index| {
-            const msub = msec.mergeSubsection(msub_index);
-            entsize = @min(entsize, msub.entsize);
-        }
-        const shdr = &self.shdrs.items[shndx];
-        shdr.sh_entsize = entsize;
+        try msec.initOutputSection(self);
     }
 }
 
@@ -4184,26 +4184,21 @@ pub fn allocateNonAllocSections(self: *Elf) !void {
                     shdr.sh_offset,
                     new_offset,
                 });
-                const zig_object = self.zigObjectPtr().?;
-                const existing_size = blk: {
-                    if (shndx == self.debug_info_section_index.?)
-                        break :blk zig_object.debug_info_section_zig_size;
-                    if (shndx == self.debug_abbrev_section_index.?)
-                        break :blk zig_object.debug_abbrev_section_zig_size;
-                    if (shndx == self.debug_str_section_index.?)
-                        break :blk zig_object.debug_str_section_zig_size;
-                    if (shndx == self.debug_aranges_section_index.?)
-                        break :blk zig_object.debug_aranges_section_zig_size;
-                    if (shndx == self.debug_line_section_index.?)
-                        break :blk zig_object.debug_line_section_zig_size;
-                    if (shndx == self.debug_line_str_section_index.?)
-                        break :blk zig_object.debug_line_str_section_zig_size;
-                    if (shndx == self.debug_loclists_section_index.?)
-                        break :blk zig_object.debug_loclists_section_zig_size;
-                    if (shndx == self.debug_rnglists_section_index.?)
-                        break :blk zig_object.debug_rnglists_section_zig_size;
-                    unreachable;
-                };
+                const zo = self.zigObjectPtr().?;
+                const existing_size = for ([_]Symbol.Index{
+                    zo.debug_info_index.?,
+                    zo.debug_abbrev_index.?,
+                    zo.debug_aranges_index.?,
+                    zo.debug_str_index.?,
+                    zo.debug_line_index.?,
+                    zo.debug_line_str_index.?,
+                    zo.debug_loclists_index.?,
+                    zo.debug_rnglists_index.?,
+                }) |sym_index| {
+                    const sym = zo.symbol(sym_index);
+                    const atom_ptr = sym.atom(self).?;
+                    if (atom_ptr.output_section_index == shndx) break atom_ptr.size;
+                } else 0;
                 const amt = try self.base.file.?.copyRangeAll(
                     shdr.sh_offset,
                     self.base.file.?,
@@ -4299,24 +4294,21 @@ fn writeAtoms(self: *Elf) !void {
 
         // TODO really, really handle debug section separately
         const base_offset = if (self.isDebugSection(@intCast(shndx))) blk: {
-            const zig_object = self.zigObjectPtr().?;
-            if (shndx == self.debug_info_section_index.?)
-                break :blk zig_object.debug_info_section_zig_size;
-            if (shndx == self.debug_abbrev_section_index.?)
-                break :blk zig_object.debug_abbrev_section_zig_size;
-            if (shndx == self.debug_str_section_index.?)
-                break :blk zig_object.debug_str_section_zig_size;
-            if (shndx == self.debug_aranges_section_index.?)
-                break :blk zig_object.debug_aranges_section_zig_size;
-            if (shndx == self.debug_line_section_index.?)
-                break :blk zig_object.debug_line_section_zig_size;
-            if (shndx == self.debug_line_str_section_index.?)
-                break :blk zig_object.debug_line_str_section_zig_size;
-            if (shndx == self.debug_loclists_section_index.?)
-                break :blk zig_object.debug_loclists_section_zig_size;
-            if (shndx == self.debug_rnglists_section_index.?)
-                break :blk zig_object.debug_rnglists_section_zig_size;
-            unreachable;
+            const zo = self.zigObjectPtr().?;
+            break :blk for ([_]Symbol.Index{
+                zo.debug_info_index.?,
+                zo.debug_abbrev_index.?,
+                zo.debug_aranges_index.?,
+                zo.debug_str_index.?,
+                zo.debug_line_index.?,
+                zo.debug_line_str_index.?,
+                zo.debug_loclists_index.?,
+                zo.debug_rnglists_index.?,
+            }) |sym_index| {
+                const sym = zo.symbol(sym_index);
+                const atom_ptr = sym.atom(self).?;
+                if (atom_ptr.output_section_index == shndx) break atom_ptr.size;
+            } else 0;
         } else 0;
         const sh_offset = shdr.sh_offset + base_offset;
         const sh_size = math.cast(usize, shdr.sh_size - base_offset) orelse return error.Overflow;
@@ -4410,7 +4402,6 @@ pub fn updateSymtabSize(self: *Elf) !void {
     if (self.eh_frame_section_index) |_| {
         nlocals += 1;
     }
-    nlocals += @intCast(self.merge_sections.items.len);
 
     if (self.requiresThunks()) for (self.thunks.items) |*th| {
         th.output_symtab_ctx.ilocal = nlocals + 1;
@@ -4734,29 +4725,11 @@ fn writeSectionSymbols(self: *Elf) void {
         };
         ilocal += 1;
     }
-
-    for (self.merge_sections.items) |msec| {
-        const shdr = self.shdrs.items[msec.output_section_index];
-        const out_sym = &self.symtab.items[ilocal];
-        out_sym.* = .{
-            .st_name = 0,
-            .st_value = shdr.sh_addr,
-            .st_info = elf.STT_SECTION,
-            .st_shndx = @intCast(msec.output_section_index),
-            .st_size = 0,
-            .st_other = 0,
-        };
-        ilocal += 1;
-    }
 }
 
 pub fn sectionSymbolOutputSymtabIndex(self: Elf, shndx: u32) u32 {
     if (self.eh_frame_section_index) |index| {
         if (index == shndx) return @intCast(self.output_sections.keys().len + 1);
-    }
-    const base: usize = if (self.eh_frame_section_index == null) 0 else 1;
-    for (self.merge_sections.items, 0..) |msec, index| {
-        if (msec.output_section_index == shndx) return @intCast(self.output_sections.keys().len + 1 + index + base);
     }
     return @intCast(self.output_sections.getIndex(shndx).? + 1);
 }
@@ -5520,10 +5493,11 @@ fn formatShdr(
     _ = options;
     _ = unused_fmt_string;
     const shdr = ctx.shdr;
-    try writer.print("{s} : @{x} ({x}) : align({x}) : size({x}) : flags({})", .{
+    try writer.print("{s} : @{x} ({x}) : align({x}) : size({x}) : entsize({x}) : flags({})", .{
         ctx.elf_file.getShString(shdr.sh_name), shdr.sh_offset,
         shdr.sh_addr,                           shdr.sh_addralign,
-        shdr.sh_size,                           fmtShdrFlags(shdr.sh_flags),
+        shdr.sh_size,                           shdr.sh_entsize,
+        fmtShdrFlags(shdr.sh_flags),
     });
 }
 

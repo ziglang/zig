@@ -448,6 +448,7 @@ pub fn updateNav(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
     const nav = ip.getNav(nav_index);
     const nav_val = zcu.navValue(nav_index);
     const nav_init = switch (ip.indexToKey(nav_val.toIntern())) {
+        .func => return,
         .variable => |variable| Value.fromInterned(variable.init),
         .@"extern" => {
             log.debug("found extern decl: {}", .{nav.name.fmt(ip)});
@@ -456,7 +457,7 @@ pub fn updateNav(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
         else => nav_val,
     };
 
-    if (nav_init.typeOf(zcu).isFnOrHasRuntimeBits(pt)) {
+    if (nav_init.typeOf(zcu).hasRuntimeBits(pt)) {
         const atom_idx = try self.seeNav(pt, nav_index);
 
         var code_buffer = std.ArrayList(u8).init(gpa);

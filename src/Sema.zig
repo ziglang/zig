@@ -113,6 +113,11 @@ type_references: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .{},
 /// `AnalUnit` multiple times.
 dependencies: std.AutoArrayHashMapUnmanaged(InternPool.Dependee, void) = .{},
 
+/// Whether memoization of this call is permitted. Operations with side effects global
+/// to the `Sema`, such as `@setEvalBranchQuota`, set this to `false`. It is observed
+/// by `analyzeCall`.
+allow_memoize: bool = true,
+
 const MaybeComptimeAlloc = struct {
     /// The runtime index of the `alloc` instruction.
     runtime_index: Value.RuntimeIndex,
@@ -376,7 +381,7 @@ pub const Block = struct {
 
     c_import_buf: ?*std.ArrayList(u8) = null,
 
-    /// If not `null`, this boolean is set when a `dbg_var_ptr` or `dbg_var_val`
+    /// If not `null`, this boolean is set when a `dbg_var_ptr`, `dbg_var_val`, or `dbg_arg_inline`.
     /// instruction is emitted. It signals that the innermost lexically
     /// enclosing `block`/`block_inline` should be translated into a real AIR
     /// `block` in order for codegen to match lexical scoping for debug vars.
@@ -5524,6 +5529,7 @@ fn zirSetEvalBranchQuota(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compi
         .needed_comptime_reason = "eval branch quota must be comptime-known",
     }));
     sema.branch_quota = @max(sema.branch_quota, quota);
+    sema.allow_memoize = false;
 }
 
 fn zirStoreNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
@@ -6416,6 +6422,7 @@ fn zirSetAlignStack(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Inst
     }
 
     zcu.intern_pool.funcMaxStackAlignment(sema.func_index, alignment);
+    sema.allow_memoize = false;
 }
 
 fn zirSetCold(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {
@@ -6434,6 +6441,7 @@ fn zirSetCold(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) 
         .cau => return, // does nothing outside a function
     };
     ip.funcSetCold(func, is_cold);
+    sema.allow_memoize = false;
 }
 
 fn zirDisableInstrumentation(sema: *Sema) CompileError!void {
@@ -6445,6 +6453,7 @@ fn zirDisableInstrumentation(sema: *Sema) CompileError!void {
         .cau => return, // does nothing outside a function
     };
     ip.funcSetDisableInstrumentation(func);
+    sema.allow_memoize = false;
 }
 
 fn zirSetFloatMode(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {
@@ -6567,7 +6576,7 @@ fn addDbgVar(
     const operand_ty = sema.typeOf(operand);
     const val_ty = switch (air_tag) {
         .dbg_var_ptr => operand_ty.childType(mod),
-        .dbg_var_val => operand_ty,
+        .dbg_var_val, .dbg_arg_inline => operand_ty,
         else => unreachable,
     };
     if (try sema.typeRequiresComptime(val_ty)) return;
@@ -6586,25 +6595,26 @@ fn addDbgVar(
     if (block.need_debug_scope) |ptr| ptr.* = true;
 
     // Add the name to the AIR.
-    const name_extra_index = try sema.appendAirString(name);
+    const name_nts = try sema.appendAirString(name);
 
     _ = try block.addInst(.{
         .tag = air_tag,
         .data = .{ .pl_op = .{
-            .payload = name_extra_index,
+            .payload = @intFromEnum(name_nts),
             .operand = operand,
         } },
     });
 }
 
-pub fn appendAirString(sema: *Sema, str: []const u8) Allocator.Error!u32 {
-    const str_extra_index: u32 = @intCast(sema.air_extra.items.len);
+pub fn appendAirString(sema: *Sema, str: []const u8) Allocator.Error!Air.NullTerminatedString {
+    if (str.len == 0) return .none;
+    const nts: Air.NullTerminatedString = @enumFromInt(sema.air_extra.items.len);
     const elements_used = str.len / 4 + 1;
     const elements = try sema.air_extra.addManyAsSlice(sema.gpa, elements_used);
     const buffer = mem.sliceAsBytes(elements);
     @memcpy(buffer[0..str.len], str);
     buffer[str.len] = 0;
-    return str_extra_index;
+    return nts;
 }
 
 fn zirDeclRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -7588,6 +7598,9 @@ fn analyzeCall(
 
         const module_fn = zcu.funcInfo(module_fn_index);
 
+        // The call site definitely depends on the function's signature.
+        try sema.declareDependency(.{ .src_hash = module_fn.zir_body_inst });
+
         // This is not a function instance, so the function's `Nav` has a
         // `Cau` -- we don't need to check `generic_owner`.
         const fn_nav = ip.getNav(module_fn.owner_nav);
@@ -7724,101 +7737,121 @@ fn analyzeCall(
             } }));
         }
 
-        // This `res2` is here instead of directly breaking from `res` due to a stage1
-        // bug generating invalid LLVM IR.
-        const res2: Air.Inst.Ref = res2: {
-            if (should_memoize and is_comptime_call) {
-                if (zcu.intern_pool.getIfExists(.{ .memoized_call = .{
+        memoize: {
+            if (!should_memoize) break :memoize;
+            if (!is_comptime_call) break :memoize;
+            const memoized_call_index = ip.getIfExists(.{
+                .memoized_call = .{
                     .func = module_fn_index,
                     .arg_values = memoized_arg_values,
-                    .result = .none,
-                } })) |memoized_call_index| {
-                    const memoized_call = zcu.intern_pool.indexToKey(memoized_call_index).memoized_call;
-                    break :res2 Air.internedToRef(memoized_call.result);
-                }
+                    .result = undefined, // ignored by hash+eql
+                    .branch_count = undefined, // ignored by hash+eql
+                },
+            }) orelse break :memoize;
+            const memoized_call = ip.indexToKey(memoized_call_index).memoized_call;
+            if (sema.branch_count + memoized_call.branch_count > sema.branch_quota) {
+                // Let the call play out se we get the correct source location for the
+                // "evaluation exceeded X backwards branches" error.
+                break :memoize;
             }
+            sema.branch_count += memoized_call.branch_count;
+            break :res Air.internedToRef(memoized_call.result);
+        }
 
-            new_fn_info.return_type = sema.fn_ret_ty.toIntern();
-            if (!is_comptime_call and !block.is_typeof) {
-                const zir_tags = sema.code.instructions.items(.tag);
-                for (fn_info.param_body) |param| switch (zir_tags[@intFromEnum(param)]) {
-                    .param, .param_comptime => {
-                        const inst_data = sema.code.instructions.items(.data)[@intFromEnum(param)].pl_tok;
-                        const extra = sema.code.extraData(Zir.Inst.Param, inst_data.payload_index);
-                        const param_name = sema.code.nullTerminatedString(extra.data.name);
-                        const inst = sema.inst_map.get(param).?;
+        // Since we're doing an inline call, we depend on the source code of the whole
+        // function declaration.
+        try sema.declareDependency(.{ .src_hash = fn_cau.zir_index });
 
-                        try sema.addDbgVar(&child_block, inst, .dbg_var_val, param_name);
-                    },
-                    .param_anytype, .param_anytype_comptime => {
-                        const inst_data = sema.code.instructions.items(.data)[@intFromEnum(param)].str_tok;
-                        const param_name = inst_data.get(sema.code);
-                        const inst = sema.inst_map.get(param).?;
+        new_fn_info.return_type = sema.fn_ret_ty.toIntern();
+        if (!is_comptime_call and !block.is_typeof) {
+            const zir_tags = sema.code.instructions.items(.tag);
+            for (fn_info.param_body) |param| switch (zir_tags[@intFromEnum(param)]) {
+                .param, .param_comptime => {
+                    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(param)].pl_tok;
+                    const extra = sema.code.extraData(Zir.Inst.Param, inst_data.payload_index);
+                    const param_name = sema.code.nullTerminatedString(extra.data.name);
+                    const inst = sema.inst_map.get(param).?;
 
-                        try sema.addDbgVar(&child_block, inst, .dbg_var_val, param_name);
-                    },
-                    else => continue,
-                };
-            }
+                    try sema.addDbgVar(&child_block, inst, .dbg_arg_inline, param_name);
+                },
+                .param_anytype, .param_anytype_comptime => {
+                    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(param)].str_tok;
+                    const param_name = inst_data.get(sema.code);
+                    const inst = sema.inst_map.get(param).?;
 
-            if (is_comptime_call and ensure_result_used) {
-                try sema.ensureResultUsed(block, sema.fn_ret_ty, call_src);
-            }
-
-            if (is_comptime_call or block.is_typeof) {
-                // Save the error trace as our first action in the function
-                // to match the behavior of runtime function calls.
-                const error_return_trace_index = try sema.analyzeSaveErrRetIndex(&child_block);
-                sema.error_return_trace_index_on_fn_entry = error_return_trace_index;
-                child_block.error_return_trace_index = error_return_trace_index;
-            }
-
-            const result = result: {
-                sema.analyzeFnBody(&child_block, fn_info.body) catch |err| switch (err) {
-                    error.ComptimeReturn => break :result inlining.comptime_result,
-                    else => |e| return e,
-                };
-                break :result try sema.resolveAnalyzedBlock(block, call_src, &child_block, merges, need_debug_scope);
+                    try sema.addDbgVar(&child_block, inst, .dbg_arg_inline, param_name);
+                },
+                else => continue,
             };
+        }
 
-            if (is_comptime_call) {
-                const result_val = try sema.resolveConstValue(block, LazySrcLoc.unneeded, result, undefined);
-                const result_interned = result_val.toIntern();
+        if (is_comptime_call and ensure_result_used) {
+            try sema.ensureResultUsed(block, sema.fn_ret_ty, call_src);
+        }
 
-                // Transform ad-hoc inferred error set types into concrete error sets.
-                const result_transformed = try sema.resolveAdHocInferredErrorSet(block, call_src, result_interned);
+        if (is_comptime_call or block.is_typeof) {
+            // Save the error trace as our first action in the function
+            // to match the behavior of runtime function calls.
+            const error_return_trace_index = try sema.analyzeSaveErrRetIndex(&child_block);
+            sema.error_return_trace_index_on_fn_entry = error_return_trace_index;
+            child_block.error_return_trace_index = error_return_trace_index;
+        }
 
-                // If the result can mutate comptime vars, we must not memoize it, as it contains
-                // a reference to `comptime_allocs` so is not stable across instances of `Sema`.
-                // TODO: check whether any external comptime memory was mutated by the
-                // comptime function call. If so, then do not memoize the call here.
-                if (should_memoize and !Value.fromInterned(result_interned).canMutateComptimeVarState(zcu)) {
-                    _ = try pt.intern(.{ .memoized_call = .{
-                        .func = module_fn_index,
-                        .arg_values = memoized_arg_values,
-                        .result = result_transformed,
-                    } });
-                }
+        // We temporarily set `allow_memoize` to `true` to track this comptime call.
+        // It is restored after this call finishes analysis, so that a caller may
+        // know whether an in-progress call (containing this call) may be memoized.
+        const old_allow_memoize = sema.allow_memoize;
+        defer sema.allow_memoize = old_allow_memoize and sema.allow_memoize;
+        sema.allow_memoize = true;
 
-                break :res2 Air.internedToRef(result_transformed);
-            }
+        // Store the current eval branch count so we can find out how many eval branches
+        // the comptime call caused.
+        const old_branch_count = sema.branch_count;
 
-            if (try sema.resolveValue(result)) |result_val| {
-                const result_transformed = try sema.resolveAdHocInferredErrorSet(block, call_src, result_val.toIntern());
-                break :res2 Air.internedToRef(result_transformed);
-            }
-
-            const new_ty = try sema.resolveAdHocInferredErrorSetTy(block, call_src, sema.typeOf(result).toIntern());
-            if (new_ty != .none) {
-                // TODO: mutate in place the previous instruction if possible
-                // rather than adding a bitcast instruction.
-                break :res2 try block.addBitCast(Type.fromInterned(new_ty), result);
-            }
-
-            break :res2 result;
+        const result = result: {
+            sema.analyzeFnBody(&child_block, fn_info.body) catch |err| switch (err) {
+                error.ComptimeReturn => break :result inlining.comptime_result,
+                else => |e| return e,
+            };
+            break :result try sema.resolveAnalyzedBlock(block, call_src, &child_block, merges, need_debug_scope);
         };
 
-        break :res res2;
+        if (is_comptime_call) {
+            const result_val = try sema.resolveConstValue(block, LazySrcLoc.unneeded, result, undefined);
+            const result_interned = result_val.toIntern();
+
+            // Transform ad-hoc inferred error set types into concrete error sets.
+            const result_transformed = try sema.resolveAdHocInferredErrorSet(block, call_src, result_interned);
+
+            // If the result can mutate comptime vars, we must not memoize it, as it contains
+            // a reference to `comptime_allocs` so is not stable across instances of `Sema`.
+            // TODO: check whether any external comptime memory was mutated by the
+            // comptime function call. If so, then do not memoize the call here.
+            if (should_memoize and sema.allow_memoize and !Value.fromInterned(result_interned).canMutateComptimeVarState(zcu)) {
+                _ = try pt.intern(.{ .memoized_call = .{
+                    .func = module_fn_index,
+                    .arg_values = memoized_arg_values,
+                    .result = result_transformed,
+                    .branch_count = sema.branch_count - old_branch_count,
+                } });
+            }
+
+            break :res Air.internedToRef(result_transformed);
+        }
+
+        if (try sema.resolveValue(result)) |result_val| {
+            const result_transformed = try sema.resolveAdHocInferredErrorSet(block, call_src, result_val.toIntern());
+            break :res Air.internedToRef(result_transformed);
+        }
+
+        const new_ty = try sema.resolveAdHocInferredErrorSetTy(block, call_src, sema.typeOf(result).toIntern());
+        if (new_ty != .none) {
+            // TODO: mutate in place the previous instruction if possible
+            // rather than adding a bitcast instruction.
+            break :res try block.addBitCast(Type.fromInterned(new_ty), result);
+        }
+
+        break :res result;
     } else res: {
         assert(!func_ty_info.is_generic);
 
@@ -8266,7 +8299,7 @@ fn instantiateGenericCall(
                     .name = if (child_block.ownerModule().strip)
                         .none
                     else
-                        @enumFromInt(try sema.appendAirString(fn_zir.nullTerminatedString(param_name))),
+                        try sema.appendAirString(fn_zir.nullTerminatedString(param_name)),
                 } },
             }));
             try child_block.params.append(sema.arena, .{

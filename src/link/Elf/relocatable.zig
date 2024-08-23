@@ -42,7 +42,11 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]co
         try elf_file.finalizeMergeSections();
         zig_object.claimUnresolvedObject(elf_file);
 
-        try elf_file.initMergeSections();
+        for (elf_file.merge_sections.items) |*msec| {
+            if (msec.finalized_subsections.items.len == 0) continue;
+            try msec.initOutputSection(elf_file);
+        }
+
         try elf_file.initSymtab();
         try elf_file.initShStrtab();
         try elf_file.sortShdrs();
@@ -198,7 +202,6 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
     claimUnresolved(elf_file);
 
     try initSections(elf_file);
-    try elf_file.initMergeSections();
     try elf_file.sortShdrs();
     if (elf_file.zigObjectPtr()) |zig_object| {
         try zig_object.addAtomsToRelaSections(elf_file);
@@ -292,6 +295,11 @@ fn initSections(elf_file: *Elf) !void {
         const object = elf_file.file(index).?.object;
         try object.initOutputSections(elf_file);
         try object.initRelaSections(elf_file);
+    }
+
+    for (elf_file.merge_sections.items) |*msec| {
+        if (msec.finalized_subsections.items.len == 0) continue;
+        try msec.initOutputSection(elf_file);
     }
 
     const needs_eh_frame = for (elf_file.objects.items) |index| {
@@ -423,24 +431,21 @@ fn writeAtoms(elf_file: *Elf) !void {
 
         // TODO really, really handle debug section separately
         const base_offset = if (elf_file.isDebugSection(@intCast(shndx))) blk: {
-            const zig_object = elf_file.zigObjectPtr().?;
-            if (shndx == elf_file.debug_info_section_index.?)
-                break :blk zig_object.debug_info_section_zig_size;
-            if (shndx == elf_file.debug_abbrev_section_index.?)
-                break :blk zig_object.debug_abbrev_section_zig_size;
-            if (shndx == elf_file.debug_str_section_index.?)
-                break :blk zig_object.debug_str_section_zig_size;
-            if (shndx == elf_file.debug_aranges_section_index.?)
-                break :blk zig_object.debug_aranges_section_zig_size;
-            if (shndx == elf_file.debug_line_section_index.?)
-                break :blk zig_object.debug_line_section_zig_size;
-            if (shndx == elf_file.debug_line_str_section_index.?)
-                break :blk zig_object.debug_line_str_section_zig_size;
-            if (shndx == elf_file.debug_loclists_section_index.?)
-                break :blk zig_object.debug_loclists_section_zig_size;
-            if (shndx == elf_file.debug_rnglists_section_index.?)
-                break :blk zig_object.debug_rnglists_section_zig_size;
-            unreachable;
+            const zo = elf_file.zigObjectPtr().?;
+            break :blk for ([_]Symbol.Index{
+                zo.debug_info_index.?,
+                zo.debug_abbrev_index.?,
+                zo.debug_aranges_index.?,
+                zo.debug_str_index.?,
+                zo.debug_line_index.?,
+                zo.debug_line_str_index.?,
+                zo.debug_loclists_index.?,
+                zo.debug_rnglists_index.?,
+            }) |sym_index| {
+                const sym = zo.symbol(sym_index);
+                const atom_ptr = sym.atom(elf_file).?;
+                if (atom_ptr.output_section_index == shndx) break atom_ptr.size;
+            } else 0;
         } else 0;
         const sh_offset = shdr.sh_offset + base_offset;
         const sh_size = math.cast(usize, shdr.sh_size - base_offset) orelse return error.Overflow;
@@ -586,3 +591,4 @@ const Compilation = @import("../../Compilation.zig");
 const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;
 const Object = @import("Object.zig");
+const Symbol = @import("Symbol.zig");

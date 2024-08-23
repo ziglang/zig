@@ -1,0 +1,29 @@
+#target=x86_64-linux
+#update=initial version
+#file=main.zig
+const std = @import("std");
+pub fn main() !void {
+    try std.io.getStdOut().writer().print("{d} {d}\n", .{ foo(), bar() });
+}
+fn foo() u32 {
+    return @src().line;
+}
+fn bar() u32 {
+    return 123;
+}
+#expect_stdout="6 123\n"
+
+#update=add newline
+#file=main.zig
+const std = @import("std");
+pub fn main() !void {
+    try std.io.getStdOut().writer().print("{d} {d}\n", .{ foo(), bar() });
+}
+
+fn foo() u32 {
+    return @src().line;
+}
+fn bar() u32 {
+    return 123;
+}
+#expect_stdout="7 123\n"
