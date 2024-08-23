@@ -46,7 +46,7 @@ pub fn main() !void {
                 proc_buffer = try gpa.alloc(windows.DWORD, proc_count);
                 defer gpa.free(proc_buffer);
 
-                proc_count = GetConsoleProcessList(proc_buffer);
+                proc_count = GetConsoleProcessList(proc_buffer.ptr, @min(proc_buffer.len, std.math.maxInt(windows.DWORD)));
                 if (proc_count == 0) return error.ConsoleProcessListFailed;
 
                 if (proc_count <= proc_buffer.len) {
