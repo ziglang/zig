@@ -35,6 +35,38 @@ pub const Slice = extern struct {
     }
 };
 
+const Run = struct {
+    id: Id,
+    input: []const u8,
+    score: usize,
+
+    const Id = u64;
+
+    const HashContext = struct {
+        pub fn eql(ctx: HashContext, a: Run, b: Run, b_index: usize) bool {
+            _ = b_index;
+            _ = ctx;
+            return a.id == b.id;
+        }
+        pub fn hash(ctx: HashContext, a: Run) u32 {
+            _ = ctx;
+            return @truncate(a.id);
+        }
+    };
+
+    fn deinit(run: *Run, gpa: Allocator) void {
+        gpa.free(run.input);
+        run.* = undefined;
+    }
+};
+
+const RunMap = std.ArrayHashMapUnmanaged(Run, void, Run.HashContext, false);
+
+const Analysis = struct {
+    score: usize,
+    id: Run.Id,
+};
+
 fn hashPCs(pcs: []const FlaggedPc) u64 {
     var hasher = std.hash.Wyhash.init(0);
     for (pcs) |flagged_pc| {
@@ -145,6 +177,16 @@ fn incrementUniqueRuns(seen_pcs: MemoryMappedList) void {
     _ = @atomicRmw(usize, &header.unique_runs, .Add, 1, .monotonic);
 }
 
+fn incrementNumberOfRuns(seen_pcs: MemoryMappedList) void {
+    const header: *volatile SeenPcsHeader = @ptrCast(seen_pcs.items[0..@sizeOf(SeenPcsHeader)]);
+    _ = @atomicRmw(usize, &header.n_runs, .Add, 1, .monotonic);
+}
+
+fn updateLowersStack(seen_pcs: MemoryMappedList) void {
+    const header: *volatile SeenPcsHeader = @ptrCast(seen_pcs.items[0..@sizeOf(SeenPcsHeader)]);
+    _ = @atomicRmw(usize, &header.lowest_stack, .Min, __sancov_lowest_stack, .monotonic);
+}
+
 pub const Fuzzer = struct {
     gpa: Allocator,
     rng: std.Random.DefaultPrng,
@@ -167,8 +209,6 @@ pub const Fuzzer = struct {
     /// information, available to other processes.
     coverage_id: u64,
 
-    const RunMap = std.ArrayHashMapUnmanaged(Run, void, Run.HashContext, false);
-
     const Coverage = struct {
         pc_table: std.AutoArrayHashMapUnmanaged(usize, void),
         run_id_hasher: std.hash.Wyhash,
@@ -177,36 +217,6 @@ pub const Fuzzer = struct {
             cov.pc_table.clearRetainingCapacity();
             cov.run_id_hasher = std.hash.Wyhash.init(0);
         }
-    };
-
-    const Run = struct {
-        id: Id,
-        input: []const u8,
-        score: usize,
-
-        const Id = u64;
-
-        const HashContext = struct {
-            pub fn eql(ctx: HashContext, a: Run, b: Run, b_index: usize) bool {
-                _ = b_index;
-                _ = ctx;
-                return a.id == b.id;
-            }
-            pub fn hash(ctx: HashContext, a: Run) u32 {
-                _ = ctx;
-                return @truncate(a.id);
-            }
-        };
-
-        fn deinit(run: *Run, gpa: Allocator) void {
-            gpa.free(run.input);
-            run.* = undefined;
-        }
-    };
-
-    const Analysis = struct {
-        score: usize,
-        id: Run.Id,
     };
 
     pub fn init(f: *Fuzzer, cache_dir: std.fs.Dir) !void {
@@ -224,89 +234,86 @@ pub const Fuzzer = struct {
         f.seen_pcs = try initCoverageFile(f.cache_dir, coverage_file_path, f.flagged_pcs);
     }
 
-    fn analyzeLastRun(f: *Fuzzer) Analysis {
-        return .{
+    fn analyzeLastRun(f: *Fuzzer) void {
+        const analysis = Analysis{
             .id = f.coverage.run_id_hasher.final(),
             .score = f.coverage.pc_table.count(),
         };
+        const gop = f.recent_cases.getOrPutAssumeCapacity(.{
+            .id = analysis.id,
+            .input = undefined,
+            .score = undefined,
+        });
+        if (gop.found_existing) {
+            //std.log.info("duplicate analysis: score={d} id={d}", .{ analysis.score, analysis.id });
+            if (f.input.items.len < gop.key_ptr.input.len or gop.key_ptr.score == 0) {
+                f.gpa.free(gop.key_ptr.input);
+                f.gop.key_ptr.input = try f.gpa.dupe(u8, f.input.items);
+                gop.key_ptr.score = analysis.score;
+            }
+        } else {
+            std.log.info("unique analysis: score={d} id={d}", .{ analysis.score, analysis.id });
+            gop.key_ptr.* = .{
+                .id = analysis.id,
+                .input = try f.gpa.dupe(u8, f.input.items),
+                .score = analysis.score,
+            };
+            updateGlobalCoverage(f.flagged_pcs, f.pc_counters, f.seen_pcs);
+            incrementUniqueRuns(f.seen_pcs);
+        }
+    }
+
+    fn firstRun(f: *Fuzzer) void {
+        try f.recent_cases.ensureUnusedCapacity(f.gpa, 100);
+        const len = f.rng.uintLessThanBiased(usize, 80);
+        try f.input.resize(f.gpa, len);
+        f.rng.bytes(f.input.items);
+        f.recent_cases.putAssumeCapacity(.{
+            .id = 0,
+            .input = try f.gpa.dupe(u8, f.input.items),
+            .score = 0,
+        }, {});
+    }
+
+    fn prune(f: *Fuzzer) void {
+        if (f.recent_cases.entries.len >= 100) {
+            const Context = struct {
+                values: []const Run,
+                pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
+                    return ctx.values[b_index].score < ctx.values[a_index].score;
+                }
+            };
+            f.recent_cases.sortUnstable(Context{ .values = f.recent_cases.keys() });
+            const cap = 50;
+            // This has to be done before deinitializing the deleted items.
+            const doomed_runs = f.recent_cases.keys()[cap..];
+            f.recent_cases.shrinkRetainingCapacity(cap);
+            for (doomed_runs) |*run| {
+                std.log.info("culling score={d} id={d}", .{ run.score, run.id });
+                run.deinit(f.gpa);
+            }
+        }
     }
 
     pub fn next(f: *Fuzzer) ![]const u8 {
-        // analyze last run (maybe)
-        // update global coverage (sometimes)
-        // generate next input
-
-        const gpa = f.gpa;
-        const rng = f.rng.random();
-
         if (f.recent_cases.entries.len == 0) {
-            // Prepare initial input.
-            try f.recent_cases.ensureUnusedCapacity(gpa, 100);
-            const len = rng.uintLessThanBiased(usize, 80);
-            try f.input.resize(gpa, len);
-            rng.bytes(f.input.items);
-            f.recent_cases.putAssumeCapacity(.{
-                .id = 0,
-                .input = try gpa.dupe(u8, f.input.items),
-                .score = 0,
-            }, {});
+            f.firstRun();
         } else {
             if (f.n_runs % 10000 == 0) f.dumpStats();
-
-            const analysis = f.analyzeLastRun();
-            const gop = f.recent_cases.getOrPutAssumeCapacity(.{
-                .id = analysis.id,
-                .input = undefined,
-                .score = undefined,
-            });
-            if (gop.found_existing) {
-                //std.log.info("duplicate analysis: score={d} id={d}", .{ analysis.score, analysis.id });
-                if (f.input.items.len < gop.key_ptr.input.len or gop.key_ptr.score == 0) {
-                    gpa.free(gop.key_ptr.input);
-                    gop.key_ptr.input = try gpa.dupe(u8, f.input.items);
-                    gop.key_ptr.score = analysis.score;
-                }
-            } else {
-                std.log.info("unique analysis: score={d} id={d}", .{ analysis.score, analysis.id });
-                gop.key_ptr.* = .{
-                    .id = analysis.id,
-                    .input = try gpa.dupe(u8, f.input.items),
-                    .score = analysis.score,
-                };
-
-                updateGlobalCoverage(f.flagged_pcs, f.pc_counters, f.seen_pcs);
-                incrementUniqueRuns(f.seen_pcs);
-            }
-
-            if (f.recent_cases.entries.len >= 100) {
-                const Context = struct {
-                    values: []const Run,
-                    pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
-                        return ctx.values[b_index].score < ctx.values[a_index].score;
-                    }
-                };
-                f.recent_cases.sortUnstable(Context{ .values = f.recent_cases.keys() });
-                const cap = 50;
-                // This has to be done before deinitializing the deleted items.
-                const doomed_runs = f.recent_cases.keys()[cap..];
-                f.recent_cases.shrinkRetainingCapacity(cap);
-                for (doomed_runs) |*run| {
-                    std.log.info("culling score={d} id={d}", .{ run.score, run.id });
-                    run.deinit(gpa);
-                }
-            }
+            f.analyzeLastRun();
+            f.prune();
         }
 
-        const chosen_index = rng.uintLessThanBiased(usize, f.recent_cases.entries.len);
+        // choose input, mutate it and select it for the next run
+        const chosen_index = f.rng.uintLessThanBiased(usize, f.recent_cases.entries.len);
         const run = &f.recent_cases.keys()[chosen_index];
         f.input.clearRetainingCapacity();
         f.input.appendSliceAssumeCapacity(run.input);
         try f.mutate();
 
         f.n_runs += 1;
-        const header: *volatile SeenPcsHeader = @ptrCast(f.seen_pcs.items[0..@sizeOf(SeenPcsHeader)]);
-        _ = @atomicRmw(usize, &header.n_runs, .Add, 1, .monotonic);
-        _ = @atomicRmw(usize, &header.lowest_stack, .Min, __sancov_lowest_stack, .monotonic);
+        incrementNumberOfRuns(f.seen_pcs);
+        updateLowersStack(f.seen_pcs);
         @memset(f.pc_counters, 0);
         f.coverage.reset();
         return f.input.items;
@@ -317,29 +324,6 @@ pub const Fuzzer = struct {
             std.log.info("best[{d}] id={x} score={d} input: '{}'", .{
                 i, run.id, run.score, std.zig.fmtEscapes(run.input),
             });
-        }
-    }
-
-    fn mutate(f: *Fuzzer) !void {
-        const gpa = f.gpa;
-        const rng = f.rng.random();
-
-        if (f.input.items.len == 0) {
-            const len = rng.uintLessThanBiased(usize, 80);
-            try f.input.resize(gpa, len);
-            rng.bytes(f.input.items);
-            return;
-        }
-
-        const index = rng.uintLessThanBiased(usize, f.input.items.len * 3);
-        if (index < f.input.items.len) {
-            f.input.items[index] = rng.int(u8);
-        } else if (index < f.input.items.len * 2) {
-            _ = f.input.orderedRemove(index - f.input.items.len);
-        } else if (index < f.input.items.len * 3) {
-            try f.input.insert(gpa, index - f.input.items.len * 2, rng.int(u8));
-        } else {
-            unreachable;
         }
     }
 };
