@@ -4526,7 +4526,12 @@ fn cmdTranslateC(
             Compilation.dump_argv(argv.items);
         }
 
-        const formatted = switch (comp.config.c_frontend) {
+        const Result = union(enum) {
+            success: []const u8,
+            error_bundle: std.zig.ErrorBundle,
+        };
+
+        const result: Result = switch (comp.config.c_frontend) {
             .aro => f: {
                 var stdout: []u8 = undefined;
                 try jitCmd(comp.gpa, arena, argv.items, .{
@@ -4536,7 +4541,7 @@ fn cmdTranslateC(
                     .capture = &stdout,
                     .progress_node = prog_node,
                 });
-                break :f stdout;
+                break :f .{ .success = stdout };
             },
             .clang => f: {
                 if (!build_options.have_llvm) unreachable;
@@ -4564,30 +4569,42 @@ fn cmdTranslateC(
                     c_headers_dir_path_z,
                 ) catch |err| switch (err) {
                     error.OutOfMemory => return error.OutOfMemory,
-                    error.SemanticAnalyzeFail => {
-                        if (fancy_output) |p| {
-                            p.errors = errors;
-                            return;
-                        } else {
-                            errors.renderToStdErr(color.renderOptions());
-                            process.exit(1);
-                        }
-                    },
+                    error.SemanticAnalyzeFail => break :f .{ .error_bundle = errors },
                 };
                 defer tree.deinit(comp.gpa);
-                break :f try tree.render(arena);
+                break :f .{ .success = try tree.render(arena) };
             },
         };
 
-        if (out_dep_path) |dep_file_path| {
+        if (out_dep_path) |dep_file_path| add_deps: {
             const dep_basename = fs.path.basename(dep_file_path);
             // Add the files depended on to the cache system.
-            try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
+            man.addDepFilePost(zig_cache_tmp_dir, dep_basename) catch |err| switch (err) {
+                error.FileNotFound => {
+                    // Clang didn't emit the dep file; nothing to add to the manifest.
+                    break :add_deps;
+                },
+                else => |e| return e,
+            };
             // Just to save disk space, we delete the file because it is never needed again.
             zig_cache_tmp_dir.deleteFile(dep_basename) catch |err| {
                 warn("failed to delete '{s}': {s}", .{ dep_file_path, @errorName(err) });
             };
         }
+
+        const formatted = switch (result) {
+            .success => |formatted| formatted,
+            .error_bundle => |eb| {
+                if (file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
+                if (fancy_output) |p| {
+                    p.errors = eb;
+                    return;
+                } else {
+                    eb.renderToStdErr(color.renderOptions());
+                    process.exit(1);
+                }
+            },
+        };
 
         const bin_digest = man.finalBin();
         const hex_digest = Cache.binToHex(bin_digest);

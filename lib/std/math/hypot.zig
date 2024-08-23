@@ -114,6 +114,7 @@ test "hypot.precise" {
 }
 
 test "hypot.special" {
+    @setEvalBranchQuota(2000);
     inline for (.{ f16, f32, f64, f128 }) |T| {
         try expect(math.isNan(hypot(nan(T), 0.0)));
         try expect(math.isNan(hypot(0.0, nan(T))));

@@ -1130,6 +1130,19 @@ const LinuxThreadImpl = struct {
                       [len] "r" (self.mapped.len),
                     : "memory"
                 ),
+                .hexagon => asm volatile (
+                    \\  r6 = #215 // SYS_munmap
+                    \\  r0 = %[ptr]
+                    \\  r1 = %[len]
+                    \\  trap0(#1)
+                    \\  r6 = #93 // SYS_exit
+                    \\  r0 = #0
+                    \\  trap0(#1)
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
+                ),
                 // We set `sp` to the address of the current function as a workaround for a Linux
                 // kernel bug that caused syscalls to return EFAULT if the stack pointer is invalid.
                 // The bug was introduced in 46e12c07b3b9603c60fc1d421ff18618241cb081 and fixed in
@@ -1188,18 +1201,51 @@ const LinuxThreadImpl = struct {
                       [len] "r" (self.mapped.len),
                     : "memory"
                 ),
-                .sparc64 => asm volatile (
-                    \\ # SPARCs really don't like it when active stack frames
-                    \\ # is unmapped (it will result in a segfault), so we
-                    \\ # force-deactivate it by running `restore` until
-                    \\ # all frames are cleared.
-                    \\  1:
+                .s390x => asm volatile (
+                    \\  lgr %%r2, %[ptr]
+                    \\  lgr %%r3, %[len]
+                    \\  svc 91 # SYS_munmap
+                    \\  lghi %%r2, 0
+                    \\  svc 1 # SYS_exit
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
+                ),
+                .sparc => asm volatile (
+                    \\ # See sparc64 comments below.
+                    \\ 1:
                     \\  cmp %%fp, 0
                     \\  beq 2f
                     \\  nop
                     \\  ba 1b
                     \\  restore
-                    \\  2:
+                    \\ 2:
+                    \\  mov 73, %%g1 # SYS_munmap
+                    \\  mov %[ptr], %%o0
+                    \\  mov %[len], %%o1
+                    \\  t 0x3 # ST_FLUSH_WINDOWS
+                    \\  t 0x10
+                    \\  mov 1, %%g1 # SYS_exit
+                    \\  mov 0, %%o0
+                    \\  t 0x10
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
+                ),
+                .sparc64 => asm volatile (
+                    \\ # SPARCs really don't like it when active stack frames
+                    \\ # is unmapped (it will result in a segfault), so we
+                    \\ # force-deactivate it by running `restore` until
+                    \\ # all frames are cleared.
+                    \\ 1:
+                    \\  cmp %%fp, 0
+                    \\  beq 2f
+                    \\  nop
+                    \\  ba 1b
+                    \\  restore
+                    \\ 2:
                     \\  mov 73, %%g1 # SYS_munmap
                     \\  mov %[ptr], %%o0
                     \\  mov %[len], %%o1
@@ -1208,7 +1254,7 @@ const LinuxThreadImpl = struct {
                     \\  flushw
                     \\  t 0x6d
                     \\  mov 1, %%g1 # SYS_exit
-                    \\  mov 1, %%o0
+                    \\  mov 0, %%o0
                     \\  t 0x6d
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),

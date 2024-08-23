@@ -2973,44 +2973,27 @@ fn testStrip(b: *Build, opts: Options) *Step {
 fn testThunks(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "thunks", opts);
 
-    const src =
-        \\#include <stdio.h>
-        \\__attribute__((aligned(0x8000000))) int bar() {
-        \\  return 42;
-        \\}
-        \\int foobar();
-        \\int foo() {
-        \\  return bar() - foobar();
-        \\}
-        \\__attribute__((aligned(0x8000000))) int foobar() {
-        \\  return 42;
-        \\}
-        \\int main() {
-        \\  printf("bar=%d, foo=%d, foobar=%d", bar(), foo(), foobar());
-        \\  return foo();
-        \\}
-    ;
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\void foo();
+    \\__attribute__((section(".bar"))) void bar() {
+    \\  return foo();
+    \\}
+    \\__attribute__((section(".foo"))) void foo() {
+    \\  return bar();
+    \\}
+    \\int main() {
+    \\  foo();
+    \\  bar();
+    \\  return 0;
+    \\}
+    });
 
-    {
-        const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = src });
-        exe.link_function_sections = true;
-        exe.linkLibC();
-
-        const run = addRunArtifact(exe);
-        run.expectStdOutEqual("bar=42, foo=0, foobar=42");
-        run.expectExitCode(0);
-        test_step.dependOn(&run.step);
-    }
-
-    {
-        const exe = addExecutable(b, opts, .{ .name = "main2", .c_source_bytes = src });
-        exe.linkLibC();
-
-        const run = addRunArtifact(exe);
-        run.expectStdOutEqual("bar=42, foo=0, foobar=42");
-        run.expectExitCode(0);
-        test_step.dependOn(&run.step);
-    }
+    const check = exe.checkObject();
+    check.checkInSymtab();
+    check.checkContains("foo$thunk");
+    check.checkInSymtab();
+    check.checkContains("bar$thunk");
+    test_step.dependOn(&check.step);
 
     return test_step;
 }

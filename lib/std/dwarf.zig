@@ -89,6 +89,7 @@ pub const LNS = struct {
 };
 
 pub const LNE = struct {
+    pub const padding = 0x00;
     pub const end_sequence = 0x01;
     pub const set_address = 0x02;
     pub const define_file = 0x03;

@@ -2391,6 +2391,7 @@ pub const Key = union(enum) {
         func: Index,
         arg_values: []const Index,
         result: Index,
+        branch_count: u32,
     };
 
     pub fn hash32(key: Key, ip: *const InternPool) u32 {
@@ -6157,6 +6158,7 @@ pub const MemoizedCall = struct {
     func: Index,
     args_len: u32,
     result: Index,
+    branch_count: u32,
 };
 
 pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
@@ -6785,6 +6787,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                 .func = extra.data.func,
                 .arg_values = @ptrCast(extra_list.view().items(.@"0")[extra.end..][0..extra.data.args_len]),
                 .result = extra.data.result,
+                .branch_count = extra.data.branch_count,
             } };
         },
     };
@@ -7955,6 +7958,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                     .func = memoized_call.func,
                     .args_len = @intCast(memoized_call.arg_values.len),
                     .result = memoized_call.result,
+                    .branch_count = memoized_call.branch_count,
                 }),
             });
             extra.appendSliceAssumeCapacity(.{@ptrCast(memoized_call.arg_values)});

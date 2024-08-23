@@ -924,6 +924,8 @@ pub const Inst = struct {
         /// Local argument or variable.
         /// Uses `ax` payload with extra data of type `Memory`.
         pseudo_dbg_local_am,
+        /// Remaining arguments are varargs.
+        pseudo_dbg_var_args_none,
 
         /// Tombstone
         /// Emitter should skip this instruction.

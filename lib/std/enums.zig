@@ -6,7 +6,7 @@ const testing = std.testing;
 const EnumField = std.builtin.Type.EnumField;
 
 /// Increment this value when adding APIs that add single backwards branches.
-const eval_branch_quota_cushion = 5;
+const eval_branch_quota_cushion = 10;
 
 /// Returns a struct with a field matching each unique named enum element.
 /// If the enum is extern and has multiple names for the same value, only
