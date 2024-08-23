@@ -559,7 +559,7 @@ pub fn growAllocSection(self: *Elf, shdr_index: u32, needed_size: u64) !void {
     const shdr = &slice.items(.shdr)[shdr_index];
     assert(shdr.sh_flags & elf.SHF_ALLOC != 0);
     const phndx = slice.items(.phndx)[shdr_index];
-    const phdr = &self.phdrs.items[phndx];
+    const maybe_phdr = if (phndx) |ndx| &self.phdrs.items[ndx] else null;
 
     log.debug("allocated size {x} of {s}, needed size {x}", .{
         self.allocatedSize(shdr.sh_offset),
@@ -575,7 +575,7 @@ pub fn growAllocSection(self: *Elf, shdr_index: u32, needed_size: u64) !void {
             const existing_size = shdr.sh_size;
             shdr.sh_size = 0;
             // Must move the entire section.
-            const alignment = if (phdr.p_type == elf.PT_NULL) shdr.sh_addralign else phdr.p_align;
+            const alignment = if (maybe_phdr) |phdr| phdr.p_align else shdr.sh_addralign;
             const new_offset = try self.findFreeSpace(needed_size, alignment);
 
             log.debug("new '{s}' file offset 0x{x} to 0x{x}", .{
@@ -589,17 +589,17 @@ pub fn growAllocSection(self: *Elf, shdr_index: u32, needed_size: u64) !void {
             if (amt != existing_size) return error.InputOutput;
 
             shdr.sh_offset = new_offset;
-            if (phdr.p_type != elf.PT_NULL) phdr.p_offset = new_offset;
+            if (maybe_phdr) |phdr| phdr.p_offset = new_offset;
         }
-        if (phdr.p_type != elf.PT_NULL) phdr.p_filesz = needed_size;
+        if (maybe_phdr) |phdr| phdr.p_filesz = needed_size;
     }
     shdr.sh_size = needed_size;
 
-    if (phdr.p_type != elf.PT_NULL) {
+    if (maybe_phdr) |phdr| {
         const mem_capacity = self.allocatedVirtualSize(phdr.p_vaddr);
         if (needed_size > mem_capacity) {
             var err = try self.base.addErrorWithNotes(2);
-            try err.addMsg("fatal linker error: cannot expand load segment phdr({d}) in virtual memory", .{phndx});
+            try err.addMsg("fatal linker error: cannot expand load segment phdr({d}) in virtual memory", .{phndx.?});
             try err.addNote("TODO: emit relocations to memory locations in self-hosted backends", .{});
             try err.addNote("as a workaround, try increasing pre-allocated virtual memory of each segment", .{});
         }
@@ -3235,6 +3235,12 @@ fn sortPhdrs(self: *Elf) error{OutOfMemory}!void {
             index.* = backlinks[index.*];
         }
     }
+
+    for (self.sections.items(.phndx)) |*maybe_phndx| {
+        if (maybe_phndx.*) |*index| {
+            index.* = backlinks[index.*];
+        }
+    }
 }
 
 fn shdrRank(self: *Elf, shndx: u32) u8 {
@@ -3763,6 +3769,7 @@ pub fn allocateAllocSections(self: *Elf) !void {
 
         for (cover.items) |shndx| {
             const shdr = &slice.items(.shdr)[shndx];
+            slice.items(.phndx)[shndx] = phndx;
             if (shdr.sh_type == elf.SHT_NOBITS) {
                 shdr.sh_offset = 0;
                 continue;
@@ -3770,7 +3777,6 @@ pub fn allocateAllocSections(self: *Elf) !void {
             off = alignment.@"align"(shndx, shdr.sh_addralign, off);
             shdr.sh_offset = off;
             off += shdr.sh_size;
-            slice.items(.phndx)[shndx] = phndx;
         }
 
         addr = mem.alignForward(u64, addr, self.page_size);
@@ -5282,7 +5288,7 @@ fn fmtDumpState(
 
     try writer.writeAll("\nOutput shdrs\n");
     for (self.sections.items(.shdr), self.sections.items(.phndx), 0..) |shdr, phndx, shndx| {
-        try writer.print("  shdr({d}) : phdr({d}) : {}\n", .{
+        try writer.print("  shdr({d}) : phdr({?d}) : {}\n", .{
             shndx,
             phndx,
             self.fmtShdr(shdr),
@@ -5530,7 +5536,7 @@ pub const SymbolResolver = struct {
 
 const Section = struct {
     shdr: elf.Elf64_Shdr,
-    phndx: u32 = 0,
+    phndx: ?u32 = null,
     atom_list: std.ArrayListUnmanaged(Ref) = .{},
 
     /// Index of the last allocated atom in this section.

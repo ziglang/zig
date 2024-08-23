@@ -239,7 +239,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
             shdr.sh_size = 1024;
         } else {
             phndx.* = elf_file.phdr_zig_load_zerofill_index.?;
-            const phdr = elf_file.phdrs.items[phndx.*];
+            const phdr = elf_file.phdrs.items[phndx.*.?];
             shdr.sh_addr = phdr.p_vaddr;
             shdr.sh_size = phdr.p_memsz;
         }
