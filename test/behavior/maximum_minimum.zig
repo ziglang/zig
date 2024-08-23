@@ -146,6 +146,8 @@ test "@min/max for floats" {
     };
 
     inline for (.{ f16, f32, f64, f80, f128, c_longdouble }) |T| {
+        if (T == c_longdouble and builtin.cpu.arch.isMIPS64()) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21090
+
         try S.doTheTest(T);
         try comptime S.doTheTest(T);
     }

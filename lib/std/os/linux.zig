@@ -2272,7 +2272,7 @@ pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
             length_halves[0],
             length_halves[1],
         );
-    } else if (comptime native_arch == .mips or native_arch == .mipsel) {
+    } else if (native_arch.isMIPS32()) {
         // MIPS O32 does not deal with the register alignment issue, so pass a dummy value.
 
         const offset_halves = splitValue64(offset);
@@ -2382,7 +2382,7 @@ pub fn map_shadow_stack(addr: u64, size: u64, flags: u32) usize {
 }
 
 pub const E = switch (native_arch) {
-    .mips, .mipsel => enum(u16) {
+    .mips, .mipsel, .mips64, .mips64el => enum(u16) {
         /// No error occurred.
         SUCCESS = 0,
 
@@ -7068,53 +7068,166 @@ pub const ifreq = extern struct {
 };
 
 // doc comments copied from musl
-pub const rlimit_resource = if (native_arch.isMIPS() or native_arch.isSPARC())
-    arch_bits.rlimit_resource
-else
-    enum(c_int) {
-        /// Per-process CPU limit, in seconds.
-        CPU,
-        /// Largest file that can be created, in bytes.
-        FSIZE,
-        /// Maximum size of data segment, in bytes.
-        DATA,
-        /// Maximum size of stack segment, in bytes.
-        STACK,
-        /// Largest core file that can be created, in bytes.
-        CORE,
-        /// Largest resident set size, in bytes.
-        /// This affects swapping; processes that are exceeding their
-        /// resident set size will be more likely to have physical memory
-        /// taken from them.
-        RSS,
-        /// Number of processes.
-        NPROC,
-        /// Number of open files.
-        NOFILE,
-        /// Locked-in-memory address space.
-        MEMLOCK,
-        /// Address space limit.
-        AS,
-        /// Maximum number of file locks.
-        LOCKS,
-        /// Maximum number of pending signals.
-        SIGPENDING,
-        /// Maximum bytes in POSIX message queues.
-        MSGQUEUE,
-        /// Maximum nice priority allowed to raise to.
-        /// Nice levels 19 .. -20 correspond to 0 .. 39
-        /// values of this resource limit.
-        NICE,
-        /// Maximum realtime priority allowed for non-privileged
-        /// processes.
-        RTPRIO,
-        /// Maximum CPU time in µs that a process scheduled under a real-time
-        /// scheduling policy may consume without making a blocking system
-        /// call before being forcibly descheduled.
-        RTTIME,
+pub const rlimit_resource = if (native_arch.isMIPS()) enum(c_int) {
+    /// Per-process CPU limit, in seconds.
+    CPU = 0,
 
-        _,
-    };
+    /// Largest file that can be created, in bytes.
+    FSIZE = 1,
+
+    /// Maximum size of data segment, in bytes.
+    DATA = 2,
+
+    /// Maximum size of stack segment, in bytes.
+    STACK = 3,
+
+    /// Largest core file that can be created, in bytes.
+    CORE = 4,
+
+    /// Number of open files.
+    NOFILE = 5,
+
+    /// Address space limit.
+    AS = 6,
+
+    /// Largest resident set size, in bytes.
+    /// This affects swapping; processes that are exceeding their
+    /// resident set size will be more likely to have physical memory
+    /// taken from them.
+    RSS = 7,
+
+    /// Number of processes.
+    NPROC = 8,
+
+    /// Locked-in-memory address space.
+    MEMLOCK = 9,
+
+    /// Maximum number of file locks.
+    LOCKS = 10,
+
+    /// Maximum number of pending signals.
+    SIGPENDING = 11,
+
+    /// Maximum bytes in POSIX message queues.
+    MSGQUEUE = 12,
+
+    /// Maximum nice priority allowed to raise to.
+    /// Nice levels 19 .. -20 correspond to 0 .. 39
+    /// values of this resource limit.
+    NICE = 13,
+
+    /// Maximum realtime priority allowed for non-privileged
+    /// processes.
+    RTPRIO = 14,
+
+    /// Maximum CPU time in µs that a process scheduled under a real-time
+    /// scheduling policy may consume without making a blocking system
+    /// call before being forcibly descheduled.
+    RTTIME = 15,
+
+    _,
+} else if (native_arch.isSPARC()) enum(c_int) {
+    /// Per-process CPU limit, in seconds.
+    CPU = 0,
+
+    /// Largest file that can be created, in bytes.
+    FSIZE = 1,
+
+    /// Maximum size of data segment, in bytes.
+    DATA = 2,
+
+    /// Maximum size of stack segment, in bytes.
+    STACK = 3,
+
+    /// Largest core file that can be created, in bytes.
+    CORE = 4,
+
+    /// Largest resident set size, in bytes.
+    /// This affects swapping; processes that are exceeding their
+    /// resident set size will be more likely to have physical memory
+    /// taken from them.
+    RSS = 5,
+
+    /// Number of open files.
+    NOFILE = 6,
+
+    /// Number of processes.
+    NPROC = 7,
+
+    /// Locked-in-memory address space.
+    MEMLOCK = 8,
+
+    /// Address space limit.
+    AS = 9,
+
+    /// Maximum number of file locks.
+    LOCKS = 10,
+
+    /// Maximum number of pending signals.
+    SIGPENDING = 11,
+
+    /// Maximum bytes in POSIX message queues.
+    MSGQUEUE = 12,
+
+    /// Maximum nice priority allowed to raise to.
+    /// Nice levels 19 .. -20 correspond to 0 .. 39
+    /// values of this resource limit.
+    NICE = 13,
+
+    /// Maximum realtime priority allowed for non-privileged
+    /// processes.
+    RTPRIO = 14,
+
+    /// Maximum CPU time in µs that a process scheduled under a real-time
+    /// scheduling policy may consume without making a blocking system
+    /// call before being forcibly descheduled.
+    RTTIME = 15,
+
+    _,
+} else enum(c_int) {
+    /// Per-process CPU limit, in seconds.
+    CPU = 0,
+    /// Largest file that can be created, in bytes.
+    FSIZE = 1,
+    /// Maximum size of data segment, in bytes.
+    DATA = 2,
+    /// Maximum size of stack segment, in bytes.
+    STACK = 3,
+    /// Largest core file that can be created, in bytes.
+    CORE = 4,
+    /// Largest resident set size, in bytes.
+    /// This affects swapping; processes that are exceeding their
+    /// resident set size will be more likely to have physical memory
+    /// taken from them.
+    RSS = 5,
+    /// Number of processes.
+    NPROC = 6,
+    /// Number of open files.
+    NOFILE = 7,
+    /// Locked-in-memory address space.
+    MEMLOCK = 8,
+    /// Address space limit.
+    AS = 9,
+    /// Maximum number of file locks.
+    LOCKS = 10,
+    /// Maximum number of pending signals.
+    SIGPENDING = 11,
+    /// Maximum bytes in POSIX message queues.
+    MSGQUEUE = 12,
+    /// Maximum nice priority allowed to raise to.
+    /// Nice levels 19 .. -20 correspond to 0 .. 39
+    /// values of this resource limit.
+    NICE = 13,
+    /// Maximum realtime priority allowed for non-privileged
+    /// processes.
+    RTPRIO = 14,
+    /// Maximum CPU time in µs that a process scheduled under a real-time
+    /// scheduling policy may consume without making a blocking system
+    /// call before being forcibly descheduled.
+    RTTIME = 15,
+
+    _,
+};
 
 pub const rlim_t = u64;
 
