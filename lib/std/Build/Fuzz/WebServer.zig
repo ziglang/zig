@@ -304,13 +304,13 @@ fn buildWasmBinary(
                 };
             },
             .emit_digest => {
-                const EbpHdr = std.zig.Server.Message.EmitDigest;
-                const ebp_hdr = @as(*align(1) const EbpHdr, @ptrCast(body));
+                const EmitDigest = std.zig.Server.Message.EmitDigest;
+                const ebp_hdr = @as(*align(1) const EmitDigest, @ptrCast(body));
                 if (!ebp_hdr.flags.cache_hit) {
                     log.info("source changes detected; rebuilt wasm component", .{});
                 }
-                const digest = body[@sizeOf(EbpHdr)..][0..Cache.bin_digest_len];
-                result = Path{
+                const digest = body[@sizeOf(EmitDigest)..][0..Cache.bin_digest_len];
+                result = .{
                     .root_dir = ws.global_cache_directory,
                     .sub_path = try arena.dupe(u8, "o" ++ std.fs.path.sep_str ++ Cache.binToHex(digest.*)),
                 };
