@@ -352,6 +352,7 @@ pub const OSType = enum(c_int) {
     ELFIAMCU,
     TvOS,
     WatchOS,
+    BridgeOS,
     DriverKit,
     XROS,
     Mesa3D,

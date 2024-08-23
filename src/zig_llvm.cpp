@@ -478,7 +478,7 @@ bool ZigLLVMWriteImportLibrary(const char *def_path, const ZigLLVM_ArchType arch
         return true;
     }
 
-    // The exports-juggling code below is ripped from LLVM's DllToolDriver.cpp
+    // The exports-juggling code below is ripped from LLVM's DlltoolDriver.cpp
 
     // If ExtName is set (if the "ExtName = Name" syntax was used), overwrite
     // Name with ExtName and clear ExtName. When only creating an import
@@ -494,7 +494,7 @@ bool ZigLLVMWriteImportLibrary(const char *def_path, const ZigLLVM_ArchType arch
 
     if (machine == COFF::IMAGE_FILE_MACHINE_I386 && kill_at) {
         for (object::COFFShortExport& E : def->Exports) {
-            if (!E.AliasTarget.empty() || (!E.Name.empty() && E.Name[0] == '?'))
+            if (!E.ImportName.empty() || (!E.Name.empty() && E.Name[0] == '?'))
                 continue;
             E.SymbolName = E.Name;
             // Trim off the trailing decoration. Symbols will always have a
@@ -692,6 +692,7 @@ static_assert((Triple::OSType)ZigLLVM_PS4 == Triple::PS4, "");
 static_assert((Triple::OSType)ZigLLVM_ELFIAMCU == Triple::ELFIAMCU, "");
 static_assert((Triple::OSType)ZigLLVM_TvOS == Triple::TvOS, "");
 static_assert((Triple::OSType)ZigLLVM_WatchOS == Triple::WatchOS, "");
+static_assert((Triple::OSType)ZigLLVM_BridgeOS == Triple::BridgeOS, "");
 static_assert((Triple::OSType)ZigLLVM_DriverKit == Triple::DriverKit, "");
 static_assert((Triple::OSType)ZigLLVM_XROS == Triple::XROS, "");
 static_assert((Triple::OSType)ZigLLVM_Mesa3D == Triple::Mesa3D, "");
@@ -746,7 +747,9 @@ static_assert((Triple::EnvironmentType)ZigLLVM_Miss == Triple::Miss, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_Callable == Triple::Callable, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_Mesh == Triple::Mesh, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_Amplification == Triple::Amplification, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_OpenCL == Triple::OpenCL, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_OpenHOS == Triple::OpenHOS, "");
+static_assert((Triple::EnvironmentType)ZigLLVM_PAuthTest == Triple::PAuthTest, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_LastEnvironmentType == Triple::LastEnvironmentType, "");
 
 static_assert((Triple::ObjectFormatType)ZigLLVM_UnknownObjectFormat == Triple::UnknownObjectFormat, "");
