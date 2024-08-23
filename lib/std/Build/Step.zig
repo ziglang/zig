@@ -534,11 +534,11 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
                 }
             },
             .emit_digest => {
-                const EbpHdr = std.zig.Server.Message.EmitDigest;
-                const ebp_hdr = @as(*align(1) const EbpHdr, @ptrCast(body));
-                s.result_cached = ebp_hdr.flags.cache_hit;
-                const digest = body[@sizeOf(EbpHdr)..][0..Cache.bin_digest_len];
-                result = Path{
+                const EmitDigest = std.zig.Server.Message.EmitDigest;
+                const emit_digest = @as(*align(1) const EmitDigest, @ptrCast(body));
+                s.result_cached = emit_digest.flags.cache_hit;
+                const digest = body[@sizeOf(EmitDigest)..][0..Cache.bin_digest_len];
+                result = .{
                     .root_dir = b.cache_root,
                     .sub_path = try arena.dupe(u8, "o" ++ std.fs.path.sep_str ++ Cache.binToHex(digest.*)),
                 };
