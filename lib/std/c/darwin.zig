@@ -23,6 +23,7 @@ pub const mach_port_t = c_uint;
 pub const THREAD_STATE_NONE = switch (native_arch) {
     .aarch64 => 5,
     .x86_64 => 13,
+    else => @compileError("unsupported arch"),
 };
 
 pub const EXC = enum(exception_type_t) {
