@@ -336,10 +336,7 @@ pub fn writeRelocs(self: Atom, elf_file: *Elf, out_relocs: *std.ArrayList(elf.El
         switch (target.type(elf_file)) {
             elf.STT_SECTION => {
                 r_addend += @intCast(target.address(.{}, elf_file));
-                r_sym = if (target.outputShndx(elf_file)) |osec|
-                    elf_file.sectionSymbolOutputSymtabIndex(osec)
-                else
-                    0;
+                r_sym = target.outputShndx(elf_file) orelse 0;
             },
             else => {
                 r_sym = target.outputSymtabIndex(elf_file) orelse 0;

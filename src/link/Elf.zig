@@ -4013,7 +4013,7 @@ pub fn updateSymtabSize(self: *Elf) !void {
     nlocals += @intCast(self.sections.slice().len);
 
     if (self.requiresThunks()) for (self.thunks.items) |*th| {
-        th.output_symtab_ctx.ilocal = nlocals + 1;
+        th.output_symtab_ctx.ilocal = nlocals;
         th.calcSymtabSize(self);
         nlocals += th.output_symtab_ctx.nlocals;
         strsize += th.output_symtab_ctx.strsize;
@@ -4024,8 +4024,8 @@ pub fn updateSymtabSize(self: *Elf) !void {
         const ctx = switch (file_ptr) {
             inline else => |x| &x.output_symtab_ctx,
         };
-        ctx.ilocal = nlocals + 1;
-        ctx.iglobal = nglobals + 1;
+        ctx.ilocal = nlocals;
+        ctx.iglobal = nglobals;
         try file_ptr.updateSymtabSize(self);
         nlocals += ctx.nlocals;
         nglobals += ctx.nglobals;
@@ -4033,21 +4033,21 @@ pub fn updateSymtabSize(self: *Elf) !void {
     }
 
     if (self.got_section_index) |_| {
-        self.got.output_symtab_ctx.ilocal = nlocals + 1;
+        self.got.output_symtab_ctx.ilocal = nlocals;
         self.got.updateSymtabSize(self);
         nlocals += self.got.output_symtab_ctx.nlocals;
         strsize += self.got.output_symtab_ctx.strsize;
     }
 
     if (self.plt_section_index) |_| {
-        self.plt.output_symtab_ctx.ilocal = nlocals + 1;
+        self.plt.output_symtab_ctx.ilocal = nlocals;
         self.plt.updateSymtabSize(self);
         nlocals += self.plt.output_symtab_ctx.nlocals;
         strsize += self.plt.output_symtab_ctx.strsize;
     }
 
     if (self.plt_got_section_index) |_| {
-        self.plt_got.output_symtab_ctx.ilocal = nlocals + 1;
+        self.plt_got.output_symtab_ctx.ilocal = nlocals;
         self.plt_got.updateSymtabSize(self);
         nlocals += self.plt_got.output_symtab_ctx.nlocals;
         strsize += self.plt_got.output_symtab_ctx.strsize;
@@ -4063,14 +4063,14 @@ pub fn updateSymtabSize(self: *Elf) !void {
 
     const slice = self.sections.slice();
     const symtab_shdr = &slice.items(.shdr)[self.symtab_section_index.?];
-    symtab_shdr.sh_info = nlocals + 1;
+    symtab_shdr.sh_info = nlocals;
     symtab_shdr.sh_link = self.strtab_section_index.?;
 
     const sym_size: u64 = switch (self.ptr_width) {
         .p32 => @sizeOf(elf.Elf32_Sym),
         .p64 => @sizeOf(elf.Elf64_Sym),
     };
-    const needed_size = (nlocals + nglobals + 1) * sym_size;
+    const needed_size = (nlocals + nglobals) * sym_size;
     symtab_shdr.sh_size = needed_size;
 
     const strtab = &slice.items(.shdr)[self.strtab_section_index.?];
@@ -4243,7 +4243,17 @@ pub fn writeSymtab(self: *Elf) !void {
     const needed_strtab_size = math.cast(usize, strtab_shdr.sh_size - 1) orelse return error.Overflow;
     try self.strtab.ensureUnusedCapacity(gpa, needed_strtab_size);
 
-    self.writeSectionSymbols();
+    for (slice.items(.shdr), 0..) |shdr, shndx| {
+        const out_sym = &self.symtab.items[shndx];
+        out_sym.* = .{
+            .st_name = 0,
+            .st_value = shdr.sh_addr,
+            .st_info = if (shdr.sh_type == elf.SHT_NULL) elf.STT_NOTYPE else elf.STT_SECTION,
+            .st_shndx = @intCast(shndx),
+            .st_size = 0,
+            .st_other = 0,
+        };
+    }
 
     if (self.requiresThunks()) for (self.thunks.items) |th| {
         th.writeSymtab(self);
@@ -4307,42 +4317,6 @@ pub fn writeSymtab(self: *Elf) !void {
     }
 
     try self.base.file.?.pwriteAll(self.strtab.items, strtab_shdr.sh_offset);
-}
-
-fn writeSectionSymbols(self: *Elf) void {
-    const slice = self.sections.slice();
-    var ilocal: u32 = 1;
-    for (slice.items(.shdr), 0..) |shdr, shndx| {
-        const out_sym = &self.symtab.items[ilocal];
-        out_sym.* = .{
-            .st_name = 0,
-            .st_value = shdr.sh_addr,
-            .st_info = elf.STT_SECTION,
-            .st_shndx = @intCast(shndx),
-            .st_size = 0,
-            .st_other = 0,
-        };
-        ilocal += 1;
-    }
-
-    if (self.eh_frame_section_index) |shndx| {
-        const shdr = slice.items(.shdr)[shndx];
-        const out_sym = &self.symtab.items[ilocal];
-        out_sym.* = .{
-            .st_name = 0,
-            .st_value = shdr.sh_addr,
-            .st_info = elf.STT_SECTION,
-            .st_shndx = @intCast(shndx),
-            .st_size = 0,
-            .st_other = 0,
-        };
-        ilocal += 1;
-    }
-}
-
-pub fn sectionSymbolOutputSymtabIndex(self: Elf, shndx: u32) u32 {
-    _ = self;
-    return shndx + 1;
 }
 
 /// Always 4 or 8 depending on whether this is 32-bit ELF or 64-bit ELF.
@@ -5535,8 +5509,13 @@ pub const SymbolResolver = struct {
 };
 
 const Section = struct {
+    /// Section header.
     shdr: elf.Elf64_Shdr,
+
+    /// Assigned program header index if any.
     phndx: ?u32 = null,
+
+    /// List of atoms contributing to this section.
     atom_list: std.ArrayListUnmanaged(Ref) = .{},
 
     /// Index of the last allocated atom in this section.
