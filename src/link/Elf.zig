@@ -3367,6 +3367,28 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
         }
     }
 
+    for (self.merge_sections.items) |*msec| {
+        msec.output_section_index = backlinks[msec.output_section_index];
+    }
+
+    for (self.sections.items(.shdr)) |*shdr| {
+        if (shdr.sh_type != elf.SHT_RELA) continue;
+        shdr.sh_link = backlinks[shdr.sh_link];
+        shdr.sh_info = backlinks[shdr.sh_info];
+    }
+
+    if (self.zigObjectPtr()) |zo| {
+        for (zo.atoms_indexes.items) |atom_index| {
+            const atom_ptr = zo.atom(atom_index) orelse continue;
+            atom_ptr.output_section_index = backlinks[atom_ptr.output_section_index];
+        }
+        if (zo.dwarf) |*dwarf| dwarf.reloadSectionMetadata();
+    }
+
+    for (self.comdat_group_sections.items) |*cg| {
+        cg.shndx = backlinks[cg.shndx];
+    }
+
     if (self.symtab_section_index) |index| {
         const shdr = &self.sections.items(.shdr)[index];
         shdr.sh_link = self.strtab_section_index.?;
@@ -3417,28 +3439,6 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
         const shdr = &self.sections.items(.shdr)[index];
         shdr.sh_link = self.symtab_section_index.?;
         shdr.sh_info = self.eh_frame_section_index.?;
-    }
-
-    for (self.merge_sections.items) |*msec| {
-        msec.output_section_index = backlinks[msec.output_section_index];
-    }
-
-    for (self.sections.items(.shdr)) |*shdr| {
-        if (shdr.sh_type != elf.SHT_RELA) continue;
-        shdr.sh_link = backlinks[shdr.sh_link];
-        shdr.sh_info = backlinks[shdr.sh_info];
-    }
-
-    if (self.zigObjectPtr()) |zo| {
-        for (zo.atoms_indexes.items) |atom_index| {
-            const atom_ptr = zo.atom(atom_index) orelse continue;
-            atom_ptr.output_section_index = backlinks[atom_ptr.output_section_index];
-        }
-        if (zo.dwarf) |*dwarf| dwarf.reloadSectionMetadata();
-    }
-
-    for (self.comdat_group_sections.items) |*cg| {
-        cg.shndx = backlinks[cg.shndx];
     }
 }
 
