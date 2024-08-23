@@ -21,74 +21,67 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-_ALIGNAS_TYPE(istream)
-_LIBCPP_EXPORTED_FROM_ABI char cin[sizeof(istream)]
+alignas(istream) _LIBCPP_EXPORTED_FROM_ABI char cin[sizeof(istream)]
 #if defined(_LIBCPP_ABI_MICROSOFT) && defined(__clang__)
     __asm__("?cin@" _LIBCPP_ABI_NAMESPACE_STR "@std@@3V?$basic_istream@DU?$char_traits@D@" _LIBCPP_ABI_NAMESPACE_STR
             "@std@@@12@A")
 #endif
         ;
-_ALIGNAS_TYPE(__stdinbuf<char>) static char __cin[sizeof(__stdinbuf<char>)];
+alignas(__stdinbuf<char>) static char __cin[sizeof(__stdinbuf<char>)];
 static mbstate_t mb_cin;
 
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-_ALIGNAS_TYPE(wistream)
-_LIBCPP_EXPORTED_FROM_ABI char wcin[sizeof(wistream)]
+alignas(wistream) _LIBCPP_EXPORTED_FROM_ABI char wcin[sizeof(wistream)]
 #  if defined(_LIBCPP_ABI_MICROSOFT) && defined(__clang__)
     __asm__("?wcin@" _LIBCPP_ABI_NAMESPACE_STR "@std@@3V?$basic_istream@_WU?$char_traits@_W@" _LIBCPP_ABI_NAMESPACE_STR
             "@std@@@12@A")
 #  endif
         ;
-_ALIGNAS_TYPE(__stdinbuf<wchar_t>) static char __wcin[sizeof(__stdinbuf<wchar_t>)];
+alignas(__stdinbuf<wchar_t>) static char __wcin[sizeof(__stdinbuf<wchar_t>)];
 static mbstate_t mb_wcin;
 #endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
 
-_ALIGNAS_TYPE(ostream)
-_LIBCPP_EXPORTED_FROM_ABI char cout[sizeof(ostream)]
+alignas(ostream) _LIBCPP_EXPORTED_FROM_ABI char cout[sizeof(ostream)]
 #if defined(_LIBCPP_ABI_MICROSOFT) && defined(__clang__)
     __asm__("?cout@" _LIBCPP_ABI_NAMESPACE_STR "@std@@3V?$basic_ostream@DU?$char_traits@D@" _LIBCPP_ABI_NAMESPACE_STR
             "@std@@@12@A")
 #endif
         ;
-_ALIGNAS_TYPE(__stdoutbuf<char>) static char __cout[sizeof(__stdoutbuf<char>)];
+alignas(__stdoutbuf<char>) static char __cout[sizeof(__stdoutbuf<char>)];
 static mbstate_t mb_cout;
 
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-_ALIGNAS_TYPE(wostream)
-_LIBCPP_EXPORTED_FROM_ABI char wcout[sizeof(wostream)]
+alignas(wostream) _LIBCPP_EXPORTED_FROM_ABI char wcout[sizeof(wostream)]
 #  if defined(_LIBCPP_ABI_MICROSOFT) && defined(__clang__)
     __asm__("?wcout@" _LIBCPP_ABI_NAMESPACE_STR "@std@@3V?$basic_ostream@_WU?$char_traits@_W@" _LIBCPP_ABI_NAMESPACE_STR
             "@std@@@12@A")
 #  endif
         ;
-_ALIGNAS_TYPE(__stdoutbuf<wchar_t>) static char __wcout[sizeof(__stdoutbuf<wchar_t>)];
+alignas(__stdoutbuf<wchar_t>) static char __wcout[sizeof(__stdoutbuf<wchar_t>)];
 static mbstate_t mb_wcout;
 #endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
 
-_ALIGNAS_TYPE(ostream)
-_LIBCPP_EXPORTED_FROM_ABI char cerr[sizeof(ostream)]
+alignas(ostream) _LIBCPP_EXPORTED_FROM_ABI char cerr[sizeof(ostream)]
 #if defined(_LIBCPP_ABI_MICROSOFT) && defined(__clang__)
     __asm__("?cerr@" _LIBCPP_ABI_NAMESPACE_STR "@std@@3V?$basic_ostream@DU?$char_traits@D@" _LIBCPP_ABI_NAMESPACE_STR
             "@std@@@12@A")
 #endif
         ;
-_ALIGNAS_TYPE(__stdoutbuf<char>) static char __cerr[sizeof(__stdoutbuf<char>)];
+alignas(__stdoutbuf<char>) static char __cerr[sizeof(__stdoutbuf<char>)];
 static mbstate_t mb_cerr;
 
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-_ALIGNAS_TYPE(wostream)
-_LIBCPP_EXPORTED_FROM_ABI char wcerr[sizeof(wostream)]
+alignas(wostream) _LIBCPP_EXPORTED_FROM_ABI char wcerr[sizeof(wostream)]
 #  if defined(_LIBCPP_ABI_MICROSOFT) && defined(__clang__)
     __asm__("?wcerr@" _LIBCPP_ABI_NAMESPACE_STR "@std@@3V?$basic_ostream@_WU?$char_traits@_W@" _LIBCPP_ABI_NAMESPACE_STR
             "@std@@@12@A")
 #  endif
         ;
-_ALIGNAS_TYPE(__stdoutbuf<wchar_t>) static char __wcerr[sizeof(__stdoutbuf<wchar_t>)];
+alignas(__stdoutbuf<wchar_t>) static char __wcerr[sizeof(__stdoutbuf<wchar_t>)];
 static mbstate_t mb_wcerr;
 #endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
 
-_ALIGNAS_TYPE(ostream)
-_LIBCPP_EXPORTED_FROM_ABI char clog[sizeof(ostream)]
+alignas(ostream) _LIBCPP_EXPORTED_FROM_ABI char clog[sizeof(ostream)]
 #if defined(_LIBCPP_ABI_MICROSOFT) && defined(__clang__)
     __asm__("?clog@" _LIBCPP_ABI_NAMESPACE_STR "@std@@3V?$basic_ostream@DU?$char_traits@D@" _LIBCPP_ABI_NAMESPACE_STR
             "@std@@@12@A")
@@ -96,8 +89,7 @@ _LIBCPP_EXPORTED_FROM_ABI char clog[sizeof(ostream)]
         ;
 
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
-_ALIGNAS_TYPE(wostream)
-_LIBCPP_EXPORTED_FROM_ABI char wclog[sizeof(wostream)]
+alignas(wostream) _LIBCPP_EXPORTED_FROM_ABI char wclog[sizeof(wostream)]
 #  if defined(_LIBCPP_ABI_MICROSOFT) && defined(__clang__)
     __asm__("?wclog@" _LIBCPP_ABI_NAMESPACE_STR "@std@@3V?$basic_ostream@_WU?$char_traits@_W@" _LIBCPP_ABI_NAMESPACE_STR
             "@std@@@12@A")

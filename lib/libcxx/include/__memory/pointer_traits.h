@@ -20,19 +20,28 @@
 #include <__type_traits/is_void.h>
 #include <__type_traits/void_t.h>
 #include <__utility/declval.h>
+#include <__utility/forward.h>
 #include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template <class _Tp, class = void>
-struct __has_element_type : false_type {};
+// clang-format off
+#define _LIBCPP_CLASS_TRAITS_HAS_XXX(NAME, PROPERTY)                                                                   \
+  template <class _Tp, class = void>                                                                                   \
+  struct NAME : false_type {};                                                                                         \
+  template <class _Tp>                                                                                                 \
+  struct NAME<_Tp, __void_t<typename _Tp::PROPERTY> > : true_type {}
+// clang-format on
 
-template <class _Tp>
-struct __has_element_type<_Tp, __void_t<typename _Tp::element_type> > : true_type {};
+_LIBCPP_CLASS_TRAITS_HAS_XXX(__has_pointer, pointer);
+_LIBCPP_CLASS_TRAITS_HAS_XXX(__has_element_type, element_type);
 
 template <class _Ptr, bool = __has_element_type<_Ptr>::value>
 struct __pointer_traits_element_type {};
@@ -201,17 +210,17 @@ struct _IsFancyPointer {
 };
 
 // enable_if is needed here to avoid instantiating checks for fancy pointers on raw pointers
-template <class _Pointer, class = __enable_if_t< _And<is_class<_Pointer>, _IsFancyPointer<_Pointer> >::value > >
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR
-    __decay_t<decltype(__to_address_helper<_Pointer>::__call(std::declval<const _Pointer&>()))>
-    __to_address(const _Pointer& __p) _NOEXCEPT {
+template <class _Pointer, __enable_if_t< _And<is_class<_Pointer>, _IsFancyPointer<_Pointer> >::value, int> = 0>
+_LIBCPP_HIDE_FROM_ABI
+_LIBCPP_CONSTEXPR __decay_t<decltype(__to_address_helper<_Pointer>::__call(std::declval<const _Pointer&>()))>
+__to_address(const _Pointer& __p) _NOEXCEPT {
   return __to_address_helper<_Pointer>::__call(__p);
 }
 
 template <class _Pointer, class>
 struct __to_address_helper {
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR static decltype(std::__to_address(
-      std::declval<const _Pointer&>().operator->()))
+  _LIBCPP_HIDE_FROM_ABI
+  _LIBCPP_CONSTEXPR static decltype(std::__to_address(std::declval<const _Pointer&>().operator->()))
   __call(const _Pointer& __p) _NOEXCEPT {
     return std::__to_address(__p.operator->());
   }
@@ -220,8 +229,8 @@ struct __to_address_helper {
 template <class _Pointer>
 struct __to_address_helper<_Pointer,
                            decltype((void)pointer_traits<_Pointer>::to_address(std::declval<const _Pointer&>()))> {
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR static decltype(pointer_traits<_Pointer>::to_address(
-      std::declval<const _Pointer&>()))
+  _LIBCPP_HIDE_FROM_ABI
+  _LIBCPP_CONSTEXPR static decltype(pointer_traits<_Pointer>::to_address(std::declval<const _Pointer&>()))
   __call(const _Pointer& __p) _NOEXCEPT {
     return pointer_traits<_Pointer>::to_address(__p);
   }
@@ -234,12 +243,65 @@ inline _LIBCPP_HIDE_FROM_ABI constexpr auto to_address(_Tp* __p) noexcept {
 }
 
 template <class _Pointer>
-inline _LIBCPP_HIDE_FROM_ABI constexpr auto to_address(const _Pointer& __p) noexcept
-    -> decltype(std::__to_address(__p)) {
+inline _LIBCPP_HIDE_FROM_ABI constexpr auto
+to_address(const _Pointer& __p) noexcept -> decltype(std::__to_address(__p)) {
   return std::__to_address(__p);
 }
 #endif
 
+#if _LIBCPP_STD_VER >= 23
+
+template <class _Tp>
+struct __pointer_of {};
+
+template <class _Tp>
+  requires(__has_pointer<_Tp>::value)
+struct __pointer_of<_Tp> {
+  using type = typename _Tp::pointer;
+};
+
+template <class _Tp>
+  requires(!__has_pointer<_Tp>::value && __has_element_type<_Tp>::value)
+struct __pointer_of<_Tp> {
+  using type = typename _Tp::element_type*;
+};
+
+template <class _Tp>
+  requires(!__has_pointer<_Tp>::value && !__has_element_type<_Tp>::value &&
+           __has_element_type<pointer_traits<_Tp>>::value)
+struct __pointer_of<_Tp> {
+  using type = typename pointer_traits<_Tp>::element_type*;
+};
+
+template <typename _Tp>
+using __pointer_of_t = typename __pointer_of<_Tp>::type;
+
+template <class _Tp, class _Up>
+struct __pointer_of_or {
+  using type _LIBCPP_NODEBUG = _Up;
+};
+
+template <class _Tp, class _Up>
+  requires requires { typename __pointer_of_t<_Tp>; }
+struct __pointer_of_or<_Tp, _Up> {
+  using type _LIBCPP_NODEBUG = __pointer_of_t<_Tp>;
+};
+
+template <typename _Tp, typename _Up>
+using __pointer_of_or_t = typename __pointer_of_or<_Tp, _Up>::type;
+
+template <class _Smart>
+concept __resettable_smart_pointer = requires(_Smart __s) { __s.reset(); };
+
+template <class _Smart, class _Pointer, class... _Args>
+concept __resettable_smart_pointer_with_args = requires(_Smart __s, _Pointer __p, _Args... __args) {
+  __s.reset(static_cast<__pointer_of_or_t<_Smart, _Pointer>>(__p), std::forward<_Args>(__args)...);
+};
+
+#endif
+
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___MEMORY_POINTER_TRAITS_H

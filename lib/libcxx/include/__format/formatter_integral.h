@@ -32,7 +32,7 @@
 #include <string_view>
 
 #ifndef _LIBCPP_HAS_NO_LOCALIZATION
-#  include <locale>
+#  include <__locale>
 #endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

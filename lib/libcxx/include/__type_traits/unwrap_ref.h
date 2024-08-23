@@ -10,6 +10,7 @@
 #define _LIBCPP___TYPE_TRAITS_UNWRAP_REF_H
 
 #include <__config>
+#include <__fwd/functional.h>
 #include <__type_traits/decay.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -24,15 +25,9 @@ struct __unwrap_reference {
 };
 
 template <class _Tp>
-class reference_wrapper;
-
-template <class _Tp>
 struct __unwrap_reference<reference_wrapper<_Tp> > {
   typedef _LIBCPP_NODEBUG _Tp& type;
 };
-
-template <class _Tp>
-struct decay;
 
 #if _LIBCPP_STD_VER >= 20
 template <class _Tp>

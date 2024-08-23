@@ -20,7 +20,7 @@
 #include <__memory/destruct_n.h>
 #include <__memory/temporary_buffer.h>
 #include <__memory/unique_ptr.h>
-#include <__type_traits/is_trivially_copy_assignable.h>
+#include <__type_traits/is_trivially_assignable.h>
 #include <__utility/move.h>
 #include <__utility/pair.h>
 #include <new>

@@ -44,22 +44,22 @@ struct __fn {
     if constexpr (forward_iterator<_Iter>) {
       auto [__first_un, __last_un] = std::__unwrap_range(__first, std::move(__last));
       return std::__rewrap_range<_Sent>(
-          std::move(__first), std::__find_impl(std::move(__first_un), std::move(__last_un), __value, __proj));
+          std::move(__first), std::__find(std::move(__first_un), std::move(__last_un), __value, __proj));
     } else {
-      return std::__find_impl(std::move(__first), std::move(__last), __value, __proj);
+      return std::__find(std::move(__first), std::move(__last), __value, __proj);
     }
   }
 
   template <input_iterator _Ip, sentinel_for<_Ip> _Sp, class _Tp, class _Proj = identity>
     requires indirect_binary_predicate<ranges::equal_to, projected<_Ip, _Proj>, const _Tp*>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr _Ip
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr _Ip
   operator()(_Ip __first, _Sp __last, const _Tp& __value, _Proj __proj = {}) const {
     return __find_unwrap(std::move(__first), std::move(__last), __value, __proj);
   }
 
   template <input_range _Rp, class _Tp, class _Proj = identity>
     requires indirect_binary_predicate<ranges::equal_to, projected<iterator_t<_Rp>, _Proj>, const _Tp*>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr borrowed_iterator_t<_Rp>
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr borrowed_iterator_t<_Rp>
   operator()(_Rp&& __r, const _Tp& __value, _Proj __proj = {}) const {
     return __find_unwrap(ranges::begin(__r), ranges::end(__r), __value, __proj);
   }

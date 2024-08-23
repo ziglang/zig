@@ -10,7 +10,6 @@
 #ifndef _LIBCPP___FORMAT_FORMATTER_INTEGER_H
 #define _LIBCPP___FORMAT_FORMATTER_INTEGER_H
 
-#include <__availability>
 #include <__concepts/arithmetic.h>
 #include <__config>
 #include <__format/concepts.h>

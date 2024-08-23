@@ -61,7 +61,7 @@ __advance(_RandIter& __i, typename iterator_traits<_RandIter>::difference_type _
 template < class _InputIter,
            class _Distance,
            class _IntegralDistance = decltype(std::__convert_to_integral(std::declval<_Distance>())),
-           class                   = __enable_if_t<is_integral<_IntegralDistance>::value> >
+           __enable_if_t<is_integral<_IntegralDistance>::value, int> = 0>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 void advance(_InputIter& __i, _Distance __orig_n) {
   typedef typename iterator_traits<_InputIter>::difference_type _Difference;
   _Difference __n = static_cast<_Difference>(std::__convert_to_integral(__orig_n));
@@ -170,14 +170,14 @@ public:
     } else {
       // Otherwise, if `n` is non-negative, while `bool(i != bound_sentinel)` is true, increments `i` but at
       // most `n` times.
-      while (__i != __bound_sentinel && __n > 0) {
+      while (__n > 0 && __i != __bound_sentinel) {
         ++__i;
         --__n;
       }
 
       // Otherwise, while `bool(i != bound_sentinel)` is true, decrements `i` but at most `-n` times.
       if constexpr (bidirectional_iterator<_Ip> && same_as<_Ip, _Sp>) {
-        while (__i != __bound_sentinel && __n < 0) {
+        while (__n < 0 && __i != __bound_sentinel) {
           --__i;
           ++__n;
         }
