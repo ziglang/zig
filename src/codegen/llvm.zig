@@ -3737,28 +3737,7 @@ pub const Object = struct {
             },
             .ptr => return o.builder.convConst(try o.lowerPtr(arg_val, 0), llvm_int_ty),
             .aggregate => switch (ip.indexToKey(ty.toIntern())) {
-                .struct_type => {
-                    const struct_type = ip.loadStructType(ty.toIntern());
-                    assert(struct_type.haveLayout(ip));
-                    assert(struct_type.layout == .@"packed");
-                    comptime assert(Type.packed_struct_layout_version == 2);
-                    var running_int = try o.builder.intConst(llvm_int_ty, 0);
-                    var running_bits: u16 = 0;
-                    for (struct_type.field_types.get(ip), 0..) |field_ty, field_index| {
-                        if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(zcu)) continue;
-
-                        const shift_rhs = try o.builder.intConst(llvm_int_ty, running_bits);
-                        const field_val = try o.lowerValueToInt(llvm_int_ty, (try val.fieldValue(pt, field_index)).toIntern());
-                        const shifted = try o.builder.binConst(.shl, field_val, shift_rhs);
-
-                        running_int = try o.builder.binConst(.xor, running_int, shifted);
-
-                        const ty_bit_size: u16 = @intCast(Type.fromInterned(field_ty).bitSize(zcu));
-                        running_bits += ty_bit_size;
-                    }
-                    return running_int;
-                },
-                .vector_type => {},
+                .struct_type, .vector_type => {},
                 else => unreachable,
             },
             .un => |un| {
