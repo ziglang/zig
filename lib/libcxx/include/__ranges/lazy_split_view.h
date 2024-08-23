@@ -403,8 +403,8 @@ template <class _Range, class _Pattern>
 lazy_split_view(_Range&&, _Pattern&&) -> lazy_split_view<views::all_t<_Range>, views::all_t<_Pattern>>;
 
 template <input_range _Range>
-lazy_split_view(_Range&&, range_value_t<_Range>)
-    -> lazy_split_view<views::all_t<_Range>, single_view<range_value_t<_Range>>>;
+lazy_split_view(_Range&&,
+                range_value_t<_Range>) -> lazy_split_view<views::all_t<_Range>, single_view<range_value_t<_Range>>>;
 
 namespace views {
 namespace __lazy_split_view {

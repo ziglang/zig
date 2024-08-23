@@ -13,9 +13,13 @@
 #include <__type_traits/is_assignable.h>
 #include <__type_traits/is_same.h>
 #include <__utility/forward.h>
+#include <__utility/move.h>
 #include <cstddef>
 #include <experimental/__config>
 #include <experimental/__simd/utility.h>
+
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
 
 #if _LIBCPP_STD_VER >= 17 && defined(_LIBCPP_ENABLE_EXPERIMENTAL)
 
@@ -55,10 +59,47 @@ public:
     __set(static_cast<value_type>(std::forward<_Up>(__v)));
     return {__s_, __idx_};
   }
+
+  // Note: This approach might not fully align with the specification,
+  // which might be a wording defect. (https://wg21.link/N4808 section 9.6.3)
+  template <class _Tp1, class _Storage1, class _Vp1>
+  friend void
+  swap(__simd_reference<_Tp1, _Storage1, _Vp1>&& __a, __simd_reference<_Tp1, _Storage1, _Vp1>&& __b) noexcept;
+
+  template <class _Tp1, class _Storage1, class _Vp1>
+  friend void swap(_Vp1& __a, __simd_reference<_Tp1, _Storage1, _Vp1>&& __b) noexcept;
+
+  template <class _Tp1, class _Storage1, class _Vp1>
+  friend void swap(__simd_reference<_Tp1, _Storage1, _Vp1>&& __a, _Vp1& __b) noexcept;
 };
+
+template <class _Tp, class _Storage, class _Vp>
+_LIBCPP_HIDE_FROM_ABI void
+swap(__simd_reference<_Tp, _Storage, _Vp>&& __a, __simd_reference<_Tp, _Storage, _Vp>&& __b) noexcept {
+  _Vp __tmp(std::move(__a));
+  std::move(__a) = std::move(__b);
+  std::move(__b) = std::move(__tmp);
+}
+
+template <class _Tp, class _Storage, class _Vp>
+_LIBCPP_HIDE_FROM_ABI void swap(_Vp& __a, __simd_reference<_Tp, _Storage, _Vp>&& __b) noexcept {
+  _Vp __tmp(std::move(__a));
+  __a            = std::move(__b);
+  std::move(__b) = std::move(__tmp);
+}
+
+template <class _Tp, class _Storage, class _Vp>
+_LIBCPP_HIDE_FROM_ABI void swap(__simd_reference<_Tp, _Storage, _Vp>&& __a, _Vp& __b) noexcept {
+  _Vp __tmp(std::move(__a));
+  std::move(__a) = std::move(__b);
+  __b            = std::move(__tmp);
+}
 
 } // namespace parallelism_v2
 _LIBCPP_END_NAMESPACE_EXPERIMENTAL
 
 #endif // _LIBCPP_STD_VER >= 17 && defined(_LIBCPP_ENABLE_EXPERIMENTAL)
+
+_LIBCPP_POP_MACROS
+
 #endif // _LIBCPP_EXPERIMENTAL___SIMD_REFERENCE_H

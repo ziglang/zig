@@ -81,7 +81,6 @@ void *aligned_alloc(size_t alignment, size_t size);                       // C11
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 
 #include <stdlib.h>

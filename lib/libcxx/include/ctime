@@ -45,7 +45,6 @@ int timespec_get( struct timespec *ts, int base); // C++17
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 
 // <time.h> is not provided by libc++

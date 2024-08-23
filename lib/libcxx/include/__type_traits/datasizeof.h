@@ -26,39 +26,39 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
+#if __has_keyword(__datasizeof) || __has_extension(datasizeof)
 template <class _Tp>
-struct __libcpp_datasizeof {
-#if __has_extension(datasizeof)
-  static const size_t value = __datasizeof(_Tp);
+inline const size_t __datasizeof_v = __datasizeof(_Tp);
 #else
 // NOLINTNEXTLINE(readability-redundant-preprocessor) This is https://llvm.org/PR64825
 #  if __has_cpp_attribute(__no_unique_address__)
-  template <class = char>
-  struct _FirstPaddingByte {
-    [[__no_unique_address__]] _Tp __v_;
-    char __first_padding_byte_;
-  };
+template <class _Tp>
+struct _FirstPaddingByte {
+  [[__no_unique_address__]] _Tp __v_;
+  char __first_padding_byte_;
+};
 #  else
-  template <bool = __libcpp_is_final<_Tp>::value || !is_class<_Tp>::value>
-  struct _FirstPaddingByte : _Tp {
-    char __first_padding_byte_;
-  };
+template <class _Tp, bool = __libcpp_is_final<_Tp>::value || !is_class<_Tp>::value>
+struct _FirstPaddingByte : _Tp {
+  char __first_padding_byte_;
+};
 
-  template <>
-  struct _FirstPaddingByte<true> {
-    _Tp __v_;
-    char __first_padding_byte_;
-  };
+template <class _Tp>
+struct _FirstPaddingByte<_Tp, true> {
+  _Tp __v_;
+  char __first_padding_byte_;
+};
 #  endif // __has_cpp_attribute(__no_unique_address__)
 
-  // _FirstPaddingByte<> is sometimes non-standard layout. Using `offsetof` is UB in that case, but GCC and Clang allow
-  // the use as an extension.
-  _LIBCPP_DIAGNOSTIC_PUSH
-  _LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Winvalid-offsetof")
-  static const size_t value = offsetof(_FirstPaddingByte<>, __first_padding_byte_);
-  _LIBCPP_DIAGNOSTIC_POP
+// _FirstPaddingByte<> is sometimes non-standard layout. Using `offsetof` is UB in that case, but GCC and Clang allow
+// the use as an extension.
+_LIBCPP_DIAGNOSTIC_PUSH
+_LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Winvalid-offsetof")
+_LIBCPP_GCC_DIAGNOSTIC_IGNORED("-Winvalid-offsetof")
+template <class _Tp>
+inline const size_t __datasizeof_v = offsetof(_FirstPaddingByte<_Tp>, __first_padding_byte_);
+_LIBCPP_DIAGNOSTIC_POP
 #endif   // __has_extension(datasizeof)
-};
 
 _LIBCPP_END_NAMESPACE_STD
 
