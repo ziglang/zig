@@ -24,6 +24,7 @@ const Allocator = std.mem.Allocator;
 const Rng = std.Random.DefaultPrng;
 const ArrayList = std.ArrayList;
 
+// Mutation list copied from llvm's libfuzzer
 const Mutation = union(enum) {
     shuffle_bytes: struct { seed: u64 },
     erase_bytes: struct { index: u32, len: u8 },
@@ -58,14 +59,16 @@ fn generateRandomMutationSequence(rand_: Rng) MutationSequence {
     var muts: MutationSequence = .{};
     for (0..rand.next() % muts.capacity()) |_| {
         const r = rand.next();
-        muts.appendAssumeCapacity(switch (rand.next() % 6) {
-            0 => .{ .shuffle_bytes = .{ .seed = r } },
-            1 => .{ .erase_bytes = .{ .index = @intCast(r >> 32), .len = @truncate(r) } },
-            2 => .{ .insert_byte = .{ .index = @intCast(r >> 32), .byte = @truncate(r) } },
-            3 => .{ .insert_repeated_byte = .{ .index = @intCast(r >> 32), .len = @truncate(r >> 8), .byte = @truncate(r) } },
-            4 => .{ .change_byte = .{ .index = @intCast(r >> 32), .byte = @truncate(r) } },
-            5 => .{ .change_bit = .{ .index = @intCast(r >> 32), .bit = @truncate(r) } },
-            else => unreachable,
+        const MutationTag = std.meta.Tag(Mutation);
+        const mutation_tag_count = std.meta.tags(MutationTag).len;
+        const random_mutation_tag: MutationTag = @enumFromInt(rand.next() % mutation_tag_count);
+        muts.appendAssumeCapacity(switch (random_mutation_tag) {
+            .shuffle_bytes => .{ .shuffle_bytes = .{ .seed = r } },
+            .erase_bytes => .{ .erase_bytes = .{ .index = @intCast(r >> 32), .len = @truncate(r) } },
+            .insert_byte => .{ .insert_byte = .{ .index = @intCast(r >> 32), .byte = @truncate(r) } },
+            .insert_repeated_byte => .{ .insert_repeated_byte = .{ .index = @intCast(r >> 32), .len = @truncate(r >> 8), .byte = @truncate(r) } },
+            .change_byte => .{ .change_byte = .{ .index = @intCast(r >> 32), .byte = @truncate(r) } },
+            .change_bit => .{ .change_bit = .{ .index = @intCast(r >> 32), .bit = @truncate(r) } },
         });
     }
     return muts;
