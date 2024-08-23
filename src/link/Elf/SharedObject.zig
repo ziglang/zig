@@ -63,7 +63,7 @@ pub fn parse(self: *SharedObject, elf_file: *Elf, handle: std.fs.File) !void {
             "invalid ELF machine type: {s}",
             .{@tagName(self.header.?.e_machine)},
         );
-        return error.InvalidCpuArch;
+        return error.InvalidMachineType;
     }
 
     const shoff = std.math.cast(usize, self.header.?.e_shoff) orelse return error.Overflow;

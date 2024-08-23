@@ -112,7 +112,7 @@ fn parseCommon(self: *Object, allocator: Allocator, handle: std.fs.File, elf_fil
             "invalid ELF machine type: {s}",
             .{@tagName(self.header.?.e_machine)},
         );
-        return error.InvalidCpuArch;
+        return error.InvalidMachineType;
     }
     try elf_file.validateEFlags(self.index, self.header.?.e_flags);
 

@@ -921,7 +921,7 @@ fn parseInputFileWorker(self: *MachO, file: File) void {
             error.MalformedObject,
             error.MalformedDylib,
             error.MalformedTbd,
-            error.InvalidCpuArch,
+            error.InvalidMachineType,
             error.InvalidTarget,
             => {}, // already reported
             else => |e| self.reportParseError2(file.getIndex(), "unexpected error: parsing input file failed with error {s}", .{@errorName(e)}) catch {},
