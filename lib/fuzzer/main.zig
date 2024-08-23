@@ -8,6 +8,8 @@ const MemoryMappedList = @import("MemoryMappedList.zig");
 
 export threadlocal var __sancov_lowest_stack: usize = std.math.maxInt(usize);
 
+/// LLVM creates an array of these and we can look at them. They have 1:1
+/// relationship with the inline counters
 pub const FlaggedPc = extern struct {
     addr: usize,
     flags: packed struct(usize) {
