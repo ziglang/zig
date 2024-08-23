@@ -114,14 +114,21 @@ pub const APFloatBaseSemantics = enum(c_int) {
     PPCDoubleDouble,
     Float8E5M2,
     Float8E5M2FNUZ,
+    Float8E4M3,
     Float8E4M3FN,
     Float8E4M3FNUZ,
     Float8E4M3B11FNUZ,
     FloatTF32,
+    Float6E3M2FN,
+    Float6E2M3FN,
+    Float4E2M1FN,
     x87DoubleExtended,
 };
 
 pub const APInt = opaque {
+    pub const free = ZigClangAPInt_free;
+    extern fn ZigClangAPInt_free(*const APInt) void;
+
     pub fn getLimitedValue(self: *const APInt, comptime T: type) T {
         return @as(T, @truncate(ZigClangAPInt_getLimitedValue(self, std.math.maxInt(T))));
     }
@@ -337,7 +344,7 @@ pub const ConstantArrayType = opaque {
     extern fn ZigClangConstantArrayType_getElementType(*const ConstantArrayType) QualType;
 
     pub const getSize = ZigClangConstantArrayType_getSize;
-    extern fn ZigClangConstantArrayType_getSize(*const ConstantArrayType) *const APInt;
+    extern fn ZigClangConstantArrayType_getSize(*const ConstantArrayType, **const APInt) void;
 };
 
 pub const ConstantExpr = opaque {};
@@ -1135,6 +1142,7 @@ pub const TypeClass = enum(c_int) {
     Adjusted,
     Decayed,
     ConstantArray,
+    ArrayParameter,
     DependentSizedArray,
     IncompleteArray,
     VariableArray,
@@ -1143,6 +1151,7 @@ pub const TypeClass = enum(c_int) {
     BTFTagAttributed,
     BitInt,
     BlockPointer,
+    CountAttributed,
     Builtin,
     Complex,
     Decltype,
@@ -1167,6 +1176,7 @@ pub const TypeClass = enum(c_int) {
     ObjCInterface,
     ObjCTypeParam,
     PackExpansion,
+    PackIndexing,
     Paren,
     Pipe,
     Pointer,
@@ -1211,6 +1221,7 @@ const StmtClass = enum(c_int) {
     PredefinedExprClass,
     ParenListExprClass,
     ParenExprClass,
+    PackIndexingExprClass,
     PackExpansionExprClass,
     UnresolvedMemberExprClass,
     UnresolvedLookupExprClass,
@@ -1233,7 +1244,6 @@ const StmtClass = enum(c_int) {
     ObjCArrayLiteralClass,
     OMPIteratorExprClass,
     OMPArrayShapingExprClass,
-    OMPArraySectionExprClass,
     NoInitExprClass,
     MemberExprClass,
     MatrixSubscriptExprClass,
@@ -1254,6 +1264,7 @@ const StmtClass = enum(c_int) {
     FixedPointLiteralClass,
     ExtVectorElementExprClass,
     ExpressionTraitExprClass,
+    EmbedExprClass,
     DesignatedInitUpdateExprClass,
     DesignatedInitExprClass,
     DependentScopeDeclRefExprClass,
@@ -1311,6 +1322,7 @@ const StmtClass = enum(c_int) {
     AsTypeExprClass,
     ArrayTypeTraitExprClass,
     ArraySubscriptExprClass,
+    ArraySectionExprClass,
     ArrayInitLoopExprClass,
     ArrayInitIndexExprClass,
     AddrLabelExprClass,
@@ -1325,6 +1337,8 @@ const StmtClass = enum(c_int) {
     SEHFinallyStmtClass,
     SEHExceptStmtClass,
     ReturnStmtClass,
+    OpenACCLoopConstructClass,
+    OpenACCComputeConstructClass,
     ObjCForCollectionStmtClass,
     ObjCAutoreleasePoolStmtClass,
     ObjCAtTryStmtClass,
@@ -1360,6 +1374,8 @@ const StmtClass = enum(c_int) {
     OMPMaskedDirectiveClass,
     OMPUnrollDirectiveClass,
     OMPTileDirectiveClass,
+    OMPReverseDirectiveClass,
+    OMPInterchangeDirectiveClass,
     OMPTeamsGenericLoopDirectiveClass,
     OMPTeamsDistributeSimdDirectiveClass,
     OMPTeamsDistributeParallelForSimdDirectiveClass,
@@ -1496,13 +1512,13 @@ pub const CK = enum(c_int) {
 
 pub const DeclKind = enum(c_int) {
     TranslationUnit,
+    TopLevelStmt,
     RequiresExprBody,
     LinkageSpec,
     ExternCContext,
     Export,
     Captured,
     Block,
-    TopLevelStmt,
     StaticAssert,
     PragmaDetectMismatch,
     PragmaComment,
@@ -2010,6 +2026,7 @@ pub const BuiltinTypeKind = enum(c_int) {
     RvvBFloat16m2x4,
     RvvBFloat16m4x2,
     WasmExternRef,
+    AMDGPUBufferRsrc,
     Void,
     Bool,
     Char_U,
@@ -2075,6 +2092,7 @@ pub const BuiltinTypeKind = enum(c_int) {
     Dependent,
     Overload,
     BoundMember,
+    UnresolvedTemplate,
     PseudoObject,
     UnknownAny,
     BuiltinFn,
@@ -2108,6 +2126,8 @@ pub const CallingConv = enum(c_int) {
     AArch64SVEPCS,
     AMDGPUKernelCall,
     M68kRTD,
+    PreserveNone,
+    RISCVVectorCall,
 };
 
 pub const StorageClass = enum(c_int) {
@@ -2172,6 +2192,7 @@ pub const UnaryExprOrTypeTrait_Kind = enum(c_int) {
     DataSizeOf,
     AlignOf,
     PreferredAlignOf,
+    PtrAuthTypeDiscriminator,
     VecStep,
     OpenMPRequiredSimdAlign,
 };
