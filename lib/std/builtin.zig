@@ -48,8 +48,6 @@ pub const StackTrace = struct {
         if (builtin.os.tag == .freestanding) return;
 
         _ = options;
-        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-        defer arena.deinit();
         const debug_info = std.debug.getSelfDebugInfo() catch |err| {
             return writer.print("\nUnable to print stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
         };
