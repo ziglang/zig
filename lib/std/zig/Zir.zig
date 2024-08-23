@@ -3548,7 +3548,7 @@ pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
     const datas = zir.instructions.items(.data);
     switch (tags[@intFromEnum(decl_inst)]) {
         // Functions are allowed and yield no iterations.
-        // There is one case matching this in the extended instruction set below.
+        // This is because they are returned by `findDecls`.
         .func, .func_inferred, .func_fancy => return .{
             .extra_index = undefined,
             .decls_remaining = 0,
@@ -3558,6 +3558,13 @@ pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
         .extended => {
             const extended = datas[@intFromEnum(decl_inst)].extended;
             switch (extended.opcode) {
+                // Reifications are allowed and yield no iterations.
+                // This is because they are returned by `findDecls`.
+                .reify => return .{
+                    .extra_index = undefined,
+                    .decls_remaining = 0,
+                    .zir = zir,
+                },
                 .struct_decl => {
                     const small: Inst.StructDecl.Small = @bitCast(extended.small);
                     var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.StructDecl).Struct.fields.len);
@@ -3688,6 +3695,17 @@ pub fn findDecls(zir: Zir, gpa: Allocator, list: *std.ArrayListUnmanaged(Inst.In
     if (bodies.align_body) |b| try zir.findDeclsBody(gpa, list, &found_defers, b);
     if (bodies.linksection_body) |b| try zir.findDeclsBody(gpa, list, &found_defers, b);
     if (bodies.addrspace_body) |b| try zir.findDeclsBody(gpa, list, &found_defers, b);
+}
+
+/// Like `findDecls`, but only considers the `main_struct_inst` instruction. This may return more than
+/// just that instruction because it will also traverse fields.
+pub fn findDeclsRoot(zir: Zir, gpa: Allocator, list: *std.ArrayListUnmanaged(Inst.Index)) !void {
+    list.clearRetainingCapacity();
+
+    var found_defers: std.AutoHashMapUnmanaged(u32, void) = .{};
+    defer found_defers.deinit(gpa);
+
+    try zir.findDeclsInner(gpa, list, &found_defers, .main_struct_inst);
 }
 
 fn findDeclsInner(

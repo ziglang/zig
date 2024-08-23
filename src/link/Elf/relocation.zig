@@ -91,6 +91,44 @@ pub fn encode(comptime kind: Kind, cpu_arch: std.Target.Cpu.Arch) u32 {
     };
 }
 
+pub const dwarf = struct {
+    pub fn crossSectionRelocType(format: DW.Format, cpu_arch: std.Target.Cpu.Arch) u32 {
+        return switch (cpu_arch) {
+            .x86_64 => @intFromEnum(switch (format) {
+                .@"32" => elf.R_X86_64.@"32",
+                .@"64" => .@"64",
+            }),
+            .riscv64 => @intFromEnum(switch (format) {
+                .@"32" => elf.R_RISCV.@"32",
+                .@"64" => .@"64",
+            }),
+            else => @panic("TODO unhandled cpu arch"),
+        };
+    }
+
+    pub fn externalRelocType(
+        target: Symbol,
+        address_size: Dwarf.AddressSize,
+        cpu_arch: std.Target.Cpu.Arch,
+    ) u32 {
+        return switch (cpu_arch) {
+            .x86_64 => @intFromEnum(switch (address_size) {
+                .@"32" => if (target.flags.is_tls) elf.R_X86_64.DTPOFF32 else .@"32",
+                .@"64" => if (target.flags.is_tls) elf.R_X86_64.DTPOFF64 else .@"64",
+                else => unreachable,
+            }),
+            .riscv64 => @intFromEnum(switch (address_size) {
+                .@"32" => elf.R_RISCV.@"32",
+                .@"64" => elf.R_RISCV.@"64",
+                else => unreachable,
+            }),
+            else => @panic("TODO unhandled cpu arch"),
+        };
+    }
+
+    const DW = std.dwarf;
+};
+
 const FormatRelocTypeCtx = struct {
     r_type: u32,
     cpu_arch: std.Target.Cpu.Arch,
@@ -124,4 +162,6 @@ const assert = std.debug.assert;
 const elf = std.elf;
 const std = @import("std");
 
+const Dwarf = @import("../Dwarf.zig");
 const Elf = @import("../Elf.zig");
+const Symbol = @import("Symbol.zig");

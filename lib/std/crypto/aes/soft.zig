@@ -629,6 +629,8 @@ fn generateSbox(invert: bool) [256]u8 {
 
 // Generate lookup tables.
 fn generateTable(invert: bool) [4][256]u32 {
+    @setEvalBranchQuota(50000);
+
     var table: [4][256]u32 = undefined;
 
     for (generateSbox(invert), 0..) |value, index| {

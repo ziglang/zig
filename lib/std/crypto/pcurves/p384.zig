@@ -393,7 +393,7 @@ pub const P384 = struct {
     }
 
     const basePointPc = pc: {
-        @setEvalBranchQuota(50000);
+        @setEvalBranchQuota(70000);
         break :pc precompute(P384.basePoint, 15);
     };
 

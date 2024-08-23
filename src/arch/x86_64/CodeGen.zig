@@ -59,6 +59,7 @@ owner: Owner,
 inline_func: InternPool.Index,
 mod: *Package.Module,
 err_msg: ?*ErrorMsg,
+arg_index: u32,
 args: []MCValue,
 va_info: union {
     sysv: struct {
@@ -71,7 +72,6 @@ va_info: union {
 },
 ret_mcv: InstTracking,
 fn_type: Type,
-arg_index: u32,
 src_loc: Zcu.LazySrcLoc,
 
 eflags_inst: ?Air.Inst.Index = null,
@@ -802,11 +802,11 @@ pub fn generate(
         .owner = .{ .nav_index = func.owner_nav },
         .inline_func = func_index,
         .err_msg = null,
+        .arg_index = undefined,
         .args = undefined, // populated after `resolveCallingConventionValues`
         .va_info = undefined, // populated after `resolveCallingConventionValues`
         .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
         .fn_type = fn_type,
-        .arg_index = 0,
         .src_loc = src_loc,
         .end_di_line = func.rbrace_line,
         .end_di_column = func.rbrace_column,
@@ -877,6 +877,7 @@ pub fn generate(
         }),
     );
     function.va_info = switch (cc) {
+        else => undefined,
         .SysV => .{ .sysv = .{
             .gp_count = call_info.gp_count,
             .fp_count = call_info.fp_count,
@@ -884,7 +885,6 @@ pub fn generate(
             .reg_save_area = undefined,
         } },
         .Win64 => .{ .win64 = .{} },
-        else => undefined,
     };
 
     function.gen() catch |err| switch (err) {
@@ -978,11 +978,11 @@ pub fn generateLazy(
         .owner = .{ .lazy_sym = lazy_sym },
         .inline_func = undefined,
         .err_msg = null,
+        .arg_index = undefined,
         .args = undefined,
         .va_info = undefined,
         .ret_mcv = undefined,
         .fn_type = undefined,
-        .arg_index = undefined,
         .src_loc = src_loc,
         .end_di_line = undefined, // no debug info yet
         .end_di_column = undefined, // no debug info yet
@@ -1482,6 +1482,8 @@ fn asmOpOnly(self: *Self, tag: Mir.Inst.FixedTag) !void {
 }
 
 fn asmPseudo(self: *Self, ops: Mir.Inst.Ops) !void {
+    assert(std.mem.startsWith(u8, @tagName(ops), "pseudo_") and
+        std.mem.endsWith(u8, @tagName(ops), "_none"));
     _ = try self.addInst(.{
         .tag = .pseudo,
         .ops = ops,
@@ -2101,6 +2103,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
     const ip = &mod.intern_pool;
     const air_tags = self.air.instructions.items(.tag);
 
+    self.arg_index = 0;
     for (body) |inst| {
         wip_mir_log.debug("{}", .{self.fmtAir(inst)});
         verbose_tracking_log.debug("{}", .{self.fmtTracking()});
@@ -2114,6 +2117,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
         self.checkInvariantsAfterAirInst(inst, old_air_bookkeeping);
     }
 
+    if (self.arg_index == 0) try self.airDbgVarArgs();
+    self.arg_index = 0;
     for (body) |inst| {
         if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip)) continue;
         wip_mir_log.debug("{}", .{self.fmtAir(inst)});
@@ -12055,11 +12060,25 @@ fn airArg(self: *Self, inst: Air.Inst.Index) !void {
 }
 
 fn airDbgArg(self: *Self, inst: Air.Inst.Index) !void {
-    defer self.finishAirBookkeeping();
-    if (self.debug_output == .none) return;
-    const name = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
-    if (name != .none) try self.genLocalDebugInfo(inst, self.getResolvedInstValue(inst).short);
-    if (self.liveness.isUnused(inst)) try self.processDeath(inst);
+    // skip zero-bit arguments as they don't have a corresponding arg instruction
+    var arg_index = self.arg_index;
+    while (self.args[arg_index] == .none) arg_index += 1;
+    self.arg_index = arg_index + 1;
+
+    if (self.debug_output != .none) {
+        const name = self.air.instructions.items(.data)[@intFromEnum(inst)].arg.name;
+        if (name != .none) try self.genLocalDebugInfo(inst, self.getResolvedInstValue(inst).short);
+        if (self.liveness.isUnused(inst)) try self.processDeath(inst);
+    }
+    for (self.args[self.arg_index..]) |arg| {
+        if (arg != .none) break;
+    } else try self.airDbgVarArgs();
+    self.finishAirBookkeeping();
+}
+
+fn airDbgVarArgs(self: *Self) !void {
+    if (self.pt.zcu.typeToFunc(self.fn_type).?.is_var_args)
+        try self.asmPseudo(.pseudo_dbg_var_args_none);
 }
 
 fn genLocalDebugInfo(

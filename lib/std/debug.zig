@@ -56,6 +56,8 @@ pub const sys_can_stack_trace = switch (builtin.cpu.arch) {
     // TODO: Make this work.
     .mips,
     .mipsel,
+    .mips64,
+    .mips64el,
     => false,
 
     // `@returnAddress()` in LLVM 10 gives

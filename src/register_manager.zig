@@ -93,6 +93,8 @@ pub fn RegisterManager(
             comptime set: []const Register,
             reg: Register,
         ) ?std.math.IntFittingRange(0, set.len - 1) {
+            @setEvalBranchQuota(3000);
+
             const Id = @TypeOf(reg.id());
             comptime var min_id: Id = std.math.maxInt(Id);
             comptime var max_id: Id = std.math.minInt(Id);

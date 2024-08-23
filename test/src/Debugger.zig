@@ -205,26 +205,26 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
                 \\    single_volatile: *volatile u32 = @ptrFromInt(0x1018),
                 \\    single_const_volatile: *const volatile u32 = @ptrFromInt(0x101c),
                 \\    single_allowzero: *allowzero u32 = @ptrFromInt(0x1020),
-                \\    single_const_allowzero: *const allowzero u32 = @ptrFromInt(0x1024),
-                \\    single_volatile_allowzero: *volatile allowzero u32 = @ptrFromInt(0x1028),
-                \\    single_const_volatile_allowzero: *const volatile allowzero u32 = @ptrFromInt(0x102c),
+                \\    single_allowzero_const: *allowzero const u32 = @ptrFromInt(0x1024),
+                \\    single_allowzero_volatile: *allowzero volatile u32 = @ptrFromInt(0x1028),
+                \\    single_allowzero_const_volatile: *allowzero const volatile u32 = @ptrFromInt(0x102c),
                 \\
                 \\    many: [*]u32 = @ptrFromInt(0x2010),
                 \\    many_const: [*]const u32 = @ptrFromInt(0x2014),
                 \\    many_volatile: [*]volatile u32 = @ptrFromInt(0x2018),
                 \\    many_const_volatile: [*]const volatile u32 = @ptrFromInt(0x201c),
                 \\    many_allowzero: [*]allowzero u32 = @ptrFromInt(0x2020),
-                \\    many_const_allowzero: [*]const allowzero u32 = @ptrFromInt(0x2024),
-                \\    many_volatile_allowzero: [*]volatile allowzero u32 = @ptrFromInt(0x2028),
-                \\    many_const_volatile_allowzero: [*]const volatile allowzero u32 = @ptrFromInt(0x202c),
+                \\    many_allowzero_const: [*]allowzero const u32 = @ptrFromInt(0x2024),
+                \\    many_allowzero_volatile: [*]allowzero volatile u32 = @ptrFromInt(0x2028),
+                \\    many_allowzero_const_volatile: [*]allowzero const volatile u32 = @ptrFromInt(0x202c),
                 \\    slice: []u32 = array[0..1],
                 \\    slice_const: []const u32 = array[0..2],
                 \\    slice_volatile: []volatile u32 = array[0..3],
                 \\    slice_const_volatile: []const volatile u32 = array[0..4],
                 \\    slice_allowzero: []allowzero u32 = array[4..4],
-                \\    slice_const_allowzero: []const allowzero u32 = array[4..5],
-                \\    slice_volatile_allowzero: []volatile allowzero u32 = array[4..6],
-                \\    slice_const_volatile_allowzero: []const volatile allowzero u32 = array[4..7],
+                \\    slice_allowzero_const: []allowzero const u32 = array[4..5],
+                \\    slice_allowzero_volatile: []allowzero volatile u32 = array[4..6],
+                \\    slice_allowzero_const_volatile: []allowzero const volatile u32 = array[4..7],
                 \\
                 \\    c: [*c]u32 = @ptrFromInt(0x4010),
                 \\    c_const: [*c]const u32 = @ptrFromInt(0x4014),
@@ -254,17 +254,17 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\  (*volatile u32) single_volatile = 0x0000000000001018
             \\  (*const volatile u32) single_const_volatile = 0x000000000000101c
             \\  (*allowzero u32) single_allowzero = 0x0000000000001020
-            \\  (*const allowzero u32) single_const_allowzero = 0x0000000000001024
-            \\  (*volatile allowzero u32) single_volatile_allowzero = 0x0000000000001028
-            \\  (*const volatile allowzero u32) single_const_volatile_allowzero = 0x000000000000102c
+            \\  (*allowzero const u32) single_allowzero_const = 0x0000000000001024
+            \\  (*allowzero volatile u32) single_allowzero_volatile = 0x0000000000001028
+            \\  (*allowzero const volatile u32) single_allowzero_const_volatile = 0x000000000000102c
             \\  ([*]u32) many = 0x0000000000002010
             \\  ([*]const u32) many_const = 0x0000000000002014
             \\  ([*]volatile u32) many_volatile = 0x0000000000002018
             \\  ([*]const volatile u32) many_const_volatile = 0x000000000000201c
             \\  ([*]allowzero u32) many_allowzero = 0x0000000000002020
-            \\  ([*]const allowzero u32) many_const_allowzero = 0x0000000000002024
-            \\  ([*]volatile allowzero u32) many_volatile_allowzero = 0x0000000000002028
-            \\  ([*]const volatile allowzero u32) many_const_volatile_allowzero = 0x000000000000202c
+            \\  ([*]allowzero const u32) many_allowzero_const = 0x0000000000002024
+            \\  ([*]allowzero volatile u32) many_allowzero_volatile = 0x0000000000002028
+            \\  ([*]allowzero const volatile u32) many_allowzero_const_volatile = 0x000000000000202c
             \\  ([]u32) slice = len=1 {
             \\    (u32) [0] = 3010
             \\  }
@@ -284,14 +284,14 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\    (u32) [3] = 3022
             \\  }
             \\  ([]allowzero u32) slice_allowzero = len=0 {}
-            \\  ([]const allowzero u32) slice_const_allowzero = len=1 {
+            \\  ([]allowzero const u32) slice_allowzero_const = len=1 {
             \\    (u32) [0] = 3026
             \\  }
-            \\  ([]volatile allowzero u32) slice_volatile_allowzero = len=2 {
+            \\  ([]allowzero volatile u32) slice_allowzero_volatile = len=2 {
             \\    (u32) [0] = 3026
             \\    (u32) [1] = 3030
             \\  }
-            \\  ([]const volatile allowzero u32) slice_const_volatile_allowzero = len=3 {
+            \\  ([]allowzero const volatile u32) slice_allowzero_const_volatile = len=3 {
             \\    (u32) [0] = 3026
             \\    (u32) [1] = 3030
             \\    (u32) [2] = 3034
@@ -692,6 +692,44 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\  * frame #0: inline_call`main.main [inlined] fd(pd=78) at module.zig:7:5
             \\    frame #1: inline_call`main.main at main.zig:6:14
             \\(lldb) breakpoint delete --force 4
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
+        "link_object",
+        target,
+        &.{
+            .{
+                .path = "main.zig",
+                .source =
+                \\extern fn fabsf(f32) f32;
+                \\pub fn main() void {
+                \\    var x: f32 = -1234.5;
+                \\    x = fabsf(x);
+                \\    _ = &x;
+                \\}
+                ,
+            },
+        },
+        \\breakpoint set --file main.zig --source-pattern-regexp 'x = fabsf\(x\);'
+        \\process launch
+        \\frame variable x
+        \\breakpoint delete --force 1
+        \\
+        \\breakpoint set --file main.zig --source-pattern-regexp '_ = &x;'
+        \\process continue
+        \\frame variable x
+        \\breakpoint delete --force 2
+    ,
+        &.{
+            \\(lldb) frame variable x
+            \\(f32) x = -1234.5
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+            ,
+            \\(lldb) frame variable x
+            \\(f32) x = 1234.5
+            \\(lldb) breakpoint delete --force 2
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
     );
