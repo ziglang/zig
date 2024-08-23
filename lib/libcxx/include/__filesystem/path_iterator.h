@@ -11,7 +11,6 @@
 #define _LIBCPP___FILESYSTEM_PATH_ITERATOR_H
 
 #include <__assert>
-#include <__availability>
 #include <__config>
 #include <__filesystem/path.h>
 #include <__iterator/iterator_traits.h>

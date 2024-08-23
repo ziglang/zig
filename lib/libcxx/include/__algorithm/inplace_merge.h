@@ -114,8 +114,8 @@ _LIBCPP_HIDE_FROM_ABI void __buffered_inplace_merge(
     for (_BidirectionalIterator __i = __middle; __i != __last;
          __d.template __incr<value_type>(), (void)++__i, (void)++__p)
       ::new ((void*)__p) value_type(_IterOps<_AlgPolicy>::__iter_move(__i));
-    typedef __unconstrained_reverse_iterator<_BidirectionalIterator> _RBi;
-    typedef __unconstrained_reverse_iterator<value_type*> _Rv;
+    typedef reverse_iterator<_BidirectionalIterator> _RBi;
+    typedef reverse_iterator<value_type*> _Rv;
     typedef __invert<_Compare> _Inverted;
     std::__half_inplace_merge<_AlgPolicy>(
         _Rv(__p), _Rv(__buff), _RBi(__middle), _RBi(__first), _RBi(__last), _Inverted(__comp));

@@ -35,7 +35,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 namespace ranges {
 namespace __iter_move {
 
-void iter_move();
+void iter_move() = delete;
 
 template <class _Tp>
 concept __unqualified_iter_move = __class_or_enum<remove_cvref_t<_Tp>> && requires(_Tp&& __t) {

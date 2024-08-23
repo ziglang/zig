@@ -13,7 +13,6 @@
 #include <__config>
 #include <__fwd/pair.h>
 #include <__ranges/concepts.h>
-#include <__type_traits/add_const.h>
 #include <__type_traits/remove_const.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -32,8 +31,7 @@ using __range_mapped_type = typename ranges::range_value_t<_Range>::second_type;
 
 template <ranges::input_range _Range>
 using __range_to_alloc_type =
-    pair<add_const_t<typename ranges::range_value_t<_Range>::first_type>,
-         typename ranges::range_value_t<_Range>::second_type>;
+    pair<const typename ranges::range_value_t<_Range>::first_type, typename ranges::range_value_t<_Range>::second_type>;
 
 #endif
 

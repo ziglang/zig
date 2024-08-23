@@ -52,7 +52,6 @@ namespace std {
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__memory/addressof.h>
 #include <__type_traits/decay.h>
 #include <__utility/forward.h>

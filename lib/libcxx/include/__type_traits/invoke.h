@@ -11,21 +11,17 @@
 #define _LIBCPP___TYPE_TRAITS_INVOKE_H
 
 #include <__config>
-#include <__type_traits/add_lvalue_reference.h>
-#include <__type_traits/apply_cv.h>
 #include <__type_traits/conditional.h>
 #include <__type_traits/decay.h>
 #include <__type_traits/enable_if.h>
 #include <__type_traits/integral_constant.h>
 #include <__type_traits/is_base_of.h>
 #include <__type_traits/is_core_convertible.h>
-#include <__type_traits/is_member_function_pointer.h>
-#include <__type_traits/is_member_object_pointer.h>
+#include <__type_traits/is_member_pointer.h>
 #include <__type_traits/is_reference_wrapper.h>
 #include <__type_traits/is_same.h>
 #include <__type_traits/is_void.h>
 #include <__type_traits/nat.h>
-#include <__type_traits/remove_cv.h>
 #include <__utility/declval.h>
 #include <__utility/forward.h>
 
@@ -34,197 +30,6 @@
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
-
-struct __any {
-  __any(...);
-};
-
-template <class _MP, bool _IsMemberFunctionPtr, bool _IsMemberObjectPtr>
-struct __member_pointer_traits_imp {};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param...), true, false> {
-  typedef _Class _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param...);
-};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param..., ...), true, false> {
-  typedef _Class _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param..., ...);
-};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param...) const, true, false> {
-  typedef _Class const _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param...);
-};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param..., ...) const, true, false> {
-  typedef _Class const _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param..., ...);
-};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param...) volatile, true, false> {
-  typedef _Class volatile _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param...);
-};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param..., ...) volatile, true, false> {
-  typedef _Class volatile _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param..., ...);
-};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param...) const volatile, true, false> {
-  typedef _Class const volatile _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param...);
-};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param..., ...) const volatile, true, false> {
-  typedef _Class const volatile _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param..., ...);
-};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param...)&, true, false> {
-  typedef _Class& _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param...);
-};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param..., ...)&, true, false> {
-  typedef _Class& _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param..., ...);
-};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param...) const&, true, false> {
-  typedef _Class const& _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param...);
-};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param..., ...) const&, true, false> {
-  typedef _Class const& _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param..., ...);
-};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param...) volatile&, true, false> {
-  typedef _Class volatile& _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param...);
-};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param..., ...) volatile&, true, false> {
-  typedef _Class volatile& _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param..., ...);
-};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param...) const volatile&, true, false> {
-  typedef _Class const volatile& _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param...);
-};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param..., ...) const volatile&, true, false> {
-  typedef _Class const volatile& _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param..., ...);
-};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param...)&&, true, false> {
-  typedef _Class&& _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param...);
-};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param..., ...)&&, true, false> {
-  typedef _Class&& _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param..., ...);
-};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param...) const&&, true, false> {
-  typedef _Class const&& _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param...);
-};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param..., ...) const&&, true, false> {
-  typedef _Class const&& _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param..., ...);
-};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param...) volatile&&, true, false> {
-  typedef _Class volatile&& _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param...);
-};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param..., ...) volatile&&, true, false> {
-  typedef _Class volatile&& _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param..., ...);
-};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param...) const volatile&&, true, false> {
-  typedef _Class const volatile&& _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param...);
-};
-
-template <class _Rp, class _Class, class... _Param>
-struct __member_pointer_traits_imp<_Rp (_Class::*)(_Param..., ...) const volatile&&, true, false> {
-  typedef _Class const volatile&& _ClassType;
-  typedef _Rp _ReturnType;
-  typedef _Rp(_FnType)(_Param..., ...);
-};
-
-template <class _Rp, class _Class>
-struct __member_pointer_traits_imp<_Rp _Class::*, false, true> {
-  typedef _Class _ClassType;
-  typedef _Rp _ReturnType;
-};
-
-template <class _MP>
-struct __member_pointer_traits
-    : public __member_pointer_traits_imp<__remove_cv_t<_MP>,
-                                         is_member_function_pointer<_MP>::value,
-                                         is_member_object_pointer<_MP>::value> {
-  //     typedef ... _ClassType;
-  //     typedef ... _ReturnType;
-  //     typedef ... _FnType;
-};
 
 template <class _DecayedFp>
 struct __member_pointer_class_type {};
@@ -285,7 +90,7 @@ using __enable_if_bullet6 =
 // fall back - none of the bullets
 
 template <class... _Args>
-__nat __invoke(__any, _Args&&... __args);
+__nat __invoke(_Args&&... __args);
 
 // bullets 1, 2 and 3
 
@@ -357,8 +162,8 @@ struct __invokable_r {
   using _Result = decltype(__try_call<_Fp, _Args...>(0));
 
   using type              = __conditional_t<_IsNotSame<_Result, __nat>::value,
-                               __conditional_t<is_void<_Ret>::value, true_type, __is_core_convertible<_Result, _Ret> >,
-                               false_type>;
+                                            __conditional_t<is_void<_Ret>::value, true_type, __is_core_convertible<_Result, _Ret> >,
+                                            false_type>;
   static const bool value = type::value;
 };
 template <class _Fp, class... _Args>

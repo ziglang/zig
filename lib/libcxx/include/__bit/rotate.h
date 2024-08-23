@@ -20,24 +20,37 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
+// Writing two full functions for rotl and rotr makes it easier for the compiler
+// to optimize the code. On x86 this function becomes the ROL instruction and
+// the rotr function becomes the ROR instruction.
 template <class _Tp>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Tp __rotr(_Tp __t, int __cnt) _NOEXCEPT {
-  static_assert(__libcpp_is_unsigned_integer<_Tp>::value, "__rotr requires an unsigned integer type");
-  const unsigned int __dig = numeric_limits<_Tp>::digits;
-  if ((__cnt % __dig) == 0)
-    return __t;
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Tp __rotl(_Tp __x, int __s) _NOEXCEPT {
+  static_assert(__libcpp_is_unsigned_integer<_Tp>::value, "__rotl requires an unsigned integer type");
+  const int __N = numeric_limits<_Tp>::digits;
+  int __r       = __s % __N;
 
-  if (__cnt < 0) {
-    __cnt *= -1;
-    return (__t << (__cnt % __dig)) | (__t >> (__dig - (__cnt % __dig))); // rotr with negative __cnt is similar to rotl
-  }
+  if (__r == 0)
+    return __x;
 
-  return (__t >> (__cnt % __dig)) | (__t << (__dig - (__cnt % __dig)));
+  if (__r > 0)
+    return (__x << __r) | (__x >> (__N - __r));
+
+  return (__x >> -__r) | (__x << (__N + __r));
 }
 
 template <class _Tp>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Tp __rotl(_Tp __t, int __cnt) _NOEXCEPT {
-  return std::__rotr(__t, -__cnt);
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Tp __rotr(_Tp __x, int __s) _NOEXCEPT {
+  static_assert(__libcpp_is_unsigned_integer<_Tp>::value, "__rotr requires an unsigned integer type");
+  const int __N = numeric_limits<_Tp>::digits;
+  int __r       = __s % __N;
+
+  if (__r == 0)
+    return __x;
+
+  if (__r > 0)
+    return (__x >> __r) | (__x << (__N - __r));
+
+  return (__x << -__r) | (__x >> (__N + __r));
 }
 
 #if _LIBCPP_STD_VER >= 20

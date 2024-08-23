@@ -30,12 +30,13 @@
 #include <__ranges/enable_borrowed_range.h>
 #include <__ranges/size.h>
 #include <__ranges/view_interface.h>
-#include <__type_traits/is_nothrow_move_constructible.h>
+#include <__type_traits/is_nothrow_constructible.h>
 #include <__type_traits/make_unsigned.h>
 #include <__utility/declval.h>
 #include <__utility/forward.h>
 #include <__utility/integer_sequence.h>
 #include <__utility/move.h>
+#include <__utility/pair.h>
 #include <tuple>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -489,12 +490,12 @@ namespace views {
 namespace __zip {
 
 struct __fn {
-  _LIBCPP_HIDE_FROM_ABI constexpr auto operator()() const noexcept { return empty_view<tuple<>>{}; }
+  _LIBCPP_HIDE_FROM_ABI static constexpr auto operator()() noexcept { return empty_view<tuple<>>{}; }
 
   template <class... _Ranges>
-  _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Ranges&&... __rs) const
-      noexcept(noexcept(zip_view<all_t<_Ranges&&>...>(std::forward<_Ranges>(__rs)...)))
-          -> decltype(zip_view<all_t<_Ranges&&>...>(std::forward<_Ranges>(__rs)...)) {
+  _LIBCPP_HIDE_FROM_ABI static constexpr auto
+  operator()(_Ranges&&... __rs) noexcept(noexcept(zip_view<all_t<_Ranges&&>...>(std::forward<_Ranges>(__rs)...)))
+      -> decltype(zip_view<all_t<_Ranges&&>...>(std::forward<_Ranges>(__rs)...)) {
     return zip_view<all_t<_Ranges>...>(std::forward<_Ranges>(__rs)...);
   }
 };

@@ -11,13 +11,12 @@
 #define _LIBCPP___MEMORY_COMPRESSED_PAIR_H
 
 #include <__config>
-#include <__fwd/get.h>
 #include <__fwd/tuple.h>
 #include <__tuple/tuple_indices.h>
 #include <__type_traits/decay.h>
 #include <__type_traits/dependent_type.h>
 #include <__type_traits/enable_if.h>
-#include <__type_traits/is_default_constructible.h>
+#include <__type_traits/is_constructible.h>
 #include <__type_traits/is_empty.h>
 #include <__type_traits/is_final.h>
 #include <__type_traits/is_same.h>
@@ -49,7 +48,7 @@ struct __compressed_pair_elem {
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR explicit __compressed_pair_elem(__default_init_tag) {}
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR explicit __compressed_pair_elem(__value_init_tag) : __value_() {}
 
-  template <class _Up, class = __enable_if_t<!is_same<__compressed_pair_elem, __decay_t<_Up> >::value> >
+  template <class _Up, __enable_if_t<!is_same<__compressed_pair_elem, __decay_t<_Up> >::value, int> = 0>
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR explicit __compressed_pair_elem(_Up&& __u)
       : __value_(std::forward<_Up>(__u)) {}
 
@@ -78,7 +77,7 @@ struct __compressed_pair_elem<_Tp, _Idx, true> : private _Tp {
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR explicit __compressed_pair_elem(__default_init_tag) {}
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR explicit __compressed_pair_elem(__value_init_tag) : __value_type() {}
 
-  template <class _Up, class = __enable_if_t<!is_same<__compressed_pair_elem, __decay_t<_Up> >::value> >
+  template <class _Up, __enable_if_t<!is_same<__compressed_pair_elem, __decay_t<_Up> >::value, int> = 0>
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR explicit __compressed_pair_elem(_Up&& __u)
       : __value_type(std::forward<_Up>(__u)) {}
 
@@ -108,9 +107,10 @@ public:
   using _Base1 _LIBCPP_NODEBUG = __compressed_pair_elem<_T1, 0>;
   using _Base2 _LIBCPP_NODEBUG = __compressed_pair_elem<_T2, 1>;
 
-  template <bool _Dummy = true,
-            class       = __enable_if_t< __dependent_type<is_default_constructible<_T1>, _Dummy>::value &&
-                                   __dependent_type<is_default_constructible<_T2>, _Dummy>::value > >
+  template <bool _Dummy         = true,
+            __enable_if_t< __dependent_type<is_default_constructible<_T1>, _Dummy>::value &&
+                               __dependent_type<is_default_constructible<_T2>, _Dummy>::value,
+                           int> = 0>
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR explicit __compressed_pair()
       : _Base1(__value_init_tag()), _Base2(__value_init_tag()) {}
 
@@ -150,7 +150,7 @@ public:
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 void swap(__compressed_pair& __x)
-      _NOEXCEPT_(__is_nothrow_swappable<_T1>::value&& __is_nothrow_swappable<_T2>::value) {
+      _NOEXCEPT_(__is_nothrow_swappable_v<_T1>&& __is_nothrow_swappable_v<_T2>) {
     using std::swap;
     swap(first(), __x.first());
     swap(second(), __x.second());
@@ -160,7 +160,7 @@ public:
 template <class _T1, class _T2>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 void
 swap(__compressed_pair<_T1, _T2>& __x, __compressed_pair<_T1, _T2>& __y)
-    _NOEXCEPT_(__is_nothrow_swappable<_T1>::value&& __is_nothrow_swappable<_T2>::value) {
+    _NOEXCEPT_(__is_nothrow_swappable_v<_T1>&& __is_nothrow_swappable_v<_T2>) {
   __x.swap(__y);
 }
 

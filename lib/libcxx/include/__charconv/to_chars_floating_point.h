@@ -10,7 +10,6 @@
 #ifndef _LIBCPP___CHARCONV_TO_CHARS_FLOATING_POINT_H
 #define _LIBCPP___CHARCONV_TO_CHARS_FLOATING_POINT_H
 
-#include <__availability>
 #include <__charconv/chars_format.h>
 #include <__charconv/to_chars_result.h>
 #include <__config>
