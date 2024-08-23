@@ -100,14 +100,18 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
 
         switch (Compilation.classifyFileExt(unwind_src)) {
             .c => {
-                try cflags.append("-std=c11");
+                try cflags.append("-std=c17");
             },
             .cpp => {
-                try cflags.appendSlice(&[_][]const u8{"-fno-rtti"});
+                try cflags.appendSlice(&[_][]const u8{
+                    "-std=c++17",
+                    "-fno-rtti",
+                });
             },
             .assembly_with_cpp => {},
             else => unreachable, // You can see the entire list of files just above.
         }
+        try cflags.append("-fno-exceptions");
         try cflags.append("-I");
         try cflags.append(try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libunwind", "include" }));
         if (target_util.supports_fpic(target)) {
@@ -117,6 +121,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         try cflags.append("-Wa,--noexecstack");
         try cflags.append("-fvisibility=hidden");
         try cflags.append("-fvisibility-inlines-hidden");
+        try cflags.append("-fvisibility-global-new-delete=force-hidden");
         // necessary so that libunwind can unwind through its own stack frames
         try cflags.append("-funwind-tables");
 
