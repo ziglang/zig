@@ -7067,6 +7067,153 @@ pub const ifreq = extern struct {
     },
 };
 
+pub const PACKET = struct {
+    pub const HOST = 0;
+    pub const BROADCAST = 1;
+    pub const MULTICAST = 2;
+    pub const OTHERHOST = 3;
+    pub const OUTGOING = 4;
+    pub const LOOPBACK = 5;
+    pub const USER = 6;
+    pub const KERNEL = 7;
+
+    pub const ADD_MEMBERSHIP = 1;
+    pub const DROP_MEMBERSHIP = 2;
+    pub const RECV_OUTPUT = 3;
+    pub const RX_RING = 5;
+    pub const STATISTICS = 6;
+    pub const COPY_THRESH = 7;
+    pub const AUXDATA = 8;
+    pub const ORIGDEV = 9;
+    pub const VERSION = 10;
+    pub const HDRLEN = 11;
+    pub const RESERVE = 12;
+    pub const TX_RING = 13;
+    pub const LOSS = 14;
+    pub const VNET_HDR = 15;
+    pub const TX_TIMESTAMP = 16;
+    pub const TIMESTAMP = 17;
+    pub const FANOUT = 18;
+    pub const TX_HAS_OFF = 19;
+    pub const QDISC_BYPASS = 20;
+    pub const ROLLOVER_STATS = 21;
+    pub const FANOUT_DATA = 22;
+    pub const IGNORE_OUTGOING = 23;
+    pub const VNET_HDR_SZ = 24;
+
+    pub const FANOUT_HASH = 0;
+    pub const FANOUT_LB = 1;
+    pub const FANOUT_CPU = 2;
+    pub const FANOUT_ROLLOVER = 3;
+    pub const FANOUT_RND = 4;
+    pub const FANOUT_QM = 5;
+    pub const FANOUT_CBPF = 6;
+    pub const FANOUT_EBPF = 7;
+    pub const FANOUT_FLAG_ROLLOVER = 0x1000;
+    pub const FANOUT_FLAG_UNIQUEID = 0x2000;
+    pub const FANOUT_FLAG_IGNORE_OUTGOING = 0x4000;
+    pub const FANOUT_FLAG_DEFRAG = 0x8000;
+};
+
+pub const tpacket_versions = enum(u32) {
+    V1 = 0,
+    V2 = 1,
+    V3 = 2,
+};
+
+pub const tpacket_req3 = extern struct {
+    block_size: c_uint, // Minimal size of contiguous block
+    block_nr: c_uint, // Number of blocks
+    frame_size: c_uint, // Size of frame
+    frame_nr: c_uint, // Total number of frames
+    retire_blk_tov: c_uint, // Timeout in msecs
+    sizeof_priv: c_uint, // Offset to private data area
+    feature_req_word: c_uint,
+};
+
+pub const tpacket_bd_ts = extern struct {
+    sec: c_uint,
+    frac: extern union {
+        usec: c_uint,
+        nsec: c_uint,
+    },
+};
+
+pub const TP_STATUS = extern union {
+    rx: packed struct(u32) {
+        USER: bool,
+        COPY: bool,
+        LOSING: bool,
+        CSUMNOTREADY: bool,
+        VLAN_VALID: bool,
+        BLK_TMO: bool,
+        VLAN_TPID_VALID: bool,
+        CSUM_VALID: bool,
+        GSO_TCP: bool,
+        _: u20,
+        TS_SOFTWARE: bool,
+        TS_SYS_HARDWARE: bool,
+        TS_RAW_HARDWARE: bool,
+    },
+    tx: packed struct(u32) {
+        SEND_REQUEST: bool,
+        SENDING: bool,
+        WRONG_FORMAT: bool,
+        _: u26,
+        TS_SOFTWARE: bool,
+        TS_SYS_HARDWARE: bool,
+        TS_RAW_HARDWARE: bool,
+    },
+};
+
+pub const tpacket_hdr_v1 = extern struct {
+    block_status: TP_STATUS,
+    num_pkts: u32,
+    offset_to_first_pkt: u32,
+    blk_len: u32,
+    seq_num: u64 align(8),
+    ts_first_pkt: tpacket_bd_ts,
+    ts_last_pkt: tpacket_bd_ts,
+};
+
+pub const tpacket_bd_header_u = extern union {
+    bh1: tpacket_hdr_v1,
+};
+
+pub const tpacket_block_desc = extern struct {
+    version: u32,
+    offset_to_priv: u32,
+    hdr: tpacket_bd_header_u,
+};
+
+pub const tpacket_hdr_variant1 = extern struct {
+    rxhash: u32,
+    vlan_tci: u32,
+    vlan_tpid: u16,
+    padding: u16,
+};
+
+pub const tpacket3_hdr = extern struct {
+    next_offset: u32,
+    sec: u32,
+    nsec: u32,
+    snaplen: u32,
+    len: u32,
+    status: u32,
+    mac: u16,
+    net: u16,
+    variant: extern union {
+        hv1: tpacket_hdr_variant1,
+    },
+    padding: [8]u8,
+};
+
+pub const tpacket_stats_v3 = extern struct {
+    packets: c_uint,
+    drops: c_uint,
+    freeze_q_cnt: c_uint,
+};
+
 // doc comments copied from musl
 pub const rlimit_resource = if (native_arch.isMIPS()) enum(c_int) {
     /// Per-process CPU limit, in seconds.
