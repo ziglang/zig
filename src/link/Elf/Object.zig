@@ -1018,7 +1018,7 @@ pub fn initRelaSections(self: *Object, elf_file: *Elf) !void {
     }
 }
 
-pub fn addAtomsToRelaSections(self: *Object, elf_file: *Elf) void {
+pub fn addAtomsToRelaSections(self: *Object, elf_file: *Elf) !void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
@@ -1031,6 +1031,9 @@ pub fn addAtomsToRelaSections(self: *Object, elf_file: *Elf) void {
         const shdr = &slice.items(.shdr)[shndx];
         shdr.sh_info = atom_ptr.output_section_index;
         shdr.sh_link = elf_file.symtab_section_index.?;
+        const gpa = elf_file.base.comp.gpa;
+        const atom_list = &elf_file.sections.items(.atom_list)[shndx];
+        try atom_list.append(gpa, .{ .index = atom_index, .file = self.index });
     }
 }
 

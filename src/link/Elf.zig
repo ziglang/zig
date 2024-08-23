@@ -3373,7 +3373,10 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
 
     for (self.sections.items(.shdr)) |*shdr| {
         if (shdr.sh_type != elf.SHT_RELA) continue;
-        shdr.sh_link = backlinks[shdr.sh_link];
+        // FIXME:JK we should spin up .symtab potentially earlier, or set all non-dynamic RELA sections
+        // to point at symtab
+        // shdr.sh_link = backlinks[shdr.sh_link];
+        shdr.sh_link = self.symtab_section_index.?;
         shdr.sh_info = backlinks[shdr.sh_info];
     }
 

@@ -967,7 +967,10 @@ pub fn addAtomsToRelaSections(self: *ZigObject, elf_file: *Elf) !void {
         const out_shndx = atom_ptr.output_section_index;
         const out_shdr = elf_file.sections.items(.shdr)[out_shndx];
         if (out_shdr.sh_type == elf.SHT_NOBITS) continue;
-        const atom_list = &elf_file.sections.items(.atom_list)[out_shndx];
+        const out_rela_shndx = for (elf_file.sections.items(.shdr), 0..) |out_rela_shdr, out_rela_shndx| {
+            if (out_rela_shdr.sh_type == elf.SHT_RELA and out_rela_shdr.sh_info == out_shndx) break out_rela_shndx;
+        } else unreachable;
+        const atom_list = &elf_file.sections.items(.atom_list)[out_rela_shndx];
         const gpa = elf_file.base.comp.gpa;
         try atom_list.append(gpa, .{ .index = atom_index, .file = self.index });
     }

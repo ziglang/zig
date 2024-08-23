@@ -209,7 +209,7 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
     for (elf_file.objects.items) |index| {
         const object = elf_file.file(index).?.object;
         try object.addAtomsToOutputSections(elf_file);
-        object.addAtomsToRelaSections(elf_file);
+        try object.addAtomsToRelaSections(elf_file);
     }
     try elf_file.updateMergeSectionSizes();
     try updateSectionSizes(elf_file);
@@ -349,8 +349,8 @@ fn initComdatGroups(elf_file: *Elf) !void {
 fn updateSectionSizes(elf_file: *Elf) !void {
     const slice = elf_file.sections.slice();
     for (slice.items(.shdr), 0..) |*shdr, shndx| {
+        const atom_list = slice.items(.atom_list)[shndx];
         if (shdr.sh_type != elf.SHT_RELA) {
-            const atom_list = slice.items(.atom_list)[shndx];
             for (atom_list.items) |ref| {
                 const atom_ptr = elf_file.atom(ref) orelse continue;
                 if (!atom_ptr.alive) continue;
@@ -361,7 +361,6 @@ fn updateSectionSizes(elf_file: *Elf) !void {
                 shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits() orelse 1);
             }
         } else {
-            const atom_list = slice.items(.atom_list)[shdr.sh_info];
             for (atom_list.items) |ref| {
                 const atom_ptr = elf_file.atom(ref) orelse continue;
                 if (!atom_ptr.alive) continue;
@@ -492,9 +491,8 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
     const slice = elf_file.sections.slice();
 
-    for (slice.items(.shdr)) |shdr| {
+    for (slice.items(.shdr), slice.items(.atom_list)) |shdr, atom_list| {
         if (shdr.sh_type != elf.SHT_RELA) continue;
-        const atom_list = slice.items(.atom_list)[shdr.sh_info];
         if (atom_list.items.len == 0) continue;
 
         const num_relocs = math.cast(usize, @divExact(shdr.sh_size, shdr.sh_entsize)) orelse
