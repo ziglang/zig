@@ -1108,6 +1108,12 @@ pub const WipNav = struct {
         wip_nav.any_children = true;
     }
 
+    pub fn genVarArgsDebugInfo(wip_nav: *WipNav) UpdateError!void {
+        assert(wip_nav.func != .none);
+        try wip_nav.abbrevCode(.is_var_args);
+        wip_nav.any_children = true;
+    }
+
     pub fn advancePCAndLine(
         wip_nav: *WipNav,
         delta_line: i33,
@@ -1380,7 +1386,11 @@ pub const WipNav = struct {
     fn enumConstValue(
         wip_nav: *WipNav,
         loaded_enum: InternPool.LoadedEnumType,
-        abbrev_code: std.enums.EnumFieldStruct(std.builtin.Signedness, AbbrevCode, null),
+        abbrev_code: struct {
+            sdata: AbbrevCode,
+            udata: AbbrevCode,
+            block: AbbrevCode,
+        },
         field_index: usize,
     ) UpdateError!void {
         const zcu = wip_nav.pt.zcu;
@@ -1390,20 +1400,15 @@ pub const WipNav = struct {
             .comptime_int_type => .signed,
             else => Type.fromInterned(loaded_enum.tag_ty).intInfo(zcu).signedness,
         };
-        try wip_nav.abbrevCode(switch (signedness) {
-            inline .signed, .unsigned => |ct_signedness| @field(abbrev_code, @tagName(ct_signedness)),
-        });
-        if (loaded_enum.values.len > 0) switch (ip.indexToKey(loaded_enum.values.get(ip)[field_index]).int.storage) {
-            .u64 => |value| switch (signedness) {
-                .signed => try sleb128(diw, value),
-                .unsigned => try uleb128(diw, value),
-            },
-            .i64 => |value| switch (signedness) {
-                .signed => try sleb128(diw, value),
-                .unsigned => unreachable,
-            },
-            .big_int => |big_int| {
-                const bits = big_int.bitCountTwosCompForSignedness(signedness);
+        if (loaded_enum.values.len > 0) {
+            var big_int_space: InternPool.Key.Int.Storage.BigIntSpace = undefined;
+            const big_int = ip.indexToKey(loaded_enum.values.get(ip)[field_index]).int.storage.toBigInt(&big_int_space);
+            const bits = @max(1, big_int.bitCountTwosCompForSignedness(signedness));
+            if (bits <= 64) {
+                try wip_nav.abbrevCode(switch (signedness) {
+                    .signed => abbrev_code.sdata,
+                    .unsigned => abbrev_code.udata,
+                });
                 try wip_nav.debug_info.ensureUnusedCapacity(wip_nav.dwarf.gpa, std.math.divCeil(usize, bits, 7) catch unreachable);
                 var bit: usize = 0;
                 var carry: u1 = 1;
@@ -1412,11 +1417,8 @@ pub const WipNav = struct {
                     const limb_index = bit / limb_bits;
                     const limb_shift: std.math.Log2Int(std.math.big.Limb) = @intCast(bit % limb_bits);
                     const low_abs_part: u7 = @truncate(big_int.limbs[limb_index] >> limb_shift);
-                    const abs_part = if (limb_shift > limb_bits - 7) abs_part: {
-                        const next_limb: std.math.big.Limb = if (limb_index + 1 < big_int.limbs.len)
-                            big_int.limbs[limb_index + 1]
-                        else if (big_int.positive) 0 else std.math.maxInt(std.math.big.Limb);
-                        const high_abs_part: u7 = @truncate(next_limb << -%limb_shift);
+                    const abs_part = if (limb_shift > limb_bits - 7 and limb_index + 1 < big_int.limbs.len) abs_part: {
+                        const high_abs_part: u7 = @truncate(big_int.limbs[limb_index + 1] << -%limb_shift);
                         break :abs_part high_abs_part | low_abs_part;
                     } else low_abs_part;
                     const twos_comp_part = if (big_int.positive) abs_part else twos_comp_part: {
@@ -1425,11 +1427,21 @@ pub const WipNav = struct {
                     };
                     wip_nav.debug_info.appendAssumeCapacity(@as(u8, if (bit + 7 < bits) 0x80 else 0x00) | twos_comp_part);
                 }
-            },
-            .lazy_align, .lazy_size => unreachable,
+            } else {
+                try wip_nav.abbrevCode(abbrev_code.block);
+                const bytes = Type.fromInterned(loaded_enum.tag_ty).abiSize(wip_nav.pt);
+                try uleb128(diw, bytes);
+                big_int.writeTwosComplement(try wip_nav.debug_info.addManyAsSlice(wip_nav.dwarf.gpa, @intCast(bytes)), wip_nav.dwarf.endian);
+            }
         } else switch (signedness) {
-            .signed => try sleb128(diw, field_index),
-            .unsigned => try uleb128(diw, field_index),
+            .signed => {
+                try wip_nav.abbrevCode(abbrev_code.sdata);
+                try sleb128(diw, field_index);
+            },
+            .unsigned => {
+                try wip_nav.abbrevCode(abbrev_code.udata);
+                try uleb128(diw, field_index);
+            },
         }
     }
 
@@ -2267,8 +2279,9 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                 try wip_nav.refType(Type.fromInterned(loaded_enum.tag_ty));
                 for (0..loaded_enum.names.len) |field_index| {
                     try wip_nav.enumConstValue(loaded_enum, .{
-                        .signed = .signed_enum_field,
-                        .unsigned = .unsigned_enum_field,
+                        .sdata = .signed_enum_field,
+                        .udata = .unsigned_enum_field,
+                        .block = .big_enum_field,
                     }, field_index);
                     try wip_nav.strp(loaded_enum.names.get(ip)[field_index].toSlice(ip));
                 }
@@ -2367,8 +2380,9 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
 
                         for (0..loaded_union.field_types.len) |field_index| {
                             try wip_nav.enumConstValue(loaded_tag, .{
-                                .signed = .signed_tagged_union_field,
-                                .unsigned = .unsigned_tagged_union_field,
+                                .sdata = .signed_tagged_union_field,
+                                .udata = .unsigned_tagged_union_field,
+                                .block = .big_tagged_union_field,
                             }, field_index);
                             {
                                 try wip_nav.abbrevCode(.struct_field);
@@ -2831,17 +2845,18 @@ fn updateType(
         },
         .enum_type => {
             const loaded_enum = ip.loadEnumType(type_index);
-            try wip_nav.abbrevCode(.enum_type);
+            try wip_nav.abbrevCode(if (loaded_enum.names.len > 0) .enum_type else .empty_enum_type);
             try wip_nav.strp(name);
             try wip_nav.refType(Type.fromInterned(loaded_enum.tag_ty));
             for (0..loaded_enum.names.len) |field_index| {
                 try wip_nav.enumConstValue(loaded_enum, .{
-                    .signed = .signed_enum_field,
-                    .unsigned = .unsigned_enum_field,
+                    .sdata = .signed_enum_field,
+                    .udata = .unsigned_enum_field,
+                    .block = .big_enum_field,
                 }, field_index);
                 try wip_nav.strp(loaded_enum.names.get(ip)[field_index].toSlice(ip));
             }
-            try uleb128(diw, @intFromEnum(AbbrevCode.null));
+            if (loaded_enum.names.len > 0) try uleb128(diw, @intFromEnum(AbbrevCode.null));
         },
         .func_type => |func_type| {
             const is_nullary = func_type.param_types.len == 0 and !func_type.is_var_args;
@@ -3049,7 +3064,7 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                         }
                     },
                     .@"packed" => {
-                        try wip_nav.abbrevCode(.packed_struct_type);
+                        try wip_nav.abbrevCode(if (loaded_struct.field_types.len > 0) .packed_struct_type else .empty_packed_struct_type);
                         try wip_nav.strp(name);
                         try wip_nav.refType(Type.fromInterned(loaded_struct.backingIntTypeUnordered(ip)));
                         var field_bit_offset: u16 = 0;
@@ -3061,27 +3076,28 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                             try uleb128(diw, field_bit_offset);
                             field_bit_offset += @intCast(field_type.bitSize(pt));
                         }
-                        try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                        if (loaded_struct.field_types.len > 0) try uleb128(diw, @intFromEnum(AbbrevCode.null));
                     },
                 }
             },
             .enum_type => {
                 const loaded_enum = ip.loadEnumType(type_index);
-                try wip_nav.abbrevCode(.enum_type);
+                try wip_nav.abbrevCode(if (loaded_enum.names.len > 0) .enum_type else .empty_enum_type);
                 try wip_nav.strp(name);
                 try wip_nav.refType(Type.fromInterned(loaded_enum.tag_ty));
                 for (0..loaded_enum.names.len) |field_index| {
                     try wip_nav.enumConstValue(loaded_enum, .{
-                        .signed = .signed_enum_field,
-                        .unsigned = .unsigned_enum_field,
+                        .sdata = .signed_enum_field,
+                        .udata = .unsigned_enum_field,
+                        .block = .big_enum_field,
                     }, field_index);
                     try wip_nav.strp(loaded_enum.names.get(ip)[field_index].toSlice(ip));
                 }
-                try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                if (loaded_enum.names.len > 0) try uleb128(diw, @intFromEnum(AbbrevCode.null));
             },
             .union_type => {
                 const loaded_union = ip.loadUnionType(type_index);
-                try wip_nav.abbrevCode(.union_type);
+                try wip_nav.abbrevCode(if (loaded_union.field_types.len > 0) .union_type else .empty_union_type);
                 try wip_nav.strp(name);
                 const union_layout = pt.getUnionLayout(loaded_union);
                 try uleb128(diw, union_layout.abi_size);
@@ -3103,8 +3119,9 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
 
                         for (0..loaded_union.field_types.len) |field_index| {
                             try wip_nav.enumConstValue(loaded_tag, .{
-                                .signed = .signed_tagged_union_field,
-                                .unsigned = .unsigned_tagged_union_field,
+                                .sdata = .signed_tagged_union_field,
+                                .udata = .unsigned_tagged_union_field,
+                                .block = .big_tagged_union_field,
                             }, field_index);
                             {
                                 try wip_nav.abbrevCode(.struct_field);
@@ -3130,7 +3147,7 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                     try uleb128(diw, loaded_union.fieldAlign(ip, field_index).toByteUnits() orelse
                         field_type.abiAlignment(pt).toByteUnits().?);
                 }
-                try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                if (loaded_union.field_types.len > 0) try uleb128(diw, @intFromEnum(AbbrevCode.null));
             },
             .opaque_type => {
                 try wip_nav.abbrevCode(.namespace_struct_type);
@@ -3570,6 +3587,7 @@ const AbbrevCode = enum {
     file,
     signed_enum_field,
     unsigned_enum_field,
+    big_enum_field,
     generated_field,
     struct_field,
     struct_field_comptime,
@@ -3578,6 +3596,7 @@ const AbbrevCode = enum {
     tagged_union,
     signed_tagged_union_field,
     unsigned_tagged_union_field,
+    big_tagged_union_field,
     tagged_union_default_field,
     void_type,
     numeric_type,
@@ -3596,7 +3615,9 @@ const AbbrevCode = enum {
     namespace_struct_type,
     struct_type,
     packed_struct_type,
+    empty_packed_struct_type,
     union_type,
+    empty_union_type,
     empty_inlined_func,
     inlined_func,
     local_arg,
@@ -3778,6 +3799,13 @@ const AbbrevCode = enum {
                 .{ .name, .strp },
             },
         },
+        .big_enum_field = .{
+            .tag = .enumerator,
+            .attrs = &.{
+                .{ .const_value, .block },
+                .{ .name, .strp },
+            },
+        },
         .generated_field = .{
             .tag = .member,
             .attrs = &.{
@@ -3839,6 +3867,13 @@ const AbbrevCode = enum {
             .children = true,
             .attrs = &.{
                 .{ .discr_value, .udata },
+            },
+        },
+        .big_tagged_union_field = .{
+            .tag = .variant,
+            .children = true,
+            .attrs = &.{
+                .{ .discr_value, .block },
             },
         },
         .tagged_union_default_field = .{
@@ -3971,9 +4006,24 @@ const AbbrevCode = enum {
                 .{ .type, .ref_addr },
             },
         },
+        .empty_packed_struct_type = .{
+            .tag = .structure_type,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+            },
+        },
         .union_type = .{
             .tag = .union_type,
             .children = true,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .byte_size, .udata },
+                .{ .alignment, .udata },
+            },
+        },
+        .empty_union_type = .{
+            .tag = .union_type,
             .attrs = &.{
                 .{ .name, .strp },
                 .{ .byte_size, .udata },

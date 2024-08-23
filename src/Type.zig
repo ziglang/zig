@@ -202,6 +202,7 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
                 .C => try writer.writeAll("[*c]"),
                 .Slice => try writer.writeAll("[]"),
             }
+            if (info.flags.is_allowzero and info.flags.size != .C) try writer.writeAll("allowzero ");
             if (info.flags.alignment != .none or
                 info.packed_offset.host_size != 0 or
                 info.flags.vector_index != .none)
@@ -229,7 +230,6 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
             }
             if (info.flags.is_const) try writer.writeAll("const ");
             if (info.flags.is_volatile) try writer.writeAll("volatile ");
-            if (info.flags.is_allowzero and info.flags.size != .C) try writer.writeAll("allowzero ");
 
             try print(Type.fromInterned(info.child), writer, pt);
             return;

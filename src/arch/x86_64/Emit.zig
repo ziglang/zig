@@ -384,6 +384,13 @@ pub fn emitMir(emit: *Emit) Error!void {
                             .none => {},
                         }
                     },
+                    .pseudo_dbg_var_args_none => {
+                        switch (emit.debug_output) {
+                            .dwarf => |dw| try dw.genVarArgsDebugInfo(),
+                            .plan9 => {},
+                            .none => {},
+                        }
+                    },
                     .pseudo_dead_none => {},
                 },
             }

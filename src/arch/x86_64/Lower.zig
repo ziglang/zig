@@ -279,6 +279,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             .pseudo_dbg_local_aro,
             .pseudo_dbg_local_af,
             .pseudo_dbg_local_am,
+            .pseudo_dbg_var_args_none,
             .pseudo_dead_none,
             => {},
             else => unreachable,
