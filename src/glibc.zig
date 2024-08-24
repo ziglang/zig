@@ -572,6 +572,10 @@ fn add_include_dirs_arch(
                 try args.append("-I");
                 try args.append(try path.join(arena, &[_][]const u8{ dir, "x86_64", nptl }));
             } else {
+                if (target.abi == .gnux32) {
+                    try args.append("-I");
+                    try args.append(try path.join(arena, &[_][]const u8{ dir, "x86_64", "x32" }));
+                }
                 try args.append("-I");
                 try args.append(try path.join(arena, &[_][]const u8{ dir, "x86_64" }));
             }
