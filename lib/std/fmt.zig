@@ -901,11 +901,18 @@ fn formatSizeImpl(comptime base: comptime_int) type {
             writer: anytype,
         ) !void {
             _ = fmt;
-            if (value == 0) {
-                return formatBuf("0B", options, writer);
-            }
             // The worst case in terms of space needed is 32 bytes + 3 for the suffix.
             var buf: [format_float.min_buffer_size + 3]u8 = undefined;
+
+            // The regular algorithm does not work for 0, so this is a special case.
+            if (value == 0) {
+                const new_value: f64 = @floatFromInt(value);
+                const s = formatFloat(&buf, new_value, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
+                    error.BufferTooSmall => @panic("Buffer is too small to format float."),
+                };
+                buf[s.len] = 'B';
+                return formatBuf(buf[0 .. s.len + 1], options, writer);
+            }
 
             const mags_si = " kMGTPEZY";
             const mags_iec = " KMGTPEZY";
@@ -926,7 +933,7 @@ fn formatSizeImpl(comptime base: comptime_int) type {
             const s = switch (magnitude) {
                 0 => buf[0..formatIntBuf(&buf, value, 10, .lower, .{})],
                 else => formatFloat(&buf, new_value, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
-                    error.BufferTooSmall => unreachable,
+                    error.BufferTooSmall => @panic("Buffer is too small to format float."),
                 },
             };
 
