@@ -17,12 +17,6 @@ var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .{};
 var fuzzer: Fuzzer = .{
     .gpa = general_purpose_allocator.allocator(),
     .rng = std.Random.DefaultPrng.init(0),
-    .input = .{},
-    .flagged_pcs = undefined,
-    .pc_counters = undefined,
-    .n_runs = 0,
-    .recent_cases = .{},
-    .coverage = undefined,
     .cache_dir = undefined,
     .seen_pcs = undefined,
     .coverage_id = undefined,
@@ -49,7 +43,10 @@ export fn __sanitizer_cov_trace_cmp8      (arg1: u64, arg2: u64) void { handleCm
 // zig fmt: on
 
 fn handleCmp(pc: usize, arg1: u64, arg2: u64) void {
-    const c: u64 = pc ^ arg1 ^ arg2;
+    // TODO: use arg1 and arg2 as part of inputs
+    _ = arg1;
+    _ = arg2;
+    const c: u64 = pc;
     const lo: u32 = @truncate(c);
     const hi: u32 = @intCast(c >> 32);
     fc.newFeature(lo ^ hi);
@@ -57,7 +54,8 @@ fn handleCmp(pc: usize, arg1: u64, arg2: u64) void {
 
 export fn __sanitizer_cov_trace_switch(val: u64, _: [*]u64) void {
     const pc = @returnAddress();
-    const c: u64 = pc ^ val;
+    _ = val;
+    const c: u64 = pc;
     const lo: u32 = @truncate(c);
     const hi: u32 = @intCast(c >> 32);
     fc.newFeature(lo ^ hi);
@@ -79,9 +77,9 @@ export fn fuzzer_coverage_id() u64 {
 }
 
 /// Called before each invocation of the user's code
-export fn fuzzer_next() Slice {
-    return Slice.fromZig(fuzzer.next() catch |err| switch (err) {
-        error.OutOfMemory => @panic("out of memory"),
+export fn fuzzer_next(options: *const std.testing.FuzzInputOptions) Slice {
+    return Slice.fromZig(fuzzer.next(options) catch |err| switch (err) {
+        error.OutOfMemory => @panic("fuzzer: out of memory"),
     });
 }
 
@@ -155,4 +153,16 @@ fn logOverride(
     errdefer @panic("io error while logging");
     try bw.writer().print(prefix1 ++ prefix2 ++ format ++ "\n", args);
     try bw.flush();
+}
+
+// ==== panic handler ====
+
+pub fn panic(
+    msg: []const u8,
+    _: ?*std.builtin.StackTrace,
+    _: ?usize,
+) noreturn {
+    @setCold(true);
+    std.debug.print("fuzzer panic: {s}\n", .{msg});
+    std.process.exit(1);
 }
