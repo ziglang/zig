@@ -903,7 +903,7 @@ fn formatSizeImpl(comptime base: comptime_int) type {
             _ = fmt;
             // The worst case for the calculated float value, plus three bytes for the suffix.
             // TODO: Fix: if options.precision is high enough, this buffer will not be sufficient.
-            var buf: [format_float.bufferSize(.decimal, f64) + 3]u8 = undefined;
+            var buf: [format_float.min_buffer_size + 3]u8 = undefined;
 
             // The regular algorithm does not work for 0, so this is a special case.
             if (value == 0) {
