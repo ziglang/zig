@@ -1284,8 +1284,7 @@ pub const Object = struct {
             .large => .Large,
         };
 
-        // TODO handle float ABI better- it should depend on the ABI portion of std.Target
-        const float_abi: llvm.ABIType = .Default;
+        const float_abi: llvm.ABIType = if (comp.root_mod.resolved_target.result.floatAbi() == .hard) .Hard else .Soft;
 
         var target_machine = llvm.TargetMachine.create(
             target,
