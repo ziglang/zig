@@ -468,6 +468,8 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
         } else {
             try result.appendSlice("powerpc" ++ s ++ "powerpc32");
         }
+    } else if (arch == .s390x) {
+        try result.appendSlice("s390" ++ s ++ "s390-64");
     } else if (arch.isLoongArch()) {
         try result.appendSlice("loongarch");
     }
@@ -657,6 +659,16 @@ fn add_include_dirs_arch(
         } else {
             try args.append("-I");
             try args.append(try path.join(arena, &[_][]const u8{ dir, "riscv" }));
+        }
+    } else if (arch == .s390x) {
+        if (opt_nptl) |nptl| {
+            try args.append("-I");
+            try args.append(try path.join(arena, &[_][]const u8{ dir, "s390", nptl }));
+        } else {
+            try args.append("-I");
+            try args.append(try path.join(arena, &[_][]const u8{ dir, "s390" ++ s ++ "s390-64" }));
+            try args.append("-I");
+            try args.append(try path.join(arena, &[_][]const u8{ dir, "s390" }));
         }
     } else if (arch.isLoongArch()) {
         try args.append("-I");
