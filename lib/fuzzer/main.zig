@@ -160,7 +160,7 @@ fn updateLowersStack(seen_pcs: MemoryMappedList) void {
     _ = @atomicRmw(usize, &header.lowest_stack, .Min, __sancov_lowest_stack, .monotonic);
 }
 
-const InitialFeatureBufferCap = 1024;
+const InitialFeatureBufferCap = 64;
 
 pub const Fuzzer = struct {
     gpa: Allocator,
@@ -275,9 +275,12 @@ pub const Fuzzer = struct {
         // fallback to new blank allocation
         const new_size = f.feature_buffer.len * 2;
         if (!f.gpa.resize(f.feature_buffer, new_size)) {
+            std.log.info("growing feature buffer to {}", .{new_size});
             const new_feature_buffer = try f.gpa.alloc(u32, new_size);
             f.gpa.free(f.feature_buffer);
             f.feature_buffer = new_feature_buffer;
+        } else {
+            std.log.info("growing feature buffer to {} (resize)", .{new_size});
         }
     }
 
@@ -292,7 +295,21 @@ pub const Fuzzer = struct {
             return false;
         }
 
-        std.log.info("new unique run: {} features, {} unique features", .{ features.len, analysis.only_a });
+        {
+            var buffer: [256]u8 = undefined;
+            var fba = std.heap.FixedBufferAllocator.init(&buffer);
+            var ar = std.ArrayList(u8).init(fba.allocator());
+            mutate.writeMutation(f.mutation_seed, ar.writer()) catch {};
+
+            std.log.info("new unique run: F:{} \tN:{} \tC:{} \tM:{} \tT:{} \t{s}", .{
+                features.len,
+                analysis.only_a,
+                analysis.both,
+                analysis.only_b,
+                f.all_features.items.len + analysis.only_a,
+                ar.items,
+            });
+        }
         var ar = f.all_features.toManaged(f.gpa);
         try feature_util.merge(&ar, features);
         f.all_features = ar.moveToUnmanaged();
@@ -306,6 +323,14 @@ pub const Fuzzer = struct {
         if (f.first_run) {
             f.first_run = false;
             try readOptions(options);
+            std.log.info(
+                \\ starting to fuzz with initial corpus of {}
+                \\ F - this input features
+                \\ N - this input new features
+                \\ C - this input features already discovered
+                \\ M - features this input missed but discovered by other
+                \\ T - new total unique features
+            , .{input_pool.len()});
             if (input_pool.len() == 0) {
                 try f.makeUpInitialCorpus();
             }
@@ -323,6 +348,8 @@ pub const Fuzzer = struct {
             if (feature_capture.is_full()) {
                 try f.growFeatureBuffer();
                 // rerun same input with larger buffer
+                @memset(f.pc_counters, 0);
+                feature_capture.prepare(f.feature_buffer);
                 return mutated_input;
             }
 
@@ -344,15 +371,18 @@ pub const Fuzzer = struct {
             input_pool.maybeRepack();
         }
 
-        const input_index = f.pickInput();
-        f.current_input_index = input_index;
+        const mutated = b: { // select and mutate
+            const input_index = f.pickInput();
+            f.current_input_index = input_index;
 
-        const input = input_pool.getString(input_index);
-        const cap = input.len + input_pool.InputExtraBytes;
+            const input = input_pool.getString(input_index);
+            const cap = input.len + input_pool.InputExtraBytes;
 
-        const mutated = try f.doMutation(input, cap);
-        f.mutation_len = mutated.len;
-        f.current_input_checksum = checksum(mutated);
+            const mutated = try f.doMutation(input, cap);
+            f.mutation_len = mutated.len;
+            f.current_input_checksum = checksum(mutated);
+            break :b mutated;
+        };
 
         @memset(f.pc_counters, 0);
         feature_capture.prepare(f.feature_buffer);

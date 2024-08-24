@@ -123,6 +123,20 @@ test "mutate" {
     }
 }
 
+pub fn writeMutation(seed: u64, writer: anytype) !void {
+    const muts = generateRandomMutationSequence(Rng.init(seed));
+    for (muts.slice()) |mut| {
+        try switch (mut) {
+            .shuffle_bytes => writer.print("Shuffle, ", .{}),
+            .erase_bytes => writer.print("DelBytes, ", .{}),
+            .insert_byte => writer.print("InsByte, ", .{}),
+            .insert_repeated_byte => writer.print("InsBytes, ", .{}),
+            .change_byte => writer.print("ChByte, ", .{}),
+            .change_bit => writer.print("ChBit, ", .{}),
+        };
+    }
+}
+
 fn xmod(index: usize, len: usize) usize {
     if (len == 0) {
         return 0;

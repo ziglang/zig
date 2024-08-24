@@ -60,7 +60,6 @@ pub fn insertString(str: []const u8) error{OutOfMemory}!void {
         // stringPool and the growing of stringPool might invalidate the
         // pointer that was given to us.
         if (sliceContainsPtr(stringPool.items, str.ptr)) {
-            std.debug.print("inserting from inside\n", .{});
             assert(sliceContainsSlice(stringPool.items, str));
             const index = str.ptr - stringPool.items.ptr;
 
@@ -70,7 +69,6 @@ pub fn insertString(str: []const u8) error{OutOfMemory}!void {
             // the slice needs to happen *after* the growing
             break :b stringPool.items[index..][0..str.len];
         } else {
-            std.debug.print("inserting from outside\n", .{});
             try stringPool.ensureUnusedCapacity(str.len + InputExtraBytes);
             try stringEnds.ensureUnusedCapacity(1);
 
