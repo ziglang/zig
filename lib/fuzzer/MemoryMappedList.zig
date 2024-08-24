@@ -1,7 +1,8 @@
 /// Like `std.ArrayListUnmanaged(u8)` but backed by memory mapping.
+const MemoryMappedList = @This();
+
 const std = @import("std");
 const assert = std.debug.assert;
-const MemoryMappedList = @This();
 
 /// Contents of the list.
 ///

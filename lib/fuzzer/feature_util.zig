@@ -59,3 +59,9 @@ test cmp {
     try e(R{ .only_a = 0, .only_b = 0, .both = 2 }, cmp(&.{ 1, 2 }, &.{ 1, 2 }));
     try e(R{ .only_a = 3, .only_b = 3, .both = 0 }, cmp(&.{ 1, 2, 3 }, &.{ 4, 5, 6 }));
 }
+
+pub fn merge(dest: *std.ArrayList(u32), src: []const u32) !void {
+    // TODO: can be in O(n) time and O(1) space
+    try dest.appendSlice(src);
+    sort(dest.items);
+}

@@ -6,6 +6,11 @@ const fatal = std.process.fatal;
 const SeenPcsHeader = std.Build.Fuzz.abi.SeenPcsHeader;
 const MemoryMappedList = @import("MemoryMappedList.zig");
 
+const mutate = @import("mutate.zig");
+const input_pool = @import("input_pool.zig");
+const feature_capture = @import("feature_capture.zig");
+const feature_util = @import("feature_util.zig");
+
 export threadlocal var __sancov_lowest_stack: usize = std.math.maxInt(usize);
 
 /// LLVM creates an array of these and we can look at them. They have 1:1
@@ -33,38 +38,6 @@ pub const Slice = extern struct {
             .len = s.len,
         };
     }
-};
-
-const Run = struct {
-    id: Id,
-    input: []const u8,
-    score: usize,
-
-    const Id = u64;
-
-    const HashContext = struct {
-        pub fn eql(ctx: HashContext, a: Run, b: Run, b_index: usize) bool {
-            _ = b_index;
-            _ = ctx;
-            return a.id == b.id;
-        }
-        pub fn hash(ctx: HashContext, a: Run) u32 {
-            _ = ctx;
-            return @truncate(a.id);
-        }
-    };
-
-    fn deinit(run: *Run, gpa: Allocator) void {
-        gpa.free(run.input);
-        run.* = undefined;
-    }
-};
-
-const RunMap = std.ArrayHashMapUnmanaged(Run, void, Run.HashContext, false);
-
-const Analysis = struct {
-    score: usize,
-    id: Run.Id,
 };
 
 fn hashPCs(pcs: []const FlaggedPc) u64 {
@@ -187,37 +160,38 @@ fn updateLowersStack(seen_pcs: MemoryMappedList) void {
     _ = @atomicRmw(usize, &header.lowest_stack, .Min, __sancov_lowest_stack, .monotonic);
 }
 
+const InitialFeatureBufferCap = 1024;
+
 pub const Fuzzer = struct {
     gpa: Allocator,
     rng: std.Random.DefaultPrng,
-    input: std.ArrayListUnmanaged(u8),
+    cache_dir: std.fs.Dir,
 
-    flagged_pcs: []const FlaggedPc, // maybe around 100k elements
-    pc_counters: []u8, // same length as flagged_pcs
+    mutate_scratch: std.ArrayListUnmanaged(u8) = .{},
+    mutation_seed: u64 = undefined,
+    mutation_len: usize = undefined,
+    current_input_index: input_pool.Index = undefined,
+    current_input_checksum: u8 = undefined,
 
-    n_runs: usize,
-    recent_cases: RunMap,
-    /// Data collected from code coverage instrumentation from one execution of
-    /// the test function.
-    coverage: Coverage,
+    feature_buffer: []u32 = undefined,
+    all_features: std.ArrayListUnmanaged(u32) = .{},
+
+    // given to us by LLVM
+    flagged_pcs: []const FlaggedPc = undefined,
+    pc_counters: []u8 = undefined, // same length as flagged_pcs
+
+    n_runs: usize = 0,
+
     /// Tracks which PCs have been seen across all runs that do not crash the fuzzer process.
     /// Stored in a memory-mapped file so that it can be shared with other
     /// processes and viewed while the fuzzer is running.
     seen_pcs: MemoryMappedList,
-    cache_dir: std.fs.Dir,
+
     /// Identifies the file name that will be used to store coverage
     /// information, available to other processes.
     coverage_id: u64,
 
-    const Coverage = struct {
-        pc_table: std.AutoArrayHashMapUnmanaged(usize, void),
-        run_id_hasher: std.hash.Wyhash,
-
-        fn reset(cov: *Coverage) void {
-            cov.pc_table.clearRetainingCapacity();
-            cov.run_id_hasher = std.hash.Wyhash.init(0);
-        }
-    };
+    first_run: bool = true,
 
     pub fn init(f: *Fuzzer, cache_dir: std.fs.Dir) !void {
         f.cache_dir = cache_dir;
@@ -231,122 +205,157 @@ pub const Fuzzer = struct {
         const hex_digest = std.fmt.hex(pc_digest);
         const coverage_file_path = "v/" ++ hex_digest;
 
+        f.feature_buffer = try f.gpa.alloc(u32, InitialFeatureBufferCap);
+
         f.seen_pcs = try initCoverageFile(f.cache_dir, coverage_file_path, f.flagged_pcs);
     }
 
-    fn analyzeLastRun(f: *Fuzzer) !void {
-        const analysis = Analysis{
-            .id = f.coverage.run_id_hasher.final(),
-            .score = f.coverage.pc_table.count(),
-        };
-        const gop = f.recent_cases.getOrPutAssumeCapacity(.{
-            .id = analysis.id,
-            .input = undefined,
-            .score = undefined,
-        });
-        if (gop.found_existing) {
-            //std.log.info("duplicate analysis: score={d} id={d}", .{ analysis.score, analysis.id });
-            if (f.input.items.len < gop.key_ptr.input.len or gop.key_ptr.score == 0) {
-                f.gpa.free(gop.key_ptr.input);
-                gop.key_ptr.input = try f.gpa.dupe(u8, f.input.items);
-                gop.key_ptr.score = analysis.score;
+    fn readOptions(options: *const std.testing.FuzzInputOptions) !void {
+        for (options.corpus) |input| {
+            try input_pool.insertString(input);
+        }
+    }
+
+    pub fn makeUpInitialCorpus(f: *Fuzzer) !void {
+        var buffer: [256]u8 = undefined;
+        for (0..256) |len| {
+            const slice = buffer[0..len];
+            f.rng.fill(slice);
+            try input_pool.insertString(slice);
+        }
+        // TODO: prune
+    }
+
+    fn pickInput(f: *Fuzzer) input_pool.Index {
+        assert(input_pool.len() != 0);
+        const index = f.rng.next() % input_pool.len();
+        return @intCast(index);
+    }
+
+    fn doMutation(f: *Fuzzer, input: []u8, cap: usize) ![]u8 {
+        f.mutation_seed = f.rng.next();
+        f.mutate_scratch.clearRetainingCapacity();
+        var ar = f.mutate_scratch.toManaged(f.gpa);
+        const mutated = try mutate.mutate(input, cap, f.mutation_seed, &ar);
+        f.mutate_scratch = ar.moveToUnmanaged();
+        return mutated;
+    }
+
+    fn undoMutate(f: *Fuzzer, mutated: []u8) void {
+        var ar = f.mutate_scratch.toManaged(f.gpa);
+        // the string lives in input_pool the whole time so we can throw
+        // away this here but the undo was done
+        _ = mutate.mutateReverse(mutated, f.mutation_seed, &ar);
+        f.mutate_scratch = ar.moveToUnmanaged();
+        f.mutate_scratch.clearRetainingCapacity();
+    }
+
+    fn checksum(str: []const u8) u8 {
+        // this is very bad checksum but since we run the user's code a lot, it
+        // will probably eventually catch when they do it.
+        var c: u8 = 0;
+        for (str) |s| {
+            c ^= s;
+        }
+        return c;
+    }
+
+    fn collectPcCounterFeatures(f: *Fuzzer) void {
+        for (f.pc_counters, 0..) |counter, i_| {
+            if (counter != 0) {
+                const i: u32 = @intCast(i_);
+                // TODO: does this do a lot of collisions?
+                feature_capture.newFeature(std.hash.uint32(i));
             }
-        } else {
-            std.log.info("unique analysis: score={d} id={d}", .{ analysis.score, analysis.id });
-            gop.key_ptr.* = .{
-                .id = analysis.id,
-                .input = try f.gpa.dupe(u8, f.input.items),
-                .score = analysis.score,
-            };
-            updateGlobalCoverage(f.pc_counters, f.seen_pcs);
-            incrementUniqueRuns(f.seen_pcs);
         }
     }
 
-    fn firstRun(f: *Fuzzer) !void {
-        try f.recent_cases.ensureUnusedCapacity(f.gpa, 100);
-        const len = f.rng.next() % 80;
-        try f.input.resize(f.gpa, len);
-        f.rng.fill(f.input.items);
-        f.recent_cases.putAssumeCapacity(.{
-            .id = 0,
-            .input = try f.gpa.dupe(u8, f.input.items),
-            .score = 0,
-        }, {});
-    }
-
-    fn prune(f: *Fuzzer) void {
-        if (f.recent_cases.entries.len >= 100) {
-            const Context = struct {
-                values: []const Run,
-                pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
-                    return ctx.values[b_index].score < ctx.values[a_index].score;
-                }
-            };
-            f.recent_cases.sortUnstable(Context{ .values = f.recent_cases.keys() });
-            const cap = 50;
-            // This has to be done before deinitializing the deleted items.
-            const doomed_runs = f.recent_cases.keys()[cap..];
-            f.recent_cases.shrinkRetainingCapacity(cap);
-            for (doomed_runs) |*run| {
-                std.log.info("culling score={d} id={d}", .{ run.score, run.id });
-                run.deinit(f.gpa);
-            }
+    fn growFeatureBuffer(f: *Fuzzer) !void {
+        // we dont need to copy over the data so we try to resize and
+        // fallback to new blank allocation
+        const new_size = f.feature_buffer.len * 2;
+        if (!f.gpa.resize(f.feature_buffer, new_size)) {
+            const new_feature_buffer = try f.gpa.alloc(u32, new_size);
+            f.gpa.free(f.feature_buffer);
+            f.feature_buffer = new_feature_buffer;
         }
     }
 
-    pub fn next(f: *Fuzzer) ![]const u8 {
-        if (f.recent_cases.entries.len == 0) {
-            try f.firstRun();
-        } else {
-            if (f.n_runs % 10000 == 0) f.dumpStats();
-            try f.analyzeLastRun();
-            f.prune();
+    /// Returns true if last run was good
+    fn analyzeLastRun(f: *Fuzzer) !bool {
+        const features = feature_capture.values();
+        feature_util.sort(features);
+
+        const analysis = feature_util.cmp(features, f.all_features.items);
+
+        if (analysis.only_a == 0) {
+            return false;
         }
 
-        // choose input, mutate it and select it for the next run
-        const chosen_index = f.rng.next() % f.recent_cases.entries.len;
-        const run = &f.recent_cases.keys()[chosen_index];
-        f.input.clearRetainingCapacity();
-        f.input.appendSliceAssumeCapacity(run.input);
-        try f.mutate();
+        std.log.info("new unique run: {} features, {} unique features", .{ features.len, analysis.only_a });
+        var ar = f.all_features.toManaged(f.gpa);
+        try feature_util.merge(&ar, features);
+        f.all_features = ar.moveToUnmanaged();
+        incrementUniqueRuns(f.seen_pcs);
+        updateGlobalCoverage(f.pc_counters, f.seen_pcs);
+        return true;
+    }
 
-        f.n_runs += 1;
+    pub fn next(f: *Fuzzer, options: *const std.testing.FuzzInputOptions) error{OutOfMemory}![]const u8 {
         incrementNumberOfRuns(f.seen_pcs);
-        updateLowersStack(f.seen_pcs);
-        @memset(f.pc_counters, 0);
-        f.coverage.reset();
-        return f.input.items;
-    }
-
-    fn dumpStats(f: *Fuzzer) void {
-        for (f.recent_cases.keys()[0..@min(f.recent_cases.entries.len, 5)], 0..) |run, i| {
-            std.log.info("best[{d}] id={x} score={d} input: '{}'", .{
-                i, run.id, run.score, std.zig.fmtEscapes(run.input),
-            });
-        }
-    }
-
-    fn mutate(f: *Fuzzer) !void {
-        const gpa = f.gpa;
-        const rng = f.rng.random();
-
-        if (f.input.items.len == 0) {
-            const len = rng.uintLessThanBiased(usize, 80);
-            try f.input.resize(gpa, len);
-            rng.bytes(f.input.items);
-            return;
-        }
-
-        const index = rng.uintLessThanBiased(usize, f.input.items.len * 3);
-        if (index < f.input.items.len) {
-            f.input.items[index] = rng.int(u8);
-        } else if (index < f.input.items.len * 2) {
-            _ = f.input.orderedRemove(index - f.input.items.len);
-        } else if (index < f.input.items.len * 3) {
-            try f.input.insert(gpa, index - f.input.items.len * 2, rng.int(u8));
+        if (f.first_run) {
+            f.first_run = false;
+            try readOptions(options);
+            if (input_pool.len() == 0) {
+                try f.makeUpInitialCorpus();
+            }
         } else {
-            unreachable;
+            var mutated_input = input_pool.getString(f.current_input_index);
+            mutated_input.len = f.mutation_len;
+
+            if (f.current_input_checksum != checksum(mutated_input)) {
+                // TODO: report the input? it is not very useful since it was written to
+                @panic("user code mutated input!");
+            }
+
+            f.collectPcCounterFeatures();
+
+            if (feature_capture.is_full()) {
+                try f.growFeatureBuffer();
+                // rerun same input with larger buffer
+                return mutated_input;
+            }
+
+            if (try f.analyzeLastRun()) {
+                // !!! this invalidates mutated_input but not the index
+                try input_pool.insertString(mutated_input);
+            }
+
+            // !!! we might have inserted the current input into input_pool,
+            // which invalidated the pointers but not the indexes
+            mutated_input = input_pool.getString(f.current_input_index);
+            mutated_input.len = f.mutation_len;
+
+            // this will restore the mutated input (inplace, in the input_pool)
+            // ready for a different mutation
+            f.undoMutate(mutated_input);
+
+            // This invalidates the indexes
+            input_pool.maybeRepack();
         }
+
+        const input_index = f.pickInput();
+        f.current_input_index = input_index;
+
+        const input = input_pool.getString(input_index);
+        const cap = input.len + input_pool.InputExtraBytes;
+
+        const mutated = try f.doMutation(input, cap);
+        f.mutation_len = mutated.len;
+        f.current_input_checksum = checksum(mutated);
+
+        @memset(f.pc_counters, 0);
+        feature_capture.prepare(f.feature_buffer);
+        return mutated;
     }
 };
