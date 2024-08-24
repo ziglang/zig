@@ -472,6 +472,8 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
         try result.appendSlice("s390" ++ s ++ "s390-64");
     } else if (arch.isLoongArch()) {
         try result.appendSlice("loongarch");
+    } else if (arch == .m68k) {
+        try result.appendSlice("m68k");
     }
 
     try result.appendSlice(s);
@@ -677,6 +679,17 @@ fn add_include_dirs_arch(
     } else if (arch.isLoongArch()) {
         try args.append("-I");
         try args.append(try path.join(arena, &[_][]const u8{ dir, "loongarch" }));
+    } else if (arch == .m68k) {
+        if (opt_nptl) |nptl| {
+            try args.append("-I");
+            try args.append(try path.join(arena, &[_][]const u8{ dir, "m68k", nptl }));
+        } else {
+            // coldfire ABI support requires: https://github.com/ziglang/zig/issues/20690
+            try args.append("-I");
+            try args.append(try path.join(arena, &[_][]const u8{ dir, "m68k" ++ s ++ "m680x0" }));
+            try args.append("-I");
+            try args.append(try path.join(arena, &[_][]const u8{ dir, "m68k" }));
+        }
     }
 }
 
