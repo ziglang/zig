@@ -906,8 +906,7 @@ fn formatSizeImpl(comptime base: comptime_int) type {
 
             // The regular algorithm does not work for 0, so this is a special case.
             if (value == 0) {
-                const new_value: f64 = @floatFromInt(value);
-                const s = formatFloat(&buf, new_value, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
+                const s = formatFloat(&buf, 0.0, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
                     error.BufferTooSmall => @panic("Buffer is too small to format float."),
                 };
                 buf[s.len] = 'B';
