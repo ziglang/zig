@@ -476,6 +476,8 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
         try result.appendSlice("m68k");
     } else if (arch == .arc) {
         try result.appendSlice("arc");
+    } else if (arch == .csky) {
+        try result.appendSlice("csky" ++ s ++ "abiv2");
     }
 
     try result.appendSlice(s);
@@ -695,6 +697,9 @@ fn add_include_dirs_arch(
     } else if (arch == .arc) {
         try args.append("-I");
         try args.append(try path.join(arena, &[_][]const u8{ dir, "arc" }));
+    } else if (arch == .csky) {
+        try args.append("-I");
+        try args.append(try path.join(arena, &[_][]const u8{ dir, "csky" }));
     }
 }
 
