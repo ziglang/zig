@@ -2477,7 +2477,7 @@ fn addFieldErrNote(
     comptime format: []const u8,
     args: anytype,
 ) !void {
-    @setCold(true);
+    @branchHint(.cold);
     const type_src = container_ty.srcLocOrNull(sema.pt.zcu) orelse return;
     const field_src: LazySrcLoc = .{
         .base_node_inst = type_src.base_node_inst,
@@ -2513,7 +2513,7 @@ pub fn fail(
 }
 
 pub fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Module.ErrorMsg) error{ AnalysisFail, OutOfMemory } {
-    @setCold(true);
+    @branchHint(.cold);
     const gpa = sema.gpa;
     const mod = sema.pt.zcu;
 

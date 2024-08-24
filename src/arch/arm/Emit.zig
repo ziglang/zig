@@ -348,7 +348,7 @@ fn writeInstruction(emit: *Emit, instruction: Instruction) !void {
 }
 
 fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
-    @setCold(true);
+    @branchHint(.cold);
     assert(emit.err_msg == null);
     const comp = emit.bin_file.comp;
     const gpa = comp.gpa;

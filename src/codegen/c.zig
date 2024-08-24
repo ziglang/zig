@@ -626,7 +626,7 @@ pub const DeclGen = struct {
     }
 
     fn fail(dg: *DeclGen, comptime format: []const u8, args: anytype) error{ AnalysisFail, OutOfMemory } {
-        @setCold(true);
+        @branchHint(.cold);
         const zcu = dg.pt.zcu;
         const src_loc = zcu.navSrcLoc(dg.pass.nav);
         dg.error_msg = try Zcu.ErrorMsg.create(dg.gpa, src_loc, format, args);

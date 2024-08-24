@@ -385,12 +385,12 @@ fn errExpectedToken(p: *Parser, expected: Token.Id, actual: Token.Id) Error {
 }
 
 pub fn errStr(p: *Parser, tag: Diagnostics.Tag, tok_i: TokenIndex, str: []const u8) Compilation.Error!void {
-    @setCold(true);
+    @branchHint(.cold);
     return p.errExtra(tag, tok_i, .{ .str = str });
 }
 
 pub fn errExtra(p: *Parser, tag: Diagnostics.Tag, tok_i: TokenIndex, extra: Diagnostics.Message.Extra) Compilation.Error!void {
-    @setCold(true);
+    @branchHint(.cold);
     const tok = p.pp.tokens.get(tok_i);
     var loc = tok.loc;
     if (tok_i != 0 and tok.id == .eof) {
@@ -407,12 +407,12 @@ pub fn errExtra(p: *Parser, tag: Diagnostics.Tag, tok_i: TokenIndex, extra: Diag
 }
 
 pub fn errTok(p: *Parser, tag: Diagnostics.Tag, tok_i: TokenIndex) Compilation.Error!void {
-    @setCold(true);
+    @branchHint(.cold);
     return p.errExtra(tag, tok_i, .{ .none = {} });
 }
 
 pub fn err(p: *Parser, tag: Diagnostics.Tag) Compilation.Error!void {
-    @setCold(true);
+    @branchHint(.cold);
     return p.errExtra(tag, p.tok_i, .{ .none = {} });
 }
 
@@ -638,7 +638,7 @@ fn pragma(p: *Parser) Compilation.Error!bool {
 
 /// Issue errors for top-level definitions whose type was never completed.
 fn diagnoseIncompleteDefinitions(p: *Parser) !void {
-    @setCold(true);
+    @branchHint(.cold);
 
     const node_slices = p.nodes.slice();
     const tags = node_slices.items(.tag);

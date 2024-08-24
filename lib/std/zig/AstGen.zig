@@ -11512,7 +11512,7 @@ fn appendErrorNodeNotes(
     args: anytype,
     notes: []const u32,
 ) Allocator.Error!void {
-    @setCold(true);
+    @branchHint(.cold);
     const string_bytes = &astgen.string_bytes;
     const msg: Zir.NullTerminatedString = @enumFromInt(string_bytes.items.len);
     try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
@@ -11603,7 +11603,7 @@ fn appendErrorTokNotesOff(
     args: anytype,
     notes: []const u32,
 ) !void {
-    @setCold(true);
+    @branchHint(.cold);
     const gpa = astgen.gpa;
     const string_bytes = &astgen.string_bytes;
     const msg: Zir.NullTerminatedString = @enumFromInt(string_bytes.items.len);
@@ -11640,7 +11640,7 @@ fn errNoteTokOff(
     comptime format: []const u8,
     args: anytype,
 ) Allocator.Error!u32 {
-    @setCold(true);
+    @branchHint(.cold);
     const string_bytes = &astgen.string_bytes;
     const msg: Zir.NullTerminatedString = @enumFromInt(string_bytes.items.len);
     try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
@@ -11659,7 +11659,7 @@ fn errNoteNode(
     comptime format: []const u8,
     args: anytype,
 ) Allocator.Error!u32 {
-    @setCold(true);
+    @branchHint(.cold);
     const string_bytes = &astgen.string_bytes;
     const msg: Zir.NullTerminatedString = @enumFromInt(string_bytes.items.len);
     try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);

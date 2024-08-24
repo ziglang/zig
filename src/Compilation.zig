@@ -5787,7 +5787,7 @@ fn failCObj(
     comptime format: []const u8,
     args: anytype,
 ) SemaError {
-    @setCold(true);
+    @branchHint(.cold);
     const diag_bundle = blk: {
         const diag_bundle = try comp.gpa.create(CObject.Diag.Bundle);
         diag_bundle.* = .{};
@@ -5811,7 +5811,7 @@ fn failCObjWithOwnedDiagBundle(
     c_object: *CObject,
     diag_bundle: *CObject.Diag.Bundle,
 ) SemaError {
-    @setCold(true);
+    @branchHint(.cold);
     assert(diag_bundle.diags.len > 0);
     {
         comp.mutex.lock();
@@ -5827,7 +5827,7 @@ fn failCObjWithOwnedDiagBundle(
 }
 
 fn failWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, comptime format: []const u8, args: anytype) SemaError {
-    @setCold(true);
+    @branchHint(.cold);
     var bundle: ErrorBundle.Wip = undefined;
     try bundle.init(comp.gpa);
     errdefer bundle.deinit();
@@ -5854,7 +5854,7 @@ fn failWin32ResourceWithOwnedBundle(
     win32_resource: *Win32Resource,
     err_bundle: ErrorBundle,
 ) SemaError {
-    @setCold(true);
+    @branchHint(.cold);
     {
         comp.mutex.lock();
         defer comp.mutex.unlock();

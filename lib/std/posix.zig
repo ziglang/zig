@@ -654,7 +654,7 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
 /// it raises SIGABRT followed by SIGKILL and finally lo
 /// Invokes the current signal handler for SIGABRT, if any.
 pub fn abort() noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     // MSVCRT abort() sometimes opens a popup window which is undesirable, so
     // even when linking libc on Windows we use our own abort implementation.
     // See https://github.com/ziglang/zig/issues/2071 for more details.

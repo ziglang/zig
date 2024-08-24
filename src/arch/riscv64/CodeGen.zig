@@ -8215,14 +8215,14 @@ fn wantSafety(func: *Func) bool {
 }
 
 fn fail(func: *Func, comptime format: []const u8, args: anytype) InnerError {
-    @setCold(true);
+    @branchHint(.cold);
     assert(func.err_msg == null);
     func.err_msg = try ErrorMsg.create(func.gpa, func.src_loc, format, args);
     return error.CodegenFail;
 }
 
 fn failSymbol(func: *Func, comptime format: []const u8, args: anytype) InnerError {
-    @setCold(true);
+    @branchHint(.cold);
     assert(func.err_msg == null);
     func.err_msg = try ErrorMsg.create(func.gpa, func.src_loc, format, args);
     return error.CodegenFail;
