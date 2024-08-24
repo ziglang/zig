@@ -46,22 +46,29 @@ export fn __sanitizer_cov_trace_const_cmp4(arg1: u32, arg2: u32) void { handleCm
 export fn __sanitizer_cov_trace_cmp4      (arg1: u32, arg2: u32) void { handleCmp(@returnAddress(), arg1, arg2); }
 export fn __sanitizer_cov_trace_const_cmp8(arg1: u64, arg2: u64) void { handleCmp(@returnAddress(), arg1, arg2); }
 export fn __sanitizer_cov_trace_cmp8      (arg1: u64, arg2: u64) void { handleCmp(@returnAddress(), arg1, arg2); }
-fn handleCmp(pc: usize, arg1: u64, arg2: u64) void { fc.newFeature(pc ^ arg1 ^ arg2); }
 // zig fmt: on
 
-export fn __sanitizer_cov_trace_switch(val: u64, cases_ptr: [*]u64) void {
+fn handleCmp(pc: usize, arg1: u64, arg2: u64) void {
+    const c: u64 = pc ^ arg1 ^ arg2;
+    const lo: u32 = @truncate(c);
+    const hi: u32 = @intCast(c >> 32);
+    fc.newFeature(lo ^ hi);
+}
+
+export fn __sanitizer_cov_trace_switch(val: u64, _: [*]u64) void {
     const pc = @returnAddress();
-    const len = cases_ptr[0];
-    const val_size_in_bits = cases_ptr[1];
-    const cases = cases_ptr[2..][0..len];
-    fc.newFeature(pc ^ val);
-    _ = val_size_in_bits;
-    _ = cases;
+    const c: u64 = pc ^ val;
+    const lo: u32 = @truncate(c);
+    const hi: u32 = @intCast(c >> 32);
+    fc.newFeature(lo ^ hi);
 }
 
 export fn __sanitizer_cov_trace_pc_indir(callee: usize) void {
     const pc = @returnAddress();
-    fc.newFeature(pc ^ callee);
+    const c: u64 = pc ^ callee;
+    const lo: u32 = @truncate(c);
+    const hi: u32 = @intCast(c >> 32);
+    fc.newFeature(lo ^ hi);
 }
 
 // ==== libfuzzer API ====
