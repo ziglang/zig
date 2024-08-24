@@ -22,7 +22,7 @@ test {
     try testing.expectEqual(noreturn, @TypeOf(if (true) @panic("") else {}));
     try testing.expectEqual({}, @prefetch(&val, .{}));
     try testing.expectEqual({}, @setAlignStack(16));
-    try testing.expectEqual({}, @setCold(true));
+    try testing.expectEqual({}, @branchHint(.cold));
     try testing.expectEqual({}, @setEvalBranchQuota(0));
     try testing.expectEqual({}, @setFloatMode(.optimized));
     try testing.expectEqual({}, @setRuntimeSafety(true));

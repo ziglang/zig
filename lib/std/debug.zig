@@ -409,7 +409,7 @@ pub fn assertReadable(slice: []const volatile u8) void {
 }
 
 pub fn panic(comptime format: []const u8, args: anytype) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
 
     panicExtra(@errorReturnTrace(), @returnAddress(), format, args);
 }
@@ -422,7 +422,7 @@ pub fn panicExtra(
     comptime format: []const u8,
     args: anytype,
 ) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
 
     const size = 0x1000;
     const trunc_msg = "(msg truncated)";
@@ -450,7 +450,7 @@ threadlocal var panic_stage: usize = 0;
 // `panicImpl` could be useful in implementing a custom panic handler which
 // calls the default handler (on supported platforms)
 pub fn panicImpl(trace: ?*const std.builtin.StackTrace, first_trace_addr: ?usize, msg: []const u8) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
 
     if (enable_segfault_handler) {
         // If a segfault happens while panicking, we want it to actually segfault, not trigger

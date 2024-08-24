@@ -107,7 +107,7 @@ const FutexImpl = struct {
     }
 
     fn waitUntilSet(self: *Impl, timeout: ?u64) error{Timeout}!void {
-        @setCold(true);
+        @branchHint(.cold);
 
         // Try to set the state from `unset` to `waiting` to indicate
         // to the set() thread that others are blocked on the ResetEvent.

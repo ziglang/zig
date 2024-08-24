@@ -3533,7 +3533,7 @@ fn errUnionPayload(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) 
 }
 
 fn fail(self: *Self, comptime format: []const u8, args: anytype) InnerError {
-    @setCold(true);
+    @branchHint(.cold);
     assert(self.err_msg == null);
     const gpa = self.gpa;
     self.err_msg = try ErrorMsg.create(gpa, self.src_loc, format, args);

@@ -46,7 +46,7 @@ comptime {
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test this file.
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     _ = error_return_trace;
     if (builtin.is_test) {
         std.debug.panic("{s}", .{msg});

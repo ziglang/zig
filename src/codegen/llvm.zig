@@ -4618,7 +4618,7 @@ pub const NavGen = struct {
     }
 
     fn todo(ng: *NavGen, comptime format: []const u8, args: anytype) Error {
-        @setCold(true);
+        @branchHint(.cold);
         assert(ng.err_msg == null);
         const o = ng.object;
         const gpa = o.gpa;
@@ -4784,7 +4784,7 @@ pub const FuncGen = struct {
     }
 
     fn todo(self: *FuncGen, comptime format: []const u8, args: anytype) Error {
-        @setCold(true);
+        @branchHint(.cold);
         return self.ng.todo(format, args);
     }
 

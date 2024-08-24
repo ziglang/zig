@@ -4340,6 +4340,13 @@ comptime {
       {#see_also|@sizeOf|@typeInfo#}
       {#header_close#}
 
+      {#header_open|@branchHint#}
+      <pre>{#syntax#}@branchHint(hint: BranchHint) void{#endsyntax#}</pre>
+      <p>Hints to the optimizer how likely a given branch of control flow is to be reached.</p>
+      <p>{#syntax#}BranchHint{#endsyntax#} can be found with {#syntax#}@import("std").builtin.BranchHint{#endsyntax#}.</p>
+      <p>This function is only valid as the first statement in a control flow branch, or the first statement in a function.</p>
+      {#header_close#}
+
       {#header_open|@breakpoint#}
       <pre>{#syntax#}@breakpoint() void{#endsyntax#}</pre>
       <p>
@@ -5239,15 +5246,6 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <pre>{#syntax#}@setAlignStack(comptime alignment: u29) void{#endsyntax#}</pre>
       <p>
       Ensures that a function will have a stack alignment of at least {#syntax#}alignment{#endsyntax#} bytes.
-      </p>
-      {#header_close#}
-
-      {#header_open|@setCold#}
-      <pre>{#syntax#}@setCold(comptime is_cold: bool) void{#endsyntax#}</pre>
-      <p>
-      Tells the optimizer that the current function is (or is not) rarely called.
-
-      This function is only valid within function scope.
       </p>
       {#header_close#}
 

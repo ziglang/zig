@@ -779,7 +779,7 @@ else
 /// This function is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr: ?usize) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
 
     // For backends that cannot handle the language features depended on by the
     // default panic handler, we have a simpler panic handler:
@@ -896,27 +896,27 @@ pub fn checkNonScalarSentinel(expected: anytype, actual: @TypeOf(expected)) void
 }
 
 pub fn panicSentinelMismatch(expected: anytype, actual: @TypeOf(expected)) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     std.debug.panicExtra(null, @returnAddress(), "sentinel mismatch: expected {any}, found {any}", .{ expected, actual });
 }
 
 pub fn panicUnwrapError(st: ?*StackTrace, err: anyerror) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     std.debug.panicExtra(st, @returnAddress(), "attempt to unwrap error: {s}", .{@errorName(err)});
 }
 
 pub fn panicOutOfBounds(index: usize, len: usize) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     std.debug.panicExtra(null, @returnAddress(), "index out of bounds: index {d}, len {d}", .{ index, len });
 }
 
 pub fn panicStartGreaterThanEnd(start: usize, end: usize) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     std.debug.panicExtra(null, @returnAddress(), "start index {d} is larger than end index {d}", .{ start, end });
 }
 
 pub fn panicInactiveUnionField(active: anytype, wanted: @TypeOf(active)) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     std.debug.panicExtra(null, @returnAddress(), "access of union field '{s}' while field '{s}' is active", .{ @tagName(wanted), @tagName(active) });
 }
 
@@ -949,7 +949,7 @@ pub const panic_messages = struct {
 };
 
 pub noinline fn returnError(st: *StackTrace) void {
-    @setCold(true);
+    @branchHint(.cold);
     @setRuntimeSafety(false);
     addErrRetTraceAddr(st, @returnAddress());
 }

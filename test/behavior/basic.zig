@@ -113,7 +113,7 @@ test "cold function" {
 }
 
 fn thisIsAColdFn() void {
-    @setCold(true);
+    @branchHint(.cold);
 }
 
 test "unicode escape in character literal" {

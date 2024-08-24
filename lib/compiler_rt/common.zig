@@ -72,7 +72,7 @@ pub const want_sparc_abi = builtin.cpu.arch.isSPARC();
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     _ = error_return_trace;
     if (builtin.is_test) {
-        @setCold(true);
+        @branchHint(.cold);
         std.debug.panic("{s}", .{msg});
     } else {
         unreachable;

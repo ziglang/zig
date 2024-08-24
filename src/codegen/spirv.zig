@@ -410,7 +410,7 @@ const NavGen = struct {
     }
 
     pub fn fail(self: *NavGen, comptime format: []const u8, args: anytype) Error {
-        @setCold(true);
+        @branchHint(.cold);
         const zcu = self.pt.zcu;
         const src_loc = zcu.navSrcLoc(self.owner_nav);
         assert(self.error_msg == null);
