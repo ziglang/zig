@@ -901,13 +901,14 @@ fn formatSizeImpl(comptime base: comptime_int) type {
             writer: anytype,
         ) !void {
             _ = fmt;
-            // The worst case in terms of space needed is 32 bytes + 3 for the suffix.
-            var buf: [format_float.min_buffer_size + 3]u8 = undefined;
+            // The worst case for the calculated float value, plus three bytes for the suffix.
+            // TODO: Fix: if options.precision is high enough, this buffer will not be sufficient.
+            var buf: [format_float.bufferSize(.decimal, f64) + 3]u8 = undefined;
 
             // The regular algorithm does not work for 0, so this is a special case.
             if (value == 0) {
                 const s = formatFloat(&buf, 0.0, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
-                    error.BufferTooSmall => @panic("Buffer is too small to format float."),
+                    error.BufferTooSmall => unreachable,
                 };
                 buf[s.len] = 'B';
                 return formatBuf(buf[0 .. s.len + 1], options, writer);
@@ -932,7 +933,7 @@ fn formatSizeImpl(comptime base: comptime_int) type {
             const s = switch (magnitude) {
                 0 => buf[0..formatIntBuf(&buf, value, 10, .lower, .{})],
                 else => formatFloat(&buf, new_value, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
-                    error.BufferTooSmall => @panic("Buffer is too small to format float."),
+                    error.BufferTooSmall => unreachable,
                 },
             };
 
@@ -2127,6 +2128,10 @@ test "cstr" {
 }
 
 test "filesize" {
+    try expectFmt("file size: 0B\n", "file size: {}\n", .{fmtIntSizeDec(0)});
+    try expectFmt("file size: 0.00B\n", "file size: {:.2}\n", .{fmtIntSizeDec(0)});
+    try expectFmt("file size: 0B\n", "file size: {}\n", .{fmtIntSizeBin(0)});
+    try expectFmt("file size: 0.00B\n", "file size: {:.2}\n", .{fmtIntSizeBin(0)});
     try expectFmt("file size: 42B\n", "file size: {}\n", .{fmtIntSizeDec(42)});
     try expectFmt("file size: 42B\n", "file size: {}\n", .{fmtIntSizeBin(42)});
     try expectFmt("file size: 63MB\n", "file size: {}\n", .{fmtIntSizeDec(63 * 1000 * 1000)});
