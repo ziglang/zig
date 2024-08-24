@@ -234,7 +234,7 @@ pub const Fuzzer = struct {
         f.seen_pcs = try initCoverageFile(f.cache_dir, coverage_file_path, f.flagged_pcs);
     }
 
-    fn analyzeLastRun(f: *Fuzzer) void {
+    fn analyzeLastRun(f: *Fuzzer) !void {
         const analysis = Analysis{
             .id = f.coverage.run_id_hasher.final(),
             .score = f.coverage.pc_table.count(),
@@ -248,7 +248,7 @@ pub const Fuzzer = struct {
             //std.log.info("duplicate analysis: score={d} id={d}", .{ analysis.score, analysis.id });
             if (f.input.items.len < gop.key_ptr.input.len or gop.key_ptr.score == 0) {
                 f.gpa.free(gop.key_ptr.input);
-                f.gop.key_ptr.input = try f.gpa.dupe(u8, f.input.items);
+                gop.key_ptr.input = try f.gpa.dupe(u8, f.input.items);
                 gop.key_ptr.score = analysis.score;
             }
         } else {
@@ -258,16 +258,16 @@ pub const Fuzzer = struct {
                 .input = try f.gpa.dupe(u8, f.input.items),
                 .score = analysis.score,
             };
-            updateGlobalCoverage(f.flagged_pcs, f.pc_counters, f.seen_pcs);
+            updateGlobalCoverage(f.pc_counters, f.seen_pcs);
             incrementUniqueRuns(f.seen_pcs);
         }
     }
 
-    fn firstRun(f: *Fuzzer) void {
+    fn firstRun(f: *Fuzzer) !void {
         try f.recent_cases.ensureUnusedCapacity(f.gpa, 100);
-        const len = f.rng.uintLessThanBiased(usize, 80);
+        const len = f.rng.next() % 80;
         try f.input.resize(f.gpa, len);
-        f.rng.bytes(f.input.items);
+        f.rng.fill(f.input.items);
         f.recent_cases.putAssumeCapacity(.{
             .id = 0,
             .input = try f.gpa.dupe(u8, f.input.items),
@@ -297,15 +297,15 @@ pub const Fuzzer = struct {
 
     pub fn next(f: *Fuzzer) ![]const u8 {
         if (f.recent_cases.entries.len == 0) {
-            f.firstRun();
+            try f.firstRun();
         } else {
             if (f.n_runs % 10000 == 0) f.dumpStats();
-            f.analyzeLastRun();
+            try f.analyzeLastRun();
             f.prune();
         }
 
         // choose input, mutate it and select it for the next run
-        const chosen_index = f.rng.uintLessThanBiased(usize, f.recent_cases.entries.len);
+        const chosen_index = f.rng.next() % f.recent_cases.entries.len;
         const run = &f.recent_cases.keys()[chosen_index];
         f.input.clearRetainingCapacity();
         f.input.appendSliceAssumeCapacity(run.input);
@@ -324,6 +324,29 @@ pub const Fuzzer = struct {
             std.log.info("best[{d}] id={x} score={d} input: '{}'", .{
                 i, run.id, run.score, std.zig.fmtEscapes(run.input),
             });
+        }
+    }
+
+    fn mutate(f: *Fuzzer) !void {
+        const gpa = f.gpa;
+        const rng = f.rng.random();
+
+        if (f.input.items.len == 0) {
+            const len = rng.uintLessThanBiased(usize, 80);
+            try f.input.resize(gpa, len);
+            rng.bytes(f.input.items);
+            return;
+        }
+
+        const index = rng.uintLessThanBiased(usize, f.input.items.len * 3);
+        if (index < f.input.items.len) {
+            f.input.items[index] = rng.int(u8);
+        } else if (index < f.input.items.len * 2) {
+            _ = f.input.orderedRemove(index - f.input.items.len);
+        } else if (index < f.input.items.len * 3) {
+            try f.input.insert(gpa, index - f.input.items.len * 2, rng.int(u8));
+        } else {
+            unreachable;
         }
     }
 };
