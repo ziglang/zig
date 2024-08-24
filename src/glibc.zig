@@ -369,6 +369,7 @@ pub fn buildCRTFile(comp: *Compilation, crt_file: CRTFile, prog_node: std.Progre
                     "-fgnu89-inline",
                     "-fmerge-all-constants",
                     "-frounding-math",
+                    "-Wno-unsupported-floating-point-opt", // For targets that don't support -frounding-math.
                     "-fno-stack-protector",
                     "-fno-common",
                     "-fmath-errno",
