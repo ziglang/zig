@@ -3378,7 +3378,6 @@ fn recreateStructType(
     } else 0;
 
     if (captures_len != key.captures.owned.len) return error.AnalysisFail;
-    if (fields_len != struct_obj.field_types.len) return error.AnalysisFail;
 
     // The old type will be unused, so drop its dependency information.
     ip.removeDependenciesForDepender(gpa, AnalUnit.wrap(.{ .cau = struct_obj.cau.unwrap().? }));
@@ -3466,7 +3465,6 @@ fn recreateUnionType(
     } else 0;
 
     if (captures_len != key.captures.owned.len) return error.AnalysisFail;
-    if (fields_len != union_obj.field_types.len) return error.AnalysisFail;
 
     // The old type will be unused, so drop its dependency information.
     ip.removeDependenciesForDepender(gpa, AnalUnit.wrap(.{ .cau = union_obj.cau }));
@@ -3577,7 +3575,6 @@ fn recreateEnumType(
     } else 0;
 
     if (captures_len != key.captures.owned.len) return error.AnalysisFail;
-    if (fields_len != enum_obj.names.len) return error.AnalysisFail;
 
     extra_index += captures_len;
     extra_index += decls_len;
