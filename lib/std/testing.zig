@@ -1141,6 +1141,8 @@ pub const FuzzInputOptions = struct {
     corpus: []const []const u8 = &.{},
 };
 
+/// Do not mutate the returned data!
+/// Fuzz tests can be run with `zig build test --fuzz`.
 /// Inline to avoid coverage instrumentation.
 pub inline fn fuzz(
     comptime testOne: fn (input: []const u8) anyerror!void,
