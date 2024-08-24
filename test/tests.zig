@@ -323,7 +323,7 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .mips,
                 .os_tag = .linux,
-                .abi = .musl,
+                .abi = .musleabihf,
             },
             .link_libc = true,
             .slow_backend = true,
@@ -350,7 +350,7 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .mipsel,
                 .os_tag = .linux,
-                .abi = .musl,
+                .abi = .musleabihf,
             },
             .link_libc = true,
             .slow_backend = true,
@@ -661,7 +661,7 @@ const c_abi_targets = [_]CAbiTarget{
         .target = .{
             .cpu_arch = .mips,
             .os_tag = .linux,
-            .abi = .musl,
+            .abi = .musleabihf,
         },
     },
     .{
