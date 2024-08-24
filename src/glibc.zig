@@ -854,6 +854,23 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
         var opt_symbol_name: ?[]const u8 = null;
         var versions_buffer: [32]u8 = undefined;
         var versions_len: usize = undefined;
+
+        // There can be situations where there are multiple inclusions for the same symbol with
+        // partially overlapping versions, due to different target lists. For example:
+        //
+        //  lgammal:
+        //   library: libm.so
+        //   versions: 2.4 2.23
+        //   targets: ... powerpc64-linux-gnu s390x-linux-gnu
+        //  lgammal:
+        //   library: libm.so
+        //   versions: 2.2 2.23
+        //   targets: sparc64-linux-gnu s390x-linux-gnu
+        //
+        // If we don't handle this, we end up writing the default `lgammal` symbol for version 2.33
+        // twice, which causes a "duplicate symbol" assembler error.
+        var versions_written = std.AutoArrayHashMap(Version, void).init(arena);
+
         while (sym_i < fn_inclusions_len) : (sym_i += 1) {
             const sym_name = opt_symbol_name orelse n: {
                 const name = mem.sliceTo(metadata.inclusions[inc_i..], 0);
@@ -907,6 +924,10 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                     }
                 }
             }
+
+            versions_written.clearRetainingCapacity();
+            try versions_written.ensureTotalCapacity(versions_len);
+
             {
                 var ver_buf_i: u8 = 0;
                 while (ver_buf_i < versions_len) : (ver_buf_i += 1) {
@@ -917,6 +938,9 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                     // _Exit_2_2_5:
                     const ver_index = versions_buffer[ver_buf_i];
                     const ver = metadata.all_versions[ver_index];
+
+                    if (versions_written.getOrPutAssumeCapacity(ver).found_existing) continue;
+
                     // Default symbol version definition vs normal symbol version definition
                     const want_default = chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index;
                     const at_sign_str: []const u8 = if (want_default) "@@" else "@";
@@ -1066,6 +1090,10 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                     }
                 }
             }
+
+            versions_written.clearRetainingCapacity();
+            try versions_written.ensureTotalCapacity(versions_len);
+
             {
                 var ver_buf_i: u8 = 0;
                 while (ver_buf_i < versions_len) : (ver_buf_i += 1) {
@@ -1077,6 +1105,9 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
                     // environ_2_2_5:
                     const ver_index = versions_buffer[ver_buf_i];
                     const ver = metadata.all_versions[ver_index];
+
+                    if (versions_written.getOrPutAssumeCapacity(ver).found_existing) continue;
+
                     // Default symbol version definition vs normal symbol version definition
                     const want_default = chosen_def_ver_index != 255 and ver_index == chosen_def_ver_index;
                     const at_sign_str: []const u8 = if (want_default) "@@" else "@";
