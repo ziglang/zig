@@ -424,7 +424,7 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .powerpc,
                 .os_tag = .linux,
-                .abi = .musl,
+                .abi = .musleabihf,
             },
             .link_libc = true,
         },
@@ -682,7 +682,7 @@ const c_abi_targets = [_]CAbiTarget{
         .target = .{
             .cpu_arch = .powerpc,
             .os_tag = .linux,
-            .abi = .musl,
+            .abi = .musleabihf,
         },
     },
     .{
