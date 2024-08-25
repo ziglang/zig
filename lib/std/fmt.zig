@@ -930,11 +930,8 @@ fn formatSizeImpl(comptime base: comptime_int) type {
                 else => unreachable,
             };
 
-            const s = switch (magnitude) {
-                0 => buf[0..formatIntBuf(&buf, value, 10, .lower, .{})],
-                else => formatFloat(&buf, new_value, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
-                    error.BufferTooSmall => unreachable,
-                },
+            const s = formatFloat(&buf, new_value, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
+                error.BufferTooSmall => unreachable,
             };
 
             var i: usize = s.len;
