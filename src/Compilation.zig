@@ -5765,6 +5765,13 @@ pub fn addCCArgs(
         try argv.append("-mno-implicit-float");
     }
 
+    // https://github.com/llvm/llvm-project/issues/105972
+    if (target.cpu.arch.isPowerPC() and target.floatAbi() == .soft) {
+        try argv.append("-D__NO_FPRS__");
+        try argv.append("-D_SOFT_FLOAT");
+        try argv.append("-D_SOFT_DOUBLE");
+    }
+
     if (out_dep_path) |p| {
         try argv.appendSlice(&[_][]const u8{ "-MD", "-MV", "-MF", p });
     }
