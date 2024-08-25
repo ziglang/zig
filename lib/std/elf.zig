@@ -1646,44 +1646,6 @@ pub const EM = enum(u16) {
     FRV = 0x5441,
 
     _,
-
-    pub fn toTargetCpuArch(em: EM) ?std.Target.Cpu.Arch {
-        return switch (em) {
-            .AVR => .avr,
-            .MSP430 => .msp430,
-            .ARC => .arc,
-            .ARM => .arm,
-            .HEXAGON => .hexagon,
-            .@"68K" => .m68k,
-            .MIPS => .mips,
-            .MIPS_RS3_LE => .mipsel,
-            .PPC => .powerpc,
-            .SPARC => .sparc,
-            .@"386" => .x86,
-            .XCORE => .xcore,
-            .CSR_KALIMBA => .kalimba,
-            .LANAI => .lanai,
-            .AARCH64 => .aarch64,
-            .PPC64 => .powerpc64,
-            .RISCV => .riscv64,
-            .X86_64 => .x86_64,
-            .BPF => .bpfel,
-            .SPARCV9 => .sparc64,
-            .S390 => .s390x,
-            .SPU_2 => .spu_2,
-            // FIXME:
-            // No support for .loongarch32 yet so it is safe to assume we are on .loongarch64.
-            //
-            // However, when e_machine is .LOONGARCH, we should check
-            // ei_class's value to decide the CPU architecture.
-            // - ELFCLASS32 => .loongarch32
-            // - ELFCLASS64 => .loongarch64
-            .LOONGARCH => .loongarch64,
-            // there's many cases we don't (yet) handle, or will never have a
-            // zig target cpu arch equivalent (such as null).
-            else => null,
-        };
-    }
 };
 
 pub const GRP_COMDAT = 1;

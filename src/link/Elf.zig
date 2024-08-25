@@ -1100,7 +1100,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
             error.MalformedObject,
             error.MalformedArchive,
             error.MismatchedEflags,
-            error.InvalidCpuArch,
+            error.InvalidMachineType,
             => continue, // already reported
             else => |e| try self.reportParseError(
                 obj.path,
@@ -1187,7 +1187,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
 
     for (system_libs.items) |lib| {
         self.parseLibrary(lib, false) catch |err| switch (err) {
-            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => continue, // already reported
+            error.MalformedObject, error.MalformedArchive, error.InvalidMachineType => continue, // already reported
             else => |e| try self.reportParseError(
                 lib.path,
                 "unexpected error: parsing library failed with error {s}",
@@ -1213,7 +1213,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
             error.MalformedObject,
             error.MalformedArchive,
             error.MismatchedEflags,
-            error.InvalidCpuArch,
+            error.InvalidMachineType,
             => continue, // already reported
             else => |e| try self.reportParseError(
                 obj.path,
@@ -1642,7 +1642,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
 pub const ParseError = error{
     MalformedObject,
     MalformedArchive,
-    InvalidCpuArch,
+    InvalidMachineType,
     MismatchedEflags,
     OutOfMemory,
     Overflow,
@@ -1813,7 +1813,7 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
             .needed = scr_obj.needed,
             .path = full_path,
         }, false) catch |err| switch (err) {
-            error.MalformedObject, error.MalformedArchive, error.InvalidCpuArch => continue, // already reported
+            error.MalformedObject, error.MalformedArchive, error.InvalidMachineType => continue, // already reported
             else => |e| try self.reportParseError(
                 full_path,
                 "unexpected error: parsing library failed with error {s}",

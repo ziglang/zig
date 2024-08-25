@@ -2257,7 +2257,7 @@ fn testMismatchedCpuArchitectureError(b: *Build, opts: Options) *Step {
     exe.linkLibC();
 
     expectLinkErrors(exe, test_step, .{ .exact = &.{
-        "invalid cpu architecture: aarch64",
+        "invalid ELF machine type: AARCH64",
         "note: while parsing /?/a.o",
     } });
 
