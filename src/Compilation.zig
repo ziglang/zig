@@ -5484,6 +5484,9 @@ pub fn addCCArgs(
                 const is_enabled = target.cpu.features.isEnabled(index);
 
                 if (feature.llvm_name) |llvm_name| {
+                    // We communicate float ABI to Clang through the dedicated options further down.
+                    if (std.mem.eql(u8, llvm_name, "soft-float")) continue;
+
                     argv.appendSliceAssumeCapacity(&[_][]const u8{ "-Xclang", "-target-feature", "-Xclang" });
                     const plus_or_minus = "-+"[@intFromBool(is_enabled)];
                     const arg = try std.fmt.allocPrint(arena, "{c}{s}", .{ plus_or_minus, llvm_name });
@@ -5705,10 +5708,6 @@ pub fn addCCArgs(
                     if (target.cpu.model.llvm_name) |llvm_name| {
                         try argv.append(try std.fmt.allocPrint(arena, "-march={s}", .{llvm_name}));
                     }
-
-                    if (std.Target.mips.featureSetHas(target.cpu.features, .soft_float)) {
-                        try argv.append("-msoft-float");
-                    }
                 },
                 else => {
                     // TODO
@@ -5749,6 +5748,21 @@ pub fn addCCArgs(
 
     if (target_util.llvmMachineAbi(target)) |mabi| {
         try argv.append(try std.fmt.allocPrint(arena, "-mabi={s}", .{mabi}));
+    }
+
+    // We might want to support -mfloat-abi=softfp for Arm and CSKY here in the future.
+    if (target_util.clangSupportsFloatAbiArg(target)) {
+        const fabi = @tagName(target.floatAbi());
+
+        try argv.append(switch (target.cpu.arch) {
+            // For whatever reason, Clang doesn't support `-mfloat-abi` for s390x.
+            .s390x => try std.fmt.allocPrint(arena, "-m{s}-float", .{fabi}),
+            else => try std.fmt.allocPrint(arena, "-mfloat-abi={s}", .{fabi}),
+        });
+    }
+
+    if (target_util.clangSupportsNoImplicitFloatArg(target) and target.floatAbi() == .soft) {
+        try argv.append("-mno-implicit-float");
     }
 
     if (out_dep_path) |p| {
