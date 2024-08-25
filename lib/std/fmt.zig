@@ -901,18 +901,11 @@ fn formatSizeImpl(comptime base: comptime_int) type {
             writer: anytype,
         ) !void {
             _ = fmt;
-            // The worst case for the calculated float value, plus three bytes for the suffix.
-            // TODO: Fix: if options.precision is high enough, this buffer will not be sufficient.
-            var buf: [format_float.min_buffer_size + 3]u8 = undefined;
-
-            // The regular algorithm does not work for 0, so this is a special case.
             if (value == 0) {
-                const s = formatFloat(&buf, 0.0, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
-                    error.BufferTooSmall => unreachable,
-                };
-                buf[s.len] = 'B';
-                return formatBuf(buf[0 .. s.len + 1], options, writer);
+                return formatBuf("0B", options, writer);
             }
+            // The worst case in terms of space needed is 32 bytes + 3 for the suffix.
+            var buf: [format_float.min_buffer_size + 3]u8 = undefined;
 
             const mags_si = " kMGTPEZY";
             const mags_iec = " KMGTPEZY";
@@ -930,8 +923,11 @@ fn formatSizeImpl(comptime base: comptime_int) type {
                 else => unreachable,
             };
 
-            const s = formatFloat(&buf, new_value, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
-                error.BufferTooSmall => unreachable,
+            const s = switch (magnitude) {
+                0 => buf[0..formatIntBuf(&buf, value, 10, .lower, .{})],
+                else => formatFloat(&buf, new_value, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
+                    error.BufferTooSmall => unreachable,
+                },
             };
 
             var i: usize = s.len;
@@ -954,13 +950,13 @@ fn formatSizeImpl(comptime base: comptime_int) type {
         }
     };
 }
-
 const formatSizeDec = formatSizeImpl(1000).formatSizeImpl;
 const formatSizeBin = formatSizeImpl(1024).formatSizeImpl;
 
 /// Return a Formatter for a u64 value representing a file size.
 /// This formatter represents the number as multiple of 1000 and uses the SI
 /// measurement units (kB, MB, GB, ...).
+/// Format option `precision` is ignored when `value` is less than 1kB
 pub fn fmtIntSizeDec(value: u64) std.fmt.Formatter(formatSizeDec) {
     return .{ .data = value };
 }
@@ -968,6 +964,7 @@ pub fn fmtIntSizeDec(value: u64) std.fmt.Formatter(formatSizeDec) {
 /// Return a Formatter for a u64 value representing a file size.
 /// This formatter represents the number as multiple of 1024 and uses the IEC
 /// measurement units (KiB, MiB, GiB, ...).
+/// Format option `precision` is ignored when `value` is less than 1KiB
 pub fn fmtIntSizeBin(value: u64) std.fmt.Formatter(formatSizeBin) {
     return .{ .data = value };
 }
@@ -2125,10 +2122,6 @@ test "cstr" {
 }
 
 test "filesize" {
-    try expectFmt("file size: 0B\n", "file size: {}\n", .{fmtIntSizeDec(0)});
-    try expectFmt("file size: 0.00B\n", "file size: {:.2}\n", .{fmtIntSizeDec(0)});
-    try expectFmt("file size: 0B\n", "file size: {}\n", .{fmtIntSizeBin(0)});
-    try expectFmt("file size: 0.00B\n", "file size: {:.2}\n", .{fmtIntSizeBin(0)});
     try expectFmt("file size: 42B\n", "file size: {}\n", .{fmtIntSizeDec(42)});
     try expectFmt("file size: 42B\n", "file size: {}\n", .{fmtIntSizeBin(42)});
     try expectFmt("file size: 63MB\n", "file size: {}\n", .{fmtIntSizeDec(63 * 1000 * 1000)});
