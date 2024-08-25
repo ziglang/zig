@@ -7,7 +7,7 @@ const SeenPcsHeader = std.Build.Fuzz.abi.SeenPcsHeader;
 const MemoryMappedList = @import("MemoryMappedList.zig");
 
 const mutate = @import("mutate.zig");
-const input_pool = @import("input_pool.zig");
+const InputPool = @import("InputPool.zig");
 const feature_capture = @import("feature_capture.zig");
 const feature_util = @import("feature_util.zig");
 
@@ -167,10 +167,12 @@ pub const Fuzzer = struct {
     rng: std.Random.DefaultPrng,
     cache_dir: std.fs.Dir,
 
+    input_pool: InputPool = .{},
+
     mutate_scratch: std.ArrayListUnmanaged(u8) = .{},
     mutation_seed: u64 = undefined,
     mutation_len: usize = undefined,
-    current_input_index: input_pool.Index = undefined,
+    current_input_index: InputPool.Index = undefined,
     current_input_checksum: u8 = undefined,
 
     feature_buffer: []u32 = undefined,
@@ -210,9 +212,9 @@ pub const Fuzzer = struct {
         f.seen_pcs = try initCoverageFile(f.cache_dir, coverage_file_path, f.flagged_pcs);
     }
 
-    fn readOptions(options: *const std.testing.FuzzInputOptions) !void {
+    fn readOptions(f: *Fuzzer, options: *const std.testing.FuzzInputOptions) !void {
         for (options.corpus) |input| {
-            try input_pool.insertString(input);
+            try f.input_pool.insertString(f.gpa, input);
         }
     }
 
@@ -221,14 +223,14 @@ pub const Fuzzer = struct {
         for (0..256) |len| {
             const slice = buffer[0..len];
             f.rng.fill(slice);
-            try input_pool.insertString(slice);
+            try f.input_pool.insertString(f.gpa, slice);
         }
         // TODO: prune
     }
 
-    fn pickInput(f: *Fuzzer) input_pool.Index {
-        assert(input_pool.len() != 0);
-        const index = f.rng.next() % input_pool.len();
+    fn pickInput(f: *Fuzzer) InputPool.Index {
+        assert(f.input_pool.len() != 0);
+        const index = f.rng.next() % f.input_pool.len();
         return @intCast(index);
     }
 
@@ -322,7 +324,7 @@ pub const Fuzzer = struct {
         incrementNumberOfRuns(f.seen_pcs);
         if (f.first_run) {
             f.first_run = false;
-            try readOptions(options);
+            try f.readOptions(options);
             std.log.info(
                 \\ starting to fuzz with initial corpus of {}
                 \\ F - this input features
@@ -330,12 +332,12 @@ pub const Fuzzer = struct {
                 \\ C - this input features already discovered
                 \\ M - features this input missed but discovered by other
                 \\ T - new total unique features
-            , .{input_pool.len()});
-            if (input_pool.len() == 0) {
+            , .{f.input_pool.len()});
+            if (f.input_pool.len() == 0) {
                 try f.makeUpInitialCorpus();
             }
         } else {
-            var mutated_input = input_pool.getString(f.current_input_index);
+            var mutated_input = f.input_pool.getString(f.current_input_index);
             mutated_input.len = f.mutation_len;
 
             if (f.current_input_checksum != checksum(mutated_input)) {
@@ -355,12 +357,12 @@ pub const Fuzzer = struct {
 
             if (try f.analyzeLastRun()) {
                 // !!! this invalidates mutated_input but not the index
-                try input_pool.insertString(mutated_input);
+                try f.input_pool.insertString(f.gpa, mutated_input);
             }
 
             // !!! we might have inserted the current input into input_pool,
             // which invalidated the pointers but not the indexes
-            mutated_input = input_pool.getString(f.current_input_index);
+            mutated_input = f.input_pool.getString(f.current_input_index);
             mutated_input.len = f.mutation_len;
 
             // this will restore the mutated input (inplace, in the input_pool)
@@ -368,15 +370,16 @@ pub const Fuzzer = struct {
             f.undoMutate(mutated_input);
 
             // This invalidates the indexes
-            input_pool.maybeRepack();
+            f.input_pool.maybeRepack();
         }
 
         const mutated = b: { // select and mutate
             const input_index = f.pickInput();
             f.current_input_index = input_index;
 
-            const input = input_pool.getString(input_index);
-            const cap = input.len + input_pool.InputExtraBytes;
+            const input_extra = f.input_pool.getString(input_index);
+            const input = input_extra[0 .. input_extra.len - InputPool.InputExtraBytes];
+            const cap = input_extra.len;
 
             const mutated = try f.doMutation(input, cap);
             f.mutation_len = mutated.len;
