@@ -8,7 +8,7 @@ const InputPool = @This();
 // * string are either deleted or inserted, never resized
 // * we dont need stable pointers to strings.
 //   * we need to get random string or iterate over all of them
-// * string deletions are somewhat rare (TODO: verify)
+// * string deletions are rare (only when minimizing corpus)
 
 // therefore
 
@@ -16,8 +16,6 @@ const InputPool = @This();
 // We pack them densly one after another
 // When freeing, the bytes go unused
 // Repack everything sometimes
-
-// TODO: need to store the features list somewhere?
 
 /// each stored input has this many extra bytes at the end available for inplace
 /// growing when mutating
@@ -93,6 +91,7 @@ pub fn insertString(ip: *InputPool, a: Allocator, str: []const u8) error{OutOfMe
     ip.ends.appendAssumeCapacity(Entry.init(ip.buffer.items.len));
 }
 
+/// Marks string as deleted but bytes are reused only after a call to repack
 pub fn deleteString(ip: *InputPool, index: Index) void {
     ip.ends.items[index].deleted = true;
     ip.deletedBytes += ip.getString(index).len + InputExtraBytes;
