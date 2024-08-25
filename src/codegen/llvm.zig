@@ -128,6 +128,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .hurd => "hurd",
         .wasi => "wasi",
         .emscripten => "emscripten",
+        .bridgeos => "bridgeos",
         .macos => "macosx",
         .ios => "ios",
         .tvos => "tvos",
@@ -240,6 +241,7 @@ pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
         .shadermodel => .ShaderModel,
         .vulkan => .Vulkan,
         .serenity => .Serenity,
+        .bridgeos => .BridgeOS,
 
         .opengl,
         .plan9,

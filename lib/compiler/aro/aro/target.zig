@@ -649,6 +649,7 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .visionos => "xros",
         .driverkit => "driverkit",
         .shadermodel => "shadermodel",
+        .bridgeos => "bridgeos",
         .opencl,
         .opengl,
         .vulkan,

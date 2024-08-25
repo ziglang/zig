@@ -38,6 +38,7 @@ pub const Os = struct {
         netbsd,
         openbsd,
 
+        bridgeos,
         driverkit,
         ios,
         macos,
@@ -75,6 +76,7 @@ pub const Os = struct {
 
         pub inline fn isDarwin(tag: Tag) bool {
             return switch (tag) {
+                .bridgeos,
                 .driverkit,
                 .ios,
                 .macos,
@@ -122,6 +124,7 @@ pub const Os = struct {
         pub fn dynamicLibSuffix(tag: Tag) [:0]const u8 {
             return switch (tag) {
                 .windows, .uefi => ".dll",
+                .bridgeos,
                 .driverkit,
                 .ios,
                 .macos,
@@ -186,6 +189,7 @@ pub const Os = struct {
                 .other,
                 => .none,
 
+                .bridgeos,
                 .driverkit,
                 .freebsd,
                 .macos,
@@ -412,6 +416,7 @@ pub const Os = struct {
                 .plan9,
                 .illumos,
                 .serenity,
+                .bridgeos,
                 .other,
                 => .{ .none = {} },
 
@@ -573,6 +578,7 @@ pub const Os = struct {
             .freebsd,
             .aix,
             .netbsd,
+            .bridgeos,
             .driverkit,
             .macos,
             .ios,
@@ -721,6 +727,7 @@ pub const Abi = enum {
             .wasi,
             .emscripten,
             => .musl,
+            .bridgeos,
             .opencl,
             .opengl,
             .vulkan,
@@ -820,7 +827,7 @@ pub const ObjectFormat = enum {
     pub fn default(os_tag: Os.Tag, arch: Cpu.Arch) ObjectFormat {
         return switch (os_tag) {
             .aix => .xcoff,
-            .driverkit, .ios, .macos, .tvos, .visionos, .watchos => .macho,
+            .bridgeos, .driverkit, .ios, .macos, .tvos, .visionos, .watchos => .macho,
             .plan9 => .plan9,
             .uefi, .windows => .coff,
             .zos => .goff,
@@ -1815,6 +1822,7 @@ pub const DynamicLinker = struct {
                 => none,
             },
 
+            .bridgeos,
             .driverkit,
             .ios,
             .tvos,
@@ -2274,6 +2282,7 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
             },
         },
 
+        .bridgeos,
         .driverkit,
         .ios,
         .macos,
