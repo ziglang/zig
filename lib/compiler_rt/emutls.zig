@@ -19,7 +19,7 @@ pub const panic = common.panic;
 
 comptime {
     if (builtin.link_libc and (builtin.abi == .android or builtin.os.tag == .openbsd)) {
-        @export(__emutls_get_address, .{ .name = "__emutls_get_address", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__emutls_get_address, .{ .name = "__emutls_get_address", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 

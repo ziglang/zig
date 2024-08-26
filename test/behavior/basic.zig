@@ -734,7 +734,7 @@ test "extern variable with non-pointer opaque type" {
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
-    @export(var_to_export, .{ .name = "opaque_extern_var" });
+    @export(&var_to_export, .{ .name = "opaque_extern_var" });
     try expect(@as(*align(1) u32, @ptrCast(&opaque_extern_var)).* == 42);
 }
 extern var opaque_extern_var: opaque {};

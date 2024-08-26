@@ -1,10 +1,10 @@
 pub export fn entry() void {}
 comptime {
-    @export(entry, .{ .name = "" });
+    @export(&entry, .{ .name = "" });
 }
 
 // error
 // backend=llvm
 // target=native
 //
-// :3:24: error: exported symbol name cannot be empty
+// :3:25: error: exported symbol name cannot be empty

@@ -6,9 +6,9 @@ pub const panic = common.panic;
 
 comptime {
     if (common.want_windows_v2u64_abi) {
-        @export(__fixdfti_windows_x86_64, .{ .name = "__fixdfti", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__fixdfti_windows_x86_64, .{ .name = "__fixdfti", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(__fixdfti, .{ .name = "__fixdfti", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__fixdfti, .{ .name = "__fixdfti", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 
