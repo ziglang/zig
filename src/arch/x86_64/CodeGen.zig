@@ -12105,7 +12105,7 @@ fn genLocalDebugInfo(
                             self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op.operand,
                         ),
                     };
-                    const frame_index = try self.allocFrameIndex(FrameAlloc.initSpill(ty, self.pt));
+                    const frame_index = try self.allocFrameIndex(FrameAlloc.initSpill(ty, self.pt.zcu));
                     try self.genSetMem(.{ .frame = frame_index }, 0, ty, mcv, .{});
                     try self.asmAirMemory(.dbg_local, inst, .{
                         .base = .{ .frame = frame_index },

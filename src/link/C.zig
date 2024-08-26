@@ -327,7 +327,7 @@ pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !
         .variable => |variable| variable.init,
         else => nav.status.resolved.val,
     };
-    if (nav_init != .none and !Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(pt)) return;
+    if (nav_init != .none and !Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(zcu)) return;
 
     const gop = try self.navs.getOrPut(gpa, nav_index);
     errdefer _ = self.navs.pop();

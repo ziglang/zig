@@ -157,7 +157,7 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
     }
 
     if (build_options.enable_logging) {
-        const pt: Zcu.PerThread = .{ .zcu = elf_file.base.comp.module.?, .tid = tid };
+        const pt: Zcu.PerThread = .{ .zcu = elf_file.base.comp.zcu.?, .tid = tid };
         for (self.navs.keys(), self.navs.values()) |nav_index, meta| {
             checkNavAllocated(pt, nav_index, meta);
         }
@@ -167,7 +167,7 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
     }
 
     if (self.dwarf) |*dwarf| {
-        const pt: Zcu.PerThread = .{ .zcu = elf_file.base.comp.module.?, .tid = tid };
+        const pt: Zcu.PerThread = .{ .zcu = elf_file.base.comp.zcu.?, .tid = tid };
         try dwarf.flushModule(pt);
 
         const gpa = elf_file.base.comp.gpa;
@@ -1306,7 +1306,7 @@ pub fn updateNav(
         else => nav.status.resolved.val,
     };
 
-    if (nav_init != .none and Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(pt)) {
+    if (nav_init != .none and Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(zcu)) {
         const sym_index = try self.getOrCreateMetadataForNav(elf_file, nav_index);
         self.symbol(sym_index).atom(elf_file).?.freeRelocs(self);
 

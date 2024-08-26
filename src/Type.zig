@@ -1259,7 +1259,7 @@ pub fn abiSize(ty: Type, zcu: *Zcu) u64 {
 }
 
 /// May capture a reference to `ty`.
-pub fn lazyAbiSize(ty: Type, pt: Zcu.PerThread) !Value {
+pub fn abiSizeLazy(ty: Type, pt: Zcu.PerThread) !Value {
     switch (try ty.abiSizeInner(.lazy, pt.zcu, pt.tid)) {
         .val => |val| return val,
         .scalar => |x| return pt.intValue(Type.comptime_int, x),
@@ -3446,7 +3446,7 @@ pub fn structFieldOffset(
             const union_type = ip.loadUnionType(ty.toIntern());
             if (!union_type.hasTag(ip))
                 return 0;
-            const layout = union_type.getUnionLayout(zcu);
+            const layout = Type.getUnionLayout(union_type, zcu);
             if (layout.tag_align.compare(.gte, layout.payload_align)) {
                 // {Tag, Payload}
                 return layout.payload_align.forward(layout.tag_size);
@@ -3997,6 +3997,65 @@ fn resolveUnionInner(
             return error.AnalysisFail;
         },
         error.OutOfMemory => |e| return e,
+    };
+}
+
+pub fn getUnionLayout(loaded_union: InternPool.LoadedUnionType, zcu: *Zcu) Zcu.UnionLayout {
+    const ip = &zcu.intern_pool;
+    assert(loaded_union.haveLayout(ip));
+    var most_aligned_field: u32 = undefined;
+    var most_aligned_field_size: u64 = undefined;
+    var biggest_field: u32 = undefined;
+    var payload_size: u64 = 0;
+    var payload_align: InternPool.Alignment = .@"1";
+    for (loaded_union.field_types.get(ip), 0..) |field_ty, field_index| {
+        if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(zcu)) continue;
+
+        const explicit_align = loaded_union.fieldAlign(ip, field_index);
+        const field_align = if (explicit_align != .none)
+            explicit_align
+        else
+            Type.fromInterned(field_ty).abiAlignment(zcu);
+        const field_size = Type.fromInterned(field_ty).abiSize(zcu);
+        if (field_size > payload_size) {
+            payload_size = field_size;
+            biggest_field = @intCast(field_index);
+        }
+        if (field_align.compare(.gte, payload_align)) {
+            payload_align = field_align;
+            most_aligned_field = @intCast(field_index);
+            most_aligned_field_size = field_size;
+        }
+    }
+    const have_tag = loaded_union.flagsUnordered(ip).runtime_tag.hasTag();
+    if (!have_tag or !Type.fromInterned(loaded_union.enum_tag_ty).hasRuntimeBits(zcu)) {
+        return .{
+            .abi_size = payload_align.forward(payload_size),
+            .abi_align = payload_align,
+            .most_aligned_field = most_aligned_field,
+            .most_aligned_field_size = most_aligned_field_size,
+            .biggest_field = biggest_field,
+            .payload_size = payload_size,
+            .payload_align = payload_align,
+            .tag_align = .none,
+            .tag_size = 0,
+            .padding = 0,
+        };
+    }
+
+    const tag_size = Type.fromInterned(loaded_union.enum_tag_ty).abiSize(zcu);
+    const tag_align = Type.fromInterned(loaded_union.enum_tag_ty).abiAlignment(zcu).max(.@"1");
+    return .{
+        .abi_size = loaded_union.sizeUnordered(ip),
+        .abi_align = tag_align.max(payload_align),
+        .most_aligned_field = most_aligned_field,
+        .most_aligned_field_size = most_aligned_field_size,
+        .biggest_field = biggest_field,
+        .payload_size = payload_size,
+        .payload_align = payload_align,
+        .tag_align = tag_align,
+        .tag_size = tag_size,
+        .padding = loaded_union.paddingUnordered(ip),
     };
 }
 

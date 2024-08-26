@@ -780,7 +780,7 @@ const Entry = struct {
                 else
                     "?", 0),
             });
-            const zcu = dwarf.bin_file.comp.module.?;
+            const zcu = dwarf.bin_file.comp.zcu.?;
             const ip = &zcu.intern_pool;
             for (dwarf.types.keys(), dwarf.types.values()) |ty, other_entry| {
                 const ty_unit: Unit.Index = if (Type.fromInterned(ty).typeDeclInst(zcu)) |inst_index|
@@ -1429,7 +1429,7 @@ pub const WipNav = struct {
                 }
             } else {
                 try wip_nav.abbrevCode(abbrev_code.block);
-                const bytes = Type.fromInterned(loaded_enum.tag_ty).abiSize(wip_nav.pt);
+                const bytes = Type.fromInterned(loaded_enum.tag_ty).abiSize(wip_nav.pt.zcu);
                 try uleb128(diw, bytes);
                 big_int.writeTwosComplement(try wip_nav.debug_info.addManyAsSlice(wip_nav.dwarf.gpa, @intCast(bytes)), wip_nav.dwarf.endian);
             }
@@ -1770,7 +1770,7 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
             const ty_reloc_index = try wip_nav.refForward();
             try wip_nav.exprloc(.{ .addr = .{ .sym = sym_index } });
             try uleb128(diw, nav.status.resolved.alignment.toByteUnits() orelse
-                ty.abiAlignment(pt).toByteUnits().?);
+                ty.abiAlignment(zcu).toByteUnits().?);
             try diw.writeByte(@intFromBool(false));
             wip_nav.finishForward(ty_reloc_index);
             try wip_nav.abbrevCode(.is_const);
@@ -1821,7 +1821,7 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
             const addr: Loc = .{ .addr = .{ .sym = sym_index } };
             try wip_nav.exprloc(if (variable.is_threadlocal) .{ .form_tls_address = &addr } else addr);
             try uleb128(diw, nav.status.resolved.alignment.toByteUnits() orelse
-                ty.abiAlignment(pt).toByteUnits().?);
+                ty.abiAlignment(zcu).toByteUnits().?);
             try diw.writeByte(@intFromBool(false));
         },
         .func => |func| {
@@ -2158,8 +2158,8 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                         try diw.writeByte(accessibility);
                         try wip_nav.strp(nav.name.toSlice(ip));
                         if (loaded_struct.field_types.len == 0) try diw.writeByte(@intFromBool(false)) else {
-                            try uleb128(diw, nav_val.toType().abiSize(pt));
-                            try uleb128(diw, nav_val.toType().abiAlignment(pt).toByteUnits().?);
+                            try uleb128(diw, nav_val.toType().abiSize(zcu));
+                            try uleb128(diw, nav_val.toType().abiAlignment(zcu).toByteUnits().?);
                             for (0..loaded_struct.field_types.len) |field_index| {
                                 const is_comptime = loaded_struct.fieldIsComptime(ip, field_index);
                                 try wip_nav.abbrevCode(if (is_comptime) .struct_field_comptime else .struct_field);
@@ -2173,7 +2173,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                                 if (!is_comptime) {
                                     try uleb128(diw, loaded_struct.offsets.get(ip)[field_index]);
                                     try uleb128(diw, loaded_struct.fieldAlign(ip, field_index).toByteUnits() orelse
-                                        field_type.abiAlignment(pt).toByteUnits().?);
+                                        field_type.abiAlignment(zcu).toByteUnits().?);
                                 }
                             }
                             try uleb128(diw, @intFromEnum(AbbrevCode.null));
@@ -2195,7 +2195,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                             const field_type = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
                             try wip_nav.refType(field_type);
                             try uleb128(diw, field_bit_offset);
-                            field_bit_offset += @intCast(field_type.bitSize(pt));
+                            field_bit_offset += @intCast(field_type.bitSize(zcu));
                         }
                         try uleb128(diw, @intFromEnum(AbbrevCode.null));
                     },
@@ -2360,7 +2360,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                 try uleb128(diw, loc.column + 1);
                 try diw.writeByte(accessibility);
                 try wip_nav.strp(nav.name.toSlice(ip));
-                const union_layout = pt.getUnionLayout(loaded_union);
+                const union_layout = Type.getUnionLayout(loaded_union, zcu);
                 try uleb128(diw, union_layout.abi_size);
                 try uleb128(diw, union_layout.abi_align.toByteUnits().?);
                 const loaded_tag = loaded_union.loadTagType(ip);
@@ -2391,7 +2391,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                                 try wip_nav.refType(field_type);
                                 try uleb128(diw, union_layout.payloadOffset());
                                 try uleb128(diw, loaded_union.fieldAlign(ip, field_index).toByteUnits() orelse
-                                    if (field_type.isNoReturn(zcu)) 1 else field_type.abiAlignment(pt).toByteUnits().?);
+                                    if (field_type.isNoReturn(zcu)) 1 else field_type.abiAlignment(zcu).toByteUnits().?);
                             }
                             try uleb128(diw, @intFromEnum(AbbrevCode.null));
                         }
@@ -2406,7 +2406,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                     const field_type = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
                     try wip_nav.refType(field_type);
                     try uleb128(diw, loaded_union.fieldAlign(ip, field_index).toByteUnits() orelse
-                        field_type.abiAlignment(pt).toByteUnits().?);
+                        field_type.abiAlignment(zcu).toByteUnits().?);
                 }
                 try uleb128(diw, @intFromEnum(AbbrevCode.null));
                 break :done;
@@ -2560,8 +2560,8 @@ fn updateType(
                 inline .signed, .unsigned => |signedness| @field(DW.ATE, @tagName(signedness)),
             });
             try uleb128(diw, int_type.bits);
-            try uleb128(diw, ty.abiSize(pt));
-            try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+            try uleb128(diw, ty.abiSize(zcu));
+            try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
         },
         .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
             .One, .Many, .C => {
@@ -2569,7 +2569,7 @@ fn updateType(
                 try wip_nav.abbrevCode(.ptr_type);
                 try wip_nav.strp(name);
                 try uleb128(diw, ptr_type.flags.alignment.toByteUnits() orelse
-                    ptr_child_type.abiAlignment(pt).toByteUnits().?);
+                    ptr_child_type.abiAlignment(zcu).toByteUnits().?);
                 try diw.writeByte(@intFromEnum(ptr_type.flags.address_space));
                 if (ptr_type.flags.is_const or ptr_type.flags.is_volatile) try wip_nav.infoSectionOffset(
                     .debug_info,
@@ -2594,8 +2594,8 @@ fn updateType(
             .Slice => {
                 try wip_nav.abbrevCode(.struct_type);
                 try wip_nav.strp(name);
-                try uleb128(diw, ty.abiSize(pt));
-                try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+                try uleb128(diw, ty.abiSize(zcu));
+                try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
                 try wip_nav.abbrevCode(.generated_field);
                 try wip_nav.strp("ptr");
                 const ptr_field_type = ty.slicePtrFieldType(zcu);
@@ -2605,7 +2605,7 @@ fn updateType(
                 try wip_nav.strp("len");
                 const len_field_type = Type.usize;
                 try wip_nav.refType(len_field_type);
-                try uleb128(diw, len_field_type.abiAlignment(pt).forward(ptr_field_type.abiSize(pt)));
+                try uleb128(diw, len_field_type.abiAlignment(zcu).forward(ptr_field_type.abiSize(zcu)));
                 try uleb128(diw, @intFromEnum(AbbrevCode.null));
             },
         },
@@ -2623,8 +2623,8 @@ fn updateType(
             const opt_child_type = Type.fromInterned(opt_child_type_index);
             try wip_nav.abbrevCode(.union_type);
             try wip_nav.strp(name);
-            try uleb128(diw, ty.abiSize(pt));
-            try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+            try uleb128(diw, ty.abiSize(zcu));
+            try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
             if (opt_child_type.isNoReturn(zcu)) {
                 try wip_nav.abbrevCode(.generated_field);
                 try wip_nav.strp("null");
@@ -2652,8 +2652,8 @@ fn updateType(
                     switch (repr) {
                         .unpacked => {
                             try wip_nav.refType(Type.bool);
-                            try uleb128(diw, if (opt_child_type.hasRuntimeBits(pt))
-                                opt_child_type.abiSize(pt)
+                            try uleb128(diw, if (opt_child_type.hasRuntimeBits(zcu))
+                                opt_child_type.abiSize(zcu)
                             else
                                 0);
                         },
@@ -2700,8 +2700,8 @@ fn updateType(
             const error_union_error_set_offset, const error_union_payload_offset = switch (error_union_type.payload_type) {
                 .generic_poison_type => .{ 0, 0 },
                 else => .{
-                    codegen.errUnionErrorOffset(error_union_payload_type, pt),
-                    codegen.errUnionPayloadOffset(error_union_payload_type, pt),
+                    codegen.errUnionErrorOffset(error_union_payload_type, zcu),
+                    codegen.errUnionPayloadOffset(error_union_payload_type, zcu),
                 },
             };
 
@@ -2710,8 +2710,8 @@ fn updateType(
             if (error_union_type.error_set_type != .generic_poison_type and
                 error_union_type.payload_type != .generic_poison_type)
             {
-                try uleb128(diw, ty.abiSize(pt));
-                try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+                try uleb128(diw, ty.abiSize(zcu));
+                try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
             } else {
                 try uleb128(diw, 0);
                 try uleb128(diw, 1);
@@ -2788,9 +2788,9 @@ fn updateType(
                     DW.ATE.unsigned
                 else
                     unreachable);
-                try uleb128(diw, ty.bitSize(pt));
-                try uleb128(diw, ty.abiSize(pt));
-                try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+                try uleb128(diw, ty.bitSize(zcu));
+                try uleb128(diw, ty.abiSize(zcu));
+                try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
             },
             .anyopaque,
             .void,
@@ -2820,8 +2820,8 @@ fn updateType(
         } else {
             try wip_nav.abbrevCode(.struct_type);
             try wip_nav.strp(name);
-            try uleb128(diw, ty.abiSize(pt));
-            try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+            try uleb128(diw, ty.abiSize(zcu));
+            try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
             var field_byte_offset: u64 = 0;
             for (0..anon_struct_type.types.len) |field_index| {
                 const comptime_value = anon_struct_type.values.get(ip)[field_index];
@@ -2834,11 +2834,11 @@ fn updateType(
                 const field_type = Type.fromInterned(anon_struct_type.types.get(ip)[field_index]);
                 try wip_nav.refType(field_type);
                 if (comptime_value == .none) {
-                    const field_align = field_type.abiAlignment(pt);
+                    const field_align = field_type.abiAlignment(zcu);
                     field_byte_offset = field_align.forward(field_byte_offset);
                     try uleb128(diw, field_byte_offset);
-                    try uleb128(diw, field_type.abiAlignment(pt).toByteUnits().?);
-                    field_byte_offset += field_type.abiSize(pt);
+                    try uleb128(diw, field_type.abiAlignment(zcu).toByteUnits().?);
+                    field_byte_offset += field_type.abiSize(zcu);
                 }
             }
             try uleb128(diw, @intFromEnum(AbbrevCode.null));
@@ -2976,8 +2976,8 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
         try uleb128(diw, file_gop.index);
         try wip_nav.strp(loaded_struct.name.toSlice(ip));
         if (loaded_struct.field_types.len > 0) {
-            try uleb128(diw, ty.abiSize(pt));
-            try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+            try uleb128(diw, ty.abiSize(zcu));
+            try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
             for (0..loaded_struct.field_types.len) |field_index| {
                 const is_comptime = loaded_struct.fieldIsComptime(ip, field_index);
                 try wip_nav.abbrevCode(if (is_comptime) .struct_field_comptime else .struct_field);
@@ -2991,7 +2991,7 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                 if (!is_comptime) {
                     try uleb128(diw, loaded_struct.offsets.get(ip)[field_index]);
                     try uleb128(diw, loaded_struct.fieldAlign(ip, field_index).toByteUnits() orelse
-                        field_type.abiAlignment(pt).toByteUnits().?);
+                        field_type.abiAlignment(zcu).toByteUnits().?);
                 }
             }
             try uleb128(diw, @intFromEnum(AbbrevCode.null));
@@ -3042,8 +3042,8 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                         try wip_nav.abbrevCode(if (loaded_struct.field_types.len == 0) .namespace_struct_type else .struct_type);
                         try wip_nav.strp(name);
                         if (loaded_struct.field_types.len == 0) try diw.writeByte(@intFromBool(false)) else {
-                            try uleb128(diw, ty.abiSize(pt));
-                            try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+                            try uleb128(diw, ty.abiSize(zcu));
+                            try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
                             for (0..loaded_struct.field_types.len) |field_index| {
                                 const is_comptime = loaded_struct.fieldIsComptime(ip, field_index);
                                 try wip_nav.abbrevCode(if (is_comptime) .struct_field_comptime else .struct_field);
@@ -3057,7 +3057,7 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                                 if (!is_comptime) {
                                     try uleb128(diw, loaded_struct.offsets.get(ip)[field_index]);
                                     try uleb128(diw, loaded_struct.fieldAlign(ip, field_index).toByteUnits() orelse
-                                        field_type.abiAlignment(pt).toByteUnits().?);
+                                        field_type.abiAlignment(zcu).toByteUnits().?);
                                 }
                             }
                             try uleb128(diw, @intFromEnum(AbbrevCode.null));
@@ -3074,7 +3074,7 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                             const field_type = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
                             try wip_nav.refType(field_type);
                             try uleb128(diw, field_bit_offset);
-                            field_bit_offset += @intCast(field_type.bitSize(pt));
+                            field_bit_offset += @intCast(field_type.bitSize(zcu));
                         }
                         if (loaded_struct.field_types.len > 0) try uleb128(diw, @intFromEnum(AbbrevCode.null));
                     },
@@ -3099,7 +3099,7 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                 const loaded_union = ip.loadUnionType(type_index);
                 try wip_nav.abbrevCode(if (loaded_union.field_types.len > 0) .union_type else .empty_union_type);
                 try wip_nav.strp(name);
-                const union_layout = pt.getUnionLayout(loaded_union);
+                const union_layout = Type.getUnionLayout(loaded_union, zcu);
                 try uleb128(diw, union_layout.abi_size);
                 try uleb128(diw, union_layout.abi_align.toByteUnits().?);
                 const loaded_tag = loaded_union.loadTagType(ip);
@@ -3130,7 +3130,7 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                                 try wip_nav.refType(field_type);
                                 try uleb128(diw, union_layout.payloadOffset());
                                 try uleb128(diw, loaded_union.fieldAlign(ip, field_index).toByteUnits() orelse
-                                    if (field_type.isNoReturn(zcu)) 1 else field_type.abiAlignment(pt).toByteUnits().?);
+                                    if (field_type.isNoReturn(zcu)) 1 else field_type.abiAlignment(zcu).toByteUnits().?);
                             }
                             try uleb128(diw, @intFromEnum(AbbrevCode.null));
                         }
@@ -3145,7 +3145,7 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                     const field_type = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
                     try wip_nav.refType(field_type);
                     try uleb128(diw, loaded_union.fieldAlign(ip, field_index).toByteUnits() orelse
-                        field_type.abiAlignment(pt).toByteUnits().?);
+                        field_type.abiAlignment(zcu).toByteUnits().?);
                 }
                 if (loaded_union.field_types.len > 0) try uleb128(diw, @intFromEnum(AbbrevCode.null));
             },

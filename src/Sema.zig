@@ -3544,7 +3544,7 @@ fn zirAllocExtended(
         }
         const target = pt.zcu.getTarget();
         try var_ty.resolveLayout(pt);
-        if (sema.func_is_naked and try sema.typeHasRuntimeBits(var_ty)) {
+        if (sema.func_is_naked and try var_ty.hasRuntimeBitsSema(pt)) {
             const var_src = block.src(.{ .node_offset_store_ptr = extra.data.src_node });
             return sema.fail(block, var_src, "local variable in naked function", .{});
         }
@@ -3988,7 +3988,7 @@ fn zirAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
     if (block.is_comptime) {
         return sema.analyzeComptimeAlloc(block, var_ty, .none);
     }
-    if (sema.func_is_naked and try sema.typeHasRuntimeBits(var_ty)) {
+    if (sema.func_is_naked and try var_ty.hasRuntimeBitsSema(pt)) {
         const mut_src = block.src(.{ .node_offset_store_ptr = inst_data.src_node });
         return sema.fail(block, mut_src, "local variable in naked function", .{});
     }
@@ -4016,7 +4016,7 @@ fn zirAllocMut(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     if (block.is_comptime) {
         return sema.analyzeComptimeAlloc(block, var_ty, .none);
     }
-    if (sema.func_is_naked and try sema.typeHasRuntimeBits(var_ty)) {
+    if (sema.func_is_naked and try var_ty.hasRuntimeBitsSema(pt)) {
         const var_src = block.src(.{ .node_offset_store_ptr = inst_data.src_node });
         return sema.fail(block, var_src, "local variable in naked function", .{});
     }
@@ -4153,7 +4153,7 @@ fn zirResolveInferredAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
                 // TODO: source location of runtime control flow
                 return sema.fail(block, src, "value with comptime-only type '{}' depends on runtime control flow", .{final_elem_ty.fmt(pt)});
             }
-            if (sema.func_is_naked and try sema.typeHasRuntimeBits(final_elem_ty)) {
+            if (sema.func_is_naked and try final_elem_ty.hasRuntimeBitsSema(pt)) {
                 const mut_src = block.src(.{ .node_offset_store_ptr = inst_data.src_node });
                 return sema.fail(block, mut_src, "local variable in naked function", .{});
             }
@@ -17534,7 +17534,7 @@ fn zirSizeOf(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
         .AnyFrame,
         => {},
     }
-    const val = try ty.lazyAbiSize(pt);
+    const val = try ty.abiSizeLazy(pt);
     return Air.internedToRef(val.toIntern());
 }
 
@@ -35313,7 +35313,7 @@ pub fn resolveStructLayout(sema: *Sema, ty: Type) SemaError!void {
     if (struct_type.haveLayout(ip))
         return;
 
-    try sema.resolveTypeFieldsStruct(ty.toIntern(), struct_type);
+    try sema.resolveStructFieldTypes(ty.toIntern(), struct_type);
 
     if (struct_type.layout == .@"packed") {
         sema.backingIntType(struct_type) catch |err| switch (err) {
@@ -38454,7 +38454,7 @@ pub fn resolveDeclaredEnum(
     wip_ty.setTagTy(ip, int_tag_ty.toIntern());
 
     if (small.nonexhaustive and int_tag_ty.toIntern() != .comptime_int_type) {
-        if (fields_len > 1 and std.math.log2_int(u64, fields_len) == int_tag_ty.bitSize(pt)) {
+        if (fields_len > 1 and std.math.log2_int(u64, fields_len) == int_tag_ty.bitSize(zcu)) {
             return sema.fail(&block, src, "non-exhaustive enum specifies every value", .{});
         }
     }

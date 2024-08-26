@@ -1326,7 +1326,7 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
             try decl_ty.resolveFully(pt);
         }
 
-        if (!resolve_type or !decl_ty.hasRuntimeBits(pt)) {
+        if (!resolve_type or !decl_ty.hasRuntimeBits(zcu)) {
             if (zcu.comp.config.use_llvm) break :queue_codegen;
             if (file.mod.strip) break :queue_codegen;
         }

@@ -457,7 +457,7 @@ pub fn updateNav(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
         else => nav_val,
     };
 
-    if (nav_init.typeOf(zcu).hasRuntimeBits(pt)) {
+    if (nav_init.typeOf(zcu).hasRuntimeBits(zcu)) {
         const atom_idx = try self.seeNav(pt, nav_index);
 
         var code_buffer = std.ArrayList(u8).init(gpa);

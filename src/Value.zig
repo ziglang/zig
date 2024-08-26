@@ -4196,14 +4196,14 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
             const base_ptr_ty = base_ptr.typeOf(zcu);
             const agg_ty = base_ptr_ty.childType(zcu);
             const field_ty, const field_align = switch (agg_ty.zigTypeTag(zcu)) {
-                .Struct => .{ agg_ty.fieldType(field.index, zcu), try agg_ty.fieldAlignmentInner(
-                    field.index,
+                .Struct => .{ agg_ty.fieldType(@intCast(field.index), zcu), try agg_ty.fieldAlignmentInner(
+                    @intCast(field.index),
                     if (have_sema) .sema else .normal,
                     pt.zcu,
                     if (have_sema) pt.tid else {},
                 ) },
-                .Union => .{ agg_ty.unionFieldTypeByIndex(field.index, zcu), try agg_ty.fieldAlignmentInner(
-                    field.index,
+                .Union => .{ agg_ty.unionFieldTypeByIndex(@intCast(field.index), zcu), try agg_ty.fieldAlignmentInner(
+                    @intCast(field.index),
                     if (have_sema) .sema else .normal,
                     pt.zcu,
                     if (have_sema) pt.tid else {},

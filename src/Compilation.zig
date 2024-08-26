@@ -3091,7 +3091,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
     var all_references: ?std.AutoHashMapUnmanaged(InternPool.AnalUnit, ?Zcu.ResolvedReference) = null;
     defer if (all_references) |*a| a.deinit(gpa);
 
-    if (comp.module) |zcu| {
+    if (comp.zcu) |zcu| {
         const ip = &zcu.intern_pool;
 
         for (zcu.failed_files.keys(), zcu.failed_files.values()) |file, error_msg| {
@@ -3268,7 +3268,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         }
     }
 
-    if (comp.module) |zcu| {
+    if (comp.zcu) |zcu| {
         if (comp.incremental and bundle.root_list.items.len == 0) {
             const should_have_error = for (zcu.transitive_failed_analysis.keys()) |failed_unit| {
                 if (all_references == null) {
@@ -3976,7 +3976,7 @@ fn processOneCodegenJob(tid: usize, comp: *Compilation, codegen_job: CodegenJob)
             const named_frame = tracy.namedFrame("codegen_type");
             defer named_frame.end();
 
-            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
+            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
             try pt.linkerUpdateContainerType(ty);
         },
     }
@@ -4258,7 +4258,7 @@ fn workerAstGenFile(
     const child_prog_node = prog_node.start(file.sub_file_path, 0);
     defer child_prog_node.end();
 
-    const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
+    const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
     pt.astGenFile(file, path_digest) catch |err| switch (err) {
         error.AnalysisFail => return,
         else => {

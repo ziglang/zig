@@ -2840,9 +2840,9 @@ pub fn addTypeReference(zcu: *Zcu, src_unit: AnalUnit, referenced_type: InternPo
     gop.value_ptr.* = @intCast(ref_idx);
 }
 
-pub fn errorSetBits(mod: *Zcu) u16 {
-    if (mod.error_limit == 0) return 0;
-    return @as(u16, std.math.log2_int(ErrorInt, mod.error_limit)) + 1;
+pub fn errorSetBits(zcu: *const Zcu) u16 {
+    if (zcu.error_limit == 0) return 0;
+    return @as(u16, std.math.log2_int(ErrorInt, zcu.error_limit)) + 1;
 }
 
 pub fn errNote(

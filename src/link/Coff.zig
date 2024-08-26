@@ -1221,7 +1221,7 @@ pub fn updateNav(
         else => nav_val,
     };
 
-    if (nav_init.typeOf(zcu).hasRuntimeBits(pt)) {
+    if (nav_init.typeOf(zcu).hasRuntimeBits(zcu)) {
         const atom_index = try self.getOrCreateAtomForNav(nav_index);
         Atom.freeRelocations(self, atom_index);
         const atom = self.getAtom(atom_index);

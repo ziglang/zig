@@ -878,12 +878,12 @@ fn genNavRef(
     // TODO this feels clunky. Perhaps we should check for it in `genTypedValue`?
     if (ty.castPtrToFn(zcu)) |fn_ty| {
         if (zcu.typeToFunc(fn_ty).?.is_generic) {
-            return .{ .mcv = .{ .immediate = fn_ty.abiAlignment(pt).toByteUnits().? } };
+            return .{ .mcv = .{ .immediate = fn_ty.abiAlignment(zcu).toByteUnits().? } };
         }
     } else if (ty.zigTypeTag(zcu) == .Pointer) {
         const elem_ty = ty.elemType2(zcu);
-        if (!elem_ty.hasRuntimeBits(pt)) {
-            return .{ .mcv = .{ .immediate = elem_ty.abiAlignment(pt).toByteUnits().? } };
+        if (!elem_ty.hasRuntimeBits(zcu)) {
+            return .{ .mcv = .{ .immediate = elem_ty.abiAlignment(zcu).toByteUnits().? } };
         }
     }
 
@@ -964,15 +964,15 @@ pub fn genTypedValue(
                 },
                 else => switch (ip.indexToKey(val.toIntern())) {
                     .int => {
-                        return .{ .mcv = .{ .immediate = val.toUnsignedInt(pt) } };
+                        return .{ .mcv = .{ .immediate = val.toUnsignedInt(zcu) } };
                     },
                     .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
                         .nav => |nav| return genNavRef(lf, pt, src_loc, val, nav, target),
-                        .uav => |uav| if (Value.fromInterned(uav.val).typeOf(zcu).hasRuntimeBits(pt))
+                        .uav => |uav| if (Value.fromInterned(uav.val).typeOf(zcu).hasRuntimeBits(zcu))
                             return switch (try lf.lowerUav(
                                 pt,
                                 uav.val,
-                                Type.fromInterned(uav.orig_ty).ptrAlignment(pt),
+                                Type.fromInterned(uav.orig_ty).ptrAlignment(zcu),
                                 src_loc,
                             )) {
                                 .mcv => |mcv| return .{ .mcv = switch (mcv) {
@@ -983,7 +983,7 @@ pub fn genTypedValue(
                                 .fail => |em| return .{ .fail = em },
                             }
                         else
-                            return .{ .mcv = .{ .immediate = Type.fromInterned(uav.orig_ty).ptrAlignment(pt)
+                            return .{ .mcv = .{ .immediate = Type.fromInterned(uav.orig_ty).ptrAlignment(zcu)
                                 .forward(@intCast((@as(u66, 1) << @intCast(target.ptrBitWidth() | 1)) / 3)) } },
                         else => {},
                     },
