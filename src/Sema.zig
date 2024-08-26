@@ -35458,9 +35458,6 @@ fn backingIntType(
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
 
-    var comptime_err_ret_trace = std.ArrayList(LazySrcLoc).init(gpa);
-    defer comptime_err_ret_trace.deinit();
-
     var block: Block = .{
         .parent = null,
         .sema = sema,
@@ -36114,9 +36111,6 @@ fn structFields(
         },
     };
 
-    var comptime_err_ret_trace = std.ArrayList(LazySrcLoc).init(gpa);
-    defer comptime_err_ret_trace.deinit();
-
     var block_scope: Block = .{
         .parent = null,
         .sema = sema,
@@ -36300,7 +36294,6 @@ fn structFieldInits(
 ) CompileError!void {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
 
     assert(!struct_type.haveFieldInits(ip));
@@ -36310,9 +36303,6 @@ fn structFieldInits(
     const zir = zcu.namespacePtr(namespace_index).fileScope(zcu).zir;
     const zir_index = struct_type.zir_index.unwrap().?.resolve(ip) orelse return error.AnalysisFail;
     const fields_len, const small, var extra_index = structZirInfo(zir, zir_index);
-
-    var comptime_err_ret_trace = std.ArrayList(LazySrcLoc).init(gpa);
-    defer comptime_err_ret_trace.deinit();
 
     var block_scope: Block = .{
         .parent = null,
@@ -36475,28 +36465,9 @@ fn unionFields(
     const body = zir.bodySlice(extra_index, body_len);
     extra_index += body.len;
 
-    var comptime_err_ret_trace = std.ArrayList(LazySrcLoc).init(gpa);
-    defer comptime_err_ret_trace.deinit();
-
-    const cau_index = union_type.cau;
-
-    var inner_sema: Sema = .{
-        .pt = pt,
-        .gpa = gpa,
-        .arena = sema.arena,
-        .code = zir,
-        .owner = AnalUnit.wrap(.{ .cau = cau_index }),
-        .func_index = .none,
-        .func_is_naked = false,
-        .fn_ret_ty = Type.void,
-        .fn_ret_ty_ies = null,
-        .comptime_err_ret_trace = &comptime_err_ret_trace,
-    };
-    defer inner_sema.deinit();
-
     var block_scope: Block = .{
         .parent = null,
-        .sema = &inner_sema,
+        .sema = sema,
         .namespace = union_type.namespace,
         .instructions = .{},
         .inlining = null,

@@ -3926,8 +3926,6 @@ fn resolveStructInner(
     };
     defer sema.deinit();
 
-    assert(sema.owner.unwrap().cau == struct_obj.cau.unwrap().?);
-
     (switch (resolution) {
         .fields => sema.resolveStructFieldTypes(ty.toIntern(), struct_obj),
         .inits => sema.resolveStructFieldInits(ty),
@@ -3981,8 +3979,6 @@ fn resolveUnionInner(
         .comptime_err_ret_trace = &comptime_err_ret_trace,
     };
     defer sema.deinit();
-
-    assert(sema.owner.unwrap().cau == union_obj.cau);
 
     (switch (resolution) {
         .fields => sema.resolveUnionFieldTypes(ty, union_obj),
