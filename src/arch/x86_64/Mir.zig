@@ -879,12 +879,54 @@ pub const Inst = struct {
         /// Probe adjust loop
         /// Uses `rr` payload.
         pseudo_probe_adjust_loop_rr,
+
         /// Push registers
         /// Uses `reg_list` payload.
         pseudo_push_reg_list,
         /// Pop registers
         /// Uses `reg_list` payload.
         pseudo_pop_reg_list,
+
+        /// Define cfa rule as offset from register.
+        /// Uses `ri` payload.
+        pseudo_cfi_def_cfa_ri_s,
+        /// Modify cfa rule register.
+        /// Uses `r` payload.
+        pseudo_cfi_def_cfa_register_r,
+        /// Modify cfa rule offset.
+        /// Uses `i` payload.
+        pseudo_cfi_def_cfa_offset_i_s,
+        /// Offset cfa rule offset.
+        /// Uses `i` payload.
+        pseudo_cfi_adjust_cfa_offset_i_s,
+        /// Define register rule as stored at offset from cfa.
+        /// Uses `ri` payload.
+        pseudo_cfi_offset_ri_s,
+        /// Define register rule as offset from cfa.
+        /// Uses `ri` payload.
+        pseudo_cfi_val_offset_ri_s,
+        /// Define register rule as stored at offset from cfa rule register.
+        /// Uses `ri` payload.
+        pseudo_cfi_rel_offset_ri_s,
+        /// Define register rule as register.
+        /// Uses `rr` payload.
+        pseudo_cfi_register_rr,
+        /// Define register rule from initial.
+        /// Uses `r` payload.
+        pseudo_cfi_restore_r,
+        /// Define register rule as undefined.
+        /// Uses `r` payload.
+        pseudo_cfi_undefined_r,
+        /// Define register rule as itself.
+        /// Uses `r` payload.
+        pseudo_cfi_same_value_r,
+        /// Push cfi state.
+        pseudo_cfi_remember_state_none,
+        /// Pop cfi state.
+        pseudo_cfi_restore_state_none,
+        /// Raw cfi bytes.
+        /// Uses `bytes` payload.
+        pseudo_cfi_escape_bytes,
 
         /// End of prologue
         pseudo_dbg_prologue_end_none,
@@ -1028,8 +1070,13 @@ pub const Inst = struct {
             fixes: Fixes = ._,
             payload: u32,
         },
-        ix: struct {
+        bytes: struct {
             payload: u32,
+            len: u32,
+
+            pub fn get(bytes: @This(), mir: Mir) []const u8 {
+                return std.mem.sliceAsBytes(mir.extra[bytes.payload..])[0..bytes.len];
+            }
         },
         a: struct {
             air_inst: Air.Inst.Index,

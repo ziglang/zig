@@ -125,7 +125,7 @@ pub const readILEB128 = readIleb128;
 pub fn writeIleb128(writer: anytype, arg: anytype) !void {
     const Arg = @TypeOf(arg);
     const Int = switch (Arg) {
-        comptime_int => std.math.IntFittingRange(-arg - 1, arg),
+        comptime_int => std.math.IntFittingRange(-@abs(arg), @abs(arg)),
         else => Arg,
     };
     const Signed = if (@typeInfo(Int).Int.bits < 8) i8 else Int;

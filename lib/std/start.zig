@@ -249,6 +249,7 @@ fn _start() callconv(.Naked) noreturn {
     // linker explicitly.
     asm volatile (switch (native_arch) {
             .x86_64 =>
+            \\ .cfi_undefined %%rip
             \\ xorl %%ebp, %%ebp
             \\ movq %%rsp, %%rdi
             \\ andq $-16, %%rsp

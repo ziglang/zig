@@ -371,7 +371,7 @@ pub const Register = enum(u7) {
             .x87 => 33 + @as(u6, reg.enc()),
             .mmx => 41 + @as(u6, reg.enc()),
             .segment => 50 + @as(u6, reg.enc()),
-            .ip => unreachable,
+            .ip => 16,
         };
     }
 };

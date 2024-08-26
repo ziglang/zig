@@ -1491,6 +1491,46 @@ fn asmPseudo(self: *Self, ops: Mir.Inst.Ops) !void {
     });
 }
 
+fn asmPseudoRegister(self: *Self, ops: Mir.Inst.Ops, reg: Register) !void {
+    assert(std.mem.startsWith(u8, @tagName(ops), "pseudo_") and
+        std.mem.endsWith(u8, @tagName(ops), "_r"));
+    _ = try self.addInst(.{
+        .tag = .pseudo,
+        .ops = ops,
+        .data = .{ .r = .{ .r1 = reg } },
+    });
+}
+
+fn asmPseudoImmediate(self: *Self, ops: Mir.Inst.Ops, imm: Immediate) !void {
+    assert(std.mem.startsWith(u8, @tagName(ops), "pseudo_") and
+        std.mem.endsWith(u8, @tagName(ops), "_i_s"));
+    _ = try self.addInst(.{
+        .tag = .pseudo,
+        .ops = ops,
+        .data = .{ .i = .{ .i = @bitCast(imm.signed) } },
+    });
+}
+
+fn asmPseudoRegisterRegister(self: *Self, ops: Mir.Inst.Ops, reg1: Register, reg2: Register) !void {
+    assert(std.mem.startsWith(u8, @tagName(ops), "pseudo_") and
+        std.mem.endsWith(u8, @tagName(ops), "_rr"));
+    _ = try self.addInst(.{
+        .tag = .pseudo,
+        .ops = ops,
+        .data = .{ .rr = .{ .r1 = reg1, .r2 = reg2 } },
+    });
+}
+
+fn asmPseudoRegisterImmediate(self: *Self, ops: Mir.Inst.Ops, reg: Register, imm: Immediate) !void {
+    assert(std.mem.startsWith(u8, @tagName(ops), "pseudo_") and
+        std.mem.endsWith(u8, @tagName(ops), "_ri_s"));
+    _ = try self.addInst(.{
+        .tag = .pseudo,
+        .ops = ops,
+        .data = .{ .ri = .{ .r1 = reg, .i = @bitCast(imm.signed) } },
+    });
+}
+
 fn asmRegister(self: *Self, tag: Mir.Inst.FixedTag, reg: Register) !void {
     _ = try self.addInst(.{
         .tag = tag[1],
@@ -1877,7 +1917,10 @@ fn gen(self: *Self) InnerError!void {
     const cc = abi.resolveCallingConvention(fn_info.cc, self.target.*);
     if (cc != .Naked) {
         try self.asmRegister(.{ ._, .push }, .rbp);
+        try self.asmPseudoImmediate(.pseudo_cfi_adjust_cfa_offset_i_s, Immediate.s(8));
+        try self.asmPseudoRegisterImmediate(.pseudo_cfi_rel_offset_ri_s, .rbp, Immediate.s(0));
         try self.asmRegisterRegister(.{ ._, .mov }, .rbp, .rsp);
+        try self.asmPseudoRegister(.pseudo_cfi_def_cfa_register_r, .rbp);
         const backpatch_push_callee_preserved_regs = try self.asmPlaceholder();
         const backpatch_frame_align = try self.asmPlaceholder();
         const backpatch_frame_align_extra = try self.asmPlaceholder();
@@ -1962,6 +2005,7 @@ fn gen(self: *Self) InnerError!void {
         const backpatch_stack_dealloc = try self.asmPlaceholder();
         const backpatch_pop_callee_preserved_regs = try self.asmPlaceholder();
         try self.asmRegister(.{ ._, .pop }, .rbp);
+        try self.asmPseudoRegisterImmediate(.pseudo_cfi_def_cfa_ri_s, .rsp, Immediate.s(8));
         try self.asmOpOnly(.{ ._, .ret });
 
         const frame_layout = try self.computeFrameLayout(cc);
@@ -14038,7 +14082,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
         var mnem_it = mem.tokenizeAny(u8, line, " \t");
         var prefix: Instruction.Prefix = .none;
         const mnem_str = while (mnem_it.next()) |mnem_str| {
-            if (mem.startsWith(u8, mnem_str, "#")) continue :next_line;
+            if (mnem_str[0] == '#') continue :next_line;
             if (mem.startsWith(u8, mnem_str, "//")) continue :next_line;
             if (std.meta.stringToEnum(Instruction.Prefix, mnem_str)) |pre| {
                 if (prefix != .none) return self.fail("extra prefix: '{s}'", .{mnem_str});
@@ -14063,8 +14107,14 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             }
             label_gop.value_ptr.target = @intCast(self.mir_instructions.len);
         } else continue;
+        if (mnem_str[0] == '.') {
+            if (prefix != .none) return self.fail("prefixed directive: '{s} {s}'", .{ @tagName(prefix), mnem_str });
+            prefix = .directive;
+        }
 
-        var mnem_size: ?Memory.Size = if (mem.endsWith(u8, mnem_str, "b"))
+        var mnem_size: ?Memory.Size = if (prefix == .directive)
+            null
+        else if (mem.endsWith(u8, mnem_str, "b"))
             .byte
         else if (mem.endsWith(u8, mnem_str, "w"))
             .word
@@ -14095,7 +14145,9 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             mnem_size = fixed_mnem_size;
         }
         const mnem_name = @tagName(mnem_tag);
-        const mnem_fixed_tag: Mir.Inst.FixedTag = for (std.enums.values(Mir.Inst.Fixes)) |fixes| {
+        const mnem_fixed_tag: Mir.Inst.FixedTag = if (prefix == .directive)
+            .{ ._, .pseudo }
+        else for (std.enums.values(Mir.Inst.Fixes)) |fixes| {
             const fixes_name = @tagName(fixes);
             const space_i = mem.indexOfScalar(u8, fixes_name, ' ');
             const fixes_prefix = if (space_i) |i|
@@ -14116,7 +14168,7 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
         } else {
             assert(prefix != .none); // no combination of fixes produced a known mnemonic
             return self.fail("invalid prefix for mnemonic: '{s} {s}'", .{
-                @tagName(prefix), mnem_str,
+                @tagName(prefix), mnem_name,
             });
         };
 
@@ -14324,7 +14376,62 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             } else return self.fail("invalid operand: '{s}'", .{op_str});
         } else if (op_it.next()) |op_str| return self.fail("extra operand: '{s}'", .{op_str});
 
-        (switch (ops[0]) {
+        (if (prefix == .directive) switch (mnem_tag) {
+            .@".cfi_def_cfa" => if (ops[0] == .reg and ops[1] == .imm and ops[2] == .none)
+                self.asmPseudoRegisterImmediate(.pseudo_cfi_def_cfa_ri_s, ops[0].reg, ops[1].imm)
+            else
+                error.InvalidInstruction,
+            .@".cfi_def_cfa_register" => if (ops[0] == .reg and ops[1] == .none)
+                self.asmPseudoRegister(.pseudo_cfi_def_cfa_register_r, ops[0].reg)
+            else
+                error.InvalidInstruction,
+            .@".cfi_def_cfa_offset" => if (ops[0] == .imm and ops[1] == .none)
+                self.asmPseudoImmediate(.pseudo_cfi_def_cfa_offset_i_s, ops[0].imm)
+            else
+                error.InvalidInstruction,
+            .@".cfi_adjust_cfa_offset" => if (ops[0] == .imm and ops[1] == .none)
+                self.asmPseudoImmediate(.pseudo_cfi_adjust_cfa_offset_i_s, ops[0].imm)
+            else
+                error.InvalidInstruction,
+            .@".cfi_offset" => if (ops[0] == .reg and ops[1] == .imm and ops[2] == .none)
+                self.asmPseudoRegisterImmediate(.pseudo_cfi_offset_ri_s, ops[0].reg, ops[1].imm)
+            else
+                error.InvalidInstruction,
+            .@".cfi_val_offset" => if (ops[0] == .reg and ops[1] == .imm and ops[2] == .none)
+                self.asmPseudoRegisterImmediate(.pseudo_cfi_val_offset_ri_s, ops[0].reg, ops[1].imm)
+            else
+                error.InvalidInstruction,
+            .@".cfi_rel_offset" => if (ops[0] == .reg and ops[1] == .imm and ops[2] == .none)
+                self.asmPseudoRegisterImmediate(.pseudo_cfi_rel_offset_ri_s, ops[0].reg, ops[1].imm)
+            else
+                error.InvalidInstruction,
+            .@".cfi_register" => if (ops[0] == .reg and ops[1] == .reg and ops[2] == .none)
+                self.asmPseudoRegisterRegister(.pseudo_cfi_register_rr, ops[0].reg, ops[1].reg)
+            else
+                error.InvalidInstruction,
+            .@".cfi_restore" => if (ops[0] == .reg and ops[1] == .none)
+                self.asmPseudoRegister(.pseudo_cfi_restore_r, ops[0].reg)
+            else
+                error.InvalidInstruction,
+            .@".cfi_undefined" => if (ops[0] == .reg and ops[1] == .none)
+                self.asmPseudoRegister(.pseudo_cfi_undefined_r, ops[0].reg)
+            else
+                error.InvalidInstruction,
+            .@".cfi_same_value" => if (ops[0] == .reg and ops[1] == .none)
+                self.asmPseudoRegister(.pseudo_cfi_same_value_r, ops[0].reg)
+            else
+                error.InvalidInstruction,
+            .@".cfi_remember_state" => if (ops[0] == .none)
+                self.asmPseudo(.pseudo_cfi_remember_state_none)
+            else
+                error.InvalidInstruction,
+            .@".cfi_restore_state" => if (ops[0] == .none)
+                self.asmPseudo(.pseudo_cfi_restore_state_none)
+            else
+                error.InvalidInstruction,
+            .@".cfi_escape" => error.InvalidInstruction,
+            else => unreachable,
+        } else switch (ops[0]) {
             .none => self.asmOpOnly(mnem_fixed_tag),
             .reg => |reg0| switch (ops[1]) {
                 .none => self.asmRegister(mnem_fixed_tag, reg0),
@@ -19203,14 +19310,6 @@ fn resolveCallingConventionValues(
 }
 
 fn fail(self: *Self, comptime format: []const u8, args: anytype) InnerError {
-    @branchHint(.cold);
-    assert(self.err_msg == null);
-    const gpa = self.gpa;
-    self.err_msg = try ErrorMsg.create(gpa, self.src_loc, format, args);
-    return error.CodegenFail;
-}
-
-fn failSymbol(self: *Self, comptime format: []const u8, args: anytype) InnerError {
     @branchHint(.cold);
     assert(self.err_msg == null);
     const gpa = self.gpa;
