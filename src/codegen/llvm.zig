@@ -2923,6 +2923,14 @@ pub const Object = struct {
             owner_mod.omit_frame_pointer or fn_info.cc == .Naked,
         );
 
+        // Make LLVM emit a helpful warning if a stack allocation occurs in a naked function.
+        if (fn_info.cc == .Naked) {
+            try attributes.addFnAttr(.{ .string = .{
+                .kind = try o.builder.string("warn-stack-size"),
+                .value = try o.builder.string("0"),
+            } }, &o.builder);
+        }
+
         if (fn_info.return_type == .noreturn_type) try attributes.addFnAttr(.noreturn, &o.builder);
 
         // Add parameter attributes. We handle only the case of extern functions (no body)
