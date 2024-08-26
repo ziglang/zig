@@ -1442,11 +1442,6 @@ fn analyzeBodyInner(
                 i += 1;
                 continue;
             },
-            .export_value => {
-                try sema.zirExportValue(block, inst);
-                i += 1;
-                continue;
-            },
             .set_runtime_safety => {
                 try sema.zirSetRuntimeSafety(block, inst);
                 i += 1;
@@ -6279,73 +6274,72 @@ fn zirExport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const ip = &zcu.intern_pool;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const extra = sema.code.extraData(Zir.Inst.Export, inst_data.payload_index).data;
+
     const src = block.nodeOffset(inst_data.src_node);
-    const operand_src = block.builtinCallArgSrc(inst_data.src_node, 0);
+    const ptr_src = block.builtinCallArgSrc(inst_data.src_node, 0);
     const options_src = block.builtinCallArgSrc(inst_data.src_node, 1);
-    const decl_name = try ip.getOrPutString(
-        zcu.gpa,
-        pt.tid,
-        sema.code.nullTerminatedString(extra.decl_name),
-        .no_embedded_nulls,
-    );
-    const nav_index = if (extra.namespace != .none) index_blk: {
-        const container_ty = try sema.resolveType(block, operand_src, extra.namespace);
-        const container_namespace = container_ty.getNamespaceIndex(zcu);
 
-        const lookup = try sema.lookupInNamespace(block, operand_src, container_namespace, decl_name, false) orelse
-            return sema.failWithBadMemberAccess(block, container_ty, operand_src, decl_name);
-
-        break :index_blk lookup.nav;
-    } else try sema.lookupIdentifier(block, operand_src, decl_name);
-    const options = try sema.resolveExportOptions(block, options_src, extra.options);
-
-    try sema.ensureNavResolved(src, nav_index);
-
-    // Make sure to export the owner Nav if applicable.
-    const exported_nav = switch (ip.indexToKey(ip.getNav(nav_index).status.resolved.val)) {
-        .variable => |v| v.owner_nav,
-        .@"extern" => |e| e.owner_nav,
-        .func => |f| f.owner_nav,
-        else => nav_index,
-    };
-    try sema.analyzeExport(block, src, options, exported_nav);
-}
-
-fn zirExportValue(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const pt = sema.pt;
-    const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
-    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
-    const extra = sema.code.extraData(Zir.Inst.ExportValue, inst_data.payload_index).data;
-    const src = block.nodeOffset(inst_data.src_node);
-    const operand_src = block.builtinCallArgSrc(inst_data.src_node, 0);
-    const options_src = block.builtinCallArgSrc(inst_data.src_node, 1);
-    const operand = try sema.resolveInstConst(block, operand_src, extra.operand, .{
+    const ptr = try sema.resolveInst(extra.exported);
+    const ptr_val = try sema.resolveConstDefinedValue(block, ptr_src, ptr, .{
         .needed_comptime_reason = "export target must be comptime-known",
     });
-    const options = try sema.resolveExportOptions(block, options_src, extra.options);
-    if (options.linkage == .internal)
-        return;
+    const ptr_ty = ptr_val.typeOf(zcu);
 
-    // If the value has an owner Nav, export that instead.
-    const maybe_owner_nav = switch (ip.indexToKey(operand.toIntern())) {
-        .variable => |v| v.owner_nav,
-        .@"extern" => |e| e.owner_nav,
-        .func => |f| f.owner_nav,
-        else => null,
-    };
-    if (maybe_owner_nav) |owner_nav| {
-        return sema.analyzeExport(block, src, options, owner_nav);
-    } else {
-        try sema.exports.append(zcu.gpa, .{
-            .opts = options,
-            .src = src,
-            .exported = .{ .uav = operand.toIntern() },
-            .status = .in_progress,
-        });
+    const options = try sema.resolveExportOptions(block, options_src, extra.options);
+
+    {
+        if (ptr_ty.zigTypeTag(zcu) != .Pointer) {
+            return sema.fail(block, ptr_src, "expected pointer type, found '{}'", .{ptr_ty.fmt(pt)});
+        }
+        const ptr_ty_info = ptr_ty.ptrInfo(zcu);
+        if (ptr_ty_info.flags.size == .Slice) {
+            return sema.fail(block, ptr_src, "export target cannot be slice", .{});
+        }
+        if (ptr_ty_info.packed_offset.host_size != 0) {
+            return sema.fail(block, ptr_src, "export target cannot be bit-pointer", .{});
+        }
+    }
+
+    const ptr_info = ip.indexToKey(ptr_val.toIntern()).ptr;
+    switch (ptr_info.base_addr) {
+        .comptime_alloc, .int, .comptime_field => return sema.fail(block, ptr_src, "export target must be a global variable or a comptime-known constant", .{}),
+        .eu_payload, .opt_payload, .field, .arr_elem => return sema.fail(block, ptr_src, "TODO: export pointer in middle of value", .{}),
+        .uav => |uav| {
+            if (ptr_info.byte_offset != 0) {
+                return sema.fail(block, ptr_src, "TODO: export pointer in middle of value", .{});
+            }
+            if (options.linkage == .internal) return;
+            const export_ty = Value.fromInterned(uav.val).typeOf(zcu);
+            if (!try sema.validateExternType(export_ty, .other)) {
+                return sema.failWithOwnedErrorMsg(block, msg: {
+                    const msg = try sema.errMsg(src, "unable to export type '{}'", .{export_ty.fmt(pt)});
+                    errdefer msg.destroy(sema.gpa);
+                    try sema.explainWhyTypeIsNotExtern(msg, src, export_ty, .other);
+                    try sema.addDeclaredHereNote(msg, export_ty);
+                    break :msg msg;
+                });
+            }
+            try sema.exports.append(zcu.gpa, .{
+                .opts = options,
+                .src = src,
+                .exported = .{ .uav = uav.val },
+                .status = .in_progress,
+            });
+        },
+        .nav => |nav| {
+            if (ptr_info.byte_offset != 0) {
+                return sema.fail(block, ptr_src, "TODO: export pointer in middle of value", .{});
+            }
+            try sema.ensureNavResolved(src, nav);
+            // Make sure to export the owner Nav if applicable.
+            const exported_nav = switch (ip.indexToKey(ip.getNav(nav).status.resolved.val)) {
+                .variable => |v| v.owner_nav,
+                .@"extern" => |e| e.owner_nav,
+                .func => |f| f.owner_nav,
+                else => nav,
+            };
+            try sema.analyzeExport(block, src, options, exported_nav);
+        },
     }
 }
 
