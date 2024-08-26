@@ -1596,6 +1596,11 @@ fn transBinaryOperator(
         // @divExact(@bitCast(<platform-ptrdiff_t>, @intFromPtr(lhs) -% @intFromPtr(rhs)), @sizeOf(<lhs target type>))
         const ptrdiff_type = try transQualTypeIntWidthOf(c, qt, true);
 
+        const bitcast = try Tag.as.create(c.arena, .{
+            .lhs = ptrdiff_type,
+            .rhs = try Tag.bit_cast.create(c.arena, infixOpNode),
+        });
+
         // C standard requires that pointer subtraction operands are of the same type,
         // otherwise it is undefined behavior. So we can assume the left and right
         // sides are the same QualType and arbitrarily choose left.
@@ -1603,18 +1608,19 @@ fn transBinaryOperator(
         const lhs_qt = getExprQualType(c, lhs_expr);
         const lhs_qt_translated = try transQualType(c, scope, lhs_qt, lhs_expr.getBeginLoc());
         const c_pointer = getContainer(c, lhs_qt_translated).?;
-        const elem_type = c_pointer.castTag(.c_pointer).?.data.elem_type;
-        const sizeof = try Tag.sizeof.create(c.arena, elem_type);
 
-        const bitcast = try Tag.as.create(c.arena, .{
-            .lhs = ptrdiff_type,
-            .rhs = try Tag.bit_cast.create(c.arena, infixOpNode),
-        });
-
-        return Tag.div_exact.create(c.arena, .{
-            .lhs = bitcast,
-            .rhs = sizeof,
-        });
+        if (c_pointer.castTag(.c_pointer)) |c_pointer_payload| {
+            const sizeof = try Tag.sizeof.create(c.arena, c_pointer_payload.data.elem_type);
+            return Tag.div_exact.create(c.arena, .{
+                .lhs = bitcast,
+                .rhs = sizeof,
+            });
+        } else {
+            // This is an opaque/incomplete type. This subtraction exhibits Undefined Behavior by the C99 spec.
+            // However, allowing subtraction on `void *` and function pointers is a commonly used extension.
+            // So, just return the value in byte units, mirroring the behavior of this language extension as implemented by GCC and Clang.
+            return bitcast;
+        }
     }
     return infixOpNode;
 }
