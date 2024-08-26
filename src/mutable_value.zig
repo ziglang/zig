@@ -223,7 +223,7 @@ pub const MutableValue = union(enum) {
                                     @memset(elems[0..@intCast(len_no_sent)], .{ .interned = undef_elem });
                                 },
                                 .Struct => for (elems[0..@intCast(len_no_sent)], 0..) |*mut_elem, i| {
-                                    const field_ty = ty.structFieldType(i, zcu).toIntern();
+                                    const field_ty = ty.fieldType(i, zcu).toIntern();
                                     mut_elem.* = .{ .interned = try pt.intern(.{ .undef = field_ty }) };
                                 },
                                 else => unreachable,
@@ -369,7 +369,7 @@ pub const MutableValue = union(enum) {
             .bytes => |b| {
                 assert(is_trivial_int);
                 assert(field_val.typeOf(zcu).toIntern() == .u8_type);
-                b.data[field_idx] = @intCast(Value.fromInterned(field_val.interned).toUnsignedInt(pt));
+                b.data[field_idx] = @intCast(Value.fromInterned(field_val.interned).toUnsignedInt(zcu));
             },
             .repeated => |r| {
                 if (field_val.eqlTrivial(r.child.*)) return;
@@ -382,9 +382,9 @@ pub const MutableValue = union(enum) {
                 {
                     // We can use the `bytes` representation.
                     const bytes = try arena.alloc(u8, @intCast(len_inc_sent));
-                    const repeated_byte = Value.fromInterned(r.child.interned).toUnsignedInt(pt);
+                    const repeated_byte = Value.fromInterned(r.child.interned).toUnsignedInt(zcu);
                     @memset(bytes, @intCast(repeated_byte));
-                    bytes[field_idx] = @intCast(Value.fromInterned(field_val.interned).toUnsignedInt(pt));
+                    bytes[field_idx] = @intCast(Value.fromInterned(field_val.interned).toUnsignedInt(zcu));
                     mv.* = .{ .bytes = .{
                         .ty = r.ty,
                         .data = bytes,
@@ -431,7 +431,7 @@ pub const MutableValue = union(enum) {
                     } else {
                         const bytes = try arena.alloc(u8, a.elems.len);
                         for (a.elems, bytes) |elem_val, *b| {
-                            b.* = @intCast(Value.fromInterned(elem_val.interned).toUnsignedInt(pt));
+                            b.* = @intCast(Value.fromInterned(elem_val.interned).toUnsignedInt(zcu));
                         }
                         mv.* = .{ .bytes = .{
                             .ty = a.ty,

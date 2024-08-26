@@ -327,7 +327,7 @@ pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !
         .variable => |variable| variable.init,
         else => nav.status.resolved.val,
     };
-    if (nav_init != .none and !Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(pt)) return;
+    if (nav_init != .none and !Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(zcu)) return;
 
     const gop = try self.navs.getOrPut(gpa, nav_index);
     errdefer _ = self.navs.pop();
@@ -418,7 +418,7 @@ pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node:
 
     const comp = self.base.comp;
     const gpa = comp.gpa;
-    const zcu = self.base.comp.module.?;
+    const zcu = self.base.comp.zcu.?;
     const ip = &zcu.intern_pool;
     const pt: Zcu.PerThread = .{ .zcu = zcu, .tid = tid };
 

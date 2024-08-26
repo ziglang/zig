@@ -164,7 +164,7 @@ pub fn createEmpty(
 
     const gpa = comp.gpa;
     const use_llvm = comp.config.use_llvm;
-    const opt_zcu = comp.module;
+    const opt_zcu = comp.zcu;
     const optimize_mode = comp.root_mod.optimize_mode;
     const output_mode = comp.config.output_mode;
     const link_mode = comp.config.link_mode;
@@ -3026,7 +3026,7 @@ pub fn updateNavLineNumber(self: *MachO, pt: Zcu.PerThread, nav: InternPool.NavI
 pub fn updateExports(
     self: *MachO,
     pt: Zcu.PerThread,
-    exported: Module.Exported,
+    exported: Zcu.Exported,
     export_indices: []const u32,
 ) link.File.UpdateExportsError!void {
     if (build_options.skip_non_native and builtin.object_format != .macho) {
@@ -3060,7 +3060,7 @@ pub fn lowerUav(
     pt: Zcu.PerThread,
     uav: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
-    src_loc: Module.LazySrcLoc,
+    src_loc: Zcu.LazySrcLoc,
 ) !codegen.GenResult {
     return self.getZigObject().?.lowerUav(self, pt, uav, explicit_alignment, src_loc);
 }
@@ -4634,8 +4634,6 @@ const Liveness = @import("../Liveness.zig");
 const LlvmObject = @import("../codegen/llvm.zig").Object;
 const Md5 = std.crypto.hash.Md5;
 const Zcu = @import("../Zcu.zig");
-/// Deprecated.
-const Module = Zcu;
 const InternPool = @import("../InternPool.zig");
 const Rebase = @import("MachO/dyld_info/Rebase.zig");
 pub const Relocation = @import("MachO/Relocation.zig");

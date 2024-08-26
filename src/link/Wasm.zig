@@ -556,7 +556,7 @@ pub fn createEmpty(
         }
     }
 
-    if (comp.module) |zcu| {
+    if (comp.zcu) |zcu| {
         if (!use_llvm) {
             const index: File.Index = @enumFromInt(wasm.files.len);
             var zig_object: ZigObject = .{
@@ -3352,7 +3352,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (comp.module != null) blk: {
+    const module_obj_path: ?[]const u8 = if (comp.zcu != null) blk: {
         try wasm.flushModule(arena, tid, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {

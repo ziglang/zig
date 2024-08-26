@@ -755,7 +755,7 @@ pub const File = struct {
         const directory = base.emit.root_dir; // Just an alias to make it shorter to type.
         const full_out_path = try directory.join(arena, &[_][]const u8{base.emit.sub_path});
         const full_out_path_z = try arena.dupeZ(u8, full_out_path);
-        const opt_zcu = comp.module;
+        const opt_zcu = comp.zcu;
 
         // If there is no Zig code to compile, then we should skip flushing the output file
         // because it will not be part of the linker line anyway.

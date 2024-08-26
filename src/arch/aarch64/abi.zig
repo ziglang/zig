@@ -15,44 +15,44 @@ pub const Class = union(enum) {
 };
 
 /// For `float_array` the second element will be the amount of floats.
-pub fn classifyType(ty: Type, pt: Zcu.PerThread) Class {
-    std.debug.assert(ty.hasRuntimeBitsIgnoreComptime(pt));
+pub fn classifyType(ty: Type, zcu: *Zcu) Class {
+    std.debug.assert(ty.hasRuntimeBitsIgnoreComptime(zcu));
 
     var maybe_float_bits: ?u16 = null;
-    switch (ty.zigTypeTag(pt.zcu)) {
+    switch (ty.zigTypeTag(zcu)) {
         .Struct => {
-            if (ty.containerLayout(pt.zcu) == .@"packed") return .byval;
-            const float_count = countFloats(ty, pt.zcu, &maybe_float_bits);
+            if (ty.containerLayout(zcu) == .@"packed") return .byval;
+            const float_count = countFloats(ty, zcu, &maybe_float_bits);
             if (float_count <= sret_float_count) return .{ .float_array = float_count };
 
-            const bit_size = ty.bitSize(pt);
+            const bit_size = ty.bitSize(zcu);
             if (bit_size > 128) return .memory;
             if (bit_size > 64) return .double_integer;
             return .integer;
         },
         .Union => {
-            if (ty.containerLayout(pt.zcu) == .@"packed") return .byval;
-            const float_count = countFloats(ty, pt.zcu, &maybe_float_bits);
+            if (ty.containerLayout(zcu) == .@"packed") return .byval;
+            const float_count = countFloats(ty, zcu, &maybe_float_bits);
             if (float_count <= sret_float_count) return .{ .float_array = float_count };
 
-            const bit_size = ty.bitSize(pt);
+            const bit_size = ty.bitSize(zcu);
             if (bit_size > 128) return .memory;
             if (bit_size > 64) return .double_integer;
             return .integer;
         },
         .Int, .Enum, .ErrorSet, .Float, .Bool => return .byval,
         .Vector => {
-            const bit_size = ty.bitSize(pt);
+            const bit_size = ty.bitSize(zcu);
             // TODO is this controlled by a cpu feature?
             if (bit_size > 128) return .memory;
             return .byval;
         },
         .Optional => {
-            std.debug.assert(ty.isPtrLikeOptional(pt.zcu));
+            std.debug.assert(ty.isPtrLikeOptional(zcu));
             return .byval;
         },
         .Pointer => {
-            std.debug.assert(!ty.isSlice(pt.zcu));
+            std.debug.assert(!ty.isSlice(zcu));
             return .byval;
         },
         .ErrorUnion,
@@ -95,7 +95,7 @@ fn countFloats(ty: Type, zcu: *Zcu, maybe_float_bits: *?u16) u8 {
             var count: u8 = 0;
             var i: u32 = 0;
             while (i < fields_len) : (i += 1) {
-                const field_ty = ty.structFieldType(i, zcu);
+                const field_ty = ty.fieldType(i, zcu);
                 const field_count = countFloats(field_ty, zcu, maybe_float_bits);
                 if (field_count == invalid) return invalid;
                 count += field_count;
@@ -130,7 +130,7 @@ pub fn getFloatArrayType(ty: Type, zcu: *Zcu) ?Type {
             const fields_len = ty.structFieldCount(zcu);
             var i: u32 = 0;
             while (i < fields_len) : (i += 1) {
-                const field_ty = ty.structFieldType(i, zcu);
+                const field_ty = ty.fieldType(i, zcu);
                 if (getFloatArrayType(field_ty, zcu)) |some| return some;
             }
             return null;

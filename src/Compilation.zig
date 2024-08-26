@@ -50,8 +50,7 @@ gpa: Allocator,
 /// be used for other things requiring the same lifetime as the `Compilation`.
 arena: Allocator,
 /// Not every Compilation compiles .zig code! For example you could do `zig build-exe foo.o`.
-/// TODO: rename to zcu: ?*Zcu
-module: ?*Zcu,
+zcu: ?*Zcu,
 /// Contains different state depending on whether the Compilation uses
 /// incremental or whole cache mode.
 cache_use: CacheUse,
@@ -1474,7 +1473,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         comp.* = .{
             .gpa = gpa,
             .arena = arena,
-            .module = opt_zcu,
+            .zcu = opt_zcu,
             .cache_use = undefined, // populated below
             .bin_file = null, // populated below
             .implib_emit = null, // handled below
@@ -1926,7 +1925,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
 pub fn destroy(comp: *Compilation) void {
     if (comp.bin_file) |lf| lf.destroy();
-    if (comp.module) |zcu| zcu.deinit();
+    if (comp.zcu) |zcu| zcu.deinit();
     comp.cache_use.deinit();
     for (comp.work_queues) |work_queue| work_queue.deinit();
     if (!InternPool.single_threaded) comp.codegen_work.queue.deinit();
@@ -2198,7 +2197,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         };
     }
 
-    if (comp.module) |zcu| {
+    if (comp.zcu) |zcu| {
         const pt: Zcu.PerThread = .{ .zcu = zcu, .tid = .main };
 
         zcu.compile_log_text.shrinkAndFree(gpa, 0);
@@ -2268,7 +2267,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
 
     try comp.performAllTheWork(main_progress_node);
 
-    if (comp.module) |zcu| {
+    if (comp.zcu) |zcu| {
         const pt: Zcu.PerThread = .{ .zcu = zcu, .tid = .main };
 
         if (build_options.enable_debug_extensions and comp.verbose_intern_pool) {
@@ -2447,7 +2446,7 @@ fn flush(
         };
     }
 
-    if (comp.module) |zcu| {
+    if (comp.zcu) |zcu| {
         try link.File.C.flushEmitH(zcu);
 
         if (zcu.llvm_object) |llvm_object| {
@@ -2558,7 +2557,7 @@ fn addNonIncrementalStuffToCacheManifest(
 
     comptime assert(link_hash_implementation_version == 14);
 
-    if (comp.module) |mod| {
+    if (comp.zcu) |mod| {
         try addModuleTableToCacheHash(gpa, arena, &man.hash, mod.root_mod, mod.main_mod, .{ .files = man });
 
         // Synchronize with other matching comments: ZigOnlyHashStuff
@@ -2692,7 +2691,7 @@ fn addNonIncrementalStuffToCacheManifest(
 }
 
 fn emitOthers(comp: *Compilation) void {
-    if (comp.config.output_mode != .Obj or comp.module != null or
+    if (comp.config.output_mode != .Obj or comp.zcu != null or
         comp.c_object_table.count() == 0)
     {
         return;
@@ -2951,7 +2950,7 @@ pub fn saveState(comp: *Compilation) !void {
     var pt_headers = std.ArrayList(Header.PerThread).init(gpa);
     defer pt_headers.deinit();
 
-    if (comp.module) |zcu| {
+    if (comp.zcu) |zcu| {
         const ip = &zcu.intern_pool;
         const header: Header = .{
             .intern_pool = .{
@@ -3092,7 +3091,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
     var all_references: ?std.AutoHashMapUnmanaged(InternPool.AnalUnit, ?Zcu.ResolvedReference) = null;
     defer if (all_references) |*a| a.deinit(gpa);
 
-    if (comp.module) |zcu| {
+    if (comp.zcu) |zcu| {
         const ip = &zcu.intern_pool;
 
         for (zcu.failed_files.keys(), zcu.failed_files.values()) |file, error_msg| {
@@ -3246,7 +3245,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         }
     }
 
-    if (comp.module) |zcu| {
+    if (comp.zcu) |zcu| {
         if (bundle.root_list.items.len == 0 and zcu.compile_log_sources.count() != 0) {
             const values = zcu.compile_log_sources.values();
             // First one will be the error; subsequent ones will be notes.
@@ -3269,7 +3268,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         }
     }
 
-    if (comp.module) |zcu| {
+    if (comp.zcu) |zcu| {
         if (comp.incremental and bundle.root_list.items.len == 0) {
             const should_have_error = for (zcu.transitive_failed_analysis.keys()) |failed_unit| {
                 if (all_references == null) {
@@ -3283,7 +3282,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         }
     }
 
-    const compile_log_text = if (comp.module) |m| m.compile_log_text.items else "";
+    const compile_log_text = if (comp.zcu) |m| m.compile_log_text.items else "";
     return bundle.toOwnedBundle(compile_log_text);
 }
 
@@ -3497,7 +3496,7 @@ pub fn performAllTheWork(
     comp: *Compilation,
     main_progress_node: std.Progress.Node,
 ) JobError!void {
-    defer if (comp.module) |mod| {
+    defer if (comp.zcu) |mod| {
         mod.sema_prog_node.end();
         mod.sema_prog_node = std.Progress.Node.none;
         mod.codegen_prog_node.end();
@@ -3543,8 +3542,7 @@ fn performAllTheWorkInner(
         //    in the `astgen_wait_group`.
         if (comp.job_queued_update_builtin_zig) b: {
             comp.job_queued_update_builtin_zig = false;
-            const zcu = comp.module orelse break :b;
-            _ = zcu;
+            if (comp.zcu == null) break :b;
             // TODO put all the modules in a flat array to make them easy to iterate.
             var seen: std.AutoArrayHashMapUnmanaged(*Package.Module, void) = .{};
             defer seen.deinit(comp.gpa);
@@ -3563,7 +3561,7 @@ fn performAllTheWorkInner(
             }
         }
 
-        if (comp.module) |zcu| {
+        if (comp.zcu) |zcu| {
             {
                 // Worker threads may append to zcu.files and zcu.import_table
                 // so we must hold the lock while spawning those tasks, since
@@ -3606,7 +3604,7 @@ fn performAllTheWorkInner(
     if (comp.job_queued_compiler_rt_obj) work_queue_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", .compiler_rt, .Obj, &comp.compiler_rt_obj, main_progress_node });
     if (comp.job_queued_fuzzer_lib) work_queue_wait_group.spawnManager(buildRt, .{ comp, "fuzzer.zig", .libfuzzer, .Lib, &comp.fuzzer_lib, main_progress_node });
 
-    if (comp.module) |zcu| {
+    if (comp.zcu) |zcu| {
         const pt: Zcu.PerThread = .{ .zcu = zcu, .tid = .main };
         if (comp.incremental) {
             const update_zir_refs_node = main_progress_node.start("Update ZIR References", 0);
@@ -3638,7 +3636,7 @@ fn performAllTheWorkInner(
             try processOneJob(@intFromEnum(Zcu.PerThread.Id.main), comp, job, main_progress_node);
             continue :work;
         };
-        if (comp.module) |zcu| {
+        if (comp.zcu) |zcu| {
             // If there's no work queued, check if there's anything outdated
             // which we need to work on, and queue it if so.
             if (try zcu.findOutdatedToAnalyze()) |outdated| {
@@ -3666,7 +3664,7 @@ pub fn queueJobs(comp: *Compilation, jobs: []const Job) !void {
 fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progress.Node) JobError!void {
     switch (job) {
         .codegen_nav => |nav_index| {
-            const zcu = comp.module.?;
+            const zcu = comp.zcu.?;
             const nav = zcu.intern_pool.getNav(nav_index);
             if (nav.analysis_owner.unwrap()) |cau| {
                 const unit = InternPool.AnalUnit.wrap(.{ .cau = cau });
@@ -3689,14 +3687,14 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
             const named_frame = tracy.namedFrame("analyze_func");
             defer named_frame.end();
 
-            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
+            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
             pt.ensureFuncBodyAnalyzed(func) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
             };
         },
         .analyze_cau => |cau_index| {
-            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
+            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
             pt.ensureCauAnalyzed(cau_index) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
@@ -3725,7 +3723,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
             const named_frame = tracy.namedFrame("resolve_type_fully");
             defer named_frame.end();
 
-            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
+            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
             Type.fromInterned(ty).resolveFully(pt) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
@@ -3738,7 +3736,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
             if (true) @panic("TODO: update_line_number");
 
             const gpa = comp.gpa;
-            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
+            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
             const decl = pt.zcu.declPtr(decl_index);
             const lf = comp.bin_file.?;
             lf.updateDeclLineNumber(pt, decl_index) catch |err| {
@@ -3760,7 +3758,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
             const named_frame = tracy.namedFrame("analyze_mod");
             defer named_frame.end();
 
-            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
+            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
             pt.semaPkg(mod) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
@@ -3924,7 +3922,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
 
 fn queueCodegenJob(comp: *Compilation, tid: usize, codegen_job: CodegenJob) !void {
     if (InternPool.single_threaded or
-        !comp.module.?.backendSupportsFeature(.separate_thread))
+        !comp.zcu.?.backendSupportsFeature(.separate_thread))
         return processOneCodegenJob(tid, comp, codegen_job);
 
     {
@@ -3963,14 +3961,14 @@ fn processOneCodegenJob(tid: usize, comp: *Compilation, codegen_job: CodegenJob)
             const named_frame = tracy.namedFrame("codegen_nav");
             defer named_frame.end();
 
-            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
+            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
             try pt.linkerUpdateNav(nav_index);
         },
         .func => |func| {
             const named_frame = tracy.namedFrame("codegen_func");
             defer named_frame.end();
 
-            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
+            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
             // This call takes ownership of `func.air`.
             try pt.linkerUpdateFunc(func.func, func.air);
         },
@@ -3978,7 +3976,7 @@ fn processOneCodegenJob(tid: usize, comp: *Compilation, codegen_job: CodegenJob)
             const named_frame = tracy.namedFrame("codegen_type");
             defer named_frame.end();
 
-            const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
+            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
             try pt.linkerUpdateContainerType(ty);
         },
     }
@@ -3995,7 +3993,7 @@ fn workerDocsCopy(comp: *Compilation) void {
 }
 
 fn docsCopyFallible(comp: *Compilation) anyerror!void {
-    const zcu = comp.module orelse
+    const zcu = comp.zcu orelse
         return comp.lockAndSetMiscFailure(.docs_copy, "no Zig code to document", .{});
 
     const emit = comp.docs_emit.?;
@@ -4260,7 +4258,7 @@ fn workerAstGenFile(
     const child_prog_node = prog_node.start(file.sub_file_path, 0);
     defer child_prog_node.end();
 
-    const pt: Zcu.PerThread = .{ .zcu = comp.module.?, .tid = @enumFromInt(tid) };
+    const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
     pt.astGenFile(file, path_digest) catch |err| switch (err) {
         error.AnalysisFail => return,
         else => {
@@ -4352,8 +4350,8 @@ fn workerCheckEmbedFile(comp: *Compilation, embed_file: *Zcu.EmbedFile) void {
 }
 
 fn detectEmbedFileUpdate(comp: *Compilation, embed_file: *Zcu.EmbedFile) !void {
-    const mod = comp.module.?;
-    const ip = &mod.intern_pool;
+    const zcu = comp.zcu.?;
+    const ip = &zcu.intern_pool;
     var file = try embed_file.owner.root.openFile(embed_file.sub_file_path.toSlice(ip), .{});
     defer file.close();
 
@@ -4665,10 +4663,10 @@ fn reportRetryableEmbedFileError(
     embed_file: *Zcu.EmbedFile,
     err: anyerror,
 ) error{OutOfMemory}!void {
-    const mod = comp.module.?;
-    const gpa = mod.gpa;
+    const zcu = comp.zcu.?;
+    const gpa = zcu.gpa;
     const src_loc = embed_file.src_loc;
-    const ip = &mod.intern_pool;
+    const ip = &zcu.intern_pool;
     const err_msg = try Zcu.ErrorMsg.create(gpa, src_loc, "unable to load '{}/{s}': {s}", .{
         embed_file.owner.root,
         embed_file.sub_file_path.toSlice(ip),
@@ -4680,7 +4678,7 @@ fn reportRetryableEmbedFileError(
     {
         comp.mutex.lock();
         defer comp.mutex.unlock();
-        try mod.failed_embed_files.putNoClobber(gpa, embed_file, err_msg);
+        try zcu.failed_embed_files.putNoClobber(gpa, embed_file, err_msg);
     }
 }
 
@@ -4730,7 +4728,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
     // Special case when doing build-obj for just one C file. When there are more than one object
     // file and building an object we need to link them together, but with just one it should go
     // directly to the output file.
-    const direct_o = comp.c_source_files.len == 1 and comp.module == null and
+    const direct_o = comp.c_source_files.len == 1 and comp.zcu == null and
         comp.config.output_mode == .Obj and comp.objects.len == 0;
     const o_basename_noext = if (direct_o)
         comp.root_name

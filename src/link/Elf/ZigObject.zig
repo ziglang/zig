@@ -128,7 +128,7 @@ pub fn deinit(self: *ZigObject, allocator: Allocator) void {
 pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
     // Handle any lazy symbols that were emitted by incremental compilation.
     if (self.lazy_syms.getPtr(.anyerror_type)) |metadata| {
-        const pt: Zcu.PerThread = .{ .zcu = elf_file.base.comp.module.?, .tid = tid };
+        const pt: Zcu.PerThread = .{ .zcu = elf_file.base.comp.zcu.?, .tid = tid };
 
         // Most lazy symbols can be updated on first use, but
         // anyerror needs to wait for everything to be flushed.
@@ -157,7 +157,7 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
     }
 
     if (build_options.enable_logging) {
-        const pt: Zcu.PerThread = .{ .zcu = elf_file.base.comp.module.?, .tid = tid };
+        const pt: Zcu.PerThread = .{ .zcu = elf_file.base.comp.zcu.?, .tid = tid };
         for (self.navs.keys(), self.navs.values()) |nav_index, meta| {
             checkNavAllocated(pt, nav_index, meta);
         }
@@ -167,7 +167,7 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
     }
 
     if (self.dwarf) |*dwarf| {
-        const pt: Zcu.PerThread = .{ .zcu = elf_file.base.comp.module.?, .tid = tid };
+        const pt: Zcu.PerThread = .{ .zcu = elf_file.base.comp.zcu.?, .tid = tid };
         try dwarf.flushModule(pt);
 
         const gpa = elf_file.base.comp.gpa;
@@ -849,7 +849,7 @@ pub fn lowerUav(
     const gpa = zcu.gpa;
     const val = Value.fromInterned(uav);
     const uav_alignment = switch (explicit_alignment) {
-        .none => val.typeOf(zcu).abiAlignment(pt),
+        .none => val.typeOf(zcu).abiAlignment(zcu),
         else => explicit_alignment,
     };
     if (self.uavs.get(uav)) |metadata| {
@@ -949,7 +949,7 @@ pub fn getOrCreateMetadataForNav(
     if (!gop.found_existing) {
         const any_non_single_threaded = elf_file.base.comp.config.any_non_single_threaded;
         const symbol_index = try self.newSymbolWithAtom(gpa, 0);
-        const zcu = elf_file.base.comp.module.?;
+        const zcu = elf_file.base.comp.zcu.?;
         const nav_val = Value.fromInterned(zcu.intern_pool.getNav(nav_index).status.resolved.val);
         const sym = self.symbol(symbol_index);
         if (nav_val.getVariable(zcu)) |variable| {
@@ -1306,7 +1306,7 @@ pub fn updateNav(
         else => nav.status.resolved.val,
     };
 
-    if (nav_init != .none and Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(pt)) {
+    if (nav_init != .none and Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(zcu)) {
         const sym_index = try self.getOrCreateMetadataForNav(elf_file, nav_index);
         self.symbol(sym_index).atom(elf_file).?.freeRelocs(self);
 
@@ -1382,8 +1382,8 @@ fn updateLazySymbol(
     sym: link.File.LazySymbol,
     symbol_index: Symbol.Index,
 ) !void {
-    const mod = pt.zcu;
-    const gpa = mod.gpa;
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
 
     var required_alignment: InternPool.Alignment = .none;
     var code_buffer = std.ArrayList(u8).init(gpa);
@@ -1398,7 +1398,7 @@ fn updateLazySymbol(
         break :blk try self.strtab.insert(gpa, name);
     };
 
-    const src = Type.fromInterned(sym.ty).srcLocOrNull(mod) orelse Zcu.LazySrcLoc.unneeded;
+    const src = Type.fromInterned(sym.ty).srcLocOrNull(zcu) orelse Zcu.LazySrcLoc.unneeded;
     const res = try codegen.generateLazySymbol(
         &elf_file.base,
         pt,
@@ -1513,7 +1513,7 @@ pub fn updateExports(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const mod = pt.zcu;
+    const zcu = pt.zcu;
     const gpa = elf_file.base.comp.gpa;
     const metadata = switch (exported) {
         .nav => |nav| blk: {
@@ -1521,15 +1521,15 @@ pub fn updateExports(
             break :blk self.navs.getPtr(nav).?;
         },
         .uav => |uav| self.uavs.getPtr(uav) orelse blk: {
-            const first_exp = mod.all_exports.items[export_indices[0]];
+            const first_exp = zcu.all_exports.items[export_indices[0]];
             const res = try self.lowerUav(elf_file, pt, uav, .none, first_exp.src);
             switch (res) {
                 .mcv => {},
                 .fail => |em| {
                     // TODO maybe it's enough to return an error here and let Zcu.processExportsInner
                     // handle the error?
-                    try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                    mod.failed_exports.putAssumeCapacityNoClobber(export_indices[0], em);
+                    try zcu.failed_exports.ensureUnusedCapacity(zcu.gpa, 1);
+                    zcu.failed_exports.putAssumeCapacityNoClobber(export_indices[0], em);
                     return;
                 },
             }
@@ -1542,11 +1542,11 @@ pub fn updateExports(
     const esym_shndx = self.symtab.items(.shndx)[esym_index];
 
     for (export_indices) |export_idx| {
-        const exp = mod.all_exports.items[export_idx];
+        const exp = zcu.all_exports.items[export_idx];
         if (exp.opts.section.unwrap()) |section_name| {
-            if (!section_name.eqlSlice(".text", &mod.intern_pool)) {
-                try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                mod.failed_exports.putAssumeCapacityNoClobber(export_idx, try Zcu.ErrorMsg.create(
+            if (!section_name.eqlSlice(".text", &zcu.intern_pool)) {
+                try zcu.failed_exports.ensureUnusedCapacity(zcu.gpa, 1);
+                zcu.failed_exports.putAssumeCapacityNoClobber(export_idx, try Zcu.ErrorMsg.create(
                     gpa,
                     exp.src,
                     "Unimplemented: ExportOptions.section",
@@ -1560,8 +1560,8 @@ pub fn updateExports(
             .strong => elf.STB_GLOBAL,
             .weak => elf.STB_WEAK,
             .link_once => {
-                try mod.failed_exports.ensureUnusedCapacity(mod.gpa, 1);
-                mod.failed_exports.putAssumeCapacityNoClobber(export_idx, try Zcu.ErrorMsg.create(
+                try zcu.failed_exports.ensureUnusedCapacity(zcu.gpa, 1);
+                zcu.failed_exports.putAssumeCapacityNoClobber(export_idx, try Zcu.ErrorMsg.create(
                     gpa,
                     exp.src,
                     "Unimplemented: GlobalLinkage.LinkOnce",
@@ -1571,7 +1571,7 @@ pub fn updateExports(
             },
         };
         const stt_bits: u8 = @as(u4, @truncate(esym.st_info));
-        const exp_name = exp.opts.name.toSlice(&mod.intern_pool);
+        const exp_name = exp.opts.name.toSlice(&zcu.intern_pool);
         const name_off = try self.strtab.insert(gpa, exp_name);
         const global_sym_index = if (metadata.@"export"(self, exp_name)) |exp_index|
             exp_index.*
@@ -1626,8 +1626,8 @@ pub fn deleteExport(
         .nav => |nav| self.navs.getPtr(nav),
         .uav => |uav| self.uavs.getPtr(uav),
     } orelse return;
-    const mod = elf_file.base.comp.module.?;
-    const exp_name = name.toSlice(&mod.intern_pool);
+    const zcu = elf_file.base.comp.zcu.?;
+    const exp_name = name.toSlice(&zcu.intern_pool);
     const esym_index = metadata.@"export"(self, exp_name) orelse return;
     log.debug("deleting export '{s}'", .{exp_name});
     const esym = &self.symtab.items(.elf_sym)[esym_index.*];

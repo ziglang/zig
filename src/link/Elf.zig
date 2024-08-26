@@ -212,7 +212,7 @@ pub fn createEmpty(
 
     const use_lld = build_options.have_llvm and comp.config.use_lld;
     const use_llvm = comp.config.use_llvm;
-    const opt_zcu = comp.module;
+    const opt_zcu = comp.zcu;
     const output_mode = comp.config.output_mode;
     const link_mode = comp.config.link_mode;
     const optimize_mode = comp.root_mod.optimize_mode;
@@ -2084,7 +2084,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (comp.module != null) blk: {
+    const module_obj_path: ?[]const u8 = if (comp.zcu != null) blk: {
         try self.flushModule(arena, tid, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
