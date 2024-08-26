@@ -5402,8 +5402,8 @@ pub const SystemLib = struct {
 };
 
 pub const Ref = struct {
-    index: u32,
-    file: u32,
+    index: u32 = 0,
+    file: u32 = 0,
 
     pub fn eql(ref: Ref, other: Ref) bool {
         return ref.index == other.index and ref.file == other.file;
@@ -5522,7 +5522,7 @@ const Section = struct {
     atom_list: std.ArrayListUnmanaged(Ref) = .{},
 
     /// Index of the last allocated atom in this section.
-    last_atom_index: Atom.Index = 0,
+    last_atom: Ref = .{ .index = 0, .file = 0 },
 
     /// A list of atoms that have surplus capacity. This list can have false
     /// positives, as functions grow and shrink over time, only sometimes being added
@@ -5539,7 +5539,7 @@ const Section = struct {
     /// overcapacity can be negative. A simple way to have negative overcapacity is to
     /// allocate a fresh text block, which will have ideal capacity, and then grow it
     /// by 1 byte. It will then have -1 overcapacity.
-    free_list: std.ArrayListUnmanaged(Atom.Index) = .{},
+    free_list: std.ArrayListUnmanaged(Ref) = .{},
 };
 
 fn defaultEntrySymbolName(cpu_arch: std.Target.Cpu.Arch) []const u8 {

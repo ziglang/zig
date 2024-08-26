@@ -11,7 +11,7 @@ file_index: File.Index = 0,
 
 /// Reference to Atom or merge subsection containing this symbol if any.
 /// Use `atom` or `mergeSubsection` to get the pointer to the atom.
-ref: Elf.Ref = .{ .index = 0, .file = 0 },
+ref: Elf.Ref = .{},
 
 /// Assigned output section index for this symbol.
 output_section_index: u32 = 0,
