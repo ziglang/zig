@@ -9,7 +9,7 @@ const have_availability_version_check = builtin.os.tag.isDarwin() and
 
 comptime {
     if (have_availability_version_check) {
-        @export(__isPlatformVersionAtLeast, .{ .name = "__isPlatformVersionAtLeast", .linkage = linkage });
+        @export(&__isPlatformVersionAtLeast, .{ .name = "__isPlatformVersionAtLeast", .linkage = linkage });
     }
 }
 

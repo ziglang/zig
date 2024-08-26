@@ -6,15 +6,15 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__clzsi2, .{ .name = "__clzsi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__clzdi2, .{ .name = "__clzdi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__clzti2, .{ .name = "__clzti2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ctzsi2, .{ .name = "__ctzsi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ctzdi2, .{ .name = "__ctzdi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ctzti2, .{ .name = "__ctzti2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ffssi2, .{ .name = "__ffssi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ffsdi2, .{ .name = "__ffsdi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ffsti2, .{ .name = "__ffsti2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__clzsi2, .{ .name = "__clzsi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__clzdi2, .{ .name = "__clzdi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__clzti2, .{ .name = "__clzti2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ctzsi2, .{ .name = "__ctzsi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ctzdi2, .{ .name = "__ctzdi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ctzti2, .{ .name = "__ctzti2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ffssi2, .{ .name = "__ffssi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ffsdi2, .{ .name = "__ffsdi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ffsti2, .{ .name = "__ffsti2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 // clz - count leading zeroes

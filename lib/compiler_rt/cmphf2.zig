@@ -6,11 +6,11 @@ const comparef = @import("./comparef.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__eqhf2, .{ .name = "__eqhf2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__nehf2, .{ .name = "__nehf2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__lehf2, .{ .name = "__lehf2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__cmphf2, .{ .name = "__cmphf2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__lthf2, .{ .name = "__lthf2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__eqhf2, .{ .name = "__eqhf2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__nehf2, .{ .name = "__nehf2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__lehf2, .{ .name = "__lehf2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__cmphf2, .{ .name = "__cmphf2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__lthf2, .{ .name = "__lthf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 /// "These functions calculate a <=> b. That is, if a is less than b, they return -1;

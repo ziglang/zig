@@ -434,7 +434,7 @@ comptime {
     // Export this only when building executable, otherwise it is overriding
     // the libc implementation
     if (extern_getauxval and (builtin.output_mode == .Exe or @hasDecl(root, "main"))) {
-        @export(getauxvalImpl, .{ .name = "getauxval", .linkage = .weak });
+        @export(&getauxvalImpl, .{ .name = "getauxval", .linkage = .weak });
     }
 }
 

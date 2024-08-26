@@ -15,15 +15,15 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__floorh, .{ .name = "__floorh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(floorf, .{ .name = "floorf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(floor, .{ .name = "floor", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__floorx, .{ .name = "__floorx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__floorh, .{ .name = "__floorh", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&floorf, .{ .name = "floorf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&floor, .{ .name = "floor", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__floorx, .{ .name = "__floorx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(floorq, .{ .name = "floorf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&floorq, .{ .name = "floorf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(floorq, .{ .name = "floorq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(floorl, .{ .name = "floorl", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&floorq, .{ .name = "floorq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&floorl, .{ .name = "floorl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __floorh(x: f16) callconv(.C) f16 {

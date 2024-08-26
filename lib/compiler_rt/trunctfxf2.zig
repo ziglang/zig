@@ -5,7 +5,7 @@ const trunc_f80 = @import("./truncf.zig").trunc_f80;
 pub const panic = common.panic;
 
 comptime {
-    @export(__trunctfxf2, .{ .name = "__trunctfxf2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__trunctfxf2, .{ .name = "__trunctfxf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __trunctfxf2(a: f128) callconv(.C) f80 {

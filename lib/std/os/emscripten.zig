@@ -21,8 +21,8 @@ comptime {
     if (builtin.os.tag == .emscripten) {
         if (builtin.mode == .Debug or builtin.mode == .ReleaseSafe) {
             // Emscripten does not provide these symbols, so we must export our own
-            @export(__stack_chk_guard, .{ .name = "__stack_chk_guard", .linkage = .strong });
-            @export(__stack_chk_fail, .{ .name = "__stack_chk_fail", .linkage = .strong });
+            @export(&__stack_chk_guard, .{ .name = "__stack_chk_guard", .linkage = .strong });
+            @export(&__stack_chk_fail, .{ .name = "__stack_chk_fail", .linkage = .strong });
         }
     }
 }
