@@ -2861,7 +2861,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .ensure_result_non_error,
             .ensure_err_union_payload_void,
             .@"export",
-            .export_value,
             .set_eval_branch_quota,
             .atomic_store,
             .store_node,
@@ -9249,87 +9248,11 @@ fn builtinCall(
         // zig fmt: on
 
         .@"export" => {
+            const exported = try expr(gz, scope, .{ .rl = .none }, params[0]);
             const export_options_ty = try gz.addBuiltinValue(node, .export_options);
-            const node_tags = tree.nodes.items(.tag);
-            const node_datas = tree.nodes.items(.data);
-            // This function causes a Decl to be exported. The first parameter is not an expression,
-            // but an identifier of the Decl to be exported.
-            var namespace: Zir.Inst.Ref = .none;
-            var decl_name: Zir.NullTerminatedString = .empty;
-            switch (node_tags[params[0]]) {
-                .identifier => {
-                    const ident_token = main_tokens[params[0]];
-                    if (isPrimitive(tree.tokenSlice(ident_token))) {
-                        return astgen.failTok(ident_token, "unable to export primitive value", .{});
-                    }
-                    decl_name = try astgen.identAsString(ident_token);
-
-                    var s = scope;
-                    var found_already: ?Ast.Node.Index = null; // we have found a decl with the same name already
-                    while (true) switch (s.tag) {
-                        .local_val => {
-                            const local_val = s.cast(Scope.LocalVal).?;
-                            if (local_val.name == decl_name) {
-                                local_val.used = ident_token;
-                                _ = try gz.addPlNode(.export_value, node, Zir.Inst.ExportValue{
-                                    .operand = local_val.inst,
-                                    .options = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = export_options_ty } }, params[1]),
-                                });
-                                return rvalue(gz, ri, .void_value, node);
-                            }
-                            s = local_val.parent;
-                        },
-                        .local_ptr => {
-                            const local_ptr = s.cast(Scope.LocalPtr).?;
-                            if (local_ptr.name == decl_name) {
-                                if (!local_ptr.maybe_comptime)
-                                    return astgen.failNode(params[0], "unable to export runtime-known value", .{});
-                                local_ptr.used = ident_token;
-                                const loaded = try gz.addUnNode(.load, local_ptr.ptr, node);
-                                _ = try gz.addPlNode(.export_value, node, Zir.Inst.ExportValue{
-                                    .operand = loaded,
-                                    .options = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = export_options_ty } }, params[1]),
-                                });
-                                return rvalue(gz, ri, .void_value, node);
-                            }
-                            s = local_ptr.parent;
-                        },
-                        .gen_zir => s = s.cast(GenZir).?.parent,
-                        .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
-                        .namespace => {
-                            const ns = s.cast(Scope.Namespace).?;
-                            if (ns.decls.get(decl_name)) |i| {
-                                if (found_already) |f| {
-                                    return astgen.failNodeNotes(node, "ambiguous reference", .{}, &.{
-                                        try astgen.errNoteNode(f, "declared here", .{}),
-                                        try astgen.errNoteNode(i, "also declared here", .{}),
-                                    });
-                                }
-                                // We found a match but must continue looking for ambiguous references to decls.
-                                found_already = i;
-                            }
-                            s = ns.parent;
-                        },
-                        .top => break,
-                    };
-                    if (found_already == null) {
-                        const ident_name = try astgen.identifierTokenString(ident_token);
-                        return astgen.failNode(params[0], "use of undeclared identifier '{s}'", .{ident_name});
-                    }
-                },
-                .field_access => {
-                    const namespace_node = node_datas[params[0]].lhs;
-                    namespace = try typeExpr(gz, scope, namespace_node);
-                    const dot_token = main_tokens[params[0]];
-                    const field_ident = dot_token + 1;
-                    decl_name = try astgen.identAsString(field_ident);
-                },
-                else => return astgen.failNode(params[0], "symbol to export must identify a declaration", .{}),
-            }
             const options = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = export_options_ty } }, params[1]);
             _ = try gz.addPlNode(.@"export", node, Zir.Inst.Export{
-                .namespace = namespace,
-                .decl_name = decl_name,
+                .exported = exported,
                 .options = options,
             });
             return rvalue(gz, ri, .void_value, node);
