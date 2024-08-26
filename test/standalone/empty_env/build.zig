@@ -7,14 +7,15 @@ pub fn build(b: *std.Build) void {
 
     const optimize: std.builtin.OptimizeMode = .Debug;
 
-    if (builtin.os.tag == .windows and
-        // https://github.com/ziglang/zig/issues/13685
-        (builtin.cpu.arch == .aarch64 or
+    if (builtin.os.tag == .windows and std.process.hasEnvVarConstant("ConEmuHWND")) {
         // ConEmu injects environment variables into processes before they are executed
         // depending on user settings. This obviously invalidates the test, so skipping
         // it is the best option.
-        std.process.hasEnvVarConstant("ConEmuHWND")))
-    {
+        return;
+    }
+
+    if (builtin.os.tag == .windows and builtin.cpu.arch == .aarch64) {
+        // https://github.com/ziglang/zig/issues/13685
         return;
     }
 
