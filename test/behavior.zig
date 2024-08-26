@@ -12,6 +12,7 @@ test {
     _ = @import("behavior/bitcast.zig");
     _ = @import("behavior/bitreverse.zig");
     _ = @import("behavior/bool.zig");
+    _ = @import("behavior/builtin_functions_returning_void_or_noreturn.zig");
     _ = @import("behavior/byteswap.zig");
     _ = @import("behavior/byval_arg_var.zig");
     _ = @import("behavior/call.zig");
