@@ -41,6 +41,7 @@ max_rss: usize,
 
 result_error_msgs: std.ArrayListUnmanaged([]const u8),
 result_error_bundle: std.zig.ErrorBundle,
+result_error_trace: ?*std.builtin.StackTrace,
 result_stderr: []const u8,
 result_cached: bool,
 result_duration_ns: ?u64,
@@ -214,6 +215,7 @@ pub fn init(options: StepOptions) Step {
         },
         .result_error_msgs = .{},
         .result_error_bundle = std.zig.ErrorBundle.empty,
+        .result_error_trace = null,
         .result_stderr = "",
         .result_cached = false,
         .result_duration_ns = null,
@@ -228,31 +230,16 @@ pub fn init(options: StepOptions) Step {
 pub fn make(s: *Step, options: MakeOptions) error{ MakeFailed, MakeSkipped }!void {
     const arena = s.owner.allocator;
 
-    s.makeFn(s, options) catch |err| switch (err) {
-        error.MakeFailed => return error.MakeFailed,
-        error.MakeSkipped => return error.MakeSkipped,
-        else => {
-            var msg_buffer = arena.alloc(u8, 4096) catch @panic("OOM");
-            var stream = std.io.fixedBufferStream(msg_buffer);
-            const writer = stream.writer();
-
-            writer.writeAll("step failed with error ") catch unreachable;
-            writer.writeAll(@errorName(err)) catch @panic("msg_buffer OOM");
-
-            if (@errorReturnTrace()) |trace| {
-                writer.writeAll(":") catch @panic("msg_buffer OOM");
-                trace.format("", .{}, writer) catch {
-                    // Assumes trace.format has written everything up until failure
-                    const overrun_msg = ".... errorReturnTrace exceeds buffer size!";
-                    for (msg_buffer[stream.pos - overrun_msg.len .. stream.pos], 0..) |*value, i| {
-                        value.* = overrun_msg[i];
-                    }
-                };
-            }
-            _ = arena.resize(msg_buffer, stream.pos);
-            s.result_error_msgs.append(arena, msg_buffer[0..stream.pos]) catch @panic("OOM");
-            return error.MakeFailed;
-        },
+    s.makeFn(s, options) catch |err| {
+        switch (err) {
+            error.MakeFailed => return error.MakeFailed,
+            error.MakeSkipped => return error.MakeSkipped,
+            else => {
+                s.result_error_trace = @errorReturnTrace();
+                s.addError("this step's make function failed with error {s}:", .{@errorName(err)}) catch @panic("OOM");
+                return error.MakeFailed;
+            },
+        }
     };
 
     if (!s.test_results.isSuccess()) {

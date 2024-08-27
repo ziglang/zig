@@ -1216,6 +1216,10 @@ pub fn printErrorMessages(
         try stderr.writeAll(msg);
         try stderr.writeAll("\n");
     }
+
+    if (failing_step.result_error_trace) |trace| {
+        try trace.format("", .{}, stderr.writer());
+    }
 }
 
 fn steps(builder: *std.Build, out_stream: anytype) !void {
