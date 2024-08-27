@@ -1275,7 +1275,7 @@ pub const Object = struct {
             .is_small = options.is_small,
             .time_report = options.time_report,
             .tsan = options.sanitize_thread,
-            .sancov = options.fuzz,
+            .sancov = sanCovPassEnabled(comp.config.san_cov_trace_pc_guard),
             .lto = options.lto,
             .asm_filename = null,
             .bin_filename = options.bin_path,
@@ -1283,19 +1283,19 @@ pub const Object = struct {
             .bitcode_filename = null,
             .coverage = .{
                 .CoverageType = .Edge,
-                .IndirectCalls = true,
+                .IndirectCalls = false,
                 .TraceBB = false,
-                .TraceCmp = true,
+                .TraceCmp = false,
                 .TraceDiv = false,
                 .TraceGep = false,
                 .Use8bitCounters = false,
                 .TracePC = false,
                 .TracePCGuard = comp.config.san_cov_trace_pc_guard,
-                .Inline8bitCounters = true,
+                .Inline8bitCounters = false,
                 .InlineBoolFlag = false,
-                .PCTable = true,
+                .PCTable = false,
                 .NoPrune = false,
-                .StackDepth = true,
+                .StackDepth = false,
                 .TraceLoads = false,
                 .TraceStores = false,
                 .CollectControlFlow = false,
@@ -1662,6 +1662,7 @@ pub const Object = struct {
             .ng = &ng,
             .wip = wip,
             .is_naked = fn_info.cc == .Naked,
+            .fuzz = owner_mod.fuzz and !func_analysis.disable_instrumentation and !is_naked,
             .ret_ptr = ret_ptr,
             .args = args.items,
             .arg_index = 0,
@@ -1679,7 +1680,7 @@ pub const Object = struct {
         defer fg.deinit();
         deinit_wip = false;
 
-        fg.genBody(air.getMainBody()) catch |err| switch (err) {
+        fg.genBody(air.getMainBody(), .poi) catch |err| switch (err) {
             error.CodegenFail => {
                 try zcu.failed_codegen.put(zcu.gpa, func.owner_nav, ng.err_msg.?);
                 ng.err_msg = null;
@@ -4729,6 +4730,7 @@ pub const FuncGen = struct {
     liveness: Liveness,
     wip: Builder.WipFunction,
     is_naked: bool,
+    fuzz: bool,
 
     file: Builder.Metadata,
     scope: Builder.Metadata,
@@ -4836,11 +4838,26 @@ pub const FuncGen = struct {
         return o.null_opt_usize;
     }
 
-    fn genBody(self: *FuncGen, body: []const Air.Inst.Index) Error!void {
+    fn genBody(self: *FuncGen, body: []const Air.Inst.Index, coverage_point: CoveragePoint) Error!void {
         const o = self.ng.object;
         const zcu = o.pt.zcu;
         const ip = &zcu.intern_pool;
         const air_tags = self.air.instructions.items(.tag);
+        switch (coverage_point) {
+            .none => {},
+            .poi => if (self.fuzz) |base_ptr| {
+                // %0 = load i8, ptr @__sancov_gen_, align 1, !dbg !30, !nosanitize !28
+                // %1 = add i8 %0, 1, !dbg !30
+                // store i8 %1, ptr @__sancov_gen_, align 1, !dbg !30, !nosanitize !28
+                const ptr = try self.wip.gep(.inbounds, .i8, base_ptr, &.{
+                    try o.builder.intValue(llvm_usize, self.nextPoiIndex()),
+                }, "");
+                const counter = try self.wip.load(.normal, .i8, ptr, .default, "");
+                const one = try o.builder.intValue(.i8, 1);
+                const counter_incremented = self.wip.bin(.add, counter, one, "");
+                try self.wip.store(.normal, counter_incremented, ptr, .default);
+            },
+        }
         for (body, 0..) |inst, i| {
             if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip)) continue;
 
@@ -5089,8 +5106,13 @@ pub const FuncGen = struct {
         }
     }
 
-    fn genBodyDebugScope(self: *FuncGen, maybe_inline_func: ?InternPool.Index, body: []const Air.Inst.Index) Error!void {
-        if (self.wip.strip) return self.genBody(body);
+    fn genBodyDebugScope(
+        self: *FuncGen,
+        maybe_inline_func: ?InternPool.Index,
+        body: []const Air.Inst.Index,
+        coverage_point: CoveragePoint,
+    ) Error!void {
+        if (self.wip.strip) return self.genBody(body, coverage_point);
 
         const old_file = self.file;
         const old_inlined = self.inlined;
@@ -5137,7 +5159,8 @@ pub const FuncGen = struct {
                     .sp_flags = .{
                         .Optimized = mod.optimize_mode != .Debug,
                         .Definition = true,
-                        .LocalToUnit = true, // TODO: we can't know this at this point, since the function could be exported later!
+                        // TODO: we can't know this at this point, since the function could be exported later!
+                        .LocalToUnit = true,
                     },
                 },
                 o.debug_compile_unit,
@@ -5171,7 +5194,7 @@ pub const FuncGen = struct {
             .no_location => {},
         };
 
-        try self.genBody(body);
+        try self.genBody(body, coverage_point);
     }
 
     pub const CallAttr = enum {
@@ -5881,7 +5904,7 @@ pub const FuncGen = struct {
         const inst_ty = self.typeOfIndex(inst);
 
         if (inst_ty.isNoReturn(zcu)) {
-            try self.genBodyDebugScope(maybe_inline_func, body);
+            try self.genBodyDebugScope(maybe_inline_func, body, .none);
             return .none;
         }
 
@@ -5897,7 +5920,7 @@ pub const FuncGen = struct {
         });
         defer assert(self.blocks.remove(inst));
 
-        try self.genBodyDebugScope(maybe_inline_func, body);
+        try self.genBodyDebugScope(maybe_inline_func, body, .none);
 
         self.wip.cursor = .{ .block = parent_bb };
 
@@ -5996,11 +6019,11 @@ pub const FuncGen = struct {
 
         self.wip.cursor = .{ .block = then_block };
         if (hint == .then_cold) _ = try self.wip.callIntrinsicAssumeCold();
-        try self.genBodyDebugScope(null, then_body);
+        try self.genBodyDebugScope(null, then_body, .poi);
 
         self.wip.cursor = .{ .block = else_block };
         if (hint == .else_cold) _ = try self.wip.callIntrinsicAssumeCold();
-        try self.genBodyDebugScope(null, else_body);
+        try self.genBodyDebugScope(null, else_body, .poi);
 
         // No need to reset the insert cursor since this instruction is noreturn.
         return .none;
@@ -6085,7 +6108,7 @@ pub const FuncGen = struct {
 
             fg.wip.cursor = .{ .block = return_block };
             if (err_cold) _ = try fg.wip.callIntrinsicAssumeCold();
-            try fg.genBodyDebugScope(null, body);
+            try fg.genBodyDebugScope(null, body, .poi);
 
             fg.wip.cursor = .{ .block = continue_block };
         }
@@ -6196,14 +6219,14 @@ pub const FuncGen = struct {
             }
             self.wip.cursor = .{ .block = case_block };
             if (switch_br.getHint(case.idx) == .cold) _ = try self.wip.callIntrinsicAssumeCold();
-            try self.genBodyDebugScope(null, case.body);
+            try self.genBodyDebugScope(null, case.body, .poi);
         }
 
         const else_body = it.elseBody();
         self.wip.cursor = .{ .block = else_block };
         if (switch_br.getElseHint() == .cold) _ = try self.wip.callIntrinsicAssumeCold();
         if (else_body.len != 0) {
-            try self.genBodyDebugScope(null, else_body);
+            try self.genBodyDebugScope(null, else_body, .poi);
         } else {
             _ = try self.wip.@"unreachable"();
         }
@@ -6222,7 +6245,7 @@ pub const FuncGen = struct {
         _ = try self.wip.br(loop_block);
 
         self.wip.cursor = .{ .block = loop_block };
-        try self.genBodyDebugScope(null, body);
+        try self.genBodyDebugScope(null, body, .none);
 
         // TODO instead of this logic, change AIR to have the property that
         // every block is guaranteed to end with a noreturn instruction.
@@ -12194,3 +12217,16 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         => unreachable,
     }
 }
+
+fn sanCovPassEnabled(trace_pc_guard: bool) bool {
+    return trace_pc_guard;
+}
+
+const CoveragePoint = enum {
+    /// Indicates the block is not a place of interest corresponding to
+    /// a source location for coverage purposes.
+    none,
+    /// Point of interest. The next instruction emitted corresponds to
+    /// a source location used for coverage instrumentation.
+    poi,
+};
