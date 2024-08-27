@@ -1049,14 +1049,16 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     try self.initSyntheticSections();
     try self.initSpecialPhdrs();
     try self.sortShdrs();
-    for (self.objects.items) |index| {
-        try self.file(index).?.object.addAtomsToOutputSections(self);
-    }
-    try self.sortInitFini();
+
     try self.setDynamicSection(rpath_table.keys());
     self.sortDynamicSymtab();
     try self.setHashSections();
     try self.setVersionSymtab();
+
+    for (self.objects.items) |index| {
+        try self.file(index).?.object.addAtomsToOutputSections(self);
+    }
+    try self.sortInitFini();
     try self.updateMergeSectionSizes();
     try self.updateSectionSizes();
 
