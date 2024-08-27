@@ -5636,10 +5636,6 @@ pub fn addCCArgs(
                 try argv.append("-Werror=date-time");
             }
 
-            if (target_util.supports_fpic(target) and mod.pic) {
-                try argv.append("-fPIC");
-            }
-
             if (mod.unwind_tables) {
                 try argv.append("-funwind-tables");
             } else {
@@ -5728,6 +5724,10 @@ pub fn addCCArgs(
                 }
             }
         },
+    }
+
+    if (target_util.supports_fpic(target) and mod.pic) {
+        try argv.append("-fPIC");
     }
 
     try argv.ensureUnusedCapacity(2);
