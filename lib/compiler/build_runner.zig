@@ -893,7 +893,7 @@ fn printStepFailure(
             try ttyconf.setColor(stderr, .reset);
         }
         try stderr.writeAll("\n");
-    } else if (s.result_error_msgs.items.len > 0) {
+    } else if (s.result_error_msgs.items.len > 0 or s.make_error_trace != null) {
         try ttyconf.setColor(stderr, .red);
         try stderr.writeAll(" failure\n");
         try ttyconf.setColor(stderr, .reset);
@@ -1102,7 +1102,7 @@ fn workerMakeOneStep(
     // No matter the result, we want to display error/warning messages.
     const show_compile_errors = !run.prominent_compile_errors and
         s.result_error_bundle.errorMessageCount() > 0;
-    const show_error_msgs = s.result_error_msgs.items.len > 0;
+    const show_error_msgs = s.result_error_msgs.items.len > 0 or s.make_error_trace != null;
     const show_stderr = s.result_stderr.len > 0;
 
     if (show_error_msgs or show_compile_errors or show_stderr) {
@@ -1217,8 +1217,12 @@ pub fn printErrorMessages(
         try stderr.writeAll("\n");
     }
 
-    if (failing_step.result_error_trace) |trace| {
-        try trace.format("", .{}, stderr.writer());
+    if (failing_step.make_error_trace) |make_err| {
+        try ttyconf.setColor(stderr, .red);
+        try stderr.writeAll("error: ");
+        try ttyconf.setColor(stderr, .reset);
+        try stderr.writer().print("this step's make function failed with error {s}", .{@errorName(make_err.err)});
+        if (make_err.trace) |trace| try trace.format("", .{}, stderr.writer());
     }
 }
 
