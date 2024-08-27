@@ -347,36 +347,36 @@ fn initComdatGroups(elf_file: *Elf) !void {
 }
 
 fn updateSectionSizes(elf_file: *Elf) !void {
-    for (elf_file.output_sections.keys(), elf_file.output_sections.values()) |shndx, atom_list| {
-        const shdr = &elf_file.shdrs.items[shndx];
-        for (atom_list.items) |ref| {
-            const atom_ptr = elf_file.atom(ref) orelse continue;
-            if (!atom_ptr.alive) continue;
-            const offset = atom_ptr.alignment.forward(shdr.sh_size);
-            const padding = offset - shdr.sh_size;
-            atom_ptr.value = @intCast(offset);
-            shdr.sh_size += padding + atom_ptr.size;
-            shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits() orelse 1);
-        }
-    }
+    const slice = elf_file.sections.slice();
+    for (slice.items(.shdr), 0..) |*shdr, shndx| {
+        const atom_list = slice.items(.atom_list)[shndx];
+        if (shdr.sh_type != elf.SHT_RELA) {
+            for (atom_list.items) |ref| {
+                const atom_ptr = elf_file.atom(ref) orelse continue;
+                if (!atom_ptr.alive) continue;
+                const offset = atom_ptr.alignment.forward(shdr.sh_size);
+                const padding = offset - shdr.sh_size;
+                atom_ptr.value = @intCast(offset);
+                shdr.sh_size += padding + atom_ptr.size;
+                shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits() orelse 1);
+            }
+        } else {
+            for (atom_list.items) |ref| {
+                const atom_ptr = elf_file.atom(ref) orelse continue;
+                if (!atom_ptr.alive) continue;
+                const relocs = atom_ptr.relocs(elf_file);
+                shdr.sh_size += shdr.sh_entsize * relocs.len;
+            }
 
-    for (elf_file.output_rela_sections.values()) |sec| {
-        const shdr = &elf_file.shdrs.items[sec.shndx];
-        for (sec.atom_list.items) |ref| {
-            const atom_ptr = elf_file.atom(ref) orelse continue;
-            if (!atom_ptr.alive) continue;
-            const relocs = atom_ptr.relocs(elf_file);
-            shdr.sh_size += shdr.sh_entsize * relocs.len;
+            if (shdr.sh_size == 0) shdr.sh_offset = 0;
         }
-
-        if (shdr.sh_size == 0) shdr.sh_offset = 0;
     }
 
     if (elf_file.eh_frame_section_index) |index| {
-        elf_file.shdrs.items[index].sh_size = try eh_frame.calcEhFrameSize(elf_file);
+        slice.items(.shdr)[index].sh_size = try eh_frame.calcEhFrameSize(elf_file);
     }
     if (elf_file.eh_frame_rela_section_index) |index| {
-        const shdr = &elf_file.shdrs.items[index];
+        const shdr = &slice.items(.shdr)[index];
         shdr.sh_size = eh_frame.calcEhFrameRelocs(elf_file) * shdr.sh_entsize;
     }
 
@@ -387,19 +387,18 @@ fn updateSectionSizes(elf_file: *Elf) !void {
 
 fn updateComdatGroupsSizes(elf_file: *Elf) void {
     for (elf_file.comdat_group_sections.items) |cg| {
-        const shdr = &elf_file.shdrs.items[cg.shndx];
+        const shdr = &elf_file.sections.items(.shdr)[cg.shndx];
         shdr.sh_size = cg.size(elf_file);
         shdr.sh_link = elf_file.symtab_section_index.?;
 
         const sym = cg.symbol(elf_file);
-        shdr.sh_info = sym.outputSymtabIndex(elf_file) orelse
-            elf_file.sectionSymbolOutputSymtabIndex(sym.outputShndx(elf_file).?);
+        shdr.sh_info = sym.outputSymtabIndex(elf_file) orelse sym.outputShndx(elf_file).?;
     }
 }
 
 /// Allocates alloc sections when merging relocatable objects files together.
 fn allocateAllocSections(elf_file: *Elf) !void {
-    for (elf_file.shdrs.items) |*shdr| {
+    for (elf_file.sections.items(.shdr)) |*shdr| {
         if (shdr.sh_type == elf.SHT_NULL) continue;
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
         if (shdr.sh_type == elf.SHT_NOBITS) {
@@ -418,13 +417,13 @@ fn allocateAllocSections(elf_file: *Elf) !void {
 
 fn writeAtoms(elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
+    const slice = elf_file.sections.slice();
 
     // TODO iterate over `output_sections` directly
-    for (elf_file.shdrs.items, 0..) |shdr, shndx| {
+    for (slice.items(.shdr), slice.items(.atom_list), 0..) |shdr, atom_list, shndx| {
         if (shdr.sh_type == elf.SHT_NULL) continue;
         if (shdr.sh_type == elf.SHT_NOBITS) continue;
-
-        const atom_list = elf_file.output_sections.get(@intCast(shndx)) orelse continue;
+        if (shdr.sh_type == elf.SHT_RELA) continue;
         if (atom_list.items.len == 0) continue;
 
         log.debug("writing atoms in '{s}' section", .{elf_file.getShString(shdr.sh_name)});
@@ -490,18 +489,18 @@ fn writeAtoms(elf_file: *Elf) !void {
 
 fn writeSyntheticSections(elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
+    const slice = elf_file.sections.slice();
 
-    for (elf_file.output_rela_sections.values()) |sec| {
-        if (sec.atom_list.items.len == 0) continue;
-
-        const shdr = elf_file.shdrs.items[sec.shndx];
+    for (slice.items(.shdr), slice.items(.atom_list)) |shdr, atom_list| {
+        if (shdr.sh_type != elf.SHT_RELA) continue;
+        if (atom_list.items.len == 0) continue;
 
         const num_relocs = math.cast(usize, @divExact(shdr.sh_size, shdr.sh_entsize)) orelse
             return error.Overflow;
         var relocs = try std.ArrayList(elf.Elf64_Rela).initCapacity(gpa, num_relocs);
         defer relocs.deinit();
 
-        for (sec.atom_list.items) |ref| {
+        for (atom_list.items) |ref| {
             const atom_ptr = elf_file.atom(ref) orelse continue;
             if (!atom_ptr.alive) continue;
             try atom_ptr.writeRelocs(elf_file, &relocs);
@@ -527,7 +526,7 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
     }
 
     if (elf_file.eh_frame_section_index) |shndx| {
-        const shdr = elf_file.shdrs.items[shndx];
+        const shdr = slice.items(.shdr)[shndx];
         const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
         var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
         defer buffer.deinit();
@@ -540,7 +539,7 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
         try elf_file.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
     }
     if (elf_file.eh_frame_rela_section_index) |shndx| {
-        const shdr = elf_file.shdrs.items[shndx];
+        const shdr = slice.items(.shdr)[shndx];
         const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
         var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
         defer buffer.deinit();
@@ -561,7 +560,7 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
 fn writeComdatGroups(elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
     for (elf_file.comdat_group_sections.items) |cgs| {
-        const shdr = elf_file.shdrs.items[cgs.shndx];
+        const shdr = elf_file.sections.items(.shdr)[cgs.shndx];
         const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
         var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
         defer buffer.deinit();

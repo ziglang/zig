@@ -13,7 +13,7 @@ pub const Fde = struct {
 
     pub fn address(fde: Fde, elf_file: *Elf) u64 {
         const base: u64 = if (elf_file.eh_frame_section_index) |shndx|
-            elf_file.shdrs.items[shndx].sh_addr
+            elf_file.sections.items(.shdr)[shndx].sh_addr
         else
             0;
         return base + fde.out_offset;
@@ -112,7 +112,7 @@ pub const Cie = struct {
 
     pub fn address(cie: Cie, elf_file: *Elf) u64 {
         const base: u64 = if (elf_file.eh_frame_section_index) |shndx|
-            elf_file.shdrs.items[shndx].sh_addr
+            elf_file.sections.items(.shdr)[shndx].sh_addr
         else
             0;
         return base + cie.out_offset;
@@ -326,7 +326,9 @@ fn resolveReloc(rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela, elf_file:
 }
 
 pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
-    relocs_log.debug("{x}: .eh_frame", .{elf_file.shdrs.items[elf_file.eh_frame_section_index.?].sh_addr});
+    relocs_log.debug("{x}: .eh_frame", .{
+        elf_file.sections.items(.shdr)[elf_file.eh_frame_section_index.?].sh_addr,
+    });
 
     var has_reloc_errors = false;
 
@@ -423,7 +425,7 @@ fn emitReloc(elf_file: *Elf, rec: anytype, sym: *const Symbol, rel: elf.Elf64_Re
     switch (sym.type(elf_file)) {
         elf.STT_SECTION => {
             r_addend += @intCast(sym.address(.{}, elf_file));
-            r_sym = elf_file.sectionSymbolOutputSymtabIndex(sym.outputShndx(elf_file).?);
+            r_sym = sym.outputShndx(elf_file).?;
         },
         else => {
             r_sym = sym.outputSymtabIndex(elf_file) orelse 0;
@@ -446,7 +448,9 @@ fn emitReloc(elf_file: *Elf, rec: anytype, sym: *const Symbol, rel: elf.Elf64_Re
 }
 
 pub fn writeEhFrameRelocs(elf_file: *Elf, writer: anytype) !void {
-    relocs_log.debug("{x}: .eh_frame", .{elf_file.shdrs.items[elf_file.eh_frame_section_index.?].sh_addr});
+    relocs_log.debug("{x}: .eh_frame", .{
+        elf_file.sections.items(.shdr)[elf_file.eh_frame_section_index.?].sh_addr,
+    });
 
     for (elf_file.objects.items) |index| {
         const object = elf_file.file(index).?.object;
@@ -482,8 +486,9 @@ pub fn writeEhFrameHdr(elf_file: *Elf, writer: anytype) !void {
     try writer.writeByte(EH_PE.udata4);
     try writer.writeByte(EH_PE.datarel | EH_PE.sdata4);
 
-    const eh_frame_shdr = elf_file.shdrs.items[elf_file.eh_frame_section_index.?];
-    const eh_frame_hdr_shdr = elf_file.shdrs.items[elf_file.eh_frame_hdr_section_index.?];
+    const shdrs = elf_file.sections.items(.shdr);
+    const eh_frame_shdr = shdrs[elf_file.eh_frame_section_index.?];
+    const eh_frame_hdr_shdr = shdrs[elf_file.eh_frame_hdr_section_index.?];
     const num_fdes = @as(u32, @intCast(@divExact(eh_frame_hdr_shdr.sh_size - eh_frame_hdr_header_size, 8)));
     try writer.writeInt(
         u32,
