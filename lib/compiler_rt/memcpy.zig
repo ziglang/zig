@@ -60,8 +60,9 @@ fn memcpy_fast(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) call
 
     const unroll_count = 2;
 
-    if (comptime 5 <= std.math.log2(unroll_count * size)) {
-        inline for (5..std.math.log2(unroll_count * size) + 1) |p| {
+    const small_limit = @min(2 * size, unroll_count * size);
+    if (comptime 5 <= std.math.log2(small_limit)) {
+        inline for (5..std.math.log2(small_limit) + 1) |p| {
             const limit = 1 << p;
             if (len <= limit) {
                 memcpy_range2(limit / 2, dest.?, src.?, len);
@@ -70,7 +71,7 @@ fn memcpy_fast(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) call
         }
     }
 
-    std.debug.assert(unroll_count * size < len);
+    std.debug.assert(2 * size < len);
 
     // we know that `len > 2 * size` and `size >= alignment`
     // so we can safely align `s` to `alignment`
