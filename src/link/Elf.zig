@@ -1827,6 +1827,59 @@ fn scanRelocs(self: *Elf) !void {
     }
 }
 
+pub fn initOutputSection(self: *Elf, args: struct {
+    name: [:0]const u8,
+    flags: u64,
+    type: u32,
+}) error{OutOfMemory}!u32 {
+    const name = blk: {
+        if (self.base.isRelocatable()) break :blk args.name;
+        if (args.flags & elf.SHF_MERGE != 0) break :blk args.name;
+        const name_prefixes: []const [:0]const u8 = &.{
+            ".text",       ".data.rel.ro", ".data", ".rodata", ".bss.rel.ro",       ".bss",
+            ".init_array", ".fini_array",  ".tbss", ".tdata",  ".gcc_except_table", ".ctors",
+            ".dtors",      ".gnu.warning",
+        };
+        inline for (name_prefixes) |prefix| {
+            if (std.mem.eql(u8, args.name, prefix) or std.mem.startsWith(u8, args.name, prefix ++ ".")) {
+                break :blk prefix;
+            }
+        }
+        break :blk args.name;
+    };
+    const @"type" = tt: {
+        if (self.getTarget().cpu.arch == .x86_64 and
+            args.type == elf.SHT_X86_64_UNWIND) break :tt elf.SHT_PROGBITS;
+        switch (args.type) {
+            elf.SHT_NULL => unreachable,
+            elf.SHT_PROGBITS => {
+                if (std.mem.eql(u8, args.name, ".init_array") or std.mem.startsWith(u8, args.name, ".init_array."))
+                    break :tt elf.SHT_INIT_ARRAY;
+                if (std.mem.eql(u8, args.name, ".fini_array") or std.mem.startsWith(u8, args.name, ".fini_array."))
+                    break :tt elf.SHT_FINI_ARRAY;
+                break :tt args.type;
+            },
+            else => break :tt args.type,
+        }
+    };
+    const flags = blk: {
+        var flags = args.flags;
+        if (!self.base.isRelocatable()) {
+            flags &= ~@as(u64, elf.SHF_COMPRESSED | elf.SHF_GROUP | elf.SHF_GNU_RETAIN);
+        }
+        break :blk switch (@"type") {
+            elf.SHT_INIT_ARRAY, elf.SHT_FINI_ARRAY => flags | elf.SHF_WRITE,
+            else => flags,
+        };
+    };
+    const out_shndx = self.sectionByName(name) orelse try self.addSection(.{
+        .type = @"type",
+        .flags = flags,
+        .name = try self.insertShString(name),
+    });
+    return out_shndx;
+}
+
 fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
     dev.check(.lld_linker);
 

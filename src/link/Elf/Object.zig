@@ -311,58 +311,6 @@ fn initAtoms(self: *Object, allocator: Allocator, handle: std.fs.File, elf_file:
     };
 }
 
-fn initOutputSection(self: Object, elf_file: *Elf, shdr: elf.Elf64_Shdr) error{OutOfMemory}!u32 {
-    const name = blk: {
-        const name = self.getString(shdr.sh_name);
-        if (elf_file.base.isRelocatable()) break :blk name;
-        if (shdr.sh_flags & elf.SHF_MERGE != 0) break :blk name;
-        const sh_name_prefixes: []const [:0]const u8 = &.{
-            ".text",       ".data.rel.ro", ".data", ".rodata", ".bss.rel.ro",       ".bss",
-            ".init_array", ".fini_array",  ".tbss", ".tdata",  ".gcc_except_table", ".ctors",
-            ".dtors",      ".gnu.warning",
-        };
-        inline for (sh_name_prefixes) |prefix| {
-            if (std.mem.eql(u8, name, prefix) or std.mem.startsWith(u8, name, prefix ++ ".")) {
-                break :blk prefix;
-            }
-        }
-        break :blk name;
-    };
-    const @"type" = tt: {
-        if (elf_file.getTarget().cpu.arch == .x86_64 and
-            shdr.sh_type == elf.SHT_X86_64_UNWIND) break :tt elf.SHT_PROGBITS;
-
-        const @"type" = switch (shdr.sh_type) {
-            elf.SHT_NULL => unreachable,
-            elf.SHT_PROGBITS => blk: {
-                if (std.mem.eql(u8, name, ".init_array") or std.mem.startsWith(u8, name, ".init_array."))
-                    break :blk elf.SHT_INIT_ARRAY;
-                if (std.mem.eql(u8, name, ".fini_array") or std.mem.startsWith(u8, name, ".fini_array."))
-                    break :blk elf.SHT_FINI_ARRAY;
-                break :blk shdr.sh_type;
-            },
-            else => shdr.sh_type,
-        };
-        break :tt @"type";
-    };
-    const flags = blk: {
-        var flags = shdr.sh_flags;
-        if (!elf_file.base.isRelocatable()) {
-            flags &= ~@as(u64, elf.SHF_COMPRESSED | elf.SHF_GROUP | elf.SHF_GNU_RETAIN);
-        }
-        break :blk switch (@"type") {
-            elf.SHT_INIT_ARRAY, elf.SHT_FINI_ARRAY => flags | elf.SHF_WRITE,
-            else => flags,
-        };
-    };
-    const out_shndx = elf_file.sectionByName(name) orelse try elf_file.addSection(.{
-        .type = @"type",
-        .flags = flags,
-        .name = try elf_file.insertShString(name),
-    });
-    return out_shndx;
-}
-
 fn skipShdr(self: *Object, index: u32, elf_file: *Elf) bool {
     const comp = elf_file.base.comp;
     const shdr = self.shdrs.items[index];
@@ -985,7 +933,11 @@ pub fn initOutputSections(self: *Object, elf_file: *Elf) !void {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
         const shdr = atom_ptr.inputShdr(elf_file);
-        _ = try self.initOutputSection(elf_file, shdr);
+        _ = try elf_file.initOutputSection(.{
+            .name = self.getString(shdr.sh_name),
+            .flags = shdr.sh_flags,
+            .type = shdr.sh_type,
+        });
     }
 }
 
@@ -994,7 +946,11 @@ pub fn addAtomsToOutputSections(self: *Object, elf_file: *Elf) !void {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
         const shdr = atom_ptr.inputShdr(elf_file);
-        atom_ptr.output_section_index = self.initOutputSection(elf_file, shdr) catch unreachable;
+        atom_ptr.output_section_index = elf_file.initOutputSection(.{
+            .name = self.getString(shdr.sh_name),
+            .flags = shdr.sh_flags,
+            .type = shdr.sh_type,
+        }) catch unreachable;
 
         const comp = elf_file.base.comp;
         const gpa = comp.gpa;
@@ -1009,7 +965,11 @@ pub fn initRelaSections(self: *Object, elf_file: *Elf) !void {
         if (!atom_ptr.alive) continue;
         const shndx = atom_ptr.relocsShndx() orelse continue;
         const shdr = self.shdrs.items[shndx];
-        const out_shndx = try self.initOutputSection(elf_file, shdr);
+        const out_shndx = try elf_file.initOutputSection(.{
+            .name = self.getString(shdr.sh_name),
+            .flags = shdr.sh_flags,
+            .type = shdr.sh_type,
+        });
         const out_shdr = &elf_file.sections.items(.shdr)[out_shndx];
         out_shdr.sh_type = elf.SHT_RELA;
         out_shdr.sh_addralign = @alignOf(elf.Elf64_Rela);
@@ -1025,7 +985,11 @@ pub fn addAtomsToRelaSections(self: *Object, elf_file: *Elf) !void {
         const shndx = blk: {
             const shndx = atom_ptr.relocsShndx() orelse continue;
             const shdr = self.shdrs.items[shndx];
-            break :blk self.initOutputSection(elf_file, shdr) catch unreachable;
+            break :blk elf_file.initOutputSection(.{
+                .name = self.getString(shdr.sh_name),
+                .flags = shdr.sh_flags,
+                .type = shdr.sh_type,
+            }) catch unreachable;
         };
         const slice = elf_file.sections.slice();
         const shdr = &slice.items(.shdr)[shndx];
