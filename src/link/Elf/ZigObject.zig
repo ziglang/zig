@@ -1362,19 +1362,18 @@ fn updateNavCode(
         const capacity = atom_ptr.capacity(elf_file);
         const need_realloc = code.len > capacity or !required_alignment.check(@intCast(atom_ptr.value));
         if (need_realloc) {
-            try atom_ptr.grow(elf_file);
+            try self.growAtom(atom_ptr, elf_file);
             log.debug("growing {} from 0x{x} to 0x{x}", .{ nav.fqn.fmt(ip), old_vaddr, atom_ptr.value });
             if (old_vaddr != atom_ptr.value) {
                 sym.value = 0;
                 esym.st_value = 0;
             }
         } else if (code.len < old_size) {
-            atom_ptr.shrink(elf_file);
+            // TODO shrink section size
         }
     } else {
-        try atom_ptr.allocate(elf_file);
+        try self.allocateAtom(atom_ptr, elf_file);
         errdefer self.freeNavMetadata(elf_file, sym_index);
-
         sym.value = 0;
         esym.st_value = 0;
     }
@@ -1739,7 +1738,7 @@ fn updateLazySymbol(
     atom_ptr.size = code.len;
     atom_ptr.output_section_index = output_section_index;
 
-    try atom_ptr.allocate(elf_file);
+    try self.allocateAtom(atom_ptr, elf_file);
     errdefer self.freeNavMetadata(elf_file, symbol_index);
 
     local_sym.value = 0;
@@ -1797,8 +1796,7 @@ fn lowerConst(
     atom_ptr.size = code.len;
     atom_ptr.output_section_index = output_section_index;
 
-    try atom_ptr.allocate(elf_file);
-    // TODO rename and re-audit this method
+    try self.allocateAtom(atom_ptr, elf_file);
     errdefer self.freeNavMetadata(elf_file, sym_index);
 
     const shdr = elf_file.sections.items(.shdr)[output_section_index];
@@ -1995,6 +1993,60 @@ fn writeTrampoline(tr_sym: Symbol, target: Symbol, elf_file: *Elf) !void {
             },
             else => return error.HotSwapUnavailableOnHostOperatingSystem,
         }
+    }
+}
+
+fn allocateAtom(self: *ZigObject, atom_ptr: *Atom, elf_file: *Elf) !void {
+    const alloc_res = try elf_file.allocateChunk(atom_ptr.output_section_index, atom_ptr.size, atom_ptr.alignment);
+    atom_ptr.value = @intCast(alloc_res.value);
+
+    const slice = elf_file.sections.slice();
+    const shdr = &slice.items(.shdr)[atom_ptr.output_section_index];
+    const last_atom_ref = &slice.items(.last_atom)[atom_ptr.output_section_index];
+
+    const expand_section = if (elf_file.atom(alloc_res.placement)) |placement_atom|
+        placement_atom.nextAtom(elf_file) == null
+    else
+        true;
+    if (expand_section) {
+        last_atom_ref.* = atom_ptr.ref();
+        if (self.dwarf) |_| {
+            // The .debug_info section has `low_pc` and `high_pc` values which is the virtual address
+            // range of the compilation unit. When we expand the text section, this range changes,
+            // so the DW_TAG.compile_unit tag of the .debug_info section becomes dirty.
+            self.debug_info_section_dirty = true;
+            // This becomes dirty for the same reason. We could potentially make this more
+            // fine-grained with the addition of support for more compilation units. It is planned to
+            // model each package as a different compilation unit.
+            self.debug_aranges_section_dirty = true;
+            self.debug_rnglists_section_dirty = true;
+        }
+    }
+    shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits().?);
+
+    // This function can also reallocate an atom.
+    // In this case we need to "unplug" it from its previous location before
+    // plugging it in to its new location.
+    if (atom_ptr.prevAtom(elf_file)) |prev| {
+        prev.next_atom_ref = atom_ptr.next_atom_ref;
+    }
+    if (atom_ptr.nextAtom(elf_file)) |next| {
+        next.prev_atom_ref = atom_ptr.prev_atom_ref;
+    }
+
+    if (elf_file.atom(alloc_res.placement)) |big_atom| {
+        atom_ptr.prev_atom_ref = alloc_res.placement;
+        atom_ptr.next_atom_ref = big_atom.next_atom_ref;
+        big_atom.next_atom_ref = atom_ptr.ref();
+    } else {
+        atom_ptr.prev_atom_ref = .{ .index = 0, .file = 0 };
+        atom_ptr.next_atom_ref = .{ .index = 0, .file = 0 };
+    }
+}
+
+fn growAtom(self: *ZigObject, atom_ptr: *Atom, elf_file: *Elf) !void {
+    if (!atom_ptr.alignment.check(@intCast(atom_ptr.value)) or atom_ptr.size > atom_ptr.capacity(elf_file)) {
+        try self.allocateAtom(atom_ptr, elf_file);
     }
 }
 

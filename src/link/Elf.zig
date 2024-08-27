@@ -675,6 +675,83 @@ pub fn markDirty(self: *Elf, shdr_index: u32) void {
     }
 }
 
+const AllocateChunkResult = struct {
+    value: u64,
+    placement: Ref,
+};
+
+pub fn allocateChunk(self: *Elf, shndx: u32, size: u64, alignment: Atom.Alignment) !AllocateChunkResult {
+    const slice = self.sections.slice();
+    const shdr = &slice.items(.shdr)[shndx];
+    const free_list = &slice.items(.free_list)[shndx];
+    const last_atom_ref = &slice.items(.last_atom)[shndx];
+    const new_atom_ideal_capacity = padToIdeal(size);
+
+    // First we look for an appropriately sized free list node.
+    // The list is unordered. We'll just take the first thing that works.
+    const res: AllocateChunkResult = blk: {
+        var i: usize = if (self.base.child_pid == null) 0 else free_list.items.len;
+        while (i < free_list.items.len) {
+            const big_atom_ref = free_list.items[i];
+            const big_atom = self.atom(big_atom_ref).?;
+            // We now have a pointer to a live atom that has too much capacity.
+            // Is it enough that we could fit this new atom?
+            const cap = big_atom.capacity(self);
+            const ideal_capacity = padToIdeal(cap);
+            const ideal_capacity_end_vaddr = std.math.add(u64, @intCast(big_atom.value), ideal_capacity) catch ideal_capacity;
+            const capacity_end_vaddr = @as(u64, @intCast(big_atom.value)) + cap;
+            const new_start_vaddr_unaligned = capacity_end_vaddr - new_atom_ideal_capacity;
+            const new_start_vaddr = alignment.backward(new_start_vaddr_unaligned);
+            if (new_start_vaddr < ideal_capacity_end_vaddr) {
+                // Additional bookkeeping here to notice if this free list node
+                // should be deleted because the block that it points to has grown to take up
+                // more of the extra capacity.
+                if (!big_atom.freeListEligible(self)) {
+                    _ = free_list.swapRemove(i);
+                } else {
+                    i += 1;
+                }
+                continue;
+            }
+            // At this point we know that we will place the new block here. But the
+            // remaining question is whether there is still yet enough capacity left
+            // over for there to still be a free list node.
+            const remaining_capacity = new_start_vaddr - ideal_capacity_end_vaddr;
+            const keep_free_list_node = remaining_capacity >= min_text_capacity;
+
+            if (!keep_free_list_node) {
+                _ = free_list.swapRemove(i);
+            }
+            break :blk .{ .value = new_start_vaddr, .placement = big_atom_ref };
+        } else if (self.atom(last_atom_ref.*)) |last_atom| {
+            const ideal_capacity = padToIdeal(last_atom.size);
+            const ideal_capacity_end_vaddr = @as(u64, @intCast(last_atom.value)) + ideal_capacity;
+            const new_start_vaddr = alignment.forward(ideal_capacity_end_vaddr);
+            break :blk .{ .value = new_start_vaddr, .placement = last_atom.ref() };
+        } else {
+            break :blk .{ .value = 0, .placement = .{} };
+        }
+    };
+
+    log.debug("allocated chunk (size({x}),align({x})) at 0x{x} (file(0x{x}))", .{
+        size,
+        alignment.toByteUnits().?,
+        shdr.sh_addr + res.value,
+        shdr.sh_offset + res.value,
+    });
+
+    const expand_section = if (self.atom(res.placement)) |placement_atom|
+        placement_atom.nextAtom(self) == null
+    else
+        true;
+    if (expand_section) {
+        const needed_size = res.value + size;
+        try self.growAllocSection(shndx, needed_size);
+    }
+
+    return res;
+}
+
 pub fn flush(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
     const use_lld = build_options.have_llvm and self.base.comp.config.use_lld;
     if (use_lld) {
