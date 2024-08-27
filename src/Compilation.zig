@@ -5536,10 +5536,6 @@ pub fn addCCArgs(
                 else => {},
             }
 
-            if (target.cpu.arch.isThumb()) {
-                try argv.append("-mthumb");
-            }
-
             {
                 var san_arg: std.ArrayListUnmanaged(u8) = .{};
                 const prefix = "-fsanitize=";
@@ -5724,6 +5720,10 @@ pub fn addCCArgs(
                 }
             }
         },
+    }
+
+    if (target.cpu.arch.isThumb()) {
+        try argv.append("-mthumb");
     }
 
     if (target_util.supports_fpic(target) and mod.pic) {
