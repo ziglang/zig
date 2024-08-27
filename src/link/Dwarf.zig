@@ -17,13 +17,21 @@ debug_loclists: DebugLocLists,
 debug_rnglists: DebugRngLists,
 debug_str: StringSection,
 
-pub const UpdateError =
+pub const UpdateError = error{
+    ReinterpretDeclRef,
+    IllDefinedMemoryLayout,
+    Unimplemented,
+    OutOfMemory,
+    EndOfStream,
+    Overflow,
+    Underflow,
+    UnexpectedEndOfFile,
+} ||
     std.fs.File.OpenError ||
     std.fs.File.SetEndPosError ||
     std.fs.File.CopyRangeError ||
     std.fs.File.PReadError ||
-    std.fs.File.PWriteError ||
-    error{ EndOfStream, Overflow, Underflow, UnexpectedEndOfFile };
+    std.fs.File.PWriteError;
 
 pub const FlushError =
     UpdateError ||
@@ -1401,7 +1409,7 @@ pub const WipNav = struct {
             else => Type.fromInterned(loaded_enum.tag_ty).intInfo(zcu).signedness,
         };
         if (loaded_enum.values.len > 0) {
-            var big_int_space: InternPool.Key.Int.Storage.BigIntSpace = undefined;
+            var big_int_space: Value.BigIntSpace = undefined;
             const big_int = ip.indexToKey(loaded_enum.values.get(ip)[field_index]).int.storage.toBigInt(&big_int_space);
             const bits = @max(1, big_int.bitCountTwosCompForSignedness(signedness));
             if (bits <= 64) {
@@ -1429,9 +1437,12 @@ pub const WipNav = struct {
                 }
             } else {
                 try wip_nav.abbrevCode(abbrev_code.block);
-                const bytes = Type.fromInterned(loaded_enum.tag_ty).abiSize(wip_nav.pt.zcu);
+                const bytes = Type.fromInterned(loaded_enum.tag_ty).abiSize(zcu);
                 try uleb128(diw, bytes);
-                big_int.writeTwosComplement(try wip_nav.debug_info.addManyAsSlice(wip_nav.dwarf.gpa, @intCast(bytes)), wip_nav.dwarf.endian);
+                big_int.writeTwosComplement(
+                    try wip_nav.debug_info.addManyAsSlice(wip_nav.dwarf.gpa, @intCast(bytes)),
+                    wip_nav.dwarf.endian,
+                );
             }
         } else switch (signedness) {
             .signed => {
@@ -2566,8 +2577,17 @@ fn updateType(
         .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
             .One, .Many, .C => {
                 const ptr_child_type = Type.fromInterned(ptr_type.child);
-                try wip_nav.abbrevCode(.ptr_type);
+                try wip_nav.abbrevCode(if (ptr_type.sentinel == .none) .ptr_type else .ptr_sentinel_type);
                 try wip_nav.strp(name);
+                if (ptr_type.sentinel != .none) {
+                    const bytes = ptr_child_type.abiSize(zcu);
+                    try uleb128(diw, bytes);
+                    const mem = try wip_nav.debug_info.addManyAsSlice(dwarf.gpa, @intCast(bytes));
+                    Value.fromInterned(ptr_type.sentinel).writeToMemory(pt, mem) catch |err| switch (err) {
+                        error.IllDefinedMemoryLayout => @memset(mem, 0),
+                        else => |e| return e,
+                    };
+                }
                 try uleb128(diw, ptr_type.flags.alignment.toByteUnits() orelse
                     ptr_child_type.abiAlignment(zcu).toByteUnits().?);
                 try diw.writeByte(@intFromEnum(ptr_type.flags.address_space));
@@ -2609,14 +2629,32 @@ fn updateType(
                 try uleb128(diw, @intFromEnum(AbbrevCode.null));
             },
         },
-        inline .array_type, .vector_type => |array_type, ty_tag| {
-            try wip_nav.abbrevCode(.array_type);
+        .array_type => |array_type| {
+            const array_child_type = Type.fromInterned(array_type.child);
+            try wip_nav.abbrevCode(if (array_type.sentinel == .none) .array_type else .array_sentinel_type);
             try wip_nav.strp(name);
-            try wip_nav.refType(Type.fromInterned(array_type.child));
-            try diw.writeByte(@intFromBool(ty_tag == .vector_type));
+            if (array_type.sentinel != .none) {
+                const bytes = array_child_type.abiSize(zcu);
+                try uleb128(diw, bytes);
+                const mem = try wip_nav.debug_info.addManyAsSlice(dwarf.gpa, @intCast(bytes));
+                Value.fromInterned(array_type.sentinel).writeToMemory(pt, mem) catch |err| switch (err) {
+                    error.IllDefinedMemoryLayout => @memset(mem, 0),
+                    else => |e| return e,
+                };
+            }
+            try wip_nav.refType(array_child_type);
             try wip_nav.abbrevCode(.array_index);
             try wip_nav.refType(Type.usize);
             try uleb128(diw, array_type.len);
+            try uleb128(diw, @intFromEnum(AbbrevCode.null));
+        },
+        .vector_type => |vector_type| {
+            try wip_nav.abbrevCode(.vector_type);
+            try wip_nav.strp(name);
+            try wip_nav.refType(Type.fromInterned(vector_type.child));
+            try wip_nav.abbrevCode(.array_index);
+            try wip_nav.refType(Type.usize);
+            try uleb128(diw, vector_type.len);
             try uleb128(diw, @intFromEnum(AbbrevCode.null));
         },
         .opt_type => |opt_child_type_index| {
@@ -2660,7 +2698,7 @@ fn updateType(
                         .error_set => {
                             try wip_nav.refType(Type.fromInterned(try pt.intern(.{ .int_type = .{
                                 .signedness = .unsigned,
-                                .bits = pt.zcu.errorSetBits(),
+                                .bits = zcu.errorSetBits(),
                             } })));
                             try uleb128(diw, 0);
                         },
@@ -2729,7 +2767,7 @@ fn updateType(
                     try wip_nav.strp("is_error");
                     try wip_nav.refType(Type.fromInterned(try pt.intern(.{ .int_type = .{
                         .signedness = .unsigned,
-                        .bits = pt.zcu.errorSetBits(),
+                        .bits = zcu.errorSetBits(),
                     } })));
                     try uleb128(diw, error_union_error_set_offset);
 
@@ -2892,7 +2930,7 @@ fn updateType(
             try wip_nav.strp(name);
             try wip_nav.refType(Type.fromInterned(try pt.intern(.{ .int_type = .{
                 .signedness = .unsigned,
-                .bits = pt.zcu.errorSetBits(),
+                .bits = zcu.errorSetBits(),
             } })));
             for (0..error_set_type.names.len) |field_index| {
                 const field_name = error_set_type.names.get(ip)[field_index];
@@ -3204,7 +3242,8 @@ fn refAbbrevCode(dwarf: *Dwarf, abbrev_code: AbbrevCode) UpdateError!@typeInfo(A
 }
 
 pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
-    const ip = &pt.zcu.intern_pool;
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
     if (dwarf.types.get(.anyerror_type)) |entry| {
         var wip_nav: WipNav = .{
             .dwarf = dwarf,
@@ -3228,7 +3267,7 @@ pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
         try wip_nav.strp("anyerror");
         try wip_nav.refType(Type.fromInterned(try pt.intern(.{ .int_type = .{
             .signedness = .unsigned,
-            .bits = pt.zcu.errorSetBits(),
+            .bits = zcu.errorSetBits(),
         } })));
         for (global_error_set_names, 1..) |name, value| {
             try wip_nav.abbrevCode(.unsigned_enum_field);
@@ -3455,7 +3494,7 @@ pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
             uleb128(header.fixedWriter(), DW.FORM.line_strp) catch unreachable;
             uleb128(header.fixedWriter(), mod_info.files.count()) catch unreachable;
             for (mod_info.files.keys()) |file_index| {
-                const file = pt.zcu.fileByIndex(file_index);
+                const file = zcu.fileByIndex(file_index);
                 unit.cross_section_relocs.appendAssumeCapacity(.{
                     .source_off = @intCast(header.items.len),
                     .target_sec = .debug_line_str,
@@ -3602,9 +3641,12 @@ const AbbrevCode = enum {
     numeric_type,
     inferred_error_set_type,
     ptr_type,
+    ptr_sentinel_type,
     is_const,
     is_volatile,
     array_type,
+    array_sentinel_type,
+    vector_type,
     array_index,
     nullary_func_type,
     func_type,
@@ -3913,6 +3955,16 @@ const AbbrevCode = enum {
                 .{ .type, .ref_addr },
             },
         },
+        .ptr_sentinel_type = .{
+            .tag = .pointer_type,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .ZIG_sentinel, .block },
+                .{ .alignment, .udata },
+                .{ .address_class, .data1 },
+                .{ .type, .ref_addr },
+            },
+        },
         .is_const = .{
             .tag = .const_type,
             .attrs = &.{
@@ -3931,7 +3983,24 @@ const AbbrevCode = enum {
             .attrs = &.{
                 .{ .name, .strp },
                 .{ .type, .ref_addr },
-                .{ .GNU_vector, .flag },
+            },
+        },
+        .array_sentinel_type = .{
+            .tag = .array_type,
+            .children = true,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .ZIG_sentinel, .block },
+                .{ .type, .ref_addr },
+            },
+        },
+        .vector_type = .{
+            .tag = .array_type,
+            .children = true,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+                .{ .GNU_vector, .flag_present },
             },
         },
         .array_index = .{
@@ -4132,6 +4201,7 @@ const Dwarf = @This();
 const InternPool = @import("../InternPool.zig");
 const Module = @import("../Package.zig").Module;
 const Type = @import("../Type.zig");
+const Value = @import("../Value.zig");
 const Zcu = @import("../Zcu.zig");
 const Zir = std.zig.Zir;
 const assert = std.debug.assert;

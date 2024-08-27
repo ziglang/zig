@@ -3357,7 +3357,7 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
             .vector_type => {
                 assert(determineSimdStoreStrategy(ty, zcu, func.target.*) == .direct);
                 var buf: [16]u8 = undefined;
-                val.writeToMemory(ty, pt, &buf) catch unreachable;
+                val.writeToMemory(pt, &buf) catch unreachable;
                 return func.storeSimdImmd(buf);
             },
             .struct_type => {
