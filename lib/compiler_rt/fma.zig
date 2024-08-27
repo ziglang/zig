@@ -13,15 +13,15 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__fmah, .{ .name = "__fmah", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fmaf, .{ .name = "fmaf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fma, .{ .name = "fma", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__fmax, .{ .name = "__fmax", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__fmah, .{ .name = "__fmah", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fmaf, .{ .name = "fmaf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fma, .{ .name = "fma", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__fmax, .{ .name = "__fmax", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(fmaq, .{ .name = "fmaf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&fmaq, .{ .name = "fmaf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(fmaq, .{ .name = "fmaq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fmal, .{ .name = "fmal", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fmaq, .{ .name = "fmaq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fmal, .{ .name = "fmal", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __fmah(x: f16, y: f16, z: f16) callconv(.C) f16 {

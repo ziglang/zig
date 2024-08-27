@@ -9,15 +9,15 @@ const normalize = common.normalize;
 pub const panic = common.panic;
 
 comptime {
-    @export(__fmodh, .{ .name = "__fmodh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fmodf, .{ .name = "fmodf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fmod, .{ .name = "fmod", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__fmodx, .{ .name = "__fmodx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__fmodh, .{ .name = "__fmodh", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fmodf, .{ .name = "fmodf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fmod, .{ .name = "fmod", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__fmodx, .{ .name = "__fmodx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(fmodq, .{ .name = "fmodf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&fmodq, .{ .name = "fmodf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(fmodq, .{ .name = "fmodq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fmodl, .{ .name = "fmodl", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fmodq, .{ .name = "fmodq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fmodl, .{ .name = "fmodl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __fmodh(x: f16, y: f16) callconv(.C) f16 {

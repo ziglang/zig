@@ -4340,6 +4340,13 @@ comptime {
       {#see_also|@sizeOf|@typeInfo#}
       {#header_close#}
 
+      {#header_open|@branchHint#}
+      <pre>{#syntax#}@branchHint(hint: BranchHint) void{#endsyntax#}</pre>
+      <p>Hints to the optimizer how likely a given branch of control flow is to be reached.</p>
+      <p>{#syntax#}BranchHint{#endsyntax#} can be found with {#syntax#}@import("std").builtin.BranchHint{#endsyntax#}.</p>
+      <p>This function is only valid as the first statement in a control flow branch, or the first statement in a function.</p>
+      {#header_close#}
+
       {#header_open|@breakpoint#}
       <pre>{#syntax#}@breakpoint() void{#endsyntax#}</pre>
       <p>
@@ -4767,23 +4774,13 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@export#}
-      <pre>{#syntax#}@export(declaration, comptime options: std.builtin.ExportOptions) void{#endsyntax#}</pre>
-      <p>
-      Creates a symbol in the output object file.
-      </p>
-      <p>
-      <code>declaration</code> must be one of two things:
-      </p>
-      <ul>
-        <li>An identifier ({#syntax#}x{#endsyntax#}) identifying a {#link|function|Functions#} or a
-          {#link|variable|Container Level Variables#}.</li>
-        <li>Field access ({#syntax#}x.y{#endsyntax#}) looking up a {#link|function|Functions#} or a
-          {#link|variable|Container Level Variables#}.</li>
-      </ul>
+      <pre>{#syntax#}@export(comptime ptr: *const anyopaque, comptime options: std.builtin.ExportOptions) void{#endsyntax#}</pre>
+      <p>Creates a symbol in the output object file which refers to the target of <code>ptr</code>.</p>
+      <p><code>ptr</code> must point to a global variable or a comptime-known constant.</p>
       <p>
       This builtin can be called from a {#link|comptime#} block to conditionally export symbols.
-      When <code>declaration</code> is a function with the C calling convention and
-      {#syntax#}options.linkage{#endsyntax#} is {#syntax#}Strong{#endsyntax#}, this is equivalent to
+      When <code>ptr</code> points to a function with the C calling convention and
+      {#syntax#}options.linkage{#endsyntax#} is {#syntax#}.Strong{#endsyntax#}, this is equivalent to
       the {#syntax#}export{#endsyntax#} keyword used on a function:
       </p>
       {#code|export_builtin.zig#}
@@ -5249,15 +5246,6 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <pre>{#syntax#}@setAlignStack(comptime alignment: u29) void{#endsyntax#}</pre>
       <p>
       Ensures that a function will have a stack alignment of at least {#syntax#}alignment{#endsyntax#} bytes.
-      </p>
-      {#header_close#}
-
-      {#header_open|@setCold#}
-      <pre>{#syntax#}@setCold(comptime is_cold: bool) void{#endsyntax#}</pre>
-      <p>
-      Tells the optimizer that the current function is (or is not) rarely called.
-
-      This function is only valid within function scope.
       </p>
       {#header_close#}
 

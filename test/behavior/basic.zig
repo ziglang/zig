@@ -107,13 +107,90 @@ test "non const ptr to aliased type" {
     try expect(?*int == ?*i32);
 }
 
-test "cold function" {
-    thisIsAColdFn();
-    comptime thisIsAColdFn();
+test "function branch hints" {
+    const S = struct {
+        fn none() void {
+            @branchHint(.none);
+        }
+        fn likely() void {
+            @branchHint(.likely);
+        }
+        fn unlikely() void {
+            @branchHint(.unlikely);
+        }
+        fn cold() void {
+            @branchHint(.cold);
+        }
+        fn unpredictable() void {
+            @branchHint(.unpredictable);
+        }
+    };
+    S.none();
+    S.likely();
+    S.unlikely();
+    S.cold();
+    S.unpredictable();
+    comptime S.none();
+    comptime S.likely();
+    comptime S.unlikely();
+    comptime S.cold();
+    comptime S.unpredictable();
 }
 
-fn thisIsAColdFn() void {
-    @setCold(true);
+test "if branch hints" {
+    var t: bool = undefined;
+    t = true;
+    if (t) {
+        @branchHint(.likely);
+    } else {
+        @branchHint(.cold);
+    }
+}
+
+test "switch branch hints" {
+    var t: bool = undefined;
+    t = true;
+    switch (t) {
+        true => {
+            @branchHint(.likely);
+        },
+        false => {
+            @branchHint(.cold);
+        },
+    }
+}
+
+test "orelse branch hints" {
+    var x: ?u32 = undefined;
+    x = 123;
+    const val = x orelse val: {
+        @branchHint(.cold);
+        break :val 456;
+    };
+    try expect(val == 123);
+}
+
+test "catch branch hints" {
+    var x: error{Bad}!u32 = undefined;
+    x = 123;
+    const val = x catch val: {
+        @branchHint(.cold);
+        break :val 456;
+    };
+    try expect(val == 123);
+}
+
+test "and/or branch hints" {
+    var t: bool = undefined;
+    t = true;
+    try expect(t or b: {
+        @branchHint(.unlikely);
+        break :b false;
+    });
+    try expect(t and b: {
+        @branchHint(.likely);
+        break :b true;
+    });
 }
 
 test "unicode escape in character literal" {
@@ -734,7 +811,7 @@ test "extern variable with non-pointer opaque type" {
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
-    @export(var_to_export, .{ .name = "opaque_extern_var" });
+    @export(&var_to_export, .{ .name = "opaque_extern_var" });
     try expect(@as(*align(1) u32, @ptrCast(&opaque_extern_var)).* == 42);
 }
 extern var opaque_extern_var: opaque {};

@@ -171,7 +171,7 @@ pub fn scoped(comptime scope: @Type(.EnumLiteral)) type {
             comptime format: []const u8,
             args: anytype,
         ) void {
-            @setCold(true);
+            @branchHint(.cold);
             log(.err, scope, format, args);
         }
 

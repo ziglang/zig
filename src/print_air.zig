@@ -297,8 +297,8 @@ const Writer = struct {
             .union_init => try w.writeUnionInit(s, inst),
             .br => try w.writeBr(s, inst),
             .cond_br => try w.writeCondBr(s, inst),
-            .@"try" => try w.writeTry(s, inst),
-            .try_ptr => try w.writeTryPtr(s, inst),
+            .@"try", .try_cold => try w.writeTry(s, inst),
+            .try_ptr, .try_ptr_cold => try w.writeTryPtr(s, inst),
             .switch_br => try w.writeSwitchBr(s, inst),
             .cmpxchg_weak, .cmpxchg_strong => try w.writeCmpxchg(s, inst),
             .fence => try w.writeFence(s, inst),
@@ -825,41 +825,40 @@ const Writer = struct {
     }
 
     fn writeSwitchBr(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
-        const pl_op = w.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-        const switch_br = w.air.extraData(Air.SwitchBr, pl_op.payload);
+        const switch_br = w.air.unwrapSwitch(inst);
+
         const liveness = if (w.liveness) |liveness|
-            liveness.getSwitchBr(w.gpa, inst, switch_br.data.cases_len + 1) catch
+            liveness.getSwitchBr(w.gpa, inst, switch_br.cases_len + 1) catch
                 @panic("out of memory")
         else blk: {
-            const slice = w.gpa.alloc([]const Air.Inst.Index, switch_br.data.cases_len + 1) catch
+            const slice = w.gpa.alloc([]const Air.Inst.Index, switch_br.cases_len + 1) catch
                 @panic("out of memory");
             @memset(slice, &.{});
             break :blk Liveness.SwitchBrTable{ .deaths = slice };
         };
         defer w.gpa.free(liveness.deaths);
-        var extra_index: usize = switch_br.end;
-        var case_i: u32 = 0;
 
-        try w.writeOperand(s, inst, 0, pl_op.operand);
+        try w.writeOperand(s, inst, 0, switch_br.operand);
         if (w.skip_body) return s.writeAll(", ...");
         const old_indent = w.indent;
         w.indent += 2;
 
-        while (case_i < switch_br.data.cases_len) : (case_i += 1) {
-            const case = w.air.extraData(Air.SwitchBr.Case, extra_index);
-            const items = @as([]const Air.Inst.Ref, @ptrCast(w.air.extra[case.end..][0..case.data.items_len]));
-            const case_body: []const Air.Inst.Index = @ptrCast(w.air.extra[case.end + items.len ..][0..case.data.body_len]);
-            extra_index = case.end + case.data.items_len + case_body.len;
-
+        var it = switch_br.iterateCases();
+        while (it.next()) |case| {
             try s.writeAll(", [");
-            for (items, 0..) |item, item_i| {
+            for (case.items, 0..) |item, item_i| {
                 if (item_i != 0) try s.writeAll(", ");
                 try w.writeInstRef(s, item, false);
             }
-            try s.writeAll("] => {\n");
+            try s.writeAll("] ");
+            const hint = switch_br.getHint(case.idx);
+            if (hint != .none) {
+                try s.print(".{s} ", .{@tagName(hint)});
+            }
+            try s.writeAll("=> {\n");
             w.indent += 2;
 
-            const deaths = liveness.deaths[case_i];
+            const deaths = liveness.deaths[case.idx];
             if (deaths.len != 0) {
                 try s.writeByteNTimes(' ', w.indent);
                 for (deaths, 0..) |operand, i| {
@@ -869,15 +868,20 @@ const Writer = struct {
                 try s.writeAll("\n");
             }
 
-            try w.writeBody(s, case_body);
+            try w.writeBody(s, case.body);
             w.indent -= 2;
             try s.writeByteNTimes(' ', w.indent);
             try s.writeAll("}");
         }
 
-        const else_body: []const Air.Inst.Index = @ptrCast(w.air.extra[extra_index..][0..switch_br.data.else_body_len]);
+        const else_body = it.elseBody();
         if (else_body.len != 0) {
-            try s.writeAll(", else => {\n");
+            try s.writeAll(", else ");
+            const hint = switch_br.getElseHint();
+            if (hint != .none) {
+                try s.print(".{s} ", .{@tagName(hint)});
+            }
+            try s.writeAll("=> {\n");
             w.indent += 2;
 
             const deaths = liveness.deaths[liveness.deaths.len - 1];

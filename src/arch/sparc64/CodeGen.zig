@@ -637,7 +637,9 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .addrspace_cast  => @panic("TODO try self.airAddrSpaceCast(int)"),
 
             .@"try"          => try self.airTry(inst),
+            .try_cold        => try self.airTry(inst),
             .try_ptr         => @panic("TODO try self.airTryPtr(inst)"),
+            .try_ptr_cold    => @panic("TODO try self.airTryPtrCold(inst)"),
 
             .dbg_stmt         => try self.airDbgStmt(inst),
             .dbg_inline_block => try self.airDbgInlineBlock(inst),
@@ -3531,7 +3533,7 @@ fn errUnionPayload(self: *Self, error_union_mcv: MCValue, error_union_ty: Type) 
 }
 
 fn fail(self: *Self, comptime format: []const u8, args: anytype) InnerError {
-    @setCold(true);
+    @branchHint(.cold);
     assert(self.err_msg == null);
     const gpa = self.gpa;
     self.err_msg = try ErrorMsg.create(gpa, self.src_loc, format, args);

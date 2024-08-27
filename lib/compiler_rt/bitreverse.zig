@@ -5,9 +5,9 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__bitreversesi2, .{ .name = "__bitreversesi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__bitreversedi2, .{ .name = "__bitreversedi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__bitreverseti2, .{ .name = "__bitreverseti2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__bitreversesi2, .{ .name = "__bitreversesi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__bitreversedi2, .{ .name = "__bitreversedi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__bitreverseti2, .{ .name = "__bitreverseti2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 inline fn bitreverseXi2(comptime T: type, a: T) T {

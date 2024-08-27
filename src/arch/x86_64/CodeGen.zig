@@ -2262,7 +2262,9 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .addrspace_cast  => return self.fail("TODO implement addrspace_cast", .{}),
 
             .@"try"          => try self.airTry(inst),
+            .try_cold        => try self.airTry(inst), // TODO
             .try_ptr         => try self.airTryPtr(inst),
+            .try_ptr_cold    => try self.airTryPtr(inst), // TODO
 
             .dbg_stmt         => try self.airDbgStmt(inst),
             .dbg_inline_block => try self.airDbgInlineBlock(inst),
@@ -13631,38 +13633,29 @@ fn lowerBlock(self: *Self, inst: Air.Inst.Index, body: []const Air.Inst.Index) !
 }
 
 fn airSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
-    const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const condition = try self.resolveInst(pl_op.operand);
-    const condition_ty = self.typeOf(pl_op.operand);
-    const switch_br = self.air.extraData(Air.SwitchBr, pl_op.payload);
-    var extra_index: usize = switch_br.end;
-    var case_i: u32 = 0;
-    const liveness = try self.liveness.getSwitchBr(self.gpa, inst, switch_br.data.cases_len + 1);
+    const switch_br = self.air.unwrapSwitch(inst);
+    const condition = try self.resolveInst(switch_br.operand);
+    const condition_ty = self.typeOf(switch_br.operand);
+    const liveness = try self.liveness.getSwitchBr(self.gpa, inst, switch_br.cases_len + 1);
     defer self.gpa.free(liveness.deaths);
 
     // If the condition dies here in this switch instruction, process
     // that death now instead of later as this has an effect on
     // whether it needs to be spilled in the branches
     if (self.liveness.operandDies(inst, 0)) {
-        if (pl_op.operand.toIndex()) |op_inst| try self.processDeath(op_inst);
+        if (switch_br.operand.toIndex()) |op_inst| try self.processDeath(op_inst);
     }
 
     self.scope_generation += 1;
     const state = try self.saveState();
 
-    while (case_i < switch_br.data.cases_len) : (case_i += 1) {
-        const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-        const items: []const Air.Inst.Ref =
-            @ptrCast(self.air.extra[case.end..][0..case.data.items_len]);
-        const case_body: []const Air.Inst.Index =
-            @ptrCast(self.air.extra[case.end + items.len ..][0..case.data.body_len]);
-        extra_index = case.end + items.len + case_body.len;
-
-        var relocs = try self.gpa.alloc(Mir.Inst.Index, items.len);
+    var it = switch_br.iterateCases();
+    while (it.next()) |case| {
+        var relocs = try self.gpa.alloc(Mir.Inst.Index, case.items.len);
         defer self.gpa.free(relocs);
 
         try self.spillEflagsIfOccupied();
-        for (items, relocs, 0..) |item, *reloc, i| {
+        for (case.items, relocs, 0..) |item, *reloc, i| {
             const item_mcv = try self.resolveInst(item);
             const cc: Condition = switch (condition) {
                 .eflags => |cc| switch (item_mcv.immediate) {
@@ -13678,10 +13671,10 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
             reloc.* = try self.asmJccReloc(if (i < relocs.len - 1) cc else cc.negate(), undefined);
         }
 
-        for (liveness.deaths[case_i]) |operand| try self.processDeath(operand);
+        for (liveness.deaths[case.idx]) |operand| try self.processDeath(operand);
 
         for (relocs[0 .. relocs.len - 1]) |reloc| self.performReloc(reloc);
-        try self.genBody(case_body);
+        try self.genBody(case.body);
         try self.restoreState(state, &.{}, .{
             .emit_instructions = false,
             .update_tracking = true,
@@ -13692,9 +13685,8 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
         self.performReloc(relocs[relocs.len - 1]);
     }
 
-    if (switch_br.data.else_body_len > 0) {
-        const else_body: []const Air.Inst.Index =
-            @ptrCast(self.air.extra[extra_index..][0..switch_br.data.else_body_len]);
+    if (switch_br.else_body_len > 0) {
+        const else_body = it.elseBody();
 
         const else_deaths = liveness.deaths.len - 1;
         for (liveness.deaths[else_deaths]) |operand| try self.processDeath(operand);
@@ -19211,7 +19203,7 @@ fn resolveCallingConventionValues(
 }
 
 fn fail(self: *Self, comptime format: []const u8, args: anytype) InnerError {
-    @setCold(true);
+    @branchHint(.cold);
     assert(self.err_msg == null);
     const gpa = self.gpa;
     self.err_msg = try ErrorMsg.create(gpa, self.src_loc, format, args);
@@ -19219,7 +19211,7 @@ fn fail(self: *Self, comptime format: []const u8, args: anytype) InnerError {
 }
 
 fn failSymbol(self: *Self, comptime format: []const u8, args: anytype) InnerError {
-    @setCold(true);
+    @branchHint(.cold);
     assert(self.err_msg == null);
     const gpa = self.gpa;
     self.err_msg = try ErrorMsg.create(gpa, self.src_loc, format, args);

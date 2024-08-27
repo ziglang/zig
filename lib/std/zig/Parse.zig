@@ -81,7 +81,7 @@ fn addExtra(p: *Parse, extra: anytype) Allocator.Error!Node.Index {
 }
 
 fn warnExpected(p: *Parse, expected_token: Token.Tag) error{OutOfMemory}!void {
-    @setCold(true);
+    @branchHint(.cold);
     try p.warnMsg(.{
         .tag = .expected_token,
         .token = p.tok_i,
@@ -90,12 +90,12 @@ fn warnExpected(p: *Parse, expected_token: Token.Tag) error{OutOfMemory}!void {
 }
 
 fn warn(p: *Parse, error_tag: AstError.Tag) error{OutOfMemory}!void {
-    @setCold(true);
+    @branchHint(.cold);
     try p.warnMsg(.{ .tag = error_tag, .token = p.tok_i });
 }
 
 fn warnMsg(p: *Parse, msg: Ast.Error) error{OutOfMemory}!void {
-    @setCold(true);
+    @branchHint(.cold);
     switch (msg.tag) {
         .expected_semi_after_decl,
         .expected_semi_after_stmt,
@@ -141,12 +141,12 @@ fn warnMsg(p: *Parse, msg: Ast.Error) error{OutOfMemory}!void {
 }
 
 fn fail(p: *Parse, tag: Ast.Error.Tag) error{ ParseError, OutOfMemory } {
-    @setCold(true);
+    @branchHint(.cold);
     return p.failMsg(.{ .tag = tag, .token = p.tok_i });
 }
 
 fn failExpected(p: *Parse, expected_token: Token.Tag) error{ ParseError, OutOfMemory } {
-    @setCold(true);
+    @branchHint(.cold);
     return p.failMsg(.{
         .tag = .expected_token,
         .token = p.tok_i,
@@ -155,7 +155,7 @@ fn failExpected(p: *Parse, expected_token: Token.Tag) error{ ParseError, OutOfMe
 }
 
 fn failMsg(p: *Parse, msg: Ast.Error) error{ ParseError, OutOfMemory } {
-    @setCold(true);
+    @branchHint(.cold);
     try p.warnMsg(msg);
     return error.ParseError;
 }
