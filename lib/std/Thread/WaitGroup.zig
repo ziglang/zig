@@ -37,9 +37,10 @@ pub fn wait(self: *WaitGroup) void {
     }
 }
 
-/// Sets the wait group counter to zero. Thread-safe.
-/// Should be called only after all operations tracked by the wait group have completed.
-/// The `reset` function clears any previous state, making the wait group ready for reuse.
+/// Resets the wait group counter to zero. Thread-safe.
+/// This function must be called only after all operations tracked by the wait group have completed.
+/// Calling this function prematurely can result in undefined behavior, as
+/// the counter may be reset while other threads are still performing operations.
 pub fn reset(self: *WaitGroup) void {
     self.state.store(0, .monotonic);
     self.event.reset();
