@@ -569,9 +569,7 @@ pub fn growAllocSection(self: *Elf, shdr_index: u32, needed_size: u64) !void {
 
     if (shdr.sh_type != elf.SHT_NOBITS) {
         const allocated_size = self.allocatedSize(shdr.sh_offset);
-        if (shdr.sh_offset + allocated_size == std.math.maxInt(u64)) {
-            try self.base.file.?.setEndPos(shdr.sh_offset + needed_size);
-        } else if (needed_size > allocated_size) {
+        if (needed_size > allocated_size) {
             const existing_size = shdr.sh_size;
             shdr.sh_size = 0;
             // Must move the entire section.
@@ -590,6 +588,8 @@ pub fn growAllocSection(self: *Elf, shdr_index: u32, needed_size: u64) !void {
 
             shdr.sh_offset = new_offset;
             if (maybe_phdr) |phdr| phdr.p_offset = new_offset;
+        } else if (shdr.sh_offset + allocated_size == std.math.maxInt(u64)) {
+            try self.base.file.?.setEndPos(shdr.sh_offset + needed_size);
         }
         if (maybe_phdr) |phdr| phdr.p_filesz = needed_size;
     }
@@ -621,9 +621,7 @@ pub fn growNonAllocSection(
     assert(shdr.sh_flags & elf.SHF_ALLOC == 0);
 
     const allocated_size = self.allocatedSize(shdr.sh_offset);
-    if (shdr.sh_offset + allocated_size == std.math.maxInt(u64)) {
-        try self.base.file.?.setEndPos(shdr.sh_offset + needed_size);
-    } else if (needed_size > allocated_size) {
+    if (needed_size > allocated_size) {
         const existing_size = shdr.sh_size;
         shdr.sh_size = 0;
         // Move all the symbols to a new file location.
@@ -646,6 +644,8 @@ pub fn growNonAllocSection(
         }
 
         shdr.sh_offset = new_offset;
+    } else if (shdr.sh_offset + allocated_size == std.math.maxInt(u64)) {
+        try self.base.file.?.setEndPos(shdr.sh_offset + needed_size);
     }
     shdr.sh_size = needed_size;
 
@@ -699,7 +699,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     const sub_prog_node = prog_node.start("ELF Flush", 0);
     defer sub_prog_node.end();
 
-    const target = comp.root_mod.resolved_target.result;
+    const target = self.getTarget();
     const link_mode = comp.config.link_mode;
     const directory = self.base.emit.root_dir; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
@@ -1053,7 +1053,7 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const target = self.base.comp.root_mod.resolved_target.result;
+    const target = self.getTarget();
     const link_mode = self.base.comp.config.link_mode;
     const directory = self.base.emit.root_dir; // Just an alias to make it shorter to type.
     const full_out_path = try directory.join(arena, &[_][]const u8{self.base.emit.sub_path});
@@ -1498,15 +1498,13 @@ fn parseLdScript(self: *Elf, lib: SystemLib) ParseError!void {
 }
 
 pub fn validateEFlags(self: *Elf, file_index: File.Index, e_flags: elf.Elf64_Word) !void {
-    const target = self.base.comp.root_mod.resolved_target.result;
-
     if (self.first_eflags == null) {
         self.first_eflags = e_flags;
         return; // there isn't anything to conflict with yet
     }
     const self_eflags: *elf.Elf64_Word = &self.first_eflags.?;
 
-    switch (target.cpu.arch) {
+    switch (self.getTarget().cpu.arch) {
         .riscv64 => {
             if (e_flags != self_eflags.*) {
                 const riscv_eflags: riscv.RiscvEflags = @bitCast(e_flags);
@@ -1549,7 +1547,7 @@ fn accessLibPath(
     link_mode: ?std.builtin.LinkMode,
 ) !bool {
     const sep = fs.path.sep_str;
-    const target = self.base.comp.root_mod.resolved_target.result;
+    const target = self.getTarget();
     test_path.clearRetainingCapacity();
     const prefix = if (link_mode != null) "lib" else "";
     const suffix = if (link_mode) |mode| switch (mode) {
@@ -1779,7 +1777,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
     const is_exe_or_dyn_lib = is_dyn_lib or output_mode == .Exe;
     const have_dynamic_linker = comp.config.link_libc and
         link_mode == .dynamic and is_exe_or_dyn_lib;
-    const target = comp.root_mod.resolved_target.result;
+    const target = self.getTarget();
     const compiler_rt_path: ?[]const u8 = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
         if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
@@ -2353,8 +2351,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
 
 pub fn writeShdrTable(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
-    const target = self.base.comp.root_mod.resolved_target.result;
-    const target_endian = target.cpu.arch.endian();
+    const target_endian = self.getTarget().cpu.arch.endian();
     const foreign_endian = target_endian != builtin.cpu.arch.endian();
     const shsize: u64 = switch (self.ptr_width) {
         .p32 => @sizeOf(elf.Elf32_Shdr),
@@ -2410,8 +2407,7 @@ pub fn writeShdrTable(self: *Elf) !void {
 
 fn writePhdrTable(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
-    const target = self.base.comp.root_mod.resolved_target.result;
-    const target_endian = target.cpu.arch.endian();
+    const target_endian = self.getTarget().cpu.arch.endian();
     const foreign_endian = target_endian != builtin.cpu.arch.endian();
     const phdr_table = &self.phdrs.items[self.phdr_table_index.?];
 
@@ -2464,7 +2460,7 @@ pub fn writeElfHeader(self: *Elf) !void {
     };
     index += 1;
 
-    const target = comp.root_mod.resolved_target.result;
+    const target = self.getTarget();
     const endian = target.cpu.arch.endian();
     hdr_buf[index] = switch (endian) {
         .little => elf.ELFDATA2LSB,
@@ -2772,21 +2768,25 @@ fn initOutputSections(self: *Elf) !void {
 
 fn initSyntheticSections(self: *Elf) !void {
     const comp = self.base.comp;
-    const target = comp.root_mod.resolved_target.result;
+    const target = self.getTarget();
     const ptr_size = self.ptrWidthBytes();
 
     const needs_eh_frame = for (self.objects.items) |index| {
         if (self.file(index).?.object.cies.items.len > 0) break true;
     } else false;
     if (needs_eh_frame) {
-        self.eh_frame_section_index = try self.addSection(.{
-            .name = try self.insertShString(".eh_frame"),
-            .type = elf.SHT_PROGBITS,
-            .flags = elf.SHF_ALLOC,
-            .addralign = ptr_size,
-            .offset = std.math.maxInt(u64),
-        });
-
+        if (self.eh_frame_section_index == null) {
+            self.eh_frame_section_index = try self.addSection(.{
+                .name = try self.insertShString(".eh_frame"),
+                .type = if (target.cpu.arch == .x86_64)
+                    elf.SHT_X86_64_UNWIND
+                else
+                    elf.SHT_PROGBITS,
+                .flags = elf.SHF_ALLOC,
+                .addralign = ptr_size,
+                .offset = std.math.maxInt(u64),
+            });
+        }
         if (comp.link_eh_frame_hdr) {
             self.eh_frame_hdr_section_index = try self.addSection(.{
                 .name = try self.insertShString(".eh_frame_hdr"),
@@ -3446,7 +3446,6 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
 }
 
 fn updateSectionSizes(self: *Elf) !void {
-    const target = self.base.comp.root_mod.resolved_target.result;
     const slice = self.sections.slice();
     for (slice.items(.shdr), slice.items(.atom_list)) |*shdr, atom_list| {
         if (atom_list.items.len == 0) continue;
@@ -3474,7 +3473,11 @@ fn updateSectionSizes(self: *Elf) !void {
 
     const shdrs = slice.items(.shdr);
     if (self.eh_frame_section_index) |index| {
-        shdrs[index].sh_size = try eh_frame.calcEhFrameSize(self);
+        shdrs[index].sh_size = existing_size: {
+            const zo = self.zigObjectPtr() orelse break :existing_size 0;
+            const sym = zo.symbol(zo.eh_frame_index orelse break :existing_size 0);
+            break :existing_size sym.atom(self).?.size;
+        } + try eh_frame.calcEhFrameSize(self);
     }
 
     if (self.eh_frame_hdr_section_index) |index| {
@@ -3517,7 +3520,7 @@ fn updateSectionSizes(self: *Elf) !void {
     }
 
     if (self.interp_section_index) |index| {
-        shdrs[index].sh_size = target.dynamic_linker.get().?.len + 1;
+        shdrs[index].sh_size = self.getTarget().dynamic_linker.get().?.len + 1;
     }
 
     if (self.hash_section_index) |index| {
@@ -3759,10 +3762,10 @@ pub fn allocateAllocSections(self: *Elf) !void {
         }
 
         const first = slice.items(.shdr)[cover.items[0]];
-        var off = try self.findFreeSpace(filesz, @"align");
+        var new_offset = try self.findFreeSpace(filesz, @"align");
         const phndx = try self.addPhdr(.{
             .type = elf.PT_LOAD,
-            .offset = off,
+            .offset = new_offset,
             .addr = first.sh_addr,
             .memsz = memsz,
             .filesz = filesz,
@@ -3777,9 +3780,28 @@ pub fn allocateAllocSections(self: *Elf) !void {
                 shdr.sh_offset = 0;
                 continue;
             }
-            off = alignment.@"align"(shndx, shdr.sh_addralign, off);
-            shdr.sh_offset = off;
-            off += shdr.sh_size;
+            new_offset = alignment.@"align"(shndx, shdr.sh_addralign, new_offset);
+
+            if (shndx == self.eh_frame_section_index) eh_frame: {
+                const zo = self.zigObjectPtr() orelse break :eh_frame;
+                const sym = zo.symbol(zo.eh_frame_index orelse break :eh_frame);
+                const existing_size = sym.atom(self).?.size;
+                log.debug("moving {s} from 0x{x} to 0x{x}", .{
+                    self.getShString(shdr.sh_name),
+                    shdr.sh_offset,
+                    new_offset,
+                });
+                const amt = try self.base.file.?.copyRangeAll(
+                    shdr.sh_offset,
+                    self.base.file.?,
+                    new_offset,
+                    existing_size,
+                );
+                if (amt != existing_size) return error.InputOutput;
+            }
+
+            shdr.sh_offset = new_offset;
+            new_offset += shdr.sh_size;
         }
 
         addr = mem.alignForward(u64, addr, self.page_size);
@@ -3910,9 +3932,9 @@ fn writeAtoms(self: *Elf) !void {
         log.debug("writing atoms in '{s}' section", .{self.getShString(shdr.sh_name)});
 
         // TODO really, really handle debug section separately
-        const base_offset = if (self.isDebugSection(@intCast(shndx))) blk: {
+        const base_offset = if (self.isDebugSection(@intCast(shndx))) base_offset: {
             const zo = self.zigObjectPtr().?;
-            break :blk for ([_]Symbol.Index{
+            for ([_]Symbol.Index{
                 zo.debug_info_index.?,
                 zo.debug_abbrev_index.?,
                 zo.debug_aranges_index.?,
@@ -3924,8 +3946,13 @@ fn writeAtoms(self: *Elf) !void {
             }) |sym_index| {
                 const sym = zo.symbol(sym_index);
                 const atom_ptr = sym.atom(self).?;
-                if (atom_ptr.output_section_index == shndx) break atom_ptr.size;
-            } else 0;
+                if (atom_ptr.output_section_index == shndx) break :base_offset atom_ptr.size;
+            }
+            break :base_offset 0;
+        } else if (@as(u32, @intCast(shndx)) == self.eh_frame_section_index) base_offset: {
+            const zo = self.zigObjectPtr() orelse break :base_offset 0;
+            const sym = zo.symbol(zo.eh_frame_index orelse break :base_offset 0);
+            break :base_offset sym.atom(self).?.size;
         } else 0;
         const sh_offset = shdr.sh_offset + base_offset;
         const sh_size = math.cast(usize, shdr.sh_size - base_offset) orelse return error.Overflow;
@@ -4082,12 +4109,11 @@ pub fn updateSymtabSize(self: *Elf) !void {
 
 fn writeSyntheticSections(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
-    const target = self.getTarget();
     const slice = self.sections.slice();
 
     if (self.interp_section_index) |shndx| {
         var buffer: [256]u8 = undefined;
-        const interp = target.dynamic_linker.get().?;
+        const interp = self.getTarget().dynamic_linker.get().?;
         @memcpy(buffer[0..interp.len], interp);
         buffer[interp.len] = 0;
         const contents = buffer[0 .. interp.len + 1];
@@ -4144,12 +4170,18 @@ fn writeSyntheticSections(self: *Elf) !void {
     }
 
     if (self.eh_frame_section_index) |shndx| {
+        const existing_size = existing_size: {
+            const zo = self.zigObjectPtr() orelse break :existing_size 0;
+            const sym = zo.symbol(zo.eh_frame_index orelse break :existing_size 0);
+            break :existing_size sym.atom(self).?.size;
+        };
         const shdr = slice.items(.shdr)[shndx];
         const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
+        var buffer = try std.ArrayList(u8).initCapacity(gpa, @intCast(sh_size - existing_size));
         defer buffer.deinit();
         try eh_frame.writeEhFrame(self, buffer.writer());
-        try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
+        assert(buffer.items.len == sh_size - existing_size);
+        try self.base.file.?.pwriteAll(buffer.items, shdr.sh_offset + existing_size);
     }
 
     if (self.eh_frame_hdr_section_index) |shndx| {
@@ -4222,7 +4254,6 @@ pub fn writeShStrtab(self: *Elf) !void {
 
 pub fn writeSymtab(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
-    const target = self.getTarget();
     const slice = self.sections.slice();
     const symtab_shdr = slice.items(.shdr)[self.symtab_section_index.?];
     const strtab_shdr = slice.items(.shdr)[self.strtab_section_index.?];
@@ -4292,7 +4323,7 @@ pub fn writeSymtab(self: *Elf) !void {
         self.plt_got.writeSymtab(self);
     }
 
-    const foreign_endian = target.cpu.arch.endian() != builtin.cpu.arch.endian();
+    const foreign_endian = self.getTarget().cpu.arch.endian() != builtin.cpu.arch.endian();
     switch (self.ptr_width) {
         .p32 => {
             const buf = try gpa.alloc(elf.Elf32_Sym, self.symtab.items.len);
@@ -4630,10 +4661,8 @@ pub fn isZigSection(self: Elf, shndx: u32) bool {
         self.zig_data_rel_ro_section_index,
         self.zig_data_section_index,
         self.zig_bss_section_index,
-    }) |maybe_index| {
-        if (maybe_index) |index| {
-            if (index == shndx) return true;
-        }
+    }) |index| {
+        if (index == shndx) return true;
     }
     return false;
 }
@@ -4648,10 +4677,8 @@ pub fn isDebugSection(self: Elf, shndx: u32) bool {
         self.debug_line_str_section_index,
         self.debug_loclists_section_index,
         self.debug_rnglists_section_index,
-    }) |maybe_index| {
-        if (maybe_index) |index| {
-            if (index == shndx) return true;
-        }
+    }) |index| {
+        if (index == shndx) return true;
     }
     return false;
 }

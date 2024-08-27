@@ -12,7 +12,7 @@ src_loc: Zcu.LazySrcLoc,
 result_insts_len: u8 = undefined,
 result_relocs_len: u8 = undefined,
 result_insts: [
-    std.mem.max(usize, &.{
+    @max(
         1, // non-pseudo instructions
         3, // (ELF only) TLS local dynamic (LD) sequence in PIC mode
         2, // cmovcc: cmovcc \ cmovcc
@@ -22,18 +22,18 @@ result_insts: [
         pseudo_probe_adjust_unrolled_max_insts,
         pseudo_probe_adjust_setup_insts,
         pseudo_probe_adjust_loop_insts,
-        abi.Win64.callee_preserved_regs.len, // push_regs/pop_regs
-        abi.SysV.callee_preserved_regs.len, // push_regs/pop_regs
-    })
+        abi.Win64.callee_preserved_regs.len * 2, // push_regs/pop_regs
+        abi.SysV.callee_preserved_regs.len * 2, // push_regs/pop_regs
+    )
 ]Instruction = undefined,
 result_relocs: [
-    std.mem.max(usize, &.{
+    @max(
         1, // jmp/jcc/call/mov/lea: jmp/jcc/call/mov/lea
         2, // jcc: jcc \ jcc
         2, // test \ jcc \ probe \ sub \ jmp
         1, // probe \ sub \ jcc
         3, // (ELF only) TLS local dynamic (LD) sequence in PIC mode
-    })
+    )
 ]Reloc = undefined,
 
 pub const pseudo_probe_align_insts = 5; // test \ jcc \ probe \ sub \ jmp
@@ -265,6 +265,50 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             .pseudo_push_reg_list => try lower.pushPopRegList(.push, inst),
             .pseudo_pop_reg_list => try lower.pushPopRegList(.pop, inst),
 
+            .pseudo_cfi_def_cfa_ri_s => try lower.emit(.directive, .@".cfi_def_cfa", &.{
+                .{ .reg = inst.data.ri.r1 },
+                .{ .imm = lower.imm(.ri_s, inst.data.ri.i) },
+            }),
+            .pseudo_cfi_def_cfa_register_r => try lower.emit(.directive, .@".cfi_def_cfa_register", &.{
+                .{ .reg = inst.data.r.r1 },
+            }),
+            .pseudo_cfi_def_cfa_offset_i_s => try lower.emit(.directive, .@".cfi_def_cfa_offset", &.{
+                .{ .imm = lower.imm(.i_s, inst.data.i.i) },
+            }),
+            .pseudo_cfi_adjust_cfa_offset_i_s => try lower.emit(.directive, .@".cfi_adjust_cfa_offset", &.{
+                .{ .imm = lower.imm(.i_s, inst.data.i.i) },
+            }),
+            .pseudo_cfi_offset_ri_s => try lower.emit(.directive, .@".cfi_offset", &.{
+                .{ .reg = inst.data.ri.r1 },
+                .{ .imm = lower.imm(.ri_s, inst.data.ri.i) },
+            }),
+            .pseudo_cfi_val_offset_ri_s => try lower.emit(.directive, .@".cfi_val_offset", &.{
+                .{ .reg = inst.data.ri.r1 },
+                .{ .imm = lower.imm(.ri_s, inst.data.ri.i) },
+            }),
+            .pseudo_cfi_rel_offset_ri_s => try lower.emit(.directive, .@".cfi_rel_offset", &.{
+                .{ .reg = inst.data.ri.r1 },
+                .{ .imm = lower.imm(.ri_s, inst.data.ri.i) },
+            }),
+            .pseudo_cfi_register_rr => try lower.emit(.directive, .@".cfi_register", &.{
+                .{ .reg = inst.data.rr.r1 },
+                .{ .reg = inst.data.rr.r2 },
+            }),
+            .pseudo_cfi_restore_r => try lower.emit(.directive, .@".cfi_restore", &.{
+                .{ .reg = inst.data.r.r1 },
+            }),
+            .pseudo_cfi_undefined_r => try lower.emit(.directive, .@".cfi_undefined", &.{
+                .{ .reg = inst.data.r.r1 },
+            }),
+            .pseudo_cfi_same_value_r => try lower.emit(.directive, .@".cfi_same_value", &.{
+                .{ .reg = inst.data.r.r1 },
+            }),
+            .pseudo_cfi_remember_state_none => try lower.emit(.directive, .@".cfi_remember_state", &.{}),
+            .pseudo_cfi_restore_state_none => try lower.emit(.directive, .@".cfi_restore_state", &.{}),
+            .pseudo_cfi_escape_bytes => try lower.emit(.directive, .@".cfi_escape", &.{
+                .{ .bytes = inst.data.bytes.get(lower.mir) },
+            }),
+
             .pseudo_dbg_prologue_end_none,
             .pseudo_dbg_line_line_column,
             .pseudo_dbg_epilogue_begin_none,
@@ -280,6 +324,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             .pseudo_dbg_local_af,
             .pseudo_dbg_local_am,
             .pseudo_dbg_var_args_none,
+
             .pseudo_dead_none,
             => {},
             else => unreachable,
@@ -665,12 +710,43 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
 
 fn pushPopRegList(lower: *Lower, comptime mnemonic: Mnemonic, inst: Mir.Inst) Error!void {
     const callee_preserved_regs = abi.getCalleePreservedRegs(lower.cc);
-    var it = inst.data.reg_list.iterator(.{ .direction = switch (mnemonic) {
-        .push => .reverse,
-        .pop => .forward,
+    var off: i32 = switch (mnemonic) {
+        .push => 0,
+        .pop => undefined,
         else => unreachable,
-    } });
-    while (it.next()) |i| try lower.emit(.none, mnemonic, &.{.{ .reg = callee_preserved_regs[i] }});
+    };
+    {
+        var it = inst.data.reg_list.iterator(.{ .direction = switch (mnemonic) {
+            .push => .reverse,
+            .pop => .forward,
+            else => unreachable,
+        } });
+        while (it.next()) |i| {
+            try lower.emit(.none, mnemonic, &.{.{
+                .reg = callee_preserved_regs[i],
+            }});
+            switch (mnemonic) {
+                .push => off -= 8,
+                .pop => {},
+                else => unreachable,
+            }
+        }
+    }
+    switch (mnemonic) {
+        .push => {
+            var it = inst.data.reg_list.iterator(.{});
+            while (it.next()) |i| {
+                try lower.emit(.directive, .@".cfi_rel_offset", &.{
+                    .{ .reg = callee_preserved_regs[i] },
+                    .{ .imm = Immediate.s(off) },
+                });
+                off += 8;
+            }
+            assert(off == 0);
+        },
+        .pop => {},
+        else => unreachable,
+    }
 }
 
 const page_size: i32 = 1 << 12;

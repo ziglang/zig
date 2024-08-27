@@ -192,11 +192,12 @@ pub fn toBigIntAdvanced(
     zcu: *Zcu,
     tid: strat.Tid(),
 ) Zcu.CompileError!BigIntConst {
+    const ip = &zcu.intern_pool;
     return switch (val.toIntern()) {
         .bool_false => BigIntMutable.init(&space.limbs, 0).toConst(),
         .bool_true => BigIntMutable.init(&space.limbs, 1).toConst(),
         .null_value => BigIntMutable.init(&space.limbs, 0).toConst(),
-        else => switch (zcu.intern_pool.indexToKey(val.toIntern())) {
+        else => switch (ip.indexToKey(val.toIntern())) {
             .int => |int| switch (int.storage) {
                 .u64, .i64, .big_int => int.storage.toBigInt(space),
                 .lazy_align, .lazy_size => |ty| {
@@ -214,6 +215,7 @@ pub fn toBigIntAdvanced(
                 &space.limbs,
                 (try val.getUnsignedIntInner(strat, zcu, tid)).?,
             ).toConst(),
+            .err => |err| BigIntMutable.init(&space.limbs, ip.getErrorValueIfExists(err.name).?).toConst(),
             else => unreachable,
         },
     };
@@ -326,15 +328,11 @@ pub fn toBool(val: Value) bool {
     };
 }
 
-fn ptrHasIntAddr(val: Value, zcu: *Zcu) bool {
-    return zcu.intern_pool.getBackingAddrTag(val.toIntern()).? == .int;
-}
-
 /// Write a Value's contents to `buffer`.
 ///
 /// Asserts that buffer.len >= ty.abiSize(). The buffer is allowed to extend past
 /// the end of the value in memory.
-pub fn writeToMemory(val: Value, ty: Type, pt: Zcu.PerThread, buffer: []u8) error{
+pub fn writeToMemory(val: Value, pt: Zcu.PerThread, buffer: []u8) error{
     ReinterpretDeclRef,
     IllDefinedMemoryLayout,
     Unimplemented,
@@ -343,19 +341,25 @@ pub fn writeToMemory(val: Value, ty: Type, pt: Zcu.PerThread, buffer: []u8) erro
     const zcu = pt.zcu;
     const target = zcu.getTarget();
     const endian = target.cpu.arch.endian();
+    const ip = &zcu.intern_pool;
+    const ty = val.typeOf(zcu);
     if (val.isUndef(zcu)) {
         const size: usize = @intCast(ty.abiSize(zcu));
         @memset(buffer[0..size], 0xaa);
         return;
     }
-    const ip = &zcu.intern_pool;
     switch (ty.zigTypeTag(zcu)) {
         .Void => {},
         .Bool => {
             buffer[0] = @intFromBool(val.toBool());
         },
-        .Int, .Enum => {
-            const int_info = ty.intInfo(zcu);
+        .Int, .Enum, .ErrorSet, .Pointer => |tag| {
+            const int_ty = if (tag == .Pointer) int_ty: {
+                if (ty.isSlice(zcu)) return error.IllDefinedMemoryLayout;
+                if (ip.getBackingAddrTag(val.toIntern()).? != .int) return error.ReinterpretDeclRef;
+                break :int_ty Type.usize;
+            } else ty;
+            const int_info = int_ty.intInfo(zcu);
             const bits = int_info.bits;
             const byte_count: u16 = @intCast((@as(u17, bits) + 7) / 8);
 
@@ -379,7 +383,7 @@ pub fn writeToMemory(val: Value, ty: Type, pt: Zcu.PerThread, buffer: []u8) erro
             var buf_off: usize = 0;
             while (elem_i < len) : (elem_i += 1) {
                 const elem_val = try val.elemValue(pt, elem_i);
-                try elem_val.writeToMemory(elem_ty, pt, buffer[buf_off..]);
+                try elem_val.writeToMemory(pt, buffer[buf_off..]);
                 buf_off += elem_size;
             }
         },
@@ -403,30 +407,13 @@ pub fn writeToMemory(val: Value, ty: Type, pt: Zcu.PerThread, buffer: []u8) erro
                         .elems => |elems| elems[field_index],
                         .repeated_elem => |elem| elem,
                     });
-                    const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
-                    try writeToMemory(field_val, field_ty, pt, buffer[off..]);
+                    try writeToMemory(field_val, pt, buffer[off..]);
                 },
                 .@"packed" => {
                     const byte_count = (@as(usize, @intCast(ty.bitSize(zcu))) + 7) / 8;
                     return writeToPackedMemory(val, ty, pt, buffer[0..byte_count], 0);
                 },
             }
-        },
-        .ErrorSet => {
-            const bits = zcu.errorSetBits();
-            const byte_count: u16 = @intCast((@as(u17, bits) + 7) / 8);
-
-            const name = switch (ip.indexToKey(val.toIntern())) {
-                .err => |err| err.name,
-                .error_union => |error_union| error_union.val.err_name,
-                else => unreachable,
-            };
-            var bigint_buffer: BigIntSpace = undefined;
-            const bigint = BigIntMutable.init(
-                &bigint_buffer.limbs,
-                ip.getErrorValueIfExists(name).?,
-            ).toConst();
-            bigint.writeTwosComplement(buffer[0..byte_count], endian);
         },
         .Union => switch (ty.containerLayout(zcu)) {
             .auto => return error.IllDefinedMemoryLayout, // Sema is supposed to have emitted a compile error already
@@ -437,11 +424,11 @@ pub fn writeToMemory(val: Value, ty: Type, pt: Zcu.PerThread, buffer: []u8) erro
                     const field_type = Type.fromInterned(union_obj.field_types.get(ip)[field_index]);
                     const field_val = try val.fieldValue(pt, field_index);
                     const byte_count: usize = @intCast(field_type.abiSize(zcu));
-                    return writeToMemory(field_val, field_type, pt, buffer[0..byte_count]);
+                    return writeToMemory(field_val, pt, buffer[0..byte_count]);
                 } else {
                     const backing_ty = try ty.unionBackingType(pt);
                     const byte_count: usize = @intCast(backing_ty.abiSize(zcu));
-                    return writeToMemory(val.unionValue(zcu), backing_ty, pt, buffer[0..byte_count]);
+                    return writeToMemory(val.unionValue(zcu), pt, buffer[0..byte_count]);
                 }
             },
             .@"packed" => {
@@ -450,19 +437,13 @@ pub fn writeToMemory(val: Value, ty: Type, pt: Zcu.PerThread, buffer: []u8) erro
                 return writeToPackedMemory(val, ty, pt, buffer[0..byte_count], 0);
             },
         },
-        .Pointer => {
-            if (ty.isSlice(zcu)) return error.IllDefinedMemoryLayout;
-            if (!val.ptrHasIntAddr(zcu)) return error.ReinterpretDeclRef;
-            return val.writeToMemory(Type.usize, pt, buffer);
-        },
         .Optional => {
             if (!ty.isPtrLikeOptional(zcu)) return error.IllDefinedMemoryLayout;
-            const child = ty.optionalChild(zcu);
             const opt_val = val.optionalValue(zcu);
             if (opt_val) |some| {
-                return some.writeToMemory(child, pt, buffer);
+                return some.writeToMemory(pt, buffer);
             } else {
-                return writeToMemory(try pt.intValue(Type.usize, 0), Type.usize, pt, buffer);
+                return writeToMemory(try pt.intValue(Type.usize, 0), pt, buffer);
             }
         },
         else => return error.Unimplemented,
@@ -582,7 +563,7 @@ pub fn writeToPackedMemory(
         },
         .Pointer => {
             assert(!ty.isSlice(zcu)); // No well defined layout.
-            if (!val.ptrHasIntAddr(zcu)) return error.ReinterpretDeclRef;
+            if (ip.getBackingAddrTag(val.toIntern()).? != .int) return error.ReinterpretDeclRef;
             return val.writeToPackedMemory(Type.usize, pt, buffer, bit_offset);
         },
         .Optional => {
@@ -3658,14 +3639,15 @@ pub fn mulAddScalar(
 
 /// If the value is represented in-memory as a series of bytes that all
 /// have the same value, return that byte value, otherwise null.
-pub fn hasRepeatedByteRepr(val: Value, ty: Type, pt: Zcu.PerThread) !?u8 {
+pub fn hasRepeatedByteRepr(val: Value, pt: Zcu.PerThread) !?u8 {
     const zcu = pt.zcu;
+    const ty = val.typeOf(zcu);
     const abi_size = std.math.cast(usize, ty.abiSize(zcu)) orelse return null;
     assert(abi_size >= 1);
     const byte_buffer = try zcu.gpa.alloc(u8, abi_size);
     defer zcu.gpa.free(byte_buffer);
 
-    writeToMemory(val, ty, pt, byte_buffer) catch |err| switch (err) {
+    writeToMemory(val, pt, byte_buffer) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.ReinterpretDeclRef => return null,
         // TODO: The writeToMemory function was originally created for the purpose

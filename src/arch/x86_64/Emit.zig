@@ -30,6 +30,59 @@ pub fn emitMir(emit: *Emit) Error!void {
         var lowered_relocs = lowered.relocs;
         for (lowered.insts, 0..) |lowered_inst, lowered_index| {
             const start_offset: u32 = @intCast(emit.code.items.len);
+            if (lowered_inst.prefix == .directive) {
+                switch (emit.debug_output) {
+                    .dwarf => |dwarf| switch (lowered_inst.encoding.mnemonic) {
+                        .@".cfi_def_cfa" => try dwarf.genDebugFrame(start_offset, .{ .def_cfa = .{
+                            .reg = lowered_inst.ops[0].reg.dwarfNum(),
+                            .off = lowered_inst.ops[1].imm.signed,
+                        } }),
+                        .@".cfi_def_cfa_register" => try dwarf.genDebugFrame(start_offset, .{
+                            .def_cfa_register = lowered_inst.ops[0].reg.dwarfNum(),
+                        }),
+                        .@".cfi_def_cfa_offset" => try dwarf.genDebugFrame(start_offset, .{
+                            .def_cfa_offset = lowered_inst.ops[0].imm.signed,
+                        }),
+                        .@".cfi_adjust_cfa_offset" => try dwarf.genDebugFrame(start_offset, .{
+                            .adjust_cfa_offset = lowered_inst.ops[0].imm.signed,
+                        }),
+                        .@".cfi_offset" => try dwarf.genDebugFrame(start_offset, .{ .offset = .{
+                            .reg = lowered_inst.ops[0].reg.dwarfNum(),
+                            .off = lowered_inst.ops[1].imm.signed,
+                        } }),
+                        .@".cfi_val_offset" => try dwarf.genDebugFrame(start_offset, .{ .val_offset = .{
+                            .reg = lowered_inst.ops[0].reg.dwarfNum(),
+                            .off = lowered_inst.ops[1].imm.signed,
+                        } }),
+                        .@".cfi_rel_offset" => try dwarf.genDebugFrame(start_offset, .{ .rel_offset = .{
+                            .reg = lowered_inst.ops[0].reg.dwarfNum(),
+                            .off = lowered_inst.ops[1].imm.signed,
+                        } }),
+                        .@".cfi_register" => try dwarf.genDebugFrame(start_offset, .{ .register = .{
+                            lowered_inst.ops[0].reg.dwarfNum(),
+                            lowered_inst.ops[1].reg.dwarfNum(),
+                        } }),
+                        .@".cfi_restore" => try dwarf.genDebugFrame(start_offset, .{
+                            .restore = lowered_inst.ops[0].reg.dwarfNum(),
+                        }),
+                        .@".cfi_undefined" => try dwarf.genDebugFrame(start_offset, .{
+                            .undefined = lowered_inst.ops[0].reg.dwarfNum(),
+                        }),
+                        .@".cfi_same_value" => try dwarf.genDebugFrame(start_offset, .{
+                            .same_value = lowered_inst.ops[0].reg.dwarfNum(),
+                        }),
+                        .@".cfi_remember_state" => try dwarf.genDebugFrame(start_offset, .remember_state),
+                        .@".cfi_restore_state" => try dwarf.genDebugFrame(start_offset, .restore_state),
+                        .@".cfi_escape" => try dwarf.genDebugFrame(start_offset, .{
+                            .escape = lowered_inst.ops[0].bytes,
+                        }),
+                        else => unreachable,
+                    },
+                    .plan9 => {},
+                    .none => {},
+                }
+                continue;
+            }
             try lowered_inst.encode(emit.code.writer(), .{});
             const end_offset: u32 = @intCast(emit.code.items.len);
             while (lowered_relocs.len > 0 and

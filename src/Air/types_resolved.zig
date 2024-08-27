@@ -432,8 +432,10 @@ fn checkRef(ref: Air.Inst.Ref, zcu: *Zcu) bool {
     return checkVal(Value.fromInterned(ip_index), zcu);
 }
 
-fn checkVal(val: Value, zcu: *Zcu) bool {
-    if (!checkType(val.typeOf(zcu), zcu)) return false;
+pub fn checkVal(val: Value, zcu: *Zcu) bool {
+    const ty = val.typeOf(zcu);
+    if (!checkType(ty, zcu)) return false;
+    if (ty.toIntern() == .type_type and !checkType(val.toType(), zcu)) return false;
     // Check for lazy values
     switch (zcu.intern_pool.indexToKey(val.toIntern())) {
         .int => |int| switch (int.storage) {
@@ -446,9 +448,11 @@ fn checkVal(val: Value, zcu: *Zcu) bool {
     }
 }
 
-fn checkType(ty: Type, zcu: *Zcu) bool {
+pub fn checkType(ty: Type, zcu: *Zcu) bool {
     const ip = &zcu.intern_pool;
-    return switch (ty.zigTypeTag(zcu)) {
+    return switch (ty.zigTypeTagOrPoison(zcu) catch |err| switch (err) {
+        error.GenericPoison => return true,
+    }) {
         .Type,
         .Void,
         .Bool,

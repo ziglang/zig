@@ -306,6 +306,82 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
     );
     db.addLldbTest(
+        "strings",
+        target,
+        &.{
+            .{
+                .path = "strings.zig",
+                .source =
+                \\const Strings = struct {
+                \\    c_ptr: [*c]const u8 = "c_ptr\x07\x08\t",
+                \\    many_ptr: [*:0]const u8 = "many_ptr\n\x0b\x0c",
+                \\    ptr_array: *const [12:0]u8 = "ptr_array\x00\r\x1b",
+                \\    slice: [:0]const u8 = "slice\"\'\\\x00",
+                \\};
+                \\fn testStrings(strings: Strings) void {
+                \\    _ = strings;
+                \\}
+                \\pub fn main() void {
+                \\    testStrings(.{});
+                \\}
+                \\
+                ,
+            },
+        },
+        \\breakpoint set --file strings.zig --source-pattern-regexp '_ = strings;'
+        \\process launch
+        \\frame variable --show-types strings.slice
+        \\frame variable --show-types --format character strings.slice
+        \\frame variable --show-types --format c-string strings
+        \\breakpoint delete --force 1
+    ,
+        &.{
+            \\(lldb) frame variable --show-types strings.slice
+            \\([:0]const u8) strings.slice = len=9 {
+            \\  (u8) [0] = 115
+            \\  (u8) [1] = 108
+            \\  (u8) [2] = 105
+            \\  (u8) [3] = 99
+            \\  (u8) [4] = 101
+            \\  (u8) [5] = 34
+            \\  (u8) [6] = 39
+            \\  (u8) [7] = 92
+            \\  (u8) [8] = 0
+            \\}
+            \\(lldb) frame variable --show-types --format character strings.slice
+            \\([:0]const u8) strings.slice = len=9 {
+            \\  (u8) [0] = 's'
+            \\  (u8) [1] = 'l'
+            \\  (u8) [2] = 'i'
+            \\  (u8) [3] = 'c'
+            \\  (u8) [4] = 'e'
+            \\  (u8) [5] = '\"'
+            \\  (u8) [6] = '\''
+            \\  (u8) [7] = '\\'
+            \\  (u8) [8] = '\x00'
+            \\}
+            \\(lldb) frame variable --show-types --format c-string strings
+            \\(root.strings.Strings) strings = {
+            \\  ([*c]const u8) c_ptr = "c_ptr\x07\x08\t"
+            \\  ([*:0]const u8) many_ptr = "many_ptr\n\x0b\x0c"
+            \\  (*const [12:0]u8) ptr_array = "ptr_array\x00\r\x1b"
+            \\  ([:0]const u8) slice = "slice\"\'\\\x00" len=9 {
+            \\    (u8) [0] = "s"
+            \\    (u8) [1] = "l"
+            \\    (u8) [2] = "i"
+            \\    (u8) [3] = "c"
+            \\    (u8) [4] = "e"
+            \\    (u8) [5] = "\""
+            \\    (u8) [6] = "\'"
+            \\    (u8) [7] = "\\"
+            \\    (u8) [8] = "\x00"
+            \\  }
+            \\}
+            \\(lldb) breakpoint delete --force 1
+            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
         "enums",
         target,
         &.{

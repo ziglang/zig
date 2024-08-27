@@ -2560,12 +2560,17 @@ pub fn populateTestFunctions(
 pub fn linkerUpdateNav(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void {
     const zcu = pt.zcu;
     const comp = zcu.comp;
+    const ip = &zcu.intern_pool;
 
     const nav = zcu.intern_pool.getNav(nav_index);
-    const codegen_prog_node = zcu.codegen_prog_node.start(nav.fqn.toSlice(&zcu.intern_pool), 0);
+    const codegen_prog_node = zcu.codegen_prog_node.start(nav.fqn.toSlice(ip), 0);
     defer codegen_prog_node.end();
 
-    if (comp.bin_file) |lf| {
+    if (!Air.valFullyResolved(zcu.navValue(nav_index), zcu)) {
+        // The value of this nav failed to resolve. This is a transitive failure.
+        // TODO: do we need to mark this failure anywhere? I don't think so, since compilation
+        // will fail due to the type error anyway.
+    } else if (comp.bin_file) |lf| {
         lf.updateNav(pt, nav_index) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.AnalysisFail => {
@@ -2605,7 +2610,11 @@ pub fn linkerUpdateContainerType(pt: Zcu.PerThread, ty: InternPool.Index) !void 
     const codegen_prog_node = zcu.codegen_prog_node.start(Type.fromInterned(ty).containerTypeName(ip).toSlice(ip), 0);
     defer codegen_prog_node.end();
 
-    if (comp.bin_file) |lf| {
+    if (!Air.typeFullyResolved(Type.fromInterned(ty), zcu)) {
+        // This type failed to resolve. This is a transitive failure.
+        // TODO: do we need to mark this failure anywhere? I don't think so, since compilation
+        // will fail due to the type error anyway.
+    } else if (comp.bin_file) |lf| {
         lf.updateContainerType(pt, ty) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => |e| log.err("codegen type failed: {s}", .{@errorName(e)}),

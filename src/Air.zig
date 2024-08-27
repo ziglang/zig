@@ -13,6 +13,7 @@ const Value = @import("Value.zig");
 const Type = @import("Type.zig");
 const InternPool = @import("InternPool.zig");
 const Zcu = @import("Zcu.zig");
+const types_resolved = @import("Air/types_resolved.zig");
 
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
@@ -1899,4 +1900,6 @@ pub fn unwrapSwitch(air: *const Air, switch_inst: Inst.Index) UnwrappedSwitch {
     };
 }
 
-pub const typesFullyResolved = @import("Air/types_resolved.zig").typesFullyResolved;
+pub const typesFullyResolved = types_resolved.typesFullyResolved;
+pub const typeFullyResolved = types_resolved.checkType;
+pub const valFullyResolved = types_resolved.checkVal;

@@ -289,8 +289,6 @@ fn claimUnresolved(elf_file: *Elf) void {
 }
 
 fn initSections(elf_file: *Elf) !void {
-    const ptr_size = elf_file.ptrWidthBytes();
-
     for (elf_file.objects.items) |index| {
         const object = elf_file.file(index).?.object;
         try object.initOutputSections(elf_file);
@@ -306,13 +304,18 @@ fn initSections(elf_file: *Elf) !void {
         if (elf_file.file(index).?.object.cies.items.len > 0) break true;
     } else false;
     if (needs_eh_frame) {
-        elf_file.eh_frame_section_index = try elf_file.addSection(.{
-            .name = try elf_file.insertShString(".eh_frame"),
-            .type = elf.SHT_PROGBITS,
-            .flags = elf.SHF_ALLOC,
-            .addralign = ptr_size,
-            .offset = std.math.maxInt(u64),
-        });
+        if (elf_file.eh_frame_section_index == null) {
+            elf_file.eh_frame_section_index = try elf_file.addSection(.{
+                .name = try elf_file.insertShString(".eh_frame"),
+                .type = if (elf_file.getTarget().cpu.arch == .x86_64)
+                    elf.SHT_X86_64_UNWIND
+                else
+                    elf.SHT_PROGBITS,
+                .flags = elf.SHF_ALLOC,
+                .addralign = elf_file.ptrWidthBytes(),
+                .offset = std.math.maxInt(u64),
+            });
+        }
         elf_file.eh_frame_rela_section_index = try elf_file.addRelaShdr(
             try elf_file.insertShString(".rela.eh_frame"),
             elf_file.eh_frame_section_index.?,
@@ -373,7 +376,11 @@ fn updateSectionSizes(elf_file: *Elf) !void {
     }
 
     if (elf_file.eh_frame_section_index) |index| {
-        slice.items(.shdr)[index].sh_size = try eh_frame.calcEhFrameSize(elf_file);
+        slice.items(.shdr)[index].sh_size = existing_size: {
+            const zo = elf_file.zigObjectPtr() orelse break :existing_size 0;
+            const sym = zo.symbol(zo.eh_frame_index orelse break :existing_size 0);
+            break :existing_size sym.atom(elf_file).?.size;
+        } + try eh_frame.calcEhFrameSize(elf_file);
     }
     if (elf_file.eh_frame_rela_section_index) |index| {
         const shdr = &slice.items(.shdr)[index];
@@ -526,17 +533,22 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
     }
 
     if (elf_file.eh_frame_section_index) |shndx| {
+        const existing_size = existing_size: {
+            const zo = elf_file.zigObjectPtr() orelse break :existing_size 0;
+            const sym = zo.symbol(zo.eh_frame_index orelse break :existing_size 0);
+            break :existing_size sym.atom(elf_file).?.size;
+        };
         const shdr = slice.items(.shdr)[shndx];
         const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
+        var buffer = try std.ArrayList(u8).initCapacity(gpa, @intCast(sh_size - existing_size));
         defer buffer.deinit();
         try eh_frame.writeEhFrameObject(elf_file, buffer.writer());
         log.debug("writing .eh_frame from 0x{x} to 0x{x}", .{
-            shdr.sh_offset,
-            shdr.sh_offset + shdr.sh_size,
+            shdr.sh_offset + existing_size,
+            shdr.sh_offset + sh_size,
         });
-        assert(buffer.items.len == sh_size);
-        try elf_file.base.file.?.pwriteAll(buffer.items, shdr.sh_offset);
+        assert(buffer.items.len == sh_size - existing_size);
+        try elf_file.base.file.?.pwriteAll(buffer.items, shdr.sh_offset + existing_size);
     }
     if (elf_file.eh_frame_rela_section_index) |shndx| {
         const shdr = slice.items(.shdr)[shndx];

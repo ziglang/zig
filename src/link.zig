@@ -589,7 +589,8 @@ pub const File = struct {
         fs.File.WriteFileError ||
         fs.File.OpenError ||
         std.process.Child.SpawnError ||
-        fs.Dir.CopyFileError;
+        fs.Dir.CopyFileError ||
+        FlushDebugInfoError;
 
     /// Commit pending changes and write headers. Takes into account final output mode
     /// and `use_lld`, not only `effectiveOutputMode`.
