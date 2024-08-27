@@ -24,29 +24,29 @@ pub const Class = union(enum) {
 
 pub const Context = enum { ret, arg };
 
-pub fn classifyType(ty: Type, pt: Zcu.PerThread, ctx: Context) Class {
-    assert(ty.hasRuntimeBitsIgnoreComptime(pt));
+pub fn classifyType(ty: Type, zcu: *Zcu, ctx: Context) Class {
+    assert(ty.hasRuntimeBitsIgnoreComptime(zcu));
 
     var maybe_float_bits: ?u16 = null;
     const max_byval_size = 512;
-    const ip = &pt.zcu.intern_pool;
-    switch (ty.zigTypeTag(pt.zcu)) {
+    const ip = &zcu.intern_pool;
+    switch (ty.zigTypeTag(zcu)) {
         .Struct => {
-            const bit_size = ty.bitSize(pt);
-            if (ty.containerLayout(pt.zcu) == .@"packed") {
+            const bit_size = ty.bitSize(zcu);
+            if (ty.containerLayout(zcu) == .@"packed") {
                 if (bit_size > 64) return .memory;
                 return .byval;
             }
             if (bit_size > max_byval_size) return .memory;
-            const float_count = countFloats(ty, pt.zcu, &maybe_float_bits);
+            const float_count = countFloats(ty, zcu, &maybe_float_bits);
             if (float_count <= byval_float_count) return .byval;
 
-            const fields = ty.structFieldCount(pt.zcu);
+            const fields = ty.structFieldCount(zcu);
             var i: u32 = 0;
             while (i < fields) : (i += 1) {
-                const field_ty = ty.structFieldType(i, pt.zcu);
-                const field_alignment = ty.structFieldAlign(i, pt);
-                const field_size = field_ty.bitSize(pt);
+                const field_ty = ty.fieldType(i, zcu);
+                const field_alignment = ty.fieldAlignment(i, zcu);
+                const field_size = field_ty.bitSize(zcu);
                 if (field_size > 32 or field_alignment.compare(.gt, .@"32")) {
                     return Class.arrSize(bit_size, 64);
                 }
@@ -54,19 +54,19 @@ pub fn classifyType(ty: Type, pt: Zcu.PerThread, ctx: Context) Class {
             return Class.arrSize(bit_size, 32);
         },
         .Union => {
-            const bit_size = ty.bitSize(pt);
-            const union_obj = pt.zcu.typeToUnion(ty).?;
+            const bit_size = ty.bitSize(zcu);
+            const union_obj = zcu.typeToUnion(ty).?;
             if (union_obj.flagsUnordered(ip).layout == .@"packed") {
                 if (bit_size > 64) return .memory;
                 return .byval;
             }
             if (bit_size > max_byval_size) return .memory;
-            const float_count = countFloats(ty, pt.zcu, &maybe_float_bits);
+            const float_count = countFloats(ty, zcu, &maybe_float_bits);
             if (float_count <= byval_float_count) return .byval;
 
             for (union_obj.field_types.get(ip), 0..) |field_ty, field_index| {
-                if (Type.fromInterned(field_ty).bitSize(pt) > 32 or
-                    pt.unionFieldNormalAlignment(union_obj, @intCast(field_index)).compare(.gt, .@"32"))
+                if (Type.fromInterned(field_ty).bitSize(zcu) > 32 or
+                    ty.fieldAlignment(field_index, zcu).compare(.gt, .@"32"))
                 {
                     return Class.arrSize(bit_size, 64);
                 }
@@ -77,28 +77,28 @@ pub fn classifyType(ty: Type, pt: Zcu.PerThread, ctx: Context) Class {
         .Int => {
             // TODO this is incorrect for _BitInt(128) but implementing
             // this correctly makes implementing compiler-rt impossible.
-            // const bit_size = ty.bitSize(pt);
+            // const bit_size = ty.bitSize(zcu);
             // if (bit_size > 64) return .memory;
             return .byval;
         },
         .Enum, .ErrorSet => {
-            const bit_size = ty.bitSize(pt);
+            const bit_size = ty.bitSize(zcu);
             if (bit_size > 64) return .memory;
             return .byval;
         },
         .Vector => {
-            const bit_size = ty.bitSize(pt);
+            const bit_size = ty.bitSize(zcu);
             // TODO is this controlled by a cpu feature?
             if (ctx == .ret and bit_size > 128) return .memory;
             if (bit_size > 512) return .memory;
             return .byval;
         },
         .Optional => {
-            assert(ty.isPtrLikeOptional(pt.zcu));
+            assert(ty.isPtrLikeOptional(zcu));
             return .byval;
         },
         .Pointer => {
-            assert(!ty.isSlice(pt.zcu));
+            assert(!ty.isSlice(zcu));
             return .byval;
         },
         .ErrorUnion,
@@ -141,7 +141,7 @@ fn countFloats(ty: Type, zcu: *Zcu, maybe_float_bits: *?u16) u32 {
             var count: u32 = 0;
             var i: u32 = 0;
             while (i < fields_len) : (i += 1) {
-                const field_ty = ty.structFieldType(i, zcu);
+                const field_ty = ty.fieldType(i, zcu);
                 const field_count = countFloats(field_ty, zcu, maybe_float_bits);
                 if (field_count == invalid) return invalid;
                 count += field_count;

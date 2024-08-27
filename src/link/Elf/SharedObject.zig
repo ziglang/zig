@@ -56,14 +56,14 @@ pub fn parse(self: *SharedObject, elf_file: *Elf, handle: std.fs.File) !void {
     defer gpa.free(header_buffer);
     self.header = @as(*align(1) const elf.Elf64_Ehdr, @ptrCast(header_buffer)).*;
 
-    const target = elf_file.base.comp.root_mod.resolved_target.result;
-    if (target.cpu.arch != self.header.?.e_machine.toTargetCpuArch().?) {
+    const em = elf_file.base.comp.root_mod.resolved_target.result.toElfMachine();
+    if (em != self.header.?.e_machine) {
         try elf_file.reportParseError2(
             self.index,
-            "invalid cpu architecture: {s}",
-            .{@tagName(self.header.?.e_machine.toTargetCpuArch().?)},
+            "invalid ELF machine type: {s}",
+            .{@tagName(self.header.?.e_machine)},
         );
-        return error.InvalidCpuArch;
+        return error.InvalidMachineType;
     }
 
     const shoff = std.math.cast(usize, self.header.?.e_shoff) orelse return error.Overflow;

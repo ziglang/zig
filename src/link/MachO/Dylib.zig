@@ -75,12 +75,12 @@ fn parseBinary(self: *Dylib, macho_file: *MachO) !void {
         macho.CPU_TYPE_X86_64 => .x86_64,
         else => |x| {
             try macho_file.reportParseError2(self.index, "unknown cpu architecture: {d}", .{x});
-            return error.InvalidCpuArch;
+            return error.InvalidMachineType;
         },
     };
     if (macho_file.getTarget().cpu.arch != this_cpu_arch) {
         try macho_file.reportParseError2(self.index, "invalid cpu architecture: {s}", .{@tagName(this_cpu_arch)});
-        return error.InvalidCpuArch;
+        return error.InvalidMachineType;
     }
 
     const lc_buffer = try gpa.alloc(u8, header.sizeofcmds);

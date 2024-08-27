@@ -9,7 +9,7 @@ const Zcu = @import("Zcu.zig");
 const RangeSet = @This();
 const LazySrcLoc = Zcu.LazySrcLoc;
 
-pt: Zcu.PerThread,
+zcu: *Zcu,
 ranges: std.ArrayList(Range),
 
 pub const Range = struct {
@@ -18,9 +18,9 @@ pub const Range = struct {
     src: LazySrcLoc,
 };
 
-pub fn init(allocator: std.mem.Allocator, pt: Zcu.PerThread) RangeSet {
+pub fn init(allocator: std.mem.Allocator, zcu: *Zcu) RangeSet {
     return .{
-        .pt = pt,
+        .zcu = zcu,
         .ranges = std.ArrayList(Range).init(allocator),
     };
 }
@@ -35,8 +35,8 @@ pub fn add(
     last: InternPool.Index,
     src: LazySrcLoc,
 ) !?LazySrcLoc {
-    const pt = self.pt;
-    const ip = &pt.zcu.intern_pool;
+    const zcu = self.zcu;
+    const ip = &zcu.intern_pool;
 
     const ty = ip.typeOf(first);
     assert(ty == ip.typeOf(last));
@@ -45,8 +45,8 @@ pub fn add(
         assert(ty == ip.typeOf(range.first));
         assert(ty == ip.typeOf(range.last));
 
-        if (Value.fromInterned(last).compareScalar(.gte, Value.fromInterned(range.first), Type.fromInterned(ty), pt) and
-            Value.fromInterned(first).compareScalar(.lte, Value.fromInterned(range.last), Type.fromInterned(ty), pt))
+        if (Value.fromInterned(last).compareScalar(.gte, Value.fromInterned(range.first), Type.fromInterned(ty), zcu) and
+            Value.fromInterned(first).compareScalar(.lte, Value.fromInterned(range.last), Type.fromInterned(ty), zcu))
         {
             return range.src; // They overlap.
         }
@@ -61,20 +61,20 @@ pub fn add(
 }
 
 /// Assumes a and b do not overlap
-fn lessThan(pt: Zcu.PerThread, a: Range, b: Range) bool {
-    const ty = Type.fromInterned(pt.zcu.intern_pool.typeOf(a.first));
-    return Value.fromInterned(a.first).compareScalar(.lt, Value.fromInterned(b.first), ty, pt);
+fn lessThan(zcu: *Zcu, a: Range, b: Range) bool {
+    const ty = Type.fromInterned(zcu.intern_pool.typeOf(a.first));
+    return Value.fromInterned(a.first).compareScalar(.lt, Value.fromInterned(b.first), ty, zcu);
 }
 
 pub fn spans(self: *RangeSet, first: InternPool.Index, last: InternPool.Index) !bool {
-    const pt = self.pt;
-    const ip = &pt.zcu.intern_pool;
+    const zcu = self.zcu;
+    const ip = &zcu.intern_pool;
     assert(ip.typeOf(first) == ip.typeOf(last));
 
     if (self.ranges.items.len == 0)
         return false;
 
-    std.mem.sort(Range, self.ranges.items, pt, lessThan);
+    std.mem.sort(Range, self.ranges.items, zcu, lessThan);
 
     if (self.ranges.items[0].first != first or
         self.ranges.items[self.ranges.items.len - 1].last != last)
@@ -93,10 +93,10 @@ pub fn spans(self: *RangeSet, first: InternPool.Index, last: InternPool.Index) !
         const prev = self.ranges.items[i];
 
         // prev.last + 1 == cur.first
-        try counter.copy(Value.fromInterned(prev.last).toBigInt(&space, pt));
+        try counter.copy(Value.fromInterned(prev.last).toBigInt(&space, zcu));
         try counter.addScalar(&counter, 1);
 
-        const cur_start_int = Value.fromInterned(cur.first).toBigInt(&space, pt);
+        const cur_start_int = Value.fromInterned(cur.first).toBigInt(&space, zcu);
         if (!cur_start_int.eql(counter.toConst())) {
             return false;
         }

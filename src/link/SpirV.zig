@@ -229,7 +229,7 @@ pub fn flushModule(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     defer error_info.deinit();
 
     try error_info.appendSlice("zig_errors:");
-    const ip = &self.base.comp.module.?.intern_pool;
+    const ip = &self.base.comp.zcu.?.intern_pool;
     for (ip.global_error_set.getNamesFromMainThread()) |name| {
         // Errors can contain pretty much any character - to encode them in a string we must escape
         // them somehow. Easiest here is to use some established scheme, one which also preseves the

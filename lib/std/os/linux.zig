@@ -630,12 +630,13 @@ pub fn futex2_waitv(
         nr_futexes,
         flags,
         @intFromPtr(timeout),
-        @bitCast(@as(isize, clockid)),
+        @bitCast(@as(isize, @intFromEnum(clockid))),
     );
 }
 
 /// Wait on a futex.
-/// Identical to `FUTEX.WAIT`, except it is part of the futex2 family of calls.
+/// Identical to the traditional `FUTEX.FUTEX_WAIT_BITSET` op, except it is part of the
+/// futex2 familiy of calls.
 pub fn futex2_wait(
     /// Address of the futex to wait on.
     uaddr: *const anyopaque,
@@ -646,7 +647,7 @@ pub fn futex2_wait(
     /// `FUTEX2` flags.
     flags: u32,
     /// Optional absolute timeout.
-    timeout: *const timespec,
+    timeout: ?*const timespec,
     /// Clock to be used for the timeout, realtime or monotonic.
     clockid: clockid_t,
 ) usize {
@@ -657,15 +658,16 @@ pub fn futex2_wait(
         mask,
         flags,
         @intFromPtr(timeout),
-        @bitCast(@as(isize, clockid)),
+        @bitCast(@as(isize, @intFromEnum(clockid))),
     );
 }
 
 /// Wake a number of futexes.
-/// Identical to `FUTEX.WAKE`, except it is part of the futex2 family of calls.
+/// Identical to the traditional `FUTEX.FUTEX_WAIT_BITSET` op, except it is part of the
+/// futex2 family of calls.
 pub fn futex2_wake(
     /// Address of the futex(es) to wake.
-    uaddr: [*]const anyopaque,
+    uaddr: *const anyopaque,
     /// Bitmask
     mask: usize,
     /// Number of the futexes to wake.
@@ -1683,7 +1685,7 @@ pub fn sigaddset(set: *sigset_t, sig: u6) void {
 
 pub fn sigismember(set: *const sigset_t, sig: u6) bool {
     const s = sig - 1;
-    return ((set.*)[@as(usize, @intCast(s)) / usize_bits] & (@as(usize, @intCast(1)) << (s & (usize_bits - 1)))) != 0;
+    return ((set.*)[@as(usize, @intCast(s)) / usize_bits] & (@as(usize, @intCast(1)) << @intCast(s & (usize_bits - 1)))) != 0;
 }
 
 pub fn getsockname(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
@@ -1740,31 +1742,31 @@ pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize 
         var next_unsent: usize = 0;
         for (msgvec[0..kvlen], 0..) |*msg, i| {
             var size: i32 = 0;
-            const msg_iovlen = @as(usize, @intCast(msg.msg_hdr.msg_iovlen)); // kernel side this is treated as unsigned
-            for (msg.msg_hdr.msg_iov[0..msg_iovlen]) |iov| {
+            const msg_iovlen = @as(usize, @intCast(msg.hdr.iovlen)); // kernel side this is treated as unsigned
+            for (msg.hdr.iov[0..msg_iovlen]) |iov| {
                 if (iov.len > std.math.maxInt(i32) or @addWithOverflow(size, @as(i32, @intCast(iov.len)))[1] != 0) {
                     // batch-send all messages up to the current message
                     if (next_unsent < i) {
                         const batch_size = i - next_unsent;
                         const r = syscall4(.sendmmsg, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(&msgvec[next_unsent]), batch_size, flags);
-                        if (E.init(r) != 0) return next_unsent;
+                        if (E.init(r) != .SUCCESS) return next_unsent;
                         if (r < batch_size) return next_unsent + r;
                     }
                     // send current message as own packet
-                    const r = sendmsg(fd, &msg.msg_hdr, flags);
-                    if (E.init(r) != 0) return r;
+                    const r = sendmsg(fd, &msg.hdr, flags);
+                    if (E.init(r) != .SUCCESS) return r;
                     // Linux limits the total bytes sent by sendmsg to INT_MAX, so this cast is safe.
-                    msg.msg_len = @as(u32, @intCast(r));
+                    msg.len = @as(u32, @intCast(r));
                     next_unsent = i + 1;
                     break;
                 }
-                size += iov.len;
+                size += @intCast(iov.len);
             }
         }
         if (next_unsent < kvlen or next_unsent == 0) { // want to make sure at least one syscall occurs (e.g. to trigger MSG.EOR)
             const batch_size = kvlen - next_unsent;
             const r = syscall4(.sendmmsg, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(&msgvec[next_unsent]), batch_size, flags);
-            if (E.init(r) != 0) return r;
+            if (E.init(r) != .SUCCESS) return r;
             return next_unsent + r;
         }
         return kvlen;
@@ -2272,7 +2274,7 @@ pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
             length_halves[0],
             length_halves[1],
         );
-    } else if (comptime native_arch == .mips or native_arch == .mipsel) {
+    } else if (native_arch.isMIPS32()) {
         // MIPS O32 does not deal with the register alignment issue, so pass a dummy value.
 
         const offset_halves = splitValue64(offset);
@@ -2382,7 +2384,7 @@ pub fn map_shadow_stack(addr: u64, size: u64, flags: u32) usize {
 }
 
 pub const E = switch (native_arch) {
-    .mips, .mipsel => enum(u16) {
+    .mips, .mipsel, .mips64, .mips64el => enum(u16) {
         /// No error occurred.
         SUCCESS = 0,
 
@@ -5095,7 +5097,7 @@ pub const epoll_event = extern struct {
 
 pub const VFS_CAP_REVISION_MASK = 0xFF000000;
 pub const VFS_CAP_REVISION_SHIFT = 24;
-pub const VFS_CAP_FLAGS_MASK = ~VFS_CAP_REVISION_MASK;
+pub const VFS_CAP_FLAGS_MASK = ~@as(u32, VFS_CAP_REVISION_MASK);
 pub const VFS_CAP_FLAGS_EFFECTIVE = 0x000001;
 
 pub const VFS_CAP_REVISION_1 = 0x01000000;
@@ -5113,7 +5115,7 @@ pub const VFS_CAP_REVISION = VFS_CAP_REVISION_2;
 pub const vfs_cap_data = extern struct {
     //all of these are mandated as little endian
     //when on disk.
-    const Data = struct {
+    const Data = extern struct {
         permitted: u32,
         inheritable: u32,
     };
@@ -7067,54 +7069,314 @@ pub const ifreq = extern struct {
     },
 };
 
-// doc comments copied from musl
-pub const rlimit_resource = if (native_arch.isMIPS() or native_arch.isSPARC())
-    arch_bits.rlimit_resource
-else
-    enum(c_int) {
-        /// Per-process CPU limit, in seconds.
-        CPU,
-        /// Largest file that can be created, in bytes.
-        FSIZE,
-        /// Maximum size of data segment, in bytes.
-        DATA,
-        /// Maximum size of stack segment, in bytes.
-        STACK,
-        /// Largest core file that can be created, in bytes.
-        CORE,
-        /// Largest resident set size, in bytes.
-        /// This affects swapping; processes that are exceeding their
-        /// resident set size will be more likely to have physical memory
-        /// taken from them.
-        RSS,
-        /// Number of processes.
-        NPROC,
-        /// Number of open files.
-        NOFILE,
-        /// Locked-in-memory address space.
-        MEMLOCK,
-        /// Address space limit.
-        AS,
-        /// Maximum number of file locks.
-        LOCKS,
-        /// Maximum number of pending signals.
-        SIGPENDING,
-        /// Maximum bytes in POSIX message queues.
-        MSGQUEUE,
-        /// Maximum nice priority allowed to raise to.
-        /// Nice levels 19 .. -20 correspond to 0 .. 39
-        /// values of this resource limit.
-        NICE,
-        /// Maximum realtime priority allowed for non-privileged
-        /// processes.
-        RTPRIO,
-        /// Maximum CPU time in µs that a process scheduled under a real-time
-        /// scheduling policy may consume without making a blocking system
-        /// call before being forcibly descheduled.
-        RTTIME,
+pub const PACKET = struct {
+    pub const HOST = 0;
+    pub const BROADCAST = 1;
+    pub const MULTICAST = 2;
+    pub const OTHERHOST = 3;
+    pub const OUTGOING = 4;
+    pub const LOOPBACK = 5;
+    pub const USER = 6;
+    pub const KERNEL = 7;
 
-        _,
-    };
+    pub const ADD_MEMBERSHIP = 1;
+    pub const DROP_MEMBERSHIP = 2;
+    pub const RECV_OUTPUT = 3;
+    pub const RX_RING = 5;
+    pub const STATISTICS = 6;
+    pub const COPY_THRESH = 7;
+    pub const AUXDATA = 8;
+    pub const ORIGDEV = 9;
+    pub const VERSION = 10;
+    pub const HDRLEN = 11;
+    pub const RESERVE = 12;
+    pub const TX_RING = 13;
+    pub const LOSS = 14;
+    pub const VNET_HDR = 15;
+    pub const TX_TIMESTAMP = 16;
+    pub const TIMESTAMP = 17;
+    pub const FANOUT = 18;
+    pub const TX_HAS_OFF = 19;
+    pub const QDISC_BYPASS = 20;
+    pub const ROLLOVER_STATS = 21;
+    pub const FANOUT_DATA = 22;
+    pub const IGNORE_OUTGOING = 23;
+    pub const VNET_HDR_SZ = 24;
+
+    pub const FANOUT_HASH = 0;
+    pub const FANOUT_LB = 1;
+    pub const FANOUT_CPU = 2;
+    pub const FANOUT_ROLLOVER = 3;
+    pub const FANOUT_RND = 4;
+    pub const FANOUT_QM = 5;
+    pub const FANOUT_CBPF = 6;
+    pub const FANOUT_EBPF = 7;
+    pub const FANOUT_FLAG_ROLLOVER = 0x1000;
+    pub const FANOUT_FLAG_UNIQUEID = 0x2000;
+    pub const FANOUT_FLAG_IGNORE_OUTGOING = 0x4000;
+    pub const FANOUT_FLAG_DEFRAG = 0x8000;
+};
+
+pub const tpacket_versions = enum(u32) {
+    V1 = 0,
+    V2 = 1,
+    V3 = 2,
+};
+
+pub const tpacket_req3 = extern struct {
+    block_size: c_uint, // Minimal size of contiguous block
+    block_nr: c_uint, // Number of blocks
+    frame_size: c_uint, // Size of frame
+    frame_nr: c_uint, // Total number of frames
+    retire_blk_tov: c_uint, // Timeout in msecs
+    sizeof_priv: c_uint, // Offset to private data area
+    feature_req_word: c_uint,
+};
+
+pub const tpacket_bd_ts = extern struct {
+    sec: c_uint,
+    frac: extern union {
+        usec: c_uint,
+        nsec: c_uint,
+    },
+};
+
+pub const TP_STATUS = extern union {
+    rx: packed struct(u32) {
+        USER: bool,
+        COPY: bool,
+        LOSING: bool,
+        CSUMNOTREADY: bool,
+        VLAN_VALID: bool,
+        BLK_TMO: bool,
+        VLAN_TPID_VALID: bool,
+        CSUM_VALID: bool,
+        GSO_TCP: bool,
+        _: u20,
+        TS_SOFTWARE: bool,
+        TS_SYS_HARDWARE: bool,
+        TS_RAW_HARDWARE: bool,
+    },
+    tx: packed struct(u32) {
+        SEND_REQUEST: bool,
+        SENDING: bool,
+        WRONG_FORMAT: bool,
+        _: u26,
+        TS_SOFTWARE: bool,
+        TS_SYS_HARDWARE: bool,
+        TS_RAW_HARDWARE: bool,
+    },
+};
+
+pub const tpacket_hdr_v1 = extern struct {
+    block_status: TP_STATUS,
+    num_pkts: u32,
+    offset_to_first_pkt: u32,
+    blk_len: u32,
+    seq_num: u64 align(8),
+    ts_first_pkt: tpacket_bd_ts,
+    ts_last_pkt: tpacket_bd_ts,
+};
+
+pub const tpacket_bd_header_u = extern union {
+    bh1: tpacket_hdr_v1,
+};
+
+pub const tpacket_block_desc = extern struct {
+    version: u32,
+    offset_to_priv: u32,
+    hdr: tpacket_bd_header_u,
+};
+
+pub const tpacket_hdr_variant1 = extern struct {
+    rxhash: u32,
+    vlan_tci: u32,
+    vlan_tpid: u16,
+    padding: u16,
+};
+
+pub const tpacket3_hdr = extern struct {
+    next_offset: u32,
+    sec: u32,
+    nsec: u32,
+    snaplen: u32,
+    len: u32,
+    status: u32,
+    mac: u16,
+    net: u16,
+    variant: extern union {
+        hv1: tpacket_hdr_variant1,
+    },
+    padding: [8]u8,
+};
+
+pub const tpacket_stats_v3 = extern struct {
+    packets: c_uint,
+    drops: c_uint,
+    freeze_q_cnt: c_uint,
+};
+
+// doc comments copied from musl
+pub const rlimit_resource = if (native_arch.isMIPS()) enum(c_int) {
+    /// Per-process CPU limit, in seconds.
+    CPU = 0,
+
+    /// Largest file that can be created, in bytes.
+    FSIZE = 1,
+
+    /// Maximum size of data segment, in bytes.
+    DATA = 2,
+
+    /// Maximum size of stack segment, in bytes.
+    STACK = 3,
+
+    /// Largest core file that can be created, in bytes.
+    CORE = 4,
+
+    /// Number of open files.
+    NOFILE = 5,
+
+    /// Address space limit.
+    AS = 6,
+
+    /// Largest resident set size, in bytes.
+    /// This affects swapping; processes that are exceeding their
+    /// resident set size will be more likely to have physical memory
+    /// taken from them.
+    RSS = 7,
+
+    /// Number of processes.
+    NPROC = 8,
+
+    /// Locked-in-memory address space.
+    MEMLOCK = 9,
+
+    /// Maximum number of file locks.
+    LOCKS = 10,
+
+    /// Maximum number of pending signals.
+    SIGPENDING = 11,
+
+    /// Maximum bytes in POSIX message queues.
+    MSGQUEUE = 12,
+
+    /// Maximum nice priority allowed to raise to.
+    /// Nice levels 19 .. -20 correspond to 0 .. 39
+    /// values of this resource limit.
+    NICE = 13,
+
+    /// Maximum realtime priority allowed for non-privileged
+    /// processes.
+    RTPRIO = 14,
+
+    /// Maximum CPU time in µs that a process scheduled under a real-time
+    /// scheduling policy may consume without making a blocking system
+    /// call before being forcibly descheduled.
+    RTTIME = 15,
+
+    _,
+} else if (native_arch.isSPARC()) enum(c_int) {
+    /// Per-process CPU limit, in seconds.
+    CPU = 0,
+
+    /// Largest file that can be created, in bytes.
+    FSIZE = 1,
+
+    /// Maximum size of data segment, in bytes.
+    DATA = 2,
+
+    /// Maximum size of stack segment, in bytes.
+    STACK = 3,
+
+    /// Largest core file that can be created, in bytes.
+    CORE = 4,
+
+    /// Largest resident set size, in bytes.
+    /// This affects swapping; processes that are exceeding their
+    /// resident set size will be more likely to have physical memory
+    /// taken from them.
+    RSS = 5,
+
+    /// Number of open files.
+    NOFILE = 6,
+
+    /// Number of processes.
+    NPROC = 7,
+
+    /// Locked-in-memory address space.
+    MEMLOCK = 8,
+
+    /// Address space limit.
+    AS = 9,
+
+    /// Maximum number of file locks.
+    LOCKS = 10,
+
+    /// Maximum number of pending signals.
+    SIGPENDING = 11,
+
+    /// Maximum bytes in POSIX message queues.
+    MSGQUEUE = 12,
+
+    /// Maximum nice priority allowed to raise to.
+    /// Nice levels 19 .. -20 correspond to 0 .. 39
+    /// values of this resource limit.
+    NICE = 13,
+
+    /// Maximum realtime priority allowed for non-privileged
+    /// processes.
+    RTPRIO = 14,
+
+    /// Maximum CPU time in µs that a process scheduled under a real-time
+    /// scheduling policy may consume without making a blocking system
+    /// call before being forcibly descheduled.
+    RTTIME = 15,
+
+    _,
+} else enum(c_int) {
+    /// Per-process CPU limit, in seconds.
+    CPU = 0,
+    /// Largest file that can be created, in bytes.
+    FSIZE = 1,
+    /// Maximum size of data segment, in bytes.
+    DATA = 2,
+    /// Maximum size of stack segment, in bytes.
+    STACK = 3,
+    /// Largest core file that can be created, in bytes.
+    CORE = 4,
+    /// Largest resident set size, in bytes.
+    /// This affects swapping; processes that are exceeding their
+    /// resident set size will be more likely to have physical memory
+    /// taken from them.
+    RSS = 5,
+    /// Number of processes.
+    NPROC = 6,
+    /// Number of open files.
+    NOFILE = 7,
+    /// Locked-in-memory address space.
+    MEMLOCK = 8,
+    /// Address space limit.
+    AS = 9,
+    /// Maximum number of file locks.
+    LOCKS = 10,
+    /// Maximum number of pending signals.
+    SIGPENDING = 11,
+    /// Maximum bytes in POSIX message queues.
+    MSGQUEUE = 12,
+    /// Maximum nice priority allowed to raise to.
+    /// Nice levels 19 .. -20 correspond to 0 .. 39
+    /// values of this resource limit.
+    NICE = 13,
+    /// Maximum realtime priority allowed for non-privileged
+    /// processes.
+    RTPRIO = 14,
+    /// Maximum CPU time in µs that a process scheduled under a real-time
+    /// scheduling policy may consume without making a blocking system
+    /// call before being forcibly descheduled.
+    RTTIME = 15,
+
+    _,
+};
 
 pub const rlim_t = u64;
 

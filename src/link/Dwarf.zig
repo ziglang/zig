@@ -317,7 +317,7 @@ pub const Section = struct {
     fn resize(sec: *Section, dwarf: *Dwarf, len: u64) UpdateError!void {
         if (dwarf.bin_file.cast(.elf)) |elf_file| {
             try elf_file.growNonAllocSection(sec.index, len, @intCast(sec.alignment.toByteUnits().?), true);
-            const shdr = &elf_file.shdrs.items[sec.index];
+            const shdr = &elf_file.sections.items(.shdr)[sec.index];
             sec.off = shdr.sh_offset;
             sec.len = shdr.sh_size;
         } else if (dwarf.bin_file.cast(.macho)) |macho_file| {
@@ -340,7 +340,7 @@ pub const Section = struct {
         sec.off += len;
         sec.len -= len;
         if (dwarf.bin_file.cast(.elf)) |elf_file| {
-            const shdr = &elf_file.shdrs.items[sec.index];
+            const shdr = &elf_file.sections.items(.shdr)[sec.index];
             shdr.sh_offset = sec.off;
             shdr.sh_size = sec.len;
         } else if (dwarf.bin_file.cast(.macho)) |macho_file| {
@@ -771,7 +771,7 @@ const Entry = struct {
             log.err("missing {} from {s}", .{
                 @as(Entry.Index, @enumFromInt(entry - unit.entries.items.ptr)),
                 std.mem.sliceTo(if (dwarf.bin_file.cast(.elf)) |elf_file|
-                    elf_file.shstrtab.items[elf_file.shdrs.items[sec.index].sh_name..]
+                    elf_file.shstrtab.items[elf_file.sections.items(.shdr)[sec.index].sh_name..]
                 else if (dwarf.bin_file.cast(.macho)) |macho_file|
                     if (macho_file.d_sym) |*d_sym|
                         &d_sym.sections.items[sec.index].segname
@@ -780,7 +780,7 @@ const Entry = struct {
                 else
                     "?", 0),
             });
-            const zcu = dwarf.bin_file.comp.module.?;
+            const zcu = dwarf.bin_file.comp.zcu.?;
             const ip = &zcu.intern_pool;
             for (dwarf.types.keys(), dwarf.types.values()) |ty, other_entry| {
                 const ty_unit: Unit.Index = if (Type.fromInterned(ty).typeDeclInst(zcu)) |inst_index|
@@ -1108,6 +1108,12 @@ pub const WipNav = struct {
         wip_nav.any_children = true;
     }
 
+    pub fn genVarArgsDebugInfo(wip_nav: *WipNav) UpdateError!void {
+        assert(wip_nav.func != .none);
+        try wip_nav.abbrevCode(.is_var_args);
+        wip_nav.any_children = true;
+    }
+
     pub fn advancePCAndLine(
         wip_nav: *WipNav,
         delta_line: i33,
@@ -1380,7 +1386,11 @@ pub const WipNav = struct {
     fn enumConstValue(
         wip_nav: *WipNav,
         loaded_enum: InternPool.LoadedEnumType,
-        abbrev_code: std.enums.EnumFieldStruct(std.builtin.Signedness, AbbrevCode, null),
+        abbrev_code: struct {
+            sdata: AbbrevCode,
+            udata: AbbrevCode,
+            block: AbbrevCode,
+        },
         field_index: usize,
     ) UpdateError!void {
         const zcu = wip_nav.pt.zcu;
@@ -1390,20 +1400,15 @@ pub const WipNav = struct {
             .comptime_int_type => .signed,
             else => Type.fromInterned(loaded_enum.tag_ty).intInfo(zcu).signedness,
         };
-        try wip_nav.abbrevCode(switch (signedness) {
-            inline .signed, .unsigned => |ct_signedness| @field(abbrev_code, @tagName(ct_signedness)),
-        });
-        if (loaded_enum.values.len > 0) switch (ip.indexToKey(loaded_enum.values.get(ip)[field_index]).int.storage) {
-            .u64 => |value| switch (signedness) {
-                .signed => try sleb128(diw, value),
-                .unsigned => try uleb128(diw, value),
-            },
-            .i64 => |value| switch (signedness) {
-                .signed => try sleb128(diw, value),
-                .unsigned => unreachable,
-            },
-            .big_int => |big_int| {
-                const bits = big_int.bitCountTwosCompForSignedness(signedness);
+        if (loaded_enum.values.len > 0) {
+            var big_int_space: InternPool.Key.Int.Storage.BigIntSpace = undefined;
+            const big_int = ip.indexToKey(loaded_enum.values.get(ip)[field_index]).int.storage.toBigInt(&big_int_space);
+            const bits = @max(1, big_int.bitCountTwosCompForSignedness(signedness));
+            if (bits <= 64) {
+                try wip_nav.abbrevCode(switch (signedness) {
+                    .signed => abbrev_code.sdata,
+                    .unsigned => abbrev_code.udata,
+                });
                 try wip_nav.debug_info.ensureUnusedCapacity(wip_nav.dwarf.gpa, std.math.divCeil(usize, bits, 7) catch unreachable);
                 var bit: usize = 0;
                 var carry: u1 = 1;
@@ -1412,11 +1417,8 @@ pub const WipNav = struct {
                     const limb_index = bit / limb_bits;
                     const limb_shift: std.math.Log2Int(std.math.big.Limb) = @intCast(bit % limb_bits);
                     const low_abs_part: u7 = @truncate(big_int.limbs[limb_index] >> limb_shift);
-                    const abs_part = if (limb_shift > limb_bits - 7) abs_part: {
-                        const next_limb: std.math.big.Limb = if (limb_index + 1 < big_int.limbs.len)
-                            big_int.limbs[limb_index + 1]
-                        else if (big_int.positive) 0 else std.math.maxInt(std.math.big.Limb);
-                        const high_abs_part: u7 = @truncate(next_limb << -%limb_shift);
+                    const abs_part = if (limb_shift > limb_bits - 7 and limb_index + 1 < big_int.limbs.len) abs_part: {
+                        const high_abs_part: u7 = @truncate(big_int.limbs[limb_index + 1] << -%limb_shift);
                         break :abs_part high_abs_part | low_abs_part;
                     } else low_abs_part;
                     const twos_comp_part = if (big_int.positive) abs_part else twos_comp_part: {
@@ -1425,11 +1427,21 @@ pub const WipNav = struct {
                     };
                     wip_nav.debug_info.appendAssumeCapacity(@as(u8, if (bit + 7 < bits) 0x80 else 0x00) | twos_comp_part);
                 }
-            },
-            .lazy_align, .lazy_size => unreachable,
+            } else {
+                try wip_nav.abbrevCode(abbrev_code.block);
+                const bytes = Type.fromInterned(loaded_enum.tag_ty).abiSize(wip_nav.pt.zcu);
+                try uleb128(diw, bytes);
+                big_int.writeTwosComplement(try wip_nav.debug_info.addManyAsSlice(wip_nav.dwarf.gpa, @intCast(bytes)), wip_nav.dwarf.endian);
+            }
         } else switch (signedness) {
-            .signed => try sleb128(diw, field_index),
-            .unsigned => try uleb128(diw, field_index),
+            .signed => {
+                try wip_nav.abbrevCode(abbrev_code.sdata);
+                try sleb128(diw, field_index);
+            },
+            .unsigned => {
+                try wip_nav.abbrevCode(abbrev_code.udata);
+                try uleb128(diw, field_index);
+            },
         }
     }
 
@@ -1517,7 +1529,7 @@ pub fn reloadSectionMetadata(dwarf: *Dwarf) void {
             elf_file.debug_rnglists_section_index.?,
             elf_file.debug_str_section_index.?,
         }) |sec, section_index| {
-            const shdr = &elf_file.shdrs.items[section_index];
+            const shdr = &elf_file.sections.items(.shdr)[section_index];
             sec.index = section_index;
             sec.off = shdr.sh_offset;
             sec.len = shdr.sh_size;
@@ -1758,7 +1770,7 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
             const ty_reloc_index = try wip_nav.refForward();
             try wip_nav.exprloc(.{ .addr = .{ .sym = sym_index } });
             try uleb128(diw, nav.status.resolved.alignment.toByteUnits() orelse
-                ty.abiAlignment(pt).toByteUnits().?);
+                ty.abiAlignment(zcu).toByteUnits().?);
             try diw.writeByte(@intFromBool(false));
             wip_nav.finishForward(ty_reloc_index);
             try wip_nav.abbrevCode(.is_const);
@@ -1809,7 +1821,7 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
             const addr: Loc = .{ .addr = .{ .sym = sym_index } };
             try wip_nav.exprloc(if (variable.is_threadlocal) .{ .form_tls_address = &addr } else addr);
             try uleb128(diw, nav.status.resolved.alignment.toByteUnits() orelse
-                ty.abiAlignment(pt).toByteUnits().?);
+                ty.abiAlignment(zcu).toByteUnits().?);
             try diw.writeByte(@intFromBool(false));
         },
         .func => |func| {
@@ -2146,8 +2158,8 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                         try diw.writeByte(accessibility);
                         try wip_nav.strp(nav.name.toSlice(ip));
                         if (loaded_struct.field_types.len == 0) try diw.writeByte(@intFromBool(false)) else {
-                            try uleb128(diw, nav_val.toType().abiSize(pt));
-                            try uleb128(diw, nav_val.toType().abiAlignment(pt).toByteUnits().?);
+                            try uleb128(diw, nav_val.toType().abiSize(zcu));
+                            try uleb128(diw, nav_val.toType().abiAlignment(zcu).toByteUnits().?);
                             for (0..loaded_struct.field_types.len) |field_index| {
                                 const is_comptime = loaded_struct.fieldIsComptime(ip, field_index);
                                 try wip_nav.abbrevCode(if (is_comptime) .struct_field_comptime else .struct_field);
@@ -2161,7 +2173,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                                 if (!is_comptime) {
                                     try uleb128(diw, loaded_struct.offsets.get(ip)[field_index]);
                                     try uleb128(diw, loaded_struct.fieldAlign(ip, field_index).toByteUnits() orelse
-                                        field_type.abiAlignment(pt).toByteUnits().?);
+                                        field_type.abiAlignment(zcu).toByteUnits().?);
                                 }
                             }
                             try uleb128(diw, @intFromEnum(AbbrevCode.null));
@@ -2183,7 +2195,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                             const field_type = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
                             try wip_nav.refType(field_type);
                             try uleb128(diw, field_bit_offset);
-                            field_bit_offset += @intCast(field_type.bitSize(pt));
+                            field_bit_offset += @intCast(field_type.bitSize(zcu));
                         }
                         try uleb128(diw, @intFromEnum(AbbrevCode.null));
                     },
@@ -2267,8 +2279,9 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                 try wip_nav.refType(Type.fromInterned(loaded_enum.tag_ty));
                 for (0..loaded_enum.names.len) |field_index| {
                     try wip_nav.enumConstValue(loaded_enum, .{
-                        .signed = .signed_enum_field,
-                        .unsigned = .unsigned_enum_field,
+                        .sdata = .signed_enum_field,
+                        .udata = .unsigned_enum_field,
+                        .block = .big_enum_field,
                     }, field_index);
                     try wip_nav.strp(loaded_enum.names.get(ip)[field_index].toSlice(ip));
                 }
@@ -2347,7 +2360,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                 try uleb128(diw, loc.column + 1);
                 try diw.writeByte(accessibility);
                 try wip_nav.strp(nav.name.toSlice(ip));
-                const union_layout = pt.getUnionLayout(loaded_union);
+                const union_layout = Type.getUnionLayout(loaded_union, zcu);
                 try uleb128(diw, union_layout.abi_size);
                 try uleb128(diw, union_layout.abi_align.toByteUnits().?);
                 const loaded_tag = loaded_union.loadTagType(ip);
@@ -2367,8 +2380,9 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
 
                         for (0..loaded_union.field_types.len) |field_index| {
                             try wip_nav.enumConstValue(loaded_tag, .{
-                                .signed = .signed_tagged_union_field,
-                                .unsigned = .unsigned_tagged_union_field,
+                                .sdata = .signed_tagged_union_field,
+                                .udata = .unsigned_tagged_union_field,
+                                .block = .big_tagged_union_field,
                             }, field_index);
                             {
                                 try wip_nav.abbrevCode(.struct_field);
@@ -2377,7 +2391,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                                 try wip_nav.refType(field_type);
                                 try uleb128(diw, union_layout.payloadOffset());
                                 try uleb128(diw, loaded_union.fieldAlign(ip, field_index).toByteUnits() orelse
-                                    if (field_type.isNoReturn(zcu)) 1 else field_type.abiAlignment(pt).toByteUnits().?);
+                                    if (field_type.isNoReturn(zcu)) 1 else field_type.abiAlignment(zcu).toByteUnits().?);
                             }
                             try uleb128(diw, @intFromEnum(AbbrevCode.null));
                         }
@@ -2392,7 +2406,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                     const field_type = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
                     try wip_nav.refType(field_type);
                     try uleb128(diw, loaded_union.fieldAlign(ip, field_index).toByteUnits() orelse
-                        field_type.abiAlignment(pt).toByteUnits().?);
+                        field_type.abiAlignment(zcu).toByteUnits().?);
                 }
                 try uleb128(diw, @intFromEnum(AbbrevCode.null));
                 break :done;
@@ -2546,8 +2560,8 @@ fn updateType(
                 inline .signed, .unsigned => |signedness| @field(DW.ATE, @tagName(signedness)),
             });
             try uleb128(diw, int_type.bits);
-            try uleb128(diw, ty.abiSize(pt));
-            try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+            try uleb128(diw, ty.abiSize(zcu));
+            try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
         },
         .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
             .One, .Many, .C => {
@@ -2555,7 +2569,7 @@ fn updateType(
                 try wip_nav.abbrevCode(.ptr_type);
                 try wip_nav.strp(name);
                 try uleb128(diw, ptr_type.flags.alignment.toByteUnits() orelse
-                    ptr_child_type.abiAlignment(pt).toByteUnits().?);
+                    ptr_child_type.abiAlignment(zcu).toByteUnits().?);
                 try diw.writeByte(@intFromEnum(ptr_type.flags.address_space));
                 if (ptr_type.flags.is_const or ptr_type.flags.is_volatile) try wip_nav.infoSectionOffset(
                     .debug_info,
@@ -2580,8 +2594,8 @@ fn updateType(
             .Slice => {
                 try wip_nav.abbrevCode(.struct_type);
                 try wip_nav.strp(name);
-                try uleb128(diw, ty.abiSize(pt));
-                try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+                try uleb128(diw, ty.abiSize(zcu));
+                try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
                 try wip_nav.abbrevCode(.generated_field);
                 try wip_nav.strp("ptr");
                 const ptr_field_type = ty.slicePtrFieldType(zcu);
@@ -2591,7 +2605,7 @@ fn updateType(
                 try wip_nav.strp("len");
                 const len_field_type = Type.usize;
                 try wip_nav.refType(len_field_type);
-                try uleb128(diw, len_field_type.abiAlignment(pt).forward(ptr_field_type.abiSize(pt)));
+                try uleb128(diw, len_field_type.abiAlignment(zcu).forward(ptr_field_type.abiSize(zcu)));
                 try uleb128(diw, @intFromEnum(AbbrevCode.null));
             },
         },
@@ -2609,8 +2623,8 @@ fn updateType(
             const opt_child_type = Type.fromInterned(opt_child_type_index);
             try wip_nav.abbrevCode(.union_type);
             try wip_nav.strp(name);
-            try uleb128(diw, ty.abiSize(pt));
-            try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+            try uleb128(diw, ty.abiSize(zcu));
+            try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
             if (opt_child_type.isNoReturn(zcu)) {
                 try wip_nav.abbrevCode(.generated_field);
                 try wip_nav.strp("null");
@@ -2638,8 +2652,8 @@ fn updateType(
                     switch (repr) {
                         .unpacked => {
                             try wip_nav.refType(Type.bool);
-                            try uleb128(diw, if (opt_child_type.hasRuntimeBits(pt))
-                                opt_child_type.abiSize(pt)
+                            try uleb128(diw, if (opt_child_type.hasRuntimeBits(zcu))
+                                opt_child_type.abiSize(zcu)
                             else
                                 0);
                         },
@@ -2686,8 +2700,8 @@ fn updateType(
             const error_union_error_set_offset, const error_union_payload_offset = switch (error_union_type.payload_type) {
                 .generic_poison_type => .{ 0, 0 },
                 else => .{
-                    codegen.errUnionErrorOffset(error_union_payload_type, pt),
-                    codegen.errUnionPayloadOffset(error_union_payload_type, pt),
+                    codegen.errUnionErrorOffset(error_union_payload_type, zcu),
+                    codegen.errUnionPayloadOffset(error_union_payload_type, zcu),
                 },
             };
 
@@ -2696,8 +2710,8 @@ fn updateType(
             if (error_union_type.error_set_type != .generic_poison_type and
                 error_union_type.payload_type != .generic_poison_type)
             {
-                try uleb128(diw, ty.abiSize(pt));
-                try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+                try uleb128(diw, ty.abiSize(zcu));
+                try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
             } else {
                 try uleb128(diw, 0);
                 try uleb128(diw, 1);
@@ -2774,9 +2788,9 @@ fn updateType(
                     DW.ATE.unsigned
                 else
                     unreachable);
-                try uleb128(diw, ty.bitSize(pt));
-                try uleb128(diw, ty.abiSize(pt));
-                try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+                try uleb128(diw, ty.bitSize(zcu));
+                try uleb128(diw, ty.abiSize(zcu));
+                try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
             },
             .anyopaque,
             .void,
@@ -2806,8 +2820,8 @@ fn updateType(
         } else {
             try wip_nav.abbrevCode(.struct_type);
             try wip_nav.strp(name);
-            try uleb128(diw, ty.abiSize(pt));
-            try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+            try uleb128(diw, ty.abiSize(zcu));
+            try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
             var field_byte_offset: u64 = 0;
             for (0..anon_struct_type.types.len) |field_index| {
                 const comptime_value = anon_struct_type.values.get(ip)[field_index];
@@ -2820,28 +2834,29 @@ fn updateType(
                 const field_type = Type.fromInterned(anon_struct_type.types.get(ip)[field_index]);
                 try wip_nav.refType(field_type);
                 if (comptime_value == .none) {
-                    const field_align = field_type.abiAlignment(pt);
+                    const field_align = field_type.abiAlignment(zcu);
                     field_byte_offset = field_align.forward(field_byte_offset);
                     try uleb128(diw, field_byte_offset);
-                    try uleb128(diw, field_type.abiAlignment(pt).toByteUnits().?);
-                    field_byte_offset += field_type.abiSize(pt);
+                    try uleb128(diw, field_type.abiAlignment(zcu).toByteUnits().?);
+                    field_byte_offset += field_type.abiSize(zcu);
                 }
             }
             try uleb128(diw, @intFromEnum(AbbrevCode.null));
         },
         .enum_type => {
             const loaded_enum = ip.loadEnumType(type_index);
-            try wip_nav.abbrevCode(.enum_type);
+            try wip_nav.abbrevCode(if (loaded_enum.names.len > 0) .enum_type else .empty_enum_type);
             try wip_nav.strp(name);
             try wip_nav.refType(Type.fromInterned(loaded_enum.tag_ty));
             for (0..loaded_enum.names.len) |field_index| {
                 try wip_nav.enumConstValue(loaded_enum, .{
-                    .signed = .signed_enum_field,
-                    .unsigned = .unsigned_enum_field,
+                    .sdata = .signed_enum_field,
+                    .udata = .unsigned_enum_field,
+                    .block = .big_enum_field,
                 }, field_index);
                 try wip_nav.strp(loaded_enum.names.get(ip)[field_index].toSlice(ip));
             }
-            try uleb128(diw, @intFromEnum(AbbrevCode.null));
+            if (loaded_enum.names.len > 0) try uleb128(diw, @intFromEnum(AbbrevCode.null));
         },
         .func_type => |func_type| {
             const is_nullary = func_type.param_types.len == 0 and !func_type.is_var_args;
@@ -2961,8 +2976,8 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
         try uleb128(diw, file_gop.index);
         try wip_nav.strp(loaded_struct.name.toSlice(ip));
         if (loaded_struct.field_types.len > 0) {
-            try uleb128(diw, ty.abiSize(pt));
-            try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+            try uleb128(diw, ty.abiSize(zcu));
+            try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
             for (0..loaded_struct.field_types.len) |field_index| {
                 const is_comptime = loaded_struct.fieldIsComptime(ip, field_index);
                 try wip_nav.abbrevCode(if (is_comptime) .struct_field_comptime else .struct_field);
@@ -2976,7 +2991,7 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                 if (!is_comptime) {
                     try uleb128(diw, loaded_struct.offsets.get(ip)[field_index]);
                     try uleb128(diw, loaded_struct.fieldAlign(ip, field_index).toByteUnits() orelse
-                        field_type.abiAlignment(pt).toByteUnits().?);
+                        field_type.abiAlignment(zcu).toByteUnits().?);
                 }
             }
             try uleb128(diw, @intFromEnum(AbbrevCode.null));
@@ -3027,8 +3042,8 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                         try wip_nav.abbrevCode(if (loaded_struct.field_types.len == 0) .namespace_struct_type else .struct_type);
                         try wip_nav.strp(name);
                         if (loaded_struct.field_types.len == 0) try diw.writeByte(@intFromBool(false)) else {
-                            try uleb128(diw, ty.abiSize(pt));
-                            try uleb128(diw, ty.abiAlignment(pt).toByteUnits().?);
+                            try uleb128(diw, ty.abiSize(zcu));
+                            try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
                             for (0..loaded_struct.field_types.len) |field_index| {
                                 const is_comptime = loaded_struct.fieldIsComptime(ip, field_index);
                                 try wip_nav.abbrevCode(if (is_comptime) .struct_field_comptime else .struct_field);
@@ -3042,14 +3057,14 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                                 if (!is_comptime) {
                                     try uleb128(diw, loaded_struct.offsets.get(ip)[field_index]);
                                     try uleb128(diw, loaded_struct.fieldAlign(ip, field_index).toByteUnits() orelse
-                                        field_type.abiAlignment(pt).toByteUnits().?);
+                                        field_type.abiAlignment(zcu).toByteUnits().?);
                                 }
                             }
                             try uleb128(diw, @intFromEnum(AbbrevCode.null));
                         }
                     },
                     .@"packed" => {
-                        try wip_nav.abbrevCode(.packed_struct_type);
+                        try wip_nav.abbrevCode(if (loaded_struct.field_types.len > 0) .packed_struct_type else .empty_packed_struct_type);
                         try wip_nav.strp(name);
                         try wip_nav.refType(Type.fromInterned(loaded_struct.backingIntTypeUnordered(ip)));
                         var field_bit_offset: u16 = 0;
@@ -3059,31 +3074,32 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                             const field_type = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
                             try wip_nav.refType(field_type);
                             try uleb128(diw, field_bit_offset);
-                            field_bit_offset += @intCast(field_type.bitSize(pt));
+                            field_bit_offset += @intCast(field_type.bitSize(zcu));
                         }
-                        try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                        if (loaded_struct.field_types.len > 0) try uleb128(diw, @intFromEnum(AbbrevCode.null));
                     },
                 }
             },
             .enum_type => {
                 const loaded_enum = ip.loadEnumType(type_index);
-                try wip_nav.abbrevCode(.enum_type);
+                try wip_nav.abbrevCode(if (loaded_enum.names.len > 0) .enum_type else .empty_enum_type);
                 try wip_nav.strp(name);
                 try wip_nav.refType(Type.fromInterned(loaded_enum.tag_ty));
                 for (0..loaded_enum.names.len) |field_index| {
                     try wip_nav.enumConstValue(loaded_enum, .{
-                        .signed = .signed_enum_field,
-                        .unsigned = .unsigned_enum_field,
+                        .sdata = .signed_enum_field,
+                        .udata = .unsigned_enum_field,
+                        .block = .big_enum_field,
                     }, field_index);
                     try wip_nav.strp(loaded_enum.names.get(ip)[field_index].toSlice(ip));
                 }
-                try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                if (loaded_enum.names.len > 0) try uleb128(diw, @intFromEnum(AbbrevCode.null));
             },
             .union_type => {
                 const loaded_union = ip.loadUnionType(type_index);
-                try wip_nav.abbrevCode(.union_type);
+                try wip_nav.abbrevCode(if (loaded_union.field_types.len > 0) .union_type else .empty_union_type);
                 try wip_nav.strp(name);
-                const union_layout = pt.getUnionLayout(loaded_union);
+                const union_layout = Type.getUnionLayout(loaded_union, zcu);
                 try uleb128(diw, union_layout.abi_size);
                 try uleb128(diw, union_layout.abi_align.toByteUnits().?);
                 const loaded_tag = loaded_union.loadTagType(ip);
@@ -3103,8 +3119,9 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
 
                         for (0..loaded_union.field_types.len) |field_index| {
                             try wip_nav.enumConstValue(loaded_tag, .{
-                                .signed = .signed_tagged_union_field,
-                                .unsigned = .unsigned_tagged_union_field,
+                                .sdata = .signed_tagged_union_field,
+                                .udata = .unsigned_tagged_union_field,
+                                .block = .big_tagged_union_field,
                             }, field_index);
                             {
                                 try wip_nav.abbrevCode(.struct_field);
@@ -3113,7 +3130,7 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                                 try wip_nav.refType(field_type);
                                 try uleb128(diw, union_layout.payloadOffset());
                                 try uleb128(diw, loaded_union.fieldAlign(ip, field_index).toByteUnits() orelse
-                                    if (field_type.isNoReturn(zcu)) 1 else field_type.abiAlignment(pt).toByteUnits().?);
+                                    if (field_type.isNoReturn(zcu)) 1 else field_type.abiAlignment(zcu).toByteUnits().?);
                             }
                             try uleb128(diw, @intFromEnum(AbbrevCode.null));
                         }
@@ -3128,9 +3145,9 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                     const field_type = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
                     try wip_nav.refType(field_type);
                     try uleb128(diw, loaded_union.fieldAlign(ip, field_index).toByteUnits() orelse
-                        field_type.abiAlignment(pt).toByteUnits().?);
+                        field_type.abiAlignment(zcu).toByteUnits().?);
                 }
-                try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                if (loaded_union.field_types.len > 0) try uleb128(diw, @intFromEnum(AbbrevCode.null));
             },
             .opaque_type => {
                 try wip_nav.abbrevCode(.namespace_struct_type);
@@ -3570,6 +3587,7 @@ const AbbrevCode = enum {
     file,
     signed_enum_field,
     unsigned_enum_field,
+    big_enum_field,
     generated_field,
     struct_field,
     struct_field_comptime,
@@ -3578,6 +3596,7 @@ const AbbrevCode = enum {
     tagged_union,
     signed_tagged_union_field,
     unsigned_tagged_union_field,
+    big_tagged_union_field,
     tagged_union_default_field,
     void_type,
     numeric_type,
@@ -3596,7 +3615,9 @@ const AbbrevCode = enum {
     namespace_struct_type,
     struct_type,
     packed_struct_type,
+    empty_packed_struct_type,
     union_type,
+    empty_union_type,
     empty_inlined_func,
     inlined_func,
     local_arg,
@@ -3778,6 +3799,13 @@ const AbbrevCode = enum {
                 .{ .name, .strp },
             },
         },
+        .big_enum_field = .{
+            .tag = .enumerator,
+            .attrs = &.{
+                .{ .const_value, .block },
+                .{ .name, .strp },
+            },
+        },
         .generated_field = .{
             .tag = .member,
             .attrs = &.{
@@ -3839,6 +3867,13 @@ const AbbrevCode = enum {
             .children = true,
             .attrs = &.{
                 .{ .discr_value, .udata },
+            },
+        },
+        .big_tagged_union_field = .{
+            .tag = .variant,
+            .children = true,
+            .attrs = &.{
+                .{ .discr_value, .block },
             },
         },
         .tagged_union_default_field = .{
@@ -3971,9 +4006,24 @@ const AbbrevCode = enum {
                 .{ .type, .ref_addr },
             },
         },
+        .empty_packed_struct_type = .{
+            .tag = .structure_type,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+            },
+        },
         .union_type = .{
             .tag = .union_type,
             .children = true,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .byte_size, .udata },
+                .{ .alignment, .udata },
+            },
+        },
+        .empty_union_type = .{
+            .tag = .union_type,
             .attrs = &.{
                 .{ .name, .strp },
                 .{ .byte_size, .udata },

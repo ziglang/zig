@@ -1,9 +1,8 @@
-pub fn createThunks(shndx: u32, elf_file: *Elf) !void {
+pub fn createThunks(shdr: *elf.Elf64_Shdr, shndx: u32, elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
     const cpu_arch = elf_file.getTarget().cpu.arch;
     const max_distance = maxAllowedDistance(cpu_arch);
-    const shdr = &elf_file.shdrs.items[shndx];
-    const atoms = elf_file.output_sections.get(shndx).?.items;
+    const atoms = elf_file.sections.items(.atom_list)[shndx].items;
     assert(atoms.len > 0);
 
     for (atoms) |ref| {
@@ -89,7 +88,7 @@ pub const Thunk = struct {
     }
 
     pub fn address(thunk: Thunk, elf_file: *Elf) i64 {
-        const shdr = elf_file.shdrs.items[thunk.output_section_index];
+        const shdr = elf_file.sections.items(.shdr)[thunk.output_section_index];
         return @as(i64, @intCast(shdr.sh_addr)) + thunk.value;
     }
 

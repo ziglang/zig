@@ -259,7 +259,7 @@ pub fn updateNav(
         else => .{ false, .none, nav_val },
     };
 
-    if (nav_init.typeOf(zcu).hasRuntimeBits(pt)) {
+    if (nav_init.typeOf(zcu).hasRuntimeBits(zcu)) {
         const gpa = wasm_file.base.comp.gpa;
         const atom_index = try zig_object.getOrCreateAtomForNav(wasm_file, pt, nav_index);
         const atom = wasm_file.getAtomPtr(atom_index);
@@ -487,9 +487,9 @@ fn lowerConst(
     src_loc: Zcu.LazySrcLoc,
 ) !LowerConstResult {
     const gpa = wasm_file.base.comp.gpa;
-    const mod = wasm_file.base.comp.module.?;
+    const zcu = wasm_file.base.comp.zcu.?;
 
-    const ty = val.typeOf(mod);
+    const ty = val.typeOf(zcu);
 
     // Create and initialize a new local symbol and atom
     const sym_index = try zig_object.allocateSymbol(gpa);
@@ -499,7 +499,7 @@ fn lowerConst(
 
     const code = code: {
         const atom = wasm_file.getAtomPtr(atom_index);
-        atom.alignment = ty.abiAlignment(pt);
+        atom.alignment = ty.abiAlignment(zcu);
         const segment_name = try std.mem.concat(gpa, u8, &.{ ".rodata.", name });
         errdefer gpa.free(segment_name);
         zig_object.symbol(sym_index).* = .{
@@ -509,7 +509,7 @@ fn lowerConst(
             .index = try zig_object.createDataSegment(
                 gpa,
                 segment_name,
-                ty.abiAlignment(pt),
+                ty.abiAlignment(zcu),
             ),
             .virtual_address = undefined,
         };
@@ -555,7 +555,7 @@ pub fn getErrorTableSymbol(zig_object: *ZigObject, wasm_file: *Wasm, pt: Zcu.Per
     const atom_index = try wasm_file.createAtom(sym_index, zig_object.index);
     const atom = wasm_file.getAtomPtr(atom_index);
     const slice_ty = Type.slice_const_u8_sentinel_0;
-    atom.alignment = slice_ty.abiAlignment(pt);
+    atom.alignment = slice_ty.abiAlignment(pt.zcu);
 
     const sym_name = try zig_object.string_table.insert(gpa, "__zig_err_name_table");
     const segment_name = try gpa.dupe(u8, ".rodata.__zig_err_name_table");
@@ -604,14 +604,14 @@ fn populateErrorNameTable(zig_object: *ZigObject, wasm_file: *Wasm, tid: Zcu.Per
 
     // Addend for each relocation to the table
     var addend: u32 = 0;
-    const pt: Zcu.PerThread = .{ .zcu = wasm_file.base.comp.module.?, .tid = tid };
+    const pt: Zcu.PerThread = .{ .zcu = wasm_file.base.comp.zcu.?, .tid = tid };
     const slice_ty = Type.slice_const_u8_sentinel_0;
     const atom = wasm_file.getAtomPtr(atom_index);
     {
         // TODO: remove this unreachable entry
         try atom.code.appendNTimes(gpa, 0, 4);
         try atom.code.writer(gpa).writeInt(u32, 0, .little);
-        atom.size += @intCast(slice_ty.abiSize(pt));
+        atom.size += @intCast(slice_ty.abiSize(pt.zcu));
         addend += 1;
 
         try names_atom.code.append(gpa, 0);
@@ -632,7 +632,7 @@ fn populateErrorNameTable(zig_object: *ZigObject, wasm_file: *Wasm, tid: Zcu.Per
             .offset = offset,
             .addend = @intCast(addend),
         });
-        atom.size += @intCast(slice_ty.abiSize(pt));
+        atom.size += @intCast(slice_ty.abiSize(pt.zcu));
         addend += len;
 
         // as we updated the error name table, we now store the actual name within the names atom
@@ -803,9 +803,9 @@ pub fn getUavVAddr(
     const parent_atom_index = wasm_file.symbol_atom.get(.{ .file = zig_object.index, .index = @enumFromInt(reloc_info.parent_atom_index) }).?;
     const parent_atom = wasm_file.getAtomPtr(parent_atom_index);
     const is_wasm32 = target.cpu.arch == .wasm32;
-    const mod = wasm_file.base.comp.module.?;
-    const ty = Type.fromInterned(mod.intern_pool.typeOf(uav));
-    if (ty.zigTypeTag(mod) == .Fn) {
+    const zcu = wasm_file.base.comp.zcu.?;
+    const ty = Type.fromInterned(zcu.intern_pool.typeOf(uav));
+    if (ty.zigTypeTag(zcu) == .Fn) {
         std.debug.assert(reloc_info.addend == 0); // addend not allowed for function relocations
         try parent_atom.relocs.append(gpa, .{
             .index = target_symbol_index,
@@ -834,13 +834,13 @@ pub fn deleteExport(
     exported: Zcu.Exported,
     name: InternPool.NullTerminatedString,
 ) void {
-    const mod = wasm_file.base.comp.module.?;
+    const zcu = wasm_file.base.comp.zcu.?;
     const nav_index = switch (exported) {
         .nav => |nav_index| nav_index,
         .uav => @panic("TODO: implement Wasm linker code for exporting a constant value"),
     };
     const nav_info = zig_object.navs.getPtr(nav_index) orelse return;
-    if (nav_info.@"export"(zig_object, name.toSlice(&mod.intern_pool))) |sym_index| {
+    if (nav_info.@"export"(zig_object, name.toSlice(&zcu.intern_pool))) |sym_index| {
         const sym = zig_object.symbol(sym_index);
         nav_info.deleteExport(sym_index);
         std.debug.assert(zig_object.global_syms.remove(sym.name));
@@ -930,8 +930,8 @@ pub fn updateExports(
 
 pub fn freeNav(zig_object: *ZigObject, wasm_file: *Wasm, nav_index: InternPool.Nav.Index) void {
     const gpa = wasm_file.base.comp.gpa;
-    const mod = wasm_file.base.comp.module.?;
-    const ip = &mod.intern_pool;
+    const zcu = wasm_file.base.comp.zcu.?;
+    const ip = &zcu.intern_pool;
     const nav_info = zig_object.navs.getPtr(nav_index).?;
     const atom_index = nav_info.atom;
     const atom = wasm_file.getAtomPtr(atom_index);
@@ -956,7 +956,7 @@ pub fn freeNav(zig_object: *ZigObject, wasm_file: *Wasm, nav_index: InternPool.N
         segment.name = &.{}; // Ensure no accidental double free
     }
 
-    const nav_val = mod.navValue(nav_index).toIntern();
+    const nav_val = zcu.navValue(nav_index).toIntern();
     if (ip.indexToKey(nav_val) == .@"extern") {
         std.debug.assert(zig_object.imports.remove(atom.sym_index));
     }
@@ -1016,7 +1016,7 @@ fn setupErrorsLen(zig_object: *ZigObject, wasm_file: *Wasm) !void {
     const gpa = wasm_file.base.comp.gpa;
     const sym_index = zig_object.findGlobalSymbol("__zig_errors_len") orelse return;
 
-    const errors_len = 1 + wasm_file.base.comp.module.?.intern_pool.global_error_set.getNamesFromMainThread().len;
+    const errors_len = 1 + wasm_file.base.comp.zcu.?.intern_pool.global_error_set.getNamesFromMainThread().len;
     // overwrite existing atom if it already exists (maybe the error set has increased)
     // if not, allocate a new atom.
     const atom_index = if (wasm_file.symbol_atom.get(.{ .file = zig_object.index, .index = sym_index })) |index| blk: {

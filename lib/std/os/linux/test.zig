@@ -125,6 +125,23 @@ test "fadvise" {
     try expectEqual(@as(usize, 0), ret);
 }
 
+test "sigset_t" {
+    var sigset = linux.empty_sigset;
+
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR1), false);
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR2), false);
+
+    linux.sigaddset(&sigset, linux.SIG.USR1);
+
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR1), true);
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR2), false);
+
+    linux.sigaddset(&sigset, linux.SIG.USR2);
+
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR1), true);
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR2), true);
+}
+
 test {
     _ = linux.IoUring;
 }

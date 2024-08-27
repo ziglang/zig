@@ -49,6 +49,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index, options: struct {
     relocs: []const Reloc,
 } {
     const pt = lower.pt;
+    const zcu = pt.zcu;
 
     lower.result_insts = undefined;
     lower.result_relocs = undefined;
@@ -308,11 +309,11 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index, options: struct {
 
             const class = rs1.class();
             const ty = compare.ty;
-            const size = std.math.ceilPowerOfTwo(u64, ty.bitSize(pt)) catch {
-                return lower.fail("pseudo_compare size {}", .{ty.bitSize(pt)});
+            const size = std.math.ceilPowerOfTwo(u64, ty.bitSize(zcu)) catch {
+                return lower.fail("pseudo_compare size {}", .{ty.bitSize(zcu)});
             };
 
-            const is_unsigned = ty.isUnsignedInt(pt.zcu);
+            const is_unsigned = ty.isUnsignedInt(zcu);
             const less_than: Mnemonic = if (is_unsigned) .sltu else .slt;
 
             switch (class) {

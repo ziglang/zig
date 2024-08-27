@@ -25,10 +25,9 @@ relocs_section_index: u32 = 0,
 /// Index of this atom in the linker's atoms table.
 atom_index: Index = 0,
 
-/// Points to the previous and next neighbors, based on the `text_offset`.
-/// This can be used to find, for example, the capacity of this `TextBlock`.
-prev_index: Index = 0,
-next_index: Index = 0,
+/// Points to the previous and next neighbors.
+prev_atom_ref: Elf.Ref = .{},
+next_atom_ref: Elf.Ref = .{},
 
 /// Specifies whether this atom is alive or has been garbage collected.
 alive: bool = true,
@@ -48,8 +47,20 @@ pub fn name(self: Atom, elf_file: *Elf) [:0]const u8 {
 }
 
 pub fn address(self: Atom, elf_file: *Elf) i64 {
-    const shdr = elf_file.shdrs.items[self.output_section_index];
+    const shdr = elf_file.sections.items(.shdr)[self.output_section_index];
     return @as(i64, @intCast(shdr.sh_addr)) + self.value;
+}
+
+pub fn ref(self: Atom) Elf.Ref {
+    return .{ .index = self.atom_index, .file = self.file_index };
+}
+
+pub fn prevAtom(self: Atom, elf_file: *Elf) ?*Atom {
+    return elf_file.atom(self.prev_atom_ref);
+}
+
+pub fn nextAtom(self: Atom, elf_file: *Elf) ?*Atom {
+    return elf_file.atom(self.next_atom_ref);
 }
 
 pub fn debugTombstoneValue(self: Atom, target: Symbol, elf_file: *Elf) ?u64 {
@@ -95,18 +106,16 @@ pub fn priority(self: Atom, elf_file: *Elf) u64 {
 /// File offset relocation happens transparently, so it is not included in
 /// this calculation.
 pub fn capacity(self: Atom, elf_file: *Elf) u64 {
-    const zo = elf_file.zigObjectPtr().?;
-    const next_addr = if (zo.atom(self.next_index)) |next|
-        next.address(elf_file)
+    const next_addr = if (self.nextAtom(elf_file)) |next_atom|
+        next_atom.address(elf_file)
     else
         std.math.maxInt(u32);
     return @intCast(next_addr - self.address(elf_file));
 }
 
 pub fn freeListEligible(self: Atom, elf_file: *Elf) bool {
-    const zo = elf_file.zigObjectPtr().?;
     // No need to keep a free list node for the last block.
-    const next = zo.atom(self.next_index) orelse return false;
+    const next = self.nextAtom(elf_file) orelse return false;
     const cap: u64 = @intCast(next.address(elf_file) - self.address(elf_file));
     const ideal_cap = Elf.padToIdeal(self.size);
     if (cap <= ideal_cap) return false;
@@ -115,11 +124,10 @@ pub fn freeListEligible(self: Atom, elf_file: *Elf) bool {
 }
 
 pub fn allocate(self: *Atom, elf_file: *Elf) !void {
-    const zo = elf_file.zigObjectPtr().?;
-    const shdr = &elf_file.shdrs.items[self.output_section_index];
-    const meta = elf_file.last_atom_and_free_list_table.getPtr(self.output_section_index).?;
-    const free_list = &meta.free_list;
-    const last_atom_index = &meta.last_atom_index;
+    const slice = elf_file.sections.slice();
+    const shdr = &slice.items(.shdr)[self.output_section_index];
+    const free_list = &slice.items(.free_list)[self.output_section_index];
+    const last_atom_ref = &slice.items(.last_atom)[self.output_section_index];
     const new_atom_ideal_capacity = Elf.padToIdeal(self.size);
 
     // We use these to indicate our intention to update metadata, placing the new atom,
@@ -127,7 +135,7 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
     // It would be simpler to do it inside the for loop below, but that would cause a
     // problem if an error was returned later in the function. So this action
     // is actually carried out at the end of the function, when errors are no longer possible.
-    var atom_placement: ?Atom.Index = null;
+    var atom_placement: ?Elf.Ref = null;
     var free_list_removal: ?usize = null;
 
     // First we look for an appropriately sized free list node.
@@ -135,8 +143,8 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
     self.value = blk: {
         var i: usize = if (elf_file.base.child_pid == null) 0 else free_list.items.len;
         while (i < free_list.items.len) {
-            const big_atom_index = free_list.items[i];
-            const big_atom = zo.atom(big_atom_index).?;
+            const big_atom_ref = free_list.items[i];
+            const big_atom = elf_file.atom(big_atom_ref).?;
             // We now have a pointer to a live atom that has too much capacity.
             // Is it enough that we could fit this new atom?
             const cap = big_atom.capacity(elf_file);
@@ -163,50 +171,52 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
             const keep_free_list_node = remaining_capacity >= Elf.min_text_capacity;
 
             // Set up the metadata to be updated, after errors are no longer possible.
-            atom_placement = big_atom_index;
+            atom_placement = big_atom_ref;
             if (!keep_free_list_node) {
                 free_list_removal = i;
             }
             break :blk @intCast(new_start_vaddr);
-        } else if (zo.atom(last_atom_index.*)) |last| {
-            const ideal_capacity = Elf.padToIdeal(last.size);
-            const ideal_capacity_end_vaddr = @as(u64, @intCast(last.value)) + ideal_capacity;
+        } else if (elf_file.atom(last_atom_ref.*)) |last_atom| {
+            const ideal_capacity = Elf.padToIdeal(last_atom.size);
+            const ideal_capacity_end_vaddr = @as(u64, @intCast(last_atom.value)) + ideal_capacity;
             const new_start_vaddr = self.alignment.forward(ideal_capacity_end_vaddr);
             // Set up the metadata to be updated, after errors are no longer possible.
-            atom_placement = last.atom_index;
+            atom_placement = last_atom.ref();
             break :blk @intCast(new_start_vaddr);
         } else {
             break :blk 0;
         }
     };
 
-    log.debug("allocated atom({d}) : '{s}' at 0x{x} to 0x{x}", .{
-        self.atom_index,
+    log.debug("allocated atom({}) : '{s}' at 0x{x} to 0x{x}", .{
+        self.ref(),
         self.name(elf_file),
         self.address(elf_file),
         self.address(elf_file) + @as(i64, @intCast(self.size)),
     });
 
-    const expand_section = if (atom_placement) |placement_index|
-        zo.atom(placement_index).?.next_index == 0
+    const expand_section = if (atom_placement) |placement_ref|
+        elf_file.atom(placement_ref).?.nextAtom(elf_file) == null
     else
         true;
     if (expand_section) {
         const needed_size: u64 = @intCast(self.value + @as(i64, @intCast(self.size)));
         try elf_file.growAllocSection(self.output_section_index, needed_size);
-        last_atom_index.* = self.atom_index;
+        last_atom_ref.* = self.ref();
 
-        const zig_object = elf_file.zigObjectPtr().?;
-        if (zig_object.dwarf) |_| {
-            // The .debug_info section has `low_pc` and `high_pc` values which is the virtual address
-            // range of the compilation unit. When we expand the text section, this range changes,
-            // so the DW_TAG.compile_unit tag of the .debug_info section becomes dirty.
-            zig_object.debug_info_section_dirty = true;
-            // This becomes dirty for the same reason. We could potentially make this more
-            // fine-grained with the addition of support for more compilation units. It is planned to
-            // model each package as a different compilation unit.
-            zig_object.debug_aranges_section_dirty = true;
-            zig_object.debug_rnglists_section_dirty = true;
+        switch (self.file(elf_file).?) {
+            .zig_object => |zo| if (zo.dwarf) |_| {
+                // The .debug_info section has `low_pc` and `high_pc` values which is the virtual address
+                // range of the compilation unit. When we expand the text section, this range changes,
+                // so the DW_TAG.compile_unit tag of the .debug_info section becomes dirty.
+                zo.debug_info_section_dirty = true;
+                // This becomes dirty for the same reason. We could potentially make this more
+                // fine-grained with the addition of support for more compilation units. It is planned to
+                // model each package as a different compilation unit.
+                zo.debug_aranges_section_dirty = true;
+                zo.debug_rnglists_section_dirty = true;
+            },
+            else => {},
         }
     }
     shdr.sh_addralign = @max(shdr.sh_addralign, self.alignment.toByteUnits().?);
@@ -214,21 +224,21 @@ pub fn allocate(self: *Atom, elf_file: *Elf) !void {
     // This function can also reallocate an atom.
     // In this case we need to "unplug" it from its previous location before
     // plugging it in to its new location.
-    if (zo.atom(self.prev_index)) |prev| {
-        prev.next_index = self.next_index;
+    if (self.prevAtom(elf_file)) |prev| {
+        prev.next_atom_ref = self.next_atom_ref;
     }
-    if (zo.atom(self.next_index)) |next| {
-        next.prev_index = self.prev_index;
+    if (self.nextAtom(elf_file)) |next| {
+        next.prev_atom_ref = self.prev_atom_ref;
     }
 
-    if (atom_placement) |big_atom_index| {
-        const big_atom = zo.atom(big_atom_index).?;
-        self.prev_index = big_atom_index;
-        self.next_index = big_atom.next_index;
-        big_atom.next_index = self.atom_index;
+    if (atom_placement) |big_atom_ref| {
+        const big_atom = elf_file.atom(big_atom_ref).?;
+        self.prev_atom_ref = big_atom_ref;
+        self.next_atom_ref = big_atom.next_atom_ref;
+        big_atom.next_atom_ref = self.ref();
     } else {
-        self.prev_index = 0;
-        self.next_index = 0;
+        self.prev_atom_ref = .{ .index = 0, .file = 0 };
+        self.next_atom_ref = .{ .index = 0, .file = 0 };
     }
     if (free_list_removal) |i| {
         _ = free_list.swapRemove(i);
@@ -248,64 +258,70 @@ pub fn grow(self: *Atom, elf_file: *Elf) !void {
 }
 
 pub fn free(self: *Atom, elf_file: *Elf) void {
-    log.debug("freeAtom {d} ({s})", .{ self.atom_index, self.name(elf_file) });
+    log.debug("freeAtom atom({}) ({s})", .{ self.ref(), self.name(elf_file) });
 
-    const zo = elf_file.zigObjectPtr().?;
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
     const shndx = self.output_section_index;
-    const meta = elf_file.last_atom_and_free_list_table.getPtr(shndx).?;
-    const free_list = &meta.free_list;
-    const last_atom_index = &meta.last_atom_index;
+    const slice = elf_file.sections.slice();
+    const free_list = &slice.items(.free_list)[shndx];
+    const last_atom_ref = &slice.items(.last_atom)[shndx];
     var already_have_free_list_node = false;
     {
         var i: usize = 0;
         // TODO turn free_list into a hash map
         while (i < free_list.items.len) {
-            if (free_list.items[i] == self.atom_index) {
+            if (free_list.items[i].eql(self.ref())) {
                 _ = free_list.swapRemove(i);
                 continue;
             }
-            if (free_list.items[i] == self.prev_index) {
-                already_have_free_list_node = true;
+            if (self.prevAtom(elf_file)) |prev_atom| {
+                if (free_list.items[i].eql(prev_atom.ref())) {
+                    already_have_free_list_node = true;
+                }
             }
             i += 1;
         }
     }
 
-    if (zo.atom(last_atom_index.*)) |last_atom| {
-        if (last_atom.atom_index == self.atom_index) {
-            if (zo.atom(self.prev_index)) |_| {
+    if (elf_file.atom(last_atom_ref.*)) |last_atom| {
+        if (last_atom.ref().eql(self.ref())) {
+            if (self.prevAtom(elf_file)) |prev_atom| {
                 // TODO shrink the section size here
-                last_atom_index.* = self.prev_index;
+                last_atom_ref.* = prev_atom.ref();
             } else {
-                last_atom_index.* = 0;
+                last_atom_ref.* = .{};
             }
         }
     }
 
-    if (zo.atom(self.prev_index)) |prev| {
-        prev.next_index = self.next_index;
-        if (!already_have_free_list_node and prev.*.freeListEligible(elf_file)) {
+    if (self.prevAtom(elf_file)) |prev_atom| {
+        prev_atom.next_atom_ref = self.next_atom_ref;
+        if (!already_have_free_list_node and prev_atom.*.freeListEligible(elf_file)) {
             // The free list is heuristics, it doesn't have to be perfect, so we can
             // ignore the OOM here.
-            free_list.append(gpa, prev.atom_index) catch {};
+            free_list.append(gpa, prev_atom.ref()) catch {};
         }
     } else {
-        self.prev_index = 0;
+        self.prev_atom_ref = .{};
     }
 
-    if (zo.atom(self.next_index)) |next| {
-        next.prev_index = self.prev_index;
+    if (self.nextAtom(elf_file)) |next_atom| {
+        next_atom.prev_atom_ref = self.prev_atom_ref;
     } else {
-        self.next_index = 0;
+        self.next_atom_ref = .{};
     }
 
-    // TODO create relocs free list
-    self.freeRelocs(zo);
-    // TODO figure out how to free input section mappind in ZigModule
-    // const zig_object = elf_file.zigObjectPtr().?
-    // assert(zig_object.atoms.swapRemove(self.atom_index));
+    switch (self.file(elf_file).?) {
+        .zig_object => |zo| {
+            // TODO create relocs free list
+            self.freeRelocs(zo);
+            // TODO figure out how to free input section mappind in ZigModule
+            // const zig_object = elf_file.zigObjectPtr().?
+            // assert(zig_object.atoms.swapRemove(self.atom_index));
+        },
+        else => {},
+    }
     self.* = .{};
 }
 
@@ -336,10 +352,7 @@ pub fn writeRelocs(self: Atom, elf_file: *Elf, out_relocs: *std.ArrayList(elf.El
         switch (target.type(elf_file)) {
             elf.STT_SECTION => {
                 r_addend += @intCast(target.address(.{}, elf_file));
-                r_sym = if (target.outputShndx(elf_file)) |osec|
-                    elf_file.sectionSymbolOutputSymtabIndex(osec)
-                else
-                    0;
+                r_sym = target.outputShndx(elf_file) orelse 0;
             },
             else => {
                 r_sym = target.outputSymtabIndex(elf_file) orelse 0;

@@ -357,7 +357,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                                         } } };
                                     },
                                 };
-                                const ip = &emit.lower.bin_file.comp.module.?.intern_pool;
+                                const ip = &emit.lower.bin_file.comp.zcu.?.intern_pool;
                                 const air_inst = emit.air.instructions.get(@intFromEnum(air_inst_index));
                                 const name: Air.NullTerminatedString = switch (air_inst.tag) {
                                     else => unreachable,
@@ -380,6 +380,13 @@ pub fn emitMir(emit: *Emit) Error!void {
                                     loc,
                                 );
                             },
+                            .plan9 => {},
+                            .none => {},
+                        }
+                    },
+                    .pseudo_dbg_var_args_none => {
+                        switch (emit.debug_output) {
+                            .dwarf => |dw| try dw.genVarArgsDebugInfo(),
                             .plan9 => {},
                             .none => {},
                         }

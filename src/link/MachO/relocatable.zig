@@ -232,7 +232,7 @@ fn parseInputFilesAr(macho_file: *MachO) !void {
 
     for (macho_file.objects.items) |index| {
         macho_file.getFile(index).?.parseAr(macho_file) catch |err| switch (err) {
-            error.InvalidCpuArch => {}, // already reported
+            error.InvalidMachineType => {}, // already reported
             else => |e| try macho_file.reportParseError2(index, "unexpected error: parsing input file failed with error {s}", .{@errorName(e)}),
         };
     }
