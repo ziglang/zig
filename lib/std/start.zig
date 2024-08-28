@@ -288,8 +288,8 @@ fn _start() callconv(.Naked) noreturn {
             ,
             .csky =>
             // The CSKY ABI assumes that `gb` is set to the address of the GOT in order for
-            // position-independent code to work. We depend on this in `std.os.linux.start_pie`
-            // to locate `_DYNAMIC` as well.
+            // position-independent code to work. We depend on this in `std.os.linux.pie` to locate
+            // `_DYNAMIC` as well.
             \\ grs t0, 1f
             \\ 1:
             \\ lrw gb, 1b@GOTPC
