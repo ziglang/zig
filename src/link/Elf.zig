@@ -61,8 +61,6 @@ phdr_zig_load_re_index: ?u16 = null,
 phdr_zig_load_ro_index: ?u16 = null,
 /// The index into the program headers of a PT_LOAD program header with Write flag
 phdr_zig_load_rw_index: ?u16 = null,
-/// The index into the program headers of a PT_LOAD program header with zerofill data.
-phdr_zig_load_zerofill_index: ?u16 = null,
 
 /// Special program headers
 /// PT_PHDR
@@ -129,7 +127,6 @@ comdat_group_sections: std.ArrayListUnmanaged(ComdatGroupSection) = .{},
 zig_text_section_index: ?u32 = null,
 zig_data_rel_ro_section_index: ?u32 = null,
 zig_data_section_index: ?u32 = null,
-zig_bss_section_index: ?u32 = null,
 
 debug_info_section_index: ?u32 = null,
 debug_abbrev_section_index: ?u32 = null,
@@ -3367,7 +3364,6 @@ fn sortPhdrs(self: *Elf) error{OutOfMemory}!void {
     for (&[_]*?u16{
         &self.phdr_zig_load_re_index,
         &self.phdr_zig_load_ro_index,
-        &self.phdr_zig_load_zerofill_index,
         &self.phdr_table_index,
         &self.phdr_table_load_index,
         &self.phdr_interp_index,
@@ -3496,7 +3492,6 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
         &self.zig_text_section_index,
         &self.zig_data_rel_ro_section_index,
         &self.zig_data_section_index,
-        &self.zig_bss_section_index,
         &self.debug_info_section_index,
         &self.debug_abbrev_section_index,
         &self.debug_str_section_index,
@@ -3591,9 +3586,17 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
 
 fn updateSectionSizes(self: *Elf) !void {
     const slice = self.sections.slice();
-    for (slice.items(.shdr), slice.items(.atom_list)) |*shdr, atom_list| {
+    for (slice.items(.shdr), slice.items(.atom_list), 0..) |*shdr, atom_list, shndx| {
         if (atom_list.items.len == 0) continue;
         if (self.requiresThunks() and shdr.sh_flags & elf.SHF_EXECINSTR != 0) continue;
+        if (self.zigObjectPtr()) |zo| {
+            if (zo.bss_index) |sym_index| {
+                const atom_ptr = zo.symbol(sym_index).atom(self).?;
+                if (shndx == atom_ptr.output_section_index) {
+                    shdr.sh_size = atom_ptr.size;
+                }
+            }
+        }
         for (atom_list.items) |ref| {
             const atom_ptr = self.atom(ref) orelse continue;
             if (!atom_ptr.alive) continue;
@@ -4804,7 +4807,6 @@ pub fn isZigSection(self: Elf, shndx: u32) bool {
         self.zig_text_section_index,
         self.zig_data_rel_ro_section_index,
         self.zig_data_section_index,
-        self.zig_bss_section_index,
     }) |index| {
         if (index == shndx) return true;
     }

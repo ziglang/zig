@@ -60,6 +60,7 @@ debug_line_str_index: ?Symbol.Index = null,
 debug_loclists_index: ?Symbol.Index = null,
 debug_rnglists_index: ?Symbol.Index = null,
 eh_frame_index: ?Symbol.Index = null,
+bss_index: ?Symbol.Index = null,
 
 pub const global_symbol_bit: u32 = 0x80000000;
 pub const symbol_mask: u32 = 0x7fffffff;
@@ -149,17 +150,6 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                 .flags = elf.PF_R | elf.PF_W,
             });
         }
-
-        if (elf_file.phdr_zig_load_zerofill_index == null) {
-            const alignment = elf_file.page_size;
-            elf_file.phdr_zig_load_zerofill_index = try elf_file.addPhdr(.{
-                .type = elf.PT_LOAD,
-                .addr = if (ptr_size >= 4) 0x14000000 else 0xf000,
-                .memsz = 1024,
-                .@"align" = alignment,
-                .flags = elf.PF_R | elf.PF_W,
-            });
-        }
     }
 
     if (elf_file.zig_text_section_index == null) {
@@ -225,50 +215,10 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
         }
     }
 
-    if (elf_file.zig_bss_section_index == null) {
-        elf_file.zig_bss_section_index = try elf_file.addSection(.{
-            .name = try elf_file.insertShString(".bss.zig"),
-            .type = elf.SHT_NOBITS,
-            .addralign = ptr_size,
-            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
-            .offset = 0,
-        });
-        const shdr = &elf_file.sections.items(.shdr)[elf_file.zig_bss_section_index.?];
-        const phndx = &elf_file.sections.items(.phndx)[elf_file.zig_bss_section_index.?];
-        if (elf_file.base.isRelocatable()) {
-            shdr.sh_size = 1024;
-        } else {
-            phndx.* = elf_file.phdr_zig_load_zerofill_index.?;
-            const phdr = elf_file.phdrs.items[phndx.*.?];
-            shdr.sh_addr = phdr.p_vaddr;
-            shdr.sh_size = phdr.p_memsz;
-        }
-    }
-
     switch (comp.config.debug_format) {
         .strip => {},
         .dwarf => |v| {
             var dwarf = Dwarf.init(&elf_file.base, v);
-
-            const addSectionSymbol = struct {
-                fn addSectionSymbol(
-                    zig_object: *ZigObject,
-                    alloc: Allocator,
-                    name: [:0]const u8,
-                    alignment: Atom.Alignment,
-                    shndx: u32,
-                ) !Symbol.Index {
-                    const name_off = try zig_object.addString(alloc, name);
-                    const index = try zig_object.newSymbolWithAtom(alloc, name_off);
-                    const sym = zig_object.symbol(index);
-                    const esym = &zig_object.symtab.items(.elf_sym)[sym.esym_index];
-                    esym.st_info |= elf.STT_SECTION;
-                    const atom_ptr = zig_object.atom(sym.ref.index).?;
-                    atom_ptr.alignment = alignment;
-                    atom_ptr.output_section_index = shndx;
-                    return index;
-                }
-            }.addSectionSymbol;
 
             if (elf_file.debug_str_section_index == null) {
                 elf_file.debug_str_section_index = try elf_file.addSection(.{
@@ -279,7 +229,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                     .addralign = 1,
                 });
                 self.debug_str_section_dirty = true;
-                self.debug_str_index = try addSectionSymbol(self, gpa, ".debug_str", .@"1", elf_file.debug_str_section_index.?);
+                self.debug_str_index = try self.addSectionSymbol(gpa, ".debug_str", .@"1", elf_file.debug_str_section_index.?);
             }
 
             if (elf_file.debug_info_section_index == null) {
@@ -289,7 +239,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                     .addralign = 1,
                 });
                 self.debug_info_section_dirty = true;
-                self.debug_info_index = try addSectionSymbol(self, gpa, ".debug_info", .@"1", elf_file.debug_info_section_index.?);
+                self.debug_info_index = try self.addSectionSymbol(gpa, ".debug_info", .@"1", elf_file.debug_info_section_index.?);
             }
 
             if (elf_file.debug_abbrev_section_index == null) {
@@ -299,7 +249,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                     .addralign = 1,
                 });
                 self.debug_abbrev_section_dirty = true;
-                self.debug_abbrev_index = try addSectionSymbol(self, gpa, ".debug_abbrev", .@"1", elf_file.debug_abbrev_section_index.?);
+                self.debug_abbrev_index = try self.addSectionSymbol(gpa, ".debug_abbrev", .@"1", elf_file.debug_abbrev_section_index.?);
             }
 
             if (elf_file.debug_aranges_section_index == null) {
@@ -309,7 +259,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                     .addralign = 16,
                 });
                 self.debug_aranges_section_dirty = true;
-                self.debug_aranges_index = try addSectionSymbol(self, gpa, ".debug_aranges", .@"16", elf_file.debug_aranges_section_index.?);
+                self.debug_aranges_index = try self.addSectionSymbol(gpa, ".debug_aranges", .@"16", elf_file.debug_aranges_section_index.?);
             }
 
             if (elf_file.debug_line_section_index == null) {
@@ -319,7 +269,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                     .addralign = 1,
                 });
                 self.debug_line_section_dirty = true;
-                self.debug_line_index = try addSectionSymbol(self, gpa, ".debug_line", .@"1", elf_file.debug_line_section_index.?);
+                self.debug_line_index = try self.addSectionSymbol(gpa, ".debug_line", .@"1", elf_file.debug_line_section_index.?);
             }
 
             if (elf_file.debug_line_str_section_index == null) {
@@ -331,7 +281,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                     .addralign = 1,
                 });
                 self.debug_line_str_section_dirty = true;
-                self.debug_line_str_index = try addSectionSymbol(self, gpa, ".debug_line_str", .@"1", elf_file.debug_line_str_section_index.?);
+                self.debug_line_str_index = try self.addSectionSymbol(gpa, ".debug_line_str", .@"1", elf_file.debug_line_str_section_index.?);
             }
 
             if (elf_file.debug_loclists_section_index == null) {
@@ -341,7 +291,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                     .addralign = 1,
                 });
                 self.debug_loclists_section_dirty = true;
-                self.debug_loclists_index = try addSectionSymbol(self, gpa, ".debug_loclists", .@"1", elf_file.debug_loclists_section_index.?);
+                self.debug_loclists_index = try self.addSectionSymbol(gpa, ".debug_loclists", .@"1", elf_file.debug_loclists_section_index.?);
             }
 
             if (elf_file.debug_rnglists_section_index == null) {
@@ -351,7 +301,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                     .addralign = 1,
                 });
                 self.debug_rnglists_section_dirty = true;
-                self.debug_rnglists_index = try addSectionSymbol(self, gpa, ".debug_rnglists", .@"1", elf_file.debug_rnglists_section_index.?);
+                self.debug_rnglists_index = try self.addSectionSymbol(gpa, ".debug_rnglists", .@"1", elf_file.debug_rnglists_section_index.?);
             }
 
             if (elf_file.eh_frame_section_index == null) {
@@ -365,7 +315,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                     .addralign = ptr_size,
                 });
                 self.eh_frame_section_dirty = true;
-                self.eh_frame_index = try addSectionSymbol(self, gpa, ".eh_frame", Atom.Alignment.fromNonzeroByteUnits(ptr_size), elf_file.eh_frame_section_index.?);
+                self.eh_frame_index = try self.addSectionSymbol(gpa, ".eh_frame", Atom.Alignment.fromNonzeroByteUnits(ptr_size), elf_file.eh_frame_section_index.?);
             }
 
             try dwarf.initMetadata();
@@ -1270,6 +1220,24 @@ pub fn getOrCreateMetadataForNav(
     return gop.value_ptr.symbol_index;
 }
 
+fn addSectionSymbol(
+    self: *ZigObject,
+    allocator: Allocator,
+    name: [:0]const u8,
+    alignment: Atom.Alignment,
+    shndx: u32,
+) !Symbol.Index {
+    const name_off = try self.addString(allocator, name);
+    const index = try self.newSymbolWithAtom(allocator, name_off);
+    const sym = self.symbol(index);
+    const esym = &self.symtab.items(.elf_sym)[sym.esym_index];
+    esym.st_info |= elf.STT_SECTION;
+    const atom_ptr = self.atom(sym.ref.index).?;
+    atom_ptr.alignment = alignment;
+    atom_ptr.output_section_index = shndx;
+    return index;
+}
+
 fn getNavShdrIndex(
     self: *ZigObject,
     elf_file: *Elf,
@@ -1309,12 +1277,34 @@ fn getNavShdrIndex(
     if (nav_init != .none and Value.fromInterned(nav_init).isUndefDeep(zcu))
         return switch (zcu.navFileScope(nav_index).mod.optimize_mode) {
             .Debug, .ReleaseSafe => elf_file.zig_data_section_index.?,
-            .ReleaseFast, .ReleaseSmall => elf_file.zig_bss_section_index.?,
+            .ReleaseFast, .ReleaseSmall => {
+                if (self.bss_index) |symbol_index|
+                    return self.symbol(symbol_index).atom(elf_file).?.output_section_index;
+                const osec = try elf_file.addSection(.{
+                    .type = elf.SHT_NOBITS,
+                    .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+                    .name = try elf_file.insertShString(".bss"),
+                    .addralign = 1,
+                });
+                self.bss_index = try self.addSectionSymbol(elf_file.base.comp.gpa, ".bss", .@"1", osec);
+                return osec;
+            },
         };
     const is_bss = !has_relocs and for (code) |byte| {
         if (byte != 0) break false;
     } else true;
-    if (is_bss) return elf_file.zig_bss_section_index.?;
+    if (is_bss) {
+        if (self.bss_index) |symbol_index|
+            return self.symbol(symbol_index).atom(elf_file).?.output_section_index;
+        const osec = try elf_file.addSection(.{
+            .type = elf.SHT_NOBITS,
+            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+            .name = try elf_file.insertShString(".bss"),
+            .addralign = 1,
+        });
+        self.bss_index = try self.addSectionSymbol(elf_file.base.comp.gpa, ".bss", .@"1", osec);
+        return osec;
+    }
     return elf_file.zig_data_section_index.?;
 }
 
