@@ -83,15 +83,9 @@ const RDebug = extern struct {
     r_ldbase: usize,
 };
 
-/// TODO make it possible to reference this same external symbol 2x so we don't need this
-/// helper function.
-pub fn get_DYNAMIC() ?[*]elf.Dyn {
-    return @extern([*]elf.Dyn, .{ .name = "_DYNAMIC", .linkage = .weak });
-}
-
 pub fn linkmap_iterator(phdrs: []elf.Phdr) error{InvalidExe}!LinkMap.Iterator {
     _ = phdrs;
-    const _DYNAMIC = get_DYNAMIC() orelse {
+    const _DYNAMIC = @extern([*]elf.Dyn, .{ .name = "_DYNAMIC", .linkage = .weak }) orelse {
         // No PT_DYNAMIC means this is either a statically-linked program or a
         // badly corrupted dynamically-linked one.
         return .{ .current = null };
