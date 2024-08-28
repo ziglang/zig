@@ -67,7 +67,7 @@ pub fn requiredArgCount(attr: Tag) u32 {
             comptime {
                 const fields = std.meta.fields(@field(attributes, @tagName(tag)));
                 for (fields) |arg_field| {
-                    if (!mem.eql(u8, arg_field.name, "__name_tok") and @typeInfo(arg_field.type) != .Optional) needed += 1;
+                    if (!mem.eql(u8, arg_field.name, "__name_tok") and @typeInfo(arg_field.type) != .optional) needed += 1;
                 }
             }
             return needed;
@@ -93,7 +93,7 @@ pub fn maxArgCount(attr: Tag) u32 {
 
 fn UnwrapOptional(comptime T: type) type {
     return switch (@typeInfo(T)) {
-        .Optional => |optional| optional.child,
+        .optional => |optional| optional.child,
         else => T,
     };
 }
@@ -110,7 +110,7 @@ pub const Formatting = struct {
 
                 if (fields.len == 0) unreachable;
                 const Unwrapped = UnwrapOptional(fields[0].type);
-                if (@typeInfo(Unwrapped) != .Enum) unreachable;
+                if (@typeInfo(Unwrapped) != .@"enum") unreachable;
 
                 return if (Unwrapped.opts.enum_kind == .identifier) "'" else "\"";
             },
@@ -127,9 +127,9 @@ pub const Formatting = struct {
 
                 if (fields.len == 0) unreachable;
                 const Unwrapped = UnwrapOptional(fields[0].type);
-                if (@typeInfo(Unwrapped) != .Enum) unreachable;
+                if (@typeInfo(Unwrapped) != .@"enum") unreachable;
 
-                const enum_fields = @typeInfo(Unwrapped).Enum.fields;
+                const enum_fields = @typeInfo(Unwrapped).@"enum".fields;
                 @setEvalBranchQuota(3000);
                 const quote = comptime quoteChar(@enumFromInt(@intFromEnum(tag)));
                 comptime var values: []const u8 = quote ++ enum_fields[0].name ++ quote;
@@ -152,7 +152,7 @@ pub fn wantsIdentEnum(attr: Tag) bool {
 
             if (fields.len == 0) return false;
             const Unwrapped = UnwrapOptional(fields[0].type);
-            if (@typeInfo(Unwrapped) != .Enum) return false;
+            if (@typeInfo(Unwrapped) != .@"enum") return false;
 
             return Unwrapped.opts.enum_kind == .identifier;
         },
@@ -165,7 +165,7 @@ pub fn diagnoseIdent(attr: Tag, arguments: *Arguments, ident: []const u8) ?Diagn
             const fields = std.meta.fields(@field(attributes, @tagName(tag)));
             if (fields.len == 0) unreachable;
             const Unwrapped = UnwrapOptional(fields[0].type);
-            if (@typeInfo(Unwrapped) != .Enum) unreachable;
+            if (@typeInfo(Unwrapped) != .@"enum") unreachable;
             if (std.meta.stringToEnum(Unwrapped, normalize(ident))) |enum_val| {
                 @field(@field(arguments, @tagName(tag)), fields[0].name) = enum_val;
                 return null;
@@ -239,7 +239,7 @@ fn diagnoseField(
     const key = p.comp.interner.get(res.val.ref());
     switch (key) {
         .int => {
-            if (@typeInfo(Wanted) == .Int) {
+            if (@typeInfo(Wanted) == .int) {
                 @field(@field(arguments, decl.name), field.name) = res.val.toInt(Wanted, p.comp) orelse return .{
                     .tag = .attribute_int_out_of_range,
                     .extra = .{ .str = try res.str(p) },
@@ -258,7 +258,7 @@ fn diagnoseField(
                 }
                 @field(@field(arguments, decl.name), field.name) = try p.removeNull(res.val);
                 return null;
-            } else if (@typeInfo(Wanted) == .Enum and @hasDecl(Wanted, "opts") and Wanted.opts.enum_kind == .string) {
+            } else if (@typeInfo(Wanted) == .@"enum" and @hasDecl(Wanted, "opts") and Wanted.opts.enum_kind == .string) {
                 const str = bytes[0 .. bytes.len - 1];
                 if (std.meta.stringToEnum(Wanted, str)) |enum_val| {
                     @field(@field(arguments, decl.name), field.name) = enum_val;
@@ -293,7 +293,7 @@ fn invalidArgMsg(comptime Expected: type, actual: ArgumentType) Diagnostics.Mess
             Alignment => .alignment,
             CallingConvention => .identifier,
             else => switch (@typeInfo(Expected)) {
-                .Enum => if (Expected.opts.enum_kind == .string) .string else .identifier,
+                .@"enum" => if (Expected.opts.enum_kind == .string) .string else .identifier,
                 else => unreachable,
             },
         }, .actual = actual } },
@@ -303,7 +303,7 @@ fn invalidArgMsg(comptime Expected: type, actual: ArgumentType) Diagnostics.Mess
 pub fn diagnose(attr: Tag, arguments: *Arguments, arg_idx: u32, res: Parser.Result, node: Tree.Node, p: *Parser) !?Diagnostics.Message {
     switch (attr) {
         inline else => |tag| {
-            const decl = @typeInfo(attributes).Struct.decls[@intFromEnum(tag)];
+            const decl = @typeInfo(attributes).@"struct".decls[@intFromEnum(tag)];
             const max_arg_count = comptime maxArgCount(tag);
             if (arg_idx >= max_arg_count) return Diagnostics.Message{
                 .tag = .attribute_too_many_args,
@@ -641,7 +641,7 @@ const attributes = struct {
 pub const Tag = std.meta.DeclEnum(attributes);
 
 pub const Arguments = blk: {
-    const decls = @typeInfo(attributes).Struct.decls;
+    const decls = @typeInfo(attributes).@"struct".decls;
     var union_fields: [decls.len]ZigType.UnionField = undefined;
     for (decls, &union_fields) |decl, *field| {
         field.* = .{
@@ -652,7 +652,7 @@ pub const Arguments = blk: {
     }
 
     break :blk @Type(.{
-        .Union = .{
+        .@"union" = .{
             .layout = .auto,
             .tag_type = null,
             .fields = &union_fields,
@@ -662,7 +662,7 @@ pub const Arguments = blk: {
 };
 
 pub fn ArgumentsForTag(comptime tag: Tag) type {
-    const decl = @typeInfo(attributes).Struct.decls[@intFromEnum(tag)];
+    const decl = @typeInfo(attributes).@"struct".decls[@intFromEnum(tag)];
     return @field(attributes, decl.name);
 }
 

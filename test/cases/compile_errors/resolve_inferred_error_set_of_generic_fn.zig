@@ -5,8 +5,8 @@ fn foo(a: anytype) !void {
 const Error = error{ A, B };
 export fn entry() void {
     const info = @typeInfo(@TypeOf(foo));
-    const ret_type = info.Fn.return_type.?;
-    const error_set = @typeInfo(ret_type).ErrorUnion.error_set;
+    const ret_type = info.@"fn".return_type.?;
+    const error_set = @typeInfo(ret_type).error_union.error_set;
     _ = Error || error_set;
 }
 

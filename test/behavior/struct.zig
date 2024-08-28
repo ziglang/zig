@@ -1738,7 +1738,7 @@ test "packed struct field in anonymous struct" {
     try std.testing.expect(countFields(.{ .t = T{} }) == 1);
 }
 fn countFields(v: anytype) usize {
-    return @typeInfo(@TypeOf(v)).Struct.fields.len;
+    return @typeInfo(@TypeOf(v)).@"struct".fields.len;
 }
 
 test "struct init with no result pointer sets field result types" {
@@ -2144,9 +2144,9 @@ test "struct containing optional pointer to array of @This()" {
 test "matching captures causes struct equivalence" {
     const S = struct {
         fn UnsignedWrapper(comptime I: type) type {
-            const bits = @typeInfo(I).Int.bits;
+            const bits = @typeInfo(I).int.bits;
             return struct {
-                x: @Type(.{ .Int = .{
+                x: @Type(.{ .int = .{
                     .signedness = .unsigned,
                     .bits = bits,
                 } }),

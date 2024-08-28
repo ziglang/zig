@@ -1756,7 +1756,7 @@ pub const WipNav = struct {
                 var bit: usize = 0;
                 var carry: u1 = 1;
                 while (bit < bits) : (bit += 7) {
-                    const limb_bits = @typeInfo(std.math.big.Limb).Int.bits;
+                    const limb_bits = @typeInfo(std.math.big.Limb).int.bits;
                     const limb_index = bit / limb_bits;
                     const limb_shift: std.math.Log2Int(std.math.big.Limb) = @intCast(bit % limb_bits);
                     const low_abs_part: u7 = @truncate(big_int.limbs[limb_index] >> limb_shift);
@@ -2477,6 +2477,18 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
     assert(file.zir_loaded);
     const decl_inst = file.zir.instructions.get(@intFromEnum(inst_info.inst));
     assert(decl_inst.tag == .declaration);
+    const decl_extra = file.zir.extraData(Zir.Inst.Declaration, decl_inst.data.declaration.payload_index);
+
+    const is_test = switch (decl_extra.data.name) {
+        .unnamed_test, .decltest => true,
+        .@"comptime", .@"usingnamespace" => false,
+        _ => decl_extra.data.name.isNamedTest(file.zir),
+    };
+    if (is_test) {
+        // This isn't actually a comptime Nav! It's a test, so it'll definitely never be referenced at comptime.
+        return;
+    }
+
     const tree = try file.getTree(dwarf.gpa);
     const loc = tree.tokenLocation(0, tree.nodes.items(.main_token)[decl_inst.data.declaration.src_node]);
     assert(loc.line == zcu.navSrcLine(nav_index));
@@ -2515,7 +2527,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                     ) != abbrev_code_buf.len) return error.InputOutput;
                     var abbrev_code_fbs = std.io.fixedBufferStream(&abbrev_code_buf);
                     const abbrev_code: AbbrevCode = @enumFromInt(
-                        std.leb.readUleb128(@typeInfo(AbbrevCode).Enum.tag_type, abbrev_code_fbs.reader()) catch unreachable,
+                        std.leb.readUleb128(@typeInfo(AbbrevCode).@"enum".tag_type, abbrev_code_fbs.reader()) catch unreachable,
                     );
                     switch (abbrev_code) {
                         else => unreachable,
@@ -2582,7 +2594,6 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                 if (loaded_struct.zir_index == .none) break :decl_struct;
 
                 const value_inst = value_inst: {
-                    const decl_extra = file.zir.extraData(Zir.Inst.Declaration, decl_inst.data.declaration.payload_index);
                     const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
                     const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
                     if (break_inst.tag != .break_inline) break :value_inst null;
@@ -2704,7 +2715,6 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                 if (loaded_enum.zir_index == .none) break :decl_enum;
 
                 const value_inst = value_inst: {
-                    const decl_extra = file.zir.extraData(Zir.Inst.Declaration, decl_inst.data.declaration.payload_index);
                     const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
                     const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
                     if (break_inst.tag != .break_inline) break :value_inst null;
@@ -2788,7 +2798,6 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
 
             decl_union: {
                 const value_inst = value_inst: {
-                    const decl_extra = file.zir.extraData(Zir.Inst.Declaration, decl_inst.data.declaration.payload_index);
                     const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
                     const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
                     if (break_inst.tag != .break_inline) break :value_inst null;
@@ -2911,7 +2920,6 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
 
             decl_opaque: {
                 const value_inst = value_inst: {
-                    const decl_extra = file.zir.extraData(Zir.Inst.Declaration, decl_inst.data.declaration.payload_index);
                     const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
                     const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
                     if (break_inst.tag != .break_inline) break :value_inst null;
@@ -3685,7 +3693,7 @@ pub fn freeNav(dwarf: *Dwarf, nav_index: InternPool.Nav.Index) void {
     _ = nav_index;
 }
 
-fn refAbbrevCode(dwarf: *Dwarf, abbrev_code: AbbrevCode) UpdateError!@typeInfo(AbbrevCode).Enum.tag_type {
+fn refAbbrevCode(dwarf: *Dwarf, abbrev_code: AbbrevCode) UpdateError!@typeInfo(AbbrevCode).@"enum".tag_type {
     assert(abbrev_code != .null);
     const entry: Entry.Index = @enumFromInt(@intFromEnum(abbrev_code));
     if (dwarf.debug_abbrev.section.getUnit(DebugAbbrev.unit).getEntry(entry).len > 0) return @intFromEnum(abbrev_code);
@@ -4087,7 +4095,7 @@ pub fn resolveRelocs(dwarf: *Dwarf) RelocError!void {
 }
 
 fn DeclValEnum(comptime T: type) type {
-    const decls = @typeInfo(T).Struct.decls;
+    const decls = @typeInfo(T).@"struct".decls;
     @setEvalBranchQuota(7 * decls.len);
     var fields: [decls.len]std.builtin.Type.EnumField = undefined;
     var fields_len = 0;
@@ -4101,7 +4109,7 @@ fn DeclValEnum(comptime T: type) type {
         if (min_value == null or min_value.? > value) min_value = value;
         if (max_value == null or max_value.? < value) max_value = value;
     }
-    return @Type(.{ .Enum = .{
+    return @Type(.{ .@"enum" = .{
         .tag_type = std.math.IntFittingRange(min_value orelse 0, max_value orelse 0),
         .fields = fields[0..fields_len],
         .decls = &.{},
@@ -4665,7 +4673,7 @@ fn addCommonEntry(dwarf: *Dwarf, unit: Unit.Index) UpdateError!Entry.Index {
 
 fn writeInt(dwarf: *Dwarf, buf: []u8, int: u64) void {
     switch (buf.len) {
-        inline 0...8 => |len| std.mem.writeInt(@Type(.{ .Int = .{
+        inline 0...8 => |len| std.mem.writeInt(@Type(.{ .int = .{
             .signedness = .unsigned,
             .bits = len * 8,
         } }), buf[0..len], @intCast(int), dwarf.endian),

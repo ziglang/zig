@@ -109,7 +109,7 @@ test "container member access usingnamespace decls" {
 
 usingnamespace opaque {};
 
-usingnamespace @Type(.{ .Struct = .{
+usingnamespace @Type(.{ .@"struct" = .{
     .layout = .auto,
     .fields = &.{},
     .decls = &.{},

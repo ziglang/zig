@@ -1538,7 +1538,7 @@ pub const Object = struct {
                                 try attributes.addParamAttr(llvm_arg_i, .@"noalias", &o.builder);
                             }
                         }
-                        if (param_ty.zigTypeTag(zcu) != .Optional) {
+                        if (param_ty.zigTypeTag(zcu) != .optional) {
                             try attributes.addParamAttr(llvm_arg_i, .nonnull, &o.builder);
                         }
                         if (ptr_info.flags.is_const) {
@@ -1907,8 +1907,8 @@ pub const Object = struct {
         if (o.debug_type_map.get(ty)) |debug_type| return debug_type;
 
         switch (ty.zigTypeTag(zcu)) {
-            .Void,
-            .NoReturn,
+            .void,
+            .noreturn,
             => {
                 const debug_void_type = try o.builder.debugSignedType(
                     try o.builder.metadataString("void"),
@@ -1917,7 +1917,7 @@ pub const Object = struct {
                 try o.debug_type_map.put(gpa, ty, debug_void_type);
                 return debug_void_type;
             },
-            .Int => {
+            .int => {
                 const info = ty.intInfo(zcu);
                 assert(info.bits != 0);
                 const name = try o.allocTypeName(ty);
@@ -1931,7 +1931,7 @@ pub const Object = struct {
                 try o.debug_type_map.put(gpa, ty, debug_int_type);
                 return debug_int_type;
             },
-            .Enum => {
+            .@"enum" => {
                 if (!ty.hasRuntimeBitsIgnoreComptime(zcu)) {
                     const debug_enum_type = try o.makeEmptyNamespaceDebugType(ty);
                     try o.debug_type_map.put(gpa, ty, debug_enum_type);
@@ -1985,7 +1985,7 @@ pub const Object = struct {
                 try o.debug_enums.append(gpa, debug_enum_type);
                 return debug_enum_type;
             },
-            .Float => {
+            .float => {
                 const bits = ty.floatBits(target);
                 const name = try o.allocTypeName(ty);
                 defer gpa.free(name);
@@ -1996,7 +1996,7 @@ pub const Object = struct {
                 try o.debug_type_map.put(gpa, ty, debug_float_type);
                 return debug_float_type;
             },
-            .Bool => {
+            .bool => {
                 const debug_bool_type = try o.builder.debugBoolType(
                     try o.builder.metadataString("bool"),
                     8, // lldb cannot handle non-byte sized types
@@ -2004,7 +2004,7 @@ pub const Object = struct {
                 try o.debug_type_map.put(gpa, ty, debug_bool_type);
                 return debug_bool_type;
             },
-            .Pointer => {
+            .pointer => {
                 // Normalize everything that the debug info does not represent.
                 const ptr_info = ty.ptrInfo(zcu);
 
@@ -2126,7 +2126,7 @@ pub const Object = struct {
 
                 return debug_ptr_type;
             },
-            .Opaque => {
+            .@"opaque" => {
                 if (ty.toIntern() == .anyopaque_type) {
                     const debug_opaque_type = try o.builder.debugSignedType(
                         try o.builder.metadataString("anyopaque"),
@@ -2158,7 +2158,7 @@ pub const Object = struct {
                 try o.debug_type_map.put(gpa, ty, debug_opaque_type);
                 return debug_opaque_type;
             },
-            .Array => {
+            .array => {
                 const debug_array_type = try o.builder.debugArrayType(
                     .none, // Name
                     .none, // File
@@ -2177,14 +2177,14 @@ pub const Object = struct {
                 try o.debug_type_map.put(gpa, ty, debug_array_type);
                 return debug_array_type;
             },
-            .Vector => {
+            .vector => {
                 const elem_ty = ty.elemType2(zcu);
                 // Vector elements cannot be padded since that would make
                 // @bitSizOf(elem) * len > @bitSizOf(vec).
                 // Neither gdb nor lldb seem to be able to display non-byte sized
                 // vectors properly.
                 const debug_elem_type = switch (elem_ty.zigTypeTag(zcu)) {
-                    .Int => blk: {
+                    .int => blk: {
                         const info = elem_ty.intInfo(zcu);
                         assert(info.bits != 0);
                         const name = try o.allocTypeName(ty);
@@ -2195,7 +2195,7 @@ pub const Object = struct {
                             .unsigned => try o.builder.debugUnsignedType(builder_name, info.bits),
                         };
                     },
-                    .Bool => try o.builder.debugBoolType(
+                    .bool => try o.builder.debugBoolType(
                         try o.builder.metadataString("bool"),
                         1,
                     ),
@@ -2221,7 +2221,7 @@ pub const Object = struct {
                 try o.debug_type_map.put(gpa, ty, debug_vector_type);
                 return debug_vector_type;
             },
-            .Optional => {
+            .optional => {
                 const name = try o.allocTypeName(ty);
                 defer gpa.free(name);
                 const child_ty = ty.optionalChild(zcu);
@@ -2302,7 +2302,7 @@ pub const Object = struct {
 
                 return debug_optional_type;
             },
-            .ErrorUnion => {
+            .error_union => {
                 const payload_ty = ty.errorUnionPayload(zcu);
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
                     // TODO: Maybe remove?
@@ -2375,7 +2375,7 @@ pub const Object = struct {
                 try o.debug_type_map.put(gpa, ty, debug_error_union_type);
                 return debug_error_union_type;
             },
-            .ErrorSet => {
+            .error_set => {
                 const debug_error_set = try o.builder.debugUnsignedType(
                     try o.builder.metadataString("anyerror"),
                     16,
@@ -2383,7 +2383,7 @@ pub const Object = struct {
                 try o.debug_type_map.put(gpa, ty, debug_error_set);
                 return debug_error_set;
             },
-            .Struct => {
+            .@"struct" => {
                 const name = try o.allocTypeName(ty);
                 defer gpa.free(name);
 
@@ -2531,7 +2531,7 @@ pub const Object = struct {
 
                 return debug_struct_type;
             },
-            .Union => {
+            .@"union" => {
                 const name = try o.allocTypeName(ty);
                 defer gpa.free(name);
 
@@ -2693,7 +2693,7 @@ pub const Object = struct {
 
                 return debug_tagged_union_type;
             },
-            .Fn => {
+            .@"fn" => {
                 const fn_info = zcu.typeToFunc(ty).?;
 
                 var debug_param_types = std.ArrayList(Builder.Metadata).init(gpa);
@@ -2741,15 +2741,15 @@ pub const Object = struct {
                 try o.debug_type_map.put(gpa, ty, debug_function_type);
                 return debug_function_type;
             },
-            .ComptimeInt => unreachable,
-            .ComptimeFloat => unreachable,
-            .Type => unreachable,
-            .Undefined => unreachable,
-            .Null => unreachable,
-            .EnumLiteral => unreachable,
+            .comptime_int => unreachable,
+            .comptime_float => unreachable,
+            .type => unreachable,
+            .undefined => unreachable,
+            .null => unreachable,
+            .enum_literal => unreachable,
 
-            .Frame => @panic("TODO implement lowerDebugType for Frame types"),
-            .AnyFrame => @panic("TODO implement lowerDebugType for AnyFrame types"),
+            .frame => @panic("TODO implement lowerDebugType for Frame types"),
+            .@"anyframe" => @panic("TODO implement lowerDebugType for AnyFrame types"),
         }
     }
 
@@ -3539,9 +3539,9 @@ pub const Object = struct {
         const pt = o.pt;
         const zcu = pt.zcu;
         const lower_elem_ty = switch (elem_ty.zigTypeTag(zcu)) {
-            .Opaque => true,
-            .Fn => !zcu.typeToFunc(elem_ty).?.is_generic,
-            .Array => elem_ty.childType(zcu).hasRuntimeBitsIgnoreComptime(zcu),
+            .@"opaque" => true,
+            .@"fn" => !zcu.typeToFunc(elem_ty).?.is_generic,
+            .array => elem_ty.childType(zcu).hasRuntimeBitsIgnoreComptime(zcu),
             else => elem_ty.hasRuntimeBitsIgnoreComptime(zcu),
         };
         return if (lower_elem_ty) try o.lowerType(elem_ty) else .i8;
@@ -3883,7 +3883,7 @@ pub const Object = struct {
                     },
                     else => |payload| try o.lowerValue(payload),
                 };
-                assert(payload_ty.zigTypeTag(zcu) != .Fn);
+                assert(payload_ty.zigTypeTag(zcu) != .@"fn");
 
                 var fields: [3]Builder.Type = undefined;
                 var vals: [3]Builder.Constant = undefined;
@@ -4303,7 +4303,7 @@ pub const Object = struct {
             .field => |field| {
                 const agg_ty = Value.fromInterned(field.base).typeOf(zcu).childType(zcu);
                 const field_off: u64 = switch (agg_ty.zigTypeTag(zcu)) {
-                    .Pointer => off: {
+                    .pointer => off: {
                         assert(agg_ty.isSlice(zcu));
                         break :off switch (field.index) {
                             Value.slice_ptr_index => 0,
@@ -4311,7 +4311,7 @@ pub const Object = struct {
                             else => unreachable,
                         };
                     },
-                    .Struct, .Union => switch (agg_ty.containerLayout(zcu)) {
+                    .@"struct", .@"union" => switch (agg_ty.containerLayout(zcu)) {
                         .auto => agg_ty.structFieldOffset(@intCast(field.index), zcu),
                         .@"extern", .@"packed" => unreachable,
                     },
@@ -4344,7 +4344,7 @@ pub const Object = struct {
 
         const ptr_ty = Type.fromInterned(uav.orig_ty);
 
-        const is_fn_body = uav_ty.zigTypeTag(zcu) == .Fn;
+        const is_fn_body = uav_ty.zigTypeTag(zcu) == .@"fn";
         if ((!is_fn_body and !uav_ty.hasRuntimeBits(zcu)) or
             (is_fn_body and zcu.typeToFunc(uav_ty).?.is_generic)) return o.lowerPtrToVoid(ptr_ty);
 
@@ -4383,7 +4383,7 @@ pub const Object = struct {
         const nav_ty = Type.fromInterned(owner_nav.typeOf(ip));
         const ptr_ty = try pt.navPtrType(owner_nav_index);
 
-        const is_fn_body = nav_ty.zigTypeTag(zcu) == .Fn;
+        const is_fn_body = nav_ty.zigTypeTag(zcu) == .@"fn";
         if ((!is_fn_body and !nav_ty.hasRuntimeBits(zcu)) or
             (is_fn_body and zcu.typeToFunc(nav_ty).?.is_generic))
         {
@@ -4435,13 +4435,13 @@ pub const Object = struct {
         const pt = o.pt;
         const zcu = pt.zcu;
         const int_ty = switch (ty.zigTypeTag(zcu)) {
-            .Int => ty,
-            .Enum => ty.intTagType(zcu),
-            .Float => {
+            .int => ty,
+            .@"enum" => ty.intTagType(zcu),
+            .float => {
                 if (!is_rmw_xchg) return .none;
                 return o.builder.intType(@intCast(ty.abiSize(zcu) * 8));
             },
-            .Bool => return .i8,
+            .bool => return .i8,
             else => return .none,
         };
         const bit_count = int_ty.intInfo(zcu).bits;
@@ -4693,7 +4693,7 @@ pub const NavGen = struct {
             const global_index = o.nav_map.get(nav_index).?;
 
             const decl_name = decl_name: {
-                if (zcu.getTarget().isWasm() and ty.zigTypeTag(zcu) == .Fn) {
+                if (zcu.getTarget().isWasm() and ty.zigTypeTag(zcu) == .@"fn") {
                     if (lib_name.toSlice(ip)) |lib_name_slice| {
                         if (!std.mem.eql(u8, lib_name_slice, "c")) {
                             break :decl_name try o.builder.strtabStringFmt("{}|{s}", .{ nav.name.fmt(ip), lib_name_slice });
@@ -5192,8 +5192,8 @@ pub const FuncGen = struct {
         const ip = &zcu.intern_pool;
         const callee_ty = self.typeOf(pl_op.operand);
         const zig_fn_ty = switch (callee_ty.zigTypeTag(zcu)) {
-            .Fn => callee_ty,
-            .Pointer => callee_ty.childType(zcu),
+            .@"fn" => callee_ty,
+            .pointer => callee_ty.childType(zcu),
             else => unreachable,
         };
         const fn_info = zcu.typeToFunc(zig_fn_ty).?;
@@ -5410,7 +5410,7 @@ pub const FuncGen = struct {
                             try attributes.addParamAttr(llvm_arg_i, .@"noalias", &o.builder);
                         }
                     }
-                    if (param_ty.zigTypeTag(zcu) != .Optional) {
+                    if (param_ty.zigTypeTag(zcu) != .optional) {
                         try attributes.addParamAttr(llvm_arg_i, .nonnull, &o.builder);
                     }
                     if (ptr_info.flags.is_const) {
@@ -5773,9 +5773,9 @@ pub const FuncGen = struct {
         const zcu = pt.zcu;
         const scalar_ty = operand_ty.scalarType(zcu);
         const int_ty = switch (scalar_ty.zigTypeTag(zcu)) {
-            .Enum => scalar_ty.intTagType(zcu),
-            .Int, .Bool, .Pointer, .ErrorSet => scalar_ty,
-            .Optional => blk: {
+            .@"enum" => scalar_ty.intTagType(zcu),
+            .int, .bool, .pointer, .error_set => scalar_ty,
+            .optional => blk: {
                 const payload_ty = operand_ty.optionalChild(zcu);
                 if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu) or
                     operand_ty.optionalReprIsPayload(zcu))
@@ -5848,7 +5848,7 @@ pub const FuncGen = struct {
                 );
                 return phi.toValue();
             },
-            .Float => return self.buildFloatCmp(fast, op, operand_ty, .{ lhs, rhs }),
+            .float => return self.buildFloatCmp(fast, op, operand_ty, .{ lhs, rhs }),
             else => unreachable,
         };
         const is_signed = int_ty.isSignedInt(zcu);
@@ -5909,7 +5909,7 @@ pub const FuncGen = struct {
                 // a pointer to it. LLVM IR allows the call instruction to use function bodies instead
                 // of function pointers, however the phi makes it a runtime value and therefore
                 // the LLVM type has to be wrapped in a pointer.
-                if (inst_ty.zigTypeTag(zcu) == .Fn or isByRef(inst_ty, zcu)) {
+                if (inst_ty.zigTypeTag(zcu) == .@"fn" or isByRef(inst_ty, zcu)) {
                     break :ty .ptr;
                 }
                 break :ty raw_llvm_ty;
@@ -6605,7 +6605,7 @@ pub const FuncGen = struct {
         if (!isByRef(struct_ty, zcu)) {
             assert(!isByRef(field_ty, zcu));
             switch (struct_ty.zigTypeTag(zcu)) {
-                .Struct => switch (struct_ty.containerLayout(zcu)) {
+                .@"struct" => switch (struct_ty.containerLayout(zcu)) {
                     .@"packed" => {
                         const struct_type = zcu.typeToStruct(struct_ty).?;
                         const bit_offset = pt.structPackedFieldBitOffset(struct_type, field_index);
@@ -6614,7 +6614,7 @@ pub const FuncGen = struct {
                             try o.builder.intValue(containing_int.typeOfWip(&self.wip), bit_offset);
                         const shifted_value = try self.wip.bin(.lshr, containing_int, shift_amt, "");
                         const elem_llvm_ty = try o.lowerType(field_ty);
-                        if (field_ty.zigTypeTag(zcu) == .Float or field_ty.zigTypeTag(zcu) == .Vector) {
+                        if (field_ty.zigTypeTag(zcu) == .float or field_ty.zigTypeTag(zcu) == .vector) {
                             const same_size_int = try o.builder.intType(@intCast(field_ty.bitSize(zcu)));
                             const truncated_int =
                                 try self.wip.cast(.trunc, shifted_value, same_size_int, "");
@@ -6632,11 +6632,11 @@ pub const FuncGen = struct {
                         return self.wip.extractValue(struct_llvm_val, &.{llvm_field_index}, "");
                     },
                 },
-                .Union => {
+                .@"union" => {
                     assert(struct_ty.containerLayout(zcu) == .@"packed");
                     const containing_int = struct_llvm_val;
                     const elem_llvm_ty = try o.lowerType(field_ty);
-                    if (field_ty.zigTypeTag(zcu) == .Float or field_ty.zigTypeTag(zcu) == .Vector) {
+                    if (field_ty.zigTypeTag(zcu) == .float or field_ty.zigTypeTag(zcu) == .vector) {
                         const same_size_int = try o.builder.intType(@intCast(field_ty.bitSize(zcu)));
                         const truncated_int =
                             try self.wip.cast(.trunc, containing_int, same_size_int, "");
@@ -6654,7 +6654,7 @@ pub const FuncGen = struct {
         }
 
         switch (struct_ty.zigTypeTag(zcu)) {
-            .Struct => {
+            .@"struct" => {
                 const layout = struct_ty.containerLayout(zcu);
                 assert(layout != .@"packed");
                 const struct_llvm_ty = try o.lowerType(struct_ty);
@@ -6677,7 +6677,7 @@ pub const FuncGen = struct {
                     return self.load(field_ptr, field_ptr_ty);
                 }
             },
-            .Union => {
+            .@"union" => {
                 const union_llvm_ty = try o.lowerType(struct_ty);
                 const layout = struct_ty.unionGetLayout(zcu);
                 const payload_index = @intFromBool(layout.tag_align.compare(.gte, layout.payload_align));
@@ -6934,7 +6934,7 @@ pub const FuncGen = struct {
             if (output != .none) {
                 const output_inst = try self.resolveInst(output);
                 const output_ty = self.typeOf(output);
-                assert(output_ty.zigTypeTag(zcu) == .Pointer);
+                assert(output_ty.zigTypeTag(zcu) == .pointer);
                 const elem_llvm_ty = try o.lowerPtrElemTy(output_ty.childType(zcu));
 
                 switch (constraint[0]) {
@@ -8280,7 +8280,7 @@ pub const FuncGen = struct {
             .gte => .sge,
         };
 
-        if (ty.zigTypeTag(zcu) == .Vector) {
+        if (ty.zigTypeTag(zcu) == .vector) {
             const vec_len = ty.vectorLen(zcu);
             const vector_result_ty = try o.builder.vectorType(.normal, vec_len, .i32);
 
@@ -8457,7 +8457,7 @@ pub const FuncGen = struct {
             ([1]Builder.Type{scalar_llvm_ty} ** 3)[0..params.len],
             scalar_llvm_ty,
         );
-        if (ty.zigTypeTag(zcu) == .Vector) {
+        if (ty.zigTypeTag(zcu) == .vector) {
             const result = try o.builder.poisonValue(llvm_ty);
             return self.buildElementwiseCall(libc_fn, &params, result, ty.vectorLen(zcu));
         }
@@ -8658,7 +8658,7 @@ pub const FuncGen = struct {
         const scalar_ty = operand_ty.scalarType(zcu);
 
         switch (scalar_ty.zigTypeTag(zcu)) {
-            .Int => return self.wip.callIntrinsic(
+            .int => return self.wip.callIntrinsic(
                 .normal,
                 .none,
                 .abs,
@@ -8666,7 +8666,7 @@ pub const FuncGen = struct {
                 &.{ operand, try o.builder.intValue(.i1, 0) },
                 "",
             ),
-            .Float => return self.buildFloatOp(.fabs, .normal, operand_ty, 1, .{operand}),
+            .float => return self.buildFloatOp(.fabs, .normal, operand_ty, 1, .{operand}),
             else => unreachable,
         }
     }
@@ -8806,11 +8806,11 @@ pub const FuncGen = struct {
             return self.wip.conv(.unsigned, operand, llvm_dest_ty, "");
         }
 
-        if (operand_ty.zigTypeTag(zcu) == .Int and inst_ty.isPtrAtRuntime(zcu)) {
+        if (operand_ty.zigTypeTag(zcu) == .int and inst_ty.isPtrAtRuntime(zcu)) {
             return self.wip.cast(.inttoptr, operand, llvm_dest_ty, "");
         }
 
-        if (operand_ty.zigTypeTag(zcu) == .Vector and inst_ty.zigTypeTag(zcu) == .Array) {
+        if (operand_ty.zigTypeTag(zcu) == .vector and inst_ty.zigTypeTag(zcu) == .array) {
             const elem_ty = operand_ty.childType(zcu);
             if (!result_is_ref) {
                 return self.ng.todo("implement bitcast vector to non-ref array", .{});
@@ -8837,7 +8837,7 @@ pub const FuncGen = struct {
                 }
             }
             return array_ptr;
-        } else if (operand_ty.zigTypeTag(zcu) == .Array and inst_ty.zigTypeTag(zcu) == .Vector) {
+        } else if (operand_ty.zigTypeTag(zcu) == .array and inst_ty.zigTypeTag(zcu) == .vector) {
             const elem_ty = operand_ty.childType(zcu);
             const llvm_vector_ty = try o.lowerType(inst_ty);
             if (!operand_is_ref) return self.ng.todo("implement bitcast non-ref array to vector", .{});
@@ -8883,7 +8883,7 @@ pub const FuncGen = struct {
         }
 
         if (llvm_dest_ty.isStruct(&o.builder) or
-            ((operand_ty.zigTypeTag(zcu) == .Vector or inst_ty.zigTypeTag(zcu) == .Vector) and
+            ((operand_ty.zigTypeTag(zcu) == .vector or inst_ty.zigTypeTag(zcu) == .vector) and
             operand_ty.bitSize(zcu) != inst_ty.bitSize(zcu)))
         {
             // Both our operand and our result are values, not pointers,
@@ -9687,7 +9687,7 @@ pub const FuncGen = struct {
             // If not an even byte-multiple, we need zero-extend + shift-left 1 byte
             // The truncated result at the end will be the correct bswap
             const scalar_ty = try o.builder.intType(@intCast(bits + 8));
-            if (operand_ty.zigTypeTag(zcu) == .Vector) {
+            if (operand_ty.zigTypeTag(zcu) == .vector) {
                 const vec_len = operand_ty.vectorLen(zcu);
                 llvm_operand_ty = try o.builder.vectorType(.normal, vec_len, scalar_ty);
             } else llvm_operand_ty = scalar_ty;
@@ -9993,7 +9993,7 @@ pub const FuncGen = struct {
                 else => unreachable,
             }, &.{llvm_operand_ty}, &.{operand}, ""),
             .Min, .Max => switch (scalar_ty.zigTypeTag(zcu)) {
-                .Int => return self.wip.callIntrinsic(.normal, .none, switch (reduce.operation) {
+                .int => return self.wip.callIntrinsic(.normal, .none, switch (reduce.operation) {
                     .Min => if (scalar_ty.isSignedInt(zcu))
                         .@"vector.reduce.smin"
                     else
@@ -10004,7 +10004,7 @@ pub const FuncGen = struct {
                         .@"vector.reduce.umax",
                     else => unreachable,
                 }, &.{llvm_operand_ty}, &.{operand}, ""),
-                .Float => if (intrinsicsAllowed(scalar_ty, target))
+                .float => if (intrinsicsAllowed(scalar_ty, target))
                     return self.wip.callIntrinsic(fast, .none, switch (reduce.operation) {
                         .Min => .@"vector.reduce.fmin",
                         .Max => .@"vector.reduce.fmax",
@@ -10013,12 +10013,12 @@ pub const FuncGen = struct {
                 else => unreachable,
             },
             .Add, .Mul => switch (scalar_ty.zigTypeTag(zcu)) {
-                .Int => return self.wip.callIntrinsic(.normal, .none, switch (reduce.operation) {
+                .int => return self.wip.callIntrinsic(.normal, .none, switch (reduce.operation) {
                     .Add => .@"vector.reduce.add",
                     .Mul => .@"vector.reduce.mul",
                     else => unreachable,
                 }, &.{llvm_operand_ty}, &.{operand}, ""),
-                .Float => if (intrinsicsAllowed(scalar_ty, target))
+                .float => if (intrinsicsAllowed(scalar_ty, target))
                     return self.wip.callIntrinsic(fast, .none, switch (reduce.operation) {
                         .Add => .@"vector.reduce.fadd",
                         .Mul => .@"vector.reduce.fmul",
@@ -10095,7 +10095,7 @@ pub const FuncGen = struct {
         const llvm_result_ty = try o.lowerType(result_ty);
 
         switch (result_ty.zigTypeTag(zcu)) {
-            .Vector => {
+            .vector => {
                 var vector = try o.builder.poisonValue(llvm_result_ty);
                 for (elements, 0..) |elem, i| {
                     const index_u32 = try o.builder.intValue(.i32, i);
@@ -10104,7 +10104,7 @@ pub const FuncGen = struct {
                 }
                 return vector;
             },
-            .Struct => {
+            .@"struct" => {
                 if (zcu.typeToPackedStruct(result_ty)) |struct_type| {
                     const backing_int_ty = struct_type.backingIntTypeUnordered(ip);
                     assert(backing_int_ty != .none);
@@ -10170,7 +10170,7 @@ pub const FuncGen = struct {
                     return result;
                 }
             },
-            .Array => {
+            .array => {
                 assert(isByRef(result_ty, zcu));
 
                 const llvm_usize = try o.lowerType(Type.usize);
@@ -10577,7 +10577,7 @@ pub const FuncGen = struct {
         const zcu = pt.zcu;
         const struct_ty = struct_ptr_ty.childType(zcu);
         switch (struct_ty.zigTypeTag(zcu)) {
-            .Struct => switch (struct_ty.containerLayout(zcu)) {
+            .@"struct" => switch (struct_ty.containerLayout(zcu)) {
                 .@"packed" => {
                     const result_ty = self.typeOfIndex(inst);
                     const result_ty_info = result_ty.ptrInfo(zcu);
@@ -10618,7 +10618,7 @@ pub const FuncGen = struct {
                     }
                 },
             },
-            .Union => {
+            .@"union" => {
                 const layout = struct_ty.unionGetLayout(zcu);
                 if (layout.payload_size == 0 or struct_ty.containerLayout(zcu) == .@"packed") return struct_ptr;
                 const payload_index = @intFromBool(layout.tag_align.compare(.gte, layout.payload_align));
@@ -10761,7 +10761,7 @@ pub const FuncGen = struct {
             return result_ptr;
         }
 
-        if (elem_ty.zigTypeTag(zcu) == .Float or elem_ty.zigTypeTag(zcu) == .Vector) {
+        if (elem_ty.zigTypeTag(zcu) == .float or elem_ty.zigTypeTag(zcu) == .vector) {
             const same_size_int = try o.builder.intType(@intCast(elem_bits));
             const truncated_int = try self.wip.cast(.trunc, shifted_value, same_size_int, "");
             return self.wip.cast(.bitcast, truncated_int, elem_llvm_ty, "");
@@ -11432,7 +11432,7 @@ const ParamTypeIterator = struct {
                 it.zig_index += 1;
                 it.llvm_index += 1;
                 if (ty.isSlice(zcu) or
-                    (ty.zigTypeTag(zcu) == .Optional and ty.optionalChild(zcu).isSlice(zcu) and !ty.ptrAllowsZero(zcu)))
+                    (ty.zigTypeTag(zcu) == .optional and ty.optionalChild(zcu).isSlice(zcu) and !ty.ptrAllowsZero(zcu)))
                 {
                     it.llvm_index += 1;
                     return .slice;
@@ -11707,8 +11707,8 @@ fn ccAbiPromoteInt(
         else => {},
     }
     const int_info = switch (ty.zigTypeTag(zcu)) {
-        .Bool => Type.u1.intInfo(zcu),
-        .Int, .Enum, .ErrorSet => ty.intInfo(zcu),
+        .bool => Type.u1.intInfo(zcu),
+        .int, .@"enum", .error_set => ty.intInfo(zcu),
         else => return null,
     };
     return switch (target.os.tag) {
@@ -11753,30 +11753,30 @@ fn isByRef(ty: Type, zcu: *Zcu) bool {
     const ip = &zcu.intern_pool;
 
     switch (ty.zigTypeTag(zcu)) {
-        .Type,
-        .ComptimeInt,
-        .ComptimeFloat,
-        .EnumLiteral,
-        .Undefined,
-        .Null,
-        .Opaque,
+        .type,
+        .comptime_int,
+        .comptime_float,
+        .enum_literal,
+        .undefined,
+        .null,
+        .@"opaque",
         => unreachable,
 
-        .NoReturn,
-        .Void,
-        .Bool,
-        .Int,
-        .Float,
-        .Pointer,
-        .ErrorSet,
-        .Fn,
-        .Enum,
-        .Vector,
-        .AnyFrame,
+        .noreturn,
+        .void,
+        .bool,
+        .int,
+        .float,
+        .pointer,
+        .error_set,
+        .@"fn",
+        .@"enum",
+        .vector,
+        .@"anyframe",
         => return false,
 
-        .Array, .Frame => return ty.hasRuntimeBits(zcu),
-        .Struct => {
+        .array, .frame => return ty.hasRuntimeBits(zcu),
+        .@"struct" => {
             const struct_type = switch (ip.indexToKey(ty.toIntern())) {
                 .anon_struct_type => |tuple| {
                     var count: usize = 0;
@@ -11807,18 +11807,18 @@ fn isByRef(ty: Type, zcu: *Zcu) bool {
             }
             return false;
         },
-        .Union => switch (ty.containerLayout(zcu)) {
+        .@"union" => switch (ty.containerLayout(zcu)) {
             .@"packed" => return false,
             else => return ty.hasRuntimeBits(zcu),
         },
-        .ErrorUnion => {
+        .error_union => {
             const payload_ty = ty.errorUnionPayload(zcu);
             if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
                 return false;
             }
             return true;
         },
-        .Optional => {
+        .optional => {
             const payload_ty = ty.optionalChild(zcu);
             if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
                 return false;
@@ -11833,21 +11833,21 @@ fn isByRef(ty: Type, zcu: *Zcu) bool {
 
 fn isScalar(zcu: *Zcu, ty: Type) bool {
     return switch (ty.zigTypeTag(zcu)) {
-        .Void,
-        .Bool,
-        .NoReturn,
-        .Int,
-        .Float,
-        .Pointer,
-        .Optional,
-        .ErrorSet,
-        .Enum,
-        .AnyFrame,
-        .Vector,
+        .void,
+        .bool,
+        .noreturn,
+        .int,
+        .float,
+        .pointer,
+        .optional,
+        .error_set,
+        .@"enum",
+        .@"anyframe",
+        .vector,
         => true,
 
-        .Struct => ty.containerLayout(zcu) == .@"packed",
-        .Union => ty.containerLayout(zcu) == .@"packed",
+        .@"struct" => ty.containerLayout(zcu) == .@"packed",
+        .@"union" => ty.containerLayout(zcu) == .@"packed",
         else => false,
     };
 }

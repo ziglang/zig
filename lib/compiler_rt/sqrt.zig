@@ -243,7 +243,7 @@ pub fn sqrtq(x: f128) callconv(.C) f128 {
 }
 
 pub fn sqrtl(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __sqrth(x),
         32 => return sqrtf(x),
         64 => return sqrt(x),

@@ -12,7 +12,7 @@ pub fn writeSetSub6(comptime op: enum { set, sub }, code: *[1]u8, addend: anytyp
 pub fn writeAddend(
     comptime Int: type,
     comptime op: enum { add, sub },
-    code: *[@typeInfo(Int).Int.bits / 8]u8,
+    code: *[@typeInfo(Int).int.bits / 8]u8,
     value: anytype,
 ) void {
     var V: Int = mem.readInt(Int, code, .little);

@@ -222,7 +222,7 @@ test "Macro that uses remainder operator. Issue #13346" {
 test "@typeInfo on @cImport result" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    try expect(@typeInfo(h).Struct.decls.len > 1);
+    try expect(@typeInfo(h).@"struct".decls.len > 1);
 }
 
 test "Macro that uses Long type concatenation casting" {

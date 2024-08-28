@@ -13,7 +13,7 @@ var log_file: ?std.fs.File = null;
 
 fn logOverride(
     comptime level: std.log.Level,
-    comptime scope: @TypeOf(.EnumLiteral),
+    comptime scope: @Type(.enum_literal),
     comptime format: []const u8,
     args: anytype,
 ) void {
@@ -178,7 +178,7 @@ const Fuzzer = struct {
         addr: usize,
         flags: packed struct(usize) {
             entry: bool,
-            _: @Type(.{ .Int = .{ .signedness = .unsigned, .bits = @bitSizeOf(usize) - 1 } }),
+            _: @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(usize) - 1 } }),
         },
     };
 

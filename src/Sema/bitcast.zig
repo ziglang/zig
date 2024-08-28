@@ -274,7 +274,7 @@ const UnpackValueBits = struct {
             => try unpack.primitive(val),
 
             .aggregate => switch (ty.zigTypeTag(zcu)) {
-                .Vector => {
+                .vector => {
                     const len: usize = @intCast(ty.arrayLen(zcu));
                     for (0..len) |i| {
                         // We reverse vector elements in packed memory on BE targets.
@@ -286,7 +286,7 @@ const UnpackValueBits = struct {
                         try unpack.add(elem_val);
                     }
                 },
-                .Array => {
+                .array => {
                     // Each element is padded up to its ABI size. Padding bits are undefined.
                     // The final element does not have trailing padding.
                     // Elements are reversed in packed memory on BE targets.
@@ -316,7 +316,7 @@ const UnpackValueBits = struct {
                         try unpack.add(s);
                     };
                 },
-                .Struct => switch (ty.containerLayout(zcu)) {
+                .@"struct" => switch (ty.containerLayout(zcu)) {
                     .auto => unreachable, // ill-defined layout
                     .@"extern" => switch (endian) {
                         .little => {
@@ -473,7 +473,7 @@ const PackValueBits = struct {
         const ip = &zcu.intern_pool;
         const arena = pack.arena;
         switch (ty.zigTypeTag(zcu)) {
-            .Vector => {
+            .vector => {
                 // Elements are bit-packed.
                 const len = ty.arrayLen(zcu);
                 const elem_ty = ty.childType(zcu);
@@ -496,7 +496,7 @@ const PackValueBits = struct {
                     .storage = .{ .elems = elems },
                 } }));
             },
-            .Array => {
+            .array => {
                 // Each element is padded up to its ABI size. The final element does not have trailing padding.
                 const len = ty.arrayLen(zcu);
                 const elem_ty = ty.childType(zcu);
@@ -530,7 +530,7 @@ const PackValueBits = struct {
                     .storage = .{ .elems = elems },
                 } }));
             },
-            .Struct => switch (ty.containerLayout(zcu)) {
+            .@"struct" => switch (ty.containerLayout(zcu)) {
                 .auto => unreachable, // ill-defined layout
                 .@"extern" => {
                     const elems = try arena.alloc(InternPool.Index, ty.structFieldCount(zcu));
@@ -587,7 +587,7 @@ const PackValueBits = struct {
                     } }));
                 },
             },
-            .Union => {
+            .@"union" => {
                 // We will attempt to read as the backing representation. If this emits
                 // `error.ReinterpretDeclRef`, we will try each union field, preferring larger ones.
                 // We will also attempt smaller fields when we get `undefined`, as if some bits are

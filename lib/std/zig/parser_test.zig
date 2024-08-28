@@ -2548,7 +2548,7 @@ test "zig fmt: same-line comment after non-block if expression" {
 test "zig fmt: same-line comment on comptime expression" {
     try testCanonical(
         \\test "" {
-        \\    comptime assert(@typeInfo(T) == .Int); // must pass an integer to absInt
+        \\    comptime assert(@typeInfo(T) == .int); // must pass an integer to absInt
         \\}
         \\
     );

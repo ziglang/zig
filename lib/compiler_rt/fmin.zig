@@ -39,7 +39,7 @@ pub fn fminq(x: f128, y: f128) callconv(.C) f128 {
 }
 
 pub fn fminl(x: c_longdouble, y: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __fminh(x, y),
         32 => return fminf(x, y),
         64 => return fmin(x, y),

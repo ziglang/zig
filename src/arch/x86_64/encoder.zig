@@ -2262,7 +2262,7 @@ const Assembler = struct {
     }
 
     fn mnemonicFromString(bytes: []const u8) ?Instruction.Mnemonic {
-        const ti = @typeInfo(Instruction.Mnemonic).Enum;
+        const ti = @typeInfo(Instruction.Mnemonic).@"enum";
         inline for (ti.fields) |field| {
             if (std.mem.eql(u8, bytes, field.name)) {
                 return @field(Instruction.Mnemonic, field.name);
@@ -2278,7 +2278,7 @@ const Assembler = struct {
                 _ = try as.expect(.comma);
                 try as.skip(1, .{.space});
             }
-            if (@typeInfo(@TypeOf(cond)) != .EnumLiteral) {
+            if (@typeInfo(@TypeOf(cond)) != .enum_literal) {
                 @compileError("invalid condition in the rule: " ++ @typeName(@TypeOf(cond)));
             }
             switch (cond) {
@@ -2315,7 +2315,7 @@ const Assembler = struct {
     }
 
     fn registerFromString(bytes: []const u8) ?Register {
-        const ti = @typeInfo(Register).Enum;
+        const ti = @typeInfo(Register).@"enum";
         inline for (ti.fields) |field| {
             if (std.mem.eql(u8, bytes, field.name)) {
                 return @field(Register, field.name);
@@ -2405,7 +2405,7 @@ const Assembler = struct {
     fn parseMemoryRule(as: *Assembler, rule: anytype) ParseError!MemoryParseResult {
         var res: MemoryParseResult = .{};
         inline for (rule, 0..) |cond, i| {
-            if (@typeInfo(@TypeOf(cond)) != .EnumLiteral) {
+            if (@typeInfo(@TypeOf(cond)) != .enum_literal) {
                 @compileError("unsupported condition type in the rule: " ++ @typeName(@TypeOf(cond)));
             }
             switch (cond) {

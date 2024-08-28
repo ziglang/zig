@@ -325,7 +325,7 @@ pub fn run(f: *Fetch) RunError!void {
                 // "p/$hash/foo", with possibly more directories after "foo".
                 // We want to fail unless the resolved relative path has a
                 // prefix of "p/$hash/".
-                const digest_len = @typeInfo(Manifest.MultiHashHexDigest).Array.len;
+                const digest_len = @typeInfo(Manifest.MultiHashHexDigest).array.len;
                 const prefix_len: usize = if (f.job_queue.read_only) 0 else "p/".len;
                 const expected_prefix = f.parent_package_root.sub_path[0 .. prefix_len + digest_len];
                 if (!std.mem.startsWith(u8, pkg_root.sub_path, expected_prefix)) {
@@ -670,7 +670,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                     .url = url,
                     .hash = h: {
                         const h = dep.hash orelse break :h null;
-                        const digest_len = @typeInfo(Manifest.MultiHashHexDigest).Array.len;
+                        const digest_len = @typeInfo(Manifest.MultiHashHexDigest).array.len;
                         const multihash_digest = h[0..digest_len].*;
                         const gop = f.job_queue.table.getOrPutAssumeCapacity(multihash_digest);
                         if (gop.found_existing) continue;

@@ -614,7 +614,7 @@ fn checksContainStderr(checks: []const StdIo.Check) bool {
 
 const IndexedOutput = struct {
     index: usize,
-    tag: @typeInfo(Arg).Union.tag_type.?,
+    tag: @typeInfo(Arg).@"union".tag_type.?,
     output: *Output,
 };
 fn make(step: *Step, options: Step.MakeOptions) !void {

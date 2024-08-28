@@ -219,14 +219,14 @@ pub fn innerParse(
     options: ParseOptions,
 ) ParseError(@TypeOf(source.*))!T {
     switch (@typeInfo(T)) {
-        .Bool => {
+        .bool => {
             return switch (try source.next()) {
                 .true => true,
                 .false => false,
                 else => error.UnexpectedToken,
             };
         },
-        .Float, .ComptimeFloat => {
+        .float, .comptime_float => {
             const token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
@@ -235,7 +235,7 @@ pub fn innerParse(
             };
             return try std.fmt.parseFloat(T, slice);
         },
-        .Int, .ComptimeInt => {
+        .int, .comptime_int => {
             const token = try source.nextAllocMax(allocator, .alloc_if_needed, options.max_value_len.?);
             defer freeAllocated(allocator, token);
             const slice = switch (token) {
@@ -244,7 +244,7 @@ pub fn innerParse(
             };
             return sliceToInt(T, slice);
         },
-        .Optional => |optionalInfo| {
+        .optional => |optionalInfo| {
             switch (try source.peekNextTokenType()) {
                 .null => {
                     _ = try source.next();
@@ -255,7 +255,7 @@ pub fn innerParse(
                 },
             }
         },
-        .Enum => {
+        .@"enum" => {
             if (std.meta.hasFn(T, "jsonParse")) {
                 return T.jsonParse(allocator, source, options);
             }
@@ -268,7 +268,7 @@ pub fn innerParse(
             };
             return sliceToEnum(T, slice);
         },
-        .Union => |unionInfo| {
+        .@"union" => |unionInfo| {
             if (std.meta.hasFn(T, "jsonParse")) {
                 return T.jsonParse(allocator, source, options);
             }
@@ -313,7 +313,7 @@ pub fn innerParse(
             return result.?;
         },
 
-        .Struct => |structInfo| {
+        .@"struct" => |structInfo| {
             if (structInfo.is_tuple) {
                 if (.array_begin != try source.next()) return error.UnexpectedToken;
 
@@ -385,7 +385,7 @@ pub fn innerParse(
             return r;
         },
 
-        .Array => |arrayInfo| {
+        .array => |arrayInfo| {
             switch (try source.peekNextTokenType()) {
                 .array_begin => {
                     // Typical array.
@@ -440,7 +440,7 @@ pub fn innerParse(
             }
         },
 
-        .Vector => |vecInfo| {
+        .vector => |vecInfo| {
             switch (try source.peekNextTokenType()) {
                 .array_begin => {
                     return internalParseArray(T, vecInfo.child, vecInfo.len, allocator, source, options);
@@ -449,7 +449,7 @@ pub fn innerParse(
             }
         },
 
-        .Pointer => |ptrInfo| {
+        .pointer => |ptrInfo| {
             switch (ptrInfo.size) {
                 .One => {
                     const r: *ptrInfo.child = try allocator.create(ptrInfo.child);
@@ -550,13 +550,13 @@ pub fn innerParseFromValue(
     options: ParseOptions,
 ) ParseFromValueError!T {
     switch (@typeInfo(T)) {
-        .Bool => {
+        .bool => {
             switch (source) {
                 .bool => |b| return b,
                 else => return error.UnexpectedToken,
             }
         },
-        .Float, .ComptimeFloat => {
+        .float, .comptime_float => {
             switch (source) {
                 .float => |f| return @as(T, @floatCast(f)),
                 .integer => |i| return @as(T, @floatFromInt(i)),
@@ -564,7 +564,7 @@ pub fn innerParseFromValue(
                 else => return error.UnexpectedToken,
             }
         },
-        .Int, .ComptimeInt => {
+        .int, .comptime_int => {
             switch (source) {
                 .float => |f| {
                     if (@round(f) != f) return error.InvalidNumber;
@@ -583,13 +583,13 @@ pub fn innerParseFromValue(
                 else => return error.UnexpectedToken,
             }
         },
-        .Optional => |optionalInfo| {
+        .optional => |optionalInfo| {
             switch (source) {
                 .null => return null,
                 else => return try innerParseFromValue(optionalInfo.child, allocator, source, options),
             }
         },
-        .Enum => {
+        .@"enum" => {
             if (std.meta.hasFn(T, "jsonParseFromValue")) {
                 return T.jsonParseFromValue(allocator, source, options);
             }
@@ -601,7 +601,7 @@ pub fn innerParseFromValue(
                 else => return error.UnexpectedToken,
             }
         },
-        .Union => |unionInfo| {
+        .@"union" => |unionInfo| {
             if (std.meta.hasFn(T, "jsonParseFromValue")) {
                 return T.jsonParseFromValue(allocator, source, options);
             }
@@ -631,7 +631,7 @@ pub fn innerParseFromValue(
             return error.UnknownField;
         },
 
-        .Struct => |structInfo| {
+        .@"struct" => |structInfo| {
             if (structInfo.is_tuple) {
                 if (source != .array) return error.UnexpectedToken;
                 if (source.array.items.len != structInfo.fields.len) return error.UnexpectedToken;
@@ -674,7 +674,7 @@ pub fn innerParseFromValue(
             return r;
         },
 
-        .Array => |arrayInfo| {
+        .array => |arrayInfo| {
             switch (source) {
                 .array => |array| {
                     // Typical array.
@@ -695,7 +695,7 @@ pub fn innerParseFromValue(
             }
         },
 
-        .Vector => |vecInfo| {
+        .vector => |vecInfo| {
             switch (source) {
                 .array => |array| {
                     return innerParseArrayFromArrayValue(T, vecInfo.child, vecInfo.len, allocator, array, options);
@@ -704,7 +704,7 @@ pub fn innerParseFromValue(
             }
         },
 
-        .Pointer => |ptrInfo| {
+        .pointer => |ptrInfo| {
             switch (ptrInfo.size) {
                 .One => {
                     const r: *ptrInfo.child = try allocator.create(ptrInfo.child);
@@ -780,12 +780,12 @@ fn sliceToEnum(comptime T: type, slice: []const u8) !T {
     if (std.meta.stringToEnum(T, slice)) |value| return value;
     // Check for a numeric value.
     if (!isNumberFormattedLikeAnInteger(slice)) return error.InvalidEnumTag;
-    const n = std.fmt.parseInt(@typeInfo(T).Enum.tag_type, slice, 10) catch return error.InvalidEnumTag;
+    const n = std.fmt.parseInt(@typeInfo(T).@"enum".tag_type, slice, 10) catch return error.InvalidEnumTag;
     return std.meta.intToEnum(T, n);
 }
 
-fn fillDefaultStructValues(comptime T: type, r: *T, fields_seen: *[@typeInfo(T).Struct.fields.len]bool) !void {
-    inline for (@typeInfo(T).Struct.fields, 0..) |field, i| {
+fn fillDefaultStructValues(comptime T: type, r: *T, fields_seen: *[@typeInfo(T).@"struct".fields.len]bool) !void {
+    inline for (@typeInfo(T).@"struct".fields, 0..) |field, i| {
         if (!fields_seen[i]) {
             if (field.default_value) |default_ptr| {
                 const default = @as(*align(1) const field.type, @ptrCast(default_ptr)).*;

@@ -374,7 +374,7 @@ test "Enum constructed by @Type passed as generic argument" {
             try expect(@intFromEnum(a) == b);
         }
     };
-    inline for (@typeInfo(S.E).Enum.fields, 0..) |_, i| {
+    inline for (@typeInfo(S.E).@"enum".fields, 0..) |_, i| {
         try S.foo(@as(S.E, @enumFromInt(i)), i);
     }
 }
@@ -578,11 +578,11 @@ test "generic function pointer can be called" {
 test "value returned from comptime function is comptime known" {
     const S = struct {
         fn fields(comptime T: type) switch (@typeInfo(T)) {
-            .Struct => []const std.builtin.Type.StructField,
+            .@"struct" => []const std.builtin.Type.StructField,
             else => unreachable,
         } {
             return switch (@typeInfo(T)) {
-                .Struct => |info| info.fields,
+                .@"struct" => |info| info.fields,
                 else => unreachable,
             };
         }

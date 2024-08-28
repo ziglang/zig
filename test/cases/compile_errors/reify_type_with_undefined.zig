@@ -1,9 +1,9 @@
 comptime {
-    _ = @Type(.{ .Array = .{ .len = 0, .child = u8, .sentinel = undefined } });
+    _ = @Type(.{ .array = .{ .len = 0, .child = u8, .sentinel = undefined } });
 }
 comptime {
     _ = @Type(.{
-        .Struct = .{
+        .@"struct" = .{
             .fields = undefined,
             .decls = undefined,
             .is_tuple = false,
@@ -15,7 +15,7 @@ comptime {
     const std = @import("std");
     const fields: [1]std.builtin.Type.StructField = undefined;
     _ = @Type(.{
-        .Struct = .{
+        .@"struct" = .{
             .layout = .auto,
             .fields = &fields,
             .decls = &.{},

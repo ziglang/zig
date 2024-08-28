@@ -130,7 +130,7 @@ var log_scopes: std.ArrayListUnmanaged([]const u8) = .{};
 
 pub fn log(
     comptime level: std.log.Level,
-    comptime scope: @TypeOf(.EnumLiteral),
+    comptime scope: @Type(.enum_literal),
     comptime format: []const u8,
     args: anytype,
 ) void {
@@ -5315,7 +5315,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                         var any_errors = false;
                         while (it.next()) |hash| {
                             if (hash.len == 0) continue;
-                            const digest_len = @typeInfo(Package.Manifest.MultiHashHexDigest).Array.len;
+                            const digest_len = @typeInfo(Package.Manifest.MultiHashHexDigest).array.len;
                             if (hash.len != digest_len) {
                                 std.log.err("invalid digest (length {d} instead of {d}): '{s}'", .{
                                     hash.len, digest_len, hash,

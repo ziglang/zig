@@ -547,7 +547,7 @@ pub fn writeStackTrace(
 }
 
 pub const UnwindError = if (have_ucontext)
-    @typeInfo(@typeInfo(@TypeOf(StackIterator.next_unwind)).Fn.return_type.?).ErrorUnion.error_set
+    @typeInfo(@typeInfo(@TypeOf(StackIterator.next_unwind)).@"fn".return_type.?).error_union.error_set
 else
     void;
 
