@@ -822,6 +822,9 @@ pub const Object = struct {
     /// This is denormalized data.
     struct_field_map: std.AutoHashMapUnmanaged(ZigStructField, c_uint),
 
+    /// Values for `@llvm.compiler.used`.
+    compiler_used: std.ArrayListUnmanaged(Builder.Constant),
+
     const ZigStructField = struct {
         struct_ty: InternPool.Index,
         field_index: u32,
@@ -975,6 +978,7 @@ pub const Object = struct {
             .error_name_table = .none,
             .null_opt_usize = .no_init,
             .struct_field_map = .{},
+            .compiler_used = .{},
         };
         return obj;
     }
@@ -1097,44 +1101,57 @@ pub const Object = struct {
         lto: bool,
     };
 
-    pub fn emit(self: *Object, options: EmitOptions) !void {
-        const zcu = self.pt.zcu;
+    pub fn emit(o: *Object, options: EmitOptions) !void {
+        const zcu = o.pt.zcu;
         const comp = zcu.comp;
 
         {
-            try self.genErrorNameTable();
-            try self.genCmpLtErrorsLenFunction();
-            try self.genModuleLevelAssembly();
+            try o.genErrorNameTable();
+            try o.genCmpLtErrorsLenFunction();
+            try o.genModuleLevelAssembly();
 
-            if (!self.builder.strip) {
+            if (o.compiler_used.items.len > 0) {
+                const array_llvm_ty = try o.builder.arrayType(o.compiler_used.items.len, .ptr);
+                const init_val = try o.builder.arrayConst(array_llvm_ty, o.compiler_used.items);
+                const compiler_used_variable = try o.builder.addVariable(
+                    try o.builder.strtabString("llvm.compiler.used"),
+                    array_llvm_ty,
+                    .default,
+                );
+                compiler_used_variable.setLinkage(.appending, &o.builder);
+                compiler_used_variable.setSection(try o.builder.string("llvm.metadata"), &o.builder);
+                try compiler_used_variable.setInitializer(init_val, &o.builder);
+            }
+
+            if (!o.builder.strip) {
                 {
                     var i: usize = 0;
-                    while (i < self.debug_unresolved_namespace_scopes.count()) : (i += 1) {
-                        const namespace_index = self.debug_unresolved_namespace_scopes.keys()[i];
-                        const fwd_ref = self.debug_unresolved_namespace_scopes.values()[i];
+                    while (i < o.debug_unresolved_namespace_scopes.count()) : (i += 1) {
+                        const namespace_index = o.debug_unresolved_namespace_scopes.keys()[i];
+                        const fwd_ref = o.debug_unresolved_namespace_scopes.values()[i];
 
                         const namespace = zcu.namespacePtr(namespace_index);
-                        const debug_type = try self.lowerDebugType(Type.fromInterned(namespace.owner_type));
+                        const debug_type = try o.lowerDebugType(Type.fromInterned(namespace.owner_type));
 
-                        self.builder.debugForwardReferenceSetType(fwd_ref, debug_type);
+                        o.builder.debugForwardReferenceSetType(fwd_ref, debug_type);
                     }
                 }
 
-                self.builder.debugForwardReferenceSetType(
-                    self.debug_enums_fwd_ref,
-                    try self.builder.metadataTuple(self.debug_enums.items),
+                o.builder.debugForwardReferenceSetType(
+                    o.debug_enums_fwd_ref,
+                    try o.builder.metadataTuple(o.debug_enums.items),
                 );
 
-                self.builder.debugForwardReferenceSetType(
-                    self.debug_globals_fwd_ref,
-                    try self.builder.metadataTuple(self.debug_globals.items),
+                o.builder.debugForwardReferenceSetType(
+                    o.debug_globals_fwd_ref,
+                    try o.builder.metadataTuple(o.debug_globals.items),
                 );
             }
         }
 
         const target_triple_sentinel =
-            try self.gpa.dupeZ(u8, self.builder.target_triple.slice(&self.builder).?);
-        defer self.gpa.free(target_triple_sentinel);
+            try o.gpa.dupeZ(u8, o.builder.target_triple.slice(&o.builder).?);
+        defer o.gpa.free(target_triple_sentinel);
 
         const emit_asm_msg = options.asm_path orelse "(none)";
         const emit_bin_msg = options.bin_path orelse "(none)";
@@ -1147,15 +1164,15 @@ pub const Object = struct {
         const context, const module = emit: {
             if (options.pre_ir_path) |path| {
                 if (std.mem.eql(u8, path, "-")) {
-                    self.builder.dump();
+                    o.builder.dump();
                 } else {
-                    _ = try self.builder.printToFile(path);
+                    _ = try o.builder.printToFile(path);
                 }
             }
 
-            const bitcode = try self.builder.toBitcode(self.gpa);
-            defer self.gpa.free(bitcode);
-            self.builder.clearAndFree();
+            const bitcode = try o.builder.toBitcode(o.gpa);
+            defer o.gpa.free(bitcode);
+            o.builder.clearAndFree();
 
             if (options.pre_bc_path) |path| {
                 var file = try std.fs.cwd().createFile(path, .{});
@@ -1707,7 +1724,7 @@ pub const Object = struct {
 
         fg.genBody(air.getMainBody(), .poi) catch |err| switch (err) {
             error.CodegenFail => {
-                try zcu.failed_codegen.put(zcu.gpa, func.owner_nav, ng.err_msg.?);
+                try zcu.failed_codegen.put(gpa, func.owner_nav, ng.err_msg.?);
                 ng.err_msg = null;
                 return;
             },
@@ -1730,6 +1747,11 @@ pub const Object = struct {
             pcs_variable.setAlignment(Type.usize.abiAlignment(zcu).toLlvm(), &o.builder);
             pcs_variable.setSection(try o.builder.string("__sancov_pcs1"), &o.builder);
             try pcs_variable.setInitializer(init_val, &o.builder);
+
+            try o.compiler_used.appendSlice(gpa, &.{
+                f.counters_variable.toConst(&o.builder),
+                pcs_variable.toConst(&o.builder),
+            });
         }
 
         try fg.wip.finish();
