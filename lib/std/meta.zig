@@ -294,7 +294,7 @@ test declarations {
         pub fn a() void {}
     };
     const U1 = union {
-        a: u8,
+        b: u8,
 
         pub fn a() void {}
     };
@@ -334,7 +334,7 @@ test declarationInfo {
         pub fn a() void {}
     };
     const U1 = union {
-        a: u8,
+        b: u8,
 
         pub fn a() void {}
     };

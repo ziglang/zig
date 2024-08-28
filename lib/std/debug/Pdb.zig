@@ -300,11 +300,10 @@ pub fn getLineNumberInfo(self: *Pdb, module: *Module, address: u64) !std.debug.S
 
                             const found_line_index = start_line_index + line_entry_idx * @sizeOf(pdb.LineNumberEntry);
                             const line_num_entry: *align(1) pdb.LineNumberEntry = @ptrCast(&subsect_info[found_line_index]);
-                            const flags: *align(1) pdb.LineNumberEntry.Flags = @ptrCast(&line_num_entry.Flags);
 
                             return .{
                                 .file_name = source_file_name,
-                                .line = flags.Start,
+                                .line = line_num_entry.Flags.Start,
                                 .column = column,
                             };
                         }

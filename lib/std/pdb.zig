@@ -399,17 +399,14 @@ pub const LineBlockFragmentHeader = extern struct {
 pub const LineNumberEntry = extern struct {
     /// Offset to start of code bytes for line number
     Offset: u32,
-    Flags: u32,
-
-    /// TODO runtime crash when I make the actual type of Flags this
-    pub const Flags = packed struct {
+    Flags: packed struct(u32) {
         /// Start line number
         Start: u24,
         /// Delta of lines to the end of the expression. Still unclear.
         // TODO figure out the point of this field.
         End: u7,
         IsStatement: bool,
-    };
+    },
 };
 
 pub const ColumnNumberEntry = extern struct {
