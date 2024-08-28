@@ -4053,7 +4053,7 @@ fn fnDecl(
     // The source slice is added towards the *end* of this function.
     astgen.src_hasher.update(std.mem.asBytes(&astgen.source_column));
 
-    // missing function name already happened in scanDecls()
+    // missing function name already happened in scanContainer()
     const fn_name_token = fn_proto.name_token orelse return error.AnalysisFail;
 
     // We insert this at the beginning so that its instruction index marks the
@@ -5019,7 +5019,7 @@ fn structDeclInner(
         }
     };
 
-    const decl_count = try astgen.scanDecls(&namespace, container_decl.ast.members);
+    const decl_count = try astgen.scanContainer(&namespace, container_decl.ast.members, .@"struct");
     const field_count: u32 = @intCast(container_decl.ast.members.len - decl_count);
 
     const bits_per_field = 4;
@@ -5088,15 +5088,6 @@ fn structDeclInner(
         astgen.src_hasher.update(tree.getNodeSource(backing_int_node));
     }
 
-    var sfba = std.heap.stackFallback(256, astgen.arena);
-    const sfba_allocator = sfba.get();
-
-    var duplicate_names = std.AutoArrayHashMap(Zir.NullTerminatedString, std.ArrayListUnmanaged(Ast.TokenIndex)).init(sfba_allocator);
-    try duplicate_names.ensureTotalCapacity(field_count);
-
-    // When there aren't errors, use this to avoid a second iteration.
-    var any_duplicate = false;
-
     var known_non_opv = false;
     var known_comptime_only = false;
     var any_comptime_fields = false;
@@ -5117,16 +5108,6 @@ fn structDeclInner(
             assert(!member.ast.tuple_like);
 
             wip_members.appendToField(@intFromEnum(field_name));
-
-            const gop = try duplicate_names.getOrPut(field_name);
-
-            if (gop.found_existing) {
-                try gop.value_ptr.append(sfba_allocator, member.ast.main_token);
-                any_duplicate = true;
-            } else {
-                gop.value_ptr.* = .{};
-                try gop.value_ptr.append(sfba_allocator, member.ast.main_token);
-            }
         } else if (!member.ast.tuple_like) {
             return astgen.failTok(member.ast.main_token, "tuple field has a name", .{});
         }
@@ -5211,32 +5192,6 @@ fn structDeclInner(
         }
     }
 
-    if (any_duplicate) {
-        var it = duplicate_names.iterator();
-
-        while (it.next()) |entry| {
-            const record = entry.value_ptr.*;
-            if (record.items.len > 1) {
-                var error_notes = std.ArrayList(u32).init(astgen.arena);
-
-                for (record.items[1..]) |duplicate| {
-                    try error_notes.append(try astgen.errNoteTok(duplicate, "duplicate field here", .{}));
-                }
-
-                try error_notes.append(try astgen.errNoteNode(node, "struct declared here", .{}));
-
-                try astgen.appendErrorTokNotes(
-                    record.items[0],
-                    "duplicate struct field name",
-                    .{},
-                    error_notes.items,
-                );
-            }
-        }
-
-        return error.AnalysisFail;
-    }
-
     var fields_hash: std.zig.SrcHash = undefined;
     astgen.src_hasher.final(&fields_hash);
 
@@ -5317,7 +5272,7 @@ fn unionDeclInner(
     };
     defer block_scope.unstack();
 
-    const decl_count = try astgen.scanDecls(&namespace, members);
+    const decl_count = try astgen.scanContainer(&namespace, members, .@"union");
     const field_count: u32 = @intCast(members.len - decl_count);
 
     if (layout != .auto and (auto_enum_tok != null or arg_node != 0)) {
@@ -5348,15 +5303,6 @@ fn unionDeclInner(
         astgen.src_hasher.update(astgen.tree.getNodeSource(arg_node));
     }
 
-    var sfba = std.heap.stackFallback(256, astgen.arena);
-    const sfba_allocator = sfba.get();
-
-    var duplicate_names = std.AutoArrayHashMap(Zir.NullTerminatedString, std.ArrayListUnmanaged(Ast.TokenIndex)).init(sfba_allocator);
-    try duplicate_names.ensureTotalCapacity(field_count);
-
-    // When there aren't errors, use this to avoid a second iteration.
-    var any_duplicate = false;
-
     for (members) |member_node| {
         var member = switch (try containerMember(&block_scope, &namespace.base, &wip_members, member_node)) {
             .decl => continue,
@@ -5373,16 +5319,6 @@ fn unionDeclInner(
 
         const field_name = try astgen.identAsString(member.ast.main_token);
         wip_members.appendToField(@intFromEnum(field_name));
-
-        const gop = try duplicate_names.getOrPut(field_name);
-
-        if (gop.found_existing) {
-            try gop.value_ptr.append(sfba_allocator, member.ast.main_token);
-            any_duplicate = true;
-        } else {
-            gop.value_ptr.* = .{};
-            try gop.value_ptr.append(sfba_allocator, member.ast.main_token);
-        }
 
         const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
         wip_members.appendToField(@intFromEnum(doc_comment_index));
@@ -5436,32 +5372,6 @@ fn unionDeclInner(
             const tag_value = try expr(&block_scope, &block_scope.base, .{ .rl = .{ .ty = arg_inst } }, member.ast.value_expr);
             wip_members.appendToField(@intFromEnum(tag_value));
         }
-    }
-
-    if (any_duplicate) {
-        var it = duplicate_names.iterator();
-
-        while (it.next()) |entry| {
-            const record = entry.value_ptr.*;
-            if (record.items.len > 1) {
-                var error_notes = std.ArrayList(u32).init(astgen.arena);
-
-                for (record.items[1..]) |duplicate| {
-                    try error_notes.append(try astgen.errNoteTok(duplicate, "duplicate field here", .{}));
-                }
-
-                try error_notes.append(try astgen.errNoteNode(node, "union declared here", .{}));
-
-                try astgen.appendErrorTokNotes(
-                    record.items[0],
-                    "duplicate union field name",
-                    .{},
-                    error_notes.items,
-                );
-            }
-        }
-
-        return error.AnalysisFail;
     }
 
     var fields_hash: std.zig.SrcHash = undefined;
@@ -5666,7 +5576,7 @@ fn containerDecl(
             };
             defer block_scope.unstack();
 
-            _ = try astgen.scanDecls(&namespace, container_decl.ast.members);
+            _ = try astgen.scanContainer(&namespace, container_decl.ast.members, .@"enum");
             namespace.base.tag = .namespace;
 
             const arg_inst: Zir.Inst.Ref = if (container_decl.ast.arg != 0)
@@ -5687,15 +5597,6 @@ fn containerDecl(
             }
             astgen.src_hasher.update(&.{@intFromBool(nonexhaustive)});
 
-            var sfba = std.heap.stackFallback(256, astgen.arena);
-            const sfba_allocator = sfba.get();
-
-            var duplicate_names = std.AutoArrayHashMap(Zir.NullTerminatedString, std.ArrayListUnmanaged(Ast.TokenIndex)).init(sfba_allocator);
-            try duplicate_names.ensureTotalCapacity(counts.total_fields);
-
-            // When there aren't errors, use this to avoid a second iteration.
-            var any_duplicate = false;
-
             for (container_decl.ast.members) |member_node| {
                 if (member_node == counts.nonexhaustive_node)
                     continue;
@@ -5711,16 +5612,6 @@ fn containerDecl(
 
                 const field_name = try astgen.identAsString(member.ast.main_token);
                 wip_members.appendToField(@intFromEnum(field_name));
-
-                const gop = try duplicate_names.getOrPut(field_name);
-
-                if (gop.found_existing) {
-                    try gop.value_ptr.append(sfba_allocator, member.ast.main_token);
-                    any_duplicate = true;
-                } else {
-                    gop.value_ptr.* = .{};
-                    try gop.value_ptr.append(sfba_allocator, member.ast.main_token);
-                }
 
                 const doc_comment_index = try astgen.docCommentAsString(member.firstToken());
                 wip_members.appendToField(@intFromEnum(doc_comment_index));
@@ -5746,32 +5637,6 @@ fn containerDecl(
                     const tag_value_inst = try expr(&block_scope, &namespace.base, .{ .rl = .{ .ty = arg_inst } }, member.ast.value_expr);
                     wip_members.appendToField(@intFromEnum(tag_value_inst));
                 }
-            }
-
-            if (any_duplicate) {
-                var it = duplicate_names.iterator();
-
-                while (it.next()) |entry| {
-                    const record = entry.value_ptr.*;
-                    if (record.items.len > 1) {
-                        var error_notes = std.ArrayList(u32).init(astgen.arena);
-
-                        for (record.items[1..]) |duplicate| {
-                            try error_notes.append(try astgen.errNoteTok(duplicate, "duplicate field here", .{}));
-                        }
-
-                        try error_notes.append(try astgen.errNoteNode(node, "enum declared here", .{}));
-
-                        try astgen.appendErrorTokNotes(
-                            record.items[0],
-                            "duplicate enum field name",
-                            .{},
-                            error_notes.items,
-                        );
-                    }
-                }
-
-                return error.AnalysisFail;
             }
 
             if (!block_scope.isEmpty()) {
@@ -5833,7 +5698,7 @@ fn containerDecl(
             };
             defer block_scope.unstack();
 
-            const decl_count = try astgen.scanDecls(&namespace, container_decl.ast.members);
+            const decl_count = try astgen.scanContainer(&namespace, container_decl.ast.members, .@"opaque");
 
             var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, 0, 0, 0);
             defer wip_members.deinit();
@@ -13594,31 +13459,67 @@ fn advanceSourceCursor(astgen: *AstGen, end: usize) void {
     astgen.source_column = column;
 }
 
-fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const Ast.Node.Index) !u32 {
+/// Detects name conflicts for decls and fields, and populates `namespace.decls` with all named declarations.
+/// Returns the number of declarations in the namespace, including unnamed declarations (e.g. `comptime` decls).
+fn scanContainer(
+    astgen: *AstGen,
+    namespace: *Scope.Namespace,
+    members: []const Ast.Node.Index,
+    container_kind: enum { @"struct", @"union", @"enum", @"opaque" },
+) !u32 {
     const gpa = astgen.gpa;
     const tree = astgen.tree;
     const node_tags = tree.nodes.items(.tag);
     const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
 
-    // We don't have shadowing for test names, so we just track those for duplicate reporting locally.
-    var named_tests: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.Node.Index) = .{};
-    var decltests: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.Node.Index) = .{};
+    // This type forms a linked list of source tokens declaring the same name.
+    const NameEntry = struct {
+        tok: Ast.TokenIndex,
+        /// Using a linked list here simplifies memory management, and is acceptable since
+        ///ewntries are only allocated in error situations. The entries are allocated into the
+        /// AstGen arena.
+        next: ?*@This(),
+    };
+
+    // The maps below are allocated into this SFBA to avoid using the GPA for small namespaces.
+    var sfba_state = std.heap.stackFallback(512, astgen.gpa);
+    const sfba = sfba_state.get();
+
+    var names: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, NameEntry) = .{};
+    var test_names: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, NameEntry) = .{};
+    var decltest_names: std.AutoArrayHashMapUnmanaged(Zir.NullTerminatedString, NameEntry) = .{};
     defer {
-        named_tests.deinit(gpa);
-        decltests.deinit(gpa);
+        names.deinit(sfba);
+        test_names.deinit(sfba);
+        decltest_names.deinit(sfba);
     }
 
+    var any_duplicates = false;
     var decl_count: u32 = 0;
     for (members) |member_node| {
-        const name_token = switch (node_tags[member_node]) {
+        const Kind = enum { decl, field };
+        const kind: Kind, const name_token = switch (node_tags[member_node]) {
+            .container_field_init,
+            .container_field_align,
+            .container_field,
+            => blk: {
+                var full = tree.fullContainerField(member_node).?;
+                switch (container_kind) {
+                    .@"struct", .@"opaque" => {},
+                    .@"union", .@"enum" => full.convertToNonTupleLike(astgen.tree.nodes),
+                }
+                if (full.ast.tuple_like) continue;
+                break :blk .{ .field, full.ast.main_token };
+            },
+
             .global_var_decl,
             .local_var_decl,
             .simple_var_decl,
             .aligned_var_decl,
             => blk: {
                 decl_count += 1;
-                break :blk main_tokens[member_node] + 1;
+                break :blk .{ .decl, main_tokens[member_node] + 1 };
             },
 
             .fn_proto_simple,
@@ -13630,12 +13531,10 @@ fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const Ast.
                 decl_count += 1;
                 const ident = main_tokens[member_node] + 1;
                 if (token_tags[ident] != .identifier) {
-                    switch (astgen.failNode(member_node, "missing function name", .{})) {
-                        error.AnalysisFail => continue,
-                        error.OutOfMemory => return error.OutOfMemory,
-                    }
+                    try astgen.appendErrorNode(member_node, "missing function name", .{});
+                    continue;
                 }
-                break :blk ident;
+                break :blk .{ .decl, ident };
             },
 
             .@"comptime", .@"usingnamespace" => {
@@ -13648,70 +13547,87 @@ fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const Ast.
                 // We don't want shadowing detection here, and test names work a bit differently, so
                 // we must do the redeclaration detection ourselves.
                 const test_name_token = main_tokens[member_node] + 1;
+                const new_ent: NameEntry = .{
+                    .tok = test_name_token,
+                    .next = null,
+                };
                 switch (token_tags[test_name_token]) {
                     else => {}, // unnamed test
                     .string_literal => {
                         const name = try astgen.strLitAsString(test_name_token);
-                        const gop = try named_tests.getOrPut(gpa, name.index);
+                        const gop = try test_names.getOrPut(sfba, name.index);
                         if (gop.found_existing) {
-                            const name_slice = astgen.string_bytes.items[@intFromEnum(name.index)..][0..name.len];
-                            const name_duped = try gpa.dupe(u8, name_slice);
-                            defer gpa.free(name_duped);
-                            try astgen.appendErrorNodeNotes(member_node, "duplicate test name '{s}'", .{name_duped}, &.{
-                                try astgen.errNoteNode(gop.value_ptr.*, "other test here", .{}),
-                            });
+                            var e = gop.value_ptr;
+                            while (e.next) |n| e = n;
+                            e.next = try astgen.arena.create(NameEntry);
+                            e.next.?.* = new_ent;
+                            any_duplicates = true;
                         } else {
-                            gop.value_ptr.* = member_node;
+                            gop.value_ptr.* = new_ent;
                         }
                     },
                     .identifier => {
                         const name = try astgen.identAsString(test_name_token);
-                        const gop = try decltests.getOrPut(gpa, name);
+                        const gop = try decltest_names.getOrPut(sfba, name);
                         if (gop.found_existing) {
-                            const name_slice = mem.span(astgen.nullTerminatedString(name));
-                            const name_duped = try gpa.dupe(u8, name_slice);
-                            defer gpa.free(name_duped);
-                            try astgen.appendErrorNodeNotes(member_node, "duplicate decltest '{s}'", .{name_duped}, &.{
-                                try astgen.errNoteNode(gop.value_ptr.*, "other decltest here", .{}),
-                            });
+                            var e = gop.value_ptr;
+                            while (e.next) |n| e = n;
+                            e.next = try astgen.arena.create(NameEntry);
+                            e.next.?.* = new_ent;
+                            any_duplicates = true;
                         } else {
-                            gop.value_ptr.* = member_node;
+                            gop.value_ptr.* = new_ent;
                         }
                     },
                 }
                 continue;
             },
 
-            else => continue,
+            else => unreachable,
         };
 
-        const token_bytes = astgen.tree.tokenSlice(name_token);
-        if (token_bytes[0] != '@' and isPrimitive(token_bytes)) {
-            switch (astgen.failTokNotes(name_token, "name shadows primitive '{s}'", .{
-                token_bytes,
-            }, &[_]u32{
-                try astgen.errNoteTok(name_token, "consider using @\"{s}\" to disambiguate", .{
-                    token_bytes,
-                }),
-            })) {
-                error.AnalysisFail => continue,
-                error.OutOfMemory => return error.OutOfMemory,
+        const name_str_index = try astgen.identAsString(name_token);
+
+        if (kind == .decl) {
+            // Put the name straight into `decls`, even if there are compile errors.
+            // This avoids incorrect "undeclared identifier" errors later on.
+            try namespace.decls.put(gpa, name_str_index, member_node);
+        }
+
+        {
+            const gop = try names.getOrPut(sfba, name_str_index);
+            const new_ent: NameEntry = .{
+                .tok = name_token,
+                .next = null,
+            };
+            if (gop.found_existing) {
+                var e = gop.value_ptr;
+                while (e.next) |n| e = n;
+                e.next = try astgen.arena.create(NameEntry);
+                e.next.?.* = new_ent;
+                any_duplicates = true;
+                continue;
+            } else {
+                gop.value_ptr.* = new_ent;
             }
         }
 
-        const name_str_index = try astgen.identAsString(name_token);
-        const gop = try namespace.decls.getOrPut(gpa, name_str_index);
-        if (gop.found_existing) {
-            const name = try gpa.dupe(u8, mem.span(astgen.nullTerminatedString(name_str_index)));
-            defer gpa.free(name);
-            switch (astgen.failNodeNotes(member_node, "redeclaration of '{s}'", .{
-                name,
-            }, &[_]u32{
-                try astgen.errNoteNode(gop.value_ptr.*, "other declaration here", .{}),
-            })) {
-                error.AnalysisFail => continue,
-                error.OutOfMemory => return error.OutOfMemory,
-            }
+        // For fields, we only needed the duplicate check! Decls have some more checks to do, though.
+        switch (kind) {
+            .decl => {},
+            .field => continue,
+        }
+
+        const token_bytes = astgen.tree.tokenSlice(name_token);
+        if (token_bytes[0] != '@' and isPrimitive(token_bytes)) {
+            try astgen.appendErrorTokNotes(name_token, "name shadows primitive '{s}'", .{
+                token_bytes,
+            }, &.{
+                try astgen.errNoteTok(name_token, "consider using @\"{s}\" to disambiguate", .{
+                    token_bytes,
+                }),
+            });
+            continue;
         }
 
         var s = namespace.parent;
@@ -13719,30 +13635,32 @@ fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const Ast.
             .local_val => {
                 const local_val = s.cast(Scope.LocalVal).?;
                 if (local_val.name == name_str_index) {
-                    return astgen.failTokNotes(name_token, "declaration '{s}' shadows {s} from outer scope", .{
+                    try astgen.appendErrorTokNotes(name_token, "declaration '{s}' shadows {s} from outer scope", .{
                         token_bytes, @tagName(local_val.id_cat),
-                    }, &[_]u32{
+                    }, &.{
                         try astgen.errNoteTok(
                             local_val.token_src,
                             "previous declaration here",
                             .{},
                         ),
                     });
+                    break;
                 }
                 s = local_val.parent;
             },
             .local_ptr => {
                 const local_ptr = s.cast(Scope.LocalPtr).?;
                 if (local_ptr.name == name_str_index) {
-                    return astgen.failTokNotes(name_token, "declaration '{s}' shadows {s} from outer scope", .{
+                    try astgen.appendErrorTokNotes(name_token, "declaration '{s}' shadows {s} from outer scope", .{
                         token_bytes, @tagName(local_ptr.id_cat),
-                    }, &[_]u32{
+                    }, &.{
                         try astgen.errNoteTok(
                             local_ptr.token_src,
                             "previous declaration here",
                             .{},
                         ),
                     });
+                    break;
                 }
                 s = local_ptr.parent;
             },
@@ -13751,8 +13669,46 @@ fn scanDecls(astgen: *AstGen, namespace: *Scope.Namespace, members: []const Ast.
             .defer_normal, .defer_error => s = s.cast(Scope.Defer).?.parent,
             .top => break,
         };
-        gop.value_ptr.* = member_node;
     }
+
+    if (!any_duplicates) return decl_count;
+
+    for (names.keys(), names.values()) |name, first| {
+        if (first.next == null) continue;
+        var notes: std.ArrayListUnmanaged(u32) = .{};
+        var prev: NameEntry = first;
+        while (prev.next) |cur| : (prev = cur.*) {
+            try notes.append(astgen.arena, try astgen.errNoteTok(cur.tok, "duplicate name here", .{}));
+        }
+        try notes.append(astgen.arena, try astgen.errNoteNode(namespace.node, "{s} declared here", .{@tagName(container_kind)}));
+        const name_duped = try astgen.arena.dupe(u8, mem.span(astgen.nullTerminatedString(name)));
+        try astgen.appendErrorTokNotes(first.tok, "duplicate {s} member name '{s}'", .{ @tagName(container_kind), name_duped }, notes.items);
+    }
+
+    for (test_names.keys(), test_names.values()) |name, first| {
+        if (first.next == null) continue;
+        var notes: std.ArrayListUnmanaged(u32) = .{};
+        var prev: NameEntry = first;
+        while (prev.next) |cur| : (prev = cur.*) {
+            try notes.append(astgen.arena, try astgen.errNoteTok(cur.tok, "duplicate test here", .{}));
+        }
+        try notes.append(astgen.arena, try astgen.errNoteNode(namespace.node, "{s} declared here", .{@tagName(container_kind)}));
+        const name_duped = try astgen.arena.dupe(u8, mem.span(astgen.nullTerminatedString(name)));
+        try astgen.appendErrorTokNotes(first.tok, "duplicate test name '{s}'", .{name_duped}, notes.items);
+    }
+
+    for (decltest_names.keys(), decltest_names.values()) |name, first| {
+        if (first.next == null) continue;
+        var notes: std.ArrayListUnmanaged(u32) = .{};
+        var prev: NameEntry = first;
+        while (prev.next) |cur| : (prev = cur.*) {
+            try notes.append(astgen.arena, try astgen.errNoteTok(cur.tok, "duplicate decltest here", .{}));
+        }
+        try notes.append(astgen.arena, try astgen.errNoteNode(namespace.node, "{s} declared here", .{@tagName(container_kind)}));
+        const name_duped = try astgen.arena.dupe(u8, mem.span(astgen.nullTerminatedString(name)));
+        try astgen.appendErrorTokNotes(first.tok, "duplicate decltest '{s}'", .{name_duped}, notes.items);
+    }
+
     return decl_count;
 }
 
