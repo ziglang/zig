@@ -129,7 +129,7 @@ const AddExtraOpts = struct {
 pub fn addExtra(atom: *Atom, opts: AddExtraOpts, macho_file: *MachO) void {
     const file = atom.getFile(macho_file);
     var extra = file.getAtomExtra(atom.extra);
-    inline for (@typeInfo(@TypeOf(opts)).Struct.fields) |field| {
+    inline for (@typeInfo(@TypeOf(opts)).@"struct".fields) |field| {
         if (@field(opts, field.name)) |x| {
             @field(extra, field.name) = x;
         }

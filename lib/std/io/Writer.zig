@@ -49,14 +49,14 @@ pub fn writeBytesNTimes(self: Self, bytes: []const u8, n: usize) anyerror!void {
 }
 
 pub inline fn writeInt(self: Self, comptime T: type, value: T, endian: std.builtin.Endian) anyerror!void {
-    var bytes: [@divExact(@typeInfo(T).Int.bits, 8)]u8 = undefined;
+    var bytes: [@divExact(@typeInfo(T).int.bits, 8)]u8 = undefined;
     mem.writeInt(std.math.ByteAlignedInt(@TypeOf(value)), &bytes, value, endian);
     return self.writeAll(&bytes);
 }
 
 pub fn writeStruct(self: Self, value: anytype) anyerror!void {
     // Only extern and packed structs have defined in-memory layout.
-    comptime assert(@typeInfo(@TypeOf(value)).Struct.layout != .auto);
+    comptime assert(@typeInfo(@TypeOf(value)).@"struct".layout != .auto);
     return self.writeAll(mem.asBytes(&value));
 }
 

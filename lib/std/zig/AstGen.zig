@@ -153,7 +153,7 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
     try astgen.instructions.ensureTotalCapacity(gpa, tree.nodes.len);
 
     // First few indexes of extra are reserved and set at the end.
-    const reserved_count = @typeInfo(Zir.ExtraIndex).Enum.fields.len;
+    const reserved_count = @typeInfo(Zir.ExtraIndex).@"enum".fields.len;
     try astgen.extra.ensureTotalCapacity(gpa, tree.nodes.len + reserved_count);
     astgen.extra.items.len += reserved_count;
 
@@ -197,7 +197,7 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
         astgen.extra.items[err_index] = 0;
     } else {
         try astgen.extra.ensureUnusedCapacity(gpa, 1 + astgen.compile_errors.items.len *
-            @typeInfo(Zir.Inst.CompileErrors.Item).Struct.fields.len);
+            @typeInfo(Zir.Inst.CompileErrors.Item).@"struct".fields.len);
 
         astgen.extra.items[err_index] = astgen.addExtraAssumeCapacity(Zir.Inst.CompileErrors{
             .items_len = @intCast(astgen.compile_errors.items.len),
@@ -212,8 +212,8 @@ pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zir {
     if (astgen.imports.count() == 0) {
         astgen.extra.items[imports_index] = 0;
     } else {
-        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Imports).Struct.fields.len +
-            astgen.imports.count() * @typeInfo(Zir.Inst.Imports.Item).Struct.fields.len);
+        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Imports).@"struct".fields.len +
+            astgen.imports.count() * @typeInfo(Zir.Inst.Imports.Item).@"struct".fields.len);
 
         astgen.extra.items[imports_index] = astgen.addExtraAssumeCapacity(Zir.Inst.Imports{
             .imports_len = @intCast(astgen.imports.count()),
@@ -1885,7 +1885,7 @@ fn structInitExprAnon(
     const payload_index = try addExtra(astgen, Zir.Inst.StructInitAnon{
         .fields_len = @intCast(struct_init.ast.fields.len),
     });
-    const field_size = @typeInfo(Zir.Inst.StructInitAnon.Item).Struct.fields.len;
+    const field_size = @typeInfo(Zir.Inst.StructInitAnon.Item).@"struct".fields.len;
     var extra_index: usize = try reserveExtra(astgen, struct_init.ast.fields.len * field_size);
 
     for (struct_init.ast.fields) |field_init| {
@@ -1916,7 +1916,7 @@ fn structInitExprTyped(
     const payload_index = try addExtra(astgen, Zir.Inst.StructInit{
         .fields_len = @intCast(struct_init.ast.fields.len),
     });
-    const field_size = @typeInfo(Zir.Inst.StructInit.Item).Struct.fields.len;
+    const field_size = @typeInfo(Zir.Inst.StructInit.Item).@"struct".fields.len;
     var extra_index: usize = try reserveExtra(astgen, struct_init.ast.fields.len * field_size);
 
     for (struct_init.ast.fields) |field_init| {
@@ -2464,7 +2464,7 @@ fn labeledBlockExpr(
     };
     // We need to call `rvalue` to write through to the pointer only if we had a
     // result pointer and aren't forwarding it.
-    const LocTag = @typeInfo(ResultInfo.Loc).Union.tag_type.?;
+    const LocTag = @typeInfo(ResultInfo.Loc).@"union".tag_type.?;
     const need_result_rvalue = @as(LocTag, block_ri.rl) != @as(LocTag, ri.rl);
 
     // Reserve the Block ZIR instruction index so that we can put it into the GenZir struct
@@ -3864,7 +3864,7 @@ fn ptrType(
     const gpa = gz.astgen.gpa;
     try gz.instructions.ensureUnusedCapacity(gpa, 1);
     try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
-    try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.PtrType).Struct.fields.len +
+    try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.PtrType).@"struct".fields.len +
         trailing_count);
 
     const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.PtrType{
@@ -5939,7 +5939,7 @@ fn errorSetDecl(gz: *GenZir, ri: ResultInfo, node: Ast.Node.Index) InnerError!Zi
     const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
 
-    const payload_index = try reserveExtra(astgen, @typeInfo(Zir.Inst.ErrorSetDecl).Struct.fields.len);
+    const payload_index = try reserveExtra(astgen, @typeInfo(Zir.Inst.ErrorSetDecl).@"struct".fields.len);
     var fields_len: usize = 0;
     {
         var idents: std.AutoHashMapUnmanaged(Zir.NullTerminatedString, Ast.TokenIndex) = .{};
@@ -6078,7 +6078,7 @@ fn orelseCatchExpr(
     };
     // We need to call `rvalue` to write through to the pointer only if we had a
     // result pointer and aren't forwarding it.
-    const LocTag = @typeInfo(ResultInfo.Loc).Union.tag_type.?;
+    const LocTag = @typeInfo(ResultInfo.Loc).@"union".tag_type.?;
     const need_result_rvalue = @as(LocTag, block_ri.rl) != @as(LocTag, ri.rl);
 
     const do_err_trace = astgen.fn_block != null and (cond_op == .is_non_err or cond_op == .is_non_err_ptr);
@@ -6347,7 +6347,7 @@ fn ifExpr(
     };
     // We need to call `rvalue` to write through to the pointer only if we had a
     // result pointer and aren't forwarding it.
-    const LocTag = @typeInfo(ResultInfo.Loc).Union.tag_type.?;
+    const LocTag = @typeInfo(ResultInfo.Loc).@"union".tag_type.?;
     const need_result_rvalue = @as(LocTag, block_ri.rl) != @as(LocTag, ri.rl);
 
     var block_scope = parent_gz.makeSubBlock(scope);
@@ -6537,7 +6537,7 @@ fn setCondBrPayload(
     const else_body_len = astgen.countBodyLenAfterFixups(else_body);
     try astgen.extra.ensureUnusedCapacity(
         astgen.gpa,
-        @typeInfo(Zir.Inst.CondBr).Struct.fields.len + then_body_len + else_body_len,
+        @typeInfo(Zir.Inst.CondBr).@"struct".fields.len + then_body_len + else_body_len,
     );
 
     const zir_datas = astgen.instructions.items(.data);
@@ -6573,7 +6573,7 @@ fn whileExpr(
     };
     // We need to call `rvalue` to write through to the pointer only if we had a
     // result pointer and aren't forwarding it.
-    const LocTag = @typeInfo(ResultInfo.Loc).Union.tag_type.?;
+    const LocTag = @typeInfo(ResultInfo.Loc).@"union".tag_type.?;
     const need_result_rvalue = @as(LocTag, block_ri.rl) != @as(LocTag, ri.rl);
 
     if (while_full.label_token) |label_token| {
@@ -6853,7 +6853,7 @@ fn forExpr(
     };
     // We need to call `rvalue` to write through to the pointer only if we had a
     // result pointer and aren't forwarding it.
-    const LocTag = @typeInfo(ResultInfo.Loc).Union.tag_type.?;
+    const LocTag = @typeInfo(ResultInfo.Loc).@"union".tag_type.?;
     const need_result_rvalue = @as(LocTag, block_ri.rl) != @as(LocTag, ri.rl);
 
     const is_inline = for_full.inline_token != null;
@@ -6951,7 +6951,7 @@ fn forExpr(
     // nicer error reporting as well as fewer ZIR bytes emitted.
     const len: Zir.Inst.Ref = len: {
         const lens_len: u32 = @intCast(lens.len);
-        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.MultiOp).Struct.fields.len + lens_len);
+        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.MultiOp).@"struct".fields.len + lens_len);
         const len = try parent_gz.addPlNode(.for_len, node, Zir.Inst.MultiOp{
             .operands_len = lens_len,
         });
@@ -7188,7 +7188,7 @@ fn switchExprErrUnion(
 
     // We need to call `rvalue` to write through to the pointer only if we had a
     // result pointer and aren't forwarding it.
-    const LocTag = @typeInfo(ResultInfo.Loc).Union.tag_type.?;
+    const LocTag = @typeInfo(ResultInfo.Loc).@"union".tag_type.?;
     const need_result_rvalue = @as(LocTag, block_ri.rl) != @as(LocTag, ri.rl);
     var scalar_cases_len: u32 = 0;
     var multi_cases_len: u32 = 0;
@@ -7622,10 +7622,10 @@ fn switchExprErrUnion(
     // Now that the item expressions are generated we can add this.
     try parent_gz.instructions.append(gpa, switch_block);
 
-    try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.SwitchBlockErrUnion).Struct.fields.len +
+    try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.SwitchBlockErrUnion).@"struct".fields.len +
         @intFromBool(multi_cases_len != 0) +
         payloads.items.len - case_table_end +
-        (case_table_end - case_table_start) * @typeInfo(Zir.Inst.As).Struct.fields.len);
+        (case_table_end - case_table_start) * @typeInfo(Zir.Inst.As).@"struct".fields.len);
 
     const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.SwitchBlockErrUnion{
         .operand = raw_operand,
@@ -7705,7 +7705,7 @@ fn switchExpr(
     };
     // We need to call `rvalue` to write through to the pointer only if we had a
     // result pointer and aren't forwarding it.
-    const LocTag = @typeInfo(ResultInfo.Loc).Union.tag_type.?;
+    const LocTag = @typeInfo(ResultInfo.Loc).@"union".tag_type.?;
     const need_result_rvalue = @as(LocTag, block_ri.rl) != @as(LocTag, ri.rl);
 
     // We perform two passes over the AST. This first pass is to collect information
@@ -8068,11 +8068,11 @@ fn switchExpr(
     // Now that the item expressions are generated we can add this.
     try parent_gz.instructions.append(gpa, switch_block);
 
-    try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.SwitchBlock).Struct.fields.len +
+    try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.SwitchBlock).@"struct".fields.len +
         @intFromBool(multi_cases_len != 0) +
         @intFromBool(any_has_tag_capture) +
         payloads.items.len - case_table_end +
-        (case_table_end - case_table_start) * @typeInfo(Zir.Inst.As).Struct.fields.len);
+        (case_table_end - case_table_start) * @typeInfo(Zir.Inst.As).@"struct".fields.len);
 
     const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.SwitchBlock{
         .operand = raw_operand,
@@ -8971,7 +8971,7 @@ fn ptrCast(
     const node_datas = tree.nodes.items(.data);
     const node_tags = tree.nodes.items(.tag);
 
-    const FlagsInt = @typeInfo(Zir.Inst.FullPtrCastFlags).Struct.backing_integer.?;
+    const FlagsInt = @typeInfo(Zir.Inst.FullPtrCastFlags).@"struct".backing_integer.?;
     var flags: Zir.Inst.FullPtrCastFlags = .{};
 
     // Note that all pointer cast builtins have one parameter, so we only need
@@ -12080,7 +12080,7 @@ const GenZir = struct {
         const body_len = astgen.countBodyLenAfterFixups(body);
         try astgen.extra.ensureUnusedCapacity(
             gpa,
-            @typeInfo(Zir.Inst.BoolBr).Struct.fields.len + body_len,
+            @typeInfo(Zir.Inst.BoolBr).@"struct".fields.len + body_len,
         );
         const zir_datas = astgen.instructions.items(.data);
         zir_datas[@intFromEnum(bool_br)].pl_node.payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.BoolBr{
@@ -12099,7 +12099,7 @@ const GenZir = struct {
         const body_len = astgen.countBodyLenAfterFixups(body);
         try astgen.extra.ensureUnusedCapacity(
             gpa,
-            @typeInfo(Zir.Inst.Block).Struct.fields.len + body_len,
+            @typeInfo(Zir.Inst.Block).@"struct".fields.len + body_len,
         );
         const zir_datas = astgen.instructions.items(.data);
         zir_datas[@intFromEnum(inst)].pl_node.payload_index = astgen.addExtraAssumeCapacity(
@@ -12117,7 +12117,7 @@ const GenZir = struct {
         const body_len = astgen.countBodyLenAfterFixups(body);
         try astgen.extra.ensureUnusedCapacity(
             gpa,
-            @typeInfo(Zir.Inst.Try).Struct.fields.len + body_len,
+            @typeInfo(Zir.Inst.Try).@"struct".fields.len + body_len,
         );
         const zir_datas = astgen.instructions.items(.data);
         zir_datas[@intFromEnum(inst)].pl_node.payload_index = astgen.addExtraAssumeCapacity(
@@ -12235,7 +12235,7 @@ const GenZir = struct {
 
             try astgen.extra.ensureUnusedCapacity(
                 gpa,
-                @typeInfo(Zir.Inst.FuncFancy).Struct.fields.len +
+                @typeInfo(Zir.Inst.FuncFancy).@"struct".fields.len +
                     fancyFnExprExtraLen(astgen, align_body, args.align_ref) +
                     fancyFnExprExtraLen(astgen, addrspace_body, args.addrspace_ref) +
                     fancyFnExprExtraLen(astgen, section_body, args.section_ref) +
@@ -12354,7 +12354,7 @@ const GenZir = struct {
         } else {
             try astgen.extra.ensureUnusedCapacity(
                 gpa,
-                @typeInfo(Zir.Inst.Func).Struct.fields.len + 1 +
+                @typeInfo(Zir.Inst.Func).@"struct".fields.len + 1 +
                     fancyFnExprExtraLen(astgen, ret_body, ret_ref) +
                     body_len + src_locs_and_hash.len,
             );
@@ -12428,7 +12428,7 @@ const GenZir = struct {
 
         try astgen.extra.ensureUnusedCapacity(
             gpa,
-            @typeInfo(Zir.Inst.ExtendedVar).Struct.fields.len +
+            @typeInfo(Zir.Inst.ExtendedVar).@"struct".fields.len +
                 @intFromBool(args.lib_name != .empty) +
                 @intFromBool(args.align_inst != .none) +
                 @intFromBool(args.init != .none),
@@ -12590,7 +12590,7 @@ const GenZir = struct {
         const param_body = param_gz.instructionsSlice();
         const body_len = gz.astgen.countBodyLenAfterFixups(param_body);
         try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
-        try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Param).Struct.fields.len + body_len);
+        try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Param).@"struct".fields.len + body_len);
 
         const doc_comment_index = if (first_doc_comment) |first|
             try gz.astgen.docCommentAsStringFromFirst(abs_tok_index, first)
@@ -12663,7 +12663,7 @@ const GenZir = struct {
         try astgen.instructions.ensureUnusedCapacity(gpa, 1);
         try astgen.extra.ensureUnusedCapacity(
             gpa,
-            @typeInfo(Zir.Inst.NodeMultiOp).Struct.fields.len + operands.len,
+            @typeInfo(Zir.Inst.NodeMultiOp).@"struct".fields.len + operands.len,
         );
 
         const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.NodeMultiOp{
@@ -12904,7 +12904,7 @@ const GenZir = struct {
     ) !Zir.Inst.Index {
         const gpa = gz.astgen.gpa;
         try gz.astgen.instructions.ensureUnusedCapacity(gpa, 1);
-        try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Break).Struct.fields.len);
+        try gz.astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Break).@"struct".fields.len);
 
         const new_index: Zir.Inst.Index = @enumFromInt(gz.astgen.instructions.len);
         gz.astgen.instructions.appendAssumeCapacity(.{
@@ -13027,7 +13027,7 @@ const GenZir = struct {
         try astgen.instructions.ensureUnusedCapacity(gpa, 1);
         try astgen.extra.ensureUnusedCapacity(
             gpa,
-            @typeInfo(Zir.Inst.AllocExtended).Struct.fields.len +
+            @typeInfo(Zir.Inst.AllocExtended).@"struct".fields.len +
                 @intFromBool(args.type_inst != .none) +
                 @intFromBool(args.align_inst != .none),
         );
@@ -13079,9 +13079,9 @@ const GenZir = struct {
 
         try gz.instructions.ensureUnusedCapacity(gpa, 1);
         try astgen.instructions.ensureUnusedCapacity(gpa, 1);
-        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Asm).Struct.fields.len +
-            args.outputs.len * @typeInfo(Zir.Inst.Asm.Output).Struct.fields.len +
-            args.inputs.len * @typeInfo(Zir.Inst.Asm.Input).Struct.fields.len +
+        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Asm).@"struct".fields.len +
+            args.outputs.len * @typeInfo(Zir.Inst.Asm.Output).@"struct".fields.len +
+            args.inputs.len * @typeInfo(Zir.Inst.Asm.Input).@"struct".fields.len +
             args.clobbers.len);
 
         const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Asm{
@@ -13190,7 +13190,7 @@ const GenZir = struct {
 
         const fields_hash_arr: [4]u32 = @bitCast(args.fields_hash);
 
-        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.StructDecl).Struct.fields.len + 3);
+        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.StructDecl).@"struct".fields.len + 3);
         const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.StructDecl{
             .fields_hash_0 = fields_hash_arr[0],
             .fields_hash_1 = fields_hash_arr[1],
@@ -13251,7 +13251,7 @@ const GenZir = struct {
 
         const fields_hash_arr: [4]u32 = @bitCast(args.fields_hash);
 
-        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.UnionDecl).Struct.fields.len + 5);
+        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.UnionDecl).@"struct".fields.len + 5);
         const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.UnionDecl{
             .fields_hash_0 = fields_hash_arr[0],
             .fields_hash_1 = fields_hash_arr[1],
@@ -13313,7 +13313,7 @@ const GenZir = struct {
 
         const fields_hash_arr: [4]u32 = @bitCast(args.fields_hash);
 
-        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.EnumDecl).Struct.fields.len + 5);
+        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.EnumDecl).@"struct".fields.len + 5);
         const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.EnumDecl{
             .fields_hash_0 = fields_hash_arr[0],
             .fields_hash_1 = fields_hash_arr[1],
@@ -13366,7 +13366,7 @@ const GenZir = struct {
 
         assert(args.src_node != 0);
 
-        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.OpaqueDecl).Struct.fields.len + 2);
+        try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.OpaqueDecl).@"struct".fields.len + 2);
         const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.OpaqueDecl{
             .src_line = astgen.source_line,
             .src_node = args.src_node,

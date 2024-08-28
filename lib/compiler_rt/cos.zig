@@ -124,7 +124,7 @@ pub fn cosq(a: f128) callconv(.C) f128 {
 }
 
 pub fn cosl(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __cosh(x),
         32 => return cosf(x),
         64 => return cos(x),

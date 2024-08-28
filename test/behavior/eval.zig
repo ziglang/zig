@@ -538,7 +538,7 @@ test "@tagName of @typeInfo" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const str = @tagName(@typeInfo(u8));
-    try expect(std.mem.eql(u8, str, "Int"));
+    try expect(std.mem.eql(u8, str, "int"));
 }
 
 test "static eval list init" {
@@ -951,7 +951,7 @@ test "const local with comptime init through array init" {
 
     const S = struct {
         fn declarations(comptime T: type) []const std.builtin.Type.Declaration {
-            return @typeInfo(T).Enum.decls;
+            return @typeInfo(T).@"enum".decls;
         }
     };
 

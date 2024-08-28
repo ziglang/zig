@@ -282,9 +282,9 @@ fn bswap(x: anytype) @TypeOf(x) {
 
     const T = @TypeOf(x);
     switch (@typeInfo(T)) {
-        .Enum => return @as(T, @enumFromInt(@byteSwap(@intFromEnum(x)))),
-        .Int => return @byteSwap(x),
-        .Struct => |info| switch (info.layout) {
+        .@"enum" => return @as(T, @enumFromInt(@byteSwap(@intFromEnum(x)))),
+        .int => return @byteSwap(x),
+        .@"struct" => |info| switch (info.layout) {
             .@"extern" => {
                 var result: T = undefined;
                 inline for (info.fields) |field| {

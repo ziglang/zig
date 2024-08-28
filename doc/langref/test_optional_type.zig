@@ -8,7 +8,7 @@ test "optional type" {
     foo = 1234;
 
     // Use compile-time reflection to access the child type of the optional:
-    try comptime expect(@typeInfo(@TypeOf(foo)).Optional.child == i32);
+    try comptime expect(@typeInfo(@TypeOf(foo)).optional.child == i32);
 }
 
 // test

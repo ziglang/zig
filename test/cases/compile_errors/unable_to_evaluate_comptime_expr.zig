@@ -16,7 +16,7 @@ pub export fn entry2() void {
     _ = b;
 }
 
-const Int = @typeInfo(bar).Struct.backing_integer.?;
+const Int = @typeInfo(bar).@"struct".backing_integer.?;
 
 const foo = enum(Int) {
     c = @bitCast(bar{

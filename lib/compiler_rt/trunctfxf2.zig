@@ -14,7 +14,7 @@ pub fn __trunctfxf2(a: f128) callconv(.C) f80 {
 
     // Various constants whose values follow from the type parameters.
     // Any reasonable optimizer will fold and propagate all of these.
-    const src_bits = @typeInfo(f128).Float.bits;
+    const src_bits = @typeInfo(f128).float.bits;
     const src_exp_bits = src_bits - src_sig_bits - 1;
     const src_inf_exp = 0x7FFF;
 

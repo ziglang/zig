@@ -168,7 +168,7 @@ pub fn exp2q(x: f128) callconv(.C) f128 {
 }
 
 pub fn exp2l(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __exp2h(x),
         32 => return exp2f(x),
         64 => return exp2(x),

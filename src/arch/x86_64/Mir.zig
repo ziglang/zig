@@ -1185,8 +1185,8 @@ pub const Memory = struct {
     extra: u32,
 
     pub const Info = packed struct(u32) {
-        base: @typeInfo(bits.Memory.Base).Union.tag_type.?,
-        mod: @typeInfo(bits.Memory.Mod).Union.tag_type.?,
+        base: @typeInfo(bits.Memory.Base).@"union".tag_type.?,
+        mod: @typeInfo(bits.Memory.Mod).@"union".tag_type.?,
         size: bits.Memory.Size,
         index: Register,
         scale: bits.Memory.Scale,

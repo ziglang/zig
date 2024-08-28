@@ -2216,7 +2216,7 @@ pub const ElfModule = struct {
             }
 
             var section_index: ?usize = null;
-            inline for (@typeInfo(Dwarf.Section.Id).Enum.fields, 0..) |sect, i| {
+            inline for (@typeInfo(Dwarf.Section.Id).@"enum".fields, 0..) |sect, i| {
                 if (mem.eql(u8, "." ++ sect.name, name)) section_index = i;
             }
             if (section_index == null) continue;

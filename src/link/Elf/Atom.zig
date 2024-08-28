@@ -1008,7 +1008,7 @@ const AddExtraOpts = struct {
 pub fn addExtra(atom: *Atom, opts: AddExtraOpts, elf_file: *Elf) void {
     const file_ptr = atom.file(elf_file).?;
     var extras = file_ptr.atomExtra(atom.extra_index);
-    inline for (@typeInfo(@TypeOf(opts)).Struct.fields) |field| {
+    inline for (@typeInfo(@TypeOf(opts)).@"struct".fields) |field| {
         if (@field(opts, field.name)) |x| {
             @field(extras, field.name) = x;
         }

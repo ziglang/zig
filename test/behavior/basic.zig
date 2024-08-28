@@ -1193,7 +1193,7 @@ test "pointer to struct literal with runtime field is constant" {
     var runtime_zero: usize = 0;
     _ = &runtime_zero;
     const ptr = &S{ .data = runtime_zero };
-    try expect(@typeInfo(@TypeOf(ptr)).Pointer.is_const);
+    try expect(@typeInfo(@TypeOf(ptr)).pointer.is_const);
 }
 
 fn testSignedCmp(comptime T: type) !void {
@@ -1289,7 +1289,7 @@ test "reference to inferred local variable works as expected" {
 
 test "@Type returned from block" {
     const T = comptime b: {
-        break :b @Type(.{ .Int = .{
+        break :b @Type(.{ .int = .{
             .signedness = .unsigned,
             .bits = 8,
         } });
@@ -1304,7 +1304,7 @@ test "comptime variable initialized with addresses of literals" {
     };
     _ = &st;
 
-    inline for (@typeInfo(@TypeOf(st)).Struct.fields) |field| {
+    inline for (@typeInfo(@TypeOf(st)).@"struct".fields) |field| {
         _ = field;
     }
 }
@@ -1321,12 +1321,12 @@ test "proper value is returned from labeled block" {
     const S = struct {
         fn hash(v: *u32, key: anytype) void {
             const Key = @TypeOf(key);
-            if (@typeInfo(Key) == .ErrorSet) {
+            if (@typeInfo(Key) == .error_set) {
                 v.* += 1;
                 return;
             }
             switch (@typeInfo(Key)) {
-                .ErrorUnion => blk: {
+                .error_union => blk: {
                     const payload = key catch |err| {
                         hash(v, err);
                         break :blk;

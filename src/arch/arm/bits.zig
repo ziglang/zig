@@ -1299,7 +1299,7 @@ pub const Instruction = union(enum) {
     }
 
     pub fn pop(cond: Condition, args: anytype) Instruction {
-        if (@typeInfo(@TypeOf(args)) != .Struct) {
+        if (@typeInfo(@TypeOf(args)) != .@"struct") {
             @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
         }
 
@@ -1323,7 +1323,7 @@ pub const Instruction = union(enum) {
     }
 
     pub fn push(cond: Condition, args: anytype) Instruction {
-        if (@typeInfo(@TypeOf(args)) != .Struct) {
+        if (@typeInfo(@TypeOf(args)) != .@"struct") {
             @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
         }
 

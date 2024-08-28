@@ -571,7 +571,7 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         @setEvalBranchQuota(2_000);
 
         comptime var max_len = 0;
-        inline for (@typeInfo(Mnemonic).Enum.fields) |field| max_len = @max(field.name.len, max_len);
+        inline for (@typeInfo(Mnemonic).@"enum".fields) |field| max_len = @max(field.name.len, max_len);
         var buf: [max_len]u8 = undefined;
 
         const fixes_name = @tagName(fixes);

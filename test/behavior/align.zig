@@ -7,7 +7,7 @@ const assert = std.debug.assert;
 var foo: u8 align(4) = 100;
 
 test "global variable alignment" {
-    comptime assert(@typeInfo(@TypeOf(&foo)).Pointer.alignment == 4);
+    comptime assert(@typeInfo(@TypeOf(&foo)).pointer.alignment == 4);
     comptime assert(@TypeOf(&foo) == *align(4) u8);
     {
         const slice = @as(*align(4) [1]u8, &foo)[0..];

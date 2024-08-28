@@ -560,7 +560,7 @@ pub const Sigaction = extern struct {
 };
 
 pub const sigset_t = [1024 / 32]u32;
-pub const empty_sigset = [_]u32{0} ** @typeInfo(sigset_t).Array.len;
+pub const empty_sigset = [_]u32{0} ** @typeInfo(sigset_t).array.len;
 pub const siginfo_t = extern struct {
     signo: i32,
     errno: i32,

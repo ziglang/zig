@@ -434,7 +434,7 @@ pub fn poll(
     comptime StreamEnum: type,
     files: PollFiles(StreamEnum),
 ) Poller(StreamEnum) {
-    const enum_fields = @typeInfo(StreamEnum).Enum.fields;
+    const enum_fields = @typeInfo(StreamEnum).@"enum".fields;
     var result: Poller(StreamEnum) = undefined;
 
     if (is_windows) result.windows = .{
@@ -473,7 +473,7 @@ pub const PollFifo = std.fifo.LinearFifo(u8, .Dynamic);
 
 pub fn Poller(comptime StreamEnum: type) type {
     return struct {
-        const enum_fields = @typeInfo(StreamEnum).Enum.fields;
+        const enum_fields = @typeInfo(StreamEnum).@"enum".fields;
         const PollFd = if (is_windows) void else posix.pollfd;
 
         fifos: [enum_fields.len]PollFifo,
@@ -676,7 +676,7 @@ fn windowsAsyncRead(
 /// Given an enum, returns a struct with fields of that enum, each field
 /// representing an I/O stream for polling.
 pub fn PollFiles(comptime StreamEnum: type) type {
-    const enum_fields = @typeInfo(StreamEnum).Enum.fields;
+    const enum_fields = @typeInfo(StreamEnum).@"enum".fields;
     var struct_fields: [enum_fields.len]std.builtin.Type.StructField = undefined;
     for (&struct_fields, enum_fields) |*struct_field, enum_field| {
         struct_field.* = .{
@@ -687,7 +687,7 @@ pub fn PollFiles(comptime StreamEnum: type) type {
             .alignment = @alignOf(fs.File),
         };
     }
-    return @Type(.{ .Struct = .{
+    return @Type(.{ .@"struct" = .{
         .layout = .auto,
         .fields = &struct_fields,
         .decls = &.{},

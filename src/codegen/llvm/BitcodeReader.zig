@@ -273,7 +273,7 @@ fn startBlock(bc: *BitcodeReader, block_id: ?u32, new_abbrev_len: u6) !void {
     };
     try state.abbrevs.abbrevs.ensureTotalCapacity(
         bc.allocator,
-        @typeInfo(Abbrev.Builtin).Enum.fields.len + abbrevs.len,
+        @typeInfo(Abbrev.Builtin).@"enum".fields.len + abbrevs.len,
     );
 
     assert(state.abbrevs.abbrevs.items.len == @intFromEnum(Abbrev.Builtin.end_block));
@@ -309,7 +309,7 @@ fn startBlock(bc: *BitcodeReader, block_id: ?u32, new_abbrev_len: u6) !void {
             .{ .encoding = .{ .vbr = 6 } }, // ops
         },
     });
-    assert(state.abbrevs.abbrevs.items.len == @typeInfo(Abbrev.Builtin).Enum.fields.len);
+    assert(state.abbrevs.abbrevs.items.len == @typeInfo(Abbrev.Builtin).@"enum".fields.len);
     for (abbrevs) |abbrev| try state.abbrevs.addAbbrevAssumeCapacity(bc.allocator, abbrev);
 }
 
@@ -448,7 +448,7 @@ const Abbrev = struct {
         define_abbrev,
         unabbrev_record,
 
-        const first_record_id: u32 = std.math.maxInt(u32) - @typeInfo(Builtin).Enum.fields.len + 1;
+        const first_record_id: u32 = std.math.maxInt(u32) - @typeInfo(Builtin).@"enum".fields.len + 1;
         fn toRecordId(builtin: Builtin) u32 {
             return first_record_id + @intFromEnum(builtin);
         }

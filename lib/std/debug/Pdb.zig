@@ -495,7 +495,7 @@ const MsfStream = struct {
     blocks: []u32 = undefined,
     block_size: u32 = undefined,
 
-    pub const Error = @typeInfo(@typeInfo(@TypeOf(read)).Fn.return_type.?).ErrorUnion.error_set;
+    pub const Error = @typeInfo(@typeInfo(@TypeOf(read)).@"fn".return_type.?).error_union.error_set;
 
     fn init(block_size: u32, file: File, blocks: []u32) MsfStream {
         const stream = MsfStream{

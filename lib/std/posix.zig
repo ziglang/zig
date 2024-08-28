@@ -6181,7 +6181,7 @@ pub fn sendfile(
     var total_written: usize = 0;
 
     // Prevents EOVERFLOW.
-    const size_t = std.meta.Int(.unsigned, @typeInfo(usize).Int.bits - 1);
+    const size_t = std.meta.Int(.unsigned, @typeInfo(usize).int.bits - 1);
     const max_count = switch (native_os) {
         .linux => 0x7ffff000,
         .macos, .ios, .watchos, .tvos, .visionos => maxInt(i32),
@@ -6988,7 +6988,7 @@ pub const PrctlError = error{
 } || UnexpectedError;
 
 pub fn prctl(option: PR, args: anytype) PrctlError!u31 {
-    if (@typeInfo(@TypeOf(args)) != .Struct)
+    if (@typeInfo(@TypeOf(args)) != .@"struct")
         @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(args)));
     if (args.len > 4)
         @compileError("prctl takes a maximum of 4 optional arguments");
