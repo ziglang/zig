@@ -791,7 +791,11 @@ const Writer = struct {
 
         try w.writeOperand(s, inst, 0, pl_op.operand);
         if (w.skip_body) return s.writeAll(", ...");
-        try s.writeAll(", {\n");
+        try s.writeAll(",");
+        if (extra.data.branch_hints.true != .none) {
+            try s.print(" {s}", .{@tagName(extra.data.branch_hints.true)});
+        }
+        try s.writeAll(" {\n");
         const old_indent = w.indent;
         w.indent += 2;
 
@@ -806,7 +810,11 @@ const Writer = struct {
 
         try w.writeBody(s, then_body);
         try s.writeByteNTimes(' ', old_indent);
-        try s.writeAll("}, {\n");
+        try s.writeAll("},");
+        if (extra.data.branch_hints.false != .none) {
+            try s.print(" {s}", .{@tagName(extra.data.branch_hints.false)});
+        }
+        try s.writeAll(" {\n");
 
         if (liveness_condbr.else_deaths.len != 0) {
             try s.writeByteNTimes(' ', w.indent);
