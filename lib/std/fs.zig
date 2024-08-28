@@ -17,6 +17,7 @@ const is_darwin = native_os.isDarwin();
 pub const AtomicFile = @import("fs/AtomicFile.zig");
 pub const Dir = @import("fs/Dir.zig");
 pub const File = @import("fs/File.zig");
+pub const MemoryMap = @import("fs/MemoryMap.zig");
 pub const path = @import("fs/path.zig");
 
 pub const has_executable_bit = switch (native_os) {
@@ -710,6 +711,7 @@ test {
     _ = &AtomicFile;
     _ = &Dir;
     _ = &File;
+    _ = &MemoryMap;
     _ = &path;
     _ = @import("fs/test.zig");
     _ = @import("fs/get_app_data_dir.zig");

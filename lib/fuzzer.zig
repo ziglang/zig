@@ -115,7 +115,7 @@ const Fuzzer = struct {
     /// Tracks which PCs have been seen across all runs that do not crash the fuzzer process.
     /// Stored in a memory-mapped file so that it can be shared with other
     /// processes and viewed while the fuzzer is running.
-    seen_pcs: MemoryMappedList,
+    seen_pcs: std.fs.MemoryMap,
     cache_dir: std.fs.Dir,
     /// Identifies the file name that will be used to store coverage
     /// information, available to other processes.
@@ -229,11 +229,17 @@ const Fuzzer = struct {
         } else if (existing_len != bytes_len) {
             fatal("incompatible existing coverage file (differing lengths)", .{});
         }
-        f.seen_pcs = MemoryMappedList.init(coverage_file, existing_len, bytes_len) catch |err| {
+        f.seen_pcs = std.fs.MemoryMap.init(coverage_file, .{
+            .exclusivity = .shared,
+            .protection = .{ .write = true },
+            .length = bytes_len,
+        }) catch |err| {
             fatal("unable to init coverage memory map: {s}", .{@errorName(err)});
         };
         if (existing_len != 0) {
-            const existing_pcs_bytes = f.seen_pcs.items[@sizeOf(SeenPcsHeader) + @sizeOf(usize) * n_bitset_elems ..][0 .. flagged_pcs.len * @sizeOf(usize)];
+            const existing_pcs_start = @sizeOf(SeenPcsHeader) + @sizeOf(usize) * n_bitset_elems;
+            const existing_pcs_end = existing_pcs_start + flagged_pcs.len * @sizeOf(usize);
+            const existing_pcs_bytes = f.seen_pcs.mapped[existing_pcs_start..existing_pcs_end];
             const existing_pcs = std.mem.bytesAsSlice(usize, existing_pcs_bytes);
             for (existing_pcs, flagged_pcs, 0..) |old, new, i| {
                 if (old != new.addr) {
@@ -249,11 +255,18 @@ const Fuzzer = struct {
                 .pcs_len = flagged_pcs.len,
                 .lowest_stack = std.math.maxInt(usize),
             };
-            f.seen_pcs.appendSliceAssumeCapacity(std.mem.asBytes(&header));
-            f.seen_pcs.appendNTimesAssumeCapacity(0, n_bitset_elems * @sizeOf(usize));
-            for (flagged_pcs) |flagged_pc| {
-                f.seen_pcs.appendSliceAssumeCapacity(std.mem.asBytes(&flagged_pc.addr));
-            }
+            f.seen_pcs.cast(SeenPcsHeader).* = header;
+            const bitset_elems_start = @sizeOf(SeenPcsHeader);
+            const bitset_elems_end = bitset_elems_start + n_bitset_elems * @sizeOf(usize);
+            const bitset_elems_bytes = f.seen_pcs.mapped[bitset_elems_start..bitset_elems_end];
+            const bitset_elems_dest = std.mem.bytesAsSlice(usize, bitset_elems_bytes);
+            @memset(bitset_elems_dest, 0);
+            const flagged_pcs_start = bitset_elems_end;
+            const flagged_pcs_end = flagged_pcs_start + flagged_pcs.len * @sizeOf(usize);
+            const flagged_pcs_bytes = f.seen_pcs.mapped[flagged_pcs_start..flagged_pcs_end];
+            const flagged_pcs_dest = std.mem.bytesAsSlice(usize, flagged_pcs_bytes);
+            for (flagged_pcs, flagged_pcs_dest) |item, *slot|
+                slot.* = item.addr;
         }
     }
 
@@ -306,7 +319,7 @@ const Fuzzer = struct {
                 {
                     // Track code coverage from all runs.
                     comptime assert(SeenPcsHeader.trailing[0] == .pc_bits_usize);
-                    const header_end_ptr: [*]volatile usize = @ptrCast(f.seen_pcs.items[@sizeOf(SeenPcsHeader)..]);
+                    const header_end_ptr: [*]volatile usize = @ptrCast(f.seen_pcs.mapped[@sizeOf(SeenPcsHeader)..]);
                     const remainder = f.flagged_pcs.len % @bitSizeOf(usize);
                     const aligned_len = f.flagged_pcs.len - remainder;
                     const seen_pcs = header_end_ptr[0..aligned_len];
@@ -330,7 +343,7 @@ const Fuzzer = struct {
                     }
                 }
 
-                const header: *volatile SeenPcsHeader = @ptrCast(f.seen_pcs.items[0..@sizeOf(SeenPcsHeader)]);
+                const header = f.seen_pcs.cast(SeenPcsHeader);
                 _ = @atomicRmw(usize, &header.unique_runs, .Add, 1, .monotonic);
             }
 
@@ -360,7 +373,7 @@ const Fuzzer = struct {
         try f.mutate();
 
         f.n_runs += 1;
-        const header: *volatile SeenPcsHeader = @ptrCast(f.seen_pcs.items[0..@sizeOf(SeenPcsHeader)]);
+        const header = f.seen_pcs.cast(SeenPcsHeader);
         _ = @atomicRmw(usize, &header.n_runs, .Add, 1, .monotonic);
         _ = @atomicRmw(usize, &header.lowest_stack, .Min, __sancov_lowest_stack, .monotonic);
         @memset(f.pc_counters, 0);
@@ -468,53 +481,3 @@ export fn fuzzer_init(cache_dir_struct: Fuzzer.Slice) void {
 
     fuzzer.init(cache_dir) catch |err| fatal("unable to init fuzzer: {s}", .{@errorName(err)});
 }
-
-/// Like `std.ArrayListUnmanaged(u8)` but backed by memory mapping.
-pub const MemoryMappedList = struct {
-    /// Contents of the list.
-    ///
-    /// Pointers to elements in this slice are invalidated by various functions
-    /// of this ArrayList in accordance with the respective documentation. In
-    /// all cases, "invalidated" means that the memory has been passed to this
-    /// allocator's resize or free function.
-    items: []align(std.mem.page_size) volatile u8,
-    /// How many bytes this list can hold without allocating additional memory.
-    capacity: usize,
-
-    pub fn init(file: std.fs.File, length: usize, capacity: usize) !MemoryMappedList {
-        const ptr = try std.posix.mmap(
-            null,
-            capacity,
-            std.posix.PROT.READ | std.posix.PROT.WRITE,
-            .{ .TYPE = .SHARED },
-            file.handle,
-            0,
-        );
-        return .{
-            .items = ptr[0..length],
-            .capacity = capacity,
-        };
-    }
-
-    /// Append the slice of items to the list.
-    /// Asserts that the list can hold the additional items.
-    pub fn appendSliceAssumeCapacity(l: *MemoryMappedList, items: []const u8) void {
-        const old_len = l.items.len;
-        const new_len = old_len + items.len;
-        assert(new_len <= l.capacity);
-        l.items.len = new_len;
-        @memcpy(l.items[old_len..][0..items.len], items);
-    }
-
-    /// Append a value to the list `n` times.
-    /// Never invalidates element pointers.
-    /// The function is inline so that a comptime-known `value` parameter will
-    /// have better memset codegen in case it has a repeated byte pattern.
-    /// Asserts that the list can hold the additional items.
-    pub inline fn appendNTimesAssumeCapacity(l: *MemoryMappedList, value: u8, n: usize) void {
-        const new_len = l.items.len + n;
-        assert(new_len <= l.capacity);
-        @memset(l.items.ptr[l.items.len..new_len], value);
-        l.items.len = new_len;
-    }
-};
