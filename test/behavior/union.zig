@@ -155,18 +155,6 @@ test "unions embedded in aggregate types" {
     }
 }
 
-test "access a member of tagged union with conflicting enum tag name" {
-    const Bar = union(enum) {
-        A: A,
-        B: B,
-
-        const A = u8;
-        const B = void;
-    };
-
-    comptime assert(Bar.A == u8);
-}
-
 test "constant tagged union with payload" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
@@ -1417,10 +1405,10 @@ test "union field ptr - zero sized payload" {
     const U = union {
         foo: void,
         bar: void,
-        fn bar(_: *void) void {}
+        fn qux(_: *void) void {}
     };
     var u: U = .{ .foo = {} };
-    U.bar(&u.foo);
+    U.qux(&u.foo);
 }
 
 test "union field ptr - zero sized field" {
@@ -1431,10 +1419,10 @@ test "union field ptr - zero sized field" {
     const U = union {
         foo: void,
         bar: u32,
-        fn bar(_: *void) void {}
+        fn qux(_: *void) void {}
     };
     var u: U = .{ .foo = {} };
-    U.bar(&u.foo);
+    U.qux(&u.foo);
 }
 
 test "packed union in packed struct" {

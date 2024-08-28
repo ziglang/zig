@@ -1529,15 +1529,15 @@ test "function pointer in struct returns the struct" {
 
     const A = struct {
         const A = @This();
-        f: *const fn () A,
+        ptr: *const fn () A,
 
         fn f() A {
-            return .{ .f = f };
+            return .{ .ptr = f };
         }
     };
     var a = A.f();
     _ = &a;
-    try expect(a.f == A.f);
+    try expect(a.ptr == A.f);
 }
 
 test "no dependency loop on optional field wrapped in generic function" {
