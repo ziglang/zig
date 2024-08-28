@@ -822,8 +822,8 @@ pub const Object = struct {
     /// This is denormalized data.
     struct_field_map: std.AutoHashMapUnmanaged(ZigStructField, c_uint),
 
-    /// Values for `@llvm.compiler.used`.
-    compiler_used: std.ArrayListUnmanaged(Builder.Constant),
+    /// Values for `@llvm.used`.
+    used: std.ArrayListUnmanaged(Builder.Constant),
 
     const ZigStructField = struct {
         struct_ty: InternPool.Index,
@@ -978,7 +978,7 @@ pub const Object = struct {
             .error_name_table = .none,
             .null_opt_usize = .no_init,
             .struct_field_map = .{},
-            .compiler_used = .{},
+            .used = .{},
         };
         return obj;
     }
@@ -1110,11 +1110,11 @@ pub const Object = struct {
             try o.genCmpLtErrorsLenFunction();
             try o.genModuleLevelAssembly();
 
-            if (o.compiler_used.items.len > 0) {
-                const array_llvm_ty = try o.builder.arrayType(o.compiler_used.items.len, .ptr);
-                const init_val = try o.builder.arrayConst(array_llvm_ty, o.compiler_used.items);
+            if (o.used.items.len > 0) {
+                const array_llvm_ty = try o.builder.arrayType(o.used.items.len, .ptr);
+                const init_val = try o.builder.arrayConst(array_llvm_ty, o.used.items);
                 const compiler_used_variable = try o.builder.addVariable(
-                    try o.builder.strtabString("llvm.compiler.used"),
+                    try o.builder.strtabString("llvm.used"),
                     array_llvm_ty,
                     .default,
                 );
@@ -1317,7 +1317,8 @@ pub const Object = struct {
                 // Zig emits its own PC table instrumentation.
                 .PCTable = false,
                 .NoPrune = false,
-                .StackDepth = false,
+                // Workaround for https://github.com/llvm/llvm-project/pull/106464
+                .StackDepth = true,
                 .TraceLoads = false,
                 .TraceStores = false,
                 .CollectControlFlow = false,
@@ -1686,7 +1687,10 @@ pub const Object = struct {
             // The void type used here is a placeholder to be replaced with an
             // array of the appropriate size after the POI count is known.
 
-            const counters_variable = try o.builder.addVariable(.empty, .void, .default);
+            // Due to error "members of llvm.compiler.used must be named", this global needs a name.
+            const anon_name = try o.builder.strtabStringFmt("__sancov_gen_.{d}", .{o.used.items.len});
+            const counters_variable = try o.builder.addVariable(anon_name, .void, .default);
+            try o.used.append(gpa, counters_variable.toConst(&o.builder));
             counters_variable.setLinkage(.private, &o.builder);
             counters_variable.setAlignment(comptime Builder.Alignment.fromByteUnits(1), &o.builder);
             counters_variable.setSection(try o.builder.string("__sancov_cntrs"), &o.builder);
@@ -1741,17 +1745,15 @@ pub const Object = struct {
 
             const array_llvm_ty = try o.builder.arrayType(f.pcs.items.len, .ptr);
             const init_val = try o.builder.arrayConst(array_llvm_ty, f.pcs.items);
-            const pcs_variable = try o.builder.addVariable(.empty, array_llvm_ty, .default);
+            // Due to error "members of llvm.compiler.used must be named", this global needs a name.
+            const anon_name = try o.builder.strtabStringFmt("__sancov_gen_.{d}", .{o.used.items.len});
+            const pcs_variable = try o.builder.addVariable(anon_name, array_llvm_ty, .default);
+            try o.used.append(gpa, pcs_variable.toConst(&o.builder));
             pcs_variable.setLinkage(.private, &o.builder);
             pcs_variable.setMutability(.constant, &o.builder);
             pcs_variable.setAlignment(Type.usize.abiAlignment(zcu).toLlvm(), &o.builder);
             pcs_variable.setSection(try o.builder.string("__sancov_pcs1"), &o.builder);
             try pcs_variable.setInitializer(init_val, &o.builder);
-
-            try o.compiler_used.appendSlice(gpa, &.{
-                f.counters_variable.toConst(&o.builder),
-                pcs_variable.toConst(&o.builder),
-            });
         }
 
         try fg.wip.finish();
