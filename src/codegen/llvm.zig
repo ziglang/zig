@@ -1280,6 +1280,8 @@ pub const Object = struct {
             .tsan = options.sanitize_thread,
             .sancov = options.fuzz,
             .lto = options.lto,
+            // https://github.com/ziglang/zig/issues/21215
+            .allow_fast_isel = !comp.root_mod.resolved_target.result.cpu.arch.isMIPS(),
             .asm_filename = null,
             .bin_filename = options.bin_path,
             .llvm_ir_filename = options.post_ir_path,

@@ -91,6 +91,7 @@ pub const TargetMachine = opaque {
         tsan: bool,
         sancov: bool,
         lto: bool,
+        allow_fast_isel: bool,
         asm_filename: ?[*:0]const u8,
         bin_filename: ?[*:0]const u8,
         llvm_ir_filename: ?[*:0]const u8,
