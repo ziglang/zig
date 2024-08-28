@@ -172,6 +172,15 @@ test "stringify enums" {
     try testStringify("\"bar\"", E.bar, .{});
 }
 
+test "stringify non-exhaustive enum" {
+    const E = enum(u8) {
+        foo = 0,
+        _,
+    };
+    try testStringify("\"foo\"", E.foo, .{});
+    try testStringify("1", @as(E, @enumFromInt(1)), .{});
+}
+
 test "stringify enum literals" {
     try testStringify("\"foo\"", .foo, .{});
     try testStringify("\"bar\"", .bar, .{});

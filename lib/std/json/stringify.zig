@@ -540,11 +540,26 @@ pub fn WriteStream(
                         return try self.write(null);
                     }
                 },
-                .Enum, .EnumLiteral => {
+                .Enum => |enum_info| {
                     if (std.meta.hasFn(T, "jsonStringify")) {
                         return value.jsonStringify(self);
                     }
 
+                    if (!enum_info.is_exhaustive) {
+                        inline for (enum_info.fields) |field| {
+                            if (value == @field(T, field.name)) {
+                                break;
+                            }
+                        } else {
+                            try self.valueStart();
+                            try self.stream.print("{d}", .{@intFromEnum(value)});
+                            return self.valueDone();
+                        }
+                    }
+
+                    return self.stringValue(@tagName(value));
+                },
+                .EnumLiteral => {
                     return self.stringValue(@tagName(value));
                 },
                 .Union => {
