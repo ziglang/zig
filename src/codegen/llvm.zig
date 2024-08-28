@@ -1275,7 +1275,7 @@ pub const Object = struct {
             .is_small = options.is_small,
             .time_report = options.time_report,
             .tsan = options.sanitize_thread,
-            .sancov = sanCovPassEnabled(comp.config.san_cov_trace_pc_guard),
+            .sancov = options.fuzz,
             .lto = options.lto,
             .asm_filename = null,
             .bin_filename = options.bin_path,
@@ -1283,16 +1283,21 @@ pub const Object = struct {
             .bitcode_filename = null,
             .coverage = .{
                 .CoverageType = .Edge,
+                // Works in tandem with Inline8bitCounters or InlineBoolFlag.
+                // Zig does not yet implement its own version of this but it
+                // needs to for better fuzzing logic.
                 .IndirectCalls = false,
                 .TraceBB = false,
-                .TraceCmp = false,
+                .TraceCmp = true,
                 .TraceDiv = false,
                 .TraceGep = false,
                 .Use8bitCounters = false,
                 .TracePC = false,
                 .TracePCGuard = comp.config.san_cov_trace_pc_guard,
+                // Zig emits its own inline 8-bit counters instrumentation.
                 .Inline8bitCounters = false,
                 .InlineBoolFlag = false,
+                // Zig emits its own PC table instrumentation.
                 .PCTable = false,
                 .NoPrune = false,
                 .StackDepth = false,
@@ -12272,8 +12277,4 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         .spu_2,
         => unreachable,
     }
-}
-
-fn sanCovPassEnabled(trace_pc_guard: bool) bool {
-    return trace_pc_guard;
 }
