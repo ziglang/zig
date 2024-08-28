@@ -42,29 +42,21 @@ const R_RELATIVE = switch (builtin.cpu.arch) {
 inline fn getDynamicSymbol() [*]elf.Dyn {
     return switch (builtin.cpu.arch) {
         .x86 => asm volatile (
-            \\ .weak _DYNAMIC
-            \\ .hidden _DYNAMIC
             \\ call 1f
             \\ 1: pop %[ret]
             \\ lea _DYNAMIC-1b(%[ret]), %[ret]
             : [ret] "=r" (-> [*]elf.Dyn),
         ),
         .x86_64 => asm volatile (
-            \\ .weak _DYNAMIC
-            \\ .hidden _DYNAMIC
             \\ lea _DYNAMIC(%%rip), %[ret]
             : [ret] "=r" (-> [*]elf.Dyn),
         ),
         .arc => asm volatile (
-            \\ .weak _DYNAMIC
-            \\ .hidden _DYNAMIC
             \\ add %[ret], pcl, _DYNAMIC@pcl
             : [ret] "=r" (-> [*]elf.Dyn),
         ),
         // Work around the limited offset range of `ldr`
         .arm, .armeb, .thumb, .thumbeb => asm volatile (
-            \\ .weak _DYNAMIC
-            \\ .hidden _DYNAMIC
             \\ ldr %[ret], 1f
             \\ add %[ret], pc
             \\ b 2f
@@ -74,8 +66,6 @@ inline fn getDynamicSymbol() [*]elf.Dyn {
         ),
         // A simple `adr` is not enough as it has a limited offset range
         .aarch64, .aarch64_be => asm volatile (
-            \\ .weak _DYNAMIC
-            \\ .hidden _DYNAMIC
             \\ adrp %[ret], _DYNAMIC
             \\ add %[ret], %[ret], #:lo12:_DYNAMIC
             : [ret] "=r" (-> [*]elf.Dyn),
@@ -88,8 +78,6 @@ inline fn getDynamicSymbol() [*]elf.Dyn {
             : [ret] "=r" (-> [*]elf.Dyn),
         ),
         .hexagon => asm volatile (
-            \\ .weak _DYNAMIC
-            \\ .hidden _DYNAMIC
             \\ jump 1f
             \\ .word _DYNAMIC - .
             \\ 1:
@@ -102,23 +90,17 @@ inline fn getDynamicSymbol() [*]elf.Dyn {
             : "r1"
         ),
         .loongarch32, .loongarch64 => asm volatile (
-            \\ .weak _DYNAMIC
-            \\ .hidden _DYNAMIC
             \\ la.local %[ret], _DYNAMIC
             : [ret] "=r" (-> [*]elf.Dyn),
         ),
         // Note that the - 8 is needed because pc in the second lea instruction points into the
         // middle of that instruction. (The first lea is 6 bytes, the second is 4 bytes.)
         .m68k => asm volatile (
-            \\ .weak _DYNAMIC
-            \\ .hidden _DYNAMIC
             \\ lea _DYNAMIC - . - 8, %[ret]
             \\ lea (%[ret], %%pc), %[ret]
             : [ret] "=r" (-> [*]elf.Dyn),
         ),
         .mips, .mipsel => asm volatile (
-            \\ .weak _DYNAMIC
-            \\ .hidden _DYNAMIC
             \\ bal 1f
             \\ .gpword _DYNAMIC
             \\ 1:
@@ -129,8 +111,6 @@ inline fn getDynamicSymbol() [*]elf.Dyn {
             : "lr"
         ),
         .mips64, .mips64el => asm volatile (
-            \\ .weak _DYNAMIC
-            \\ .hidden _DYNAMIC
             \\ .balign 8
             \\ bal 1f
             \\ .gpdword _DYNAMIC
@@ -142,8 +122,6 @@ inline fn getDynamicSymbol() [*]elf.Dyn {
             : "lr"
         ),
         .powerpc, .powerpcle => asm volatile (
-            \\ .weak _DYNAMIC
-            \\ .hidden _DYNAMIC
             \\ bl 1f
             \\ .long _DYNAMIC - .
             \\ 1:
@@ -155,8 +133,6 @@ inline fn getDynamicSymbol() [*]elf.Dyn {
             : "lr", "r4"
         ),
         .powerpc64, .powerpc64le => asm volatile (
-            \\ .weak _DYNAMIC
-            \\ .hidden _DYNAMIC
             \\ bl 1f
             \\ .quad _DYNAMIC - .
             \\ 1:
@@ -168,14 +144,10 @@ inline fn getDynamicSymbol() [*]elf.Dyn {
             : "lr", "r4"
         ),
         .riscv32, .riscv64 => asm volatile (
-            \\ .weak _DYNAMIC
-            \\ .hidden _DYNAMIC
             \\ lla %[ret], _DYNAMIC
             : [ret] "=r" (-> [*]elf.Dyn),
         ),
         .s390x => asm volatile (
-            \\ .weak _DYNAMIC
-            \\ .hidden _DYNAMIC
             \\ larl %[ret], 1f
             \\ ag %[ret], 0(%[ret])
             \\ b 2f
