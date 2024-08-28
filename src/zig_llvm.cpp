@@ -81,7 +81,7 @@ static const bool assertions_on = false;
 
 LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Triple,
     const char *CPU, const char *Features, LLVMCodeGenOptLevel Level, LLVMRelocMode Reloc,
-    LLVMCodeModel CodeModel, bool function_sections, bool data_sections, ZigLLVMABIType float_abi, 
+    LLVMCodeModel CodeModel, bool function_sections, bool data_sections, ZigLLVMABIType float_abi,
     const char *abi_name)
 {
     std::optional<Reloc::Model> RM;
@@ -430,12 +430,12 @@ void ZigLLVMParseCommandLineOptions(size_t argc, const char *const *argv) {
     cl::ParseCommandLineOptions(argc, argv);
 }
 
-void ZigLLVMSetModulePICLevel(LLVMModuleRef module) {
-    unwrap(module)->setPICLevel(PICLevel::Level::BigPIC);
+void ZigLLVMSetModulePICLevel(LLVMModuleRef module, bool big) {
+    unwrap(module)->setPICLevel(big ? PICLevel::Level::BigPIC : PICLevel::Level::SmallPIC);
 }
 
-void ZigLLVMSetModulePIELevel(LLVMModuleRef module) {
-    unwrap(module)->setPIELevel(PIELevel::Level::Large);
+void ZigLLVMSetModulePIELevel(LLVMModuleRef module, bool large) {
+    unwrap(module)->setPIELevel(large ? PIELevel::Level::Large : PIELevel::Level::Small);
 }
 
 void ZigLLVMSetModuleCodeModel(LLVMModuleRef module, LLVMCodeModel code_model) {

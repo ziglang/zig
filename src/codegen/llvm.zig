@@ -1259,8 +1259,11 @@ pub const Object = struct {
         );
         errdefer target_machine.dispose();
 
-        if (pic) module.setModulePICLevel();
-        if (comp.config.pie) module.setModulePIELevel();
+        const large_pic = target_util.usesLargePIC(comp.root_mod.resolved_target.result);
+
+        if (pic) module.setModulePICLevel(large_pic);
+        if (comp.config.pie) module.setModulePIELevel(large_pic);
+
         if (code_model != .Default) module.setModuleCodeModel(code_model);
 
         if (comp.llvm_opt_bisect_limit >= 0) {
