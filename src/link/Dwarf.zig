@@ -2477,6 +2477,18 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
     assert(file.zir_loaded);
     const decl_inst = file.zir.instructions.get(@intFromEnum(inst_info.inst));
     assert(decl_inst.tag == .declaration);
+    const decl_extra = file.zir.extraData(Zir.Inst.Declaration, decl_inst.data.declaration.payload_index);
+
+    const is_test = switch (decl_extra.data.name) {
+        .unnamed_test, .decltest => true,
+        .@"comptime", .@"usingnamespace" => false,
+        _ => decl_extra.data.name.isNamedTest(file.zir),
+    };
+    if (is_test) {
+        // This isn't actually a comptime Nav! It's a test, so it'll definitely never be referenced at comptime.
+        return;
+    }
+
     const tree = try file.getTree(dwarf.gpa);
     const loc = tree.tokenLocation(0, tree.nodes.items(.main_token)[decl_inst.data.declaration.src_node]);
     assert(loc.line == zcu.navSrcLine(nav_index));
@@ -2582,7 +2594,6 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                 if (loaded_struct.zir_index == .none) break :decl_struct;
 
                 const value_inst = value_inst: {
-                    const decl_extra = file.zir.extraData(Zir.Inst.Declaration, decl_inst.data.declaration.payload_index);
                     const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
                     const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
                     if (break_inst.tag != .break_inline) break :value_inst null;
@@ -2704,7 +2715,6 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                 if (loaded_enum.zir_index == .none) break :decl_enum;
 
                 const value_inst = value_inst: {
-                    const decl_extra = file.zir.extraData(Zir.Inst.Declaration, decl_inst.data.declaration.payload_index);
                     const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
                     const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
                     if (break_inst.tag != .break_inline) break :value_inst null;
@@ -2788,7 +2798,6 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
 
             decl_union: {
                 const value_inst = value_inst: {
-                    const decl_extra = file.zir.extraData(Zir.Inst.Declaration, decl_inst.data.declaration.payload_index);
                     const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
                     const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
                     if (break_inst.tag != .break_inline) break :value_inst null;
@@ -2911,7 +2920,6 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
 
             decl_opaque: {
                 const value_inst = value_inst: {
-                    const decl_extra = file.zir.extraData(Zir.Inst.Declaration, decl_inst.data.declaration.payload_index);
                     const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
                     const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
                     if (break_inst.tag != .break_inline) break :value_inst null;
