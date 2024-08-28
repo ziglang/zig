@@ -1126,7 +1126,9 @@ pub const CondBr = struct {
     pub const BranchHints = packed struct(u32) {
         true: std.builtin.BranchHint,
         false: std.builtin.BranchHint,
-        _: u26 = 0,
+        then_cov: CoveragePoint,
+        else_cov: CoveragePoint,
+        _: u24 = 0,
     };
 };
 
@@ -1903,3 +1905,12 @@ pub fn unwrapSwitch(air: *const Air, switch_inst: Inst.Index) UnwrappedSwitch {
 pub const typesFullyResolved = types_resolved.typesFullyResolved;
 pub const typeFullyResolved = types_resolved.checkType;
 pub const valFullyResolved = types_resolved.checkVal;
+
+pub const CoveragePoint = enum(u1) {
+    /// Indicates the block is not a place of interest corresponding to
+    /// a source location for coverage purposes.
+    none,
+    /// Point of interest. The next instruction emitted corresponds to
+    /// a source location used for coverage instrumentation.
+    poi,
+};

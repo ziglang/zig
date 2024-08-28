@@ -795,6 +795,9 @@ const Writer = struct {
         if (extra.data.branch_hints.true != .none) {
             try s.print(" {s}", .{@tagName(extra.data.branch_hints.true)});
         }
+        if (extra.data.branch_hints.then_cov != .none) {
+            try s.print(" {s}", .{@tagName(extra.data.branch_hints.then_cov)});
+        }
         try s.writeAll(" {\n");
         const old_indent = w.indent;
         w.indent += 2;
@@ -813,6 +816,9 @@ const Writer = struct {
         try s.writeAll("},");
         if (extra.data.branch_hints.false != .none) {
             try s.print(" {s}", .{@tagName(extra.data.branch_hints.false)});
+        }
+        if (extra.data.branch_hints.else_cov != .none) {
+            try s.print(" {s}", .{@tagName(extra.data.branch_hints.else_cov)});
         }
         try s.writeAll(" {\n");
 
