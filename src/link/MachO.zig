@@ -64,10 +64,10 @@ stubs_helper: StubsHelperSection = .{},
 objc_stubs: ObjcStubsSection = .{},
 la_symbol_ptr: LaSymbolPtrSection = .{},
 tlv_ptr: TlvPtrSection = .{},
-rebase: Rebase = .{},
-bind: Bind = .{},
-weak_bind: WeakBind = .{},
-lazy_bind: LazyBind = .{},
+rebase_section: Rebase = .{},
+bind_section: Bind = .{},
+weak_bind_section: WeakBind = .{},
+lazy_bind_section: LazyBind = .{},
 export_trie: ExportTrie = .{},
 unwind_info: UnwindInfo = .{},
 data_in_code: DataInCode = .{},
@@ -324,10 +324,10 @@ pub fn deinit(self: *MachO) void {
     self.stubs.deinit(gpa);
     self.objc_stubs.deinit(gpa);
     self.tlv_ptr.deinit(gpa);
-    self.rebase.deinit(gpa);
-    self.bind.deinit(gpa);
-    self.weak_bind.deinit(gpa);
-    self.lazy_bind.deinit(gpa);
+    self.rebase_section.deinit(gpa);
+    self.bind_section.deinit(gpa);
+    self.weak_bind_section.deinit(gpa);
+    self.lazy_bind_section.deinit(gpa);
     self.export_trie.deinit(gpa);
     self.unwind_info.deinit(gpa);
     self.data_in_code.deinit(gpa);
@@ -2005,7 +2005,7 @@ fn calcSectionSizeWorker(self: *MachO, sect_id: u8) void {
 fn createThunksWorker(self: *MachO, sect_id: u8) void {
     const tracy = trace(@src());
     defer tracy.end();
-    thunks.createThunks(sect_id, self) catch |err| {
+    self.createThunks(sect_id) catch |err| {
         const header = self.sections.items(.header)[sect_id];
         self.reportUnexpectedError("failed to create thunks and calculate size of section '{s},{s}': {s}", .{
             header.segName(),
@@ -2562,7 +2562,7 @@ fn updateLazyBindSizeWorker(self: *MachO) void {
     defer tracy.end();
     const doWork = struct {
         fn doWork(macho_file: *MachO) !void {
-            try macho_file.lazy_bind.updateSize(macho_file);
+            try macho_file.lazy_bind_section.updateSize(macho_file);
             const sect_id = macho_file.stubs_helper_sect_index.?;
             const out = &macho_file.sections.items(.out)[sect_id];
             var stream = std.io.fixedBufferStream(out.items);
@@ -2585,9 +2585,9 @@ pub fn updateLinkeditSizeWorker(self: *MachO, tag: enum {
     data_in_code,
 }) void {
     const res = switch (tag) {
-        .rebase => self.rebase.updateSize(self),
-        .bind => self.bind.updateSize(self),
-        .weak_bind => self.weak_bind.updateSize(self),
+        .rebase => self.rebase_section.updateSize(self),
+        .bind => self.bind_section.updateSize(self),
+        .weak_bind => self.weak_bind_section.updateSize(self),
         .export_trie => self.export_trie.updateSize(self),
         .data_in_code => self.data_in_code.updateSize(self),
     };
@@ -2640,13 +2640,13 @@ fn writeDyldInfo(self: *MachO) !void {
     var stream = std.io.fixedBufferStream(buffer);
     const writer = stream.writer();
 
-    try self.rebase.write(writer);
+    try self.rebase_section.write(writer);
     try stream.seekTo(cmd.bind_off - base_off);
-    try self.bind.write(writer);
+    try self.bind_section.write(writer);
     try stream.seekTo(cmd.weak_bind_off - base_off);
-    try self.weak_bind.write(writer);
+    try self.weak_bind_section.write(writer);
     try stream.seekTo(cmd.lazy_bind_off - base_off);
-    try self.lazy_bind.write(writer);
+    try self.lazy_bind_section.write(writer);
     try stream.seekTo(cmd.export_off - base_off);
     try self.export_trie.write(writer);
     try self.base.file.?.pwriteAll(buffer, cmd.rebase_off);
@@ -4602,7 +4602,6 @@ const load_commands = @import("MachO/load_commands.zig");
 const relocatable = @import("MachO/relocatable.zig");
 const tapi = @import("tapi.zig");
 const target_util = @import("../target.zig");
-const thunks = @import("MachO/thunks.zig");
 const trace = @import("../tracy.zig").trace;
 const synthetic = @import("MachO/synthetic.zig");
 
@@ -4641,7 +4640,7 @@ const StringTable = @import("StringTable.zig");
 const StubsSection = synthetic.StubsSection;
 const StubsHelperSection = synthetic.StubsHelperSection;
 const Symbol = @import("MachO/Symbol.zig");
-const Thunk = thunks.Thunk;
+const Thunk = @import("MachO/Thunk.zig");
 const TlvPtrSection = synthetic.TlvPtrSection;
 const Value = @import("../Value.zig");
 const UnwindInfo = @import("MachO/UnwindInfo.zig");
@@ -5292,3 +5291,96 @@ pub const KernE = enum(u32) {
     NOT_FOUND = 56,
     _,
 };
+
+fn createThunks(macho_file: *MachO, sect_id: u8) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = macho_file.base.comp.gpa;
+    const slice = macho_file.sections.slice();
+    const header = &slice.items(.header)[sect_id];
+    const thnks = &slice.items(.thunks)[sect_id];
+    const atoms = slice.items(.atoms)[sect_id].items;
+    assert(atoms.len > 0);
+
+    for (atoms) |ref| {
+        ref.getAtom(macho_file).?.value = @bitCast(@as(i64, -1));
+    }
+
+    var i: usize = 0;
+    while (i < atoms.len) {
+        const start = i;
+        const start_atom = atoms[start].getAtom(macho_file).?;
+        assert(start_atom.isAlive());
+        start_atom.value = advanceSection(header, start_atom.size, start_atom.alignment);
+        i += 1;
+
+        while (i < atoms.len and
+            header.size - start_atom.value < max_allowed_distance) : (i += 1)
+        {
+            const atom = atoms[i].getAtom(macho_file).?;
+            assert(atom.isAlive());
+            atom.value = advanceSection(header, atom.size, atom.alignment);
+        }
+
+        // Insert a thunk at the group end
+        const thunk_index = try macho_file.addThunk();
+        const thunk = macho_file.getThunk(thunk_index);
+        thunk.out_n_sect = sect_id;
+        try thnks.append(gpa, thunk_index);
+
+        // Scan relocs in the group and create trampolines for any unreachable callsite
+        try scanThunkRelocs(thunk_index, gpa, atoms[start..i], macho_file);
+        thunk.value = advanceSection(header, thunk.size(), .@"4");
+
+        log.debug("thunk({d}) : {}", .{ thunk_index, thunk.fmt(macho_file) });
+    }
+}
+
+fn advanceSection(sect: *macho.section_64, adv_size: u64, alignment: Atom.Alignment) u64 {
+    const offset = alignment.forward(sect.size);
+    const padding = offset - sect.size;
+    sect.size += padding + adv_size;
+    sect.@"align" = @max(sect.@"align", alignment.toLog2Units());
+    return offset;
+}
+
+fn scanThunkRelocs(thunk_index: Thunk.Index, gpa: Allocator, atoms: []const MachO.Ref, macho_file: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const thunk = macho_file.getThunk(thunk_index);
+
+    for (atoms) |ref| {
+        const atom = ref.getAtom(macho_file).?;
+        log.debug("atom({d}) {s}", .{ atom.atom_index, atom.getName(macho_file) });
+        for (atom.getRelocs(macho_file)) |rel| {
+            if (rel.type != .branch) continue;
+            if (isReachable(atom, rel, macho_file)) continue;
+            try thunk.symbols.put(gpa, rel.getTargetSymbolRef(atom.*, macho_file), {});
+        }
+        atom.addExtra(.{ .thunk = thunk_index }, macho_file);
+    }
+}
+
+fn isReachable(atom: *const Atom, rel: Relocation, macho_file: *MachO) bool {
+    const target = rel.getTargetSymbol(atom.*, macho_file);
+    if (target.getSectionFlags().stubs or target.getSectionFlags().objc_stubs) return false;
+    if (atom.out_n_sect != target.getOutputSectionIndex(macho_file)) return false;
+    const target_atom = target.getAtom(macho_file).?;
+    if (target_atom.value == @as(u64, @bitCast(@as(i64, -1)))) return false;
+    const saddr = @as(i64, @intCast(atom.getAddress(macho_file))) + @as(i64, @intCast(rel.offset - atom.off));
+    const taddr: i64 = @intCast(rel.getTargetAddress(atom.*, macho_file));
+    _ = math.cast(i28, taddr + rel.addend - saddr) orelse return false;
+    return true;
+}
+
+/// Branch instruction has 26 bits immediate but is 4 byte aligned.
+const jump_bits = @bitSizeOf(i28);
+const max_distance = (1 << (jump_bits - 1));
+
+/// A branch will need an extender if its target is larger than
+/// `2^(jump_bits - 1) - margin` where margin is some arbitrary number.
+/// mold uses 5MiB margin, while ld64 uses 4MiB margin. We will follow mold
+/// and assume margin to be 5MiB.
+const max_allowed_distance = max_distance - 0x500_000;

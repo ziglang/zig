@@ -3467,7 +3467,7 @@ fn updateSectionSizes(self: *Elf) !void {
             if (atom_list.items.len == 0) continue;
 
             // Create jump/branch range extenders if needed.
-            try thunks.createThunks(shdr, @intCast(shndx), self);
+            try self.createThunks(shdr, @intCast(shndx));
         }
     }
 
@@ -5576,6 +5576,88 @@ fn defaultEntrySymbolName(cpu_arch: std.Target.Cpu.Arch) []const u8 {
     };
 }
 
+fn createThunks(elf_file: *Elf, shdr: *elf.Elf64_Shdr, shndx: u32) !void {
+    const gpa = elf_file.base.comp.gpa;
+    const cpu_arch = elf_file.getTarget().cpu.arch;
+    // A branch will need an extender if its target is larger than
+    // `2^(jump_bits - 1) - margin` where margin is some arbitrary number.
+    const max_distance = switch (cpu_arch) {
+        .aarch64 => 0x500_000,
+        .x86_64, .riscv64 => unreachable,
+        else => @panic("unhandled arch"),
+    };
+    const atoms = elf_file.sections.items(.atom_list)[shndx].items;
+    assert(atoms.len > 0);
+
+    for (atoms) |ref| {
+        elf_file.atom(ref).?.value = -1;
+    }
+
+    var i: usize = 0;
+    while (i < atoms.len) {
+        const start = i;
+        const start_atom = elf_file.atom(atoms[start]).?;
+        assert(start_atom.alive);
+        start_atom.value = try advanceSection(shdr, start_atom.size, start_atom.alignment);
+        i += 1;
+
+        while (i < atoms.len) : (i += 1) {
+            const atom_ptr = elf_file.atom(atoms[i]).?;
+            assert(atom_ptr.alive);
+            if (@as(i64, @intCast(atom_ptr.alignment.forward(shdr.sh_size))) - start_atom.value >= max_distance)
+                break;
+            atom_ptr.value = try advanceSection(shdr, atom_ptr.size, atom_ptr.alignment);
+        }
+
+        // Insert a thunk at the group end
+        const thunk_index = try elf_file.addThunk();
+        const thunk_ptr = elf_file.thunk(thunk_index);
+        thunk_ptr.output_section_index = shndx;
+
+        // Scan relocs in the group and create trampolines for any unreachable callsite
+        for (atoms[start..i]) |ref| {
+            const atom_ptr = elf_file.atom(ref).?;
+            const file_ptr = atom_ptr.file(elf_file).?;
+            log.debug("atom({}) {s}", .{ ref, atom_ptr.name(elf_file) });
+            for (atom_ptr.relocs(elf_file)) |rel| {
+                const is_reachable = switch (cpu_arch) {
+                    .aarch64 => r: {
+                        const r_type: elf.R_AARCH64 = @enumFromInt(rel.r_type());
+                        if (r_type != .CALL26 and r_type != .JUMP26) break :r true;
+                        const target_ref = file_ptr.resolveSymbol(rel.r_sym(), elf_file);
+                        const target = elf_file.symbol(target_ref).?;
+                        if (target.flags.has_plt) break :r false;
+                        if (atom_ptr.output_section_index != target.output_section_index) break :r false;
+                        const target_atom = target.atom(elf_file).?;
+                        if (target_atom.value == -1) break :r false;
+                        const saddr = atom_ptr.address(elf_file) + @as(i64, @intCast(rel.r_offset));
+                        const taddr = target.address(.{}, elf_file);
+                        _ = math.cast(i28, taddr + rel.r_addend - saddr) orelse break :r false;
+                        break :r true;
+                    },
+                    .x86_64, .riscv64 => unreachable,
+                    else => @panic("unsupported arch"),
+                };
+                if (is_reachable) continue;
+                const target = file_ptr.resolveSymbol(rel.r_sym(), elf_file);
+                try thunk_ptr.symbols.put(gpa, target, {});
+            }
+            atom_ptr.addExtra(.{ .thunk = thunk_index }, elf_file);
+        }
+
+        thunk_ptr.value = try advanceSection(shdr, thunk_ptr.size(elf_file), Atom.Alignment.fromNonzeroByteUnits(2));
+
+        log.debug("thunk({d}) : {}", .{ thunk_index, thunk_ptr.fmt(elf_file) });
+    }
+}
+fn advanceSection(shdr: *elf.Elf64_Shdr, adv_size: u64, alignment: Atom.Alignment) !i64 {
+    const offset = alignment.forward(shdr.sh_size);
+    const padding = offset - shdr.sh_size;
+    shdr.sh_size += padding + adv_size;
+    shdr.sh_addralign = @max(shdr.sh_addralign, alignment.toByteUnits() orelse 1);
+    return @intCast(offset);
+}
+
 const std = @import("std");
 const build_options = @import("build_options");
 const builtin = @import("builtin");
@@ -5598,7 +5680,6 @@ const musl = @import("../musl.zig");
 const relocatable = @import("Elf/relocatable.zig");
 const relocation = @import("Elf/relocation.zig");
 const target_util = @import("../target.zig");
-const thunks = @import("Elf/thunks.zig");
 const trace = @import("../tracy.zig").trace;
 const synthetic_sections = @import("Elf/synthetic_sections.zig");
 
@@ -5636,7 +5717,7 @@ const PltGotSection = synthetic_sections.PltGotSection;
 const SharedObject = @import("Elf/SharedObject.zig");
 const Symbol = @import("Elf/Symbol.zig");
 const StringTable = @import("StringTable.zig");
-const Thunk = thunks.Thunk;
+const Thunk = @import("Elf/Thunk.zig");
 const Value = @import("../Value.zig");
 const VerneedSection = synthetic_sections.VerneedSection;
 const ZigObject = @import("Elf/ZigObject.zig");

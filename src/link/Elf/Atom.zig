@@ -2251,6 +2251,6 @@ const Fde = eh_frame.Fde;
 const File = @import("file.zig").File;
 const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");
-const Thunk = @import("thunks.zig").Thunk;
+const Thunk = @import("Thunk.zig");
 const ZigObject = @import("ZigObject.zig");
 const dev = @import("../../dev.zig");
