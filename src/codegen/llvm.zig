@@ -1664,6 +1664,7 @@ pub const Object = struct {
             if (!owner_mod.fuzz) break :f null;
             if (func_analysis.disable_instrumentation) break :f null;
             if (is_naked) break :f null;
+            if (comp.config.san_cov_trace_pc_guard) break :f null;
 
             // The void type used here is a placeholder to be replaced with an
             // array of the appropriate size after the POI count is known.
