@@ -1,3 +1,13 @@
+// Similar to ArrayList but backed by a memory mapped file.
+//
+// We mmap the fd but overshoot the allocation size to the maximum file size we
+// support. Then when we want to grow the file, we can ftruncate the fd and the
+// previously mmaped pages become automatically valid without needing to
+// mremap.
+//
+// We don't bother munmaping since all current uses of this datastructure use
+// it for the entire duration of the program.
+
 const std = @import("std");
 const assert = std.debug.assert;
 const util = @import("util.zig");

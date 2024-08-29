@@ -1,5 +1,8 @@
+// Miscellaneous utilities
+
 const std = @import("std");
 
+/// Returns error union payload or void if error set
 fn StripError(comptime T: type) type {
     return switch (@typeInfo(T)) {
         .error_union => |eu| eu.payload,
@@ -8,7 +11,8 @@ fn StripError(comptime T: type) type {
     };
 }
 
-/// Terminates on error
+/// Checks that the value is not error. If it is error, it logs the args and
+/// terminates
 pub fn check(src: std.builtin.SourceLocation, v: anytype, args: anytype) StripError(@TypeOf(v)) {
     return v catch |e| {
         var buffer: [4096]u8 = undefined;
@@ -34,7 +38,8 @@ pub fn check(src: std.builtin.SourceLocation, v: anytype, args: anytype) StripEr
     };
 }
 
-/// for passing slices across extern functions
+/// Type for passing slices across extern functions where we can't use zig
+/// types
 pub const Slice = extern struct {
     ptr: [*]const u8,
     len: usize,
@@ -62,10 +67,12 @@ pub fn createFileBail(dir: std.fs.Dir, sub_path: []const u8, flags: std.fs.File.
     };
 }
 
+/// Sorts array of features
 pub fn sort(a: []u32) void {
     std.mem.sort(u32, a, void{}, std.sort.asc(u32));
 }
 
+/// Deduplicates array of sorted features
 pub fn uniq(a: []u32) []u32 {
     var write: usize = 0;
 
@@ -94,6 +101,7 @@ test uniq {
 
 pub const CmpResult = struct { only_a: u32, only_b: u32, both: u32 };
 
+/// Compares two sorted lists of features
 pub fn cmp(a: []const u32, b: []const u32) CmpResult {
     var ai: u32 = 0;
     var bi: u32 = 0;
@@ -148,6 +156,8 @@ test cmp {
     try e(R{ .only_a = 3, .only_b = 3, .both = 0 }, cmp(&.{ 1, 2, 3 }, &.{ 4, 5, 6 }));
 }
 
+/// Merges the second sorted list of features into the first list of sorted
+/// features
 pub fn merge(dest: *std.ArrayList(u32), src: []const u32) !void {
     // TODO: can be in O(n) time and O(1) space
     try dest.appendSlice(src);
