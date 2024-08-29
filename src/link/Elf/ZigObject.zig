@@ -51,6 +51,12 @@ debug_loclists_section_dirty: bool = false,
 debug_rnglists_section_dirty: bool = false,
 eh_frame_section_dirty: bool = false,
 
+text_index: ?Symbol.Index = null,
+data_relro_index: ?Symbol.Index = null,
+rodata_index: ?Symbol.Index = null,
+data_index: ?Symbol.Index = null,
+bss_index: ?Symbol.Index = null,
+eh_frame_index: ?Symbol.Index = null,
 debug_info_index: ?Symbol.Index = null,
 debug_abbrev_index: ?Symbol.Index = null,
 debug_aranges_index: ?Symbol.Index = null,
@@ -59,11 +65,6 @@ debug_line_index: ?Symbol.Index = null,
 debug_line_str_index: ?Symbol.Index = null,
 debug_loclists_index: ?Symbol.Index = null,
 debug_rnglists_index: ?Symbol.Index = null,
-eh_frame_index: ?Symbol.Index = null,
-bss_index: ?Symbol.Index = null,
-data_index: ?Symbol.Index = null,
-data_relro_index: ?Symbol.Index = null,
-rodata_index: ?Symbol.Index = null,
 
 pub const global_symbol_bit: u32 = 0x80000000;
 pub const symbol_mask: u32 = 0x7fffffff;
@@ -75,6 +76,7 @@ const InitOptions = struct {
 };
 
 pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
+    _ = options;
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
     const ptr_size = elf_file.ptrWidthBytes();
@@ -90,60 +92,6 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
         const esym = &self.symtab.items(.elf_sym)[sym.esym_index];
         esym.st_info = elf.STT_FILE;
         esym.st_shndx = elf.SHN_ABS;
-    }
-
-    const fillSection = struct {
-        fn fillSection(ef: *Elf, shdr: *elf.Elf64_Shdr, size: u64, phndx: ?u16) !void {
-            if (ef.base.isRelocatable()) {
-                const off = try ef.findFreeSpace(size, shdr.sh_addralign);
-                shdr.sh_offset = off;
-                shdr.sh_size = size;
-            } else {
-                const phdr = ef.phdrs.items[phndx.?];
-                shdr.sh_addr = phdr.p_vaddr;
-                shdr.sh_offset = phdr.p_offset;
-                shdr.sh_size = phdr.p_memsz;
-            }
-        }
-    }.fillSection;
-
-    comptime assert(Elf.number_of_zig_segments == 2);
-
-    if (!elf_file.base.isRelocatable()) {
-        if (elf_file.phdr_zig_load_re_index == null) {
-            const filesz = options.program_code_size_hint;
-            const off = try elf_file.findFreeSpace(filesz, elf_file.page_size);
-            elf_file.phdr_zig_load_re_index = try elf_file.addPhdr(.{
-                .type = elf.PT_LOAD,
-                .offset = off,
-                .filesz = filesz,
-                .addr = if (ptr_size >= 4) 0x4000000 else 0x4000,
-                .memsz = filesz,
-                .@"align" = elf_file.page_size,
-                .flags = elf.PF_X | elf.PF_R | elf.PF_W,
-            });
-        }
-    }
-
-    if (elf_file.zig_text_section_index == null) {
-        elf_file.zig_text_section_index = try elf_file.addSection(.{
-            .name = try elf_file.insertShString(".text.zig"),
-            .type = elf.SHT_PROGBITS,
-            .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
-            .addralign = 1,
-            .offset = std.math.maxInt(u64),
-        });
-        const shdr = &elf_file.sections.items(.shdr)[elf_file.zig_text_section_index.?];
-        const phndx = &elf_file.sections.items(.phndx)[elf_file.zig_text_section_index.?];
-        try fillSection(elf_file, shdr, options.program_code_size_hint, elf_file.phdr_zig_load_re_index);
-        if (elf_file.base.isRelocatable()) {
-            _ = try elf_file.addRelaShdr(
-                try elf_file.insertShString(".rela.text.zig"),
-                elf_file.zig_text_section_index.?,
-            );
-        } else {
-            phndx.* = elf_file.phdr_zig_load_re_index.?;
-        }
     }
 
     switch (comp.config.debug_format) {
@@ -1196,7 +1144,19 @@ fn getNavShdrIndex(
     const ip = &zcu.intern_pool;
     const any_non_single_threaded = elf_file.base.comp.config.any_non_single_threaded;
     const nav_val = zcu.navValue(nav_index);
-    if (ip.isFunctionType(nav_val.typeOf(zcu).toIntern())) return elf_file.zig_text_section_index.?;
+    if (ip.isFunctionType(nav_val.typeOf(zcu).toIntern())) {
+        if (self.text_index) |symbol_index|
+            return self.symbol(symbol_index).atom(elf_file).?.output_section_index;
+        const osec = try elf_file.addSection(.{
+            .type = elf.SHT_PROGBITS,
+            .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
+            .name = try elf_file.insertShString(".text"),
+            .addralign = 1,
+            .offset = std.math.maxInt(u64),
+        });
+        self.text_index = try self.addSectionSymbol(gpa, ".text", .@"1", osec);
+        return osec;
+    }
     const is_const, const is_threadlocal, const nav_init = switch (ip.indexToKey(nav_val.toIntern())) {
         .variable => |variable| .{ false, variable.is_threadlocal, variable.init },
         .@"extern" => |@"extern"| .{ @"extern".is_const, @"extern".is_threadlocal, .none },
@@ -1538,6 +1498,19 @@ pub fn updateFunc(
                 self.symbol(sym_index).name(elf_file),
             });
             defer gpa.free(name);
+            const osec = if (self.text_index) |sect_sym_index|
+                self.symbol(sect_sym_index).atom(elf_file).?.output_section_index
+            else osec: {
+                const osec = try elf_file.addSection(.{
+                    .name = try elf_file.insertShString(".text"),
+                    .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
+                    .type = elf.SHT_PROGBITS,
+                    .addralign = 1,
+                    .offset = std.math.maxInt(u64),
+                });
+                self.text_index = try self.addSectionSymbol(gpa, ".text", .@"1", osec);
+                break :osec osec;
+            };
             const name_off = try self.addString(gpa, name);
             const tr_size = trampolineSize(elf_file.getTarget().cpu.arch);
             const tr_sym_index = try self.newSymbolWithAtom(gpa, name_off);
@@ -1549,7 +1522,7 @@ pub fn updateFunc(
             tr_atom_ptr.value = old_rva;
             tr_atom_ptr.alive = true;
             tr_atom_ptr.alignment = old_alignment;
-            tr_atom_ptr.output_section_index = elf_file.zig_text_section_index.?;
+            tr_atom_ptr.output_section_index = osec;
             tr_atom_ptr.size = tr_size;
             const target_sym = self.symbol(sym_index);
             target_sym.addExtra(.{ .trampoline = tr_sym_index }, elf_file);
@@ -1703,7 +1676,19 @@ fn updateLazySymbol(
     };
 
     const output_section_index = switch (sym.kind) {
-        .code => elf_file.zig_text_section_index.?,
+        .code => if (self.text_index) |sym_index|
+            self.symbol(sym_index).atom(elf_file).?.output_section_index
+        else osec: {
+            const osec = try elf_file.addSection(.{
+                .name = try elf_file.insertShString(".text"),
+                .type = elf.SHT_PROGBITS,
+                .addralign = 1,
+                .flags = elf.SHF_ALLOC | elf.SHF_EXECINSTR,
+                .offset = std.math.maxInt(u64),
+            });
+            self.text_index = try self.addSectionSymbol(gpa, ".text", .@"1", osec);
+            break :osec osec;
+        },
         .const_data => if (self.rodata_index) |sym_index|
             self.symbol(sym_index).atom(elf_file).?.output_section_index
         else osec: {

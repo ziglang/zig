@@ -54,10 +54,6 @@ shdr_table_offset: ?u64 = null,
 /// Same order as in the file.
 phdrs: std.ArrayListUnmanaged(elf.Elf64_Phdr) = .{},
 
-/// Tracked loadable segments during incremental linking.
-/// The index into the program headers of a PT_LOAD program header with Read and Execute flags
-phdr_zig_load_re_index: ?u16 = null,
-
 /// Special program headers
 /// PT_PHDR
 phdr_table_index: ?u16 = null,
@@ -117,10 +113,6 @@ rela_plt: std.ArrayListUnmanaged(elf.Elf64_Rela) = .{},
 /// SHT_GROUP sections
 /// Applies only to a relocatable.
 comdat_group_sections: std.ArrayListUnmanaged(ComdatGroupSection) = .{},
-
-/// Tracked section headers with incremental updates to Zig object.
-/// .rela.* sections are only used when emitting a relocatable object file.
-zig_text_section_index: ?u32 = null,
 
 debug_info_section_index: ?u32 = null,
 debug_abbrev_section_index: ?u32 = null,
@@ -3356,7 +3348,6 @@ fn sortPhdrs(self: *Elf) error{OutOfMemory}!void {
     }
 
     for (&[_]*?u16{
-        &self.phdr_zig_load_re_index,
         &self.phdr_table_index,
         &self.phdr_table_load_index,
         &self.phdr_interp_index,
@@ -3482,7 +3473,6 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
         &self.copy_rel_section_index,
         &self.versym_section_index,
         &self.verneed_section_index,
-        &self.zig_text_section_index,
         &self.debug_info_section_index,
         &self.debug_abbrev_section_index,
         &self.debug_str_section_index,
@@ -3734,10 +3724,9 @@ fn getMaxNumberOfPhdrs() u64 {
 /// We permit a maximum of 3**2 number of segments.
 fn calcNumberOfSegments(self: *Elf) usize {
     var covers: [9]bool = [_]bool{false} ** 9;
-    for (self.sections.items(.shdr), 0..) |shdr, shndx| {
+    for (self.sections.items(.shdr)) |shdr| {
         if (shdr.sh_type == elf.SHT_NULL) continue;
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
-        if (self.isZigSection(@intCast(shndx))) continue;
         const flags = shdrToPhdrFlags(shdr.sh_flags);
         covers[flags - 1] = true;
     }
@@ -3835,7 +3824,6 @@ pub fn allocateAllocSections(self: *Elf) !void {
     for (slice.items(.shdr), 0..) |shdr, shndx| {
         if (shdr.sh_type == elf.SHT_NULL) continue;
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
-        if (self.isZigSection(@intCast(shndx))) continue;
         const flags = shdrToPhdrFlags(shdr.sh_flags);
         try covers[flags - 1].append(@intCast(shndx));
     }
@@ -4811,15 +4799,6 @@ pub fn isEffectivelyDynLib(self: Elf) bool {
         .haiku => self.base.isExe(),
         else => false,
     };
-}
-
-pub fn isZigSection(self: Elf, shndx: u32) bool {
-    inline for (&[_]?u32{
-        self.zig_text_section_index,
-    }) |index| {
-        if (index == shndx) return true;
-    }
-    return false;
 }
 
 pub fn isDebugSection(self: Elf, shndx: u32) bool {
