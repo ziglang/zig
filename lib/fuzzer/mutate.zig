@@ -126,7 +126,7 @@ test "mutate" {
 pub fn writeMutation(seed: u64, writer: anytype) !void {
     const muts = generateRandomMutationSequence(Rng.init(seed));
     for (muts.slice(), 0..) |mut, i| {
-        if (i != 0) writer.writeAll(", ");
+        if (i != 0) try writer.writeAll(", ");
         try writer.writeAll(switch (mut) {
             .shuffle_bytes => "Shuffle",
             .erase_bytes => "DelBytes",
@@ -201,7 +201,7 @@ test "mutate change byte" {
 }
 
 fn mutateInsertRepeatedByte(str: *ArrayList(u8), index: u32, len_: u8, byte: u8) !void {
-    const len = @min(16, @max(1, len_));
+    const len = @min(24, @max(1, len_));
     const str_len = str.items.len;
     const insert_index = index % (str_len + 1);
 
@@ -215,7 +215,7 @@ fn mutateInsertRepeatedByte(str: *ArrayList(u8), index: u32, len_: u8, byte: u8)
 }
 
 fn mutateInsertRepeatedByteReverse(str: *ArrayList(u8), index: u32, len_: u8) void {
-    const len = @min(16, @max(1, len_));
+    const len = @min(24, @max(1, len_));
     const str_len = str.items.len - len;
     const insert_index = index % (str_len + 1);
 
