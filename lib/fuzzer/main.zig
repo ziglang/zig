@@ -376,9 +376,6 @@ pub const Fuzzer = struct {
             f.analyzeLastRun();
 
             f.undoMutate();
-
-            // This invalidates the indexes
-            f.input_pool.maybeRepack();
         }
 
         f.selectAndMutate();
