@@ -25,6 +25,7 @@ pub const Instruction = struct {
         repz,
         repne,
         repnz,
+        directive,
     };
 
     pub const Immediate = union(enum) {
@@ -180,6 +181,7 @@ pub const Instruction = struct {
         reg: Register,
         mem: Memory,
         imm: Immediate,
+        bytes: []const u8,
 
         /// Returns the bitsize of the operand.
         pub fn bitSize(op: Operand) u64 {
@@ -188,6 +190,7 @@ pub const Instruction = struct {
                 .reg => |reg| reg.bitSize(),
                 .mem => |mem| mem.bitSize(),
                 .imm => unreachable,
+                .bytes => unreachable,
             };
         }
 
@@ -199,6 +202,7 @@ pub const Instruction = struct {
                 .reg => |reg| reg.class() == .segment,
                 .mem => |mem| mem.isSegmentRegister(),
                 .imm => unreachable,
+                .bytes => unreachable,
             };
         }
 
@@ -207,6 +211,7 @@ pub const Instruction = struct {
                 .none, .imm => false,
                 .reg => |reg| reg.isExtended(),
                 .mem => |mem| mem.base().isExtended(),
+                .bytes => unreachable,
             };
         }
 
@@ -214,6 +219,7 @@ pub const Instruction = struct {
             return switch (op) {
                 .none, .reg, .imm => false,
                 .mem => |mem| if (mem.scaleIndex()) |si| si.index.isExtended() else false,
+                .bytes => unreachable,
             };
         }
 
@@ -299,6 +305,7 @@ pub const Instruction = struct {
                     if (imms < 0) try writer.writeByte('-');
                     try writer.print("0x{x}", .{@abs(imms)});
                 } else try writer.print("0x{x}", .{imm.asUnsigned(enc_op.immBitSize())}),
+                .bytes => unreachable,
             }
         }
 
@@ -308,20 +315,39 @@ pub const Instruction = struct {
     };
 
     pub fn new(prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand) !Instruction {
-        const encoding = (try Encoding.findByMnemonic(prefix, mnemonic, ops)) orelse {
-            log.err("no encoding found for: {s} {s} {s} {s} {s} {s}", .{
-                @tagName(prefix),
-                @tagName(mnemonic),
-                @tagName(if (ops.len > 0) Encoding.Op.fromOperand(ops[0]) else .none),
-                @tagName(if (ops.len > 1) Encoding.Op.fromOperand(ops[1]) else .none),
-                @tagName(if (ops.len > 2) Encoding.Op.fromOperand(ops[2]) else .none),
-                @tagName(if (ops.len > 3) Encoding.Op.fromOperand(ops[3]) else .none),
-            });
-            return error.InvalidInstruction;
+        const encoding: Encoding = switch (prefix) {
+            else => (try Encoding.findByMnemonic(prefix, mnemonic, ops)) orelse {
+                log.err("no encoding found for: {s} {s} {s} {s} {s} {s}", .{
+                    @tagName(prefix),
+                    @tagName(mnemonic),
+                    @tagName(if (ops.len > 0) Encoding.Op.fromOperand(ops[0]) else .none),
+                    @tagName(if (ops.len > 1) Encoding.Op.fromOperand(ops[1]) else .none),
+                    @tagName(if (ops.len > 2) Encoding.Op.fromOperand(ops[2]) else .none),
+                    @tagName(if (ops.len > 3) Encoding.Op.fromOperand(ops[3]) else .none),
+                });
+                return error.InvalidInstruction;
+            },
+            .directive => .{
+                .mnemonic = mnemonic,
+                .data = .{
+                    .op_en = .zo,
+                    .ops = .{
+                        if (ops.len > 0) Encoding.Op.fromOperand(ops[0]) else .none,
+                        if (ops.len > 1) Encoding.Op.fromOperand(ops[1]) else .none,
+                        if (ops.len > 2) Encoding.Op.fromOperand(ops[2]) else .none,
+                        if (ops.len > 3) Encoding.Op.fromOperand(ops[3]) else .none,
+                    },
+                    .opc_len = 0,
+                    .opc = undefined,
+                    .modrm_ext = 0,
+                    .mode = .none,
+                    .feature = .none,
+                },
+            },
         };
         log.debug("selected encoding: {}", .{encoding});
 
-        var inst = Instruction{
+        var inst: Instruction = .{
             .prefix = prefix,
             .encoding = encoding,
             .ops = [1]Operand{.none} ** 4,
@@ -338,7 +364,10 @@ pub const Instruction = struct {
     ) @TypeOf(writer).Error!void {
         _ = unused_format_string;
         _ = options;
-        if (inst.prefix != .none) try writer.print("{s} ", .{@tagName(inst.prefix)});
+        switch (inst.prefix) {
+            .none, .directive => {},
+            else => try writer.print("{s} ", .{@tagName(inst.prefix)}),
+        }
         try writer.print("{s}", .{@tagName(inst.encoding.mnemonic)});
         for (inst.ops, inst.encoding.data.ops, 0..) |op, enc, i| {
             if (op == .none) break;
@@ -349,6 +378,7 @@ pub const Instruction = struct {
     }
 
     pub fn encode(inst: Instruction, writer: anytype, comptime opts: Options) !void {
+        assert(inst.prefix != .directive);
         const encoder = Encoder(@TypeOf(writer), opts){ .writer = writer };
         const enc = inst.encoding;
         const data = enc.data;
@@ -435,6 +465,7 @@ pub const Instruction = struct {
             .lock => legacy.prefix_f0 = true,
             .repne, .repnz => legacy.prefix_f2 = true,
             .rep, .repe, .repz => legacy.prefix_f3 = true,
+            .directive => unreachable,
         }
 
         switch (data.mode) {
@@ -2231,7 +2262,7 @@ const Assembler = struct {
     }
 
     fn mnemonicFromString(bytes: []const u8) ?Instruction.Mnemonic {
-        const ti = @typeInfo(Instruction.Mnemonic).Enum;
+        const ti = @typeInfo(Instruction.Mnemonic).@"enum";
         inline for (ti.fields) |field| {
             if (std.mem.eql(u8, bytes, field.name)) {
                 return @field(Instruction.Mnemonic, field.name);
@@ -2247,7 +2278,7 @@ const Assembler = struct {
                 _ = try as.expect(.comma);
                 try as.skip(1, .{.space});
             }
-            if (@typeInfo(@TypeOf(cond)) != .EnumLiteral) {
+            if (@typeInfo(@TypeOf(cond)) != .enum_literal) {
                 @compileError("invalid condition in the rule: " ++ @typeName(@TypeOf(cond)));
             }
             switch (cond) {
@@ -2284,7 +2315,7 @@ const Assembler = struct {
     }
 
     fn registerFromString(bytes: []const u8) ?Register {
-        const ti = @typeInfo(Register).Enum;
+        const ti = @typeInfo(Register).@"enum";
         inline for (ti.fields) |field| {
             if (std.mem.eql(u8, bytes, field.name)) {
                 return @field(Register, field.name);
@@ -2374,7 +2405,7 @@ const Assembler = struct {
     fn parseMemoryRule(as: *Assembler, rule: anytype) ParseError!MemoryParseResult {
         var res: MemoryParseResult = .{};
         inline for (rule, 0..) |cond, i| {
-            if (@typeInfo(@TypeOf(cond)) != .EnumLiteral) {
+            if (@typeInfo(@TypeOf(cond)) != .enum_literal) {
                 @compileError("unsupported condition type in the rule: " ++ @typeName(@TypeOf(cond)));
             }
             switch (cond) {

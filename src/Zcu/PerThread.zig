@@ -921,7 +921,7 @@ fn createFileRootStruct(
     assert(!small.has_captures_len);
     assert(!small.has_backing_int);
     assert(small.layout == .auto);
-    var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).Struct.fields.len;
+    var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).@"struct".fields.len;
     const fields_len = if (small.has_fields_len) blk: {
         const fields_len = file.zir.extra[extra_index];
         extra_index += 1;
@@ -1005,7 +1005,7 @@ fn updateFileNamespace(pt: Zcu.PerThread, file_index: Zcu.File.Index) Allocator.
         const extended = file.zir.instructions.items(.data)[@intFromEnum(Zir.Inst.Index.main_struct_inst)].extended;
         const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
 
-        var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).Struct.fields.len;
+        var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).@"struct".fields.len;
         extra_index += @intFromBool(small.has_fields_len);
         const decls_len = if (small.has_decls_len) blk: {
             const decls_len = file.zir.extra[extra_index];
@@ -2080,7 +2080,7 @@ fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaError!
     func.setCallsOrAwaitsErrorableFn(ip, false);
 
     // First few indexes of extra are reserved and set at the end.
-    const reserved_count = @typeInfo(Air.ExtraIndex).Enum.fields.len;
+    const reserved_count = @typeInfo(Air.ExtraIndex).@"enum".fields.len;
     try sema.air_extra.ensureTotalCapacity(gpa, reserved_count);
     sema.air_extra.items.len += reserved_count;
 
@@ -2188,6 +2188,8 @@ fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaError!
         });
     }
 
+    func.setBranchHint(ip, sema.branch_hint orelse .none);
+
     // If we don't get an error return trace from a caller, create our own.
     if (func.analysisUnordered(ip).calls_or_awaits_errorable_fn and
         zcu.comp.config.any_error_tracing and
@@ -2202,7 +2204,7 @@ fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaError!
     }
 
     // Copy the block into place and mark that as the main block.
-    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
+    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".fields.len +
         inner_block.instructions.items.len);
     const main_block_index = sema.addExtraAssumeCapacity(Air.Block{
         .body_len = @intCast(inner_block.instructions.items.len),
@@ -2403,7 +2405,7 @@ fn processExportsInner(
                 .resolved => |r| Value.fromInterned(r.val),
             };
             // If the value is a function, we also need to check if that function succeeded analysis.
-            if (val.typeOf(zcu).zigTypeTag(zcu) == .Fn) {
+            if (val.typeOf(zcu).zigTypeTag(zcu) == .@"fn") {
                 const func_unit = AnalUnit.wrap(.{ .func = val.toIntern() });
                 if (zcu.failed_analysis.contains(func_unit)) break :failed true;
                 if (zcu.transitive_failed_analysis.contains(func_unit)) break :failed true;
@@ -2558,12 +2560,17 @@ pub fn populateTestFunctions(
 pub fn linkerUpdateNav(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void {
     const zcu = pt.zcu;
     const comp = zcu.comp;
+    const ip = &zcu.intern_pool;
 
     const nav = zcu.intern_pool.getNav(nav_index);
-    const codegen_prog_node = zcu.codegen_prog_node.start(nav.fqn.toSlice(&zcu.intern_pool), 0);
+    const codegen_prog_node = zcu.codegen_prog_node.start(nav.fqn.toSlice(ip), 0);
     defer codegen_prog_node.end();
 
-    if (comp.bin_file) |lf| {
+    if (!Air.valFullyResolved(zcu.navValue(nav_index), zcu)) {
+        // The value of this nav failed to resolve. This is a transitive failure.
+        // TODO: do we need to mark this failure anywhere? I don't think so, since compilation
+        // will fail due to the type error anyway.
+    } else if (comp.bin_file) |lf| {
         lf.updateNav(pt, nav_index) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.AnalysisFail => {
@@ -2603,7 +2610,11 @@ pub fn linkerUpdateContainerType(pt: Zcu.PerThread, ty: InternPool.Index) !void 
     const codegen_prog_node = zcu.codegen_prog_node.start(Type.fromInterned(ty).containerTypeName(ip).toSlice(ip), 0);
     defer codegen_prog_node.end();
 
-    if (comp.bin_file) |lf| {
+    if (!Air.typeFullyResolved(Type.fromInterned(ty), zcu)) {
+        // This type failed to resolve. This is a transitive failure.
+        // TODO: do we need to mark this failure anywhere? I don't think so, since compilation
+        // will fail due to the type error anyway.
+    } else if (comp.bin_file) |lf| {
         lf.updateContainerType(pt, ty) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => |e| log.err("codegen type failed: {s}", .{@errorName(e)}),
@@ -2858,7 +2869,7 @@ pub fn errorSetFromUnsortedNames(
 /// Supports only pointers, not pointer-like optionals.
 pub fn ptrIntValue(pt: Zcu.PerThread, ty: Type, x: u64) Allocator.Error!Value {
     const zcu = pt.zcu;
-    assert(ty.zigTypeTag(zcu) == .Pointer and !ty.isSlice(zcu));
+    assert(ty.zigTypeTag(zcu) == .pointer and !ty.isSlice(zcu));
     assert(x != 0 or ty.isAllowzeroPtr(zcu));
     return Value.fromInterned(try pt.intern(.{ .ptr = .{
         .ty = ty.toIntern(),
@@ -2871,7 +2882,7 @@ pub fn ptrIntValue(pt: Zcu.PerThread, ty: Type, x: u64) Allocator.Error!Value {
 pub fn enumValue(pt: Zcu.PerThread, ty: Type, tag_int: InternPool.Index) Allocator.Error!Value {
     if (std.debug.runtime_safety) {
         const tag = ty.zigTypeTag(pt.zcu);
-        assert(tag == .Enum);
+        assert(tag == .@"enum");
     }
     return Value.fromInterned(try pt.intern(.{ .enum_tag = .{
         .ty = ty.toIntern(),

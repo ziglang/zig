@@ -937,8 +937,8 @@ fn testEmitStaticLib(b: *Build, opts: Options) *Step {
         \\}
         \\export var strongBar: usize = 100;
         \\comptime {
-        \\    @export(weakFoo, .{ .name = "weakFoo", .linkage = .weak });
-        \\    @export(strongBar, .{ .name = "strongBarAlias", .linkage = .strong });
+        \\    @export(&weakFoo, .{ .name = "weakFoo", .linkage = .weak });
+        \\    @export(&strongBar, .{ .name = "strongBarAlias", .linkage = .strong });
         \\}
         ,
     });

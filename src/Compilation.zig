@@ -384,7 +384,7 @@ const Job = union(enum) {
     /// The value is the index into `system_libs`.
     windows_import_lib: usize,
 
-    const Tag = @typeInfo(Job).Union.tag_type.?;
+    const Tag = @typeInfo(Job).@"union".tag_type.?;
     fn stage(tag: Tag) usize {
         return switch (tag) {
             // Prioritize functions so that codegen can get to work on them on a
@@ -911,7 +911,7 @@ pub const cache_helpers = struct {
     }
 
     pub fn addDebugFormat(hh: *Cache.HashHelper, x: Config.DebugFormat) void {
-        const tag: @typeInfo(Config.DebugFormat).Union.tag_type.? = x;
+        const tag: @typeInfo(Config.DebugFormat).@"union".tag_type.? = x;
         hh.add(tag);
         switch (x) {
             .strip, .code_view => {},
@@ -1486,7 +1486,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .emit_asm = options.emit_asm,
             .emit_llvm_ir = options.emit_llvm_ir,
             .emit_llvm_bc = options.emit_llvm_bc,
-            .work_queues = .{std.fifo.LinearFifo(Job, .Dynamic).init(gpa)} ** @typeInfo(std.meta.FieldType(Compilation, .work_queues)).Array.len,
+            .work_queues = .{std.fifo.LinearFifo(Job, .Dynamic).init(gpa)} ** @typeInfo(std.meta.FieldType(Compilation, .work_queues)).array.len,
             .codegen_work = if (InternPool.single_threaded) {} else .{
                 .mutex = .{},
                 .cond = .{},
@@ -3113,8 +3113,8 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 err: *?Error,
 
                 const Error = @typeInfo(
-                    @typeInfo(@TypeOf(Zcu.SrcLoc.span)).Fn.return_type.?,
-                ).ErrorUnion.error_set;
+                    @typeInfo(@TypeOf(Zcu.SrcLoc.span)).@"fn".return_type.?,
+                ).error_union.error_set;
 
                 pub fn lessThan(ctx: @This(), lhs_index: usize, rhs_index: usize) bool {
                     if (ctx.err.*) |_| return lhs_index < rhs_index;
@@ -5785,7 +5785,7 @@ fn failCObj(
     comptime format: []const u8,
     args: anytype,
 ) SemaError {
-    @setCold(true);
+    @branchHint(.cold);
     const diag_bundle = blk: {
         const diag_bundle = try comp.gpa.create(CObject.Diag.Bundle);
         diag_bundle.* = .{};
@@ -5809,7 +5809,7 @@ fn failCObjWithOwnedDiagBundle(
     c_object: *CObject,
     diag_bundle: *CObject.Diag.Bundle,
 ) SemaError {
-    @setCold(true);
+    @branchHint(.cold);
     assert(diag_bundle.diags.len > 0);
     {
         comp.mutex.lock();
@@ -5825,7 +5825,7 @@ fn failCObjWithOwnedDiagBundle(
 }
 
 fn failWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, comptime format: []const u8, args: anytype) SemaError {
-    @setCold(true);
+    @branchHint(.cold);
     var bundle: ErrorBundle.Wip = undefined;
     try bundle.init(comp.gpa);
     errdefer bundle.deinit();
@@ -5852,7 +5852,7 @@ fn failWin32ResourceWithOwnedBundle(
     win32_resource: *Win32Resource,
     err_bundle: ErrorBundle,
 ) SemaError {
-    @setCold(true);
+    @branchHint(.cold);
     {
         comp.mutex.lock();
         defer comp.mutex.unlock();

@@ -1188,12 +1188,12 @@ const TestManifest = struct {
         }.parse;
 
         switch (@typeInfo(T)) {
-            .Int => return struct {
+            .int => return struct {
                 fn parse(str: []const u8) anyerror!T {
                     return try std.fmt.parseInt(T, str, 0);
                 }
             }.parse,
-            .Bool => return struct {
+            .bool => return struct {
                 fn parse(str: []const u8) anyerror!T {
                     if (std.mem.eql(u8, str, "true")) return true;
                     if (std.mem.eql(u8, str, "false")) return false;
@@ -1201,7 +1201,7 @@ const TestManifest = struct {
                     return error.InvalidBool;
                 }
             }.parse,
-            .Enum => return struct {
+            .@"enum" => return struct {
                 fn parse(str: []const u8) anyerror!T {
                     return std.meta.stringToEnum(T, str) orelse {
                         std.log.err("unknown enum variant for {s}: {s}", .{ @typeName(T), str });
@@ -1209,7 +1209,7 @@ const TestManifest = struct {
                     };
                 }
             }.parse,
-            .Struct => @compileError("no default parser for " ++ @typeName(T)),
+            .@"struct" => @compileError("no default parser for " ++ @typeName(T)),
             else => @compileError("no default parser for " ++ @typeName(T)),
         }
     }

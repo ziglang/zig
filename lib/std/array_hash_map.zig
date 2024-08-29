@@ -2584,17 +2584,17 @@ pub fn getAutoEqlFn(comptime K: type, comptime Context: type) (fn (Context, K, K
 
 pub fn autoEqlIsCheap(comptime K: type) bool {
     return switch (@typeInfo(K)) {
-        .Bool,
-        .Int,
-        .Float,
-        .Pointer,
-        .ComptimeFloat,
-        .ComptimeInt,
-        .Enum,
-        .Fn,
-        .ErrorSet,
-        .AnyFrame,
-        .EnumLiteral,
+        .bool,
+        .int,
+        .float,
+        .pointer,
+        .comptime_float,
+        .comptime_int,
+        .@"enum",
+        .@"fn",
+        .error_set,
+        .@"anyframe",
+        .enum_literal,
         => true,
         else => false,
     };

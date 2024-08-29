@@ -795,7 +795,9 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .addrspace_cast  => return self.fail("TODO implement addrspace_cast", .{}),
 
             .@"try"          => try self.airTry(inst),
+            .try_cold        => try self.airTry(inst),
             .try_ptr         => try self.airTryPtr(inst),
+            .try_ptr_cold    => try self.airTryPtr(inst),
 
             .dbg_stmt         => try self.airDbgStmt(inst),
             .dbg_inline_block => try self.airDbgInlineBlock(inst),
@@ -1322,7 +1324,7 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
             .compare_flags => |cond| break :result MCValue{ .compare_flags = cond.negate() },
             else => {
                 switch (operand_ty.zigTypeTag(zcu)) {
-                    .Bool => {
+                    .bool => {
                         // TODO convert this to mvn + and
                         const op_reg = switch (operand) {
                             .register => |r| r,
@@ -1353,8 +1355,8 @@ fn airNot(self: *Self, inst: Air.Inst.Index) !void {
 
                         break :result MCValue{ .register = dest_reg };
                     },
-                    .Vector => return self.fail("TODO bitwise not for vectors", .{}),
-                    .Int => {
+                    .vector => return self.fail("TODO bitwise not for vectors", .{}),
+                    .int => {
                         const int_info = operand_ty.intInfo(zcu);
                         if (int_info.bits <= 64) {
                             const op_reg = switch (operand) {
@@ -1410,9 +1412,9 @@ fn minMax(
     const pt = self.pt;
     const zcu = pt.zcu;
     switch (lhs_ty.zigTypeTag(zcu)) {
-        .Float => return self.fail("TODO ARM min/max on floats", .{}),
-        .Vector => return self.fail("TODO ARM min/max on vectors", .{}),
-        .Int => {
+        .float => return self.fail("TODO ARM min/max on floats", .{}),
+        .vector => return self.fail("TODO ARM min/max on vectors", .{}),
+        .int => {
             assert(lhs_ty.eql(rhs_ty, zcu));
             const int_info = lhs_ty.intInfo(zcu);
             if (int_info.bits <= 64) {
@@ -1901,9 +1903,9 @@ fn addSub(
     const pt = self.pt;
     const zcu = pt.zcu;
     switch (lhs_ty.zigTypeTag(zcu)) {
-        .Float => return self.fail("TODO binary operations on floats", .{}),
-        .Vector => return self.fail("TODO binary operations on vectors", .{}),
-        .Int => {
+        .float => return self.fail("TODO binary operations on floats", .{}),
+        .vector => return self.fail("TODO binary operations on vectors", .{}),
+        .int => {
             assert(lhs_ty.eql(rhs_ty, zcu));
             const int_info = lhs_ty.intInfo(zcu);
             if (int_info.bits <= 64) {
@@ -1963,8 +1965,8 @@ fn mul(
     const pt = self.pt;
     const zcu = pt.zcu;
     switch (lhs_ty.zigTypeTag(zcu)) {
-        .Vector => return self.fail("TODO binary operations on vectors", .{}),
-        .Int => {
+        .vector => return self.fail("TODO binary operations on vectors", .{}),
+        .int => {
             assert(lhs_ty.eql(rhs_ty, zcu));
             const int_info = lhs_ty.intInfo(zcu);
             if (int_info.bits <= 64) {
@@ -1996,8 +1998,8 @@ fn divFloat(
     const pt = self.pt;
     const zcu = pt.zcu;
     switch (lhs_ty.zigTypeTag(zcu)) {
-        .Float => return self.fail("TODO div_float", .{}),
-        .Vector => return self.fail("TODO div_float on vectors", .{}),
+        .float => return self.fail("TODO div_float", .{}),
+        .vector => return self.fail("TODO div_float on vectors", .{}),
         else => unreachable,
     }
 }
@@ -2013,9 +2015,9 @@ fn divTrunc(
     const pt = self.pt;
     const zcu = pt.zcu;
     switch (lhs_ty.zigTypeTag(zcu)) {
-        .Float => return self.fail("TODO div on floats", .{}),
-        .Vector => return self.fail("TODO div on vectors", .{}),
-        .Int => {
+        .float => return self.fail("TODO div on floats", .{}),
+        .vector => return self.fail("TODO div on vectors", .{}),
+        .int => {
             assert(lhs_ty.eql(rhs_ty, zcu));
             const int_info = lhs_ty.intInfo(zcu);
             if (int_info.bits <= 64) {
@@ -2048,9 +2050,9 @@ fn divFloor(
     const pt = self.pt;
     const zcu = pt.zcu;
     switch (lhs_ty.zigTypeTag(zcu)) {
-        .Float => return self.fail("TODO div on floats", .{}),
-        .Vector => return self.fail("TODO div on vectors", .{}),
-        .Int => {
+        .float => return self.fail("TODO div on floats", .{}),
+        .vector => return self.fail("TODO div on vectors", .{}),
+        .int => {
             assert(lhs_ty.eql(rhs_ty, zcu));
             const int_info = lhs_ty.intInfo(zcu);
             if (int_info.bits <= 64) {
@@ -2082,9 +2084,9 @@ fn divExact(
     const pt = self.pt;
     const zcu = pt.zcu;
     switch (lhs_ty.zigTypeTag(zcu)) {
-        .Float => return self.fail("TODO div on floats", .{}),
-        .Vector => return self.fail("TODO div on vectors", .{}),
-        .Int => {
+        .float => return self.fail("TODO div on floats", .{}),
+        .vector => return self.fail("TODO div on vectors", .{}),
+        .int => {
             assert(lhs_ty.eql(rhs_ty, zcu));
             const int_info = lhs_ty.intInfo(zcu);
             if (int_info.bits <= 64) {
@@ -2119,9 +2121,9 @@ fn rem(
     const pt = self.pt;
     const zcu = pt.zcu;
     switch (lhs_ty.zigTypeTag(zcu)) {
-        .Float => return self.fail("TODO rem/zcu on floats", .{}),
-        .Vector => return self.fail("TODO rem/zcu on vectors", .{}),
-        .Int => {
+        .float => return self.fail("TODO rem/zcu on floats", .{}),
+        .vector => return self.fail("TODO rem/zcu on vectors", .{}),
+        .int => {
             assert(lhs_ty.eql(rhs_ty, zcu));
             const int_info = lhs_ty.intInfo(zcu);
             if (int_info.bits <= 64) {
@@ -2191,9 +2193,9 @@ fn modulo(
     const pt = self.pt;
     const zcu = pt.zcu;
     switch (lhs_ty.zigTypeTag(zcu)) {
-        .Float => return self.fail("TODO zcu on floats", .{}),
-        .Vector => return self.fail("TODO zcu on vectors", .{}),
-        .Int => return self.fail("TODO zcu on ints", .{}),
+        .float => return self.fail("TODO zcu on floats", .{}),
+        .vector => return self.fail("TODO zcu on vectors", .{}),
+        .int => return self.fail("TODO zcu on ints", .{}),
         else => unreachable,
     }
 }
@@ -2210,8 +2212,8 @@ fn wrappingArithmetic(
     const pt = self.pt;
     const zcu = pt.zcu;
     switch (lhs_ty.zigTypeTag(zcu)) {
-        .Vector => return self.fail("TODO binary operations on vectors", .{}),
-        .Int => {
+        .vector => return self.fail("TODO binary operations on vectors", .{}),
+        .int => {
             const int_info = lhs_ty.intInfo(zcu);
             if (int_info.bits <= 64) {
                 // Generate an add/sub/mul
@@ -2246,8 +2248,8 @@ fn bitwise(
     const pt = self.pt;
     const zcu = pt.zcu;
     switch (lhs_ty.zigTypeTag(zcu)) {
-        .Vector => return self.fail("TODO binary operations on vectors", .{}),
-        .Int => {
+        .vector => return self.fail("TODO binary operations on vectors", .{}),
+        .int => {
             assert(lhs_ty.eql(rhs_ty, zcu));
             const int_info = lhs_ty.intInfo(zcu);
             if (int_info.bits <= 64) {
@@ -2282,8 +2284,8 @@ fn shiftExact(
     const pt = self.pt;
     const zcu = pt.zcu;
     switch (lhs_ty.zigTypeTag(zcu)) {
-        .Vector => return self.fail("TODO binary operations on vectors", .{}),
-        .Int => {
+        .vector => return self.fail("TODO binary operations on vectors", .{}),
+        .int => {
             const int_info = lhs_ty.intInfo(zcu);
             if (int_info.bits <= 64) {
                 const rhs_immediate = try rhs_bind.resolveToImmediate(self);
@@ -2333,8 +2335,8 @@ fn shiftNormal(
     const pt = self.pt;
     const zcu = pt.zcu;
     switch (lhs_ty.zigTypeTag(zcu)) {
-        .Vector => return self.fail("TODO binary operations on vectors", .{}),
-        .Int => {
+        .vector => return self.fail("TODO binary operations on vectors", .{}),
+        .int => {
             const int_info = lhs_ty.intInfo(zcu);
             if (int_info.bits <= 64) {
                 // Generate a shl_exact/shr_exact
@@ -2374,7 +2376,7 @@ fn booleanOp(
     const pt = self.pt;
     const zcu = pt.zcu;
     switch (lhs_ty.zigTypeTag(zcu)) {
-        .Bool => {
+        .bool => {
             assert((try lhs_bind.resolveToImmediate(self)) == null); // should have been handled by Sema
             assert((try rhs_bind.resolveToImmediate(self)) == null); // should have been handled by Sema
 
@@ -2402,7 +2404,7 @@ fn ptrArithmetic(
     const pt = self.pt;
     const zcu = pt.zcu;
     switch (lhs_ty.zigTypeTag(zcu)) {
-        .Pointer => {
+        .pointer => {
             assert(rhs_ty.eql(Type.usize, zcu));
 
             const ptr_ty = lhs_ty;
@@ -2537,8 +2539,8 @@ fn airOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const overflow_bit_offset = @as(u32, @intCast(tuple_ty.structFieldOffset(1, zcu)));
 
         switch (lhs_ty.zigTypeTag(zcu)) {
-            .Vector => return self.fail("TODO implement add_with_overflow/sub_with_overflow for vectors", .{}),
-            .Int => {
+            .vector => return self.fail("TODO implement add_with_overflow/sub_with_overflow for vectors", .{}),
+            .int => {
                 assert(lhs_ty.eql(rhs_ty, zcu));
                 const int_info = lhs_ty.intInfo(zcu);
                 switch (int_info.bits) {
@@ -2665,8 +2667,8 @@ fn airMulWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const overflow_bit_offset = @as(u32, @intCast(tuple_ty.structFieldOffset(1, zcu)));
 
         switch (lhs_ty.zigTypeTag(zcu)) {
-            .Vector => return self.fail("TODO implement mul_with_overflow for vectors", .{}),
-            .Int => {
+            .vector => return self.fail("TODO implement mul_with_overflow for vectors", .{}),
+            .int => {
                 assert(lhs_ty.eql(rhs_ty, zcu));
                 const int_info = lhs_ty.intInfo(zcu);
                 if (int_info.bits <= 32) {
@@ -2890,8 +2892,8 @@ fn airShlWithOverflow(self: *Self, inst: Air.Inst.Index) !void {
         const overflow_bit_offset = @as(u32, @intCast(tuple_ty.structFieldOffset(1, zcu)));
 
         switch (lhs_ty.zigTypeTag(zcu)) {
-            .Vector => return self.fail("TODO implement shl_with_overflow for vectors", .{}),
-            .Int => {
+            .vector => return self.fail("TODO implement shl_with_overflow for vectors", .{}),
+            .int => {
                 const int_info = lhs_ty.intInfo(zcu);
                 if (int_info.bits <= 64) {
                     const stack_offset = try self.allocMem(tuple_size, tuple_align, inst);
@@ -4277,8 +4279,8 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     const ip = &zcu.intern_pool;
 
     const fn_ty = switch (ty.zigTypeTag(zcu)) {
-        .Fn => ty,
-        .Pointer => ty.childType(zcu),
+        .@"fn" => ty,
+        .pointer => ty.childType(zcu),
         else => unreachable,
     };
 
@@ -4386,7 +4388,7 @@ fn airCall(self: *Self, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
         },
         else => return self.fail("TODO implement calling bitcasted functions", .{}),
     } else {
-        assert(ty.zigTypeTag(zcu) == .Pointer);
+        assert(ty.zigTypeTag(zcu) == .pointer);
         const mcv = try self.resolveInst(callee);
         try self.genSetReg(ty, .x30, mcv);
 
@@ -4521,7 +4523,7 @@ fn cmp(
     const pt = self.pt;
     const zcu = pt.zcu;
     const int_ty = switch (lhs_ty.zigTypeTag(zcu)) {
-        .Optional => blk: {
+        .optional => blk: {
             const payload_ty = lhs_ty.optionalChild(zcu);
             if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
                 break :blk Type.u1;
@@ -4531,12 +4533,12 @@ fn cmp(
                 return self.fail("TODO ARM cmp non-pointer optionals", .{});
             }
         },
-        .Float => return self.fail("TODO ARM cmp floats", .{}),
-        .Enum => lhs_ty.intTagType(zcu),
-        .Int => lhs_ty,
-        .Bool => Type.u1,
-        .Pointer => Type.usize,
-        .ErrorSet => Type.u16,
+        .float => return self.fail("TODO ARM cmp floats", .{}),
+        .@"enum" => lhs_ty.intTagType(zcu),
+        .int => lhs_ty,
+        .bool => Type.u1,
+        .pointer => Type.usize,
+        .error_set => Type.u16,
         else => unreachable,
     };
 
@@ -5092,25 +5094,17 @@ fn lowerBlock(self: *Self, inst: Air.Inst.Index, body: []const Air.Inst.Index) !
 }
 
 fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
-    const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const condition_ty = self.typeOf(pl_op.operand);
-    const switch_br = self.air.extraData(Air.SwitchBr, pl_op.payload);
+    const switch_br = self.air.unwrapSwitch(inst);
+    const condition_ty = self.typeOf(switch_br.operand);
     const liveness = try self.liveness.getSwitchBr(
         self.gpa,
         inst,
-        switch_br.data.cases_len + 1,
+        switch_br.cases_len + 1,
     );
     defer self.gpa.free(liveness.deaths);
 
-    var extra_index: usize = switch_br.end;
-    var case_i: u32 = 0;
-    while (case_i < switch_br.data.cases_len) : (case_i += 1) {
-        const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-        const items = @as([]const Air.Inst.Ref, @ptrCast(self.air.extra[case.end..][0..case.data.items_len]));
-        assert(items.len > 0);
-        const case_body: []const Air.Inst.Index = @ptrCast(self.air.extra[case.end + items.len ..][0..case.data.body_len]);
-        extra_index = case.end + items.len + case_body.len;
-
+    var it = switch_br.iterateCases();
+    while (it.next()) |case| {
         // For every item, we compare it to condition and branch into
         // the prong if they are equal. After we compared to all
         // items, we branch into the next prong (or if no other prongs
@@ -5126,11 +5120,11 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
         // prong:      ...
         //             ...
         // out:        ...
-        const branch_into_prong_relocs = try self.gpa.alloc(u32, items.len);
+        const branch_into_prong_relocs = try self.gpa.alloc(u32, case.items.len);
         defer self.gpa.free(branch_into_prong_relocs);
 
-        for (items, 0..) |item, idx| {
-            const cmp_result = try self.cmp(.{ .inst = pl_op.operand }, .{ .inst = item }, condition_ty, .neq);
+        for (case.items, 0..) |item, idx| {
+            const cmp_result = try self.cmp(.{ .inst = switch_br.operand }, .{ .inst = item }, condition_ty, .neq);
             branch_into_prong_relocs[idx] = try self.condBr(cmp_result);
         }
 
@@ -5156,11 +5150,11 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
             _ = self.branch_stack.pop();
         }
 
-        try self.ensureProcessDeathCapacity(liveness.deaths[case_i].len);
-        for (liveness.deaths[case_i]) |operand| {
+        try self.ensureProcessDeathCapacity(liveness.deaths[case.idx].len);
+        for (liveness.deaths[case.idx]) |operand| {
             self.processDeath(operand);
         }
-        try self.genBody(case_body);
+        try self.genBody(case.body);
 
         // Revert to the previous register and stack allocation state.
         var saved_case_branch = self.branch_stack.pop();
@@ -5178,8 +5172,8 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
         try self.performReloc(branch_away_from_prong_reloc);
     }
 
-    if (switch_br.data.else_body_len > 0) {
-        const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra_index..][0..switch_br.data.else_body_len]);
+    if (switch_br.else_body_len > 0) {
+        const else_body = it.elseBody();
 
         // Capture the state of register and stack allocation state so that we can revert to it.
         const parent_next_stack_offset = self.next_stack_offset;
@@ -5218,7 +5212,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
         // in airCondBr.
     }
 
-    return self.finishAir(inst, .unreach, .{ pl_op.operand, .none, .none });
+    return self.finishAir(inst, .unreach, .{ switch_br.operand, .none, .none });
 }
 
 fn performReloc(self: *Self, inst: Mir.Inst.Index) !void {
@@ -6249,7 +6243,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             var ncrn: usize = 0; // Next Core Register Number
             var nsaa: u32 = 0; // Next stacked argument address
 
-            if (ret_ty.zigTypeTag(zcu) == .NoReturn) {
+            if (ret_ty.zigTypeTag(zcu) == .noreturn) {
                 result.return_value = .{ .unreach = {} };
             } else if (!ret_ty.hasRuntimeBitsIgnoreComptime(zcu) and !ret_ty.isError(zcu)) {
                 result.return_value = .{ .none = {} };
@@ -6307,7 +6301,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
             result.stack_align = 16;
         },
         .Unspecified => {
-            if (ret_ty.zigTypeTag(zcu) == .NoReturn) {
+            if (ret_ty.zigTypeTag(zcu) == .noreturn) {
                 result.return_value = .{ .unreach = {} };
             } else if (!ret_ty.hasRuntimeBitsIgnoreComptime(zcu) and !ret_ty.isError(zcu)) {
                 result.return_value = .{ .none = {} };
@@ -6363,14 +6357,14 @@ fn wantSafety(self: *Self) bool {
 }
 
 fn fail(self: *Self, comptime format: []const u8, args: anytype) InnerError {
-    @setCold(true);
+    @branchHint(.cold);
     assert(self.err_msg == null);
     self.err_msg = try ErrorMsg.create(self.gpa, self.src_loc, format, args);
     return error.CodegenFail;
 }
 
 fn failSymbol(self: *Self, comptime format: []const u8, args: anytype) InnerError {
-    @setCold(true);
+    @branchHint(.cold);
     assert(self.err_msg == null);
     self.err_msg = try ErrorMsg.create(self.gpa, self.src_loc, format, args);
     return error.CodegenFail;

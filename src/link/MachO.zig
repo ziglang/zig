@@ -3411,9 +3411,7 @@ fn growSectionNonRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !vo
 
     if (!sect.isZerofill()) {
         const allocated_size = self.allocatedSize(sect.offset);
-        if (sect.offset + allocated_size == std.math.maxInt(u64)) {
-            try self.base.file.?.setEndPos(sect.offset + needed_size);
-        } else if (needed_size > allocated_size) {
+        if (needed_size > allocated_size) {
             const existing_size = sect.size;
             sect.size = 0;
 
@@ -3431,6 +3429,8 @@ fn growSectionNonRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !vo
             try self.copyRangeAllZeroOut(sect.offset, new_offset, existing_size);
 
             sect.offset = @intCast(new_offset);
+        } else if (sect.offset + allocated_size == std.math.maxInt(u64)) {
+            try self.base.file.?.setEndPos(sect.offset + needed_size);
         }
         seg.filesize = needed_size;
     }
@@ -3456,9 +3456,7 @@ fn growSectionRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !void 
 
     if (!sect.isZerofill()) {
         const allocated_size = self.allocatedSize(sect.offset);
-        if (sect.offset + allocated_size == std.math.maxInt(u64)) {
-            try self.base.file.?.setEndPos(sect.offset + needed_size);
-        } else if (needed_size > allocated_size) {
+        if (needed_size > allocated_size) {
             const existing_size = sect.size;
             sect.size = 0;
 
@@ -3480,6 +3478,8 @@ fn growSectionRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !void 
 
             sect.offset = @intCast(new_offset);
             sect.addr = new_addr;
+        } else if (sect.offset + allocated_size == std.math.maxInt(u64)) {
+            try self.base.file.?.setEndPos(sect.offset + needed_size);
         }
     }
     sect.size = needed_size;

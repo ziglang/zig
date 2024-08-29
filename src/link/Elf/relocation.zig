@@ -108,20 +108,27 @@ pub const dwarf = struct {
 
     pub fn externalRelocType(
         target: Symbol,
+        source_section: Dwarf.Section.Index,
         address_size: Dwarf.AddressSize,
         cpu_arch: std.Target.Cpu.Arch,
     ) u32 {
         return switch (cpu_arch) {
-            .x86_64 => @intFromEnum(switch (address_size) {
-                .@"32" => if (target.flags.is_tls) elf.R_X86_64.DTPOFF32 else .@"32",
-                .@"64" => if (target.flags.is_tls) elf.R_X86_64.DTPOFF64 else .@"64",
-                else => unreachable,
-            }),
-            .riscv64 => @intFromEnum(switch (address_size) {
-                .@"32" => elf.R_RISCV.@"32",
-                .@"64" => elf.R_RISCV.@"64",
-                else => unreachable,
-            }),
+            .x86_64 => @intFromEnum(@as(elf.R_X86_64, switch (source_section) {
+                else => switch (address_size) {
+                    .@"32" => if (target.flags.is_tls) .DTPOFF32 else .@"32",
+                    .@"64" => if (target.flags.is_tls) .DTPOFF64 else .@"64",
+                    else => unreachable,
+                },
+                .debug_frame => .PC32,
+            })),
+            .riscv64 => @intFromEnum(@as(elf.R_RISCV, switch (source_section) {
+                else => switch (address_size) {
+                    .@"32" => .@"32",
+                    .@"64" => .@"64",
+                    else => unreachable,
+                },
+                .debug_frame => unreachable,
+            })),
             else => @panic("TODO unhandled cpu arch"),
         };
     }

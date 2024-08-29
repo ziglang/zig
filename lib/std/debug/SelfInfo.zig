@@ -37,7 +37,7 @@ modules: if (native_os == .windows) std.ArrayListUnmanaged(WindowsModule) else v
 pub const OpenError = error{
     MissingDebugInfo,
     UnsupportedOperatingSystem,
-} || @typeInfo(@typeInfo(@TypeOf(SelfInfo.init)).Fn.return_type.?).ErrorUnion.error_set;
+} || @typeInfo(@typeInfo(@TypeOf(SelfInfo.init)).@"fn".return_type.?).error_union.error_set;
 
 pub fn open(allocator: Allocator) OpenError!SelfInfo {
     nosuspend {
@@ -582,7 +582,7 @@ pub const Module = switch (native_os) {
                 if (!std.mem.eql(u8, "__DWARF", sect.segName())) continue;
 
                 var section_index: ?usize = null;
-                inline for (@typeInfo(Dwarf.Section.Id).Enum.fields, 0..) |section, i| {
+                inline for (@typeInfo(Dwarf.Section.Id).@"enum".fields, 0..) |section, i| {
                     if (mem.eql(u8, "__" ++ section.name, sect.sectName())) section_index = i;
                 }
                 if (section_index == null) continue;
@@ -981,7 +981,7 @@ fn readCoffDebugInfo(allocator: Allocator, coff_obj: *coff.Coff) !Module {
             var sections: Dwarf.SectionArray = Dwarf.null_section_array;
             errdefer for (sections) |section| if (section) |s| if (s.owned) allocator.free(s.data);
 
-            inline for (@typeInfo(Dwarf.Section.Id).Enum.fields, 0..) |section, i| {
+            inline for (@typeInfo(Dwarf.Section.Id).@"enum".fields, 0..) |section, i| {
                 sections[i] = if (coff_obj.getSectionByName("." ++ section.name)) |section_header| blk: {
                     break :blk .{
                         .data = try coff_obj.getSectionDataAlloc(section_header, allocator),
@@ -1443,7 +1443,7 @@ pub fn unwindFrameMachO(
                 if (ma.load(usize, new_sp) == null or ma.load(usize, min_reg_addr) == null) return error.InvalidUnwindInfo;
 
                 var reg_addr = fp - @sizeOf(usize);
-                inline for (@typeInfo(@TypeOf(encoding.value.arm64.frame.x_reg_pairs)).Struct.fields, 0..) |field, i| {
+                inline for (@typeInfo(@TypeOf(encoding.value.arm64.frame.x_reg_pairs)).@"struct".fields, 0..) |field, i| {
                     if (@field(encoding.value.arm64.frame.x_reg_pairs, field.name) != 0) {
                         (try regValueNative(context.thread_context, 19 + i, reg_context)).* = @as(*const usize, @ptrFromInt(reg_addr)).*;
                         reg_addr += @sizeOf(usize);
@@ -1452,7 +1452,7 @@ pub fn unwindFrameMachO(
                     }
                 }
 
-                inline for (@typeInfo(@TypeOf(encoding.value.arm64.frame.d_reg_pairs)).Struct.fields, 0..) |field, i| {
+                inline for (@typeInfo(@TypeOf(encoding.value.arm64.frame.d_reg_pairs)).@"struct".fields, 0..) |field, i| {
                     if (@field(encoding.value.arm64.frame.d_reg_pairs, field.name) != 0) {
                         // Only the lower half of the 128-bit V registers are restored during unwinding
                         @memcpy(

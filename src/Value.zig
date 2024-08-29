@@ -64,7 +64,7 @@ pub fn fmtValueSemaFull(ctx: print_value.FormatContext) std.fmt.Formatter(print_
 /// Asserts `val` is an array of `u8`
 pub fn toIpString(val: Value, ty: Type, pt: Zcu.PerThread) !InternPool.NullTerminatedString {
     const zcu = pt.zcu;
-    assert(ty.zigTypeTag(zcu) == .Array);
+    assert(ty.zigTypeTag(zcu) == .array);
     assert(ty.childType(zcu).toIntern() == .u8_type);
     const ip = &zcu.intern_pool;
     switch (zcu.intern_pool.indexToKey(val.toIntern()).aggregate.storage) {
@@ -192,11 +192,12 @@ pub fn toBigIntAdvanced(
     zcu: *Zcu,
     tid: strat.Tid(),
 ) Zcu.CompileError!BigIntConst {
+    const ip = &zcu.intern_pool;
     return switch (val.toIntern()) {
         .bool_false => BigIntMutable.init(&space.limbs, 0).toConst(),
         .bool_true => BigIntMutable.init(&space.limbs, 1).toConst(),
         .null_value => BigIntMutable.init(&space.limbs, 0).toConst(),
-        else => switch (zcu.intern_pool.indexToKey(val.toIntern())) {
+        else => switch (ip.indexToKey(val.toIntern())) {
             .int => |int| switch (int.storage) {
                 .u64, .i64, .big_int => int.storage.toBigInt(space),
                 .lazy_align, .lazy_size => |ty| {
@@ -214,6 +215,7 @@ pub fn toBigIntAdvanced(
                 &space.limbs,
                 (try val.getUnsignedIntInner(strat, zcu, tid)).?,
             ).toConst(),
+            .err => |err| BigIntMutable.init(&space.limbs, ip.getErrorValueIfExists(err.name).?).toConst(),
             else => unreachable,
         },
     };
@@ -326,15 +328,11 @@ pub fn toBool(val: Value) bool {
     };
 }
 
-fn ptrHasIntAddr(val: Value, zcu: *Zcu) bool {
-    return zcu.intern_pool.getBackingAddrTag(val.toIntern()).? == .int;
-}
-
 /// Write a Value's contents to `buffer`.
 ///
 /// Asserts that buffer.len >= ty.abiSize(). The buffer is allowed to extend past
 /// the end of the value in memory.
-pub fn writeToMemory(val: Value, ty: Type, pt: Zcu.PerThread, buffer: []u8) error{
+pub fn writeToMemory(val: Value, pt: Zcu.PerThread, buffer: []u8) error{
     ReinterpretDeclRef,
     IllDefinedMemoryLayout,
     Unimplemented,
@@ -343,19 +341,25 @@ pub fn writeToMemory(val: Value, ty: Type, pt: Zcu.PerThread, buffer: []u8) erro
     const zcu = pt.zcu;
     const target = zcu.getTarget();
     const endian = target.cpu.arch.endian();
+    const ip = &zcu.intern_pool;
+    const ty = val.typeOf(zcu);
     if (val.isUndef(zcu)) {
         const size: usize = @intCast(ty.abiSize(zcu));
         @memset(buffer[0..size], 0xaa);
         return;
     }
-    const ip = &zcu.intern_pool;
     switch (ty.zigTypeTag(zcu)) {
-        .Void => {},
-        .Bool => {
+        .void => {},
+        .bool => {
             buffer[0] = @intFromBool(val.toBool());
         },
-        .Int, .Enum => {
-            const int_info = ty.intInfo(zcu);
+        .int, .@"enum", .error_set, .pointer => |tag| {
+            const int_ty = if (tag == .pointer) int_ty: {
+                if (ty.isSlice(zcu)) return error.IllDefinedMemoryLayout;
+                if (ip.getBackingAddrTag(val.toIntern()).? != .int) return error.ReinterpretDeclRef;
+                break :int_ty Type.usize;
+            } else ty;
+            const int_info = int_ty.intInfo(zcu);
             const bits = int_info.bits;
             const byte_count: u16 = @intCast((@as(u17, bits) + 7) / 8);
 
@@ -363,7 +367,7 @@ pub fn writeToMemory(val: Value, ty: Type, pt: Zcu.PerThread, buffer: []u8) erro
             const bigint = val.toBigInt(&bigint_buffer, zcu);
             bigint.writeTwosComplement(buffer[0..byte_count], endian);
         },
-        .Float => switch (ty.floatBits(target)) {
+        .float => switch (ty.floatBits(target)) {
             16 => std.mem.writeInt(u16, buffer[0..2], @bitCast(val.toFloat(f16, zcu)), endian),
             32 => std.mem.writeInt(u32, buffer[0..4], @bitCast(val.toFloat(f32, zcu)), endian),
             64 => std.mem.writeInt(u64, buffer[0..8], @bitCast(val.toFloat(f64, zcu)), endian),
@@ -371,7 +375,7 @@ pub fn writeToMemory(val: Value, ty: Type, pt: Zcu.PerThread, buffer: []u8) erro
             128 => std.mem.writeInt(u128, buffer[0..16], @bitCast(val.toFloat(f128, zcu)), endian),
             else => unreachable,
         },
-        .Array => {
+        .array => {
             const len = ty.arrayLen(zcu);
             const elem_ty = ty.childType(zcu);
             const elem_size: usize = @intCast(elem_ty.abiSize(zcu));
@@ -379,17 +383,17 @@ pub fn writeToMemory(val: Value, ty: Type, pt: Zcu.PerThread, buffer: []u8) erro
             var buf_off: usize = 0;
             while (elem_i < len) : (elem_i += 1) {
                 const elem_val = try val.elemValue(pt, elem_i);
-                try elem_val.writeToMemory(elem_ty, pt, buffer[buf_off..]);
+                try elem_val.writeToMemory(pt, buffer[buf_off..]);
                 buf_off += elem_size;
             }
         },
-        .Vector => {
+        .vector => {
             // We use byte_count instead of abi_size here, so that any padding bytes
             // follow the data bytes, on both big- and little-endian systems.
             const byte_count = (@as(usize, @intCast(ty.bitSize(zcu))) + 7) / 8;
             return writeToPackedMemory(val, ty, pt, buffer[0..byte_count], 0);
         },
-        .Struct => {
+        .@"struct" => {
             const struct_type = zcu.typeToStruct(ty) orelse return error.IllDefinedMemoryLayout;
             switch (struct_type.layout) {
                 .auto => return error.IllDefinedMemoryLayout,
@@ -403,8 +407,7 @@ pub fn writeToMemory(val: Value, ty: Type, pt: Zcu.PerThread, buffer: []u8) erro
                         .elems => |elems| elems[field_index],
                         .repeated_elem => |elem| elem,
                     });
-                    const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[field_index]);
-                    try writeToMemory(field_val, field_ty, pt, buffer[off..]);
+                    try writeToMemory(field_val, pt, buffer[off..]);
                 },
                 .@"packed" => {
                     const byte_count = (@as(usize, @intCast(ty.bitSize(zcu))) + 7) / 8;
@@ -412,23 +415,7 @@ pub fn writeToMemory(val: Value, ty: Type, pt: Zcu.PerThread, buffer: []u8) erro
                 },
             }
         },
-        .ErrorSet => {
-            const bits = zcu.errorSetBits();
-            const byte_count: u16 = @intCast((@as(u17, bits) + 7) / 8);
-
-            const name = switch (ip.indexToKey(val.toIntern())) {
-                .err => |err| err.name,
-                .error_union => |error_union| error_union.val.err_name,
-                else => unreachable,
-            };
-            var bigint_buffer: BigIntSpace = undefined;
-            const bigint = BigIntMutable.init(
-                &bigint_buffer.limbs,
-                ip.getErrorValueIfExists(name).?,
-            ).toConst();
-            bigint.writeTwosComplement(buffer[0..byte_count], endian);
-        },
-        .Union => switch (ty.containerLayout(zcu)) {
+        .@"union" => switch (ty.containerLayout(zcu)) {
             .auto => return error.IllDefinedMemoryLayout, // Sema is supposed to have emitted a compile error already
             .@"extern" => {
                 if (val.unionTag(zcu)) |union_tag| {
@@ -437,11 +424,11 @@ pub fn writeToMemory(val: Value, ty: Type, pt: Zcu.PerThread, buffer: []u8) erro
                     const field_type = Type.fromInterned(union_obj.field_types.get(ip)[field_index]);
                     const field_val = try val.fieldValue(pt, field_index);
                     const byte_count: usize = @intCast(field_type.abiSize(zcu));
-                    return writeToMemory(field_val, field_type, pt, buffer[0..byte_count]);
+                    return writeToMemory(field_val, pt, buffer[0..byte_count]);
                 } else {
                     const backing_ty = try ty.unionBackingType(pt);
                     const byte_count: usize = @intCast(backing_ty.abiSize(zcu));
-                    return writeToMemory(val.unionValue(zcu), backing_ty, pt, buffer[0..byte_count]);
+                    return writeToMemory(val.unionValue(zcu), pt, buffer[0..byte_count]);
                 }
             },
             .@"packed" => {
@@ -450,19 +437,13 @@ pub fn writeToMemory(val: Value, ty: Type, pt: Zcu.PerThread, buffer: []u8) erro
                 return writeToPackedMemory(val, ty, pt, buffer[0..byte_count], 0);
             },
         },
-        .Pointer => {
-            if (ty.isSlice(zcu)) return error.IllDefinedMemoryLayout;
-            if (!val.ptrHasIntAddr(zcu)) return error.ReinterpretDeclRef;
-            return val.writeToMemory(Type.usize, pt, buffer);
-        },
-        .Optional => {
+        .optional => {
             if (!ty.isPtrLikeOptional(zcu)) return error.IllDefinedMemoryLayout;
-            const child = ty.optionalChild(zcu);
             const opt_val = val.optionalValue(zcu);
             if (opt_val) |some| {
-                return some.writeToMemory(child, pt, buffer);
+                return some.writeToMemory(pt, buffer);
             } else {
-                return writeToMemory(try pt.intValue(Type.usize, 0), Type.usize, pt, buffer);
+                return writeToMemory(try pt.intValue(Type.usize, 0), pt, buffer);
             }
         },
         else => return error.Unimplemented,
@@ -492,8 +473,8 @@ pub fn writeToPackedMemory(
         return;
     }
     switch (ty.zigTypeTag(zcu)) {
-        .Void => {},
-        .Bool => {
+        .void => {},
+        .bool => {
             const byte_index = switch (endian) {
                 .little => bit_offset / 8,
                 .big => buffer.len - bit_offset / 8 - 1,
@@ -504,7 +485,7 @@ pub fn writeToPackedMemory(
                 buffer[byte_index] &= ~(@as(u8, 1) << @as(u3, @intCast(bit_offset % 8)));
             }
         },
-        .Int, .Enum => {
+        .int, .@"enum" => {
             if (buffer.len == 0) return;
             const bits = ty.intInfo(zcu).bits;
             if (bits == 0) return;
@@ -522,7 +503,7 @@ pub fn writeToPackedMemory(
                 },
             }
         },
-        .Float => switch (ty.floatBits(target)) {
+        .float => switch (ty.floatBits(target)) {
             16 => std.mem.writePackedInt(u16, buffer, bit_offset, @bitCast(val.toFloat(f16, zcu)), endian),
             32 => std.mem.writePackedInt(u32, buffer, bit_offset, @bitCast(val.toFloat(f32, zcu)), endian),
             64 => std.mem.writePackedInt(u64, buffer, bit_offset, @bitCast(val.toFloat(f64, zcu)), endian),
@@ -530,7 +511,7 @@ pub fn writeToPackedMemory(
             128 => std.mem.writePackedInt(u128, buffer, bit_offset, @bitCast(val.toFloat(f128, zcu)), endian),
             else => unreachable,
         },
-        .Vector => {
+        .vector => {
             const elem_ty = ty.childType(zcu);
             const elem_bit_size: u16 = @intCast(elem_ty.bitSize(zcu));
             const len: usize = @intCast(ty.arrayLen(zcu));
@@ -545,7 +526,7 @@ pub fn writeToPackedMemory(
                 bits += elem_bit_size;
             }
         },
-        .Struct => {
+        .@"struct" => {
             const struct_type = ip.loadStructType(ty.toIntern());
             // Sema is supposed to have emitted a compile error already in the case of Auto,
             // and Extern is handled in non-packed writeToMemory.
@@ -563,7 +544,7 @@ pub fn writeToPackedMemory(
                 bits += field_bits;
             }
         },
-        .Union => {
+        .@"union" => {
             const union_obj = zcu.typeToUnion(ty).?;
             switch (union_obj.flagsUnordered(ip).layout) {
                 .auto, .@"extern" => unreachable, // Handled in non-packed writeToMemory
@@ -580,12 +561,12 @@ pub fn writeToPackedMemory(
                 },
             }
         },
-        .Pointer => {
+        .pointer => {
             assert(!ty.isSlice(zcu)); // No well defined layout.
-            if (!val.ptrHasIntAddr(zcu)) return error.ReinterpretDeclRef;
+            if (ip.getBackingAddrTag(val.toIntern()).? != .int) return error.ReinterpretDeclRef;
             return val.writeToPackedMemory(Type.usize, pt, buffer, bit_offset);
         },
-        .Optional => {
+        .optional => {
             assert(ty.isPtrLikeOptional(zcu));
             const child = ty.optionalChild(zcu);
             const opt_val = val.optionalValue(zcu);
@@ -618,18 +599,18 @@ pub fn readFromMemory(
     const target = zcu.getTarget();
     const endian = target.cpu.arch.endian();
     switch (ty.zigTypeTag(zcu)) {
-        .Void => return Value.void,
-        .Bool => {
+        .void => return Value.void,
+        .bool => {
             if (buffer[0] == 0) {
                 return Value.false;
             } else {
                 return Value.true;
             }
         },
-        .Int, .Enum => |ty_tag| {
+        .int, .@"enum" => |ty_tag| {
             const int_ty = switch (ty_tag) {
-                .Int => ty,
-                .Enum => ty.intTagType(zcu),
+                .int => ty,
+                .@"enum" => ty.intTagType(zcu),
                 else => unreachable,
             };
             const int_info = int_ty.intInfo(zcu);
@@ -658,7 +639,7 @@ pub fn readFromMemory(
                 return zcu.getCoerced(try zcu.intValue_big(int_ty, bigint.toConst()), ty);
             }
         },
-        .Float => return Value.fromInterned(try pt.intern(.{ .float = .{
+        .float => return Value.fromInterned(try pt.intern(.{ .float = .{
             .ty = ty.toIntern(),
             .storage = switch (ty.floatBits(target)) {
                 16 => .{ .f16 = @bitCast(std.mem.readInt(u16, buffer[0..2], endian)) },
@@ -669,7 +650,7 @@ pub fn readFromMemory(
                 else => unreachable,
             },
         } })),
-        .Array => {
+        .array => {
             const elem_ty = ty.childType(zcu);
             const elem_size = elem_ty.abiSize(zcu);
             const elems = try arena.alloc(InternPool.Index, @intCast(ty.arrayLen(zcu)));
@@ -683,13 +664,13 @@ pub fn readFromMemory(
                 .storage = .{ .elems = elems },
             } }));
         },
-        .Vector => {
+        .vector => {
             // We use byte_count instead of abi_size here, so that any padding bytes
             // follow the data bytes, on both big- and little-endian systems.
             const byte_count = (@as(usize, @intCast(ty.bitSize(zcu))) + 7) / 8;
             return readFromPackedMemory(ty, zcu, buffer[0..byte_count], 0, arena);
         },
-        .Struct => {
+        .@"struct" => {
             const struct_type = zcu.typeToStruct(ty).?;
             switch (struct_type.layout) {
                 .auto => unreachable, // Sema is supposed to have emitted a compile error already
@@ -713,7 +694,7 @@ pub fn readFromMemory(
                 },
             }
         },
-        .ErrorSet => {
+        .error_set => {
             const bits = zcu.errorSetBits();
             const byte_count: u16 = @intCast((@as(u17, bits) + 7) / 8);
             const int = std.mem.readVarInt(u64, buffer[0..byte_count], endian);
@@ -725,7 +706,7 @@ pub fn readFromMemory(
                 .name = name,
             } }));
         },
-        .Union => switch (ty.containerLayout(zcu)) {
+        .@"union" => switch (ty.containerLayout(zcu)) {
             .auto => return error.IllDefinedMemoryLayout,
             .@"extern" => {
                 const union_size = ty.abiSize(zcu);
@@ -742,7 +723,7 @@ pub fn readFromMemory(
                 return readFromPackedMemory(ty, zcu, buffer[0..byte_count], 0, arena);
             },
         },
-        .Pointer => {
+        .pointer => {
             assert(!ty.isSlice(zcu)); // No well defined layout.
             const int_val = try readFromMemory(Type.usize, zcu, buffer, arena);
             return Value.fromInterned(try pt.intern(.{ .ptr = .{
@@ -751,7 +732,7 @@ pub fn readFromMemory(
                 .byte_offset = int_val.toUnsignedInt(zcu),
             } }));
         },
-        .Optional => {
+        .optional => {
             assert(ty.isPtrLikeOptional(zcu));
             const child_ty = ty.optionalChild(zcu);
             const child_val = try readFromMemory(child_ty, zcu, buffer, arena);
@@ -787,8 +768,8 @@ pub fn readFromPackedMemory(
     const target = zcu.getTarget();
     const endian = target.cpu.arch.endian();
     switch (ty.zigTypeTag(zcu)) {
-        .Void => return Value.void,
-        .Bool => {
+        .void => return Value.void,
+        .bool => {
             const byte = switch (endian) {
                 .big => buffer[buffer.len - bit_offset / 8 - 1],
                 .little => buffer[bit_offset / 8],
@@ -799,7 +780,7 @@ pub fn readFromPackedMemory(
                 return Value.true;
             }
         },
-        .Int => {
+        .int => {
             if (buffer.len == 0) return pt.intValue(ty, 0);
             const int_info = ty.intInfo(zcu);
             const bits = int_info.bits;
@@ -823,12 +804,12 @@ pub fn readFromPackedMemory(
             bigint.readPackedTwosComplement(buffer, bit_offset, bits, endian, int_info.signedness);
             return pt.intValue_big(ty, bigint.toConst());
         },
-        .Enum => {
+        .@"enum" => {
             const int_ty = ty.intTagType(zcu);
             const int_val = try Value.readFromPackedMemory(int_ty, pt, buffer, bit_offset, arena);
             return pt.getCoerced(int_val, ty);
         },
-        .Float => return Value.fromInterned(try pt.intern(.{ .float = .{
+        .float => return Value.fromInterned(try pt.intern(.{ .float = .{
             .ty = ty.toIntern(),
             .storage = switch (ty.floatBits(target)) {
                 16 => .{ .f16 = @bitCast(std.mem.readPackedInt(u16, buffer, bit_offset, endian)) },
@@ -839,7 +820,7 @@ pub fn readFromPackedMemory(
                 else => unreachable,
             },
         } })),
-        .Vector => {
+        .vector => {
             const elem_ty = ty.childType(zcu);
             const elems = try arena.alloc(InternPool.Index, @intCast(ty.arrayLen(zcu)));
 
@@ -856,7 +837,7 @@ pub fn readFromPackedMemory(
                 .storage = .{ .elems = elems },
             } }));
         },
-        .Struct => {
+        .@"struct" => {
             // Sema is supposed to have emitted a compile error already for Auto layout structs,
             // and Extern is handled by non-packed readFromMemory.
             const struct_type = zcu.typeToPackedStruct(ty).?;
@@ -873,7 +854,7 @@ pub fn readFromPackedMemory(
                 .storage = .{ .elems = field_vals },
             } }));
         },
-        .Union => switch (ty.containerLayout(zcu)) {
+        .@"union" => switch (ty.containerLayout(zcu)) {
             .auto, .@"extern" => unreachable, // Handled by non-packed readFromMemory
             .@"packed" => {
                 const backing_ty = try ty.unionBackingType(pt);
@@ -885,7 +866,7 @@ pub fn readFromPackedMemory(
                 } }));
             },
         },
-        .Pointer => {
+        .pointer => {
             assert(!ty.isSlice(zcu)); // No well defined layout.
             const int_val = try readFromPackedMemory(Type.usize, pt, buffer, bit_offset, arena);
             return Value.fromInterned(try pt.intern(.{ .ptr = .{
@@ -894,7 +875,7 @@ pub fn readFromPackedMemory(
                 .byte_offset = int_val.toUnsignedInt(zcu),
             } }));
         },
-        .Optional => {
+        .optional => {
             assert(ty.isPtrLikeOptional(zcu));
             const child_ty = ty.optionalChild(zcu);
             const child_val = try readFromPackedMemory(child_ty, pt, buffer, bit_offset, arena);
@@ -1174,7 +1155,7 @@ pub fn compareHeteroAdvanced(
 /// For vectors, returns true if comparison is true for ALL elements.
 pub fn compareAll(lhs: Value, op: std.math.CompareOperator, rhs: Value, ty: Type, pt: Zcu.PerThread) !bool {
     const zcu = pt.zcu;
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         const scalar_ty = ty.scalarType(zcu);
         for (0..ty.vectorLen(zcu)) |i| {
             const lhs_elem = try lhs.elemValue(pt, i);
@@ -1538,7 +1519,7 @@ pub fn floatFromIntAdvanced(
     comptime strat: ResolveStrat,
 ) !Value {
     const zcu = pt.zcu;
-    if (int_ty.zigTypeTag(zcu) == .Vector) {
+    if (int_ty.zigTypeTag(zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, int_ty.vectorLen(zcu));
         const scalar_ty = float_ty.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -1592,7 +1573,7 @@ fn calcLimbLenFloat(scalar: anytype) usize {
     }
 
     const w_value = @abs(scalar);
-    return @divFloor(@as(std.math.big.Limb, @intFromFloat(std.math.log2(w_value))), @typeInfo(std.math.big.Limb).Int.bits) + 1;
+    return @divFloor(@as(std.math.big.Limb, @intFromFloat(std.math.log2(w_value))), @typeInfo(std.math.big.Limb).int.bits) + 1;
 }
 
 pub const OverflowArithmeticResult = struct {
@@ -1608,7 +1589,7 @@ pub fn intAddSat(
     arena: Allocator,
     pt: Zcu.PerThread,
 ) !Value {
-    if (ty.zigTypeTag(pt.zcu) == .Vector) {
+    if (ty.zigTypeTag(pt.zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, ty.vectorLen(pt.zcu));
         const scalar_ty = ty.scalarType(pt.zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -1659,7 +1640,7 @@ pub fn intSubSat(
     arena: Allocator,
     pt: Zcu.PerThread,
 ) !Value {
-    if (ty.zigTypeTag(pt.zcu) == .Vector) {
+    if (ty.zigTypeTag(pt.zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, ty.vectorLen(pt.zcu));
         const scalar_ty = ty.scalarType(pt.zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -1711,7 +1692,7 @@ pub fn intMulWithOverflow(
     pt: Zcu.PerThread,
 ) !OverflowArithmeticResult {
     const zcu = pt.zcu;
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         const vec_len = ty.vectorLen(zcu);
         const overflowed_data = try arena.alloc(InternPool.Index, vec_len);
         const result_data = try arena.alloc(InternPool.Index, vec_len);
@@ -1789,7 +1770,7 @@ pub fn numberMulWrap(
     pt: Zcu.PerThread,
 ) !Value {
     const zcu = pt.zcu;
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, ty.vectorLen(zcu));
         const scalar_ty = ty.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -1816,7 +1797,7 @@ pub fn numberMulWrapScalar(
     const zcu = pt.zcu;
     if (lhs.isUndef(zcu) or rhs.isUndef(zcu)) return Value.undef;
 
-    if (ty.zigTypeTag(zcu) == .ComptimeInt) {
+    if (ty.zigTypeTag(zcu) == .comptime_int) {
         return intMul(lhs, rhs, ty, undefined, arena, pt);
     }
 
@@ -1836,7 +1817,7 @@ pub fn intMulSat(
     arena: Allocator,
     pt: Zcu.PerThread,
 ) !Value {
-    if (ty.zigTypeTag(pt.zcu) == .Vector) {
+    if (ty.zigTypeTag(pt.zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, ty.vectorLen(pt.zcu));
         const scalar_ty = ty.scalarType(pt.zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -1916,7 +1897,7 @@ pub fn numberMin(lhs: Value, rhs: Value, zcu: *Zcu) Value {
 /// operands must be (vectors of) integers; handles undefined scalars.
 pub fn bitwiseNot(val: Value, ty: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, ty.vectorLen(zcu));
         const scalar_ty = ty.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -1960,7 +1941,7 @@ pub fn bitwiseNotScalar(val: Value, ty: Type, arena: Allocator, pt: Zcu.PerThrea
 /// operands must be (vectors of) integers; handles undefined scalars.
 pub fn bitwiseAnd(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(zcu));
         const scalar_ty = ty.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -2033,7 +2014,7 @@ fn intValueAa(ty: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
 /// operands must be (vectors of) integers; handles undefined scalars.
 pub fn bitwiseNand(lhs: Value, rhs: Value, ty: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, ty.vectorLen(zcu));
         const scalar_ty = ty.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -2063,7 +2044,7 @@ pub fn bitwiseNandScalar(lhs: Value, rhs: Value, ty: Type, arena: Allocator, pt:
 /// operands must be (vectors of) integers; handles undefined scalars.
 pub fn bitwiseOr(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(zcu));
         const scalar_ty = ty.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -2116,7 +2097,7 @@ pub fn bitwiseOrScalar(orig_lhs: Value, orig_rhs: Value, ty: Type, arena: Alloca
 /// operands must be (vectors of) integers; handles undefined scalars.
 pub fn bitwiseXor(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(zcu));
         const scalar_ty = ty.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -2176,7 +2157,7 @@ pub fn intDiv(lhs: Value, rhs: Value, ty: Type, overflow_idx: *?usize, allocator
 }
 
 fn intDivInner(lhs: Value, rhs: Value, ty: Type, overflow_idx: *usize, allocator: Allocator, pt: Zcu.PerThread) !Value {
-    if (ty.zigTypeTag(pt.zcu) == .Vector) {
+    if (ty.zigTypeTag(pt.zcu) == .vector) {
         const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(pt.zcu));
         const scalar_ty = ty.scalarType(pt.zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -2232,7 +2213,7 @@ pub fn intDivScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: 
 }
 
 pub fn intDivFloor(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zcu.PerThread) !Value {
-    if (ty.zigTypeTag(pt.zcu) == .Vector) {
+    if (ty.zigTypeTag(pt.zcu) == .vector) {
         const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(pt.zcu));
         const scalar_ty = ty.scalarType(pt.zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -2275,7 +2256,7 @@ pub fn intDivFloorScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator,
 }
 
 pub fn intMod(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zcu.PerThread) !Value {
-    if (ty.zigTypeTag(pt.zcu) == .Vector) {
+    if (ty.zigTypeTag(pt.zcu) == .vector) {
         const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(pt.zcu));
         const scalar_ty = ty.scalarType(pt.zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -2347,7 +2328,7 @@ pub fn isNegativeInf(val: Value, zcu: *const Zcu) bool {
 }
 
 pub fn floatRem(lhs: Value, rhs: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
-    if (float_type.zigTypeTag(pt.zcu) == .Vector) {
+    if (float_type.zigTypeTag(pt.zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(pt.zcu));
         const scalar_ty = float_type.scalarType(pt.zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -2381,7 +2362,7 @@ pub fn floatRemScalar(lhs: Value, rhs: Value, float_type: Type, pt: Zcu.PerThrea
 }
 
 pub fn floatMod(lhs: Value, rhs: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
-    if (float_type.zigTypeTag(pt.zcu) == .Vector) {
+    if (float_type.zigTypeTag(pt.zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(pt.zcu));
         const scalar_ty = float_type.scalarType(pt.zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -2438,7 +2419,7 @@ pub fn intMul(lhs: Value, rhs: Value, ty: Type, overflow_idx: *?usize, allocator
 
 fn intMulInner(lhs: Value, rhs: Value, ty: Type, overflow_idx: *usize, allocator: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(zcu));
         const scalar_ty = ty.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -2490,7 +2471,7 @@ pub fn intMulScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: 
 
 pub fn intTrunc(val: Value, ty: Type, allocator: Allocator, signedness: std.builtin.Signedness, bits: u16, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(zcu));
         const scalar_ty = ty.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -2515,7 +2496,7 @@ pub fn intTruncBitsAsValue(
     pt: Zcu.PerThread,
 ) !Value {
     const zcu = pt.zcu;
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(zcu));
         const scalar_ty = ty.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -2559,7 +2540,7 @@ pub fn intTruncScalar(
 
 pub fn shl(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(zcu));
         const scalar_ty = ty.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -2607,7 +2588,7 @@ pub fn shlWithOverflow(
     allocator: Allocator,
     pt: Zcu.PerThread,
 ) !OverflowArithmeticResult {
-    if (ty.zigTypeTag(pt.zcu) == .Vector) {
+    if (ty.zigTypeTag(pt.zcu) == .vector) {
         const vec_len = ty.vectorLen(pt.zcu);
         const overflowed_data = try allocator.alloc(InternPool.Index, vec_len);
         const result_data = try allocator.alloc(InternPool.Index, vec_len);
@@ -2672,7 +2653,7 @@ pub fn shlSat(
     arena: Allocator,
     pt: Zcu.PerThread,
 ) !Value {
-    if (ty.zigTypeTag(pt.zcu) == .Vector) {
+    if (ty.zigTypeTag(pt.zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, ty.vectorLen(pt.zcu));
         const scalar_ty = ty.scalarType(pt.zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -2723,7 +2704,7 @@ pub fn shlTrunc(
     arena: Allocator,
     pt: Zcu.PerThread,
 ) !Value {
-    if (ty.zigTypeTag(pt.zcu) == .Vector) {
+    if (ty.zigTypeTag(pt.zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, ty.vectorLen(pt.zcu));
         const scalar_ty = ty.scalarType(pt.zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -2753,7 +2734,7 @@ pub fn shlTruncScalar(
 }
 
 pub fn shr(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zcu.PerThread) !Value {
-    if (ty.zigTypeTag(pt.zcu) == .Vector) {
+    if (ty.zigTypeTag(pt.zcu) == .vector) {
         const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(pt.zcu));
         const scalar_ty = ty.scalarType(pt.zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -2808,7 +2789,7 @@ pub fn floatNeg(
     pt: Zcu.PerThread,
 ) !Value {
     const zcu = pt.zcu;
-    if (float_type.zigTypeTag(zcu) == .Vector) {
+    if (float_type.zigTypeTag(zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(zcu));
         const scalar_ty = float_type.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -2848,7 +2829,7 @@ pub fn floatAdd(
     pt: Zcu.PerThread,
 ) !Value {
     const zcu = pt.zcu;
-    if (float_type.zigTypeTag(zcu) == .Vector) {
+    if (float_type.zigTypeTag(zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(zcu));
         const scalar_ty = float_type.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -2894,7 +2875,7 @@ pub fn floatSub(
     pt: Zcu.PerThread,
 ) !Value {
     const zcu = pt.zcu;
-    if (float_type.zigTypeTag(zcu) == .Vector) {
+    if (float_type.zigTypeTag(zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(zcu));
         const scalar_ty = float_type.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -2939,7 +2920,7 @@ pub fn floatDiv(
     arena: Allocator,
     pt: Zcu.PerThread,
 ) !Value {
-    if (float_type.zigTypeTag(pt.zcu) == .Vector) {
+    if (float_type.zigTypeTag(pt.zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(pt.zcu));
         const scalar_ty = float_type.scalarType(pt.zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -2984,7 +2965,7 @@ pub fn floatDivFloor(
     arena: Allocator,
     pt: Zcu.PerThread,
 ) !Value {
-    if (float_type.zigTypeTag(pt.zcu) == .Vector) {
+    if (float_type.zigTypeTag(pt.zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(pt.zcu));
         const scalar_ty = float_type.scalarType(pt.zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -3029,7 +3010,7 @@ pub fn floatDivTrunc(
     arena: Allocator,
     pt: Zcu.PerThread,
 ) !Value {
-    if (float_type.zigTypeTag(pt.zcu) == .Vector) {
+    if (float_type.zigTypeTag(pt.zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(pt.zcu));
         const scalar_ty = float_type.scalarType(pt.zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -3075,7 +3056,7 @@ pub fn floatMul(
     pt: Zcu.PerThread,
 ) !Value {
     const zcu = pt.zcu;
-    if (float_type.zigTypeTag(zcu) == .Vector) {
+    if (float_type.zigTypeTag(zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(zcu));
         const scalar_ty = float_type.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -3114,7 +3095,7 @@ pub fn floatMulScalar(
 }
 
 pub fn sqrt(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
-    if (float_type.zigTypeTag(pt.zcu) == .Vector) {
+    if (float_type.zigTypeTag(pt.zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(pt.zcu));
         const scalar_ty = float_type.scalarType(pt.zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -3148,7 +3129,7 @@ pub fn sqrtScalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Err
 
 pub fn sin(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
-    if (float_type.zigTypeTag(zcu) == .Vector) {
+    if (float_type.zigTypeTag(zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(zcu));
         const scalar_ty = float_type.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -3182,7 +3163,7 @@ pub fn sinScalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Erro
 
 pub fn cos(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
-    if (float_type.zigTypeTag(zcu) == .Vector) {
+    if (float_type.zigTypeTag(zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(zcu));
         const scalar_ty = float_type.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -3216,7 +3197,7 @@ pub fn cosScalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Erro
 
 pub fn tan(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
-    if (float_type.zigTypeTag(zcu) == .Vector) {
+    if (float_type.zigTypeTag(zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(zcu));
         const scalar_ty = float_type.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -3250,7 +3231,7 @@ pub fn tanScalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Erro
 
 pub fn exp(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
-    if (float_type.zigTypeTag(zcu) == .Vector) {
+    if (float_type.zigTypeTag(zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(zcu));
         const scalar_ty = float_type.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -3284,7 +3265,7 @@ pub fn expScalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Erro
 
 pub fn exp2(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
-    if (float_type.zigTypeTag(zcu) == .Vector) {
+    if (float_type.zigTypeTag(zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(zcu));
         const scalar_ty = float_type.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -3318,7 +3299,7 @@ pub fn exp2Scalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Err
 
 pub fn log(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
-    if (float_type.zigTypeTag(zcu) == .Vector) {
+    if (float_type.zigTypeTag(zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(zcu));
         const scalar_ty = float_type.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -3352,7 +3333,7 @@ pub fn logScalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Erro
 
 pub fn log2(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
-    if (float_type.zigTypeTag(zcu) == .Vector) {
+    if (float_type.zigTypeTag(zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(zcu));
         const scalar_ty = float_type.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -3386,7 +3367,7 @@ pub fn log2Scalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Err
 
 pub fn log10(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
-    if (float_type.zigTypeTag(zcu) == .Vector) {
+    if (float_type.zigTypeTag(zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(zcu));
         const scalar_ty = float_type.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -3420,7 +3401,7 @@ pub fn log10Scalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Er
 
 pub fn abs(val: Value, ty: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, ty.vectorLen(zcu));
         const scalar_ty = ty.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -3438,21 +3419,21 @@ pub fn abs(val: Value, ty: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
 pub fn absScalar(val: Value, ty: Type, pt: Zcu.PerThread, arena: Allocator) Allocator.Error!Value {
     const zcu = pt.zcu;
     switch (ty.zigTypeTag(zcu)) {
-        .Int => {
+        .int => {
             var buffer: Value.BigIntSpace = undefined;
             var operand_bigint = try val.toBigInt(&buffer, zcu).toManaged(arena);
             operand_bigint.abs();
 
             return pt.intValue_big(try ty.toUnsigned(pt), operand_bigint.toConst());
         },
-        .ComptimeInt => {
+        .comptime_int => {
             var buffer: Value.BigIntSpace = undefined;
             var operand_bigint = try val.toBigInt(&buffer, zcu).toManaged(arena);
             operand_bigint.abs();
 
             return pt.intValue_big(ty, operand_bigint.toConst());
         },
-        .ComptimeFloat, .Float => {
+        .comptime_float, .float => {
             const target = zcu.getTarget();
             const storage: InternPool.Key.Float.Storage = switch (ty.floatBits(target)) {
                 16 => .{ .f16 = @abs(val.toFloat(f16, zcu)) },
@@ -3473,7 +3454,7 @@ pub fn absScalar(val: Value, ty: Type, pt: Zcu.PerThread, arena: Allocator) Allo
 
 pub fn floor(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
-    if (float_type.zigTypeTag(zcu) == .Vector) {
+    if (float_type.zigTypeTag(zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(zcu));
         const scalar_ty = float_type.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -3507,7 +3488,7 @@ pub fn floorScalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Er
 
 pub fn ceil(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
-    if (float_type.zigTypeTag(zcu) == .Vector) {
+    if (float_type.zigTypeTag(zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(zcu));
         const scalar_ty = float_type.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -3541,7 +3522,7 @@ pub fn ceilScalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Err
 
 pub fn round(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
-    if (float_type.zigTypeTag(zcu) == .Vector) {
+    if (float_type.zigTypeTag(zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(zcu));
         const scalar_ty = float_type.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -3575,7 +3556,7 @@ pub fn roundScalar(val: Value, float_type: Type, pt: Zcu.PerThread) Allocator.Er
 
 pub fn trunc(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
-    if (float_type.zigTypeTag(zcu) == .Vector) {
+    if (float_type.zigTypeTag(zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(zcu));
         const scalar_ty = float_type.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -3616,7 +3597,7 @@ pub fn mulAdd(
     pt: Zcu.PerThread,
 ) !Value {
     const zcu = pt.zcu;
-    if (float_type.zigTypeTag(zcu) == .Vector) {
+    if (float_type.zigTypeTag(zcu) == .vector) {
         const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(zcu));
         const scalar_ty = float_type.scalarType(zcu);
         for (result_data, 0..) |*scalar, i| {
@@ -3658,14 +3639,15 @@ pub fn mulAddScalar(
 
 /// If the value is represented in-memory as a series of bytes that all
 /// have the same value, return that byte value, otherwise null.
-pub fn hasRepeatedByteRepr(val: Value, ty: Type, pt: Zcu.PerThread) !?u8 {
+pub fn hasRepeatedByteRepr(val: Value, pt: Zcu.PerThread) !?u8 {
     const zcu = pt.zcu;
+    const ty = val.typeOf(zcu);
     const abi_size = std.math.cast(usize, ty.abiSize(zcu)) orelse return null;
     assert(abi_size >= 1);
     const byte_buffer = try zcu.gpa.alloc(u8, abi_size);
     defer zcu.gpa.free(byte_buffer);
 
-    writeToMemory(val, ty, pt, byte_buffer) catch |err| switch (err) {
+    writeToMemory(val, pt, byte_buffer) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.ReinterpretDeclRef => return null,
         // TODO: The writeToMemory function was originally created for the purpose
@@ -3738,7 +3720,7 @@ pub fn ptrOptPayload(parent_ptr: Value, pt: Zcu.PerThread) !Value {
     const opt_ty = parent_ptr_ty.childType(zcu);
 
     assert(parent_ptr_ty.ptrSize(zcu) == .One);
-    assert(opt_ty.zigTypeTag(zcu) == .Optional);
+    assert(opt_ty.zigTypeTag(zcu) == .optional);
 
     const result_ty = try pt.ptrTypeSema(info: {
         var new = parent_ptr_ty.ptrInfo(zcu);
@@ -3772,7 +3754,7 @@ pub fn ptrEuPayload(parent_ptr: Value, pt: Zcu.PerThread) !Value {
     const eu_ty = parent_ptr_ty.childType(zcu);
 
     assert(parent_ptr_ty.ptrSize(zcu) == .One);
-    assert(eu_ty.zigTypeTag(zcu) == .ErrorUnion);
+    assert(eu_ty.zigTypeTag(zcu) == .error_union);
 
     const result_ty = try pt.ptrTypeSema(info: {
         var new = parent_ptr_ty.ptrInfo(zcu);
@@ -3807,7 +3789,7 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, pt: Zcu.PerThread) !Value {
     // Exiting this `switch` indicates that the `field` pointer representation should be used.
     // `field_align` may be `.none` to represent the natural alignment of `field_ty`, but is not necessarily.
     const field_ty: Type, const field_align: InternPool.Alignment = switch (aggregate_ty.zigTypeTag(zcu)) {
-        .Struct => field: {
+        .@"struct" => field: {
             const field_ty = aggregate_ty.fieldType(field_idx, zcu);
             switch (aggregate_ty.containerLayout(zcu)) {
                 .auto => break :field .{ field_ty, try aggregate_ty.fieldAlignmentSema(field_idx, pt) },
@@ -3857,7 +3839,7 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, pt: Zcu.PerThread) !Value {
                 },
             }
         },
-        .Union => field: {
+        .@"union" => field: {
             const union_obj = zcu.typeToUnion(aggregate_ty).?;
             const field_ty = Type.fromInterned(union_obj.field_types.get(&zcu.intern_pool)[field_idx]);
             switch (aggregate_ty.containerLayout(zcu)) {
@@ -3905,7 +3887,7 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, pt: Zcu.PerThread) !Value {
                 },
             }
         },
-        .Pointer => field_ty: {
+        .pointer => field_ty: {
             assert(aggregate_ty.isSlice(zcu));
             break :field_ty switch (field_idx) {
                 Value.slice_ptr_index => .{ aggregate_ty.slicePtrFieldType(zcu), Type.usize.abiAlignment(zcu) },
@@ -3962,7 +3944,7 @@ pub fn ptrElem(orig_parent_ptr: Value, field_idx: u64, pt: Zcu.PerThread) !Value
 
     if (result_ty.ptrInfo(zcu).packed_offset.host_size != 0) {
         // Since we have a bit-pointer, the pointer address should be unchanged.
-        assert(elem_ty.zigTypeTag(zcu) == .Vector);
+        assert(elem_ty.zigTypeTag(zcu) == .vector);
         return pt.getCoerced(parent_ptr, result_ty);
     }
 
@@ -3973,8 +3955,8 @@ pub fn ptrElem(orig_parent_ptr: Value, field_idx: u64, pt: Zcu.PerThread) !Value
 
     const strat: PtrStrat = switch (parent_ptr_ty.ptrSize(zcu)) {
         .One => switch (elem_ty.zigTypeTag(zcu)) {
-            .Vector => .{ .offset = field_idx * @divExact(try elem_ty.childType(zcu).bitSizeSema(pt), 8) },
-            .Array => strat: {
+            .vector => .{ .offset = field_idx * @divExact(try elem_ty.childType(zcu).bitSizeSema(pt), 8) },
+            .array => strat: {
                 const arr_elem_ty = elem_ty.childType(zcu);
                 if (try arr_elem_ty.comptimeOnlySema(pt)) {
                     break :strat .{ .elem_ptr = arr_elem_ty };
@@ -4196,19 +4178,19 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
             const base_ptr_ty = base_ptr.typeOf(zcu);
             const agg_ty = base_ptr_ty.childType(zcu);
             const field_ty, const field_align = switch (agg_ty.zigTypeTag(zcu)) {
-                .Struct => .{ agg_ty.fieldType(@intCast(field.index), zcu), try agg_ty.fieldAlignmentInner(
+                .@"struct" => .{ agg_ty.fieldType(@intCast(field.index), zcu), try agg_ty.fieldAlignmentInner(
                     @intCast(field.index),
                     if (have_sema) .sema else .normal,
                     pt.zcu,
                     if (have_sema) pt.tid else {},
                 ) },
-                .Union => .{ agg_ty.unionFieldTypeByIndex(@intCast(field.index), zcu), try agg_ty.fieldAlignmentInner(
+                .@"union" => .{ agg_ty.unionFieldTypeByIndex(@intCast(field.index), zcu), try agg_ty.fieldAlignmentInner(
                     @intCast(field.index),
                     if (have_sema) .sema else .normal,
                     pt.zcu,
                     if (have_sema) pt.tid else {},
                 ) },
-                .Pointer => .{ switch (field.index) {
+                .pointer => .{ switch (field.index) {
                     Value.slice_ptr_index => agg_ty.slicePtrFieldType(zcu),
                     Value.slice_len_index => Type.usize,
                     else => unreachable,
@@ -4286,31 +4268,31 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
             break;
         }
         switch (cur_ty.zigTypeTag(zcu)) {
-            .NoReturn,
-            .Type,
-            .ComptimeInt,
-            .ComptimeFloat,
-            .Null,
-            .Undefined,
-            .EnumLiteral,
-            .Opaque,
-            .Fn,
-            .ErrorUnion,
-            .Int,
-            .Float,
-            .Bool,
-            .Void,
-            .Pointer,
-            .ErrorSet,
-            .AnyFrame,
-            .Frame,
-            .Enum,
-            .Vector,
-            .Optional,
-            .Union,
+            .noreturn,
+            .type,
+            .comptime_int,
+            .comptime_float,
+            .null,
+            .undefined,
+            .enum_literal,
+            .@"opaque",
+            .@"fn",
+            .error_union,
+            .int,
+            .float,
+            .bool,
+            .void,
+            .pointer,
+            .error_set,
+            .@"anyframe",
+            .frame,
+            .@"enum",
+            .vector,
+            .optional,
+            .@"union",
             => break,
 
-            .Array => {
+            .array => {
                 const elem_ty = cur_ty.childType(zcu);
                 const elem_size = elem_ty.abiSize(zcu);
                 const start_idx = cur_offset / elem_size;
@@ -4339,7 +4321,7 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
                     break;
                 }
             },
-            .Struct => switch (cur_ty.containerLayout(zcu)) {
+            .@"struct" => switch (cur_ty.containerLayout(zcu)) {
                 .auto, .@"packed" => break,
                 .@"extern" => for (0..cur_ty.structFieldCount(zcu)) |field_idx| {
                     const field_ty = cur_ty.fieldType(field_idx, zcu);

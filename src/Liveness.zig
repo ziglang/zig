@@ -658,10 +658,10 @@ pub fn categorizeOperand(
 
             return .complex;
         },
-        .@"try" => {
+        .@"try", .try_cold => {
             return .complex;
         },
-        .try_ptr => {
+        .try_ptr, .try_ptr_cold => {
             return .complex;
         },
         .loop => {
@@ -1254,8 +1254,8 @@ fn analyzeInst(
         },
         .loop => return analyzeInstLoop(a, pass, data, inst),
 
-        .@"try" => return analyzeInstCondBr(a, pass, data, inst, .@"try"),
-        .try_ptr => return analyzeInstCondBr(a, pass, data, inst, .try_ptr),
+        .@"try", .try_cold => return analyzeInstCondBr(a, pass, data, inst, .@"try"),
+        .try_ptr, .try_ptr_cold => return analyzeInstCondBr(a, pass, data, inst, .try_ptr),
         .cond_br => return analyzeInstCondBr(a, pass, data, inst, .cond_br),
         .switch_br => return analyzeInstSwitchBr(a, pass, data, inst),
 
@@ -1674,21 +1674,18 @@ fn analyzeInstSwitchBr(
     const inst_datas = a.air.instructions.items(.data);
     const pl_op = inst_datas[@intFromEnum(inst)].pl_op;
     const condition = pl_op.operand;
-    const switch_br = a.air.extraData(Air.SwitchBr, pl_op.payload);
+    const switch_br = a.air.unwrapSwitch(inst);
     const gpa = a.gpa;
-    const ncases = switch_br.data.cases_len;
+    const ncases = switch_br.cases_len;
 
     switch (pass) {
         .loop_analysis => {
-            var air_extra_index: usize = switch_br.end;
-            for (0..ncases) |_| {
-                const case = a.air.extraData(Air.SwitchBr.Case, air_extra_index);
-                const case_body: []const Air.Inst.Index = @ptrCast(a.air.extra[case.end + case.data.items_len ..][0..case.data.body_len]);
-                air_extra_index = case.end + case.data.items_len + case_body.len;
-                try analyzeBody(a, pass, data, case_body);
+            var it = switch_br.iterateCases();
+            while (it.next()) |case| {
+                try analyzeBody(a, pass, data, case.body);
             }
             { // else
-                const else_body: []const Air.Inst.Index = @ptrCast(a.air.extra[air_extra_index..][0..switch_br.data.else_body_len]);
+                const else_body = it.elseBody();
                 try analyzeBody(a, pass, data, else_body);
             }
         },
@@ -1706,16 +1703,13 @@ fn analyzeInstSwitchBr(
             @memset(case_live_sets, .{});
             defer for (case_live_sets) |*live_set| live_set.deinit(gpa);
 
-            var air_extra_index: usize = switch_br.end;
-            for (case_live_sets[0..ncases]) |*live_set| {
-                const case = a.air.extraData(Air.SwitchBr.Case, air_extra_index);
-                const case_body: []const Air.Inst.Index = @ptrCast(a.air.extra[case.end + case.data.items_len ..][0..case.data.body_len]);
-                air_extra_index = case.end + case.data.items_len + case_body.len;
-                try analyzeBody(a, pass, data, case_body);
-                live_set.* = data.live_set.move();
+            var case_it = switch_br.iterateCases();
+            while (case_it.next()) |case| {
+                try analyzeBody(a, pass, data, case.body);
+                case_live_sets[case.idx] = data.live_set.move();
             }
             { // else
-                const else_body: []const Air.Inst.Index = @ptrCast(a.air.extra[air_extra_index..][0..switch_br.data.else_body_len]);
+                const else_body = case_it.elseBody();
                 try analyzeBody(a, pass, data, else_body);
                 case_live_sets[ncases] = data.live_set.move();
             }

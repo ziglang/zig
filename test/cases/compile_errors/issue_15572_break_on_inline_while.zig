@@ -6,7 +6,7 @@ pub const DwarfSection = enum {
 };
 
 pub fn main() void {
-    const section = inline for (@typeInfo(DwarfSection).Enum.fields) |section| {
+    const section = inline for (@typeInfo(DwarfSection).@"enum".fields) |section| {
         if (std.mem.eql(u8, section.name, "eh_frame")) break section;
     };
 

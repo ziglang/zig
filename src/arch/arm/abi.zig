@@ -31,7 +31,7 @@ pub fn classifyType(ty: Type, zcu: *Zcu, ctx: Context) Class {
     const max_byval_size = 512;
     const ip = &zcu.intern_pool;
     switch (ty.zigTypeTag(zcu)) {
-        .Struct => {
+        .@"struct" => {
             const bit_size = ty.bitSize(zcu);
             if (ty.containerLayout(zcu) == .@"packed") {
                 if (bit_size > 64) return .memory;
@@ -53,7 +53,7 @@ pub fn classifyType(ty: Type, zcu: *Zcu, ctx: Context) Class {
             }
             return Class.arrSize(bit_size, 32);
         },
-        .Union => {
+        .@"union" => {
             const bit_size = ty.bitSize(zcu);
             const union_obj = zcu.typeToUnion(ty).?;
             if (union_obj.flagsUnordered(ip).layout == .@"packed") {
@@ -73,48 +73,48 @@ pub fn classifyType(ty: Type, zcu: *Zcu, ctx: Context) Class {
             }
             return Class.arrSize(bit_size, 32);
         },
-        .Bool, .Float => return .byval,
-        .Int => {
+        .bool, .float => return .byval,
+        .int => {
             // TODO this is incorrect for _BitInt(128) but implementing
             // this correctly makes implementing compiler-rt impossible.
             // const bit_size = ty.bitSize(zcu);
             // if (bit_size > 64) return .memory;
             return .byval;
         },
-        .Enum, .ErrorSet => {
+        .@"enum", .error_set => {
             const bit_size = ty.bitSize(zcu);
             if (bit_size > 64) return .memory;
             return .byval;
         },
-        .Vector => {
+        .vector => {
             const bit_size = ty.bitSize(zcu);
             // TODO is this controlled by a cpu feature?
             if (ctx == .ret and bit_size > 128) return .memory;
             if (bit_size > 512) return .memory;
             return .byval;
         },
-        .Optional => {
+        .optional => {
             assert(ty.isPtrLikeOptional(zcu));
             return .byval;
         },
-        .Pointer => {
+        .pointer => {
             assert(!ty.isSlice(zcu));
             return .byval;
         },
-        .ErrorUnion,
-        .Frame,
-        .AnyFrame,
-        .NoReturn,
-        .Void,
-        .Type,
-        .ComptimeFloat,
-        .ComptimeInt,
-        .Undefined,
-        .Null,
-        .Fn,
-        .Opaque,
-        .EnumLiteral,
-        .Array,
+        .error_union,
+        .frame,
+        .@"anyframe",
+        .noreturn,
+        .void,
+        .type,
+        .comptime_float,
+        .comptime_int,
+        .undefined,
+        .null,
+        .@"fn",
+        .@"opaque",
+        .enum_literal,
+        .array,
         => unreachable,
     }
 }
@@ -125,7 +125,7 @@ fn countFloats(ty: Type, zcu: *Zcu, maybe_float_bits: *?u16) u32 {
     const target = zcu.getTarget();
     const invalid = std.math.maxInt(u32);
     switch (ty.zigTypeTag(zcu)) {
-        .Union => {
+        .@"union" => {
             const union_obj = zcu.typeToUnion(ty).?;
             var max_count: u32 = 0;
             for (union_obj.field_types.get(ip)) |field_ty| {
@@ -136,7 +136,7 @@ fn countFloats(ty: Type, zcu: *Zcu, maybe_float_bits: *?u16) u32 {
             }
             return max_count;
         },
-        .Struct => {
+        .@"struct" => {
             const fields_len = ty.structFieldCount(zcu);
             var count: u32 = 0;
             var i: u32 = 0;
@@ -149,7 +149,7 @@ fn countFloats(ty: Type, zcu: *Zcu, maybe_float_bits: *?u16) u32 {
             }
             return count;
         },
-        .Float => {
+        .float => {
             const float_bits = maybe_float_bits.* orelse {
                 const float_bits = ty.floatBits(target);
                 if (float_bits != 32 and float_bits != 64) return invalid;
@@ -159,7 +159,7 @@ fn countFloats(ty: Type, zcu: *Zcu, maybe_float_bits: *?u16) u32 {
             if (ty.floatBits(target) == float_bits) return 1;
             return invalid;
         },
-        .Void => return 0,
+        .void => return 0,
         else => return invalid,
     }
 }

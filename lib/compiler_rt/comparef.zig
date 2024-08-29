@@ -17,7 +17,7 @@ pub const GE = enum(i32) {
 };
 
 pub inline fn cmpf2(comptime T: type, comptime RT: type, a: T, b: T) RT {
-    const bits = @typeInfo(T).Float.bits;
+    const bits = @typeInfo(T).float.bits;
     const srep_t = std.meta.Int(.signed, bits);
     const rep_t = std.meta.Int(.unsigned, bits);
 
@@ -109,7 +109,7 @@ test "cmp_f80" {
 }
 
 pub inline fn unordcmp(comptime T: type, a: T, b: T) i32 {
-    const rep_t = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
+    const rep_t = std.meta.Int(.unsigned, @typeInfo(T).float.bits);
 
     const significandBits = std.math.floatMantissaBits(T);
     const exponentBits = std.math.floatExponentBits(T);

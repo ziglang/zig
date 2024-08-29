@@ -6,7 +6,7 @@ const reflection = @This();
 
 test "reflection: function return type, var args, and param types" {
     comptime {
-        const info = @typeInfo(@TypeOf(dummy)).Fn;
+        const info = @typeInfo(@TypeOf(dummy)).@"fn";
         try expect(info.return_type.? == i32);
         try expect(!info.is_var_args);
         try expect(info.params.len == 3);

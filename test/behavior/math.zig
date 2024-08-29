@@ -135,8 +135,8 @@ fn testOneClzVector(
 }
 
 fn expectVectorsEqual(a: anytype, b: anytype) !void {
-    const len_a = @typeInfo(@TypeOf(a)).Vector.len;
-    const len_b = @typeInfo(@TypeOf(b)).Vector.len;
+    const len_a = @typeInfo(@TypeOf(a)).vector.len;
+    const len_b = @typeInfo(@TypeOf(b)).vector.len;
     try expect(len_a == len_b);
 
     var i: usize = 0;
@@ -1683,12 +1683,12 @@ test "signed zeros are represented properly" {
         }
 
         fn testOne(comptime T: type) !void {
-            const ST = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
+            const ST = std.meta.Int(.unsigned, @typeInfo(T).float.bits);
             var as_fp_val = -@as(T, 0.0);
             _ = &as_fp_val;
             const as_uint_val: ST = @bitCast(as_fp_val);
             // Ensure the sign bit is set.
-            try expect(as_uint_val >> (@typeInfo(T).Float.bits - 1) == 1);
+            try expect(as_uint_val >> (@typeInfo(T).float.bits - 1) == 1);
         }
     };
 

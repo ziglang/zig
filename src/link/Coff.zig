@@ -1368,7 +1368,7 @@ fn getNavOutputSection(self: *Coff, nav_index: InternPool.Nav.Index) u16 {
 
         switch (zig_ty) {
             // TODO: what if this is a function pointer?
-            .Fn => break :blk self.text_section_index.?,
+            .@"fn" => break :blk self.text_section_index.?,
             else => {
                 if (val.getVariable(zcu)) |_| {
                     break :blk self.data_section_index.?;

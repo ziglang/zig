@@ -583,7 +583,7 @@ fn pushPopRegList(lower: *Lower, comptime spilling: bool, reg_list: Mir.Register
 }
 
 pub fn fail(lower: *Lower, comptime format: []const u8, args: anytype) Error {
-    @setCold(true);
+    @branchHint(.cold);
     assert(lower.err_msg == null);
     lower.err_msg = try ErrorMsg.create(lower.allocator, lower.src_loc, format, args);
     return error.LowerFail;

@@ -40,7 +40,7 @@ pub extern var _mh_execute_header: mach_hdr;
 var dummy_execute_header: mach_hdr = undefined;
 comptime {
     if (native_os.isDarwin()) {
-        @export(dummy_execute_header, .{ .name = "_mh_execute_header", .linkage = .weak });
+        @export(&dummy_execute_header, .{ .name = "_mh_execute_header", .linkage = .weak });
     }
 }
 

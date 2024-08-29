@@ -49,6 +49,7 @@ debug_line_section_dirty: bool = false,
 debug_line_str_section_dirty: bool = false,
 debug_loclists_section_dirty: bool = false,
 debug_rnglists_section_dirty: bool = false,
+eh_frame_section_dirty: bool = false,
 
 debug_info_index: ?Symbol.Index = null,
 debug_abbrev_index: ?Symbol.Index = null,
@@ -58,6 +59,7 @@ debug_line_index: ?Symbol.Index = null,
 debug_line_str_index: ?Symbol.Index = null,
 debug_loclists_index: ?Symbol.Index = null,
 debug_rnglists_index: ?Symbol.Index = null,
+eh_frame_index: ?Symbol.Index = null,
 
 pub const global_symbol_bit: u32 = 0x80000000;
 pub const symbol_mask: u32 = 0x7fffffff;
@@ -72,8 +74,6 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
     const ptr_size = elf_file.ptrWidthBytes();
-    const target = elf_file.getTarget();
-    const ptr_bit_width = target.ptrBitWidth();
 
     try self.atoms.append(gpa, .{ .extra_index = try self.addAtomExtra(gpa, .{}) }); // null input section
     try self.relocs.append(gpa, .{}); // null relocs section
@@ -113,7 +113,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                 .type = elf.PT_LOAD,
                 .offset = off,
                 .filesz = filesz,
-                .addr = if (ptr_bit_width >= 32) 0x4000000 else 0x4000,
+                .addr = if (ptr_size >= 4) 0x4000000 else 0x4000,
                 .memsz = filesz,
                 .@"align" = elf_file.page_size,
                 .flags = elf.PF_X | elf.PF_R | elf.PF_W,
@@ -128,7 +128,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                 .type = elf.PT_LOAD,
                 .offset = off,
                 .filesz = filesz,
-                .addr = if (ptr_bit_width >= 32) 0xc000000 else 0xa000,
+                .addr = if (ptr_size >= 4) 0xc000000 else 0xa000,
                 .memsz = filesz,
                 .@"align" = alignment,
                 .flags = elf.PF_R | elf.PF_W,
@@ -143,7 +143,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                 .type = elf.PT_LOAD,
                 .offset = off,
                 .filesz = filesz,
-                .addr = if (ptr_bit_width >= 32) 0x10000000 else 0xc000,
+                .addr = if (ptr_size >= 4) 0x10000000 else 0xc000,
                 .memsz = filesz,
                 .@"align" = alignment,
                 .flags = elf.PF_R | elf.PF_W,
@@ -154,7 +154,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
             const alignment = elf_file.page_size;
             elf_file.phdr_zig_load_zerofill_index = try elf_file.addPhdr(.{
                 .type = elf.PT_LOAD,
-                .addr = if (ptr_bit_width >= 32) 0x14000000 else 0xf000,
+                .addr = if (ptr_size >= 4) 0x14000000 else 0xf000,
                 .memsz = 1024,
                 .@"align" = alignment,
                 .flags = elf.PF_R | elf.PF_W,
@@ -354,6 +354,20 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                 self.debug_rnglists_index = try addSectionSymbol(self, gpa, ".debug_rnglists", .@"1", elf_file.debug_rnglists_section_index.?);
             }
 
+            if (elf_file.eh_frame_section_index == null) {
+                elf_file.eh_frame_section_index = try elf_file.addSection(.{
+                    .name = try elf_file.insertShString(".eh_frame"),
+                    .type = if (elf_file.getTarget().cpu.arch == .x86_64)
+                        elf.SHT_X86_64_UNWIND
+                    else
+                        elf.SHT_PROGBITS,
+                    .flags = elf.SHF_ALLOC,
+                    .addralign = ptr_size,
+                });
+                self.eh_frame_section_dirty = true;
+                self.eh_frame_index = try addSectionSymbol(self, gpa, ".eh_frame", Atom.Alignment.fromNonzeroByteUnits(ptr_size), elf_file.eh_frame_section_index.?);
+            }
+
             try dwarf.initMetadata();
             self.dwarf = dwarf;
         },
@@ -460,6 +474,7 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
             self.debug_line_str_index.?,
             self.debug_loclists_index.?,
             self.debug_rnglists_index.?,
+            self.eh_frame_index.?,
         }, [_]*Dwarf.Section{
             &dwarf.debug_info.section,
             &dwarf.debug_abbrev.section,
@@ -469,7 +484,18 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
             &dwarf.debug_line_str.section,
             &dwarf.debug_loclists.section,
             &dwarf.debug_rnglists.section,
-        }) |sym_index, sect| {
+            &dwarf.debug_frame.section,
+        }, [_]Dwarf.Section.Index{
+            .debug_info,
+            .debug_abbrev,
+            .debug_str,
+            .debug_aranges,
+            .debug_line,
+            .debug_line_str,
+            .debug_loclists,
+            .debug_rnglists,
+            .debug_frame,
+        }) |sym_index, sect, sect_index| {
             const sym = self.symbol(sym_index);
             const atom_ptr = self.atom(sym.ref.index).?;
             if (!atom_ptr.alive) continue;
@@ -509,6 +535,8 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
                 for (unit.cross_section_relocs.items) |reloc| {
                     const target_sym_index = switch (reloc.target_sec) {
                         .debug_abbrev => self.debug_abbrev_index.?,
+                        .debug_aranges => self.debug_aranges_index.?,
+                        .debug_frame => self.eh_frame_index.?,
                         .debug_info => self.debug_info_index.?,
                         .debug_line => self.debug_line_index.?,
                         .debug_line_str => self.debug_line_str_index.?,
@@ -547,7 +575,10 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
                         entry.external_relocs.items.len);
                     for (entry.cross_entry_relocs.items) |reloc| {
                         const r_offset = entry_off + reloc.source_off;
-                        const r_addend: i64 = @intCast(unit.off + reloc.target_off + unit.header_len + unit.getEntry(reloc.target_entry).assertNonEmpty(unit, sect, dwarf).off);
+                        const r_addend: i64 = @intCast(unit.off + reloc.target_off + (if (reloc.target_entry.unwrap()) |target_entry|
+                            unit.header_len + unit.getEntry(target_entry).assertNonEmpty(unit, sect, dwarf).off
+                        else
+                            0));
                         const r_type = relocation.dwarf.crossSectionRelocType(dwarf.format, cpu_arch);
                         log.debug("  {s} <- r_off={x}, r_add={x}, r_type={}", .{
                             self.symbol(sym_index).name(elf_file),
@@ -584,6 +615,8 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
                     for (entry.cross_section_relocs.items) |reloc| {
                         const target_sym_index = switch (reloc.target_sec) {
                             .debug_abbrev => self.debug_abbrev_index.?,
+                            .debug_aranges => self.debug_aranges_index.?,
+                            .debug_frame => self.eh_frame_index.?,
                             .debug_info => self.debug_info_index.?,
                             .debug_line => self.debug_line_index.?,
                             .debug_line_str => self.debug_line_str_index.?,
@@ -617,7 +650,7 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
                         const target_sym = self.symbol(reloc.target_sym);
                         const r_offset = entry_off + reloc.source_off;
                         const r_addend: i64 = @intCast(reloc.target_off);
-                        const r_type = relocation.dwarf.externalRelocType(target_sym.*, dwarf.address_size, cpu_arch);
+                        const r_type = relocation.dwarf.externalRelocType(target_sym.*, sect_index, dwarf.address_size, cpu_arch);
                         log.debug("  {s} <- r_off={x}, r_add={x}, r_type={}", .{
                             target_sym.name(elf_file),
                             r_offset,
@@ -2001,14 +2034,14 @@ pub fn atom(self: *ZigObject, atom_index: Atom.Index) ?*Atom {
 }
 
 fn addAtomExtra(self: *ZigObject, allocator: Allocator, extra: Atom.Extra) !u32 {
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
     try self.atoms_extra.ensureUnusedCapacity(allocator, fields.len);
     return self.addAtomExtraAssumeCapacity(extra);
 }
 
 fn addAtomExtraAssumeCapacity(self: *ZigObject, extra: Atom.Extra) u32 {
     const index = @as(u32, @intCast(self.atoms_extra.items.len));
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
     inline for (fields) |field| {
         self.atoms_extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
@@ -2019,7 +2052,7 @@ fn addAtomExtraAssumeCapacity(self: *ZigObject, extra: Atom.Extra) u32 {
 }
 
 pub fn atomExtra(self: ZigObject, index: u32) Atom.Extra {
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
     var i: usize = index;
     var result: Atom.Extra = undefined;
     inline for (fields) |field| {
@@ -2034,7 +2067,7 @@ pub fn atomExtra(self: ZigObject, index: u32) Atom.Extra {
 
 pub fn setAtomExtra(self: *ZigObject, index: u32, extra: Atom.Extra) void {
     assert(index > 0);
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
     inline for (fields, 0..) |field, i| {
         self.atoms_extra.items[index + i] = switch (field.type) {
             u32 => @field(extra, field.name),
@@ -2073,14 +2106,14 @@ fn addSymbolAssumeCapacity(self: *ZigObject) Symbol.Index {
 }
 
 pub fn addSymbolExtra(self: *ZigObject, allocator: Allocator, extra: Symbol.Extra) !u32 {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     try self.symbols_extra.ensureUnusedCapacity(allocator, fields.len);
     return self.addSymbolExtraAssumeCapacity(extra);
 }
 
 pub fn addSymbolExtraAssumeCapacity(self: *ZigObject, extra: Symbol.Extra) u32 {
     const index = @as(u32, @intCast(self.symbols_extra.items.len));
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     inline for (fields) |field| {
         self.symbols_extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
@@ -2091,7 +2124,7 @@ pub fn addSymbolExtraAssumeCapacity(self: *ZigObject, extra: Symbol.Extra) u32 {
 }
 
 pub fn symbolExtra(self: *ZigObject, index: u32) Symbol.Extra {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     var i: usize = index;
     var result: Symbol.Extra = undefined;
     inline for (fields) |field| {
@@ -2105,7 +2138,7 @@ pub fn symbolExtra(self: *ZigObject, index: u32) Symbol.Extra {
 }
 
 pub fn setSymbolExtra(self: *ZigObject, index: u32, extra: Symbol.Extra) void {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     inline for (fields, 0..) |field, i| {
         self.symbols_extra.items[index + i] = switch (field.type) {
             u32 => @field(extra, field.name),

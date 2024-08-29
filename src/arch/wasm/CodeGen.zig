@@ -1004,19 +1004,19 @@ fn typeToValtype(ty: Type, pt: Zcu.PerThread, target: std.Target) wasm.Valtype {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     return switch (ty.zigTypeTag(zcu)) {
-        .Float => switch (ty.floatBits(target)) {
+        .float => switch (ty.floatBits(target)) {
             16 => .i32, // stored/loaded as u16
             32 => .f32,
             64 => .f64,
             80, 128 => .i32,
             else => unreachable,
         },
-        .Int, .Enum => switch (ty.intInfo(zcu).bits) {
+        .int, .@"enum" => switch (ty.intInfo(zcu).bits) {
             0...32 => .i32,
             33...64 => .i64,
             else => .i32,
         },
-        .Struct => blk: {
+        .@"struct" => blk: {
             if (zcu.typeToPackedStruct(ty)) |packed_struct| {
                 const backing_int_ty = Type.fromInterned(packed_struct.backingIntTypeUnordered(ip));
                 break :blk typeToValtype(backing_int_ty, pt, target);
@@ -1024,11 +1024,11 @@ fn typeToValtype(ty: Type, pt: Zcu.PerThread, target: std.Target) wasm.Valtype {
                 break :blk .i32;
             }
         },
-        .Vector => switch (determineSimdStoreStrategy(ty, zcu, target)) {
+        .vector => switch (determineSimdStoreStrategy(ty, zcu, target)) {
             .direct => .v128,
             .unrolled => .i32,
         },
-        .Union => switch (ty.containerLayout(zcu)) {
+        .@"union" => switch (ty.containerLayout(zcu)) {
             .@"packed" => blk: {
                 const int_ty = pt.intType(.unsigned, @as(u16, @intCast(ty.bitSize(zcu)))) catch @panic("out of memory");
                 break :blk typeToValtype(int_ty, pt, target);
@@ -1430,7 +1430,7 @@ fn lowerArg(func: *CodeGen, cc: std.builtin.CallingConvention, ty: Type, value: 
     const ty_classes = abi.classifyType(ty, zcu);
     assert(ty_classes[0] != .none);
     switch (ty.zigTypeTag(zcu)) {
-        .Struct, .Union => {
+        .@"struct", .@"union" => {
             if (ty_classes[0] == .indirect) {
                 return func.lowerToStack(value);
             }
@@ -1445,7 +1445,7 @@ fn lowerArg(func: *CodeGen, cc: std.builtin.CallingConvention, ty: Type, value: 
                 else => try func.emitWValue(value),
             }
         },
-        .Int, .Float => {
+        .int, .float => {
             if (ty_classes[1] == .none) {
                 return func.lowerToStack(value);
             }
@@ -1719,27 +1719,27 @@ fn isByRef(ty: Type, pt: Zcu.PerThread, target: std.Target) bool {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     switch (ty.zigTypeTag(zcu)) {
-        .Type,
-        .ComptimeInt,
-        .ComptimeFloat,
-        .EnumLiteral,
-        .Undefined,
-        .Null,
-        .Opaque,
+        .type,
+        .comptime_int,
+        .comptime_float,
+        .enum_literal,
+        .undefined,
+        .null,
+        .@"opaque",
         => unreachable,
 
-        .NoReturn,
-        .Void,
-        .Bool,
-        .ErrorSet,
-        .Fn,
-        .AnyFrame,
+        .noreturn,
+        .void,
+        .bool,
+        .error_set,
+        .@"fn",
+        .@"anyframe",
         => return false,
 
-        .Array,
-        .Frame,
+        .array,
+        .frame,
         => return ty.hasRuntimeBitsIgnoreComptime(zcu),
-        .Union => {
+        .@"union" => {
             if (zcu.typeToUnion(ty)) |union_obj| {
                 if (union_obj.flagsUnordered(ip).layout == .@"packed") {
                     return ty.abiSize(zcu) > 8;
@@ -1747,30 +1747,30 @@ fn isByRef(ty: Type, pt: Zcu.PerThread, target: std.Target) bool {
             }
             return ty.hasRuntimeBitsIgnoreComptime(zcu);
         },
-        .Struct => {
+        .@"struct" => {
             if (zcu.typeToPackedStruct(ty)) |packed_struct| {
                 return isByRef(Type.fromInterned(packed_struct.backingIntTypeUnordered(ip)), pt, target);
             }
             return ty.hasRuntimeBitsIgnoreComptime(zcu);
         },
-        .Vector => return determineSimdStoreStrategy(ty, zcu, target) == .unrolled,
-        .Int => return ty.intInfo(zcu).bits > 64,
-        .Enum => return ty.intInfo(zcu).bits > 64,
-        .Float => return ty.floatBits(target) > 64,
-        .ErrorUnion => {
+        .vector => return determineSimdStoreStrategy(ty, zcu, target) == .unrolled,
+        .int => return ty.intInfo(zcu).bits > 64,
+        .@"enum" => return ty.intInfo(zcu).bits > 64,
+        .float => return ty.floatBits(target) > 64,
+        .error_union => {
             const pl_ty = ty.errorUnionPayload(zcu);
             if (!pl_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
                 return false;
             }
             return true;
         },
-        .Optional => {
+        .optional => {
             if (ty.isPtrLikeOptional(zcu)) return false;
             const pl_type = ty.optionalChild(zcu);
-            if (pl_type.zigTypeTag(zcu) == .ErrorSet) return false;
+            if (pl_type.zigTypeTag(zcu) == .error_set) return false;
             return pl_type.hasRuntimeBitsIgnoreComptime(zcu);
         },
-        .Pointer => {
+        .pointer => {
             // Slices act like struct and will be passed by reference
             if (ty.isSlice(zcu)) return true;
             return false;
@@ -1788,7 +1788,7 @@ const SimdStoreStrategy = enum {
 /// features are enabled, the function will return `.direct`. This would allow to store
 /// it using a instruction, rather than an unrolled version.
 fn determineSimdStoreStrategy(ty: Type, zcu: *Zcu, target: std.Target) SimdStoreStrategy {
-    std.debug.assert(ty.zigTypeTag(zcu) == .Vector);
+    std.debug.assert(ty.zigTypeTag(zcu) == .vector);
     if (ty.bitSize(zcu) != 128) return .unrolled;
     const hasFeature = std.Target.wasm.featureSetHas;
     const features = target.cpu.features;
@@ -1913,7 +1913,9 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .get_union_tag => func.airGetUnionTag(inst),
 
         .@"try" => func.airTry(inst),
+        .try_cold => func.airTry(inst),
         .try_ptr => func.airTryPtr(inst),
+        .try_ptr_cold => func.airTryPtr(inst),
 
         .dbg_stmt => func.airDbgStmt(inst),
         .dbg_inline_block => func.airDbgInlineBlock(inst),
@@ -2104,7 +2106,7 @@ fn airRet(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     } else if (fn_info.cc == .C and ret_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
         switch (ret_ty.zigTypeTag(zcu)) {
             // Aggregate types can be lowered as a singular value
-            .Struct, .Union => {
+            .@"struct", .@"union" => {
                 const scalar_type = abi.scalarType(ret_ty, zcu);
                 try func.emitWValue(operand);
                 const opcode = buildOpcode(.{
@@ -2187,8 +2189,8 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const fn_ty = switch (ty.zigTypeTag(zcu)) {
-        .Fn => ty,
-        .Pointer => ty.childType(zcu),
+        .@"fn" => ty,
+        .pointer => ty.childType(zcu),
         else => unreachable,
     };
     const ret_ty = fn_ty.fnReturnType(zcu);
@@ -2259,7 +2261,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
     } else {
         // in this case we call a function pointer
         // so load its value onto the stack
-        std.debug.assert(ty.zigTypeTag(zcu) == .Pointer);
+        std.debug.assert(ty.zigTypeTag(zcu) == .pointer);
         const operand = try func.resolveInst(pl_op.operand);
         try func.emitWValue(operand);
 
@@ -2279,7 +2281,7 @@ fn airCall(func: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
         } else if (first_param_sret) {
             break :result_value sret;
             // TODO: Make this less fragile and optimize
-        } else if (zcu.typeToFunc(fn_ty).?.cc == .C and ret_ty.zigTypeTag(zcu) == .Struct or ret_ty.zigTypeTag(zcu) == .Union) {
+        } else if (zcu.typeToFunc(fn_ty).?.cc == .C and ret_ty.zigTypeTag(zcu) == .@"struct" or ret_ty.zigTypeTag(zcu) == .@"union") {
             const result_local = try func.allocLocal(ret_ty);
             try func.addLabel(.local_set, result_local.local.value);
             const scalar_type = abi.scalarType(ret_ty, zcu);
@@ -2369,7 +2371,7 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
     const zcu = pt.zcu;
     const abi_size = ty.abiSize(zcu);
     switch (ty.zigTypeTag(zcu)) {
-        .ErrorUnion => {
+        .error_union => {
             const pl_ty = ty.errorUnionPayload(zcu);
             if (!pl_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
                 return func.store(lhs, rhs, Type.anyerror, 0);
@@ -2378,7 +2380,7 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
             const len = @as(u32, @intCast(abi_size));
             return func.memcpy(lhs, rhs, .{ .imm32 = len });
         },
-        .Optional => {
+        .optional => {
             if (ty.isPtrLikeOptional(zcu)) {
                 return func.store(lhs, rhs, Type.usize, 0);
             }
@@ -2386,18 +2388,18 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
             if (!pl_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
                 return func.store(lhs, rhs, Type.u8, 0);
             }
-            if (pl_ty.zigTypeTag(zcu) == .ErrorSet) {
+            if (pl_ty.zigTypeTag(zcu) == .error_set) {
                 return func.store(lhs, rhs, Type.anyerror, 0);
             }
 
             const len = @as(u32, @intCast(abi_size));
             return func.memcpy(lhs, rhs, .{ .imm32 = len });
         },
-        .Struct, .Array, .Union => if (isByRef(ty, pt, func.target.*)) {
+        .@"struct", .array, .@"union" => if (isByRef(ty, pt, func.target.*)) {
             const len = @as(u32, @intCast(abi_size));
             return func.memcpy(lhs, rhs, .{ .imm32 = len });
         },
-        .Vector => switch (determineSimdStoreStrategy(ty, zcu, func.target.*)) {
+        .vector => switch (determineSimdStoreStrategy(ty, zcu, func.target.*)) {
             .unrolled => {
                 const len: u32 = @intCast(abi_size);
                 return func.memcpy(lhs, rhs, .{ .imm32 = len });
@@ -2416,7 +2418,7 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
                 return func.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
             },
         },
-        .Pointer => {
+        .pointer => {
             if (ty.isSlice(zcu)) {
                 // store pointer first
                 // lower it to the stack so we do not have to store rhs into a local first
@@ -2431,7 +2433,7 @@ fn store(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerE
                 return;
             }
         },
-        .Int, .Enum, .Float => if (abi_size > 8 and abi_size <= 16) {
+        .int, .@"enum", .float => if (abi_size > 8 and abi_size <= 16) {
             try func.emitWValue(lhs);
             const lsb = try func.load(rhs, Type.u64, 0);
             try func.store(.stack, lsb, Type.u64, 0 + lhs.offset());
@@ -2519,7 +2521,7 @@ fn load(func: *CodeGen, operand: WValue, ty: Type, offset: u32) InnerError!WValu
     // load local's value from memory by its stack position
     try func.emitWValue(operand);
 
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         // TODO: Add helper functions for simd opcodes
         const extra_index = @as(u32, @intCast(func.mir_extra.items.len));
         // stores as := opcode, offset, alignment (opcode::memarg)
@@ -2569,7 +2571,7 @@ fn airArg(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         // When we have an argument that's passed using more than a single parameter,
         // we combine them into a single stack value
         if (arg_classes[0] == .direct and arg_classes[1] == .direct) {
-            if (arg_ty.zigTypeTag(zcu) != .Int and arg_ty.zigTypeTag(zcu) != .Float) {
+            if (arg_ty.zigTypeTag(zcu) != .int and arg_ty.zigTypeTag(zcu) != .float) {
                 return func.fail(
                     "TODO: Implement C-ABI argument for type '{}'",
                     .{arg_ty.fmt(pt)},
@@ -2645,7 +2647,7 @@ fn binOp(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!
     }
 
     if (isByRef(ty, pt, func.target.*)) {
-        if (ty.zigTypeTag(zcu) == .Int) {
+        if (ty.zigTypeTag(zcu) == .int) {
             return func.binOpBigInt(lhs, rhs, ty, op);
         } else {
             return func.fail(
@@ -2820,7 +2822,7 @@ fn airAbs(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const scalar_ty = ty.scalarType(zcu);
 
     switch (scalar_ty.zigTypeTag(zcu)) {
-        .Int => if (ty.zigTypeTag(zcu) == .Vector) {
+        .int => if (ty.zigTypeTag(zcu) == .vector) {
             return func.fail("TODO implement airAbs for {}", .{ty.fmt(pt)});
         } else {
             const int_bits = ty.intInfo(zcu).bits;
@@ -2885,7 +2887,7 @@ fn airAbs(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 else => unreachable,
             }
         },
-        .Float => {
+        .float => {
             const result = try func.floatOp(.fabs, ty, &.{operand});
             return func.finishAir(inst, result, &.{ty_op.operand});
         },
@@ -2905,7 +2907,7 @@ fn airUnaryFloatOp(func: *CodeGen, inst: Air.Inst.Index, op: FloatOp) InnerError
 fn floatOp(func: *CodeGen, float_op: FloatOp, ty: Type, args: []const WValue) InnerError!WValue {
     const pt = func.pt;
     const zcu = pt.zcu;
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         return func.fail("TODO: Implement floatOps for vectors", .{});
     }
 
@@ -3019,7 +3021,7 @@ fn airWrapBinOp(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
     const lhs_ty = func.typeOf(bin_op.lhs);
     const rhs_ty = func.typeOf(bin_op.rhs);
 
-    if (lhs_ty.zigTypeTag(zcu) == .Vector or rhs_ty.zigTypeTag(zcu) == .Vector) {
+    if (lhs_ty.zigTypeTag(zcu) == .vector or rhs_ty.zigTypeTag(zcu) == .vector) {
         return func.fail("TODO: Implement wrapping arithmetic for vectors", .{});
     }
 
@@ -3137,7 +3139,7 @@ fn lowerPtr(func: *CodeGen, ptr_val: InternPool.Index, prev_offset: u64) InnerEr
             const base_ptr = Value.fromInterned(field.base);
             const base_ty = base_ptr.typeOf(zcu).childType(zcu);
             const field_off: u64 = switch (base_ty.zigTypeTag(zcu)) {
-                .Pointer => off: {
+                .pointer => off: {
                     assert(base_ty.isSlice(zcu));
                     break :off switch (field.index) {
                         Value.slice_ptr_index => 0,
@@ -3145,11 +3147,11 @@ fn lowerPtr(func: *CodeGen, ptr_val: InternPool.Index, prev_offset: u64) InnerEr
                         else => unreachable,
                     };
                 },
-                .Struct => switch (base_ty.containerLayout(zcu)) {
+                .@"struct" => switch (base_ty.containerLayout(zcu)) {
                     .auto => base_ty.structFieldOffset(@intCast(field.index), zcu),
                     .@"extern", .@"packed" => unreachable,
                 },
-                .Union => switch (base_ty.containerLayout(zcu)) {
+                .@"union" => switch (base_ty.containerLayout(zcu)) {
                     .auto => off: {
                         // Keep in sync with the `un` case of `generateSymbol`.
                         const layout = base_ty.unionGetLayout(zcu);
@@ -3182,7 +3184,7 @@ fn lowerUavRef(
     const zcu = pt.zcu;
     const ty = Type.fromInterned(zcu.intern_pool.typeOf(uav.val));
 
-    const is_fn_body = ty.zigTypeTag(zcu) == .Fn;
+    const is_fn_body = ty.zigTypeTag(zcu) == .@"fn";
     if (!is_fn_body and !ty.hasRuntimeBitsIgnoreComptime(zcu)) {
         return .{ .imm32 = 0xaaaaaaaa };
     }
@@ -3355,7 +3357,7 @@ fn lowerConstant(func: *CodeGen, val: Value, ty: Type) InnerError!WValue {
             .vector_type => {
                 assert(determineSimdStoreStrategy(ty, zcu, func.target.*) == .direct);
                 var buf: [16]u8 = undefined;
-                val.writeToMemory(ty, pt, &buf) catch unreachable;
+                val.writeToMemory(pt, &buf) catch unreachable;
                 return func.storeSimdImmd(buf);
             },
             .struct_type => {
@@ -3402,34 +3404,34 @@ fn emitUndefined(func: *CodeGen, ty: Type) InnerError!WValue {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     switch (ty.zigTypeTag(zcu)) {
-        .Bool, .ErrorSet => return .{ .imm32 = 0xaaaaaaaa },
-        .Int, .Enum => switch (ty.intInfo(zcu).bits) {
+        .bool, .error_set => return .{ .imm32 = 0xaaaaaaaa },
+        .int, .@"enum" => switch (ty.intInfo(zcu).bits) {
             0...32 => return .{ .imm32 = 0xaaaaaaaa },
             33...64 => return .{ .imm64 = 0xaaaaaaaaaaaaaaaa },
             else => unreachable,
         },
-        .Float => switch (ty.floatBits(func.target.*)) {
+        .float => switch (ty.floatBits(func.target.*)) {
             16 => return .{ .imm32 = 0xaaaaaaaa },
             32 => return .{ .float32 = @as(f32, @bitCast(@as(u32, 0xaaaaaaaa))) },
             64 => return .{ .float64 = @as(f64, @bitCast(@as(u64, 0xaaaaaaaaaaaaaaaa))) },
             else => unreachable,
         },
-        .Pointer => switch (func.arch()) {
+        .pointer => switch (func.arch()) {
             .wasm32 => return .{ .imm32 = 0xaaaaaaaa },
             .wasm64 => return .{ .imm64 = 0xaaaaaaaaaaaaaaaa },
             else => unreachable,
         },
-        .Optional => {
+        .optional => {
             const pl_ty = ty.optionalChild(zcu);
             if (ty.optionalReprIsPayload(zcu)) {
                 return func.emitUndefined(pl_ty);
             }
             return .{ .imm32 = 0xaaaaaaaa };
         },
-        .ErrorUnion => {
+        .error_union => {
             return .{ .imm32 = 0xaaaaaaaa };
         },
-        .Struct => {
+        .@"struct" => {
             const packed_struct = zcu.typeToPackedStruct(ty).?;
             return func.emitUndefined(Type.fromInterned(packed_struct.backingIntTypeUnordered(ip)));
         },
@@ -3602,7 +3604,7 @@ fn cmp(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: std.math.CompareO
     assert(!(lhs != .stack and rhs == .stack));
     const pt = func.pt;
     const zcu = pt.zcu;
-    if (ty.zigTypeTag(zcu) == .Optional and !ty.optionalReprIsPayload(zcu)) {
+    if (ty.zigTypeTag(zcu) == .optional and !ty.optionalReprIsPayload(zcu)) {
         const payload_ty = ty.optionalChild(zcu);
         if (payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
             // When we hit this case, we must check the value of optionals
@@ -3618,7 +3620,7 @@ fn cmp(func: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: std.math.CompareO
 
     const signedness: std.builtin.Signedness = blk: {
         // by default we tell the operand type is unsigned (i.e. bools and enum values)
-        if (ty.zigTypeTag(zcu) != .Int) break :blk .unsigned;
+        if (ty.zigTypeTag(zcu) != .int) break :blk .unsigned;
 
         // incase of an actual integer, we emit the correct signedness
         break :blk ty.intInfo(zcu).signedness;
@@ -3741,7 +3743,7 @@ fn airNot(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const zcu = pt.zcu;
 
     const result = result: {
-        if (operand_ty.zigTypeTag(zcu) == .Bool) {
+        if (operand_ty.zigTypeTag(zcu) == .bool) {
             try func.emitWValue(operand);
             try func.addTag(.i32_eqz);
             const not_tmp = try func.allocLocal(operand_ty);
@@ -3920,14 +3922,14 @@ fn structFieldPtr(
 
     const offset = switch (struct_ty.containerLayout(zcu)) {
         .@"packed" => switch (struct_ty.zigTypeTag(zcu)) {
-            .Struct => offset: {
+            .@"struct" => offset: {
                 if (result_ty.ptrInfo(zcu).packed_offset.host_size != 0) {
                     break :offset @as(u32, 0);
                 }
                 const struct_type = zcu.typeToStruct(struct_ty).?;
                 break :offset @divExact(pt.structPackedFieldBitOffset(struct_type, index) + struct_ptr_ty_info.packed_offset.bit_offset, 8);
             },
-            .Union => 0,
+            .@"union" => 0,
             else => unreachable,
         },
         else => struct_ty.structFieldOffset(index, zcu),
@@ -3959,7 +3961,7 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const result: WValue = switch (struct_ty.containerLayout(zcu)) {
         .@"packed" => switch (struct_ty.zigTypeTag(zcu)) {
-            .Struct => result: {
+            .@"struct" => result: {
                 const packed_struct = zcu.typeToPackedStruct(struct_ty).?;
                 const offset = pt.structPackedFieldBitOffset(packed_struct, field_index);
                 const backing_ty = Type.fromInterned(packed_struct.backingIntTypeUnordered(ip));
@@ -3979,7 +3981,7 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 else
                     try func.binOp(operand, const_wvalue, backing_ty, .shr);
 
-                if (field_ty.zigTypeTag(zcu) == .Float) {
+                if (field_ty.zigTypeTag(zcu) == .float) {
                     const int_type = try pt.intType(.unsigned, @as(u16, @intCast(field_ty.bitSize(zcu))));
                     const truncated = try func.trunc(shifted_value, int_type, backing_ty);
                     break :result try func.bitcast(field_ty, int_type, truncated);
@@ -3993,7 +3995,7 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 }
                 break :result try func.trunc(shifted_value, field_ty, backing_ty);
             },
-            .Union => result: {
+            .@"union" => result: {
                 if (isByRef(struct_ty, pt, func.target.*)) {
                     if (!isByRef(field_ty, pt, func.target.*)) {
                         break :result try func.load(operand, field_ty, 0);
@@ -4005,7 +4007,7 @@ fn airStructFieldVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 }
 
                 const union_int_type = try pt.intType(.unsigned, @as(u16, @intCast(struct_ty.bitSize(zcu))));
-                if (field_ty.zigTypeTag(zcu) == .Float) {
+                if (field_ty.zigTypeTag(zcu) == .float) {
                     const int_type = try pt.intType(.unsigned, @as(u16, @intCast(field_ty.bitSize(zcu))));
                     const truncated = try func.trunc(operand, int_type, union_int_type);
                     break :result try func.bitcast(field_ty, int_type, truncated);
@@ -4041,37 +4043,31 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const zcu = pt.zcu;
     // result type is always 'noreturn'
     const blocktype = wasm.block_empty;
-    const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const target = try func.resolveInst(pl_op.operand);
-    const target_ty = func.typeOf(pl_op.operand);
-    const switch_br = func.air.extraData(Air.SwitchBr, pl_op.payload);
-    const liveness = try func.liveness.getSwitchBr(func.gpa, inst, switch_br.data.cases_len + 1);
+    const switch_br = func.air.unwrapSwitch(inst);
+    const target = try func.resolveInst(switch_br.operand);
+    const target_ty = func.typeOf(switch_br.operand);
+    const liveness = try func.liveness.getSwitchBr(func.gpa, inst, switch_br.cases_len + 1);
     defer func.gpa.free(liveness.deaths);
-
-    var extra_index: usize = switch_br.end;
-    var case_i: u32 = 0;
 
     // a list that maps each value with its value and body based on the order inside the list.
     const CaseValue = struct { integer: i32, value: Value };
     var case_list = try std.ArrayList(struct {
         values: []const CaseValue,
         body: []const Air.Inst.Index,
-    }).initCapacity(func.gpa, switch_br.data.cases_len);
+    }).initCapacity(func.gpa, switch_br.cases_len);
     defer for (case_list.items) |case| {
         func.gpa.free(case.values);
     } else case_list.deinit();
 
     var lowest_maybe: ?i32 = null;
     var highest_maybe: ?i32 = null;
-    while (case_i < switch_br.data.cases_len) : (case_i += 1) {
-        const case = func.air.extraData(Air.SwitchBr.Case, extra_index);
-        const items: []const Air.Inst.Ref = @ptrCast(func.air.extra[case.end..][0..case.data.items_len]);
-        const case_body: []const Air.Inst.Index = @ptrCast(func.air.extra[case.end + items.len ..][0..case.data.body_len]);
-        extra_index = case.end + items.len + case_body.len;
-        const values = try func.gpa.alloc(CaseValue, items.len);
+
+    var it = switch_br.iterateCases();
+    while (it.next()) |case| {
+        const values = try func.gpa.alloc(CaseValue, case.items.len);
         errdefer func.gpa.free(values);
 
-        for (items, 0..) |ref, i| {
+        for (case.items, 0..) |ref, i| {
             const item_val = (try func.air.value(ref, pt)).?;
             const int_val = func.valueAsI32(item_val);
             if (lowest_maybe == null or int_val < lowest_maybe.?) {
@@ -4083,7 +4079,7 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             values[i] = .{ .integer = int_val, .value = item_val };
         }
 
-        case_list.appendAssumeCapacity(.{ .values = values, .body = case_body });
+        case_list.appendAssumeCapacity(.{ .values = values, .body = case.body });
         try func.startBlock(.block, blocktype);
     }
 
@@ -4097,7 +4093,7 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     // TODO: Benchmark this to find a proper value, LLVM seems to draw the line at '40~45'.
     const is_sparse = highest - lowest > 50 or target_ty.bitSize(zcu) > 32;
 
-    const else_body: []const Air.Inst.Index = @ptrCast(func.air.extra[extra_index..][0..switch_br.data.else_body_len]);
+    const else_body = it.elseBody();
     const has_else_body = else_body.len != 0;
     if (has_else_body) {
         try func.startBlock(.block, blocktype);
@@ -4140,18 +4136,18 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 // for errors that are not present in any branch. This is fine as this default
                 // case will never be hit for those cases but we do save runtime cost and size
                 // by using a jump table for this instead of if-else chains.
-                break :blk if (has_else_body or target_ty.zigTypeTag(zcu) == .ErrorSet) case_i else unreachable;
+                break :blk if (has_else_body or target_ty.zigTypeTag(zcu) == .error_set) switch_br.cases_len else unreachable;
             };
             func.mir_extra.appendAssumeCapacity(idx);
         } else if (has_else_body) {
-            func.mir_extra.appendAssumeCapacity(case_i); // default branch
+            func.mir_extra.appendAssumeCapacity(switch_br.cases_len); // default branch
         }
         try func.endBlock();
     }
 
     const signedness: std.builtin.Signedness = blk: {
         // by default we tell the operand type is unsigned (i.e. bools and enum values)
-        if (target_ty.zigTypeTag(zcu) != .Int) break :blk .unsigned;
+        if (target_ty.zigTypeTag(zcu) != .int) break :blk .unsigned;
 
         // incase of an actual integer, we emit the correct signedness
         break :blk target_ty.intInfo(zcu).signedness;
@@ -4368,7 +4364,7 @@ fn airIntcast(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const operand_ty = func.typeOf(ty_op.operand);
     const pt = func.pt;
     const zcu = pt.zcu;
-    if (ty.zigTypeTag(zcu) == .Vector or operand_ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector or operand_ty.zigTypeTag(zcu) == .vector) {
         return func.fail("todo Wasm intcast for vectors", .{});
     }
     if (ty.abiSize(zcu) > 16 or operand_ty.abiSize(zcu) > 16) {
@@ -4686,7 +4682,7 @@ fn airTrunc(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const pt = func.pt;
     const zcu = pt.zcu;
 
-    if (wanted_ty.zigTypeTag(zcu) == .Vector or op_ty.zigTypeTag(zcu) == .Vector) {
+    if (wanted_ty.zigTypeTag(zcu) == .vector or op_ty.zigTypeTag(zcu) == .vector) {
         return func.fail("TODO: trunc for vectors", .{});
     }
 
@@ -4994,7 +4990,7 @@ fn airArrayElemVal(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         try func.addTag(.i32_mul);
         try func.addTag(.i32_add);
     } else {
-        std.debug.assert(array_ty.zigTypeTag(zcu) == .Vector);
+        std.debug.assert(array_ty.zigTypeTag(zcu) == .vector);
 
         switch (index) {
             inline .imm32, .imm64 => |lane| {
@@ -5285,7 +5281,7 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const result: WValue = result_value: {
         switch (result_ty.zigTypeTag(zcu)) {
-            .Array => {
+            .array => {
                 const result = try func.allocStack(result_ty);
                 const elem_ty = result_ty.childType(zcu);
                 const elem_size = @as(u32, @intCast(elem_ty.abiSize(zcu)));
@@ -5324,7 +5320,7 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 }
                 break :result_value result;
             },
-            .Struct => switch (result_ty.containerLayout(zcu)) {
+            .@"struct" => switch (result_ty.containerLayout(zcu)) {
                 .@"packed" => {
                     if (isByRef(result_ty, pt, func.target.*)) {
                         return func.fail("TODO: airAggregateInit for packed structs larger than 64 bits", .{});
@@ -5390,7 +5386,7 @@ fn airAggregateInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     break :result_value result;
                 },
             },
-            .Vector => return func.fail("TODO: Wasm backend: implement airAggregateInit for vectors", .{}),
+            .vector => return func.fail("TODO: Wasm backend: implement airAggregateInit for vectors", .{}),
             else => unreachable,
         }
     };
@@ -5462,7 +5458,7 @@ fn airUnionInit(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         } else {
             const operand = try func.resolveInst(extra.init);
             const union_int_type = try pt.intType(.unsigned, @as(u16, @intCast(union_ty.bitSize(zcu))));
-            if (field_ty.zigTypeTag(zcu) == .Float) {
+            if (field_ty.zigTypeTag(zcu) == .float) {
                 const int_type = try pt.intType(.unsigned, @intCast(field_ty.bitSize(zcu)));
                 const bitcasted = try func.bitcast(field_ty, int_type, operand);
                 break :result try func.trunc(bitcasted, int_type, union_int_type);
@@ -5814,7 +5810,7 @@ fn airPopcount(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const operand = try func.resolveInst(ty_op.operand);
     const op_ty = func.typeOf(ty_op.operand);
 
-    if (op_ty.zigTypeTag(zcu) == .Vector) {
+    if (op_ty.zigTypeTag(zcu) == .vector) {
         return func.fail("TODO: Implement @popCount for vectors", .{});
     }
 
@@ -5866,7 +5862,7 @@ fn airBitReverse(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const operand = try func.resolveInst(ty_op.operand);
     const ty = func.typeOf(ty_op.operand);
 
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         return func.fail("TODO: Implement @bitReverse for vectors", .{});
     }
 
@@ -6032,7 +6028,7 @@ fn airAddSubWithOverflow(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerErro
     const pt = func.pt;
     const zcu = pt.zcu;
 
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         return func.fail("TODO: Implement overflow arithmetic for vectors", .{});
     }
 
@@ -6079,7 +6075,7 @@ fn airShlWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty = func.typeOf(extra.lhs);
     const rhs_ty = func.typeOf(extra.rhs);
 
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         return func.fail("TODO: Implement overflow arithmetic for vectors", .{});
     }
 
@@ -6125,7 +6121,7 @@ fn airMulWithOverflow(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const pt = func.pt;
     const zcu = pt.zcu;
 
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         return func.fail("TODO: Implement overflow arithmetic for vectors", .{});
     }
 
@@ -6255,7 +6251,7 @@ fn airMaxMin(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
     const ty = func.typeOfIndex(inst);
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         return func.fail("TODO: `@maximum` and `@minimum` for vectors", .{});
     }
 
@@ -6266,7 +6262,7 @@ fn airMaxMin(func: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
     const lhs = try func.resolveInst(bin_op.lhs);
     const rhs = try func.resolveInst(bin_op.rhs);
 
-    if (ty.zigTypeTag(zcu) == .Float) {
+    if (ty.zigTypeTag(zcu) == .float) {
         var fn_name_buf: [64]u8 = undefined;
         const float_bits = ty.floatBits(func.target.*);
         const fn_name = std.fmt.bufPrint(&fn_name_buf, "{s}f{s}{s}", .{
@@ -6296,7 +6292,7 @@ fn airMulAdd(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const bin_op = func.air.extraData(Air.Bin, pl_op.payload).data;
 
     const ty = func.typeOfIndex(inst);
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         return func.fail("TODO: `@mulAdd` for vectors", .{});
     }
 
@@ -6330,7 +6326,7 @@ fn airClz(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
     const ty = func.typeOf(ty_op.operand);
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         return func.fail("TODO: `@clz` for vectors", .{});
     }
 
@@ -6382,7 +6378,7 @@ fn airCtz(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const ty = func.typeOf(ty_op.operand);
 
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         return func.fail("TODO: `@ctz` for vectors", .{});
     }
 
@@ -6575,7 +6571,7 @@ fn airByteSwap(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty = func.typeOfIndex(inst);
     const operand = try func.resolveInst(ty_op.operand);
 
-    if (ty.zigTypeTag(zcu) == .Vector) {
+    if (ty.zigTypeTag(zcu) == .vector) {
         return func.fail("TODO: @byteSwap for vectors", .{});
     }
     const int_info = ty.intInfo(zcu);

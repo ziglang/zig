@@ -829,6 +829,10 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
     }
     switch (info.tag) {
         .import => return false,
+        .branch_hint => {
+            _ = try astrl.expr(args[0], block, ResultInfo.type_only);
+            return false;
+        },
         .compile_log, .TypeOf => {
             for (args) |arg_node| {
                 _ = try astrl.expr(arg_node, block, ResultInfo.none);
@@ -907,7 +911,6 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         .fence,
         .set_float_mode,
         .set_align_stack,
-        .set_cold,
         .type_info,
         .work_item_id,
         .work_group_size,

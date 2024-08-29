@@ -54,26 +54,26 @@ pub fn classifyWindows(ty: Type, zcu: *Zcu) Class {
     // "Structs and unions of size 8, 16, 32, or 64 bits, and __m64 types, are passed
     // as if they were integers of the same size."
     switch (ty.zigTypeTag(zcu)) {
-        .Pointer,
-        .Int,
-        .Bool,
-        .Enum,
-        .Void,
-        .NoReturn,
-        .ErrorSet,
-        .Struct,
-        .Union,
-        .Optional,
-        .Array,
-        .ErrorUnion,
-        .AnyFrame,
-        .Frame,
+        .pointer,
+        .int,
+        .bool,
+        .@"enum",
+        .void,
+        .noreturn,
+        .error_set,
+        .@"struct",
+        .@"union",
+        .optional,
+        .array,
+        .error_union,
+        .@"anyframe",
+        .frame,
         => switch (ty.abiSize(zcu)) {
             0 => unreachable,
             1, 2, 4, 8 => return .integer,
             else => switch (ty.zigTypeTag(zcu)) {
-                .Int => return .win_i128,
-                .Struct, .Union => if (ty.containerLayout(zcu) == .@"packed") {
+                .int => return .win_i128,
+                .@"struct", .@"union" => if (ty.containerLayout(zcu) == .@"packed") {
                     return .win_i128;
                 } else {
                     return .memory;
@@ -82,16 +82,16 @@ pub fn classifyWindows(ty: Type, zcu: *Zcu) Class {
             },
         },
 
-        .Float, .Vector => return .sse,
+        .float, .vector => return .sse,
 
-        .Type,
-        .ComptimeFloat,
-        .ComptimeInt,
-        .Undefined,
-        .Null,
-        .Fn,
-        .Opaque,
-        .EnumLiteral,
+        .type,
+        .comptime_float,
+        .comptime_int,
+        .undefined,
+        .null,
+        .@"fn",
+        .@"opaque",
+        .enum_literal,
         => unreachable,
     }
 }
@@ -107,7 +107,7 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8
     };
     var result = [1]Class{.none} ** 8;
     switch (ty.zigTypeTag(zcu)) {
-        .Pointer => switch (ty.ptrSize(zcu)) {
+        .pointer => switch (ty.ptrSize(zcu)) {
             .Slice => {
                 result[0] = .integer;
                 result[1] = .integer;
@@ -118,7 +118,7 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8
                 return result;
             },
         },
-        .Int, .Enum, .ErrorSet => {
+        .int, .@"enum", .error_set => {
             const bits = ty.intInfo(zcu).bits;
             if (bits <= 64) {
                 result[0] = .integer;
@@ -144,11 +144,11 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8
             }
             return memory_class;
         },
-        .Bool, .Void, .NoReturn => {
+        .bool, .void, .noreturn => {
             result[0] = .integer;
             return result;
         },
-        .Float => switch (ty.floatBits(target)) {
+        .float => switch (ty.floatBits(target)) {
             16 => {
                 if (ctx == .field) {
                     result[0] = .memory;
@@ -184,7 +184,7 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8
             },
             else => unreachable,
         },
-        .Vector => {
+        .vector => {
             const elem_ty = ty.childType(zcu);
             const bits = elem_ty.bitSize(zcu) * ty.arrayLen(zcu);
             if (elem_ty.toIntern() == .bool_type) {
@@ -249,14 +249,14 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8
             };
             return memory_class;
         },
-        .Optional => {
+        .optional => {
             if (ty.isPtrLikeOptional(zcu)) {
                 result[0] = .integer;
                 return result;
             }
             return memory_class;
         },
-        .Struct, .Union => {
+        .@"struct", .@"union" => {
             // "If the size of an object is larger than eight eightbytes, or
             // it contains unaligned fields, it has class MEMORY"
             // "If the size of the aggregate exceeds a single eightbyte, each is classified
@@ -305,7 +305,7 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8
             }
             return result;
         },
-        .Array => {
+        .array => {
             const ty_size = ty.abiSize(zcu);
             if (ty_size <= 8) {
                 result[0] = .integer;

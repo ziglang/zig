@@ -5,7 +5,7 @@ const expect = std.testing.expect;
 /// Returns whether x is neither zero, subnormal, infinity, or NaN.
 pub fn isNormal(x: anytype) bool {
     const T = @TypeOf(x);
-    const TBits = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
+    const TBits = std.meta.Int(.unsigned, @typeInfo(T).float.bits);
 
     const increment_exp = 1 << math.floatMantissaBits(T);
     const remove_sign = ~@as(TBits, 0) >> 1;

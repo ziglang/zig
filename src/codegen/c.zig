@@ -626,7 +626,7 @@ pub const DeclGen = struct {
     }
 
     fn fail(dg: *DeclGen, comptime format: []const u8, args: anytype) error{ AnalysisFail, OutOfMemory } {
-        @setCold(true);
+        @branchHint(.cold);
         const zcu = dg.pt.zcu;
         const src_loc = zcu.navSrcLoc(dg.pass.nav);
         dg.error_msg = try Zcu.ErrorMsg.create(dg.gpa, src_loc, format, args);
@@ -1401,7 +1401,7 @@ pub const DeclGen = struct {
                                 try writer.writeByte('(');
                                 try dg.renderCType(writer, ctype);
                                 try writer.writeByte(')');
-                            } else if (field_ty.zigTypeTag(zcu) == .Float) {
+                            } else if (field_ty.zigTypeTag(zcu) == .float) {
                                 try writer.writeByte('(');
                                 try dg.renderCType(writer, ctype);
                                 try writer.writeByte(')');
@@ -1786,7 +1786,7 @@ pub const DeclGen = struct {
                 else => unreachable,
             }
         }
-        if (fn_val.getFunction(zcu)) |func| if (func.analysisUnordered(ip).is_cold)
+        if (fn_val.getFunction(zcu)) |func| if (func.analysisUnordered(ip).branch_hint == .cold)
             try w.writeAll("zig_cold ");
         if (fn_info.return_type == .noreturn_type) try w.writeAll("zig_noreturn ");
 
@@ -3290,8 +3290,10 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .prefetch         => try airPrefetch(f, inst),
             .addrspace_cast   => return f.fail("TODO: C backend: implement addrspace_cast", .{}),
 
-            .@"try"  => try airTry(f, inst),
-            .try_ptr => try airTryPtr(f, inst),
+            .@"try"       => try airTry(f, inst),
+            .try_cold     => try airTry(f, inst),
+            .try_ptr      => try airTryPtr(f, inst),
+            .try_ptr_cold => try airTryPtr(f, inst),
 
             .dbg_stmt => try airDbgStmt(f, inst),
             .dbg_inline_block => try airDbgInlineBlock(f, inst),
@@ -4471,8 +4473,8 @@ fn airCall(
 
     const callee_ty = f.typeOf(pl_op.operand);
     const fn_info = zcu.typeToFunc(switch (callee_ty.zigTypeTag(zcu)) {
-        .Fn => callee_ty,
-        .Pointer => callee_ty.childType(zcu),
+        .@"fn" => callee_ty,
+        .pointer => callee_ty.childType(zcu),
         else => unreachable,
     }).?;
     const ret_ty = Type.fromInterned(fn_info.return_type);
@@ -4988,11 +4990,10 @@ fn airCondBr(f: *Function, inst: Air.Inst.Index) !CValue {
 fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
     const pt = f.object.dg.pt;
     const zcu = pt.zcu;
-    const pl_op = f.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
-    const condition = try f.resolveInst(pl_op.operand);
-    try reap(f, inst, &.{pl_op.operand});
-    const condition_ty = f.typeOf(pl_op.operand);
-    const switch_br = f.air.extraData(Air.SwitchBr, pl_op.payload);
+    const switch_br = f.air.unwrapSwitch(inst);
+    const condition = try f.resolveInst(switch_br.operand);
+    try reap(f, inst, &.{switch_br.operand});
+    const condition_ty = f.typeOf(switch_br.operand);
     const writer = f.object.writer();
 
     try writer.writeAll("switch (");
@@ -5013,22 +5014,16 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
     f.object.indent_writer.pushIndent();
 
     const gpa = f.object.dg.gpa;
-    const liveness = try f.liveness.getSwitchBr(gpa, inst, switch_br.data.cases_len + 1);
+    const liveness = try f.liveness.getSwitchBr(gpa, inst, switch_br.cases_len + 1);
     defer gpa.free(liveness.deaths);
 
     // On the final iteration we do not need to fix any state. This is because, like in the `else`
     // branch of a `cond_br`, our parent has to do it for this entire body anyway.
-    const last_case_i = switch_br.data.cases_len - @intFromBool(switch_br.data.else_body_len == 0);
+    const last_case_i = switch_br.cases_len - @intFromBool(switch_br.else_body_len == 0);
 
-    var extra_index: usize = switch_br.end;
-    for (0..switch_br.data.cases_len) |case_i| {
-        const case = f.air.extraData(Air.SwitchBr.Case, extra_index);
-        const items = @as([]const Air.Inst.Ref, @ptrCast(f.air.extra[case.end..][0..case.data.items_len]));
-        const case_body: []const Air.Inst.Index =
-            @ptrCast(f.air.extra[case.end + items.len ..][0..case.data.body_len]);
-        extra_index = case.end + case.data.items_len + case_body.len;
-
-        for (items) |item| {
+    var it = switch_br.iterateCases();
+    while (it.next()) |case| {
+        for (case.items) |item| {
             try f.object.indent_writer.insertNewline();
             try writer.writeAll("case ");
             const item_value = try f.air.value(item, pt);
@@ -5046,19 +5041,19 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
         }
         try writer.writeByte(' ');
 
-        if (case_i != last_case_i) {
-            try genBodyResolveState(f, inst, liveness.deaths[case_i], case_body, false);
+        if (case.idx != last_case_i) {
+            try genBodyResolveState(f, inst, liveness.deaths[case.idx], case.body, false);
         } else {
-            for (liveness.deaths[case_i]) |death| {
+            for (liveness.deaths[case.idx]) |death| {
                 try die(f, inst, death.toRef());
             }
-            try genBody(f, case_body);
+            try genBody(f, case.body);
         }
 
         // The case body must be noreturn so we don't need to insert a break.
     }
 
-    const else_body: []const Air.Inst.Index = @ptrCast(f.air.extra[extra_index..][0..switch_br.data.else_body_len]);
+    const else_body = it.elseBody();
     try f.object.indent_writer.insertNewline();
     if (else_body.len > 0) {
         // Note that this must be the last case (i.e. the `last_case_i` case was not hit above)
@@ -5853,7 +5848,7 @@ fn airUnwrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
     const operand_ty = f.typeOf(ty_op.operand);
     try reap(f, inst, &.{ty_op.operand});
 
-    const operand_is_ptr = operand_ty.zigTypeTag(zcu) == .Pointer;
+    const operand_is_ptr = operand_ty.zigTypeTag(zcu) == .pointer;
     const error_union_ty = if (operand_is_ptr) operand_ty.childType(zcu) else operand_ty;
     const error_ty = error_union_ty.errorUnionSet(zcu);
     const payload_ty = error_union_ty.errorUnionPayload(zcu);
@@ -7016,23 +7011,23 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
         .Or => if (use_operator) .{ .infix = " |= " } else .{ .builtin = .{ .operation = "or" } },
         .Xor => if (use_operator) .{ .infix = " ^= " } else .{ .builtin = .{ .operation = "xor" } },
         .Min => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Int => if (use_operator) .{ .ternary = " < " } else .{ .builtin = .{ .operation = "min" } },
-            .Float => .{ .builtin = .{ .operation = "min" } },
+            .int => if (use_operator) .{ .ternary = " < " } else .{ .builtin = .{ .operation = "min" } },
+            .float => .{ .builtin = .{ .operation = "min" } },
             else => unreachable,
         },
         .Max => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Int => if (use_operator) .{ .ternary = " > " } else .{ .builtin = .{ .operation = "max" } },
-            .Float => .{ .builtin = .{ .operation = "max" } },
+            .int => if (use_operator) .{ .ternary = " > " } else .{ .builtin = .{ .operation = "max" } },
+            .float => .{ .builtin = .{ .operation = "max" } },
             else => unreachable,
         },
         .Add => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Int => if (use_operator) .{ .infix = " += " } else .{ .builtin = .{ .operation = "addw", .info = .bits } },
-            .Float => .{ .builtin = .{ .operation = "add" } },
+            .int => if (use_operator) .{ .infix = " += " } else .{ .builtin = .{ .operation = "addw", .info = .bits } },
+            .float => .{ .builtin = .{ .operation = "add" } },
             else => unreachable,
         },
         .Mul => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Int => if (use_operator) .{ .infix = " *= " } else .{ .builtin = .{ .operation = "mulw", .info = .bits } },
-            .Float => .{ .builtin = .{ .operation = "mul" } },
+            .int => if (use_operator) .{ .infix = " *= " } else .{ .builtin = .{ .operation = "mulw", .info = .bits } },
+            .float => .{ .builtin = .{ .operation = "mul" } },
             else => unreachable,
         },
     };
@@ -7055,38 +7050,38 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
 
     try f.object.dg.renderValue(writer, switch (reduce.operation) {
         .Or, .Xor => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Bool => Value.false,
-            .Int => try pt.intValue(scalar_ty, 0),
+            .bool => Value.false,
+            .int => try pt.intValue(scalar_ty, 0),
             else => unreachable,
         },
         .And => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Bool => Value.true,
-            .Int => switch (scalar_ty.intInfo(zcu).signedness) {
+            .bool => Value.true,
+            .int => switch (scalar_ty.intInfo(zcu).signedness) {
                 .unsigned => try scalar_ty.maxIntScalar(pt, scalar_ty),
                 .signed => try pt.intValue(scalar_ty, -1),
             },
             else => unreachable,
         },
         .Add => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Int => try pt.intValue(scalar_ty, 0),
-            .Float => try pt.floatValue(scalar_ty, 0.0),
+            .int => try pt.intValue(scalar_ty, 0),
+            .float => try pt.floatValue(scalar_ty, 0.0),
             else => unreachable,
         },
         .Mul => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Int => try pt.intValue(scalar_ty, 1),
-            .Float => try pt.floatValue(scalar_ty, 1.0),
+            .int => try pt.intValue(scalar_ty, 1),
+            .float => try pt.floatValue(scalar_ty, 1.0),
             else => unreachable,
         },
         .Min => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Bool => Value.true,
-            .Int => try scalar_ty.maxIntScalar(pt, scalar_ty),
-            .Float => try pt.floatValue(scalar_ty, std.math.nan(f128)),
+            .bool => Value.true,
+            .int => try scalar_ty.maxIntScalar(pt, scalar_ty),
+            .float => try pt.floatValue(scalar_ty, std.math.nan(f128)),
             else => unreachable,
         },
         .Max => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Bool => Value.false,
-            .Int => try scalar_ty.minIntScalar(pt, scalar_ty),
-            .Float => try pt.floatValue(scalar_ty, std.math.nan(f128)),
+            .bool => Value.false,
+            .int => try scalar_ty.minIntScalar(pt, scalar_ty),
+            .float => try pt.floatValue(scalar_ty, std.math.nan(f128)),
             else => unreachable,
         },
     }, .Initializer);
@@ -7770,7 +7765,7 @@ fn fmtStringLiteral(str: []const u8, sentinel: ?u8) std.fmt.Formatter(formatStri
 }
 
 fn undefPattern(comptime IntType: type) IntType {
-    const int_info = @typeInfo(IntType).Int;
+    const int_info = @typeInfo(IntType).int;
     const UnsignedType = std.meta.Int(.unsigned, int_info.bits);
     return @as(IntType, @bitCast(@as(UnsignedType, (1 << (int_info.bits | 1)) / 3)));
 }
@@ -8032,7 +8027,7 @@ const Vectorize = struct {
     pub fn start(f: *Function, inst: Air.Inst.Index, writer: anytype, ty: Type) !Vectorize {
         const pt = f.object.dg.pt;
         const zcu = pt.zcu;
-        return if (ty.zigTypeTag(zcu) == .Vector) index: {
+        return if (ty.zigTypeTag(zcu) == .vector) index: {
             const local = try f.allocLocal(inst, Type.usize);
 
             try writer.writeAll("for (");
@@ -8068,7 +8063,7 @@ const Vectorize = struct {
 fn lowersToArray(ty: Type, pt: Zcu.PerThread) bool {
     const zcu = pt.zcu;
     return switch (ty.zigTypeTag(zcu)) {
-        .Array, .Vector => return true,
+        .array, .vector => return true,
         else => return ty.isAbiInt(zcu) and toCIntBits(@as(u32, @intCast(ty.bitSize(zcu)))) == null,
     };
 }

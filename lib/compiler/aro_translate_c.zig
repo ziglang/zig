@@ -168,7 +168,7 @@ pub fn translate(
         context.pattern_list.deinit(gpa);
     }
 
-    inline for (@typeInfo(std.zig.c_builtins).Struct.decls) |decl| {
+    inline for (@typeInfo(std.zig.c_builtins).@"struct".decls) |decl| {
         const builtin_fn = try ZigTag.pub_var_simple.create(arena, .{
             .name = decl.name,
             .init = try ZigTag.import_c_builtin.create(arena, decl.name),

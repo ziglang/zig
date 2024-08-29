@@ -222,7 +222,7 @@ pub const HashHelper = struct {
                 .hexstring => |hex_string| hh.addBytes(hex_string.toSlice()),
             },
             else => switch (@typeInfo(@TypeOf(x))) {
-                .Bool, .Int, .Enum, .Array => hh.addBytes(mem.asBytes(&x)),
+                .bool, .int, .@"enum", .array => hh.addBytes(mem.asBytes(&x)),
                 else => @compileError("unable to hash type " ++ @typeName(@TypeOf(x))),
             },
         }
@@ -1014,7 +1014,7 @@ pub const Manifest = struct {
     }
 
     pub fn populateFileSystemInputs(man: *Manifest, buf: *std.ArrayListUnmanaged(u8)) Allocator.Error!void {
-        assert(@typeInfo(std.zig.Server.Message.PathPrefix).Enum.fields.len == man.cache.prefixes_len);
+        assert(@typeInfo(std.zig.Server.Message.PathPrefix).@"enum".fields.len == man.cache.prefixes_len);
         buf.clearRetainingCapacity();
         const gpa = man.cache.gpa;
         const files = man.files.keys();
@@ -1032,7 +1032,7 @@ pub const Manifest = struct {
 
     pub fn populateOtherManifest(man: *Manifest, other: *Manifest, prefix_map: [4]u8) Allocator.Error!void {
         const gpa = other.cache.gpa;
-        assert(@typeInfo(std.zig.Server.Message.PathPrefix).Enum.fields.len == man.cache.prefixes_len);
+        assert(@typeInfo(std.zig.Server.Message.PathPrefix).@"enum".fields.len == man.cache.prefixes_len);
         assert(man.cache.prefixes_len == 4);
         for (man.files.keys()) |file| {
             const prefixed_path: PrefixedPath = .{

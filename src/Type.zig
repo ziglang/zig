@@ -31,8 +31,8 @@ pub fn zigTypeTagOrPoison(ty: Type, zcu: *const Zcu) error{GenericPoison}!std.bu
 
 pub fn baseZigTypeTag(self: Type, mod: *Zcu) std.builtin.TypeId {
     return switch (self.zigTypeTag(mod)) {
-        .ErrorUnion => self.errorUnionPayload(mod).baseZigTypeTag(mod),
-        .Optional => {
+        .error_union => self.errorUnionPayload(mod).baseZigTypeTag(mod),
+        .optional => {
             return self.optionalChild(mod).baseZigTypeTag(mod);
         },
         else => |t| t,
@@ -41,37 +41,37 @@ pub fn baseZigTypeTag(self: Type, mod: *Zcu) std.builtin.TypeId {
 
 pub fn isSelfComparable(ty: Type, zcu: *const Zcu, is_equality_cmp: bool) bool {
     return switch (ty.zigTypeTag(zcu)) {
-        .Int,
-        .Float,
-        .ComptimeFloat,
-        .ComptimeInt,
+        .int,
+        .float,
+        .comptime_float,
+        .comptime_int,
         => true,
 
-        .Vector => ty.elemType2(zcu).isSelfComparable(zcu, is_equality_cmp),
+        .vector => ty.elemType2(zcu).isSelfComparable(zcu, is_equality_cmp),
 
-        .Bool,
-        .Type,
-        .Void,
-        .ErrorSet,
-        .Fn,
-        .Opaque,
-        .AnyFrame,
-        .Enum,
-        .EnumLiteral,
+        .bool,
+        .type,
+        .void,
+        .error_set,
+        .@"fn",
+        .@"opaque",
+        .@"anyframe",
+        .@"enum",
+        .enum_literal,
         => is_equality_cmp,
 
-        .NoReturn,
-        .Array,
-        .Struct,
-        .Undefined,
-        .Null,
-        .ErrorUnion,
-        .Union,
-        .Frame,
+        .noreturn,
+        .array,
+        .@"struct",
+        .undefined,
+        .null,
+        .error_union,
+        .@"union",
+        .frame,
         => false,
 
-        .Pointer => !ty.isSlice(zcu) and (is_equality_cmp or ty.isCPtr(zcu)),
-        .Optional => {
+        .pointer => !ty.isSlice(zcu) and (is_equality_cmp or ty.isCPtr(zcu)),
+        .optional => {
             if (!is_equality_cmp) return false;
             return ty.optionalChild(zcu).isSelfComparable(zcu, is_equality_cmp);
         },
@@ -80,9 +80,9 @@ pub fn isSelfComparable(ty: Type, zcu: *const Zcu, is_equality_cmp: bool) bool {
 
 /// If it is a function pointer, returns the function type. Otherwise returns null.
 pub fn castPtrToFn(ty: Type, zcu: *const Zcu) ?Type {
-    if (ty.zigTypeTag(zcu) != .Pointer) return null;
+    if (ty.zigTypeTag(zcu) != .pointer) return null;
     const elem_ty = ty.childType(zcu);
-    if (elem_ty.zigTypeTag(zcu) != .Fn) return null;
+    if (elem_ty.zigTypeTag(zcu) != .@"fn") return null;
     return elem_ty;
 }
 
@@ -267,7 +267,7 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
         },
         .inferred_error_set_type => |func_index| {
             const func_nav = ip.getNav(zcu.funcInfo(func_index).owner_nav);
-            try writer.print("@typeInfo(@typeInfo(@TypeOf({})).Fn.return_type.?).ErrorUnion.error_set", .{
+            try writer.print("@typeInfo(@typeInfo(@TypeOf({})).@\"fn\".return_type.?).error_union.error_set", .{
                 func_nav.fqn.fmt(ip),
             });
         },
@@ -796,7 +796,7 @@ pub fn fnHasRuntimeBitsInner(
 
 pub fn isFnOrHasRuntimeBits(ty: Type, zcu: *Zcu) bool {
     switch (ty.zigTypeTag(zcu)) {
-        .Fn => return ty.fnHasRuntimeBits(zcu),
+        .@"fn" => return ty.fnHasRuntimeBits(zcu),
         else => return ty.hasRuntimeBits(zcu),
     }
 }
@@ -804,7 +804,7 @@ pub fn isFnOrHasRuntimeBits(ty: Type, zcu: *Zcu) bool {
 /// Same as `isFnOrHasRuntimeBits` but comptime-only types may return a false positive.
 pub fn isFnOrHasRuntimeBitsIgnoreComptime(ty: Type, zcu: *Zcu) bool {
     return switch (ty.zigTypeTag(zcu)) {
-        .Fn => true,
+        .@"fn" => true,
         else => return ty.hasRuntimeBitsIgnoreComptime(zcu),
     };
 }
@@ -1216,9 +1216,9 @@ fn abiAlignmentInnerOptional(
     const child_type = ty.optionalChild(zcu);
 
     switch (child_type.zigTypeTag(zcu)) {
-        .Pointer => return .{ .scalar = ptrAbiAlignment(target) },
-        .ErrorSet => return Type.anyerror.abiAlignmentInner(strat, zcu, tid),
-        .NoReturn => return .{ .scalar = .@"1" },
+        .pointer => return .{ .scalar = ptrAbiAlignment(target) },
+        .error_set => return Type.anyerror.abiAlignmentInner(strat, zcu, tid),
+        .noreturn => return .{ .scalar = .@"1" },
         else => {},
     }
 
@@ -2053,7 +2053,7 @@ pub fn elemType2(ty: Type, zcu: *const Zcu) Type {
 
 fn shallowElemType(child_ty: Type, zcu: *const Zcu) Type {
     return switch (child_ty.zigTypeTag(zcu)) {
-        .Array, .Vector => child_ty.childType(zcu),
+        .array, .vector => child_ty.childType(zcu),
         else => child_ty,
     };
 }
@@ -2061,7 +2061,7 @@ fn shallowElemType(child_ty: Type, zcu: *const Zcu) Type {
 /// For vectors, returns the element type. Otherwise returns self.
 pub fn scalarType(ty: Type, zcu: *const Zcu) Type {
     return switch (ty.zigTypeTag(zcu)) {
-        .Vector => ty.childType(zcu),
+        .vector => ty.childType(zcu),
         else => ty,
     };
 }
@@ -2217,7 +2217,7 @@ pub fn isAnyError(ty: Type, zcu: *const Zcu) bool {
 
 pub fn isError(ty: Type, zcu: *const Zcu) bool {
     return switch (ty.zigTypeTag(zcu)) {
-        .ErrorUnion, .ErrorSet => true,
+        .error_union, .error_set => true,
         else => false,
     };
 }
@@ -2341,8 +2341,8 @@ pub fn isUnsignedInt(ty: Type, zcu: *const Zcu) bool {
 /// If this function returns true, then intInfo() can be called on the type.
 pub fn isAbiInt(ty: Type, zcu: *const Zcu) bool {
     return switch (ty.zigTypeTag(zcu)) {
-        .Int, .Enum, .ErrorSet => true,
-        .Struct => ty.containerLayout(zcu) == .@"packed",
+        .int, .@"enum", .error_set => true,
+        .@"struct" => ty.containerLayout(zcu) == .@"packed",
         else => false,
     };
 }
@@ -2494,14 +2494,14 @@ pub fn fnCallingConvention(ty: Type, zcu: *const Zcu) std.builtin.CallingConvent
 
 pub fn isValidParamType(self: Type, zcu: *const Zcu) bool {
     return switch (self.zigTypeTagOrPoison(zcu) catch return true) {
-        .Opaque, .NoReturn => false,
+        .@"opaque", .noreturn => false,
         else => true,
     };
 }
 
 pub fn isValidReturnType(self: Type, zcu: *const Zcu) bool {
     return switch (self.zigTypeTagOrPoison(zcu) catch return true) {
-        .Opaque => false,
+        .@"opaque" => false,
         else => true,
     };
 }
@@ -2782,8 +2782,8 @@ pub fn comptimeOnlyInner(
             .ptr_type => |ptr_type| {
                 const child_ty = Type.fromInterned(ptr_type.child);
                 switch (child_ty.zigTypeTag(zcu)) {
-                    .Fn => return !try child_ty.fnHasRuntimeBitsInner(strat, zcu, tid),
-                    .Opaque => return false,
+                    .@"fn" => return !try child_ty.fnHasRuntimeBitsInner(strat, zcu, tid),
+                    .@"opaque" => return false,
                     else => return child_ty.comptimeOnlyInner(strat, zcu, tid),
                 }
             },
@@ -2954,7 +2954,7 @@ pub fn comptimeOnlyInner(
 }
 
 pub fn isVector(ty: Type, zcu: *const Zcu) bool {
-    return ty.zigTypeTag(zcu) == .Vector;
+    return ty.zigTypeTag(zcu) == .vector;
 }
 
 /// Returns 0 if not a vector, otherwise returns @bitSizeOf(Element) * vector_len.
@@ -2966,40 +2966,40 @@ pub fn totalVectorBits(ty: Type, zcu: *Zcu) u64 {
 
 pub fn isArrayOrVector(ty: Type, zcu: *const Zcu) bool {
     return switch (ty.zigTypeTag(zcu)) {
-        .Array, .Vector => true,
+        .array, .vector => true,
         else => false,
     };
 }
 
 pub fn isIndexable(ty: Type, zcu: *const Zcu) bool {
     return switch (ty.zigTypeTag(zcu)) {
-        .Array, .Vector => true,
-        .Pointer => switch (ty.ptrSize(zcu)) {
+        .array, .vector => true,
+        .pointer => switch (ty.ptrSize(zcu)) {
             .Slice, .Many, .C => true,
             .One => switch (ty.childType(zcu).zigTypeTag(zcu)) {
-                .Array, .Vector => true,
-                .Struct => ty.childType(zcu).isTuple(zcu),
+                .array, .vector => true,
+                .@"struct" => ty.childType(zcu).isTuple(zcu),
                 else => false,
             },
         },
-        .Struct => ty.isTuple(zcu),
+        .@"struct" => ty.isTuple(zcu),
         else => false,
     };
 }
 
 pub fn indexableHasLen(ty: Type, zcu: *const Zcu) bool {
     return switch (ty.zigTypeTag(zcu)) {
-        .Array, .Vector => true,
-        .Pointer => switch (ty.ptrSize(zcu)) {
+        .array, .vector => true,
+        .pointer => switch (ty.ptrSize(zcu)) {
             .Many, .C => false,
             .Slice => true,
             .One => switch (ty.childType(zcu).zigTypeTag(zcu)) {
-                .Array, .Vector => true,
-                .Struct => ty.childType(zcu).isTuple(zcu),
+                .array, .vector => true,
+                .@"struct" => ty.childType(zcu).isTuple(zcu),
                 else => false,
             },
         },
-        .Struct => ty.isTuple(zcu),
+        .@"struct" => ty.isTuple(zcu),
         else => false,
     };
 }
@@ -3030,7 +3030,7 @@ pub fn getParentNamespace(ty: Type, zcu: *Zcu) InternPool.OptionalNamespaceIndex
 pub fn minInt(ty: Type, pt: Zcu.PerThread, dest_ty: Type) !Value {
     const zcu = pt.zcu;
     const scalar = try minIntScalar(ty.scalarType(zcu), pt, dest_ty.scalarType(zcu));
-    return if (ty.zigTypeTag(zcu) == .Vector) Value.fromInterned(try pt.intern(.{ .aggregate = .{
+    return if (ty.zigTypeTag(zcu) == .vector) Value.fromInterned(try pt.intern(.{ .aggregate = .{
         .ty = dest_ty.toIntern(),
         .storage = .{ .repeated_elem = scalar.toIntern() },
     } })) else scalar;
@@ -3061,7 +3061,7 @@ pub fn minIntScalar(ty: Type, pt: Zcu.PerThread, dest_ty: Type) !Value {
 pub fn maxInt(ty: Type, pt: Zcu.PerThread, dest_ty: Type) !Value {
     const zcu = pt.zcu;
     const scalar = try maxIntScalar(ty.scalarType(zcu), pt, dest_ty.scalarType(zcu));
-    return if (ty.zigTypeTag(zcu) == .Vector) Value.fromInterned(try pt.intern(.{ .aggregate = .{
+    return if (ty.zigTypeTag(zcu) == .vector) Value.fromInterned(try pt.intern(.{ .aggregate = .{
         .ty = dest_ty.toIntern(),
         .storage = .{ .repeated_elem = scalar.toIntern() },
     } })) else scalar;
@@ -3539,8 +3539,8 @@ pub fn isSimpleTupleOrAnonStruct(ty: Type, zcu: *const Zcu) bool {
 pub fn optEuBaseType(ty: Type, zcu: *const Zcu) Type {
     var cur = ty;
     while (true) switch (cur.zigTypeTag(zcu)) {
-        .Optional => cur = cur.optionalChild(zcu),
-        .ErrorUnion => cur = cur.errorUnionPayload(zcu),
+        .optional => cur = cur.optionalChild(zcu),
+        .error_union => cur = cur.errorUnionPayload(zcu),
         else => return cur,
     };
 }
@@ -3548,8 +3548,8 @@ pub fn optEuBaseType(ty: Type, zcu: *const Zcu) Type {
 pub fn toUnsigned(ty: Type, pt: Zcu.PerThread) !Type {
     const zcu = pt.zcu;
     return switch (ty.zigTypeTag(zcu)) {
-        .Int => pt.intType(.unsigned, ty.intInfo(zcu).bits),
-        .Vector => try pt.vectorType(.{
+        .int => pt.intType(.unsigned, ty.intInfo(zcu).bits),
+        .vector => try pt.vectorType(.{
             .len = ty.vectorLen(zcu),
             .child = (try ty.childType(zcu).toUnsigned(pt)).toIntern(),
         }),
@@ -3625,7 +3625,7 @@ pub fn getCaptures(ty: Type, zcu: *const Zcu) InternPool.CaptureValue.Slice {
 pub fn arrayBase(ty: Type, zcu: *const Zcu) struct { Type, u64 } {
     var cur_ty: Type = ty;
     var cur_len: u64 = 1;
-    while (cur_ty.zigTypeTag(zcu) == .Array) {
+    while (cur_ty.zigTypeTag(zcu) == .array) {
         cur_len *= cur_ty.arrayLenIncludingSentinel(zcu);
         cur_ty = cur_ty.childType(zcu);
     }
@@ -3692,7 +3692,7 @@ pub fn resolveLayout(ty: Type, pt: Zcu.PerThread) SemaError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     switch (ty.zigTypeTag(zcu)) {
-        .Struct => switch (ip.indexToKey(ty.toIntern())) {
+        .@"struct" => switch (ip.indexToKey(ty.toIntern())) {
             .anon_struct_type => |anon_struct_type| for (0..anon_struct_type.types.len) |i| {
                 const field_ty = Type.fromInterned(anon_struct_type.types.get(ip)[i]);
                 try field_ty.resolveLayout(pt);
@@ -3700,21 +3700,21 @@ pub fn resolveLayout(ty: Type, pt: Zcu.PerThread) SemaError!void {
             .struct_type => return ty.resolveStructInner(pt, .layout),
             else => unreachable,
         },
-        .Union => return ty.resolveUnionInner(pt, .layout),
-        .Array => {
+        .@"union" => return ty.resolveUnionInner(pt, .layout),
+        .array => {
             if (ty.arrayLenIncludingSentinel(zcu) == 0) return;
             const elem_ty = ty.childType(zcu);
             return elem_ty.resolveLayout(pt);
         },
-        .Optional => {
+        .optional => {
             const payload_ty = ty.optionalChild(zcu);
             return payload_ty.resolveLayout(pt);
         },
-        .ErrorUnion => {
+        .error_union => {
             const payload_ty = ty.errorUnionPayload(zcu);
             return payload_ty.resolveLayout(pt);
         },
-        .Fn => {
+        .@"fn" => {
             const info = zcu.typeToFunc(ty).?;
             if (info.is_generic) {
                 // Resolving of generic function types is deferred to when
@@ -3830,30 +3830,30 @@ pub fn resolveFully(ty: Type, pt: Zcu.PerThread) SemaError!void {
     const ip = &zcu.intern_pool;
 
     switch (ty.zigTypeTag(zcu)) {
-        .Type,
-        .Void,
-        .Bool,
-        .NoReturn,
-        .Int,
-        .Float,
-        .ComptimeFloat,
-        .ComptimeInt,
-        .Undefined,
-        .Null,
-        .ErrorSet,
-        .Enum,
-        .Opaque,
-        .Frame,
-        .AnyFrame,
-        .Vector,
-        .EnumLiteral,
+        .type,
+        .void,
+        .bool,
+        .noreturn,
+        .int,
+        .float,
+        .comptime_float,
+        .comptime_int,
+        .undefined,
+        .null,
+        .error_set,
+        .@"enum",
+        .@"opaque",
+        .frame,
+        .@"anyframe",
+        .vector,
+        .enum_literal,
         => {},
 
-        .Pointer => return ty.childType(zcu).resolveFully(pt),
-        .Array => return ty.childType(zcu).resolveFully(pt),
-        .Optional => return ty.optionalChild(zcu).resolveFully(pt),
-        .ErrorUnion => return ty.errorUnionPayload(zcu).resolveFully(pt),
-        .Fn => {
+        .pointer => return ty.childType(zcu).resolveFully(pt),
+        .array => return ty.childType(zcu).resolveFully(pt),
+        .optional => return ty.optionalChild(zcu).resolveFully(pt),
+        .error_union => return ty.errorUnionPayload(zcu).resolveFully(pt),
+        .@"fn" => {
             const info = zcu.typeToFunc(ty).?;
             if (info.is_generic) return;
             for (0..info.param_types.len) |i| {
@@ -3863,7 +3863,7 @@ pub fn resolveFully(ty: Type, pt: Zcu.PerThread) SemaError!void {
             try Type.fromInterned(info.return_type).resolveFully(pt);
         },
 
-        .Struct => switch (ip.indexToKey(ty.toIntern())) {
+        .@"struct" => switch (ip.indexToKey(ty.toIntern())) {
             .anon_struct_type => |anon_struct_type| for (0..anon_struct_type.types.len) |i| {
                 const field_ty = Type.fromInterned(anon_struct_type.types.get(ip)[i]);
                 try field_ty.resolveFully(pt);
@@ -3871,7 +3871,7 @@ pub fn resolveFully(ty: Type, pt: Zcu.PerThread) SemaError!void {
             .struct_type => return ty.resolveStructInner(pt, .full),
             else => unreachable,
         },
-        .Union => return ty.resolveUnionInner(pt, .full),
+        .@"union" => return ty.resolveUnionInner(pt, .full),
     }
 }
 

@@ -68,7 +68,7 @@ fn ExtraData(comptime T: type) type {
 /// Returns the requested data, as well as the new index which is at the start of the
 /// trailers for the object.
 pub fn extraData(code: Zir, comptime T: type, index: usize) ExtraData(T) {
-    const fields = @typeInfo(T).Struct.fields;
+    const fields = @typeInfo(T).@"struct".fields;
     var i: usize = index;
     var result: T = undefined;
     inline for (fields) |field| {
@@ -431,14 +431,9 @@ pub const Inst = struct {
         error_union_type,
         /// `error.Foo` syntax. Uses the `str_tok` field of the Data union.
         error_value,
-        /// Implements the `@export` builtin function, based on either an identifier to a Decl,
-        /// or field access of a Decl. The thing being exported is the Decl.
+        /// Implements the `@export` builtin function.
         /// Uses the `pl_node` union field. Payload is `Export`.
         @"export",
-        /// Implements the `@export` builtin function, based on a comptime-known value.
-        /// The thing being exported is the comptime-known value which is the operand.
-        /// Uses the `pl_node` union field. Payload is `ExportValue`.
-        export_value,
         /// Given a pointer to a struct or object that contains virtual fields, returns a pointer
         /// to the named field. The field name is stored in string_bytes. Used by a.b syntax.
         /// Uses `pl_node` field. The AST node is the a.b syntax. Payload is Field.
@@ -1093,7 +1088,6 @@ pub const Inst = struct {
                 .ensure_result_non_error,
                 .ensure_err_union_payload_void,
                 .@"export",
-                .export_value,
                 .field_ptr,
                 .field_val,
                 .field_ptr_named,
@@ -1314,7 +1308,6 @@ pub const Inst = struct {
                 .validate_deref,
                 .validate_destructure,
                 .@"export",
-                .export_value,
                 .set_runtime_safety,
                 .memcpy,
                 .memset,
@@ -1553,7 +1546,7 @@ pub const Inst = struct {
                 => false,
 
                 .extended => switch (data.extended.opcode) {
-                    .fence, .set_cold, .breakpoint, .disable_instrumentation => true,
+                    .fence, .branch_hint, .breakpoint, .disable_instrumentation => true,
                     else => false,
                 },
             };
@@ -1637,7 +1630,6 @@ pub const Inst = struct {
                 .error_union_type = .pl_node,
                 .error_value = .str_tok,
                 .@"export" = .pl_node,
-                .export_value = .pl_node,
                 .field_ptr = .pl_node,
                 .field_val = .pl_node,
                 .field_ptr_named = .pl_node,
@@ -1831,7 +1823,7 @@ pub const Inst = struct {
 
         // Uncomment to view how many tag slots are available.
         //comptime {
-        //    @compileLog("ZIR tags left: ", 256 - @typeInfo(Tag).Enum.fields.len);
+        //    @compileLog("ZIR tags left: ", 256 - @typeInfo(Tag).@"enum".fields.len);
         //}
     };
 
@@ -1962,9 +1954,6 @@ pub const Inst = struct {
         /// Implement builtin `@setAlignStack`.
         /// `operand` is payload index to `UnNode`.
         set_align_stack,
-        /// Implements `@setCold`.
-        /// `operand` is payload index to `UnNode`.
-        set_cold,
         /// Implements the `@errorCast` builtin.
         /// `operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
         error_cast,
@@ -2059,6 +2048,10 @@ pub const Inst = struct {
         /// `operand` is `src_node: i32`.
         /// `small` is an `Inst.BuiltinValue`.
         builtin_value,
+        /// Provide a `@branchHint` for the current block.
+        /// `operand` is payload index to `UnNode`.
+        /// `small` is unused.
+        branch_hint,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -3150,6 +3143,7 @@ pub const Inst = struct {
         export_options,
         extern_options,
         type_info,
+        branch_hint,
         // Values
         calling_convention_c,
         calling_convention_inline,
@@ -3425,17 +3419,7 @@ pub const Inst = struct {
     };
 
     pub const Export = struct {
-        /// If present, this is referring to a Decl via field access, e.g. `a.b`.
-        /// If omitted, this is referring to a Decl via identifier, e.g. `a`.
-        namespace: Ref,
-        /// Null-terminated string index.
-        decl_name: NullTerminatedString,
-        options: Ref,
-    };
-
-    pub const ExportValue = struct {
-        /// The comptime value to export.
-        operand: Ref,
+        exported: Ref,
         options: Ref,
     };
 
@@ -3567,7 +3551,7 @@ pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
                 },
                 .struct_decl => {
                     const small: Inst.StructDecl.Small = @bitCast(extended.small);
-                    var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.StructDecl).Struct.fields.len);
+                    var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.StructDecl).@"struct".fields.len);
                     const captures_len = if (small.has_captures_len) captures_len: {
                         const captures_len = zir.extra[extra_index];
                         extra_index += 1;
@@ -3600,7 +3584,7 @@ pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
                 },
                 .enum_decl => {
                     const small: Inst.EnumDecl.Small = @bitCast(extended.small);
-                    var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.EnumDecl).Struct.fields.len);
+                    var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.EnumDecl).@"struct".fields.len);
                     extra_index += @intFromBool(small.has_tag_type);
                     const captures_len = if (small.has_captures_len) captures_len: {
                         const captures_len = zir.extra[extra_index];
@@ -3625,7 +3609,7 @@ pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
                 },
                 .union_decl => {
                     const small: Inst.UnionDecl.Small = @bitCast(extended.small);
-                    var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.UnionDecl).Struct.fields.len);
+                    var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.UnionDecl).@"struct".fields.len);
                     extra_index += @intFromBool(small.has_tag_type);
                     const captures_len = if (small.has_captures_len) captures_len: {
                         const captures_len = zir.extra[extra_index];
@@ -3650,7 +3634,7 @@ pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
                 },
                 .opaque_decl => {
                     const small: Inst.OpaqueDecl.Small = @bitCast(extended.small);
-                    var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.OpaqueDecl).Struct.fields.len);
+                    var extra_index: u32 = @intCast(extended.operand + @typeInfo(Inst.OpaqueDecl).@"struct".fields.len);
                     const decls_len = if (small.has_decls_len) decls_len: {
                         const decls_len = zir.extra[extra_index];
                         extra_index += 1;
@@ -3793,7 +3777,6 @@ fn findDeclsInner(
         .error_union_type,
         .error_value,
         .@"export",
-        .export_value,
         .field_ptr,
         .field_val,
         .field_ptr_named,
@@ -3981,7 +3964,6 @@ fn findDeclsInner(
                 .fence,
                 .set_float_mode,
                 .set_align_stack,
-                .set_cold,
                 .error_cast,
                 .await_nosuspend,
                 .breakpoint,
@@ -4005,6 +3987,7 @@ fn findDeclsInner(
                 .closure_get,
                 .field_parent_ptr,
                 .builtin_value,
+                .branch_hint,
                 => return,
 
                 // `@TypeOf` has a body.
@@ -4624,7 +4607,7 @@ pub fn getAssociatedSrcHash(zir: Zir, inst: Zir.Inst.Index) ?std.zig.SrcHash {
             const extra_index = extra.end +
                 extra.data.ret_body_len +
                 extra.data.body_len +
-                @typeInfo(Inst.Func.SrcLocs).Struct.fields.len;
+                @typeInfo(Inst.Func.SrcLocs).@"struct".fields.len;
             return @bitCast([4]u32{
                 zir.extra[extra_index + 0],
                 zir.extra[extra_index + 1],
@@ -4664,7 +4647,7 @@ pub fn getAssociatedSrcHash(zir: Zir, inst: Zir.Inst.Index) ?std.zig.SrcHash {
             } else extra_index += @intFromBool(bits.has_ret_ty_ref);
             extra_index += @intFromBool(bits.has_any_noalias);
             extra_index += extra.data.body_len;
-            extra_index += @typeInfo(Zir.Inst.Func.SrcLocs).Struct.fields.len;
+            extra_index += @typeInfo(Zir.Inst.Func.SrcLocs).@"struct".fields.len;
             return @bitCast([4]u32{
                 zir.extra[extra_index + 0],
                 zir.extra[extra_index + 1],

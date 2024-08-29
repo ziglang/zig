@@ -782,7 +782,7 @@ test "fsync" {
 test "getrlimit and setrlimit" {
     if (posix.system.rlimit_resource == void) return error.SkipZigTest;
 
-    inline for (@typeInfo(posix.rlimit_resource).Enum.fields) |field| {
+    inline for (@typeInfo(posix.rlimit_resource).@"enum".fields) |field| {
         const resource: posix.rlimit_resource = @enumFromInt(field.value);
         const limit = try posix.getrlimit(resource);
 

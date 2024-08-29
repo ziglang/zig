@@ -15,15 +15,15 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__ceilh, .{ .name = "__ceilh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(ceilf, .{ .name = "ceilf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(ceil, .{ .name = "ceil", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ceilx, .{ .name = "__ceilx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ceilh, .{ .name = "__ceilh", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&ceilf, .{ .name = "ceilf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&ceil, .{ .name = "ceil", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ceilx, .{ .name = "__ceilx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(ceilq, .{ .name = "ceilf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&ceilq, .{ .name = "ceilf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(ceilq, .{ .name = "ceilq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(ceill, .{ .name = "ceill", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&ceilq, .{ .name = "ceilq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&ceill, .{ .name = "ceill", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __ceilh(x: f16) callconv(.C) f16 {
@@ -130,7 +130,7 @@ pub fn ceilq(x: f128) callconv(.C) f128 {
 }
 
 pub fn ceill(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __ceilh(x),
         32 => return ceilf(x),
         64 => return ceil(x),

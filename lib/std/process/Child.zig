@@ -1112,7 +1112,7 @@ fn windowsCreateProcessPathExt(
     }
     var io_status: windows.IO_STATUS_BLOCK = undefined;
 
-    const num_supported_pathext = @typeInfo(WindowsExtension).Enum.fields.len;
+    const num_supported_pathext = @typeInfo(WindowsExtension).@"enum".fields.len;
     var pathext_seen = [_]bool{false} ** num_supported_pathext;
     var any_pathext_seen = false;
     var unappended_exists = false;

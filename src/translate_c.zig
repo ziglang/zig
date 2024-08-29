@@ -161,7 +161,7 @@ pub fn translate(
         context.pattern_list.deinit(gpa);
     }
 
-    inline for (@typeInfo(std.zig.c_builtins).Struct.decls) |decl| {
+    inline for (@typeInfo(std.zig.c_builtins).@"struct".decls) |decl| {
         const builtin = try Tag.pub_var_simple.create(arena, .{
             .name = decl.name,
             .init = try Tag.import_c_builtin.create(arena, decl.name),
@@ -1324,7 +1324,7 @@ fn makeShuffleMask(c: *Context, scope: *Scope, expr: *const clang.ShuffleVectorE
 fn vectorTypeInfo(arena: mem.Allocator, vec_node: Node, field: []const u8) TransError!Node {
     const typeof_call = try Tag.typeof.create(arena, vec_node);
     const typeinfo_call = try Tag.typeinfo.create(arena, typeof_call);
-    const vector_type_info = try Tag.field_access.create(arena, .{ .lhs = typeinfo_call, .field_name = "Vector" });
+    const vector_type_info = try Tag.field_access.create(arena, .{ .lhs = typeinfo_call, .field_name = "vector" });
     return Tag.field_access.create(arena, .{ .lhs = vector_type_info, .field_name = field });
 }
 
@@ -1596,6 +1596,11 @@ fn transBinaryOperator(
         // @divExact(@bitCast(<platform-ptrdiff_t>, @intFromPtr(lhs) -% @intFromPtr(rhs)), @sizeOf(<lhs target type>))
         const ptrdiff_type = try transQualTypeIntWidthOf(c, qt, true);
 
+        const bitcast = try Tag.as.create(c.arena, .{
+            .lhs = ptrdiff_type,
+            .rhs = try Tag.bit_cast.create(c.arena, infixOpNode),
+        });
+
         // C standard requires that pointer subtraction operands are of the same type,
         // otherwise it is undefined behavior. So we can assume the left and right
         // sides are the same QualType and arbitrarily choose left.
@@ -1603,18 +1608,19 @@ fn transBinaryOperator(
         const lhs_qt = getExprQualType(c, lhs_expr);
         const lhs_qt_translated = try transQualType(c, scope, lhs_qt, lhs_expr.getBeginLoc());
         const c_pointer = getContainer(c, lhs_qt_translated).?;
-        const elem_type = c_pointer.castTag(.c_pointer).?.data.elem_type;
-        const sizeof = try Tag.sizeof.create(c.arena, elem_type);
 
-        const bitcast = try Tag.as.create(c.arena, .{
-            .lhs = ptrdiff_type,
-            .rhs = try Tag.bit_cast.create(c.arena, infixOpNode),
-        });
-
-        return Tag.div_exact.create(c.arena, .{
-            .lhs = bitcast,
-            .rhs = sizeof,
-        });
+        if (c_pointer.castTag(.c_pointer)) |c_pointer_payload| {
+            const sizeof = try Tag.sizeof.create(c.arena, c_pointer_payload.data.elem_type);
+            return Tag.div_exact.create(c.arena, .{
+                .lhs = bitcast,
+                .rhs = sizeof,
+            });
+        } else {
+            // This is an opaque/incomplete type. This subtraction exhibits Undefined Behavior by the C99 spec.
+            // However, allowing subtraction on `void *` and function pointers is a commonly used extension.
+            // So, just return the value in byte units, mirroring the behavior of this language extension as implemented by GCC and Clang.
+            return bitcast;
+        }
     }
     return infixOpNode;
 }
@@ -2002,7 +2008,7 @@ fn transImplicitCastExpr(
 }
 
 fn isBuiltinDefined(name: []const u8) bool {
-    inline for (@typeInfo(std.zig.c_builtins).Struct.decls) |decl| {
+    inline for (@typeInfo(std.zig.c_builtins).@"struct".decls) |decl| {
         if (std.mem.eql(u8, name, decl.name)) return true;
     }
     return false;
@@ -4649,7 +4655,7 @@ fn transCreateNodeAPInt(c: *Context, int: *const clang.APSInt) !Node {
 
 fn transCreateNodeNumber(c: *Context, num: anytype, num_kind: enum { int, float }) !Node {
     const fmt_s = switch (@typeInfo(@TypeOf(num))) {
-        .Int, .ComptimeInt => "{d}",
+        .int, .comptime_int => "{d}",
         else => "{s}",
     };
     const str = try std.fmt.allocPrint(c.arena, fmt_s, .{num});

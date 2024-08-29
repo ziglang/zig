@@ -707,7 +707,7 @@ fn dumpAttribute(tree: *const Tree, attr: Attribute, writer: anytype) !void {
     switch (attr.tag) {
         inline else => |tag| {
             const args = @field(attr.args, @tagName(tag));
-            const fields = @typeInfo(@TypeOf(args)).Struct.fields;
+            const fields = @typeInfo(@TypeOf(args)).@"struct".fields;
             if (fields.len == 0) {
                 try writer.writeByte('\n');
                 return;
@@ -724,7 +724,7 @@ fn dumpAttribute(tree: *const Tree, attr: Attribute, writer: anytype) !void {
                     Interner.Ref => try writer.print("\"{s}\"", .{tree.interner.get(@field(args, f.name)).bytes}),
                     ?Interner.Ref => try writer.print("\"{?s}\"", .{if (@field(args, f.name)) |str| tree.interner.get(str).bytes else null}),
                     else => switch (@typeInfo(f.type)) {
-                        .Enum => try writer.writeAll(@tagName(@field(args, f.name))),
+                        .@"enum" => try writer.writeAll(@tagName(@field(args, f.name))),
                         else => try writer.print("{any}", .{@field(args, f.name)}),
                     },
                 }
