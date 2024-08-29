@@ -10046,8 +10046,9 @@ pub fn printUnbuffered(
                 }
 
                 if (maybe_dbg_index) |dbg_index| {
-                    try writer.print(", !dbg !{}\n", .{dbg_index});
-                } else try writer.writeByte('\n');
+                    try writer.print(", !dbg !{}", .{dbg_index});
+                }
+                try writer.writeByte('\n');
             }
             try writer.writeByte('}');
         }

@@ -6898,8 +6898,14 @@ fn popErrorReturnTrace(
                     .payload = sema.addExtraAssumeCapacity(Air.CondBr{
                         .then_body_len = @intCast(then_block.instructions.items.len),
                         .else_body_len = @intCast(else_block.instructions.items.len),
-                        // weight against error branch
-                        .branch_hints = .{ .true = .likely, .false = .unlikely },
+                        .branch_hints = .{
+                            // Weight against error branch.
+                            .true = .likely,
+                            .false = .unlikely,
+                            // Code coverage is not valuable on either branch.
+                            .then_cov = .none,
+                            .else_cov = .none,
+                        },
                     }),
                 },
             },
@@ -11796,14 +11802,22 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
 
     _ = try child_block.addInst(.{
         .tag = .cond_br,
-        .data = .{ .pl_op = .{
-            .operand = cond,
-            .payload = sema.addExtraAssumeCapacity(Air.CondBr{
-                .then_body_len = @intCast(true_instructions.len),
-                .else_body_len = @intCast(sub_block.instructions.items.len),
-                .branch_hints = .{ .true = non_error_hint, .false = .none },
-            }),
-        } },
+        .data = .{
+            .pl_op = .{
+                .operand = cond,
+                .payload = sema.addExtraAssumeCapacity(Air.CondBr{
+                    .then_body_len = @intCast(true_instructions.len),
+                    .else_body_len = @intCast(sub_block.instructions.items.len),
+                    .branch_hints = .{
+                        .true = non_error_hint,
+                        .false = .none,
+                        // Code coverage is desired for error handling.
+                        .then_cov = .poi,
+                        .else_cov = .poi,
+                    },
+                }),
+            },
+        },
     });
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(true_instructions));
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(sub_block.instructions.items));
@@ -12853,7 +12867,13 @@ fn analyzeSwitchRuntimeBlock(
                 sema.air_instructions.items(.data)[@intFromEnum(prev_cond_br)].pl_op.payload = sema.addExtraAssumeCapacity(Air.CondBr{
                     .then_body_len = @intCast(prev_then_body.len),
                     .else_body_len = @intCast(cond_body.len),
-                    .branch_hints = .{ .true = prev_hint, .false = .none },
+                    .branch_hints = .{
+                        .true = prev_hint,
+                        .false = .none,
+                        // Code coverage is desired for error handling.
+                        .then_cov = .poi,
+                        .else_cov = .poi,
+                    },
                 });
                 sema.air_extra.appendSliceAssumeCapacity(@ptrCast(prev_then_body));
                 sema.air_extra.appendSliceAssumeCapacity(@ptrCast(cond_body));
@@ -13133,7 +13153,12 @@ fn analyzeSwitchRuntimeBlock(
             sema.air_instructions.items(.data)[@intFromEnum(prev_cond_br)].pl_op.payload = sema.addExtraAssumeCapacity(Air.CondBr{
                 .then_body_len = @intCast(prev_then_body.len),
                 .else_body_len = @intCast(case_block.instructions.items.len),
-                .branch_hints = .{ .true = prev_hint, .false = else_hint },
+                .branch_hints = .{
+                    .true = prev_hint,
+                    .false = else_hint,
+                    .then_cov = .poi,
+                    .else_cov = .poi,
+                },
             });
             sema.air_extra.appendSliceAssumeCapacity(@ptrCast(prev_then_body));
             sema.air_extra.appendSliceAssumeCapacity(@ptrCast(case_block.instructions.items));
@@ -19250,7 +19275,17 @@ fn zirBoolBr(
         &else_block,
         lhs,
         block_inst,
-        if (is_bool_or) .{ .true = .none, .false = rhs_hint } else .{ .true = rhs_hint, .false = .none },
+        if (is_bool_or) .{
+            .true = .none,
+            .false = rhs_hint,
+            .then_cov = .poi,
+            .else_cov = .poi,
+        } else .{
+            .true = rhs_hint,
+            .false = .none,
+            .then_cov = .poi,
+            .else_cov = .poi,
+        },
     );
     if (!rhs_noret) {
         if (try sema.resolveDefinedValue(rhs_block, rhs_src, coerced_rhs_result)) |rhs_val| {
@@ -19467,14 +19502,22 @@ fn zirCondbr(
         true_instructions.len + sub_block.instructions.items.len);
     _ = try parent_block.addInst(.{
         .tag = .cond_br,
-        .data = .{ .pl_op = .{
-            .operand = cond,
-            .payload = sema.addExtraAssumeCapacity(Air.CondBr{
-                .then_body_len = @intCast(true_instructions.len),
-                .else_body_len = @intCast(sub_block.instructions.items.len),
-                .branch_hints = .{ .true = true_hint, .false = false_hint },
-            }),
-        } },
+        .data = .{
+            .pl_op = .{
+                .operand = cond,
+                .payload = sema.addExtraAssumeCapacity(Air.CondBr{
+                    .then_body_len = @intCast(true_instructions.len),
+                    .else_body_len = @intCast(sub_block.instructions.items.len),
+                    .branch_hints = .{
+                        .true = true_hint,
+                        .false = false_hint,
+                        // Code coverage is desired for error handling.
+                        .then_cov = .poi,
+                        .else_cov = .poi,
+                    },
+                }),
+            },
+        },
     });
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(true_instructions));
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(sub_block.instructions.items));
@@ -19851,8 +19894,14 @@ fn retWithErrTracing(
     const cond_br_payload = sema.addExtraAssumeCapacity(Air.CondBr{
         .then_body_len = @intCast(then_block.instructions.items.len),
         .else_body_len = @intCast(else_block.instructions.items.len),
-        // weight against error branch
-        .branch_hints = .{ .true = .likely, .false = .unlikely },
+        .branch_hints = .{
+            // Weight against error branch.
+            .true = .likely,
+            .false = .unlikely,
+            // Code coverage is not valuable on either branch.
+            .then_cov = .none,
+            .else_cov = .none,
+        },
     });
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(then_block.instructions.items));
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(else_block.instructions.items));
@@ -27473,8 +27522,14 @@ fn addSafetyCheckExtra(
                 .payload = sema.addExtraAssumeCapacity(Air.CondBr{
                     .then_body_len = 1,
                     .else_body_len = @intCast(fail_block.instructions.items.len),
-                    // safety check failure branch is cold
-                    .branch_hints = .{ .true = .likely, .false = .cold },
+                    .branch_hints = .{
+                        // Safety check failure branch is cold.
+                        .true = .likely,
+                        .false = .cold,
+                        // Code coverage not wanted for panic branches.
+                        .then_cov = .none,
+                        .else_cov = .none,
+                    },
                 }),
             },
         },

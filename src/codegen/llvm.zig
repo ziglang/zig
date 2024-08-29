@@ -822,6 +822,9 @@ pub const Object = struct {
     /// This is denormalized data.
     struct_field_map: std.AutoHashMapUnmanaged(ZigStructField, c_uint),
 
+    /// Values for `@llvm.used`.
+    used: std.ArrayListUnmanaged(Builder.Constant),
+
     const ZigStructField = struct {
         struct_ty: InternPool.Index,
         field_index: u32,
@@ -975,6 +978,7 @@ pub const Object = struct {
             .error_name_table = .none,
             .null_opt_usize = .no_init,
             .struct_field_map = .{},
+            .used = .{},
         };
         return obj;
     }
@@ -1097,44 +1101,57 @@ pub const Object = struct {
         lto: bool,
     };
 
-    pub fn emit(self: *Object, options: EmitOptions) !void {
-        const zcu = self.pt.zcu;
+    pub fn emit(o: *Object, options: EmitOptions) !void {
+        const zcu = o.pt.zcu;
         const comp = zcu.comp;
 
         {
-            try self.genErrorNameTable();
-            try self.genCmpLtErrorsLenFunction();
-            try self.genModuleLevelAssembly();
+            try o.genErrorNameTable();
+            try o.genCmpLtErrorsLenFunction();
+            try o.genModuleLevelAssembly();
 
-            if (!self.builder.strip) {
+            if (o.used.items.len > 0) {
+                const array_llvm_ty = try o.builder.arrayType(o.used.items.len, .ptr);
+                const init_val = try o.builder.arrayConst(array_llvm_ty, o.used.items);
+                const compiler_used_variable = try o.builder.addVariable(
+                    try o.builder.strtabString("llvm.used"),
+                    array_llvm_ty,
+                    .default,
+                );
+                compiler_used_variable.setLinkage(.appending, &o.builder);
+                compiler_used_variable.setSection(try o.builder.string("llvm.metadata"), &o.builder);
+                try compiler_used_variable.setInitializer(init_val, &o.builder);
+            }
+
+            if (!o.builder.strip) {
                 {
                     var i: usize = 0;
-                    while (i < self.debug_unresolved_namespace_scopes.count()) : (i += 1) {
-                        const namespace_index = self.debug_unresolved_namespace_scopes.keys()[i];
-                        const fwd_ref = self.debug_unresolved_namespace_scopes.values()[i];
+                    while (i < o.debug_unresolved_namespace_scopes.count()) : (i += 1) {
+                        const namespace_index = o.debug_unresolved_namespace_scopes.keys()[i];
+                        const fwd_ref = o.debug_unresolved_namespace_scopes.values()[i];
 
                         const namespace = zcu.namespacePtr(namespace_index);
-                        const debug_type = try self.lowerDebugType(Type.fromInterned(namespace.owner_type));
+                        const debug_type = try o.lowerDebugType(Type.fromInterned(namespace.owner_type));
 
-                        self.builder.debugForwardReferenceSetType(fwd_ref, debug_type);
+                        o.builder.debugForwardReferenceSetType(fwd_ref, debug_type);
                     }
                 }
 
-                self.builder.debugForwardReferenceSetType(
-                    self.debug_enums_fwd_ref,
-                    try self.builder.metadataTuple(self.debug_enums.items),
+                o.builder.debugForwardReferenceSetType(
+                    o.debug_enums_fwd_ref,
+                    try o.builder.metadataTuple(o.debug_enums.items),
                 );
 
-                self.builder.debugForwardReferenceSetType(
-                    self.debug_globals_fwd_ref,
-                    try self.builder.metadataTuple(self.debug_globals.items),
+                o.builder.debugForwardReferenceSetType(
+                    o.debug_globals_fwd_ref,
+                    try o.builder.metadataTuple(o.debug_globals.items),
                 );
             }
         }
 
         const target_triple_sentinel =
-            try self.gpa.dupeZ(u8, self.builder.target_triple.slice(&self.builder).?);
-        defer self.gpa.free(target_triple_sentinel);
+            try o.gpa.dupeZ(u8, o.builder.target_triple.slice(&o.builder).?);
+        defer o.gpa.free(target_triple_sentinel);
 
         const emit_asm_msg = options.asm_path orelse "(none)";
         const emit_bin_msg = options.bin_path orelse "(none)";
@@ -1147,15 +1164,15 @@ pub const Object = struct {
         const context, const module = emit: {
             if (options.pre_ir_path) |path| {
                 if (std.mem.eql(u8, path, "-")) {
-                    self.builder.dump();
+                    o.builder.dump();
                 } else {
-                    _ = try self.builder.printToFile(path);
+                    _ = try o.builder.printToFile(path);
                 }
             }
 
-            const bitcode = try self.builder.toBitcode(self.gpa);
-            defer self.gpa.free(bitcode);
-            self.builder.clearAndFree();
+            const bitcode = try o.builder.toBitcode(o.gpa);
+            defer o.gpa.free(bitcode);
+            o.builder.clearAndFree();
 
             if (options.pre_bc_path) |path| {
                 var file = try std.fs.cwd().createFile(path, .{});
@@ -1283,7 +1300,10 @@ pub const Object = struct {
             .bitcode_filename = null,
             .coverage = .{
                 .CoverageType = .Edge,
-                .IndirectCalls = true,
+                // Works in tandem with Inline8bitCounters or InlineBoolFlag.
+                // Zig does not yet implement its own version of this but it
+                // needs to for better fuzzing logic.
+                .IndirectCalls = false,
                 .TraceBB = false,
                 .TraceCmp = true,
                 .TraceDiv = false,
@@ -1291,10 +1311,13 @@ pub const Object = struct {
                 .Use8bitCounters = false,
                 .TracePC = false,
                 .TracePCGuard = comp.config.san_cov_trace_pc_guard,
-                .Inline8bitCounters = true,
+                // Zig emits its own inline 8-bit counters instrumentation.
+                .Inline8bitCounters = false,
                 .InlineBoolFlag = false,
-                .PCTable = true,
+                // Zig emits its own PC table instrumentation.
+                .PCTable = false,
                 .NoPrune = false,
+                // Workaround for https://github.com/llvm/llvm-project/pull/106464
                 .StackDepth = true,
                 .TraceLoads = false,
                 .TraceStores = false,
@@ -1655,6 +1678,29 @@ pub const Object = struct {
             break :debug_info .{ file, subprogram };
         } else .{.none} ** 2;
 
+        const fuzz: ?FuncGen.Fuzz = f: {
+            if (!owner_mod.fuzz) break :f null;
+            if (func_analysis.disable_instrumentation) break :f null;
+            if (is_naked) break :f null;
+            if (comp.config.san_cov_trace_pc_guard) break :f null;
+
+            // The void type used here is a placeholder to be replaced with an
+            // array of the appropriate size after the POI count is known.
+
+            // Due to error "members of llvm.compiler.used must be named", this global needs a name.
+            const anon_name = try o.builder.strtabStringFmt("__sancov_gen_.{d}", .{o.used.items.len});
+            const counters_variable = try o.builder.addVariable(anon_name, .void, .default);
+            try o.used.append(gpa, counters_variable.toConst(&o.builder));
+            counters_variable.setLinkage(.private, &o.builder);
+            counters_variable.setAlignment(comptime Builder.Alignment.fromByteUnits(1), &o.builder);
+            counters_variable.setSection(try o.builder.string("__sancov_cntrs"), &o.builder);
+
+            break :f .{
+                .counters_variable = counters_variable,
+                .pcs = .{},
+            };
+        };
+
         var fg: FuncGen = .{
             .gpa = gpa,
             .air = air,
@@ -1662,6 +1708,7 @@ pub const Object = struct {
             .ng = &ng,
             .wip = wip,
             .is_naked = fn_info.cc == .Naked,
+            .fuzz = fuzz,
             .ret_ptr = ret_ptr,
             .args = args.items,
             .arg_index = 0,
@@ -1679,14 +1726,35 @@ pub const Object = struct {
         defer fg.deinit();
         deinit_wip = false;
 
-        fg.genBody(air.getMainBody()) catch |err| switch (err) {
+        fg.genBody(air.getMainBody(), .poi) catch |err| switch (err) {
             error.CodegenFail => {
-                try zcu.failed_codegen.put(zcu.gpa, func.owner_nav, ng.err_msg.?);
+                try zcu.failed_codegen.put(gpa, func.owner_nav, ng.err_msg.?);
                 ng.err_msg = null;
                 return;
             },
             else => |e| return e,
         };
+
+        if (fg.fuzz) |*f| {
+            {
+                const array_llvm_ty = try o.builder.arrayType(f.pcs.items.len, .i8);
+                f.counters_variable.ptrConst(&o.builder).global.ptr(&o.builder).type = array_llvm_ty;
+                const zero_init = try o.builder.zeroInitConst(array_llvm_ty);
+                try f.counters_variable.setInitializer(zero_init, &o.builder);
+            }
+
+            const array_llvm_ty = try o.builder.arrayType(f.pcs.items.len, .ptr);
+            const init_val = try o.builder.arrayConst(array_llvm_ty, f.pcs.items);
+            // Due to error "members of llvm.compiler.used must be named", this global needs a name.
+            const anon_name = try o.builder.strtabStringFmt("__sancov_gen_.{d}", .{o.used.items.len});
+            const pcs_variable = try o.builder.addVariable(anon_name, array_llvm_ty, .default);
+            try o.used.append(gpa, pcs_variable.toConst(&o.builder));
+            pcs_variable.setLinkage(.private, &o.builder);
+            pcs_variable.setMutability(.constant, &o.builder);
+            pcs_variable.setAlignment(Type.usize.abiAlignment(zcu).toLlvm(), &o.builder);
+            pcs_variable.setSection(try o.builder.string("__sancov_pcs1"), &o.builder);
+            try pcs_variable.setInitializer(init_val, &o.builder);
+        }
 
         try fg.wip.finish();
     }
@@ -4729,6 +4797,7 @@ pub const FuncGen = struct {
     liveness: Liveness,
     wip: Builder.WipFunction,
     is_naked: bool,
+    fuzz: ?Fuzz,
 
     file: Builder.Metadata,
     scope: Builder.Metadata,
@@ -4769,6 +4838,16 @@ pub const FuncGen = struct {
 
     sync_scope: Builder.SyncScope,
 
+    const Fuzz = struct {
+        counters_variable: Builder.Variable.Index,
+        pcs: std.ArrayListUnmanaged(Builder.Constant),
+
+        fn deinit(f: *Fuzz, gpa: Allocator) void {
+            f.pcs.deinit(gpa);
+            f.* = undefined;
+        }
+    };
+
     const BreakList = union {
         list: std.MultiArrayList(struct {
             bb: Builder.Function.Block.Index,
@@ -4778,9 +4857,11 @@ pub const FuncGen = struct {
     };
 
     fn deinit(self: *FuncGen) void {
+        const gpa = self.gpa;
+        if (self.fuzz) |*f| f.deinit(self.gpa);
         self.wip.deinit();
-        self.func_inst_table.deinit(self.gpa);
-        self.blocks.deinit(self.gpa);
+        self.func_inst_table.deinit(gpa);
+        self.blocks.deinit(gpa);
     }
 
     fn todo(self: *FuncGen, comptime format: []const u8, args: anytype) Error {
@@ -4836,11 +4917,33 @@ pub const FuncGen = struct {
         return o.null_opt_usize;
     }
 
-    fn genBody(self: *FuncGen, body: []const Air.Inst.Index) Error!void {
+    fn genBody(self: *FuncGen, body: []const Air.Inst.Index, coverage_point: Air.CoveragePoint) Error!void {
         const o = self.ng.object;
         const zcu = o.pt.zcu;
         const ip = &zcu.intern_pool;
         const air_tags = self.air.instructions.items(.tag);
+        switch (coverage_point) {
+            .none => {},
+            .poi => if (self.fuzz) |*fuzz| {
+                const poi_index = fuzz.pcs.items.len;
+                const base_ptr = fuzz.counters_variable.toValue(&o.builder);
+                const ptr = if (poi_index == 0) base_ptr else try self.wip.gep(.inbounds, .i8, base_ptr, &.{
+                    try o.builder.intValue(.i32, poi_index),
+                }, "");
+                const counter = try self.wip.load(.normal, .i8, ptr, .default, "");
+                const one = try o.builder.intValue(.i8, 1);
+                const counter_incremented = try self.wip.bin(.add, counter, one, "");
+                _ = try self.wip.store(.normal, counter_incremented, ptr, .default);
+
+                // LLVM does not allow blockaddress on the entry block.
+                const pc = if (self.wip.cursor.block == .entry)
+                    self.wip.function.toConst(&o.builder)
+                else
+                    try o.builder.blockAddrConst(self.wip.function, self.wip.cursor.block);
+                const gpa = self.gpa;
+                try fuzz.pcs.append(gpa, pc);
+            },
+        }
         for (body, 0..) |inst, i| {
             if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip)) continue;
 
@@ -4949,7 +5052,7 @@ pub const FuncGen = struct {
                 .ret_ptr        => try self.airRetPtr(inst),
                 .arg            => try self.airArg(inst),
                 .bitcast        => try self.airBitCast(inst),
-                .int_from_bool    => try self.airIntFromBool(inst),
+                .int_from_bool  => try self.airIntFromBool(inst),
                 .block          => try self.airBlock(inst),
                 .br             => try self.airBr(inst),
                 .switch_br      => try self.airSwitchBr(inst),
@@ -4966,7 +5069,7 @@ pub const FuncGen = struct {
                 .trunc          => try self.airTrunc(inst),
                 .fptrunc        => try self.airFptrunc(inst),
                 .fpext          => try self.airFpext(inst),
-                .int_from_ptr       => try self.airIntFromPtr(inst),
+                .int_from_ptr   => try self.airIntFromPtr(inst),
                 .load           => try self.airLoad(body[i..]),
                 .loop           => try self.airLoop(inst),
                 .not            => try self.airNot(inst),
@@ -5089,8 +5192,13 @@ pub const FuncGen = struct {
         }
     }
 
-    fn genBodyDebugScope(self: *FuncGen, maybe_inline_func: ?InternPool.Index, body: []const Air.Inst.Index) Error!void {
-        if (self.wip.strip) return self.genBody(body);
+    fn genBodyDebugScope(
+        self: *FuncGen,
+        maybe_inline_func: ?InternPool.Index,
+        body: []const Air.Inst.Index,
+        coverage_point: Air.CoveragePoint,
+    ) Error!void {
+        if (self.wip.strip) return self.genBody(body, coverage_point);
 
         const old_file = self.file;
         const old_inlined = self.inlined;
@@ -5137,7 +5245,8 @@ pub const FuncGen = struct {
                     .sp_flags = .{
                         .Optimized = mod.optimize_mode != .Debug,
                         .Definition = true,
-                        .LocalToUnit = true, // TODO: we can't know this at this point, since the function could be exported later!
+                        // TODO: we can't know this at this point, since the function could be exported later!
+                        .LocalToUnit = true,
                     },
                 },
                 o.debug_compile_unit,
@@ -5171,7 +5280,7 @@ pub const FuncGen = struct {
             .no_location => {},
         };
 
-        try self.genBody(body);
+        try self.genBody(body, coverage_point);
     }
 
     pub const CallAttr = enum {
@@ -5881,7 +5990,7 @@ pub const FuncGen = struct {
         const inst_ty = self.typeOfIndex(inst);
 
         if (inst_ty.isNoReturn(zcu)) {
-            try self.genBodyDebugScope(maybe_inline_func, body);
+            try self.genBodyDebugScope(maybe_inline_func, body, .none);
             return .none;
         }
 
@@ -5897,7 +6006,7 @@ pub const FuncGen = struct {
         });
         defer assert(self.blocks.remove(inst));
 
-        try self.genBodyDebugScope(maybe_inline_func, body);
+        try self.genBodyDebugScope(maybe_inline_func, body, .none);
 
         self.wip.cursor = .{ .block = parent_bb };
 
@@ -5996,11 +6105,11 @@ pub const FuncGen = struct {
 
         self.wip.cursor = .{ .block = then_block };
         if (hint == .then_cold) _ = try self.wip.callIntrinsicAssumeCold();
-        try self.genBodyDebugScope(null, then_body);
+        try self.genBodyDebugScope(null, then_body, extra.data.branch_hints.then_cov);
 
         self.wip.cursor = .{ .block = else_block };
         if (hint == .else_cold) _ = try self.wip.callIntrinsicAssumeCold();
-        try self.genBodyDebugScope(null, else_body);
+        try self.genBodyDebugScope(null, else_body, extra.data.branch_hints.else_cov);
 
         // No need to reset the insert cursor since this instruction is noreturn.
         return .none;
@@ -6085,7 +6194,7 @@ pub const FuncGen = struct {
 
             fg.wip.cursor = .{ .block = return_block };
             if (err_cold) _ = try fg.wip.callIntrinsicAssumeCold();
-            try fg.genBodyDebugScope(null, body);
+            try fg.genBodyDebugScope(null, body, .poi);
 
             fg.wip.cursor = .{ .block = continue_block };
         }
@@ -6196,14 +6305,14 @@ pub const FuncGen = struct {
             }
             self.wip.cursor = .{ .block = case_block };
             if (switch_br.getHint(case.idx) == .cold) _ = try self.wip.callIntrinsicAssumeCold();
-            try self.genBodyDebugScope(null, case.body);
+            try self.genBodyDebugScope(null, case.body, .poi);
         }
 
         const else_body = it.elseBody();
         self.wip.cursor = .{ .block = else_block };
         if (switch_br.getElseHint() == .cold) _ = try self.wip.callIntrinsicAssumeCold();
         if (else_body.len != 0) {
-            try self.genBodyDebugScope(null, else_body);
+            try self.genBodyDebugScope(null, else_body, .poi);
         } else {
             _ = try self.wip.@"unreachable"();
         }
@@ -6222,7 +6331,7 @@ pub const FuncGen = struct {
         _ = try self.wip.br(loop_block);
 
         self.wip.cursor = .{ .block = loop_block };
-        try self.genBodyDebugScope(null, body);
+        try self.genBodyDebugScope(null, body, .none);
 
         // TODO instead of this logic, change AIR to have the property that
         // every block is guaranteed to end with a noreturn instruction.
