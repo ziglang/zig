@@ -57,8 +57,6 @@ phdrs: std.ArrayListUnmanaged(elf.Elf64_Phdr) = .{},
 /// Tracked loadable segments during incremental linking.
 /// The index into the program headers of a PT_LOAD program header with Read and Execute flags
 phdr_zig_load_re_index: ?u16 = null,
-/// The index into the program headers of a PT_LOAD program header with Read flag
-phdr_zig_load_ro_index: ?u16 = null,
 
 /// Special program headers
 /// PT_PHDR
@@ -123,7 +121,6 @@ comdat_group_sections: std.ArrayListUnmanaged(ComdatGroupSection) = .{},
 /// Tracked section headers with incremental updates to Zig object.
 /// .rela.* sections are only used when emitting a relocatable object file.
 zig_text_section_index: ?u32 = null,
-zig_data_rel_ro_section_index: ?u32 = null,
 
 debug_info_section_index: ?u32 = null,
 debug_abbrev_section_index: ?u32 = null,
@@ -3360,7 +3357,6 @@ fn sortPhdrs(self: *Elf) error{OutOfMemory}!void {
 
     for (&[_]*?u16{
         &self.phdr_zig_load_re_index,
-        &self.phdr_zig_load_ro_index,
         &self.phdr_table_index,
         &self.phdr_table_load_index,
         &self.phdr_interp_index,
@@ -3487,7 +3483,6 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
         &self.versym_section_index,
         &self.verneed_section_index,
         &self.zig_text_section_index,
-        &self.zig_data_rel_ro_section_index,
         &self.debug_info_section_index,
         &self.debug_abbrev_section_index,
         &self.debug_str_section_index,
@@ -3588,6 +3583,7 @@ fn updateSectionSizes(self: *Elf) !void {
         if (self.zigObjectPtr()) |zo| blk: {
             const sym_index = for ([_]?Symbol.Index{
                 zo.data_index,
+                zo.data_relro_index,
                 zo.bss_index,
             }) |maybe_idx| {
                 if (maybe_idx) |idx| break idx;
@@ -3932,6 +3928,7 @@ pub fn allocateAllocSections(self: *Elf) !void {
             if (self.zigObjectPtr()) |zo| blk: {
                 const existing_size = for ([_]?Symbol.Index{
                     zo.data_index,
+                    zo.data_relro_index,
                     zo.eh_frame_index,
                 }) |maybe_sym_index| {
                     const sect_sym_index = maybe_sym_index orelse continue;
@@ -4105,6 +4102,7 @@ fn writeAtoms(self: *Elf) !void {
         } else if (self.zigObjectPtr()) |zo| base_offset: {
             const sym_index = for ([_]?Symbol.Index{
                 zo.data_index,
+                zo.data_relro_index,
                 zo.eh_frame_index,
             }) |maybe_idx| {
                 if (maybe_idx) |idx| break idx;
@@ -4818,7 +4816,6 @@ pub fn isEffectivelyDynLib(self: Elf) bool {
 pub fn isZigSection(self: Elf, shndx: u32) bool {
     inline for (&[_]?u32{
         self.zig_text_section_index,
-        self.zig_data_rel_ro_section_index,
     }) |index| {
         if (index == shndx) return true;
     }

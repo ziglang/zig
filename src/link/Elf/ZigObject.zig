@@ -62,6 +62,8 @@ debug_rnglists_index: ?Symbol.Index = null,
 eh_frame_index: ?Symbol.Index = null,
 bss_index: ?Symbol.Index = null,
 data_index: ?Symbol.Index = null,
+data_relro_index: ?Symbol.Index = null,
+rodata_index: ?Symbol.Index = null,
 
 pub const global_symbol_bit: u32 = 0x80000000;
 pub const symbol_mask: u32 = 0x7fffffff;
@@ -121,21 +123,6 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                 .flags = elf.PF_X | elf.PF_R | elf.PF_W,
             });
         }
-
-        if (elf_file.phdr_zig_load_ro_index == null) {
-            const alignment = elf_file.page_size;
-            const filesz: u64 = 1024;
-            const off = try elf_file.findFreeSpace(filesz, alignment);
-            elf_file.phdr_zig_load_ro_index = try elf_file.addPhdr(.{
-                .type = elf.PT_LOAD,
-                .offset = off,
-                .filesz = filesz,
-                .addr = if (ptr_size >= 4) 0xc000000 else 0xa000,
-                .memsz = filesz,
-                .@"align" = alignment,
-                .flags = elf.PF_R | elf.PF_W,
-            });
-        }
     }
 
     if (elf_file.zig_text_section_index == null) {
@@ -156,27 +143,6 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
             );
         } else {
             phndx.* = elf_file.phdr_zig_load_re_index.?;
-        }
-    }
-
-    if (elf_file.zig_data_rel_ro_section_index == null) {
-        elf_file.zig_data_rel_ro_section_index = try elf_file.addSection(.{
-            .name = try elf_file.insertShString(".data.rel.ro.zig"),
-            .type = elf.SHT_PROGBITS,
-            .addralign = 1,
-            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
-            .offset = std.math.maxInt(u64),
-        });
-        const shdr = &elf_file.sections.items(.shdr)[elf_file.zig_data_rel_ro_section_index.?];
-        const phndx = &elf_file.sections.items(.phndx)[elf_file.zig_data_rel_ro_section_index.?];
-        try fillSection(elf_file, shdr, 1024, elf_file.phdr_zig_load_ro_index);
-        if (elf_file.base.isRelocatable()) {
-            _ = try elf_file.addRelaShdr(
-                try elf_file.insertShString(".rela.data.rel.ro.zig"),
-                elf_file.zig_data_rel_ro_section_index.?,
-            );
-        } else {
-            phndx.* = elf_file.phdr_zig_load_ro_index.?;
         }
     }
 
@@ -1083,6 +1049,20 @@ pub fn lowerUav(
             return .{ .mcv = .{ .load_symbol = metadata.symbol_index } };
     }
 
+    const osec = if (self.data_relro_index) |sym_index|
+        self.symbol(sym_index).atom(elf_file).?.output_section_index
+    else osec: {
+        const osec = try elf_file.addSection(.{
+            .name = try elf_file.insertShString(".data.rel.ro"),
+            .type = elf.SHT_PROGBITS,
+            .addralign = 1,
+            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+            .offset = std.math.maxInt(u64),
+        });
+        self.data_relro_index = osec;
+        break :osec osec;
+    };
+
     var name_buf: [32]u8 = undefined;
     const name = std.fmt.bufPrint(&name_buf, "__anon_{d}", .{
         @intFromEnum(uav),
@@ -1093,7 +1073,7 @@ pub fn lowerUav(
         name,
         val,
         uav_alignment,
-        elf_file.zig_data_rel_ro_section_index.?,
+        osec,
         src_loc,
     ) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
@@ -1240,7 +1220,19 @@ fn getNavShdrIndex(
             .offset = std.math.maxInt(u64),
         });
     }
-    if (is_const) return elf_file.zig_data_rel_ro_section_index.?;
+    if (is_const) {
+        if (self.data_relro_index) |symbol_index|
+            return self.symbol(symbol_index).atom(elf_file).?.output_section_index;
+        const osec = try elf_file.addSection(.{
+            .name = try elf_file.insertShString(".data.rel.ro"),
+            .type = elf.SHT_PROGBITS,
+            .addralign = 1,
+            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+            .offset = std.math.maxInt(u64),
+        });
+        self.data_relro_index = try self.addSectionSymbol(gpa, ".data.rel.ro", .@"1", osec);
+        return osec;
+    }
     if (nav_init != .none and Value.fromInterned(nav_init).isUndefDeep(zcu))
         return switch (zcu.navFileScope(nav_index).mod.optimize_mode) {
             .Debug, .ReleaseSafe => {
@@ -1253,7 +1245,12 @@ fn getNavShdrIndex(
                     .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
                     .offset = std.math.maxInt(u64),
                 });
-                self.data_index = try self.addSectionSymbol(gpa, ".data", .@"1", osec);
+                self.data_index = try self.addSectionSymbol(
+                    gpa,
+                    ".data",
+                    Atom.Alignment.fromNonzeroByteUnits(ptr_size),
+                    osec,
+                );
                 return osec;
             },
             .ReleaseFast, .ReleaseSmall => {
@@ -1293,7 +1290,12 @@ fn getNavShdrIndex(
         .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
         .offset = std.math.maxInt(u64),
     });
-    self.data_index = try self.addSectionSymbol(gpa, ".data", .@"1", osec);
+    self.data_index = try self.addSectionSymbol(
+        gpa,
+        ".data",
+        Atom.Alignment.fromNonzeroByteUnits(ptr_size),
+        osec,
+    );
     return osec;
 }
 
@@ -1702,7 +1704,19 @@ fn updateLazySymbol(
 
     const output_section_index = switch (sym.kind) {
         .code => elf_file.zig_text_section_index.?,
-        .const_data => elf_file.zig_data_rel_ro_section_index.?,
+        .const_data => if (self.rodata_index) |sym_index|
+            self.symbol(sym_index).atom(elf_file).?.output_section_index
+        else osec: {
+            const osec = try elf_file.addSection(.{
+                .name = try elf_file.insertShString(".rodata"),
+                .type = elf.SHT_PROGBITS,
+                .addralign = 1,
+                .flags = elf.SHF_ALLOC,
+                .offset = std.math.maxInt(u64),
+            });
+            self.rodata_index = try self.addSectionSymbol(gpa, ".rodata", .@"1", osec);
+            break :osec osec;
+        },
     };
     const local_sym = self.symbol(symbol_index);
     local_sym.name_offset = name_str_index;
@@ -2003,7 +2017,10 @@ fn allocateAtom(self: *ZigObject, atom_ptr: *Atom, elf_file: *Elf) !void {
     }
     shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits().?);
 
-    const sect_atom_ptr = for ([_]?Symbol.Index{self.data_index}) |maybe_sym_index| {
+    const sect_atom_ptr = for ([_]?Symbol.Index{
+        self.data_index,
+        self.data_relro_index,
+    }) |maybe_sym_index| {
         const sect_sym_index = maybe_sym_index orelse continue;
         const sect_atom_ptr = self.symbol(sect_sym_index).atom(elf_file).?;
         if (sect_atom_ptr.output_section_index == atom_ptr.output_section_index) break sect_atom_ptr;
