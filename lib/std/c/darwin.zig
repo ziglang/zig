@@ -124,40 +124,42 @@ pub const THREAD_NULL: thread_t = 0;
 pub const MACH_PORT_NULL: mach_port_t = 0;
 pub const MACH_MSG_TIMEOUT_NONE: mach_msg_timeout_t = 0;
 
-pub const MACH_MSG_OPTION_NONE = 0x00000000;
+pub const MACH_MSG_OPTION = struct {
+    pub const NONE = 0x00000000;
 
-pub const MACH_SEND_MSG = 0x00000001;
-pub const MACH_RCV_MSG = 0x00000002;
+    pub const SEND_MSG = 0x00000001;
+    pub const RCV_MSG = 0x00000002;
 
-pub const MACH_RCV_LARGE = 0x00000004;
-pub const MACH_RCV_LARGE_IDENTITY = 0x00000008;
+    pub const RCV_LARGE = 0x00000004;
+    pub const RCV_LARGE_IDENTITY = 0x00000008;
 
-pub const MACH_SEND_TIMEOUT = 0x00000010;
-pub const MACH_SEND_OVERRIDE = 0x00000020;
-pub const MACH_SEND_INTERRUPT = 0x00000040;
-pub const MACH_SEND_NOTIFY = 0x00000080;
-pub const MACH_SEND_ALWAYS = 0x00010000;
-pub const MACH_SEND_FILTER_NONFATAL = 0x00010000;
-pub const MACH_SEND_TRAILER = 0x00020000;
-pub const MACH_SEND_NOIMPORTANCE = 0x00040000;
-pub const MACH_SEND_NODENAP = MACH_SEND_NOIMPORTANCE;
-pub const MACH_SEND_IMPORTANCE = 0x00080000;
-pub const MACH_SEND_SYNC_OVERRIDE = 0x00100000;
-pub const MACH_SEND_PROPAGATE_QOS = 0x00200000;
-pub const MACH_SEND_SYNC_USE_THRPRI = MACH_SEND_PROPAGATE_QOS;
-pub const MACH_SEND_KERNEL = 0x00400000;
-pub const MACH_SEND_SYNC_BOOTSTRAP_CHECKIN = 0x00800000;
+    pub const SEND_TIMEOUT = 0x00000010;
+    pub const SEND_OVERRIDE = 0x00000020;
+    pub const SEND_INTERRUPT = 0x00000040;
+    pub const SEND_NOTIFY = 0x00000080;
+    pub const SEND_ALWAYS = 0x00010000;
+    pub const SEND_FILTER_NONFATAL = 0x00010000;
+    pub const SEND_TRAILER = 0x00020000;
+    pub const SEND_NOIMPORTANCE = 0x00040000;
+    pub const SEND_NODENAP = SEND_NOIMPORTANCE;
+    pub const SEND_IMPORTANCE = 0x00080000;
+    pub const SEND_SYNC_OVERRIDE = 0x00100000;
+    pub const SEND_PROPAGATE_QOS = 0x00200000;
+    pub const SEND_SYNC_USE_THRPRI = SEND_PROPAGATE_QOS;
+    pub const SEND_KERNEL = 0x00400000;
+    pub const SEND_SYNC_BOOTSTRAP_CHECKIN = 0x00800000;
 
-pub const MACH_RCV_TIMEOUT = 0x00000100;
-pub const MACH_RCV_NOTIFY = 0x00000000;
-pub const MACH_RCV_INTERRUPT = 0x00000400;
-pub const MACH_RCV_VOUCHER = 0x00000800;
-pub const MACH_RCV_OVERWRITE = 0x00000000;
-pub const MACH_RCV_GUARDED_DESC = 0x00001000;
-pub const MACH_RCV_SYNC_WAIT = 0x00004000;
-pub const MACH_RCV_SYNC_PEEK = 0x00008000;
+    pub const RCV_TIMEOUT = 0x00000100;
+    pub const RCV_NOTIFY = 0x00000000;
+    pub const RCV_INTERRUPT = 0x00000400;
+    pub const RCV_VOUCHER = 0x00000800;
+    pub const RCV_OVERWRITE = 0x00000000;
+    pub const RCV_GUARDED_DESC = 0x00001000;
+    pub const RCV_SYNC_WAIT = 0x00004000;
+    pub const RCV_SYNC_PEEK = 0x00008000;
 
-pub const MACH_MSG_STRICT_REPLY = 0x00000200;
+    pub const STRICT_REPLY = 0x00000200;
+};
 
 pub const exception_type_t = c_int;
 
@@ -1512,4 +1514,179 @@ pub const DB_RECORDTYPE = enum(u32) {
     // Industry At Large Application Name Space Range Definition
     pub const APP_DEFINED_START = 0x80000000;
     pub const APP_DEFINED_END = 0xffffffff;
+};
+
+pub fn getKernError(err: std.c.kern_return_t) KernE {
+    return @as(KernE, @enumFromInt(@as(u32, @truncate(@as(usize, @intCast(err))))));
+}
+
+pub fn unexpectedKernError(err: KernE) std.posix.UnexpectedError {
+    if (std.posix.unexpected_error_tracing) {
+        std.debug.print("unexpected error: {d}\n", .{@intFromEnum(err)});
+        std.debug.dumpCurrentStackTrace(null);
+    }
+    return error.Unexpected;
+}
+
+/// Kernel return values
+pub const KernE = enum(u32) {
+    SUCCESS = 0,
+    /// Specified address is not currently valid
+    INVALID_ADDRESS = 1,
+    /// Specified memory is valid, but does not permit the
+    /// required forms of access.
+    PROTECTION_FAILURE = 2,
+    /// The address range specified is already in use, or
+    /// no address range of the size specified could be
+    /// found.
+    NO_SPACE = 3,
+    /// The function requested was not applicable to this
+    /// type of argument, or an argument is invalid
+    INVALID_ARGUMENT = 4,
+    /// The function could not be performed.  A catch-all.
+    FAILURE = 5,
+    /// A system resource could not be allocated to fulfill
+    /// this request.  This failure may not be permanent.
+    RESOURCE_SHORTAGE = 6,
+    /// The task in question does not hold receive rights
+    /// for the port argument.
+    NOT_RECEIVER = 7,
+    /// Bogus access restriction.
+    NO_ACCESS = 8,
+    /// During a page fault, the target address refers to a
+    /// memory object that has been destroyed.  This
+    /// failure is permanent.
+    MEMORY_FAILURE = 9,
+    /// During a page fault, the memory object indicated
+    /// that the data could not be returned.  This failure
+    /// may be temporary; future attempts to access this
+    /// same data may succeed, as defined by the memory
+    /// object.
+    MEMORY_ERROR = 10,
+    /// The receive right is already a member of the portset.
+    ALREADY_IN_SET = 11,
+    /// The receive right is not a member of a port set.
+    NOT_IN_SET = 12,
+    /// The name already denotes a right in the task.
+    NAME_EXISTS = 13,
+    /// The operation was aborted.  Ipc code will
+    /// catch this and reflect it as a message error.
+    ABORTED = 14,
+    /// The name doesn't denote a right in the task.
+    INVALID_NAME = 15,
+    /// Target task isn't an active task.
+    INVALID_TASK = 16,
+    /// The name denotes a right, but not an appropriate right.
+    INVALID_RIGHT = 17,
+    /// A blatant range error.
+    INVALID_VALUE = 18,
+    /// Operation would overflow limit on user-references.
+    UREFS_OVERFLOW = 19,
+    /// The supplied (port) capability is improper.
+    INVALID_CAPABILITY = 20,
+    /// The task already has send or receive rights
+    /// for the port under another name.
+    RIGHT_EXISTS = 21,
+    /// Target host isn't actually a host.
+    INVALID_HOST = 22,
+    /// An attempt was made to supply "precious" data
+    /// for memory that is already present in a
+    /// memory object.
+    MEMORY_PRESENT = 23,
+    /// A page was requested of a memory manager via
+    /// memory_object_data_request for an object using
+    /// a MEMORY_OBJECT_COPY_CALL strategy, with the
+    /// VM_PROT_WANTS_COPY flag being used to specify
+    /// that the page desired is for a copy of the
+    /// object, and the memory manager has detected
+    /// the page was pushed into a copy of the object
+    /// while the kernel was walking the shadow chain
+    /// from the copy to the object. This error code
+    /// is delivered via memory_object_data_error
+    /// and is handled by the kernel (it forces the
+    /// kernel to restart the fault). It will not be
+    /// seen by users.
+    MEMORY_DATA_MOVED = 24,
+    /// A strategic copy was attempted of an object
+    /// upon which a quicker copy is now possible.
+    /// The caller should retry the copy using
+    /// vm_object_copy_quickly. This error code
+    /// is seen only by the kernel.
+    MEMORY_RESTART_COPY = 25,
+    /// An argument applied to assert processor set privilege
+    /// was not a processor set control port.
+    INVALID_PROCESSOR_SET = 26,
+    /// The specified scheduling attributes exceed the thread's
+    /// limits.
+    POLICY_LIMIT = 27,
+    /// The specified scheduling policy is not currently
+    /// enabled for the processor set.
+    INVALID_POLICY = 28,
+    /// The external memory manager failed to initialize the
+    /// memory object.
+    INVALID_OBJECT = 29,
+    /// A thread is attempting to wait for an event for which
+    /// there is already a waiting thread.
+    ALREADY_WAITING = 30,
+    /// An attempt was made to destroy the default processor
+    /// set.
+    DEFAULT_SET = 31,
+    /// An attempt was made to fetch an exception port that is
+    /// protected, or to abort a thread while processing a
+    /// protected exception.
+    EXCEPTION_PROTECTED = 32,
+    /// A ledger was required but not supplied.
+    INVALID_LEDGER = 33,
+    /// The port was not a memory cache control port.
+    INVALID_MEMORY_CONTROL = 34,
+    /// An argument supplied to assert security privilege
+    /// was not a host security port.
+    INVALID_SECURITY = 35,
+    /// thread_depress_abort was called on a thread which
+    /// was not currently depressed.
+    NOT_DEPRESSED = 36,
+    /// Object has been terminated and is no longer available
+    TERMINATED = 37,
+    /// Lock set has been destroyed and is no longer available.
+    LOCK_SET_DESTROYED = 38,
+    /// The thread holding the lock terminated before releasing
+    /// the lock
+    LOCK_UNSTABLE = 39,
+    /// The lock is already owned by another thread
+    LOCK_OWNED = 40,
+    /// The lock is already owned by the calling thread
+    LOCK_OWNED_SELF = 41,
+    /// Semaphore has been destroyed and is no longer available.
+    SEMAPHORE_DESTROYED = 42,
+    /// Return from RPC indicating the target server was
+    /// terminated before it successfully replied
+    RPC_SERVER_TERMINATED = 43,
+    /// Terminate an orphaned activation.
+    RPC_TERMINATE_ORPHAN = 44,
+    /// Allow an orphaned activation to continue executing.
+    RPC_CONTINUE_ORPHAN = 45,
+    /// Empty thread activation (No thread linked to it)
+    NOT_SUPPORTED = 46,
+    /// Remote node down or inaccessible.
+    NODE_DOWN = 47,
+    /// A signalled thread was not actually waiting.
+    NOT_WAITING = 48,
+    /// Some thread-oriented operation (semaphore_wait) timed out
+    OPERATION_TIMED_OUT = 49,
+    /// During a page fault, indicates that the page was rejected
+    /// as a result of a signature check.
+    CODESIGN_ERROR = 50,
+    /// The requested property cannot be changed at this time.
+    POLICY_STATIC = 51,
+    /// The provided buffer is of insufficient size for the requested data.
+    INSUFFICIENT_BUFFER_SIZE = 52,
+    /// Denied by security policy
+    DENIED = 53,
+    /// The KC on which the function is operating is missing
+    MISSING_KC = 54,
+    /// The KC on which the function is operating is invalid
+    INVALID_KC = 55,
+    /// A search or query operation did not return a result
+    NOT_FOUND = 56,
+    _,
 };
