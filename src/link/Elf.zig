@@ -3708,13 +3708,11 @@ fn shdrToPhdrFlags(sh_flags: u64) u32 {
 /// (This is an upper bound so that we can reserve enough space for the header and progam header
 /// table without running out of space and being forced to move things around.)
 fn getMaxNumberOfPhdrs() u64 {
-    // First, assume we compile Zig's source incrementally, this gives us:
-    var num: u64 = number_of_zig_segments;
-    // Next, the estimated maximum number of segments the linker can emit for input sections are:
-    num += max_number_of_object_segments;
-    // Next, any other non-loadable program headers, including TLS, DYNAMIC, GNU_STACK, GNU_EH_FRAME, INTERP:
+    // The estimated maximum number of segments the linker can emit for input sections are:
+    var num: u64 = max_number_of_object_segments;
+    // Any other non-loadable program headers, including TLS, DYNAMIC, GNU_STACK, GNU_EH_FRAME, INTERP:
     num += max_number_of_special_phdrs;
-    // Finally, PHDR program header and corresponding read-only load segment:
+    // PHDR program header and corresponding read-only load segment:
     num += 2;
     return num;
 }
@@ -5495,7 +5493,6 @@ fn requiresThunks(self: Elf) bool {
 /// so that we reserve enough space for the program header table up-front.
 /// Bump these numbers when adding or deleting a Zig specific pre-allocated segment, or adding
 /// more special-purpose program headers.
-pub const number_of_zig_segments = 2;
 const max_number_of_object_segments = 9;
 const max_number_of_special_phdrs = 5;
 
