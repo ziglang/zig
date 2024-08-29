@@ -1,5 +1,67 @@
 const std = @import("std");
 
+fn StripError(comptime T: type) type {
+    return switch (@typeInfo(T)) {
+        .error_union => |eu| eu.payload,
+        .error_set => void,
+        else => @compileError("no error to strip"),
+    };
+}
+
+/// Terminates on error
+pub fn check(src: std.builtin.SourceLocation, v: anytype, args: anytype) StripError(@TypeOf(v)) {
+    return v catch |e| {
+        var buffer: [4096]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        var cw = std.io.countingWriter(fbs.writer());
+        const w = cw.writer();
+        if (@typeInfo(@TypeOf(args)).@"struct".fields.len != 0) {
+            w.writeAll(" (") catch {};
+            inline for (@typeInfo(@TypeOf(args)).@"struct".fields, 0..) |field, i| {
+                const Field = @TypeOf(@field(args, field.name));
+                if (i != 0) {
+                    w.writeAll(", ") catch {};
+                }
+                if (Field == []const u8 or Field == []u8) {
+                    w.print("{s}='{s}'", .{ field.name, @field(args, field.name) }) catch {};
+                } else {
+                    w.print("{s}={any}", .{ field.name, @field(args, field.name) }) catch {};
+                }
+            }
+            w.writeAll(")") catch {};
+        }
+        std.process.fatal("{s}:{}: {s}{s}", .{ src.file, src.line, @errorName(e), buffer[0..cw.bytes_written] });
+    };
+}
+
+/// for passing slices across extern functions
+pub const Slice = extern struct {
+    ptr: [*]const u8,
+    len: usize,
+
+    pub fn toZig(s: Slice) []const u8 {
+        return s.ptr[0..s.len];
+    }
+
+    pub fn fromZig(s: []const u8) Slice {
+        return .{
+            .ptr = s.ptr,
+            .len = s.len,
+        };
+    }
+};
+
+pub fn createFileBail(dir: std.fs.Dir, sub_path: []const u8, flags: std.fs.File.CreateFlags) std.fs.File {
+    return dir.createFile(sub_path, flags) catch |err| switch (err) {
+        error.FileNotFound => {
+            const dir_name = std.fs.path.dirname(sub_path).?;
+            check(@src(), dir.makePath(dir_name), .{ .dir_name = dir_name });
+            return check(@src(), dir.createFile(sub_path, flags), .{ .sub_path = sub_path, .flags = flags });
+        },
+        else => |e| std.process.fatal("create file '{s}' failed: {}", .{ sub_path, e }),
+    };
+}
+
 pub fn sort(a: []u32) void {
     std.mem.sort(u32, a, void{}, std.sort.asc(u32));
 }
