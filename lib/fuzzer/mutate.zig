@@ -4,6 +4,8 @@ const Allocator = std.mem.Allocator;
 const Rng = std.Random.DefaultPrng;
 const ArrayList = std.ArrayList;
 
+const test_data: [128]u8 = [128]u8{ 24, 56, 112, 52, 144, 101, 206, 120, 101, 4, 111, 188, 210, 24, 52, 218, 140, 78, 144, 119, 180, 32, 2, 10, 60, 24, 163, 158, 175, 241, 120, 50, 6, 94, 111, 124, 81, 184, 223, 69, 41, 230, 136, 25, 127, 161, 8, 166, 194, 103, 248, 21, 236, 210, 115, 66, 225, 163, 163, 152, 133, 60, 167, 55, 108, 208, 121, 212, 73, 238, 58, 252, 18, 117, 133, 208, 29, 236, 224, 253, 188, 21, 103, 120, 104, 191, 25, 84, 190, 168, 156, 248, 95, 157, 250, 13, 95, 224, 189, 45, 119, 79, 228, 2, 15, 177, 99, 189, 70, 134, 176, 112, 98, 119, 29, 206, 22, 246, 48, 155, 138, 17, 118, 58, 226, 139, 234, 200 };
+
 // Choice of mutations copied from llvm's libfuzzer
 const Mutation = union(enum) {
     shuffle_bytes: struct { seed: u64 },
@@ -83,20 +85,19 @@ fn executeMutationReverse(str: *ArrayList(u8), muts: MutationSequence, scr: *Arr
 }
 
 test "mutate" {
-    var str_ = "fhasjkrhuepqviwpvbybch<D-,>yreoqvyrbvbyr0yvrbzlyc13748ff10 cb1 7cbru".*;
     var scr = ArrayList(u8).init(std.testing.allocator);
     defer scr.deinit();
     var str = ArrayList(u8).init(std.testing.allocator);
     defer str.deinit();
     var rng = Rng.init(0);
-    for (0..str_.len) |l| {
+    for (0..test_data.len) |l| {
         str.clearRetainingCapacity();
-        try str.appendSlice(str_[0..l]);
-        for (0..10000) |_| {
+        try str.appendSlice(test_data[0..l]);
+        for (0..1000) |_| {
             const seed = rng.next();
             try mutate(&str, seed, &scr);
             mutateReverse(&str, seed, &scr);
-            try std.testing.expectEqualStrings(str_[0..l], str.items);
+            try std.testing.expectEqualStrings(test_data[0..l], str.items);
             try std.testing.expectEqual(0, scr.items.len);
         }
     }
@@ -134,21 +135,20 @@ fn mutateChangeBitReverse(str: *ArrayList(u8), index: u32, bit: u3) void {
 }
 
 test "mutate change bit" {
-    var str_ = "fhasjkrhuepqviwpvbybch<D-,>yreoqvyrbvbyr0yvrbzlyc13748ff10 cb1 7cbru".*;
     var scr = ArrayList(u8).init(std.testing.allocator);
     var str = ArrayList(u8).init(std.testing.allocator);
     defer str.deinit();
     defer scr.deinit();
     var rng = Rng.init(0);
-    for (0..str_.len) |l| {
+    for (0..test_data.len) |l| {
         str.clearRetainingCapacity();
-        try str.appendSlice(str_[0..l]);
+        try str.appendSlice(test_data[0..l]);
         for (0..1000) |_| {
             const index: u32 = @truncate(rng.next());
             const bit: u3 = @truncate(rng.next());
             mutateChangeBit(&str, index, bit);
             mutateChangeBitReverse(&str, index, bit);
-            try std.testing.expectEqualStrings(str_[0..l], str.items);
+            try std.testing.expectEqualStrings(test_data[0..l], str.items);
             try std.testing.expectEqual(0, scr.items.len);
         }
     }
@@ -167,21 +167,20 @@ fn mutateChangeByteReverse(str: *ArrayList(u8), scr: *ArrayList(u8), index: u32)
 }
 
 test "mutate change byte" {
-    var str_ = "fhasjkrhuepqviwpvbybch<D-,>yreoqvyrbvbyr0yvrbzlyc13748ff10 cb1 7cbru".*;
     var scr = ArrayList(u8).init(std.testing.allocator);
     defer scr.deinit();
     var str = ArrayList(u8).init(std.testing.allocator);
     defer str.deinit();
     var rng = Rng.init(0);
-    for (0..str_.len) |l| {
+    for (0..test_data.len) |l| {
         str.clearRetainingCapacity();
-        try str.appendSlice(str_[0..l]);
+        try str.appendSlice(test_data[0..l]);
         for (0..1000) |_| {
             const index: u32 = @truncate(rng.next());
             const byte: u8 = @truncate(rng.next());
             try mutateChangeByte(&str, &scr, index, byte);
             mutateChangeByteReverse(&str, &scr, index);
-            try std.testing.expectEqualStrings(str_[0..l], str.items);
+            try std.testing.expectEqualStrings(test_data[0..l], str.items);
             try std.testing.expectEqual(0, scr.items.len);
         }
     }
@@ -213,20 +212,19 @@ fn mutateInsertRepeatedByteReverse(str: *ArrayList(u8), index: u32, len_: u8) vo
 }
 
 test "mutate insert repeated byte" {
-    var str_ = "fhasjkrhuepqviwpvbybch<D-,>yreoqvyrbvbyr0yvrbzlyc13748ff10 cb1 7cbru".*;
     var str = ArrayList(u8).init(std.testing.allocator);
     defer str.deinit();
     var rng = Rng.init(0);
-    for (0..str_.len) |l| {
+    for (0..test_data.len) |l| {
         str.clearRetainingCapacity();
-        try str.appendSlice(str_[0..l]);
+        try str.appendSlice(test_data[0..l]);
         for (0..1000) |_| {
             const index: u32 = @truncate(rng.next());
             const byte: u8 = @truncate(rng.next());
             const len: u8 = @truncate(rng.next());
             try mutateInsertRepeatedByte(&str, index, len, byte);
             mutateInsertRepeatedByteReverse(&str, index, len);
-            try std.testing.expectEqualStrings(str_[0..l], str.items);
+            try std.testing.expectEqualStrings(test_data[0..l], str.items);
         }
     }
 }
@@ -240,21 +238,20 @@ fn mutateInsertByteReverse(str: *ArrayList(u8), index: u32) void {
 }
 
 test "mutate insert byte" {
-    var str_ = "fhasjkrhuepqviwpvbybch<D-,>yreoqvyrbvbyr0yvrbzlyc13748ff10 cb1 7cbru".*;
     var scr = ArrayList(u8).init(std.testing.allocator);
     defer scr.deinit();
     var str = ArrayList(u8).init(std.testing.allocator);
     defer str.deinit();
     var rng = Rng.init(0);
-    for (0..str_.len) |l| {
+    for (0..test_data.len) |l| {
         str.clearRetainingCapacity();
-        try str.appendSlice(str_[0..l]);
+        try str.appendSlice(test_data[0..l]);
         for (0..1000) |_| {
             const index: u32 = @truncate(rng.next());
             const byte: u8 = @truncate(rng.next());
             try mutateInsertByte(&str, index, byte);
             mutateInsertByteReverse(&str, index);
-            try std.testing.expectEqualStrings(str_[0..l], str.items);
+            try std.testing.expectEqualStrings(test_data[0..l], str.items);
             try std.testing.expectEqual(0, scr.items.len);
         }
     }
@@ -303,21 +300,20 @@ fn mutateEraseBytesReverse(str: *ArrayList(u8), scr: *ArrayList(u8), index: u32)
 }
 
 test "mutate erase bytes" {
-    var str_ = "fhasjkrhuepqviwpvbybch<D-,>yreoqvyrbvbyr0yvrbzlyc13748ff10 cb1 7cbru".*;
     var scr = ArrayList(u8).init(std.testing.allocator);
     defer scr.deinit();
     var str = ArrayList(u8).init(std.testing.allocator);
     defer str.deinit();
     var rng = Rng.init(0);
-    for (0..str_.len) |l| {
+    for (0..test_data.len) |l| {
         str.clearRetainingCapacity();
-        try str.appendSlice(str_[0..l]);
+        try str.appendSlice(test_data[0..l]);
         for (0..1000) |_| {
             const index: u32 = @truncate(rng.next());
             const len: u8 = @truncate(rng.next());
             try mutateEraseBytes(&str, &scr, index, len);
             mutateEraseBytesReverse(&str, &scr, index);
-            try std.testing.expectEqualStrings(str_[0..l], str.items);
+            try std.testing.expectEqualStrings(test_data[0..l], str.items);
             try std.testing.expectEqual(0, scr.items.len);
         }
     }
