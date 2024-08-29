@@ -214,6 +214,12 @@ pub const Fuzzer = struct {
 
     first_run: bool = true,
 
+    /// When we boot, we need to iterate over all corpus inputs and run them
+    /// once, populating initial feature set. When we are walking the corpus,
+    /// this variable stores current input index. After the walk is done, we
+    /// set it to null
+    corpus_walk: ?usize = null,
+
     pub fn init(gpa: Allocator, cache_dir: std.fs.Dir, pc_counters: []u8, pcs: []usize) Fuzzer {
         assert(pc_counters.len == pcs.len);
 
@@ -260,12 +266,26 @@ pub const Fuzzer = struct {
     }
 
     fn pickInput(f: *Fuzzer) InputPool.Index {
-        assert(f.input_pool.len() != 0);
-        const index = f.rng.next() % f.input_pool.len();
+        const input_pool_len = f.input_pool.len();
+        assert(input_pool_len != 0);
+
+        if (f.corpus_walk) |w| {
+            if (w == input_pool_len) {
+                std.log.info("corpus walk done after walking {} inputs", .{w});
+                f.corpus_walk = null;
+            } else {
+                f.corpus_walk = w + 1;
+                return @intCast(w);
+            }
+        }
+
+        const index = f.rng.next() % input_pool_len;
         return @intCast(index);
     }
 
     fn doMutation(f: *Fuzzer) void {
+        if (f.corpus_walk != null) return;
+
         f.mutation_seed = f.rng.next();
         f.mutate_scratch.clearRetainingCapacity();
 
@@ -277,6 +297,8 @@ pub const Fuzzer = struct {
     }
 
     fn undoMutate(f: *Fuzzer) void {
+        if (f.corpus_walk != null) return;
+
         var ar_scratch = f.mutate_scratch.toManaged(f.gpa);
         var ar_input = f.current_input.toManaged(f.gpa);
         mutate.mutateReverse(&ar_input, f.mutation_seed, &ar_scratch);
@@ -320,18 +342,18 @@ pub const Fuzzer = struct {
         }
     }
 
-    /// Returns true if last run was good
-    fn analyzeLastRun(f: *Fuzzer) bool {
-        const features = feature_capture.values();
+    fn analyzeLastRun(f: *Fuzzer) void {
+        var features = feature_capture.values();
         feature_util.sort(features);
+        features = feature_util.uniq(features);
 
         const analysis = feature_util.cmp(features, f.all_features.items);
 
         if (analysis.only_a == 0) {
-            return false;
+            return; // bad input
         }
 
-        {
+        if (f.corpus_walk == null) {
             var buffer: [256]u8 = undefined;
             var fba = std.heap.FixedBufferAllocator.init(&buffer);
             var ar = std.ArrayList(u8).init(fba.allocator());
@@ -344,14 +366,14 @@ pub const Fuzzer = struct {
                 f.all_features.items.len + analysis.only_a,
                 ar.items,
             });
+            incrementUniqueRuns(f.seen_pcs);
+            f.input_pool.insertString(f.current_input.items);
         }
 
         var ar = f.all_features.toManaged(f.gpa);
         check(@src(), feature_util.merge(&ar, features), .{});
         f.all_features = ar.moveToUnmanaged();
-        incrementUniqueRuns(f.seen_pcs);
         updateGlobalCoverage(f.pc_counters, f.seen_pcs);
-        return true;
     }
 
     fn selectAndMutate(f: *Fuzzer) void {
@@ -389,6 +411,8 @@ pub const Fuzzer = struct {
         if (f.input_pool.len() == 0) {
             f.makeUpInitialCorpus();
         }
+        std.log.info("starting corpus walk", .{});
+        f.corpus_walk = 0;
     }
 
     pub fn next(f: *Fuzzer, options: *const std.testing.FuzzInputOptions) []const u8 {
@@ -412,9 +436,7 @@ pub const Fuzzer = struct {
                 return f.current_input.items;
             }
 
-            if (f.analyzeLastRun()) {
-                f.input_pool.insertString(f.current_input.items);
-            }
+            f.analyzeLastRun();
 
             f.undoMutate();
 
