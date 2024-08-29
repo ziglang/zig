@@ -227,7 +227,7 @@ pub const Fuzzer = struct {
         const pc_digest = hashPCs(pcs);
         const coverage_id = pc_digest;
         const hex_digest = std.fmt.hex(pc_digest);
-        const coverage_file_path = "v/" ++ hex_digest;
+        const coverage_file_path = "v/" ++ hex_digest ++ "coverage";
 
         const feature_buffer = check(@src(), gpa.alloc(u32, InitialFeatureBufferCap), .{});
 

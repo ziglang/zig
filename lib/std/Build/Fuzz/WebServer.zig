@@ -612,7 +612,7 @@ fn prepareTables(
 
     const coverage_file_path: Build.Cache.Path = .{
         .root_dir = run_step.step.owner.cache_root,
-        .sub_path = "v/" ++ std.fmt.hex(coverage_id),
+        .sub_path = "v/" ++ std.fmt.hex(coverage_id) ++ "coverage",
     };
     var coverage_file = coverage_file_path.root_dir.handle.openFile(coverage_file_path.sub_path, .{}) catch |err| {
         log.err("step '{s}': failed to load coverage file '{}': {s}", .{
