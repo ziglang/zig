@@ -17,9 +17,7 @@ export threadlocal var __sancov_lowest_stack: usize = std.math.maxInt(usize);
 
 fn hashPCs(pcs: []const usize) u64 {
     var hasher = std.hash.Wyhash.init(0);
-    for (pcs) |pc| {
-        hasher.update(std.mem.asBytes(&pc));
-    }
+    hasher.update(std.mem.asBytes(pcs));
     return hasher.final();
 }
 
@@ -187,8 +185,12 @@ pub const Fuzzer = struct {
     }
 
     fn readOptions(f: *Fuzzer, options: *const std.testing.FuzzInputOptions) void {
-        for (options.corpus) |input| {
-            f.input_pool.insertString(input);
+        // Otherwise the options corpus would be re-added every time we restart
+        // the fuzzer
+        if (f.input_pool.len() == 0) {
+            for (options.corpus) |input| {
+                f.input_pool.insertString(input);
+            }
         }
     }
 
