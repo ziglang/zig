@@ -6750,7 +6750,7 @@ pub const pthread_mutex_t = switch (native_os) {
             .musl, .musleabi, .musleabihf => if (@sizeOf(usize) == 8) 40 else 24,
             .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => switch (native_arch) {
                 .aarch64 => 48,
-                .x86_64 => if (native_abi == .gnux32) 40 else 32,
+                .x86_64 => if (native_abi == .gnux32) 32 else 40,
                 .mips64, .powerpc64, .powerpc64le, .sparc64 => 40,
                 else => if (@sizeOf(usize) == 8) 40 else 24,
             },
