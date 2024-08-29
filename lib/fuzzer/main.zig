@@ -171,9 +171,13 @@ pub const Fuzzer = struct {
 
         const input_pool = InputPool.init(cache_dir, pc_digest);
 
+        const seed: u64 = @bitCast(std.time.milliTimestamp());
+
+        std.log.info("seed: {x}", .{seed});
+
         return .{
             .gpa = gpa,
-            .rng = std.Random.DefaultPrng.init(0),
+            .rng = std.Random.DefaultPrng.init(seed),
             .coverage_id = coverage_id,
             .cache_dir = cache_dir,
             .pcs = pcs,
