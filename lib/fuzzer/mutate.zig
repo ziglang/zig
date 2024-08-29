@@ -26,7 +26,7 @@ const Mutation = union(enum) {
 
 const MutationSequence = std.BoundedArray(Mutation, 8);
 
-pub fn mutate(str: *ArrayList(u8), seed: u64, scr: *ArrayList(u8)) !void {
+pub fn mutate(str: *ArrayList(u8), seed: u64, scr: *ArrayList(u8)) error{OutOfMemory}!void {
     const muts = generateRandomMutationSequence(Rng.init(seed));
     try executeMutation(str, muts, scr);
 }
@@ -115,13 +115,6 @@ pub fn writeMutation(seed: u64, writer: anytype) !void {
             .change_bit => writer.print("ChBit, ", .{}),
         };
     }
-}
-
-fn xmod(index: usize, len: usize) usize {
-    if (len == 0) {
-        return 0;
-    }
-    return index % len;
 }
 
 fn mutateChangeBit(str: *ArrayList(u8), index: u32, bit: u3) void {

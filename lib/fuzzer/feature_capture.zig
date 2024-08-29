@@ -28,7 +28,7 @@ pub fn prepare(b: []u32) void {
     buffer = b;
     top = 0;
     if (epoch == 255) {
-        @setCold(true);
+        @branchHint(.cold);
         @memset(&table, 0);
         epoch = 1;
     } else {

@@ -3,6 +3,7 @@ const MemoryMappedList = @This();
 
 const std = @import("std");
 const assert = std.debug.assert;
+const check = @import("main.zig").check;
 
 /// Contents of the list.
 ///
@@ -15,15 +16,15 @@ items: []align(std.mem.page_size) volatile u8,
 /// How many bytes this list can hold without allocating additional memory.
 capacity: usize,
 
-pub fn init(file: std.fs.File, length: usize, capacity: usize) !MemoryMappedList {
-    const ptr = try std.posix.mmap(
+pub fn init(file: std.fs.File, length: usize, capacity: usize) MemoryMappedList {
+    const ptr = check(@src(), std.posix.mmap(
         null,
         capacity,
         std.posix.PROT.READ | std.posix.PROT.WRITE,
         .{ .TYPE = .SHARED },
         file.handle,
         0,
-    );
+    ), .{});
     return .{
         .items = ptr[0..length],
         .capacity = capacity,
