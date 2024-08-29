@@ -1007,7 +1007,7 @@ pub fn lowerUav(
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
             .offset = std.math.maxInt(u64),
         });
-        self.data_relro_index = osec;
+        self.data_relro_index = try self.addSectionSymbol(gpa, ".data.rel.ro", .@"1", osec);
         break :osec osec;
     };
 
