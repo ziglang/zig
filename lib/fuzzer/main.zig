@@ -2,26 +2,50 @@ const builtin = @import("builtin");
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const fatal = std.process.fatal;
+const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const SeenPcsHeader = std.Build.Fuzz.abi.SeenPcsHeader;
 const MemoryMappedList = @import("MemoryMappedList.zig");
 
 const mutate = @import("mutate.zig");
-const InputPool = @import("InputPool.zig");
+const InputPool = @import("input_pool.zig").InputPool;
 const feature_capture = @import("feature_capture.zig");
 const feature_util = @import("feature_util.zig");
 
 export threadlocal var __sancov_lowest_stack: usize = std.math.maxInt(usize);
 
-/// LLVM creates an array of these and we can look at them. They have 1:1
-/// relationship with the inline counters
-pub const FlaggedPc = extern struct {
-    addr: usize,
-    flags: packed struct(usize) {
-        entry: bool,
-        _: std.meta.Int(.unsigned, @bitSizeOf(usize) - 1),
-    },
-};
+fn StripError(comptime T: type) type {
+    return switch (@typeInfo(T)) {
+        .error_union => |eu| eu.payload,
+        .error_set => void,
+        else => @compileError("no error to strip"),
+    };
+}
+
+/// Terminates on error
+pub fn check(src: std.builtin.SourceLocation, v: anytype, args: anytype) StripError(@TypeOf(v)) {
+    return v catch |e| {
+        var buffer: [4096]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buffer);
+        var cw = std.io.countingWriter(fbs.writer());
+        const w = cw.writer();
+        if (@typeInfo(@TypeOf(args)).@"struct".fields.len != 0) {
+            w.writeAll(" (") catch {};
+            inline for (@typeInfo(@TypeOf(args)).@"struct".fields, 0..) |field, i| {
+                const Field = @TypeOf(@field(args, field.name));
+                if (i != 0) {
+                    w.writeAll(", ") catch {};
+                }
+                if (Field == []const u8 or Field == []u8) {
+                    w.print("{s}='{s}'", .{ field.name, @field(args, field.name) }) catch {};
+                } else {
+                    w.print("{s}={any}", .{ field.name, @field(args, field.name) }) catch {};
+                }
+            }
+            w.writeAll(")") catch {};
+        }
+        std.process.fatal("{s}:{}: {s}{s}", .{ src.file, src.line, @errorName(e), buffer[0..cw.bytes_written] });
+    };
+}
 
 /// for passing slices across extern functions
 pub const Slice = extern struct {
@@ -40,22 +64,22 @@ pub const Slice = extern struct {
     }
 };
 
-fn hashPCs(pcs: []const FlaggedPc) u64 {
+fn hashPCs(pcs: []const usize) u64 {
     var hasher = std.hash.Wyhash.init(0);
-    for (pcs) |flagged_pc| {
-        hasher.update(std.mem.asBytes(&flagged_pc.addr));
+    for (pcs) |pc| {
+        hasher.update(std.mem.asBytes(&pc));
     }
     return hasher.final();
 }
 
-fn createFileBail(dir: std.fs.Dir, sub_path: []const u8, flags: std.fs.File.CreateFlags) !std.fs.File {
+fn createFileBail(dir: std.fs.Dir, sub_path: []const u8, flags: std.fs.File.CreateFlags) std.fs.File {
     return dir.createFile(sub_path, flags) catch |err| switch (err) {
         error.FileNotFound => {
             const dir_name = std.fs.path.dirname(sub_path).?;
-            try dir.makePath(dir_name);
-            return try dir.createFile(sub_path, flags);
+            check(@src(), dir.makePath(dir_name), .{ .dir_name = dir_name });
+            return check(@src(), dir.createFile(sub_path, flags), .{ .sub_path = sub_path, .flags = flags });
         },
-        else => |e| return e,
+        else => |e| std.process.fatal("create file '{s}' failed: {}", .{ sub_path, e }),
     };
 }
 
@@ -63,37 +87,37 @@ fn createFileBail(dir: std.fs.Dir, sub_path: []const u8, flags: std.fs.File.Crea
 /// - Header
 /// - list of PC addresses (usize elements)
 /// - list of hit flag, 1 bit per address (stored in u8 elements)
-fn initCoverageFile(cache_dir: std.fs.Dir, coverage_file_path: []const u8, flagged_pcs: []const FlaggedPc) !MemoryMappedList {
-    const coverage_file = try createFileBail(cache_dir, coverage_file_path, .{
+fn initCoverageFile(cache_dir: std.fs.Dir, coverage_file_path: []const u8, pcs: []const usize) MemoryMappedList {
+    const coverage_file = createFileBail(cache_dir, coverage_file_path, .{
         .read = true,
         .truncate = false,
     });
     defer coverage_file.close();
-    const n_bitset_elems = (flagged_pcs.len + @bitSizeOf(usize) - 1) / @bitSizeOf(usize);
+    const n_bitset_elems = (pcs.len + @bitSizeOf(usize) - 1) / @bitSizeOf(usize);
 
     comptime assert(SeenPcsHeader.trailing[0] == .pc_bits_usize);
     comptime assert(SeenPcsHeader.trailing[1] == .pc_addr);
 
     // how long the file should be
-    const bytes_len = @sizeOf(SeenPcsHeader) + n_bitset_elems * @sizeOf(usize) + flagged_pcs.len * @sizeOf(usize);
+    const bytes_len = @sizeOf(SeenPcsHeader) + n_bitset_elems * @sizeOf(usize) + pcs.len * @sizeOf(usize);
 
     // how long the file actually is
-    const existing_len = try coverage_file.getEndPos();
+    const existing_len = check(@src(), coverage_file.getEndPos(), .{ .file = coverage_file_path });
 
     if (existing_len == 0)
-        try coverage_file.setEndPos(bytes_len)
+        check(@src(), coverage_file.setEndPos(bytes_len), .{ .file = coverage_file_path, .size = bytes_len })
     else if (existing_len != bytes_len)
-        return error.InvalidCoverageFile;
+        std.process.fatal("coverage file '{s}' is invalid (wrong length)", .{coverage_file_path});
 
-    var seen_pcs = try MemoryMappedList.init(coverage_file, existing_len, bytes_len);
+    var seen_pcs = MemoryMappedList.init(coverage_file, existing_len, bytes_len);
 
     if (existing_len != 0) {
         // check existing file is ok
-        const existing_pcs_bytes = seen_pcs.items[@sizeOf(SeenPcsHeader) + @sizeOf(usize) * n_bitset_elems ..][0 .. flagged_pcs.len * @sizeOf(usize)];
+        const existing_pcs_bytes = seen_pcs.items[@sizeOf(SeenPcsHeader) + @sizeOf(usize) * n_bitset_elems ..][0 .. pcs.len * @sizeOf(usize)];
         const existing_pcs = std.mem.bytesAsSlice(usize, existing_pcs_bytes);
-        for (existing_pcs, flagged_pcs) |old, new| {
-            if (old != new.addr) {
-                return error.InvalidCoverageFile;
+        for (existing_pcs, pcs) |old, new| {
+            if (old != new) {
+                std.process.fatal("coverage file '{s}' is invalid (pc missmatch)", .{coverage_file_path});
             }
         }
     } else {
@@ -101,13 +125,13 @@ fn initCoverageFile(cache_dir: std.fs.Dir, coverage_file_path: []const u8, flagg
         const header: SeenPcsHeader = .{
             .n_runs = 0,
             .unique_runs = 0,
-            .pcs_len = flagged_pcs.len,
+            .pcs_len = pcs.len,
             .lowest_stack = std.math.maxInt(usize),
         };
         seen_pcs.appendSliceAssumeCapacity(std.mem.asBytes(&header));
         seen_pcs.appendNTimesAssumeCapacity(0, n_bitset_elems * @sizeOf(usize));
-        for (flagged_pcs) |flagged_pc| {
-            seen_pcs.appendSliceAssumeCapacity(std.mem.asBytes(&flagged_pc.addr));
+        for (pcs) |pc| {
+            seen_pcs.appendSliceAssumeCapacity(std.mem.asBytes(&pc));
         }
         std.debug.assert(seen_pcs.items.len == bytes_len);
     }
@@ -167,20 +191,20 @@ pub const Fuzzer = struct {
     rng: std.Random.DefaultPrng,
     cache_dir: std.fs.Dir,
 
-    input_pool: InputPool = .{},
+    input_pool: InputPool,
 
-    mutate_scratch: std.ArrayListUnmanaged(u8) = .{},
+    mutate_scratch: ArrayListUnmanaged(u8) = .{},
     mutation_seed: u64 = undefined,
     mutation_len: usize = undefined,
-    current_input_index: InputPool.Index = undefined,
+    current_input: ArrayListUnmanaged(u8) = .{},
     current_input_checksum: u8 = undefined,
 
     feature_buffer: []u32 = undefined,
-    all_features: std.ArrayListUnmanaged(u32) = .{},
+    all_features: ArrayListUnmanaged(u32) = .{},
 
     // given to us by LLVM
-    flagged_pcs: []const FlaggedPc = undefined,
-    pc_counters: []u8 = undefined, // same length as flagged_pcs
+    pcs: []const usize,
+    pc_counters: []u8, // same length as pcs
 
     n_runs: usize = 0,
 
@@ -195,35 +219,47 @@ pub const Fuzzer = struct {
 
     first_run: bool = true,
 
-    pub fn init(f: *Fuzzer, cache_dir: std.fs.Dir) !void {
-        f.cache_dir = cache_dir;
-
-        assert(f.pc_counters.len == f.flagged_pcs.len);
+    pub fn init(gpa: Allocator, cache_dir: std.fs.Dir, pc_counters: []u8, pcs: []usize) Fuzzer {
+        assert(pc_counters.len == pcs.len);
 
         // Choose a file name for the coverage based on a hash of the PCs that
         // will be stored within.
-        const pc_digest = hashPCs(f.flagged_pcs);
-        f.coverage_id = pc_digest;
+        const pc_digest = hashPCs(pcs);
+        const coverage_id = pc_digest;
         const hex_digest = std.fmt.hex(pc_digest);
         const coverage_file_path = "v/" ++ hex_digest;
 
-        f.feature_buffer = try f.gpa.alloc(u32, InitialFeatureBufferCap);
+        const feature_buffer = check(@src(), gpa.alloc(u32, InitialFeatureBufferCap), .{});
 
-        f.seen_pcs = try initCoverageFile(f.cache_dir, coverage_file_path, f.flagged_pcs);
+        const seen_pcs = initCoverageFile(cache_dir, coverage_file_path, pcs);
+
+        const input_pool = InputPool.init(cache_dir, pc_digest);
+
+        return .{
+            .gpa = gpa,
+            .rng = std.Random.DefaultPrng.init(0),
+            .coverage_id = coverage_id,
+            .cache_dir = cache_dir,
+            .pcs = pcs,
+            .pc_counters = pc_counters,
+            .seen_pcs = seen_pcs,
+            .feature_buffer = feature_buffer,
+            .input_pool = input_pool,
+        };
     }
 
-    fn readOptions(f: *Fuzzer, options: *const std.testing.FuzzInputOptions) !void {
+    fn readOptions(f: *Fuzzer, options: *const std.testing.FuzzInputOptions) void {
         for (options.corpus) |input| {
-            try f.input_pool.insertString(f.gpa, input);
+            f.input_pool.insertString(input);
         }
     }
 
-    pub fn makeUpInitialCorpus(f: *Fuzzer) !void {
+    pub fn makeUpInitialCorpus(f: *Fuzzer) void {
         var buffer: [256]u8 = undefined;
         for (0..256) |len| {
             const slice = buffer[0..len];
             f.rng.fill(slice);
-            try f.input_pool.insertString(f.gpa, slice);
+            f.input_pool.insertString(slice);
         }
         // TODO: prune
     }
@@ -234,21 +270,24 @@ pub const Fuzzer = struct {
         return @intCast(index);
     }
 
-    fn doMutation(f: *Fuzzer, input: []u8, cap: usize) ![]u8 {
+    fn doMutation(f: *Fuzzer) void {
         f.mutation_seed = f.rng.next();
         f.mutate_scratch.clearRetainingCapacity();
-        var ar = f.mutate_scratch.toManaged(f.gpa);
-        const mutated = try mutate.mutate(input, cap, f.mutation_seed, &ar);
-        f.mutate_scratch = ar.moveToUnmanaged();
-        return mutated;
+
+        var ar_scratch = f.mutate_scratch.toManaged(f.gpa);
+        var ar_input = f.current_input.toManaged(f.gpa);
+        check(@src(), mutate.mutate(&ar_input, f.mutation_seed, &ar_scratch), .{ .seed = f.mutation_seed });
+        f.mutate_scratch = ar_scratch.moveToUnmanaged();
+        f.current_input = ar_input.moveToUnmanaged();
     }
 
-    fn undoMutate(f: *Fuzzer, mutated: []u8) void {
-        var ar = f.mutate_scratch.toManaged(f.gpa);
-        // the string lives in input_pool the whole time so we can throw
-        // away this here but the undo was done
-        _ = mutate.mutateReverse(mutated, f.mutation_seed, &ar);
-        f.mutate_scratch = ar.moveToUnmanaged();
+    fn undoMutate(f: *Fuzzer) void {
+        var ar_scratch = f.mutate_scratch.toManaged(f.gpa);
+        var ar_input = f.current_input.toManaged(f.gpa);
+        mutate.mutateReverse(&ar_input, f.mutation_seed, &ar_scratch);
+        f.mutate_scratch = ar_scratch.moveToUnmanaged();
+        f.current_input = ar_input.moveToUnmanaged();
+
         f.mutate_scratch.clearRetainingCapacity();
     }
 
@@ -272,13 +311,13 @@ pub const Fuzzer = struct {
         }
     }
 
-    fn growFeatureBuffer(f: *Fuzzer) !void {
+    fn growFeatureBuffer(f: *Fuzzer) void {
         // we dont need to copy over the data so we try to resize and
         // fallback to new blank allocation
         const new_size = f.feature_buffer.len * 2;
         if (!f.gpa.resize(f.feature_buffer, new_size)) {
             std.log.info("growing feature buffer to {}", .{new_size});
-            const new_feature_buffer = try f.gpa.alloc(u32, new_size);
+            const new_feature_buffer = check(@src(), f.gpa.alloc(u32, new_size), .{ .size = new_size });
             f.gpa.free(f.feature_buffer);
             f.feature_buffer = new_feature_buffer;
         } else {
@@ -287,7 +326,7 @@ pub const Fuzzer = struct {
     }
 
     /// Returns true if last run was good
-    fn analyzeLastRun(f: *Fuzzer) !bool {
+    fn analyzeLastRun(f: *Fuzzer) bool {
         const features = feature_capture.values();
         feature_util.sort(features);
 
@@ -302,7 +341,6 @@ pub const Fuzzer = struct {
             var fba = std.heap.FixedBufferAllocator.init(&buffer);
             var ar = std.ArrayList(u8).init(fba.allocator());
             mutate.writeMutation(f.mutation_seed, ar.writer()) catch {};
-
             std.log.info("new unique run: F:{} \tN:{} \tC:{} \tM:{} \tT:{} \t{s}", .{
                 features.len,
                 analysis.only_a,
@@ -312,35 +350,60 @@ pub const Fuzzer = struct {
                 ar.items,
             });
         }
+
         var ar = f.all_features.toManaged(f.gpa);
-        try feature_util.merge(&ar, features);
+        check(@src(), feature_util.merge(&ar, features), .{});
         f.all_features = ar.moveToUnmanaged();
         incrementUniqueRuns(f.seen_pcs);
         updateGlobalCoverage(f.pc_counters, f.seen_pcs);
         return true;
     }
 
-    pub fn next(f: *Fuzzer, options: *const std.testing.FuzzInputOptions) error{OutOfMemory}![]const u8 {
+    fn selectAndMutate(f: *Fuzzer) void {
+        const input_index = f.pickInput();
+
+        const input_extra = f.input_pool.getString(input_index);
+        const input = input_extra[0..input_extra.len];
+
+        f.current_input.clearRetainingCapacity();
+
+        // manual slice append since appendSlice doesn't take volatile slice
+        check(@src(), f.current_input.ensureTotalCapacity(f.gpa, input.len), .{ .input_len = input.len });
+        f.current_input.items.len = input.len;
+        @memcpy(f.current_input.items, input);
+
+        f.doMutation();
+        f.current_input_checksum = checksum(f.current_input.items);
+    }
+
+    fn beforeRun(f: *Fuzzer) void {
+        @memset(f.pc_counters, 0);
+        feature_capture.prepare(f.feature_buffer);
+    }
+
+    fn firstRun(f: *Fuzzer, options: *const std.testing.FuzzInputOptions) void {
+        f.readOptions(options);
+        std.log.info(
+            \\ starting to fuzz with initial corpus of {}
+            \\ F - this input features
+            \\ N - this input new features
+            \\ C - this input features already discovered
+            \\ M - features this input missed but discovered by other
+            \\ T - new total unique features
+        , .{f.input_pool.len()});
+        if (f.input_pool.len() == 0) {
+            f.makeUpInitialCorpus();
+        }
+    }
+
+    pub fn next(f: *Fuzzer, options: *const std.testing.FuzzInputOptions) []const u8 {
         incrementNumberOfRuns(f.seen_pcs);
+
         if (f.first_run) {
             f.first_run = false;
-            try f.readOptions(options);
-            std.log.info(
-                \\ starting to fuzz with initial corpus of {}
-                \\ F - this input features
-                \\ N - this input new features
-                \\ C - this input features already discovered
-                \\ M - features this input missed but discovered by other
-                \\ T - new total unique features
-            , .{f.input_pool.len()});
-            if (f.input_pool.len() == 0) {
-                try f.makeUpInitialCorpus();
-            }
+            f.firstRun(options);
         } else {
-            var mutated_input = f.input_pool.getString(f.current_input_index);
-            mutated_input.len = f.mutation_len;
-
-            if (f.current_input_checksum != checksum(mutated_input)) {
+            if (f.current_input_checksum != checksum(f.current_input.items)) {
                 // TODO: report the input? it is not very useful since it was written to
                 @panic("user code mutated input!");
             }
@@ -348,47 +411,25 @@ pub const Fuzzer = struct {
             f.collectPcCounterFeatures();
 
             if (feature_capture.is_full()) {
-                try f.growFeatureBuffer();
+                f.growFeatureBuffer();
                 // rerun same input with larger buffer
-                @memset(f.pc_counters, 0);
-                feature_capture.prepare(f.feature_buffer);
-                return mutated_input;
+                f.beforeRun();
+                return f.current_input.items;
             }
 
-            if (try f.analyzeLastRun()) {
-                // !!! this invalidates mutated_input but not the index
-                try f.input_pool.insertString(f.gpa, mutated_input);
+            if (f.analyzeLastRun()) {
+                f.input_pool.insertString(f.current_input.items);
             }
 
-            // !!! we might have inserted the current input into input_pool,
-            // which invalidated the pointers but not the indexes
-            mutated_input = f.input_pool.getString(f.current_input_index);
-            mutated_input.len = f.mutation_len;
-
-            // this will restore the mutated input (inplace, in the input_pool)
-            // ready for a different mutation
-            f.undoMutate(mutated_input);
+            f.undoMutate();
 
             // This invalidates the indexes
             f.input_pool.maybeRepack();
         }
 
-        const mutated = b: { // select and mutate
-            const input_index = f.pickInput();
-            f.current_input_index = input_index;
+        f.selectAndMutate();
 
-            const input_extra = f.input_pool.getString(input_index);
-            const input = input_extra[0 .. input_extra.len - InputPool.InputExtraBytes];
-            const cap = input_extra.len;
-
-            const mutated = try f.doMutation(input, cap);
-            f.mutation_len = mutated.len;
-            f.current_input_checksum = checksum(mutated);
-            break :b mutated;
-        };
-
-        @memset(f.pc_counters, 0);
-        feature_capture.prepare(f.feature_buffer);
-        return mutated;
+        f.beforeRun();
+        return f.current_input.items;
     }
 };

@@ -3,6 +3,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const fatal = std.process.fatal;
+const check = @import("fuzzer/main.zig").check;
 const Fuzzer = @import("fuzzer/main.zig").Fuzzer;
 const fc = @import("fuzzer/feature_capture.zig");
 const FlaggedPc = @import("fuzzer/main.zig").FlaggedPc;
@@ -14,22 +15,9 @@ var log_file: ?std.fs.File = null;
 
 var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .{};
 
-var fuzzer: Fuzzer = .{
-    .gpa = general_purpose_allocator.allocator(),
-    .rng = std.Random.DefaultPrng.init(0),
-    .cache_dir = undefined,
-    .seen_pcs = undefined,
-    .coverage_id = undefined,
-};
-
-var module_count_8bc: usize = 0; // used to check that llvm init callbacs were called exactly once
-var module_count_pcs: usize = 0; // -||-
+var fuzzer: Fuzzer = undefined;
 
 // ==== llvm callbacks ====
-
-}
-
-}
 
 // zig fmt: off
 export fn __sanitizer_cov_trace_const_cmp1(arg1: u8 , arg2: u8 ) void { handleCmp(@returnAddress(), arg1, arg2); }
@@ -43,7 +31,7 @@ export fn __sanitizer_cov_trace_cmp8      (arg1: u64, arg2: u64) void { handleCm
 // zig fmt: on
 
 fn handleCmp(pc: usize, arg1: u64, arg2: u64) void {
-    // TODO: use arg1 and arg2 as part of inputs
+    // TODO: TORC
     _ = arg1;
     _ = arg2;
     const c: u64 = pc;
@@ -53,6 +41,7 @@ fn handleCmp(pc: usize, arg1: u64, arg2: u64) void {
 }
 
 export fn __sanitizer_cov_trace_switch(val: u64, _: [*]u64) void {
+    // TODO: is this called?
     const pc = @returnAddress();
     _ = val;
     const c: u64 = pc;
@@ -62,6 +51,7 @@ export fn __sanitizer_cov_trace_switch(val: u64, _: [*]u64) void {
 }
 
 export fn __sanitizer_cov_trace_pc_indir(callee: usize) void {
+    // TODO: is this called?
     const pc = @returnAddress();
     const c: u64 = pc ^ callee;
     const lo: u32 = @truncate(c);
@@ -78,9 +68,8 @@ export fn fuzzer_coverage_id() u64 {
 
 /// Called before each invocation of the user's code
 export fn fuzzer_next(options: *const std.testing.FuzzInputOptions) Slice {
-    return Slice.fromZig(fuzzer.next(options) catch |err| switch (err) {
-        error.OutOfMemory => @panic("fuzzer: out of memory"),
-    });
+    // TODO: probably just call fatal instead of propagating errors up here
+    return Slice.fromZig(fuzzer.next(options));
 }
 
 /// Called once
@@ -122,8 +111,7 @@ export fn fuzzer_init(cache_dir_struct: Slice) void {
 
     const pcs = pcs_start[0 .. pcs_end - pcs_start];
 
-    fuzzer.init(cache_dir, pc_counters, pcs) catch |err|
-        fatal("unable to init fuzzer: {s}", .{@errorName(err)});
+    fuzzer = Fuzzer.init(general_purpose_allocator.allocator(), cache_dir, pc_counters, pcs);
 }
 
 // ==== log ====
@@ -134,8 +122,7 @@ pub const std_options = .{
 };
 
 fn setupLogFile(cachedir: std.fs.Dir) void {
-    log_file = cachedir.createFile("tmp/zigfuzzer.log", .{}) catch
-        @panic("failed to open fuzzer log file");
+    log_file = check(@src(), cachedir.createFile("tmp/libfuzzer.log", .{}), .{});
 }
 
 fn logOverride(
@@ -162,7 +149,7 @@ pub fn panic(
     _: ?*std.builtin.StackTrace,
     _: ?usize,
 ) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     std.debug.print("fuzzer panic: {s}\n", .{msg});
     std.process.exit(1);
 }
