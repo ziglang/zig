@@ -3,67 +3,11 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
-const check = @import("main.zig").check;
+const util = @import("util.zig");
+const check = util.check;
+const MemoryMappedList = @import("memory_mapped_list.zig").MemoryMappedList;
 
 pub const Index = u31; // total 2GiB of input data should be enough
-
-fn MemoryMappedList(comptime T: type) type {
-    return struct {
-        items: []volatile T,
-        cap: usize,
-
-        file: std.fs.File,
-
-        const Self = @This();
-
-        pub fn init(f: std.fs.File) Self {
-            const slice: []align(std.mem.page_size) u8 = check(@src(), std.posix.mmap(
-                null,
-                std.math.maxInt(Index), // unused virtual address space on linux is cheap
-                std.posix.PROT.READ | std.posix.PROT.WRITE,
-                .{ .TYPE = .SHARED },
-                f.handle,
-                0,
-            ), .{});
-
-            assert(slice.len == std.math.maxInt(Index));
-
-            const slice_cap = check(@src(), f.getEndPos(), .{});
-            const items_cap = @divExact(slice_cap, @sizeOf(T)); // crash here is probably a corrupt file
-
-            const items_start: [*]align(std.mem.page_size) volatile T = @ptrCast(slice.ptr);
-
-            return .{
-                .items = items_start[0..items_cap],
-                .cap = items_cap,
-                .file = f,
-            };
-        }
-
-        pub fn deinit(self: Self) void {
-            std.posix.munmap(self.items.ptr, self.items.ptr + std.math.maxInt(Index));
-        }
-
-        pub fn append(self: *Self, item: T) void {
-            return self.appendSlice(&[1]T{item});
-        }
-
-        pub fn appendSlice(self: *Self, items: []const T) void {
-            self.ensureUnusedCapacity(items.len);
-            const old_len = self.items.len;
-            self.items.len += items.len;
-            @memcpy(self.items[old_len..][0..items.len], items);
-        }
-
-        pub fn ensureUnusedCapacity(self: *Self, additional_count: usize) void {
-            const total = self.items.len + additional_count;
-            if (total < self.cap) return;
-
-            const new_size = total * @sizeOf(T);
-            check(@src(), std.posix.ftruncate(self.file.handle, new_size), .{ .size = new_size });
-        }
-    };
-}
 
 const InputPoolPosix = @This();
 
@@ -97,8 +41,8 @@ pub fn init(dir: std.fs.Dir, pc_digest: u64) InputPoolPosix {
         .truncate = false,
     }), .{ .file = meta_file_path });
 
-    const buffer = MemoryMappedList(u8).init(buffer_file);
-    var meta = MemoryMappedList(u32).init(meta_file);
+    const buffer = MemoryMappedList(u8).init(buffer_file, std.math.maxInt(Index));
+    var meta = MemoryMappedList(u32).init(meta_file, std.math.maxInt(Index));
 
     if (meta.items.len == 0) {
         meta.appendSlice(&.{
@@ -177,5 +121,6 @@ pub fn getString(ip: InputPoolPosix, index: Index) []volatile u8 {
 }
 
 pub fn maybeRepack(ip: *InputPoolPosix) void {
+    // TODO
     _ = ip;
 }

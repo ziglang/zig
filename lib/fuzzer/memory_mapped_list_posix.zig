@@ -1,0 +1,67 @@
+const std = @import("std");
+const assert = std.debug.assert;
+const util = @import("util.zig");
+const check = util.check;
+
+pub fn MemoryMappedList(comptime T: type) type {
+    return struct {
+        /// View of the mapped memory. Cropped to valid indexes inside the
+        /// file. In reality we know maximum file size and allocate it
+        items: []align(std.mem.page_size) volatile T,
+
+        file: std.fs.File,
+
+        const Self = @This();
+
+        pub fn init(f: std.fs.File, size: usize) Self {
+            const slice_cap = check(@src(), f.getEndPos(), .{});
+            const items_cap = @divExact(slice_cap, @sizeOf(T)); // crash here is probably a corrupt file
+
+            assert(size >= slice_cap);
+
+            const slice: []align(std.mem.page_size) u8 = check(@src(), std.posix.mmap(
+                null,
+                size, // unused virtual address space on linux is cheap
+                std.posix.PROT.READ | std.posix.PROT.WRITE,
+                .{ .TYPE = .SHARED },
+                f.handle,
+                0,
+            ), .{ .len = size, .fd = f.handle });
+
+            assert(slice.len == size);
+
+            const items_start: [*]align(std.mem.page_size) volatile T = @ptrCast(slice.ptr);
+
+            return .{
+                .items = items_start[0..items_cap],
+                .file = f,
+            };
+        }
+
+        pub fn append(self: *Self, item: T) void {
+            return self.appendSlice(&[1]T{item});
+        }
+
+        pub fn appendSlice(self: *Self, items: []const T) void {
+            self.ensureUnusedCapacity(items.len);
+            const old_len = self.items.len;
+            self.items.len += items.len;
+            @memcpy(self.items[old_len..][0..items.len], items);
+        }
+
+        pub fn appendNTimes(self: *Self, value: u8, n: usize) void {
+            self.ensureUnusedCapacity(n);
+            const new_len = self.items.len + n;
+            @memset(self.items.ptr[self.items.len..new_len], value);
+            self.items.len = new_len;
+        }
+
+        /// Grows the file, not the mapping
+        pub fn ensureUnusedCapacity(self: *Self, additional_count: usize) void {
+            const total = self.items.len + additional_count;
+
+            const new_size = total * @sizeOf(T);
+            check(@src(), std.posix.ftruncate(self.file.handle, new_size), .{ .size = new_size });
+        }
+    };
+}
