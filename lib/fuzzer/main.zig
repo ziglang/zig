@@ -11,6 +11,7 @@ const InputPool = @import("input_pool.zig").InputPool;
 const feature_capture = @import("feature_capture.zig");
 const feature_util = @import("feature_util.zig");
 
+// current unused
 export threadlocal var __sancov_lowest_stack: usize = std.math.maxInt(usize);
 
 fn StripError(comptime T: type) type {
@@ -126,7 +127,6 @@ fn initCoverageFile(cache_dir: std.fs.Dir, coverage_file_path: []const u8, pcs: 
             .n_runs = 0,
             .unique_runs = 0,
             .pcs_len = pcs.len,
-            .lowest_stack = std.math.maxInt(usize),
         };
         seen_pcs.appendSliceAssumeCapacity(std.mem.asBytes(&header));
         seen_pcs.appendNTimesAssumeCapacity(0, n_bitset_elems * @sizeOf(usize));
@@ -177,11 +177,6 @@ fn incrementUniqueRuns(seen_pcs: MemoryMappedList) void {
 fn incrementNumberOfRuns(seen_pcs: MemoryMappedList) void {
     const header: *volatile SeenPcsHeader = @ptrCast(seen_pcs.items[0..@sizeOf(SeenPcsHeader)]);
     _ = @atomicRmw(usize, &header.n_runs, .Add, 1, .monotonic);
-}
-
-fn updateLowersStack(seen_pcs: MemoryMappedList) void {
-    const header: *volatile SeenPcsHeader = @ptrCast(seen_pcs.items[0..@sizeOf(SeenPcsHeader)]);
-    _ = @atomicRmw(usize, &header.lowest_stack, .Min, __sancov_lowest_stack, .monotonic);
 }
 
 const InitialFeatureBufferCap = 64;
