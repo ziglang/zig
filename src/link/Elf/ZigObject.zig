@@ -61,6 +61,7 @@ debug_loclists_index: ?Symbol.Index = null,
 debug_rnglists_index: ?Symbol.Index = null,
 eh_frame_index: ?Symbol.Index = null,
 bss_index: ?Symbol.Index = null,
+data_index: ?Symbol.Index = null,
 
 pub const global_symbol_bit: u32 = 0x80000000;
 pub const symbol_mask: u32 = 0x7fffffff;
@@ -104,7 +105,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
         }
     }.fillSection;
 
-    comptime assert(Elf.number_of_zig_segments == 4);
+    comptime assert(Elf.number_of_zig_segments == 2);
 
     if (!elf_file.base.isRelocatable()) {
         if (elf_file.phdr_zig_load_re_index == null) {
@@ -130,21 +131,6 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                 .offset = off,
                 .filesz = filesz,
                 .addr = if (ptr_size >= 4) 0xc000000 else 0xa000,
-                .memsz = filesz,
-                .@"align" = alignment,
-                .flags = elf.PF_R | elf.PF_W,
-            });
-        }
-
-        if (elf_file.phdr_zig_load_rw_index == null) {
-            const alignment = elf_file.page_size;
-            const filesz: u64 = 1024;
-            const off = try elf_file.findFreeSpace(filesz, alignment);
-            elf_file.phdr_zig_load_rw_index = try elf_file.addPhdr(.{
-                .type = elf.PT_LOAD,
-                .offset = off,
-                .filesz = filesz,
-                .addr = if (ptr_size >= 4) 0x10000000 else 0xc000,
                 .memsz = filesz,
                 .@"align" = alignment,
                 .flags = elf.PF_R | elf.PF_W,
@@ -191,27 +177,6 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
             );
         } else {
             phndx.* = elf_file.phdr_zig_load_ro_index.?;
-        }
-    }
-
-    if (elf_file.zig_data_section_index == null) {
-        elf_file.zig_data_section_index = try elf_file.addSection(.{
-            .name = try elf_file.insertShString(".data.zig"),
-            .type = elf.SHT_PROGBITS,
-            .addralign = ptr_size,
-            .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
-            .offset = std.math.maxInt(u64),
-        });
-        const shdr = &elf_file.sections.items(.shdr)[elf_file.zig_data_section_index.?];
-        const phndx = &elf_file.sections.items(.phndx)[elf_file.zig_data_section_index.?];
-        try fillSection(elf_file, shdr, 1024, elf_file.phdr_zig_load_rw_index);
-        if (elf_file.base.isRelocatable()) {
-            _ = try elf_file.addRelaShdr(
-                try elf_file.insertShString(".rela.data.zig"),
-                elf_file.zig_data_section_index.?,
-            );
-        } else {
-            phndx.* = elf_file.phdr_zig_load_rw_index.?;
         }
     }
 
@@ -1246,6 +1211,8 @@ fn getNavShdrIndex(
     sym_index: Symbol.Index,
     code: []const u8,
 ) error{OutOfMemory}!u32 {
+    const gpa = elf_file.base.comp.gpa;
+    const ptr_size = elf_file.ptrWidthBytes();
     const ip = &zcu.intern_pool;
     const any_non_single_threaded = elf_file.base.comp.config.any_non_single_threaded;
     const nav_val = zcu.navValue(nav_index);
@@ -1276,7 +1243,19 @@ fn getNavShdrIndex(
     if (is_const) return elf_file.zig_data_rel_ro_section_index.?;
     if (nav_init != .none and Value.fromInterned(nav_init).isUndefDeep(zcu))
         return switch (zcu.navFileScope(nav_index).mod.optimize_mode) {
-            .Debug, .ReleaseSafe => elf_file.zig_data_section_index.?,
+            .Debug, .ReleaseSafe => {
+                if (self.data_index) |symbol_index|
+                    return self.symbol(symbol_index).atom(elf_file).?.output_section_index;
+                const osec = try elf_file.addSection(.{
+                    .name = try elf_file.insertShString(".data"),
+                    .type = elf.SHT_PROGBITS,
+                    .addralign = ptr_size,
+                    .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+                    .offset = std.math.maxInt(u64),
+                });
+                self.data_index = try self.addSectionSymbol(gpa, ".data", .@"1", osec);
+                return osec;
+            },
             .ReleaseFast, .ReleaseSmall => {
                 if (self.bss_index) |symbol_index|
                     return self.symbol(symbol_index).atom(elf_file).?.output_section_index;
@@ -1286,7 +1265,7 @@ fn getNavShdrIndex(
                     .name = try elf_file.insertShString(".bss"),
                     .addralign = 1,
                 });
-                self.bss_index = try self.addSectionSymbol(elf_file.base.comp.gpa, ".bss", .@"1", osec);
+                self.bss_index = try self.addSectionSymbol(gpa, ".bss", .@"1", osec);
                 return osec;
             },
         };
@@ -1302,10 +1281,20 @@ fn getNavShdrIndex(
             .name = try elf_file.insertShString(".bss"),
             .addralign = 1,
         });
-        self.bss_index = try self.addSectionSymbol(elf_file.base.comp.gpa, ".bss", .@"1", osec);
+        self.bss_index = try self.addSectionSymbol(gpa, ".bss", .@"1", osec);
         return osec;
     }
-    return elf_file.zig_data_section_index.?;
+    if (self.data_index) |symbol_index|
+        return self.symbol(symbol_index).atom(elf_file).?.output_section_index;
+    const osec = try elf_file.addSection(.{
+        .name = try elf_file.insertShString(".data"),
+        .type = elf.SHT_PROGBITS,
+        .addralign = ptr_size,
+        .flags = elf.SHF_ALLOC | elf.SHF_WRITE,
+        .offset = std.math.maxInt(u64),
+    });
+    self.data_index = try self.addSectionSymbol(gpa, ".data", .@"1", osec);
+    return osec;
 }
 
 fn updateNavCode(
@@ -2013,6 +2002,16 @@ fn allocateAtom(self: *ZigObject, atom_ptr: *Atom, elf_file: *Elf) !void {
         }
     }
     shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits().?);
+
+    const sect_atom_ptr = for ([_]?Symbol.Index{self.data_index}) |maybe_sym_index| {
+        const sect_sym_index = maybe_sym_index orelse continue;
+        const sect_atom_ptr = self.symbol(sect_sym_index).atom(elf_file).?;
+        if (sect_atom_ptr.output_section_index == atom_ptr.output_section_index) break sect_atom_ptr;
+    } else null;
+    if (sect_atom_ptr) |sap| {
+        sap.size = shdr.sh_size;
+        sap.alignment = Atom.Alignment.fromNonzeroByteUnits(shdr.sh_addralign);
+    }
 
     // This function can also reallocate an atom.
     // In this case we need to "unplug" it from its previous location before

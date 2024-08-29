@@ -59,8 +59,6 @@ phdrs: std.ArrayListUnmanaged(elf.Elf64_Phdr) = .{},
 phdr_zig_load_re_index: ?u16 = null,
 /// The index into the program headers of a PT_LOAD program header with Read flag
 phdr_zig_load_ro_index: ?u16 = null,
-/// The index into the program headers of a PT_LOAD program header with Write flag
-phdr_zig_load_rw_index: ?u16 = null,
 
 /// Special program headers
 /// PT_PHDR
@@ -126,7 +124,6 @@ comdat_group_sections: std.ArrayListUnmanaged(ComdatGroupSection) = .{},
 /// .rela.* sections are only used when emitting a relocatable object file.
 zig_text_section_index: ?u32 = null,
 zig_data_rel_ro_section_index: ?u32 = null,
-zig_data_section_index: ?u32 = null,
 
 debug_info_section_index: ?u32 = null,
 debug_abbrev_section_index: ?u32 = null,
@@ -3491,7 +3488,6 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
         &self.verneed_section_index,
         &self.zig_text_section_index,
         &self.zig_data_rel_ro_section_index,
-        &self.zig_data_section_index,
         &self.debug_info_section_index,
         &self.debug_abbrev_section_index,
         &self.debug_str_section_index,
@@ -3589,12 +3585,16 @@ fn updateSectionSizes(self: *Elf) !void {
     for (slice.items(.shdr), slice.items(.atom_list), 0..) |*shdr, atom_list, shndx| {
         if (atom_list.items.len == 0) continue;
         if (self.requiresThunks() and shdr.sh_flags & elf.SHF_EXECINSTR != 0) continue;
-        if (self.zigObjectPtr()) |zo| {
-            if (zo.bss_index) |sym_index| {
-                const atom_ptr = zo.symbol(sym_index).atom(self).?;
-                if (shndx == atom_ptr.output_section_index) {
-                    shdr.sh_size = atom_ptr.size;
-                }
+        if (self.zigObjectPtr()) |zo| blk: {
+            const sym_index = for ([_]?Symbol.Index{
+                zo.data_index,
+                zo.bss_index,
+            }) |maybe_idx| {
+                if (maybe_idx) |idx| break idx;
+            } else break :blk;
+            const atom_ptr = zo.symbol(sym_index).atom(self).?;
+            if (shndx == atom_ptr.output_section_index) {
+                shdr.sh_size = atom_ptr.size;
             }
         }
         for (atom_list.items) |ref| {
@@ -3929,10 +3929,16 @@ pub fn allocateAllocSections(self: *Elf) !void {
             }
             new_offset = alignment.@"align"(shndx, shdr.sh_addralign, new_offset);
 
-            if (shndx == self.eh_frame_section_index) eh_frame: {
-                const zo = self.zigObjectPtr() orelse break :eh_frame;
-                const sym = zo.symbol(zo.eh_frame_index orelse break :eh_frame);
-                const existing_size = sym.atom(self).?.size;
+            if (self.zigObjectPtr()) |zo| blk: {
+                const existing_size = for ([_]?Symbol.Index{
+                    zo.data_index,
+                    zo.eh_frame_index,
+                }) |maybe_sym_index| {
+                    const sect_sym_index = maybe_sym_index orelse continue;
+                    const sect_atom_ptr = zo.symbol(sect_sym_index).atom(self).?;
+                    if (sect_atom_ptr.output_section_index != shndx) continue;
+                    break sect_atom_ptr.size;
+                } else break :blk;
                 log.debug("moving {s} from 0x{x} to 0x{x}", .{
                     self.getShString(shdr.sh_name),
                     shdr.sh_offset,
@@ -4096,10 +4102,17 @@ fn writeAtoms(self: *Elf) !void {
                 if (atom_ptr.output_section_index == shndx) break :base_offset atom_ptr.size;
             }
             break :base_offset 0;
-        } else if (@as(u32, @intCast(shndx)) == self.eh_frame_section_index) base_offset: {
-            const zo = self.zigObjectPtr() orelse break :base_offset 0;
-            const sym = zo.symbol(zo.eh_frame_index orelse break :base_offset 0);
-            break :base_offset sym.atom(self).?.size;
+        } else if (self.zigObjectPtr()) |zo| base_offset: {
+            const sym_index = for ([_]?Symbol.Index{
+                zo.data_index,
+                zo.eh_frame_index,
+            }) |maybe_idx| {
+                if (maybe_idx) |idx| break idx;
+            } else break :base_offset 0;
+            const sym = zo.symbol(sym_index);
+            const atom_ptr = sym.atom(self).?;
+            if (atom_ptr.output_section_index == @as(u32, @intCast(shndx))) break :base_offset atom_ptr.size;
+            break :base_offset 0;
         } else 0;
         const sh_offset = shdr.sh_offset + base_offset;
         const sh_size = math.cast(usize, shdr.sh_size - base_offset) orelse return error.Overflow;
@@ -4806,7 +4819,6 @@ pub fn isZigSection(self: Elf, shndx: u32) bool {
     inline for (&[_]?u32{
         self.zig_text_section_index,
         self.zig_data_rel_ro_section_index,
-        self.zig_data_section_index,
     }) |index| {
         if (index == shndx) return true;
     }
@@ -5507,7 +5519,7 @@ fn requiresThunks(self: Elf) bool {
 /// so that we reserve enough space for the program header table up-front.
 /// Bump these numbers when adding or deleting a Zig specific pre-allocated segment, or adding
 /// more special-purpose program headers.
-pub const number_of_zig_segments = 4;
+pub const number_of_zig_segments = 2;
 const max_number_of_object_segments = 9;
 const max_number_of_special_phdrs = 5;
 
