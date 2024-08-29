@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const SeenPcsHeader = std.Build.Fuzz.abi.SeenPcsHeader;
-const MemoryMappedList = @import("MemoryMappedList.zig");
+const MemoryMappedList = @import("memory_mapped_list.zig").MemoryMappedList;
 
 const mutate = @import("mutate.zig");
 const InputPool = @import("input_pool.zig").InputPool;
@@ -27,7 +27,7 @@ fn hashPCs(pcs: []const usize) u64 {
 /// - Header
 /// - list of PC addresses (usize elements)
 /// - list of hit flag, 1 bit per address (stored in u8 elements)
-fn initCoverageFile(cache_dir: std.fs.Dir, coverage_file_path: []const u8, pcs: []const usize) MemoryMappedList {
+fn initCoverageFile(cache_dir: std.fs.Dir, coverage_file_path: []const u8, pcs: []const usize) MemoryMappedList(u8) {
     const coverage_file = util.createFileBail(cache_dir, coverage_file_path, .{
         .read = true,
         .truncate = false,
@@ -41,15 +41,13 @@ fn initCoverageFile(cache_dir: std.fs.Dir, coverage_file_path: []const u8, pcs: 
     // how long the file should be
     const bytes_len = @sizeOf(SeenPcsHeader) + n_bitset_elems * @sizeOf(usize) + pcs.len * @sizeOf(usize);
 
+    var seen_pcs = MemoryMappedList(u8).init(coverage_file, bytes_len);
+
     // how long the file actually is
-    const existing_len = check(@src(), coverage_file.getEndPos(), .{ .file = coverage_file_path });
+    const existing_len = seen_pcs.items.len;
 
-    if (existing_len == 0)
-        check(@src(), coverage_file.setEndPos(bytes_len), .{ .file = coverage_file_path, .size = bytes_len })
-    else if (existing_len != bytes_len)
+    if (existing_len != 0 and existing_len != bytes_len)
         std.process.fatal("coverage file '{s}' is invalid (wrong length)", .{coverage_file_path});
-
-    var seen_pcs = MemoryMappedList.init(coverage_file, existing_len, bytes_len);
 
     if (existing_len != 0) {
         // check existing file is ok
@@ -67,10 +65,10 @@ fn initCoverageFile(cache_dir: std.fs.Dir, coverage_file_path: []const u8, pcs: 
             .unique_runs = 0,
             .pcs_len = pcs.len,
         };
-        seen_pcs.appendSliceAssumeCapacity(std.mem.asBytes(&header));
-        seen_pcs.appendNTimesAssumeCapacity(0, n_bitset_elems * @sizeOf(usize));
+        seen_pcs.appendSlice(std.mem.asBytes(&header));
+        seen_pcs.appendNTimes(0, n_bitset_elems * @sizeOf(usize));
         for (pcs) |pc| {
-            seen_pcs.appendSliceAssumeCapacity(std.mem.asBytes(&pc));
+            seen_pcs.appendSlice(std.mem.asBytes(&pc));
         }
         std.debug.assert(seen_pcs.items.len == bytes_len);
     }
@@ -80,7 +78,7 @@ fn initCoverageFile(cache_dir: std.fs.Dir, coverage_file_path: []const u8, pcs: 
 
 /// Global coverage is set of all PCs that are covered by some fuzz input and
 /// did not crash. They show up as green in the web ui
-fn updateGlobalCoverage(pc_counters_: []const u8, seen_pcs_: MemoryMappedList) void {
+fn updateGlobalCoverage(pc_counters_: []const u8, seen_pcs_: MemoryMappedList(u8)) void {
     comptime assert(SeenPcsHeader.trailing[0] == .pc_bits_usize);
     const header_end_ptr: [*]volatile usize = @ptrCast(seen_pcs_.items[@sizeOf(SeenPcsHeader)..]);
     const remainder = pc_counters_.len % @bitSizeOf(usize);
@@ -108,12 +106,12 @@ fn updateGlobalCoverage(pc_counters_: []const u8, seen_pcs_: MemoryMappedList) v
     }
 }
 
-fn incrementUniqueRuns(seen_pcs: MemoryMappedList) void {
+fn incrementUniqueRuns(seen_pcs: MemoryMappedList(u8)) void {
     const header: *volatile SeenPcsHeader = @ptrCast(seen_pcs.items[0..@sizeOf(SeenPcsHeader)]);
     _ = @atomicRmw(usize, &header.unique_runs, .Add, 1, .monotonic);
 }
 
-fn incrementNumberOfRuns(seen_pcs: MemoryMappedList) void {
+fn incrementNumberOfRuns(seen_pcs: MemoryMappedList(u8)) void {
     const header: *volatile SeenPcsHeader = @ptrCast(seen_pcs.items[0..@sizeOf(SeenPcsHeader)]);
     _ = @atomicRmw(usize, &header.n_runs, .Add, 1, .monotonic);
 }
@@ -145,7 +143,7 @@ pub const Fuzzer = struct {
     /// Tracks which PCs have been seen across all runs that do not crash the fuzzer process.
     /// Stored in a memory-mapped file so that it can be shared with other
     /// processes and viewed while the fuzzer is running.
-    seen_pcs: MemoryMappedList,
+    seen_pcs: MemoryMappedList(u8),
 
     /// Identifies the file name that will be used to store coverage
     /// information, available to other processes.
