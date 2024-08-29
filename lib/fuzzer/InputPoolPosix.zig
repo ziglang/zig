@@ -139,8 +139,30 @@ pub fn getString(ip: InputPoolPosix, index: Index) []volatile u8 {
     return ip.buffer.items[start..one_past_end];
 }
 
-/// Shifts strings down to fill unused space
-pub fn maybeRepack(ip: *InputPoolPosix) void {
-    // TODO
-    _ = ip;
+/// Shifts strings down to fill unused space. Only called when no processes are
+/// fuzzing
+pub fn repack(ip: InputPoolPosix) void {
+    var poolWriteHead: usize = 0;
+    var endsWriteHead: usize = 0;
+
+    for (0..ip.ends.items.len) |i| {
+        const start = if (i == 0) 0 else ip.ends.items[i - 1] & ~deleteMask;
+        const one_past_end = ip.ends.items[i] & ~deleteMask;
+        const str = ip.buffer.items[start..one_past_end];
+        const dest = ip.buffer.items[poolWriteHead..][0..str.len];
+
+        if (ip.ends.items[i] & deleteMask != 0) {
+            continue;
+        }
+
+        if (str.ptr != dest.ptr) {
+            std.mem.copyForwards(u8, dest, str);
+            ip.ends.items[endsWriteHead] = poolWriteHead + str.len;
+        }
+        poolWriteHead += str.len;
+        endsWriteHead += 1;
+    }
+
+    ip.ends.items.len = endsWriteHead;
+    ip.buffer.items.len = poolWriteHead;
 }
