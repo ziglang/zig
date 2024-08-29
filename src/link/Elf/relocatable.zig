@@ -436,18 +436,18 @@ fn writeAtoms(elf_file: *Elf) !void {
         log.debug("writing atoms in '{s}' section", .{elf_file.getShString(shdr.sh_name)});
 
         // TODO really, really handle debug section separately
-        const base_offset = if (elf_file.isDebugSection(@intCast(shndx))) blk: {
-            const zo = elf_file.zigObjectPtr().?;
-            break :blk for ([_]Symbol.Index{
-                zo.debug_info_index.?,
-                zo.debug_abbrev_index.?,
-                zo.debug_aranges_index.?,
-                zo.debug_str_index.?,
-                zo.debug_line_index.?,
-                zo.debug_line_str_index.?,
-                zo.debug_loclists_index.?,
-                zo.debug_rnglists_index.?,
-            }) |sym_index| {
+        const base_offset = if (elf_file.zigObjectPtr()) |zo| blk: {
+            break :blk for ([_]?Symbol.Index{
+                zo.debug_info_index,
+                zo.debug_abbrev_index,
+                zo.debug_aranges_index,
+                zo.debug_str_index,
+                zo.debug_line_index,
+                zo.debug_line_str_index,
+                zo.debug_loclists_index,
+                zo.debug_rnglists_index,
+            }) |maybe_sym_index| {
+                const sym_index = maybe_sym_index orelse continue;
                 const sym = zo.symbol(sym_index);
                 const atom_ptr = sym.atom(elf_file).?;
                 if (atom_ptr.output_section_index == shndx) break atom_ptr.size;

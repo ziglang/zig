@@ -3572,8 +3572,10 @@ fn updateSectionSizes(self: *Elf) !void {
         if (self.requiresThunks() and shdr.sh_flags & elf.SHF_EXECINSTR != 0) continue;
         if (self.zigObjectPtr()) |zo| blk: {
             const sym_index = for ([_]?Symbol.Index{
-                zo.data_index,
+                zo.text_index,
+                zo.rodata_index,
                 zo.data_relro_index,
+                zo.data_index,
                 zo.bss_index,
             }) |maybe_idx| {
                 if (maybe_idx) |idx| break idx;
@@ -3913,8 +3915,10 @@ pub fn allocateAllocSections(self: *Elf) !void {
 
             if (self.zigObjectPtr()) |zo| blk: {
                 const existing_size = for ([_]?Symbol.Index{
-                    zo.data_index,
+                    zo.text_index,
+                    zo.rodata_index,
                     zo.data_relro_index,
+                    zo.data_index,
                     zo.eh_frame_index,
                 }) |maybe_sym_index| {
                     const sect_sym_index = maybe_sym_index orelse continue;
@@ -3954,27 +3958,27 @@ pub fn allocateNonAllocSections(self: *Elf) !void {
             shdr.sh_size = 0;
             const new_offset = try self.findFreeSpace(needed_size, shdr.sh_addralign);
 
-            if (self.isDebugSection(@intCast(shndx))) {
+            if (self.zigObjectPtr()) |zo| blk: {
+                const existing_size = for ([_]?Symbol.Index{
+                    zo.debug_info_index,
+                    zo.debug_abbrev_index,
+                    zo.debug_aranges_index,
+                    zo.debug_str_index,
+                    zo.debug_line_index,
+                    zo.debug_line_str_index,
+                    zo.debug_loclists_index,
+                    zo.debug_rnglists_index,
+                }) |maybe_sym_index| {
+                    const sym_index = maybe_sym_index orelse continue;
+                    const sym = zo.symbol(sym_index);
+                    const atom_ptr = sym.atom(self).?;
+                    if (atom_ptr.output_section_index == shndx) break atom_ptr.size;
+                } else break :blk;
                 log.debug("moving {s} from 0x{x} to 0x{x}", .{
                     self.getShString(shdr.sh_name),
                     shdr.sh_offset,
                     new_offset,
                 });
-                const zo = self.zigObjectPtr().?;
-                const existing_size = for ([_]Symbol.Index{
-                    zo.debug_info_index.?,
-                    zo.debug_abbrev_index.?,
-                    zo.debug_aranges_index.?,
-                    zo.debug_str_index.?,
-                    zo.debug_line_index.?,
-                    zo.debug_line_str_index.?,
-                    zo.debug_loclists_index.?,
-                    zo.debug_rnglists_index.?,
-                }) |sym_index| {
-                    const sym = zo.symbol(sym_index);
-                    const atom_ptr = sym.atom(self).?;
-                    if (atom_ptr.output_section_index == shndx) break atom_ptr.size;
-                } else 0;
                 const amt = try self.base.file.?.copyRangeAll(
                     shdr.sh_offset,
                     self.base.file.?,
@@ -4068,34 +4072,27 @@ fn writeAtoms(self: *Elf) !void {
         log.debug("writing atoms in '{s}' section", .{self.getShString(shdr.sh_name)});
 
         // TODO really, really handle debug section separately
-        const base_offset = if (self.isDebugSection(@intCast(shndx))) base_offset: {
-            const zo = self.zigObjectPtr().?;
-            for ([_]Symbol.Index{
-                zo.debug_info_index.?,
-                zo.debug_abbrev_index.?,
-                zo.debug_aranges_index.?,
-                zo.debug_str_index.?,
-                zo.debug_line_index.?,
-                zo.debug_line_str_index.?,
-                zo.debug_loclists_index.?,
-                zo.debug_rnglists_index.?,
-            }) |sym_index| {
+        const base_offset = if (self.zigObjectPtr()) |zo| base_offset: {
+            for ([_]?Symbol.Index{
+                zo.text_index,
+                zo.rodata_index,
+                zo.data_relro_index,
+                zo.data_index,
+                zo.eh_frame_index,
+                zo.debug_info_index,
+                zo.debug_abbrev_index,
+                zo.debug_aranges_index,
+                zo.debug_str_index,
+                zo.debug_line_index,
+                zo.debug_line_str_index,
+                zo.debug_loclists_index,
+                zo.debug_rnglists_index,
+            }) |maybe_sym_index| {
+                const sym_index = maybe_sym_index orelse continue;
                 const sym = zo.symbol(sym_index);
                 const atom_ptr = sym.atom(self).?;
                 if (atom_ptr.output_section_index == shndx) break :base_offset atom_ptr.size;
             }
-            break :base_offset 0;
-        } else if (self.zigObjectPtr()) |zo| base_offset: {
-            const sym_index = for ([_]?Symbol.Index{
-                zo.data_index,
-                zo.data_relro_index,
-                zo.eh_frame_index,
-            }) |maybe_idx| {
-                if (maybe_idx) |idx| break idx;
-            } else break :base_offset 0;
-            const sym = zo.symbol(sym_index);
-            const atom_ptr = sym.atom(self).?;
-            if (atom_ptr.output_section_index == @as(u32, @intCast(shndx))) break :base_offset atom_ptr.size;
             break :base_offset 0;
         } else 0;
         const sh_offset = shdr.sh_offset + base_offset;
@@ -4797,22 +4794,6 @@ pub fn isEffectivelyDynLib(self: Elf) bool {
         .haiku => self.base.isExe(),
         else => false,
     };
-}
-
-pub fn isDebugSection(self: Elf, shndx: u32) bool {
-    inline for (&[_]?u32{
-        self.debug_info_section_index,
-        self.debug_abbrev_section_index,
-        self.debug_str_section_index,
-        self.debug_aranges_section_index,
-        self.debug_line_section_index,
-        self.debug_line_str_section_index,
-        self.debug_loclists_section_index,
-        self.debug_rnglists_section_index,
-    }) |index| {
-        if (index == shndx) return true;
-    }
-    return false;
 }
 
 pub fn addPhdr(self: *Elf, opts: struct {

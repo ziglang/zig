@@ -52,8 +52,8 @@ debug_rnglists_section_dirty: bool = false,
 eh_frame_section_dirty: bool = false,
 
 text_index: ?Symbol.Index = null,
-data_relro_index: ?Symbol.Index = null,
 rodata_index: ?Symbol.Index = null,
+data_relro_index: ?Symbol.Index = null,
 data_index: ?Symbol.Index = null,
 bss_index: ?Symbol.Index = null,
 eh_frame_index: ?Symbol.Index = null,
@@ -2003,6 +2003,8 @@ fn allocateAtom(self: *ZigObject, atom_ptr: *Atom, elf_file: *Elf) !void {
     shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits().?);
 
     const sect_atom_ptr = for ([_]?Symbol.Index{
+        self.text_index,
+        self.rodata_index,
         self.data_index,
         self.data_relro_index,
     }) |maybe_sym_index| {
