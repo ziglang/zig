@@ -1,4 +1,4 @@
-// This is a standalone tool that can print the string stored inside a corpus
+// This is a standalone tool that can print the strings stored inside a corpus
 // (buffer + meta file pair in the .zig-cache/v/ directory)
 
 const std = @import("std");

@@ -1,5 +1,15 @@
-// we have 2 memory mapped files.
-// one for string data, second for bookkeeping
+// The inputs are densly packed inside a file that all fuzzing processes have
+// mapped into memory. To know where inputs start and end, there is a second
+// file mapped by all fuzzing processes that stores the end index of every
+// stored string and some metadata (see the meta field).
+//
+// When a process finds a new good input, it (under a lock) appends to both of
+// these files. All other processes can immediately start working on this input
+//
+// We never shrink the corpus when fuzzing. One has to stop fuzzing and run a
+// separate program. That is because erasing strings would require complicated
+// synchronization between fuzzing processes. Finding good inputs seems to be
+// rare enough for the input pool to never get too large.
 
 const std = @import("std");
 const assert = std.debug.assert;
@@ -7,24 +17,27 @@ const util = @import("util.zig");
 const check = util.check;
 const MemoryMappedList = @import("memory_mapped_list.zig").MemoryMappedList;
 
-pub const Index = u31; // total 2GiB of input data should be enough
+/// maximum 2GiB of input data should be enough. 32th bit is delete flag
+pub const Index = u31;
 
 const InputPoolPosix = @This();
 
 const LatestFormatVersion: u8 = 0;
 const SignatureVersion: u32 = @bitCast([4]u8{ 'V', 'N', 'S', LatestFormatVersion });
 
-// mmap-ed file. In reallity we mapped 2 GiB here but to gain oob checks we
-// set the slice length to the file length
+/// mmap-ed file. In reality we mapped 2 GiB but cropped to match the mmaped
+/// file size. Doesn't need mremap when growing.
 buffer: MemoryMappedList(u8),
 
-// mmap-ed file
-// layout of the meta file (v0):
-// [0] [3]u8 file signature + u8 format version
-// [1] u32 for xcmpchg (mutex in the stdlib is not FUTEX_SHARED)
-// [2] u32 deleted bytes
-// [3] u32 number of strings
-// [4..] data (string end offsets)
+/// mmap-ed file. In reality we mapped 2 GiB but cropped to match the mmaped
+/// file size. Doesn't need mremap when growing.
+///
+/// layout of the meta file (v0):
+/// [0] [3]u8 file signature + u8 format version
+/// [1] u32 for xcmpchg (mutex in the stdlib is not FUTEX_SHARED)
+/// [2] u32 deleted bytes
+/// [3] u32 number of strings
+/// [4..] data (string end offsets)
 meta: MemoryMappedList(u32),
 
 pub fn init(dir: std.fs.Dir, pc_digest: u64) InputPoolPosix {
@@ -51,6 +64,9 @@ pub fn init(dir: std.fs.Dir, pc_digest: u64) InputPoolPosix {
             0, // deleted bytes
             0, // number of strings
         });
+    } else {
+        assert(meta.items[0] == SignatureVersion);
+        assert(meta.items[1] == Unlocked or meta.items[1] == Locked);
     }
 
     return .{
@@ -64,7 +80,7 @@ pub fn deinit(ip: InputPoolPosix) void {
     ip.meta.deinit();
 }
 
-// Primitive spin lock implementation
+// Primitive spin lock implementation. There is basically no contention on it.
 const Locked: u32 = 1;
 const Unlocked: u32 = 0;
 
@@ -101,6 +117,9 @@ comptime {
     assert(~deleteMask == std.math.maxInt(Index));
 }
 
+/// Only marks the string for deletion. No memory is reused until corpus is
+/// reduced by external program (not compatible with the fuzzing program
+/// running at the same time)
 pub fn deleteString(ip: *InputPoolPosix, index: Index) void {
     // the only write operation to this part of the shared memory is turning on
     // this bit
@@ -120,6 +139,7 @@ pub fn getString(ip: InputPoolPosix, index: Index) []volatile u8 {
     return ip.buffer.items[start..one_past_end];
 }
 
+/// Shifts strings down to fill unused space
 pub fn maybeRepack(ip: *InputPoolPosix) void {
     // TODO
     _ = ip;

@@ -1,3 +1,13 @@
+// This file captures features from the running instrumented program. Llvm
+// inserts callbacks (in ../fuzzer.zig) that call into newFeature here.
+//
+// "Feature" is any interesting thing that happened while the program was
+// running. Usually an edge in the CFG was taken or a specific cmp instruction
+// was executed. They are represented as u32s and are usually created by xoring
+// the program counter and other random unique looking values that are
+// available when the feature was hit. We score inputs based on how many unique
+// features they hit.
+
 const std = @import("std");
 
 var buffer: []u32 = undefined;

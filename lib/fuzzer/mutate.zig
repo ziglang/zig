@@ -1,3 +1,16 @@
+// This file contains implementations of individual mutations we can do on a
+// string and a big function that executes multiple of mutations in a sequence.
+//
+// The mutation sequence and individual mutation arguments are generated from a
+// seeded rng. Mutating is completly deterministic. Because of that, we can
+// implement *reverse* mutations that reverse the original mutation given the
+// same seed. We use this to avoid memcpying the input data and instead
+// mutating a single copy in place many times.
+//
+// Note that some mutations delete information (such as the erase bytes one) so
+// we need to have a scratch array where we write deleted information for
+// undoing the mutation later.
+
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
@@ -108,17 +121,20 @@ test "mutate" {
     }
 }
 
+/// Writes names of the mutations that correspond to this seed. Used to make
+/// the log pretty
 pub fn writeMutation(seed: u64, writer: anytype) !void {
     const muts = generateRandomMutationSequence(Rng.init(seed));
-    for (muts.slice()) |mut| {
-        try switch (mut) {
-            .shuffle_bytes => writer.print("Shuffle, ", .{}),
-            .erase_bytes => writer.print("DelBytes, ", .{}),
-            .insert_byte => writer.print("InsByte, ", .{}),
-            .insert_repeated_byte => writer.print("InsBytes, ", .{}),
-            .change_byte => writer.print("ChByte, ", .{}),
-            .change_bit => writer.print("ChBit, ", .{}),
-        };
+    for (muts.slice(), 0..) |mut, i| {
+        if (i != 0) writer.writeAll(", ");
+        try writer.writeAll(switch (mut) {
+            .shuffle_bytes => "Shuffle",
+            .erase_bytes => "DelBytes",
+            .insert_byte => "InsByte",
+            .insert_repeated_byte => "InsBytes",
+            .change_byte => "ChByte",
+            .change_bit => "ChBit",
+        });
     }
 }
 
