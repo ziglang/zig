@@ -3,7 +3,8 @@ const MemoryMappedList = @This();
 
 const std = @import("std");
 const assert = std.debug.assert;
-const check = @import("main.zig").check;
+const util = @import("util.zig");
+const check = util.check;
 
 /// Contents of the list.
 ///

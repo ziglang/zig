@@ -9,61 +9,11 @@ const MemoryMappedList = @import("MemoryMappedList.zig");
 const mutate = @import("mutate.zig");
 const InputPool = @import("input_pool.zig").InputPool;
 const feature_capture = @import("feature_capture.zig");
-const feature_util = @import("feature_util.zig");
+const util = @import("util.zig");
+const check = util.check;
 
 // current unused
 export threadlocal var __sancov_lowest_stack: usize = std.math.maxInt(usize);
-
-fn StripError(comptime T: type) type {
-    return switch (@typeInfo(T)) {
-        .error_union => |eu| eu.payload,
-        .error_set => void,
-        else => @compileError("no error to strip"),
-    };
-}
-
-/// Terminates on error
-pub fn check(src: std.builtin.SourceLocation, v: anytype, args: anytype) StripError(@TypeOf(v)) {
-    return v catch |e| {
-        var buffer: [4096]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buffer);
-        var cw = std.io.countingWriter(fbs.writer());
-        const w = cw.writer();
-        if (@typeInfo(@TypeOf(args)).@"struct".fields.len != 0) {
-            w.writeAll(" (") catch {};
-            inline for (@typeInfo(@TypeOf(args)).@"struct".fields, 0..) |field, i| {
-                const Field = @TypeOf(@field(args, field.name));
-                if (i != 0) {
-                    w.writeAll(", ") catch {};
-                }
-                if (Field == []const u8 or Field == []u8) {
-                    w.print("{s}='{s}'", .{ field.name, @field(args, field.name) }) catch {};
-                } else {
-                    w.print("{s}={any}", .{ field.name, @field(args, field.name) }) catch {};
-                }
-            }
-            w.writeAll(")") catch {};
-        }
-        std.process.fatal("{s}:{}: {s}{s}", .{ src.file, src.line, @errorName(e), buffer[0..cw.bytes_written] });
-    };
-}
-
-/// for passing slices across extern functions
-pub const Slice = extern struct {
-    ptr: [*]const u8,
-    len: usize,
-
-    pub fn toZig(s: Slice) []const u8 {
-        return s.ptr[0..s.len];
-    }
-
-    pub fn fromZig(s: []const u8) Slice {
-        return .{
-            .ptr = s.ptr,
-            .len = s.len,
-        };
-    }
-};
 
 fn hashPCs(pcs: []const usize) u64 {
     var hasher = std.hash.Wyhash.init(0);
@@ -73,23 +23,12 @@ fn hashPCs(pcs: []const usize) u64 {
     return hasher.final();
 }
 
-fn createFileBail(dir: std.fs.Dir, sub_path: []const u8, flags: std.fs.File.CreateFlags) std.fs.File {
-    return dir.createFile(sub_path, flags) catch |err| switch (err) {
-        error.FileNotFound => {
-            const dir_name = std.fs.path.dirname(sub_path).?;
-            check(@src(), dir.makePath(dir_name), .{ .dir_name = dir_name });
-            return check(@src(), dir.createFile(sub_path, flags), .{ .sub_path = sub_path, .flags = flags });
-        },
-        else => |e| std.process.fatal("create file '{s}' failed: {}", .{ sub_path, e }),
-    };
-}
-
 /// Layout of this file:
 /// - Header
 /// - list of PC addresses (usize elements)
 /// - list of hit flag, 1 bit per address (stored in u8 elements)
 fn initCoverageFile(cache_dir: std.fs.Dir, coverage_file_path: []const u8, pcs: []const usize) MemoryMappedList {
-    const coverage_file = createFileBail(cache_dir, coverage_file_path, .{
+    const coverage_file = util.createFileBail(cache_dir, coverage_file_path, .{
         .read = true,
         .truncate = false,
     });
@@ -344,10 +283,10 @@ pub const Fuzzer = struct {
 
     fn analyzeLastRun(f: *Fuzzer) void {
         var features = feature_capture.values();
-        feature_util.sort(features);
-        features = feature_util.uniq(features);
+        util.sort(features);
+        features = util.uniq(features);
 
-        const analysis = feature_util.cmp(features, f.all_features.items);
+        const analysis = util.cmp(features, f.all_features.items);
 
         if (analysis.only_a == 0) {
             return; // bad input
@@ -371,7 +310,7 @@ pub const Fuzzer = struct {
         }
 
         var ar = f.all_features.toManaged(f.gpa);
-        check(@src(), feature_util.merge(&ar, features), .{});
+        check(@src(), util.merge(&ar, features), .{});
         f.all_features = ar.moveToUnmanaged();
         updateGlobalCoverage(f.pc_counters, f.seen_pcs);
     }

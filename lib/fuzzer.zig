@@ -3,11 +3,11 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const fatal = std.process.fatal;
-const check = @import("fuzzer/main.zig").check;
+const util = @import("fuzzer/util.zig");
+const check = util.check;
 const Fuzzer = @import("fuzzer/main.zig").Fuzzer;
 const fc = @import("fuzzer/feature_capture.zig");
-const FlaggedPc = @import("fuzzer/main.zig").FlaggedPc;
-const Slice = @import("fuzzer/main.zig").Slice;
+const Slice = util.Slice;
 
 // ==== global state ====
 
