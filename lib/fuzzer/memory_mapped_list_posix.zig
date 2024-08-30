@@ -5,13 +5,10 @@
 // previously mmaped pages become automatically valid without needing to
 // mremap.
 //
-// We don't bother munmaping since all current uses of this datastructure use
-// it for the entire duration of the program.
 
 const std = @import("std");
 const assert = std.debug.assert;
-const util = @import("util.zig");
-const check = util.check;
+const check = @import("main.zig").check;
 
 pub fn MemoryMappedList(comptime T: type) type {
     return struct {
@@ -46,6 +43,22 @@ pub fn MemoryMappedList(comptime T: type) type {
                 .items = items_start[0..items_cap],
                 .file = f,
             };
+        }
+
+        pub fn deinit(self: *Self) void {
+            // volatileCast is safe. mem is never used to actually write to or
+            // read from
+            const startT: [*]align(std.mem.page_size) T = @volatileCast(self.items.ptr);
+            const start8: [*]align(std.mem.page_size) u8 = @ptrCast(startT);
+            const len8: usize = self.items.len * @sizeOf(T);
+            // We don't bother munmaping since all current uses of this struct
+            // use it until the end of the program. Even this msync is more of
+            // a politeness than a necessity:
+            // https://stackoverflow.com/questions/31539208/posix-shared-memory-and-msync
+            check(@src(), std.posix.msync(start8[0..len8], std.posix.MSF.ASYNC), .{
+                .ptr = start8,
+                .len = len8,
+            });
         }
 
         pub fn append(self: *Self, item: T) void {
