@@ -130,7 +130,7 @@ pub const TargetMachine = opaque {
         T: *TargetMachine,
         M: *Module,
         ErrorMessage: *[*:0]const u8,
-        options: EmitOptions,
+        options: *const EmitOptions,
     ) bool;
 
     pub const createTargetDataLayout = LLVMCreateTargetDataLayout;
