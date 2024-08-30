@@ -732,14 +732,14 @@ pub const Module = switch (native_os) {
         fn getSymbolFromPdb(self: *@This(), relocated_address: usize) !?std.debug.Symbol {
             var coff_section: *align(1) const coff.SectionHeader = undefined;
             const mod_index = for (self.pdb.?.sect_contribs) |sect_contrib| {
-                if (sect_contrib.Section > self.coff_section_headers.len) continue;
+                if (sect_contrib.section > self.coff_section_headers.len) continue;
                 // Remember that SectionContribEntry.Section is 1-based.
-                coff_section = &self.coff_section_headers[sect_contrib.Section - 1];
+                coff_section = &self.coff_section_headers[sect_contrib.section - 1];
 
-                const vaddr_start = coff_section.virtual_address + sect_contrib.Offset;
-                const vaddr_end = vaddr_start + sect_contrib.Size;
+                const vaddr_start = coff_section.virtual_address + sect_contrib.offset;
+                const vaddr_end = vaddr_start + sect_contrib.size;
                 if (relocated_address >= vaddr_start and relocated_address < vaddr_end) {
-                    break sect_contrib.ModuleIndex;
+                    break sect_contrib.module_index;
                 }
             } else {
                 // we have no information to add to the address

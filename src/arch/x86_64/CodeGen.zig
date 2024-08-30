@@ -15563,7 +15563,7 @@ fn genLazySymbolRef(
             .mov => try self.asmRegisterMemory(
                 .{ ._, tag },
                 reg.to64(),
-                Memory.sib(.qword, .{ .base = .{ .reg = reg.to64() } }),
+                Memory.initSib(.qword, .{ .base = .{ .reg = reg.to64() } }),
             ),
             else => unreachable,
         }

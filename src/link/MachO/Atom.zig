@@ -1220,6 +1220,6 @@ const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");
 const Relocation = @import("Relocation.zig");
 const Symbol = @import("Symbol.zig");
-const Thunk = @import("thunks.zig").Thunk;
+const Thunk = @import("Thunk.zig");
 const UnwindInfo = @import("UnwindInfo.zig");
 const dev = @import("../../dev.zig");

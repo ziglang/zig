@@ -836,16 +836,6 @@ pub const GenResult = union(enum) {
         /// Traditionally, this corresponds to emitting a relocation in a relocatable object file.
         lea_symbol: u32,
     };
-
-    fn fail(
-        gpa: Allocator,
-        src_loc: Zcu.LazySrcLoc,
-        comptime format: []const u8,
-        args: anytype,
-    ) Allocator.Error!GenResult {
-        const msg = try ErrorMsg.create(gpa, src_loc, format, args);
-        return .{ .fail = msg };
-    }
 };
 
 fn genNavRef(
@@ -935,7 +925,8 @@ fn genNavRef(
         const atom = p9.getAtom(atom_index);
         return .{ .mcv = .{ .memory = atom.getOffsetTableAddress(p9) } };
     } else {
-        return GenResult.fail(gpa, src_loc, "TODO genNavRef for target {}", .{target});
+        const msg = try ErrorMsg.create(gpa, src_loc, "TODO genNavRef for target {}", .{target});
+        return .{ .fail = msg };
     }
 }
 

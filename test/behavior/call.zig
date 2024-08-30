@@ -549,7 +549,7 @@ test "call function pointer in comptime field" {
         auto: [max_len]u8 = undefined,
         offset: u64 = 0,
 
-        comptime capacity: *const fn () u64 = capacity,
+        comptime capacityFn: *const fn () u64 = capacity,
 
         const max_len: u64 = 32;
 
@@ -558,9 +558,9 @@ test "call function pointer in comptime field" {
         }
     };
 
-    const a: Auto = .{ .offset = 16, .capacity = Auto.capacity };
-    try std.testing.expect(a.capacity() == 32);
-    try std.testing.expect((a.capacity)() == 32);
+    const a: Auto = .{ .offset = 16, .capacityFn = Auto.capacity };
+    try std.testing.expect(a.capacityFn() == 32);
+    try std.testing.expect((a.capacityFn)() == 32);
 }
 
 test "generic function pointer can be called" {
