@@ -368,7 +368,7 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
         }
     }
 
-    if (options.allow_fast_isel) {
+    if (options->allow_fast_isel) {
         target_machine.setO0WantsFastISel(true);
     } else {
         target_machine.setFastISel(false);
