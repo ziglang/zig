@@ -121,7 +121,7 @@ pub inline fn trunc_f80(comptime dst_t: type, a: f80) dst_t {
     const dst_nan_mask = dst_qnan - 1;
 
     // Break a into a sign and representation of the absolute value
-    var a_rep = std.math.break_f80(a);
+    var a_rep = std.math.F80.fromFloat(a);
     const sign = a_rep.exp & 0x8000;
     a_rep.exp &= 0x7FFF;
     a_rep.fraction &= 0x7FFFFFFFFFFFFFFF;
