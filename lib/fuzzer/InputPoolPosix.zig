@@ -13,8 +13,7 @@
 
 const std = @import("std");
 const assert = std.debug.assert;
-const util = @import("util.zig");
-const check = util.check;
+const check = @import("main.zig").check;
 const MemoryMappedList = @import("memory_mapped_list.zig").MemoryMappedList;
 
 /// maximum 2GiB of input data should be enough. 32th bit is delete flag
@@ -107,7 +106,7 @@ pub fn init(dir: std.fs.Dir, pc_digest: u64) InputPoolPosix {
     };
 }
 
-pub fn deinit(ip: InputPoolPosix) void {
+pub fn deinit(ip: *InputPoolPosix) void {
     ip.buffer.deinit();
     ip.meta.deinit();
 }

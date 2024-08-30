@@ -3,11 +3,10 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const fatal = std.process.fatal;
-const util = @import("fuzzer/util.zig");
-const check = util.check;
+const check = @import("fuzzer/main.zig").check;
 const Fuzzer = @import("fuzzer/main.zig").Fuzzer;
+const Slice = @import("fuzzer/main.zig").Slice;
 const fc = @import("fuzzer/feature_capture.zig");
-const Slice = util.Slice;
 
 // ==== global state ====
 
@@ -112,6 +111,10 @@ export fn fuzzer_init(cache_dir_struct: Slice) void {
     const pcs = pcs_start[0 .. pcs_end - pcs_start];
 
     fuzzer = Fuzzer.init(general_purpose_allocator.allocator(), cache_dir, pc_counters, pcs);
+}
+
+export fn fuzzer_deinit() void {
+    fuzzer.deinit();
 }
 
 // ==== log ====
