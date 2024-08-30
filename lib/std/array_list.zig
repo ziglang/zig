@@ -494,7 +494,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         }
 
         /// Increase length by 1, returning pointer to the new item.
-        /// The returned pointer becomes invalid when the list resized.
+        /// The returned pointer becomes invalid when the list is resized.
         pub fn addOne(self: *Self) Allocator.Error!*T {
             // This can never overflow because `self.items` can never occupy the whole address space
             const newlen = self.items.len + 1;
