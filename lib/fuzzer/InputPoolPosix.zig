@@ -23,7 +23,7 @@ pub const Index = u31;
 const InputPoolPosix = @This();
 
 const LatestFormatVersion: u8 = 0;
-const SignatureVersion: u32 = @bitCast([4]u8{ 'V', 'N', 'S', LatestFormatVersion });
+const SignatureVersion: u32 = @bitCast([4]u8{ 117, 168, 125, LatestFormatVersion });
 
 /// mmap-ed file. In reality we mapped 2 GiB but cropped to match the mmaped
 /// file size. Doesn't need mremap when growing.
@@ -39,6 +39,30 @@ buffer: MemoryMappedList(u8),
 /// [3] u32 number of strings
 /// [4..] data (string end offsets)
 meta: MemoryMappedList(u32),
+
+const MetaHeader = packed struct {
+    signature_version: u32,
+    lock: u32,
+    deleted_bytes: u32,
+    number_of_string: u32,
+};
+
+fn getHeader(m: MemoryMappedList(u32)) *align(std.mem.page_size) volatile MetaHeader {
+    const size32 = @divExact(@sizeOf(MetaHeader), @sizeOf(u32));
+    const bytes: *align(std.mem.page_size) volatile [size32]u32 = m.items[0..size32];
+    return @ptrCast(bytes);
+}
+
+const Flags = packed struct(u32) {
+    index: Index,
+    delete: bool,
+};
+
+fn getData(m: MemoryMappedList(u32)) []volatile Flags {
+    const size32 = @divExact(@sizeOf(MetaHeader), @sizeOf(u32));
+    const rest: []volatile u32 = m.items[size32..];
+    return @ptrCast(rest);
+}
 
 pub fn init(dir: std.fs.Dir, pc_digest: u64) InputPoolPosix {
     const hex_digest = std.fmt.hex(pc_digest);
@@ -58,15 +82,23 @@ pub fn init(dir: std.fs.Dir, pc_digest: u64) InputPoolPosix {
     var meta = MemoryMappedList(u32).init(meta_file, std.math.maxInt(Index));
 
     if (meta.items.len == 0) {
-        meta.appendSlice(&.{
-            SignatureVersion, // signature
-            Unlocked, // mutex
-            0, // deleted bytes
-            0, // number of strings
-        });
+        const header: MetaHeader = .{
+            .signature_version = SignatureVersion,
+            .lock = Unlocked,
+            .deleted_bytes = 0,
+            .number_of_string = 0,
+        };
+
+        // []u8 to []u32
+        const s = std.mem.asBytes(&header);
+        const z: [*]const u32 = @ptrCast(s.ptr);
+        const size32 = @divExact(@sizeOf(MetaHeader), @sizeOf(u32));
+
+        meta.appendSlice(z[0..size32]);
     } else {
-        assert(meta.items[0] == SignatureVersion);
-        assert(meta.items[1] == Unlocked or meta.items[1] == Locked);
+        const header = getHeader(meta);
+        assert(header.signature_version == SignatureVersion);
+        assert(header.lock == Unlocked or header.lock == Locked);
     }
 
     return .{
@@ -85,8 +117,9 @@ const Locked: u32 = 1;
 const Unlocked: u32 = 0;
 
 fn lock(ip: *InputPoolPosix) void {
+    const lck: *volatile u32 = &getHeader(ip.meta).lock;
     while (true) {
-        const res = @cmpxchgWeak(u32, &ip.meta.items[1], Unlocked, Locked, .acquire, .monotonic);
+        const res = @cmpxchgWeak(u32, lck, Unlocked, Locked, .acquire, .monotonic);
         if (res) |v| {
             assert(v == Locked);
         } else {
@@ -96,7 +129,8 @@ fn lock(ip: *InputPoolPosix) void {
 }
 
 fn unlock(ip: *InputPoolPosix) void {
-    const res = @atomicRmw(u32, &ip.meta.items[1], .Xchg, Unlocked, .release);
+    const lck: *volatile u32 = &getHeader(ip.meta).lock;
+    const res = @atomicRmw(u32, lck, .Xchg, Unlocked, .release);
     assert(res == Locked);
 }
 
@@ -108,7 +142,7 @@ pub fn insertString(ip: *InputPoolPosix, str: []const u8) void {
 
     ip.buffer.appendSlice(str);
     ip.meta.append(@intCast(ip.buffer.items.len));
-    ip.meta.items[3] += 1;
+    getHeader(ip.meta).number_of_string += 1;
 }
 
 const deleteMask: u32 = 0x8000_0000;
@@ -125,17 +159,18 @@ pub fn deleteString(ip: *InputPoolPosix, index: Index) void {
     // this bit
     const p = &ip.ends.items[index];
     @atomicStore(u32, p, p.* | deleteMask, .monotonic);
-    @atomicRmw(u32, &ip.meta.items[2], .Add, ip.getString(index).len, .monotonic);
+    const d: *volatile u32 = &getHeader(ip.meta).deleted_bytes;
+    @atomicRmw(u32, d, .Add, ip.getString(index).len, .monotonic);
 }
 
 pub fn len(ip: *InputPoolPosix) u31 {
-    return @intCast(ip.meta.items[3]);
+    return @intCast(getHeader(ip.meta).number_of_string);
 }
 
 pub fn getString(ip: InputPoolPosix, index: Index) []volatile u8 {
-    const ends = ip.meta.items[4..];
-    const start = if (index == 0) 0 else (ends[index - 1] & ~deleteMask);
-    const one_past_end = ends[index] & ~deleteMask;
+    const ends = getData(ip.meta);
+    const start = if (index == 0) 0 else (ends[index - 1].index);
+    const one_past_end = ends[index].index;
     return ip.buffer.items[start..one_past_end];
 }
 
@@ -145,19 +180,21 @@ pub fn repack(ip: InputPoolPosix) void {
     var poolWriteHead: usize = 0;
     var endsWriteHead: usize = 0;
 
-    for (0..ip.ends.items.len) |i| {
-        const start = if (i == 0) 0 else ip.ends.items[i - 1] & ~deleteMask;
-        const one_past_end = ip.ends.items[i] & ~deleteMask;
+    const ends = getData(ip.meta);
+
+    for (0..ends.items.len) |i| {
+        const start = if (i == 0) 0 else ends.items[i - 1].index;
+        const one_past_end = ends.items[i].index;
         const str = ip.buffer.items[start..one_past_end];
         const dest = ip.buffer.items[poolWriteHead..][0..str.len];
 
-        if (ip.ends.items[i] & deleteMask != 0) {
+        if (ends.items[i].delete) {
             continue;
         }
 
         if (str.ptr != dest.ptr) {
             std.mem.copyForwards(u8, dest, str);
-            ip.ends.items[endsWriteHead] = poolWriteHead + str.len;
+            ip.ends.items[endsWriteHead].index = poolWriteHead + str.len;
         }
         poolWriteHead += str.len;
         endsWriteHead += 1;
