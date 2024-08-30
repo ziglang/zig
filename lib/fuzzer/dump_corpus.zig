@@ -35,8 +35,7 @@ pub fn main() void {
     for (0..len) |i| {
         const str = input_pool.getString(@intCast(i));
 
-        // the optimizer has nothing smart to do here to mess up what the
-        // volatile was trying to achieve in the first place
+        // Only writing to this buffer has side effects.
         const str2: []const u8 = @volatileCast(str);
 
         std.log.info("\"{s}\"", .{str2});
