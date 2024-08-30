@@ -490,11 +490,16 @@ pub fn writeEhFrameHdr(elf_file: *Elf, writer: anytype) !void {
     const eh_frame_shdr = shdrs[elf_file.eh_frame_section_index.?];
     const eh_frame_hdr_shdr = shdrs[elf_file.eh_frame_hdr_section_index.?];
     const num_fdes = @as(u32, @intCast(@divExact(eh_frame_hdr_shdr.sh_size - eh_frame_hdr_header_size, 8)));
+    const existing_size = existing_size: {
+        const zo = elf_file.zigObjectPtr() orelse break :existing_size 0;
+        const sym = zo.symbol(zo.eh_frame_index orelse break :existing_size 0);
+        break :existing_size sym.atom(elf_file).?.size;
+    };
     try writer.writeInt(
         u32,
         @as(u32, @bitCast(@as(
             i32,
-            @truncate(@as(i64, @intCast(eh_frame_shdr.sh_addr)) - @as(i64, @intCast(eh_frame_hdr_shdr.sh_addr)) - 4),
+            @truncate(@as(i64, @intCast(eh_frame_shdr.sh_addr + existing_size)) - @as(i64, @intCast(eh_frame_hdr_shdr.sh_addr)) - 4),
         ))),
         .little,
     );
