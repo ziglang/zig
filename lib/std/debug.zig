@@ -789,7 +789,7 @@ pub noinline fn walkStackWindows(addresses: []usize, existing_context: ?*const w
     }
 
     var i: usize = 0;
-    var image_base: usize = undefined;
+    var image_base: windows.DWORD64 = undefined;
     var history_table: windows.UNWIND_HISTORY_TABLE = std.mem.zeroes(windows.UNWIND_HISTORY_TABLE);
 
     while (i < addresses.len) : (i += 1) {
@@ -809,7 +809,7 @@ pub noinline fn walkStackWindows(addresses: []usize, existing_context: ?*const w
             );
         } else {
             // leaf function
-            context.setIp(@as(*u64, @ptrFromInt(current_regs.sp)).*);
+            context.setIp(@as(*usize, @ptrFromInt(current_regs.sp)).*);
             context.setSp(current_regs.sp + @sizeOf(usize));
         }
 
