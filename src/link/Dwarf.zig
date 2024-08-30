@@ -3825,7 +3825,7 @@ pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
                         sleb128(header.fixedWriter(), dwarf.debug_frame.header.data_alignment_factor) catch unreachable;
                         uleb128(header.fixedWriter(), dwarf.debug_frame.header.return_address_register) catch unreachable;
                         uleb128(header.fixedWriter(), 1) catch unreachable;
-                        header.appendAssumeCapacity(0x10 | 0x08 | 0x03);
+                        header.appendAssumeCapacity(DW.EH.PE.pcrel | DW.EH.PE.sdata4);
                         header.appendAssumeCapacity(DW.CFA.def_cfa_sf);
                         uleb128(header.fixedWriter(), Register.rsp.dwarfNum()) catch unreachable;
                         sleb128(header.fixedWriter(), -1) catch unreachable;
