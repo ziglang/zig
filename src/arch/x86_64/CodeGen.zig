@@ -105,6 +105,13 @@ frame_allocs: std.MultiArrayList(FrameAlloc) = .{},
 free_frame_indices: std.AutoArrayHashMapUnmanaged(FrameIndex, void) = .{},
 frame_locs: std.MultiArrayList(Mir.FrameLoc) = .{},
 
+loop_repeat_info: std.AutoHashMapUnmanaged(Air.Inst.Index, struct {
+    /// The state to restore before branching.
+    state: State,
+    /// The branch target.
+    jmp_target: Mir.Inst.Index,
+}) = .{},
+
 /// Debug field, used to find bugs in the compiler.
 air_bookkeeping: @TypeOf(air_bookkeeping_init) = air_bookkeeping_init,
 
@@ -815,6 +822,7 @@ pub fn generate(
         function.frame_allocs.deinit(gpa);
         function.free_frame_indices.deinit(gpa);
         function.frame_locs.deinit(gpa);
+        function.loop_repeat_info.deinit(gpa);
         var block_it = function.blocks.valueIterator();
         while (block_it.next()) |block| block.deinit(gpa);
         function.blocks.deinit(gpa);
@@ -2247,7 +2255,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .bitcast         => try self.airBitCast(inst),
             .block           => try self.airBlock(inst),
             .br              => try self.airBr(inst),
-            .repeat          => return self.fail("TODO implement `repeat`", .{}),
+            .repeat          => try self.airRepeat(inst),
             .switch_dispatch => return self.fail("TODO implement `switch_dispatch`", .{}),
             .trap            => try self.airTrap(),
             .breakpoint      => try self.airBreakpoint(),
@@ -13629,15 +13637,13 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
     self.scope_generation += 1;
     const state = try self.saveState();
 
-    const jmp_target: Mir.Inst.Index = @intCast(self.mir_instructions.len);
-    try self.genBody(body);
-    try self.restoreState(state, &.{}, .{
-        .emit_instructions = true,
-        .update_tracking = false,
-        .resurrect = false,
-        .close_scope = true,
+    try self.loop_repeat_info.putNoClobber(self.gpa, inst, .{
+        .state = state,
+        .jmp_target = @intCast(self.mir_instructions.len),
     });
-    _ = try self.asmJmpReloc(jmp_target);
+    defer assert(self.loop_repeat_info.remove(inst));
+
+    try self.genBody(body);
 
     self.finishAirBookkeeping();
 }
@@ -13680,11 +13686,18 @@ fn lowerBlock(self: *Self, inst: Air.Inst.Index, body: []const Air.Inst.Index) !
 }
 
 fn airSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
+    const zcu = self.pt.zcu;
     const switch_br = self.air.unwrapSwitch(inst);
     const condition = try self.resolveInst(switch_br.operand);
     const condition_ty = self.typeOf(switch_br.operand);
     const liveness = try self.liveness.getSwitchBr(self.gpa, inst, switch_br.cases_len + 1);
     defer self.gpa.free(liveness.deaths);
+
+    const signedness = switch (condition_ty.zigTypeTag(zcu)) {
+        .bool, .pointer => .unsigned,
+        .int, .@"enum", .error_set => condition_ty.intInfo(zcu).signedness,
+        else => unreachable,
+    };
 
     // If the condition dies here in this switch instruction, process
     // that death now instead of later as this has an effect on
@@ -13698,13 +13711,11 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
 
     var it = switch_br.iterateCases();
     while (it.next()) |case| {
-        if (case.ranges.len > 0) return self.fail("TODO: switch with ranges", .{});
-
-        var relocs = try self.gpa.alloc(Mir.Inst.Index, case.items.len);
+        var relocs = try self.gpa.alloc(Mir.Inst.Index, case.items.len + case.ranges.len);
         defer self.gpa.free(relocs);
 
         try self.spillEflagsIfOccupied();
-        for (case.items, relocs, 0..) |item, *reloc, i| {
+        for (case.items, relocs[0..case.items.len]) |item, *reloc| {
             const item_mcv = try self.resolveInst(item);
             const cc: Condition = switch (condition) {
                 .eflags => |cc| switch (item_mcv.immediate) {
@@ -13717,12 +13728,62 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
                     break :cc .e;
                 },
             };
-            reloc.* = try self.asmJccReloc(if (i < relocs.len - 1) cc else cc.negate(), undefined);
+            reloc.* = try self.asmJccReloc(cc, undefined);
         }
+
+        for (case.ranges, relocs[case.items.len..]) |range, *reloc| {
+            const min_mcv = try self.resolveInst(range[0]);
+            const max_mcv = try self.resolveInst(range[1]);
+            // `null` means always false.
+            const lt_min: ?Condition = switch (condition) {
+                .eflags => |cc| switch (min_mcv.immediate) {
+                    0 => null, // condition never <0
+                    1 => cc.negate(),
+                    else => unreachable,
+                },
+                else => cc: {
+                    try self.genBinOpMir(.{ ._, .cmp }, condition_ty, condition, min_mcv);
+                    break :cc switch (signedness) {
+                        .unsigned => .b,
+                        .signed => .l,
+                    };
+                },
+            };
+            const lt_min_reloc = if (lt_min) |cc| r: {
+                break :r try self.asmJccReloc(cc, undefined);
+            } else null;
+            // `null` means always true.
+            const lte_max: ?Condition = switch (condition) {
+                .eflags => |cc| switch (max_mcv.immediate) {
+                    0 => cc.negate(),
+                    1 => null, // condition always >=1
+                    else => unreachable,
+                },
+                else => cc: {
+                    try self.genBinOpMir(.{ ._, .cmp }, condition_ty, condition, max_mcv);
+                    break :cc switch (signedness) {
+                        .unsigned => .be,
+                        .signed => .le,
+                    };
+                },
+            };
+            // "Success" case is in `reloc`....
+            if (lte_max) |cc| {
+                reloc.* = try self.asmJccReloc(cc, undefined);
+            } else {
+                reloc.* = try self.asmJmpReloc(undefined);
+            }
+            // ...and "fail" case falls through to next checks.
+            if (lt_min_reloc) |r| self.performReloc(r);
+        }
+
+        // The jump to skip this case if the conditions all failed.
+        const skip_case_reloc = try self.asmJmpReloc(undefined);
 
         for (liveness.deaths[case.idx]) |operand| try self.processDeath(operand);
 
-        for (relocs[0 .. relocs.len - 1]) |reloc| self.performReloc(reloc);
+        // Relocate all success cases to the body we're about to generate.
+        for (relocs) |reloc| self.performReloc(reloc);
         try self.genBody(case.body);
         try self.restoreState(state, &.{}, .{
             .emit_instructions = false,
@@ -13731,7 +13792,8 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
             .close_scope = true,
         });
 
-        self.performReloc(relocs[relocs.len - 1]);
+        // Relocate the "skip" branch to fall through to the next case.
+        self.performReloc(skip_case_reloc);
     }
 
     if (switch_br.else_body_len > 0) {
@@ -13824,6 +13886,19 @@ fn airBr(self: *Self, inst: Air.Inst.Index) !void {
     // Stop tracking block result without forgetting tracking info
     try self.freeValue(block_tracking.short);
 
+    self.finishAirBookkeeping();
+}
+
+fn airRepeat(self: *Self, inst: Air.Inst.Index) !void {
+    const loop_inst = self.air.instructions.items(.data)[@intFromEnum(inst)].repeat.loop_inst;
+    const repeat_info = self.loop_repeat_info.get(loop_inst).?;
+    try self.restoreState(repeat_info.state, &.{}, .{
+        .emit_instructions = true,
+        .update_tracking = false,
+        .resurrect = false,
+        .close_scope = true,
+    });
+    _ = try self.asmJmpReloc(repeat_info.jmp_target);
     self.finishAirBookkeeping();
 }
 
