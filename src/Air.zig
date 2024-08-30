@@ -1143,10 +1143,12 @@ pub const SwitchBr = struct {
     else_body_len: u32,
 
     /// Trailing:
-    /// * item: Inst.Ref // for each `items_len`.
-    /// * instruction index for each `body_len`.
+    /// * item: Inst.Ref // for each `items_len`
+    /// * { range_start: Inst.Ref, range_end: Inst.Ref } // for each `ranges_len`
+    /// * body_inst: Inst.Index // for each `body_len`
     pub const Case = struct {
         items_len: u32,
+        ranges_len: u32,
         body_len: u32,
     };
 };
@@ -1862,6 +1864,10 @@ pub const UnwrappedSwitch = struct {
             var extra_index = extra.end;
             const items: []const Inst.Ref = @ptrCast(it.air.extra[extra_index..][0..extra.data.items_len]);
             extra_index += items.len;
+            // TODO: ptrcast from []const Inst.Ref to []const [2]Inst.Ref when supported
+            const ranges_ptr: [*]const [2]Inst.Ref = @ptrCast(it.air.extra[extra_index..]);
+            const ranges: []const [2]Inst.Ref = ranges_ptr[0..extra.data.ranges_len];
+            extra_index += ranges.len * 2;
             const body: []const Inst.Index = @ptrCast(it.air.extra[extra_index..][0..extra.data.body_len]);
             extra_index += body.len;
             it.extra_index = @intCast(extra_index);
@@ -1869,6 +1875,7 @@ pub const UnwrappedSwitch = struct {
             return .{
                 .idx = idx,
                 .items = items,
+                .ranges = ranges,
                 .body = body,
             };
         }
@@ -1881,6 +1888,7 @@ pub const UnwrappedSwitch = struct {
         pub const Case = struct {
             idx: u32,
             items: []const Inst.Ref,
+            ranges: []const [2]Inst.Ref,
             body: []const Inst.Index,
         };
     };

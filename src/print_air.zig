@@ -864,6 +864,12 @@ const Writer = struct {
                 if (item_i != 0) try s.writeAll(", ");
                 try w.writeInstRef(s, item, false);
             }
+            for (case.ranges, 0..) |range, range_i| {
+                if (range_i != 0 or case.items.len != 0) try s.writeAll(", ");
+                try w.writeInstRef(s, range[0], false);
+                try s.writeAll("...");
+                try w.writeInstRef(s, range[1], false);
+            }
             try s.writeAll("] ");
             const hint = switch_br.getHint(case.idx);
             if (hint != .none) {

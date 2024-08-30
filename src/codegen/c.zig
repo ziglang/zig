@@ -5017,12 +5017,13 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
     const liveness = try f.liveness.getSwitchBr(gpa, inst, switch_br.cases_len + 1);
     defer gpa.free(liveness.deaths);
 
-    // On the final iteration we do not need to fix any state. This is because, like in the `else`
-    // branch of a `cond_br`, our parent has to do it for this entire body anyway.
-    const last_case_i = switch_br.cases_len - @intFromBool(switch_br.else_body_len == 0);
-
+    var any_range_cases = false;
     var it = switch_br.iterateCases();
     while (it.next()) |case| {
+        if (case.ranges.len > 0) {
+            any_range_cases = true;
+            continue;
+        }
         for (case.items) |item| {
             try f.object.indent_writer.insertNewline();
             try writer.writeAll("case ");
@@ -5041,29 +5042,56 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index) !CValue {
         }
         try writer.writeByte(' ');
 
-        if (case.idx != last_case_i) {
-            try genBodyResolveState(f, inst, liveness.deaths[case.idx], case.body, false);
-        } else {
-            for (liveness.deaths[case.idx]) |death| {
-                try die(f, inst, death.toRef());
-            }
-            try genBody(f, case.body);
-        }
+        try genBodyResolveState(f, inst, liveness.deaths[case.idx], case.body, false);
 
         // The case body must be noreturn so we don't need to insert a break.
     }
 
     const else_body = it.elseBody();
     try f.object.indent_writer.insertNewline();
+
+    try writer.writeAll("default: ");
+    if (any_range_cases) {
+        // We will iterate the cases again to handle those with ranges, and generate
+        // code using conditions rather than switch cases for such cases.
+        it = switch_br.iterateCases();
+        while (it.next()) |case| {
+            if (case.ranges.len == 0) continue; // handled above
+
+            try writer.writeAll("if (");
+            for (case.items, 0..) |item, item_i| {
+                if (item_i != 0) try writer.writeAll(" || ");
+                try f.writeCValue(writer, condition, .Other);
+                try writer.writeAll(" == ");
+                try f.object.dg.renderValue(writer, (try f.air.value(item, pt)).?, .Other);
+            }
+            for (case.ranges, 0..) |range, range_i| {
+                if (case.items.len != 0 or range_i != 0) try writer.writeAll(" || ");
+                // "(x >= lower && x <= upper)"
+                try writer.writeByte('(');
+                try f.writeCValue(writer, condition, .Other);
+                try writer.writeAll(" >= ");
+                try f.object.dg.renderValue(writer, (try f.air.value(range[0], pt)).?, .Other);
+                try writer.writeAll(" && ");
+                try f.writeCValue(writer, condition, .Other);
+                try writer.writeAll(" <= ");
+                try f.object.dg.renderValue(writer, (try f.air.value(range[1], pt)).?, .Other);
+                try writer.writeByte(')');
+            }
+            try writer.writeAll(") ");
+            try genBodyResolveState(f, inst, liveness.deaths[case.idx], case.body, false);
+        }
+    }
+
     if (else_body.len > 0) {
-        // Note that this must be the last case (i.e. the `last_case_i` case was not hit above)
+        // Note that this must be the last case, so we do not need to use `genBodyResolveState` since
+        // the parent block will do it (because the case body is noreturn).
         for (liveness.deaths[liveness.deaths.len - 1]) |death| {
             try die(f, inst, death.toRef());
         }
-        try writer.writeAll("default: ");
         try genBody(f, else_body);
     } else {
-        try writer.writeAll("default: zig_unreachable();");
+        try writer.writeAll("zig_unreachable();");
     }
     try f.object.indent_writer.insertNewline();
 

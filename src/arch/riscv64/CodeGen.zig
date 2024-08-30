@@ -5681,6 +5681,8 @@ fn airSwitchBr(func: *Func, inst: Air.Inst.Index) !void {
 
     var it = switch_br.iterateCases();
     while (it.next()) |case| {
+        if (case.ranges.len > 0) return func.fail("TODO: switch with ranges", .{});
+
         var relocs = try func.gpa.alloc(Mir.Inst.Index, case.items.len);
         defer func.gpa.free(relocs);
 

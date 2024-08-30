@@ -6230,7 +6230,15 @@ pub const FuncGen = struct {
 
         const cond = try self.resolveInst(switch_br.operand);
 
-        const else_block = try self.wip.block(1, "Default");
+        // This is not necessarily the actual `else` prong; it first contains conditionals
+        // for any range cases. It's just the `else` of the LLVM switch.
+        const llvm_else_block = try self.wip.block(1, "Default");
+
+        const case_blocks = try self.gpa.alloc(Builder.Function.Block.Index, switch_br.cases_len);
+        defer self.gpa.free(case_blocks);
+        // We set incoming as 0 for now, and increment it as we construct the switch.
+        for (case_blocks) |*b| b.* = try self.wip.block(0, "Case");
+
         const llvm_usize = try o.lowerType(Type.usize);
         const cond_int = if (cond.typeOfWip(&self.wip).isPointer(&o.builder))
             try self.wip.cast(.ptrtoint, cond, llvm_usize, "")
@@ -6294,12 +6302,17 @@ pub const FuncGen = struct {
             break :weights @enumFromInt(@intFromEnum(tuple));
         };
 
-        var wip_switch = try self.wip.@"switch"(cond_int, else_block, llvm_cases_len, weights);
+        var wip_switch = try self.wip.@"switch"(cond_int, llvm_else_block, llvm_cases_len, weights);
         defer wip_switch.finish(&self.wip);
 
         var it = switch_br.iterateCases();
+        var any_ranges = false;
         while (it.next()) |case| {
-            const case_block = try self.wip.block(@intCast(case.items.len), "Case");
+            if (case.ranges.len > 0) any_ranges = true;
+            const case_block = case_blocks[case.idx];
+            case_block.ptr(&self.wip).incoming += @intCast(case.items.len);
+            // Handle scalar items, and generate the block.
+            // We'll generate conditionals for the ranges later on.
             for (case.items) |item| {
                 const llvm_item = (try self.resolveInst(item)).toConst().?;
                 const llvm_int_item = if (llvm_item.typeOf(&o.builder).isPointer(&o.builder))
@@ -6314,7 +6327,42 @@ pub const FuncGen = struct {
         }
 
         const else_body = it.elseBody();
-        self.wip.cursor = .{ .block = else_block };
+        self.wip.cursor = .{ .block = llvm_else_block };
+        if (any_ranges) {
+            const cond_ty = self.typeOf(switch_br.operand);
+            // Add conditionals for the ranges, directing to the relevant bb.
+            // We don't need to consider `cold` branch hints since that information is stored
+            // in the target bb body, but we do care about likely/unlikely/unpredictable.
+            it = switch_br.iterateCases();
+            while (it.next()) |case| {
+                if (case.ranges.len == 0) continue;
+                const case_block = case_blocks[case.idx];
+                const hint = switch_br.getHint(case.idx);
+                case_block.ptr(&self.wip).incoming += 1;
+                const next_else_block = try self.wip.block(1, "Default");
+                var range_cond: ?Builder.Value = null;
+                for (case.ranges) |range| {
+                    const llvm_min = try self.resolveInst(range[0]);
+                    const llvm_max = try self.resolveInst(range[1]);
+                    const cond_part = try self.wip.bin(
+                        .@"and",
+                        try self.cmp(.normal, .gte, cond_ty, cond, llvm_min),
+                        try self.cmp(.normal, .lte, cond_ty, cond, llvm_max),
+                        "",
+                    );
+                    if (range_cond) |prev| {
+                        range_cond = try self.wip.bin(.@"or", prev, cond_part, "");
+                    } else range_cond = cond_part;
+                }
+                _ = try self.wip.brCond(range_cond.?, case_block, next_else_block, switch (hint) {
+                    .none, .cold => .none,
+                    .unpredictable => .unpredictable,
+                    .likely => .then_likely,
+                    .unlikely => .else_likely,
+                });
+                self.wip.cursor = .{ .block = next_else_block };
+            }
+        }
         if (switch_br.getElseHint() == .cold) _ = try self.wip.callIntrinsicAssumeCold();
         if (else_body.len != 0) {
             try self.genBodyDebugScope(null, else_body, .poi);

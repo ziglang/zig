@@ -386,6 +386,10 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 var it = switch_br.iterateCases();
                 while (it.next()) |case| {
                     for (case.items) |item| if (!checkRef(item, zcu)) return false;
+                    for (case.ranges) |range| {
+                        if (!checkRef(range[0], zcu)) return false;
+                        if (!checkRef(range[1], zcu)) return false;
+                    }
                     if (!checkBody(air, case.body, zcu)) return false;
                 }
                 if (!checkBody(air, it.elseBody(), zcu)) return false;

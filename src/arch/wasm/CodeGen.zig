@@ -4064,6 +4064,8 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     var it = switch_br.iterateCases();
     while (it.next()) |case| {
+        if (case.ranges.len > 0) return func.fail("TODO: switch with ranges", .{});
+
         const values = try func.gpa.alloc(CaseValue, case.items.len);
         errdefer func.gpa.free(values);
 

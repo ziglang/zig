@@ -11353,9 +11353,14 @@ const SwitchProngAnalysis = struct {
                         const coerced = try sema.coerce(&coerce_block, capture_ty, uncoerced, case_src);
                         _ = try coerce_block.addBr(capture_block_inst, coerced);
 
-                        try cases_extra.ensureUnusedCapacity(3 + coerce_block.instructions.items.len);
-                        cases_extra.appendAssumeCapacity(1); // items_len
-                        cases_extra.appendAssumeCapacity(@intCast(coerce_block.instructions.items.len)); // body_len
+                        try cases_extra.ensureUnusedCapacity(@typeInfo(Air.SwitchBr.Case).@"struct".fields.len +
+                            1 + // `item`, no ranges
+                            coerce_block.instructions.items.len);
+                        cases_extra.appendSliceAssumeCapacity(&payloadToExtraItems(Air.SwitchBr.Case{
+                            .items_len = 1,
+                            .ranges_len = 0,
+                            .body_len = @intCast(coerce_block.instructions.items.len),
+                        }));
                         cases_extra.appendAssumeCapacity(@intFromEnum(case_vals[idx])); // item
                         cases_extra.appendSliceAssumeCapacity(@ptrCast(coerce_block.instructions.items)); // body
                     }
@@ -12578,20 +12583,17 @@ fn analyzeSwitchRuntimeBlock(
         };
 
         try branch_hints.append(gpa, prong_hint);
-        try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
-        cases_extra.appendAssumeCapacity(1); // items_len
-        cases_extra.appendAssumeCapacity(@intCast(case_block.instructions.items.len));
+        try cases_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr.Case).@"struct".fields.len +
+            1 + // `item`, no ranges
+            case_block.instructions.items.len);
+        cases_extra.appendSliceAssumeCapacity(&payloadToExtraItems(Air.SwitchBr.Case{
+            .items_len = 1,
+            .ranges_len = 0,
+            .body_len = @intCast(case_block.instructions.items.len),
+        }));
         cases_extra.appendAssumeCapacity(@intFromEnum(item));
         cases_extra.appendSliceAssumeCapacity(@ptrCast(case_block.instructions.items));
     }
-
-    var is_first = true;
-    var prev_cond_br: Air.Inst.Index = undefined;
-    var prev_hint: std.builtin.BranchHint = undefined;
-    var first_else_body: []const Air.Inst.Index = &.{};
-    defer gpa.free(first_else_body);
-    var prev_then_body: []const Air.Inst.Index = &.{};
-    defer gpa.free(prev_then_body);
 
     var cases_len = scalar_cases_len;
     var case_val_idx: usize = scalar_cases_len;
@@ -12602,31 +12604,27 @@ fn analyzeSwitchRuntimeBlock(
         const ranges_len = sema.code.extra[extra_index];
         extra_index += 1;
         const info: Zir.Inst.SwitchBlock.ProngInfo = @bitCast(sema.code.extra[extra_index]);
-        extra_index += 1 + items_len;
+        extra_index += 1 + items_len + 2 * ranges_len;
 
         const items = case_vals.items[case_val_idx..][0..items_len];
         case_val_idx += items_len;
+        // TODO: @ptrCast slice once Sema supports it
+        const ranges: []const [2]Air.Inst.Ref = @as([*]const [2]Air.Inst.Ref, @ptrCast(case_vals.items[case_val_idx..]))[0..ranges_len];
+        case_val_idx += ranges_len * 2;
+
+        const body = sema.code.bodySlice(extra_index, info.body_len);
+        extra_index += info.body_len;
 
         case_block.instructions.shrinkRetainingCapacity(0);
         case_block.error_return_trace_index = child_block.error_return_trace_index;
 
         // Generate all possible cases as scalar prongs.
         if (info.is_inline) {
-            const body_start = extra_index + 2 * ranges_len;
-            const body = sema.code.bodySlice(body_start, info.body_len);
             var emit_bb = false;
 
-            var range_i: u32 = 0;
-            while (range_i < ranges_len) : (range_i += 1) {
-                const range_items = case_vals.items[case_val_idx..][0..2];
-                extra_index += 2;
-                case_val_idx += 2;
-
-                const item_first_ref = range_items[0];
-                const item_last_ref = range_items[1];
-
-                var item = sema.resolveConstDefinedValue(block, LazySrcLoc.unneeded, item_first_ref, undefined) catch unreachable;
-                const item_last = sema.resolveConstDefinedValue(block, LazySrcLoc.unneeded, item_last_ref, undefined) catch unreachable;
+            for (ranges, 0..) |range_items, range_i| {
+                var item = sema.resolveConstDefinedValue(block, LazySrcLoc.unneeded, range_items[0], undefined) catch unreachable;
+                const item_last = sema.resolveConstDefinedValue(block, LazySrcLoc.unneeded, range_items[1], undefined) catch unreachable;
 
                 while (item.compareScalar(.lte, item_last, operand_ty, zcu)) : ({
                     // Previous validation has resolved any possible lazy values.
@@ -12664,9 +12662,14 @@ fn analyzeSwitchRuntimeBlock(
                     );
                     try branch_hints.append(gpa, prong_hint);
 
-                    try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
-                    cases_extra.appendAssumeCapacity(1); // items_len
-                    cases_extra.appendAssumeCapacity(@intCast(case_block.instructions.items.len));
+                    try cases_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr.Case).@"struct".fields.len +
+                        1 + // `item`, no ranges
+                        case_block.instructions.items.len);
+                    cases_extra.appendSliceAssumeCapacity(&payloadToExtraItems(Air.SwitchBr.Case{
+                        .items_len = 1,
+                        .ranges_len = 0,
+                        .body_len = @intCast(case_block.instructions.items.len),
+                    }));
                     cases_extra.appendAssumeCapacity(@intFromEnum(item_ref));
                     cases_extra.appendSliceAssumeCapacity(@ptrCast(case_block.instructions.items));
 
@@ -12713,134 +12716,39 @@ fn analyzeSwitchRuntimeBlock(
                 };
                 try branch_hints.append(gpa, prong_hint);
 
-                try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
-                cases_extra.appendAssumeCapacity(1); // items_len
-                cases_extra.appendAssumeCapacity(@intCast(case_block.instructions.items.len));
+                try cases_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr.Case).@"struct".fields.len +
+                    1 + // `item`, no ranges
+                    case_block.instructions.items.len);
+                cases_extra.appendSliceAssumeCapacity(&payloadToExtraItems(Air.SwitchBr.Case{
+                    .items_len = 1,
+                    .ranges_len = 0,
+                    .body_len = @intCast(case_block.instructions.items.len),
+                }));
                 cases_extra.appendAssumeCapacity(@intFromEnum(item));
                 cases_extra.appendSliceAssumeCapacity(@ptrCast(case_block.instructions.items));
             }
 
-            extra_index += info.body_len;
             continue;
         }
 
-        var any_ok: Air.Inst.Ref = .none;
+        cases_len += 1;
 
-        // If there are any ranges, we have to put all the items into the
-        // else prong. Otherwise, we can take advantage of multiple items
-        // mapping to the same body.
-        if (ranges_len == 0) {
-            cases_len += 1;
-
-            const analyze_body = if (union_originally)
-                for (items) |item| {
-                    const item_val = sema.resolveConstDefinedValue(block, LazySrcLoc.unneeded, item, undefined) catch unreachable;
-                    const field_ty = maybe_union_ty.unionFieldType(item_val, zcu).?;
-                    if (field_ty.zigTypeTag(zcu) != .noreturn) break true;
-                } else false
-            else
-                true;
-
-            const body = sema.code.bodySlice(extra_index, info.body_len);
-            extra_index += info.body_len;
-            const prong_hint: std.builtin.BranchHint = if (err_set and
-                try sema.maybeErrorUnwrap(&case_block, body, operand, operand_src, allow_err_code_unwrap))
-            h: {
-                // nothing to do here. weight against error branch
-                break :h .unlikely;
-            } else if (analyze_body) h: {
-                break :h try spa.analyzeProngRuntime(
-                    &case_block,
-                    .normal,
-                    body,
-                    info.capture,
-                    child_block.src(.{ .switch_capture = .{
-                        .switch_node_offset = switch_node_offset,
-                        .case_idx = .{ .kind = .multi, .index = @intCast(multi_i) },
-                    } }),
-                    items,
-                    .none,
-                    false,
-                );
-            } else h: {
-                _ = try case_block.addNoOp(.unreach);
-                break :h .none;
-            };
-
-            try branch_hints.append(gpa, prong_hint);
-            try cases_extra.ensureUnusedCapacity(gpa, 2 + items.len +
-                case_block.instructions.items.len);
-
-            cases_extra.appendAssumeCapacity(@intCast(items.len));
-            cases_extra.appendAssumeCapacity(@intCast(case_block.instructions.items.len));
-
+        const analyze_body = if (union_originally)
             for (items) |item| {
-                cases_extra.appendAssumeCapacity(@intFromEnum(item));
-            }
+                const item_val = sema.resolveConstDefinedValue(block, LazySrcLoc.unneeded, item, undefined) catch unreachable;
+                const field_ty = maybe_union_ty.unionFieldType(item_val, zcu).?;
+                if (field_ty.zigTypeTag(zcu) != .noreturn) break true;
+            } else false
+        else
+            true;
 
-            cases_extra.appendSliceAssumeCapacity(@ptrCast(case_block.instructions.items));
-        } else {
-            for (items) |item| {
-                const cmp_ok = try case_block.addBinOp(if (case_block.float_mode == .optimized) .cmp_eq_optimized else .cmp_eq, operand, item);
-                if (any_ok != .none) {
-                    any_ok = try case_block.addBinOp(.bool_or, any_ok, cmp_ok);
-                } else {
-                    any_ok = cmp_ok;
-                }
-            }
-
-            var range_i: usize = 0;
-            while (range_i < ranges_len) : (range_i += 1) {
-                const range_items = case_vals.items[case_val_idx..][0..2];
-                extra_index += 2;
-                case_val_idx += 2;
-
-                const item_first = range_items[0];
-                const item_last = range_items[1];
-
-                // operand >= first and operand <= last
-                const range_first_ok = try case_block.addBinOp(
-                    if (case_block.float_mode == .optimized) .cmp_gte_optimized else .cmp_gte,
-                    operand,
-                    item_first,
-                );
-                const range_last_ok = try case_block.addBinOp(
-                    if (case_block.float_mode == .optimized) .cmp_lte_optimized else .cmp_lte,
-                    operand,
-                    item_last,
-                );
-                const range_ok = try case_block.addBinOp(
-                    .bool_and,
-                    range_first_ok,
-                    range_last_ok,
-                );
-                if (any_ok != .none) {
-                    any_ok = try case_block.addBinOp(.bool_or, any_ok, range_ok);
-                } else {
-                    any_ok = range_ok;
-                }
-            }
-
-            const new_cond_br = try case_block.addInstAsIndex(.{ .tag = .cond_br, .data = .{
-                .pl_op = .{
-                    .operand = any_ok,
-                    .payload = undefined,
-                },
-            } });
-            var cond_body = try case_block.instructions.toOwnedSlice(gpa);
-            defer gpa.free(cond_body);
-
-            case_block.instructions.shrinkRetainingCapacity(0);
-            case_block.error_return_trace_index = child_block.error_return_trace_index;
-
-            const body = sema.code.bodySlice(extra_index, info.body_len);
-            extra_index += info.body_len;
-            const prong_hint: std.builtin.BranchHint = if (err_set and
-                try sema.maybeErrorUnwrap(&case_block, body, operand, operand_src, allow_err_code_unwrap))
-            h: {
-                // nothing to do here. weight against error branch
-                break :h .unlikely;
-            } else try spa.analyzeProngRuntime(
+        const prong_hint: std.builtin.BranchHint = if (err_set and
+            try sema.maybeErrorUnwrap(&case_block, body, operand, operand_src, allow_err_code_unwrap))
+        h: {
+            // nothing to do here. weight against error branch
+            break :h .unlikely;
+        } else if (analyze_body) h: {
+            break :h try spa.analyzeProngRuntime(
                 &case_block,
                 .normal,
                 body,
@@ -12853,40 +12761,36 @@ fn analyzeSwitchRuntimeBlock(
                 .none,
                 false,
             );
+        } else h: {
+            _ = try case_block.addNoOp(.unreach);
+            break :h .none;
+        };
 
-            if (is_first) {
-                is_first = false;
-                first_else_body = cond_body;
-                cond_body = &.{};
-            } else {
-                try sema.air_extra.ensureUnusedCapacity(
-                    gpa,
-                    @typeInfo(Air.CondBr).@"struct".fields.len + prev_then_body.len + cond_body.len,
-                );
+        try branch_hints.append(gpa, prong_hint);
 
-                sema.air_instructions.items(.data)[@intFromEnum(prev_cond_br)].pl_op.payload = sema.addExtraAssumeCapacity(Air.CondBr{
-                    .then_body_len = @intCast(prev_then_body.len),
-                    .else_body_len = @intCast(cond_body.len),
-                    .branch_hints = .{
-                        .true = prev_hint,
-                        .false = .none,
-                        // Code coverage is desired for error handling.
-                        .then_cov = .poi,
-                        .else_cov = .poi,
-                    },
-                });
-                sema.air_extra.appendSliceAssumeCapacity(@ptrCast(prev_then_body));
-                sema.air_extra.appendSliceAssumeCapacity(@ptrCast(cond_body));
-            }
-            gpa.free(prev_then_body);
-            prev_then_body = try case_block.instructions.toOwnedSlice(gpa);
-            prev_cond_br = new_cond_br;
-            prev_hint = prong_hint;
+        try cases_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr.Case).@"struct".fields.len +
+            items.len + 2 * ranges_len +
+            case_block.instructions.items.len);
+        cases_extra.appendSliceAssumeCapacity(&payloadToExtraItems(Air.SwitchBr.Case{
+            .items_len = @intCast(items.len),
+            .ranges_len = @intCast(ranges_len),
+            .body_len = @intCast(case_block.instructions.items.len),
+        }));
+
+        for (items) |item| {
+            cases_extra.appendAssumeCapacity(@intFromEnum(item));
         }
+        for (ranges) |range| {
+            cases_extra.appendSliceAssumeCapacity(&.{
+                @intFromEnum(range[0]),
+                @intFromEnum(range[1]),
+            });
+        }
+
+        cases_extra.appendSliceAssumeCapacity(@ptrCast(case_block.instructions.items));
     }
 
-    var final_else_body: []const Air.Inst.Index = &.{};
-    if (special.body.len != 0 or !is_first or case_block.wantSafety()) {
+    const else_body: []const Air.Inst.Index = if (special.body.len != 0 or case_block.wantSafety()) else_body: {
         var emit_bb = false;
         if (special.is_inline) switch (operand_ty.zigTypeTag(zcu)) {
             .@"enum" => {
@@ -12933,9 +12837,14 @@ fn analyzeSwitchRuntimeBlock(
                     };
                     try branch_hints.append(gpa, prong_hint);
 
-                    try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
-                    cases_extra.appendAssumeCapacity(1); // items_len
-                    cases_extra.appendAssumeCapacity(@intCast(case_block.instructions.items.len));
+                    try cases_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr.Case).@"struct".fields.len +
+                        1 + // `item`, no ranges
+                        case_block.instructions.items.len);
+                    cases_extra.appendSliceAssumeCapacity(&payloadToExtraItems(Air.SwitchBr.Case{
+                        .items_len = 1,
+                        .ranges_len = 0,
+                        .body_len = @intCast(case_block.instructions.items.len),
+                    }));
                     cases_extra.appendAssumeCapacity(@intFromEnum(item_ref));
                     cases_extra.appendSliceAssumeCapacity(@ptrCast(case_block.instructions.items));
                 }
@@ -12979,9 +12888,14 @@ fn analyzeSwitchRuntimeBlock(
                     );
                     try branch_hints.append(gpa, prong_hint);
 
-                    try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
-                    cases_extra.appendAssumeCapacity(1); // items_len
-                    cases_extra.appendAssumeCapacity(@intCast(case_block.instructions.items.len));
+                    try cases_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr.Case).@"struct".fields.len +
+                        1 + // `item`, no ranges
+                        case_block.instructions.items.len);
+                    cases_extra.appendSliceAssumeCapacity(&payloadToExtraItems(Air.SwitchBr.Case{
+                        .items_len = 1,
+                        .ranges_len = 0,
+                        .body_len = @intCast(case_block.instructions.items.len),
+                    }));
                     cases_extra.appendAssumeCapacity(@intFromEnum(item_ref));
                     cases_extra.appendSliceAssumeCapacity(@ptrCast(case_block.instructions.items));
                 }
@@ -13014,9 +12928,14 @@ fn analyzeSwitchRuntimeBlock(
                     );
                     try branch_hints.append(gpa, prong_hint);
 
-                    try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
-                    cases_extra.appendAssumeCapacity(1); // items_len
-                    cases_extra.appendAssumeCapacity(@intCast(case_block.instructions.items.len));
+                    try cases_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr.Case).@"struct".fields.len +
+                        1 + // `item`, no ranges
+                        case_block.instructions.items.len);
+                    cases_extra.appendSliceAssumeCapacity(&payloadToExtraItems(Air.SwitchBr.Case{
+                        .items_len = 1,
+                        .ranges_len = 0,
+                        .body_len = @intCast(case_block.instructions.items.len),
+                    }));
                     cases_extra.appendAssumeCapacity(@intFromEnum(item_ref));
                     cases_extra.appendSliceAssumeCapacity(@ptrCast(case_block.instructions.items));
                 }
@@ -13046,9 +12965,14 @@ fn analyzeSwitchRuntimeBlock(
                     );
                     try branch_hints.append(gpa, prong_hint);
 
-                    try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
-                    cases_extra.appendAssumeCapacity(1); // items_len
-                    cases_extra.appendAssumeCapacity(@intCast(case_block.instructions.items.len));
+                    try cases_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr.Case).@"struct".fields.len +
+                        1 + // `item`, no ranges
+                        case_block.instructions.items.len);
+                    cases_extra.appendSliceAssumeCapacity(&payloadToExtraItems(Air.SwitchBr.Case{
+                        .items_len = 1,
+                        .ranges_len = 0,
+                        .body_len = @intCast(case_block.instructions.items.len),
+                    }));
                     cases_extra.appendAssumeCapacity(@intFromEnum(Air.Inst.Ref.bool_true));
                     cases_extra.appendSliceAssumeCapacity(@ptrCast(case_block.instructions.items));
                 }
@@ -13076,9 +13000,14 @@ fn analyzeSwitchRuntimeBlock(
                     );
                     try branch_hints.append(gpa, prong_hint);
 
-                    try cases_extra.ensureUnusedCapacity(gpa, 3 + case_block.instructions.items.len);
-                    cases_extra.appendAssumeCapacity(1); // items_len
-                    cases_extra.appendAssumeCapacity(@intCast(case_block.instructions.items.len));
+                    try cases_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr.Case).@"struct".fields.len +
+                        1 + // `item`, no ranges
+                        case_block.instructions.items.len);
+                    cases_extra.appendSliceAssumeCapacity(&payloadToExtraItems(Air.SwitchBr.Case{
+                        .items_len = 1,
+                        .ranges_len = 0,
+                        .body_len = @intCast(case_block.instructions.items.len),
+                    }));
                     cases_extra.appendAssumeCapacity(@intFromEnum(Air.Inst.Ref.bool_false));
                     cases_extra.appendSliceAssumeCapacity(@ptrCast(case_block.instructions.items));
                 }
@@ -13142,41 +13071,22 @@ fn analyzeSwitchRuntimeBlock(
             break :h .cold;
         };
 
-        if (is_first) {
-            try branch_hints.append(gpa, else_hint);
-            final_else_body = case_block.instructions.items;
-        } else {
-            try branch_hints.append(gpa, .none); // we have the range conditionals first
-            try sema.air_extra.ensureUnusedCapacity(gpa, prev_then_body.len +
-                @typeInfo(Air.CondBr).@"struct".fields.len + case_block.instructions.items.len);
-
-            sema.air_instructions.items(.data)[@intFromEnum(prev_cond_br)].pl_op.payload = sema.addExtraAssumeCapacity(Air.CondBr{
-                .then_body_len = @intCast(prev_then_body.len),
-                .else_body_len = @intCast(case_block.instructions.items.len),
-                .branch_hints = .{
-                    .true = prev_hint,
-                    .false = else_hint,
-                    .then_cov = .poi,
-                    .else_cov = .poi,
-                },
-            });
-            sema.air_extra.appendSliceAssumeCapacity(@ptrCast(prev_then_body));
-            sema.air_extra.appendSliceAssumeCapacity(@ptrCast(case_block.instructions.items));
-            final_else_body = first_else_body;
-        }
-    } else {
+        try branch_hints.append(gpa, else_hint);
+        break :else_body case_block.instructions.items;
+    } else else_body: {
         try branch_hints.append(gpa, .none);
-    }
+        break :else_body &.{};
+    };
 
     assert(branch_hints.items.len == cases_len + 1);
 
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr).@"struct".fields.len +
-        cases_extra.items.len + final_else_body.len +
+        cases_extra.items.len + else_body.len +
         (std.math.divCeil(usize, branch_hints.items.len, 10) catch unreachable)); // branch hints
 
     const payload_index = sema.addExtraAssumeCapacity(Air.SwitchBr{
         .cases_len = @intCast(cases_len),
-        .else_body_len = @intCast(final_else_body.len),
+        .else_body_len = @intCast(else_body.len),
     });
 
     {
@@ -13195,7 +13105,7 @@ fn analyzeSwitchRuntimeBlock(
         }
     }
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(cases_extra.items));
-    sema.air_extra.appendSliceAssumeCapacity(@ptrCast(final_else_body));
+    sema.air_extra.appendSliceAssumeCapacity(@ptrCast(else_body));
 
     return try child_block.addInst(.{
         .tag = .switch_br,
@@ -37386,15 +37296,21 @@ pub fn addExtra(sema: *Sema, extra: anytype) Allocator.Error!u32 {
 }
 
 pub fn addExtraAssumeCapacity(sema: *Sema, extra: anytype) u32 {
-    const fields = std.meta.fields(@TypeOf(extra));
     const result: u32 = @intCast(sema.air_extra.items.len);
-    inline for (fields) |field| {
-        sema.air_extra.appendAssumeCapacity(switch (field.type) {
-            u32 => @field(extra, field.name),
-            i32, Air.CondBr.BranchHints => @bitCast(@field(extra, field.name)),
-            Air.Inst.Ref, InternPool.Index => @intFromEnum(@field(extra, field.name)),
+    sema.air_extra.appendSliceAssumeCapacity(&payloadToExtraItems(extra));
+    return result;
+}
+
+fn payloadToExtraItems(data: anytype) [@typeInfo(@TypeOf(data)).@"struct".fields.len]u32 {
+    const fields = @typeInfo(@TypeOf(data)).@"struct".fields;
+    var result: [fields.len]u32 = undefined;
+    inline for (&result, fields) |*val, field| {
+        val.* = switch (field.type) {
+            u32 => @field(data, field.name),
+            i32, Air.CondBr.BranchHints => @bitCast(@field(data, field.name)),
+            Air.Inst.Ref, InternPool.Index => @intFromEnum(@field(data, field.name)),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
-        });
+        };
     }
     return result;
 }

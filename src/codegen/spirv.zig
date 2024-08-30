@@ -6211,6 +6211,7 @@ const NavGen = struct {
             var num_conditions: u32 = 0;
             var it = switch_br.iterateCases();
             while (it.next()) |case| {
+                if (case.ranges.len > 0) return self.todo("switch with ranges", .{});
                 num_conditions += @intCast(case.items.len);
             }
             break :blk num_conditions;

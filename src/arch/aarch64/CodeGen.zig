@@ -5105,6 +5105,8 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
 
     var it = switch_br.iterateCases();
     while (it.next()) |case| {
+        if (case.ranges.len > 0) return self.fail("TODO: switch with ranges", .{});
+
         // For every item, we compare it to condition and branch into
         // the prong if they are equal. After we compared to all
         // items, we branch into the next prong (or if no other prongs
