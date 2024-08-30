@@ -156,7 +156,7 @@ pub fn loadMetaData(gpa: Allocator, contents: []const u8) LoadMetaDataError!*ABI
 fn useElfInitFini(target: std.Target) bool {
     // Legacy architectures use _init/_fini.
     return switch (target.cpu.arch) {
-        .arm, .armeb, .thumb, .thumbeb => true,
+        .arm, .armeb => true,
         .aarch64, .aarch64_be => true,
         .m68k => true,
         .mips, .mipsel, .mips64, .mips64el => true,
@@ -435,7 +435,7 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
                 try result.appendSlice("sparc" ++ s ++ "sparc32");
             }
         }
-    } else if (arch.isArmOrThumb()) {
+    } else if (arch.isARM()) {
         try result.appendSlice("arm");
     } else if (arch.isMIPS()) {
         if (!mem.eql(u8, basename, "crti.S") and !mem.eql(u8, basename, "crtn.S")) {
@@ -587,7 +587,7 @@ fn add_include_dirs_arch(
             try args.append("-I");
             try args.append(try path.join(arena, &[_][]const u8{ dir, "x86" }));
         }
-    } else if (arch.isArmOrThumb()) {
+    } else if (arch.isARM()) {
         if (opt_nptl) |nptl| {
             try args.append("-I");
             try args.append(try path.join(arena, &[_][]const u8{ dir, "arm", nptl }));
