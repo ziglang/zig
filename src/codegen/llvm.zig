@@ -1325,7 +1325,7 @@ pub const Object = struct {
             },
         };
         if (options.asm_path != null and options.bin_path != null) {
-            if (target_machine.emitToFile(module, &error_message, lowered_options)) {
+            if (target_machine.emitToFile(module, &error_message, &lowered_options)) {
                 defer llvm.disposeMessage(error_message);
                 log.err("LLVM failed to emit bin={s} ir={s}: {s}", .{
                     emit_bin_msg, post_llvm_ir_msg, error_message,
@@ -1337,7 +1337,7 @@ pub const Object = struct {
         }
 
         lowered_options.asm_filename = options.asm_path;
-        if (target_machine.emitToFile(module, &error_message, lowered_options)) {
+        if (target_machine.emitToFile(module, &error_message, &lowered_options)) {
             defer llvm.disposeMessage(error_message);
             log.err("LLVM failed to emit asm={s} bin={s} ir={s} bc={s}: {s}", .{
                 emit_asm_msg,  emit_bin_msg, post_llvm_ir_msg, post_llvm_bc_msg,

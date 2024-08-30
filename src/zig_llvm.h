@@ -67,7 +67,7 @@ struct ZigLLVMEmitOptions {
 };
 
 ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
-        char **error_message, struct ZigLLVMEmitOptions options);
+        char **error_message, const struct ZigLLVMEmitOptions *options);
 
 enum ZigLLVMABIType {
     ZigLLVMABITypeDefault, // Target-specific (either soft or hard depending on triple, etc).
