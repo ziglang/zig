@@ -961,3 +961,27 @@ test "block error return trace index is reset between prongs" {
     };
     try result;
 }
+
+test "labeled switch with break" {
+    var six: u32 = undefined;
+    six = 6;
+
+    const val = s: switch (six) {
+        0...4 => break :s false,
+        5 => break :s false,
+        6...7 => break :s true,
+        else => break :s false,
+    };
+
+    try expect(val);
+
+    // Make sure the switch is implicitly comptime!
+    const comptime_val = s: switch (@as(u32, 6)) {
+        0...4 => break :s false,
+        5 => break :s false,
+        6...7 => break :s true,
+        else => break :s false,
+    };
+
+    comptime assert(comptime_val);
+}

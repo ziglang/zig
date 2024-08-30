@@ -857,13 +857,10 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
             const if_full = tree.fullIf(node).?;
             no_switch_on_err: {
                 const error_token = if_full.error_token orelse break :no_switch_on_err;
-                switch (node_tags[if_full.ast.else_expr]) {
-                    .@"switch", .switch_comma => {},
-                    else => break :no_switch_on_err,
-                }
-                const switch_operand = node_datas[if_full.ast.else_expr].lhs;
-                if (node_tags[switch_operand] != .identifier) break :no_switch_on_err;
-                if (!mem.eql(u8, tree.tokenSlice(error_token), tree.tokenSlice(main_tokens[switch_operand]))) break :no_switch_on_err;
+                const full_switch = tree.fullSwitch(if_full.ast.else_expr) orelse break :no_switch_on_err;
+                if (full_switch.label_token != null) break :no_switch_on_err;
+                if (node_tags[full_switch.ast.condition] != .identifier) break :no_switch_on_err;
+                if (!mem.eql(u8, tree.tokenSlice(error_token), tree.tokenSlice(main_tokens[full_switch.ast.condition]))) break :no_switch_on_err;
                 return switchExprErrUnion(gz, scope, ri.br(), node, .@"if");
             }
             return ifExpr(gz, scope, ri.br(), node, if_full);
@@ -1049,13 +1046,10 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
                 null;
             no_switch_on_err: {
                 const capture_token = payload_token orelse break :no_switch_on_err;
-                switch (node_tags[node_datas[node].rhs]) {
-                    .@"switch", .switch_comma => {},
-                    else => break :no_switch_on_err,
-                }
-                const switch_operand = node_datas[node_datas[node].rhs].lhs;
-                if (node_tags[switch_operand] != .identifier) break :no_switch_on_err;
-                if (!mem.eql(u8, tree.tokenSlice(capture_token), tree.tokenSlice(main_tokens[switch_operand]))) break :no_switch_on_err;
+                const full_switch = tree.fullSwitch(node_datas[node].rhs) orelse break :no_switch_on_err;
+                if (full_switch.label_token != null) break :no_switch_on_err;
+                if (node_tags[full_switch.ast.condition] != .identifier) break :no_switch_on_err;
+                if (!mem.eql(u8, tree.tokenSlice(capture_token), tree.tokenSlice(main_tokens[full_switch.ast.condition]))) break :no_switch_on_err;
                 return switchExprErrUnion(gz, scope, ri.br(), node, .@"catch");
             }
             switch (ri.rl) {
@@ -2160,11 +2154,6 @@ fn breakExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) Inn
                     if (break_label != 0) {
                         if (block_gz.label) |*label| {
                             if (try astgen.tokenIdentEql(label.token, break_label)) {
-                                const maybe_switch_tag = astgen.instructions.items(.tag)[@intFromEnum(label.block_inst)];
-                                switch (maybe_switch_tag) {
-                                    .switch_block, .switch_block_ref => return astgen.failNode(node, "cannot break from switch", .{}),
-                                    else => {},
-                                }
                                 label.used = true;
                                 break :blk label.block_inst;
                             }
@@ -2278,6 +2267,7 @@ fn continueExpr(parent_gz: *GenZir, parent_scope: *Scope, node: Ast.Node.Index) 
                             }
 
                             label.used = true;
+                            label.used_for_continue = true;
                             break :blk;
                         }
                     }
@@ -7760,7 +7750,7 @@ fn switchExpr(
     const raw_operand = try expr(parent_gz, scope, operand_ri, operand_node);
     const item_ri: ResultInfo = .{ .rl = .none };
 
-    // If this switch is labeled, it will have `continue`s targeting it, and thus we need the operand type
+    // If this switch is labeled, it may have `continue`s targeting it, and thus we need the operand type
     // to provide a result type.
     const raw_operand_ty_ref = if (switch_full.label_token != null) t: {
         break :t try parent_gz.addUnNode(.typeof, raw_operand, operand_node);
@@ -7790,7 +7780,9 @@ fn switchExpr(
     const switch_block = try parent_gz.makeBlockInst(switch_tag, node);
 
     if (switch_full.label_token) |label_token| {
+        block_scope.break_block = switch_block.toOptional();
         block_scope.continue_block = switch_block.toOptional();
+        // `break_result_info` already set above
         block_scope.continue_result_info = .{
             .rl = if (any_payload_is_ref)
                 .{ .ref_coerced_ty = raw_operand_ty_ref }
@@ -8024,7 +8016,7 @@ fn switchExpr(
             .has_under = special_prong == .under,
             .any_has_tag_capture = any_has_tag_capture,
             .any_non_inline_capture = any_non_inline_capture,
-            .has_continue = switch_full.label_token != null,
+            .has_continue = switch_full.label_token != null and block_scope.label.?.used_for_continue,
             .scalar_cases_len = @intCast(scalar_cases_len),
         },
     });
@@ -11963,6 +11955,7 @@ const GenZir = struct {
         token: Ast.TokenIndex,
         block_inst: Zir.Inst.Index,
         used: bool = false,
+        used_for_continue: bool = false,
     };
 
     /// Assumes nothing stacked on `gz`.
