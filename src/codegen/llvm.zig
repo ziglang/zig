@@ -1276,8 +1276,11 @@ pub const Object = struct {
         );
         errdefer target_machine.dispose();
 
-        if (pic) module.setModulePICLevel();
-        if (comp.config.pie) module.setModulePIELevel();
+        const large_pic = target_util.usesLargePIC(comp.root_mod.resolved_target.result);
+
+        if (pic) module.setModulePICLevel(large_pic);
+        if (comp.config.pie) module.setModulePIELevel(large_pic);
+
         if (code_model != .Default) module.setModuleCodeModel(code_model);
 
         if (comp.llvm_opt_bisect_limit >= 0) {
@@ -1294,6 +1297,8 @@ pub const Object = struct {
             .tsan = options.sanitize_thread,
             .sancov = options.fuzz,
             .lto = options.lto,
+            // https://github.com/ziglang/zig/issues/21215
+            .allow_fast_isel = !comp.root_mod.resolved_target.result.cpu.arch.isMIPS(),
             .asm_filename = null,
             .bin_filename = options.bin_path,
             .llvm_ir_filename = options.post_ir_path,

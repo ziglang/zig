@@ -53,10 +53,10 @@ pub const Module = opaque {
     extern fn LLVMDisposeModule(*Module) void;
 
     pub const setModulePICLevel = ZigLLVMSetModulePICLevel;
-    extern fn ZigLLVMSetModulePICLevel(module: *Module) void;
+    extern fn ZigLLVMSetModulePICLevel(module: *Module, big: bool) void;
 
     pub const setModulePIELevel = ZigLLVMSetModulePIELevel;
-    extern fn ZigLLVMSetModulePIELevel(module: *Module) void;
+    extern fn ZigLLVMSetModulePIELevel(module: *Module, large: bool) void;
 
     pub const setModuleCodeModel = ZigLLVMSetModuleCodeModel;
     extern fn ZigLLVMSetModuleCodeModel(module: *Module, code_model: CodeModel) void;
@@ -91,6 +91,7 @@ pub const TargetMachine = opaque {
         tsan: bool,
         sancov: bool,
         lto: bool,
+        allow_fast_isel: bool,
         asm_filename: ?[*:0]const u8,
         bin_filename: ?[*:0]const u8,
         llvm_ir_filename: ?[*:0]const u8,

@@ -81,7 +81,7 @@ static const bool assertions_on = false;
 
 LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Triple,
     const char *CPU, const char *Features, LLVMCodeGenOptLevel Level, LLVMRelocMode Reloc,
-    LLVMCodeModel CodeModel, bool function_sections, bool data_sections, ZigLLVMABIType float_abi, 
+    LLVMCodeModel CodeModel, bool function_sections, bool data_sections, ZigLLVMABIType float_abi,
     const char *abi_name)
 {
     std::optional<Reloc::Model> RM;
@@ -258,7 +258,6 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
                               options->bin_filename? options->bin_filename : options->asm_filename);
 
     TargetMachine &target_machine = *reinterpret_cast<TargetMachine*>(targ_machine_ref);
-    target_machine.setO0WantsFastISel(true);
 
     Module &llvm_module = *unwrap(module_ref);
 
@@ -369,6 +368,12 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
         }
     }
 
+    if (options.allow_fast_isel) {
+        target_machine.setO0WantsFastISel(true);
+    } else {
+        target_machine.setFastISel(false);
+    }
+
     // Optimization phase
     module_pm.run(llvm_module, module_am);
 
@@ -430,12 +435,12 @@ void ZigLLVMParseCommandLineOptions(size_t argc, const char *const *argv) {
     cl::ParseCommandLineOptions(argc, argv);
 }
 
-void ZigLLVMSetModulePICLevel(LLVMModuleRef module) {
-    unwrap(module)->setPICLevel(PICLevel::Level::BigPIC);
+void ZigLLVMSetModulePICLevel(LLVMModuleRef module, bool big) {
+    unwrap(module)->setPICLevel(big ? PICLevel::Level::BigPIC : PICLevel::Level::SmallPIC);
 }
 
-void ZigLLVMSetModulePIELevel(LLVMModuleRef module) {
-    unwrap(module)->setPIELevel(PIELevel::Level::Large);
+void ZigLLVMSetModulePIELevel(LLVMModuleRef module, bool large) {
+    unwrap(module)->setPIELevel(large ? PIELevel::Level::Large : PIELevel::Level::Small);
 }
 
 void ZigLLVMSetModuleCodeModel(LLVMModuleRef module, LLVMCodeModel code_model) {

@@ -59,6 +59,7 @@ struct ZigLLVMEmitOptions {
     bool tsan;
     bool sancov;
     bool lto;
+    bool allow_fast_isel;
     const char *asm_filename;
     const char *bin_filename;
     const char *llvm_ir_filename;
@@ -77,7 +78,7 @@ enum ZigLLVMABIType {
 
 ZIG_EXTERN_C LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Triple,
     const char *CPU, const char *Features, LLVMCodeGenOptLevel Level, LLVMRelocMode Reloc,
-    LLVMCodeModel CodeModel, bool function_sections, bool data_sections, enum ZigLLVMABIType float_abi, 
+    LLVMCodeModel CodeModel, bool function_sections, bool data_sections, enum ZigLLVMABIType float_abi,
     const char *abi_name);
 
 ZIG_EXTERN_C void ZigLLVMSetOptBisectLimit(LLVMContextRef context_ref, int limit);
@@ -154,8 +155,8 @@ enum ZigLLVM_CallingConv {
     ZigLLVM_MaxID = 1023,
 };
 
-ZIG_EXTERN_C void ZigLLVMSetModulePICLevel(LLVMModuleRef module);
-ZIG_EXTERN_C void ZigLLVMSetModulePIELevel(LLVMModuleRef module);
+ZIG_EXTERN_C void ZigLLVMSetModulePICLevel(LLVMModuleRef module, bool big);
+ZIG_EXTERN_C void ZigLLVMSetModulePIELevel(LLVMModuleRef module, bool large);
 ZIG_EXTERN_C void ZigLLVMSetModuleCodeModel(LLVMModuleRef module, LLVMCodeModel code_model);
 
 ZIG_EXTERN_C void ZigLLVMParseCommandLineOptions(size_t argc, const char *const *argv);
