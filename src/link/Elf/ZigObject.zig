@@ -99,8 +99,8 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
         .dwarf => |v| {
             var dwarf = Dwarf.init(&elf_file.base, v);
 
-            if (elf_file.debug_str_section_index == null) {
-                elf_file.debug_str_section_index = try elf_file.addSection(.{
+            if (self.debug_str_index == null) {
+                const osec = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".debug_str"),
                     .flags = elf.SHF_MERGE | elf.SHF_STRINGS,
                     .entsize = 1,
@@ -108,51 +108,51 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                     .addralign = 1,
                 });
                 self.debug_str_section_dirty = true;
-                self.debug_str_index = try self.addSectionSymbol(gpa, ".debug_str", .@"1", elf_file.debug_str_section_index.?);
+                self.debug_str_index = try self.addSectionSymbol(gpa, ".debug_str", .@"1", osec);
             }
 
-            if (elf_file.debug_info_section_index == null) {
-                elf_file.debug_info_section_index = try elf_file.addSection(.{
+            if (self.debug_info_index == null) {
+                const osec = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".debug_info"),
                     .type = elf.SHT_PROGBITS,
                     .addralign = 1,
                 });
                 self.debug_info_section_dirty = true;
-                self.debug_info_index = try self.addSectionSymbol(gpa, ".debug_info", .@"1", elf_file.debug_info_section_index.?);
+                self.debug_info_index = try self.addSectionSymbol(gpa, ".debug_info", .@"1", osec);
             }
 
-            if (elf_file.debug_abbrev_section_index == null) {
-                elf_file.debug_abbrev_section_index = try elf_file.addSection(.{
+            if (self.debug_abbrev_index == null) {
+                const osec = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".debug_abbrev"),
                     .type = elf.SHT_PROGBITS,
                     .addralign = 1,
                 });
                 self.debug_abbrev_section_dirty = true;
-                self.debug_abbrev_index = try self.addSectionSymbol(gpa, ".debug_abbrev", .@"1", elf_file.debug_abbrev_section_index.?);
+                self.debug_abbrev_index = try self.addSectionSymbol(gpa, ".debug_abbrev", .@"1", osec);
             }
 
-            if (elf_file.debug_aranges_section_index == null) {
-                elf_file.debug_aranges_section_index = try elf_file.addSection(.{
+            if (self.debug_aranges_index == null) {
+                const osec = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".debug_aranges"),
                     .type = elf.SHT_PROGBITS,
                     .addralign = 16,
                 });
                 self.debug_aranges_section_dirty = true;
-                self.debug_aranges_index = try self.addSectionSymbol(gpa, ".debug_aranges", .@"16", elf_file.debug_aranges_section_index.?);
+                self.debug_aranges_index = try self.addSectionSymbol(gpa, ".debug_aranges", .@"16", osec);
             }
 
-            if (elf_file.debug_line_section_index == null) {
-                elf_file.debug_line_section_index = try elf_file.addSection(.{
+            if (self.debug_line_index == null) {
+                const osec = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".debug_line"),
                     .type = elf.SHT_PROGBITS,
                     .addralign = 1,
                 });
                 self.debug_line_section_dirty = true;
-                self.debug_line_index = try self.addSectionSymbol(gpa, ".debug_line", .@"1", elf_file.debug_line_section_index.?);
+                self.debug_line_index = try self.addSectionSymbol(gpa, ".debug_line", .@"1", osec);
             }
 
-            if (elf_file.debug_line_str_section_index == null) {
-                elf_file.debug_line_str_section_index = try elf_file.addSection(.{
+            if (self.debug_line_str_index == null) {
+                const osec = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".debug_line_str"),
                     .flags = elf.SHF_MERGE | elf.SHF_STRINGS,
                     .entsize = 1,
@@ -160,31 +160,31 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                     .addralign = 1,
                 });
                 self.debug_line_str_section_dirty = true;
-                self.debug_line_str_index = try self.addSectionSymbol(gpa, ".debug_line_str", .@"1", elf_file.debug_line_str_section_index.?);
+                self.debug_line_str_index = try self.addSectionSymbol(gpa, ".debug_line_str", .@"1", osec);
             }
 
-            if (elf_file.debug_loclists_section_index == null) {
-                elf_file.debug_loclists_section_index = try elf_file.addSection(.{
+            if (self.debug_loclists_index == null) {
+                const osec = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".debug_loclists"),
                     .type = elf.SHT_PROGBITS,
                     .addralign = 1,
                 });
                 self.debug_loclists_section_dirty = true;
-                self.debug_loclists_index = try self.addSectionSymbol(gpa, ".debug_loclists", .@"1", elf_file.debug_loclists_section_index.?);
+                self.debug_loclists_index = try self.addSectionSymbol(gpa, ".debug_loclists", .@"1", osec);
             }
 
-            if (elf_file.debug_rnglists_section_index == null) {
-                elf_file.debug_rnglists_section_index = try elf_file.addSection(.{
+            if (self.debug_rnglists_index == null) {
+                const osec = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".debug_rnglists"),
                     .type = elf.SHT_PROGBITS,
                     .addralign = 1,
                 });
                 self.debug_rnglists_section_dirty = true;
-                self.debug_rnglists_index = try self.addSectionSymbol(gpa, ".debug_rnglists", .@"1", elf_file.debug_rnglists_section_index.?);
+                self.debug_rnglists_index = try self.addSectionSymbol(gpa, ".debug_rnglists", .@"1", osec);
             }
 
-            if (elf_file.eh_frame_section_index == null) {
-                elf_file.eh_frame_section_index = try elf_file.addSection(.{
+            if (self.eh_frame_index == null) {
+                const osec = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".eh_frame"),
                     .type = if (elf_file.getTarget().cpu.arch == .x86_64)
                         elf.SHT_X86_64_UNWIND
@@ -194,7 +194,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                     .addralign = ptr_size,
                 });
                 self.eh_frame_section_dirty = true;
-                self.eh_frame_index = try self.addSectionSymbol(gpa, ".eh_frame", Atom.Alignment.fromNonzeroByteUnits(ptr_size), elf_file.eh_frame_section_index.?);
+                self.eh_frame_index = try self.addSectionSymbol(gpa, ".eh_frame", Atom.Alignment.fromNonzeroByteUnits(ptr_size), osec);
             }
 
             try dwarf.initMetadata();
@@ -328,12 +328,6 @@ pub fn flushModule(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !voi
             const sym = self.symbol(sym_index);
             const atom_ptr = self.atom(sym.ref.index).?;
             if (!atom_ptr.alive) continue;
-            const shndx = sym.outputShndx(elf_file).?;
-            const shdr = elf_file.sections.items(.shdr)[shndx];
-            const esym = &self.symtab.items(.elf_sym)[sym.esym_index];
-            esym.st_size = shdr.sh_size;
-            atom_ptr.size = shdr.sh_size;
-            atom_ptr.alignment = Atom.Alignment.fromNonzeroByteUnits(shdr.sh_addralign);
 
             log.debug("parsing relocs in {s}", .{sym.name(elf_file)});
 

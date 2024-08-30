@@ -114,15 +114,6 @@ rela_plt: std.ArrayListUnmanaged(elf.Elf64_Rela) = .{},
 /// Applies only to a relocatable.
 comdat_group_sections: std.ArrayListUnmanaged(ComdatGroupSection) = .{},
 
-debug_info_section_index: ?u32 = null,
-debug_abbrev_section_index: ?u32 = null,
-debug_str_section_index: ?u32 = null,
-debug_aranges_section_index: ?u32 = null,
-debug_line_section_index: ?u32 = null,
-debug_line_str_section_index: ?u32 = null,
-debug_loclists_section_index: ?u32 = null,
-debug_rnglists_section_index: ?u32 = null,
-
 copy_rel_section_index: ?u32 = null,
 dynamic_section_index: ?u32 = null,
 dynstrtab_section_index: ?u32 = null,
@@ -636,24 +627,31 @@ pub fn growNonAllocSection(
 }
 
 pub fn markDirty(self: *Elf, shdr_index: u32) void {
-    const zig_object = self.zigObjectPtr().?;
-    if (zig_object.dwarf) |_| {
-        if (self.debug_info_section_index.? == shdr_index) {
-            zig_object.debug_info_section_dirty = true;
-        } else if (self.debug_abbrev_section_index.? == shdr_index) {
-            zig_object.debug_abbrev_section_dirty = true;
-        } else if (self.debug_str_section_index.? == shdr_index) {
-            zig_object.debug_str_section_dirty = true;
-        } else if (self.debug_aranges_section_index.? == shdr_index) {
-            zig_object.debug_aranges_section_dirty = true;
-        } else if (self.debug_line_section_index.? == shdr_index) {
-            zig_object.debug_line_section_dirty = true;
-        } else if (self.debug_line_str_section_index.? == shdr_index) {
-            zig_object.debug_line_str_section_dirty = true;
-        } else if (self.debug_loclists_section_index.? == shdr_index) {
-            zig_object.debug_loclists_section_dirty = true;
-        } else if (self.debug_rnglists_section_index.? == shdr_index) {
-            zig_object.debug_rnglists_section_dirty = true;
+    if (self.zigObjectPtr()) |zo| {
+        for ([_]?Symbol.Index{
+            zo.debug_info_index,
+            zo.debug_abbrev_index,
+            zo.debug_aranges_index,
+            zo.debug_str_index,
+            zo.debug_line_index,
+            zo.debug_line_str_index,
+            zo.debug_loclists_index,
+            zo.debug_rnglists_index,
+        }, [_]*bool{
+            &zo.debug_info_section_dirty,
+            &zo.debug_abbrev_section_dirty,
+            &zo.debug_aranges_section_dirty,
+            &zo.debug_str_section_dirty,
+            &zo.debug_line_section_dirty,
+            &zo.debug_line_str_section_dirty,
+            &zo.debug_loclists_section_dirty,
+            &zo.debug_rnglists_section_dirty,
+        }) |maybe_sym_index, dirty| {
+            const sym_index = maybe_sym_index orelse continue;
+            if (zo.symbol(sym_index).atom(self).?.output_section_index == shdr_index) {
+                dirty.* = true;
+                break;
+            }
         }
     }
 }
@@ -3473,14 +3471,6 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
         &self.copy_rel_section_index,
         &self.versym_section_index,
         &self.verneed_section_index,
-        &self.debug_info_section_index,
-        &self.debug_abbrev_section_index,
-        &self.debug_str_section_index,
-        &self.debug_aranges_section_index,
-        &self.debug_line_section_index,
-        &self.debug_line_str_section_index,
-        &self.debug_loclists_section_index,
-        &self.debug_rnglists_section_index,
     }) |maybe_index| {
         if (maybe_index.*) |*index| {
             index.* = backlinks[index.*];
@@ -3505,7 +3495,6 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
             const atom_ptr = zo.atom(atom_index) orelse continue;
             atom_ptr.output_section_index = backlinks[atom_ptr.output_section_index];
         }
-        if (zo.dwarf) |*dwarf| dwarf.reloadSectionMetadata();
     }
 
     for (self.comdat_group_sections.items) |*cg| {

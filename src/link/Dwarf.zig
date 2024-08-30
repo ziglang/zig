@@ -375,12 +375,17 @@ pub const Section = struct {
     fn resize(sec: *Section, dwarf: *Dwarf, len: u64) UpdateError!void {
         if (len <= sec.len) return;
         if (dwarf.bin_file.cast(.elf)) |elf_file| {
+            const zo = elf_file.zigObjectPtr().?;
+            const atom = zo.symbol(sec.index).atom(elf_file).?;
+            const shndx = atom.output_section_index;
             if (sec == &dwarf.debug_frame.section)
-                try elf_file.growAllocSection(sec.index, len)
+                try elf_file.growAllocSection(shndx, len)
             else
-                try elf_file.growNonAllocSection(sec.index, len, @intCast(sec.alignment.toByteUnits().?), true);
-            const shdr = &elf_file.sections.items(.shdr)[sec.index];
-            sec.off = shdr.sh_offset;
+                try elf_file.growNonAllocSection(shndx, len, @intCast(sec.alignment.toByteUnits().?), true);
+            const shdr = elf_file.sections.items(.shdr)[shndx];
+            atom.size = shdr.sh_size;
+            atom.alignment = InternPool.Alignment.fromNonzeroByteUnits(shdr.sh_addralign);
+            sec.off = shdr.sh_offset + @as(u64, @intCast(atom.value));
             sec.len = shdr.sh_size;
         } else if (dwarf.bin_file.cast(.macho)) |macho_file| {
             const header = if (macho_file.d_sym) |*d_sym| header: {
@@ -402,7 +407,11 @@ pub const Section = struct {
         sec.off += len;
         sec.len -= len;
         if (dwarf.bin_file.cast(.elf)) |elf_file| {
-            const shdr = &elf_file.sections.items(.shdr)[sec.index];
+            const zo = elf_file.zigObjectPtr().?;
+            const atom = zo.symbol(sec.index).atom(elf_file).?;
+            const shndx = atom.output_section_index;
+            const shdr = &elf_file.sections.items(.shdr)[shndx];
+            atom.size = sec.len;
             shdr.sh_offset = sec.off;
             shdr.sh_size = sec.len;
         } else if (dwarf.bin_file.cast(.macho)) |macho_file| {
@@ -891,9 +900,11 @@ const Entry = struct {
         if (std.debug.runtime_safety) {
             log.err("missing {} from {s}", .{
                 @as(Entry.Index, @enumFromInt(entry - unit.entries.items.ptr)),
-                std.mem.sliceTo(if (dwarf.bin_file.cast(.elf)) |elf_file|
-                    elf_file.shstrtab.items[elf_file.sections.items(.shdr)[sec.index].sh_name..]
-                else if (dwarf.bin_file.cast(.macho)) |macho_file|
+                std.mem.sliceTo(if (dwarf.bin_file.cast(.elf)) |elf_file| sh_name: {
+                    const zo = elf_file.zigObjectPtr().?;
+                    const shndx = zo.symbol(sec.index).atom(elf_file).?.output_section_index;
+                    break :sh_name elf_file.shstrtab.items[elf_file.sections.items(.shdr)[shndx].sh_name..];
+                } else if (dwarf.bin_file.cast(.macho)) |macho_file|
                     if (macho_file.d_sym) |*d_sym|
                         &d_sym.sections.items[sec.index].segname
                     else
@@ -961,7 +972,8 @@ const Entry = struct {
             .none, .debug_frame => {},
             .eh_frame => return if (dwarf.bin_file.cast(.elf)) |elf_file| {
                 const zo = elf_file.zigObjectPtr().?;
-                const entry_addr: i64 = @intCast(entry_off - sec.off + elf_file.shdrs.items[sec.index].sh_addr);
+                const shndx = zo.symbol(sec.index).atom(elf_file).?.output_section_index;
+                const entry_addr: i64 = @intCast(entry_off - sec.off + elf_file.shdrs.items[shndx].sh_addr);
                 for (entry.external_relocs.items) |reloc| {
                     const symbol = zo.symbol(reloc.target_sym);
                     try dwarf.resolveReloc(
@@ -1877,34 +1889,7 @@ pub fn init(lf: *link.File, format: DW.Format) Dwarf {
 }
 
 pub fn reloadSectionMetadata(dwarf: *Dwarf) void {
-    if (dwarf.bin_file.cast(.elf)) |elf_file| {
-        for ([_]*Section{
-            &dwarf.debug_abbrev.section,
-            &dwarf.debug_aranges.section,
-            &dwarf.debug_frame.section,
-            &dwarf.debug_info.section,
-            &dwarf.debug_line.section,
-            &dwarf.debug_line_str.section,
-            &dwarf.debug_loclists.section,
-            &dwarf.debug_rnglists.section,
-            &dwarf.debug_str.section,
-        }, [_]u32{
-            elf_file.debug_abbrev_section_index.?,
-            elf_file.debug_aranges_section_index.?,
-            elf_file.eh_frame_section_index.?,
-            elf_file.debug_info_section_index.?,
-            elf_file.debug_line_section_index.?,
-            elf_file.debug_line_str_section_index.?,
-            elf_file.debug_loclists_section_index.?,
-            elf_file.debug_rnglists_section_index.?,
-            elf_file.debug_str_section_index.?,
-        }) |sec, section_index| {
-            const shdr = &elf_file.sections.items(.shdr)[section_index];
-            sec.index = section_index;
-            sec.off = shdr.sh_offset;
-            sec.len = shdr.sh_size;
-        }
-    } else if (dwarf.bin_file.cast(.macho)) |macho_file| {
+    if (dwarf.bin_file.cast(.macho)) |macho_file| {
         if (macho_file.d_sym) |*d_sym| {
             for ([_]*Section{
                 &dwarf.debug_abbrev.section,
@@ -1960,6 +1945,32 @@ pub fn reloadSectionMetadata(dwarf: *Dwarf) void {
 }
 
 pub fn initMetadata(dwarf: *Dwarf) UpdateError!void {
+    if (dwarf.bin_file.cast(.elf)) |elf_file| {
+        const zo = elf_file.zigObjectPtr().?;
+        for ([_]*Section{
+            &dwarf.debug_abbrev.section,
+            &dwarf.debug_aranges.section,
+            &dwarf.debug_frame.section,
+            &dwarf.debug_info.section,
+            &dwarf.debug_line.section,
+            &dwarf.debug_line_str.section,
+            &dwarf.debug_loclists.section,
+            &dwarf.debug_rnglists.section,
+            &dwarf.debug_str.section,
+        }, [_]u32{
+            zo.debug_abbrev_index.?,
+            zo.debug_aranges_index.?,
+            zo.eh_frame_index.?,
+            zo.debug_info_index.?,
+            zo.debug_line_index.?,
+            zo.debug_line_str_index.?,
+            zo.debug_loclists_index.?,
+            zo.debug_rnglists_index.?,
+            zo.debug_str_index.?,
+        }) |sec, sym_index| {
+            sec.index = sym_index;
+        }
+    }
     dwarf.reloadSectionMetadata();
 
     dwarf.debug_abbrev.section.pad_to_ideal = false;
