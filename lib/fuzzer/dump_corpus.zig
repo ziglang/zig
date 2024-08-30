@@ -38,6 +38,6 @@ pub fn main() void {
         // Only writing to this buffer has side effects.
         const str2: []const u8 = @volatileCast(str);
 
-        std.log.info("\"{s}\"", .{str2});
+        std.log.info("\"{}\"", .{std.zig.fmtEscapes(str2)});
     }
 }
