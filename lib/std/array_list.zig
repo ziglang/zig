@@ -493,7 +493,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             self.items.len = self.capacity;
         }
 
-        /// Increase length by 1, returning pointer to the new item.
+        /// Increase length by 1, returning a pointer to the new item.
         /// The returned pointer becomes invalid when the list is resized.
         pub fn addOne(self: *Self) Allocator.Error!*T {
             // This can never overflow because `self.items` can never occupy the whole address space
