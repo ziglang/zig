@@ -985,11 +985,8 @@ const llvm_targets = [_]LlvmTarget{
         .zig_name = "powerpc",
         .llvm_name = "PowerPC",
         .td_name = "PPC.td",
-        .feature_overrides = &.{
-            .{
-                .llvm_name = "ppc32",
-                .omit = true,
-            },
+        .omit_cpus = &.{
+            "ppc32",
         },
     },
     .{
@@ -1387,7 +1384,7 @@ fn processOneTarget(job: Job) anyerror!void {
     var all_cpus = std.ArrayList(Cpu).init(arena);
     {
         var it = root_map.iterator();
-        root_it: while (it.next()) |kv| {
+        while (it.next()) |kv| {
             if (kv.key_ptr.len == 0) continue;
             if (kv.key_ptr.*[0] == '!') continue;
             if (kv.value_ptr.* != .object) continue;
@@ -1469,7 +1466,7 @@ fn processOneTarget(job: Job) anyerror!void {
                 for (llvm_target.feature_overrides) |feature_override| {
                     if (mem.eql(u8, llvm_name, feature_override.llvm_name)) {
                         if (feature_override.omit) {
-                            continue :root_it;
+                            continue;
                         }
                         if (feature_override.zig_name) |override_name| {
                             zig_name = override_name;
@@ -1515,7 +1512,7 @@ fn processOneTarget(job: Job) anyerror!void {
                 for (llvm_target.feature_overrides) |feature_override| {
                     if (mem.eql(u8, llvm_name, feature_override.llvm_name)) {
                         if (feature_override.omit) {
-                            continue :root_it;
+                            continue;
                         }
                         if (feature_override.zig_name) |override_name| {
                             zig_name = override_name;
