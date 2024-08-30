@@ -482,19 +482,24 @@ pub fn writeEhFrameHdr(elf_file: *Elf, writer: anytype) !void {
     const gpa = comp.gpa;
 
     try writer.writeByte(1); // version
-    try writer.writeByte(EH_PE.pcrel | EH_PE.sdata4);
-    try writer.writeByte(EH_PE.udata4);
-    try writer.writeByte(EH_PE.datarel | EH_PE.sdata4);
+    try writer.writeByte(DW_EH_PE.pcrel | DW_EH_PE.sdata4);
+    try writer.writeByte(DW_EH_PE.udata4);
+    try writer.writeByte(DW_EH_PE.datarel | DW_EH_PE.sdata4);
 
     const shdrs = elf_file.sections.items(.shdr);
     const eh_frame_shdr = shdrs[elf_file.eh_frame_section_index.?];
     const eh_frame_hdr_shdr = shdrs[elf_file.eh_frame_hdr_section_index.?];
     const num_fdes = @as(u32, @intCast(@divExact(eh_frame_hdr_shdr.sh_size - eh_frame_hdr_header_size, 8)));
+    const existing_size = existing_size: {
+        const zo = elf_file.zigObjectPtr() orelse break :existing_size 0;
+        const sym = zo.symbol(zo.eh_frame_index orelse break :existing_size 0);
+        break :existing_size sym.atom(elf_file).?.size;
+    };
     try writer.writeInt(
         u32,
         @as(u32, @bitCast(@as(
             i32,
-            @truncate(@as(i64, @intCast(eh_frame_shdr.sh_addr)) - @as(i64, @intCast(eh_frame_hdr_shdr.sh_addr)) - 4),
+            @truncate(@as(i64, @intCast(eh_frame_shdr.sh_addr + existing_size)) - @as(i64, @intCast(eh_frame_hdr_shdr.sh_addr)) - 4),
         ))),
         .little,
     );
@@ -542,25 +547,6 @@ pub fn writeEhFrameHdr(elf_file: *Elf, writer: anytype) !void {
 }
 
 const eh_frame_hdr_header_size: usize = 12;
-
-const EH_PE = struct {
-    pub const absptr = 0x00;
-    pub const uleb128 = 0x01;
-    pub const udata2 = 0x02;
-    pub const udata4 = 0x03;
-    pub const udata8 = 0x04;
-    pub const sleb128 = 0x09;
-    pub const sdata2 = 0x0A;
-    pub const sdata4 = 0x0B;
-    pub const sdata8 = 0x0C;
-    pub const pcrel = 0x10;
-    pub const textrel = 0x20;
-    pub const datarel = 0x30;
-    pub const funcrel = 0x40;
-    pub const aligned = 0x50;
-    pub const indirect = 0x80;
-    pub const omit = 0xFF;
-};
 
 const x86_64 = struct {
     fn resolveReloc(rec: anytype, elf_file: *Elf, rel: elf.Elf64_Rela, source: i64, target: i64, data: []u8) !void {
@@ -619,6 +605,7 @@ const relocation = @import("relocation.zig");
 
 const Allocator = std.mem.Allocator;
 const Atom = @import("Atom.zig");
+const DW_EH_PE = std.dwarf.EH.PE;
 const Elf = @import("../Elf.zig");
 const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");
