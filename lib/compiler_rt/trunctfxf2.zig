@@ -64,5 +64,5 @@ pub fn __trunctfxf2(a: f128) callconv(.C) f80 {
     }
 
     res.exp |= sign;
-    return math.make_f80(res);
+    return res.toFloat();
 }
