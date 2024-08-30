@@ -56,6 +56,8 @@ rodata_index: ?Symbol.Index = null,
 data_relro_index: ?Symbol.Index = null,
 data_index: ?Symbol.Index = null,
 bss_index: ?Symbol.Index = null,
+tdata_index: ?Symbol.Index = null,
+tbss_index: ?Symbol.Index = null,
 eh_frame_index: ?Symbol.Index = null,
 debug_info_index: ?Symbol.Index = null,
 debug_abbrev_index: ?Symbol.Index = null,
@@ -233,10 +235,6 @@ pub fn deinit(self: *ZigObject, allocator: Allocator) void {
         meta.exports.deinit(allocator);
     }
     self.uavs.deinit(allocator);
-
-    for (self.tls_variables.values()) |*tlv| {
-        tlv.deinit(allocator);
-    }
     self.tls_variables.deinit(allocator);
 
     if (self.dwarf) |*dwarf| {
@@ -898,14 +896,6 @@ pub fn writeSymtab(self: ZigObject, elf_file: *Elf) void {
 pub fn codeAlloc(self: *ZigObject, elf_file: *Elf, atom_index: Atom.Index) ![]u8 {
     const gpa = elf_file.base.comp.gpa;
     const atom_ptr = self.atom(atom_index).?;
-    const shdr = &elf_file.sections.items(.shdr)[atom_ptr.output_section_index];
-
-    if (shdr.sh_flags & elf.SHF_TLS != 0) {
-        const tlv = self.tls_variables.get(atom_index).?;
-        const code = try gpa.dupe(u8, tlv.code);
-        return code;
-    }
-
     const file_offset = atom_ptr.offset(elf_file);
     const size = std.math.cast(usize, atom_ptr.size) orelse return error.Overflow;
     const code = try gpa.alloc(u8, size);
@@ -1161,18 +1151,29 @@ fn getNavShdrIndex(
         const is_bss = !has_relocs and for (code) |byte| {
             if (byte != 0) break false;
         } else true;
-        if (is_bss) return elf_file.sectionByName(".tbss") orelse try elf_file.addSection(.{
-            .type = elf.SHT_NOBITS,
-            .flags = elf.SHF_ALLOC | elf.SHF_WRITE | elf.SHF_TLS,
-            .name = try elf_file.insertShString(".tbss"),
-            .offset = std.math.maxInt(u64),
-        });
-        return elf_file.sectionByName(".tdata") orelse try elf_file.addSection(.{
+        if (is_bss) {
+            if (self.tbss_index) |symbol_index|
+                return self.symbol(symbol_index).atom(elf_file).?.output_section_index;
+            const osec = try elf_file.addSection(.{
+                .name = try elf_file.insertShString(".tbss"),
+                .flags = elf.SHF_ALLOC | elf.SHF_WRITE | elf.SHF_TLS,
+                .type = elf.SHT_NOBITS,
+                .addralign = 1,
+            });
+            self.tbss_index = try self.addSectionSymbol(gpa, ".tbss", .@"1", osec);
+            return osec;
+        }
+        if (self.tdata_index) |symbol_index|
+            return self.symbol(symbol_index).atom(elf_file).?.output_section_index;
+        const osec = try elf_file.addSection(.{
             .type = elf.SHT_PROGBITS,
             .flags = elf.SHF_ALLOC | elf.SHF_WRITE | elf.SHF_TLS,
             .name = try elf_file.insertShString(".tdata"),
+            .addralign = 1,
             .offset = std.math.maxInt(u64),
         });
+        self.tdata_index = try self.addSectionSymbol(gpa, ".tdata", .@"1", osec);
+        return osec;
     }
     if (is_const) {
         if (self.data_relro_index) |symbol_index|
@@ -1367,15 +1368,11 @@ fn updateTlv(
     const atom_ptr = sym.atom(elf_file).?;
     const name_offset = try self.strtab.insert(gpa, nav.fqn.toSlice(ip));
 
-    sym.value = 0;
-    sym.name_offset = name_offset;
-
-    atom_ptr.output_section_index = shndx;
     atom_ptr.alive = true;
     atom_ptr.name_offset = name_offset;
+    atom_ptr.output_section_index = shndx;
 
     sym.name_offset = name_offset;
-    esym.st_value = 0;
     esym.st_name = name_offset;
     esym.st_info = elf.STT_TLS;
     esym.st_size = code.len;
@@ -1383,21 +1380,25 @@ fn updateTlv(
     atom_ptr.alignment = required_alignment;
     atom_ptr.size = code.len;
 
+    const gop = try self.tls_variables.getOrPut(gpa, atom_ptr.atom_index);
+    assert(!gop.found_existing); // TODO incremental updates
+
+    try self.allocateAtom(atom_ptr, elf_file);
+    sym.value = 0;
+    esym.st_value = 0;
+
     self.navs.getPtr(nav_index).?.allocated = true;
 
-    {
-        const gop = try self.tls_variables.getOrPut(gpa, atom_ptr.atom_index);
-        assert(!gop.found_existing); // TODO incremental updates
-        gop.value_ptr.* = .{ .symbol_index = sym_index };
-
-        // We only store the data for the TLV if it's non-zerofill.
-        if (elf_file.sections.items(.shdr)[shndx].sh_type != elf.SHT_NOBITS) {
-            gop.value_ptr.code = try gpa.dupe(u8, code);
-        }
+    const shdr = elf_file.sections.items(.shdr)[shndx];
+    if (shdr.sh_type != elf.SHT_NOBITS) {
+        const file_offset = atom_ptr.offset(elf_file);
+        try elf_file.base.file.?.pwriteAll(code, file_offset);
+        log.debug("writing TLV {s} from 0x{x} to 0x{x}", .{
+            atom_ptr.name(elf_file),
+            file_offset,
+            file_offset + code.len,
+        });
     }
-
-    const atom_list = &elf_file.sections.items(.atom_list)[atom_ptr.output_section_index];
-    try atom_list.append(gpa, .{ .index = atom_ptr.atom_index, .file = self.index });
 }
 
 pub fn updateFunc(
@@ -1994,8 +1995,9 @@ fn allocateAtom(self: *ZigObject, atom_ptr: *Atom, elf_file: *Elf) !void {
     const sect_atom_ptr = for ([_]?Symbol.Index{
         self.text_index,
         self.rodata_index,
-        self.data_index,
         self.data_relro_index,
+        self.data_index,
+        self.tdata_index,
     }) |maybe_sym_index| {
         const sect_sym_index = maybe_sym_index orelse continue;
         const sect_atom_ptr = self.symbol(sect_sym_index).atom(elf_file).?;
@@ -2305,7 +2307,7 @@ const AtomList = std.ArrayListUnmanaged(Atom.Index);
 const NavTable = std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, AvMetadata);
 const UavTable = std.AutoArrayHashMapUnmanaged(InternPool.Index, AvMetadata);
 const LazySymbolTable = std.AutoArrayHashMapUnmanaged(InternPool.Index, LazySymbolMetadata);
-const TlsTable = std.AutoArrayHashMapUnmanaged(Atom.Index, TlsVariable);
+const TlsTable = std.AutoArrayHashMapUnmanaged(Atom.Index, void);
 
 const x86_64 = struct {
     fn writeTrampolineCode(source_addr: i64, target_addr: i64, buf: *[max_trampoline_len]u8) ![]u8 {

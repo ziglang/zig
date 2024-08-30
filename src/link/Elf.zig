@@ -3556,24 +3556,9 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
 
 fn updateSectionSizes(self: *Elf) !void {
     const slice = self.sections.slice();
-    for (slice.items(.shdr), slice.items(.atom_list), 0..) |*shdr, atom_list, shndx| {
+    for (slice.items(.shdr), slice.items(.atom_list)) |*shdr, atom_list| {
         if (atom_list.items.len == 0) continue;
         if (self.requiresThunks() and shdr.sh_flags & elf.SHF_EXECINSTR != 0) continue;
-        if (self.zigObjectPtr()) |zo| blk: {
-            const sym_index = for ([_]?Symbol.Index{
-                zo.text_index,
-                zo.rodata_index,
-                zo.data_relro_index,
-                zo.data_index,
-                zo.bss_index,
-            }) |maybe_idx| {
-                if (maybe_idx) |idx| break idx;
-            } else break :blk;
-            const atom_ptr = zo.symbol(sym_index).atom(self).?;
-            if (shndx == atom_ptr.output_section_index) {
-                shdr.sh_size = atom_ptr.size;
-            }
-        }
         for (atom_list.items) |ref| {
             const atom_ptr = self.atom(ref) orelse continue;
             if (!atom_ptr.alive) continue;
@@ -3908,6 +3893,7 @@ pub fn allocateAllocSections(self: *Elf) !void {
                     zo.rodata_index,
                     zo.data_relro_index,
                     zo.data_index,
+                    zo.tdata_index,
                     zo.eh_frame_index,
                 }) |maybe_sym_index| {
                     const sect_sym_index = maybe_sym_index orelse continue;
@@ -4067,6 +4053,7 @@ fn writeAtoms(self: *Elf) !void {
                 zo.rodata_index,
                 zo.data_relro_index,
                 zo.data_index,
+                zo.tdata_index,
                 zo.eh_frame_index,
                 zo.debug_info_index,
                 zo.debug_abbrev_index,
