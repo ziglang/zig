@@ -51,6 +51,11 @@ pub fn address(self: Atom, elf_file: *Elf) i64 {
     return @as(i64, @intCast(shdr.sh_addr)) + self.value;
 }
 
+pub fn offset(self: Atom, elf_file: *Elf) u64 {
+    const shdr = elf_file.sections.items(.shdr)[self.output_section_index];
+    return shdr.sh_offset + @as(u64, @intCast(self.value));
+}
+
 pub fn ref(self: Atom) Elf.Ref {
     return .{ .index = self.atom_index, .file = self.file_index };
 }
@@ -1673,7 +1678,7 @@ const aarch64 = struct {
             => {
                 // TODO: NC means no overflow check
                 const taddr = @as(u64, @intCast(S + A));
-                const offset: u12 = switch (r_type) {
+                const off: u12 = switch (r_type) {
                     .LDST8_ABS_LO12_NC => @truncate(taddr),
                     .LDST16_ABS_LO12_NC => @divExact(@as(u12, @truncate(taddr)), 2),
                     .LDST32_ABS_LO12_NC => @divExact(@as(u12, @truncate(taddr)), 4),
@@ -1681,7 +1686,7 @@ const aarch64 = struct {
                     .LDST128_ABS_LO12_NC => @divExact(@as(u12, @truncate(taddr)), 16),
                     else => unreachable,
                 };
-                aarch64_util.writeLoadStoreRegInst(offset, code);
+                aarch64_util.writeLoadStoreRegInst(off, code);
             },
 
             .TLSLE_ADD_TPREL_HI12 => {
@@ -1705,8 +1710,8 @@ const aarch64 = struct {
             .TLSIE_LD64_GOTTPREL_LO12_NC => {
                 const S_ = target.gotTpAddress(elf_file);
                 relocs_log.debug("      [{x} => {x}]", .{ P, S_ + A });
-                const offset: u12 = try math.divExact(u12, @truncate(@as(u64, @bitCast(S_ + A))), 8);
-                aarch64_util.writeLoadStoreRegInst(offset, code);
+                const off: u12 = try math.divExact(u12, @truncate(@as(u64, @bitCast(S_ + A))), 8);
+                aarch64_util.writeLoadStoreRegInst(off, code);
             },
 
             .TLSGD_ADR_PAGE21 => {
@@ -1719,8 +1724,8 @@ const aarch64 = struct {
             .TLSGD_ADD_LO12_NC => {
                 const S_ = target.tlsGdAddress(elf_file);
                 relocs_log.debug("      [{x} => {x}]", .{ P, S_ + A });
-                const offset: u12 = @truncate(@as(u64, @bitCast(S_ + A)));
-                aarch64_util.writeAddImmInst(offset, code);
+                const off: u12 = @truncate(@as(u64, @bitCast(S_ + A)));
+                aarch64_util.writeAddImmInst(off, code);
             },
 
             .TLSDESC_ADR_PAGE21 => {
@@ -1739,8 +1744,8 @@ const aarch64 = struct {
                 if (target.flags.has_tlsdesc) {
                     const S_ = target.tlsDescAddress(elf_file);
                     relocs_log.debug("      [{x} => {x}]", .{ P, S_ + A });
-                    const offset: u12 = try math.divExact(u12, @truncate(@as(u64, @bitCast(S_ + A))), 8);
-                    aarch64_util.writeLoadStoreRegInst(offset, code);
+                    const off: u12 = try math.divExact(u12, @truncate(@as(u64, @bitCast(S_ + A))), 8);
+                    aarch64_util.writeLoadStoreRegInst(off, code);
                 } else {
                     relocs_log.debug("      relaxing ldr => nop", .{});
                     mem.writeInt(u32, code, Instruction.nop().toU32(), .little);
@@ -1751,8 +1756,8 @@ const aarch64 = struct {
                 if (target.flags.has_tlsdesc) {
                     const S_ = target.tlsDescAddress(elf_file);
                     relocs_log.debug("      [{x} => {x}]", .{ P, S_ + A });
-                    const offset: u12 = @truncate(@as(u64, @bitCast(S_ + A)));
-                    aarch64_util.writeAddImmInst(offset, code);
+                    const off: u12 = @truncate(@as(u64, @bitCast(S_ + A)));
+                    aarch64_util.writeAddImmInst(off, code);
                 } else {
                     const old_inst = Instruction{
                         .add_subtract_immediate = mem.bytesToValue(std.meta.TagPayload(

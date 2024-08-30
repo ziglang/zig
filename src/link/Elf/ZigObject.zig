@@ -906,7 +906,7 @@ pub fn codeAlloc(self: *ZigObject, elf_file: *Elf, atom_index: Atom.Index) ![]u8
         return code;
     }
 
-    const file_offset = shdr.sh_offset + @as(u64, @intCast(atom_ptr.value));
+    const file_offset = atom_ptr.offset(elf_file);
     const size = std.math.cast(usize, atom_ptr.size) orelse return error.Overflow;
     const code = try gpa.alloc(u8, size);
     errdefer gpa.free(code);
@@ -1338,7 +1338,7 @@ fn updateNavCode(
 
     const shdr = elf_file.sections.items(.shdr)[shdr_index];
     if (shdr.sh_type != elf.SHT_NOBITS) {
-        const file_offset = shdr.sh_offset + @as(u64, @intCast(atom_ptr.value));
+        const file_offset = atom_ptr.offset(elf_file);
         try elf_file.base.file.?.pwriteAll(code, file_offset);
         log.debug("writing {} from 0x{x} to 0x{x}", .{ nav.fqn.fmt(ip), file_offset, file_offset + code.len });
     }
@@ -1716,9 +1716,7 @@ fn updateLazySymbol(
     local_sym.value = 0;
     local_esym.st_value = 0;
 
-    const shdr = elf_file.sections.items(.shdr)[output_section_index];
-    const file_offset = shdr.sh_offset + @as(u64, @intCast(atom_ptr.value));
-    try elf_file.base.file.?.pwriteAll(code, file_offset);
+    try elf_file.base.file.?.pwriteAll(code, atom_ptr.offset(elf_file));
 }
 
 const LowerConstResult = union(enum) {
@@ -1771,9 +1769,7 @@ fn lowerConst(
     try self.allocateAtom(atom_ptr, elf_file);
     errdefer self.freeNavMetadata(elf_file, sym_index);
 
-    const shdr = elf_file.sections.items(.shdr)[output_section_index];
-    const file_offset = shdr.sh_offset + @as(u64, @intCast(atom_ptr.value));
-    try elf_file.base.file.?.pwriteAll(code, file_offset);
+    try elf_file.base.file.?.pwriteAll(code, atom_ptr.offset(elf_file));
 
     return .{ .ok = sym_index };
 }
@@ -1935,8 +1931,7 @@ fn trampolineSize(cpu_arch: std.Target.Cpu.Arch) u64 {
 
 fn writeTrampoline(tr_sym: Symbol, target: Symbol, elf_file: *Elf) !void {
     const atom_ptr = tr_sym.atom(elf_file).?;
-    const shdr = elf_file.sections.items(.shdr)[atom_ptr.output_section_index];
-    const fileoff = shdr.sh_offset + @as(u64, @intCast(atom_ptr.value));
+    const fileoff = atom_ptr.offset(elf_file);
     const source_addr = tr_sym.address(.{}, elf_file);
     const target_addr = target.address(.{ .trampoline = false }, elf_file);
     var buf: [max_trampoline_len]u8 = undefined;

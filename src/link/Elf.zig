@@ -1070,7 +1070,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
             if (shdr.sh_type == elf.SHT_NOBITS) continue;
             const code = try zo.codeAlloc(self, atom_index);
             defer gpa.free(code);
-            const file_offset = shdr.sh_offset + @as(u64, @intCast(atom_ptr.value));
+            const file_offset = atom_ptr.offset(self);
             atom_ptr.resolveRelocsAlloc(self, code) catch |err| switch (err) {
                 error.RelocFailure, error.RelaxFailure => has_reloc_errors = true,
                 error.UnsupportedCpuArch => {
