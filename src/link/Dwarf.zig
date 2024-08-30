@@ -2593,6 +2593,9 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
             decl_struct: {
                 if (loaded_struct.zir_index == .none) break :decl_struct;
 
+                const type_inst_info = loaded_struct.zir_index.unwrap().?.resolveFull(ip).?;
+                if (type_inst_info.file != inst_info.file) break :decl_struct;
+
                 const value_inst = value_inst: {
                     const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
                     const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
@@ -2608,7 +2611,6 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                     };
                     break :value_inst value_inst;
                 };
-                const type_inst_info = loaded_struct.zir_index.unwrap().?.resolveFull(ip).?;
                 if (type_inst_info.inst != value_inst) break :decl_struct;
 
                 const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
@@ -2623,6 +2625,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                     type_gop.value_ptr.* = nav_gop.value_ptr.*;
                 }
                 wip_nav.entry = nav_gop.value_ptr.*;
+
                 const diw = wip_nav.debug_info.writer(dwarf.gpa);
 
                 switch (loaded_struct.layout) {
@@ -2714,6 +2717,9 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
             decl_enum: {
                 if (loaded_enum.zir_index == .none) break :decl_enum;
 
+                const type_inst_info = loaded_enum.zir_index.unwrap().?.resolveFull(ip).?;
+                if (type_inst_info.file != inst_info.file) break :decl_enum;
+
                 const value_inst = value_inst: {
                     const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
                     const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
@@ -2729,7 +2735,6 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                     };
                     break :value_inst value_inst;
                 };
-                const type_inst_info = loaded_enum.zir_index.unwrap().?.resolveFull(ip).?;
                 if (type_inst_info.inst != value_inst) break :decl_enum;
 
                 const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
@@ -2797,6 +2802,9 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
             } else .{ zcu.fileRootType(inst_info.file), DW.ACCESS.private };
 
             decl_union: {
+                const type_inst_info = loaded_union.zir_index.resolveFull(ip).?;
+                if (type_inst_info.file != inst_info.file) break :decl_union;
+
                 const value_inst = value_inst: {
                     const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
                     const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
@@ -2812,7 +2820,6 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                     };
                     break :value_inst value_inst;
                 };
-                const type_inst_info = loaded_union.zir_index.resolveFull(ip).?;
                 if (type_inst_info.inst != value_inst) break :decl_union;
 
                 const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
@@ -2872,9 +2879,6 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                         }
                     }
                     try uleb128(diw, @intFromEnum(AbbrevCode.null));
-
-                    if (ip.indexToKey(loaded_union.enum_tag_ty).enum_type == .generated_tag)
-                        try wip_nav.pending_types.append(dwarf.gpa, loaded_union.enum_tag_ty);
                 } else for (0..loaded_union.field_types.len) |field_index| {
                     try wip_nav.abbrevCode(.untagged_union_field);
                     try wip_nav.strp(loaded_tag.names.get(ip)[field_index].toSlice(ip));
@@ -2919,6 +2923,9 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
             } else .{ zcu.fileRootType(inst_info.file), DW.ACCESS.private };
 
             decl_opaque: {
+                const type_inst_info = loaded_opaque.zir_index.resolveFull(ip).?;
+                if (type_inst_info.file != inst_info.file) break :decl_opaque;
+
                 const value_inst = value_inst: {
                     const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
                     const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
@@ -2934,7 +2941,6 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                     };
                     break :value_inst value_inst;
                 };
-                const type_inst_info = loaded_opaque.zir_index.resolveFull(ip).?;
                 if (type_inst_info.inst != value_inst) break :decl_opaque;
 
                 const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
@@ -3381,14 +3387,12 @@ fn updateType(
                 .Kernel, .Fragment, .Vertex => .nocall,
             })));
             try wip_nav.refType(Type.fromInterned(func_type.return_type));
-            if (!is_nullary) {
-                for (0..func_type.param_types.len) |param_index| {
-                    try wip_nav.abbrevCode(.func_type_param);
-                    try wip_nav.refType(Type.fromInterned(func_type.param_types.get(ip)[param_index]));
-                }
-                if (func_type.is_var_args) try wip_nav.abbrevCode(.is_var_args);
-                try uleb128(diw, @intFromEnum(AbbrevCode.null));
+            for (0..func_type.param_types.len) |param_index| {
+                try wip_nav.abbrevCode(.func_type_param);
+                try wip_nav.refType(Type.fromInterned(func_type.param_types.get(ip)[param_index]));
             }
+            if (func_type.is_var_args) try wip_nav.abbrevCode(.is_var_args);
+            if (!is_nullary) try uleb128(diw, @intFromEnum(AbbrevCode.null));
         },
         .error_set_type => |error_set_type| {
             try wip_nav.abbrevCode(if (error_set_type.names.len > 0) .enum_type else .empty_enum_type);
@@ -3643,9 +3647,6 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                         }
                     }
                     try uleb128(diw, @intFromEnum(AbbrevCode.null));
-
-                    if (ip.indexToKey(loaded_union.enum_tag_ty).enum_type == .generated_tag)
-                        try wip_nav.pending_types.append(dwarf.gpa, loaded_union.enum_tag_ty);
                 } else for (0..loaded_union.field_types.len) |field_index| {
                     try wip_nav.abbrevCode(.untagged_union_field);
                     try wip_nav.strp(loaded_tag.names.get(ip)[field_index].toSlice(ip));
