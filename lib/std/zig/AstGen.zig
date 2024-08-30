@@ -7999,6 +7999,11 @@ fn switchExpr(
             appendBodyWithFixupsArrayList(astgen, payloads, case_slice);
         }
     }
+
+    if (switch_full.label_token) |label_token| if (!block_scope.label.?.used) {
+        try astgen.appendErrorTok(label_token, "unused switch label", .{});
+    };
+
     // Now that the item expressions are generated we can add this.
     try parent_gz.instructions.append(gpa, switch_block);
 
