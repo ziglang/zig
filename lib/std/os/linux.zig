@@ -1456,6 +1456,16 @@ pub fn clock_settime(clk_id: i32, tp: *const timespec) usize {
     return syscall2(.clock_settime, @as(usize, @bitCast(@as(isize, clk_id))), @intFromPtr(tp));
 }
 
+pub fn clock_nanosleep(clockid: clockid_t, flags: TIMER, request: *const timespec, remain: ?*timespec) usize {
+    return syscall4(
+        .clock_nanosleep,
+        @intFromEnum(clockid),
+        @as(u32, @bitCast(flags)),
+        @intFromPtr(request),
+        @intFromPtr(remain),
+    );
+}
+
 pub fn gettimeofday(tv: ?*timeval, tz: ?*timezone) usize {
     return syscall2(.gettimeofday, @intFromPtr(tv), @intFromPtr(tz));
 }
@@ -4525,6 +4535,11 @@ pub const clockid_t = enum(u32) {
     SGI_CYCLE = 10,
     TAI = 11,
     _,
+};
+
+pub const TIMER = packed struct(u32) {
+    ABSTIME: bool,
+    _: u31 = 0,
 };
 
 pub const CSIGNAL = 0x000000ff;
