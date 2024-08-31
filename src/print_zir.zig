@@ -462,6 +462,8 @@ const Writer = struct {
 
             .field_val,
             .field_ptr,
+            .decl_literal,
+            .decl_literal_no_coerce,
             => try self.writePlNodeField(stream, inst),
 
             .field_ptr_named,

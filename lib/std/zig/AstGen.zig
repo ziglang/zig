@@ -1028,7 +1028,18 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
             const statements = tree.extra_data[node_datas[node].lhs..node_datas[node].rhs];
             return blockExpr(gz, scope, ri, node, statements, .normal);
         },
-        .enum_literal => return simpleStrTok(gz, ri, main_tokens[node], node, .enum_literal),
+        .enum_literal => if (try ri.rl.resultType(gz, node)) |res_ty| {
+            const str_index = try astgen.identAsString(main_tokens[node]);
+            const res = try gz.addPlNode(.decl_literal, node, Zir.Inst.Field{
+                .lhs = res_ty,
+                .field_name_start = str_index,
+            });
+            switch (ri.rl) {
+                .discard, .none, .ref => unreachable, // no result type
+                .ty, .coerced_ty => return res, // `decl_literal` does the coercion for us
+                .ref_coerced_ty, .ptr, .inferred_ptr, .destructure => return rvalue(gz, ri, res, node),
+            }
+        } else return simpleStrTok(gz, ri, main_tokens[node], node, .enum_literal),
         .error_value => return simpleStrTok(gz, ri, node_datas[node].rhs, node, .error_value),
         // TODO restore this when implementing https://github.com/ziglang/zig/issues/6025
         // .anyframe_literal => return rvalue(gz, ri, .anyframe_type, node),
@@ -2752,6 +2763,8 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .err_union_code_ptr,
             .ptr_type,
             .enum_literal,
+            .decl_literal,
+            .decl_literal_no_coerce,
             .merge_error_sets,
             .error_union_type,
             .bit_not,
@@ -5889,22 +5902,21 @@ fn tryExpr(
     }
     const try_lc = LineColumn{ astgen.source_line - parent_gz.decl_line, astgen.source_column };
 
-    const operand_ri: ResultInfo = .{
-        .rl = switch (ri.rl) {
-            .ref => .ref,
-            .ref_coerced_ty => |payload_ptr_ty| .{
-                .ref_coerced_ty = try parent_gz.addUnNode(.try_ref_operand_ty, payload_ptr_ty, node),
-            },
-            else => if (try ri.rl.resultType(parent_gz, node)) |payload_ty| .{
-                // `coerced_ty` is OK due to the `rvalue` call below
-                .coerced_ty = try parent_gz.addUnNode(.try_operand_ty, payload_ty, node),
-            } else .none,
+    const operand_rl: ResultInfo.Loc, const block_tag: Zir.Inst.Tag = switch (ri.rl) {
+        .ref => .{ .ref, .try_ptr },
+        .ref_coerced_ty => |payload_ptr_ty| .{
+            .{ .ref_coerced_ty = try parent_gz.addUnNode(.try_ref_operand_ty, payload_ptr_ty, node) },
+            .try_ptr,
         },
-        .ctx = .error_handling_expr,
+        else => if (try ri.rl.resultType(parent_gz, node)) |payload_ty| .{
+            // `coerced_ty` is OK due to the `rvalue` call below
+            .{ .coerced_ty = try parent_gz.addUnNode(.try_operand_ty, payload_ty, node) },
+            .@"try",
+        } else .{ .none, .@"try" },
     };
+    const operand_ri: ResultInfo = .{ .rl = operand_rl, .ctx = .error_handling_expr };
     // This could be a pointer or value depending on the `ri` parameter.
     const operand = try reachableExpr(parent_gz, scope, operand_ri, operand_node, node);
-    const block_tag: Zir.Inst.Tag = if (operand_ri.rl == .ref) .try_ptr else .@"try";
     const try_inst = try parent_gz.makeBlockInst(block_tag, node);
     try parent_gz.instructions.append(astgen.gpa, try_inst);
 
@@ -9916,7 +9928,7 @@ fn callExpr(
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
 
-    const callee = try calleeExpr(gz, scope, call.ast.fn_expr);
+    const callee = try calleeExpr(gz, scope, ri.rl, call.ast.fn_expr);
     const modifier: std.builtin.CallModifier = blk: {
         if (gz.is_comptime) {
             break :blk .compile_time;
@@ -10044,6 +10056,7 @@ const Callee = union(enum) {
 fn calleeExpr(
     gz: *GenZir,
     scope: *Scope,
+    call_rl: ResultInfo.Loc,
     node: Ast.Node.Index,
 ) InnerError!Callee {
     const astgen = gz.astgen;
@@ -10069,6 +10082,19 @@ fn calleeExpr(
                 .obj_ptr = lhs,
                 .field_name_start = str_index,
             } };
+        },
+        .enum_literal => if (try call_rl.resultType(gz, node)) |res_ty| {
+            // Decl literal call syntax, e.g.
+            // `const foo: T = .init();`
+            // Look up `init` in `T`, but don't try and coerce it.
+            const str_index = try astgen.identAsString(tree.nodes.items(.main_token)[node]);
+            const callee = try gz.addPlNode(.decl_literal_no_coerce, node, Zir.Inst.Field{
+                .lhs = res_ty,
+                .field_name_start = str_index,
+            });
+            return .{ .direct = callee };
+        } else {
+            return .{ .direct = try expr(gz, scope, .{ .rl = .none }, node) };
         },
         else => return .{ .direct = try expr(gz, scope, .{ .rl = .none }, node) },
     }

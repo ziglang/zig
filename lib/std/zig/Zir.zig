@@ -651,6 +651,14 @@ pub const Inst = struct {
         err_union_code_ptr,
         /// An enum literal. Uses the `str_tok` union field.
         enum_literal,
+        /// A decl literal. This is similar to `field`, but unwraps error unions and optionals,
+        /// and coerces the result to the given type.
+        /// Uses the `pl_node` union field. Payload is `Field`.
+        decl_literal,
+        /// The same as `decl_literal`, but the coercion is omitted. This is used for decl literal
+        /// function call syntax, i.e. `.foo()`.
+        /// Uses the `pl_node` union field. Payload is `Field`.
+        decl_literal_no_coerce,
         /// A switch expression. Uses the `pl_node` union field.
         /// AST node is the switch, payload is `SwitchBlock`.
         switch_block,
@@ -1144,6 +1152,8 @@ pub const Inst = struct {
                 .err_union_code_ptr,
                 .ptr_type,
                 .enum_literal,
+                .decl_literal,
+                .decl_literal_no_coerce,
                 .merge_error_sets,
                 .error_union_type,
                 .bit_not,
@@ -1442,6 +1452,8 @@ pub const Inst = struct {
                 .err_union_code_ptr,
                 .ptr_type,
                 .enum_literal,
+                .decl_literal,
+                .decl_literal_no_coerce,
                 .merge_error_sets,
                 .error_union_type,
                 .bit_not,
@@ -1697,6 +1709,8 @@ pub const Inst = struct {
                 .err_union_code = .un_node,
                 .err_union_code_ptr = .un_node,
                 .enum_literal = .str_tok,
+                .decl_literal = .pl_node,
+                .decl_literal_no_coerce = .pl_node,
                 .switch_block = .pl_node,
                 .switch_block_ref = .pl_node,
                 .switch_block_err_union = .pl_node,
@@ -3842,6 +3856,8 @@ fn findDeclsInner(
         .err_union_code,
         .err_union_code_ptr,
         .enum_literal,
+        .decl_literal,
+        .decl_literal_no_coerce,
         .validate_deref,
         .validate_destructure,
         .field_type_ref,
