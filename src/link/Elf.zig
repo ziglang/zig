@@ -840,6 +840,10 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
         } else if (target.isGnuLibC()) {
             try system_libs.ensureUnusedCapacity(glibc.libs.len + 1);
             for (glibc.libs) |lib| {
+                if (lib.removed_in) |rem_in| {
+                    if (target.os.version_range.linux.glibc.order(rem_in) != .lt) continue;
+                }
+
                 const lib_path = try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so.{d}", .{
                     comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
                 });
@@ -1286,6 +1290,10 @@ fn dumpArgv(self: *Elf, comp: *Compilation) !void {
                 if (needs_grouping) try argv.append("--end-group");
             } else if (target.isGnuLibC()) {
                 for (glibc.libs) |lib| {
+                    if (lib.removed_in) |rem_in| {
+                        if (target.os.version_range.linux.glibc.order(rem_in) != .lt) continue;
+                    }
+
                     const lib_path = try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so.{d}", .{
                         comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
                     });
@@ -2288,6 +2296,10 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
                     if (needs_grouping) try argv.append("--end-group");
                 } else if (target.isGnuLibC()) {
                     for (glibc.libs) |lib| {
+                        if (lib.removed_in) |rem_in| {
+                            if (target.os.version_range.linux.glibc.order(rem_in) != .lt) continue;
+                        }
+
                         const lib_path = try std.fmt.allocPrint(arena, "{s}{c}lib{s}.so.{d}", .{
                             comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
                         });
