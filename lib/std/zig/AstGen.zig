@@ -2914,6 +2914,8 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .validate_array_init_result_ty,
             .validate_ptr_array_init,
             .validate_ref_ty,
+            .try_operand_ty,
+            .try_ref_operand_ty,
             => break :b true,
 
             .@"defer" => unreachable,
@@ -5887,9 +5889,18 @@ fn tryExpr(
     }
     const try_lc = LineColumn{ astgen.source_line - parent_gz.decl_line, astgen.source_column };
 
-    const operand_ri: ResultInfo = switch (ri.rl) {
-        .ref, .ref_coerced_ty => .{ .rl = .ref, .ctx = .error_handling_expr },
-        else => .{ .rl = .none, .ctx = .error_handling_expr },
+    const operand_ri: ResultInfo = .{
+        .rl = switch (ri.rl) {
+            .ref => .ref,
+            .ref_coerced_ty => |payload_ptr_ty| .{
+                .ref_coerced_ty = try parent_gz.addUnNode(.try_ref_operand_ty, payload_ptr_ty, node),
+            },
+            else => if (try ri.rl.resultType(parent_gz, node)) |payload_ty| .{
+                // `coerced_ty` is OK due to the `rvalue` call below
+                .coerced_ty = try parent_gz.addUnNode(.try_operand_ty, payload_ty, node),
+            } else .none,
+        },
+        .ctx = .error_handling_expr,
     };
     // This could be a pointer or value depending on the `ri` parameter.
     const operand = try reachableExpr(parent_gz, scope, operand_ri, operand_node, node);

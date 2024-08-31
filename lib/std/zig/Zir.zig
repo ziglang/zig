@@ -684,6 +684,14 @@ pub const Inst = struct {
         /// operator. Emit a compile error if not.
         /// Uses the `un_tok` union field. Token is the `&` operator. Operand is the type.
         validate_ref_ty,
+        /// Given a type `T`, construct the type `E!T`, where `E` is this function's error set, to be used
+        /// as the result type of a `try` operand. Generic poison is propagated.
+        /// Uses the `un_node` union field. Node is the `try` expression. Operand is the type `T`.
+        try_operand_ty,
+        /// Given a type `*T`, construct the type `*E!T`, where `E` is this function's error set, to be used
+        /// as the result type of a `try` operand whose address is taken with `&`. Generic poison is propagated.
+        /// Uses the `un_node` union field. Node is the `try` expression. Operand is the type `*T`.
+        try_ref_operand_ty,
 
         // The following tags all relate to struct initialization expressions.
 
@@ -1254,6 +1262,8 @@ pub const Inst = struct {
                 .array_init_elem_type,
                 .array_init_elem_ptr,
                 .validate_ref_ty,
+                .try_operand_ty,
+                .try_ref_operand_ty,
                 .restore_err_ret_index_unconditional,
                 .restore_err_ret_index_fn_entry,
                 => false,
@@ -1324,6 +1334,8 @@ pub const Inst = struct {
                 .validate_array_init_result_ty,
                 .validate_ptr_array_init,
                 .validate_ref_ty,
+                .try_operand_ty,
+                .try_ref_operand_ty,
                 => true,
 
                 .param,
@@ -1698,6 +1710,8 @@ pub const Inst = struct {
                 .opt_eu_base_ptr_init = .un_node,
                 .coerce_ptr_elem_ty = .pl_node,
                 .validate_ref_ty = .un_tok,
+                .try_operand_ty = .un_node,
+                .try_ref_operand_ty = .un_node,
 
                 .int_from_ptr = .un_node,
                 .compile_error = .un_node,
@@ -3834,6 +3848,8 @@ fn findDeclsInner(
         .opt_eu_base_ptr_init,
         .coerce_ptr_elem_ty,
         .validate_ref_ty,
+        .try_operand_ty,
+        .try_ref_operand_ty,
         .struct_init_empty,
         .struct_init_empty_result,
         .struct_init_empty_ref_result,

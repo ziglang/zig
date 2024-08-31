@@ -1177,6 +1177,8 @@ fn analyzeBodyInner(
             .validate_array_init_ref_ty   => try sema.zirValidateArrayInitRefTy(block, inst),
             .opt_eu_base_ptr_init         => try sema.zirOptEuBasePtrInit(block, inst),
             .coerce_ptr_elem_ty           => try sema.zirCoercePtrElemTy(block, inst),
+            .try_operand_ty               => try sema.zirTryOperandTy(block, inst, false),
+            .try_ref_operand_ty           => try sema.zirTryOperandTy(block, inst, true),
 
             .clz       => try sema.zirBitCount(block, inst, .clz,      Value.clz),
             .ctz       => try sema.zirBitCount(block, inst, .ctz,      Value.ctz),
@@ -2023,6 +2025,22 @@ fn genericPoisonReason(sema: *Sema, block: *Block, ref: Zir.Inst.Ref) GenericPoi
             .indexable_ptr_elem_type, .vector_elem_type => {
                 const un_node = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
                 cur = un_node.operand;
+            },
+            .try_operand_ty => {
+                // Either the input type was itself poison, or it was a slice, which we cannot translate
+                // to an overall result type.
+                const un_node = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
+                const operand_ref = sema.resolveInst(un_node.operand) catch |err| switch (err) {
+                    error.GenericPoison => unreachable, // this is a type, not a value
+                };
+                if (operand_ref == .generic_poison_type) {
+                    // The input was poison -- keep looking.
+                    cur = un_node.operand;
+                    continue;
+                }
+                // We got a poison because the result type was a slice. This is a tricky case -- let's just
+                // not bother explaining it to the user for now...
+                return .unknown;
             },
             .struct_init_field_type => {
                 const pl_node = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
@@ -4420,6 +4438,59 @@ fn zirCoercePtrElemTy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
             // single-pointer or a many-pointer.
             return uncoerced_val;
         },
+    }
+}
+
+fn zirTryOperandTy(sema: *Sema, block: *Block, inst: Zir.Inst.Index, is_ref: bool) CompileError!Air.Inst.Ref {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    const un_node = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
+    const src = block.nodeOffset(un_node.src_node);
+
+    const operand_ty = sema.resolveType(block, src, un_node.operand) catch |err| switch (err) {
+        error.GenericPoison => return .generic_poison_type,
+        else => |e| return e,
+    };
+
+    const payload_ty = if (is_ref) ty: {
+        if (!operand_ty.isSinglePointer(zcu)) {
+            return .generic_poison_type; // we can't get a meaningful result type here, since it will be `*E![n]T`, and we don't know `n`.
+        }
+        break :ty operand_ty.childType(zcu);
+    } else operand_ty;
+
+    const err_set_ty = err_set: {
+        // There are awkward cases, like `?E`. Our strategy is to repeatedly unwrap optionals
+        // until we hit an error union or set.
+        var cur_ty = sema.fn_ret_ty;
+        while (true) {
+            switch (cur_ty.zigTypeTag(zcu)) {
+                .error_set => break :err_set cur_ty,
+                .error_union => break :err_set cur_ty.errorUnionSet(zcu),
+                .optional => cur_ty = cur_ty.optionalChild(zcu),
+                else => return sema.failWithOwnedErrorMsg(block, msg: {
+                    const msg = try sema.errMsg(src, "expected '{}', found error set", .{sema.fn_ret_ty.fmt(pt)});
+                    errdefer msg.destroy(sema.gpa);
+                    const ret_ty_src: LazySrcLoc = .{
+                        .base_node_inst = sema.getOwnerFuncDeclInst(),
+                        .offset = .{ .node_offset_fn_type_ret_ty = 0 },
+                    };
+                    try sema.errNote(ret_ty_src, msg, "function cannot return an error", .{});
+                    break :msg msg;
+                }),
+            }
+        }
+    };
+
+    const eu_ty = try pt.errorUnionType(err_set_ty, payload_ty);
+
+    if (is_ref) {
+        var ptr_info = operand_ty.ptrInfo(zcu);
+        ptr_info.child = eu_ty.toIntern();
+        const eu_ptr_ty = try pt.ptrTypeSema(ptr_info);
+        return Air.internedToRef(eu_ptr_ty.toIntern());
+    } else {
+        return Air.internedToRef(eu_ty.toIntern());
     }
 }
 
