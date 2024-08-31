@@ -16,6 +16,7 @@ const Module = @import("Package/Module.zig");
 pub const Lib = struct {
     name: []const u8,
     sover: u8,
+    removed_in: ?Version = null,
 };
 
 pub const ABI = struct {
@@ -34,12 +35,12 @@ pub const ABI = struct {
 // The order of the elements in this array defines the linking order.
 pub const libs = [_]Lib{
     .{ .name = "m", .sover = 6 },
-    .{ .name = "pthread", .sover = 0 },
+    .{ .name = "pthread", .sover = 0, .removed_in = .{ .major = 2, .minor = 34, .patch = 0 } },
     .{ .name = "c", .sover = 6 },
-    .{ .name = "dl", .sover = 2 },
-    .{ .name = "rt", .sover = 1 },
+    .{ .name = "dl", .sover = 2, .removed_in = .{ .major = 2, .minor = 34, .patch = 0 } },
+    .{ .name = "rt", .sover = 1, .removed_in = .{ .major = 2, .minor = 34, .patch = 0 } },
     .{ .name = "ld", .sover = 2 },
-    .{ .name = "util", .sover = 1 },
+    .{ .name = "util", .sover = 1, .removed_in = .{ .major = 2, .minor = 34, .patch = 0 } },
     .{ .name = "resolv", .sover = 2 },
 };
 
@@ -797,6 +798,10 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) !voi
     defer stubs_asm.deinit();
 
     for (libs, 0..) |lib, lib_i| {
+        if (lib.removed_in) |rem_in| {
+            if (target_version.order(rem_in) != .lt) continue;
+        }
+
         stubs_asm.shrinkRetainingCapacity(0);
         try stubs_asm.appendSlice(".text\n");
 
