@@ -1407,28 +1407,6 @@ test "store vector with memset" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm) {
-        // LLVM 16 ERROR: "Converting bits to bytes lost precision"
-        // https://github.com/ziglang/zig/issues/16177
-        switch (builtin.target.cpu.arch) {
-            .arm,
-            .armeb,
-            .thumb,
-            .thumbeb,
-            => if (builtin.target.floatAbi() == .soft) return error.SkipZigTest,
-            .wasm32,
-            .mips,
-            .mipsel,
-            .mips64,
-            .mips64el,
-            .riscv64,
-            .powerpc,
-            .powerpc64,
-            => return error.SkipZigTest,
-            else => {},
-        }
-    }
-
     var a: [5]@Vector(2, i1) = undefined;
     var b: [5]@Vector(2, u2) = undefined;
     var c: [5]@Vector(2, i4) = undefined;
