@@ -6766,28 +6766,10 @@ pub const FuncGen = struct {
         const zcu = pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
 
-        const workaround_operand = try self.resolveInst(ty_op.operand);
+        const operand = try self.resolveInst(ty_op.operand);
         const operand_ty = self.typeOf(ty_op.operand);
         const operand_scalar_ty = operand_ty.scalarType(zcu);
         const is_signed_int = operand_scalar_ty.isSignedInt(zcu);
-
-        const operand = o: {
-            // Work around LLVM bug. See https://github.com/ziglang/zig/issues/17381.
-            const bit_size = operand_scalar_ty.bitSize(zcu);
-            for ([_]u8{ 8, 16, 32, 64, 128 }) |b| {
-                if (bit_size < b) {
-                    break :o try self.wip.cast(
-                        if (is_signed_int) .sext else .zext,
-                        workaround_operand,
-                        try o.builder.intType(b),
-                        "",
-                    );
-                } else if (bit_size == b) {
-                    break :o workaround_operand;
-                }
-            }
-            break :o workaround_operand;
-        };
 
         const dest_ty = self.typeOfIndex(inst);
         const dest_scalar_ty = dest_ty.scalarType(zcu);
