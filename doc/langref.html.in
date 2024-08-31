@@ -2138,6 +2138,7 @@ or
       </p>
       {#code|struct_default_field_values.zig#}
 
+      {#header_open|Faulty Default Field Values#}
       <p>
       Default field values are only appropriate when the data invariants of a struct
       cannot be violated by omitting that field from an initialization.
@@ -2161,6 +2162,7 @@ or
       <p>If a struct value requires a runtime-known value in order to be initialized
       without violating data invariants, then use an initialization method that accepts
       those runtime values, and populates the remaining fields.</p>
+      {#header_close#}
       {#header_close#}
 
       {#header_open|extern struct#}
