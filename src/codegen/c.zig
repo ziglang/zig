@@ -5065,11 +5065,8 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index, is_dispatch_loop: bool) !void
     // amount of C code we generate, which is probably more desirable here (and is simpler).
     const condition = if (is_dispatch_loop) cond: {
         const new_local = try f.allocLocal(inst, condition_ty);
-        try f.writeCValue(writer, new_local, .Other);
-        try writer.writeAll(" = ");
-        try f.writeCValue(writer, init_condition, .Initializer);
-        try writer.writeAll(";\n");
-        try writer.print("zig_switch_{d}_loop:", .{@intFromEnum(inst)});
+        try f.copyCValue(try f.ctypeFromType(condition_ty, .complete), new_local, init_condition);
+        try writer.print("zig_switch_{d}_loop:\n", .{@intFromEnum(inst)});
         try f.loop_switch_conds.put(gpa, inst, new_local.new_local);
         break :cond new_local;
     } else init_condition;
