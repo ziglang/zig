@@ -108,6 +108,13 @@ frame_allocs: std.MultiArrayList(FrameAlloc) = .{},
 free_frame_indices: std.AutoArrayHashMapUnmanaged(FrameIndex, void) = .{},
 frame_locs: std.MultiArrayList(Mir.FrameLoc) = .{},
 
+loop_repeat_info: std.AutoHashMapUnmanaged(Air.Inst.Index, struct {
+    /// The state to restore before branching.
+    state: State,
+    /// The branch target.
+    jmp_target: Mir.Inst.Index,
+}) = .{},
+
 /// Debug field, used to find bugs in the compiler.
 air_bookkeeping: @TypeOf(air_bookkeeping_init) = air_bookkeeping_init,
 
@@ -797,6 +804,7 @@ pub fn generate(
         function.frame_allocs.deinit(gpa);
         function.free_frame_indices.deinit(gpa);
         function.frame_locs.deinit(gpa);
+        function.loop_repeat_info.deinit(gpa);
         var block_it = function.blocks.valueIterator();
         while (block_it.next()) |block| block.deinit(gpa);
         function.blocks.deinit(gpa);
@@ -1579,7 +1587,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .bitcast         => try func.airBitCast(inst),
             .block           => try func.airBlock(inst),
             .br              => try func.airBr(inst),
-            .repeat          => return func.fail("TODO implement `repeat`", .{}),
+            .repeat          => try func.airRepeat(inst),
             .switch_dispatch => return func.fail("TODO implement `switch_dispatch`", .{}),
             .trap            => try func.airTrap(),
             .breakpoint      => try func.airBreakpoint(),
@@ -5602,15 +5610,13 @@ fn airLoop(func: *Func, inst: Air.Inst.Index) !void {
     func.scope_generation += 1;
     const state = try func.saveState();
 
-    const jmp_target: Mir.Inst.Index = @intCast(func.mir_instructions.len);
-    try func.genBody(body);
-    try func.restoreState(state, &.{}, .{
-        .emit_instructions = true,
-        .update_tracking = false,
-        .resurrect = false,
-        .close_scope = true,
+    try func.loop_repeat_info.putNoClobber(func.gpa, inst, .{
+        .state = state,
+        .jmp_target = @intCast(func.mir_instructions.len),
     });
-    _ = try func.jump(jmp_target);
+    defer assert(func.loop_repeat_info.remove(inst));
+
+    try func.genBody(body);
 
     func.finishAirBookkeeping();
 }
@@ -5684,12 +5690,10 @@ fn airSwitchBr(func: *Func, inst: Air.Inst.Index) !void {
 
     var it = switch_br.iterateCases();
     while (it.next()) |case| {
-        if (case.ranges.len > 0) return func.fail("TODO: switch with ranges", .{});
-
-        var relocs = try func.gpa.alloc(Mir.Inst.Index, case.items.len);
+        var relocs = try func.gpa.alloc(Mir.Inst.Index, case.items.len + case.ranges.len);
         defer func.gpa.free(relocs);
 
-        for (case.items, relocs, 0..) |item, *reloc, i| {
+        for (case.items, relocs[0..case.items.len]) |item, *reloc| {
             const item_mcv = try func.resolveInst(item);
 
             const cond_lock = switch (condition) {
@@ -5710,22 +5714,52 @@ fn airSwitchBr(func: *Func, inst: Air.Inst.Index) !void {
                 cmp_reg,
             );
 
-            if (!(i < relocs.len - 1)) {
-                _ = try func.addInst(.{
-                    .tag = .pseudo_not,
-                    .data = .{ .rr = .{
-                        .rd = cmp_reg,
-                        .rs = cmp_reg,
-                    } },
-                });
-            }
-
             reloc.* = try func.condBr(condition_ty, .{ .register = cmp_reg });
         }
 
+        for (case.ranges, relocs[case.items.len..]) |range, *reloc| {
+            const min_mcv = try func.resolveInst(range[0]);
+            const max_mcv = try func.resolveInst(range[1]);
+            const cond_lock = switch (condition) {
+                .register => func.register_manager.lockRegAssumeUnused(condition.register),
+                else => null,
+            };
+            defer if (cond_lock) |lock| func.register_manager.unlockReg(lock);
+
+            const temp_cmp_reg, const temp_cmp_lock = try func.allocReg(.int);
+            defer func.register_manager.unlockReg(temp_cmp_lock);
+
+            // is `condition` less than `min`? is "true", we've failed
+            try func.genBinOp(
+                .cmp_gte,
+                condition,
+                condition_ty,
+                min_mcv,
+                condition_ty,
+                temp_cmp_reg,
+            );
+
+            // if the compare was true, we will jump to the fail case and fall through
+            // to the next checks
+            const lt_fail_reloc = try func.condBr(condition_ty, .{ .register = temp_cmp_reg });
+            try func.genBinOp(
+                .cmp_gt,
+                condition,
+                condition_ty,
+                max_mcv,
+                condition_ty,
+                temp_cmp_reg,
+            );
+
+            reloc.* = try func.condBr(condition_ty, .{ .register = temp_cmp_reg });
+            func.performReloc(lt_fail_reloc);
+        }
+
+        const skip_case_reloc = try func.jump(undefined);
+
         for (liveness.deaths[case.idx]) |operand| try func.processDeath(operand);
 
-        for (relocs[0 .. relocs.len - 1]) |reloc| func.performReloc(reloc);
+        for (relocs) |reloc| func.performReloc(reloc);
         try func.genBody(case.body);
         try func.restoreState(state, &.{}, .{
             .emit_instructions = false,
@@ -5734,7 +5768,7 @@ fn airSwitchBr(func: *Func, inst: Air.Inst.Index) !void {
             .close_scope = true,
         });
 
-        func.performReloc(relocs[relocs.len - 1]);
+        func.performReloc(skip_case_reloc);
     }
 
     if (switch_br.else_body_len > 0) {
@@ -5828,6 +5862,19 @@ fn airBr(func: *Func, inst: Air.Inst.Index) !void {
     // Stop tracking block result without forgetting tracking info
     try func.freeValue(block_tracking.short);
 
+    func.finishAirBookkeeping();
+}
+
+fn airRepeat(func: *Func, inst: Air.Inst.Index) !void {
+    const loop_inst = func.air.instructions.items(.data)[@intFromEnum(inst)].repeat.loop_inst;
+    const repeat_info = func.loop_repeat_info.get(loop_inst).?;
+    try func.restoreState(repeat_info.state, &.{}, .{
+        .emit_instructions = true,
+        .update_tracking = false,
+        .resurrect = false,
+        .close_scope = true,
+    });
+    _ = try func.jump(repeat_info.jmp_target);
     func.finishAirBookkeeping();
 }
 
