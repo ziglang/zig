@@ -17,6 +17,7 @@ relocs: std.ArrayListUnmanaged(elf.Elf64_Rela) = .{},
 atoms: std.ArrayListUnmanaged(Atom) = .{},
 atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .{},
 atoms_extra: std.ArrayListUnmanaged(u32) = .{},
+section_chunks: std.ArrayListUnmanaged(SectionChunk) = .{},
 
 comdat_groups: std.ArrayListUnmanaged(Elf.ComdatGroup) = .{},
 comdat_group_data: std.ArrayListUnmanaged(u32) = .{},
@@ -58,6 +59,10 @@ pub fn deinit(self: *Object, allocator: Allocator) void {
     self.atoms.deinit(allocator);
     self.atoms_indexes.deinit(allocator);
     self.atoms_extra.deinit(allocator);
+    for (self.section_chunks.items) |*chunk| {
+        chunk.deinit(allocator);
+    }
+    self.section_chunks.deinit(allocator);
     self.comdat_groups.deinit(allocator);
     self.comdat_group_data.deinit(allocator);
     self.relocs.deinit(allocator);
@@ -933,11 +938,26 @@ pub fn initOutputSections(self: *Object, elf_file: *Elf) !void {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
         const shdr = atom_ptr.inputShdr(elf_file);
-        _ = try elf_file.initOutputSection(.{
+        const osec = try elf_file.initOutputSection(.{
             .name = self.getString(shdr.sh_name),
             .flags = shdr.sh_flags,
             .type = shdr.sh_type,
         });
+        const chunk = for (self.section_chunks.items) |*chunk| {
+            if (chunk.output_section_index == osec) break chunk;
+        } else blk: {
+            const chunk = try self.section_chunks.addOne(elf_file.base.comp.gpa);
+            chunk.* = .{ .output_section_index = osec };
+            break :blk chunk;
+        };
+        try chunk.atoms.append(elf_file.base.comp.gpa, atom_index);
+    }
+}
+
+pub fn allocateAtoms(self: *Object, elf_file: *Elf) !void {
+    _ = elf_file;
+    for (self.section_chunks.items) |*chunk| {
+        chunk.updateSize(self);
     }
 }
 
@@ -1427,6 +1447,29 @@ fn formatAtoms(
     }
 }
 
+pub fn fmtSectionChunks(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatSectionChunks) {
+    return .{ .data = .{
+        .object = self,
+        .elf_file = elf_file,
+    } };
+}
+
+fn formatSectionChunks(
+    ctx: FormatContext,
+    comptime unused_fmt_string: []const u8,
+    options: std.fmt.FormatOptions,
+    writer: anytype,
+) !void {
+    _ = unused_fmt_string;
+    _ = options;
+    const object = ctx.object;
+    const elf_file = ctx.elf_file;
+    try writer.writeAll("  section chunks\n");
+    for (object.section_chunks.items) |chunk| {
+        try writer.print("    {}\n", .{chunk.fmt(elf_file)});
+    }
+}
+
 pub fn fmtCies(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatCies) {
     return .{ .data = .{
         .object = self,
@@ -1526,6 +1569,75 @@ const InArchive = struct {
     path: []const u8,
     offset: u64,
     size: u32,
+};
+
+const SectionChunk = struct {
+    value: i64 = 0,
+    size: u64 = 0,
+    alignment: Atom.Alignment = .@"1",
+    output_section_index: u32 = 0,
+    atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
+
+    fn deinit(chunk: *SectionChunk, allocator: Allocator) void {
+        chunk.atoms.deinit(allocator);
+    }
+
+    fn address(chunk: SectionChunk, elf_file: *Elf) i64 {
+        const shdr = elf_file.sections.items(.shdr)[chunk.output_section_index];
+        return @as(i64, @intCast(shdr.sh_addr)) + chunk.value;
+    }
+
+    fn updateSize(chunk: *SectionChunk, object: *Object) void {
+        for (chunk.atoms.items) |atom_index| {
+            const atom_ptr = object.atom(atom_index).?;
+            assert(atom_ptr.alive);
+            const offset = atom_ptr.alignment.forward(chunk.size);
+            const padding = offset - chunk.size;
+            atom_ptr.value = @intCast(offset);
+            chunk.size += padding + atom_ptr.size;
+            chunk.alignment = chunk.alignment.max(atom_ptr.alignment);
+        }
+    }
+
+    pub fn format(
+        chunk: SectionChunk,
+        comptime unused_fmt_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = chunk;
+        _ = unused_fmt_string;
+        _ = options;
+        _ = writer;
+        @compileError("do not format SectionChunk directly");
+    }
+
+    const FormatCtx = struct { SectionChunk, *Elf };
+
+    pub fn fmt(chunk: SectionChunk, elf_file: *Elf) std.fmt.Formatter(format2) {
+        return .{ .data = .{ chunk, elf_file } };
+    }
+
+    fn format2(
+        ctx: FormatCtx,
+        comptime unused_fmt_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = unused_fmt_string;
+        _ = options;
+        const chunk, const elf_file = ctx;
+        try writer.print("chunk : @{x} : shdr({d}) : align({x}) : size({x})", .{
+            chunk.address(elf_file),                chunk.output_section_index,
+            chunk.alignment.toByteUnits() orelse 0, chunk.size,
+        });
+        try writer.writeAll(" : atoms{ ");
+        for (chunk.atoms.items, 0..) |atom_index, i| {
+            try writer.print("{d}", .{atom_index});
+            if (i < chunk.atoms.items.len - 1) try writer.writeAll(", ");
+        }
+        try writer.writeAll(" }");
+    }
 };
 
 const Object = @This();

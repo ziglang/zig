@@ -3555,6 +3555,10 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
 }
 
 fn updateSectionSizes(self: *Elf) !void {
+    for (self.objects.items) |index| {
+        try self.file(index).?.object.allocateAtoms(self);
+    }
+
     const slice = self.sections.slice();
     for (slice.items(.shdr), slice.items(.atom_list)) |*shdr, atom_list| {
         if (atom_list.items.len == 0) continue;
@@ -5334,8 +5338,9 @@ fn fmtDumpState(
         try writer.print("object({d}) : {}", .{ index, object.fmtPath() });
         if (!object.alive) try writer.writeAll(" : [*]");
         try writer.writeByte('\n');
-        try writer.print("{}{}{}{}{}\n", .{
+        try writer.print("{}{}{}{}{}{}\n", .{
             object.fmtAtoms(self),
+            object.fmtSectionChunks(self),
             object.fmtCies(self),
             object.fmtFdes(self),
             object.fmtSymtab(self),
