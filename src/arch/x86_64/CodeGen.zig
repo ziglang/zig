@@ -105,7 +105,7 @@ frame_allocs: std.MultiArrayList(FrameAlloc) = .{},
 free_frame_indices: std.AutoArrayHashMapUnmanaged(FrameIndex, void) = .{},
 frame_locs: std.MultiArrayList(Mir.FrameLoc) = .{},
 
-loop_repeat_info: std.AutoHashMapUnmanaged(Air.Inst.Index, struct {
+loops: std.AutoHashMapUnmanaged(Air.Inst.Index, struct {
     /// The state to restore before branching.
     state: State,
     /// The branch target.
@@ -218,6 +218,38 @@ pub const MCValue = union(enum) {
     /// Payload is a frame index.
     reserved_frame: FrameIndex,
     air_ref: Air.Inst.Ref,
+
+    fn isModifiable(mcv: MCValue) bool {
+        return switch (mcv) {
+            .none,
+            .unreach,
+            .dead,
+            .undef,
+            .immediate,
+            .register_offset,
+            .eflags,
+            .register_overflow,
+            .lea_symbol,
+            .lea_direct,
+            .lea_got,
+            .lea_tlv,
+            .lea_frame,
+            .elementwise_regs_then_frame,
+            .reserved_frame,
+            .air_ref,
+            => false,
+            .register,
+            .register_pair,
+            .memory,
+            .load_symbol,
+            .load_got,
+            .load_direct,
+            .load_tlv,
+            .indirect,
+            => true,
+            .load_frame => |frame_addr| !frame_addr.index.isNamed(),
+        };
+    }
 
     fn isMemory(mcv: MCValue) bool {
         return switch (mcv) {
@@ -822,7 +854,7 @@ pub fn generate(
         function.frame_allocs.deinit(gpa);
         function.free_frame_indices.deinit(gpa);
         function.frame_locs.deinit(gpa);
-        function.loop_repeat_info.deinit(gpa);
+        function.loops.deinit(gpa);
         var block_it = function.blocks.valueIterator();
         while (block_it.next()) |block| block.deinit(gpa);
         function.blocks.deinit(gpa);
@@ -2156,18 +2188,20 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
     const air_tags = self.air.instructions.items(.tag);
 
     self.arg_index = 0;
-    for (body) |inst| {
-        wip_mir_log.debug("{}", .{self.fmtAir(inst)});
-        verbose_tracking_log.debug("{}", .{self.fmtTracking()});
+    for (body) |inst| switch (air_tags[@intFromEnum(inst)]) {
+        .arg => {
+            wip_mir_log.debug("{}", .{self.fmtAir(inst)});
+            verbose_tracking_log.debug("{}", .{self.fmtTracking()});
 
-        const old_air_bookkeeping = self.air_bookkeeping;
-        try self.inst_tracking.ensureUnusedCapacity(self.gpa, 1);
-        switch (air_tags[@intFromEnum(inst)]) {
-            .arg => try self.airArg(inst),
-            else => break,
-        }
-        self.checkInvariantsAfterAirInst(inst, old_air_bookkeeping);
-    }
+            const old_air_bookkeeping = self.air_bookkeeping;
+            try self.inst_tracking.ensureUnusedCapacity(self.gpa, 1);
+
+            try self.airArg(inst);
+
+            self.checkInvariantsAfterAirInst(inst, old_air_bookkeeping);
+        },
+        else => break,
+    };
 
     if (self.arg_index == 0) try self.airDbgVarArgs();
     self.arg_index = 0;
@@ -2256,7 +2290,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .block           => try self.airBlock(inst),
             .br              => try self.airBr(inst),
             .repeat          => try self.airRepeat(inst),
-            .switch_dispatch => return self.fail("TODO implement `switch_dispatch`", .{}),
+            .switch_dispatch => try self.airSwitchDispatch(inst),
             .trap            => try self.airTrap(),
             .breakpoint      => try self.airBreakpoint(),
             .ret_addr        => try self.airRetAddr(inst),
@@ -2345,7 +2379,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .field_parent_ptr => try self.airFieldParentPtr(inst),
 
             .switch_br       => try self.airSwitchBr(inst),
-            .loop_switch_br  => return self.fail("TODO implement `loop_switch_br`", .{}),
+            .loop_switch_br  => try self.airLoopSwitchBr(inst),
             .slice_ptr       => try self.airSlicePtr(inst),
             .slice_len       => try self.airSliceLen(inst),
 
@@ -13637,14 +13671,13 @@ fn airLoop(self: *Self, inst: Air.Inst.Index) !void {
     self.scope_generation += 1;
     const state = try self.saveState();
 
-    try self.loop_repeat_info.putNoClobber(self.gpa, inst, .{
+    try self.loops.putNoClobber(self.gpa, inst, .{
         .state = state,
         .jmp_target = @intCast(self.mir_instructions.len),
     });
-    defer assert(self.loop_repeat_info.remove(inst));
+    defer assert(self.loops.remove(inst));
 
     try self.genBody(body);
-
     self.finishAirBookkeeping();
 }
 
@@ -13685,10 +13718,8 @@ fn lowerBlock(self: *Self, inst: Air.Inst.Index, body: []const Air.Inst.Index) !
     self.finishAirBookkeeping();
 }
 
-fn airSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
+fn lowerSwitchBr(self: *Self, inst: Air.Inst.Index, switch_br: Air.UnwrappedSwitch, condition: MCValue) !void {
     const zcu = self.pt.zcu;
-    const switch_br = self.air.unwrapSwitch(inst);
-    const condition = try self.resolveInst(switch_br.operand);
     const condition_ty = self.typeOf(switch_br.operand);
     const liveness = try self.liveness.getSwitchBr(self.gpa, inst, switch_br.cases_len + 1);
     defer self.gpa.free(liveness.deaths);
@@ -13698,13 +13729,6 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
         .int, .@"enum", .error_set => condition_ty.intInfo(zcu).signedness,
         else => unreachable,
     };
-
-    // If the condition dies here in this switch instruction, process
-    // that death now instead of later as this has an effect on
-    // whether it needs to be spilled in the branches
-    if (self.liveness.operandDies(inst, 0)) {
-        if (switch_br.operand.toIndex()) |op_inst| try self.processDeath(op_inst);
-    }
 
     self.scope_generation += 1;
     const state = try self.saveState();
@@ -13810,8 +13834,108 @@ fn airSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
             .close_scope = true,
         });
     }
+}
+
+fn airSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
+    const switch_br = self.air.unwrapSwitch(inst);
+    const condition = try self.resolveInst(switch_br.operand);
+
+    // If the condition dies here in this switch instruction, process
+    // that death now instead of later as this has an effect on
+    // whether it needs to be spilled in the branches
+    if (self.liveness.operandDies(inst, 0)) {
+        if (switch_br.operand.toIndex()) |op_inst| try self.processDeath(op_inst);
+    }
+
+    try self.lowerSwitchBr(inst, switch_br, condition);
 
     // We already took care of pl_op.operand earlier, so there's nothing left to do
+    self.finishAirBookkeeping();
+}
+
+fn airLoopSwitchBr(self: *Self, inst: Air.Inst.Index) !void {
+    const switch_br = self.air.unwrapSwitch(inst);
+    const condition = try self.resolveInst(switch_br.operand);
+
+    const mat_cond = if (condition.isModifiable() and
+        self.reuseOperand(inst, switch_br.operand, 0, condition))
+        condition
+    else mat_cond: {
+        const mat_cond = try self.allocRegOrMem(inst, true);
+        try self.genCopy(self.typeOf(switch_br.operand), mat_cond, condition, .{});
+        break :mat_cond mat_cond;
+    };
+    self.inst_tracking.putAssumeCapacityNoClobber(inst, InstTracking.init(mat_cond));
+
+    // If the condition dies here in this switch instruction, process
+    // that death now instead of later as this has an effect on
+    // whether it needs to be spilled in the branches
+    if (self.liveness.operandDies(inst, 0)) {
+        if (switch_br.operand.toIndex()) |op_inst| try self.processDeath(op_inst);
+    }
+
+    self.scope_generation += 1;
+    const state = try self.saveState();
+
+    try self.loops.putNoClobber(self.gpa, inst, .{
+        .state = state,
+        .jmp_target = @intCast(self.mir_instructions.len),
+    });
+    defer assert(self.loops.remove(inst));
+
+    // Stop tracking block result without forgetting tracking info
+    try self.freeValue(mat_cond);
+
+    try self.lowerSwitchBr(inst, switch_br, mat_cond);
+
+    try self.processDeath(inst);
+    self.finishAirBookkeeping();
+}
+
+fn airSwitchDispatch(self: *Self, inst: Air.Inst.Index) !void {
+    const br = self.air.instructions.items(.data)[@intFromEnum(inst)].br;
+
+    const block_ty = self.typeOfIndex(br.block_inst);
+    const block_tracking = self.inst_tracking.getPtr(br.block_inst).?;
+    const loop_data = self.loops.getPtr(br.block_inst).?;
+    done: {
+        try self.getValue(block_tracking.short, null);
+        const src_mcv = try self.resolveInst(br.operand);
+
+        if (self.reuseOperandAdvanced(inst, br.operand, 0, src_mcv, br.block_inst)) {
+            try self.getValue(block_tracking.short, br.block_inst);
+            // .long = .none to avoid merging operand and block result stack frames.
+            const current_tracking: InstTracking = .{ .long = .none, .short = src_mcv };
+            try current_tracking.materializeUnsafe(self, br.block_inst, block_tracking.*);
+            for (current_tracking.getRegs()) |src_reg| self.register_manager.freeReg(src_reg);
+            break :done;
+        }
+
+        try self.getValue(block_tracking.short, br.block_inst);
+        const dst_mcv = block_tracking.short;
+        try self.genCopy(block_ty, dst_mcv, try self.resolveInst(br.operand), .{});
+        break :done;
+    }
+
+    // Process operand death so that it is properly accounted for in the State below.
+    if (self.liveness.operandDies(inst, 0)) {
+        if (br.operand.toIndex()) |op_inst| try self.processDeath(op_inst);
+    }
+
+    try self.restoreState(loop_data.state, &.{}, .{
+        .emit_instructions = true,
+        .update_tracking = false,
+        .resurrect = false,
+        .close_scope = false,
+    });
+
+    // Emit a jump with a relocation. It will be patched up after the block ends.
+    // Leave the jump offset undefined
+    _ = try self.asmJmpReloc(loop_data.jmp_target);
+
+    // Stop tracking block result without forgetting tracking info
+    try self.freeValue(block_tracking.short);
+
     self.finishAirBookkeeping();
 }
 
@@ -13891,7 +14015,7 @@ fn airBr(self: *Self, inst: Air.Inst.Index) !void {
 
 fn airRepeat(self: *Self, inst: Air.Inst.Index) !void {
     const loop_inst = self.air.instructions.items(.data)[@intFromEnum(inst)].repeat.loop_inst;
-    const repeat_info = self.loop_repeat_info.get(loop_inst).?;
+    const repeat_info = self.loops.get(loop_inst).?;
     try self.restoreState(repeat_info.state, &.{}, .{
         .emit_instructions = true,
         .update_tracking = false,
@@ -19578,7 +19702,10 @@ fn typeOf(self: *Self, inst: Air.Inst.Ref) Type {
 fn typeOfIndex(self: *Self, inst: Air.Inst.Index) Type {
     const pt = self.pt;
     const zcu = pt.zcu;
-    return self.air.typeOfIndex(inst, &zcu.intern_pool);
+    return switch (self.air.instructions.items(.tag)[@intFromEnum(inst)]) {
+        .loop_switch_br => self.typeOf(self.air.unwrapSwitch(inst).operand),
+        else => self.air.typeOfIndex(inst, &zcu.intern_pool),
+    };
 }
 
 fn intCompilerRtAbiName(int_bits: u32) u8 {
