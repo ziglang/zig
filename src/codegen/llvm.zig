@@ -898,58 +898,7 @@ pub const Object = struct {
                 .{ .optimized = comp.root_mod.optimize_mode != .Debug },
             );
 
-            const i32_2 = try builder.intConst(.i32, 2);
-            const i32_3 = try builder.intConst(.i32, 3);
-            const debug_info_version = try builder.debugModuleFlag(
-                try builder.metadataConstant(i32_2),
-                try builder.metadataString("Debug Info Version"),
-                try builder.metadataConstant(i32_3),
-            );
-
-            switch (comp.config.debug_format) {
-                .strip => unreachable,
-                .dwarf => |f| {
-                    const i32_4 = try builder.intConst(.i32, 4);
-                    const dwarf_version = try builder.debugModuleFlag(
-                        try builder.metadataConstant(i32_2),
-                        try builder.metadataString("Dwarf Version"),
-                        try builder.metadataConstant(i32_4),
-                    );
-                    switch (f) {
-                        .@"32" => {
-                            try builder.debugNamed(try builder.metadataString("llvm.module.flags"), &.{
-                                debug_info_version,
-                                dwarf_version,
-                            });
-                        },
-                        .@"64" => {
-                            const dwarf64 = try builder.debugModuleFlag(
-                                try builder.metadataConstant(i32_2),
-                                try builder.metadataString("DWARF64"),
-                                try builder.metadataConstant(.@"1"),
-                            );
-                            try builder.debugNamed(try builder.metadataString("llvm.module.flags"), &.{
-                                debug_info_version,
-                                dwarf_version,
-                                dwarf64,
-                            });
-                        },
-                    }
-                },
-                .code_view => {
-                    const code_view = try builder.debugModuleFlag(
-                        try builder.metadataConstant(i32_2),
-                        try builder.metadataString("CodeView"),
-                        try builder.metadataConstant(.@"1"),
-                    );
-                    try builder.debugNamed(try builder.metadataString("llvm.module.flags"), &.{
-                        debug_info_version,
-                        code_view,
-                    });
-                },
-            }
-
-            try builder.debugNamed(try builder.metadataString("llvm.dbg.cu"), &.{debug_compile_unit});
+            try builder.metadataNamed(try builder.metadataString("llvm.dbg.cu"), &.{debug_compile_unit});
             break :debug_info .{ debug_compile_unit, debug_enums_fwd_ref, debug_globals_fwd_ref };
         } else .{.none} ** 3;
 
@@ -1149,6 +1098,81 @@ pub const Object = struct {
             }
         }
 
+        {
+            var module_flags = try std.ArrayList(Builder.Metadata).initCapacity(o.gpa, 6);
+            defer module_flags.deinit();
+
+            const behavior_warning = try o.builder.metadataConstant(try o.builder.intConst(.i32, 2));
+
+            const large_pic = target_util.usesLargePIC(comp.root_mod.resolved_target.result);
+            if (comp.root_mod.pic) {
+                module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                    behavior_warning,
+                    try o.builder.metadataString("PIC Level"),
+                    try o.builder.metadataConstant(try o.builder.intConst(.i32, @as(i32, if (large_pic) 2 else 1))),
+                ));
+            }
+
+            if (comp.config.pie) {
+                module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                    behavior_warning,
+                    try o.builder.metadataString("PIE Level"),
+                    try o.builder.metadataConstant(try o.builder.intConst(.i32, @as(i32, if (large_pic) 2 else 1))),
+                ));
+            }
+
+            if (comp.root_mod.code_model != .default) {
+                module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                    behavior_warning,
+                    try o.builder.metadataString("Code Model"),
+                    try o.builder.metadataConstant(try o.builder.intConst(.i32, @as(i32, switch (comp.root_mod.code_model) {
+                        .tiny => 0,
+                        .small => 1,
+                        .kernel => 2,
+                        .medium => 3,
+                        .large => 4,
+                        else => unreachable,
+                    }))),
+                ));
+            }
+
+            if (!o.builder.strip) {
+                module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                    behavior_warning,
+                    try o.builder.metadataString("Debug Info Version"),
+                    try o.builder.metadataConstant(try o.builder.intConst(.i32, 3)),
+                ));
+
+                switch (comp.config.debug_format) {
+                    .strip => unreachable,
+                    .dwarf => |f| {
+                        module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                            behavior_warning,
+                            try o.builder.metadataString("Dwarf Version"),
+                            try o.builder.metadataConstant(try o.builder.intConst(.i32, 4)),
+                        ));
+
+                        if (f == .@"64") {
+                            module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                                behavior_warning,
+                                try o.builder.metadataString("DWARF64"),
+                                try o.builder.metadataConstant(.@"1"),
+                            ));
+                        }
+                    },
+                    .code_view => {
+                        module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
+                            behavior_warning,
+                            try o.builder.metadataString("CodeView"),
+                            try o.builder.metadataConstant(.@"1"),
+                        ));
+                    },
+                }
+            }
+
+            try o.builder.metadataNamed(try o.builder.metadataString("llvm.module.flags"), module_flags.items);
+        }
+
         const target_triple_sentinel =
             try o.gpa.dupeZ(u8, o.builder.target_triple.slice(&o.builder).?);
         defer o.gpa.free(target_triple_sentinel);
@@ -1235,14 +1259,13 @@ pub const Object = struct {
         }
 
         const optimize_mode = comp.root_mod.optimize_mode;
-        const pic = comp.root_mod.pic;
 
         const opt_level: llvm.CodeGenOptLevel = if (optimize_mode == .Debug)
             .None
         else
             .Aggressive;
 
-        const reloc_mode: llvm.RelocMode = if (pic)
+        const reloc_mode: llvm.RelocMode = if (comp.root_mod.pic)
             .PIC
         else if (comp.config.link_mode == .dynamic)
             llvm.RelocMode.DynamicNoPIC
@@ -1275,13 +1298,6 @@ pub const Object = struct {
             if (target_util.llvmMachineAbi(comp.root_mod.resolved_target.result)) |s| s.ptr else null,
         );
         errdefer target_machine.dispose();
-
-        const large_pic = target_util.usesLargePIC(comp.root_mod.resolved_target.result);
-
-        if (pic) module.setModulePICLevel(large_pic);
-        if (comp.config.pie) module.setModulePIELevel(large_pic);
-
-        if (code_model != .Default) module.setModuleCodeModel(code_model);
 
         if (comp.llvm_opt_bisect_limit >= 0) {
             context.setOptBisectLimit(comp.llvm_opt_bisect_limit);
