@@ -208,7 +208,6 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
     }
     for (elf_file.objects.items) |index| {
         const object = elf_file.file(index).?.object;
-        try object.addAtomsToOutputSections(elf_file);
         try object.addAtomsToRelaSections(elf_file);
     }
     try elf_file.updateMergeSectionSizes();

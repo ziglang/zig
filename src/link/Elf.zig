@@ -727,7 +727,10 @@ pub fn allocateChunk(self: *Elf, shndx: u32, size: u64, alignment: Atom.Alignmen
         true;
     if (expand_section) {
         const needed_size = res.value + size;
-        try self.growAllocSection(shndx, needed_size);
+        if (shdr.sh_flags & elf.SHF_ALLOC != 0)
+            try self.growAllocSection(shndx, needed_size)
+        else
+            try self.growNonAllocSection(shndx, needed_size, @intCast(alignment.toByteUnits().?), true);
     }
 
     return res;
@@ -1036,9 +1039,6 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     try self.setHashSections();
     try self.setVersionSymtab();
 
-    for (self.objects.items) |index| {
-        try self.file(index).?.object.addAtomsToOutputSections(self);
-    }
     try self.sortInitFini();
     try self.updateMergeSectionSizes();
     try self.updateSectionSizes();
@@ -3560,29 +3560,29 @@ fn updateSectionSizes(self: *Elf) !void {
     }
 
     const slice = self.sections.slice();
-    for (slice.items(.shdr), slice.items(.atom_list)) |*shdr, atom_list| {
-        if (atom_list.items.len == 0) continue;
-        if (self.requiresThunks() and shdr.sh_flags & elf.SHF_EXECINSTR != 0) continue;
-        for (atom_list.items) |ref| {
-            const atom_ptr = self.atom(ref) orelse continue;
-            if (!atom_ptr.alive) continue;
-            const offset = atom_ptr.alignment.forward(shdr.sh_size);
-            const padding = offset - shdr.sh_size;
-            atom_ptr.value = @intCast(offset);
-            shdr.sh_size += padding + atom_ptr.size;
-            shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits() orelse 1);
-        }
-    }
+    // for (slice.items(.shdr), slice.items(.atom_list)) |*shdr, atom_list| {
+    //     if (atom_list.items.len == 0) continue;
+    //     if (self.requiresThunks() and shdr.sh_flags & elf.SHF_EXECINSTR != 0) continue;
+    //     for (atom_list.items) |ref| {
+    //         const atom_ptr = self.atom(ref) orelse continue;
+    //         if (!atom_ptr.alive) continue;
+    //         const offset = atom_ptr.alignment.forward(shdr.sh_size);
+    //         const padding = offset - shdr.sh_size;
+    //         atom_ptr.value = @intCast(offset);
+    //         shdr.sh_size += padding + atom_ptr.size;
+    //         shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits() orelse 1);
+    //     }
+    // }
 
-    if (self.requiresThunks()) {
-        for (slice.items(.shdr), slice.items(.atom_list), 0..) |*shdr, atom_list, shndx| {
-            if (shdr.sh_flags & elf.SHF_EXECINSTR == 0) continue;
-            if (atom_list.items.len == 0) continue;
+    // if (self.requiresThunks()) {
+    //     for (slice.items(.shdr), slice.items(.atom_list), 0..) |*shdr, atom_list, shndx| {
+    //         if (shdr.sh_flags & elf.SHF_EXECINSTR == 0) continue;
+    //         if (atom_list.items.len == 0) continue;
 
-            // Create jump/branch range extenders if needed.
-            try self.createThunks(shdr, @intCast(shndx));
-        }
-    }
+    //         // Create jump/branch range extenders if needed.
+    //         try self.createThunks(shdr, @intCast(shndx));
+    //     }
+    // }
 
     const shdrs = slice.items(.shdr);
     if (self.eh_frame_section_index) |index| {

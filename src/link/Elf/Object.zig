@@ -955,27 +955,26 @@ pub fn initOutputSections(self: *Object, elf_file: *Elf) !void {
 }
 
 pub fn allocateAtoms(self: *Object, elf_file: *Elf) !void {
-    _ = elf_file;
     for (self.section_chunks.items) |*chunk| {
         chunk.updateSize(self);
     }
-}
 
-pub fn addAtomsToOutputSections(self: *Object, elf_file: *Elf) !void {
-    for (self.atoms_indexes.items) |atom_index| {
-        const atom_ptr = self.atom(atom_index) orelse continue;
-        if (!atom_ptr.alive) continue;
-        const shdr = atom_ptr.inputShdr(elf_file);
-        atom_ptr.output_section_index = elf_file.initOutputSection(.{
-            .name = self.getString(shdr.sh_name),
-            .flags = shdr.sh_flags,
-            .type = shdr.sh_type,
-        }) catch unreachable;
+    for (self.section_chunks.items) |*chunk| {
+        const alloc_res = try elf_file.allocateChunk(chunk.output_section_index, chunk.size, chunk.alignment);
+        chunk.value = @intCast(alloc_res.value);
 
-        const comp = elf_file.base.comp;
-        const gpa = comp.gpa;
-        const atom_list = &elf_file.sections.items(.atom_list)[atom_ptr.output_section_index];
-        try atom_list.append(gpa, .{ .index = atom_index, .file = self.index });
+        const slice = elf_file.sections.slice();
+        const shdr = &slice.items(.shdr)[chunk.output_section_index];
+        const last_atom_ref = &slice.items(.last_atom)[chunk.output_section_index];
+
+        const expand_section = if (elf_file.atom(alloc_res.placement)) |placement_atom|
+            placement_atom.nextAtom(elf_file) == null
+        else
+            true;
+        if (expand_section) last_atom_ref.* = chunk.lastAtom(self).ref();
+        shdr.sh_addralign = @max(shdr.sh_addralign, chunk.alignment.toByteUnits().?);
+
+        // TODO create back and forward links
     }
 }
 
@@ -1597,6 +1596,16 @@ const SectionChunk = struct {
             chunk.size += padding + atom_ptr.size;
             chunk.alignment = chunk.alignment.max(atom_ptr.alignment);
         }
+    }
+
+    fn firstAtom(chunk: SectionChunk, object: *Object) *Atom {
+        assert(chunk.atoms.items.len > 0);
+        return object.atom(chunk.atoms.items[0]).?;
+    }
+
+    fn lastAtom(chunk: SectionChunk, object: *Object) *Atom {
+        assert(chunk.atoms.items.len > 0);
+        return object.atom(chunk.atoms.items[chunk.atoms.items.len - 1]).?;
     }
 
     pub fn format(
