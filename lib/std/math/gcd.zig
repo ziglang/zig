@@ -8,8 +8,8 @@ pub fn gcd(a: anytype, b: anytype) @TypeOf(a, b) {
 
     // only unsigned integers are allowed and not both must be zero
     comptime switch (@typeInfo(@TypeOf(a, b))) {
-        .Int => |int| std.debug.assert(int.signedness == .unsigned),
-        .ComptimeInt => {
+        .int => |int| std.debug.assert(int.signedness == .unsigned),
+        .comptime_int => {
             std.debug.assert(a >= 0);
             std.debug.assert(b >= 0);
         },

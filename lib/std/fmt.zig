@@ -87,11 +87,11 @@ pub fn format(
 ) !void {
     const ArgsType = @TypeOf(args);
     const args_type_info = @typeInfo(ArgsType);
-    if (args_type_info != .Struct) {
+    if (args_type_info != .@"struct") {
         @compileError("expected tuple or struct argument, found " ++ @typeName(ArgsType));
     }
 
-    const fields_info = args_type_info.Struct.fields;
+    const fields_info = args_type_info.@"struct".fields;
     if (fields_info.len > max_format_args) {
         @compileError("32 arguments max are supported per format call");
     }
@@ -397,7 +397,7 @@ pub const Parser = struct {
 };
 
 pub const ArgSetType = u32;
-const max_format_args = @typeInfo(ArgSetType).Int.bits;
+const max_format_args = @typeInfo(ArgSetType).int.bits;
 
 pub const ArgState = struct {
     next_arg: usize = 0,
@@ -430,7 +430,7 @@ pub fn formatAddress(value: anytype, options: FormatOptions, writer: anytype) @T
     const T = @TypeOf(value);
 
     switch (@typeInfo(T)) {
-        .Pointer => |info| {
+        .pointer => |info| {
             try writer.writeAll(@typeName(info.child) ++ "@");
             if (info.size == .Slice)
                 try formatInt(@intFromPtr(value.ptr), 16, .lower, FormatOptions{}, writer)
@@ -438,8 +438,8 @@ pub fn formatAddress(value: anytype, options: FormatOptions, writer: anytype) @T
                 try formatInt(@intFromPtr(value), 16, .lower, FormatOptions{}, writer);
             return;
         },
-        .Optional => |info| {
-            if (@typeInfo(info.child) == .Pointer) {
+        .optional => |info| {
+            if (@typeInfo(info.child) == .pointer) {
                 try writer.writeAll(@typeName(info.child) ++ "@");
                 try formatInt(@intFromPtr(value), 16, .lower, FormatOptions{}, writer);
                 return;
@@ -456,17 +456,17 @@ const ANY = "any";
 
 pub fn defaultSpec(comptime T: type) [:0]const u8 {
     switch (@typeInfo(T)) {
-        .Array => |_| return ANY,
-        .Pointer => |ptr_info| switch (ptr_info.size) {
+        .array => |_| return ANY,
+        .pointer => |ptr_info| switch (ptr_info.size) {
             .One => switch (@typeInfo(ptr_info.child)) {
-                .Array => |_| return ANY,
+                .array => |_| return ANY,
                 else => {},
             },
             .Many, .C => return "*",
             .Slice => return ANY,
         },
-        .Optional => |info| return "?" ++ defaultSpec(info.child),
-        .ErrorUnion => |info| return "!" ++ defaultSpec(info.payload),
+        .optional => |info| return "?" ++ defaultSpec(info.child),
+        .error_union => |info| return "!" ++ defaultSpec(info.payload),
         else => {},
     }
     return "";
@@ -494,7 +494,7 @@ pub fn formatType(
     const actual_fmt = comptime if (std.mem.eql(u8, fmt, ANY))
         defaultSpec(T)
     else if (fmt.len != 0 and (fmt[0] == '?' or fmt[0] == '!')) switch (@typeInfo(T)) {
-        .Optional, .ErrorUnion => fmt,
+        .optional, .error_union => fmt,
         else => stripOptionalOrErrorUnionSpec(fmt),
     } else fmt;
 
@@ -507,18 +507,18 @@ pub fn formatType(
     }
 
     switch (@typeInfo(T)) {
-        .ComptimeInt, .Int, .ComptimeFloat, .Float => {
+        .comptime_int, .int, .comptime_float, .float => {
             return formatValue(value, actual_fmt, options, writer);
         },
-        .Void => {
+        .void => {
             if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             return formatBuf("void", options, writer);
         },
-        .Bool => {
+        .bool => {
             if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             return formatBuf(if (value) "true" else "false", options, writer);
         },
-        .Optional => {
+        .optional => {
             if (actual_fmt.len == 0 or actual_fmt[0] != '?')
                 @compileError("cannot format optional without a specifier (i.e. {?} or {any})");
             const remaining_fmt = comptime stripOptionalOrErrorUnionSpec(actual_fmt);
@@ -528,7 +528,7 @@ pub fn formatType(
                 return formatBuf("null", options, writer);
             }
         },
-        .ErrorUnion => {
+        .error_union => {
             if (actual_fmt.len == 0 or actual_fmt[0] != '!')
                 @compileError("cannot format error union without a specifier (i.e. {!} or {any})");
             const remaining_fmt = comptime stripOptionalOrErrorUnionSpec(actual_fmt);
@@ -538,12 +538,12 @@ pub fn formatType(
                 return formatType(err, "", options, writer, max_depth);
             }
         },
-        .ErrorSet => {
+        .error_set => {
             if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             try writer.writeAll("error.");
             return writer.writeAll(@errorName(value));
         },
-        .Enum => |enumInfo| {
+        .@"enum" => |enumInfo| {
             try writer.writeAll(@typeName(T));
             if (enumInfo.is_exhaustive) {
                 if (actual_fmt.len != 0) invalidFmtError(fmt, value);
@@ -566,7 +566,7 @@ pub fn formatType(
             try formatType(@intFromEnum(value), actual_fmt, options, writer, max_depth);
             try writer.writeAll(")");
         },
-        .Union => |info| {
+        .@"union" => |info| {
             if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             try writer.writeAll(@typeName(T));
             if (max_depth == 0) {
@@ -586,7 +586,7 @@ pub fn formatType(
                 try format(writer, "@{x}", .{@intFromPtr(&value)});
             }
         },
-        .Struct => |info| {
+        .@"struct" => |info| {
             if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             if (info.is_tuple) {
                 // Skip the type and field names when formatting tuples.
@@ -621,9 +621,9 @@ pub fn formatType(
             }
             try writer.writeAll(" }");
         },
-        .Pointer => |ptr_info| switch (ptr_info.size) {
+        .pointer => |ptr_info| switch (ptr_info.size) {
             .One => switch (@typeInfo(ptr_info.child)) {
-                .Array, .Enum, .Union, .Struct => {
+                .array, .@"enum", .@"union", .@"struct" => {
                     return formatType(value.*, actual_fmt, options, writer, max_depth);
                 },
                 else => return format(writer, "{s}@{x}", .{ @typeName(ptr_info.child), @intFromPtr(value) }),
@@ -658,7 +658,7 @@ pub fn formatType(
                 try writer.writeAll(" }");
             },
         },
-        .Array => |info| {
+        .array => |info| {
             if (actual_fmt.len == 0)
                 @compileError("cannot format array without a specifier (i.e. {s} or {any})");
             if (max_depth == 0) {
@@ -676,7 +676,7 @@ pub fn formatType(
             }
             try writer.writeAll(" }");
         },
-        .Vector => |info| {
+        .vector => |info| {
             try writer.writeAll("{ ");
             var i: usize = 0;
             while (i < info.len) : (i += 1) {
@@ -687,17 +687,17 @@ pub fn formatType(
             }
             try writer.writeAll(" }");
         },
-        .Fn => @compileError("unable to format function body type, use '*const " ++ @typeName(T) ++ "' for a function pointer type"),
-        .Type => {
+        .@"fn" => @compileError("unable to format function body type, use '*const " ++ @typeName(T) ++ "' for a function pointer type"),
+        .type => {
             if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             return formatBuf(@typeName(value), options, writer);
         },
-        .EnumLiteral => {
+        .enum_literal => {
             if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             const buffer = [_]u8{'.'} ++ @tagName(value);
             return formatBuf(buffer, options, writer);
         },
-        .Null => {
+        .null => {
             if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             return formatBuf("null", options, writer);
         },
@@ -713,9 +713,9 @@ fn formatValue(
 ) !void {
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
-        .Float, .ComptimeFloat => return formatFloatValue(value, fmt, options, writer),
-        .Int, .ComptimeInt => return formatIntValue(value, fmt, options, writer),
-        .Bool => return formatBuf(if (value) "true" else "false", options, writer),
+        .float, .comptime_float => return formatFloatValue(value, fmt, options, writer),
+        .int, .comptime_int => return formatIntValue(value, fmt, options, writer),
+        .bool => return formatBuf(if (value) "true" else "false", options, writer),
         else => comptime unreachable,
     }
 }
@@ -738,13 +738,13 @@ pub fn formatIntValue(
         base = 10;
         case = .lower;
     } else if (comptime std.mem.eql(u8, fmt, "c")) {
-        if (@typeInfo(@TypeOf(int_value)).Int.bits <= 8) {
+        if (@typeInfo(@TypeOf(int_value)).int.bits <= 8) {
             return formatAsciiChar(@as(u8, int_value), options, writer);
         } else {
             @compileError("cannot print integer that is larger than 8 bits as an ASCII character");
         }
     } else if (comptime std.mem.eql(u8, fmt, "u")) {
-        if (@typeInfo(@TypeOf(int_value)).Int.bits <= 21) {
+        if (@typeInfo(@TypeOf(int_value)).int.bits <= 21) {
             return formatUnicodeCodepoint(@as(u21, int_value), options, writer);
         } else {
             @compileError("cannot print integer that is larger than 21 bits as an UTF-8 sequence");
@@ -1179,7 +1179,7 @@ pub fn formatInt(
         break :blk @as(Int, value);
     } else value;
 
-    const value_info = @typeInfo(@TypeOf(int_value)).Int;
+    const value_info = @typeInfo(@TypeOf(int_value)).int;
 
     // The type must have the same size as `base` or be wider in order for the
     // division to work
@@ -1480,7 +1480,7 @@ pub const ParseIntError = error{
 ///     ) !void;
 ///
 pub fn Formatter(comptime format_fn: anytype) type {
-    const Data = @typeInfo(@TypeOf(format_fn)).Fn.params[0].type.?;
+    const Data = @typeInfo(@TypeOf(format_fn)).@"fn".params[0].type.?;
     return struct {
         data: Data,
         pub fn format(
@@ -1624,7 +1624,7 @@ fn parseIntWithSign(
     // accumulate into Accumulate which is always 8 bits or larger.  this prevents
     // `buf_base` from overflowing Result.
     const info = @typeInfo(Result);
-    const Accumulate = std.meta.Int(info.Int.signedness, @max(8, info.Int.bits));
+    const Accumulate = std.meta.Int(info.int.signedness, @max(8, info.int.bits));
     var accumulate: Accumulate = 0;
 
     if (buf_start[0] == '_' or buf_start[buf_start.len - 1] == '_') return error.InvalidCharacter;
@@ -2724,7 +2724,7 @@ pub const hex_charset = "0123456789abcdef";
 /// Converts an unsigned integer of any multiple of u8 to an array of lowercase
 /// hex bytes, little endian.
 pub fn hex(x: anytype) [@sizeOf(@TypeOf(x)) * 2]u8 {
-    comptime assert(@typeInfo(@TypeOf(x)).Int.signedness == .unsigned);
+    comptime assert(@typeInfo(@TypeOf(x)).int.signedness == .unsigned);
     var result: [@sizeOf(@TypeOf(x)) * 2]u8 = undefined;
     var i: usize = 0;
     while (i < result.len / 2) : (i += 1) {

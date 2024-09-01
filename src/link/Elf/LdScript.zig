@@ -108,7 +108,7 @@ const Command = enum {
     as_needed,
 
     fn fromString(s: []const u8) ?Command {
-        inline for (@typeInfo(Command).Enum.fields) |field| {
+        inline for (@typeInfo(Command).@"enum".fields) |field| {
             const upper_name = n: {
                 comptime var buf: [field.name.len]u8 = undefined;
                 inline for (field.name, 0..) |c, i| {

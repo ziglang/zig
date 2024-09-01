@@ -36,7 +36,7 @@ pub const Category = union(enum(u8)) {
     /// A function that returns a type.
     type_function: Ast.Node.Index,
 
-    pub const Tag = @typeInfo(Category).Union.tag_type.?;
+    pub const Tag = @typeInfo(Category).@"union".tag_type.?;
 };
 
 pub const File = struct {

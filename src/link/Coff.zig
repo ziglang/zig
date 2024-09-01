@@ -276,7 +276,7 @@ pub fn createEmpty(
         .image_base = options.image_base orelse switch (output_mode) {
             .Exe => switch (target.cpu.arch) {
                 .aarch64 => 0x140000000,
-                .x86_64, .x86 => 0x400000,
+                .thumb, .x86_64, .x86 => 0x400000,
                 else => unreachable,
             },
             .Lib => 0x10000000,
@@ -1368,7 +1368,7 @@ fn getNavOutputSection(self: *Coff, nav_index: InternPool.Nav.Index) u16 {
 
         switch (zig_ty) {
             // TODO: what if this is a function pointer?
-            .Fn => break :blk self.text_section_index.?,
+            .@"fn" => break :blk self.text_section_index.?,
             else => {
                 if (val.getVariable(zcu)) |_| {
                     break :blk self.data_section_index.?;

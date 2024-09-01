@@ -85,24 +85,27 @@ pub fn syscall6(
     arg5: usize,
     arg6: usize,
 ) usize {
-    // The 6th argument is passed via memory as we're out of registers if ebp is
-    // used as frame pointer. We push arg6 value on the stack before changing
-    // ebp or esp as the compiler may reference it as an offset relative to one
-    // of those two registers.
+    // arg5/arg6 are passed via memory as we're out of registers if ebp is used as frame pointer, or
+    // if we're compiling with PIC. We push arg5/arg6 on the stack before changing ebp/esp as the
+    // compiler may reference arg5/arg6 as an offset relative to ebp/esp.
     return asm volatile (
+        \\ push %[arg5]
         \\ push %[arg6]
+        \\ push %%edi
         \\ push %%ebp
-        \\ mov  4(%%esp), %%ebp
+        \\ mov  12(%%esp), %%edi
+        \\ mov  8(%%esp), %%ebp
         \\ int  $0x80
         \\ pop  %%ebp
-        \\ add  $4, %%esp
+        \\ pop  %%edi
+        \\ add  $8, %%esp
         : [ret] "={eax}" (-> usize),
         : [number] "{eax}" (@intFromEnum(number)),
           [arg1] "{ebx}" (arg1),
           [arg2] "{ecx}" (arg2),
           [arg3] "{edx}" (arg3),
           [arg4] "{esi}" (arg4),
-          [arg5] "{edi}" (arg5),
+          [arg5] "rm" (arg5),
           [arg6] "rm" (arg6),
         : "memory"
     );

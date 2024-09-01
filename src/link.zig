@@ -936,13 +936,11 @@ pub const File = struct {
         missing_libc: bool = false,
 
         const Int = blk: {
-            const bits = @typeInfo(@This()).Struct.fields.len;
-            break :blk @Type(.{
-                .Int = .{
-                    .signedness = .unsigned,
-                    .bits = bits,
-                },
-            });
+            const bits = @typeInfo(@This()).@"struct".fields.len;
+            break :blk @Type(.{ .int = .{
+                .signedness = .unsigned,
+                .bits = bits,
+            } });
         };
 
         fn isSet(ef: ErrorFlags) bool {

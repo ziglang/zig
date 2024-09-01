@@ -139,10 +139,10 @@ pub fn verifyContext(
         var Context = RawContext;
         // Make sure the context is a namespace type which may have member functions
         switch (@typeInfo(Context)) {
-            .Struct, .Union, .Enum => {},
-            // Special-case .Opaque for a better error message
-            .Opaque => @compileError("Hash context must be a type with hash and eql member functions.  Cannot use " ++ @typeName(Context) ++ " because it is opaque.  Use a pointer instead."),
-            .Pointer => |ptr| {
+            .@"struct", .@"union", .@"enum" => {},
+            // Special-case .@"opaque" for a better error message
+            .@"opaque" => @compileError("Hash context must be a type with hash and eql member functions.  Cannot use " ++ @typeName(Context) ++ " because it is opaque.  Use a pointer instead."),
+            .pointer => |ptr| {
                 if (ptr.size != .One) {
                     @compileError("Hash context must be a type with hash and eql member functions.  Cannot use " ++ @typeName(Context) ++ " because it is not a single pointer.");
                 }
@@ -150,7 +150,7 @@ pub fn verifyContext(
                 allow_const_ptr = true;
                 allow_mutable_ptr = !ptr.is_const;
                 switch (@typeInfo(Context)) {
-                    .Struct, .Union, .Enum, .Opaque => {},
+                    .@"struct", .@"union", .@"enum", .@"opaque" => {},
                     else => @compileError("Hash context must be a type with hash and eql member functions.  Cannot use " ++ @typeName(Context)),
                 }
             },
@@ -179,8 +179,8 @@ pub fn verifyContext(
         if (@hasDecl(Context, "hash")) {
             const hash = Context.hash;
             const info = @typeInfo(@TypeOf(hash));
-            if (info == .Fn) {
-                const func = info.Fn;
+            if (info == .@"fn") {
+                const func = info.@"fn";
                 if (func.params.len != 2) {
                     errors = errors ++ lazy.err_invalid_hash_signature;
                 } else {
@@ -255,8 +255,8 @@ pub fn verifyContext(
         if (@hasDecl(Context, "eql")) {
             const eql = Context.eql;
             const info = @typeInfo(@TypeOf(eql));
-            if (info == .Fn) {
-                const func = info.Fn;
+            if (info == .@"fn") {
+                const func = info.@"fn";
                 const args_len = if (is_array) 4 else 3;
                 if (func.params.len != args_len) {
                     errors = errors ++ lazy.err_invalid_eql_signature;
@@ -824,8 +824,8 @@ pub fn HashMapUnmanaged(
             }
 
             pub fn takeFingerprint(hash: Hash) FingerPrint {
-                const hash_bits = @typeInfo(Hash).Int.bits;
-                const fp_bits = @typeInfo(FingerPrint).Int.bits;
+                const hash_bits = @typeInfo(Hash).int.bits;
+                const fp_bits = @typeInfo(FingerPrint).int.bits;
                 return @as(FingerPrint, @truncate(hash >> (hash_bits - fp_bits)));
             }
 

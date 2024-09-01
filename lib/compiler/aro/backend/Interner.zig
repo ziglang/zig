@@ -505,7 +505,7 @@ pub fn put(i: *Interner, gpa: Allocator, key: Key) !Ref {
             });
         },
         .record_ty => |elems| {
-            try i.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.Record).Struct.fields.len +
+            try i.extra.ensureUnusedCapacity(gpa, @typeInfo(Tag.Record).@"struct".fields.len +
                 elems.len);
             i.items.appendAssumeCapacity(.{
                 .tag = .record_ty,
@@ -527,14 +527,14 @@ pub fn put(i: *Interner, gpa: Allocator, key: Key) !Ref {
 }
 
 fn addExtra(i: *Interner, gpa: Allocator, extra: anytype) Allocator.Error!u32 {
-    const fields = @typeInfo(@TypeOf(extra)).Struct.fields;
+    const fields = @typeInfo(@TypeOf(extra)).@"struct".fields;
     try i.extra.ensureUnusedCapacity(gpa, fields.len);
     return i.addExtraAssumeCapacity(extra);
 }
 
 fn addExtraAssumeCapacity(i: *Interner, extra: anytype) u32 {
     const result = @as(u32, @intCast(i.extra.items.len));
-    inline for (@typeInfo(@TypeOf(extra)).Struct.fields) |field| {
+    inline for (@typeInfo(@TypeOf(extra)).@"struct".fields) |field| {
         i.extra.appendAssumeCapacity(switch (field.type) {
             Ref => @intFromEnum(@field(extra, field.name)),
             u32 => @field(extra, field.name),
@@ -631,7 +631,7 @@ fn extraData(i: *const Interner, comptime T: type, index: usize) T {
 
 fn extraDataTrail(i: *const Interner, comptime T: type, index: usize) struct { data: T, end: u32 } {
     var result: T = undefined;
-    const fields = @typeInfo(T).Struct.fields;
+    const fields = @typeInfo(T).@"struct".fields;
     inline for (fields, 0..) |field, field_i| {
         const int32 = i.extra.items[field_i + index];
         @field(result, field.name) = switch (field.type) {

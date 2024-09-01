@@ -667,37 +667,156 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         target,
         &.{
             .{
-                .path = "main.zig",
+                .path = "root0.zig",
                 .source =
-                \\const module = @import("module");
+                \\const root0 = @This();
+                \\pub const root1 = @import("root1.zig");
+                \\const mod0 = @import("module");
+                \\const mod1 = mod0.mod1;
+                \\pub fn r0pf(r0pa: u32) void {
+                \\    root0.r0cf(r0pa ^ 1);
+                \\    root0.r0cfi(r0pa ^ 2);
+                \\    root1.r1cf(r0pa ^ 3);
+                \\    root1.r1cfi(r0pa ^ 4);
+                \\    mod0.m0cf(r0pa ^ 5);
+                \\    mod0.m0cfi(r0pa ^ 6);
+                \\    mod1.m1cf(r0pa ^ 7);
+                \\    mod1.m1cfi(r0pa ^ 8);
+                \\}
+                \\pub inline fn r0pfi(r0pai: u32) void {
+                \\    root0.r0cf(r0pai ^ 1);
+                \\    root0.r0cfi(r0pai ^ 2);
+                \\    root1.r1cf(r0pai ^ 3);
+                \\    root1.r1cfi(r0pai ^ 4);
+                \\    mod0.m0cf(r0pai ^ 5);
+                \\    mod0.m0cfi(r0pai ^ 6);
+                \\    mod1.m1cf(r0pai ^ 7);
+                \\    mod1.m1cfi(r0pai ^ 8);
+                \\}
+                \\pub fn r0cf(r0ca: u32) void {
+                \\    _ = r0ca;
+                \\}
+                \\pub inline fn r0cfi(r0cai: u32) void {
+                \\    _ = r0cai;
+                \\}
                 \\pub fn main() void {
-                \\    fa(12);
-                \\    fb(34);
-                \\    module.fc(56);
-                \\    module.fd(78);
+                \\    root0.r0pf(12);
+                \\    root0.r0pfi(23);
+                \\    root1.r1pf(34);
+                \\    root1.r1pfi(45);
+                \\    mod0.m0pf(56);
+                \\    mod0.m0pfi(67);
+                \\    mod1.m1pf(78);
+                \\    mod1.m1pfi(89);
                 \\}
-                \\fn fa(pa: u32) void {
-                \\    const la = ~pa;
-                \\    _ = la;
+                \\
+                ,
+            },
+            .{
+                .path = "root1.zig",
+                .source =
+                \\const root0 = @import("root0.zig");
+                \\const root1 = @This();
+                \\const mod0 = @import("module");
+                \\const mod1 = mod0.mod1;
+                \\pub fn r1pf(r1pa: u32) void {
+                \\    root0.r0cf(r1pa ^ 1);
+                \\    root0.r0cfi(r1pa ^ 2);
+                \\    root1.r1cf(r1pa ^ 3);
+                \\    root1.r1cfi(r1pa ^ 4);
+                \\    mod0.m0cf(r1pa ^ 5);
+                \\    mod0.m0cfi(r1pa ^ 6);
+                \\    mod1.m1cf(r1pa ^ 7);
+                \\    mod1.m1cfi(r1pa ^ 8);
                 \\}
-                \\inline fn fb(pb: u32) void {
-                \\    const lb = ~pb;
-                \\    _ = lb;
+                \\pub inline fn r1pfi(r1pai: u32) void {
+                \\    root0.r0cf(r1pai ^ 1);
+                \\    root0.r0cfi(r1pai ^ 2);
+                \\    root1.r1cf(r1pai ^ 3);
+                \\    root1.r1cfi(r1pai ^ 4);
+                \\    mod0.m0cf(r1pai ^ 5);
+                \\    mod0.m0cfi(r1pai ^ 6);
+                \\    mod1.m1cf(r1pai ^ 7);
+                \\    mod1.m1cfi(r1pai ^ 8);
+                \\}
+                \\pub fn r1cf(r1ca: u32) void {
+                \\    _ = r1ca;
+                \\}
+                \\pub inline fn r1cfi(r1cai: u32) void {
+                \\    _ = r1cai;
                 \\}
                 \\
                 ,
             },
             .{
                 .import = "module",
-                .path = "module.zig",
+                .path = "mod0.zig",
                 .source =
-                \\pub fn fc(pc: u32) void {
-                \\    const lc = ~pc;
-                \\    _ = lc;
+                \\const root0 = @import("root");
+                \\const root1 = root0.root1;
+                \\const mod0 = @This();
+                \\pub const mod1 = @import("mod1.zig");
+                \\pub fn m0pf(m0pa: u32) void {
+                \\    root0.r0cf(m0pa ^ 1);
+                \\    root0.r0cfi(m0pa ^ 2);
+                \\    root1.r1cf(m0pa ^ 3);
+                \\    root1.r1cfi(m0pa ^ 4);
+                \\    mod0.m0cf(m0pa ^ 5);
+                \\    mod0.m0cfi(m0pa ^ 6);
+                \\    mod1.m1cf(m0pa ^ 7);
+                \\    mod1.m1cfi(m0pa ^ 8);
                 \\}
-                \\pub inline fn fd(pd: u32) void {
-                \\    const ld = ~pd;
-                \\    _ = ld;
+                \\pub inline fn m0pfi(m0pai: u32) void {
+                \\    root0.r0cf(m0pai ^ 1);
+                \\    root0.r0cfi(m0pai ^ 2);
+                \\    root1.r1cf(m0pai ^ 3);
+                \\    root1.r1cfi(m0pai ^ 4);
+                \\    mod0.m0cf(m0pai ^ 5);
+                \\    mod0.m0cfi(m0pai ^ 6);
+                \\    mod1.m1cf(m0pai ^ 7);
+                \\    mod1.m1cfi(m0pai ^ 8);
+                \\}
+                \\pub fn m0cf(m0ca: u32) void {
+                \\    _ = m0ca;
+                \\}
+                \\pub inline fn m0cfi(m0cai: u32) void {
+                \\    _ = m0cai;
+                \\}
+                \\
+                ,
+            },
+            .{
+                .path = "mod1.zig",
+                .source =
+                \\const root0 = @import("root");
+                \\const root1 = root0.root1;
+                \\const mod0 = @import("mod0.zig");
+                \\const mod1 = @This();
+                \\pub fn m1pf(m1pa: u32) void {
+                \\    root0.r0cf(m1pa ^ 1);
+                \\    root0.r0cfi(m1pa ^ 2);
+                \\    root1.r1cf(m1pa ^ 3);
+                \\    root1.r1cfi(m1pa ^ 4);
+                \\    mod0.m0cf(m1pa ^ 5);
+                \\    mod0.m0cfi(m1pa ^ 6);
+                \\    mod1.m1cf(m1pa ^ 7);
+                \\    mod1.m1cfi(m1pa ^ 8);
+                \\}
+                \\pub inline fn m1pfi(m1pai: u32) void {
+                \\    root0.r0cf(m1pai ^ 1);
+                \\    root0.r0cfi(m1pai ^ 2);
+                \\    root1.r1cf(m1pai ^ 3);
+                \\    root1.r1cfi(m1pai ^ 4);
+                \\    mod0.m0cf(m1pai ^ 5);
+                \\    mod0.m0cfi(m1pai ^ 6);
+                \\    mod1.m1cf(m1pai ^ 7);
+                \\    mod1.m1cfi(m1pai ^ 8);
+                \\}
+                \\pub fn m1cf(m1ca: u32) void {
+                \\    _ = m1ca;
+                \\}
+                \\pub inline fn m1cfi(m1cai: u32) void {
+                \\    _ = m1cai;
                 \\}
                 \\
                 ,
@@ -705,70 +824,407 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
         \\settings set frame-format 'frame #${frame.index}:{ ${module.file.basename}{\`${function.name-with-args}{${frame.no-debug}${function.pc-offset}}}}{ at ${line.file.basename}:${line.number}{:${line.column}}}{${function.is-optimized} [opt]}{${frame.is-artificial} [artificial]}\n'
         \\
-        \\breakpoint set --file main.zig --source-pattern-regexp '_ = la;'
+        \\breakpoint set --file root0.zig --line 26
+        \\breakpoint set --file root0.zig --line 29
+        \\breakpoint set --file root1.zig --line 26
+        \\breakpoint set --file root1.zig --line 29
+        \\breakpoint set --file mod0.zig --line 26
+        \\breakpoint set --file mod0.zig --line 29
+        \\breakpoint set --file mod1.zig --line 26
+        \\breakpoint set --file mod1.zig --line 29
+        \\
         \\process launch
-        \\frame variable pa la
-        \\thread backtrace --count 2
-        \\breakpoint delete --force 1
-        \\
-        \\breakpoint set --file main.zig --source-pattern-regexp '_ = lb;'
+        \\thread backtrace --count 3
         \\process continue
-        \\frame variable pb lb
-        \\thread backtrace --count 2
-        \\breakpoint delete --force 2
-        \\
-        \\breakpoint set --file module.zig --source-pattern-regexp '_ = lc;'
+        \\thread backtrace --count 3
         \\process continue
-        \\frame variable pc lc
-        \\thread backtrace --count 2
-        \\breakpoint delete --force 3
-        \\
-        \\breakpoint set --file module.zig --line 7
+        \\thread backtrace --count 3
         \\process continue
-        \\frame variable pd ld
-        \\thread backtrace --count 2
-        \\breakpoint delete --force 4
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
+        \\process continue
+        \\thread backtrace --count 3
     ,
         &.{
-            \\(lldb) frame variable pa la
-            \\(u32) pa = 12
-            \\(u32) la = 4294967283
-            \\(lldb) thread backtrace --count 2
-            \\* thread #1, name = 'inline_call', stop reason = breakpoint 1.1
-            \\  * frame #0: inline_call`main.fa(pa=12) at main.zig:10:5
-            \\    frame #1: inline_call`main.main at main.zig:3:7
-            \\(lldb) breakpoint delete --force 1
-            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+            \\  * frame #0: inline_call`root0.r0cf(r0ca=13) at root0.zig:26:5
+            \\    frame #1: inline_call`root0.r0pf(r0pa=12) at root0.zig:6:15
+            \\    frame #2: inline_call`root0.main at root0.zig:32:15
             ,
-            \\(lldb) frame variable pb lb
-            \\(u32) pb = 34
-            \\(u32) lb = 4294967261
-            \\(lldb) thread backtrace --count 2
-            \\* thread #1, name = 'inline_call', stop reason = breakpoint 2.1
-            \\  * frame #0: inline_call`main.main [inlined] fb(pb=34) at main.zig:14:5
-            \\    frame #1: inline_call`main.main at main.zig:4:7
-            \\(lldb) breakpoint delete --force 2
-            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+            \\  * frame #0: inline_call`root0.r0pf [inlined] r0cfi(r0cai=14) at root0.zig:29:5
+            \\    frame #1: inline_call`root0.r0pf(r0pa=12) at root0.zig:7:16
+            \\    frame #2: inline_call`root0.main at root0.zig:32:15
             ,
-            \\(lldb) frame variable pc lc
-            \\(u32) pc = 56
-            \\(u32) lc = 4294967239
-            \\(lldb) thread backtrace --count 2
-            \\* thread #1, name = 'inline_call', stop reason = breakpoint 3.1
-            \\  * frame #0: inline_call`module.fc(pc=56) at module.zig:3:5
-            \\    frame #1: inline_call`main.main at main.zig:5:14
-            \\(lldb) breakpoint delete --force 3
-            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+            \\  * frame #0: inline_call`root1.r1cf(r1ca=15) at root1.zig:26:5
+            \\    frame #1: inline_call`root0.r0pf(r0pa=12) at root0.zig:8:15
+            \\    frame #2: inline_call`root0.main at root0.zig:32:15
             ,
-            \\(lldb) frame variable pd ld
-            \\(u32) pd = 78
-            \\(u32) ld = 4294967217
-            \\(lldb) thread backtrace --count 2
-            \\* thread #1, name = 'inline_call', stop reason = breakpoint 4.1
-            \\  * frame #0: inline_call`main.main [inlined] fd(pd=78) at module.zig:7:5
-            \\    frame #1: inline_call`main.main at main.zig:6:14
-            \\(lldb) breakpoint delete --force 4
-            \\1 breakpoints deleted; 0 breakpoint locations disabled.
+            \\  * frame #0: inline_call`root0.r0pf [inlined] r1cfi(r1cai=8) at root1.zig:29:5
+            \\    frame #1: inline_call`root0.r0pf(r0pa=12) at root0.zig:9:16
+            \\    frame #2: inline_call`root0.main at root0.zig:32:15
+            ,
+            \\  * frame #0: inline_call`mod0.m0cf(m0ca=9) at mod0.zig:26:5
+            \\    frame #1: inline_call`root0.r0pf(r0pa=12) at root0.zig:10:14
+            \\    frame #2: inline_call`root0.main at root0.zig:32:15
+            ,
+            \\  * frame #0: inline_call`root0.r0pf [inlined] m0cfi(m0cai=10) at mod0.zig:29:5
+            \\    frame #1: inline_call`root0.r0pf(r0pa=12) at root0.zig:11:15
+            \\    frame #2: inline_call`root0.main at root0.zig:32:15
+            ,
+            \\  * frame #0: inline_call`mod1.m1cf(m1ca=11) at mod1.zig:26:5
+            \\    frame #1: inline_call`root0.r0pf(r0pa=12) at root0.zig:12:14
+            \\    frame #2: inline_call`root0.main at root0.zig:32:15
+            ,
+            \\  * frame #0: inline_call`root0.r0pf [inlined] m1cfi(m1cai=4) at mod1.zig:29:5
+            \\    frame #1: inline_call`root0.r0pf(r0pa=12) at root0.zig:13:15
+            \\    frame #2: inline_call`root0.main at root0.zig:32:15
+            ,
+            \\  * frame #0: inline_call`root0.r0cf(r0ca=22) at root0.zig:26:5
+            \\    frame #1: inline_call`root0.main [inlined] r0pfi(r0pai=23) at root0.zig:16:15
+            \\    frame #2: inline_call`root0.main at root0.zig:33:16
+            ,
+            \\  * frame #0: inline_call`root0.main [inlined] r0cfi(r0cai=21) at root0.zig:29:5
+            \\    frame #1: inline_call`root0.main [inlined] r0pfi(r0pai=23) at root0.zig:17:16
+            \\    frame #2: inline_call`root0.main at root0.zig:33:16
+            ,
+            \\  * frame #0: inline_call`root1.r1cf(r1ca=20) at root1.zig:26:5
+            \\    frame #1: inline_call`root0.main [inlined] r0pfi(r0pai=23) at root0.zig:18:15
+            \\    frame #2: inline_call`root0.main at root0.zig:33:16
+            ,
+            \\  * frame #0: inline_call`root0.main [inlined] r1cfi(r1cai=19) at root1.zig:29:5
+            \\    frame #1: inline_call`root0.main [inlined] r0pfi(r0pai=23) at root0.zig:19:16
+            \\    frame #2: inline_call`root0.main at root0.zig:33:16
+            ,
+            \\  * frame #0: inline_call`mod0.m0cf(m0ca=18) at mod0.zig:26:5
+            \\    frame #1: inline_call`root0.main [inlined] r0pfi(r0pai=23) at root0.zig:20:14
+            \\    frame #2: inline_call`root0.main at root0.zig:33:16
+            ,
+            \\  * frame #0: inline_call`root0.main [inlined] m0cfi(m0cai=17) at mod0.zig:29:5
+            \\    frame #1: inline_call`root0.main [inlined] r0pfi(r0pai=23) at root0.zig:21:15
+            \\    frame #2: inline_call`root0.main at root0.zig:33:16
+            ,
+            \\  * frame #0: inline_call`mod1.m1cf(m1ca=16) at mod1.zig:26:5
+            \\    frame #1: inline_call`root0.main [inlined] r0pfi(r0pai=23) at root0.zig:22:14
+            \\    frame #2: inline_call`root0.main at root0.zig:33:16
+            ,
+            \\  * frame #0: inline_call`root0.main [inlined] m1cfi(m1cai=31) at mod1.zig:29:5
+            \\    frame #1: inline_call`root0.main [inlined] r0pfi(r0pai=23) at root0.zig:23:15
+            \\    frame #2: inline_call`root0.main at root0.zig:33:16
+            ,
+            \\  * frame #0: inline_call`root0.r0cf(r0ca=35) at root0.zig:26:5
+            \\    frame #1: inline_call`root1.r1pf(r1pa=34) at root1.zig:6:15
+            \\    frame #2: inline_call`root0.main at root0.zig:34:15
+            ,
+            \\  * frame #0: inline_call`root1.r1pf [inlined] r0cfi(r0cai=32) at root0.zig:29:5
+            \\    frame #1: inline_call`root1.r1pf(r1pa=34) at root1.zig:7:16
+            \\    frame #2: inline_call`root0.main at root0.zig:34:15
+            ,
+            \\  * frame #0: inline_call`root1.r1cf(r1ca=33) at root1.zig:26:5
+            \\    frame #1: inline_call`root1.r1pf(r1pa=34) at root1.zig:8:15
+            \\    frame #2: inline_call`root0.main at root0.zig:34:15
+            ,
+            \\  * frame #0: inline_call`root1.r1pf [inlined] r1cfi(r1cai=38) at root1.zig:29:5
+            \\    frame #1: inline_call`root1.r1pf(r1pa=34) at root1.zig:9:16
+            \\    frame #2: inline_call`root0.main at root0.zig:34:15
+            ,
+            \\  * frame #0: inline_call`mod0.m0cf(m0ca=39) at mod0.zig:26:5
+            \\    frame #1: inline_call`root1.r1pf(r1pa=34) at root1.zig:10:14
+            \\    frame #2: inline_call`root0.main at root0.zig:34:15
+            ,
+            \\  * frame #0: inline_call`root1.r1pf [inlined] m0cfi(m0cai=36) at mod0.zig:29:5
+            \\    frame #1: inline_call`root1.r1pf(r1pa=34) at root1.zig:11:15
+            \\    frame #2: inline_call`root0.main at root0.zig:34:15
+            ,
+            \\  * frame #0: inline_call`mod1.m1cf(m1ca=37) at mod1.zig:26:5
+            \\    frame #1: inline_call`root1.r1pf(r1pa=34) at root1.zig:12:14
+            \\    frame #2: inline_call`root0.main at root0.zig:34:15
+            ,
+            \\  * frame #0: inline_call`root1.r1pf [inlined] m1cfi(m1cai=42) at mod1.zig:29:5
+            \\    frame #1: inline_call`root1.r1pf(r1pa=34) at root1.zig:13:15
+            \\    frame #2: inline_call`root0.main at root0.zig:34:15
+            ,
+            \\  * frame #0: inline_call`root0.r0cf(r0ca=44) at root0.zig:26:5
+            \\    frame #1: inline_call`root0.main [inlined] r1pfi(r1pai=45) at root1.zig:16:15
+            \\    frame #2: inline_call`root0.main at root0.zig:35:16
+            ,
+            \\  * frame #0: inline_call`root0.main [inlined] r0cfi(r0cai=47) at root0.zig:29:5
+            \\    frame #1: inline_call`root0.main [inlined] r1pfi(r1pai=45) at root1.zig:17:16
+            \\    frame #2: inline_call`root0.main at root0.zig:35:16
+            ,
+            \\  * frame #0: inline_call`root1.r1cf(r1ca=46) at root1.zig:26:5
+            \\    frame #1: inline_call`root0.main [inlined] r1pfi(r1pai=45) at root1.zig:18:15
+            \\    frame #2: inline_call`root0.main at root0.zig:35:16
+            ,
+            \\  * frame #0: inline_call`root0.main [inlined] r1cfi(r1cai=41) at root1.zig:29:5
+            \\    frame #1: inline_call`root0.main [inlined] r1pfi(r1pai=45) at root1.zig:19:16
+            \\    frame #2: inline_call`root0.main at root0.zig:35:16
+            ,
+            \\  * frame #0: inline_call`mod0.m0cf(m0ca=40) at mod0.zig:26:5
+            \\    frame #1: inline_call`root0.main [inlined] r1pfi(r1pai=45) at root1.zig:20:14
+            \\    frame #2: inline_call`root0.main at root0.zig:35:16
+            ,
+            \\  * frame #0: inline_call`root0.main [inlined] m0cfi(m0cai=43) at mod0.zig:29:5
+            \\    frame #1: inline_call`root0.main [inlined] r1pfi(r1pai=45) at root1.zig:21:15
+            \\    frame #2: inline_call`root0.main at root0.zig:35:16
+            ,
+            \\  * frame #0: inline_call`mod1.m1cf(m1ca=42) at mod1.zig:26:5
+            \\    frame #1: inline_call`root0.main [inlined] r1pfi(r1pai=45) at root1.zig:22:14
+            \\    frame #2: inline_call`root0.main at root0.zig:35:16
+            ,
+            \\  * frame #0: inline_call`root0.main [inlined] m1cfi(m1cai=37) at mod1.zig:29:5
+            \\    frame #1: inline_call`root0.main [inlined] r1pfi(r1pai=45) at root1.zig:23:15
+            \\    frame #2: inline_call`root0.main at root0.zig:35:16
+            ,
+            \\  * frame #0: inline_call`root0.r0cf(r0ca=57) at root0.zig:26:5
+            \\    frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.zig:6:15
+            \\    frame #2: inline_call`root0.main at root0.zig:36:14
+            ,
+            \\  * frame #0: inline_call`mod0.m0pf [inlined] r0cfi(r0cai=58) at root0.zig:29:5
+            \\    frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.zig:7:16
+            \\    frame #2: inline_call`root0.main at root0.zig:36:14
+            ,
+            \\  * frame #0: inline_call`root1.r1cf(r1ca=59) at root1.zig:26:5
+            \\    frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.zig:8:15
+            \\    frame #2: inline_call`root0.main at root0.zig:36:14
+            ,
+            \\  * frame #0: inline_call`mod0.m0pf [inlined] r1cfi(r1cai=60) at root1.zig:29:5
+            \\    frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.zig:9:16
+            \\    frame #2: inline_call`root0.main at root0.zig:36:14
+            ,
+            \\  * frame #0: inline_call`mod0.m0cf(m0ca=61) at mod0.zig:26:5
+            \\    frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.zig:10:14
+            \\    frame #2: inline_call`root0.main at root0.zig:36:14
+            ,
+            \\  * frame #0: inline_call`mod0.m0pf [inlined] m0cfi(m0cai=62) at mod0.zig:29:5
+            \\    frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.zig:11:15
+            \\    frame #2: inline_call`root0.main at root0.zig:36:14
+            ,
+            \\  * frame #0: inline_call`mod1.m1cf(m1ca=63) at mod1.zig:26:5
+            \\    frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.zig:12:14
+            \\    frame #2: inline_call`root0.main at root0.zig:36:14
+            ,
+            \\  * frame #0: inline_call`mod0.m0pf [inlined] m1cfi(m1cai=48) at mod1.zig:29:5
+            \\    frame #1: inline_call`mod0.m0pf(m0pa=56) at mod0.zig:13:15
+            \\    frame #2: inline_call`root0.main at root0.zig:36:14
+            ,
+            \\  * frame #0: inline_call`root0.r0cf(r0ca=66) at root0.zig:26:5
+            \\    frame #1: inline_call`root0.main [inlined] m0pfi(m0pai=67) at mod0.zig:16:15
+            \\    frame #2: inline_call`root0.main at root0.zig:37:15
+            ,
+            \\  * frame #0: inline_call`root0.main [inlined] r0cfi(r0cai=65) at root0.zig:29:5
+            \\    frame #1: inline_call`root0.main [inlined] m0pfi(m0pai=67) at mod0.zig:17:16
+            \\    frame #2: inline_call`root0.main at root0.zig:37:15
+            ,
+            \\  * frame #0: inline_call`root1.r1cf(r1ca=64) at root1.zig:26:5
+            \\    frame #1: inline_call`root0.main [inlined] m0pfi(m0pai=67) at mod0.zig:18:15
+            \\    frame #2: inline_call`root0.main at root0.zig:37:15
+            ,
+            \\  * frame #0: inline_call`root0.main [inlined] r1cfi(r1cai=71) at root1.zig:29:5
+            \\    frame #1: inline_call`root0.main [inlined] m0pfi(m0pai=67) at mod0.zig:19:16
+            \\    frame #2: inline_call`root0.main at root0.zig:37:15
+            ,
+            \\  * frame #0: inline_call`mod0.m0cf(m0ca=70) at mod0.zig:26:5
+            \\    frame #1: inline_call`root0.main [inlined] m0pfi(m0pai=67) at mod0.zig:20:14
+            \\    frame #2: inline_call`root0.main at root0.zig:37:15
+            ,
+            \\  * frame #0: inline_call`root0.main [inlined] m0cfi(m0cai=69) at mod0.zig:29:5
+            \\    frame #1: inline_call`root0.main [inlined] m0pfi(m0pai=67) at mod0.zig:21:15
+            \\    frame #2: inline_call`root0.main at root0.zig:37:15
+            ,
+            \\  * frame #0: inline_call`mod1.m1cf(m1ca=68) at mod1.zig:26:5
+            \\    frame #1: inline_call`root0.main [inlined] m0pfi(m0pai=67) at mod0.zig:22:14
+            \\    frame #2: inline_call`root0.main at root0.zig:37:15
+            ,
+            \\  * frame #0: inline_call`root0.main [inlined] m1cfi(m1cai=75) at mod1.zig:29:5
+            \\    frame #1: inline_call`root0.main [inlined] m0pfi(m0pai=67) at mod0.zig:23:15
+            \\    frame #2: inline_call`root0.main at root0.zig:37:15
+            ,
+            \\  * frame #0: inline_call`root0.r0cf(r0ca=79) at root0.zig:26:5
+            \\    frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.zig:6:15
+            \\    frame #2: inline_call`root0.main at root0.zig:38:14
+            ,
+            \\  * frame #0: inline_call`mod1.m1pf [inlined] r0cfi(r0cai=76) at root0.zig:29:5
+            \\    frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.zig:7:16
+            \\    frame #2: inline_call`root0.main at root0.zig:38:14
+            ,
+            \\  * frame #0: inline_call`root1.r1cf(r1ca=77) at root1.zig:26:5
+            \\    frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.zig:8:15
+            \\    frame #2: inline_call`root0.main at root0.zig:38:14
+            ,
+            \\  * frame #0: inline_call`mod1.m1pf [inlined] r1cfi(r1cai=74) at root1.zig:29:5
+            \\    frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.zig:9:16
+            \\    frame #2: inline_call`root0.main at root0.zig:38:14
+            ,
+            \\  * frame #0: inline_call`mod0.m0cf(m0ca=75) at mod0.zig:26:5
+            \\    frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.zig:10:14
+            \\    frame #2: inline_call`root0.main at root0.zig:38:14
+            ,
+            \\  * frame #0: inline_call`mod1.m1pf [inlined] m0cfi(m0cai=72) at mod0.zig:29:5
+            \\    frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.zig:11:15
+            \\    frame #2: inline_call`root0.main at root0.zig:38:14
+            ,
+            \\  * frame #0: inline_call`mod1.m1cf(m1ca=73) at mod1.zig:26:5
+            \\    frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.zig:12:14
+            \\    frame #2: inline_call`root0.main at root0.zig:38:14
+            ,
+            \\  * frame #0: inline_call`mod1.m1pf [inlined] m1cfi(m1cai=70) at mod1.zig:29:5
+            \\    frame #1: inline_call`mod1.m1pf(m1pa=78) at mod1.zig:13:15
+            \\    frame #2: inline_call`root0.main at root0.zig:38:14
+            ,
+            \\  * frame #0: inline_call`root0.r0cf(r0ca=88) at root0.zig:26:5
+            \\    frame #1: inline_call`root0.main [inlined] m1pfi(m1pai=89) at mod1.zig:16:15
+            \\    frame #2: inline_call`root0.main at root0.zig:39:15
+            ,
+            \\  * frame #0: inline_call`root0.main [inlined] r0cfi(r0cai=91) at root0.zig:29:5
+            \\    frame #1: inline_call`root0.main [inlined] m1pfi(m1pai=89) at mod1.zig:17:16
+            \\    frame #2: inline_call`root0.main at root0.zig:39:15
+            ,
+            \\  * frame #0: inline_call`root1.r1cf(r1ca=90) at root1.zig:26:5
+            \\    frame #1: inline_call`root0.main [inlined] m1pfi(m1pai=89) at mod1.zig:18:15
+            \\    frame #2: inline_call`root0.main at root0.zig:39:15
+            ,
+            \\  * frame #0: inline_call`root0.main [inlined] r1cfi(r1cai=93) at root1.zig:29:5
+            \\    frame #1: inline_call`root0.main [inlined] m1pfi(m1pai=89) at mod1.zig:19:16
+            \\    frame #2: inline_call`root0.main at root0.zig:39:15
+            ,
+            \\  * frame #0: inline_call`mod0.m0cf(m0ca=92) at mod0.zig:26:5
+            \\    frame #1: inline_call`root0.main [inlined] m1pfi(m1pai=89) at mod1.zig:20:14
+            \\    frame #2: inline_call`root0.main at root0.zig:39:15
+            ,
+            \\  * frame #0: inline_call`root0.main [inlined] m0cfi(m0cai=95) at mod0.zig:29:5
+            \\    frame #1: inline_call`root0.main [inlined] m1pfi(m1pai=89) at mod1.zig:21:15
+            \\    frame #2: inline_call`root0.main at root0.zig:39:15
+            ,
+            \\  * frame #0: inline_call`mod1.m1cf(m1ca=94) at mod1.zig:26:5
+            \\    frame #1: inline_call`root0.main [inlined] m1pfi(m1pai=89) at mod1.zig:22:14
+            \\    frame #2: inline_call`root0.main at root0.zig:39:15
+            ,
+            \\  * frame #0: inline_call`root0.main [inlined] m1cfi(m1cai=81) at mod1.zig:29:5
+            \\    frame #1: inline_call`root0.main [inlined] m1pfi(m1pai=89) at mod1.zig:23:15
+            \\    frame #2: inline_call`root0.main at root0.zig:39:15
         },
     );
     db.addLldbTest(

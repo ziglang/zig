@@ -54,7 +54,7 @@ pub const EXC = enum(exception_type_t) {
     /// Abnormal process exited to corpse state
     CORPSE_NOTIFY = 13,
 
-    pub const TYPES_COUNT = @typeInfo(EXC).Enum.fields.len;
+    pub const TYPES_COUNT = @typeInfo(EXC).@"enum".fields.len;
     pub const SOFT_SIGNAL = 0x10003;
 
     pub const MASK = packed struct(u32) {

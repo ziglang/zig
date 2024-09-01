@@ -160,7 +160,7 @@ pub fn floorq(x: f128) callconv(.C) f128 {
 }
 
 pub fn floorl(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __floorh(x),
         32 => return floorf(x),
         64 => return floor(x),

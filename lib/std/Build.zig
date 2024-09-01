@@ -408,7 +408,7 @@ fn createChildOnly(
 
 fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOptionsMap {
     var user_input_options = UserInputOptionsMap.init(allocator);
-    inline for (@typeInfo(@TypeOf(args)).Struct.fields) |field| {
+    inline for (@typeInfo(@TypeOf(args)).@"struct".fields) |field| {
         const v = @field(args, field.name);
         const T = @TypeOf(v);
         switch (T) {
@@ -454,28 +454,28 @@ fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOption
                 }) catch @panic("OOM");
             },
             else => switch (@typeInfo(T)) {
-                .Bool => {
+                .bool => {
                     user_input_options.put(field.name, .{
                         .name = field.name,
                         .value = .{ .scalar = if (v) "true" else "false" },
                         .used = false,
                     }) catch @panic("OOM");
                 },
-                .Enum, .EnumLiteral => {
+                .@"enum", .enum_literal => {
                     user_input_options.put(field.name, .{
                         .name = field.name,
                         .value = .{ .scalar = @tagName(v) },
                         .used = false,
                     }) catch @panic("OOM");
                 },
-                .ComptimeInt, .Int => {
+                .comptime_int, .int => {
                     user_input_options.put(field.name, .{
                         .name = field.name,
                         .value = .{ .scalar = std.fmt.allocPrint(allocator, "{d}", .{v}) catch @panic("OOM") },
                         .used = false,
                     }) catch @panic("OOM");
                 },
-                .ComptimeFloat, .Float => {
+                .comptime_float, .float => {
                     user_input_options.put(field.name, .{
                         .name = field.name,
                         .value = .{ .scalar = std.fmt.allocPrint(allocator, "{e}", .{v}) catch @panic("OOM") },
@@ -1111,7 +1111,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
     const description = b.dupe(description_raw);
     const type_id = comptime typeToEnum(T);
     const enum_options = if (type_id == .@"enum" or type_id == .enum_list) blk: {
-        const EnumType = if (type_id == .enum_list) @typeInfo(T).Pointer.child else T;
+        const EnumType = if (type_id == .enum_list) @typeInfo(T).pointer.child else T;
         const fields = comptime std.meta.fields(EnumType);
         var options = ArrayList([]const u8).initCapacity(b.allocator, fields.len) catch @panic("OOM");
 
@@ -1265,7 +1265,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
                 return null;
             },
             .scalar => |s| {
-                const Child = @typeInfo(T).Pointer.child;
+                const Child = @typeInfo(T).pointer.child;
                 const value = std.meta.stringToEnum(Child, s) orelse {
                     log.err("Expected -D{s} to be of type {s}.", .{ name, @typeName(Child) });
                     b.markInvalidUserInput();
@@ -1274,7 +1274,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
                 return b.allocator.dupe(Child, &[_]Child{value}) catch @panic("OOM");
             },
             .list => |lst| {
-                const Child = @typeInfo(T).Pointer.child;
+                const Child = @typeInfo(T).pointer.child;
                 var new_list = b.allocator.alloc(Child, lst.items.len) catch @panic("OOM");
                 for (lst.items, 0..) |str, i| {
                     const value = std.meta.stringToEnum(Child, str) orelse {
@@ -1542,15 +1542,15 @@ fn typeToEnum(comptime T: type) TypeId {
     return switch (T) {
         std.zig.BuildId => .build_id,
         else => return switch (@typeInfo(T)) {
-            .Int => .int,
-            .Float => .float,
-            .Bool => .bool,
-            .Enum => .@"enum",
-            .Pointer => |pointer| switch (pointer.child) {
+            .int => .int,
+            .float => .float,
+            .bool => .bool,
+            .@"enum" => .@"enum",
+            .pointer => |pointer| switch (pointer.child) {
                 u8 => .string,
                 []const u8 => .list,
                 else => switch (@typeInfo(pointer.child)) {
-                    .Enum => .enum_list,
+                    .@"enum" => .enum_list,
                     else => @compileError("Unsupported type: " ++ @typeName(T)),
                 },
             },
@@ -1726,7 +1726,7 @@ pub fn fmt(b: *Build, comptime format: []const u8, args: anytype) []u8 {
 }
 
 fn supportedWindowsProgramExtension(ext: []const u8) bool {
-    inline for (@typeInfo(std.process.Child.WindowsExtension).Enum.fields) |field| {
+    inline for (@typeInfo(std.process.Child.WindowsExtension).@"enum".fields) |field| {
         if (std.ascii.eqlIgnoreCase(ext, "." ++ field.name)) return true;
     }
     return false;
@@ -1925,7 +1925,7 @@ inline fn findImportPkgHashOrFatal(b: *Build, comptime asking_build_zig: type, c
     const build_runner = @import("root");
     const deps = build_runner.dependencies;
 
-    const b_pkg_hash, const b_pkg_deps = comptime for (@typeInfo(deps.packages).Struct.decls) |decl| {
+    const b_pkg_hash, const b_pkg_deps = comptime for (@typeInfo(deps.packages).@"struct".decls) |decl| {
         const pkg_hash = decl.name;
         const pkg = @field(deps.packages, pkg_hash);
         if (@hasDecl(pkg, "build_zig") and pkg.build_zig == asking_build_zig) break .{ pkg_hash, pkg.deps };
@@ -1963,7 +1963,7 @@ pub fn lazyDependency(b: *Build, name: []const u8, args: anytype) ?*Dependency {
     const deps = build_runner.dependencies;
     const pkg_hash = findPkgHashOrFatal(b, name);
 
-    inline for (@typeInfo(deps.packages).Struct.decls) |decl| {
+    inline for (@typeInfo(deps.packages).@"struct".decls) |decl| {
         if (mem.eql(u8, decl.name, pkg_hash)) {
             const pkg = @field(deps.packages, decl.name);
             const available = !@hasDecl(pkg, "available") or pkg.available;
@@ -1983,7 +1983,7 @@ pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
     const deps = build_runner.dependencies;
     const pkg_hash = findPkgHashOrFatal(b, name);
 
-    inline for (@typeInfo(deps.packages).Struct.decls) |decl| {
+    inline for (@typeInfo(deps.packages).@"struct".decls) |decl| {
         if (mem.eql(u8, decl.name, pkg_hash)) {
             const pkg = @field(deps.packages, decl.name);
             if (@hasDecl(pkg, "available")) {
@@ -2013,7 +2013,7 @@ pub inline fn lazyImport(
     const deps = build_runner.dependencies;
     const pkg_hash = findImportPkgHashOrFatal(b, asking_build_zig, dep_name);
 
-    inline for (@typeInfo(deps.packages).Struct.decls) |decl| {
+    inline for (@typeInfo(deps.packages).@"struct".decls) |decl| {
         if (comptime mem.eql(u8, decl.name, pkg_hash)) {
             const pkg = @field(deps.packages, decl.name);
             const available = !@hasDecl(pkg, "available") or pkg.available;
@@ -2042,7 +2042,7 @@ pub fn dependencyFromBuildZig(
     const deps = build_runner.dependencies;
 
     find_dep: {
-        const pkg, const pkg_hash = inline for (@typeInfo(deps.packages).Struct.decls) |decl| {
+        const pkg, const pkg_hash = inline for (@typeInfo(deps.packages).@"struct".decls) |decl| {
             const pkg_hash = decl.name;
             const pkg = @field(deps.packages, pkg_hash);
             if (@hasDecl(pkg, "build_zig") and pkg.build_zig == build_zig) break .{ pkg, pkg_hash };
@@ -2150,9 +2150,9 @@ fn dependencyInner(
 }
 
 pub fn runBuild(b: *Build, build_zig: anytype) anyerror!void {
-    switch (@typeInfo(@typeInfo(@TypeOf(build_zig.build)).Fn.return_type.?)) {
-        .Void => build_zig.build(b),
-        .ErrorUnion => try build_zig.build(b),
+    switch (@typeInfo(@typeInfo(@TypeOf(build_zig.build)).@"fn".return_type.?)) {
+        .void => build_zig.build(b),
+        .error_union => try build_zig.build(b),
         else => @compileError("expected return type of build to be 'void' or '!void'"),
     }
 }

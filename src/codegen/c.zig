@@ -1401,7 +1401,7 @@ pub const DeclGen = struct {
                                 try writer.writeByte('(');
                                 try dg.renderCType(writer, ctype);
                                 try writer.writeByte(')');
-                            } else if (field_ty.zigTypeTag(zcu) == .Float) {
+                            } else if (field_ty.zigTypeTag(zcu) == .float) {
                                 try writer.writeByte('(');
                                 try dg.renderCType(writer, ctype);
                                 try writer.writeByte(')');
@@ -4473,8 +4473,8 @@ fn airCall(
 
     const callee_ty = f.typeOf(pl_op.operand);
     const fn_info = zcu.typeToFunc(switch (callee_ty.zigTypeTag(zcu)) {
-        .Fn => callee_ty,
-        .Pointer => callee_ty.childType(zcu),
+        .@"fn" => callee_ty,
+        .pointer => callee_ty.childType(zcu),
         else => unreachable,
     }).?;
     const ret_ty = Type.fromInterned(fn_info.return_type);
@@ -5848,7 +5848,7 @@ fn airUnwrapErrUnionErr(f: *Function, inst: Air.Inst.Index) !CValue {
     const operand_ty = f.typeOf(ty_op.operand);
     try reap(f, inst, &.{ty_op.operand});
 
-    const operand_is_ptr = operand_ty.zigTypeTag(zcu) == .Pointer;
+    const operand_is_ptr = operand_ty.zigTypeTag(zcu) == .pointer;
     const error_union_ty = if (operand_is_ptr) operand_ty.childType(zcu) else operand_ty;
     const error_ty = error_union_ty.errorUnionSet(zcu);
     const payload_ty = error_union_ty.errorUnionPayload(zcu);
@@ -7011,23 +7011,23 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
         .Or => if (use_operator) .{ .infix = " |= " } else .{ .builtin = .{ .operation = "or" } },
         .Xor => if (use_operator) .{ .infix = " ^= " } else .{ .builtin = .{ .operation = "xor" } },
         .Min => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Int => if (use_operator) .{ .ternary = " < " } else .{ .builtin = .{ .operation = "min" } },
-            .Float => .{ .builtin = .{ .operation = "min" } },
+            .int => if (use_operator) .{ .ternary = " < " } else .{ .builtin = .{ .operation = "min" } },
+            .float => .{ .builtin = .{ .operation = "min" } },
             else => unreachable,
         },
         .Max => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Int => if (use_operator) .{ .ternary = " > " } else .{ .builtin = .{ .operation = "max" } },
-            .Float => .{ .builtin = .{ .operation = "max" } },
+            .int => if (use_operator) .{ .ternary = " > " } else .{ .builtin = .{ .operation = "max" } },
+            .float => .{ .builtin = .{ .operation = "max" } },
             else => unreachable,
         },
         .Add => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Int => if (use_operator) .{ .infix = " += " } else .{ .builtin = .{ .operation = "addw", .info = .bits } },
-            .Float => .{ .builtin = .{ .operation = "add" } },
+            .int => if (use_operator) .{ .infix = " += " } else .{ .builtin = .{ .operation = "addw", .info = .bits } },
+            .float => .{ .builtin = .{ .operation = "add" } },
             else => unreachable,
         },
         .Mul => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Int => if (use_operator) .{ .infix = " *= " } else .{ .builtin = .{ .operation = "mulw", .info = .bits } },
-            .Float => .{ .builtin = .{ .operation = "mul" } },
+            .int => if (use_operator) .{ .infix = " *= " } else .{ .builtin = .{ .operation = "mulw", .info = .bits } },
+            .float => .{ .builtin = .{ .operation = "mul" } },
             else => unreachable,
         },
     };
@@ -7050,38 +7050,38 @@ fn airReduce(f: *Function, inst: Air.Inst.Index) !CValue {
 
     try f.object.dg.renderValue(writer, switch (reduce.operation) {
         .Or, .Xor => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Bool => Value.false,
-            .Int => try pt.intValue(scalar_ty, 0),
+            .bool => Value.false,
+            .int => try pt.intValue(scalar_ty, 0),
             else => unreachable,
         },
         .And => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Bool => Value.true,
-            .Int => switch (scalar_ty.intInfo(zcu).signedness) {
+            .bool => Value.true,
+            .int => switch (scalar_ty.intInfo(zcu).signedness) {
                 .unsigned => try scalar_ty.maxIntScalar(pt, scalar_ty),
                 .signed => try pt.intValue(scalar_ty, -1),
             },
             else => unreachable,
         },
         .Add => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Int => try pt.intValue(scalar_ty, 0),
-            .Float => try pt.floatValue(scalar_ty, 0.0),
+            .int => try pt.intValue(scalar_ty, 0),
+            .float => try pt.floatValue(scalar_ty, 0.0),
             else => unreachable,
         },
         .Mul => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Int => try pt.intValue(scalar_ty, 1),
-            .Float => try pt.floatValue(scalar_ty, 1.0),
+            .int => try pt.intValue(scalar_ty, 1),
+            .float => try pt.floatValue(scalar_ty, 1.0),
             else => unreachable,
         },
         .Min => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Bool => Value.true,
-            .Int => try scalar_ty.maxIntScalar(pt, scalar_ty),
-            .Float => try pt.floatValue(scalar_ty, std.math.nan(f128)),
+            .bool => Value.true,
+            .int => try scalar_ty.maxIntScalar(pt, scalar_ty),
+            .float => try pt.floatValue(scalar_ty, std.math.nan(f128)),
             else => unreachable,
         },
         .Max => switch (scalar_ty.zigTypeTag(zcu)) {
-            .Bool => Value.false,
-            .Int => try scalar_ty.minIntScalar(pt, scalar_ty),
-            .Float => try pt.floatValue(scalar_ty, std.math.nan(f128)),
+            .bool => Value.false,
+            .int => try scalar_ty.minIntScalar(pt, scalar_ty),
+            .float => try pt.floatValue(scalar_ty, std.math.nan(f128)),
             else => unreachable,
         },
     }, .Initializer);
@@ -7765,7 +7765,7 @@ fn fmtStringLiteral(str: []const u8, sentinel: ?u8) std.fmt.Formatter(formatStri
 }
 
 fn undefPattern(comptime IntType: type) IntType {
-    const int_info = @typeInfo(IntType).Int;
+    const int_info = @typeInfo(IntType).int;
     const UnsignedType = std.meta.Int(.unsigned, int_info.bits);
     return @as(IntType, @bitCast(@as(UnsignedType, (1 << (int_info.bits | 1)) / 3)));
 }
@@ -8027,7 +8027,7 @@ const Vectorize = struct {
     pub fn start(f: *Function, inst: Air.Inst.Index, writer: anytype, ty: Type) !Vectorize {
         const pt = f.object.dg.pt;
         const zcu = pt.zcu;
-        return if (ty.zigTypeTag(zcu) == .Vector) index: {
+        return if (ty.zigTypeTag(zcu) == .vector) index: {
             const local = try f.allocLocal(inst, Type.usize);
 
             try writer.writeAll("for (");
@@ -8063,7 +8063,7 @@ const Vectorize = struct {
 fn lowersToArray(ty: Type, pt: Zcu.PerThread) bool {
     const zcu = pt.zcu;
     return switch (ty.zigTypeTag(zcu)) {
-        .Array, .Vector => return true,
+        .array, .vector => return true,
         else => return ty.isAbiInt(zcu) and toCIntBits(@as(u32, @intCast(ty.bitSize(zcu)))) == null,
     };
 }

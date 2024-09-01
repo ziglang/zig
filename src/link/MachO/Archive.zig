@@ -90,7 +90,7 @@ pub fn writeHeader(
         .ar_fmag = undefined,
     };
     @memset(mem.asBytes(&hdr), 0x20);
-    inline for (@typeInfo(ar_hdr).Struct.fields) |field| {
+    inline for (@typeInfo(ar_hdr).@"struct".fields) |field| {
         var stream = std.io.fixedBufferStream(&@field(hdr, field.name));
         stream.writer().print("0", .{}) catch unreachable;
     }

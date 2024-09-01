@@ -204,7 +204,7 @@ pub const StubsHelperSection = struct {
         for (macho_file.stubs.symbols.items) |ref| {
             const sym = ref.getSymbol(macho_file).?;
             if (sym.flags.weak) continue;
-            const offset = macho_file.lazy_bind.offsets.items[idx];
+            const offset = macho_file.lazy_bind_section.offsets.items[idx];
             const source: i64 = @intCast(sect.addr + preamble_size + entry_size * idx);
             const target: i64 = @intCast(sect.addr);
             switch (cpu_arch) {

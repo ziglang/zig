@@ -119,7 +119,7 @@ fn shuffle(ptr: usize, comptime From: type, comptime To: type) usize {
     const pResult = @as(*align(1) [array_len]To, @ptrCast(&result));
     var i: usize = 0;
     while (i < array_len) : (i += 1) {
-        inline for (@typeInfo(To).Struct.fields) |f| {
+        inline for (@typeInfo(To).@"struct".fields) |f| {
             @field(pResult[i], f.name) = @field(pSource[i], f.name);
         }
     }

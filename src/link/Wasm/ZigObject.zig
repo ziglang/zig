@@ -805,7 +805,7 @@ pub fn getUavVAddr(
     const is_wasm32 = target.cpu.arch == .wasm32;
     const zcu = wasm_file.base.comp.zcu.?;
     const ty = Type.fromInterned(zcu.intern_pool.typeOf(uav));
-    if (ty.zigTypeTag(zcu) == .Fn) {
+    if (ty.zigTypeTag(zcu) == .@"fn") {
         std.debug.assert(reloc_info.addend == 0); // addend not allowed for function relocations
         try parent_atom.relocs.append(gpa, .{
             .index = target_symbol_index,

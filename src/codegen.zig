@@ -113,8 +113,8 @@ pub fn generateLazyFunction(
 
 fn writeFloat(comptime F: type, f: F, target: std.Target, endian: std.builtin.Endian, code: []u8) void {
     _ = target;
-    const bits = @typeInfo(F).Float.bits;
-    const Int = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = bits } });
+    const bits = @typeInfo(F).float.bits;
+    const Int = @Type(.{ .int = .{ .signedness = .unsigned, .bits = bits } });
     const int: Int = @bitCast(f);
     mem.writeInt(Int, code[0..@divExact(bits, 8)], int, endian);
 }
@@ -167,7 +167,7 @@ pub fn generateLazySymbol(
         }
         mem.writeInt(u32, code.items[offset..][0..4], @intCast(code.items.len), endian);
         return Result.ok;
-    } else if (Type.fromInterned(lazy_sym.ty).zigTypeTag(pt.zcu) == .Enum) {
+    } else if (Type.fromInterned(lazy_sym.ty).zigTypeTag(pt.zcu) == .@"enum") {
         alignment.* = .@"1";
         const enum_ty = Type.fromInterned(lazy_sym.ty);
         const tag_names = enum_ty.enumFields(pt.zcu);
@@ -519,7 +519,7 @@ pub fn generateSymbol(
 
                             // pointer may point to a decl which must be marked used
                             // but can also result in a relocation. Therefore we handle those separately.
-                            if (Type.fromInterned(field_ty).zigTypeTag(zcu) == .Pointer) {
+                            if (Type.fromInterned(field_ty).zigTypeTag(zcu) == .pointer) {
                                 const field_size = math.cast(usize, Type.fromInterned(field_ty).abiSize(zcu)) orelse
                                     return error.Overflow;
                                 var tmp_list = try std.ArrayList(u8).initCapacity(code.allocator, field_size);
@@ -678,7 +678,7 @@ fn lowerPtr(
             const base_ptr = Value.fromInterned(field.base);
             const base_ty = base_ptr.typeOf(zcu).childType(zcu);
             const field_off: u64 = switch (base_ty.zigTypeTag(zcu)) {
-                .Pointer => off: {
+                .pointer => off: {
                     assert(base_ty.isSlice(zcu));
                     break :off switch (field.index) {
                         Value.slice_ptr_index => 0,
@@ -686,7 +686,7 @@ fn lowerPtr(
                         else => unreachable,
                     };
                 },
-                .Struct, .Union => switch (base_ty.containerLayout(zcu)) {
+                .@"struct", .@"union" => switch (base_ty.containerLayout(zcu)) {
                     .auto => base_ty.structFieldOffset(@intCast(field.index), zcu),
                     .@"extern", .@"packed" => unreachable,
                 },
@@ -721,7 +721,7 @@ fn lowerUavRef(
     const uav_val = uav.val;
     const uav_ty = Type.fromInterned(ip.typeOf(uav_val));
     log.debug("lowerUavRef: ty = {}", .{uav_ty.fmt(pt)});
-    const is_fn_body = uav_ty.zigTypeTag(zcu) == .Fn;
+    const is_fn_body = uav_ty.zigTypeTag(zcu) == .@"fn";
     if (!is_fn_body and !uav_ty.hasRuntimeBits(zcu)) {
         try code.appendNTimes(0xaa, ptr_width_bytes);
         return Result.ok;
@@ -768,7 +768,7 @@ fn lowerNavRef(
 
     const ptr_width = target.ptrBitWidth();
     const nav_ty = Type.fromInterned(ip.getNav(nav_index).typeOf(ip));
-    const is_fn_body = nav_ty.zigTypeTag(zcu) == .Fn;
+    const is_fn_body = nav_ty.zigTypeTag(zcu) == .@"fn";
     if (!is_fn_body and !nav_ty.hasRuntimeBits(zcu)) {
         try code.appendNTimes(0xaa, @divExact(ptr_width, 8));
         return Result.ok;
@@ -836,16 +836,6 @@ pub const GenResult = union(enum) {
         /// Traditionally, this corresponds to emitting a relocation in a relocatable object file.
         lea_symbol: u32,
     };
-
-    fn fail(
-        gpa: Allocator,
-        src_loc: Zcu.LazySrcLoc,
-        comptime format: []const u8,
-        args: anytype,
-    ) Allocator.Error!GenResult {
-        const msg = try ErrorMsg.create(gpa, src_loc, format, args);
-        return .{ .fail = msg };
-    }
 };
 
 fn genNavRef(
@@ -880,7 +870,7 @@ fn genNavRef(
         if (zcu.typeToFunc(fn_ty).?.is_generic) {
             return .{ .mcv = .{ .immediate = fn_ty.abiAlignment(zcu).toByteUnits().? } };
         }
-    } else if (ty.zigTypeTag(zcu) == .Pointer) {
+    } else if (ty.zigTypeTag(zcu) == .pointer) {
         const elem_ty = ty.elemType2(zcu);
         if (!elem_ty.hasRuntimeBits(zcu)) {
             return .{ .mcv = .{ .immediate = elem_ty.abiAlignment(zcu).toByteUnits().? } };
@@ -935,7 +925,8 @@ fn genNavRef(
         const atom = p9.getAtom(atom_index);
         return .{ .mcv = .{ .memory = atom.getOffsetTableAddress(p9) } };
     } else {
-        return GenResult.fail(gpa, src_loc, "TODO genNavRef for target {}", .{target});
+        const msg = try ErrorMsg.create(gpa, src_loc, "TODO genNavRef for target {}", .{target});
+        return .{ .fail = msg };
     }
 }
 
@@ -955,8 +946,8 @@ pub fn genTypedValue(
     if (val.isUndef(zcu)) return .{ .mcv = .undef };
 
     switch (ty.zigTypeTag(zcu)) {
-        .Void => return .{ .mcv = .none },
-        .Pointer => switch (ty.ptrSize(zcu)) {
+        .void => return .{ .mcv = .none },
+        .pointer => switch (ty.ptrSize(zcu)) {
             .Slice => {},
             else => switch (val.toIntern()) {
                 .null_value => {
@@ -991,7 +982,7 @@ pub fn genTypedValue(
                 },
             },
         },
-        .Int => {
+        .int => {
             const info = ty.intInfo(zcu);
             if (info.bits <= target.ptrBitWidth()) {
                 const unsigned: u64 = switch (info.signedness) {
@@ -1001,10 +992,10 @@ pub fn genTypedValue(
                 return .{ .mcv = .{ .immediate = unsigned } };
             }
         },
-        .Bool => {
+        .bool => {
             return .{ .mcv = .{ .immediate = @intFromBool(val.toBool()) } };
         },
-        .Optional => {
+        .optional => {
             if (ty.isPtrLikeOptional(zcu)) {
                 return genTypedValue(
                     lf,
@@ -1017,7 +1008,7 @@ pub fn genTypedValue(
                 return .{ .mcv = .{ .immediate = @intFromBool(!val.isNull(zcu)) } };
             }
         },
-        .Enum => {
+        .@"enum" => {
             const enum_tag = ip.indexToKey(val.toIntern()).enum_tag;
             return genTypedValue(
                 lf,
@@ -1027,12 +1018,12 @@ pub fn genTypedValue(
                 target,
             );
         },
-        .ErrorSet => {
+        .error_set => {
             const err_name = ip.indexToKey(val.toIntern()).err.name;
             const error_index = try pt.getErrorValue(err_name);
             return .{ .mcv = .{ .immediate = error_index } };
         },
-        .ErrorUnion => {
+        .error_union => {
             const err_type = ty.errorUnionSet(zcu);
             const payload_type = ty.errorUnionPayload(zcu);
             if (!payload_type.hasRuntimeBitsIgnoreComptime(zcu)) {
@@ -1060,14 +1051,14 @@ pub fn genTypedValue(
             }
         },
 
-        .ComptimeInt => unreachable,
-        .ComptimeFloat => unreachable,
-        .Type => unreachable,
-        .EnumLiteral => unreachable,
-        .NoReturn => unreachable,
-        .Undefined => unreachable,
-        .Null => unreachable,
-        .Opaque => unreachable,
+        .comptime_int => unreachable,
+        .comptime_float => unreachable,
+        .type => unreachable,
+        .enum_literal => unreachable,
+        .noreturn => unreachable,
+        .undefined => unreachable,
+        .null => unreachable,
+        .@"opaque" => unreachable,
 
         else => {},
     }

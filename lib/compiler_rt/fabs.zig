@@ -38,7 +38,7 @@ pub fn fabsq(a: f128) callconv(.C) f128 {
 }
 
 pub fn fabsl(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __fabsh(x),
         32 => return fabsf(x),
         64 => return fabs(x),
@@ -50,7 +50,7 @@ pub fn fabsl(x: c_longdouble) callconv(.C) c_longdouble {
 
 inline fn generic_fabs(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
-    const TBits = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
+    const TBits = std.meta.Int(.unsigned, @typeInfo(T).float.bits);
     const float_bits: TBits = @bitCast(x);
     const remove_sign = ~@as(TBits, 0) >> 1;
     return @bitCast(float_bits & remove_sign);

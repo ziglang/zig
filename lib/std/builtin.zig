@@ -48,14 +48,12 @@ pub const StackTrace = struct {
         if (builtin.os.tag == .freestanding) return;
 
         _ = options;
-        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-        defer arena.deinit();
         const debug_info = std.debug.getSelfDebugInfo() catch |err| {
             return writer.print("\nUnable to print stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
         };
         const tty_config = std.io.tty.detectConfig(std.io.getStdErr());
         try writer.writeAll("\n");
-        std.debug.writeStackTrace(self, writer, arena.allocator(), debug_info, tty_config) catch |err| {
+        std.debug.writeStackTrace(self, writer, debug_info, tty_config) catch |err| {
             try writer.print("Unable to print stack trace: {s}\n", .{@errorName(err)});
         };
     }
@@ -257,30 +255,30 @@ pub const TypeId = std.meta.Tag(Type);
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const Type = union(enum) {
-    Type: void,
-    Void: void,
-    Bool: void,
-    NoReturn: void,
-    Int: Int,
-    Float: Float,
-    Pointer: Pointer,
-    Array: Array,
-    Struct: Struct,
-    ComptimeFloat: void,
-    ComptimeInt: void,
-    Undefined: void,
-    Null: void,
-    Optional: Optional,
-    ErrorUnion: ErrorUnion,
-    ErrorSet: ErrorSet,
-    Enum: Enum,
-    Union: Union,
-    Fn: Fn,
-    Opaque: Opaque,
-    Frame: Frame,
-    AnyFrame: AnyFrame,
-    Vector: Vector,
-    EnumLiteral: void,
+    type: void,
+    void: void,
+    bool: void,
+    noreturn: void,
+    int: Int,
+    float: Float,
+    pointer: Pointer,
+    array: Array,
+    @"struct": Struct,
+    comptime_float: void,
+    comptime_int: void,
+    undefined: void,
+    null: void,
+    optional: Optional,
+    error_union: ErrorUnion,
+    error_set: ErrorSet,
+    @"enum": Enum,
+    @"union": Union,
+    @"fn": Fn,
+    @"opaque": Opaque,
+    frame: Frame,
+    @"anyframe": AnyFrame,
+    vector: Vector,
+    enum_literal: void,
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
@@ -603,7 +601,7 @@ pub const VaList = switch (builtin.cpu.arch) {
         .ios, .macos, .tvos, .watchos, .visionos => *u8,
         else => @compileError("disabled due to miscompilations"), // VaListAarch64,
     },
-    .arm => switch (builtin.os.tag) {
+    .arm, .armeb, .thumb, .thumbeb => switch (builtin.os.tag) {
         .ios, .macos, .tvos, .watchos, .visionos => *u8,
         else => *anyopaque,
     },

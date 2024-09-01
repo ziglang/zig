@@ -1,14 +1,14 @@
 const std = @import("std");
 
 pub inline fn truncf(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t {
-    const src_rep_t = std.meta.Int(.unsigned, @typeInfo(src_t).Float.bits);
-    const dst_rep_t = std.meta.Int(.unsigned, @typeInfo(dst_t).Float.bits);
+    const src_rep_t = std.meta.Int(.unsigned, @typeInfo(src_t).float.bits);
+    const dst_rep_t = std.meta.Int(.unsigned, @typeInfo(dst_t).float.bits);
     const srcSigBits = std.math.floatMantissaBits(src_t);
     const dstSigBits = std.math.floatMantissaBits(dst_t);
 
     // Various constants whose values follow from the type parameters.
     // Any reasonable optimizer will fold and propagate all of these.
-    const srcBits = @typeInfo(src_t).Float.bits;
+    const srcBits = @typeInfo(src_t).float.bits;
     const srcExpBits = srcBits - srcSigBits - 1;
     const srcInfExp = (1 << srcExpBits) - 1;
     const srcExpBias = srcInfExp >> 1;
@@ -23,7 +23,7 @@ pub inline fn truncf(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t
     const srcQNaN = 1 << (srcSigBits - 1);
     const srcNaNCode = srcQNaN - 1;
 
-    const dstBits = @typeInfo(dst_t).Float.bits;
+    const dstBits = @typeInfo(dst_t).float.bits;
     const dstExpBits = dstBits - dstSigBits - 1;
     const dstInfExp = (1 << dstExpBits) - 1;
     const dstExpBias = dstInfExp >> 1;
@@ -100,7 +100,7 @@ pub inline fn truncf(comptime dst_t: type, comptime src_t: type, a: src_t) dst_t
 }
 
 pub inline fn trunc_f80(comptime dst_t: type, a: f80) dst_t {
-    const dst_rep_t = std.meta.Int(.unsigned, @typeInfo(dst_t).Float.bits);
+    const dst_rep_t = std.meta.Int(.unsigned, @typeInfo(dst_t).float.bits);
     const src_sig_bits = std.math.floatMantissaBits(f80) - 1; // -1 for the integer bit
     const dst_sig_bits = std.math.floatMantissaBits(dst_t);
 
@@ -109,7 +109,7 @@ pub inline fn trunc_f80(comptime dst_t: type, a: f80) dst_t {
     const round_mask = (1 << (src_sig_bits - dst_sig_bits)) - 1;
     const halfway = 1 << (src_sig_bits - dst_sig_bits - 1);
 
-    const dst_bits = @typeInfo(dst_t).Float.bits;
+    const dst_bits = @typeInfo(dst_t).float.bits;
     const dst_exp_bits = dst_bits - dst_sig_bits - 1;
     const dst_inf_exp = (1 << dst_exp_bits) - 1;
     const dst_exp_bias = dst_inf_exp >> 1;

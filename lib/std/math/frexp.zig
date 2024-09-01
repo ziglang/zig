@@ -21,7 +21,7 @@ pub fn Frexp(comptime T: type) type {
 pub fn frexp(x: anytype) Frexp(@TypeOf(x)) {
     const T: type = @TypeOf(x);
 
-    const bits: comptime_int = @typeInfo(T).Float.bits;
+    const bits: comptime_int = @typeInfo(T).float.bits;
     const Int: type = std.meta.Int(.unsigned, bits);
 
     const exp_bits: comptime_int = math.floatExponentBits(T);

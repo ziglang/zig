@@ -100,7 +100,7 @@ pub fn truncq(x: f128) callconv(.C) f128 {
 }
 
 pub fn truncl(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __trunch(x),
         32 => return truncf(x),
         64 => return trunc(x),

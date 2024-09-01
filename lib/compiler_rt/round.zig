@@ -142,7 +142,7 @@ pub fn roundq(x_: f128) callconv(.C) f128 {
 }
 
 pub fn roundl(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __roundh(x),
         32 => return roundf(x),
         64 => return round(x),

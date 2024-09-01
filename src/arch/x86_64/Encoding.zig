@@ -845,7 +845,7 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
 
 const mnemonic_to_encodings_map = init: {
     @setEvalBranchQuota(5_000);
-    const mnemonic_count = @typeInfo(Mnemonic).Enum.fields.len;
+    const mnemonic_count = @typeInfo(Mnemonic).@"enum".fields.len;
     var mnemonic_map: [mnemonic_count][]Data = .{&.{}} ** mnemonic_count;
     const encodings = @import("encodings.zig");
     for (encodings.table) |entry| mnemonic_map[@intFromEnum(entry[0])].len += 1;
@@ -856,8 +856,8 @@ const mnemonic_to_encodings_map = init: {
         storage_i += value.len;
     }
     var mnemonic_i: [mnemonic_count]usize = .{0} ** mnemonic_count;
-    const ops_len = @typeInfo(std.meta.FieldType(Data, .ops)).Array.len;
-    const opc_len = @typeInfo(std.meta.FieldType(Data, .opc)).Array.len;
+    const ops_len = @typeInfo(std.meta.FieldType(Data, .ops)).array.len;
+    const opc_len = @typeInfo(std.meta.FieldType(Data, .opc)).array.len;
     for (encodings.table) |entry| {
         const i = &mnemonic_i[@intFromEnum(entry[0])];
         mnemonic_map[@intFromEnum(entry[0])][i.*] = .{
