@@ -377,7 +377,7 @@ pub fn dumpStackTrace(stack_trace: std.builtin.StackTrace) void {
             stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
-        writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, io.tty.detectConfig(io.getStdErr())) catch |err| {
+        writeStackTrace(stack_trace, stderr, debug_info, io.tty.detectConfig(io.getStdErr())) catch |err| {
             stderr.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
@@ -520,11 +520,9 @@ fn waitForOtherThreadToFinishPanicking() void {
 pub fn writeStackTrace(
     stack_trace: std.builtin.StackTrace,
     out_stream: anytype,
-    allocator: mem.Allocator,
     debug_info: *SelfInfo,
     tty_config: io.tty.Config,
 ) !void {
-    _ = allocator;
     if (builtin.strip_debug_info) return error.MissingDebugInfo;
     var frame_index: usize = 0;
     var frames_left: usize = @min(stack_trace.index, stack_trace.instruction_addresses.len);
@@ -1452,7 +1450,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
                     .index = frames.len,
                     .instruction_addresses = frames,
                 };
-                writeStackTrace(stack_trace, stderr, getDebugInfoAllocator(), debug_info, tty_config) catch continue;
+                writeStackTrace(stack_trace, stderr, debug_info, tty_config) catch continue;
             }
             if (t.index > end) {
                 stderr.print("{d} more traces not shown; consider increasing trace size\n", .{
