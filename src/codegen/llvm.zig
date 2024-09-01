@@ -1107,12 +1107,12 @@ pub const Object = struct {
             const behavior_max = try o.builder.metadataConstant(try o.builder.intConst(.i32, 7));
             const behavior_min = try o.builder.metadataConstant(try o.builder.intConst(.i32, 8));
 
-            const large_pic = target_util.usesLargePIC(comp.root_mod.resolved_target.result);
+            const pic_level = target_util.picLevel(comp.root_mod.resolved_target.result);
             if (comp.root_mod.pic) {
                 module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
                     behavior_min,
                     try o.builder.metadataString("PIC Level"),
-                    try o.builder.metadataConstant(try o.builder.intConst(.i32, @as(i32, if (large_pic) 2 else 1))),
+                    try o.builder.metadataConstant(try o.builder.intConst(.i32, pic_level)),
                 ));
             }
 
@@ -1120,7 +1120,7 @@ pub const Object = struct {
                 module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
                     behavior_max,
                     try o.builder.metadataString("PIE Level"),
-                    try o.builder.metadataConstant(try o.builder.intConst(.i32, @as(i32, if (large_pic) 2 else 1))),
+                    try o.builder.metadataConstant(try o.builder.intConst(.i32, pic_level)),
                 ));
             }
 

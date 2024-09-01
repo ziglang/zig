@@ -49,10 +49,10 @@ pub fn requiresPIC(target: std.Target, linking_libc: bool) bool {
         (target.abi == .ohos and target.cpu.arch == .aarch64);
 }
 
-pub fn usesLargePIC(target: std.Target) bool {
+pub fn picLevel(target: std.Target) u32 {
     // MIPS always uses PIC level 1; other platforms vary in their default PIC levels, but they
     // support both level 1 and 2, in which case we prefer 2.
-    return !target.cpu.arch.isMIPS();
+    return if (target.cpu.arch.isMIPS()) 1 else 2;
 }
 
 /// This is not whether the target supports Position Independent Code, but whether the -fPIC
