@@ -1102,12 +1102,15 @@ pub const Object = struct {
             var module_flags = try std.ArrayList(Builder.Metadata).initCapacity(o.gpa, 6);
             defer module_flags.deinit();
 
+            const behavior_error = try o.builder.metadataConstant(try o.builder.intConst(.i32, 1));
             const behavior_warning = try o.builder.metadataConstant(try o.builder.intConst(.i32, 2));
+            const behavior_max = try o.builder.metadataConstant(try o.builder.intConst(.i32, 7));
+            const behavior_min = try o.builder.metadataConstant(try o.builder.intConst(.i32, 8));
 
             const large_pic = target_util.usesLargePIC(comp.root_mod.resolved_target.result);
             if (comp.root_mod.pic) {
                 module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
-                    behavior_warning,
+                    behavior_min,
                     try o.builder.metadataString("PIC Level"),
                     try o.builder.metadataConstant(try o.builder.intConst(.i32, @as(i32, if (large_pic) 2 else 1))),
                 ));
@@ -1115,7 +1118,7 @@ pub const Object = struct {
 
             if (comp.config.pie) {
                 module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
-                    behavior_warning,
+                    behavior_max,
                     try o.builder.metadataString("PIE Level"),
                     try o.builder.metadataConstant(try o.builder.intConst(.i32, @as(i32, if (large_pic) 2 else 1))),
                 ));
@@ -1123,7 +1126,7 @@ pub const Object = struct {
 
             if (comp.root_mod.code_model != .default) {
                 module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
-                    behavior_warning,
+                    behavior_error,
                     try o.builder.metadataString("Code Model"),
                     try o.builder.metadataConstant(try o.builder.intConst(.i32, @as(i32, switch (comp.root_mod.code_model) {
                         .tiny => 0,
@@ -1147,14 +1150,14 @@ pub const Object = struct {
                     .strip => unreachable,
                     .dwarf => |f| {
                         module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
-                            behavior_warning,
+                            behavior_max,
                             try o.builder.metadataString("Dwarf Version"),
                             try o.builder.metadataConstant(try o.builder.intConst(.i32, 4)),
                         ));
 
                         if (f == .@"64") {
                             module_flags.appendAssumeCapacity(try o.builder.metadataModuleFlag(
-                                behavior_warning,
+                                behavior_max,
                                 try o.builder.metadataString("DWARF64"),
                                 try o.builder.metadataConstant(.@"1"),
                             ));
