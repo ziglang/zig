@@ -1234,9 +1234,9 @@ pub const Memory = struct {
             .rm => {
                 if (mem.info.base == .reg and @as(Register, @enumFromInt(mem.base)) == .rip) {
                     assert(mem.info.index == .none and mem.info.scale == .@"1");
-                    return encoder.Instruction.Memory.rip(mem.info.size, @bitCast(mem.off));
+                    return encoder.Instruction.Memory.initRip(mem.info.size, @bitCast(mem.off));
                 }
-                return encoder.Instruction.Memory.sib(mem.info.size, .{
+                return encoder.Instruction.Memory.initSib(mem.info.size, .{
                     .disp = @bitCast(mem.off),
                     .base = switch (mem.info.base) {
                         .none => .none,
@@ -1258,7 +1258,7 @@ pub const Memory = struct {
             },
             .off => {
                 assert(mem.info.base == .reg);
-                return encoder.Instruction.Memory.moffs(
+                return encoder.Instruction.Memory.initMoffs(
                     @enumFromInt(mem.base),
                     @as(u64, mem.extra) << 32 | mem.off,
                 );

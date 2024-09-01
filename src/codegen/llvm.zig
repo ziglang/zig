@@ -1276,8 +1276,11 @@ pub const Object = struct {
         );
         errdefer target_machine.dispose();
 
-        if (pic) module.setModulePICLevel();
-        if (comp.config.pie) module.setModulePIELevel();
+        const large_pic = target_util.usesLargePIC(comp.root_mod.resolved_target.result);
+
+        if (pic) module.setModulePICLevel(large_pic);
+        if (comp.config.pie) module.setModulePIELevel(large_pic);
+
         if (code_model != .Default) module.setModuleCodeModel(code_model);
 
         if (comp.llvm_opt_bisect_limit >= 0) {
@@ -1294,6 +1297,8 @@ pub const Object = struct {
             .tsan = options.sanitize_thread,
             .sancov = options.fuzz,
             .lto = options.lto,
+            // https://github.com/ziglang/zig/issues/21215
+            .allow_fast_isel = !comp.root_mod.resolved_target.result.cpu.arch.isMIPS(),
             .asm_filename = null,
             .bin_filename = options.bin_path,
             .llvm_ir_filename = options.post_ir_path,
@@ -1325,7 +1330,7 @@ pub const Object = struct {
             },
         };
         if (options.asm_path != null and options.bin_path != null) {
-            if (target_machine.emitToFile(module, &error_message, lowered_options)) {
+            if (target_machine.emitToFile(module, &error_message, &lowered_options)) {
                 defer llvm.disposeMessage(error_message);
                 log.err("LLVM failed to emit bin={s} ir={s}: {s}", .{
                     emit_bin_msg, post_llvm_ir_msg, error_message,
@@ -1337,7 +1342,7 @@ pub const Object = struct {
         }
 
         lowered_options.asm_filename = options.asm_path;
-        if (target_machine.emitToFile(module, &error_message, lowered_options)) {
+        if (target_machine.emitToFile(module, &error_message, &lowered_options)) {
             defer llvm.disposeMessage(error_message);
             log.err("LLVM failed to emit asm={s} bin={s} ir={s} bc={s}: {s}", .{
                 emit_asm_msg,  emit_bin_msg, post_llvm_ir_msg, post_llvm_bc_msg,

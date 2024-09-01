@@ -1501,7 +1501,7 @@ test values {
         X,
         Y,
         Z,
-        pub const X = 1;
+        const A = 1;
     };
     try testing.expectEqualSlices(E, &.{ .X, .Y, .Z }, values(E));
 }

@@ -48,14 +48,12 @@ pub const StackTrace = struct {
         if (builtin.os.tag == .freestanding) return;
 
         _ = options;
-        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-        defer arena.deinit();
         const debug_info = std.debug.getSelfDebugInfo() catch |err| {
             return writer.print("\nUnable to print stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
         };
         const tty_config = std.io.tty.detectConfig(std.io.getStdErr());
         try writer.writeAll("\n");
-        std.debug.writeStackTrace(self, writer, arena.allocator(), debug_info, tty_config) catch |err| {
+        std.debug.writeStackTrace(self, writer, debug_info, tty_config) catch |err| {
             try writer.print("Unable to print stack trace: {s}\n", .{@errorName(err)});
         };
     }
@@ -603,7 +601,7 @@ pub const VaList = switch (builtin.cpu.arch) {
         .ios, .macos, .tvos, .watchos, .visionos => *u8,
         else => @compileError("disabled due to miscompilations"), // VaListAarch64,
     },
-    .arm => switch (builtin.os.tag) {
+    .arm, .armeb, .thumb, .thumbeb => switch (builtin.os.tag) {
         .ios, .macos, .tvos, .watchos, .visionos => *u8,
         else => *anyopaque,
     },
