@@ -72,6 +72,8 @@ pub const EXC = enum(exception_type_t) {
         GUARD: bool = false,
         CORPSE_NOTIFY: bool = false,
 
+        _padding: u19 = 0,
+
         pub const MACHINE: MASK = @bitCast(@as(u32, 0));
 
         pub const ALL: MASK = .{
