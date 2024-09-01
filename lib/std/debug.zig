@@ -1347,7 +1347,7 @@ pub fn dumpStackPointerAddr(prefix: []const u8) void {
     const sp = asm (""
         : [argc] "={rsp}" (-> usize),
     );
-    std.debug.print("{} sp = 0x{x}\n", .{ prefix, sp });
+    std.debug.print("{s} sp = 0x{x}\n", .{ prefix, sp });
 }
 
 test "manage resources correctly" {
