@@ -510,6 +510,8 @@ pub fn ArrayHashMap(
 /// `store_hash` is `false` and the number of entries in the map is less than 9,
 /// the overhead cost of using `ArrayHashMapUnmanaged` rather than `std.ArrayList` is
 /// only a single pointer-sized integer.
+///
+/// Default initialization of this struct is deprecated; use `.empty` instead.
 pub fn ArrayHashMapUnmanaged(
     comptime K: type,
     comptime V: type,
@@ -537,6 +539,12 @@ pub fn ArrayHashMapUnmanaged(
 
         /// Used to detect memory safety violations.
         pointer_stability: std.debug.SafetyLock = .{},
+
+        /// A map containing no keys or values.
+        pub const empty: Self = .{
+            .entries = .{},
+            .index_header = null,
+        };
 
         /// Modifying the key is allowed only if it does not change the hash.
         /// Modifying the value is allowed.

@@ -1072,6 +1072,8 @@ fn analyzeBodyInner(
             .indexable_ptr_elem_type      => try sema.zirIndexablePtrElemType(block, inst),
             .vector_elem_type             => try sema.zirVectorElemType(block, inst),
             .enum_literal                 => try sema.zirEnumLiteral(block, inst),
+            .decl_literal                 => try sema.zirDeclLiteral(block, inst, true),
+            .decl_literal_no_coerce       => try sema.zirDeclLiteral(block, inst, false),
             .int_from_enum                => try sema.zirIntFromEnum(block, inst),
             .enum_from_int                => try sema.zirEnumFromInt(block, inst),
             .err_union_code               => try sema.zirErrUnionCode(block, inst),
@@ -1177,6 +1179,8 @@ fn analyzeBodyInner(
             .validate_array_init_ref_ty   => try sema.zirValidateArrayInitRefTy(block, inst),
             .opt_eu_base_ptr_init         => try sema.zirOptEuBasePtrInit(block, inst),
             .coerce_ptr_elem_ty           => try sema.zirCoercePtrElemTy(block, inst),
+            .try_operand_ty               => try sema.zirTryOperandTy(block, inst, false),
+            .try_ref_operand_ty           => try sema.zirTryOperandTy(block, inst, true),
 
             .clz       => try sema.zirBitCount(block, inst, .clz,      Value.clz),
             .ctz       => try sema.zirBitCount(block, inst, .ctz,      Value.ctz),
@@ -2023,6 +2027,22 @@ fn genericPoisonReason(sema: *Sema, block: *Block, ref: Zir.Inst.Ref) GenericPoi
             .indexable_ptr_elem_type, .vector_elem_type => {
                 const un_node = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
                 cur = un_node.operand;
+            },
+            .try_operand_ty => {
+                // Either the input type was itself poison, or it was a slice, which we cannot translate
+                // to an overall result type.
+                const un_node = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
+                const operand_ref = sema.resolveInst(un_node.operand) catch |err| switch (err) {
+                    error.GenericPoison => unreachable, // this is a type, not a value
+                };
+                if (operand_ref == .generic_poison_type) {
+                    // The input was poison -- keep looking.
+                    cur = un_node.operand;
+                    continue;
+                }
+                // We got a poison because the result type was a slice. This is a tricky case -- let's just
+                // not bother explaining it to the user for now...
+                return .unknown;
             },
             .struct_init_field_type => {
                 const pl_node = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
@@ -4420,6 +4440,59 @@ fn zirCoercePtrElemTy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
             // single-pointer or a many-pointer.
             return uncoerced_val;
         },
+    }
+}
+
+fn zirTryOperandTy(sema: *Sema, block: *Block, inst: Zir.Inst.Index, is_ref: bool) CompileError!Air.Inst.Ref {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    const un_node = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
+    const src = block.nodeOffset(un_node.src_node);
+
+    const operand_ty = sema.resolveType(block, src, un_node.operand) catch |err| switch (err) {
+        error.GenericPoison => return .generic_poison_type,
+        else => |e| return e,
+    };
+
+    const payload_ty = if (is_ref) ty: {
+        if (!operand_ty.isSinglePointer(zcu)) {
+            return .generic_poison_type; // we can't get a meaningful result type here, since it will be `*E![n]T`, and we don't know `n`.
+        }
+        break :ty operand_ty.childType(zcu);
+    } else operand_ty;
+
+    const err_set_ty = err_set: {
+        // There are awkward cases, like `?E`. Our strategy is to repeatedly unwrap optionals
+        // until we hit an error union or set.
+        var cur_ty = sema.fn_ret_ty;
+        while (true) {
+            switch (cur_ty.zigTypeTag(zcu)) {
+                .error_set => break :err_set cur_ty,
+                .error_union => break :err_set cur_ty.errorUnionSet(zcu),
+                .optional => cur_ty = cur_ty.optionalChild(zcu),
+                else => return sema.failWithOwnedErrorMsg(block, msg: {
+                    const msg = try sema.errMsg(src, "expected '{}', found error set", .{sema.fn_ret_ty.fmt(pt)});
+                    errdefer msg.destroy(sema.gpa);
+                    const ret_ty_src: LazySrcLoc = .{
+                        .base_node_inst = sema.getOwnerFuncDeclInst(),
+                        .offset = .{ .node_offset_fn_type_ret_ty = 0 },
+                    };
+                    try sema.errNote(ret_ty_src, msg, "function cannot return an error", .{});
+                    break :msg msg;
+                }),
+            }
+        }
+    };
+
+    const eu_ty = try pt.errorUnionType(err_set_ty, payload_ty);
+
+    if (is_ref) {
+        var ptr_info = operand_ty.ptrInfo(zcu);
+        ptr_info.child = eu_ty.toIntern();
+        const eu_ptr_ty = try pt.ptrTypeSema(ptr_info);
+        return Air.internedToRef(eu_ptr_ty.toIntern());
+    } else {
+        return Air.internedToRef(eu_ty.toIntern());
     }
 }
 
@@ -8801,6 +8874,54 @@ fn zirEnumLiteral(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     return Air.internedToRef((try pt.intern(.{
         .enum_literal = try zcu.intern_pool.getOrPutString(sema.gpa, pt.tid, name, .no_embedded_nulls),
     })));
+}
+
+fn zirDeclLiteral(sema: *Sema, block: *Block, inst: Zir.Inst.Index, do_coerce: bool) CompileError!Air.Inst.Ref {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
+    const src = block.nodeOffset(inst_data.src_node);
+    const extra = sema.code.extraData(Zir.Inst.Field, inst_data.payload_index).data;
+    const name = try zcu.intern_pool.getOrPutString(
+        sema.gpa,
+        pt.tid,
+        sema.code.nullTerminatedString(extra.field_name_start),
+        .no_embedded_nulls,
+    );
+    const orig_ty = sema.resolveType(block, src, extra.lhs) catch |err| switch (err) {
+        error.GenericPoison => {
+            // Treat this as a normal enum literal.
+            return Air.internedToRef(try pt.intern(.{ .enum_literal = name }));
+        },
+        else => |e| return e,
+    };
+
+    var ty = orig_ty;
+    while (true) switch (ty.zigTypeTag(zcu)) {
+        .error_union => ty = ty.errorUnionPayload(zcu),
+        .optional => ty = ty.optionalChild(zcu),
+        .enum_literal, .error_set => {
+            // Treat this as a normal enum literal.
+            return Air.internedToRef(try pt.intern(.{ .enum_literal = name }));
+        },
+        else => break,
+    };
+
+    const result = try sema.fieldVal(block, src, Air.internedToRef(ty.toIntern()), name, src);
+
+    // Decl literals cannot lookup runtime `var`s.
+    if (!try sema.isComptimeKnown(result)) {
+        return sema.fail(block, src, "decl literal must be comptime-known", .{});
+    }
+
+    if (do_coerce) {
+        return sema.coerce(block, orig_ty, result, src);
+    } else {
+        return result;
+    }
 }
 
 fn zirIntFromEnum(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
