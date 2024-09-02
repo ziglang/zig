@@ -27,7 +27,7 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
             }
 
             // If dest is large, read from the unbuffered reader directly into the destination.
-            if (dest.len > buffer_size) {
+            if (dest.len >= buffer_size) {
                 return self.unbuffered_reader.read(dest);
             }
 
@@ -135,12 +135,13 @@ test "Block" {
         var test_buf_reader: BufferedReader(4, BlockReader) = .{
             .unbuffered_reader = BlockReader.init(block, 2),
         };
+        const reader = test_buf_reader.reader();
         var out_buf: [4]u8 = undefined;
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try reader.readAll(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, block);
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try reader.readAll(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, block);
-        try testing.expectEqual(try test_buf_reader.read(&out_buf), 0);
+        try testing.expectEqual(try reader.readAll(&out_buf), 0);
     }
 
     // len out < block
@@ -148,14 +149,15 @@ test "Block" {
         var test_buf_reader: BufferedReader(4, BlockReader) = .{
             .unbuffered_reader = BlockReader.init(block, 2),
         };
+        const reader = test_buf_reader.reader();
         var out_buf: [3]u8 = undefined;
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try reader.readAll(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, "012");
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try reader.readAll(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, "301");
-        const n = try test_buf_reader.read(&out_buf);
+        const n = try reader.readAll(&out_buf);
         try testing.expectEqualSlices(u8, out_buf[0..n], "23");
-        try testing.expectEqual(try test_buf_reader.read(&out_buf), 0);
+        try testing.expectEqual(try reader.readAll(&out_buf), 0);
     }
 
     // len out > block
@@ -163,12 +165,13 @@ test "Block" {
         var test_buf_reader: BufferedReader(4, BlockReader) = .{
             .unbuffered_reader = BlockReader.init(block, 2),
         };
+        const reader = test_buf_reader.reader();
         var out_buf: [5]u8 = undefined;
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try reader.readAll(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, "01230");
-        const n = try test_buf_reader.read(&out_buf);
+        const n = try reader.readAll(&out_buf);
         try testing.expectEqualSlices(u8, out_buf[0..n], "123");
-        try testing.expectEqual(try test_buf_reader.read(&out_buf), 0);
+        try testing.expectEqual(try reader.readAll(&out_buf), 0);
     }
 
     // len out == 0
@@ -176,8 +179,9 @@ test "Block" {
         var test_buf_reader: BufferedReader(4, BlockReader) = .{
             .unbuffered_reader = BlockReader.init(block, 2),
         };
+        const reader = test_buf_reader.reader();
         var out_buf: [0]u8 = undefined;
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try reader.readAll(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, "");
     }
 
@@ -186,11 +190,12 @@ test "Block" {
         var test_buf_reader: BufferedReader(5, BlockReader) = .{
             .unbuffered_reader = BlockReader.init(block, 2),
         };
+        const reader = test_buf_reader.reader();
         var out_buf: [4]u8 = undefined;
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try reader.readAll(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, block);
-        _ = try test_buf_reader.read(&out_buf);
+        _ = try reader.readAll(&out_buf);
         try testing.expectEqualSlices(u8, &out_buf, block);
-        try testing.expectEqual(try test_buf_reader.read(&out_buf), 0);
+        try testing.expectEqual(try reader.readAll(&out_buf), 0);
     }
 }
