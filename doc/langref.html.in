@@ -2188,8 +2188,7 @@ or
         </li>
         <li>{#syntax#}bool{#endsyntax#} fields use exactly 1 bit.</li>
         <li>An {#link|enum#} field uses exactly the bit width of its integer tag type.</li>
-        <li>A {#link|packed union#} field uses exactly the bit width of the union field with
-        the largest bit width.</li>
+        <li>A {#link|packed union#} field uses exactly the bit width of its backing integer type.</li>
       </ul>
       <p>
       This means that a {#syntax#}packed struct{#endsyntax#} can participate
@@ -2405,8 +2404,11 @@ or
       {#header_close#}
 
       {#header_open|packed union#}
-      <p>A {#syntax#}packed union{#endsyntax#} has well-defined in-memory layout and is eligible
-          to be in a {#link|packed struct#}.</p>
+      <p>
+      A {#syntax#}packed union{#endsyntax#} has well-defined in-memory layout and is eligible
+      to be in a {#link|packed struct#}. It's required to have a backing integer type and 
+      all fields must have the same bit width as the backing integer type.
+      </p>
       {#header_close#}
 
       {#header_open|Anonymous Union Literals#}
