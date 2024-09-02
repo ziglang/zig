@@ -222,9 +222,9 @@ test "packed union generates correctly aligned type" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    const U = packed union {
+    const U = packed union(usize) {
         f1: *const fn () error{TestUnexpectedResult}!void,
-        f2: u32,
+        f2: usize,
     };
     var foo = [_]U{
         U{ .f1 = doTest },
@@ -359,12 +359,12 @@ test "simple union(enum(u32))" {
     try expect(@intFromEnum(@as(Tag(MultipleChoice), x)) == 60);
 }
 
-const PackedPtrOrInt = packed union {
+const PackedPtrOrInt = packed union(usize) {
     ptr: *u8,
-    int: u64,
+    int: usize,
 };
 test "packed union size" {
-    comptime assert(@sizeOf(PackedPtrOrInt) == 8);
+    comptime assert(@sizeOf(PackedPtrOrInt) == @sizeOf(usize));
 }
 
 const ZeroBits = union {
@@ -1432,13 +1432,13 @@ test "packed union in packed struct" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = packed struct {
-        nested: packed union {
-            val: usize,
+        nested: packed union(u32) {
+            val: i32,
             foo: u32,
         },
         bar: u32,
 
-        fn unpack(self: @This()) usize {
+        fn unpack(self: @This()) u32 {
             return self.nested.foo;
         }
     };
@@ -1520,9 +1520,9 @@ test "packed union with zero-bit field" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = packed struct {
-        nested: packed union {
+        nested: packed union(u0) {
             zero: void,
-            sized: u32,
+            sized: u0,
         },
         bar: u32,
 
@@ -1538,7 +1538,7 @@ test "reinterpreting enum value inside packed union" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    const U = packed union {
+    const U = packed union(u8) {
         tag: enum(u8) { a, b },
         val: u8,
 
@@ -1607,7 +1607,7 @@ test "defined-layout union field pointer has correct alignment" {
     };
 
     const U1 = extern union { x: u32 };
-    const U2 = packed union { x: u32 };
+    const U2 = packed union(u32) { x: u32 };
 
     try S.doTheTest(U1);
     try S.doTheTest(U2);
@@ -1656,7 +1656,7 @@ test "packed union field pointer has correct alignment" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
 
-    const U = packed union { x: u20 };
+    const U = packed union(u20) { x: u20 };
     const S = packed struct(u24) { a: u2, u: U, b: u2 };
 
     var a: S = undefined;
@@ -1727,9 +1727,12 @@ test "memset extern union" {
 test "memset packed union" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
-    const U = packed union {
+    const U = packed union(u32) {
         a: u32,
-        b: u8,
+        b: packed struct {
+            used: u8,
+            unused: u24 = 0,
+        },
     };
 
     const S = struct {
@@ -1737,7 +1740,7 @@ test "memset packed union" {
             var u: U = undefined;
             @memset(std.mem.asBytes(&u), 42);
             try expectEqual(@as(u32, 0x2a2a2a2a), u.a);
-            try expectEqual(@as(u8, 0x2a), u.b);
+            try expectEqual(@as(u8, 0x2a), u.b.used);
         }
     };
 
@@ -1824,116 +1827,6 @@ test "reinterpret extern union" {
     try S.doTheTest();
 }
 
-test "reinterpret packed union" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
-    const U = packed union {
-        foo: u8,
-        bar: u29,
-        baz: u64,
-        qux: u12,
-    };
-
-    const S = struct {
-        fn doTheTest() !void {
-            {
-                const u = blk: {
-                    var u: U = undefined;
-                    @memset(std.mem.asBytes(&u), 0);
-                    u.baz = 0xbbbbbbbb;
-                    u.qux = 0xe2a;
-                    break :blk u;
-                };
-
-                try expectEqual(@as(u8, 0x2a), u.foo);
-                try expectEqual(@as(u12, 0xe2a), u.qux);
-
-                // https://github.com/ziglang/zig/issues/17360
-                if (@inComptime()) {
-                    try expectEqual(@as(u29, 0x1bbbbe2a), u.bar);
-                    try expectEqual(@as(u64, 0xbbbbbe2a), u.baz);
-                }
-            }
-
-            {
-                // Union initialization
-                var u: U = .{ .baz = 0 }; // ensure all bits are defined
-                u.qux = 0xe2a;
-                try expectEqual(@as(u8, 0x2a), u.foo);
-                try expectEqual(@as(u12, 0xe2a), u.qux);
-                try expectEqual(@as(u29, 0xe2a), u.bar & 0xfff);
-                try expectEqual(@as(u64, 0xe2a), u.baz & 0xfff);
-
-                // Writing to a larger field
-                u.baz = 0xbbbbbbbb;
-                try expectEqual(@as(u8, 0xbb), u.foo);
-                try expectEqual(@as(u12, 0xbbb), u.qux);
-                try expectEqual(@as(u29, 0x1bbbbbbb), u.bar);
-                try expectEqual(@as(u64, 0xbbbbbbbb), u.baz);
-
-                // Writing to the same field
-                u.baz = 0xcccccccc;
-                try expectEqual(@as(u8, 0xcc), u.foo);
-                try expectEqual(@as(u12, 0xccc), u.qux);
-                try expectEqual(@as(u29, 0x0ccccccc), u.bar);
-                try expectEqual(@as(u64, 0xcccccccc), u.baz);
-
-                // Writing to a smaller field
-                u.foo = 0xdd;
-                try expectEqual(@as(u8, 0xdd), u.foo);
-                try expectEqual(@as(u12, 0xcdd), u.qux);
-                try expectEqual(@as(u29, 0x0cccccdd), u.bar);
-                try expectEqual(@as(u64, 0xccccccdd), u.baz);
-            }
-        }
-    };
-
-    try comptime S.doTheTest();
-
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    if (builtin.cpu.arch.isPowerPC32()) return error.SkipZigTest; // TODO
-    if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21050
-    if (builtin.cpu.arch.isWasm()) return error.SkipZigTest; // TODO
-    try S.doTheTest();
-}
-
-test "reinterpret packed union inside packed struct" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
-    const U = packed union {
-        a: u7,
-        b: u1,
-    };
-
-    const V = packed struct {
-        lo: U,
-        hi: U,
-    };
-
-    const S = struct {
-        fn doTheTest() !void {
-            var v: V = undefined;
-            @memset(std.mem.asBytes(&v), 0x55);
-            try expectEqual(@as(u7, 0x55), v.lo.a);
-            try expectEqual(@as(u1, 1), v.lo.b);
-            try expectEqual(@as(u7, 0x2a), v.hi.a);
-            try expectEqual(@as(u1, 0), v.hi.b);
-
-            v.lo.b = 0;
-            try expectEqual(@as(u7, 0x54), v.lo.a);
-            try expectEqual(@as(u1, 0), v.lo.b);
-            v.hi.b = 1;
-            try expectEqual(@as(u7, 0x2b), v.hi.a);
-            try expectEqual(@as(u1, 1), v.hi.b);
-        }
-    };
-
-    try comptime S.doTheTest();
-
-    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
-    try S.doTheTest();
-}
-
 test "inner struct initializer uses union layout" {
     const namespace = struct {
         const U = union {
@@ -1962,12 +1855,13 @@ test "inner struct initializer uses packed union layout" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const namespace = struct {
-        const U = packed union {
+        const U = packed union(u32) {
             a: packed struct {
                 x: u32 = @alignOf(U) + 1,
             },
             b: packed struct {
                 y: u16 = @sizeOf(U) + 2,
+                unused: u16 = 0,
             },
         };
     };
@@ -2003,26 +1897,6 @@ test "extern union initialized via reintepreted struct field initializer" {
     try expect(s.u.b == 0xaa);
 }
 
-test "packed union initialized via reintepreted struct field initializer" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
-    const bytes = [_]u8{ 0xaa, 0xbb, 0xcc, 0xdd };
-
-    const U = packed union {
-        a: u32,
-        b: u8,
-    };
-
-    const S = packed struct {
-        u: U = std.mem.bytesAsValue(U, &bytes).*,
-    };
-
-    var s: S = .{};
-    _ = &s;
-    try expect(s.u.a == littleToNativeEndian(u32, 0xddccbbaa));
-    try expect(s.u.b == if (endian == .little) 0xaa else 0xdd);
-}
-
 test "store of comptime reinterpreted memory to extern union" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
@@ -2043,28 +1917,6 @@ test "store of comptime reinterpreted memory to extern union" {
     _ = &u;
     try expect(u.a == littleToNativeEndian(u32, 0xddccbbaa));
     try expect(u.b == 0xaa);
-}
-
-test "store of comptime reinterpreted memory to packed union" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
-    const bytes = [_]u8{ 0xaa, 0xbb, 0xcc, 0xdd };
-
-    const U = packed union {
-        a: u32,
-        b: u8,
-    };
-
-    const reinterpreted = comptime b: {
-        var u: U = undefined;
-        u = std.mem.bytesAsValue(U, &bytes).*;
-        break :b u;
-    };
-
-    var u: U = reinterpreted;
-    _ = &u;
-    try expect(u.a == littleToNativeEndian(u32, 0xddccbbaa));
-    try expect(u.b == if (endian == .little) 0xaa else 0xdd);
 }
 
 test "union field is a pointer to an aligned version of itself" {

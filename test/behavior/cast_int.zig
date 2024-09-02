@@ -139,6 +139,7 @@ test "coerce non byte-sized integers accross 32bits boundary" {
 const Piece = packed struct {
     color: Color,
     type: Type,
+    _: u4 = 0,
 
     const Type = enum(u3) { KING, QUEEN, BISHOP, KNIGHT, ROOK, PAWN };
     const Color = enum(u1) { WHITE, BLACK };
@@ -221,7 +222,7 @@ test "load non byte-sized value in union" {
     // note: this bug is triggered by the == operator, expectEqual will hide it
     // using ptrCast not to depend on unitialised memory state
 
-    var union0: packed union {
+    var union0: packed union(u8) {
         p: Piece,
         int: u8,
     } = .{ .int = 0 };

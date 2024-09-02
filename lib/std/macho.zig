@@ -2110,8 +2110,8 @@ pub const UNWIND_ARM64_FRAMELESS_STACK_SIZE_MASK: u32 = 0x00FFF000;
 pub const UNWIND_ARM64_DWARF_SECTION_OFFSET: u32 = 0x00FFFFFF;
 
 pub const CompactUnwindEncoding = packed struct(u32) {
-    value: packed union {
-        x86_64: packed union {
+    value: packed union(u24) {
+        x86_64: packed union(u24) {
             frame: packed struct(u24) {
                 reg4: u3,
                 reg3: u3,
@@ -2124,7 +2124,7 @@ pub const CompactUnwindEncoding = packed struct(u32) {
             frameless: packed struct(u24) {
                 stack_reg_permutation: u10,
                 stack_reg_count: u3,
-                stack: packed union {
+                stack: packed union(u11) {
                     direct: packed struct(u11) {
                         _: u3,
                         stack_size: u8,
@@ -2137,7 +2137,7 @@ pub const CompactUnwindEncoding = packed struct(u32) {
             },
             dwarf: u24,
         },
-        arm64: packed union {
+        arm64: packed union(u24) {
             frame: packed struct(u24) {
                 x_reg_pairs: packed struct(u5) {
                     x19_x20: u1,
@@ -2161,7 +2161,7 @@ pub const CompactUnwindEncoding = packed struct(u32) {
             dwarf: u24,
         },
     },
-    mode: packed union {
+    mode: packed union(u4) {
         x86_64: UNWIND_X86_64_MODE,
         arm64: UNWIND_ARM64_MODE,
     },

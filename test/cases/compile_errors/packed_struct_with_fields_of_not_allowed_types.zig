@@ -50,7 +50,7 @@ export fn entry10() void {
 }
 export fn entry11() void {
     _ = @sizeOf(packed struct {
-        x: packed union { A: i32, B: u32 },
+        x: packed union(u32) { A: i32, B: u32 },
     });
 }
 const S = struct {

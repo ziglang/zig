@@ -383,7 +383,7 @@ test "accessing reinterpreted memory of parent object" {
 }
 
 test "bitcast packed union to integer" {
-    const U = packed union {
+    const U = packed union(u2) {
         x: i2,
         y: u2,
     };

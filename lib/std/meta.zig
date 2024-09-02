@@ -257,7 +257,7 @@ test containerLayout {
     const U1 = union {
         a: u8,
     };
-    const U2 = packed union {
+    const U2 = packed union(u8) {
         a: u8,
     };
     const U3 = extern union {
@@ -1190,19 +1190,14 @@ test hasMethod {
 pub inline fn hasUniqueRepresentation(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         else => false, // TODO can we know if it's true for some of these types ?
-
         .@"anyframe",
         .@"enum",
         .error_set,
         .@"fn",
         => true,
-
         .bool => false,
-
         .int => |info| @sizeOf(T) * 8 == info.bits,
-
         .pointer => |info| info.size != .Slice,
-
         .optional => |info| switch (@typeInfo(info.child)) {
             .pointer => |ptr| !ptr.is_allowzero and switch (ptr.size) {
                 .Slice, .C => false,
@@ -1210,9 +1205,14 @@ pub inline fn hasUniqueRepresentation(comptime T: type) bool {
             },
             else => false,
         },
-
+        .@"union" => |info| {
+            if (info.layout == .@"packed") {
+                const tag_type = info.tag_type.?; // packed unions require a integer tag type
+                return @sizeOf(tag_type) * 8 == @bitSizeOf(tag_type);
+            }
+            return false;
+        },
         .array => |info| hasUniqueRepresentation(info.child),
-
         .@"struct" => |info| {
             if (info.layout == .@"packed") return @sizeOf(T) * 8 == @bitSizeOf(T);
 
@@ -1225,7 +1225,6 @@ pub inline fn hasUniqueRepresentation(comptime T: type) bool {
 
             return @sizeOf(T) == sum_size;
         },
-
         .vector => |info| hasUniqueRepresentation(info.child) and
             @sizeOf(T) == @sizeOf(info.child) * info.len,
     };
@@ -1274,33 +1273,39 @@ test hasUniqueRepresentation {
 
     try testing.expect(hasUniqueRepresentation(TestStruct6));
 
-    const TestUnion1 = packed union {
+    const TestUnion1 = packed union(u32) {
         a: u32,
-        b: u16,
+        b: i32,
     };
 
-    try testing.expect(!hasUniqueRepresentation(TestUnion1));
+    try testing.expect(hasUniqueRepresentation(TestUnion1));
 
-    const TestUnion2 = extern union {
-        a: u32,
-        b: u16,
+    const TestUnion2 = packed union(u20) {
+        a: u20,
+        b: i20,
     };
-
     try testing.expect(!hasUniqueRepresentation(TestUnion2));
 
-    const TestUnion3 = union {
+    const TestUnion3 = extern union {
         a: u32,
         b: u16,
     };
 
     try testing.expect(!hasUniqueRepresentation(TestUnion3));
 
-    const TestUnion4 = union(enum) {
+    const TestUnion4 = union {
         a: u32,
         b: u16,
     };
 
     try testing.expect(!hasUniqueRepresentation(TestUnion4));
+
+    const TestUnion5 = union(enum) {
+        a: u32,
+        b: u16,
+    };
+
+    try testing.expect(!hasUniqueRepresentation(TestUnion5));
 
     inline for ([_]type{ i0, u8, i16, u32, i64 }) |T| {
         try testing.expect(hasUniqueRepresentation(T));

@@ -1243,8 +1243,8 @@ test "load flag from packed struct in union" {
 
 test "bitcasting a packed struct at comptime and using the result" {
     comptime {
-        const Struct = packed struct {
-            x: packed union { a: u63, b: i32 },
+        const Struct = packed struct(u64) {
+            x: packed union(u63) { a: u63, b: i63 },
             y: u1,
 
             pub fn bitcast(fd: u64) @This() {

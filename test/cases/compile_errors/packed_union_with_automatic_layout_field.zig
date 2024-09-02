@@ -2,7 +2,7 @@ const Foo = struct {
     a: u32,
     b: f32,
 };
-const Payload = packed union {
+const Payload = packed union(u32) {
     A: Foo,
     B: bool,
 };

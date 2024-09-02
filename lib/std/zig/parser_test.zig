@@ -1188,7 +1188,7 @@ test "zig fmt: empty union decls" {
         \\const B = union(enum) {};
         \\const C = union(Foo) {};
         \\const D = extern union {};
-        \\const E = packed union {};
+        \\const E = packed union(u8) {};
         \\
     );
 }
