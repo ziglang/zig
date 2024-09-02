@@ -40,7 +40,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]co
         try zig_object.resolveSymbols(elf_file);
         try elf_file.addCommentString();
         try elf_file.finalizeMergeSections();
-        zig_object.claimUnresolvedObject(elf_file);
+        zig_object.claimUnresolvedRelocatable(elf_file);
 
         for (elf_file.merge_sections.items) |*msec| {
             if (msec.finalized_subsections.items.len == 0) continue;
@@ -280,10 +280,10 @@ fn parseArchive(elf_file: *Elf, path: []const u8) Elf.ParseError!void {
 
 fn claimUnresolved(elf_file: *Elf) void {
     if (elf_file.zigObjectPtr()) |zig_object| {
-        zig_object.claimUnresolvedObject(elf_file);
+        zig_object.claimUnresolvedRelocatable(elf_file);
     }
     for (elf_file.objects.items) |index| {
-        elf_file.file(index).?.object.claimUnresolvedObject(elf_file);
+        elf_file.file(index).?.object.claimUnresolvedRelocatable(elf_file);
     }
 }
 
@@ -349,29 +349,22 @@ fn initComdatGroups(elf_file: *Elf) !void {
 }
 
 fn updateSectionSizes(elf_file: *Elf) !void {
+    for (elf_file.objects.items) |index| {
+        try elf_file.file(index).?.object.allocateAtoms(elf_file);
+    }
+
     const slice = elf_file.sections.slice();
     for (slice.items(.shdr), 0..) |*shdr, shndx| {
         const atom_list = slice.items(.atom_list)[shndx];
-        if (shdr.sh_type != elf.SHT_RELA) {
-            for (atom_list.items) |ref| {
-                const atom_ptr = elf_file.atom(ref) orelse continue;
-                if (!atom_ptr.alive) continue;
-                const offset = atom_ptr.alignment.forward(shdr.sh_size);
-                const padding = offset - shdr.sh_size;
-                atom_ptr.value = @intCast(offset);
-                shdr.sh_size += padding + atom_ptr.size;
-                shdr.sh_addralign = @max(shdr.sh_addralign, atom_ptr.alignment.toByteUnits() orelse 1);
-            }
-        } else {
-            for (atom_list.items) |ref| {
-                const atom_ptr = elf_file.atom(ref) orelse continue;
-                if (!atom_ptr.alive) continue;
-                const relocs = atom_ptr.relocs(elf_file);
-                shdr.sh_size += shdr.sh_entsize * relocs.len;
-            }
-
-            if (shdr.sh_size == 0) shdr.sh_offset = 0;
+        if (shdr.sh_type != elf.SHT_RELA) continue;
+        for (atom_list.items) |ref| {
+            const atom_ptr = elf_file.atom(ref) orelse continue;
+            if (!atom_ptr.alive) continue;
+            const relocs = atom_ptr.relocs(elf_file);
+            shdr.sh_size += shdr.sh_entsize * relocs.len;
         }
+
+        if (shdr.sh_size == 0) shdr.sh_offset = 0;
     }
 
     if (elf_file.eh_frame_section_index) |index| {
@@ -422,74 +415,8 @@ fn allocateAllocSections(elf_file: *Elf) !void {
 }
 
 fn writeAtoms(elf_file: *Elf) !void {
-    const gpa = elf_file.base.comp.gpa;
-    const slice = elf_file.sections.slice();
-
-    // TODO iterate over `output_sections` directly
-    for (slice.items(.shdr), slice.items(.atom_list), 0..) |shdr, atom_list, shndx| {
-        if (shdr.sh_type == elf.SHT_NULL) continue;
-        if (shdr.sh_type == elf.SHT_NOBITS) continue;
-        if (shdr.sh_type == elf.SHT_RELA) continue;
-        if (atom_list.items.len == 0) continue;
-
-        log.debug("writing atoms in '{s}' section", .{elf_file.getShString(shdr.sh_name)});
-
-        // TODO really, really handle debug section separately
-        const base_offset = if (elf_file.zigObjectPtr()) |zo| blk: {
-            break :blk for ([_]?Symbol.Index{
-                zo.debug_info_index,
-                zo.debug_abbrev_index,
-                zo.debug_aranges_index,
-                zo.debug_str_index,
-                zo.debug_line_index,
-                zo.debug_line_str_index,
-                zo.debug_loclists_index,
-                zo.debug_rnglists_index,
-            }) |maybe_sym_index| {
-                const sym_index = maybe_sym_index orelse continue;
-                const sym = zo.symbol(sym_index);
-                const atom_ptr = sym.atom(elf_file).?;
-                if (atom_ptr.output_section_index == shndx) break atom_ptr.size;
-            } else 0;
-        } else 0;
-        const sh_offset = shdr.sh_offset + base_offset;
-        const sh_size = math.cast(usize, shdr.sh_size - base_offset) orelse return error.Overflow;
-
-        const buffer = try gpa.alloc(u8, sh_size);
-        defer gpa.free(buffer);
-        const padding_byte: u8 = if (shdr.sh_type == elf.SHT_PROGBITS and
-            shdr.sh_flags & elf.SHF_EXECINSTR != 0)
-            0xcc // int3
-        else
-            0;
-        @memset(buffer, padding_byte);
-
-        for (atom_list.items) |ref| {
-            const atom_ptr = elf_file.atom(ref).?;
-            assert(atom_ptr.alive);
-
-            const offset = math.cast(usize, atom_ptr.value - @as(i64, @intCast(shdr.sh_addr - base_offset))) orelse
-                return error.Overflow;
-            const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
-
-            log.debug("writing atom({}) from 0x{x} to 0x{x}", .{
-                ref,
-                sh_offset + offset,
-                sh_offset + offset + size,
-            });
-
-            // TODO decompress directly into provided buffer
-            const out_code = buffer[offset..][0..size];
-            const in_code = switch (atom_ptr.file(elf_file).?) {
-                .object => |x| try x.codeDecompressAlloc(elf_file, ref.index),
-                .zig_object => |x| try x.codeAlloc(elf_file, ref.index),
-                else => unreachable,
-            };
-            defer gpa.free(in_code);
-            @memcpy(out_code, in_code);
-        }
-
-        try elf_file.base.file.?.pwriteAll(buffer, sh_offset);
+    for (elf_file.objects.items) |index| {
+        try elf_file.file(index).?.object.writeAtomsRelocatable(elf_file);
     }
 }
 
@@ -541,7 +468,7 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
         const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
         var buffer = try std.ArrayList(u8).initCapacity(gpa, @intCast(sh_size - existing_size));
         defer buffer.deinit();
-        try eh_frame.writeEhFrameObject(elf_file, buffer.writer());
+        try eh_frame.writeEhFrameRelocatable(elf_file, buffer.writer());
         log.debug("writing .eh_frame from 0x{x} to 0x{x}", .{
             shdr.sh_offset + existing_size,
             shdr.sh_offset + sh_size,

@@ -575,7 +575,7 @@ pub fn claimUnresolved(self: *Object, elf_file: *Elf) void {
     }
 }
 
-pub fn claimUnresolvedObject(self: *Object, elf_file: *Elf) void {
+pub fn claimUnresolvedRelocatable(self: *Object, elf_file: *Elf) void {
     const first_global = self.first_global orelse return;
     for (self.globals(), 0..) |*sym, i| {
         const esym_index = @as(u32, @intCast(first_global + i));
@@ -1044,6 +1044,43 @@ pub fn writeAtoms(self: *Object, elf_file: *Elf) !void {
 
     try elf_file.reportUndefinedSymbols(&undefs);
     if (has_reloc_errors) return error.FlushFailure;
+}
+
+pub fn writeAtomsRelocatable(self: *Object, elf_file: *Elf) !void {
+    const gpa = elf_file.base.comp.gpa;
+
+    var buffer = std.ArrayList(u8).init(gpa);
+    defer buffer.deinit();
+
+    log.debug("writing atoms in {}", .{self.fmtPath()});
+
+    for (self.section_chunks.items) |chunk| {
+        const osec = elf_file.sections.items(.shdr)[chunk.output_section_index];
+        if (osec.sh_type == elf.SHT_NOBITS) continue;
+
+        log.debug("  in section '{s}'", .{elf_file.getShString(osec.sh_name)});
+
+        try buffer.ensureUnusedCapacity(chunk.size);
+        buffer.appendNTimesAssumeCapacity(0, chunk.size);
+
+        for (chunk.atoms.items) |atom_index| {
+            const atom_ptr = self.atom(atom_index).?;
+            assert(atom_ptr.alive);
+
+            const offset = math.cast(usize, atom_ptr.value - chunk.value) orelse return error.Overflow;
+            const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
+
+            log.debug("    * atom({d}) at 0x{x}", .{ atom_index, chunk.offset(elf_file) + offset });
+
+            const code = try self.codeDecompressAlloc(elf_file, atom_index);
+            defer gpa.free(code);
+            const out_code = buffer.items[offset..][0..size];
+            @memcpy(out_code, code);
+        }
+
+        try elf_file.base.file.?.pwriteAll(buffer.items, chunk.offset(elf_file));
+        buffer.clearRetainingCapacity();
+    }
 }
 
 pub fn initRelaSections(self: *Object, elf_file: *Elf) !void {

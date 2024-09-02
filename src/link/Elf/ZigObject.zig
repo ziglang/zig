@@ -648,7 +648,7 @@ pub fn claimUnresolved(self: *ZigObject, elf_file: *Elf) void {
     }
 }
 
-pub fn claimUnresolvedObject(self: ZigObject, elf_file: *Elf) void {
+pub fn claimUnresolvedRelocatable(self: ZigObject, elf_file: *Elf) void {
     for (self.global_symbols.items, 0..) |index, i| {
         const global = &self.symbols.items[index];
         const esym = self.symtab.items(.elf_sym)[index];

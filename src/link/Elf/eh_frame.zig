@@ -386,7 +386,7 @@ pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
     if (has_reloc_errors) return error.RelocFailure;
 }
 
-pub fn writeEhFrameObject(elf_file: *Elf, writer: anytype) !void {
+pub fn writeEhFrameRelocatable(elf_file: *Elf, writer: anytype) !void {
     for (elf_file.objects.items) |index| {
         const object = elf_file.file(index).?.object;
 
