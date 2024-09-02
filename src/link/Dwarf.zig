@@ -391,9 +391,9 @@ pub const Section = struct {
             const atom = zo.symbol(sec.index).atom(elf_file).?;
             const shndx = atom.output_section_index;
             if (sec == &dwarf.debug_frame.section)
-                try elf_file.growAllocSection(shndx, len)
+                try elf_file.growAllocSection(shndx, len, sec.alignment.toByteUnits().?)
             else
-                try elf_file.growNonAllocSection(shndx, len, @intCast(sec.alignment.toByteUnits().?), true);
+                try elf_file.growNonAllocSection(shndx, len, sec.alignment.toByteUnits().?, true);
             const shdr = elf_file.sections.items(.shdr)[shndx];
             atom.size = shdr.sh_size;
             atom.alignment = InternPool.Alignment.fromNonzeroByteUnits(shdr.sh_addralign);

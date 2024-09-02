@@ -528,7 +528,7 @@ pub fn findFreeSpace(self: *Elf, object_size: u64, min_alignment: u64) !u64 {
     return start;
 }
 
-pub fn growAllocSection(self: *Elf, shdr_index: u32, needed_size: u64) !void {
+pub fn growAllocSection(self: *Elf, shdr_index: u32, needed_size: u64, min_alignment: u64) !void {
     const slice = self.sections.slice();
     const shdr = &slice.items(.shdr)[shdr_index];
     assert(shdr.sh_flags & elf.SHF_ALLOC != 0);
@@ -547,8 +547,7 @@ pub fn growAllocSection(self: *Elf, shdr_index: u32, needed_size: u64) !void {
             const existing_size = shdr.sh_size;
             shdr.sh_size = 0;
             // Must move the entire section.
-            const alignment = if (maybe_phdr) |phdr| phdr.p_align else shdr.sh_addralign;
-            const new_offset = try self.findFreeSpace(needed_size, alignment);
+            const new_offset = try self.findFreeSpace(needed_size, min_alignment);
 
             log.debug("new '{s}' file offset 0x{x} to 0x{x}", .{
                 self.getShString(shdr.sh_name),
@@ -588,7 +587,7 @@ pub fn growNonAllocSection(
     self: *Elf,
     shdr_index: u32,
     needed_size: u64,
-    min_alignment: u32,
+    min_alignment: u64,
     requires_file_copy: bool,
 ) !void {
     const shdr = &self.sections.items(.shdr)[shdr_index];
@@ -728,9 +727,9 @@ pub fn allocateChunk(self: *Elf, shndx: u32, size: u64, alignment: Atom.Alignmen
     if (expand_section) {
         const needed_size = res.value + size;
         if (shdr.sh_flags & elf.SHF_ALLOC != 0)
-            try self.growAllocSection(shndx, needed_size)
+            try self.growAllocSection(shndx, needed_size, alignment.toByteUnits().?)
         else
-            try self.growNonAllocSection(shndx, needed_size, @intCast(alignment.toByteUnits().?), true);
+            try self.growNonAllocSection(shndx, needed_size, alignment.toByteUnits().?, true);
     }
 
     return res;
@@ -1831,8 +1830,8 @@ pub fn initOutputSection(self: *Elf, args: struct {
         break :blk args.name;
     };
     const @"type" = tt: {
-        if (self.getTarget().cpu.arch == .x86_64 and
-            args.type == elf.SHT_X86_64_UNWIND) break :tt elf.SHT_PROGBITS;
+        if (self.getTarget().cpu.arch == .x86_64 and args.type == elf.SHT_X86_64_UNWIND)
+            break :tt elf.SHT_PROGBITS;
         switch (args.type) {
             elf.SHT_NULL => unreachable,
             elf.SHT_PROGBITS => {
@@ -2896,21 +2895,28 @@ fn initSyntheticSections(self: *Elf) !void {
     const target = self.getTarget();
     const ptr_size = self.ptrWidthBytes();
 
-    const needs_eh_frame = for (self.objects.items) |index| {
+    const needs_eh_frame = if (self.zigObjectPtr()) |zo|
+        zo.eh_frame_index != null
+    else for (self.objects.items) |index| {
         if (self.file(index).?.object.cies.items.len > 0) break true;
     } else false;
     if (needs_eh_frame) {
         if (self.eh_frame_section_index == null) {
-            self.eh_frame_section_index = try self.addSection(.{
-                .name = try self.insertShString(".eh_frame"),
-                .type = if (target.cpu.arch == .x86_64)
-                    elf.SHT_X86_64_UNWIND
-                else
-                    elf.SHT_PROGBITS,
-                .flags = elf.SHF_ALLOC,
-                .addralign = ptr_size,
-                .offset = std.math.maxInt(u64),
-            });
+            self.eh_frame_section_index = blk: {
+                if (self.zigObjectPtr()) |zo| {
+                    if (zo.eh_frame_index) |idx| break :blk zo.symbol(idx).atom(self).?.output_section_index;
+                }
+                break :blk try self.addSection(.{
+                    .name = try self.insertShString(".eh_frame"),
+                    .type = if (target.cpu.arch == .x86_64)
+                        elf.SHT_X86_64_UNWIND
+                    else
+                        elf.SHT_PROGBITS,
+                    .flags = elf.SHF_ALLOC,
+                    .addralign = ptr_size,
+                    .offset = std.math.maxInt(u64),
+                });
+            };
         }
         if (comp.link_eh_frame_hdr) {
             self.eh_frame_hdr_section_index = try self.addSection(.{
