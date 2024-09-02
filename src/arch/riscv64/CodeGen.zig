@@ -3471,9 +3471,48 @@ fn airUnwrapErrPayloadPtr(func: *Func, inst: Air.Inst.Index) !void {
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
+// *(E!T) => *T
 fn airErrUnionPayloadPtrSet(func: *Func, inst: Air.Inst.Index) !void {
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement .errunion_payload_ptr_set for {}", .{func.target.cpu.arch});
+    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
+        const zcu = func.pt.zcu;
+        const src_ty = func.typeOf(ty_op.operand);
+        const src_mcv = try func.resolveInst(ty_op.operand);
+
+        // `src_reg` contains the pointer to the error union
+        const src_reg = switch (src_mcv) {
+            .register => |reg| reg,
+            else => try func.copyToTmpRegister(src_ty, src_mcv),
+        };
+        const src_lock = func.register_manager.lockRegAssumeUnused(src_reg);
+        defer func.register_manager.unlockReg(src_lock);
+
+        // we set the place of where the error would have been to 0
+        const eu_ty = src_ty.childType(zcu);
+        const pl_ty = eu_ty.errorUnionPayload(zcu);
+        const err_ty = eu_ty.errorUnionSet(zcu);
+        const err_off: i32 = @intCast(errUnionErrorOffset(pl_ty, zcu));
+        try func.genSetMem(.{ .reg = src_reg }, err_off, err_ty, .{ .immediate = 0 });
+
+        const dst_reg, const dst_lock = if (func.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+            .{ src_reg, null }
+        else
+            try func.allocReg(.int);
+        defer if (dst_lock) |lock| func.register_manager.unlockReg(lock);
+
+        // move the pointer to be at the payload
+        const pl_off = errUnionPayloadOffset(pl_ty, zcu);
+        try func.genBinOp(
+            .add,
+            .{ .register = src_reg },
+            Type.u64,
+            .{ .immediate = pl_off },
+            Type.u64,
+            dst_reg,
+        );
+
+        break :result .{ .register = dst_reg };
+    };
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 

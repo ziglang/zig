@@ -651,6 +651,14 @@ pub const Inst = struct {
         err_union_code_ptr,
         /// An enum literal. Uses the `str_tok` union field.
         enum_literal,
+        /// A decl literal. This is similar to `field`, but unwraps error unions and optionals,
+        /// and coerces the result to the given type.
+        /// Uses the `pl_node` union field. Payload is `Field`.
+        decl_literal,
+        /// The same as `decl_literal`, but the coercion is omitted. This is used for decl literal
+        /// function call syntax, i.e. `.foo()`.
+        /// Uses the `pl_node` union field. Payload is `Field`.
+        decl_literal_no_coerce,
         /// A switch expression. Uses the `pl_node` union field.
         /// AST node is the switch, payload is `SwitchBlock`.
         switch_block,
@@ -684,6 +692,14 @@ pub const Inst = struct {
         /// operator. Emit a compile error if not.
         /// Uses the `un_tok` union field. Token is the `&` operator. Operand is the type.
         validate_ref_ty,
+        /// Given a type `T`, construct the type `E!T`, where `E` is this function's error set, to be used
+        /// as the result type of a `try` operand. Generic poison is propagated.
+        /// Uses the `un_node` union field. Node is the `try` expression. Operand is the type `T`.
+        try_operand_ty,
+        /// Given a type `*T`, construct the type `*E!T`, where `E` is this function's error set, to be used
+        /// as the result type of a `try` operand whose address is taken with `&`. Generic poison is propagated.
+        /// Uses the `un_node` union field. Node is the `try` expression. Operand is the type `*T`.
+        try_ref_operand_ty,
 
         // The following tags all relate to struct initialization expressions.
 
@@ -1136,6 +1152,8 @@ pub const Inst = struct {
                 .err_union_code_ptr,
                 .ptr_type,
                 .enum_literal,
+                .decl_literal,
+                .decl_literal_no_coerce,
                 .merge_error_sets,
                 .error_union_type,
                 .bit_not,
@@ -1254,6 +1272,8 @@ pub const Inst = struct {
                 .array_init_elem_type,
                 .array_init_elem_ptr,
                 .validate_ref_ty,
+                .try_operand_ty,
+                .try_ref_operand_ty,
                 .restore_err_ret_index_unconditional,
                 .restore_err_ret_index_fn_entry,
                 => false,
@@ -1324,6 +1344,8 @@ pub const Inst = struct {
                 .validate_array_init_result_ty,
                 .validate_ptr_array_init,
                 .validate_ref_ty,
+                .try_operand_ty,
+                .try_ref_operand_ty,
                 => true,
 
                 .param,
@@ -1430,6 +1452,8 @@ pub const Inst = struct {
                 .err_union_code_ptr,
                 .ptr_type,
                 .enum_literal,
+                .decl_literal,
+                .decl_literal_no_coerce,
                 .merge_error_sets,
                 .error_union_type,
                 .bit_not,
@@ -1685,6 +1709,8 @@ pub const Inst = struct {
                 .err_union_code = .un_node,
                 .err_union_code_ptr = .un_node,
                 .enum_literal = .str_tok,
+                .decl_literal = .pl_node,
+                .decl_literal_no_coerce = .pl_node,
                 .switch_block = .pl_node,
                 .switch_block_ref = .pl_node,
                 .switch_block_err_union = .pl_node,
@@ -1698,6 +1724,8 @@ pub const Inst = struct {
                 .opt_eu_base_ptr_init = .un_node,
                 .coerce_ptr_elem_ty = .pl_node,
                 .validate_ref_ty = .un_tok,
+                .try_operand_ty = .un_node,
+                .try_ref_operand_ty = .un_node,
 
                 .int_from_ptr = .un_node,
                 .compile_error = .un_node,
@@ -3828,12 +3856,16 @@ fn findDeclsInner(
         .err_union_code,
         .err_union_code_ptr,
         .enum_literal,
+        .decl_literal,
+        .decl_literal_no_coerce,
         .validate_deref,
         .validate_destructure,
         .field_type_ref,
         .opt_eu_base_ptr_init,
         .coerce_ptr_elem_ty,
         .validate_ref_ty,
+        .try_operand_ty,
+        .try_ref_operand_ty,
         .struct_init_empty,
         .struct_init_empty_result,
         .struct_init_empty_ref_result,

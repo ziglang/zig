@@ -61,7 +61,7 @@ fn nextAfterFloat(comptime T: type, x: T, y: T) T {
         const integer_bit_mask = 1 << math.floatFractionalBits(f80);
         const exponent_bits_mask = (1 << math.floatExponentBits(f80)) - 1;
 
-        var x_parts = math.break_f80(x);
+        var x_parts = math.F80.fromFloat(x);
 
         // Bitwise increment/decrement the fractional part while also taking care to update the
         // exponent if we overflow the fractional part. This might flip the integer bit; this is
@@ -88,7 +88,7 @@ fn nextAfterFloat(comptime T: type, x: T, y: T) T {
         // set to cleared (if the old value was normal) or remained cleared (if the old value was
         // subnormal), both of which are the outcomes we want.
 
-        return math.make_f80(x_parts);
+        return x_parts.toFloat();
     } else {
         const Bits = std.meta.Int(.unsigned, @bitSizeOf(T));
         var x_bits: Bits = @bitCast(x);

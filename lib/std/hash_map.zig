@@ -11,11 +11,11 @@ pub fn getAutoHashFn(comptime K: type, comptime Context: type) (fn (Context, K) 
     comptime {
         assert(@hasDecl(std, "StringHashMap")); // detect when the following message needs updated
         if (K == []const u8) {
-            @compileError("std.auto_hash.autoHash does not allow slices here (" ++
+            @compileError("std.hash.autoHash does not allow slices here (" ++
                 @typeName(K) ++
                 ") because the intent is unclear. " ++
                 "Consider using std.StringHashMap for hashing the contents of []const u8. " ++
-                "Alternatively, consider using std.auto_hash.hash or providing your own hash function instead.");
+                "Alternatively, consider using std.hash.autoHashStrat or providing your own hash function instead.");
         }
     }
 
@@ -721,6 +721,8 @@ pub fn HashMap(
 /// the price of handling size with u32, which should be reasonable enough
 /// for almost all uses.
 /// Deletions are achieved with tombstones.
+///
+/// Default initialization of this struct is deprecated; use `.empty` instead.
 pub fn HashMapUnmanaged(
     comptime K: type,
     comptime V: type,
@@ -761,6 +763,13 @@ pub fn HashMapUnmanaged(
         // This is purely empirical and not a /very smart magic constant™/.
         /// Capacity of the first grow when bootstrapping the hashmap.
         const minimal_capacity = 8;
+
+        /// A map containing no keys or values.
+        pub const empty: Self = .{
+            .metadata = null,
+            .size = 0,
+            .available = 0,
+        };
 
         // This hashmap is specially designed for sizes that fit in a u32.
         pub const Size = u32;

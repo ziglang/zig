@@ -131,7 +131,7 @@ pub inline fn extend_f80(comptime src_t: type, a: std.meta.Int(.unsigned, @typeI
     }
 
     dst.exp |= sign;
-    return std.math.make_f80(dst);
+    return dst.toFloat();
 }
 
 test {

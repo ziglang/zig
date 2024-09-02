@@ -1720,20 +1720,20 @@ pub fn comptimeMod(num: anytype, comptime denom: comptime_int) IntFittingRange(0
 pub const F80 = struct {
     fraction: u64,
     exp: u16,
+
+    pub fn toFloat(self: F80) f80 {
+        const int = (@as(u80, self.exp) << 64) | self.fraction;
+        return @as(f80, @bitCast(int));
+    }
+
+    pub fn fromFloat(x: f80) F80 {
+        const int = @as(u80, @bitCast(x));
+        return .{
+            .fraction = @as(u64, @truncate(int)),
+            .exp = @as(u16, @truncate(int >> 64)),
+        };
+    }
 };
-
-pub fn make_f80(repr: F80) f80 {
-    const int = (@as(u80, repr.exp) << 64) | repr.fraction;
-    return @as(f80, @bitCast(int));
-}
-
-pub fn break_f80(x: f80) F80 {
-    const int = @as(u80, @bitCast(x));
-    return .{
-        .fraction = @as(u64, @truncate(int)),
-        .exp = @as(u16, @truncate(int >> 64)),
-    };
-}
 
 /// Returns -1, 0, or 1.
 /// Supports integer and float types and vectors of integer and float types.

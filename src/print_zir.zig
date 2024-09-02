@@ -277,6 +277,8 @@ const Writer = struct {
             .opt_eu_base_ptr_init,
             .restore_err_ret_index_unconditional,
             .restore_err_ret_index_fn_entry,
+            .try_operand_ty,
+            .try_ref_operand_ty,
             => try self.writeUnNode(stream, inst),
 
             .ref,
@@ -460,6 +462,8 @@ const Writer = struct {
 
             .field_val,
             .field_ptr,
+            .decl_literal,
+            .decl_literal_no_coerce,
             => try self.writePlNodeField(stream, inst),
 
             .field_ptr_named,
