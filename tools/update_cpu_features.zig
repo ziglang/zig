@@ -1348,7 +1348,7 @@ fn processOneTarget(job: Job) anyerror!void {
         try w.print("    @setEvalBranchQuota({d});\n", .{branch_quota});
     }
     try w.writeAll(
-        \\    const len = @typeInfo(Feature).Enum.fields.len;
+        \\    const len = @typeInfo(Feature).@"enum".fields.len;
         \\    std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
         \\    var result: [len]CpuFeature = undefined;
         \\
@@ -1417,7 +1417,7 @@ fn processOneTarget(job: Job) anyerror!void {
         \\    const ti = @typeInfo(Feature);
         \\    for (&result, 0..) |*elem, i| {
         \\        elem.index = i;
-        \\        elem.name = ti.Enum.fields[i].name;
+        \\        elem.name = ti.@"enum".fields[i].name;
         \\    }
         \\    break :blk result;
         \\};

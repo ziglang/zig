@@ -33,7 +33,7 @@ pub fn BitWriter(comptime endian: std.builtin.Endian, comptime WriterType: type)
             if (bits == 0) return;
 
             const U = @TypeOf(value);
-            comptime assert(@typeInfo(U).Int.signedness == .unsigned);
+            comptime assert(@typeInfo(U).int.signedness == .unsigned);
 
             //by extending the buffer to a minimum of u8 we can cover a number of edge cases
             // related to shifting and casting.

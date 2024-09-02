@@ -937,8 +937,8 @@ fn testEmitStaticLib(b: *Build, opts: Options) *Step {
         \\}
         \\export var strongBar: usize = 100;
         \\comptime {
-        \\    @export(weakFoo, .{ .name = "weakFoo", .linkage = .weak });
-        \\    @export(strongBar, .{ .name = "strongBarAlias", .linkage = .strong });
+        \\    @export(&weakFoo, .{ .name = "weakFoo", .linkage = .weak });
+        \\    @export(&strongBar, .{ .name = "strongBarAlias", .linkage = .strong });
         \\}
         ,
     });
@@ -2257,7 +2257,7 @@ fn testMismatchedCpuArchitectureError(b: *Build, opts: Options) *Step {
     exe.linkLibC();
 
     expectLinkErrors(exe, test_step, .{ .exact = &.{
-        "invalid cpu architecture: aarch64",
+        "invalid ELF machine type: AARCH64",
         "note: while parsing /?/a.o",
     } });
 

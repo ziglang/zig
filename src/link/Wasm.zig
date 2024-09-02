@@ -556,7 +556,7 @@ pub fn createEmpty(
         }
     }
 
-    if (comp.module) |zcu| {
+    if (comp.zcu) |zcu| {
         if (!use_llvm) {
             const index: File.Index = @enumFromInt(wasm.files.len);
             var zig_object: ZigObject = .{
@@ -1169,7 +1169,7 @@ fn setupTLSRelocationsFunction(wasm: *Wasm) !void {
 
 fn validateFeatures(
     wasm: *const Wasm,
-    to_emit: *[@typeInfo(types.Feature.Tag).Enum.fields.len]bool,
+    to_emit: *[@typeInfo(types.Feature.Tag).@"enum".fields.len]bool,
     emit_features_count: *u32,
 ) !void {
     const comp = wasm.base.comp;
@@ -1177,7 +1177,7 @@ fn validateFeatures(
     const shared_memory = comp.config.shared_memory;
     const cpu_features = target.cpu.features;
     const infer = cpu_features.isEmpty(); // when the user did not define any features, we infer them from linked objects.
-    const known_features_count = @typeInfo(types.Feature.Tag).Enum.fields.len;
+    const known_features_count = @typeInfo(types.Feature.Tag).@"enum".fields.len;
 
     var allowed = [_]bool{false} ** known_features_count;
     var used = [_]u17{0} ** known_features_count;
@@ -1192,7 +1192,7 @@ fn validateFeatures(
     // When the user has given an explicit list of features to enable,
     // we extract them and insert each into the 'allowed' list.
     if (!infer) {
-        inline for (@typeInfo(std.Target.wasm.Feature).Enum.fields) |feature_field| {
+        inline for (@typeInfo(std.Target.wasm.Feature).@"enum".fields) |feature_field| {
             if (cpu_features.isEnabled(feature_field.value)) {
                 allowed[feature_field.value] = true;
                 emit_features_count.* += 1;
@@ -2576,7 +2576,7 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
     if (wasm.base.hasErrors()) return error.FlushFailure;
 
     var emit_features_count: u32 = 0;
-    var enabled_features: [@typeInfo(types.Feature.Tag).Enum.fields.len]bool = undefined;
+    var enabled_features: [@typeInfo(types.Feature.Tag).@"enum".fields.len]bool = undefined;
     try wasm.validateFeatures(&enabled_features, &emit_features_count);
     try wasm.resolveSymbolsInArchives();
     if (wasm.base.hasErrors()) return error.FlushFailure;
@@ -2610,7 +2610,7 @@ pub fn flushModule(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
 /// Writes the WebAssembly in-memory module to the file
 fn writeToFile(
     wasm: *Wasm,
-    enabled_features: [@typeInfo(types.Feature.Tag).Enum.fields.len]bool,
+    enabled_features: [@typeInfo(types.Feature.Tag).@"enum".fields.len]bool,
     feature_count: u32,
     arena: Allocator,
 ) !void {
@@ -3352,7 +3352,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
 
     // If there is no Zig code to compile, then we should skip flushing the output file because it
     // will not be part of the linker line anyway.
-    const module_obj_path: ?[]const u8 = if (comp.module != null) blk: {
+    const module_obj_path: ?[]const u8 = if (comp.zcu != null) blk: {
         try wasm.flushModule(arena, tid, prog_node);
 
         if (fs.path.dirname(full_out_path)) |dirname| {
@@ -3867,7 +3867,7 @@ fn emitSegmentInfo(wasm: *Wasm, binary_bytes: *std.ArrayList(u8)) !void {
 
 pub fn getUleb128Size(uint_value: anytype) u32 {
     const T = @TypeOf(uint_value);
-    const U = if (@typeInfo(T).Int.bits < 8) u8 else T;
+    const U = if (@typeInfo(T).int.bits < 8) u8 else T;
     var value = @as(U, @intCast(uint_value));
 
     var size: u32 = 0;

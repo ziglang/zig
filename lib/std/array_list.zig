@@ -618,6 +618,8 @@ pub fn ArrayListUnmanaged(comptime T: type) type {
 /// Functions that potentially allocate memory accept an `Allocator` parameter.
 /// Initialize directly or with `initCapacity`, and deinitialize with `deinit`
 /// or use `toOwnedSlice`.
+///
+/// Default initialization of this struct is deprecated; use `.empty` instead.
 pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) type {
     if (alignment) |a| {
         if (a == @alignOf(T)) {
@@ -637,6 +639,12 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// How many T values this list can hold without allocating
         /// additional memory.
         capacity: usize = 0,
+
+        /// An ArrayList containing no elements.
+        pub const empty: Self = .{
+            .items = &.{},
+            .capacity = 0,
+        };
 
         pub const Slice = if (alignment) |a| ([]align(a) T) else []T;
 

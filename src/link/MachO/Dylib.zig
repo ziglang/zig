@@ -75,12 +75,12 @@ fn parseBinary(self: *Dylib, macho_file: *MachO) !void {
         macho.CPU_TYPE_X86_64 => .x86_64,
         else => |x| {
             try macho_file.reportParseError2(self.index, "unknown cpu architecture: {d}", .{x});
-            return error.InvalidCpuArch;
+            return error.InvalidMachineType;
         },
     };
     if (macho_file.getTarget().cpu.arch != this_cpu_arch) {
         try macho_file.reportParseError2(self.index, "invalid cpu architecture: {s}", .{@tagName(this_cpu_arch)});
-        return error.InvalidCpuArch;
+        return error.InvalidMachineType;
     }
 
     const lc_buffer = try gpa.alloc(u8, header.sizeofcmds);
@@ -650,14 +650,14 @@ pub fn getSymbolRef(self: Dylib, index: Symbol.Index, macho_file: *MachO) MachO.
 }
 
 pub fn addSymbolExtra(self: *Dylib, allocator: Allocator, extra: Symbol.Extra) !u32 {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     try self.symbols_extra.ensureUnusedCapacity(allocator, fields.len);
     return self.addSymbolExtraAssumeCapacity(extra);
 }
 
 fn addSymbolExtraAssumeCapacity(self: *Dylib, extra: Symbol.Extra) u32 {
     const index = @as(u32, @intCast(self.symbols_extra.items.len));
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     inline for (fields) |field| {
         self.symbols_extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
@@ -668,7 +668,7 @@ fn addSymbolExtraAssumeCapacity(self: *Dylib, extra: Symbol.Extra) u32 {
 }
 
 pub fn getSymbolExtra(self: Dylib, index: u32) Symbol.Extra {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     var i: usize = index;
     var result: Symbol.Extra = undefined;
     inline for (fields) |field| {
@@ -682,7 +682,7 @@ pub fn getSymbolExtra(self: Dylib, index: u32) Symbol.Extra {
 }
 
 pub fn setSymbolExtra(self: *Dylib, index: u32, extra: Symbol.Extra) void {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     inline for (fields, 0..) |field, i| {
         self.symbols_extra.items[index + i] = switch (field.type) {
             u32 => @field(extra, field.name),

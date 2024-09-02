@@ -30,39 +30,39 @@ comptime {
     if (simplified_logic) {
         if (builtin.output_mode == .Exe) {
             if ((builtin.link_libc or builtin.object_format == .c) and @hasDecl(root, "main")) {
-                if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
-                    @export(main2, .{ .name = "main" });
+                if (@typeInfo(@TypeOf(root.main)).@"fn".calling_convention != .C) {
+                    @export(&main2, .{ .name = "main" });
                 }
             } else if (builtin.os.tag == .windows) {
                 if (!@hasDecl(root, "wWinMainCRTStartup") and !@hasDecl(root, "mainCRTStartup")) {
-                    @export(wWinMainCRTStartup2, .{ .name = "wWinMainCRTStartup" });
+                    @export(&wWinMainCRTStartup2, .{ .name = "wWinMainCRTStartup" });
                 }
             } else if (builtin.os.tag == .opencl) {
                 if (@hasDecl(root, "main"))
-                    @export(spirvMain2, .{ .name = "main" });
+                    @export(&spirvMain2, .{ .name = "main" });
             } else {
                 if (!@hasDecl(root, "_start")) {
-                    @export(_start2, .{ .name = "_start" });
+                    @export(&_start2, .{ .name = "_start" });
                 }
             }
         }
     } else {
         if (builtin.output_mode == .Lib and builtin.link_mode == .dynamic) {
             if (native_os == .windows and !@hasDecl(root, "_DllMainCRTStartup")) {
-                @export(_DllMainCRTStartup, .{ .name = "_DllMainCRTStartup" });
+                @export(&_DllMainCRTStartup, .{ .name = "_DllMainCRTStartup" });
             }
         } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
             if (builtin.link_libc and @hasDecl(root, "main")) {
                 if (native_arch.isWasm()) {
-                    @export(mainWithoutEnv, .{ .name = "main" });
-                } else if (@typeInfo(@TypeOf(root.main)).Fn.calling_convention != .C) {
-                    @export(main, .{ .name = "main" });
+                    @export(&mainWithoutEnv, .{ .name = "main" });
+                } else if (@typeInfo(@TypeOf(root.main)).@"fn".calling_convention != .C) {
+                    @export(&main, .{ .name = "main" });
                 }
             } else if (native_os == .windows) {
                 if (!@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
                     !@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup"))
                 {
-                    @export(WinStartup, .{ .name = "wWinMainCRTStartup" });
+                    @export(&WinStartup, .{ .name = "wWinMainCRTStartup" });
                 } else if (@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup") and
                     !@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup"))
                 {
@@ -70,10 +70,10 @@ comptime {
                 } else if (@hasDecl(root, "wWinMain") and !@hasDecl(root, "wWinMainCRTStartup") and
                     !@hasDecl(root, "WinMain") and !@hasDecl(root, "WinMainCRTStartup"))
                 {
-                    @export(wWinMainCRTStartup, .{ .name = "wWinMainCRTStartup" });
+                    @export(&wWinMainCRTStartup, .{ .name = "wWinMainCRTStartup" });
                 }
             } else if (native_os == .uefi) {
-                if (!@hasDecl(root, "EfiMain")) @export(EfiMain, .{ .name = "EfiMain" });
+                if (!@hasDecl(root, "EfiMain")) @export(&EfiMain, .{ .name = "EfiMain" });
             } else if (native_os == .wasi) {
                 const wasm_start_sym = switch (builtin.wasi_exec_model) {
                     .reactor => "_initialize",
@@ -82,14 +82,14 @@ comptime {
                 if (!@hasDecl(root, wasm_start_sym) and @hasDecl(root, "main")) {
                     // Only call main when defined. For WebAssembly it's allowed to pass `-fno-entry` in which
                     // case it's not required to provide an entrypoint such as main.
-                    @export(wasi_start, .{ .name = wasm_start_sym });
+                    @export(&wasi_start, .{ .name = wasm_start_sym });
                 }
             } else if (native_arch.isWasm() and native_os == .freestanding) {
                 // Only call main when defined. For WebAssembly it's allowed to pass `-fno-entry` in which
                 // case it's not required to provide an entrypoint such as main.
-                if (!@hasDecl(root, start_sym_name) and @hasDecl(root, "main")) @export(wasm_freestanding_start, .{ .name = start_sym_name });
+                if (!@hasDecl(root, start_sym_name) and @hasDecl(root, "main")) @export(&wasm_freestanding_start, .{ .name = start_sym_name });
             } else if (native_os != .other and native_os != .freestanding) {
-                if (!@hasDecl(root, start_sym_name)) @export(_start, .{ .name = start_sym_name });
+                if (!@hasDecl(root, start_sym_name)) @export(&_start, .{ .name = start_sym_name });
             }
         }
     }
@@ -205,7 +205,7 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
     uefi.handle = handle;
     uefi.system_table = system_table;
 
-    switch (@typeInfo(@TypeOf(root.main)).Fn.return_type.?) {
+    switch (@typeInfo(@TypeOf(root.main)).@"fn".return_type.?) {
         noreturn => {
             root.main();
         },
@@ -249,6 +249,7 @@ fn _start() callconv(.Naked) noreturn {
     // linker explicitly.
     asm volatile (switch (native_arch) {
             .x86_64 =>
+            \\ .cfi_undefined %%rip
             \\ xorl %%ebp, %%ebp
             \\ movq %%rsp, %%rdi
             \\ andq $-16, %%rsp
@@ -598,7 +599,7 @@ fn mainWithoutEnv(c_argc: c_int, c_argv: [*][*:0]c_char) callconv(.C) c_int {
 const bad_main_ret = "expected return type of main to be 'void', '!void', 'noreturn', 'u8', or '!u8'";
 
 pub inline fn callMain() u8 {
-    const ReturnType = @typeInfo(@TypeOf(root.main)).Fn.return_type.?;
+    const ReturnType = @typeInfo(@TypeOf(root.main)).@"fn".return_type.?;
 
     switch (ReturnType) {
         void => {
@@ -609,7 +610,7 @@ pub inline fn callMain() u8 {
             return root.main();
         },
         else => {
-            if (@typeInfo(ReturnType) != .ErrorUnion) @compileError(bad_main_ret);
+            if (@typeInfo(ReturnType) != .error_union) @compileError(bad_main_ret);
 
             const result = root.main() catch |err| {
                 if (builtin.zig_backend == .stage2_riscv64) {
@@ -634,7 +635,7 @@ pub inline fn callMain() u8 {
 
 pub fn call_wWinMain() std.os.windows.INT {
     const peb = std.os.windows.peb();
-    const MAIN_HINSTANCE = @typeInfo(@TypeOf(root.wWinMain)).Fn.params[0].type.?;
+    const MAIN_HINSTANCE = @typeInfo(@TypeOf(root.wWinMain)).@"fn".params[0].type.?;
     const hInstance = @as(MAIN_HINSTANCE, @ptrCast(peb.ImageBaseAddress));
     const lpCmdLine: [*:0]u16 = @ptrCast(peb.ProcessParameters.CommandLine.Buffer);
 

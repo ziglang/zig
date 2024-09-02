@@ -196,7 +196,7 @@ fn testDuplicateDefinitions(b: *Build, opts: Options) *Step {
     const exe = addExecutable(b, opts, .{ .name = "main", .zig_source_bytes = 
     \\var x: usize = 1;
     \\export fn strong() void { x += 1; }
-    \\comptime { @export(weakImpl, .{ .name = "weak", .linkage = .weak }); }
+    \\comptime { @export(&weakImpl, .{ .name = "weak", .linkage = .weak }); }
     \\fn weakImpl() callconv(.C) void { x += 1; }
     \\extern fn weak() void;
     \\pub fn main() void {
@@ -1676,7 +1676,7 @@ fn testReexportsZig(b: *Build, opts: Options) *Step {
     \\    return x;
     \\}
     \\comptime {
-    \\    @export(foo, .{ .name = "bar", .linkage = .strong });
+    \\    @export(&foo, .{ .name = "bar", .linkage = .strong });
     \\}
     });
 

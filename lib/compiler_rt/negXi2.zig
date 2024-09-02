@@ -13,9 +13,9 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__negsi2, .{ .name = "__negsi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__negdi2, .{ .name = "__negdi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__negti2, .{ .name = "__negti2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__negsi2, .{ .name = "__negsi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__negdi2, .{ .name = "__negdi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__negti2, .{ .name = "__negti2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __negsi2(a: i32) callconv(.C) i32 {

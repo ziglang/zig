@@ -921,7 +921,7 @@ fn createFileRootStruct(
     assert(!small.has_captures_len);
     assert(!small.has_backing_int);
     assert(small.layout == .auto);
-    var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).Struct.fields.len;
+    var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).@"struct".fields.len;
     const fields_len = if (small.has_fields_len) blk: {
         const fields_len = file.zir.extra[extra_index];
         extra_index += 1;
@@ -1005,7 +1005,7 @@ fn updateFileNamespace(pt: Zcu.PerThread, file_index: Zcu.File.Index) Allocator.
         const extended = file.zir.instructions.items(.data)[@intFromEnum(Zir.Inst.Index.main_struct_inst)].extended;
         const small: Zir.Inst.StructDecl.Small = @bitCast(extended.small);
 
-        var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).Struct.fields.len;
+        var extra_index: usize = extended.operand + @typeInfo(Zir.Inst.StructDecl).@"struct".fields.len;
         extra_index += @intFromBool(small.has_fields_len);
         const decls_len = if (small.has_decls_len) blk: {
             const decls_len = file.zir.extra[extra_index];
@@ -1326,7 +1326,7 @@ fn semaCau(pt: Zcu.PerThread, cau_index: InternPool.Cau.Index) !SemaCauResult {
             try decl_ty.resolveFully(pt);
         }
 
-        if (!resolve_type or !decl_ty.hasRuntimeBits(pt)) {
+        if (!resolve_type or !decl_ty.hasRuntimeBits(zcu)) {
             if (zcu.comp.config.use_llvm) break :queue_codegen;
             if (file.mod.strip) break :queue_codegen;
         }
@@ -1555,8 +1555,8 @@ pub fn embedFile(
     import_string: []const u8,
     src_loc: Zcu.LazySrcLoc,
 ) !InternPool.Index {
-    const mod = pt.zcu;
-    const gpa = mod.gpa;
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
 
     if (cur_file.mod.deps.get(import_string)) |pkg| {
         const resolved_path = try std.fs.path.resolve(gpa, &.{
@@ -1567,9 +1567,9 @@ pub fn embedFile(
         var keep_resolved_path = false;
         defer if (!keep_resolved_path) gpa.free(resolved_path);
 
-        const gop = try mod.embed_table.getOrPut(gpa, resolved_path);
+        const gop = try zcu.embed_table.getOrPut(gpa, resolved_path);
         errdefer {
-            assert(std.mem.eql(u8, mod.embed_table.pop().key, resolved_path));
+            assert(std.mem.eql(u8, zcu.embed_table.pop().key, resolved_path));
             keep_resolved_path = false;
         }
         if (gop.found_existing) return gop.value_ptr.*.val;
@@ -1594,9 +1594,9 @@ pub fn embedFile(
     var keep_resolved_path = false;
     defer if (!keep_resolved_path) gpa.free(resolved_path);
 
-    const gop = try mod.embed_table.getOrPut(gpa, resolved_path);
+    const gop = try zcu.embed_table.getOrPut(gpa, resolved_path);
     errdefer {
-        assert(std.mem.eql(u8, mod.embed_table.pop().key, resolved_path));
+        assert(std.mem.eql(u8, zcu.embed_table.pop().key, resolved_path));
         keep_resolved_path = false;
     }
     if (gop.found_existing) return gop.value_ptr.*.val;
@@ -1631,9 +1631,9 @@ fn newEmbedFile(
     result: **Zcu.EmbedFile,
     src_loc: Zcu.LazySrcLoc,
 ) !InternPool.Index {
-    const mod = pt.zcu;
-    const gpa = mod.gpa;
-    const ip = &mod.intern_pool;
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
 
     const new_file = try gpa.create(Zcu.EmbedFile);
     errdefer gpa.destroy(new_file);
@@ -1655,7 +1655,7 @@ fn newEmbedFile(
     if (actual_read != size) return error.UnexpectedEndOfFile;
     bytes[0][size] = 0;
 
-    const comp = mod.comp;
+    const comp = zcu.comp;
     switch (comp.cache_use) {
         .whole => |whole| if (whole.cache_manifest) |man| {
             const copied_resolved_path = try gpa.dupe(u8, resolved_path);
@@ -2080,7 +2080,7 @@ fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaError!
     func.setCallsOrAwaitsErrorableFn(ip, false);
 
     // First few indexes of extra are reserved and set at the end.
-    const reserved_count = @typeInfo(Air.ExtraIndex).Enum.fields.len;
+    const reserved_count = @typeInfo(Air.ExtraIndex).@"enum".fields.len;
     try sema.air_extra.ensureTotalCapacity(gpa, reserved_count);
     sema.air_extra.items.len += reserved_count;
 
@@ -2188,6 +2188,8 @@ fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaError!
         });
     }
 
+    func.setBranchHint(ip, sema.branch_hint orelse .none);
+
     // If we don't get an error return trace from a caller, create our own.
     if (func.analysisUnordered(ip).calls_or_awaits_errorable_fn and
         zcu.comp.config.any_error_tracing and
@@ -2202,7 +2204,7 @@ fn analyzeFnBody(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaError!
     }
 
     // Copy the block into place and mark that as the main block.
-    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).Struct.fields.len +
+    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".fields.len +
         inner_block.instructions.items.len);
     const main_block_index = sema.addExtraAssumeCapacity(Air.Block{
         .body_len = @intCast(inner_block.instructions.items.len),
@@ -2403,7 +2405,7 @@ fn processExportsInner(
                 .resolved => |r| Value.fromInterned(r.val),
             };
             // If the value is a function, we also need to check if that function succeeded analysis.
-            if (val.typeOf(zcu).zigTypeTag(zcu) == .Fn) {
+            if (val.typeOf(zcu).zigTypeTag(zcu) == .@"fn") {
                 const func_unit = AnalUnit.wrap(.{ .func = val.toIntern() });
                 if (zcu.failed_analysis.contains(func_unit)) break :failed true;
                 if (zcu.transitive_failed_analysis.contains(func_unit)) break :failed true;
@@ -2558,12 +2560,17 @@ pub fn populateTestFunctions(
 pub fn linkerUpdateNav(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void {
     const zcu = pt.zcu;
     const comp = zcu.comp;
+    const ip = &zcu.intern_pool;
 
     const nav = zcu.intern_pool.getNav(nav_index);
-    const codegen_prog_node = zcu.codegen_prog_node.start(nav.fqn.toSlice(&zcu.intern_pool), 0);
+    const codegen_prog_node = zcu.codegen_prog_node.start(nav.fqn.toSlice(ip), 0);
     defer codegen_prog_node.end();
 
-    if (comp.bin_file) |lf| {
+    if (!Air.valFullyResolved(zcu.navValue(nav_index), zcu)) {
+        // The value of this nav failed to resolve. This is a transitive failure.
+        // TODO: do we need to mark this failure anywhere? I don't think so, since compilation
+        // will fail due to the type error anyway.
+    } else if (comp.bin_file) |lf| {
         lf.updateNav(pt, nav_index) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.AnalysisFail => {
@@ -2603,7 +2610,11 @@ pub fn linkerUpdateContainerType(pt: Zcu.PerThread, ty: InternPool.Index) !void 
     const codegen_prog_node = zcu.codegen_prog_node.start(Type.fromInterned(ty).containerTypeName(ip).toSlice(ip), 0);
     defer codegen_prog_node.end();
 
-    if (comp.bin_file) |lf| {
+    if (!Air.typeFullyResolved(Type.fromInterned(ty), zcu)) {
+        // This type failed to resolve. This is a transitive failure.
+        // TODO: do we need to mark this failure anywhere? I don't think so, since compilation
+        // will fail due to the type error anyway.
+    } else if (comp.bin_file) |lf| {
         lf.updateContainerType(pt, ty) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => |e| log.err("codegen type failed: {s}", .{@errorName(e)}),
@@ -2756,7 +2767,7 @@ pub fn ptrType(pt: Zcu.PerThread, info: InternPool.Key.PtrType) Allocator.Error!
     // pointee type needs to be resolved more, that needs to be done before calling
     // this ptr() function.
     if (info.flags.alignment != .none and
-        info.flags.alignment == Type.fromInterned(info.child).abiAlignment(pt))
+        info.flags.alignment == Type.fromInterned(info.child).abiAlignment(pt.zcu))
     {
         canon_info.flags.alignment = .none;
     }
@@ -2766,7 +2777,7 @@ pub fn ptrType(pt: Zcu.PerThread, info: InternPool.Key.PtrType) Allocator.Error!
         // we change it to 0 here. If this causes an assertion trip, the pointee type
         // needs to be resolved before calling this ptr() function.
         .none => if (info.packed_offset.host_size != 0) {
-            const elem_bit_size = Type.fromInterned(info.child).bitSize(pt);
+            const elem_bit_size = Type.fromInterned(info.child).bitSize(pt.zcu);
             assert(info.packed_offset.bit_offset + elem_bit_size <= info.packed_offset.host_size * 8);
             if (info.packed_offset.host_size * 8 == elem_bit_size) {
                 canon_info.packed_offset.host_size = 0;
@@ -2784,7 +2795,7 @@ pub fn ptrType(pt: Zcu.PerThread, info: InternPool.Key.PtrType) Allocator.Error!
 /// In general, prefer this function during semantic analysis.
 pub fn ptrTypeSema(pt: Zcu.PerThread, info: InternPool.Key.PtrType) Zcu.SemaError!Type {
     if (info.flags.alignment != .none) {
-        _ = try Type.fromInterned(info.child).abiAlignmentAdvanced(pt, .sema);
+        _ = try Type.fromInterned(info.child).abiAlignmentSema(pt);
     }
     return pt.ptrType(info);
 }
@@ -2857,9 +2868,9 @@ pub fn errorSetFromUnsortedNames(
 
 /// Supports only pointers, not pointer-like optionals.
 pub fn ptrIntValue(pt: Zcu.PerThread, ty: Type, x: u64) Allocator.Error!Value {
-    const mod = pt.zcu;
-    assert(ty.zigTypeTag(mod) == .Pointer and !ty.isSlice(mod));
-    assert(x != 0 or ty.isAllowzeroPtr(mod));
+    const zcu = pt.zcu;
+    assert(ty.zigTypeTag(zcu) == .pointer and !ty.isSlice(zcu));
+    assert(x != 0 or ty.isAllowzeroPtr(zcu));
     return Value.fromInterned(try pt.intern(.{ .ptr = .{
         .ty = ty.toIntern(),
         .base_addr = .int,
@@ -2871,7 +2882,7 @@ pub fn ptrIntValue(pt: Zcu.PerThread, ty: Type, x: u64) Allocator.Error!Value {
 pub fn enumValue(pt: Zcu.PerThread, ty: Type, tag_int: InternPool.Index) Allocator.Error!Value {
     if (std.debug.runtime_safety) {
         const tag = ty.zigTypeTag(pt.zcu);
-        assert(tag == .Enum);
+        assert(tag == .@"enum");
     }
     return Value.fromInterned(try pt.intern(.{ .enum_tag = .{
         .ty = ty.toIntern(),
@@ -2984,15 +2995,15 @@ pub fn smallestUnsignedInt(pt: Zcu.PerThread, max: u64) Allocator.Error!Type {
 /// `max`. Asserts that neither value is undef.
 /// TODO: if #3806 is implemented, this becomes trivial
 pub fn intFittingRange(pt: Zcu.PerThread, min: Value, max: Value) !Type {
-    const mod = pt.zcu;
-    assert(!min.isUndef(mod));
-    assert(!max.isUndef(mod));
+    const zcu = pt.zcu;
+    assert(!min.isUndef(zcu));
+    assert(!max.isUndef(zcu));
 
     if (std.debug.runtime_safety) {
-        assert(Value.order(min, max, pt).compare(.lte));
+        assert(Value.order(min, max, zcu).compare(.lte));
     }
 
-    const sign = min.orderAgainstZero(pt) == .lt;
+    const sign = min.orderAgainstZero(zcu) == .lt;
 
     const min_val_bits = pt.intBitsForValue(min, sign);
     const max_val_bits = pt.intBitsForValue(max, sign);
@@ -3008,10 +3019,10 @@ pub fn intFittingRange(pt: Zcu.PerThread, min: Value, max: Value) !Type {
 /// twos-complement integer; otherwise in an unsigned integer.
 /// Asserts that `val` is not undef. If `val` is negative, asserts that `sign` is true.
 pub fn intBitsForValue(pt: Zcu.PerThread, val: Value, sign: bool) u16 {
-    const mod = pt.zcu;
-    assert(!val.isUndef(mod));
+    const zcu = pt.zcu;
+    assert(!val.isUndef(zcu));
 
-    const key = mod.intern_pool.indexToKey(val.toIntern());
+    const key = zcu.intern_pool.indexToKey(val.toIntern());
     switch (key.int.storage) {
         .i64 => |x| {
             if (std.math.cast(u64, x)) |casted| return Type.smallestUnsignedBits(casted) + @intFromBool(sign);
@@ -3032,152 +3043,12 @@ pub fn intBitsForValue(pt: Zcu.PerThread, val: Value, sign: bool) u16 {
             return @as(u16, @intCast(big.bitCountTwosComp()));
         },
         .lazy_align => |lazy_ty| {
-            return Type.smallestUnsignedBits(Type.fromInterned(lazy_ty).abiAlignment(pt).toByteUnits() orelse 0) + @intFromBool(sign);
+            return Type.smallestUnsignedBits(Type.fromInterned(lazy_ty).abiAlignment(pt.zcu).toByteUnits() orelse 0) + @intFromBool(sign);
         },
         .lazy_size => |lazy_ty| {
-            return Type.smallestUnsignedBits(Type.fromInterned(lazy_ty).abiSize(pt)) + @intFromBool(sign);
+            return Type.smallestUnsignedBits(Type.fromInterned(lazy_ty).abiSize(pt.zcu)) + @intFromBool(sign);
         },
     }
-}
-
-pub fn getUnionLayout(pt: Zcu.PerThread, loaded_union: InternPool.LoadedUnionType) Zcu.UnionLayout {
-    const mod = pt.zcu;
-    const ip = &mod.intern_pool;
-    assert(loaded_union.haveLayout(ip));
-    var most_aligned_field: u32 = undefined;
-    var most_aligned_field_size: u64 = undefined;
-    var biggest_field: u32 = undefined;
-    var payload_size: u64 = 0;
-    var payload_align: InternPool.Alignment = .@"1";
-    for (loaded_union.field_types.get(ip), 0..) |field_ty, field_index| {
-        if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(pt)) continue;
-
-        const explicit_align = loaded_union.fieldAlign(ip, field_index);
-        const field_align = if (explicit_align != .none)
-            explicit_align
-        else
-            Type.fromInterned(field_ty).abiAlignment(pt);
-        const field_size = Type.fromInterned(field_ty).abiSize(pt);
-        if (field_size > payload_size) {
-            payload_size = field_size;
-            biggest_field = @intCast(field_index);
-        }
-        if (field_align.compare(.gte, payload_align)) {
-            payload_align = field_align;
-            most_aligned_field = @intCast(field_index);
-            most_aligned_field_size = field_size;
-        }
-    }
-    const have_tag = loaded_union.flagsUnordered(ip).runtime_tag.hasTag();
-    if (!have_tag or !Type.fromInterned(loaded_union.enum_tag_ty).hasRuntimeBits(pt)) {
-        return .{
-            .abi_size = payload_align.forward(payload_size),
-            .abi_align = payload_align,
-            .most_aligned_field = most_aligned_field,
-            .most_aligned_field_size = most_aligned_field_size,
-            .biggest_field = biggest_field,
-            .payload_size = payload_size,
-            .payload_align = payload_align,
-            .tag_align = .none,
-            .tag_size = 0,
-            .padding = 0,
-        };
-    }
-
-    const tag_size = Type.fromInterned(loaded_union.enum_tag_ty).abiSize(pt);
-    const tag_align = Type.fromInterned(loaded_union.enum_tag_ty).abiAlignment(pt).max(.@"1");
-    return .{
-        .abi_size = loaded_union.sizeUnordered(ip),
-        .abi_align = tag_align.max(payload_align),
-        .most_aligned_field = most_aligned_field,
-        .most_aligned_field_size = most_aligned_field_size,
-        .biggest_field = biggest_field,
-        .payload_size = payload_size,
-        .payload_align = payload_align,
-        .tag_align = tag_align,
-        .tag_size = tag_size,
-        .padding = loaded_union.paddingUnordered(ip),
-    };
-}
-
-pub fn unionAbiSize(mod: *Module, loaded_union: InternPool.LoadedUnionType) u64 {
-    return mod.getUnionLayout(loaded_union).abi_size;
-}
-
-/// Returns 0 if the union is represented with 0 bits at runtime.
-pub fn unionAbiAlignment(pt: Zcu.PerThread, loaded_union: InternPool.LoadedUnionType) InternPool.Alignment {
-    const mod = pt.zcu;
-    const ip = &mod.intern_pool;
-    const have_tag = loaded_union.flagsPtr(ip).runtime_tag.hasTag();
-    var max_align: InternPool.Alignment = .none;
-    if (have_tag) max_align = Type.fromInterned(loaded_union.enum_tag_ty).abiAlignment(pt);
-    for (loaded_union.field_types.get(ip), 0..) |field_ty, field_index| {
-        if (!Type.fromInterned(field_ty).hasRuntimeBits(pt)) continue;
-
-        const field_align = mod.unionFieldNormalAlignment(loaded_union, @intCast(field_index));
-        max_align = max_align.max(field_align);
-    }
-    return max_align;
-}
-
-/// Returns the field alignment of a non-packed union. Asserts the layout is not packed.
-pub fn unionFieldNormalAlignment(
-    pt: Zcu.PerThread,
-    loaded_union: InternPool.LoadedUnionType,
-    field_index: u32,
-) InternPool.Alignment {
-    return pt.unionFieldNormalAlignmentAdvanced(loaded_union, field_index, .normal) catch unreachable;
-}
-
-/// Returns the field alignment of a non-packed union. Asserts the layout is not packed.
-/// If `strat` is `.sema`, may perform type resolution.
-pub fn unionFieldNormalAlignmentAdvanced(
-    pt: Zcu.PerThread,
-    loaded_union: InternPool.LoadedUnionType,
-    field_index: u32,
-    comptime strat: Type.ResolveStrat,
-) Zcu.SemaError!InternPool.Alignment {
-    const ip = &pt.zcu.intern_pool;
-    assert(loaded_union.flagsUnordered(ip).layout != .@"packed");
-    const field_align = loaded_union.fieldAlign(ip, field_index);
-    if (field_align != .none) return field_align;
-    const field_ty = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
-    if (field_ty.isNoReturn(pt.zcu)) return .none;
-    return (try field_ty.abiAlignmentAdvanced(pt, strat.toLazy())).scalar;
-}
-
-/// Returns the field alignment of a non-packed struct. Asserts the layout is not packed.
-pub fn structFieldAlignment(
-    pt: Zcu.PerThread,
-    explicit_alignment: InternPool.Alignment,
-    field_ty: Type,
-    layout: std.builtin.Type.ContainerLayout,
-) InternPool.Alignment {
-    return pt.structFieldAlignmentAdvanced(explicit_alignment, field_ty, layout, .normal) catch unreachable;
-}
-
-/// Returns the field alignment of a non-packed struct. Asserts the layout is not packed.
-/// If `strat` is `.sema`, may perform type resolution.
-pub fn structFieldAlignmentAdvanced(
-    pt: Zcu.PerThread,
-    explicit_alignment: InternPool.Alignment,
-    field_ty: Type,
-    layout: std.builtin.Type.ContainerLayout,
-    comptime strat: Type.ResolveStrat,
-) Zcu.SemaError!InternPool.Alignment {
-    assert(layout != .@"packed");
-    if (explicit_alignment != .none) return explicit_alignment;
-    const ty_abi_align = (try field_ty.abiAlignmentAdvanced(pt, strat.toLazy())).scalar;
-    switch (layout) {
-        .@"packed" => unreachable,
-        .auto => if (pt.zcu.getTarget().ofmt != .c) return ty_abi_align,
-        .@"extern" => {},
-    }
-    // extern
-    if (field_ty.isAbiInt(pt.zcu) and field_ty.intInfo(pt.zcu).bits >= 128) {
-        return ty_abi_align.maxStrict(.@"16");
-    }
-    return ty_abi_align;
 }
 
 /// https://github.com/ziglang/zig/issues/17178 explored storing these bit offsets
@@ -3189,8 +3060,8 @@ pub fn structPackedFieldBitOffset(
     struct_type: InternPool.LoadedStructType,
     field_index: u32,
 ) u16 {
-    const mod = pt.zcu;
-    const ip = &mod.intern_pool;
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
     assert(struct_type.layout == .@"packed");
     assert(struct_type.haveLayout(ip));
     var bit_sum: u64 = 0;
@@ -3199,7 +3070,7 @@ pub fn structPackedFieldBitOffset(
             return @intCast(bit_sum);
         }
         const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[i]);
-        bit_sum += field_ty.bitSize(pt);
+        bit_sum += field_ty.bitSize(zcu);
     }
     unreachable; // index out of bounds
 }
@@ -3244,7 +3115,7 @@ pub fn navPtrType(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) Allocator.
     return pt.ptrType(.{
         .child = ty.toIntern(),
         .flags = .{
-            .alignment = if (r.alignment == ty.abiAlignment(pt))
+            .alignment = if (r.alignment == ty.abiAlignment(zcu))
                 .none
             else
                 r.alignment,
@@ -3274,7 +3145,7 @@ pub fn navAlignment(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) InternPo
     const zcu = pt.zcu;
     const r = zcu.intern_pool.getNav(nav_index).status.resolved;
     if (r.alignment != .none) return r.alignment;
-    return Value.fromInterned(r.val).typeOf(zcu).abiAlignment(pt);
+    return Value.fromInterned(r.val).typeOf(zcu).abiAlignment(zcu);
 }
 
 /// Given a container type requiring resolution, ensures that it is up-to-date.
@@ -3378,7 +3249,6 @@ fn recreateStructType(
     } else 0;
 
     if (captures_len != key.captures.owned.len) return error.AnalysisFail;
-    if (fields_len != struct_obj.field_types.len) return error.AnalysisFail;
 
     // The old type will be unused, so drop its dependency information.
     ip.removeDependenciesForDepender(gpa, AnalUnit.wrap(.{ .cau = struct_obj.cau.unwrap().? }));
@@ -3466,7 +3336,6 @@ fn recreateUnionType(
     } else 0;
 
     if (captures_len != key.captures.owned.len) return error.AnalysisFail;
-    if (fields_len != union_obj.field_types.len) return error.AnalysisFail;
 
     // The old type will be unused, so drop its dependency information.
     ip.removeDependenciesForDepender(gpa, AnalUnit.wrap(.{ .cau = union_obj.cau }));
@@ -3577,7 +3446,6 @@ fn recreateEnumType(
     } else 0;
 
     if (captures_len != key.captures.owned.len) return error.AnalysisFail;
-    if (fields_len != enum_obj.names.len) return error.AnalysisFail;
 
     extra_index += captures_len;
     extra_index += decls_len;

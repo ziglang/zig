@@ -48,14 +48,12 @@ pub const StackTrace = struct {
         if (builtin.os.tag == .freestanding) return;
 
         _ = options;
-        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-        defer arena.deinit();
         const debug_info = std.debug.getSelfDebugInfo() catch |err| {
             return writer.print("\nUnable to print stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
         };
         const tty_config = std.io.tty.detectConfig(std.io.getStdErr());
         try writer.writeAll("\n");
-        std.debug.writeStackTrace(self, writer, arena.allocator(), debug_info, tty_config) catch |err| {
+        std.debug.writeStackTrace(self, writer, debug_info, tty_config) catch |err| {
             try writer.print("Unable to print stack trace: {s}\n", .{@errorName(err)});
         };
     }
@@ -257,30 +255,30 @@ pub const TypeId = std.meta.Tag(Type);
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const Type = union(enum) {
-    Type: void,
-    Void: void,
-    Bool: void,
-    NoReturn: void,
-    Int: Int,
-    Float: Float,
-    Pointer: Pointer,
-    Array: Array,
-    Struct: Struct,
-    ComptimeFloat: void,
-    ComptimeInt: void,
-    Undefined: void,
-    Null: void,
-    Optional: Optional,
-    ErrorUnion: ErrorUnion,
-    ErrorSet: ErrorSet,
-    Enum: Enum,
-    Union: Union,
-    Fn: Fn,
-    Opaque: Opaque,
-    Frame: Frame,
-    AnyFrame: AnyFrame,
-    Vector: Vector,
-    EnumLiteral: void,
+    type: void,
+    void: void,
+    bool: void,
+    noreturn: void,
+    int: Int,
+    float: Float,
+    pointer: Pointer,
+    array: Array,
+    @"struct": Struct,
+    comptime_float: void,
+    comptime_int: void,
+    undefined: void,
+    null: void,
+    optional: Optional,
+    error_union: ErrorUnion,
+    error_set: ErrorSet,
+    @"enum": Enum,
+    @"union": Union,
+    @"fn": Fn,
+    @"opaque": Opaque,
+    frame: Frame,
+    @"anyframe": AnyFrame,
+    vector: Vector,
+    enum_literal: void,
 
     /// This data structure is used by the Zig language code generation and
     /// therefore must be kept in sync with the compiler implementation.
@@ -603,7 +601,7 @@ pub const VaList = switch (builtin.cpu.arch) {
         .ios, .macos, .tvos, .watchos, .visionos => *u8,
         else => @compileError("disabled due to miscompilations"), // VaListAarch64,
     },
-    .arm => switch (builtin.os.tag) {
+    .arm, .armeb, .thumb, .thumbeb => switch (builtin.os.tag) {
         .ios, .macos, .tvos, .watchos, .visionos => *u8,
         else => *anyopaque,
     },
@@ -673,6 +671,25 @@ pub const ExternOptions = struct {
     library_name: ?[]const u8 = null,
     linkage: GlobalLinkage = .strong,
     is_thread_local: bool = false,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const BranchHint = enum(u3) {
+    /// Equivalent to no hint given.
+    none,
+    /// This branch of control flow is more likely to be reached than its peers.
+    /// The optimizer should optimize for reaching it.
+    likely,
+    /// This branch of control flow is less likely to be reached than its peers.
+    /// The optimizer should optimize for not reaching it.
+    unlikely,
+    /// This branch of control flow is unlikely to *ever* be reached.
+    /// The optimizer may place it in a different page of memory to optimize other branches.
+    cold,
+    /// It is difficult to predict whether this branch of control flow will be reached.
+    /// The optimizer should avoid branching behavior with expensive mispredictions.
+    unpredictable,
 };
 
 /// This enum is set by the compiler and communicates which compiler backend is
@@ -760,7 +777,7 @@ else
 /// This function is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub fn default_panic(msg: []const u8, error_return_trace: ?*StackTrace, ret_addr: ?usize) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
 
     // For backends that cannot handle the language features depended on by the
     // default panic handler, we have a simpler panic handler:
@@ -877,27 +894,27 @@ pub fn checkNonScalarSentinel(expected: anytype, actual: @TypeOf(expected)) void
 }
 
 pub fn panicSentinelMismatch(expected: anytype, actual: @TypeOf(expected)) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     std.debug.panicExtra(null, @returnAddress(), "sentinel mismatch: expected {any}, found {any}", .{ expected, actual });
 }
 
 pub fn panicUnwrapError(st: ?*StackTrace, err: anyerror) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     std.debug.panicExtra(st, @returnAddress(), "attempt to unwrap error: {s}", .{@errorName(err)});
 }
 
 pub fn panicOutOfBounds(index: usize, len: usize) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     std.debug.panicExtra(null, @returnAddress(), "index out of bounds: index {d}, len {d}", .{ index, len });
 }
 
 pub fn panicStartGreaterThanEnd(start: usize, end: usize) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     std.debug.panicExtra(null, @returnAddress(), "start index {d} is larger than end index {d}", .{ start, end });
 }
 
 pub fn panicInactiveUnionField(active: anytype, wanted: @TypeOf(active)) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     std.debug.panicExtra(null, @returnAddress(), "access of union field '{s}' while field '{s}' is active", .{ @tagName(wanted), @tagName(active) });
 }
 
@@ -930,7 +947,7 @@ pub const panic_messages = struct {
 };
 
 pub noinline fn returnError(st: *StackTrace) void {
-    @setCold(true);
+    @branchHint(.cold);
     @setRuntimeSafety(false);
     addErrRetTraceAddr(st, @returnAddress());
 }

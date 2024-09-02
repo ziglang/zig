@@ -664,11 +664,16 @@ fn addEntryPoint(ws: *WebServer, coverage_id: u64, addr: u64) error{ AlreadyRepo
     const coverage_map = ws.coverage_files.getPtr(coverage_id).?;
     const header: *const abi.SeenPcsHeader = @ptrCast(coverage_map.mapped_memory[0..@sizeOf(abi.SeenPcsHeader)]);
     const pcs = header.pcAddrs();
-    const index = std.sort.upperBound(usize, pcs, addr, struct {
-        fn order(context: usize, item: usize) std.math.Order {
-            return std.math.order(item, context);
+    // Since this pcs list is unsorted, we must linear scan for the best index.
+    const index = i: {
+        var best: usize = 0;
+        for (pcs[1..], 1..) |elem_addr, i| {
+            if (elem_addr == addr) break :i i;
+            if (elem_addr > addr) continue;
+            if (elem_addr > pcs[best]) best = i;
         }
-    }.order);
+        break :i best;
+    };
     if (index >= pcs.len) {
         log.err("unable to find unit test entry address 0x{x} in source locations (range: 0x{x} to 0x{x})", .{
             addr, pcs[0], pcs[pcs.len - 1],
@@ -678,8 +683,8 @@ fn addEntryPoint(ws: *WebServer, coverage_id: u64, addr: u64) error{ AlreadyRepo
     if (false) {
         const sl = coverage_map.source_locations[index];
         const file_name = coverage_map.coverage.stringAt(coverage_map.coverage.fileAt(sl.file).basename);
-        log.debug("server found entry point for 0x{x} at {s}:{d}:{d}", .{
-            addr, file_name, sl.line, sl.column,
+        log.debug("server found entry point for 0x{x} at {s}:{d}:{d} - index {d} between {x} and {x}", .{
+            addr, file_name, sl.line, sl.column, index, pcs[index - 1], pcs[index + 1],
         });
     }
     const gpa = ws.gpa;

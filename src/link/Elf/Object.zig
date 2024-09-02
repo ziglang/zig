@@ -105,14 +105,14 @@ fn parseCommon(self: *Object, allocator: Allocator, handle: std.fs.File, elf_fil
     defer allocator.free(header_buffer);
     self.header = @as(*align(1) const elf.Elf64_Ehdr, @ptrCast(header_buffer)).*;
 
-    const target = elf_file.base.comp.root_mod.resolved_target.result;
-    if (target.cpu.arch != self.header.?.e_machine.toTargetCpuArch().?) {
+    const em = elf_file.base.comp.root_mod.resolved_target.result.toElfMachine();
+    if (em != self.header.?.e_machine) {
         try elf_file.reportParseError2(
             self.index,
-            "invalid cpu architecture: {s}",
-            .{@tagName(self.header.?.e_machine.toTargetCpuArch().?)},
+            "invalid ELF machine type: {s}",
+            .{@tagName(self.header.?.e_machine)},
         );
-        return error.InvalidCpuArch;
+        return error.InvalidMachineType;
     }
     try elf_file.validateEFlags(self.index, self.header.?.e_flags);
 
@@ -998,9 +998,8 @@ pub fn addAtomsToOutputSections(self: *Object, elf_file: *Elf) !void {
 
         const comp = elf_file.base.comp;
         const gpa = comp.gpa;
-        const gop = try elf_file.output_sections.getOrPut(gpa, atom_ptr.output_section_index);
-        if (!gop.found_existing) gop.value_ptr.* = .{};
-        try gop.value_ptr.append(gpa, .{ .index = atom_index, .file = self.index });
+        const atom_list = &elf_file.sections.items(.atom_list)[atom_ptr.output_section_index];
+        try atom_list.append(gpa, .{ .index = atom_index, .file = self.index });
     }
 }
 
@@ -1011,7 +1010,8 @@ pub fn initRelaSections(self: *Object, elf_file: *Elf) !void {
         const shndx = atom_ptr.relocsShndx() orelse continue;
         const shdr = self.shdrs.items[shndx];
         const out_shndx = try self.initOutputSection(elf_file, shdr);
-        const out_shdr = &elf_file.shdrs.items[out_shndx];
+        const out_shdr = &elf_file.sections.items(.shdr)[out_shndx];
+        out_shdr.sh_type = elf.SHT_RELA;
         out_shdr.sh_addralign = @alignOf(elf.Elf64_Rela);
         out_shdr.sh_entsize = @sizeOf(elf.Elf64_Rela);
         out_shdr.sh_flags |= elf.SHF_INFO_LINK;
@@ -1027,15 +1027,13 @@ pub fn addAtomsToRelaSections(self: *Object, elf_file: *Elf) !void {
             const shdr = self.shdrs.items[shndx];
             break :blk self.initOutputSection(elf_file, shdr) catch unreachable;
         };
-        const shdr = &elf_file.shdrs.items[shndx];
+        const slice = elf_file.sections.slice();
+        const shdr = &slice.items(.shdr)[shndx];
         shdr.sh_info = atom_ptr.output_section_index;
         shdr.sh_link = elf_file.symtab_section_index.?;
-
-        const comp = elf_file.base.comp;
-        const gpa = comp.gpa;
-        const gop = try elf_file.output_rela_sections.getOrPut(gpa, atom_ptr.output_section_index);
-        if (!gop.found_existing) gop.value_ptr.* = .{ .shndx = shndx };
-        try gop.value_ptr.atom_list.append(gpa, .{ .index = atom_index, .file = self.index });
+        const gpa = elf_file.base.comp.gpa;
+        const atom_list = &elf_file.sections.items(.atom_list)[shndx];
+        try atom_list.append(gpa, .{ .index = atom_index, .file = self.index });
     }
 }
 
@@ -1217,14 +1215,14 @@ fn addSymbolAssumeCapacity(self: *Object) Symbol.Index {
 }
 
 pub fn addSymbolExtra(self: *Object, allocator: Allocator, extra: Symbol.Extra) !u32 {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     try self.symbols_extra.ensureUnusedCapacity(allocator, fields.len);
     return self.addSymbolExtraAssumeCapacity(extra);
 }
 
 pub fn addSymbolExtraAssumeCapacity(self: *Object, extra: Symbol.Extra) u32 {
     const index = @as(u32, @intCast(self.symbols_extra.items.len));
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     inline for (fields) |field| {
         self.symbols_extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
@@ -1235,7 +1233,7 @@ pub fn addSymbolExtraAssumeCapacity(self: *Object, extra: Symbol.Extra) u32 {
 }
 
 pub fn symbolExtra(self: *Object, index: u32) Symbol.Extra {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     var i: usize = index;
     var result: Symbol.Extra = undefined;
     inline for (fields) |field| {
@@ -1249,7 +1247,7 @@ pub fn symbolExtra(self: *Object, index: u32) Symbol.Extra {
 }
 
 pub fn setSymbolExtra(self: *Object, index: u32, extra: Symbol.Extra) void {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     inline for (fields, 0..) |field, i| {
         self.symbols_extra.items[index + i] = switch (field.type) {
             u32 => @field(extra, field.name),
@@ -1327,14 +1325,14 @@ pub fn atom(self: *Object, atom_index: Atom.Index) ?*Atom {
 }
 
 pub fn addAtomExtra(self: *Object, allocator: Allocator, extra: Atom.Extra) !u32 {
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
     try self.atoms_extra.ensureUnusedCapacity(allocator, fields.len);
     return self.addAtomExtraAssumeCapacity(extra);
 }
 
 pub fn addAtomExtraAssumeCapacity(self: *Object, extra: Atom.Extra) u32 {
     const index = @as(u32, @intCast(self.atoms_extra.items.len));
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
     inline for (fields) |field| {
         self.atoms_extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
@@ -1345,7 +1343,7 @@ pub fn addAtomExtraAssumeCapacity(self: *Object, extra: Atom.Extra) u32 {
 }
 
 pub fn atomExtra(self: *Object, index: u32) Atom.Extra {
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
     var i: usize = index;
     var result: Atom.Extra = undefined;
     inline for (fields) |field| {
@@ -1359,7 +1357,7 @@ pub fn atomExtra(self: *Object, index: u32) Atom.Extra {
 }
 
 pub fn setAtomExtra(self: *Object, index: u32, extra: Atom.Extra) void {
-    const fields = @typeInfo(Atom.Extra).Struct.fields;
+    const fields = @typeInfo(Atom.Extra).@"struct".fields;
     inline for (fields, 0..) |field, i| {
         self.atoms_extra.items[index + i] = switch (field.type) {
             u32 => @field(extra, field.name),

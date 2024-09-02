@@ -589,7 +589,8 @@ pub const File = struct {
         fs.File.WriteFileError ||
         fs.File.OpenError ||
         std.process.Child.SpawnError ||
-        fs.Dir.CopyFileError;
+        fs.Dir.CopyFileError ||
+        FlushDebugInfoError;
 
     /// Commit pending changes and write headers. Takes into account final output mode
     /// and `use_lld`, not only `effectiveOutputMode`.
@@ -755,7 +756,7 @@ pub const File = struct {
         const directory = base.emit.root_dir; // Just an alias to make it shorter to type.
         const full_out_path = try directory.join(arena, &[_][]const u8{base.emit.sub_path});
         const full_out_path_z = try arena.dupeZ(u8, full_out_path);
-        const opt_zcu = comp.module;
+        const opt_zcu = comp.zcu;
 
         // If there is no Zig code to compile, then we should skip flushing the output file
         // because it will not be part of the linker line anyway.
@@ -935,13 +936,11 @@ pub const File = struct {
         missing_libc: bool = false,
 
         const Int = blk: {
-            const bits = @typeInfo(@This()).Struct.fields.len;
-            break :blk @Type(.{
-                .Int = .{
-                    .signedness = .unsigned,
-                    .bits = bits,
-                },
-            });
+            const bits = @typeInfo(@This()).@"struct".fields.len;
+            break :blk @Type(.{ .int = .{
+                .signedness = .unsigned,
+                .bits = bits,
+            } });
         };
 
         fn isSet(ef: ErrorFlags) bool {

@@ -6,15 +6,15 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__fabsh, .{ .name = "__fabsh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fabsf, .{ .name = "fabsf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fabs, .{ .name = "fabs", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__fabsx, .{ .name = "__fabsx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__fabsh, .{ .name = "__fabsh", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fabsf, .{ .name = "fabsf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fabs, .{ .name = "fabs", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__fabsx, .{ .name = "__fabsx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(fabsq, .{ .name = "fabsf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&fabsq, .{ .name = "fabsf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(fabsq, .{ .name = "fabsq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(fabsl, .{ .name = "fabsl", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fabsq, .{ .name = "fabsq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&fabsl, .{ .name = "fabsl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __fabsh(a: f16) callconv(.C) f16 {
@@ -38,7 +38,7 @@ pub fn fabsq(a: f128) callconv(.C) f128 {
 }
 
 pub fn fabsl(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __fabsh(x),
         32 => return fabsf(x),
         64 => return fabs(x),
@@ -50,7 +50,7 @@ pub fn fabsl(x: c_longdouble) callconv(.C) c_longdouble {
 
 inline fn generic_fabs(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
-    const TBits = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
+    const TBits = std.meta.Int(.unsigned, @typeInfo(T).float.bits);
     const float_bits: TBits = @bitCast(x);
     const remove_sign = ~@as(TBits, 0) >> 1;
     return @bitCast(float_bits & remove_sign);

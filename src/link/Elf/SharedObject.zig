@@ -56,14 +56,14 @@ pub fn parse(self: *SharedObject, elf_file: *Elf, handle: std.fs.File) !void {
     defer gpa.free(header_buffer);
     self.header = @as(*align(1) const elf.Elf64_Ehdr, @ptrCast(header_buffer)).*;
 
-    const target = elf_file.base.comp.root_mod.resolved_target.result;
-    if (target.cpu.arch != self.header.?.e_machine.toTargetCpuArch().?) {
+    const em = elf_file.base.comp.root_mod.resolved_target.result.toElfMachine();
+    if (em != self.header.?.e_machine) {
         try elf_file.reportParseError2(
             self.index,
-            "invalid cpu architecture: {s}",
-            .{@tagName(self.header.?.e_machine.toTargetCpuArch().?)},
+            "invalid ELF machine type: {s}",
+            .{@tagName(self.header.?.e_machine)},
         );
-        return error.InvalidCpuArch;
+        return error.InvalidMachineType;
     }
 
     const shoff = std.math.cast(usize, self.header.?.e_shoff) orelse return error.Overflow;
@@ -423,14 +423,14 @@ fn addSymbolAssumeCapacity(self: *SharedObject) Symbol.Index {
 }
 
 pub fn addSymbolExtra(self: *SharedObject, allocator: Allocator, extra: Symbol.Extra) !u32 {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     try self.symbols_extra.ensureUnusedCapacity(allocator, fields.len);
     return self.addSymbolExtraAssumeCapacity(extra);
 }
 
 pub fn addSymbolExtraAssumeCapacity(self: *SharedObject, extra: Symbol.Extra) u32 {
     const index = @as(u32, @intCast(self.symbols_extra.items.len));
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     inline for (fields) |field| {
         self.symbols_extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
@@ -441,7 +441,7 @@ pub fn addSymbolExtraAssumeCapacity(self: *SharedObject, extra: Symbol.Extra) u3
 }
 
 pub fn symbolExtra(self: *SharedObject, index: u32) Symbol.Extra {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     var i: usize = index;
     var result: Symbol.Extra = undefined;
     inline for (fields) |field| {
@@ -455,7 +455,7 @@ pub fn symbolExtra(self: *SharedObject, index: u32) Symbol.Extra {
 }
 
 pub fn setSymbolExtra(self: *SharedObject, index: u32, extra: Symbol.Extra) void {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     inline for (fields, 0..) |field, i| {
         self.symbols_extra.items[index + i] = switch (field.type) {
             u32 => @field(extra, field.name),

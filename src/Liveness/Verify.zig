@@ -374,7 +374,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             },
 
             // control flow
-            .@"try" => {
+            .@"try", .try_cold => {
                 const pl_op = data[@intFromEnum(inst)].pl_op;
                 const extra = self.air.extraData(Air.Try, pl_op.payload);
                 const try_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
@@ -396,7 +396,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
 
                 try self.verifyInst(inst);
             },
-            .try_ptr => {
+            .try_ptr, .try_ptr_cold => {
                 const ty_pl = data[@intFromEnum(inst)].ty_pl;
                 const extra = self.air.extraData(Air.TryPtr, ty_pl.payload);
                 const try_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
@@ -509,44 +509,33 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
                 try self.verifyInst(inst);
             },
             .switch_br => {
-                const pl_op = data[@intFromEnum(inst)].pl_op;
-                const switch_br = self.air.extraData(Air.SwitchBr, pl_op.payload);
-                var extra_index = switch_br.end;
-                var case_i: u32 = 0;
+                const switch_br = self.air.unwrapSwitch(inst);
                 const switch_br_liveness = try self.liveness.getSwitchBr(
                     self.gpa,
                     inst,
-                    switch_br.data.cases_len + 1,
+                    switch_br.cases_len + 1,
                 );
                 defer self.gpa.free(switch_br_liveness.deaths);
 
-                try self.verifyOperand(inst, pl_op.operand, self.liveness.operandDies(inst, 0));
+                try self.verifyOperand(inst, switch_br.operand, self.liveness.operandDies(inst, 0));
 
                 var live = self.live.move();
                 defer live.deinit(self.gpa);
 
-                while (case_i < switch_br.data.cases_len) : (case_i += 1) {
-                    const case = self.air.extraData(Air.SwitchBr.Case, extra_index);
-                    const items = @as(
-                        []const Air.Inst.Ref,
-                        @ptrCast(self.air.extra[case.end..][0..case.data.items_len]),
-                    );
-                    const case_body: []const Air.Inst.Index = @ptrCast(self.air.extra[case.end + items.len ..][0..case.data.body_len]);
-                    extra_index = case.end + items.len + case_body.len;
-
+                var it = switch_br.iterateCases();
+                while (it.next()) |case| {
                     self.live.deinit(self.gpa);
                     self.live = try live.clone(self.gpa);
 
-                    for (switch_br_liveness.deaths[case_i]) |death| try self.verifyDeath(inst, death);
-                    try self.verifyBody(case_body);
+                    for (switch_br_liveness.deaths[case.idx]) |death| try self.verifyDeath(inst, death);
+                    try self.verifyBody(case.body);
                 }
 
-                const else_body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra_index..][0..switch_br.data.else_body_len]);
+                const else_body = it.elseBody();
                 if (else_body.len > 0) {
                     self.live.deinit(self.gpa);
                     self.live = try live.clone(self.gpa);
-
-                    for (switch_br_liveness.deaths[case_i]) |death| try self.verifyDeath(inst, death);
+                    for (switch_br_liveness.deaths[switch_br.cases_len]) |death| try self.verifyDeath(inst, death);
                     try self.verifyBody(else_body);
                 }
 

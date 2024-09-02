@@ -12,5 +12,5 @@ pub export fn entry() void {
 // backend=stage2
 // target=native
 //
-// :8:8: error: no field or member function named 'f' in '@typeInfo(tmp.T).Union.tag_type.?'
+// :8:8: error: no field or member function named 'f' in '@typeInfo(tmp.T).@"union".tag_type.?'
 // :1:11: note: enum declared here

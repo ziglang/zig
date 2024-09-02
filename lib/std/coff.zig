@@ -1060,23 +1060,6 @@ pub const MachineType = enum(u16) {
     WCEMIPSV2 = 0x169,
 
     _,
-
-    pub fn toTargetCpuArch(machine_type: MachineType) ?std.Target.Cpu.Arch {
-        return switch (machine_type) {
-            .ARM => .arm,
-            .POWERPC => .powerpc,
-            .RISCV32 => .riscv32,
-            .THUMB => .thumb,
-            .I386 => .x86,
-            .ARM64 => .aarch64,
-            .RISCV64 => .riscv64,
-            .X64 => .x86_64,
-            .LOONGARCH32 => .loongarch32,
-            .LOONGARCH64 => .loongarch64,
-            // there's cases we don't (yet) handle
-            else => null,
-        };
-    }
 };
 
 pub const CoffError = error{

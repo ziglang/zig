@@ -459,7 +459,7 @@ pub const Insn = packed struct {
     };
 
     fn imm_reg(code: u8, dst: Reg, src: anytype, off: i16) Insn {
-        const imm_or_reg = if (@TypeOf(src) == Reg or @typeInfo(@TypeOf(src)) == .EnumLiteral)
+        const imm_or_reg = if (@TypeOf(src) == Reg or @typeInfo(@TypeOf(src)) == .enum_literal)
             ImmOrReg{ .reg = @as(Reg, src) }
         else
             ImmOrReg{ .imm = src };

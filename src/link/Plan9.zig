@@ -152,7 +152,7 @@ pub const Atom = struct {
             return .{ .code_ptr = slice.ptr, .other = .{ .code_len = slice.len } };
         }
         fn getCode(self: CodePtr, plan9: *const Plan9) []u8 {
-            const zcu = plan9.base.comp.module.?;
+            const zcu = plan9.base.comp.zcu.?;
             const ip = &zcu.intern_pool;
             return if (self.code_ptr) |p| p[0..self.other.code_len] else blk: {
                 const nav_index = self.other.nav_index;
@@ -317,8 +317,8 @@ pub fn createEmpty(
 
 fn putFn(self: *Plan9, nav_index: InternPool.Nav.Index, out: FnNavOutput) !void {
     const gpa = self.base.comp.gpa;
-    const mod = self.base.comp.module.?;
-    const file_scope = mod.navFileScopeIndex(nav_index);
+    const zcu = self.base.comp.zcu.?;
+    const file_scope = zcu.navFileScopeIndex(nav_index);
     const fn_map_res = try self.fn_nav_table.getOrPut(gpa, file_scope);
     if (fn_map_res.found_existing) {
         if (try fn_map_res.value_ptr.functions.fetchPut(gpa, nav_index, out)) |old_entry| {
@@ -326,7 +326,7 @@ fn putFn(self: *Plan9, nav_index: InternPool.Nav.Index, out: FnNavOutput) !void 
             gpa.free(old_entry.value.lineinfo);
         }
     } else {
-        const file = mod.fileByIndex(file_scope);
+        const file = zcu.fileByIndex(file_scope);
         const arena = self.path_arena.allocator();
         // each file gets a symbol
         fn_map_res.value_ptr.* = .{
@@ -391,10 +391,10 @@ pub fn updateFunc(self: *Plan9, pt: Zcu.PerThread, func_index: InternPool.Index,
         @panic("Attempted to compile for object format that was disabled by build configuration");
     }
 
-    const mod = pt.zcu;
-    const gpa = mod.gpa;
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
     const target = self.base.comp.root_mod.resolved_target.result;
-    const func = mod.funcInfo(func_index);
+    const func = zcu.funcInfo(func_index);
 
     const atom_idx = try self.seeNav(pt, func.owner_nav);
 
@@ -413,7 +413,7 @@ pub fn updateFunc(self: *Plan9, pt: Zcu.PerThread, func_index: InternPool.Index,
     const res = try codegen.generateFunction(
         &self.base,
         pt,
-        mod.navSrcLoc(func.owner_nav),
+        zcu.navSrcLoc(func.owner_nav),
         func_index,
         air,
         liveness,
@@ -423,7 +423,7 @@ pub fn updateFunc(self: *Plan9, pt: Zcu.PerThread, func_index: InternPool.Index,
     const code = switch (res) {
         .ok => try code_buffer.toOwnedSlice(),
         .fail => |em| {
-            try mod.failed_codegen.put(gpa, func.owner_nav, em);
+            try zcu.failed_codegen.put(gpa, func.owner_nav, em);
             return;
         },
     };
@@ -457,7 +457,7 @@ pub fn updateNav(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Inde
         else => nav_val,
     };
 
-    if (nav_init.typeOf(zcu).hasRuntimeBits(pt)) {
+    if (nav_init.typeOf(zcu).hasRuntimeBits(zcu)) {
         const atom_idx = try self.seeNav(pt, nav_index);
 
         var code_buffer = std.ArrayList(u8).init(gpa);
@@ -607,7 +607,7 @@ pub fn flushModule(self: *Plan9, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     defer assert(self.hdr.entry != 0x0);
 
     const pt: Zcu.PerThread = .{
-        .zcu = self.base.comp.module orelse return error.LinkingWithoutZigSourceUnimplemented,
+        .zcu = self.base.comp.zcu orelse return error.LinkingWithoutZigSourceUnimplemented,
         .tid = tid,
     };
 
@@ -952,11 +952,11 @@ pub fn freeDecl(self: *Plan9, decl_index: InternPool.DeclIndex) void {
     const gpa = self.base.comp.gpa;
     // TODO audit the lifetimes of decls table entries. It's possible to get
     // freeDecl without any updateDecl in between.
-    const mod = self.base.comp.module.?;
-    const decl = mod.declPtr(decl_index);
-    const is_fn = decl.val.isFuncBody(mod);
+    const zcu = self.base.comp.zcu.?;
+    const decl = zcu.declPtr(decl_index);
+    const is_fn = decl.val.isFuncBody(zcu);
     if (is_fn) {
-        const symidx_and_submap = self.fn_decl_table.get(decl.getFileScope(mod)).?;
+        const symidx_and_submap = self.fn_decl_table.get(decl.getFileScope(zcu)).?;
         var submap = symidx_and_submap.functions;
         if (submap.fetchSwapRemove(decl_index)) |removed_entry| {
             gpa.free(removed_entry.value.code);
@@ -1256,8 +1256,8 @@ pub fn writeSym(self: *Plan9, w: anytype, sym: aout.Sym) !void {
 }
 
 pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
-    const mod = self.base.comp.module.?;
-    const ip = &mod.intern_pool;
+    const zcu = self.base.comp.zcu.?;
+    const ip = &zcu.intern_pool;
     const writer = buf.writer();
     // write __GOT
     try self.writeSym(writer, self.syms.items[0]);
@@ -1284,7 +1284,7 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
             try self.writeSym(writer, sym);
             if (self.nav_exports.get(nav_index)) |export_indices| {
                 for (export_indices) |export_idx| {
-                    const exp = mod.all_exports.items[export_idx];
+                    const exp = zcu.all_exports.items[export_idx];
                     if (nav_metadata.getExport(self, exp.opts.name.toSlice(ip))) |exp_i| {
                         try self.writeSym(writer, self.syms.items[exp_i]);
                     }
@@ -1323,7 +1323,7 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
                 try self.writeSym(writer, sym);
                 if (self.nav_exports.get(nav_index)) |export_indices| {
                     for (export_indices) |export_idx| {
-                        const exp = mod.all_exports.items[export_idx];
+                        const exp = zcu.all_exports.items[export_idx];
                         if (nav_metadata.getExport(self, exp.opts.name.toSlice(ip))) |exp_i| {
                             const s = self.syms.items[exp_i];
                             if (mem.eql(u8, s.name, "_start"))

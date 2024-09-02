@@ -32,16 +32,16 @@ test "tuple multiplication" {
         fn doTheTest() !void {
             {
                 const t = .{} ** 4;
-                try expect(@typeInfo(@TypeOf(t)).Struct.fields.len == 0);
+                try expect(@typeInfo(@TypeOf(t)).@"struct".fields.len == 0);
             }
             {
                 const t = .{'a'} ** 4;
-                try expect(@typeInfo(@TypeOf(t)).Struct.fields.len == 4);
+                try expect(@typeInfo(@TypeOf(t)).@"struct".fields.len == 4);
                 inline for (t) |x| try expect(x == 'a');
             }
             {
                 const t = .{ 1, 2, 3 } ** 4;
-                try expect(@typeInfo(@TypeOf(t)).Struct.fields.len == 12);
+                try expect(@typeInfo(@TypeOf(t)).@"struct".fields.len == 12);
                 inline for (t, 0..) |x, i| try expect(x == 1 + i % 3);
             }
         }
@@ -133,7 +133,7 @@ test "array-like initializer for tuple types" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const T = @Type(.{
-        .Struct = .{
+        .@"struct" = .{
             .is_tuple = true,
             .layout = .auto,
             .decls = &.{},
@@ -323,7 +323,7 @@ test "zero sized struct in tuple handled correctly" {
     const State = struct {
         const Self = @This();
         data: @Type(.{
-            .Struct = .{
+            .@"struct" = .{
                 .is_tuple = true,
                 .layout = .auto,
                 .decls = &.{},
@@ -474,7 +474,7 @@ test "coerce anon tuple to tuple" {
 }
 
 test "empty tuple type" {
-    const S = @Type(.{ .Struct = .{
+    const S = @Type(.{ .@"struct" = .{
         .layout = .auto,
         .fields = &.{},
         .decls = &.{},

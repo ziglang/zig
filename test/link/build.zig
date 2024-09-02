@@ -23,7 +23,7 @@ pub fn build(b: *std.Build) void {
         const dep_name, const dep_hash = available_dep;
 
         const all_pkgs = @import("root").dependencies.packages;
-        inline for (@typeInfo(all_pkgs).Struct.decls) |decl| {
+        inline for (@typeInfo(all_pkgs).@"struct".decls) |decl| {
             const pkg_hash = decl.name;
             if (std.mem.eql(u8, dep_hash, pkg_hash)) {
                 const pkg = @field(all_pkgs, pkg_hash);

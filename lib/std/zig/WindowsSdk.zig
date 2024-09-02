@@ -580,10 +580,10 @@ pub const Installation = struct {
         defer options_key.closeKey();
 
         const option_name = comptime switch (builtin.target.cpu.arch) {
-            .arm, .armeb => "OptionId.DesktopCPParm",
+            .thumb => "OptionId.DesktopCPParm",
             .aarch64 => "OptionId.DesktopCPParm64",
-            .x86_64 => "OptionId.DesktopCPPx64",
             .x86 => "OptionId.DesktopCPPx86",
+            .x86_64 => "OptionId.DesktopCPPx64",
             else => |tag| @compileError("Windows SDK cannot be detected on architecture " ++ tag),
         };
 
@@ -824,10 +824,10 @@ const MsvcLibDir = struct {
         try lib_dir_buf.appendSlice("VC\\Tools\\MSVC\\");
         try lib_dir_buf.appendSlice(default_tools_version);
         const folder_with_arch = "\\Lib\\" ++ comptime switch (builtin.target.cpu.arch) {
+            .thumb => "arm",
+            .aarch64 => "arm64",
             .x86 => "x86",
             .x86_64 => "x64",
-            .arm, .armeb => "arm",
-            .aarch64 => "arm64",
             else => |tag| @compileError("MSVC lib dir cannot be detected on architecture " ++ tag),
         };
         try lib_dir_buf.appendSlice(folder_with_arch);
@@ -909,10 +909,10 @@ const MsvcLibDir = struct {
             }
 
             const folder_with_arch = "\\Lib\\" ++ comptime switch (builtin.target.cpu.arch) {
+                .thumb => "arm",
+                .aarch64 => "arm64",
                 .x86 => "x86",
                 .x86_64 => "x64",
-                .arm, .armeb => "arm",
-                .aarch64 => "arm64",
                 else => |tag| @compileError("MSVC lib dir cannot be detected on architecture " ++ tag),
             };
 
@@ -977,10 +977,10 @@ const MsvcLibDir = struct {
         errdefer base_path.deinit();
 
         const folder_with_arch = "\\VC\\lib\\" ++ comptime switch (builtin.target.cpu.arch) {
+            .thumb => "arm",
+            .aarch64 => "arm64",
             .x86 => "", //x86 is in the root of the Lib folder
             .x86_64 => "amd64",
-            .arm, .armeb => "arm",
-            .aarch64 => "arm64",
             else => |tag| @compileError("MSVC lib dir cannot be detected on architecture " ++ tag),
         };
         try base_path.appendSlice(folder_with_arch);

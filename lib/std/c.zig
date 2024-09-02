@@ -40,7 +40,7 @@ pub extern var _mh_execute_header: mach_hdr;
 var dummy_execute_header: mach_hdr = undefined;
 comptime {
     if (native_os.isDarwin()) {
-        @export(dummy_execute_header, .{ .name = "_mh_execute_header", .linkage = .weak });
+        @export(&dummy_execute_header, .{ .name = "_mh_execute_header", .linkage = .weak });
     }
 }
 
@@ -177,7 +177,7 @@ pub const passwd = switch (native_os) {
         dir: ?[*:0]const u8, // home directory
         shell: ?[*:0]const u8, // shell program
     },
-    .openbsd => extern struct {
+    .netbsd, .openbsd, .macos => extern struct {
         name: ?[*:0]const u8, // user name
         passwd: ?[*:0]const u8, // encrypted password
         uid: uid_t, // user uid
@@ -6750,7 +6750,7 @@ pub const pthread_mutex_t = switch (native_os) {
             .musl, .musleabi, .musleabihf => if (@sizeOf(usize) == 8) 40 else 24,
             .gnu, .gnuabin32, .gnuabi64, .gnueabi, .gnueabihf, .gnux32 => switch (native_arch) {
                 .aarch64 => 48,
-                .x86_64 => if (native_abi == .gnux32) 40 else 32,
+                .x86_64 => if (native_abi == .gnux32) 32 else 40,
                 .mips64, .powerpc64, .powerpc64le, .sparc64 => 40,
                 else => if (@sizeOf(usize) == 8) 40 else 24,
             },

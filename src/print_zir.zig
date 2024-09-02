@@ -277,6 +277,8 @@ const Writer = struct {
             .opt_eu_base_ptr_init,
             .restore_err_ret_index_unconditional,
             .restore_err_ret_index_fn_entry,
+            .try_operand_ty,
+            .try_ref_operand_ty,
             => try self.writeUnNode(stream, inst),
 
             .ref,
@@ -429,7 +431,6 @@ const Writer = struct {
             .elem_val_imm => try self.writeElemValImm(stream, inst),
 
             .@"export" => try self.writePlNodeExport(stream, inst),
-            .export_value => try self.writePlNodeExportValue(stream, inst),
 
             .call => try self.writeCall(stream, inst, .direct),
             .field_call => try self.writeCall(stream, inst, .field),
@@ -461,6 +462,8 @@ const Writer = struct {
 
             .field_val,
             .field_ptr,
+            .decl_literal,
+            .decl_literal_no_coerce,
             => try self.writePlNodeField(stream, inst),
 
             .field_ptr_named,
@@ -565,7 +568,6 @@ const Writer = struct {
             .fence,
             .set_float_mode,
             .set_align_stack,
-            .set_cold,
             .wasm_memory_size,
             .int_from_error,
             .error_from_int,
@@ -574,6 +576,7 @@ const Writer = struct {
             .work_item_id,
             .work_group_size,
             .work_group_id,
+            .branch_hint,
             => {
                 const inst_data = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
                 try self.writeInstRef(stream, inst_data.operand);
@@ -908,7 +911,7 @@ const Writer = struct {
 
     fn writeFieldParentPtr(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
         const extra = self.code.extraData(Zir.Inst.FieldParentPtr, extended.operand).data;
-        const FlagsInt = @typeInfo(Zir.Inst.FullPtrCastFlags).Struct.backing_integer.?;
+        const FlagsInt = @typeInfo(Zir.Inst.FullPtrCastFlags).@"struct".backing_integer.?;
         const flags: Zir.Inst.FullPtrCastFlags = @bitCast(@as(FlagsInt, @truncate(extended.small)));
         if (flags.align_cast) try stream.writeAll("align_cast, ");
         if (flags.addrspace_cast) try stream.writeAll("addrspace_cast, ");
@@ -1007,20 +1010,8 @@ const Writer = struct {
     fn writePlNodeExport(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.Export, inst_data.payload_index).data;
-        const decl_name = self.code.nullTerminatedString(extra.decl_name);
 
-        try self.writeInstRef(stream, extra.namespace);
-        try stream.print(", {p}, ", .{std.zig.fmtId(decl_name)});
-        try self.writeInstRef(stream, extra.options);
-        try stream.writeAll(") ");
-        try self.writeSrcNode(stream, inst_data.src_node);
-    }
-
-    fn writePlNodeExportValue(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
-        const extra = self.code.extraData(Zir.Inst.ExportValue, inst_data.payload_index).data;
-
-        try self.writeInstRef(stream, extra.operand);
+        try self.writeInstRef(stream, extra.exported);
         try stream.writeAll(", ");
         try self.writeInstRef(stream, extra.options);
         try stream.writeAll(") ");
@@ -1078,7 +1069,7 @@ const Writer = struct {
     }
 
     fn writePtrCastFull(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
-        const FlagsInt = @typeInfo(Zir.Inst.FullPtrCastFlags).Struct.backing_integer.?;
+        const FlagsInt = @typeInfo(Zir.Inst.FullPtrCastFlags).@"struct".backing_integer.?;
         const flags: Zir.Inst.FullPtrCastFlags = @bitCast(@as(FlagsInt, @truncate(extended.small)));
         const extra = self.code.extraData(Zir.Inst.BinNode, extended.operand).data;
         if (flags.ptr_cast) try stream.writeAll("ptr_cast, ");
@@ -1094,7 +1085,7 @@ const Writer = struct {
     }
 
     fn writePtrCastNoDest(self: *Writer, stream: anytype, extended: Zir.Inst.Extended.InstData) !void {
-        const FlagsInt = @typeInfo(Zir.Inst.FullPtrCastFlags).Struct.backing_integer.?;
+        const FlagsInt = @typeInfo(Zir.Inst.FullPtrCastFlags).@"struct".backing_integer.?;
         const flags: Zir.Inst.FullPtrCastFlags = @bitCast(@as(FlagsInt, @truncate(extended.small)));
         const extra = self.code.extraData(Zir.Inst.UnNode, extended.operand).data;
         if (flags.const_cast) try stream.writeAll("const_cast, ");

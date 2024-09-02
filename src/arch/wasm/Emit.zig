@@ -252,10 +252,10 @@ fn offset(self: Emit) u32 {
 }
 
 fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
-    @setCold(true);
+    @branchHint(.cold);
     std.debug.assert(emit.error_msg == null);
     const comp = emit.bin_file.base.comp;
-    const zcu = comp.module.?;
+    const zcu = comp.zcu.?;
     const gpa = comp.gpa;
     emit.error_msg = try Zcu.ErrorMsg.create(gpa, zcu.navSrcLoc(emit.owner_nav), format, args);
     return error.EmitFail;

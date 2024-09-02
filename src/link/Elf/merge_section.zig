@@ -29,7 +29,7 @@ pub const MergeSection = struct {
     }
 
     pub fn address(msec: MergeSection, elf_file: *Elf) i64 {
-        const shdr = elf_file.shdrs.items[msec.output_section_index];
+        const shdr = elf_file.sections.items(.shdr)[msec.output_section_index];
         return @intCast(shdr.sh_addr + msec.value);
     }
 
@@ -108,13 +108,11 @@ pub const MergeSection = struct {
     }
 
     pub fn initOutputSection(msec: *MergeSection, elf_file: *Elf) !void {
-        const shndx = elf_file.sectionByName(msec.name(elf_file)) orelse try elf_file.addSection(.{
+        msec.output_section_index = elf_file.sectionByName(msec.name(elf_file)) orelse try elf_file.addSection(.{
             .name = msec.name_offset,
             .type = msec.type,
             .flags = msec.flags,
         });
-        try elf_file.output_sections.put(elf_file.base.comp.gpa, shndx, .{});
-        msec.output_section_index = shndx;
     }
 
     pub fn addMergeSubsection(msec: *MergeSection, allocator: Allocator) !MergeSubsection.Index {

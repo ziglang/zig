@@ -218,12 +218,18 @@ no_builtin: bool = false,
 /// Managed by the build runner, not user build script.
 zig_process: ?*Step.ZigProcess,
 
-/// Enables deprecated coverage instrumentation that is only useful if you
-/// are using third party fuzzers that depend on it. Otherwise, slows down
-/// the instrumented binary with unnecessary function calls.
+/// Enables coverage instrumentation that is only useful if you are using third
+/// party fuzzers that depend on it. Otherwise, slows down the instrumented
+/// binary with unnecessary function calls.
 ///
-/// To enable fuzz testing instrumentation on a compilation, see the `fuzz`
-/// flag in `Module`.
+/// This kind of coverage instrumentation is used by AFLplusplus v4.21c,
+/// however, modern fuzzers - including Zig - have switched to using "inline
+/// 8-bit counters" or "inline bool flag" which incurs only a single
+/// instruction for coverage, along with "trace cmp" which instruments
+/// comparisons and reports the operands.
+///
+/// To instead enable fuzz testing instrumentation on a compilation using Zig's
+/// builtin fuzzer, see the `fuzz` flag in `Module`.
 sanitize_coverage_trace_pc_guard: ?bool = null,
 
 pub const ExpectedCompileErrors = union(enum) {
