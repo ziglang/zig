@@ -3411,6 +3411,7 @@ fn shdrRank(self: *Elf, shndx: u32) u8 {
                 return 0xf9;
             }
         },
+        elf.SHT_X86_64_UNWIND => return 0xf0,
 
         elf.SHT_NOBITS => return if (flags & elf.SHF_TLS != 0) 0xf5 else 0xf7,
         elf.SHT_SYMTAB => return 0xfa,
@@ -3500,6 +3501,12 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
         for (zo.atoms_indexes.items) |atom_index| {
             const atom_ptr = zo.atom(atom_index) orelse continue;
             atom_ptr.output_section_index = backlinks[atom_ptr.output_section_index];
+        }
+    }
+
+    for (self.objects.items) |index| {
+        for (self.file(index).?.object.section_chunks.items) |*chunk| {
+            chunk.output_section_index = backlinks[chunk.output_section_index];
         }
     }
 
