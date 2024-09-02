@@ -3505,8 +3505,12 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
     }
 
     for (self.objects.items) |index| {
-        for (self.file(index).?.object.section_chunks.items) |*chunk| {
+        const object = self.file(index).?.object;
+        for (object.section_chunks.items) |*chunk| {
             chunk.output_section_index = backlinks[chunk.output_section_index];
+            for (chunk.atoms.items) |atom_index| {
+                object.atom(atom_index).?.output_section_index = chunk.output_section_index;
+            }
         }
     }
 

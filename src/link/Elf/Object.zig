@@ -975,6 +975,12 @@ pub fn allocateAtoms(self: *Object, elf_file: *Elf) !void {
         shdr.sh_addralign = @max(shdr.sh_addralign, chunk.alignment.toByteUnits().?);
 
         // TODO create back and forward links
+        // TODO if we had a link from Atom to parent Chunk we would not need to update Atom's value or osec index
+        for (chunk.atoms.items) |atom_index| {
+            const atom_ptr = self.atom(atom_index).?;
+            atom_ptr.output_section_index = chunk.output_section_index;
+            atom_ptr.value += chunk.value;
+        }
     }
 }
 
@@ -1008,7 +1014,7 @@ pub fn writeAtoms(self: *Object, elf_file: *Elf) !void {
             const atom_ptr = self.atom(atom_index).?;
             assert(atom_ptr.alive);
 
-            const offset = math.cast(usize, atom_ptr.value) orelse return error.Overflow;
+            const offset = math.cast(usize, atom_ptr.value - chunk.value) orelse return error.Overflow;
             const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
 
             log.debug("    * atom({d}) at 0x{x}", .{ atom_index, chunk.offset(elf_file) + offset });
