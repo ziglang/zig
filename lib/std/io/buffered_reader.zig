@@ -17,87 +17,27 @@ pub fn BufferedReader(comptime buffer_size: usize, comptime ReaderType: type) ty
         const Self = @This();
 
         pub fn read(self: *Self, dest: []u8) Error!usize {
-            // This functions has 3 steps:
-            // 1- Dump the already buffered data onto the destination.
-            // 2- Read from the unbuffered reader directly into the destination,
-            //    until we are close the end.
-            // 3- Read from the unbuffered reader into our own internal buffer,
-            //    and dump the final data onto destination.
-
-            // Step 1- Dump the already buffered data onto the destination.
+            // First try reading from the already buffered data onto the destination.
             const current = self.buf[self.start..self.end];
-            if (dest.len <= current.len) {
-                // If we have enough buffered data to fulfill the request, we are done.
-                @memcpy(dest, current[0..dest.len]);
-                self.start += dest.len;
-                return dest.len;
-            }
-            // Otherwise, dump whatever we have onto the destination and move on
-            // to the next steps.
-            @memcpy(dest[0..current.len], current[0..current.len]);
-
-            // This marks that we don't have any buffered data. If we exit early,
-            // the reader is in a valid state.
-            self.start = self.end;
-
-            // Step 2- Read from the unbuffered reader directly into the destination,
-            //         until we are close the end.
-            var remaining_dest = dest[current.len..];
-            while (remaining_dest.len > buffer_size) {
-                const n = self.unbuffered_reader.read(remaining_dest) catch |err| {
-                    // If we already dumped something onto the destination, we are not going
-                    // to report an error.
-                    const bytes_read = dest.len - remaining_dest.len;
-
-                    return if (bytes_read == 0)
-                        err
-                    else
-                        bytes_read;
-                };
-                if (n == 0) {
-                    // reading from the unbuffered stream returned nothing,
-                    // so we have nothing left to read.
-                    return dest.len - remaining_dest.len;
-                }
-                remaining_dest = remaining_dest[n..];
+            if (current.len != 0) {
+                const to_transfer = @min(current.len, dest.len);
+                @memcpy(dest[0..to_transfer], current[0..to_transfer]);
+                self.start += to_transfer;
+                return to_transfer;
             }
 
-            // Step 3- Read from the unbuffered reader into our own internal buffer,
-            //         and dump the final data onto destination.
-            // We are going to keep reading until we have at least fulfilled the request.
-            // Hopefully we'll have something buffered for the next call.
-            while (true) {
-                self.end = self.unbuffered_reader.read(&self.buf) catch |err| {
-                    // Since we have been using self.end, we need to reset the state
-                    // of the buffer to indicate we have nothing buffered.
-                    self.start = 0;
-                    self.end = 0;
-
-                    // If we already dumped something onto the destination, we are not going
-                    // to report an error.
-                    const bytes_read = dest.len - remaining_dest.len;
-                    return if (bytes_read == 0)
-                        err
-                    else
-                        bytes_read;
-                };
-                if (self.end == 0) {
-                    // reading from the unbuffered stream returned nothing,
-                    // so we have nothing left to read.
-                    self.start = 0;
-                    return dest.len - remaining_dest.len;
-                } else if (self.end < remaining_dest.len) {
-                    // We got some data, but no enough to fulfill the request.
-                    @memcpy(remaining_dest[0..self.end], self.buf[0..self.end]);
-                    remaining_dest = remaining_dest[self.end..];
-                } else {
-                    // We have enough data to fulfill the request, and we may have
-                    // some buffered data left.
-                    @memcpy(remaining_dest, self.buf[0..remaining_dest.len]);
-                    self.start = remaining_dest.len;
-                    return dest.len;
-                }
+            // If dest is large, read from the unbuffered reader directly into the destination.
+            if (dest.len > buffer_size) {
+                return self.unbuffered_reader.read(dest);
             }
+
+            // If dest is small, read from the unbuffered reader into our own internal buffer,
+            // and then transfer to destination.
+            self.end = try self.unbuffered_reader.read(&self.buf);
+            const to_transfer = @min(self.end, dest.len);
+            @memcpy(dest[0..to_transfer], self.buf[0..to_transfer]);
+            self.start = to_transfer;
+            return to_transfer;
         }
 
         pub fn reader(self: *Self) Reader {
