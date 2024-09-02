@@ -978,6 +978,68 @@ pub fn allocateAtoms(self: *Object, elf_file: *Elf) !void {
     }
 }
 
+pub fn writeAtoms(self: *Object, elf_file: *Elf) !void {
+    const gpa = elf_file.base.comp.gpa;
+
+    var undefs = std.AutoArrayHashMap(Elf.SymbolResolver.Index, std.ArrayList(Elf.Ref)).init(gpa);
+    defer {
+        for (undefs.values()) |*refs| {
+            refs.deinit();
+        }
+        undefs.deinit();
+    }
+
+    var buffer = std.ArrayList(u8).init(gpa);
+    defer buffer.deinit();
+
+    log.debug("writing atoms in {}", .{self.fmtPath()});
+
+    var has_reloc_errors = false;
+    for (self.section_chunks.items) |chunk| {
+        const osec = elf_file.sections.items(.shdr)[chunk.output_section_index];
+        if (osec.sh_type == elf.SHT_NOBITS) continue;
+
+        log.debug("  in section '{s}'", .{elf_file.getShString(osec.sh_name)});
+
+        try buffer.ensureUnusedCapacity(chunk.size);
+        buffer.appendNTimesAssumeCapacity(0, chunk.size);
+
+        for (chunk.atoms.items) |atom_index| {
+            const atom_ptr = self.atom(atom_index).?;
+            assert(atom_ptr.alive);
+
+            const offset = math.cast(usize, atom_ptr.value) orelse return error.Overflow;
+            const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
+
+            log.debug("    * atom({d}) at 0x{x}", .{ atom_index, chunk.offset(elf_file) + offset });
+
+            const code = try self.codeDecompressAlloc(elf_file, atom_index);
+            defer gpa.free(code);
+            const out_code = buffer.items[offset..][0..size];
+            @memcpy(out_code, code);
+
+            const res = if (osec.sh_flags & elf.SHF_ALLOC == 0)
+                atom_ptr.resolveRelocsNonAlloc(elf_file, out_code, &undefs)
+            else
+                atom_ptr.resolveRelocsAlloc(elf_file, out_code);
+            _ = res catch |err| switch (err) {
+                error.UnsupportedCpuArch => {
+                    try elf_file.reportUnsupportedCpuArch();
+                    return error.FlushFailure;
+                },
+                error.RelocFailure, error.RelaxFailure => has_reloc_errors = true,
+                else => |e| return e,
+            };
+        }
+
+        try elf_file.base.file.?.pwriteAll(buffer.items, chunk.offset(elf_file));
+        buffer.clearRetainingCapacity();
+    }
+
+    try elf_file.reportUndefinedSymbols(&undefs);
+    if (has_reloc_errors) return error.FlushFailure;
+}
+
 pub fn initRelaSections(self: *Object, elf_file: *Elf) !void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
@@ -1544,12 +1606,12 @@ fn formatComdatGroups(
     }
 }
 
-pub fn fmtPath(self: *Object) std.fmt.Formatter(formatPath) {
+pub fn fmtPath(self: Object) std.fmt.Formatter(formatPath) {
     return .{ .data = self };
 }
 
 fn formatPath(
-    object: *Object,
+    object: Object,
     comptime unused_fmt_string: []const u8,
     options: std.fmt.FormatOptions,
     writer: anytype,
@@ -1586,13 +1648,18 @@ const SectionChunk = struct {
         return @as(i64, @intCast(shdr.sh_addr)) + chunk.value;
     }
 
+    fn offset(chunk: SectionChunk, elf_file: *Elf) u64 {
+        const shdr = elf_file.sections.items(.shdr)[chunk.output_section_index];
+        return shdr.sh_offset + @as(u64, @intCast(chunk.value));
+    }
+
     fn updateSize(chunk: *SectionChunk, object: *Object) void {
         for (chunk.atoms.items) |atom_index| {
             const atom_ptr = object.atom(atom_index).?;
             assert(atom_ptr.alive);
-            const offset = atom_ptr.alignment.forward(chunk.size);
-            const padding = offset - chunk.size;
-            atom_ptr.value = @intCast(offset);
+            const off = atom_ptr.alignment.forward(chunk.size);
+            const padding = off - chunk.size;
+            atom_ptr.value = @intCast(off);
             chunk.size += padding + atom_ptr.size;
             chunk.alignment = chunk.alignment.max(atom_ptr.alignment);
         }

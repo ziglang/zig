@@ -4037,107 +4037,19 @@ fn allocateSpecialPhdrs(self: *Elf) void {
 }
 
 fn writeAtoms(self: *Elf) !void {
-    const gpa = self.base.comp.gpa;
-
-    var undefs = std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)).init(gpa);
-    defer {
-        for (undefs.values()) |*refs| {
-            refs.deinit();
-        }
-        undefs.deinit();
-    }
-
-    var has_reloc_errors = false;
-    const slice = self.sections.slice();
-    for (slice.items(.shdr), slice.items(.atom_list), 0..) |shdr, atom_list, shndx| {
-        if (shdr.sh_type == elf.SHT_NULL) continue;
-        if (shdr.sh_type == elf.SHT_NOBITS) continue;
-        if (atom_list.items.len == 0) continue;
-
-        log.debug("writing atoms in '{s}' section", .{self.getShString(shdr.sh_name)});
-
-        // TODO really, really handle debug section separately
-        const base_offset = if (self.zigObjectPtr()) |zo| base_offset: {
-            for ([_]?Symbol.Index{
-                zo.text_index,
-                zo.rodata_index,
-                zo.data_relro_index,
-                zo.data_index,
-                zo.tdata_index,
-                zo.eh_frame_index,
-                zo.debug_info_index,
-                zo.debug_abbrev_index,
-                zo.debug_aranges_index,
-                zo.debug_str_index,
-                zo.debug_line_index,
-                zo.debug_line_str_index,
-                zo.debug_loclists_index,
-                zo.debug_rnglists_index,
-            }) |maybe_sym_index| {
-                const sym_index = maybe_sym_index orelse continue;
-                const sym = zo.symbol(sym_index);
-                const atom_ptr = sym.atom(self).?;
-                if (atom_ptr.output_section_index == shndx) break :base_offset atom_ptr.size;
-            }
-            break :base_offset 0;
-        } else 0;
-        const sh_offset = shdr.sh_offset + base_offset;
-        const sh_size = math.cast(usize, shdr.sh_size - base_offset) orelse return error.Overflow;
-
-        const buffer = try gpa.alloc(u8, sh_size);
-        defer gpa.free(buffer);
-        const padding_byte: u8 = if (shdr.sh_type == elf.SHT_PROGBITS and
-            shdr.sh_flags & elf.SHF_EXECINSTR != 0 and self.getTarget().cpu.arch == .x86_64)
-            0xcc // int3
-        else
-            0;
-        @memset(buffer, padding_byte);
-
-        for (atom_list.items) |ref| {
-            const atom_ptr = self.atom(ref).?;
-            assert(atom_ptr.alive);
-
-            const offset = math.cast(usize, atom_ptr.value - @as(i64, @intCast(base_offset))) orelse
-                return error.Overflow;
-            const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
-
-            log.debug("writing atom({}) at 0x{x}", .{ ref, sh_offset + offset });
-
-            // TODO decompress directly into provided buffer
-            const out_code = buffer[offset..][0..size];
-            const in_code = switch (atom_ptr.file(self).?) {
-                .object => |x| try x.codeDecompressAlloc(self, ref.index),
-                .zig_object => |x| try x.codeAlloc(self, ref.index),
-                else => unreachable,
-            };
-            defer gpa.free(in_code);
-            @memcpy(out_code, in_code);
-
-            const res = if (shdr.sh_flags & elf.SHF_ALLOC == 0)
-                atom_ptr.resolveRelocsNonAlloc(self, out_code, &undefs)
-            else
-                atom_ptr.resolveRelocsAlloc(self, out_code);
-            _ = res catch |err| switch (err) {
-                error.UnsupportedCpuArch => {
-                    try self.reportUnsupportedCpuArch();
-                    return error.FlushFailure;
-                },
-                error.RelocFailure, error.RelaxFailure => has_reloc_errors = true,
-                else => |e| return e,
-            };
-        }
-
-        try self.base.file.?.pwriteAll(buffer, sh_offset);
+    for (self.objects.items) |index| {
+        try self.file(index).?.object.writeAtoms(self);
     }
 
     if (self.requiresThunks()) {
+        const gpa = self.base.comp.gpa;
         var buffer = std.ArrayList(u8).init(gpa);
         defer buffer.deinit();
 
         for (self.thunks.items) |th| {
             const thunk_size = th.size(self);
             try buffer.ensureUnusedCapacity(thunk_size);
-            const shdr = slice.items(.shdr)[th.output_section_index];
+            const shdr = self.sections.items(.shdr)[th.output_section_index];
             const offset = @as(u64, @intCast(th.value)) + shdr.sh_offset;
             try th.write(self, buffer.writer());
             assert(buffer.items.len == thunk_size);
@@ -4145,10 +4057,6 @@ fn writeAtoms(self: *Elf) !void {
             buffer.clearRetainingCapacity();
         }
     }
-
-    try self.reportUndefinedSymbols(&undefs);
-
-    if (has_reloc_errors) return error.FlushFailure;
 }
 
 pub fn updateSymtabSize(self: *Elf) !void {
@@ -5089,7 +4997,7 @@ pub fn insertDynString(self: *Elf, name: []const u8) error{OutOfMemory}!u32 {
     return off;
 }
 
-fn reportUndefinedSymbols(self: *Elf, undefs: anytype) !void {
+pub fn reportUndefinedSymbols(self: *Elf, undefs: anytype) !void {
     const gpa = self.base.comp.gpa;
     const max_notes = 4;
 
