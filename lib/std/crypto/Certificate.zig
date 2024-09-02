@@ -607,11 +607,10 @@ const Date = struct {
         }
 
         {
-            const is_leap = std.time.epoch.isLeapYear(date.year);
             var month: u4 = 1;
             while (month < date.month) : (month += 1) {
                 const days: u64 = std.time.epoch.getDaysInMonth(
-                    @as(std.time.epoch.YearLeapKind, @enumFromInt(@intFromBool(is_leap))),
+                    date.year,
                     @as(std.time.epoch.Month, @enumFromInt(month)),
                 );
                 sec += days * std.time.epoch.secs_per_day;
