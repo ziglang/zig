@@ -39,11 +39,11 @@ files: std.MultiArrayList(File.Entry) = .{},
 /// Long-lived list of all file descriptors.
 /// We store them globally rather than per actual File so that we can re-use
 /// one file handle per every object file within an archive.
-file_handles: std.ArrayListUnmanaged(File.Handle) = .{},
+file_handles: std.ArrayListUnmanaged(File.Handle) = .empty,
 zig_object_index: ?File.Index = null,
 linker_defined_index: ?File.Index = null,
-objects: std.ArrayListUnmanaged(File.Index) = .{},
-shared_objects: std.ArrayListUnmanaged(File.Index) = .{},
+objects: std.ArrayListUnmanaged(File.Index) = .empty,
+shared_objects: std.ArrayListUnmanaged(File.Index) = .empty,
 
 /// List of all output sections and their associated metadata.
 sections: std.MultiArrayList(Section) = .{},
@@ -52,7 +52,7 @@ shdr_table_offset: ?u64 = null,
 
 /// Stored in native-endian format, depending on target endianness needs to be bswapped on read/write.
 /// Same order as in the file.
-phdrs: std.ArrayListUnmanaged(elf.Elf64_Phdr) = .{},
+phdrs: std.ArrayListUnmanaged(elf.Elf64_Phdr) = .empty,
 
 /// Special program headers
 /// PT_PHDR
@@ -77,23 +77,23 @@ page_size: u32,
 default_sym_version: elf.Elf64_Versym,
 
 /// .shstrtab buffer
-shstrtab: std.ArrayListUnmanaged(u8) = .{},
+shstrtab: std.ArrayListUnmanaged(u8) = .empty,
 /// .symtab buffer
-symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .{},
+symtab: std.ArrayListUnmanaged(elf.Elf64_Sym) = .empty,
 /// .strtab buffer
-strtab: std.ArrayListUnmanaged(u8) = .{},
+strtab: std.ArrayListUnmanaged(u8) = .empty,
 /// Dynamic symbol table. Only populated and emitted when linking dynamically.
 dynsym: DynsymSection = .{},
 /// .dynstrtab buffer
-dynstrtab: std.ArrayListUnmanaged(u8) = .{},
+dynstrtab: std.ArrayListUnmanaged(u8) = .empty,
 /// Version symbol table. Only populated and emitted when linking dynamically.
-versym: std.ArrayListUnmanaged(elf.Elf64_Versym) = .{},
+versym: std.ArrayListUnmanaged(elf.Elf64_Versym) = .empty,
 /// .verneed section
 verneed: VerneedSection = .{},
 /// .got section
 got: GotSection = .{},
 /// .rela.dyn section
-rela_dyn: std.ArrayListUnmanaged(elf.Elf64_Rela) = .{},
+rela_dyn: std.ArrayListUnmanaged(elf.Elf64_Rela) = .empty,
 /// .dynamic section
 dynamic: DynamicSection = .{},
 /// .hash section
@@ -109,10 +109,10 @@ plt_got: PltGotSection = .{},
 /// .copyrel section
 copy_rel: CopyRelSection = .{},
 /// .rela.plt section
-rela_plt: std.ArrayListUnmanaged(elf.Elf64_Rela) = .{},
+rela_plt: std.ArrayListUnmanaged(elf.Elf64_Rela) = .empty,
 /// SHT_GROUP sections
 /// Applies only to a relocatable.
-comdat_group_sections: std.ArrayListUnmanaged(ComdatGroupSection) = .{},
+comdat_group_sections: std.ArrayListUnmanaged(ComdatGroupSection) = .empty,
 
 copy_rel_section_index: ?u32 = null,
 dynamic_section_index: ?u32 = null,
@@ -143,10 +143,10 @@ has_text_reloc: bool = false,
 num_ifunc_dynrelocs: usize = 0,
 
 /// List of range extension thunks.
-thunks: std.ArrayListUnmanaged(Thunk) = .{},
+thunks: std.ArrayListUnmanaged(Thunk) = .empty,
 
 /// List of output merge sections with deduped contents.
-merge_sections: std.ArrayListUnmanaged(MergeSection) = .{},
+merge_sections: std.ArrayListUnmanaged(MergeSection) = .empty,
 
 first_eflags: ?elf.Elf64_Word = null,
 
@@ -5487,9 +5487,9 @@ pub const Ref = struct {
 };
 
 pub const SymbolResolver = struct {
-    keys: std.ArrayListUnmanaged(Key) = .{},
-    values: std.ArrayListUnmanaged(Ref) = .{},
-    table: std.AutoArrayHashMapUnmanaged(void, void) = .{},
+    keys: std.ArrayListUnmanaged(Key) = .empty,
+    values: std.ArrayListUnmanaged(Ref) = .empty,
+    table: std.AutoArrayHashMapUnmanaged(void, void) = .empty,
 
     const Result = struct {
         found_existing: bool,
@@ -5586,7 +5586,7 @@ const Section = struct {
     /// List of atoms contributing to this section.
     /// TODO currently this is only used for relocations tracking in relocatable mode
     /// but will be merged with atom_list_2.
-    atom_list: std.ArrayListUnmanaged(Ref) = .{},
+    atom_list: std.ArrayListUnmanaged(Ref) = .empty,
 
     /// List of atoms contributing to this section.
     /// This can be used by sections that require special handling such as init/fini array, etc.
@@ -5610,7 +5610,7 @@ const Section = struct {
     /// overcapacity can be negative. A simple way to have negative overcapacity is to
     /// allocate a fresh text block, which will have ideal capacity, and then grow it
     /// by 1 byte. It will then have -1 overcapacity.
-    free_list: std.ArrayListUnmanaged(Ref) = .{},
+    free_list: std.ArrayListUnmanaged(Ref) = .empty,
 };
 
 fn defaultEntrySymbolName(cpu_arch: std.Target.Cpu.Arch) []const u8 {

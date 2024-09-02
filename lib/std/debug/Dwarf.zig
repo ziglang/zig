@@ -42,20 +42,20 @@ sections: SectionArray = null_section_array,
 is_macho: bool,
 
 /// Filled later by the initializer
-abbrev_table_list: std.ArrayListUnmanaged(Abbrev.Table) = .{},
+abbrev_table_list: std.ArrayListUnmanaged(Abbrev.Table) = .empty,
 /// Filled later by the initializer
-compile_unit_list: std.ArrayListUnmanaged(CompileUnit) = .{},
+compile_unit_list: std.ArrayListUnmanaged(CompileUnit) = .empty,
 /// Filled later by the initializer
-func_list: std.ArrayListUnmanaged(Func) = .{},
+func_list: std.ArrayListUnmanaged(Func) = .empty,
 
 eh_frame_hdr: ?ExceptionFrameHeader = null,
 /// These lookup tables are only used if `eh_frame_hdr` is null
-cie_map: std.AutoArrayHashMapUnmanaged(u64, CommonInformationEntry) = .{},
+cie_map: std.AutoArrayHashMapUnmanaged(u64, CommonInformationEntry) = .empty,
 /// Sorted by start_pc
-fde_list: std.ArrayListUnmanaged(FrameDescriptionEntry) = .{},
+fde_list: std.ArrayListUnmanaged(FrameDescriptionEntry) = .empty,
 
 /// Populated by `populateRanges`.
-ranges: std.ArrayListUnmanaged(Range) = .{},
+ranges: std.ArrayListUnmanaged(Range) = .empty,
 
 pub const Range = struct {
     start: u64,
@@ -1464,9 +1464,9 @@ fn runLineNumberProgram(d: *Dwarf, gpa: Allocator, compile_unit: *CompileUnit) !
 
     const standard_opcode_lengths = try fbr.readBytes(opcode_base - 1);
 
-    var directories: std.ArrayListUnmanaged(FileEntry) = .{};
+    var directories: std.ArrayListUnmanaged(FileEntry) = .empty;
     defer directories.deinit(gpa);
-    var file_entries: std.ArrayListUnmanaged(FileEntry) = .{};
+    var file_entries: std.ArrayListUnmanaged(FileEntry) = .empty;
     defer file_entries.deinit(gpa);
 
     if (version < 5) {

@@ -10,8 +10,8 @@ prev_di_column: u32,
 /// Relative to the beginning of `code`.
 prev_di_pc: usize,
 
-code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .{},
-relocs: std.ArrayListUnmanaged(Reloc) = .{},
+code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .empty,
+relocs: std.ArrayListUnmanaged(Reloc) = .empty,
 
 pub const Error = Lower.Error || error{
     EmitFail,

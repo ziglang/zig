@@ -751,7 +751,7 @@ const MsvcLibDir = struct {
         defer instances_dir.close();
 
         var state_subpath_buf: [std.fs.max_name_bytes + 32]u8 = undefined;
-        var latest_version_lib_dir = std.ArrayListUnmanaged(u8){};
+        var latest_version_lib_dir: std.ArrayListUnmanaged(u8) = .empty;
         errdefer latest_version_lib_dir.deinit(allocator);
 
         var latest_version: u64 = 0;

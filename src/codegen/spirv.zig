@@ -79,7 +79,7 @@ const ControlFlow = union(enum) {
             selection: struct {
                 /// In order to know which merges we still need to do, we need to keep
                 /// a stack of those.
-                merge_stack: std.ArrayListUnmanaged(SelectionMerge) = .{},
+                merge_stack: std.ArrayListUnmanaged(SelectionMerge) = .empty,
             },
             /// For a `loop` type block, we can early-exit the block by
             /// jumping to the loop exit node, and we don't need to generate
@@ -87,7 +87,7 @@ const ControlFlow = union(enum) {
             loop: struct {
                 /// The next block to jump to can be determined from any number
                 /// of conditions that jump to the loop exit.
-                merges: std.ArrayListUnmanaged(Incoming) = .{},
+                merges: std.ArrayListUnmanaged(Incoming) = .empty,
                 /// The label id of the loop's merge block.
                 merge_block: IdRef,
             },
@@ -102,10 +102,10 @@ const ControlFlow = union(enum) {
         };
         /// The stack of (structured) blocks that we are currently in. This determines
         /// how exits from the current block must be handled.
-        block_stack: std.ArrayListUnmanaged(*Structured.Block) = .{},
+        block_stack: std.ArrayListUnmanaged(*Structured.Block) = .empty,
         /// Maps `block` inst indices to the variable that the block's result
         /// value must be written to.
-        block_results: std.AutoHashMapUnmanaged(Air.Inst.Index, IdRef) = .{},
+        block_results: std.AutoHashMapUnmanaged(Air.Inst.Index, IdRef) = .empty,
     };
 
     const Unstructured = struct {
@@ -116,12 +116,12 @@ const ControlFlow = union(enum) {
 
         const Block = struct {
             label: ?IdRef = null,
-            incoming_blocks: std.ArrayListUnmanaged(Incoming) = .{},
+            incoming_blocks: std.ArrayListUnmanaged(Incoming) = .empty,
         };
 
         /// We need to keep track of result ids for block labels, as well as the 'incoming'
         /// blocks for a block.
-        blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, *Block) = .{},
+        blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, *Block) = .empty,
     };
 
     structured: Structured,
@@ -153,10 +153,10 @@ pub const Object = struct {
 
     /// The Zig module that this object file is generated for.
     /// A map of Zig decl indices to SPIR-V decl indices.
-    nav_link: std.AutoHashMapUnmanaged(InternPool.Nav.Index, SpvModule.Decl.Index) = .{},
+    nav_link: std.AutoHashMapUnmanaged(InternPool.Nav.Index, SpvModule.Decl.Index) = .empty,
 
     /// A map of Zig InternPool indices for anonymous decls to SPIR-V decl indices.
-    uav_link: std.AutoHashMapUnmanaged(struct { InternPool.Index, StorageClass }, SpvModule.Decl.Index) = .{},
+    uav_link: std.AutoHashMapUnmanaged(struct { InternPool.Index, StorageClass }, SpvModule.Decl.Index) = .empty,
 
     /// A map that maps AIR intern pool indices to SPIR-V result-ids.
     intern_map: InternMap = .{},
@@ -300,7 +300,7 @@ const NavGen = struct {
 
     /// An array of function argument result-ids. Each index corresponds with the
     /// function argument of the same index.
-    args: std.ArrayListUnmanaged(IdRef) = .{},
+    args: std.ArrayListUnmanaged(IdRef) = .empty,
 
     /// A counter to keep track of how many `arg` instructions we've seen yet.
     next_arg_index: u32 = 0,
@@ -6270,7 +6270,7 @@ const NavGen = struct {
             }
         }
 
-        var incoming_structured_blocks = std.ArrayListUnmanaged(ControlFlow.Structured.Block.Incoming){};
+        var incoming_structured_blocks: std.ArrayListUnmanaged(ControlFlow.Structured.Block.Incoming) = .empty;
         defer incoming_structured_blocks.deinit(self.gpa);
 
         if (self.control_flow == .structured) {

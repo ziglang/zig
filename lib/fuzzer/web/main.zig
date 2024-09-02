@@ -58,7 +58,7 @@ export fn alloc(n: usize) [*]u8 {
     return slice.ptr;
 }
 
-var message_buffer: std.ArrayListAlignedUnmanaged(u8, @alignOf(u64)) = .{};
+var message_buffer: std.ArrayListAlignedUnmanaged(u8, @alignOf(u64)) = .empty;
 
 /// Resizes the message buffer to be the correct length; returns the pointer to
 /// the query string.
@@ -90,8 +90,8 @@ export fn unpack(tar_ptr: [*]u8, tar_len: usize) void {
 }
 
 /// Set by `set_input_string`.
-var input_string: std.ArrayListUnmanaged(u8) = .{};
-var string_result: std.ArrayListUnmanaged(u8) = .{};
+var input_string: std.ArrayListUnmanaged(u8) = .empty;
+var string_result: std.ArrayListUnmanaged(u8) = .empty;
 
 export fn set_input_string(len: usize) [*]u8 {
     input_string.resize(gpa, len) catch @panic("OOM");
@@ -249,7 +249,7 @@ fn coverageUpdateMessage(msg_bytes: []u8) error{OutOfMemory}!void {
     js.emitCoverageUpdate();
 }
 
-var entry_points: std.ArrayListUnmanaged(u32) = .{};
+var entry_points: std.ArrayListUnmanaged(u32) = .empty;
 
 fn entryPointsMessage(msg_bytes: []u8) error{OutOfMemory}!void {
     const header: abi.EntryPointHeader = @bitCast(msg_bytes[0..@sizeOf(abi.EntryPointHeader)].*);
@@ -295,7 +295,7 @@ const SourceLocationIndex = enum(u32) {
     }
 
     fn toWalkFile(sli: SourceLocationIndex) ?Walk.File.Index {
-        var buf: std.ArrayListUnmanaged(u8) = .{};
+        var buf: std.ArrayListUnmanaged(u8) = .empty;
         defer buf.deinit(gpa);
         sli.appendPath(&buf) catch @panic("OOM");
         return @enumFromInt(Walk.files.getIndex(buf.items) orelse return null);
@@ -307,7 +307,7 @@ const SourceLocationIndex = enum(u32) {
     ) error{ OutOfMemory, SourceUnavailable }!void {
         const walk_file_index = sli.toWalkFile() orelse return error.SourceUnavailable;
         const root_node = walk_file_index.findRootDecl().get().ast_node;
-        var annotations: std.ArrayListUnmanaged(html_render.Annotation) = .{};
+        var annotations: std.ArrayListUnmanaged(html_render.Annotation) = .empty;
         defer annotations.deinit(gpa);
         try computeSourceAnnotations(sli.ptr().file, walk_file_index, &annotations, coverage_source_locations.items);
         html_render.fileSourceHtml(walk_file_index, out, root_node, .{
@@ -327,7 +327,7 @@ fn computeSourceAnnotations(
     // Collect all the source locations from only this file into this array
     // first, then sort by line, col, so that we can collect annotations with
     // O(N) time complexity.
-    var locs: std.ArrayListUnmanaged(SourceLocationIndex) = .{};
+    var locs: std.ArrayListUnmanaged(SourceLocationIndex) = .empty;
     defer locs.deinit(gpa);
 
     for (source_locations, 0..) |sl, sli_usize| {
@@ -374,9 +374,9 @@ fn computeSourceAnnotations(
 
 var coverage = Coverage.init;
 /// Index of type `SourceLocationIndex`.
-var coverage_source_locations: std.ArrayListUnmanaged(Coverage.SourceLocation) = .{};
+var coverage_source_locations: std.ArrayListUnmanaged(Coverage.SourceLocation) = .empty;
 /// Contains the most recent coverage update message, unmodified.
-var recent_coverage_update: std.ArrayListAlignedUnmanaged(u8, @alignOf(u64)) = .{};
+var recent_coverage_update: std.ArrayListAlignedUnmanaged(u8, @alignOf(u64)) = .empty;
 
 fn updateCoverage(
     directories: []const Coverage.String,
@@ -425,7 +425,7 @@ export fn sourceLocationFileHtml(sli: SourceLocationIndex) String {
 
 export fn sourceLocationFileCoveredList(sli_file: SourceLocationIndex) Slice(SourceLocationIndex) {
     const global = struct {
-        var result: std.ArrayListUnmanaged(SourceLocationIndex) = .{};
+        var result: std.ArrayListUnmanaged(SourceLocationIndex) = .empty;
         fn add(i: u32, want_file: Coverage.File.Index) void {
             const src_loc_index: SourceLocationIndex = @enumFromInt(i);
             if (src_loc_index.ptr().file == want_file) result.appendAssumeCapacity(src_loc_index);

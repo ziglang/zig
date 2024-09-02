@@ -19,7 +19,7 @@ pragma: Pragma = .{
     .preserveTokens = preserveTokens,
 },
 original_options: Diagnostics.Options = .{},
-options_stack: std.ArrayListUnmanaged(Diagnostics.Options) = .{},
+options_stack: std.ArrayListUnmanaged(Diagnostics.Options) = .empty,
 
 const Directive = enum {
     warning,

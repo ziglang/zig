@@ -17,21 +17,21 @@ const Ais = AutoIndentingStream(std.ArrayList(u8).Writer);
 pub const Fixups = struct {
     /// The key is the mut token (`var`/`const`) of the variable declaration
     /// that should have a `_ = foo;` inserted afterwards.
-    unused_var_decls: std.AutoHashMapUnmanaged(Ast.TokenIndex, void) = .{},
+    unused_var_decls: std.AutoHashMapUnmanaged(Ast.TokenIndex, void) = .empty,
     /// The functions in this unordered set of AST fn decl nodes will render
     /// with a function body of `@trap()` instead, with all parameters
     /// discarded.
-    gut_functions: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{},
+    gut_functions: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .empty,
     /// These global declarations will be omitted.
-    omit_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .{},
+    omit_nodes: std.AutoHashMapUnmanaged(Ast.Node.Index, void) = .empty,
     /// These expressions will be replaced with the string value.
-    replace_nodes_with_string: std.AutoHashMapUnmanaged(Ast.Node.Index, []const u8) = .{},
+    replace_nodes_with_string: std.AutoHashMapUnmanaged(Ast.Node.Index, []const u8) = .empty,
     /// The string value will be inserted directly after the node.
-    append_string_after_node: std.AutoHashMapUnmanaged(Ast.Node.Index, []const u8) = .{},
+    append_string_after_node: std.AutoHashMapUnmanaged(Ast.Node.Index, []const u8) = .empty,
     /// These nodes will be replaced with a different node.
-    replace_nodes_with_node: std.AutoHashMapUnmanaged(Ast.Node.Index, Ast.Node.Index) = .{},
+    replace_nodes_with_node: std.AutoHashMapUnmanaged(Ast.Node.Index, Ast.Node.Index) = .empty,
     /// Change all identifier names matching the key to be value instead.
-    rename_identifiers: std.StringArrayHashMapUnmanaged([]const u8) = .{},
+    rename_identifiers: std.StringArrayHashMapUnmanaged([]const u8) = .empty,
 
     /// All `@import` builtin calls which refer to a file path will be prefixed
     /// with this path.

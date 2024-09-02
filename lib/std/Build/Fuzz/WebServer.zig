@@ -236,7 +236,7 @@ fn buildWasmBinary(
         .sub_path = "docs/wasm/html_render.zig",
     };
 
-    var argv: std.ArrayListUnmanaged([]const u8) = .{};
+    var argv: std.ArrayListUnmanaged([]const u8) = .empty;
 
     try argv.appendSlice(arena, &.{
         ws.zig_exe_path, "build-exe", //

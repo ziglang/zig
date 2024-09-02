@@ -31,9 +31,9 @@
 
 /// The root node of the trie.
 root: ?Node.Index = null,
-buffer: std.ArrayListUnmanaged(u8) = .{},
+buffer: std.ArrayListUnmanaged(u8) = .empty,
 nodes: std.MultiArrayList(Node) = .{},
-edges: std.ArrayListUnmanaged(Edge) = .{},
+edges: std.ArrayListUnmanaged(Edge) = .empty,
 
 /// Insert a symbol into the trie, updating the prefixes in the process.
 /// This operation may change the layout of the trie by splicing edges in
@@ -317,7 +317,7 @@ const Node = struct {
     trie_offset: u32 = 0,
 
     /// List of all edges originating from this node.
-    edges: std.ArrayListUnmanaged(Edge.Index) = .{},
+    edges: std.ArrayListUnmanaged(Edge.Index) = .empty,
 
     const Index = u32;
 };

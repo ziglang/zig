@@ -70,13 +70,13 @@ pub fn writeUsage(writer: anytype, command_name: []const u8) !void {
 }
 
 pub const Diagnostics = struct {
-    errors: std.ArrayListUnmanaged(ErrorDetails) = .{},
+    errors: std.ArrayListUnmanaged(ErrorDetails) = .empty,
     allocator: Allocator,
 
     pub const ErrorDetails = struct {
         arg_index: usize,
         arg_span: ArgSpan = .{},
-        msg: std.ArrayListUnmanaged(u8) = .{},
+        msg: std.ArrayListUnmanaged(u8) = .empty,
         type: Type = .err,
         print_args: bool = true,
 
@@ -132,13 +132,13 @@ pub const Options = struct {
     allocator: Allocator,
     input_filename: []const u8 = &[_]u8{},
     output_filename: []const u8 = &[_]u8{},
-    extra_include_paths: std.ArrayListUnmanaged([]const u8) = .{},
+    extra_include_paths: std.ArrayListUnmanaged([]const u8) = .empty,
     ignore_include_env_var: bool = false,
     preprocess: Preprocess = .yes,
     default_language_id: ?u16 = null,
     default_code_page: ?CodePage = null,
     verbose: bool = false,
-    symbols: std.StringArrayHashMapUnmanaged(SymbolValue) = .{},
+    symbols: std.StringArrayHashMapUnmanaged(SymbolValue) = .empty,
     null_terminate_string_table_strings: bool = false,
     max_string_literal_codepoints: u15 = lex.default_max_string_literal_codepoints,
     silent_duplicate_control_ids: bool = false,

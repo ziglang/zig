@@ -68,7 +68,7 @@ stack_align: Alignment,
 /// MIR Instructions
 mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
 /// MIR extra data
-mir_extra: std.ArrayListUnmanaged(u32) = .{},
+mir_extra: std.ArrayListUnmanaged(u32) = .empty,
 
 /// Byte offset within the source file of the ending curly.
 end_di_line: u32,
@@ -77,7 +77,7 @@ end_di_column: u32,
 /// The value is an offset into the `Function` `code` from the beginning.
 /// To perform the reloc, write 32-bit signed little-endian integer
 /// which is a relative jump, based on the address following the reloc.
-exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .{},
+exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .empty,
 
 /// Whenever there is a runtime branch, we push a Branch onto this stack,
 /// and pop it off when the runtime branch joins. This provides an "overlay"
@@ -89,12 +89,12 @@ exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .{},
 branch_stack: *std.ArrayList(Branch),
 
 // Key is the block instruction
-blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .{},
+blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .empty,
 
 register_manager: RegisterManager = .{},
 
 /// Maps offset to what is stored there.
-stack: std.AutoHashMapUnmanaged(u32, StackAllocation) = .{},
+stack: std.AutoHashMapUnmanaged(u32, StackAllocation) = .empty,
 
 /// Tracks the current instruction allocated to the condition flags
 condition_flags_inst: ?Air.Inst.Index = null,
@@ -201,7 +201,7 @@ const MCValue = union(enum) {
 };
 
 const Branch = struct {
-    inst_table: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, MCValue) = .{},
+    inst_table: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, MCValue) = .empty,
 
     fn deinit(self: *Branch, gpa: Allocator) void {
         self.inst_table.deinit(gpa);

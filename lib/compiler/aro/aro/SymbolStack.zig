@@ -33,14 +33,14 @@ pub const Kind = enum {
     constexpr,
 };
 
-scopes: std.ArrayListUnmanaged(Scope) = .{},
+scopes: std.ArrayListUnmanaged(Scope) = .empty,
 /// allocations from nested scopes are retained after popping; `active_len` is the number
 /// of currently-active items in `scopes`.
 active_len: usize = 0,
 
 const Scope = struct {
-    vars: std.AutoHashMapUnmanaged(StringId, Symbol) = .{},
-    tags: std.AutoHashMapUnmanaged(StringId, Symbol) = .{},
+    vars: std.AutoHashMapUnmanaged(StringId, Symbol) = .empty,
+    tags: std.AutoHashMapUnmanaged(StringId, Symbol) = .empty,
 
     fn deinit(self: *Scope, allocator: Allocator) void {
         self.vars.deinit(allocator);
