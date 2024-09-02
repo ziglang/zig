@@ -3156,7 +3156,7 @@ fn zirUnionDecl(
             .layout = small.layout,
             .status = .none,
             .runtime_tag = if (small.has_tag_type or small.auto_enum_tag)
-                .tagged
+                if (small.layout == .@"packed") .none else .tagged // packed unions will never have a runtime tag
             else if (small.layout != .auto)
                 .none
             else switch (block.wantSafety()) {
@@ -36810,15 +36810,17 @@ fn unionFields(
         _ = try sema.analyzeInlineBody(&block_scope, body, zir_index);
     }
 
+    const layout = union_type.flagsUnordered(ip).layout;
+    var backing_int_size: ?u64 = null;
+    const tag_ty_src: LazySrcLoc = .{
+        .base_node_inst = union_type.zir_index,
+        .offset = .{ .node_offset_container_tag = 0 },
+    };
     var int_tag_ty: Type = undefined;
     var enum_field_names: []InternPool.NullTerminatedString = &.{};
     var enum_field_vals: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .{};
     var explicit_tags_seen: []bool = &.{};
     if (tag_type_ref != .none) {
-        const tag_ty_src: LazySrcLoc = .{
-            .base_node_inst = union_type.zir_index,
-            .offset = .{ .node_offset_container_tag = 0 },
-        };
         const provided_ty = try sema.resolveType(&block_scope, tag_ty_src, tag_type_ref);
         if (small.auto_enum_tag) {
             // The provided type is an integer type and we must construct the enum tag type here.
@@ -36845,16 +36847,38 @@ fn unionFields(
                 try enum_field_vals.ensureTotalCapacity(sema.arena, fields_len);
             }
         } else {
-            // The provided type is the enum tag type.
-            const enum_type = switch (ip.indexToKey(provided_ty.toIntern())) {
-                .enum_type => ip.loadEnumType(provided_ty.toIntern()),
-                else => return sema.fail(&block_scope, tag_ty_src, "expected enum tag type, found '{}'", .{provided_ty.fmt(pt)}),
-            };
-            union_type.setTagType(ip, provided_ty.toIntern());
-            // The fields of the union must match the enum exactly.
-            // A flag per field is used to check for missing and extraneous fields.
-            explicit_tags_seen = try sema.arena.alloc(bool, enum_type.names.len);
-            @memset(explicit_tags_seen, false);
+            // The provided type is the tag type.
+            switch (provided_ty.zigTypeTag(zcu)) {
+                .@"enum" => {
+                    const enum_type = ip.loadEnumType(provided_ty.toIntern());
+                    union_type.setTagType(ip, provided_ty.toIntern());
+                    // The fields of the union must match the enum exactly.
+                    // A flag per field is used to check for missing and extraneous fields.
+                    explicit_tags_seen = try sema.arena.alloc(bool, enum_type.names.len);
+                    @memset(explicit_tags_seen, false);
+                },
+                .int => {
+                    backing_int_size = provided_ty.bitSize(zcu);
+                    enum_field_names = try sema.arena.alloc(InternPool.NullTerminatedString, fields_len);
+                },
+                else => {
+                    if (layout == .@"packed") {
+                        return sema.fail(
+                            &block_scope,
+                            tag_ty_src,
+                            "expected backing integer type, found '{}'",
+                            .{provided_ty.fmt(pt)},
+                        );
+                    } else {
+                        return sema.fail(
+                            &block_scope,
+                            tag_ty_src,
+                            "expected enum tag type, found '{}'",
+                            .{provided_ty.fmt(pt)},
+                        );
+                    }
+                },
+            }
         }
     } else {
         // If auto_enum_tag is false, this is an untagged union. However, for semantic analysis
@@ -36869,6 +36893,11 @@ fn unionFields(
     try field_types.ensureTotalCapacityPrecise(sema.arena, fields_len);
     if (small.any_aligned_fields)
         try field_aligns.ensureTotalCapacityPrecise(sema.arena, fields_len);
+
+    // a list of gathered packed union field bitsize errors
+    // the u64 is the field bit size, the LazySrcLoc points to the field type
+    var mismatched_size_errs: std.ArrayListUnmanaged(struct { u64, LazySrcLoc }) = .{};
+    defer mismatched_size_errs.deinit(gpa);
 
     const bits_per_field = 4;
     const fields_per_u32 = 32 / bits_per_field;
@@ -36990,6 +37019,16 @@ fn unionFields(
             return error.GenericPoison;
         }
 
+        if (backing_int_size) |size| {
+            const field_bit_size = try field_ty.bitSizeSema(pt);
+            if (field_bit_size != size) {
+                try mismatched_size_errs.append(gpa, .{
+                    field_bit_size,
+                    type_src,
+                });
+            }
+        }
+
         if (explicit_tags_seen.len > 0) {
             const tag_ty = union_type.tagTypeUnordered(ip);
             const tag_info = ip.loadEnumType(tag_ty);
@@ -37032,7 +37071,6 @@ fn unionFields(
             };
             return sema.failWithOwnedErrorMsg(&block_scope, msg);
         }
-        const layout = union_type.flagsUnordered(ip).layout;
         if (layout == .@"extern" and
             !try sema.validateExternType(field_ty, .union_field))
         {
@@ -37073,6 +37111,30 @@ fn unionFields(
 
     union_type.setFieldTypes(ip, field_types.items);
     union_type.setFieldAligns(ip, field_aligns.items);
+
+    if (mismatched_size_errs.items.len > 0) {
+        const msg = msg: {
+            const msg = try sema.errMsg(
+                tag_ty_src,
+                "all fields must have a bit size of {d}",
+                .{backing_int_size.?},
+            );
+            errdefer msg.destroy(gpa);
+
+            for (mismatched_size_errs.items) |entry| {
+                const field_size, const field_ty_src = entry;
+                try sema.errNote(
+                    field_ty_src,
+                    msg,
+                    "field with bit size {d} here",
+                    .{field_size},
+                );
+            }
+
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(&block_scope, msg);
+    }
 
     if (explicit_tags_seen.len > 0) {
         const tag_ty = union_type.tagTypeUnordered(ip);

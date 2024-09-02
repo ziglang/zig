@@ -5290,12 +5290,11 @@ fn unionDeclInner(
     const decl_count = try astgen.scanContainer(&namespace, members, .@"union");
     const field_count: u32 = @intCast(members.len - decl_count);
 
-    if (layout != .auto and (auto_enum_tok != null or arg_node != 0)) {
-        if (arg_node != 0) {
-            return astgen.failNode(arg_node, "{s} union does not support enum tag type", .{@tagName(layout)});
-        } else {
-            return astgen.failTok(auto_enum_tok.?, "{s} union does not support enum tag type", .{@tagName(layout)});
-        }
+    if (layout != .auto and auto_enum_tok != null) {
+        return astgen.failTok(auto_enum_tok.?, "{s} union does not support enum tag type", .{@tagName(layout)});
+    }
+    if (layout == .@"packed" and arg_node == 0) {
+        return astgen.failNode(node, "packed union must have a backing integer", .{});
     }
 
     const arg_inst: Zir.Inst.Ref = if (arg_node != 0)
