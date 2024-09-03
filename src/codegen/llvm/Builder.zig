@@ -11899,10 +11899,10 @@ pub fn trailingMetadataStringAssumeCapacity(self: *Builder) MetadataString {
     return @enumFromInt(gop.index);
 }
 
-pub fn debugNamed(self: *Builder, name: MetadataString, operands: []const Metadata) Allocator.Error!void {
+pub fn metadataNamed(self: *Builder, name: MetadataString, operands: []const Metadata) Allocator.Error!void {
     try self.metadata_extra.ensureUnusedCapacity(self.gpa, operands.len);
     try self.metadata_named.ensureUnusedCapacity(self.gpa, 1);
-    self.debugNamedAssumeCapacity(name, operands);
+    self.metadataNamedAssumeCapacity(name, operands);
 }
 
 fn metadataNone(self: *Builder) Allocator.Error!Metadata {
@@ -12213,14 +12213,14 @@ pub fn strTuple(
     return self.strTupleAssumeCapacity(str, elements);
 }
 
-pub fn debugModuleFlag(
+pub fn metadataModuleFlag(
     self: *Builder,
     behavior: Metadata,
     name: MetadataString,
     constant: Metadata,
 ) Allocator.Error!Metadata {
     try self.ensureUnusedMetadataCapacity(1, Metadata.ModuleFlag, 0);
-    return self.debugModuleFlagAssumeCapacity(behavior, name, constant);
+    return self.metadataModuleFlagAssumeCapacity(behavior, name, constant);
 }
 
 pub fn debugLocalVar(
@@ -12365,8 +12365,7 @@ fn metadataDistinctAssumeCapacity(self: *Builder, tag: Metadata.Tag, value: anyt
     return @enumFromInt(gop.index);
 }
 
-fn debugNamedAssumeCapacity(self: *Builder, name: MetadataString, operands: []const Metadata) void {
-    assert(!self.strip);
+fn metadataNamedAssumeCapacity(self: *Builder, name: MetadataString, operands: []const Metadata) void {
     assert(name != .none);
     const extra_index: u32 = @intCast(self.metadata_extra.items.len);
     self.metadata_extra.appendSliceAssumeCapacity(@ptrCast(operands));
@@ -12949,13 +12948,12 @@ fn strTupleAssumeCapacity(
     return @enumFromInt(gop.index);
 }
 
-fn debugModuleFlagAssumeCapacity(
+fn metadataModuleFlagAssumeCapacity(
     self: *Builder,
     behavior: Metadata,
     name: MetadataString,
     constant: Metadata,
 ) Metadata {
-    assert(!self.strip);
     return self.metadataSimpleAssumeCapacity(.module_flag, Metadata.ModuleFlag{
         .behavior = behavior,
         .name = name,
