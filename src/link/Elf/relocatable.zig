@@ -302,21 +302,28 @@ fn initSections(elf_file: *Elf) !void {
         try msec.initOutputSection(elf_file);
     }
 
-    const needs_eh_frame = for (elf_file.objects.items) |index| {
+    const needs_eh_frame = if (elf_file.zigObjectPtr()) |zo|
+        zo.eh_frame_index != null
+    else for (elf_file.objects.items) |index| {
         if (elf_file.file(index).?.object.cies.items.len > 0) break true;
     } else false;
     if (needs_eh_frame) {
         if (elf_file.eh_frame_section_index == null) {
-            elf_file.eh_frame_section_index = try elf_file.addSection(.{
-                .name = try elf_file.insertShString(".eh_frame"),
-                .type = if (elf_file.getTarget().cpu.arch == .x86_64)
-                    elf.SHT_X86_64_UNWIND
-                else
-                    elf.SHT_PROGBITS,
-                .flags = elf.SHF_ALLOC,
-                .addralign = elf_file.ptrWidthBytes(),
-                .offset = std.math.maxInt(u64),
-            });
+            elf_file.eh_frame_section_index = blk: {
+                if (elf_file.zigObjectPtr()) |zo| {
+                    if (zo.eh_frame_index) |idx| break :blk zo.symbol(idx).atom(elf_file).?.output_section_index;
+                }
+                break :blk try elf_file.addSection(.{
+                    .name = try elf_file.insertShString(".eh_frame"),
+                    .type = if (elf_file.getTarget().cpu.arch == .x86_64)
+                        elf.SHT_X86_64_UNWIND
+                    else
+                        elf.SHT_PROGBITS,
+                    .flags = elf.SHF_ALLOC,
+                    .addralign = elf_file.ptrWidthBytes(),
+                    .offset = std.math.maxInt(u64),
+                });
+            };
         }
         elf_file.eh_frame_rela_section_index = try elf_file.addRelaShdr(
             try elf_file.insertShString(".rela.eh_frame"),
