@@ -807,11 +807,11 @@ test {
 
 pub const Case = enum { lower, upper };
 
-fn formatSliceHexImpl(comptime case: Case) type {
+fn SliceHex(comptime case: Case) type {
     const charset = "0123456789" ++ if (case == .upper) "ABCDEF" else "abcdef";
 
     return struct {
-        pub fn formatSliceHexImpl(
+        pub fn format(
             bytes: []const u8,
             comptime fmt: []const u8,
             options: std.fmt.FormatOptions,
@@ -830,8 +830,8 @@ fn formatSliceHexImpl(comptime case: Case) type {
     };
 }
 
-const formatSliceHexLower = formatSliceHexImpl(.lower).formatSliceHexImpl;
-const formatSliceHexUpper = formatSliceHexImpl(.upper).formatSliceHexImpl;
+const formatSliceHexLower = SliceHex(.lower).format;
+const formatSliceHexUpper = SliceHex(.upper).format;
 
 /// Return a Formatter for a []const u8 where every byte is formatted as a pair
 /// of lowercase hexadecimal digits.
@@ -845,11 +845,11 @@ pub fn fmtSliceHexUpper(bytes: []const u8) std.fmt.Formatter(formatSliceHexUpper
     return .{ .data = bytes };
 }
 
-fn formatSliceEscapeImpl(comptime case: Case) type {
+fn SliceEscape(comptime case: Case) type {
     const charset = "0123456789" ++ if (case == .upper) "ABCDEF" else "abcdef";
 
     return struct {
-        pub fn formatSliceEscapeImpl(
+        pub fn format(
             bytes: []const u8,
             comptime fmt: []const u8,
             options: std.fmt.FormatOptions,
@@ -875,8 +875,8 @@ fn formatSliceEscapeImpl(comptime case: Case) type {
     };
 }
 
-const formatSliceEscapeLower = formatSliceEscapeImpl(.lower).formatSliceEscapeImpl;
-const formatSliceEscapeUpper = formatSliceEscapeImpl(.upper).formatSliceEscapeImpl;
+const formatSliceEscapeLower = SliceEscape(.lower).format;
+const formatSliceEscapeUpper = SliceEscape(.upper).format;
 
 /// Return a Formatter for a []const u8 where every non-printable ASCII
 /// character is escaped as \xNN, where NN is the character in lowercase
@@ -892,9 +892,9 @@ pub fn fmtSliceEscapeUpper(bytes: []const u8) std.fmt.Formatter(formatSliceEscap
     return .{ .data = bytes };
 }
 
-fn formatSizeImpl(comptime base: comptime_int) type {
+fn Size(comptime base: comptime_int) type {
     return struct {
-        fn formatSizeImpl(
+        fn format(
             value: u64,
             comptime fmt: []const u8,
             options: FormatOptions,
@@ -950,8 +950,8 @@ fn formatSizeImpl(comptime base: comptime_int) type {
         }
     };
 }
-const formatSizeDec = formatSizeImpl(1000).formatSizeImpl;
-const formatSizeBin = formatSizeImpl(1024).formatSizeImpl;
+const formatSizeDec = Size(1000).format;
+const formatSizeBin = Size(1024).format;
 
 /// Return a Formatter for a u64 value representing a file size.
 /// This formatter represents the number as multiple of 1000 and uses the SI
@@ -1480,8 +1480,8 @@ pub const ParseIntError = error{
 ///         writer: anytype,
 ///     ) !void;
 ///
-pub fn Formatter(comptime format_fn: anytype) type {
-    const Data = @typeInfo(@TypeOf(format_fn)).@"fn".params[0].type.?;
+pub fn Formatter(comptime formatFn: anytype) type {
+    const Data = @typeInfo(@TypeOf(formatFn)).@"fn".params[0].type.?;
     return struct {
         data: Data,
         pub fn format(
@@ -1490,7 +1490,7 @@ pub fn Formatter(comptime format_fn: anytype) type {
             options: std.fmt.FormatOptions,
             writer: anytype,
         ) @TypeOf(writer).Error!void {
-            try format_fn(self.data, fmt, options, writer);
+            try formatFn(self.data, fmt, options, writer);
         }
     };
 }
