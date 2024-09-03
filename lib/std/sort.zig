@@ -771,10 +771,38 @@ pub fn equalRange(
     context: anytype,
     comptime compareFn: fn (@TypeOf(context), T) std.math.Order,
 ) struct { usize, usize } {
-    return .{
-        lowerBound(T, items, context, compareFn),
-        upperBound(T, items, context, compareFn),
-    };
+    var low: usize = 0;
+    var high: usize = items.len;
+
+    while (low < high) {
+        const mid = low + (high - low) / 2;
+        switch (compareFn(context, items[mid])) {
+            .lt => {
+                low = mid + 1;
+            },
+            .gt => {
+                high = mid;
+            },
+            .eq => {
+                return .{
+                    std.sort.lowerBound(
+                        T,
+                        items[0..mid],
+                        context,
+                        compareFn,
+                    ),
+                    mid + std.sort.upperBound(
+                        T,
+                        items[mid..],
+                        context,
+                        compareFn,
+                    ),
+                };
+            },
+        }
+    }
+
+    return .{ low, low };
 }
 
 test equalRange {
