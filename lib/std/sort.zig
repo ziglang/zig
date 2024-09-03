@@ -783,15 +783,15 @@ pub fn equalRange(
             },
             .eq => {
                 return .{
-                    std.sort.lowerBound(
+                    low + std.sort.lowerBound(
                         T,
-                        items[0..mid],
+                        items[low..mid],
                         context,
                         compareFn,
                     ),
                     mid + std.sort.upperBound(
                         T,
-                        items[mid..],
+                        items[mid..high],
                         context,
                         compareFn,
                     ),
