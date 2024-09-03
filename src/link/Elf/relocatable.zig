@@ -302,30 +302,29 @@ fn initSections(elf_file: *Elf) !void {
         try msec.initOutputSection(elf_file);
     }
 
-    const needs_eh_frame = if (elf_file.zigObjectPtr()) |zo|
-        zo.eh_frame_index != null
-    else for (elf_file.objects.items) |index| {
-        if (elf_file.file(index).?.object.cies.items.len > 0) break true;
-    } else false;
+    const needs_eh_frame = blk: {
+        if (elf_file.zigObjectPtr()) |zo|
+            if (zo.eh_frame_index != null) break :blk true;
+        break :blk for (elf_file.objects.items) |index| {
+            if (elf_file.file(index).?.object.cies.items.len > 0) break true;
+        } else false;
+    };
     if (needs_eh_frame) {
         if (elf_file.eh_frame_section_index == null) {
-            elf_file.eh_frame_section_index = blk: {
-                if (elf_file.zigObjectPtr()) |zo| {
-                    if (zo.eh_frame_index) |idx| break :blk zo.symbol(idx).atom(elf_file).?.output_section_index;
-                }
-                break :blk try elf_file.addSection(.{
-                    .name = try elf_file.insertShString(".eh_frame"),
-                    .type = if (elf_file.getTarget().cpu.arch == .x86_64)
-                        elf.SHT_X86_64_UNWIND
-                    else
-                        elf.SHT_PROGBITS,
-                    .flags = elf.SHF_ALLOC,
-                    .addralign = elf_file.ptrWidthBytes(),
-                    .offset = std.math.maxInt(u64),
-                });
-            };
+            elf_file.eh_frame_section_index = elf_file.sectionByName(".eh_frame") orelse
+                try elf_file.addSection(.{
+                .name = try elf_file.insertShString(".eh_frame"),
+                .type = if (elf_file.getTarget().cpu.arch == .x86_64)
+                    elf.SHT_X86_64_UNWIND
+                else
+                    elf.SHT_PROGBITS,
+                .flags = elf.SHF_ALLOC,
+                .addralign = elf_file.ptrWidthBytes(),
+                .offset = std.math.maxInt(u64),
+            });
         }
-        elf_file.eh_frame_rela_section_index = try elf_file.addRelaShdr(
+        elf_file.eh_frame_rela_section_index = elf_file.sectionByName(".rela.eh_frame") orelse
+            try elf_file.addRelaShdr(
             try elf_file.insertShString(".rela.eh_frame"),
             elf_file.eh_frame_section_index.?,
         );
@@ -367,6 +366,7 @@ fn updateSectionSizes(elf_file: *Elf) !void {
     for (slice.items(.shdr), 0..) |*shdr, shndx| {
         const atom_list = slice.items(.atom_list)[shndx];
         if (shdr.sh_type != elf.SHT_RELA) continue;
+        if (@as(u32, @intCast(shndx)) == elf_file.eh_frame_section_index) continue;
         for (atom_list.items) |ref| {
             const atom_ptr = elf_file.atom(ref) orelse continue;
             if (!atom_ptr.alive) continue;
@@ -378,11 +378,7 @@ fn updateSectionSizes(elf_file: *Elf) !void {
     }
 
     if (elf_file.eh_frame_section_index) |index| {
-        slice.items(.shdr)[index].sh_size = existing_size: {
-            const zo = elf_file.zigObjectPtr() orelse break :existing_size 0;
-            const sym = zo.symbol(zo.eh_frame_index orelse break :existing_size 0);
-            break :existing_size sym.atom(elf_file).?.size;
-        } + try eh_frame.calcEhFrameSize(elf_file);
+        slice.items(.shdr)[index].sh_size = try eh_frame.calcEhFrameSize(elf_file);
     }
     if (elf_file.eh_frame_rela_section_index) |index| {
         const shdr = &slice.items(.shdr)[index];
@@ -464,8 +460,8 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
 
     for (slice.items(.shdr), slice.items(.atom_list), 0..) |shdr, atom_list, shndx| {
         if (shdr.sh_type != elf.SHT_RELA) continue;
-        if (@as(u32, @intCast(shndx)) == elf_file.eh_frame_rela_section_index) continue;
         if (atom_list.items.len == 0) continue;
+        if (@as(u32, @intCast(shndx)) == elf_file.eh_frame_section_index) continue;
 
         const num_relocs = math.cast(usize, @divExact(shdr.sh_size, shdr.sh_entsize)) orelse
             return error.Overflow;

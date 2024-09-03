@@ -621,7 +621,6 @@ pub fn growNonAllocSection(
         try self.base.file.?.setEndPos(shdr.sh_offset + needed_size);
     }
     shdr.sh_size = needed_size;
-
     self.markDirty(shdr_index);
 }
 
@@ -2895,28 +2894,25 @@ fn initSyntheticSections(self: *Elf) !void {
     const target = self.getTarget();
     const ptr_size = self.ptrWidthBytes();
 
-    const needs_eh_frame = if (self.zigObjectPtr()) |zo|
-        zo.eh_frame_index != null
-    else for (self.objects.items) |index| {
-        if (self.file(index).?.object.cies.items.len > 0) break true;
-    } else false;
+    const needs_eh_frame = blk: {
+        if (self.zigObjectPtr()) |zo|
+            if (zo.eh_frame_index != null) break :blk true;
+        break :blk for (self.objects.items) |index| {
+            if (self.file(index).?.object.cies.items.len > 0) break true;
+        } else false;
+    };
     if (needs_eh_frame) {
         if (self.eh_frame_section_index == null) {
-            self.eh_frame_section_index = blk: {
-                if (self.zigObjectPtr()) |zo| {
-                    if (zo.eh_frame_index) |idx| break :blk zo.symbol(idx).atom(self).?.output_section_index;
-                }
-                break :blk try self.addSection(.{
-                    .name = try self.insertShString(".eh_frame"),
-                    .type = if (target.cpu.arch == .x86_64)
-                        elf.SHT_X86_64_UNWIND
-                    else
-                        elf.SHT_PROGBITS,
-                    .flags = elf.SHF_ALLOC,
-                    .addralign = ptr_size,
-                    .offset = std.math.maxInt(u64),
-                });
-            };
+            self.eh_frame_section_index = self.sectionByName(".eh_frame") orelse try self.addSection(.{
+                .name = try self.insertShString(".eh_frame"),
+                .type = if (target.cpu.arch == .x86_64)
+                    elf.SHT_X86_64_UNWIND
+                else
+                    elf.SHT_PROGBITS,
+                .flags = elf.SHF_ALLOC,
+                .addralign = ptr_size,
+                .offset = std.math.maxInt(u64),
+            });
         }
         if (comp.link_eh_frame_hdr) {
             self.eh_frame_hdr_section_index = try self.addSection(.{
@@ -3591,11 +3587,7 @@ fn updateSectionSizes(self: *Elf) !void {
 
     const shdrs = slice.items(.shdr);
     if (self.eh_frame_section_index) |index| {
-        shdrs[index].sh_size = existing_size: {
-            const zo = self.zigObjectPtr() orelse break :existing_size 0;
-            const sym = zo.symbol(zo.eh_frame_index orelse break :existing_size 0);
-            break :existing_size sym.atom(self).?.size;
-        } + try eh_frame.calcEhFrameSize(self);
+        shdrs[index].sh_size = try eh_frame.calcEhFrameSize(self);
     }
 
     if (self.eh_frame_hdr_section_index) |index| {

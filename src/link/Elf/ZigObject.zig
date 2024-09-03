@@ -111,6 +111,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                 });
                 self.debug_str_section_dirty = true;
                 self.debug_str_index = try self.addSectionSymbol(gpa, ".debug_str", .@"1", osec);
+                elf_file.sections.items(.last_atom)[osec] = self.symbol(self.debug_str_index.?).ref;
             }
 
             if (self.debug_info_index == null) {
@@ -121,6 +122,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                 });
                 self.debug_info_section_dirty = true;
                 self.debug_info_index = try self.addSectionSymbol(gpa, ".debug_info", .@"1", osec);
+                elf_file.sections.items(.last_atom)[osec] = self.symbol(self.debug_info_index.?).ref;
             }
 
             if (self.debug_abbrev_index == null) {
@@ -131,6 +133,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                 });
                 self.debug_abbrev_section_dirty = true;
                 self.debug_abbrev_index = try self.addSectionSymbol(gpa, ".debug_abbrev", .@"1", osec);
+                elf_file.sections.items(.last_atom)[osec] = self.symbol(self.debug_abbrev_index.?).ref;
             }
 
             if (self.debug_aranges_index == null) {
@@ -141,6 +144,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                 });
                 self.debug_aranges_section_dirty = true;
                 self.debug_aranges_index = try self.addSectionSymbol(gpa, ".debug_aranges", .@"16", osec);
+                elf_file.sections.items(.last_atom)[osec] = self.symbol(self.debug_aranges_index.?).ref;
             }
 
             if (self.debug_line_index == null) {
@@ -151,6 +155,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                 });
                 self.debug_line_section_dirty = true;
                 self.debug_line_index = try self.addSectionSymbol(gpa, ".debug_line", .@"1", osec);
+                elf_file.sections.items(.last_atom)[osec] = self.symbol(self.debug_line_index.?).ref;
             }
 
             if (self.debug_line_str_index == null) {
@@ -163,6 +168,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                 });
                 self.debug_line_str_section_dirty = true;
                 self.debug_line_str_index = try self.addSectionSymbol(gpa, ".debug_line_str", .@"1", osec);
+                elf_file.sections.items(.last_atom)[osec] = self.symbol(self.debug_line_str_index.?).ref;
             }
 
             if (self.debug_loclists_index == null) {
@@ -173,6 +179,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                 });
                 self.debug_loclists_section_dirty = true;
                 self.debug_loclists_index = try self.addSectionSymbol(gpa, ".debug_loclists", .@"1", osec);
+                elf_file.sections.items(.last_atom)[osec] = self.symbol(self.debug_loclists_index.?).ref;
             }
 
             if (self.debug_rnglists_index == null) {
@@ -183,6 +190,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                 });
                 self.debug_rnglists_section_dirty = true;
                 self.debug_rnglists_index = try self.addSectionSymbol(gpa, ".debug_rnglists", .@"1", osec);
+                elf_file.sections.items(.last_atom)[osec] = self.symbol(self.debug_rnglists_index.?).ref;
             }
 
             if (self.eh_frame_index == null) {
@@ -197,6 +205,7 @@ pub fn init(self: *ZigObject, elf_file: *Elf, options: InitOptions) !void {
                 });
                 self.eh_frame_section_dirty = true;
                 self.eh_frame_index = try self.addSectionSymbol(gpa, ".eh_frame", Atom.Alignment.fromNonzeroByteUnits(ptr_size), osec);
+                elf_file.sections.items(.last_atom)[osec] = self.symbol(self.eh_frame_index.?).ref;
             }
 
             try dwarf.initMetadata();
@@ -1116,6 +1125,9 @@ pub fn getOrCreateMetadataForNav(
     return gop.value_ptr.symbol_index;
 }
 
+// FIXME: we always create an atom to basically store size and alignment, however, this is only true for
+// sections that have a single atom like the debug sections. It would be a better solution to decouple this
+// concept from the atom, maybe.
 fn addSectionSymbol(
     self: *ZigObject,
     allocator: Allocator,
