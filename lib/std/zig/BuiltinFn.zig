@@ -482,7 +482,7 @@ pub const list = list: {
             "@errorCast",
             .{
                 .tag = .error_cast,
-                .eval_to_error = .always,
+                .eval_to_error = .maybe,
                 .param_count = 1,
             },
         },
