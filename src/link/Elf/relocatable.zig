@@ -407,7 +407,7 @@ fn updateComdatGroupsSizes(elf_file: *Elf) void {
 
 /// Allocates alloc sections when merging relocatable objects files together.
 fn allocateAllocSections(elf_file: *Elf) !void {
-    for (elf_file.sections.items(.shdr)) |*shdr| {
+    for (elf_file.sections.items(.shdr), 0..) |*shdr, shndx| {
         if (shdr.sh_type == elf.SHT_NULL) continue;
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
         if (shdr.sh_type == elf.SHT_NOBITS) {
@@ -418,6 +418,34 @@ fn allocateAllocSections(elf_file: *Elf) !void {
         if (needed_size > elf_file.allocatedSize(shdr.sh_offset)) {
             shdr.sh_size = 0;
             const new_offset = try elf_file.findFreeSpace(needed_size, shdr.sh_addralign);
+
+            if (elf_file.zigObjectPtr()) |zo| blk: {
+                const existing_size = for ([_]?Symbol.Index{
+                    zo.text_index,
+                    zo.rodata_index,
+                    zo.data_relro_index,
+                    zo.data_index,
+                    zo.tdata_index,
+                    zo.eh_frame_index,
+                }) |maybe_sym_index| {
+                    const sect_sym_index = maybe_sym_index orelse continue;
+                    const sect_atom_ptr = zo.symbol(sect_sym_index).atom(elf_file).?;
+                    if (sect_atom_ptr.output_section_index == shndx) break sect_atom_ptr.size;
+                } else break :blk;
+                log.debug("moving {s} from 0x{x} to 0x{x}", .{
+                    elf_file.getShString(shdr.sh_name),
+                    shdr.sh_offset,
+                    new_offset,
+                });
+                const amt = try elf_file.base.file.?.copyRangeAll(
+                    shdr.sh_offset,
+                    elf_file.base.file.?,
+                    new_offset,
+                    existing_size,
+                );
+                if (amt != existing_size) return error.InputOutput;
+            }
+
             shdr.sh_offset = new_offset;
             shdr.sh_size = needed_size;
         }
