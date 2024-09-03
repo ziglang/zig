@@ -288,6 +288,9 @@ fn claimUnresolved(elf_file: *Elf) void {
 }
 
 fn initSections(elf_file: *Elf) !void {
+    if (elf_file.zigObjectPtr()) |zo| {
+        try zo.initRelaSections(elf_file);
+    }
     for (elf_file.objects.items) |index| {
         const object = elf_file.file(index).?.object;
         try object.initOutputSections(elf_file);

@@ -803,6 +803,27 @@ pub fn writeAr(self: ZigObject, writer: anytype) !void {
     try writer.writeAll(self.data.items);
 }
 
+pub fn initRelaSections(self: *ZigObject, elf_file: *Elf) !void {
+    const gpa = elf_file.base.comp.gpa;
+    for (self.atoms_indexes.items) |atom_index| {
+        const atom_ptr = self.atom(atom_index) orelse continue;
+        if (!atom_ptr.alive) continue;
+        if (atom_ptr.output_section_index == elf_file.eh_frame_section_index) continue;
+        const rela_shndx = atom_ptr.relocsShndx() orelse continue;
+        // TODO this check will become obsolete when we rework our relocs mechanism at the ZigObject level
+        if (self.relocs.items[rela_shndx].items.len == 0) continue;
+        const out_shndx = atom_ptr.output_section_index;
+        const out_shdr = elf_file.sections.items(.shdr)[out_shndx];
+        if (out_shdr.sh_type == elf.SHT_NOBITS) continue;
+        const rela_sect_name = try std.fmt.allocPrintZ(gpa, ".rela{s}", .{
+            elf_file.getShString(out_shdr.sh_name),
+        });
+        defer gpa.free(rela_sect_name);
+        _ = elf_file.sectionByName(rela_sect_name) orelse
+            try elf_file.addRelaShdr(try elf_file.insertShString(rela_sect_name), out_shndx);
+    }
+}
+
 pub fn addAtomsToRelaSections(self: *ZigObject, elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
     for (self.atoms_indexes.items) |atom_index| {
@@ -819,10 +840,7 @@ pub fn addAtomsToRelaSections(self: *ZigObject, elf_file: *Elf) !void {
             elf_file.getShString(out_shdr.sh_name),
         });
         defer gpa.free(rela_sect_name);
-        const out_rela_shndx = if (elf_file.sectionByName(rela_sect_name)) |out_rela_shndx|
-            out_rela_shndx
-        else
-            try elf_file.addRelaShdr(try elf_file.insertShString(rela_sect_name), out_shndx);
+        const out_rela_shndx = elf_file.sectionByName(rela_sect_name).?;
         const out_rela_shdr = &elf_file.sections.items(.shdr)[out_rela_shndx];
         out_rela_shdr.sh_info = out_shndx;
         out_rela_shdr.sh_link = elf_file.symtab_section_index.?;
