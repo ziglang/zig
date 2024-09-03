@@ -424,8 +424,9 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
     const slice = elf_file.sections.slice();
 
-    for (slice.items(.shdr), slice.items(.atom_list)) |shdr, atom_list| {
+    for (slice.items(.shdr), slice.items(.atom_list), 0..) |shdr, atom_list, shndx| {
         if (shdr.sh_type != elf.SHT_RELA) continue;
+        if (@as(u32, @intCast(shndx)) == elf_file.eh_frame_rela_section_index) continue;
         if (atom_list.items.len == 0) continue;
 
         const num_relocs = math.cast(usize, @divExact(shdr.sh_size, shdr.sh_entsize)) orelse

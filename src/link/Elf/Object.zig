@@ -391,15 +391,24 @@ fn parseEhFrame(self: *Object, allocator: Allocator, handle: std.fs.File, shndx:
                 .input_section_index = shndx,
                 .file_index = self.index,
             }),
-            .fde => try self.fdes.append(allocator, .{
-                .offset = data_start + rec.offset,
-                .size = rec.size,
-                .cie_index = undefined,
-                .rel_index = rel_start + @as(u32, @intCast(rel_range.start)),
-                .rel_num = @as(u32, @intCast(rel_range.len)),
-                .input_section_index = shndx,
-                .file_index = self.index,
-            }),
+            .fde => {
+                if (rel_range.len == 0) {
+                    // No relocs for an FDE means we cannot associate this FDE to an Atom
+                    // so we skip it. According to mold source code
+                    // (https://github.com/rui314/mold/blob/a3e69502b0eaf1126d6093e8ea5e6fdb95219811/src/input-files.cc#L525-L528)
+                    // this can happen for object files built with -r flag by the linker.
+                    continue;
+                }
+                try self.fdes.append(allocator, .{
+                    .offset = data_start + rec.offset,
+                    .size = rec.size,
+                    .cie_index = undefined,
+                    .rel_index = rel_start + @as(u32, @intCast(rel_range.start)),
+                    .rel_num = @as(u32, @intCast(rel_range.len)),
+                    .input_section_index = shndx,
+                    .file_index = self.index,
+                });
+            },
         }
     }
 
@@ -1106,6 +1115,7 @@ pub fn addAtomsToRelaSections(self: *Object, elf_file: *Elf) !void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
+        if (atom_ptr.output_section_index == elf_file.eh_frame_section_index) continue;
         const shndx = blk: {
             const shndx = atom_ptr.relocsShndx() orelse continue;
             const shdr = self.shdrs.items[shndx];

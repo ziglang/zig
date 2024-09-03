@@ -3388,34 +3388,36 @@ fn shdrRank(self: *Elf, shndx: u32) u8 {
         elf.SHT_PREINIT_ARRAY,
         elf.SHT_INIT_ARRAY,
         elf.SHT_FINI_ARRAY,
-        => return 0xf2,
+        => return 0xf1,
 
-        elf.SHT_DYNAMIC => return 0xf3,
+        elf.SHT_DYNAMIC => return 0xf2,
 
         elf.SHT_RELA, elf.SHT_GROUP => return 0xf,
 
         elf.SHT_PROGBITS => if (flags & elf.SHF_ALLOC != 0) {
             if (flags & elf.SHF_EXECINSTR != 0) {
-                return 0xf1;
+                return 0xf0;
             } else if (flags & elf.SHF_WRITE != 0) {
-                return if (flags & elf.SHF_TLS != 0) 0xf4 else 0xf6;
+                return if (flags & elf.SHF_TLS != 0) 0xf3 else 0xf5;
             } else if (mem.eql(u8, name, ".interp")) {
                 return 1;
+            } else if (mem.startsWith(u8, name, ".eh_frame")) {
+                return 0xe1;
             } else {
-                return 0xf0;
+                return 0xe0;
             }
         } else {
             if (mem.startsWith(u8, name, ".debug")) {
-                return 0xf8;
+                return 0xf7;
             } else {
-                return 0xf9;
+                return 0xf8;
             }
         },
-        elf.SHT_X86_64_UNWIND => return 0xf0,
+        elf.SHT_X86_64_UNWIND => return 0xe1,
 
-        elf.SHT_NOBITS => return if (flags & elf.SHF_TLS != 0) 0xf5 else 0xf7,
-        elf.SHT_SYMTAB => return 0xfa,
-        elf.SHT_STRTAB => return if (mem.eql(u8, name, ".dynstr")) 0x4 else 0xfb,
+        elf.SHT_NOBITS => return if (flags & elf.SHF_TLS != 0) 0xf4 else 0xf6,
+        elf.SHT_SYMTAB => return 0xf9,
+        elf.SHT_STRTAB => return if (mem.eql(u8, name, ".dynstr")) 0x4 else 0xfa,
         else => return 0xff,
     }
 }

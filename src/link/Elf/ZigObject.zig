@@ -808,6 +808,7 @@ pub fn addAtomsToRelaSections(self: *ZigObject, elf_file: *Elf) !void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
+        if (atom_ptr.output_section_index == elf_file.eh_frame_section_index) continue;
         const rela_shndx = atom_ptr.relocsShndx() orelse continue;
         // TODO this check will become obsolete when we rework our relocs mechanism at the ZigObject level
         if (self.relocs.items[rela_shndx].items.len == 0) continue;
