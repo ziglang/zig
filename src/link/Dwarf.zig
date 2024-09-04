@@ -847,10 +847,11 @@ const Entry = struct {
             unit.len -| (unit.header_len + unit.trailer_len);
         if (entry_ptr.off + len > end) {
             if (entry_ptr.next.unwrap()) |next_entry| {
-                if (entry_ptr.prev.unwrap()) |prev_entry|
-                    unit.getEntry(prev_entry).next = entry_ptr.next
-                else
-                    unit.first = entry_ptr.next;
+                if (entry_ptr.prev.unwrap()) |prev_entry| {
+                    const prev_entry_ptr = unit.getEntry(prev_entry);
+                    prev_entry_ptr.next = entry_ptr.next;
+                    try prev_entry_ptr.pad(unit, sec, dwarf);
+                } else unit.first = entry_ptr.next;
                 const next_entry_ptr = unit.getEntry(next_entry);
                 const entry = next_entry_ptr.prev;
                 next_entry_ptr.prev = entry_ptr.prev;
@@ -860,6 +861,7 @@ const Entry = struct {
                 entry_ptr.next = .none;
                 entry_ptr.off = last_entry_ptr.off + sec.padToIdeal(last_entry_ptr.len);
                 unit.last = entry;
+                try last_entry_ptr.pad(unit, sec, dwarf);
             }
             try unit.resize(sec, dwarf, 0, @intCast(unit.header_len + entry_ptr.off + sec.padToIdeal(len) + unit.trailer_len));
         }
