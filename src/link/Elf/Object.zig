@@ -988,7 +988,25 @@ pub fn allocateAtoms(self: *Object, elf_file: *Elf) !void {
         if (expand_section) last_atom_ref.* = chunk.lastAtom(self).ref();
         shdr.sh_addralign = @max(shdr.sh_addralign, chunk.alignment.toByteUnits().?);
 
-        // TODO create back and forward links
+        {
+            var idx: usize = 0;
+            while (idx < chunk.atoms.items.len) : (idx += 1) {
+                const curr_atom_ptr = self.atom(chunk.atoms.items[idx]).?;
+                if (idx > 0) {
+                    curr_atom_ptr.prev_atom_ref = .{ .index = chunk.atoms.items[idx - 1], .file = self.index };
+                }
+                if (idx + 1 < chunk.atoms.items.len) {
+                    curr_atom_ptr.next_atom_ref = .{ .index = chunk.atoms.items[idx + 1], .file = self.index };
+                }
+            }
+        }
+
+        if (elf_file.atom(alloc_res.placement)) |placement_atom| {
+            chunk.firstAtom(self).prev_atom_ref = placement_atom.ref();
+            chunk.lastAtom(self).next_atom_ref = placement_atom.next_atom_ref;
+            placement_atom.next_atom_ref = chunk.firstAtom(self).ref();
+        }
+
         // TODO if we had a link from Atom to parent Chunk we would not need to update Atom's value or osec index
         for (chunk.atoms.items) |atom_index| {
             const atom_ptr = self.atom(atom_index).?;
