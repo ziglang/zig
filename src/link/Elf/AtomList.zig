@@ -85,8 +85,9 @@ pub fn write(list: AtomList, buffer: *std.ArrayList(u8), undefs: anytype, elf_fi
 
     log.debug("writing atoms in section '{s}'", .{elf_file.getShString(osec.sh_name)});
 
-    try buffer.ensureUnusedCapacity(list.size);
-    buffer.appendNTimesAssumeCapacity(0, list.size);
+    const list_size = math.cast(usize, list.size) orelse return error.Overflow;
+    try buffer.ensureUnusedCapacity(list_size);
+    buffer.appendNTimesAssumeCapacity(0, list_size);
 
     for (list.atoms.items) |ref| {
         const atom_ptr = elf_file.atom(ref).?;
@@ -120,8 +121,9 @@ pub fn writeRelocatable(list: AtomList, buffer: *std.ArrayList(u8), elf_file: *E
 
     log.debug("writing atoms in section '{s}'", .{elf_file.getShString(osec.sh_name)});
 
-    try buffer.ensureUnusedCapacity(list.size);
-    buffer.appendNTimesAssumeCapacity(0, list.size);
+    const list_size = math.cast(usize, list.size) orelse return error.Overflow;
+    try buffer.ensureUnusedCapacity(list_size);
+    buffer.appendNTimesAssumeCapacity(0, list_size);
 
     for (list.atoms.items) |ref| {
         const atom_ptr = elf_file.atom(ref).?;

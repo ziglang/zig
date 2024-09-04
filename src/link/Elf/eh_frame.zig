@@ -235,7 +235,7 @@ pub fn calcEhFrameSize(elf_file: *Elf) !usize {
 
     var offset: usize = if (elf_file.zigObjectPtr()) |zo| blk: {
         const sym = zo.symbol(zo.eh_frame_index orelse break :blk 0);
-        break :blk sym.atom(elf_file).?.size;
+        break :blk math.cast(usize, sym.atom(elf_file).?.size) orelse return error.Overflow;
     } else 0;
 
     var cies = std.ArrayList(Cie).init(gpa);
