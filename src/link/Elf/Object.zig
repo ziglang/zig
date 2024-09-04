@@ -969,7 +969,12 @@ pub fn allocateAtoms(self: *Object, elf_file: *Elf) !void {
     }
 
     for (self.section_chunks.items) |*chunk| {
-        const alloc_res = try elf_file.allocateChunk(chunk.output_section_index, chunk.size, chunk.alignment);
+        const alloc_res = try elf_file.allocateChunk(.{
+            .shndx = chunk.output_section_index,
+            .size = chunk.size,
+            .alignment = chunk.alignment,
+            .requires_padding = false,
+        });
         chunk.value = @intCast(alloc_res.value);
 
         const slice = elf_file.sections.slice();

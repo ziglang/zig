@@ -1996,7 +1996,11 @@ fn writeTrampoline(tr_sym: Symbol, target: Symbol, elf_file: *Elf) !void {
 }
 
 fn allocateAtom(self: *ZigObject, atom_ptr: *Atom, elf_file: *Elf) !void {
-    const alloc_res = try elf_file.allocateChunk(atom_ptr.output_section_index, atom_ptr.size, atom_ptr.alignment);
+    const alloc_res = try elf_file.allocateChunk(.{
+        .shndx = atom_ptr.output_section_index,
+        .size = atom_ptr.size,
+        .alignment = atom_ptr.alignment,
+    });
     atom_ptr.value = @intCast(alloc_res.value);
 
     const slice = elf_file.sections.slice();

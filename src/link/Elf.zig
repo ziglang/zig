@@ -659,12 +659,17 @@ const AllocateChunkResult = struct {
     placement: Ref,
 };
 
-pub fn allocateChunk(self: *Elf, shndx: u32, size: u64, alignment: Atom.Alignment) !AllocateChunkResult {
+pub fn allocateChunk(self: *Elf, args: struct {
+    size: u64,
+    shndx: u32,
+    alignment: Atom.Alignment,
+    requires_padding: bool = true,
+}) !AllocateChunkResult {
     const slice = self.sections.slice();
-    const shdr = &slice.items(.shdr)[shndx];
-    const free_list = &slice.items(.free_list)[shndx];
-    const last_atom_ref = &slice.items(.last_atom)[shndx];
-    const new_atom_ideal_capacity = padToIdeal(size);
+    const shdr = &slice.items(.shdr)[args.shndx];
+    const free_list = &slice.items(.free_list)[args.shndx];
+    const last_atom_ref = &slice.items(.last_atom)[args.shndx];
+    const new_atom_ideal_capacity = if (args.requires_padding) padToIdeal(args.size) else args.size;
 
     // First we look for an appropriately sized free list node.
     // The list is unordered. We'll just take the first thing that works.
@@ -676,11 +681,11 @@ pub fn allocateChunk(self: *Elf, shndx: u32, size: u64, alignment: Atom.Alignmen
             // We now have a pointer to a live atom that has too much capacity.
             // Is it enough that we could fit this new atom?
             const cap = big_atom.capacity(self);
-            const ideal_capacity = padToIdeal(cap);
+            const ideal_capacity = if (args.requires_padding) padToIdeal(cap) else cap;
             const ideal_capacity_end_vaddr = std.math.add(u64, @intCast(big_atom.value), ideal_capacity) catch ideal_capacity;
             const capacity_end_vaddr = @as(u64, @intCast(big_atom.value)) + cap;
             const new_start_vaddr_unaligned = capacity_end_vaddr - new_atom_ideal_capacity;
-            const new_start_vaddr = alignment.backward(new_start_vaddr_unaligned);
+            const new_start_vaddr = args.alignment.backward(new_start_vaddr_unaligned);
             if (new_start_vaddr < ideal_capacity_end_vaddr) {
                 // Additional bookkeeping here to notice if this free list node
                 // should be deleted because the block that it points to has grown to take up
@@ -703,9 +708,9 @@ pub fn allocateChunk(self: *Elf, shndx: u32, size: u64, alignment: Atom.Alignmen
             }
             break :blk .{ .value = new_start_vaddr, .placement = big_atom_ref };
         } else if (self.atom(last_atom_ref.*)) |last_atom| {
-            const ideal_capacity = padToIdeal(last_atom.size);
+            const ideal_capacity = if (args.requires_padding) padToIdeal(last_atom.size) else last_atom.size;
             const ideal_capacity_end_vaddr = @as(u64, @intCast(last_atom.value)) + ideal_capacity;
-            const new_start_vaddr = alignment.forward(ideal_capacity_end_vaddr);
+            const new_start_vaddr = args.alignment.forward(ideal_capacity_end_vaddr);
             break :blk .{ .value = new_start_vaddr, .placement = last_atom.ref() };
         } else {
             break :blk .{ .value = 0, .placement = .{} };
@@ -713,8 +718,8 @@ pub fn allocateChunk(self: *Elf, shndx: u32, size: u64, alignment: Atom.Alignmen
     };
 
     log.debug("allocated chunk (size({x}),align({x})) at 0x{x} (file(0x{x}))", .{
-        size,
-        alignment.toByteUnits().?,
+        args.size,
+        args.alignment.toByteUnits().?,
         shdr.sh_addr + res.value,
         shdr.sh_offset + res.value,
     });
@@ -724,11 +729,11 @@ pub fn allocateChunk(self: *Elf, shndx: u32, size: u64, alignment: Atom.Alignmen
     else
         true;
     if (expand_section) {
-        const needed_size = res.value + size;
+        const needed_size = res.value + args.size;
         if (shdr.sh_flags & elf.SHF_ALLOC != 0)
-            try self.growAllocSection(shndx, needed_size, alignment.toByteUnits().?)
+            try self.growAllocSection(args.shndx, needed_size, args.alignment.toByteUnits().?)
         else
-            try self.growNonAllocSection(shndx, needed_size, alignment.toByteUnits().?, true);
+            try self.growNonAllocSection(args.shndx, needed_size, args.alignment.toByteUnits().?, true);
     }
 
     return res;
