@@ -3572,19 +3572,26 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
 
 fn updateSectionSizes(self: *Elf) !void {
     const slice = self.sections.slice();
-    for (slice.items(.atom_list_2)) |*atom_list| {
+    for (slice.items(.shdr), slice.items(.atom_list_2)) |shdr, *atom_list| {
         if (atom_list.atoms.items.len == 0) continue;
+        if (self.requiresThunks() and shdr.sh_flags & elf.SHF_EXECINSTR != 0) continue;
         atom_list.updateSize(self);
         try atom_list.allocate(self);
     }
 
     if (self.requiresThunks()) {
-        for (slice.items(.shdr), slice.items(.atom_list), 0..) |*shdr, atom_list, shndx| {
+        for (slice.items(.shdr), slice.items(.atom_list_2)) |shdr, *atom_list| {
             if (shdr.sh_flags & elf.SHF_EXECINSTR == 0) continue;
-            if (atom_list.items.len == 0) continue;
+            if (atom_list.atoms.items.len == 0) continue;
 
             // Create jump/branch range extenders if needed.
-            try self.createThunks(shdr, @intCast(shndx));
+            try self.createThunks(atom_list);
+            try atom_list.allocate(self);
+        }
+
+        // FIXME:JK this will hopefully not be needed once we create a link from Atom/Thunk to AtomList.
+        for (self.thunks.items) |*th| {
+            th.value += slice.items(.atom_list_2)[th.output_section_index].value;
         }
     }
 
@@ -4066,7 +4073,7 @@ fn writeAtoms(self: *Elf) !void {
         for (self.thunks.items) |th| {
             const thunk_size = th.size(self);
             try buffer.ensureUnusedCapacity(thunk_size);
-            const shdr = self.sections.items(.shdr)[th.output_section_index];
+            const shdr = slice.items(.shdr)[th.output_section_index];
             const offset = @as(u64, @intCast(th.value)) + shdr.sh_offset;
             try th.write(self, buffer.writer());
             assert(buffer.items.len == thunk_size);
@@ -5613,9 +5620,10 @@ fn defaultEntrySymbolName(cpu_arch: std.Target.Cpu.Arch) []const u8 {
     };
 }
 
-fn createThunks(elf_file: *Elf, shdr: *elf.Elf64_Shdr, shndx: u32) !void {
+fn createThunks(elf_file: *Elf, atom_list: *AtomList) !void {
     const gpa = elf_file.base.comp.gpa;
     const cpu_arch = elf_file.getTarget().cpu.arch;
+
     // A branch will need an extender if its target is larger than
     // `2^(jump_bits - 1) - margin` where margin is some arbitrary number.
     const max_distance = switch (cpu_arch) {
@@ -5623,36 +5631,44 @@ fn createThunks(elf_file: *Elf, shdr: *elf.Elf64_Shdr, shndx: u32) !void {
         .x86_64, .riscv64 => unreachable,
         else => @panic("unhandled arch"),
     };
-    const atoms = elf_file.sections.items(.atom_list)[shndx].items;
-    assert(atoms.len > 0);
 
-    for (atoms) |ref| {
+    const advance = struct {
+        fn advance(list: *AtomList, size: u64, alignment: Atom.Alignment) !i64 {
+            const offset = alignment.forward(list.size);
+            const padding = offset - list.size;
+            list.size += padding + size;
+            list.alignment = list.alignment.max(alignment);
+            return @intCast(offset);
+        }
+    }.advance;
+
+    for (atom_list.atoms.items) |ref| {
         elf_file.atom(ref).?.value = -1;
     }
 
     var i: usize = 0;
-    while (i < atoms.len) {
+    while (i < atom_list.atoms.items.len) {
         const start = i;
-        const start_atom = elf_file.atom(atoms[start]).?;
+        const start_atom = elf_file.atom(atom_list.atoms.items[start]).?;
         assert(start_atom.alive);
-        start_atom.value = try advanceSection(shdr, start_atom.size, start_atom.alignment);
+        start_atom.value = try advance(atom_list, start_atom.size, start_atom.alignment);
         i += 1;
 
-        while (i < atoms.len) : (i += 1) {
-            const atom_ptr = elf_file.atom(atoms[i]).?;
+        while (i < atom_list.atoms.items.len) : (i += 1) {
+            const atom_ptr = elf_file.atom(atom_list.atoms.items[i]).?;
             assert(atom_ptr.alive);
-            if (@as(i64, @intCast(atom_ptr.alignment.forward(shdr.sh_size))) - start_atom.value >= max_distance)
+            if (@as(i64, @intCast(atom_ptr.alignment.forward(atom_list.size))) - start_atom.value >= max_distance)
                 break;
-            atom_ptr.value = try advanceSection(shdr, atom_ptr.size, atom_ptr.alignment);
+            atom_ptr.value = try advance(atom_list, atom_ptr.size, atom_ptr.alignment);
         }
 
         // Insert a thunk at the group end
         const thunk_index = try elf_file.addThunk();
         const thunk_ptr = elf_file.thunk(thunk_index);
-        thunk_ptr.output_section_index = shndx;
+        thunk_ptr.output_section_index = atom_list.output_section_index;
 
         // Scan relocs in the group and create trampolines for any unreachable callsite
-        for (atoms[start..i]) |ref| {
+        for (atom_list.atoms.items[start..i]) |ref| {
             const atom_ptr = elf_file.atom(ref).?;
             const file_ptr = atom_ptr.file(elf_file).?;
             log.debug("atom({}) {s}", .{ ref, atom_ptr.name(elf_file) });
@@ -5682,17 +5698,10 @@ fn createThunks(elf_file: *Elf, shdr: *elf.Elf64_Shdr, shndx: u32) !void {
             atom_ptr.addExtra(.{ .thunk = thunk_index }, elf_file);
         }
 
-        thunk_ptr.value = try advanceSection(shdr, thunk_ptr.size(elf_file), Atom.Alignment.fromNonzeroByteUnits(2));
+        thunk_ptr.value = try advance(atom_list, thunk_ptr.size(elf_file), Atom.Alignment.fromNonzeroByteUnits(2));
 
         log.debug("thunk({d}) : {}", .{ thunk_index, thunk_ptr.fmt(elf_file) });
     }
-}
-fn advanceSection(shdr: *elf.Elf64_Shdr, adv_size: u64, alignment: Atom.Alignment) !i64 {
-    const offset = alignment.forward(shdr.sh_size);
-    const padding = offset - shdr.sh_size;
-    shdr.sh_size += padding + adv_size;
-    shdr.sh_addralign = @max(shdr.sh_addralign, alignment.toByteUnits() orelse 1);
-    return @intCast(offset);
 }
 
 const std = @import("std");
