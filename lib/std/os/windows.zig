@@ -2054,7 +2054,7 @@ pub fn LockFile(
     Key: ?*ULONG,
     FailImmediately: BOOLEAN,
     ExclusiveLock: BOOLEAN,
-) !void {
+) LockFileError!void {
     const rc = ntdll.NtLockFile(
         FileHandle,
         Event,
@@ -2086,7 +2086,7 @@ pub fn UnlockFile(
     ByteOffset: *const LARGE_INTEGER,
     Length: *const LARGE_INTEGER,
     Key: ?*ULONG,
-) !void {
+) UnlockFileError!void {
     const rc = ntdll.NtUnlockFile(FileHandle, IoStatusBlock, ByteOffset, Length, Key);
     switch (rc) {
         .SUCCESS => return,
