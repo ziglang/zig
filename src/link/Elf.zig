@@ -393,7 +393,8 @@ pub fn deinit(self: *Elf) void {
     self.objects.deinit(gpa);
     self.shared_objects.deinit(gpa);
 
-    for (self.sections.items(.atom_list), self.sections.items(.free_list)) |*atoms, *free_list| {
+    for (self.sections.items(.atom_list_2), self.sections.items(.atom_list), self.sections.items(.free_list)) |*atom_list, *atoms, *free_list| {
+        atom_list.deinit(gpa);
         atoms.deinit(gpa);
         free_list.deinit(gpa);
     }
@@ -3204,8 +3205,9 @@ fn sortInitFini(self: *Elf) !void {
         }
     };
 
-    for (slice.items(.shdr), slice.items(.atom_list)) |shdr, *atom_list| {
+    for (slice.items(.shdr), slice.items(.atom_list_2)) |shdr, *atom_list| {
         if (shdr.sh_flags & elf.SHF_ALLOC == 0) continue;
+        if (atom_list.atoms.items.len == 0) continue;
 
         var is_init_fini = false;
         var is_ctor_dtor = false;
@@ -3219,15 +3221,13 @@ fn sortInitFini(self: *Elf) !void {
                 is_ctor_dtor = mem.indexOf(u8, name, ".ctors") != null or mem.indexOf(u8, name, ".dtors") != null;
             },
         }
-
         if (!is_init_fini and !is_ctor_dtor) continue;
-        if (atom_list.items.len == 0) continue;
 
         var entries = std.ArrayList(Entry).init(gpa);
-        try entries.ensureTotalCapacityPrecise(atom_list.items.len);
+        try entries.ensureTotalCapacityPrecise(atom_list.atoms.items.len);
         defer entries.deinit();
 
-        for (atom_list.items) |ref| {
+        for (atom_list.atoms.items) |ref| {
             const atom_ptr = self.atom(ref).?;
             const object = atom_ptr.file(self).?.object;
             const priority = blk: {
@@ -3246,9 +3246,9 @@ fn sortInitFini(self: *Elf) !void {
 
         mem.sort(Entry, entries.items, self, Entry.lessThan);
 
-        atom_list.clearRetainingCapacity();
+        atom_list.atoms.clearRetainingCapacity();
         for (entries.items) |entry| {
-            atom_list.appendAssumeCapacity(entry.atom_ref);
+            atom_list.atoms.appendAssumeCapacity(entry.atom_ref);
         }
     }
 }
@@ -3491,13 +3491,19 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
         msec.output_section_index = backlinks[msec.output_section_index];
     }
 
-    for (self.sections.items(.shdr)) |*shdr| {
-        if (shdr.sh_type != elf.SHT_RELA) continue;
-        // FIXME:JK we should spin up .symtab potentially earlier, or set all non-dynamic RELA sections
-        // to point at symtab
-        // shdr.sh_link = backlinks[shdr.sh_link];
-        shdr.sh_link = self.symtab_section_index.?;
-        shdr.sh_info = backlinks[shdr.sh_info];
+    const slice = self.sections.slice();
+    for (slice.items(.shdr), slice.items(.atom_list_2)) |*shdr, *atom_list| {
+        atom_list.output_section_index = backlinks[atom_list.output_section_index];
+        for (atom_list.atoms.items) |ref| {
+            self.atom(ref).?.output_section_index = atom_list.output_section_index;
+        }
+        if (shdr.sh_type == elf.SHT_RELA) {
+            // FIXME:JK we should spin up .symtab potentially earlier, or set all non-dynamic RELA sections
+            // to point at symtab
+            // shdr.sh_link = backlinks[shdr.sh_link];
+            shdr.sh_link = self.symtab_section_index.?;
+            shdr.sh_info = backlinks[shdr.sh_info];
+        }
     }
 
     if (self.zigObjectPtr()) |zo| {
@@ -3507,79 +3513,71 @@ fn resetShdrIndexes(self: *Elf, backlinks: []const u32) void {
         }
     }
 
-    for (self.objects.items) |index| {
-        const object = self.file(index).?.object;
-        for (object.section_chunks.items) |*chunk| {
-            chunk.output_section_index = backlinks[chunk.output_section_index];
-            for (chunk.atoms.items) |atom_index| {
-                object.atom(atom_index).?.output_section_index = chunk.output_section_index;
-            }
-        }
-    }
-
     for (self.comdat_group_sections.items) |*cg| {
         cg.shndx = backlinks[cg.shndx];
     }
 
     if (self.symtab_section_index) |index| {
-        const shdr = &self.sections.items(.shdr)[index];
+        const shdr = &slice.items(.shdr)[index];
         shdr.sh_link = self.strtab_section_index.?;
     }
 
     if (self.dynamic_section_index) |index| {
-        const shdr = &self.sections.items(.shdr)[index];
+        const shdr = &slice.items(.shdr)[index];
         shdr.sh_link = self.dynstrtab_section_index.?;
     }
 
     if (self.dynsymtab_section_index) |index| {
-        const shdr = &self.sections.items(.shdr)[index];
+        const shdr = &slice.items(.shdr)[index];
         shdr.sh_link = self.dynstrtab_section_index.?;
     }
 
     if (self.hash_section_index) |index| {
-        const shdr = &self.sections.items(.shdr)[index];
+        const shdr = &slice.items(.shdr)[index];
         shdr.sh_link = self.dynsymtab_section_index.?;
     }
 
     if (self.gnu_hash_section_index) |index| {
-        const shdr = &self.sections.items(.shdr)[index];
+        const shdr = &slice.items(.shdr)[index];
         shdr.sh_link = self.dynsymtab_section_index.?;
     }
 
     if (self.versym_section_index) |index| {
-        const shdr = &self.sections.items(.shdr)[index];
+        const shdr = &slice.items(.shdr)[index];
         shdr.sh_link = self.dynsymtab_section_index.?;
     }
 
     if (self.verneed_section_index) |index| {
-        const shdr = &self.sections.items(.shdr)[index];
+        const shdr = &slice.items(.shdr)[index];
         shdr.sh_link = self.dynstrtab_section_index.?;
     }
 
     if (self.rela_dyn_section_index) |index| {
-        const shdr = &self.sections.items(.shdr)[index];
+        const shdr = &slice.items(.shdr)[index];
         shdr.sh_link = self.dynsymtab_section_index orelse 0;
     }
 
     if (self.rela_plt_section_index) |index| {
-        const shdr = &self.sections.items(.shdr)[index];
+        const shdr = &slice.items(.shdr)[index];
         shdr.sh_link = self.dynsymtab_section_index.?;
         shdr.sh_info = self.plt_section_index.?;
     }
 
     if (self.eh_frame_rela_section_index) |index| {
-        const shdr = &self.sections.items(.shdr)[index];
+        const shdr = &slice.items(.shdr)[index];
         shdr.sh_link = self.symtab_section_index.?;
         shdr.sh_info = self.eh_frame_section_index.?;
     }
 }
 
 fn updateSectionSizes(self: *Elf) !void {
-    for (self.objects.items) |index| {
-        try self.file(index).?.object.allocateAtoms(self);
+    const slice = self.sections.slice();
+    for (slice.items(.atom_list_2)) |*atom_list| {
+        if (atom_list.atoms.items.len == 0) continue;
+        atom_list.updateSize(self);
+        try atom_list.allocate(self);
     }
 
-    const slice = self.sections.slice();
     if (self.requiresThunks()) {
         for (slice.items(.shdr), slice.items(.atom_list), 0..) |*shdr, atom_list, shndx| {
             if (shdr.sh_flags & elf.SHF_EXECINSTR == 0) continue;
@@ -4033,15 +4031,38 @@ fn allocateSpecialPhdrs(self: *Elf) void {
 }
 
 fn writeAtoms(self: *Elf) !void {
-    for (self.objects.items) |index| {
-        try self.file(index).?.object.writeAtoms(self);
+    const gpa = self.base.comp.gpa;
+
+    var undefs = std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)).init(gpa);
+    defer {
+        for (undefs.values()) |*refs| {
+            refs.deinit();
+        }
+        undefs.deinit();
     }
 
-    if (self.requiresThunks()) {
-        const gpa = self.base.comp.gpa;
-        var buffer = std.ArrayList(u8).init(gpa);
-        defer buffer.deinit();
+    var buffer = std.ArrayList(u8).init(gpa);
+    defer buffer.deinit();
 
+    const slice = self.sections.slice();
+    var has_reloc_errors = false;
+    for (slice.items(.shdr), slice.items(.atom_list_2)) |shdr, atom_list| {
+        if (shdr.sh_type == elf.SHT_NOBITS) continue;
+        if (atom_list.atoms.items.len == 0) continue;
+        atom_list.write(&buffer, &undefs, self) catch |err| switch (err) {
+            error.UnsupportedCpuArch => {
+                try self.reportUnsupportedCpuArch();
+                return error.FlushFailure;
+            },
+            error.RelocFailure, error.RelaxFailure => has_reloc_errors = true,
+            else => |e| return e,
+        };
+    }
+
+    try self.reportUndefinedSymbols(&undefs);
+    if (has_reloc_errors) return error.FlushFailure;
+
+    if (self.requiresThunks()) {
         for (self.thunks.items) |th| {
             const thunk_size = th.size(self);
             try buffer.ensureUnusedCapacity(thunk_size);
@@ -4993,7 +5014,7 @@ pub fn insertDynString(self: *Elf, name: []const u8) error{OutOfMemory}!u32 {
     return off;
 }
 
-pub fn reportUndefinedSymbols(self: *Elf, undefs: anytype) !void {
+fn reportUndefinedSymbols(self: *Elf, undefs: anytype) !void {
     const gpa = self.base.comp.gpa;
     const max_notes = 4;
 
@@ -5061,7 +5082,7 @@ fn reportMissingLibraryError(
     }
 }
 
-pub fn reportUnsupportedCpuArch(self: *Elf) error{OutOfMemory}!void {
+fn reportUnsupportedCpuArch(self: *Elf) error{OutOfMemory}!void {
     var err = try self.base.addErrorWithNotes(0);
     try err.addMsg("fatal linker error: unsupported CPU architecture {s}", .{
         @tagName(self.getTarget().cpu.arch),
@@ -5248,9 +5269,8 @@ fn fmtDumpState(
         try writer.print("object({d}) : {}", .{ index, object.fmtPath() });
         if (!object.alive) try writer.writeAll(" : [*]");
         try writer.writeByte('\n');
-        try writer.print("{}{}{}{}{}{}\n", .{
+        try writer.print("{}{}{}{}{}\n", .{
             object.fmtAtoms(self),
-            object.fmtSectionChunks(self),
             object.fmtCies(self),
             object.fmtFdes(self),
             object.fmtSymtab(self),
@@ -5274,6 +5294,14 @@ fn fmtDumpState(
         try writer.print("{}\n", .{linker_defined.fmtSymtab(self)});
     }
 
+    const slice = self.sections.slice();
+    {
+        try writer.writeAll("atom lists\n");
+        for (slice.items(.shdr), slice.items(.atom_list_2), 0..) |shdr, atom_list, shndx| {
+            try writer.print("shdr({d}) : {s} : {}", .{ shndx, self.getShString(shdr.sh_name), atom_list.fmt(self) });
+        }
+    }
+
     if (self.requiresThunks()) {
         try writer.writeAll("thunks\n");
         for (self.thunks.items, 0..) |th, index| {
@@ -5295,7 +5323,7 @@ fn fmtDumpState(
     }
 
     try writer.writeAll("\nOutput shdrs\n");
-    for (self.sections.items(.shdr), self.sections.items(.phndx), 0..) |shdr, phndx, shndx| {
+    for (slice.items(.shdr), slice.items(.phndx), 0..) |shdr, phndx, shndx| {
         try writer.print("  shdr({d}) : phdr({?d}) : {}\n", .{
             shndx,
             phndx,
@@ -5549,7 +5577,13 @@ const Section = struct {
     phndx: ?u32 = null,
 
     /// List of atoms contributing to this section.
+    /// TODO currently this is only used for relocations tracking in relocatable mode
+    /// but will be merged with atom_list_2.
     atom_list: std.ArrayListUnmanaged(Ref) = .{},
+
+    /// List of atoms contributing to this section.
+    /// This can be used by sections that require special handling such as init/fini array, etc.
+    atom_list_2: AtomList = .{},
 
     /// Index of the last allocated atom in this section.
     last_atom: Ref = .{ .index = 0, .file = 0 },
@@ -5690,6 +5724,7 @@ const Air = @import("../Air.zig");
 const Allocator = std.mem.Allocator;
 const Archive = @import("Elf/Archive.zig");
 pub const Atom = @import("Elf/Atom.zig");
+const AtomList = @import("Elf/AtomList.zig");
 const Cache = std.Build.Cache;
 const Path = Cache.Path;
 const Compilation = @import("../Compilation.zig");

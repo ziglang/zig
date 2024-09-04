@@ -353,11 +353,13 @@ fn initComdatGroups(elf_file: *Elf) !void {
 }
 
 fn updateSectionSizes(elf_file: *Elf) !void {
-    for (elf_file.objects.items) |index| {
-        try elf_file.file(index).?.object.allocateAtoms(elf_file);
+    const slice = elf_file.sections.slice();
+    for (slice.items(.atom_list_2)) |*atom_list| {
+        if (atom_list.atoms.items.len == 0) continue;
+        atom_list.updateSize(elf_file);
+        try atom_list.allocate(elf_file);
     }
 
-    const slice = elf_file.sections.slice();
     for (slice.items(.shdr), 0..) |*shdr, shndx| {
         const atom_list = slice.items(.atom_list)[shndx];
         if (shdr.sh_type != elf.SHT_RELA) continue;
@@ -444,8 +446,16 @@ fn allocateAllocSections(elf_file: *Elf) !void {
 }
 
 fn writeAtoms(elf_file: *Elf) !void {
-    for (elf_file.objects.items) |index| {
-        try elf_file.file(index).?.object.writeAtomsRelocatable(elf_file);
+    const gpa = elf_file.base.comp.gpa;
+
+    var buffer = std.ArrayList(u8).init(gpa);
+    defer buffer.deinit();
+
+    const slice = elf_file.sections.slice();
+    for (slice.items(.shdr), slice.items(.atom_list_2)) |shdr, atom_list| {
+        if (shdr.sh_type == elf.SHT_NOBITS) continue;
+        if (atom_list.atoms.items.len == 0) continue;
+        try atom_list.writeRelocatable(&buffer, elf_file);
     }
 }
 

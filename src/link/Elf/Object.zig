@@ -17,7 +17,6 @@ relocs: std.ArrayListUnmanaged(elf.Elf64_Rela) = .{},
 atoms: std.ArrayListUnmanaged(Atom) = .{},
 atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .{},
 atoms_extra: std.ArrayListUnmanaged(u32) = .{},
-section_chunks: std.ArrayListUnmanaged(SectionChunk) = .{},
 
 comdat_groups: std.ArrayListUnmanaged(Elf.ComdatGroup) = .{},
 comdat_group_data: std.ArrayListUnmanaged(u32) = .{},
@@ -59,10 +58,6 @@ pub fn deinit(self: *Object, allocator: Allocator) void {
     self.atoms.deinit(allocator);
     self.atoms_indexes.deinit(allocator);
     self.atoms_extra.deinit(allocator);
-    for (self.section_chunks.items) |*chunk| {
-        chunk.deinit(allocator);
-    }
-    self.section_chunks.deinit(allocator);
     self.comdat_groups.deinit(allocator);
     self.comdat_group_data.deinit(allocator);
     self.relocs.deinit(allocator);
@@ -952,166 +947,9 @@ pub fn initOutputSections(self: *Object, elf_file: *Elf) !void {
             .flags = shdr.sh_flags,
             .type = shdr.sh_type,
         });
-        const chunk = for (self.section_chunks.items) |*chunk| {
-            if (chunk.output_section_index == osec) break chunk;
-        } else blk: {
-            const chunk = try self.section_chunks.addOne(elf_file.base.comp.gpa);
-            chunk.* = .{ .output_section_index = osec };
-            break :blk chunk;
-        };
-        try chunk.atoms.append(elf_file.base.comp.gpa, atom_index);
-    }
-}
-
-pub fn allocateAtoms(self: *Object, elf_file: *Elf) !void {
-    for (self.section_chunks.items) |*chunk| {
-        chunk.updateSize(self);
-    }
-
-    for (self.section_chunks.items) |*chunk| {
-        const alloc_res = try elf_file.allocateChunk(.{
-            .shndx = chunk.output_section_index,
-            .size = chunk.size,
-            .alignment = chunk.alignment,
-            .requires_padding = false,
-        });
-        chunk.value = @intCast(alloc_res.value);
-
-        const slice = elf_file.sections.slice();
-        const shdr = &slice.items(.shdr)[chunk.output_section_index];
-        const last_atom_ref = &slice.items(.last_atom)[chunk.output_section_index];
-
-        const expand_section = if (elf_file.atom(alloc_res.placement)) |placement_atom|
-            placement_atom.nextAtom(elf_file) == null
-        else
-            true;
-        if (expand_section) last_atom_ref.* = chunk.lastAtom(self).ref();
-        shdr.sh_addralign = @max(shdr.sh_addralign, chunk.alignment.toByteUnits().?);
-
-        {
-            var idx: usize = 0;
-            while (idx < chunk.atoms.items.len) : (idx += 1) {
-                const curr_atom_ptr = self.atom(chunk.atoms.items[idx]).?;
-                if (idx > 0) {
-                    curr_atom_ptr.prev_atom_ref = .{ .index = chunk.atoms.items[idx - 1], .file = self.index };
-                }
-                if (idx + 1 < chunk.atoms.items.len) {
-                    curr_atom_ptr.next_atom_ref = .{ .index = chunk.atoms.items[idx + 1], .file = self.index };
-                }
-            }
-        }
-
-        if (elf_file.atom(alloc_res.placement)) |placement_atom| {
-            chunk.firstAtom(self).prev_atom_ref = placement_atom.ref();
-            chunk.lastAtom(self).next_atom_ref = placement_atom.next_atom_ref;
-            placement_atom.next_atom_ref = chunk.firstAtom(self).ref();
-        }
-
-        // TODO if we had a link from Atom to parent Chunk we would not need to update Atom's value or osec index
-        for (chunk.atoms.items) |atom_index| {
-            const atom_ptr = self.atom(atom_index).?;
-            atom_ptr.output_section_index = chunk.output_section_index;
-            atom_ptr.value += chunk.value;
-        }
-    }
-}
-
-pub fn writeAtoms(self: *Object, elf_file: *Elf) !void {
-    const gpa = elf_file.base.comp.gpa;
-
-    var undefs = std.AutoArrayHashMap(Elf.SymbolResolver.Index, std.ArrayList(Elf.Ref)).init(gpa);
-    defer {
-        for (undefs.values()) |*refs| {
-            refs.deinit();
-        }
-        undefs.deinit();
-    }
-
-    var buffer = std.ArrayList(u8).init(gpa);
-    defer buffer.deinit();
-
-    log.debug("writing atoms in {}", .{self.fmtPath()});
-
-    var has_reloc_errors = false;
-    for (self.section_chunks.items) |chunk| {
-        const osec = elf_file.sections.items(.shdr)[chunk.output_section_index];
-        if (osec.sh_type == elf.SHT_NOBITS) continue;
-
-        log.debug("  in section '{s}'", .{elf_file.getShString(osec.sh_name)});
-
-        try buffer.ensureUnusedCapacity(chunk.size);
-        buffer.appendNTimesAssumeCapacity(0, chunk.size);
-
-        for (chunk.atoms.items) |atom_index| {
-            const atom_ptr = self.atom(atom_index).?;
-            assert(atom_ptr.alive);
-
-            const offset = math.cast(usize, atom_ptr.value - chunk.value) orelse return error.Overflow;
-            const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
-
-            log.debug("    * atom({d}) at 0x{x}", .{ atom_index, chunk.offset(elf_file) + offset });
-
-            const code = try self.codeDecompressAlloc(elf_file, atom_index);
-            defer gpa.free(code);
-            const out_code = buffer.items[offset..][0..size];
-            @memcpy(out_code, code);
-
-            const res = if (osec.sh_flags & elf.SHF_ALLOC == 0)
-                atom_ptr.resolveRelocsNonAlloc(elf_file, out_code, &undefs)
-            else
-                atom_ptr.resolveRelocsAlloc(elf_file, out_code);
-            _ = res catch |err| switch (err) {
-                error.UnsupportedCpuArch => {
-                    try elf_file.reportUnsupportedCpuArch();
-                    return error.FlushFailure;
-                },
-                error.RelocFailure, error.RelaxFailure => has_reloc_errors = true,
-                else => |e| return e,
-            };
-        }
-
-        try elf_file.base.file.?.pwriteAll(buffer.items, chunk.offset(elf_file));
-        buffer.clearRetainingCapacity();
-    }
-
-    try elf_file.reportUndefinedSymbols(&undefs);
-    if (has_reloc_errors) return error.FlushFailure;
-}
-
-pub fn writeAtomsRelocatable(self: *Object, elf_file: *Elf) !void {
-    const gpa = elf_file.base.comp.gpa;
-
-    var buffer = std.ArrayList(u8).init(gpa);
-    defer buffer.deinit();
-
-    log.debug("writing atoms in {}", .{self.fmtPath()});
-
-    for (self.section_chunks.items) |chunk| {
-        const osec = elf_file.sections.items(.shdr)[chunk.output_section_index];
-        if (osec.sh_type == elf.SHT_NOBITS) continue;
-
-        log.debug("  in section '{s}'", .{elf_file.getShString(osec.sh_name)});
-
-        try buffer.ensureUnusedCapacity(chunk.size);
-        buffer.appendNTimesAssumeCapacity(0, chunk.size);
-
-        for (chunk.atoms.items) |atom_index| {
-            const atom_ptr = self.atom(atom_index).?;
-            assert(atom_ptr.alive);
-
-            const offset = math.cast(usize, atom_ptr.value - chunk.value) orelse return error.Overflow;
-            const size = math.cast(usize, atom_ptr.size) orelse return error.Overflow;
-
-            log.debug("    * atom({d}) at 0x{x}", .{ atom_index, chunk.offset(elf_file) + offset });
-
-            const code = try self.codeDecompressAlloc(elf_file, atom_index);
-            defer gpa.free(code);
-            const out_code = buffer.items[offset..][0..size];
-            @memcpy(out_code, code);
-        }
-
-        try elf_file.base.file.?.pwriteAll(buffer.items, chunk.offset(elf_file));
-        buffer.clearRetainingCapacity();
+        const atom_list = &elf_file.sections.items(.atom_list_2)[osec];
+        atom_list.output_section_index = osec;
+        try atom_list.atoms.append(elf_file.base.comp.gpa, atom_ptr.ref());
     }
 }
 
@@ -1585,29 +1423,6 @@ fn formatAtoms(
     }
 }
 
-pub fn fmtSectionChunks(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatSectionChunks) {
-    return .{ .data = .{
-        .object = self,
-        .elf_file = elf_file,
-    } };
-}
-
-fn formatSectionChunks(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const object = ctx.object;
-    const elf_file = ctx.elf_file;
-    try writer.writeAll("  section chunks\n");
-    for (object.section_chunks.items) |chunk| {
-        try writer.print("    {}\n", .{chunk.fmt(elf_file)});
-    }
-}
-
 pub fn fmtCies(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatCies) {
     return .{ .data = .{
         .object = self,
@@ -1709,90 +1524,6 @@ const InArchive = struct {
     size: u32,
 };
 
-const SectionChunk = struct {
-    value: i64 = 0,
-    size: u64 = 0,
-    alignment: Atom.Alignment = .@"1",
-    output_section_index: u32 = 0,
-    atoms: std.ArrayListUnmanaged(Atom.Index) = .{},
-
-    fn deinit(chunk: *SectionChunk, allocator: Allocator) void {
-        chunk.atoms.deinit(allocator);
-    }
-
-    fn address(chunk: SectionChunk, elf_file: *Elf) i64 {
-        const shdr = elf_file.sections.items(.shdr)[chunk.output_section_index];
-        return @as(i64, @intCast(shdr.sh_addr)) + chunk.value;
-    }
-
-    fn offset(chunk: SectionChunk, elf_file: *Elf) u64 {
-        const shdr = elf_file.sections.items(.shdr)[chunk.output_section_index];
-        return shdr.sh_offset + @as(u64, @intCast(chunk.value));
-    }
-
-    fn updateSize(chunk: *SectionChunk, object: *Object) void {
-        for (chunk.atoms.items) |atom_index| {
-            const atom_ptr = object.atom(atom_index).?;
-            assert(atom_ptr.alive);
-            const off = atom_ptr.alignment.forward(chunk.size);
-            const padding = off - chunk.size;
-            atom_ptr.value = @intCast(off);
-            chunk.size += padding + atom_ptr.size;
-            chunk.alignment = chunk.alignment.max(atom_ptr.alignment);
-        }
-    }
-
-    fn firstAtom(chunk: SectionChunk, object: *Object) *Atom {
-        assert(chunk.atoms.items.len > 0);
-        return object.atom(chunk.atoms.items[0]).?;
-    }
-
-    fn lastAtom(chunk: SectionChunk, object: *Object) *Atom {
-        assert(chunk.atoms.items.len > 0);
-        return object.atom(chunk.atoms.items[chunk.atoms.items.len - 1]).?;
-    }
-
-    pub fn format(
-        chunk: SectionChunk,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = chunk;
-        _ = unused_fmt_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format SectionChunk directly");
-    }
-
-    const FormatCtx = struct { SectionChunk, *Elf };
-
-    pub fn fmt(chunk: SectionChunk, elf_file: *Elf) std.fmt.Formatter(format2) {
-        return .{ .data = .{ chunk, elf_file } };
-    }
-
-    fn format2(
-        ctx: FormatCtx,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
-        const chunk, const elf_file = ctx;
-        try writer.print("chunk : @{x} : shdr({d}) : align({x}) : size({x})", .{
-            chunk.address(elf_file),                chunk.output_section_index,
-            chunk.alignment.toByteUnits() orelse 0, chunk.size,
-        });
-        try writer.writeAll(" : atoms{ ");
-        for (chunk.atoms.items, 0..) |atom_index, i| {
-            try writer.print("{d}", .{atom_index});
-            if (i < chunk.atoms.items.len - 1) try writer.writeAll(", ");
-        }
-        try writer.writeAll(" }");
-    }
-};
-
 const Object = @This();
 
 const std = @import("std");
@@ -1807,6 +1538,7 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
+const AtomList = @import("AtomList.zig");
 const Cie = eh_frame.Cie;
 const Elf = @import("../Elf.zig");
 const Fde = eh_frame.Fde;
