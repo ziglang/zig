@@ -55,6 +55,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
 
         // Exercise linker in ar mode
         elf_step.dependOn(testEmitStaticLib(b, .{ .target = musl_target }));
+        elf_step.dependOn(testEmitStaticLibZig(b, .{ .target = musl_target }));
 
         // Exercise linker with LLVM backend
         // musl tests

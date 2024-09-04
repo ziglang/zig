@@ -18,7 +18,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]co
     }
 
     for (positionals.items) |obj| {
-        parsePositional(elf_file, obj.path) catch |err| switch (err) {
+        parsePositionalStaticLib(elf_file, obj.path) catch |err| switch (err) {
             error.MalformedObject,
             error.MalformedArchive,
             error.InvalidMachineType,
@@ -38,17 +38,12 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]co
     // First, we flush relocatable object file generated with our backends.
     if (elf_file.zigObjectPtr()) |zig_object| {
         try zig_object.resolveSymbols(elf_file);
+        elf_file.markEhFrameAtomsDead();
         try elf_file.addCommentString();
         try elf_file.finalizeMergeSections();
         zig_object.claimUnresolvedRelocatable(elf_file);
 
-        for (elf_file.merge_sections.items) |*msec| {
-            if (msec.finalized_subsections.items.len == 0) continue;
-            try msec.initOutputSection(elf_file);
-        }
-
-        try elf_file.initSymtab();
-        try elf_file.initShStrtab();
+        try initSections(elf_file);
         try elf_file.sortShdrs();
         try zig_object.addAtomsToRelaSections(elf_file);
         try elf_file.updateMergeSectionSizes();
@@ -229,17 +224,17 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation, module_obj_path: ?[]const
     if (elf_file.base.hasErrors()) return error.FlushFailure;
 }
 
-fn parsePositional(elf_file: *Elf, path: []const u8) Elf.ParseError!void {
+fn parsePositionalStaticLib(elf_file: *Elf, path: []const u8) Elf.ParseError!void {
     if (try Object.isObject(path)) {
-        try parseObject(elf_file, path);
+        try parseObjectStaticLib(elf_file, path);
     } else if (try Archive.isArchive(path)) {
-        try parseArchive(elf_file, path);
+        try parseArchiveStaticLib(elf_file, path);
     } else return error.UnknownFileType;
     // TODO: should we check for LD script?
     // Actually, should we even unpack an archive?
 }
 
-fn parseObject(elf_file: *Elf, path: []const u8) Elf.ParseError!void {
+fn parseObjectStaticLib(elf_file: *Elf, path: []const u8) Elf.ParseError!void {
     const gpa = elf_file.base.comp.gpa;
     const handle = try std.fs.cwd().openFile(path, .{});
     const fh = try elf_file.addFileHandle(handle);
@@ -256,7 +251,7 @@ fn parseObject(elf_file: *Elf, path: []const u8) Elf.ParseError!void {
     try object.parseAr(elf_file);
 }
 
-fn parseArchive(elf_file: *Elf, path: []const u8) Elf.ParseError!void {
+fn parseArchiveStaticLib(elf_file: *Elf, path: []const u8) Elf.ParseError!void {
     const gpa = elf_file.base.comp.gpa;
     const handle = try std.fs.cwd().openFile(path, .{});
     const fh = try elf_file.addFileHandle(handle);
