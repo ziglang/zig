@@ -606,7 +606,7 @@ pub fn dependsOnSystemLibrary(compile: *Compile, name: []const u8) bool {
                 else => continue,
             }
         }
-        is_linking_libc = is_linking_libc or it.module.link_libc == true;
+        is_linking_libc = is_linking_libc or it.module.link_libc;
         is_linking_libcpp = is_linking_libcpp or it.module.link_libcpp == true;
     }
 
