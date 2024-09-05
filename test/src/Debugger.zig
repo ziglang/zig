@@ -411,10 +411,27 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
         \\breakpoint set --file enums.zig --source-pattern-regexp '_ = enums;'
         \\process launch
+        \\expression --show-types -- Enums
         \\frame variable --show-types enums
         \\breakpoint delete --force 1
     ,
         &.{
+            \\(lldb) expression --show-types -- Enums
+            \\(type) Enums = struct {
+            \\  (type) Zero = enum {}
+            \\  (type) One = enum {
+            \\    (root.enums.Enums.One) first = .first
+            \\  }
+            \\  (type) Two = enum {
+            \\    (root.enums.Enums.Two) first = .first
+            \\    (root.enums.Enums.Two) second = .second
+            \\  }
+            \\  (type) Three = enum {
+            \\    (root.enums.Enums.Three) first = .first
+            \\    (root.enums.Enums.Three) second = .second
+            \\    (root.enums.Enums.Three) third = .third
+            \\  }
+            \\}
             \\(lldb) frame variable --show-types enums
             \\(root.enums.Enums) enums = {
             \\  (root.enums.Enums.Zero) zero = @enumFromInt(13)
@@ -434,12 +451,17 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
                 .path = "errors.zig",
                 .source =
                 \\const Errors = struct {
-                \\    one: error{One} = error.One,
-                \\    two: error{One,Two} = error.Two,
-                \\    three: error{One,Two,Three} = error.Three,
+                \\    const Zero = error{};
+                \\    const One = Zero || error{One};
+                \\    const Two = One || error{Two};
+                \\    const Three = Two || error{Three};
+                \\
+                \\    one: One = error.One,
+                \\    two: Two = error.Two,
+                \\    three: Three = error.Three,
                 \\    any: anyerror = error.Any,
                 \\    any_void: anyerror!void = error.NotVoid,
-                \\    any_u32: error{One}!u32 = 42,
+                \\    any_u32: One!u32 = 42,
                 \\};
                 \\fn testErrors(errors: Errors) void {
                 \\    _ = errors;
@@ -453,10 +475,27 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
         \\breakpoint set --file errors.zig --source-pattern-regexp '_ = errors;'
         \\process launch
+        \\expression --show-types -- Errors
         \\frame variable --show-types errors
         \\breakpoint delete --force 1
     ,
         &.{
+            \\(lldb) expression --show-types -- Errors
+            \\(type) Errors = struct {
+            \\  (type) Zero = error {}
+            \\  (type) One = error {
+            \\    (error{One}) One = error.One
+            \\  }
+            \\  (type) Two = error {
+            \\    (error{One,Two}) One = error.One
+            \\    (error{One,Two}) Two = error.Two
+            \\  }
+            \\  (type) Three = error {
+            \\    (error{One,Two,Three}) One = error.One
+            \\    (error{One,Two,Three}) Two = error.Two
+            \\    (error{One,Two,Three}) Three = error.Three
+            \\  }
+            \\}
             \\(lldb) frame variable --show-types errors
             \\(root.errors.Errors) errors = {
             \\  (error{One}) one = error.One
@@ -565,10 +604,30 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
         },
         \\breakpoint set --file unions.zig --source-pattern-regexp '_ = unions;'
         \\process launch
+        \\expression --show-types -- Unions
         \\frame variable --show-types unions
         \\breakpoint delete --force 1
     ,
         &.{
+            \\(lldb) expression --show-types -- Unions
+            \\(type) Unions = struct {
+            \\  (type) Untagged = union {}
+            \\  (type) SafetyTagged = union(enum) {
+            \\    (@typeInfo(unions.Unions.SafetyTagged).@"union".tag_type.?) void = .void
+            \\    (@typeInfo(unions.Unions.SafetyTagged).@"union".tag_type.?) en = .en
+            \\    (@typeInfo(unions.Unions.SafetyTagged).@"union".tag_type.?) eu = .eu
+            \\  }
+            \\  (type) Enum = enum {
+            \\    (root.unions.Unions.Enum) first = .first
+            \\    (root.unions.Unions.Enum) second = .second
+            \\    (root.unions.Unions.Enum) third = .third
+            \\  }
+            \\  (type) Tagged = union(enum) {
+            \\    (@typeInfo(unions.Unions.Tagged).@"union".tag_type.?) void = .void
+            \\    (@typeInfo(unions.Unions.Tagged).@"union".tag_type.?) en = .en
+            \\    (@typeInfo(unions.Unions.Tagged).@"union".tag_type.?) eu = .eu
+            \\  }
+            \\}
             \\(lldb) frame variable --show-types unions
             \\(root.unions.Unions) unions = {
             \\  (root.unions.Unions.Untagged) untagged = {

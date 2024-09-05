@@ -2509,6 +2509,19 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
         return;
     }
 
+    const parent_type, const accessibility: u8 = if (nav.analysis_owner.unwrap()) |cau| parent: {
+        const parent_namespace_ptr = ip.namespacePtr(ip.getCau(cau).namespace);
+        break :parent .{
+            parent_namespace_ptr.owner_type,
+            if (parent_namespace_ptr.pub_decls.containsContext(nav_index, .{ .zcu = zcu }))
+                DW.ACCESS.public
+            else if (parent_namespace_ptr.priv_decls.containsContext(nav_index, .{ .zcu = zcu }))
+                DW.ACCESS.private
+            else
+                unreachable,
+        };
+    } else .{ zcu.fileRootType(inst_info.file), DW.ACCESS.private };
+
     const tree = try file.getTree(dwarf.gpa);
     const loc = tree.tokenLocation(0, tree.nodes.items(.main_token)[decl_inst.data.declaration.src_node]);
     assert(loc.line == zcu.navSrcLine(nav_index));
@@ -2534,8 +2547,328 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
 
     const nav_gop = try dwarf.navs.getOrPut(dwarf.gpa, nav_index);
     errdefer _ = dwarf.navs.pop();
-    switch (ip.indexToKey(nav_val.toIntern())) {
-        .func => |func| {
+
+    const tag: enum { done, decl_alias } = switch (ip.indexToKey(nav_val.toIntern())) {
+        .int_type,
+        .ptr_type,
+        .array_type,
+        .vector_type,
+        .opt_type,
+        .anyframe_type,
+        .error_union_type,
+        .simple_type,
+        .anon_struct_type,
+        .func_type,
+        .error_set_type,
+        .inferred_error_set_type,
+        => .decl_alias,
+        .struct_type => tag: {
+            const loaded_struct = ip.loadStructType(nav_val.toIntern());
+            if (loaded_struct.zir_index == .none) break :tag .decl_alias;
+
+            const type_inst_info = loaded_struct.zir_index.unwrap().?.resolveFull(ip).?;
+            if (type_inst_info.file != inst_info.file) break :tag .decl_alias;
+
+            const value_inst = value_inst: {
+                const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
+                const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
+                if (break_inst.tag != .break_inline) break :value_inst null;
+                assert(file.zir.extraData(Zir.Inst.Break, break_inst.data.@"break".payload_index).data.block_inst == inst_info.inst);
+                var value_inst = break_inst.data.@"break".operand.toIndex();
+                while (value_inst) |value_inst_index| switch (file.zir.instructions.items(.tag)[@intFromEnum(value_inst_index)]) {
+                    else => break,
+                    .as_node => value_inst = file.zir.extraData(
+                        Zir.Inst.As,
+                        file.zir.instructions.items(.data)[@intFromEnum(value_inst_index)].pl_node.payload_index,
+                    ).data.operand.toIndex(),
+                };
+                break :value_inst value_inst;
+            };
+            if (type_inst_info.inst != value_inst) break :tag .decl_alias;
+
+            const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
+            if (type_gop.found_existing) {
+                dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).clear();
+                nav_gop.value_ptr.* = type_gop.value_ptr.*;
+            } else {
+                if (nav_gop.found_existing)
+                    dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(nav_gop.value_ptr.*).clear()
+                else
+                    nav_gop.value_ptr.* = try dwarf.addCommonEntry(wip_nav.unit);
+                type_gop.value_ptr.* = nav_gop.value_ptr.*;
+            }
+            wip_nav.entry = nav_gop.value_ptr.*;
+
+            const diw = wip_nav.debug_info.writer(dwarf.gpa);
+
+            switch (loaded_struct.layout) {
+                .auto, .@"extern" => {
+                    try wip_nav.abbrevCode(if (loaded_struct.field_types.len == 0) .decl_namespace_struct else .decl_struct);
+                    try wip_nav.refType(Type.fromInterned(parent_type));
+                    assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
+                    try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
+                    try uleb128(diw, loc.column + 1);
+                    try diw.writeByte(accessibility);
+                    try wip_nav.strp(nav.name.toSlice(ip));
+                    if (loaded_struct.field_types.len == 0) try diw.writeByte(@intFromBool(false)) else {
+                        try uleb128(diw, nav_val.toType().abiSize(zcu));
+                        try uleb128(diw, nav_val.toType().abiAlignment(zcu).toByteUnits().?);
+                        for (0..loaded_struct.field_types.len) |field_index| {
+                            const is_comptime = loaded_struct.fieldIsComptime(ip, field_index);
+                            try wip_nav.abbrevCode(if (is_comptime) .struct_field_comptime else .struct_field);
+                            if (loaded_struct.fieldName(ip, field_index).unwrap()) |field_name| try wip_nav.strp(field_name.toSlice(ip)) else {
+                                const field_name = try std.fmt.allocPrint(dwarf.gpa, "{d}", .{field_index});
+                                defer dwarf.gpa.free(field_name);
+                                try wip_nav.strp(field_name);
+                            }
+                            const field_type = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
+                            try wip_nav.refType(field_type);
+                            if (!is_comptime) {
+                                try uleb128(diw, loaded_struct.offsets.get(ip)[field_index]);
+                                try uleb128(diw, loaded_struct.fieldAlign(ip, field_index).toByteUnits() orelse
+                                    field_type.abiAlignment(zcu).toByteUnits().?);
+                            }
+                        }
+                        try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                    }
+                },
+                .@"packed" => {
+                    try wip_nav.abbrevCode(.decl_packed_struct);
+                    try wip_nav.refType(Type.fromInterned(parent_type));
+                    assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
+                    try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
+                    try uleb128(diw, loc.column + 1);
+                    try diw.writeByte(accessibility);
+                    try wip_nav.strp(nav.name.toSlice(ip));
+                    try wip_nav.refType(Type.fromInterned(loaded_struct.backingIntTypeUnordered(ip)));
+                    var field_bit_offset: u16 = 0;
+                    for (0..loaded_struct.field_types.len) |field_index| {
+                        try wip_nav.abbrevCode(.packed_struct_field);
+                        try wip_nav.strp(loaded_struct.fieldName(ip, field_index).unwrap().?.toSlice(ip));
+                        const field_type = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
+                        try wip_nav.refType(field_type);
+                        try uleb128(diw, field_bit_offset);
+                        field_bit_offset += @intCast(field_type.bitSize(zcu));
+                    }
+                    try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                },
+            }
+            break :tag .done;
+        },
+        .enum_type => tag: {
+            const loaded_enum = ip.loadEnumType(nav_val.toIntern());
+            if (loaded_enum.zir_index == .none) break :tag .decl_alias;
+
+            const type_inst_info = loaded_enum.zir_index.unwrap().?.resolveFull(ip).?;
+            if (type_inst_info.file != inst_info.file) break :tag .decl_alias;
+
+            const value_inst = value_inst: {
+                const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
+                const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
+                if (break_inst.tag != .break_inline) break :value_inst null;
+                assert(file.zir.extraData(Zir.Inst.Break, break_inst.data.@"break".payload_index).data.block_inst == inst_info.inst);
+                var value_inst = break_inst.data.@"break".operand.toIndex();
+                while (value_inst) |value_inst_index| switch (file.zir.instructions.items(.tag)[@intFromEnum(value_inst_index)]) {
+                    else => break,
+                    .as_node => value_inst = file.zir.extraData(
+                        Zir.Inst.As,
+                        file.zir.instructions.items(.data)[@intFromEnum(value_inst_index)].pl_node.payload_index,
+                    ).data.operand.toIndex(),
+                };
+                break :value_inst value_inst;
+            };
+            if (type_inst_info.inst != value_inst) break :tag .decl_alias;
+
+            const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
+            if (type_gop.found_existing) {
+                dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).clear();
+                nav_gop.value_ptr.* = type_gop.value_ptr.*;
+            } else {
+                if (nav_gop.found_existing)
+                    dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(nav_gop.value_ptr.*).clear()
+                else
+                    nav_gop.value_ptr.* = try dwarf.addCommonEntry(wip_nav.unit);
+                type_gop.value_ptr.* = nav_gop.value_ptr.*;
+            }
+            wip_nav.entry = nav_gop.value_ptr.*;
+            const diw = wip_nav.debug_info.writer(dwarf.gpa);
+            try wip_nav.abbrevCode(if (loaded_enum.names.len > 0) .decl_enum else .decl_empty_enum);
+            try wip_nav.refType(Type.fromInterned(parent_type));
+            assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
+            try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
+            try uleb128(diw, loc.column + 1);
+            try diw.writeByte(accessibility);
+            try wip_nav.strp(nav.name.toSlice(ip));
+            try wip_nav.refType(Type.fromInterned(loaded_enum.tag_ty));
+            for (0..loaded_enum.names.len) |field_index| {
+                try wip_nav.enumConstValue(loaded_enum, .{
+                    .sdata = .signed_enum_field,
+                    .udata = .unsigned_enum_field,
+                    .block = .big_enum_field,
+                }, field_index);
+                try wip_nav.strp(loaded_enum.names.get(ip)[field_index].toSlice(ip));
+            }
+            if (loaded_enum.names.len > 0) try uleb128(diw, @intFromEnum(AbbrevCode.null));
+            break :tag .done;
+        },
+        .union_type => tag: {
+            const loaded_union = ip.loadUnionType(nav_val.toIntern());
+
+            const type_inst_info = loaded_union.zir_index.resolveFull(ip).?;
+            if (type_inst_info.file != inst_info.file) break :tag .decl_alias;
+
+            const value_inst = value_inst: {
+                const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
+                const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
+                if (break_inst.tag != .break_inline) break :value_inst null;
+                assert(file.zir.extraData(Zir.Inst.Break, break_inst.data.@"break".payload_index).data.block_inst == inst_info.inst);
+                var value_inst = break_inst.data.@"break".operand.toIndex();
+                while (value_inst) |value_inst_index| switch (file.zir.instructions.items(.tag)[@intFromEnum(value_inst_index)]) {
+                    else => break,
+                    .as_node => value_inst = file.zir.extraData(
+                        Zir.Inst.As,
+                        file.zir.instructions.items(.data)[@intFromEnum(value_inst_index)].pl_node.payload_index,
+                    ).data.operand.toIndex(),
+                };
+                break :value_inst value_inst;
+            };
+            if (type_inst_info.inst != value_inst) break :tag .decl_alias;
+
+            const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
+            if (type_gop.found_existing) {
+                dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).clear();
+                nav_gop.value_ptr.* = type_gop.value_ptr.*;
+            } else {
+                if (nav_gop.found_existing)
+                    dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(nav_gop.value_ptr.*).clear()
+                else
+                    nav_gop.value_ptr.* = try dwarf.addCommonEntry(wip_nav.unit);
+                type_gop.value_ptr.* = nav_gop.value_ptr.*;
+            }
+            wip_nav.entry = nav_gop.value_ptr.*;
+            const diw = wip_nav.debug_info.writer(dwarf.gpa);
+            try wip_nav.abbrevCode(.decl_union);
+            try wip_nav.refType(Type.fromInterned(parent_type));
+            assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
+            try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
+            try uleb128(diw, loc.column + 1);
+            try diw.writeByte(accessibility);
+            try wip_nav.strp(nav.name.toSlice(ip));
+            const union_layout = Type.getUnionLayout(loaded_union, zcu);
+            try uleb128(diw, union_layout.abi_size);
+            try uleb128(diw, union_layout.abi_align.toByteUnits().?);
+            const loaded_tag = loaded_union.loadTagType(ip);
+            if (loaded_union.hasTag(ip)) {
+                try wip_nav.abbrevCode(.tagged_union);
+                try wip_nav.infoSectionOffset(
+                    .debug_info,
+                    wip_nav.unit,
+                    wip_nav.entry,
+                    @intCast(wip_nav.debug_info.items.len + dwarf.sectionOffsetBytes()),
+                );
+                {
+                    try wip_nav.abbrevCode(.generated_field);
+                    try wip_nav.strp("tag");
+                    try wip_nav.refType(Type.fromInterned(loaded_union.enum_tag_ty));
+                    try uleb128(diw, union_layout.tagOffset());
+
+                    for (0..loaded_union.field_types.len) |field_index| {
+                        try wip_nav.enumConstValue(loaded_tag, .{
+                            .sdata = .signed_tagged_union_field,
+                            .udata = .unsigned_tagged_union_field,
+                            .block = .big_tagged_union_field,
+                        }, field_index);
+                        {
+                            try wip_nav.abbrevCode(.struct_field);
+                            try wip_nav.strp(loaded_tag.names.get(ip)[field_index].toSlice(ip));
+                            const field_type = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
+                            try wip_nav.refType(field_type);
+                            try uleb128(diw, union_layout.payloadOffset());
+                            try uleb128(diw, loaded_union.fieldAlign(ip, field_index).toByteUnits() orelse
+                                if (field_type.isNoReturn(zcu)) 1 else field_type.abiAlignment(zcu).toByteUnits().?);
+                        }
+                        try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                    }
+                }
+                try uleb128(diw, @intFromEnum(AbbrevCode.null));
+            } else for (0..loaded_union.field_types.len) |field_index| {
+                try wip_nav.abbrevCode(.untagged_union_field);
+                try wip_nav.strp(loaded_tag.names.get(ip)[field_index].toSlice(ip));
+                const field_type = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
+                try wip_nav.refType(field_type);
+                try uleb128(diw, loaded_union.fieldAlign(ip, field_index).toByteUnits() orelse
+                    field_type.abiAlignment(zcu).toByteUnits().?);
+            }
+            try uleb128(diw, @intFromEnum(AbbrevCode.null));
+            break :tag .done;
+        },
+        .opaque_type => tag: {
+            const loaded_opaque = ip.loadOpaqueType(nav_val.toIntern());
+
+            const type_inst_info = loaded_opaque.zir_index.resolveFull(ip).?;
+            if (type_inst_info.file != inst_info.file) break :tag .decl_alias;
+
+            const value_inst = value_inst: {
+                const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
+                const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
+                if (break_inst.tag != .break_inline) break :value_inst null;
+                assert(file.zir.extraData(Zir.Inst.Break, break_inst.data.@"break".payload_index).data.block_inst == inst_info.inst);
+                var value_inst = break_inst.data.@"break".operand.toIndex();
+                while (value_inst) |value_inst_index| switch (file.zir.instructions.items(.tag)[@intFromEnum(value_inst_index)]) {
+                    else => break,
+                    .as_node => value_inst = file.zir.extraData(
+                        Zir.Inst.As,
+                        file.zir.instructions.items(.data)[@intFromEnum(value_inst_index)].pl_node.payload_index,
+                    ).data.operand.toIndex(),
+                };
+                break :value_inst value_inst;
+            };
+            if (type_inst_info.inst != value_inst) break :tag .decl_alias;
+
+            const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
+            if (type_gop.found_existing) {
+                dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).clear();
+                nav_gop.value_ptr.* = type_gop.value_ptr.*;
+            } else {
+                if (nav_gop.found_existing)
+                    dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(nav_gop.value_ptr.*).clear()
+                else
+                    nav_gop.value_ptr.* = try dwarf.addCommonEntry(wip_nav.unit);
+                type_gop.value_ptr.* = nav_gop.value_ptr.*;
+            }
+            wip_nav.entry = nav_gop.value_ptr.*;
+            const diw = wip_nav.debug_info.writer(dwarf.gpa);
+            try wip_nav.abbrevCode(.decl_namespace_struct);
+            try wip_nav.refType(Type.fromInterned(parent_type));
+            assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
+            try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
+            try uleb128(diw, loc.column + 1);
+            try diw.writeByte(accessibility);
+            try wip_nav.strp(nav.name.toSlice(ip));
+            try diw.writeByte(@intFromBool(false));
+            break :tag .done;
+        },
+        .undef,
+        .simple_value,
+        .variable,
+        .@"extern",
+        .int,
+        .err,
+        .error_union,
+        .enum_literal,
+        .enum_tag,
+        .empty_enum_value,
+        .float,
+        .ptr,
+        .slice,
+        .opt,
+        .aggregate,
+        .un,
+        => {
+            _ = dwarf.navs.pop();
+            return;
+        },
+        .func => |func| tag: {
             if (nav_gop.found_existing) {
                 const unit_ptr = dwarf.debug_info.section.getUnit(wip_nav.unit);
                 const entry_ptr = unit_ptr.getEntry(nav_gop.value_ptr.*);
@@ -2559,19 +2892,6 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
             } else nav_gop.value_ptr.* = try dwarf.addCommonEntry(wip_nav.unit);
             wip_nav.entry = nav_gop.value_ptr.*;
 
-            const parent_type, const accessibility: u8 = if (nav.analysis_owner.unwrap()) |cau| parent: {
-                const parent_namespace_ptr = ip.namespacePtr(ip.getCau(cau).namespace);
-                break :parent .{
-                    parent_namespace_ptr.owner_type,
-                    if (parent_namespace_ptr.pub_decls.containsContext(nav_index, .{ .zcu = zcu }))
-                        DW.ACCESS.public
-                    else if (parent_namespace_ptr.priv_decls.containsContext(nav_index, .{ .zcu = zcu }))
-                        DW.ACCESS.private
-                    else
-                        unreachable,
-                };
-            } else .{ zcu.fileRootType(inst_info.file), DW.ACCESS.private };
-
             const func_type = ip.indexToKey(func.ty).func_type;
             const diw = wip_nav.debug_info.writer(dwarf.gpa);
             try wip_nav.abbrevCode(if (func_type.param_types.len > 0 or func_type.is_var_args)
@@ -2593,116 +2913,14 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                 if (func_type.is_var_args) try wip_nav.abbrevCode(.is_var_args);
                 try uleb128(diw, @intFromEnum(AbbrevCode.null));
             }
+            break :tag .done;
         },
-        .struct_type => done: {
-            const loaded_struct = ip.loadStructType(nav_val.toIntern());
-
-            const parent_type, const accessibility: u8 = if (nav.analysis_owner.unwrap()) |cau| parent: {
-                const parent_namespace_ptr = ip.namespacePtr(ip.getCau(cau).namespace);
-                break :parent .{
-                    parent_namespace_ptr.owner_type,
-                    if (parent_namespace_ptr.pub_decls.containsContext(nav_index, .{ .zcu = zcu }))
-                        DW.ACCESS.public
-                    else if (parent_namespace_ptr.priv_decls.containsContext(nav_index, .{ .zcu = zcu }))
-                        DW.ACCESS.private
-                    else
-                        unreachable,
-                };
-            } else .{ zcu.fileRootType(inst_info.file), DW.ACCESS.private };
-
-            decl_struct: {
-                if (loaded_struct.zir_index == .none) break :decl_struct;
-
-                const type_inst_info = loaded_struct.zir_index.unwrap().?.resolveFull(ip).?;
-                if (type_inst_info.file != inst_info.file) break :decl_struct;
-
-                const value_inst = value_inst: {
-                    const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
-                    const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
-                    if (break_inst.tag != .break_inline) break :value_inst null;
-                    assert(file.zir.extraData(Zir.Inst.Break, break_inst.data.@"break".payload_index).data.block_inst == inst_info.inst);
-                    var value_inst = break_inst.data.@"break".operand.toIndex();
-                    while (value_inst) |value_inst_index| switch (file.zir.instructions.items(.tag)[@intFromEnum(value_inst_index)]) {
-                        else => break,
-                        .as_node => value_inst = file.zir.extraData(
-                            Zir.Inst.As,
-                            file.zir.instructions.items(.data)[@intFromEnum(value_inst_index)].pl_node.payload_index,
-                        ).data.operand.toIndex(),
-                    };
-                    break :value_inst value_inst;
-                };
-                if (type_inst_info.inst != value_inst) break :decl_struct;
-
-                const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
-                if (type_gop.found_existing) {
-                    dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).clear();
-                    nav_gop.value_ptr.* = type_gop.value_ptr.*;
-                } else {
-                    if (nav_gop.found_existing)
-                        dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(nav_gop.value_ptr.*).clear()
-                    else
-                        nav_gop.value_ptr.* = try dwarf.addCommonEntry(wip_nav.unit);
-                    type_gop.value_ptr.* = nav_gop.value_ptr.*;
-                }
-                wip_nav.entry = nav_gop.value_ptr.*;
-
-                const diw = wip_nav.debug_info.writer(dwarf.gpa);
-
-                switch (loaded_struct.layout) {
-                    .auto, .@"extern" => {
-                        try wip_nav.abbrevCode(if (loaded_struct.field_types.len == 0) .decl_namespace_struct else .decl_struct);
-                        try wip_nav.refType(Type.fromInterned(parent_type));
-                        assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
-                        try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
-                        try uleb128(diw, loc.column + 1);
-                        try diw.writeByte(accessibility);
-                        try wip_nav.strp(nav.name.toSlice(ip));
-                        if (loaded_struct.field_types.len == 0) try diw.writeByte(@intFromBool(false)) else {
-                            try uleb128(diw, nav_val.toType().abiSize(zcu));
-                            try uleb128(diw, nav_val.toType().abiAlignment(zcu).toByteUnits().?);
-                            for (0..loaded_struct.field_types.len) |field_index| {
-                                const is_comptime = loaded_struct.fieldIsComptime(ip, field_index);
-                                try wip_nav.abbrevCode(if (is_comptime) .struct_field_comptime else .struct_field);
-                                if (loaded_struct.fieldName(ip, field_index).unwrap()) |field_name| try wip_nav.strp(field_name.toSlice(ip)) else {
-                                    const field_name = try std.fmt.allocPrint(dwarf.gpa, "{d}", .{field_index});
-                                    defer dwarf.gpa.free(field_name);
-                                    try wip_nav.strp(field_name);
-                                }
-                                const field_type = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
-                                try wip_nav.refType(field_type);
-                                if (!is_comptime) {
-                                    try uleb128(diw, loaded_struct.offsets.get(ip)[field_index]);
-                                    try uleb128(diw, loaded_struct.fieldAlign(ip, field_index).toByteUnits() orelse
-                                        field_type.abiAlignment(zcu).toByteUnits().?);
-                                }
-                            }
-                            try uleb128(diw, @intFromEnum(AbbrevCode.null));
-                        }
-                    },
-                    .@"packed" => {
-                        try wip_nav.abbrevCode(.decl_packed_struct);
-                        try wip_nav.refType(Type.fromInterned(parent_type));
-                        assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
-                        try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
-                        try uleb128(diw, loc.column + 1);
-                        try diw.writeByte(accessibility);
-                        try wip_nav.strp(nav.name.toSlice(ip));
-                        try wip_nav.refType(Type.fromInterned(loaded_struct.backingIntTypeUnordered(ip)));
-                        var field_bit_offset: u16 = 0;
-                        for (0..loaded_struct.field_types.len) |field_index| {
-                            try wip_nav.abbrevCode(.packed_struct_field);
-                            try wip_nav.strp(loaded_struct.fieldName(ip, field_index).unwrap().?.toSlice(ip));
-                            const field_type = Type.fromInterned(loaded_struct.field_types.get(ip)[field_index]);
-                            try wip_nav.refType(field_type);
-                            try uleb128(diw, field_bit_offset);
-                            field_bit_offset += @intCast(field_type.bitSize(zcu));
-                        }
-                        try uleb128(diw, @intFromEnum(AbbrevCode.null));
-                    },
-                }
-                break :done;
-            }
-
+        // memoization, not types
+        .memoized_call => unreachable,
+    };
+    switch (tag) {
+        .done => {},
+        .decl_alias => {
             if (nav_gop.found_existing)
                 dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(nav_gop.value_ptr.*).clear()
             else
@@ -2717,294 +2935,6 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
             try diw.writeByte(accessibility);
             try wip_nav.strp(nav.name.toSlice(ip));
             try wip_nav.refType(nav_val.toType());
-        },
-        .enum_type => done: {
-            const loaded_enum = ip.loadEnumType(nav_val.toIntern());
-
-            const parent_type, const accessibility: u8 = if (nav.analysis_owner.unwrap()) |cau| parent: {
-                const parent_namespace_ptr = ip.namespacePtr(ip.getCau(cau).namespace);
-                break :parent .{
-                    parent_namespace_ptr.owner_type,
-                    if (parent_namespace_ptr.pub_decls.containsContext(nav_index, .{ .zcu = zcu }))
-                        DW.ACCESS.public
-                    else if (parent_namespace_ptr.priv_decls.containsContext(nav_index, .{ .zcu = zcu }))
-                        DW.ACCESS.private
-                    else
-                        unreachable,
-                };
-            } else .{ zcu.fileRootType(inst_info.file), DW.ACCESS.private };
-
-            decl_enum: {
-                if (loaded_enum.zir_index == .none) break :decl_enum;
-
-                const type_inst_info = loaded_enum.zir_index.unwrap().?.resolveFull(ip).?;
-                if (type_inst_info.file != inst_info.file) break :decl_enum;
-
-                const value_inst = value_inst: {
-                    const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
-                    const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
-                    if (break_inst.tag != .break_inline) break :value_inst null;
-                    assert(file.zir.extraData(Zir.Inst.Break, break_inst.data.@"break".payload_index).data.block_inst == inst_info.inst);
-                    var value_inst = break_inst.data.@"break".operand.toIndex();
-                    while (value_inst) |value_inst_index| switch (file.zir.instructions.items(.tag)[@intFromEnum(value_inst_index)]) {
-                        else => break,
-                        .as_node => value_inst = file.zir.extraData(
-                            Zir.Inst.As,
-                            file.zir.instructions.items(.data)[@intFromEnum(value_inst_index)].pl_node.payload_index,
-                        ).data.operand.toIndex(),
-                    };
-                    break :value_inst value_inst;
-                };
-                if (type_inst_info.inst != value_inst) break :decl_enum;
-
-                const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
-                if (type_gop.found_existing) {
-                    dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).clear();
-                    nav_gop.value_ptr.* = type_gop.value_ptr.*;
-                } else {
-                    if (nav_gop.found_existing)
-                        dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(nav_gop.value_ptr.*).clear()
-                    else
-                        nav_gop.value_ptr.* = try dwarf.addCommonEntry(wip_nav.unit);
-                    type_gop.value_ptr.* = nav_gop.value_ptr.*;
-                }
-                wip_nav.entry = nav_gop.value_ptr.*;
-                const diw = wip_nav.debug_info.writer(dwarf.gpa);
-                try wip_nav.abbrevCode(if (loaded_enum.names.len > 0) .decl_enum else .decl_empty_enum);
-                try wip_nav.refType(Type.fromInterned(parent_type));
-                assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
-                try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
-                try uleb128(diw, loc.column + 1);
-                try diw.writeByte(accessibility);
-                try wip_nav.strp(nav.name.toSlice(ip));
-                try wip_nav.refType(Type.fromInterned(loaded_enum.tag_ty));
-                for (0..loaded_enum.names.len) |field_index| {
-                    try wip_nav.enumConstValue(loaded_enum, .{
-                        .sdata = .signed_enum_field,
-                        .udata = .unsigned_enum_field,
-                        .block = .big_enum_field,
-                    }, field_index);
-                    try wip_nav.strp(loaded_enum.names.get(ip)[field_index].toSlice(ip));
-                }
-                if (loaded_enum.names.len > 0) try uleb128(diw, @intFromEnum(AbbrevCode.null));
-                break :done;
-            }
-
-            if (nav_gop.found_existing)
-                dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(nav_gop.value_ptr.*).clear()
-            else
-                nav_gop.value_ptr.* = try dwarf.addCommonEntry(wip_nav.unit);
-            wip_nav.entry = nav_gop.value_ptr.*;
-            const diw = wip_nav.debug_info.writer(dwarf.gpa);
-            try wip_nav.abbrevCode(.decl_alias);
-            try wip_nav.refType(Type.fromInterned(parent_type));
-            assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
-            try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
-            try uleb128(diw, loc.column + 1);
-            try diw.writeByte(accessibility);
-            try wip_nav.strp(nav.name.toSlice(ip));
-            try wip_nav.refType(nav_val.toType());
-        },
-        .union_type => done: {
-            const loaded_union = ip.loadUnionType(nav_val.toIntern());
-
-            const parent_type, const accessibility: u8 = if (nav.analysis_owner.unwrap()) |cau| parent: {
-                const parent_namespace_ptr = ip.namespacePtr(ip.getCau(cau).namespace);
-                break :parent .{
-                    parent_namespace_ptr.owner_type,
-                    if (parent_namespace_ptr.pub_decls.containsContext(nav_index, .{ .zcu = zcu }))
-                        DW.ACCESS.public
-                    else if (parent_namespace_ptr.priv_decls.containsContext(nav_index, .{ .zcu = zcu }))
-                        DW.ACCESS.private
-                    else
-                        unreachable,
-                };
-            } else .{ zcu.fileRootType(inst_info.file), DW.ACCESS.private };
-
-            decl_union: {
-                const type_inst_info = loaded_union.zir_index.resolveFull(ip).?;
-                if (type_inst_info.file != inst_info.file) break :decl_union;
-
-                const value_inst = value_inst: {
-                    const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
-                    const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
-                    if (break_inst.tag != .break_inline) break :value_inst null;
-                    assert(file.zir.extraData(Zir.Inst.Break, break_inst.data.@"break".payload_index).data.block_inst == inst_info.inst);
-                    var value_inst = break_inst.data.@"break".operand.toIndex();
-                    while (value_inst) |value_inst_index| switch (file.zir.instructions.items(.tag)[@intFromEnum(value_inst_index)]) {
-                        else => break,
-                        .as_node => value_inst = file.zir.extraData(
-                            Zir.Inst.As,
-                            file.zir.instructions.items(.data)[@intFromEnum(value_inst_index)].pl_node.payload_index,
-                        ).data.operand.toIndex(),
-                    };
-                    break :value_inst value_inst;
-                };
-                if (type_inst_info.inst != value_inst) break :decl_union;
-
-                const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
-                if (type_gop.found_existing) {
-                    dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).clear();
-                    nav_gop.value_ptr.* = type_gop.value_ptr.*;
-                } else {
-                    if (nav_gop.found_existing)
-                        dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(nav_gop.value_ptr.*).clear()
-                    else
-                        nav_gop.value_ptr.* = try dwarf.addCommonEntry(wip_nav.unit);
-                    type_gop.value_ptr.* = nav_gop.value_ptr.*;
-                }
-                wip_nav.entry = nav_gop.value_ptr.*;
-                const diw = wip_nav.debug_info.writer(dwarf.gpa);
-                try wip_nav.abbrevCode(.decl_union);
-                try wip_nav.refType(Type.fromInterned(parent_type));
-                assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
-                try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
-                try uleb128(diw, loc.column + 1);
-                try diw.writeByte(accessibility);
-                try wip_nav.strp(nav.name.toSlice(ip));
-                const union_layout = Type.getUnionLayout(loaded_union, zcu);
-                try uleb128(diw, union_layout.abi_size);
-                try uleb128(diw, union_layout.abi_align.toByteUnits().?);
-                const loaded_tag = loaded_union.loadTagType(ip);
-                if (loaded_union.hasTag(ip)) {
-                    try wip_nav.abbrevCode(.tagged_union);
-                    try wip_nav.infoSectionOffset(
-                        .debug_info,
-                        wip_nav.unit,
-                        wip_nav.entry,
-                        @intCast(wip_nav.debug_info.items.len + dwarf.sectionOffsetBytes()),
-                    );
-                    {
-                        try wip_nav.abbrevCode(.generated_field);
-                        try wip_nav.strp("tag");
-                        try wip_nav.refType(Type.fromInterned(loaded_union.enum_tag_ty));
-                        try uleb128(diw, union_layout.tagOffset());
-
-                        for (0..loaded_union.field_types.len) |field_index| {
-                            try wip_nav.enumConstValue(loaded_tag, .{
-                                .sdata = .signed_tagged_union_field,
-                                .udata = .unsigned_tagged_union_field,
-                                .block = .big_tagged_union_field,
-                            }, field_index);
-                            {
-                                try wip_nav.abbrevCode(.struct_field);
-                                try wip_nav.strp(loaded_tag.names.get(ip)[field_index].toSlice(ip));
-                                const field_type = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
-                                try wip_nav.refType(field_type);
-                                try uleb128(diw, union_layout.payloadOffset());
-                                try uleb128(diw, loaded_union.fieldAlign(ip, field_index).toByteUnits() orelse
-                                    if (field_type.isNoReturn(zcu)) 1 else field_type.abiAlignment(zcu).toByteUnits().?);
-                            }
-                            try uleb128(diw, @intFromEnum(AbbrevCode.null));
-                        }
-                    }
-                    try uleb128(diw, @intFromEnum(AbbrevCode.null));
-                } else for (0..loaded_union.field_types.len) |field_index| {
-                    try wip_nav.abbrevCode(.untagged_union_field);
-                    try wip_nav.strp(loaded_tag.names.get(ip)[field_index].toSlice(ip));
-                    const field_type = Type.fromInterned(loaded_union.field_types.get(ip)[field_index]);
-                    try wip_nav.refType(field_type);
-                    try uleb128(diw, loaded_union.fieldAlign(ip, field_index).toByteUnits() orelse
-                        field_type.abiAlignment(zcu).toByteUnits().?);
-                }
-                try uleb128(diw, @intFromEnum(AbbrevCode.null));
-                break :done;
-            }
-
-            if (nav_gop.found_existing)
-                dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(nav_gop.value_ptr.*).clear()
-            else
-                nav_gop.value_ptr.* = try dwarf.addCommonEntry(wip_nav.unit);
-            wip_nav.entry = nav_gop.value_ptr.*;
-            const diw = wip_nav.debug_info.writer(dwarf.gpa);
-            try wip_nav.abbrevCode(.decl_alias);
-            try wip_nav.refType(Type.fromInterned(parent_type));
-            assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
-            try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
-            try uleb128(diw, loc.column + 1);
-            try diw.writeByte(accessibility);
-            try wip_nav.strp(nav.name.toSlice(ip));
-            try wip_nav.refType(nav_val.toType());
-        },
-        .opaque_type => done: {
-            const loaded_opaque = ip.loadOpaqueType(nav_val.toIntern());
-
-            const parent_type, const accessibility: u8 = if (nav.analysis_owner.unwrap()) |cau| parent: {
-                const parent_namespace_ptr = ip.namespacePtr(ip.getCau(cau).namespace);
-                break :parent .{
-                    parent_namespace_ptr.owner_type,
-                    if (parent_namespace_ptr.pub_decls.containsContext(nav_index, .{ .zcu = zcu }))
-                        DW.ACCESS.public
-                    else if (parent_namespace_ptr.priv_decls.containsContext(nav_index, .{ .zcu = zcu }))
-                        DW.ACCESS.private
-                    else
-                        unreachable,
-                };
-            } else .{ zcu.fileRootType(inst_info.file), DW.ACCESS.private };
-
-            decl_opaque: {
-                const type_inst_info = loaded_opaque.zir_index.resolveFull(ip).?;
-                if (type_inst_info.file != inst_info.file) break :decl_opaque;
-
-                const value_inst = value_inst: {
-                    const decl_value_body = decl_extra.data.getBodies(@intCast(decl_extra.end), file.zir).value_body;
-                    const break_inst = file.zir.instructions.get(@intFromEnum(decl_value_body[decl_value_body.len - 1]));
-                    if (break_inst.tag != .break_inline) break :value_inst null;
-                    assert(file.zir.extraData(Zir.Inst.Break, break_inst.data.@"break".payload_index).data.block_inst == inst_info.inst);
-                    var value_inst = break_inst.data.@"break".operand.toIndex();
-                    while (value_inst) |value_inst_index| switch (file.zir.instructions.items(.tag)[@intFromEnum(value_inst_index)]) {
-                        else => break,
-                        .as_node => value_inst = file.zir.extraData(
-                            Zir.Inst.As,
-                            file.zir.instructions.items(.data)[@intFromEnum(value_inst_index)].pl_node.payload_index,
-                        ).data.operand.toIndex(),
-                    };
-                    break :value_inst value_inst;
-                };
-                if (type_inst_info.inst != value_inst) break :decl_opaque;
-
-                const type_gop = try dwarf.types.getOrPut(dwarf.gpa, nav_val.toIntern());
-                if (type_gop.found_existing) {
-                    dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(type_gop.value_ptr.*).clear();
-                    nav_gop.value_ptr.* = type_gop.value_ptr.*;
-                } else {
-                    if (nav_gop.found_existing)
-                        dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(nav_gop.value_ptr.*).clear()
-                    else
-                        nav_gop.value_ptr.* = try dwarf.addCommonEntry(wip_nav.unit);
-                    type_gop.value_ptr.* = nav_gop.value_ptr.*;
-                }
-                wip_nav.entry = nav_gop.value_ptr.*;
-                const diw = wip_nav.debug_info.writer(dwarf.gpa);
-                try wip_nav.abbrevCode(.decl_namespace_struct);
-                try wip_nav.refType(Type.fromInterned(parent_type));
-                assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
-                try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
-                try uleb128(diw, loc.column + 1);
-                try diw.writeByte(accessibility);
-                try wip_nav.strp(nav.name.toSlice(ip));
-                try diw.writeByte(@intFromBool(false));
-                break :done;
-            }
-
-            if (nav_gop.found_existing)
-                dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(nav_gop.value_ptr.*).clear()
-            else
-                nav_gop.value_ptr.* = try dwarf.addCommonEntry(wip_nav.unit);
-            wip_nav.entry = nav_gop.value_ptr.*;
-            const diw = wip_nav.debug_info.writer(dwarf.gpa);
-            try wip_nav.abbrevCode(.decl_alias);
-            try wip_nav.refType(Type.fromInterned(parent_type));
-            assert(wip_nav.debug_info.items.len == DebugInfo.declEntryLineOff(dwarf));
-            try diw.writeInt(u32, @intCast(loc.line + 1), dwarf.endian);
-            try uleb128(diw, loc.column + 1);
-            try diw.writeByte(accessibility);
-            try wip_nav.strp(nav.name.toSlice(ip));
-            try wip_nav.refType(nav_val.toType());
-        },
-        else => {
-            _ = dwarf.navs.pop();
-            return;
         },
     }
     try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.items);
@@ -3734,12 +3664,15 @@ fn refAbbrevCode(dwarf: *Dwarf, abbrev_code: AbbrevCode) UpdateError!@typeInfo(A
 pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
-    if (dwarf.types.get(.anyerror_type)) |entry| {
+
+    {
+        const type_gop = try dwarf.types.getOrPut(dwarf.gpa, .anyerror_type);
+        if (!type_gop.found_existing) type_gop.value_ptr.* = try dwarf.addCommonEntry(.main);
         var wip_nav: WipNav = .{
             .dwarf = dwarf,
             .pt = pt,
             .unit = .main,
-            .entry = entry,
+            .entry = type_gop.value_ptr.*,
             .any_children = false,
             .func = .none,
             .func_sym_index = undefined,
