@@ -4157,6 +4157,7 @@ pub const Function = struct {
             @"icmp ugt",
             @"icmp ule",
             @"icmp ult",
+            indirectbr,
             insertelement,
             insertvalue,
             inttoptr,
@@ -4367,6 +4368,7 @@ pub const Function = struct {
                 return switch (wip.instructions.items(.tag)[@intFromEnum(self)]) {
                     .br,
                     .br_cond,
+                    .indirectbr,
                     .ret,
                     .@"ret void",
                     .@"switch",
@@ -4381,6 +4383,7 @@ pub const Function = struct {
                     .br,
                     .br_cond,
                     .fence,
+                    .indirectbr,
                     .ret,
                     .@"ret void",
                     .store,
@@ -4471,6 +4474,7 @@ pub const Function = struct {
                     .br,
                     .br_cond,
                     .fence,
+                    .indirectbr,
                     .ret,
                     .@"ret void",
                     .store,
@@ -4657,6 +4661,7 @@ pub const Function = struct {
                     .br,
                     .br_cond,
                     .fence,
+                    .indirectbr,
                     .ret,
                     .@"ret void",
                     .store,
@@ -4835,6 +4840,12 @@ pub const Function = struct {
             weights: BrCond.Weights,
             //case_vals: [cases_len]Constant,
             //case_blocks: [cases_len]Block.Index,
+        };
+
+        pub const IndirectBr = struct {
+            addr: Value,
+            targets_len: u32,
+            //targets: [targets_len]Block.Index,
         };
 
         pub const Binary = struct {
@@ -5294,10 +5305,27 @@ pub const WipFunction = struct {
         return .{ .index = 0, .instruction = instruction };
     }
 
+    pub fn indirectbr(
+        self: *WipFunction,
+        addr: Value,
+        targets: []const Block.Index,
+    ) Allocator.Error!Instruction.Index {
+        try self.ensureUnusedExtraCapacity(1, Instruction.IndirectBr, targets.len);
+        const instruction = try self.addInst(null, .{
+            .tag = .indirectbr,
+            .data = self.addExtraAssumeCapacity(Instruction.IndirectBr{
+                .addr = addr,
+                .targets_len = @intCast(targets.len),
+            }),
+        });
+        _ = self.extra.appendSliceAssumeCapacity(@ptrCast(targets));
+        for (targets) |target| target.ptr(self).branches += 1;
+        return instruction;
+    }
+
     pub fn @"unreachable"(self: *WipFunction) Allocator.Error!Instruction.Index {
         try self.ensureUnusedExtraCapacity(1, NoExtra, 0);
-        const instruction = try self.addInst(null, .{ .tag = .@"unreachable", .data = undefined });
-        return instruction;
+        return try self.addInst(null, .{ .tag = .@"unreachable", .data = undefined });
     }
 
     pub fn un(
@@ -6299,8 +6327,7 @@ pub const WipFunction = struct {
             });
             names[@intFromEnum(new_block_index)] = try wip_name.map(current_block.name, "");
             for (current_block.instructions.items) |old_instruction_index| {
-                const new_instruction_index: Instruction.Index =
-                    @enumFromInt(function.instructions.len);
+                const new_instruction_index: Instruction.Index = @enumFromInt(function.instructions.len);
                 var instruction = self.instructions.get(@intFromEnum(old_instruction_index));
                 switch (instruction.tag) {
                     .add,
@@ -6508,6 +6535,15 @@ pub const WipFunction = struct {
                             .indices_len = extra.data.indices_len,
                         });
                         wip_extra.appendMappedValues(indices, instructions);
+                    },
+                    .indirectbr => {
+                        var extra = self.extraDataTrail(Instruction.IndirectBr, instruction.data);
+                        const targets = extra.trail.next(extra.data.targets_len, Block.Index, self);
+                        instruction.data = wip_extra.addExtra(Instruction.IndirectBr{
+                            .addr = instructions.map(extra.data.addr),
+                            .targets_len = extra.data.targets_len,
+                        });
+                        wip_extra.appendSlice(targets);
                     },
                     .insertelement => {
                         const extra = self.extraData(Instruction.InsertElement, instruction.data);
@@ -7555,10 +7591,10 @@ pub const Constant = enum(u32) {
                     .blockaddress => |tag| {
                         const extra = data.builder.constantExtraData(BlockAddress, item.data);
                         const function = extra.function.ptrConst(data.builder);
-                        try writer.print("{s}({}, %{d})", .{
+                        try writer.print("{s}({}, {})", .{
                             @tagName(tag),
                             function.global.fmt(data.builder),
-                            @intFromEnum(extra.block), // TODO
+                            extra.block.toInst(function).fmt(extra.function, data.builder),
                         });
                     },
                     .dso_local_equivalent,
@@ -9901,6 +9937,23 @@ pub fn printUnbuffered(
                         for (indices) |index| try writer.print(", {%}", .{
                             index.fmt(function_index, self),
                         });
+                    },
+                    .indirectbr => |tag| {
+                        var extra =
+                            function.extraDataTrail(Function.Instruction.IndirectBr, instruction.data);
+                        const targets =
+                            extra.trail.next(extra.data.targets_len, Function.Block.Index, &function);
+                        try writer.print("  {s} {%}, [", .{
+                            @tagName(tag),
+                            extra.data.addr.fmt(function_index, self),
+                        });
+                        for (0.., targets) |target_index, target| {
+                            if (target_index > 0) try writer.writeAll(", ");
+                            try writer.print("{%}", .{
+                                target.toInst(&function).fmt(function_index, self),
+                            });
+                        }
+                        try writer.writeByte(']');
                     },
                     .insertelement => |tag| {
                         const extra =
@@ -14775,15 +14828,6 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                                 .indices = indices,
                             });
                         },
-                        .insertvalue => {
-                            var extra = func.extraDataTrail(Function.Instruction.InsertValue, data);
-                            const indices = extra.trail.next(extra.data.indices_len, u32, &func);
-                            try function_block.writeAbbrev(FunctionBlock.InsertValue{
-                                .val = adapter.getOffsetValueIndex(extra.data.val),
-                                .elem = adapter.getOffsetValueIndex(extra.data.elem),
-                                .indices = indices,
-                            });
-                        },
                         .extractelement => {
                             const extra = func.extraData(Function.Instruction.ExtractElement, data);
                             try function_block.writeAbbrev(FunctionBlock.ExtractElement{
@@ -14791,12 +14835,35 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                                 .index = adapter.getOffsetValueIndex(extra.index),
                             });
                         },
+                        .indirectbr => {
+                            var extra =
+                                func.extraDataTrail(Function.Instruction.IndirectBr, datas[instr_index]);
+                            const targets =
+                                extra.trail.next(extra.data.targets_len, Function.Block.Index, &func);
+                            try function_block.writeAbbrevAdapted(
+                                FunctionBlock.IndirectBr{
+                                    .ty = extra.data.addr.typeOf(@enumFromInt(func_index), self),
+                                    .addr = extra.data.addr,
+                                    .targets = targets,
+                                },
+                                adapter,
+                            );
+                        },
                         .insertelement => {
                             const extra = func.extraData(Function.Instruction.InsertElement, data);
                             try function_block.writeAbbrev(FunctionBlock.InsertElement{
                                 .val = adapter.getOffsetValueIndex(extra.val),
                                 .elem = adapter.getOffsetValueIndex(extra.elem),
                                 .index = adapter.getOffsetValueIndex(extra.index),
+                            });
+                        },
+                        .insertvalue => {
+                            var extra = func.extraDataTrail(Function.Instruction.InsertValue, datas[instr_index]);
+                            const indices = extra.trail.next(extra.data.indices_len, u32, &func);
+                            try function_block.writeAbbrev(FunctionBlock.InsertValue{
+                                .val = adapter.getOffsetValueIndex(extra.data.val),
+                                .elem = adapter.getOffsetValueIndex(extra.data.elem),
+                                .indices = indices,
                             });
                         },
                         .select => {

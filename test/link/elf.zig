@@ -55,6 +55,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
 
         // Exercise linker in ar mode
         elf_step.dependOn(testEmitStaticLib(b, .{ .target = musl_target }));
+        elf_step.dependOn(testEmitStaticLibZig(b, .{ .target = musl_target }));
 
         // Exercise linker with LLVM backend
         // musl tests
@@ -66,6 +67,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         elf_step.dependOn(testEmptyObject(b, .{ .target = musl_target }));
         elf_step.dependOn(testEntryPoint(b, .{ .target = musl_target }));
         elf_step.dependOn(testGcSections(b, .{ .target = musl_target }));
+        elf_step.dependOn(testGcSectionsZig(b, .{ .target = musl_target }));
         elf_step.dependOn(testImageBase(b, .{ .target = musl_target }));
         elf_step.dependOn(testInitArrayOrder(b, .{ .target = musl_target }));
         elf_step.dependOn(testLargeAlignmentExe(b, .{ .target = musl_target }));

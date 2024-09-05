@@ -311,58 +311,6 @@ fn initAtoms(self: *Object, allocator: Allocator, handle: std.fs.File, elf_file:
     };
 }
 
-fn initOutputSection(self: Object, elf_file: *Elf, shdr: elf.Elf64_Shdr) error{OutOfMemory}!u32 {
-    const name = blk: {
-        const name = self.getString(shdr.sh_name);
-        if (elf_file.base.isRelocatable()) break :blk name;
-        if (shdr.sh_flags & elf.SHF_MERGE != 0) break :blk name;
-        const sh_name_prefixes: []const [:0]const u8 = &.{
-            ".text",       ".data.rel.ro", ".data", ".rodata", ".bss.rel.ro",       ".bss",
-            ".init_array", ".fini_array",  ".tbss", ".tdata",  ".gcc_except_table", ".ctors",
-            ".dtors",      ".gnu.warning",
-        };
-        inline for (sh_name_prefixes) |prefix| {
-            if (std.mem.eql(u8, name, prefix) or std.mem.startsWith(u8, name, prefix ++ ".")) {
-                break :blk prefix;
-            }
-        }
-        break :blk name;
-    };
-    const @"type" = tt: {
-        if (elf_file.getTarget().cpu.arch == .x86_64 and
-            shdr.sh_type == elf.SHT_X86_64_UNWIND) break :tt elf.SHT_PROGBITS;
-
-        const @"type" = switch (shdr.sh_type) {
-            elf.SHT_NULL => unreachable,
-            elf.SHT_PROGBITS => blk: {
-                if (std.mem.eql(u8, name, ".init_array") or std.mem.startsWith(u8, name, ".init_array."))
-                    break :blk elf.SHT_INIT_ARRAY;
-                if (std.mem.eql(u8, name, ".fini_array") or std.mem.startsWith(u8, name, ".fini_array."))
-                    break :blk elf.SHT_FINI_ARRAY;
-                break :blk shdr.sh_type;
-            },
-            else => shdr.sh_type,
-        };
-        break :tt @"type";
-    };
-    const flags = blk: {
-        var flags = shdr.sh_flags;
-        if (!elf_file.base.isRelocatable()) {
-            flags &= ~@as(u64, elf.SHF_COMPRESSED | elf.SHF_GROUP | elf.SHF_GNU_RETAIN);
-        }
-        break :blk switch (@"type") {
-            elf.SHT_INIT_ARRAY, elf.SHT_FINI_ARRAY => flags | elf.SHF_WRITE,
-            else => flags,
-        };
-    };
-    const out_shndx = elf_file.sectionByName(name) orelse try elf_file.addSection(.{
-        .type = @"type",
-        .flags = flags,
-        .name = try elf_file.insertShString(name),
-    });
-    return out_shndx;
-}
-
 fn skipShdr(self: *Object, index: u32, elf_file: *Elf) bool {
     const comp = elf_file.base.comp;
     const shdr = self.shdrs.items[index];
@@ -438,15 +386,24 @@ fn parseEhFrame(self: *Object, allocator: Allocator, handle: std.fs.File, shndx:
                 .input_section_index = shndx,
                 .file_index = self.index,
             }),
-            .fde => try self.fdes.append(allocator, .{
-                .offset = data_start + rec.offset,
-                .size = rec.size,
-                .cie_index = undefined,
-                .rel_index = rel_start + @as(u32, @intCast(rel_range.start)),
-                .rel_num = @as(u32, @intCast(rel_range.len)),
-                .input_section_index = shndx,
-                .file_index = self.index,
-            }),
+            .fde => {
+                if (rel_range.len == 0) {
+                    // No relocs for an FDE means we cannot associate this FDE to an Atom
+                    // so we skip it. According to mold source code
+                    // (https://github.com/rui314/mold/blob/a3e69502b0eaf1126d6093e8ea5e6fdb95219811/src/input-files.cc#L525-L528)
+                    // this can happen for object files built with -r flag by the linker.
+                    continue;
+                }
+                try self.fdes.append(allocator, .{
+                    .offset = data_start + rec.offset,
+                    .size = rec.size,
+                    .cie_index = undefined,
+                    .rel_index = rel_start + @as(u32, @intCast(rel_range.start)),
+                    .rel_num = @as(u32, @intCast(rel_range.len)),
+                    .input_section_index = shndx,
+                    .file_index = self.index,
+                });
+            },
         }
     }
 
@@ -622,7 +579,7 @@ pub fn claimUnresolved(self: *Object, elf_file: *Elf) void {
     }
 }
 
-pub fn claimUnresolvedObject(self: *Object, elf_file: *Elf) void {
+pub fn claimUnresolvedRelocatable(self: *Object, elf_file: *Elf) void {
     const first_global = self.first_global orelse return;
     for (self.globals(), 0..) |*sym, i| {
         const esym_index = @as(u32, @intCast(first_global + i));
@@ -985,21 +942,14 @@ pub fn initOutputSections(self: *Object, elf_file: *Elf) !void {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
         const shdr = atom_ptr.inputShdr(elf_file);
-        _ = try self.initOutputSection(elf_file, shdr);
-    }
-}
-
-pub fn addAtomsToOutputSections(self: *Object, elf_file: *Elf) !void {
-    for (self.atoms_indexes.items) |atom_index| {
-        const atom_ptr = self.atom(atom_index) orelse continue;
-        if (!atom_ptr.alive) continue;
-        const shdr = atom_ptr.inputShdr(elf_file);
-        atom_ptr.output_section_index = self.initOutputSection(elf_file, shdr) catch unreachable;
-
-        const comp = elf_file.base.comp;
-        const gpa = comp.gpa;
-        const atom_list = &elf_file.sections.items(.atom_list)[atom_ptr.output_section_index];
-        try atom_list.append(gpa, .{ .index = atom_index, .file = self.index });
+        const osec = try elf_file.initOutputSection(.{
+            .name = self.getString(shdr.sh_name),
+            .flags = shdr.sh_flags,
+            .type = shdr.sh_type,
+        });
+        const atom_list = &elf_file.sections.items(.atom_list_2)[osec];
+        atom_list.output_section_index = osec;
+        try atom_list.atoms.append(elf_file.base.comp.gpa, atom_ptr.ref());
     }
 }
 
@@ -1007,9 +957,14 @@ pub fn initRelaSections(self: *Object, elf_file: *Elf) !void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
+        if (atom_ptr.output_section_index == elf_file.eh_frame_section_index) continue;
         const shndx = atom_ptr.relocsShndx() orelse continue;
         const shdr = self.shdrs.items[shndx];
-        const out_shndx = try self.initOutputSection(elf_file, shdr);
+        const out_shndx = try elf_file.initOutputSection(.{
+            .name = self.getString(shdr.sh_name),
+            .flags = shdr.sh_flags,
+            .type = shdr.sh_type,
+        });
         const out_shdr = &elf_file.sections.items(.shdr)[out_shndx];
         out_shdr.sh_type = elf.SHT_RELA;
         out_shdr.sh_addralign = @alignOf(elf.Elf64_Rela);
@@ -1022,10 +977,15 @@ pub fn addAtomsToRelaSections(self: *Object, elf_file: *Elf) !void {
     for (self.atoms_indexes.items) |atom_index| {
         const atom_ptr = self.atom(atom_index) orelse continue;
         if (!atom_ptr.alive) continue;
+        if (atom_ptr.output_section_index == elf_file.eh_frame_section_index) continue;
         const shndx = blk: {
             const shndx = atom_ptr.relocsShndx() orelse continue;
             const shdr = self.shdrs.items[shndx];
-            break :blk self.initOutputSection(elf_file, shdr) catch unreachable;
+            break :blk elf_file.initOutputSection(.{
+                .name = self.getString(shdr.sh_name),
+                .flags = shdr.sh_flags,
+                .type = shdr.sh_type,
+            }) catch unreachable;
         };
         const slice = elf_file.sections.slice();
         const shdr = &slice.items(.shdr)[shndx];
@@ -1538,12 +1498,12 @@ fn formatComdatGroups(
     }
 }
 
-pub fn fmtPath(self: *Object) std.fmt.Formatter(formatPath) {
+pub fn fmtPath(self: Object) std.fmt.Formatter(formatPath) {
     return .{ .data = self };
 }
 
 fn formatPath(
-    object: *Object,
+    object: Object,
     comptime unused_fmt_string: []const u8,
     options: std.fmt.FormatOptions,
     writer: anytype,
@@ -1578,6 +1538,7 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
+const AtomList = @import("AtomList.zig");
 const Cie = eh_frame.Cie;
 const Elf = @import("../Elf.zig");
 const Fde = eh_frame.Fde;

@@ -662,6 +662,8 @@ blocks: std.AutoArrayHashMapUnmanaged(Air.Inst.Index, struct {
     label: u32,
     value: WValue,
 }) = .{},
+/// Maps `loop` instructions to their label. `br` to here repeats the loop.
+loops: std.AutoHashMapUnmanaged(Air.Inst.Index, u32) = .{},
 /// `bytes` contains the wasm bytecode belonging to the 'code' section.
 code: *ArrayList(u8),
 /// The index the next local generated will have
@@ -751,6 +753,7 @@ pub fn deinit(func: *CodeGen) void {
     }
     func.branches.deinit(func.gpa);
     func.blocks.deinit(func.gpa);
+    func.loops.deinit(func.gpa);
     func.locals.deinit(func.gpa);
     func.simd_immediates.deinit(func.gpa);
     func.mir_instructions.deinit(func.gpa);
@@ -1903,6 +1906,8 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .trap => func.airTrap(inst),
         .breakpoint => func.airBreakpoint(inst),
         .br => func.airBr(inst),
+        .repeat => func.airRepeat(inst),
+        .switch_dispatch => return func.fail("TODO implement `switch_dispatch`", .{}),
         .int_from_bool => func.airIntFromBool(inst),
         .cond_br => func.airCondBr(inst),
         .intcast => func.airIntcast(inst),
@@ -1984,6 +1989,7 @@ fn genInst(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .field_parent_ptr => func.airFieldParentPtr(inst),
 
         .switch_br => func.airSwitchBr(inst),
+        .loop_switch_br => return func.fail("TODO implement `loop_switch_br`", .{}),
         .trunc => func.airTrunc(inst),
         .unreach => func.airUnreachable(inst),
 
@@ -3534,10 +3540,11 @@ fn airLoop(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     // result type of loop is always 'noreturn', meaning we can always
     // emit the wasm type 'block_empty'.
     try func.startBlock(.loop, wasm.block_empty);
-    try func.genBody(body);
 
-    // breaking to the index of a loop block will continue the loop instead
-    try func.addLabel(.br, 0);
+    try func.loops.putNoClobber(func.gpa, inst, func.block_depth);
+    defer assert(func.loops.remove(inst));
+
+    try func.genBody(body);
     try func.endBlock();
 
     return func.finishAir(inst, .none, &.{});
@@ -3732,6 +3739,16 @@ fn airBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     try func.addLabel(.br, idx);
 
     return func.finishAir(inst, .none, &.{br.operand});
+}
+
+fn airRepeat(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const repeat = func.air.instructions.items(.data)[@intFromEnum(inst)].repeat;
+    const loop_label = func.loops.get(repeat.loop_inst).?;
+
+    const idx: u32 = func.block_depth - loop_label;
+    try func.addLabel(.br, idx);
+
+    return func.finishAir(inst, .none, &.{});
 }
 
 fn airNot(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -4050,7 +4067,10 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     defer func.gpa.free(liveness.deaths);
 
     // a list that maps each value with its value and body based on the order inside the list.
-    const CaseValue = struct { integer: i32, value: Value };
+    const CaseValue = union(enum) {
+        singular: struct { integer: i32, value: Value },
+        range: struct { min: i32, min_value: Value, max: i32, max_value: Value },
+    };
     var case_list = try std.ArrayList(struct {
         values: []const CaseValue,
         body: []const Air.Inst.Index,
@@ -4061,10 +4081,9 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     var lowest_maybe: ?i32 = null;
     var highest_maybe: ?i32 = null;
-
     var it = switch_br.iterateCases();
     while (it.next()) |case| {
-        const values = try func.gpa.alloc(CaseValue, case.items.len);
+        const values = try func.gpa.alloc(CaseValue, case.items.len + case.ranges.len);
         errdefer func.gpa.free(values);
 
         for (case.items, 0..) |ref, i| {
@@ -4076,7 +4095,30 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             if (highest_maybe == null or int_val > highest_maybe.?) {
                 highest_maybe = int_val;
             }
-            values[i] = .{ .integer = int_val, .value = item_val };
+            values[i] = .{ .singular = .{ .integer = int_val, .value = item_val } };
+        }
+
+        for (case.ranges, 0..) |range, i| {
+            const min_val = (try func.air.value(range[0], pt)).?;
+            const int_min_val = func.valueAsI32(min_val);
+
+            if (lowest_maybe == null or int_min_val < lowest_maybe.?) {
+                lowest_maybe = int_min_val;
+            }
+
+            const max_val = (try func.air.value(range[1], pt)).?;
+            const int_max_val = func.valueAsI32(max_val);
+
+            if (highest_maybe == null or int_max_val > highest_maybe.?) {
+                highest_maybe = int_max_val;
+            }
+
+            values[i + case.items.len] = .{ .range = .{
+                .min = int_min_val,
+                .min_value = min_val,
+                .max = int_max_val,
+                .max_value = max_val,
+            } };
         }
 
         case_list.appendAssumeCapacity(.{ .values = values, .body = case.body });
@@ -4129,7 +4171,12 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const idx = blk: {
                 for (case_list.items, 0..) |case, idx| {
                     for (case.values) |case_value| {
-                        if (case_value.integer == value) break :blk @as(u32, @intCast(idx));
+                        switch (case_value) {
+                            .singular => |val| if (val.integer == value) break :blk @as(u32, @intCast(idx)),
+                            .range => |range_val| if (value >= range_val.min and value <= range_val.max) {
+                                break :blk @as(u32, @intCast(idx));
+                            },
+                        }
                     }
                 }
                 // error sets are almost always sparse so we use the default case
@@ -4145,43 +4192,34 @@ fn airSwitchBr(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         try func.endBlock();
     }
 
-    const signedness: std.builtin.Signedness = blk: {
-        // by default we tell the operand type is unsigned (i.e. bools and enum values)
-        if (target_ty.zigTypeTag(zcu) != .int) break :blk .unsigned;
-
-        // incase of an actual integer, we emit the correct signedness
-        break :blk target_ty.intInfo(zcu).signedness;
-    };
-
     try func.branches.ensureUnusedCapacity(func.gpa, case_list.items.len + @intFromBool(has_else_body));
     for (case_list.items, 0..) |case, index| {
         // when sparse, we use if/else-chain, so emit conditional checks
         if (is_sparse) {
-            // for single value prong we can emit a simple if
-            if (case.values.len == 1) {
-                try func.emitWValue(target);
-                const val = try func.lowerConstant(case.values[0].value, target_ty);
-                try func.emitWValue(val);
-                const opcode = buildOpcode(.{
-                    .valtype1 = typeToValtype(target_ty, pt, func.target.*),
-                    .op = .ne, // not equal, because we want to jump out of this block if it does not match the condition.
-                    .signedness = signedness,
-                });
-                try func.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+            // for single value prong we can emit a simple condition
+            if (case.values.len == 1 and case.values[0] == .singular) {
+                const val = try func.lowerConstant(case.values[0].singular.value, target_ty);
+                // not equal, because we want to jump out of this block if it does not match the condition.
+                _ = try func.cmp(target, val, target_ty, .neq);
                 try func.addLabel(.br_if, 0);
             } else {
                 // in multi-value prongs we must check if any prongs match the target value.
                 try func.startBlock(.block, blocktype);
                 for (case.values) |value| {
-                    try func.emitWValue(target);
-                    const val = try func.lowerConstant(value.value, target_ty);
-                    try func.emitWValue(val);
-                    const opcode = buildOpcode(.{
-                        .valtype1 = typeToValtype(target_ty, pt, func.target.*),
-                        .op = .eq,
-                        .signedness = signedness,
-                    });
-                    try func.addTag(Mir.Inst.Tag.fromOpcode(opcode));
+                    switch (value) {
+                        .singular => |single_val| {
+                            const val = try func.lowerConstant(single_val.value, target_ty);
+                            _ = try func.cmp(target, val, target_ty, .eq);
+                        },
+                        .range => |range| {
+                            const min_val = try func.lowerConstant(range.min_value, target_ty);
+                            const max_val = try func.lowerConstant(range.max_value, target_ty);
+
+                            const gte = try func.cmp(target, min_val, target_ty, .gte);
+                            const lte = try func.cmp(target, max_val, target_ty, .lte);
+                            _ = try func.binOp(gte, lte, Type.bool, .@"and");
+                        },
+                    }
                     try func.addLabel(.br_if, 0);
                 }
                 // value did not match any of the prong values

@@ -233,7 +233,10 @@ pub fn calcEhFrameSize(elf_file: *Elf) !usize {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
 
-    var offset: usize = 0;
+    var offset: usize = if (elf_file.zigObjectPtr()) |zo| blk: {
+        const sym = zo.symbol(zo.eh_frame_index orelse break :blk 0);
+        break :blk math.cast(usize, sym.atom(elf_file).?.size) orelse return error.Overflow;
+    } else 0;
 
     var cies = std.ArrayList(Cie).init(gpa);
     defer cies.deinit();
@@ -288,6 +291,13 @@ pub fn calcEhFrameHdrSize(elf_file: *Elf) usize {
 
 pub fn calcEhFrameRelocs(elf_file: *Elf) usize {
     var count: usize = 0;
+    if (elf_file.zigObjectPtr()) |zo| zo: {
+        const sym_index = zo.eh_frame_index orelse break :zo;
+        const sym = zo.symbol(sym_index);
+        const atom_ptr = zo.atom(sym.ref.index).?;
+        if (!atom_ptr.alive) break :zo;
+        count += atom_ptr.relocs(elf_file).len;
+    }
     for (elf_file.objects.items) |index| {
         const object = elf_file.file(index).?.object;
         for (object.cies.items) |cie| {
@@ -386,7 +396,7 @@ pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
     if (has_reloc_errors) return error.RelocFailure;
 }
 
-pub fn writeEhFrameObject(elf_file: *Elf, writer: anytype) !void {
+pub fn writeEhFrameRelocatable(elf_file: *Elf, writer: anytype) !void {
     for (elf_file.objects.items) |index| {
         const object = elf_file.file(index).?.object;
 
@@ -416,9 +426,8 @@ pub fn writeEhFrameObject(elf_file: *Elf, writer: anytype) !void {
     }
 }
 
-fn emitReloc(elf_file: *Elf, rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela) elf.Elf64_Rela {
+fn emitReloc(elf_file: *Elf, r_offset: u64, sym: *const Symbol, rel: elf.Elf64_Rela) elf.Elf64_Rela {
     const cpu_arch = elf_file.getTarget().cpu.arch;
-    const r_offset = rec.address(elf_file) + rel.r_offset - rec.offset;
     const r_type = rel.r_type();
     var r_addend = rel.r_addend;
     var r_sym: u32 = 0;
@@ -452,6 +461,19 @@ pub fn writeEhFrameRelocs(elf_file: *Elf, writer: anytype) !void {
         elf_file.sections.items(.shdr)[elf_file.eh_frame_section_index.?].sh_addr,
     });
 
+    if (elf_file.zigObjectPtr()) |zo| zo: {
+        const sym_index = zo.eh_frame_index orelse break :zo;
+        const sym = zo.symbol(sym_index);
+        const atom_ptr = zo.atom(sym.ref.index).?;
+        if (!atom_ptr.alive) break :zo;
+        for (atom_ptr.relocs(elf_file)) |rel| {
+            const ref = zo.resolveSymbol(rel.r_sym(), elf_file);
+            const target = elf_file.symbol(ref).?;
+            const out_rel = emitReloc(elf_file, rel.r_offset, target, rel);
+            try writer.writeStruct(out_rel);
+        }
+    }
+
     for (elf_file.objects.items) |index| {
         const object = elf_file.file(index).?.object;
 
@@ -460,7 +482,8 @@ pub fn writeEhFrameRelocs(elf_file: *Elf, writer: anytype) !void {
             for (cie.relocs(elf_file)) |rel| {
                 const ref = object.resolveSymbol(rel.r_sym(), elf_file);
                 const sym = elf_file.symbol(ref).?;
-                const out_rel = emitReloc(elf_file, cie, sym, rel);
+                const r_offset = cie.address(elf_file) + rel.r_offset - cie.offset;
+                const out_rel = emitReloc(elf_file, r_offset, sym, rel);
                 try writer.writeStruct(out_rel);
             }
         }
@@ -470,7 +493,8 @@ pub fn writeEhFrameRelocs(elf_file: *Elf, writer: anytype) !void {
             for (fde.relocs(elf_file)) |rel| {
                 const ref = object.resolveSymbol(rel.r_sym(), elf_file);
                 const sym = elf_file.symbol(ref).?;
-                const out_rel = emitReloc(elf_file, fde, sym, rel);
+                const r_offset = fde.address(elf_file) + rel.r_offset - fde.offset;
+                const out_rel = emitReloc(elf_file, r_offset, sym, rel);
                 try writer.writeStruct(out_rel);
             }
         }

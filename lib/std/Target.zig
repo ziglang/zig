@@ -846,7 +846,7 @@ pub fn toElfMachine(target: Target) std.elf.EM {
         .avr => .AVR,
         .bpfel, .bpfeb => .BPF,
         .csky => .CSKY,
-        .hexagon => .HEXAGON,
+        .hexagon => .QDSP6,
         .kalimba => .CSR_KALIMBA,
         .lanai => .LANAI,
         .loongarch32, .loongarch64 => .LOONGARCH,

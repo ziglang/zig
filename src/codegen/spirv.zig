@@ -3340,6 +3340,7 @@ const NavGen = struct {
             .store, .store_safe => return self.airStore(inst),
 
             .br             => return self.airBr(inst),
+            .repeat         => return self.fail("TODO implement `repeat`", .{}),
             .breakpoint     => return,
             .cond_br        => return self.airCondBr(inst),
             .loop           => return self.airLoop(inst),
@@ -6211,6 +6212,7 @@ const NavGen = struct {
             var num_conditions: u32 = 0;
             var it = switch_br.iterateCases();
             while (it.next()) |case| {
+                if (case.ranges.len > 0) return self.todo("switch with ranges", .{});
                 num_conditions += @intCast(case.items.len);
             }
             break :blk num_conditions;

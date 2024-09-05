@@ -274,13 +274,15 @@ pub const Inst = struct {
         /// is to encounter a `br` that targets this `block`.  If the `block` type is `noreturn`,
         /// then there do not exist any `br` instructions targeting this `block`.
         block,
-        /// A labeled block of code that loops forever. At the end of the body it is implied
-        /// to repeat; no explicit "repeat" instruction terminates loop bodies.
+        /// A labeled block of code that loops forever. The body must be `noreturn`: loops
+        /// occur through an explicit `repeat` instruction pointing back to this one.
         /// Result type is always `noreturn`; no instructions in a block follow this one.
-        /// The body never ends with a `noreturn` instruction, so the "repeat" operation
-        /// is always statically reachable.
+        /// There is always at least one `repeat` instruction referencing the loop.
         /// Uses the `ty_pl` field. Payload is `Block`.
         loop,
+        /// Sends control flow back to the beginning of a parent `loop` body.
+        /// Uses the `repeat` field.
+        repeat,
         /// Return from a block with a result.
         /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `br` field.
@@ -427,6 +429,14 @@ pub const Inst = struct {
         /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `pl_op` field. Operand is the condition. Payload is `SwitchBr`.
         switch_br,
+        /// Switch branch which can dispatch back to itself with a different operand.
+        /// Result type is always noreturn; no instructions in a block follow this one.
+        /// Uses the `pl_op` field. Operand is the condition. Payload is `SwitchBr`.
+        loop_switch_br,
+        /// Dispatches back to a branch of a parent `loop_switch_br`.
+        /// Result type is always noreturn; no instructions in a block follow this one.
+        /// Uses the `br` field. `block_inst` is a `loop_switch_br` instruction.
+        switch_dispatch,
         /// Given an operand which is an error union, splits control flow. In
         /// case of error, control flow goes into the block that is part of this
         /// instruction, which is guaranteed to end with a return instruction
@@ -1045,6 +1055,9 @@ pub const Inst = struct {
             block_inst: Index,
             operand: Ref,
         },
+        repeat: struct {
+            loop_inst: Index,
+        },
         pl_op: struct {
             operand: Ref,
             payload: u32,
@@ -1143,10 +1156,12 @@ pub const SwitchBr = struct {
     else_body_len: u32,
 
     /// Trailing:
-    /// * item: Inst.Ref // for each `items_len`.
-    /// * instruction index for each `body_len`.
+    /// * item: Inst.Ref // for each `items_len`
+    /// * { range_start: Inst.Ref, range_end: Inst.Ref } // for each `ranges_len`
+    /// * body_inst: Inst.Index // for each `body_len`
     pub const Case = struct {
         items_len: u32,
+        ranges_len: u32,
         body_len: u32,
     };
 };
@@ -1443,9 +1458,12 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         => return datas[@intFromEnum(inst)].ty_op.ty.toType(),
 
         .loop,
+        .repeat,
         .br,
         .cond_br,
         .switch_br,
+        .loop_switch_br,
+        .switch_dispatch,
         .ret,
         .ret_safe,
         .ret_load,
@@ -1600,6 +1618,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .arg,
         .block,
         .loop,
+        .repeat,
         .br,
         .trap,
         .breakpoint,
@@ -1609,6 +1628,8 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .call_never_inline,
         .cond_br,
         .switch_br,
+        .loop_switch_br,
+        .switch_dispatch,
         .@"try",
         .try_cold,
         .try_ptr,
@@ -1862,6 +1883,10 @@ pub const UnwrappedSwitch = struct {
             var extra_index = extra.end;
             const items: []const Inst.Ref = @ptrCast(it.air.extra[extra_index..][0..extra.data.items_len]);
             extra_index += items.len;
+            // TODO: ptrcast from []const Inst.Ref to []const [2]Inst.Ref when supported
+            const ranges_ptr: [*]const [2]Inst.Ref = @ptrCast(it.air.extra[extra_index..]);
+            const ranges: []const [2]Inst.Ref = ranges_ptr[0..extra.data.ranges_len];
+            extra_index += ranges.len * 2;
             const body: []const Inst.Index = @ptrCast(it.air.extra[extra_index..][0..extra.data.body_len]);
             extra_index += body.len;
             it.extra_index = @intCast(extra_index);
@@ -1869,6 +1894,7 @@ pub const UnwrappedSwitch = struct {
             return .{
                 .idx = idx,
                 .items = items,
+                .ranges = ranges,
                 .body = body,
             };
         }
@@ -1881,6 +1907,7 @@ pub const UnwrappedSwitch = struct {
         pub const Case = struct {
             idx: u32,
             items: []const Inst.Ref,
+            ranges: []const [2]Inst.Ref,
             body: []const Inst.Index,
         };
     };
@@ -1888,7 +1915,10 @@ pub const UnwrappedSwitch = struct {
 
 pub fn unwrapSwitch(air: *const Air, switch_inst: Inst.Index) UnwrappedSwitch {
     const inst = air.instructions.get(@intFromEnum(switch_inst));
-    assert(inst.tag == .switch_br);
+    switch (inst.tag) {
+        .switch_br, .loop_switch_br => {},
+        else => unreachable, // assertion failure
+    }
     const pl_op = inst.data.pl_op;
     const extra = air.extraData(SwitchBr, pl_op.payload);
     const hint_bag_count = std.math.divCeil(usize, extra.data.cases_len + 1, 10) catch unreachable;

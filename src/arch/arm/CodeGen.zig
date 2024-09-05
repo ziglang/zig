@@ -721,6 +721,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .bitcast         => try self.airBitCast(inst),
             .block           => try self.airBlock(inst),
             .br              => try self.airBr(inst),
+            .repeat          => return self.fail("TODO implement `repeat`", .{}),
+            .switch_dispatch => return self.fail("TODO implement `switch_dispatch`", .{}),
             .trap            => try self.airTrap(),
             .breakpoint      => try self.airBreakpoint(),
             .ret_addr        => try self.airRetAddr(inst),
@@ -811,6 +813,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .field_parent_ptr => try self.airFieldParentPtr(inst),
 
             .switch_br       => try self.airSwitch(inst),
+            .loop_switch_br  => return self.fail("TODO implement `loop_switch_br`", .{}),
             .slice_ptr       => try self.airSlicePtr(inst),
             .slice_len       => try self.airSliceLen(inst),
 
@@ -5053,6 +5056,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
 
     var it = switch_br.iterateCases();
     while (it.next()) |case| {
+        if (case.ranges.len > 0) return self.fail("TODO: switch with ranges", .{});
         // For every item, we compare it to condition and branch into
         // the prong if they are equal. After we compared to all
         // items, we branch into the next prong (or if no other prongs
