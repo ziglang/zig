@@ -1099,6 +1099,8 @@ const clang_libs = [_][]const u8{
     "clangToolingCore",
     "clangExtractAPI",
     "clangSupport",
+    "clangInstallAPI",
+    "clangAST",
 };
 const lld_libs = [_][]const u8{
     "lldMinGW",
@@ -1120,6 +1122,7 @@ const llvm_libs = [_][]const u8{
     "LLVMTextAPIBinaryReader",
     "LLVMCoverage",
     "LLVMLineEditor",
+    "LLVMSandboxIR",
     "LLVMXCoreDisassembler",
     "LLVMXCoreCodeGen",
     "LLVMXCoreDesc",
@@ -1255,6 +1258,7 @@ const llvm_libs = [_][]const u8{
     "LLVMDWARFLinkerParallel",
     "LLVMDWARFLinkerClassic",
     "LLVMDWARFLinker",
+    "LLVMCodeGenData",
     "LLVMGlobalISel",
     "LLVMMIRParser",
     "LLVMAsmPrinter",

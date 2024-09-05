@@ -69,6 +69,7 @@ else()
   FIND_AND_ADD_CLANG_LIB(clangExtractAPI)
   FIND_AND_ADD_CLANG_LIB(clangSupport)
   FIND_AND_ADD_CLANG_LIB(clangInstallAPI)
+  FIND_AND_ADD_CLANG_LIB(clangAST)
 endif()
 
 if (MSVC)
