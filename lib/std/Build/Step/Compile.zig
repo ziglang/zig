@@ -599,15 +599,15 @@ pub fn dependsOnSystemLibrary(compile: *Compile, name: []const u8) bool {
     var is_linking_libcpp = false;
 
     var dep_it = compile.root_module.iterateDependencies(compile, true);
-    while (dep_it.next()) |it| {
-        for (it.module.link_objects.items) |link_object| {
+    while (dep_it.next()) |dep| {
+        for (dep.module.link_objects.items) |link_object| {
             switch (link_object) {
                 .system_lib => |lib| if (mem.eql(u8, lib.name, name)) return true,
                 else => continue,
             }
         }
-        is_linking_libc = is_linking_libc or it.module.link_libc;
-        is_linking_libcpp = is_linking_libcpp or it.module.link_libcpp == true;
+        is_linking_libc = is_linking_libc or dep.module.link_libc;
+        is_linking_libcpp = is_linking_libcpp or dep.module.link_libcpp == true;
     }
 
     if (compile.rootModuleTarget().is_libc_lib_name(name)) {
