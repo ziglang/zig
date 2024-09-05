@@ -1221,12 +1221,12 @@ const LinuxThreadImpl = struct {
                     \\  ba 1b
                     \\  restore
                     \\ 2:
-                    \\  mov 73, %%g1 # SYS_munmap
+                    \\  mov 73, %%g1 // SYS_munmap
                     \\  mov %[ptr], %%o0
                     \\  mov %[len], %%o1
                     \\  t 0x3 # ST_FLUSH_WINDOWS
                     \\  t 0x10
-                    \\  mov 1, %%g1 # SYS_exit
+                    \\  mov 1, %%g1 // SYS_exit
                     \\  mov 0, %%o0
                     \\  t 0x10
                     :
@@ -1246,14 +1246,14 @@ const LinuxThreadImpl = struct {
                     \\  ba 1b
                     \\  restore
                     \\ 2:
-                    \\  mov 73, %%g1 # SYS_munmap
+                    \\  mov 73, %%g1 // SYS_munmap
                     \\  mov %[ptr], %%o0
                     \\  mov %[len], %%o1
                     \\  # Flush register window contents to prevent background
                     \\  # memory access before unmapping the stack.
                     \\  flushw
                     \\  t 0x6d
-                    \\  mov 1, %%g1 # SYS_exit
+                    \\  mov 1, %%g1 // SYS_exit
                     \\  mov 0, %%o0
                     \\  t 0x6d
                     :
