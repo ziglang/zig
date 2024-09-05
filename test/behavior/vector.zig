@@ -743,23 +743,6 @@ test "vector shift operators" {
         }
     };
 
-    switch (builtin.target.cpu.arch) {
-        .aarch64_be,
-        .armeb,
-        .thumb,
-        .thumbeb,
-        .mips,
-        .mips64,
-        .mips64el,
-        .sparc64,
-        => {
-            // LLVM miscompiles on this architecture
-            // https://github.com/ziglang/zig/issues/4951
-            return error.SkipZigTest;
-        },
-        else => {},
-    }
-
     try S.doTheTest();
     try comptime S.doTheTest();
 }
