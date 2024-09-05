@@ -222,7 +222,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 if (!checkRef(data.un_op, zcu)) return false;
             },
 
-            .br => {
+            .br, .switch_dispatch => {
                 if (!checkRef(data.br.operand, zcu)) return false;
             },
 
@@ -380,12 +380,16 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 )) return false;
             },
 
-            .switch_br => {
+            .switch_br, .loop_switch_br => {
                 const switch_br = air.unwrapSwitch(inst);
                 if (!checkRef(switch_br.operand, zcu)) return false;
                 var it = switch_br.iterateCases();
                 while (it.next()) |case| {
                     for (case.items) |item| if (!checkRef(item, zcu)) return false;
+                    for (case.ranges) |range| {
+                        if (!checkRef(range[0], zcu)) return false;
+                        if (!checkRef(range[1], zcu)) return false;
+                    }
                     if (!checkBody(air, case.body, zcu)) return false;
                 }
                 if (!checkBody(air, it.elseBody(), zcu)) return false;
@@ -416,6 +420,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .dbg_stmt,
             .err_return_trace,
             .save_err_return_trace_index,
+            .repeat,
             => {},
         }
     }
