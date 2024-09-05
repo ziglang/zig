@@ -67,7 +67,8 @@ _init:
 	stg	%r1,0(%r15)
 	larl	%r12,_GLOBAL_OFFSET_TABLE_
 #if PREINIT_FUNCTION_WEAK
-	larl	%r1,PREINIT_FUNCTION@GOTENT
+	/* zig patch: GOTENT -> GOT. revert with llvm 20. */
+	larl	%r1,PREINIT_FUNCTION@GOT
 	lg	%r1,0(%r1)
 	ltgr	%r1,%r1
 	je	1f
